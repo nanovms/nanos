@@ -223,7 +223,6 @@ closure_function(1, 3, void, attach_storage,
     } else {
         rootfs_init(0, offset, r, w, length);
     }
-    closure_finish();
 }
 
 void kernel_runtime_init(kernel_heaps kh)

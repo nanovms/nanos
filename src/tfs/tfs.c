@@ -1239,11 +1239,19 @@ u64 fs_blocksize(filesystem fs)
 {
     return U64_FROM_BIT(fs->blocksize_order);
 }
+KLIB_EXPORT(fs_blocksize);
 
 u64 fs_totalblocks(filesystem fs)
 {
     return fs->storage->total;
 }
+KLIB_EXPORT(fs_totalblocks);
+
+u64 fs_usedblocks(filesystem fs)
+{
+    return fs->storage->allocated;
+}
+KLIB_EXPORT(fs_usedblocks);
 
 u64 fs_freeblocks(filesystem fs)
 {

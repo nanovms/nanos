@@ -2,6 +2,9 @@
 #include <http.h>
 #include <log.h>
 #include <lwip.h>
+#include <pagecache.h>
+#include <storage.h>
+#include <tfs/tfs.h>
 
 #define RADAR_HOSTNAME  "radar.relayered.net"
 #define RADAR_PORT      443
@@ -72,6 +75,11 @@ static struct telemetry {
     void (*buffer_write)(buffer b, const void *source, bytes length);
     int (*buffer_strstr)(buffer b, const char *str);
     void (*bprintf)(buffer b, const char *fmt, ...);
+    void (*print_uuid)(buffer b, u8 *uuid);
+    void (*storage_iterate)(volume_handler vh);
+    u64 (*fs_blocksize)(filesystem fs);
+    u64 (*fs_totalblocks)(filesystem fs);
+    u64 (*fs_usedblocks)(filesystem fs);
     timer (*register_timer)(clock_id id, timestamp val, boolean absolute,
             timestamp interval, timer_handler n);
     struct netif *(*netif_get_default)(void);
@@ -337,6 +345,22 @@ static void telemetry_boot(void)
     telemetry_retry();
 }
 
+closure_function(2, 3, void, telemetry_vh,
+                 buffer, b, int, count,
+                 u8 *, uuid, const char *, label, filesystem, fs)
+{
+    u64 block_size = kfunc(fs_blocksize)(fs);
+    buffer b = bound(b);
+    kfunc(bprintf)(b, "%s{\"volume\":\"", (bound(count) == 0) ? "" : ",");
+    if (label[0])
+        kfunc(bprintf)(b, "%s", label);
+    else
+        kfunc(print_uuid)(b, uuid);
+    kfunc(bprintf)(b, "\",\"used\":%ld,\"total\":%ld}", kfunc(fs_usedblocks)(fs) * block_size,
+            kfunc(fs_totalblocks)(fs) * block_size);
+    bound(count)++;
+}
+
 define_closure_function(0, 1, void, telemetry_stats,
                         u64, overruns)
 {
@@ -352,6 +376,8 @@ define_closure_function(0, 1, void, telemetry_stats,
         for (int i = 0; i < RADAR_STATS_BATCH_SIZE; i++)
             kfunc(bprintf)(b, "%ld%s", telemetry.stats_mem_used[i],
                     (i < RADAR_STATS_BATCH_SIZE - 1) ? "," : "");
+        buffer_write_cstring(b, "],\"diskUsage\":[");
+        kfunc(storage_iterate)(stack_closure(telemetry_vh, b, 0));
         buffer_write_cstring(b, "]}\r\n");
         if (!telemetry_send("/api/v1/machine-stats", b, 0)) {
             kfunc(rprintf)("%s: failed to send stats\n", __func__);
@@ -423,6 +449,11 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(telemetry.buffer_write = get_sym("buffer_write")) ||
             !(telemetry.buffer_strstr = get_sym("buffer_strstr")) ||
             !(telemetry.bprintf = get_sym("bprintf")) ||
+            !(telemetry.print_uuid = get_sym("print_uuid")) ||
+            !(telemetry.storage_iterate = get_sym("storage_iterate")) ||
+            !(telemetry.fs_blocksize = get_sym("fs_blocksize")) ||
+            !(telemetry.fs_totalblocks = get_sym("fs_totalblocks")) ||
+            !(telemetry.fs_usedblocks = get_sym("fs_usedblocks")) ||
             !(telemetry.register_timer = get_sym("kern_register_timer")) ||
             !(telemetry.netif_get_default = get_sym("netif_get_default")) ||
             !(telemetry.ipaddr_ntoa = get_sym("ipaddr_ntoa")) ||

@@ -239,3 +239,16 @@ tuple storage_get_mountpoint(tuple root)
     storage_unlock();
     return mount_dir;
 }
+
+void storage_iterate(volume_handler vh)
+{
+    apply(vh, 0, "root", storage.root_fs);
+    storage_lock();
+    list_foreach(&storage.volumes, e) {
+        volume v = struct_from_list(e, volume, l);
+        if (v->fs)
+            apply(vh, v->uuid, v->label, v->fs);
+    }
+    storage_unlock();
+}
+KLIB_EXPORT(storage_iterate);
