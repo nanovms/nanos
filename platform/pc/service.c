@@ -212,7 +212,7 @@ static void count_processors()
         init_debug("ACPI reports %d processors", present_processors);
     } else {
         present_processors = 1;
-        init_debug("ACPI MADT not found, default to 1 processor");
+        rprintf("warning: ACPI MADT not found, default to 1 processor");
     }
     /* config override */
     present_processors = MIN(present_processors, MAX_CPUS);
