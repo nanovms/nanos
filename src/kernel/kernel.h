@@ -232,6 +232,7 @@ void kernel_unlock();
 
 extern u64 idle_cpu_mask;
 extern u64 total_processors;
+extern u64 present_processors;
 extern void xsave(context f);
 
 void cpu_init(int cpu);

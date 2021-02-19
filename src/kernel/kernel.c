@@ -37,7 +37,7 @@ void *allocate_stack(heap h, u64 size)
 void deallocate_stack(heap h, u64 size, void *stack)
 {
     u64 padsize = pad(size, h->pagesize);
-    deallocate(h, stack, padsize);
+    deallocate(h, u64_from_pointer(stack) - padsize + STACK_ALIGNMENT, padsize);
 }
 
 kernel_context allocate_kernel_context(heap h)

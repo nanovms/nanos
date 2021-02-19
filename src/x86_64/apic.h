@@ -65,6 +65,7 @@ boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init);
 void apic_ipi(u32 target, u64 flags, u8 vector);
 void apic_per_cpu_init(void);
 void apic_enable(void);
+int cpuid_from_apicid(u8 aid);
 
 void ioapic_set_int(unsigned int gsi, u64 v);
 boolean ioapic_int_is_free(unsigned int gsi);
