@@ -102,6 +102,7 @@ static struct telemetry {
 
 static void telemetry_crash_report(void);
 static void telemetry_boot(void);
+static void telemetry_stats_send(void);
 
 static void telemetry_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
@@ -163,6 +164,9 @@ closure_function(2, 1, status, telemetry_recv,
             telemetry_boot();
         } else if (!telemetry.running) {
             /* The boot event has been sent: start collecting usage metrics. */
+            for (int count = 0; count < RADAR_STATS_BATCH_SIZE; count++)
+                telemetry.stats_mem_used[count] = heap_allocated(telemetry.phys);
+            telemetry_stats_send();
             telemetry.stats_count = 0;
             kfunc(register_timer)(CLOCK_ID_MONOTONIC, RADAR_STATS_INTERVAL, false,
                     RADAR_STATS_INTERVAL, (timer_handler)&telemetry.stats_func);
@@ -361,28 +365,33 @@ closure_function(2, 3, void, telemetry_vh,
     bound(count)++;
 }
 
+static void telemetry_stats_send(void)
+{
+    buffer b = kfunc(allocate_buffer)(telemetry.h, 128);
+    if (b == INVALID_ADDRESS) {
+        kfunc(rprintf)("%s: failed to allocate buffer\n", __func__);
+        return;
+    }
+    kfunc(bprintf)(b, "{\"bootID\":%ld,\"memUsed\":[", telemetry.boot_id);
+    for (int i = 0; i < RADAR_STATS_BATCH_SIZE; i++)
+        kfunc(bprintf)(b, "%ld%s", telemetry.stats_mem_used[i],
+                (i < RADAR_STATS_BATCH_SIZE - 1) ? "," : "");
+    buffer_write_cstring(b, "],\"diskUsage\":[");
+    kfunc(storage_iterate)(stack_closure(telemetry_vh, b, 0));
+    buffer_write_cstring(b, "]}\r\n");
+    if (!telemetry_send("/api/v1/machine-stats", b, 0)) {
+        kfunc(rprintf)("%s: failed to send stats\n", __func__);
+        deallocate_buffer(b);
+    }
+}
+
 define_closure_function(0, 1, void, telemetry_stats,
                         u64, overruns)
 {
     telemetry.stats_mem_used[telemetry.stats_count++] = heap_allocated(telemetry.phys);
     if (telemetry.stats_count == RADAR_STATS_BATCH_SIZE) {
         telemetry.stats_count = 0;
-        buffer b = kfunc(allocate_buffer)(telemetry.h, 128);
-        if (b == INVALID_ADDRESS) {
-            kfunc(rprintf)("%s: failed to allocate buffer\n", __func__);
-            return;
-        }
-        kfunc(bprintf)(b, "{\"bootID\":%ld,\"memUsed\":[", telemetry.boot_id);
-        for (int i = 0; i < RADAR_STATS_BATCH_SIZE; i++)
-            kfunc(bprintf)(b, "%ld%s", telemetry.stats_mem_used[i],
-                    (i < RADAR_STATS_BATCH_SIZE - 1) ? "," : "");
-        buffer_write_cstring(b, "],\"diskUsage\":[");
-        kfunc(storage_iterate)(stack_closure(telemetry_vh, b, 0));
-        buffer_write_cstring(b, "]}\r\n");
-        if (!telemetry_send("/api/v1/machine-stats", b, 0)) {
-            kfunc(rprintf)("%s: failed to send stats\n", __func__);
-            deallocate_buffer(b);
-        }
+        telemetry_stats_send();
     }
 }
 
