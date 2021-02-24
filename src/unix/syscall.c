@@ -2067,7 +2067,7 @@ sysreturn exit_group(int status)
     spin_unlock(&p->threads_lock);
 
     shutting_down = true;
-    wakeup_cpu_all();
+    wakeup_or_interrupt_cpu_all();
     vector_foreach(v, t)
         exit_thread(t);
     deallocate_vector(v);

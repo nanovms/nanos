@@ -117,12 +117,15 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     }
 }
 
-void wakeup_cpu_all()
+void wakeup_or_interrupt_cpu_all()
 {
     cpuinfo ci = current_cpu();
-    for (int i = 0; i < total_processors; i++)
-        if (i != ci->id)
+    for (int i = 0; i < total_processors; i++) {
+        if (i != ci->id) {
+            atomic_clear_bit(&idle_cpu_mask, i);
             send_ipi(i, wakeup_vector);
+        }
+    }
 }
 
 static void wakeup_cpu(u64 cpu)

@@ -245,7 +245,7 @@ extern vector shutdown_completions;
 typedef closure_type(shutdown_handler, void, int, merge);
 extern int shutdown_vector;
 extern boolean shutting_down;
-void wakeup_cpu_all();
+void wakeup_or_interrupt_cpu_all();
 
 typedef closure_type(halt_handler, void, int);
 extern halt_handler vm_halt;
