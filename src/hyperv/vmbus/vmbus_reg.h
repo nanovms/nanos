@@ -69,7 +69,7 @@ CTASSERT(sizeof(struct vmbus_message) == VMBUS_MSG_SIZE);
 
 struct vmbus_evtflags {
 	u64		evt_flags[VMBUS_EVTFLAGS_MAX];
-} __packed;
+};
 CTASSERT(sizeof(struct vmbus_evtflags) == VMBUS_EVTFLAGS_SIZE);
 
 /*
@@ -79,7 +79,7 @@ CTASSERT(sizeof(struct vmbus_evtflags) == VMBUS_EVTFLAGS_SIZE);
 struct vmbus_mon_trig {
 	uint32_t	mt_pending;
 	uint32_t	mt_armed;
-} __packed;
+};
 
 #define VMBUS_MONTRIGS_MAX	4
 #define VMBUS_MONTRIG_LEN	32
@@ -97,7 +97,7 @@ struct vmbus_mnf {
 	struct hyperv_mon_param
 			mnf_param[VMBUS_MONTRIGS_MAX][VMBUS_MONTRIG_LEN];
 	uint8_t		mnf_rsvd4[1984];
-} __packed;
+};
 CTASSERT(sizeof(struct vmbus_mnf) == PAGESIZE);
 
 /*

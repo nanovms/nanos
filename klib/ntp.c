@@ -64,6 +64,7 @@ static struct {
     u8 (*pbuf_free)(struct pbuf *p);
     err_t(*udp_sendto)(struct udp_pcb *pcb, struct pbuf *p,
             const ip_addr_t *dst_ip, u16_t dst_port);
+    void (*runtime_memcpy)(void *a, const void *b, unsigned long len);
     void (*runtime_memset)(u8 *a, u8 b, bytes len);
     timestamp (*now)(clock_id id);
     void (*clock_adjust)(timestamp now, s64 temp_cal, timestamp sync_complete, s64 cal);
@@ -133,7 +134,9 @@ static void ntp_query(const ip_addr_t *server_addr)
     ntp.runtime_memset(p->payload, 0, sizeof(*pkt));
     pkt->vn = 3;    /* NTP version number */
     pkt->mode = 3;  /* client mode */
-    timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), (void *)&pkt->transmit_ts);
+    struct ntp_ts t;
+    ntp.runtime_memcpy(&t, &pkt->transmit_ts, sizeof(t));
+    timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), &t);
     err_t err = ntp.udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
     if (err != ERR_OK) {
         ntp.rprintf("%s: failed to send request: %d\n", __func__, err);
@@ -156,11 +159,14 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
         goto done;
     }
     timestamp wallclock_now = ntp.now(CLOCK_ID_REALTIME);
-    timestamp origin = ntptime_to_timestamp((void *)&pkt->originate_ts);
+    struct ntp_ts t1, t2;
+    ntp.runtime_memcpy(&t1, &pkt->originate_ts, sizeof(t1));
+    timestamp origin = ntptime_to_timestamp(&t1);
     /* round trip delay */
-    timestamp rtd = wallclock_now - origin -
-            ntptime_diff((void *)&pkt->transmit_ts, (void *)&pkt->receive_ts);
-    s64 offset = ntptime_to_timestamp((void *)&pkt->transmit_ts) - wallclock_now + rtd / 2;
+    ntp.runtime_memcpy(&t1, &pkt->transmit_ts, sizeof(t1));
+    ntp.runtime_memcpy(&t2, &pkt->receive_ts, sizeof(t2));
+    timestamp rtd = wallclock_now - origin - ntptime_diff(&t1, &t2);
+    s64 offset = ntptime_to_timestamp(&t1) - wallclock_now + rtd / 2;
     u128 offset_calibr = ((u128)ABS(offset)) << CLOCK_CALIBR_BITS;
     s64 temp_cal, cal;
     timestamp raw = ntp.now(CLOCK_ID_MONOTONIC_RAW);
@@ -264,6 +270,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(ntp.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
             !(ntp.pbuf_alloc = get_sym("pbuf_alloc")) || !(ntp.pbuf_free = get_sym("pbuf_free")) ||
             !(ntp.udp_sendto = get_sym("udp_sendto")) ||
+            !(ntp.runtime_memcpy = get_sym("runtime_memcpy")) ||
             !(ntp.runtime_memset = get_sym("runtime_memset")) ||
             !(ntp.now = get_sym("now")) || !(ntp.clock_adjust = get_sym("clock_adjust"))) {
         ntp.rprintf("NTP: kernel symbols not found\n");
