@@ -2066,8 +2066,10 @@ sysreturn exit_group(int status)
     threads_to_vector(current->p, v);
     spin_unlock(&p->threads_lock);
 
+    shutting_down = true;
+    wakeup_cpu_all();
     vector_foreach(v, t)
-            exit_thread(t);
+        exit_thread(t);
     deallocate_vector(v);
     kernel_shutdown(status);
 }
@@ -2328,6 +2330,8 @@ static boolean debugsyscalls;
 
 void syscall_debug(context f)
 {
+    if (shutting_down)
+        goto out;
     u64 call = f[FRAME_VECTOR];
     thread t = pointer_from_u64(f[FRAME_THREAD]);
     u64 arg0 = f[SYSCALL_FRAME_ARG0]; /* aliases retval on arm; cache arg */
