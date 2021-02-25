@@ -223,7 +223,7 @@ void irq_handler(void)
     int_debug("%s: enter\n", __func__);
 
     /* re-enqueue interrupted user thread */
-    if (ci->state == cpu_user) {
+    if (ci->state == cpu_user && !shutting_down) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
         schedule_frame(f);
     }
