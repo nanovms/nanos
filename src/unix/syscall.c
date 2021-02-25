@@ -2058,19 +2058,11 @@ void exit(int code)
 
 sysreturn exit_group(int status)
 {
-    thread t;
-    process p = current->p;
-
-    vector v = allocate_vector(heap_general(get_kernel_heaps()), 8);
-    spin_lock(&p->threads_lock);
-    threads_to_vector(current->p, v);
-    spin_unlock(&p->threads_lock);
-
+    /* Set shutting_down to prevent user threads from being scheduled
+     * and then try to interrupt the other cpus back into runloop
+     * so they will idle while running kernel_shutdown */
     shutting_down = true;
     wakeup_or_interrupt_cpu_all();
-    vector_foreach(v, t)
-        exit_thread(t);
-    deallocate_vector(v);
     kernel_shutdown(status);
 }
 
