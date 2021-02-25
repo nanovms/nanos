@@ -136,10 +136,11 @@ static inline void virt_shutdown(u64 code)
 {
     if (root_fs) {
         tuple root = filesystem_getroot(root_fs);
-        if (root && table_find(root, sym(psci)))
-            psci_shutdown();
+        if (root && !table_find(root, sym(psci)))
+            angel_shutdown(code);
+
     }
-    angel_shutdown(code);
+    psci_shutdown();
 }
 
 void vm_exit(u8 code)

@@ -9,7 +9,7 @@
 #define rtc_debug(x, ...)
 #endif
 
-#define rtc_reg(offset) *(volatile u32 *)(dev_base_pointer(RTC) + offset)
+#define rtc_reg(offset) (*(volatile u32 *)pointer_from_u64(mmio_base_addr(RTC) + offset))
 #define RTCDR           rtc_reg(0x000) /* data */
 #define RTCMR           rtc_reg(0x004) /* match */
 #define RTCLR           rtc_reg(0x008) /* load */

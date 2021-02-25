@@ -44,7 +44,7 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
     _queue_assert(pc.head - pc.tail < size);
     next = pc.head + 1;
     if (multi) {
-        if (!__sync_bool_compare_and_swap(&q->prod_head, pc.head, next))
+        if (!compare_and_swap_32((u32*)&q->prod_head, pc.head, next))
             goto retry;
     } else {
         q->prod_head = next;
@@ -78,7 +78,7 @@ static inline void * _dequeue_common(queue q, boolean multi)
     _queue_assert(cc.tail - cc.head <= size);
     next = cc.head + 1;
     if (multi) {
-        if (!__sync_bool_compare_and_swap(&q->cons_head, cc.head, next))
+        if (!compare_and_swap_32((u32*)&q->cons_head, cc.head, next))
             goto retry;
     } else {
         q->cons_head = next;

@@ -63,12 +63,11 @@ typedef struct pci_driver {
 struct pci_bar {
     u64 addr;
     u64 size;
+    u64 vaddr;         // mapped address (for PCI_BAR_MEMORY)
+    u64 vlen;          // size of mapped memory (for PCI_BAR_MEMORY)
     u8 type;           // PCI_BAR_IOPORT, PCI_BAR_MEMORY
     u8 flags;          // PCI_BAR_F_*
-    u8 padding[2];
-    volatile u8 *vaddr;// mapped address (for PCI_BAR_MEMORY)
-    bytes vlen;// size of mapped memory (for PCI_BAR_MEMORY)
-} __attribute__((packed));
+};
 
 struct pci_dev {
     int bus;
@@ -171,9 +170,9 @@ void pci_teardown_msix(pci_dev dev, int msi_slot);
 void pci_disable_msix(pci_dev dev);
 void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name);
 
-static inline u32 *pci_msix_table(pci_dev dev)
+static inline u64 pci_msix_table_addr(pci_dev dev)
 {
-    return (u32 *)dev->msix_bar.vaddr;
+    return dev->msix_bar.vaddr;
 }
 
 void pci_setup_fixed_irq(pci_dev dev, int v, thunk h, const char *name);

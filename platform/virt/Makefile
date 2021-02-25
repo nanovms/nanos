@@ -124,7 +124,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8.1-a+nofp -ffixed-x18 -fno-pic
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8-a+nofp -mcpu=cortex-a72 -ffixed-x18 -fno-pic
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
@@ -308,8 +308,7 @@ QEMU_FLAGS+=	-semihosting
 #QEMU_FLAGS+=	-d in_asm,cpu -D $(ROOTDIR)/asm.out
 #QEMU_FLAGS+=	-d int -D int
 #QEMU_FLAGS+=	-s -S
-#QEMU_FLAGS+=   -d trace:pci_cfg_write,trace:pci_cfg_read,trace:msix_write_config,trace:virtio_blk_req_complete,trace:virtio_blk_rw_complete,trace:virtio_blk_handle_read,trace:virtio_blk_handle_write,trace:virtio_blk_submit_multireq,trace:virtio_blk_handle_write,trace:virtio_blk_handle_read,trace:virtio_blk_submit_multireq,trace:virtio_queue_notify,trace:virtio_notify,trace:virtio_set_status,trace:virtio_notify_irqfd,guest_errors,trace:virtio_blk_data_plane_start,trace:virtio_input_queue_full -D $(ROOTDIR)/trace.out
-# kvm stuff... trace:kvm_irqchip_commit_routes,trace:kvm_irqchip_add_msi_route,trace:kvm_irqchip_update_msi_route,trace:kvm_irqchip_release_virq,trace:kvm_set_ioeventfd_mmio,trace:kvm_set_ioeventfd_pio,trace:kvm_set_user_memory,trace:kvm_clear_dirty_log,trace:kvm_resample_fd_notify,trace:kvm_run_exit,trace:kvm_arm_fixup_msi_route,trace:kvm_ioctl,trace:kvm_vm_ioctl,trace:kvm_vcpu_ioctl,trace:kvm_device_ioctl
+#QEMU_FLAGS+=   -d int,trace:pci_cfg_write,trace:pci_cfg_read,trace:msix_write_config,trace:virtio_blk_req_complete,trace:virtio_blk_rw_complete,trace:virtio_blk_handle_read,trace:virtio_blk_handle_write,trace:virtio_blk_submit_multireq,trace:virtio_blk_handle_write,trace:virtio_blk_handle_read,trace:virtio_blk_submit_multireq,trace:virtio_queue_notify,trace:virtio_notify,trace:virtio_set_status,trace:virtio_notify_irqfd,guest_errors,trace:virtio_blk_data_plane_start,trace:virtio_input_queue_full,trace:kvm_irqchip_commit_routes,trace:kvm_irqchip_add_msi_route,trace:kvm_irqchip_update_msi_route,trace:kvm_irqchip_release_virq,trace:kvm_set_ioeventfd_mmio,trace:kvm_set_ioeventfd_pio,trace:kvm_set_user_memory,trace:kvm_clear_dirty_log,trace:kvm_resample_fd_notify,trace:kvm_run_exit,trace:kvm_arm_fixup_msi_route,trace:kvm_ioctl,trace:kvm_vm_ioctl,trace:kvm_vcpu_ioctl,trace:kvm_device_ioctl,trace:gic_acknowledge_irq,trace:gic_cpu_read,trace:gic_cpu_write,trace:gic_disable_irq,trace:gic_dist_read,trace:gic_dist_write,trace:gic_enable_irq,trace:gic_hyp_read,trace:gic_hyp_write,trace:gic_lr_entry,trace:gic_set_irq -D $(ROOTDIR)/trace.out
 
 #QEMU_FLAGS+=	-monitor telnet:127.0.0.1:9999,server,nowait
 

@@ -205,7 +205,14 @@ static inline __attribute__((always_inline)) void atomic_clear_bit(u64 *target, 
 
 static inline __attribute__((always_inline)) word fetch_and_add(word *target, word num)
 {
+    asm volatile("prfm pstl1strm, %0" :: "Q" (*target));
     return __sync_fetch_and_add(target, num);
+}
+
+static inline __attribute__((always_inline)) u8 compare_and_swap_32(u32 *p, u32 old, u32 new)
+{
+    asm volatile("prfm pstl1strm, %0" :: "Q" (*p));
+    return __sync_bool_compare_and_swap(p, old, new);
 }
 
 static inline __attribute__((always_inline)) void kern_pause(void)

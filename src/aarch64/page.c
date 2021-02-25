@@ -692,16 +692,12 @@ void page_init_mmu(range init_pt, u64 vtarget)
     page_init_debug("SCTLR_EL1: ");
     u64 sctlr = read_psr(SCTLR_EL1);
     page_init_debug_u64(sctlr);
-    page_init_debug("\nEnabling MMU...\n");
-    sctlr &= ~(SCTLR_EL1_EE |
-               SCTLR_EL1_E0E |
-               SCTLR_EL1_WXN |
-               SCTLR_EL1_I |
-               SCTLR_EL1_SA0 |
-               SCTLR_EL1_SA |
-               SCTLR_EL1_C |
-               SCTLR_EL1_A);
-    sctlr |= SCTLR_EL1_M;
+    page_init_debug("\nEnabling MMU and caches...\n");
+    sctlr = (SCTLR_EL1_I |
+             SCTLR_EL1_SA0 |
+             SCTLR_EL1_SA |
+             SCTLR_EL1_C |
+             SCTLR_EL1_M);
     asm volatile ("dsb sy;"
                   "tlbi vmalle1is;"
                   "msr SCTLR_EL1, %0;"

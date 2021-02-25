@@ -10,13 +10,13 @@
 #define pci_plat_debug(...) do { } while(0)
 #endif
 
-#define PIO_DATA (dev_base_pointer(PCIE_PIO))
-#define pio_in8(port) (*(u8*)(PIO_DATA + port))
-#define pio_in16(port) (*(u16*)(PIO_DATA + port))
-#define pio_in32(port) (*(u32*)(PIO_DATA + port))
-#define pio_out8(port, source) (*(u8*)(PIO_DATA + port) = (source))
-#define pio_out16(port, source) (*(u16*)(PIO_DATA + port) = (source))
-#define pio_out32(port, source) (*(u32*)(PIO_DATA + port) = (source))
+#define PIO_DATA (mmio_base_addr(PCIE_PIO))
+#define pio_in8(port) mmio_read_8(PIO_DATA + port)
+#define pio_in16(port) mmio_read_16(PIO_DATA + port)
+#define pio_in32(port) mmio_read_32(PIO_DATA + port)
+#define pio_out8(port, source) mmio_write_8(PIO_DATA + port, source)
+#define pio_out16(port, source) mmio_write_16(PIO_DATA + port, source)
+#define pio_out32(port, source) mmio_write_32(PIO_DATA + port, source)
 
 /* stub ... really shouldn't be hardwired into console.c */
 void vga_pci_register(kernel_heaps kh, console_attach a)
@@ -27,19 +27,19 @@ void vga_pci_register(kernel_heaps kh, console_attach a)
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     u32 data = -1;
-    void *base = dev_base_pointer(PCIE_ECAM)
+    u64 base = mmio_base_addr(PCIE_ECAM)
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
     pci_plat_debug("%s:  dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx: ", __func__,
               dev, dev->bus, reg, bytes, base);
     switch (bytes) {
     case 1:
-        data = *(u8*)base;
+        data = mmio_read_8(base);
         break;
     case 2:
-        data = *(u16*)base;
+        data = mmio_read_16(base);
         break;
     case 4:
-        data = *(u32*)base;
+        data = mmio_read_32(base);
         break;
     }
     pci_plat_debug("0x%x\n", data);
@@ -48,45 +48,45 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
-    void *base = dev_base_pointer(PCIE_ECAM)
+    u64 base = mmio_base_addr(PCIE_ECAM)
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
     pci_plat_debug("%s: dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx= 0x%x\n",
                    __func__, dev, dev->bus, reg, bytes, base, source);
     switch (bytes) {
     case 1:
-        *(u8*)base = source;
+        mmio_write_8(base, source);
         break;
     case 2:
-        *(u16*)base = source;
+        mmio_write_16(base, source);
         break;
     case 4:
-        *(u32*)base = source;
+        mmio_write_32(base, source);
         break;
     }
 }
 
-#define MK_PCI_BAR_READ(N, SIZE)                                        \
-    u##SIZE pci_bar_read_##N(struct pci_bar *b, u64 offset)             \
+#define MK_PCI_BAR_READ(BYTES, BITS)                                    \
+    u##BITS pci_bar_read_##BYTES(struct pci_bar *b, u64 offset)         \
     {                                                                   \
-        pci_plat_debug("%s:  bar %p, %s + offset 0x%lx: ", __func__, b, \
-                       b->type == PCI_BAR_MEMORY ? "memory, vaddr" : "ioport, port addr", \
-                       (b->type == PCI_BAR_MEMORY ? u64_from_pointer(b->vaddr) : b->addr) + offset); \
-        u##SIZE rv = b->type == PCI_BAR_MEMORY ? *(u##SIZE *) (b->vaddr + offset) : \
-            pio_in##SIZE(b->addr + offset);                             \
+        pci_plat_debug("%s:  bar %p, %s addr + offset 0x%lx: ", __func__, b, \
+                       b->type == PCI_BAR_MEMORY ? "memory" : "ioport", \
+                       b->addr + offset);                               \
+        u##BITS rv = b->type == PCI_BAR_MEMORY ? mmio_read_##BITS(b->addr + offset) : \
+            pio_in##BITS(b->addr + offset);                             \
         pci_plat_debug("0x%x\n", rv);                                   \
         return rv;                                                      \
     }
 
-#define MK_PCI_BAR_WRITE(N, SIZE)                                       \
-    void pci_bar_write_##N(struct pci_bar *b, u64 offset, u##SIZE val)  \
+#define MK_PCI_BAR_WRITE(BYTES, BITS)                                   \
+    void pci_bar_write_##BYTES(struct pci_bar *b, u64 offset, u##BITS val) \
     {                                                                   \
-        pci_plat_debug("%s: bar %p, %s + offset 0x%lx= 0x%x\n", __func__, b, \
-                       b->type == PCI_BAR_MEMORY ? "memory, vaddr" : "ioport, port addr", \
-                       (b->type == PCI_BAR_MEMORY ? u64_from_pointer(b->vaddr) : b->addr) + offset, val); \
+        pci_plat_debug("%s: bar %p, %s addr + offset 0x%lx= 0x%x\n", __func__, b, \
+                       b->type == PCI_BAR_MEMORY ? "memory" : "ioport", \
+                       b->addr + offset, val);                          \
         if (b->type == PCI_BAR_MEMORY)                                  \
-            *(u##SIZE *)(b->vaddr + offset) = val;                      \
+            mmio_write_##BITS(b->addr + offset, val);                   \
         else                                                            \
-            pio_out##SIZE(b->addr + offset, val);                       \
+            pio_out##BITS(b->addr + offset, val);                       \
     }
 
 MK_PCI_BAR_READ(1, 8)

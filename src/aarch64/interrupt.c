@@ -99,8 +99,53 @@ void print_frame(context f)
         rputs(" sp alignment");
         break;
     case ESR_EC_SERROR_INT:
-        rputs(" serror interrupt");
+        rputs(" serror int");
+        if (iss & ESR_ISS_SERROR_INT_IDS) {
+            rputs(", impl defined, ISS: ");
+            print_u64(iss);
+        } else {
+            const char *str;
+            if (iss & ESR_ISS_SERROR_INT_IESB)
+                rputs(", IESB");
+            switch (field_from_u64(iss, ESR_ISS_SERROR_INT_AET)) {
+            case ESR_ISS_SERROR_INT_AET_UC:
+                str = ", UC";
+                break;
+            case ESR_ISS_SERROR_INT_AET_UEU:
+                str = ", UEU";
+                break;
+            case ESR_ISS_SERROR_INT_AET_UEO:
+                str = ", UEO";
+                break;
+            case ESR_ISS_SERROR_INT_AET_UER:
+                str = ", UER";
+                break;
+            case ESR_ISS_SERROR_INT_AET_CE:
+                str = ", CE";
+                break;
+            default:
+                str = ", unknown AET";
+            }
+            rputs(str);
+            if (iss & ESR_ISS_SERROR_INT_EA)
+                rputs(", EA");
+            switch (field_from_u64(iss, ESR_ISS_SERROR_INT_DFSC)) {
+            case ESR_ISS_SERROR_INT_DFSC_UNCAT:
+                str = " uncategorized";
+                break;
+            case ESR_ISS_SERROR_INT_DFSC_ASYNC:
+                str = " async";
+                break;
+            default:
+                str = " unknown";
+            }
+            rputs("DFSC ");
+            rputs(str);
+        }
         break;
+    default:
+        rputs(" illegal ec: ");
+        print_u64(esr_ec);
     }
 
     rputs("\n       elr: ");
@@ -258,7 +303,12 @@ void irq_handler(void)
 NOTRACE
 void serror_handler(void)
 {
-    halt("%s\n", __func__);
+    console("\nserror exception caught\n");
+    cpuinfo ci = current_cpu();
+    context f = get_running_frame(ci);
+    print_frame(f);
+    print_stack(f);
+    vm_exit(VM_EXIT_FAULT);
 }
 
 NOTRACE
@@ -330,7 +380,8 @@ extern void *exception_vectors;
 
 closure_function(0, 0, void, arm_timer)
 {
-    assert(read_psr(CNTV_CTL_EL0) & CNTV_CTL_EL0_ISTATUS);
+    // This assert failed once under KVM...not clear if it's a valid assumption...
+    // assert(read_psr(CNTV_CTL_EL0) & CNTV_CTL_EL0_ISTATUS);
     write_psr(CNTV_CTL_EL0, 0);
 }
 

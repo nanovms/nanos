@@ -55,6 +55,10 @@
 // entry from kernel loader
 .globl _start
 _start:
+        // allow debug and serror interrupts, disable irq and firq
+        mov     x0, #0xc
+        msr     daif, x0
+
         // no trap on simd       
         mrs     x0, cpacr_el1
         orr     x0, x0, (CPACR_EL1_FPEN_NO_TRAP << CPACR_EL1_FPEN_SHIFT)
@@ -101,7 +105,6 @@ entry_invalid_el1:
 // universal frame return
 .globl frame_return
 frame_return:
-        msr     daifset, #2	// disable irqs (necessary?)
         str     x0, [x18]       // set running_frame
         mov     x1, #0x0        // clear frame full condition
         str     x1, [x0, #(FRAME_FULL * 8)]
