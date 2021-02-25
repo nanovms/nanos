@@ -2058,17 +2058,11 @@ void exit(int code)
 
 sysreturn exit_group(int status)
 {
-    thread t;
-    process p = current->p;
-
-    vector v = allocate_vector(heap_general(get_kernel_heaps()), 8);
-    spin_lock(&p->threads_lock);
-    threads_to_vector(current->p, v);
-    spin_unlock(&p->threads_lock);
-
-    vector_foreach(v, t)
-            exit_thread(t);
-    deallocate_vector(v);
+    /* Set shutting_down to prevent user threads from being scheduled
+     * and then try to interrupt the other cpus back into runloop
+     * so they will idle while running kernel_shutdown */
+    shutting_down = true;
+    wakeup_or_interrupt_cpu_all();
     kernel_shutdown(status);
 }
 
@@ -2328,6 +2322,8 @@ static boolean debugsyscalls;
 
 void syscall_debug(context f)
 {
+    if (shutting_down)
+        goto out;
     u64 call = f[FRAME_VECTOR];
     thread t = pointer_from_u64(f[FRAME_THREAD]);
     u64 arg0 = f[SYSCALL_FRAME_ARG0]; /* aliases retval on arm; cache arg */

@@ -215,7 +215,7 @@ void common_handler()
               f, f[FRAME_RIP], f[FRAME_CR2]);
 
     /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
-    if (ci->state == cpu_user && i >= INTERRUPT_VECTOR_START) {
+    if (ci->state == cpu_user && i >= INTERRUPT_VECTOR_START && !shutting_down) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
         schedule_frame(f);
     }
