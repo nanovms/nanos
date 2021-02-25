@@ -400,7 +400,7 @@ closure_function(1, 0, void, intr_handler,
     pvscsi_process_cmp_ring(dev);
 }
 
-static void *pvscsi_ring_alloc(heap h, int num_pages, u64 *ppn_list)
+static void *pvscsi_ring_alloc(heap h, int num_pages, void *ppn_list)
 {
     // allocate ring memory
     void *ring = allocate_zero(h, num_pages * PAGESIZE);
@@ -413,8 +413,10 @@ static void *pvscsi_ring_alloc(heap h, int num_pages, u64 *ppn_list)
 
     // fill physical page numbers list
     u64 ppn = phys >> PAGELOG;
-    for (int i = 0; i < num_pages; i++)
-        ppn_list[i] = ppn + i;
+    for (int i = 0; i < num_pages; i++, ppn++) {
+        // possibly unaligned
+        runtime_memcpy(((u64*)ppn_list) + i, &ppn, sizeof(ppn));
+    }
 
     return ring;
 }

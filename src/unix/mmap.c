@@ -882,7 +882,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
 
     u64 vmap_mmap_type;
     u32 allowed_flags;
-    fdesc desc;
+    fdesc desc = 0;
     if (flags & MAP_ANONYMOUS) {
         vmap_mmap_type = VMAP_MMAP_TYPE_ANONYMOUS;
         allowed_flags = anon_perms(p);

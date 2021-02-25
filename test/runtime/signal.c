@@ -502,11 +502,6 @@ static inline unsigned long get_fault_address(ucontext_t *context)
     return context->uc_mcontext.gregs[REG_CR2];
 }
 
-static inline unsigned long get_pc(ucontext_t *context)
-{
-    return context->uc_mcontext.gregs[REG_RIP];
-}
-
 static inline void set_pc(ucontext_t *context, unsigned long pc)
 {
     context->uc_mcontext.gregs[REG_RIP] = pc;
@@ -517,11 +512,6 @@ static inline void set_pc(ucontext_t *context, unsigned long pc)
 static inline unsigned long get_fault_address(ucontext_t *context)
 {
     return context->uc_mcontext.fault_address;
-}
-
-static inline unsigned long get_pc(ucontext_t *context)
-{
-    return context->uc_mcontext.pc;
 }
 
 static inline void set_pc(ucontext_t *context, unsigned long pc)
