@@ -84,13 +84,29 @@ void lapic_set_tsc_deadline_mode(u32 v)
     write_barrier();
 }
 
-closure_function(0, 1, void, lapic_timer,
-                 timestamp, interval)
+static void lapic_set_timer(timestamp interval)
 {
     /* interval * apic_timer_cal_sec / second */
     u32 cnt = (((u128)interval) * apic_timer_cal_sec) >> 32;
     apic_clear(APIC_LVT_TMR, APIC_LVT_INTMASK);
     apic_write(APIC_TMRINITCNT, cnt);
+}
+
+closure_function(0, 1, void, lapic_timer,
+                 timestamp, interval)
+{
+    current_cpu()->m.lapic_timer_expiry = now(CLOCK_ID_MONOTONIC_RAW) + interval;
+    lapic_set_timer(interval);
+}
+
+closure_function(0, 0, void, lapic_timer_int)
+{
+    cpuinfo ci = current_cpu();
+    timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
+    if (here < ci->m.lapic_timer_expiry) {
+        apic_debug("timer fired %T seconds too early\n", ci->m.lapic_timer_expiry - here);
+        lapic_set_timer(ci->m.lapic_timer_expiry - here);
+    }
 }
 
 closure_function(1, 0, void, lapic_timer_percpu_init,
@@ -105,7 +121,7 @@ boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init)
     assert(apic_if);
     *ct = closure(apic_heap, lapic_timer);
     int v = allocate_interrupt();
-    register_interrupt(v, ignore, "lapic timer");
+    register_interrupt(v, closure(apic_heap, lapic_timer_int), "lapic timer");
     *per_cpu_init = closure(apic_heap, lapic_timer_percpu_init, v);
     apply(*per_cpu_init);
     calibrate_lapic_timer();

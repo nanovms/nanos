@@ -195,6 +195,10 @@ struct cpuinfo_machine {
 
     /* Stack for interrupts */
     void *int_stack;
+
+    /* Monotonic clock timestamp when the lapic timer is supposed to fire; used to re-arm the timer
+     * when it fires too early (based on what the monotonic clock source says). */
+    timestamp lapic_timer_expiry;
 };
 
 typedef struct cpuinfo *cpuinfo;
