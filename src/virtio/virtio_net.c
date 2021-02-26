@@ -227,7 +227,13 @@ static void post_receive(vnet vn)
 
     vqmsg m = allocate_vqmsg(vn->rxq);
     assert(m != INVALID_ADDRESS);
-    vqmsg_push(vn->rxq, m, physical_from_virtual(x+1), vn->rxbuflen, true);
+    u64 phys = physical_from_virtual(x + 1);
+    if (vtdev_is_modern(vn->dev) || (vn->dev->features & VIRTIO_F_ANY_LAYOUT)) {
+        vqmsg_push(vn->rxq, m, phys, vn->rxbuflen, true);
+    } else {
+        vqmsg_push(vn->rxq, m, phys, vn->net_header_len, true);
+        vqmsg_push(vn->rxq, m, phys + vn->net_header_len, vn->rxbuflen - vn->net_header_len, true);
+    }
     vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
 }
 
@@ -312,7 +318,7 @@ closure_function(2, 1, boolean, vtpci_net_probe,
     if (!vtpci_probe(d, VIRTIO_ID_NETWORK))
         return false;
     vtpci dev = attach_vtpci(bound(general), bound(page_allocator), d,
-        VIRTIO_NET_F_MAC);
+        VIRTIO_NET_F_MAC | VIRTIO_F_ANY_LAYOUT);
     virtio_net_attach(&dev->virtio_dev);
     return true;
 }

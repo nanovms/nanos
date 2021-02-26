@@ -33,6 +33,9 @@ typedef closure_type(vqfinish, void, u64);
  */
 #define VIRTIO_F_NOTIFY_ON_EMPTY U64_FROM_BIT(24)
 
+/* Arbitrary descriptor layouts. */
+#define VIRTIO_F_ANY_LAYOUT     U64_FROM_BIT(27)
+
 /* Support for indirect buffer descriptors. */
 #define VIRTIO_F_RING_INDIRECT_DESC	U64_FROM_BIT(28)
 
@@ -75,6 +78,11 @@ typedef struct vtdev {
 u32 vtdev_cfg_read_4(vtdev dev, u64 offset);
 void vtdev_cfg_read_mem(vtdev dev, void *dest, bytes len);
 void vtdev_set_status(vtdev dev, u8 status);
+
+static inline boolean vtdev_is_modern(vtdev dev)
+{
+    return (dev->features & VIRTIO_F_VERSION_1) != 0;
+}
 
 static inline void virtio_attach(heap h, backed_heap page_allocator,
                                  enum vtio_transport transport, vtdev d)
