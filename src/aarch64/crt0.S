@@ -56,7 +56,7 @@
 .globl _start
 _start:
         // allow debug and serror interrupts, disable irq and firq
-        mov     x0, #0xc
+        mov     x0, #0xc0
         msr     daif, x0
 
         // no trap on simd       

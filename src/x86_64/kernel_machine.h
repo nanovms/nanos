@@ -126,25 +126,29 @@ void install_gdt64_and_tss(u64 cpu);
 static inline u32 mmio_read_32(u64 addr)
 {
     u32 val;
-    asm volatile("movl %1, %0" : "=r"(val) : "m"(*(volatile u32 *)addr));
+    asm volatile("movl %1, %0" : "=r"(val) :
+                 "m"(*(volatile u32 *)pointer_from_u64(addr)));
     return val;
 }
 
 static inline u64 mmio_read_64(u64 addr)
 {
     u64 val;
-    asm volatile("movq %1, %0" : "=r"(val) : "m"(*(volatile u64 *)addr));
+    asm volatile("movq %1, %0" : "=r"(val) :
+                 "m"(*(volatile u64 *)pointer_from_u64(addr)));
     return val;
 }
 
 static inline void mmio_write_32(u64 addr, u32 val)
 {
-    asm volatile("movl %0, %1" :: "r"(val), "m"(*(volatile u32 *)addr));
+    asm volatile("movl %0, %1" :: "r"(val),
+                 "m"(*(volatile u64 *)pointer_from_u64(addr)));
 }
 
 static inline void mmio_write_64(u64 addr, u64 val)
 {
-    asm volatile("movq %0, %1" :: "r"(val), "m"(*(volatile u64 *)addr));
+    asm volatile("movq %0, %1" :: "r"(val),
+                 "m"(*(volatile u64 *)pointer_from_u64(addr)));
 }
 
 /* special register access */

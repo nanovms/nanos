@@ -43,13 +43,17 @@ void gic_clear_pending_int(int irq)
     {                                                                   \
         int w = 32 / GICD_INTS_PER_ ## type ## _REG;                    \
         int r = irq / GICD_INTS_PER_ ## type ## _REG;                   \
-        u32 i = (!gicc_v3_iface || r) ? GICD_ ## type ## R(r) : GICR_ ## type ## R; \
+        u32 i;                                                          \
+        if (!gicc_v3_iface || r)                                        \
+            i = mmio_read_32(GICD_ ## type ## R(r));                    \
+        else                                                            \
+            i = mmio_read_32(GICR_ ## type ## R);                       \
         int s = (irq % GICD_INTS_PER_ ## type ## _REG) * w;             \
         u32 n = (i & ~(MASK32(w) << s)) | (v << s);                     \
         if (!gicc_v3_iface || r)                                        \
-            mmio_write_32(GICD_ ## type ## R(r), n);                     \
+            mmio_write_32(GICD_ ## type ## R(r), n);                    \
         else                                                            \
-            mmio_write_32(GICR_ ## type ## R, n);                        \
+            mmio_write_32(GICR_ ## type ## R, n);                       \
         gic_debug("irq %d, v %d, reg was 0x%x, now 0x%x\n", irq, v, i, n); \
     }
 
@@ -132,7 +136,6 @@ void gic_eoi(int irq)
 {
     gic_debug("irq %d\n", irq);
     gicc_write(EOIR1, irq);
-    gic_clear_pending_int(irq);
 }
 
 static void init_gicc(void)

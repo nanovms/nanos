@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <pci.h>
-#include <gic.h> // XXX tmp
 
 //#define PCI_DEBUG
 #ifdef PCI_DEBUG

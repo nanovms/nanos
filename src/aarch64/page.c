@@ -689,15 +689,21 @@ void page_init_mmu(range init_pt, u64 vtarget)
     page_init_debug("map temporary identity mapping\n");
     map(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
 
-    page_init_debug("SCTLR_EL1: ");
-    u64 sctlr = read_psr(SCTLR_EL1);
-    page_init_debug_u64(sctlr);
     page_init_debug("\nEnabling MMU and caches...\n");
-    sctlr = (SCTLR_EL1_I |
-             SCTLR_EL1_SA0 |
-             SCTLR_EL1_SA |
-             SCTLR_EL1_C |
-             SCTLR_EL1_M);
+
+    /* Not clear if we should enforce the stack alignment checks...probably,
+       after debugging user faults when running with them under KVM.
+
+       SCTLR_EL1_SA0 |
+       SCTLR_EL1_SA |
+    */
+
+    u64 sctlr = (SCTLR_EL1_SPAN |
+                 SCTLR_EL1_nTWE |
+                 SCTLR_EL1_nTWI |
+                 SCTLR_EL1_I |
+                 SCTLR_EL1_C |
+                 SCTLR_EL1_M);
     asm volatile ("dsb sy;"
                   "tlbi vmalle1is;"
                   "msr SCTLR_EL1, %0;"
