@@ -13,6 +13,8 @@
 #define PCICAP_ID       0x0
 #define PCICAP_NEXTPTR  0x1
 
+#define PCIR_INTERRUPT_LINE 0x3C
+
 /* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02

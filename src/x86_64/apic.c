@@ -175,6 +175,22 @@ boolean ioapic_int_is_free(unsigned int gsi)
     return !!(ioapic_read(IOAPIC_REG_REDIR + 2 * gsi) & (1 << IOAPIC_INT_MASK));
 }
 
+void ioapic_register_int(unsigned int gsi, thunk h, const char *name)
+{
+    boolean alloc_vector = ioapic_int_is_free(gsi);
+    u64 v;
+    if (alloc_vector) {
+        v = allocate_shirq();
+        assert(v != INVALID_PHYSICAL);
+    } else {
+        v = ioapic_read(IOAPIC_REG_REDIR + 2 * gsi) & ~(1 << IOAPIC_INT_MASK);
+    }
+    apic_debug("routing GSI %d to vector %d, handler %F (%s)\n", gsi, v, h, name);
+    register_shirq(v, h, name);
+    if (alloc_vector)
+        ioapic_set_int(gsi, v);
+}
+
 int cpuid_from_apicid(u8 aid)
 {
     for (int i = 0; i < present_processors; i++) {

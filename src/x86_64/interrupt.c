@@ -15,6 +15,12 @@
 #define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
 #define MAX_INTERRUPT_VECTORS  256 /* as defined by architecture; we may have less */
 
+typedef struct inthandler {
+    struct list l;
+    thunk t;
+    const char *name;
+} *inthandler;
+
 static const char *interrupt_names[MAX_INTERRUPT_VECTORS] = {
     "Divide by 0",
     "Reserved",
@@ -288,6 +294,7 @@ void common_handler()
 }
 
 static id_heap interrupt_vector_heap;
+static heap int_general;
 
 u64 allocate_interrupt(void)
 {
@@ -323,6 +330,40 @@ void unregister_interrupt(int vector)
     interrupt_names[vector] = 0;
 }
 
+closure_function(1, 0, void, shirq_handler,
+                 list, handlers)
+{
+    list_foreach(bound(handlers), l) {
+        inthandler h = struct_from_list(l, inthandler, l);
+        int_debug("   invoking handler %s (%F)\n", h->name, h->t);
+        apply(h->t);
+    }
+}
+
+u64 allocate_shirq(void)
+{
+    u64 v = allocate_interrupt();
+    list handlers = allocate(int_general, sizeof(struct list));
+    assert(handlers != INVALID_ADDRESS);
+    list_init(handlers);
+    thunk t = closure(int_general, shirq_handler, handlers);
+    assert(t != INVALID_ADDRESS);
+    register_interrupt(v, t, "shirq");
+    return v;
+}
+
+void register_shirq(int v, thunk t, const char *name)
+{
+    if (!handlers[v])
+        halt("%s: vector %d not allocated\n", __func__, v);
+    list shirq_handlers = closure_member(shirq_handler, handlers[v], handlers);
+    inthandler handler = allocate(int_general, sizeof(struct inthandler));
+    assert(handler != INVALID_ADDRESS);
+    handler->t = t;
+    handler->name = name;
+    list_push_back(shirq_handlers, &handler->l);
+}
+
 #define TSS_SIZE                0x68
 
 extern volatile void * TSS;
@@ -352,6 +393,8 @@ void init_interrupts(kernel_heaps kh)
     interrupt_vector_heap = create_id_heap(general, general, INTERRUPT_VECTOR_START,
                                            n_interrupt_vectors - INTERRUPT_VECTOR_START, 1, false);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
+
+    int_general = general;
 
     /* Separate stack to keep exceptions in interrupt handlers from
        trashing the interrupt stack */
