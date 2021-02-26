@@ -350,6 +350,10 @@ boolean ata_probe(struct ata *dev)
     dev->irq_enabled = false;
 
     // identify
+    if (ata_wait(dev, 0) < 0) {
+        msg_err("drive busy\n");
+        return false;
+    }
     ata_out8(dev, ATA_COMMAND, ATA_ATA_IDENTIFY);
     if (ata_wait(dev, ATA_S_READY | ATA_S_DRQ) < 0) {
         ata_debug("%s: IDENTIFY timeout\n", __func__);
