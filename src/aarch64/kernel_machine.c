@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include <gic.h>
 
 //#define TAG_HEAP_DEBUG
 #ifdef TAG_HEAP_DEBUG
@@ -67,4 +68,9 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
 void clone_frame_pstate(context dest, context src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * FRAME_N_PSTATE);
+}
+
+void interrupt_exit(void)
+{
+    gic_eoi(gic_dispatch_int());
 }

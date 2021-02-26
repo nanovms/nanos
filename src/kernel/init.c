@@ -356,6 +356,11 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
             vector_foreach(shutdown_completions, h)
                 enqueue_irqsafe(runqueue,
                                 closure(locked, do_shutdown_handler, h, status, m));
+            cpuinfo ci = current_cpu();
+            if (ci->state == cpu_interrupt) {
+                interrupt_exit();
+                get_running_frame(ci)[FRAME_FULL] = false;
+            }
         }
         runloop();
     }

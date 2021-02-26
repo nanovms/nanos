@@ -7,6 +7,11 @@ void send_ipi(u64 cpu, u8 vector)
     apic_ipi(cpu, 0, vector);
 }
 
+void interrupt_exit(void)
+{
+    lapic_eoi();
+}
+
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
     heap h = heap_general(kh);
