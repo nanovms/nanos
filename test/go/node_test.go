@@ -9,12 +9,12 @@ import (
 	"path"
 	"testing"
 
-	"github.com/nanovms/ops/config"
+	"github.com/nanovms/ops/types"
 	api "github.com/nanovms/ops/lepton"
 )
 
-func unWarpConfig(file string) *config.Config {
-	var c config.Config
+func unWarpConfig(file string) *types.Config {
+	var c types.Config
 	if file != "" {
 		data, err := ioutil.ReadFile(file)
 		if err != nil {

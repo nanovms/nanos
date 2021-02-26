@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanovms/ops/config"
 	"github.com/nanovms/ops/qemu"
+	"github.com/nanovms/ops/types"
 )
 
-func defaultConfig() config.Config {
-	var c config.Config
+func defaultConfig() types.Config {
+	var c types.Config
 
 	c.Boot = "../../output/test/go/boot.img"
 	c.Kernel = "../../output/test/go/kernel.img"
@@ -47,7 +47,7 @@ func sortString(s string) string {
 
 const START_WAIT_TIMEOUT = time.Second * 30
 
-func runAndWaitForString(rconfig *config.RunConfig, timeout time.Duration, text string, t *testing.T) qemu.Hypervisor {
+func runAndWaitForString(rconfig *types.RunConfig, timeout time.Duration, text string, t *testing.T) qemu.Hypervisor {
 	hypervisor := qemu.HypervisorInstance()
 	if hypervisor == nil {
 		t.Fatal("No hypervisor found on $PATH")
