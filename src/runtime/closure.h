@@ -65,6 +65,7 @@ struct _closure_common {
 
 #define bound(v) (__self->v)
 #define closure_self() (&(__self->__apply))
+#define closure_member(name, var, member)   ((struct _closure_##name *)(var))->member
 
 /* XXX type safety, possibly tag */
 static inline void deallocate_closure(void *p)

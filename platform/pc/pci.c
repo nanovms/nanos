@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include <apic.h>
 #include <pci.h>
 #include <io.h>
 
@@ -148,7 +149,12 @@ void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
 
 void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
 {
-    halt("%s: need platform pci irq mappings\n", __func__);
+    pci_plat_debug("%s: idx %d, h %F, name %s\n", __func__, idx, h, name);
+
+    /* For maximum portability, the GSI should be retrieved via the ACPI _PRT method. */
+    unsigned int gsi = pci_cfgread(dev, PCIR_INTERRUPT_LINE, 1);
+
+    ioapic_register_int(gsi, h, name);
 }
 
 void pci_platform_init_bar(pci_dev dev)

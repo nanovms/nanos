@@ -75,11 +75,9 @@ closure_function(1, 1, boolean, piix4acpi_probe,
     if (dev == INVALID_ADDRESS)
         return false;
     dev->d = d;
-    u64 irq = allocate_interrupt();
-    assert(irq != INVALID_PHYSICAL);
-    acpi_debug("%s: irq %d", __func__, irq);
-    register_interrupt(irq, init_closure(&dev->irq_handler, piix4acpi_irq, dev), "PIIX4 ACPI");
-    ioapic_set_int(ACPI_SCI_IRQ, irq);
+    acpi_debug("%s", __func__);
+    ioapic_register_int(ACPI_SCI_IRQ, init_closure(&dev->irq_handler, piix4acpi_irq, dev),
+                        "PIIX4 ACPI");
     pci_bar_init(dev->d, &dev->pm_bar, PIIX4ACPI_PM_BAR, 0, 0);
     pci_cfgwrite(dev->d, PIIX4ACPI_PMREGMISC_R, 1, PIIX4ACPI_PMIOSE);
     pci_bar_write_2(&dev->pm_bar, ACPI_PM1_EN, ACPI_PM1_PWRBTN_EN);

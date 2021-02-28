@@ -211,6 +211,9 @@ boolean reserve_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t, const char *name);
 void unregister_interrupt(int vector);
 
+u64 allocate_shirq(void);
+void register_shirq(int vector, thunk t, const char *name);
+
 void kern_lock(void);
 boolean kern_try_lock(void);
 void kern_unlock(void);

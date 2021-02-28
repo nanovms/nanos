@@ -178,7 +178,7 @@ void vtpci_set_status(vtpci dev, u8 status)
 
 boolean vtpci_is_modern(vtpci dev)
 {
-    return (dev->virtio_dev.features & VIRTIO_F_VERSION_1) != 0;
+    return vtdev_is_modern(&dev->virtio_dev);
 }
 
 static void vtpci_modern_write_8(struct pci_bar *b, bytes offset, u64 val)
