@@ -171,6 +171,8 @@ extern queue bhqueue;
 extern queue runqueue;
 extern timerheap runloop_timers;
 
+backed_heap mem_debug_backed_heap(heap m, backed_heap bh, u64 padsize);
+
 backed_heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize,
                               boolean locking);
 void physically_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);

@@ -2,6 +2,7 @@ RUNTIME=$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
 	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/heap/mem_debug.c \
 	$(SRCDIR)/runtime/heap/freelist.c \
 	$(SRCDIR)/runtime/heap/id.c \
 	$(SRCDIR)/runtime/heap/mcache.c \
