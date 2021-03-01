@@ -4,12 +4,29 @@
 #include <runtime.h>
 #endif
 
-#define DBG_HDR_SIG 0xfabfacedbaddecaf
-#define PAD_MIN 64
-
+/* This debug wrapper allocates extra space (defined at heap creation) around
+ * both sides of the requested allocation and sets a header at the beginning of
+ * the extra space with the allocation size and allocation return address. The
+ * deallocation size is checked against the saved allocation size to make sure
+ * they match. The size of the padding on either side is specified at heap
+ * creation, where 0 uses default values. This can be used if the heap is
+ * expected to return aligned values. The backed_heap version of this wrapper
+ * defaults to PAGESIZE padding.
+ * Additional checks can be performed if defined:
+ * MEMDBG_OVERRUN sets a pattern in the padding around the requested allocation
+ * that is checked on deallocation to see if it has been modified, indicating
+ * an overrun (0xcafefade).
+ * MEMDBG_INIT sets a pattern on the requested allocation to try to trigger a
+ * fault is something uses the memory without initialization (0xfeedbeef).
+ * MEMDBG_FREE sets a pattern on deallocation for the entire allocation to try
+ * to catch any use after free (0xdeaddead).
+ */
 #define MEMDBG_OVERRUN
 #define MEMDBG_INIT
 #define MEMDBG_FREE
+
+#define DBG_HDR_SIG 0xfabfacedbaddecaf
+#define PAD_MIN 64
 
 typedef struct memdbg_heap {
     struct heap h;
@@ -27,15 +44,16 @@ typedef struct memdbg_backed_heap {
 
 typedef struct memdbg_hdr {
     u64 sig;
-    u64 asize;
+    u64 allocsize;
     u64 padsize;
-    u64 caller_ip;
+    u64 alloc_addr;
 } *memdbg_hdr;
 
 u32 pat_init = 0xfeedbeef;
 u32 pat_freed = 0xdeaddead;
 u32 pat_redzone = 0xcafefade;
 
+#if defined(MEMDBG_OVERRUN) || defined(MEMDBG_INIT) || defined(MEMDBG_FREE)
 static void set_pattern(void *v, bytes sz, void *p, bytes psz)
 {
     u8 *bp = v;
@@ -51,6 +69,7 @@ static boolean check_pattern(void *v, bytes sz, void *p, bytes psz)
             return false;
     return true;
 }
+#endif
 
 static void get_debug_alloc_size(bytes b, bytes padsize, bytes *nb, bytes *padding)
 {
@@ -60,6 +79,7 @@ static void get_debug_alloc_size(bytes b, bytes padsize, bytes *nb, bytes *paddi
         *nb = pad(*nb, PAGESIZE);
 }
 
+/* These functions use volatile so the hdr address won't be optimized out. */
 static u64 alloc_check(volatile memdbg_hdr hdr, bytes b, bytes padding)
 {
     #ifdef MEMDBG_OVERRUN
@@ -67,7 +87,7 @@ static u64 alloc_check(volatile memdbg_hdr hdr, bytes b, bytes padding)
     set_pattern((u8 *)hdr + padding + b, padding, &pat_redzone, sizeof(pat_redzone));
     #endif
     hdr->sig = DBG_HDR_SIG;
-    hdr->asize = b;
+    hdr->allocsize = b;
     hdr->padsize = padding;
     u8 *buf = (u8 *)hdr + padding;
     #ifdef MEMDBG_INIT
@@ -79,7 +99,7 @@ static u64 alloc_check(volatile memdbg_hdr hdr, bytes b, bytes padding)
 static void dealloc_check(volatile memdbg_hdr hdr, u64 a, bytes b, bytes nb, bytes padding)
 {
     assert(hdr->sig == DBG_HDR_SIG);
-    assert(b == hdr->asize);
+    assert(b == hdr->allocsize);
     #ifdef MEMDBG_OVERRUN
     assert(check_pattern(hdr + 1, padding - sizeof(*hdr), &pat_redzone, sizeof(pat_redzone)));
     assert(check_pattern(pointer_from_u64(a + b), padding, &pat_redzone, sizeof(pat_redzone)));
@@ -98,6 +118,7 @@ static u64 mem_debug_alloc(heap h, bytes b)
     memdbg_hdr hdr = allocate(mdh->parent, nb);
     if (hdr == INVALID_ADDRESS)
         return INVALID_PHYSICAL;
+    hdr->alloc_addr = u64_from_pointer(__builtin_extract_return_addr(__builtin_return_address(0)));
     return alloc_check(hdr, b, padding);
 }
 
@@ -134,8 +155,8 @@ static void *mem_debug_backed_alloc_map(backed_heap h, bytes b, u64 *phys)
     memdbg_hdr hdr = alloc_map(mdh->parent, nb, &nphys);
     if (hdr == INVALID_ADDRESS)
         return INVALID_ADDRESS;
-    assert(alloc_check(hdr, b, padding) == (u64)((u8 *)hdr + padding));
-    hdr->caller_ip = u64_from_pointer(__builtin_return_address(1));
+    assert(alloc_check(hdr, b, padding) == u64_from_pointer(hdr) + padding);
+    hdr->alloc_addr = u64_from_pointer(__builtin_extract_return_addr(__builtin_return_address(0)));
     if (phys)
         *phys = nphys + padding;
     return (u8 *)hdr + padding;
