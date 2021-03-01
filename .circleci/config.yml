@@ -106,7 +106,7 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install gcc-aarch64-linux-gnu qemu-system-arm ent
+      - run: sudo apt-get install gcc-aarch64-linux-gnu qemu-system-arm ent xxd
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/arm64-target-root.tar.gz && sudo tar --exclude=dev/* -xzf arm64-target-root.tar.gz
       # runtime tests for now - can add go tests when aarch64 support is added to ops
       - run:
@@ -122,7 +122,7 @@ jobs:
     steps:
       - checkout
       - run: sudo apt-get update
-      - run: sudo apt-get install gcc-aarch64-linux-gnu qemu-system-arm ent
+      - run: sudo apt-get install gcc-aarch64-linux-gnu qemu-system-arm ent xxd
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/arm64-target-root.tar.gz && sudo tar --exclude=dev/* -xzf arm64-target-root.tar.gz
       # runtime tests for now - can add go tests when aarch64 support is added to ops
       - run:

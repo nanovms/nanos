@@ -83,6 +83,7 @@ OBJCOPY=	$(CROSS_COMPILE)objcopy
 OBJDUMP=	$(CROSS_COMPILE)objdump
 RM=		rm -f
 TOUCH=		touch
+XXD=		xxd
 
 # gcov
 GCOV=		gcov
