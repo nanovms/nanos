@@ -779,6 +779,14 @@ void mprotect_test(void)
     }
 
     __munmap(addr, 5 * PAGESIZE);
+
+    addr = (u8 *)round_down_page(mprotect_test);
+    if (mprotect(addr, PAGESIZE, PROT_WRITE) == 0) {
+        fprintf(stderr, "%s: could enable write access to program code\n", __func__);
+        exit(EXIT_FAILURE);
+    } else if (errno != EACCES) {
+        handle_err("mprotect(PROT_WRITE): unexpected error");
+    }
 }
 
 const unsigned char test_sha[2][32] = {
