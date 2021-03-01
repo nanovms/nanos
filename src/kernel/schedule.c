@@ -249,7 +249,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                     ci->last_timer_update = here + runloop_timer_max;
                 }
             }
-            page_invalidate_flush();
             run_thunk(t, cpu_user);
         }
     }
