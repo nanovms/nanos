@@ -183,6 +183,8 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                 queue_length(bhqueue), queue_length(runqueue), queue_length(ci->thread_queue),
                 idle_cpu_mask, ci->have_kernel_lock ? " locked" : "");
     ci->state = cpu_kernel;
+    /* Make sure TLB entries are appropriately flushed before doing any work */
+    page_invalidate_flush();
 
     /* bhqueue is for operations outside the realm of the kernel lock,
        e.g. storage I/O completions */
@@ -247,8 +249,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                     ci->last_timer_update = here + runloop_timer_max;
                 }
             }
-           /* Make sure TLB entries are appropriately flushed before
-             * returning to userspace */
             page_invalidate_flush();
             run_thunk(t, cpu_user);
         }

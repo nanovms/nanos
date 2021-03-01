@@ -198,17 +198,17 @@ static void write_pte(u64 target, physical to, u64 flags, boolean * invalidate)
 #endif
 	return;
     }
-    /* invalidate when changing any pte that was marked as present */
-    if (*pteptr & _PAGE_PRESENT) {
+    /* Unconditionally invalidate in case this cpu's TLB is not up-to-date. The
+     * TLB can be outdated in SMP situations where another cpu has marked the
+     * PTE as not present but this cpu hasn't processed the shootdown yet. */
+    *invalidate = true;
 #ifdef PTE_DEBUG
-        rputs("   invalidate, old ");
-        print_u64(*pteptr);
-        rputs(", new ");
-        print_u64(new);
-        rputs("\n");
+    rputs("   invalidate, old ");
+    print_u64(*pteptr);
+    rputs(", new ");
+    print_u64(new);
+    rputs("\n");
 #endif
-	*invalidate = true;
-    }
     *pteptr = new;
 #ifdef PTE_DEBUG
     rputs("\n");
