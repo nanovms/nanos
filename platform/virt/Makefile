@@ -124,7 +124,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8.1-a+nofp -ffixed-x18
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8.1-a+nofp -ffixed-x18 -fno-pic
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
