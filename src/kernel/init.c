@@ -200,29 +200,23 @@ closure_function(4, 1, void, mbr_read,
     closure_finish();
 }
 
-closure_function(1, 3, void, attach_storage,
-                 u64, fs_offset,
+closure_function(0, 3, void, attach_storage,
                  block_io, r, block_io, w, u64, length)
 {
     heap h = heap_locked(init_heaps);
-    u64 offset = bound(fs_offset);
-    if (offset == 0) {
-        /* Read partition table from disk */
-        u8 *mbr = allocate(h, SECTOR_SIZE);
-        if (mbr == INVALID_ADDRESS) {
-            msg_err("cannot allocate memory for MBR sector\n");
-            return;
-        }
-        status_handler sh = closure(h, mbr_read, mbr, r, w, length);
-        if (sh == INVALID_ADDRESS) {
-            msg_err("cannot allocate MBR read closure\n");
-            deallocate(h, mbr, SECTOR_SIZE);
-            return;
-        }
-        apply(r, mbr, irange(0, 1), sh);
-    } else {
-        rootfs_init(0, offset, r, w, length);
+    /* Read partition table from disk */
+    u8 *mbr = allocate(h, SECTOR_SIZE);
+    if (mbr == INVALID_ADDRESS) {
+        msg_err("cannot allocate memory for MBR sector\n");
+        return;
     }
+    status_handler sh = closure(h, mbr_read, mbr, r, w, length);
+    if (sh == INVALID_ADDRESS) {
+        msg_err("cannot allocate MBR read closure\n");
+        deallocate(h, mbr, SECTOR_SIZE);
+        return;
+    }
+    apply(r, mbr, irange(0, 1), sh);
 }
 
 void kernel_runtime_init(kernel_heaps kh)
@@ -275,13 +269,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);
 
-    storage_attach sa;
-#ifdef __aarch64__
-    /* XXX fixed offset kludge...need to add partition despite no boot fs */
-    sa = closure(misc, attach_storage, 0xc01000);
-#else
-    sa = closure(misc, attach_storage, 0);
-#endif
+    storage_attach sa = closure(misc, attach_storage);
 
     init_debug("detect_devices");
     detect_devices(kh, sa);

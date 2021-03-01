@@ -151,7 +151,7 @@ VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
 
 DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG)
 CLEANDIRS+=     $(foreach d,output/platform output src vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 OBJCOPYFLAGS	= -S -O binary
@@ -177,9 +177,13 @@ cmd_sed=	$(SED) -e 's/\#/%/' <$^ >$@
 msg_version=	VERSION	$@
 cmd_version=	$(MKDIR) $(dir $@); $(ECHO) "const char *gitversion = \"$(shell $(GIT) rev-parse HEAD)\";" >$@
 
+msg_xxd_r=	XXD_R	$@
+cmd_xxd_r=	$(XXD) -r $< $@
+
 include ../../rules.mk
 
 MKFS=		$(TOOLDIR)/mkfs
+BOOTIMG=	$(OBJDIR)/boot-stub.img
 KERNEL=		$(OBJDIR)/bin/kernel.img
 
 ifneq ($(ARCH),aarch64)
@@ -207,14 +211,14 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
 endif
 
-image: contgen mkfs kernel target
+image: contgen mkfs kernel target $(BOOTIMG)
 ifeq ($(IMAGE),)
 	@echo IMAGE variable not specified
 	@false
 endif
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -k $(KERNEL) $(IMAGE)
+	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(IMAGE)
 
 release: mkfs kernel
 	$(Q) $(RM) -r release
@@ -254,27 +258,12 @@ $(KERNEL): $(PROG-kernel.elf)
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
 
-#$(OBJDIR)/src/$(ARCH)/crt0.o: $(OBJDIR)/frame.inc
+$(BOOTIMG): mbr.hex
+	$(call cmd,xxd_r)
 
-#$(OBJDIR)/frame.inc: $(ARCHDIR)/frame.h
-#	$(call cmd,sed)
-
-#ifeq ($(UNAME_s),Darwin)
-#ELF_TARGET=     -target aarch64-littleelf
-#CFLAGS+=        $(ELF_TARGET)
-#VDSO_CFLAGS+=   $(ELF_TARGET)
-#VDSO_LDFLAGS+=  -undefined dynamic_lookup
-#LD=             aarch64-elf-ld
-#OBJDUMP=        aarch64-elf-objdump
-#REL_OS=		darwin
-#QEMU_ACCEL=	-accel $(ACCEL) -cpu host
-#ACCEL?=		hvf
-#else
-# XXX already defined?
 LD=             $(CROSS_COMPILE)ld
 REL_OS=		linux
 QEMU_ACCEL=	-enable-kvm -cpu host
-#endif
 
 ##############################################################################
 # run
