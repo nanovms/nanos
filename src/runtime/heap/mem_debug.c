@@ -27,6 +27,7 @@
 
 #define DBG_HDR_SIG 0xfabfacedbaddecaf
 #define PAD_MIN 64
+#define PAD_MIN_BACKED PAGESIZE
 
 typedef struct memdbg_heap {
     struct heap h;
@@ -192,7 +193,7 @@ backed_heap mem_debug_backed_heap(heap meta, backed_heap parent, u64 padsize)
     mbh->bh.h.dealloc = mem_debug_backed_dealloc;
     mbh->bh.alloc_map = mem_debug_backed_alloc_map;
     mbh->bh.dealloc_unmap = mem_debug_backed_dealloc_unmap;
-    mbh->padsize = MAX(padsize, PAD_MIN);
+    mbh->padsize = MAX(padsize, PAD_MIN_BACKED);
     return &mbh->bh;
 }
 #endif
