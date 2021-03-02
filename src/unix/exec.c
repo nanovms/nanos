@@ -146,8 +146,8 @@ closure_function(0, 1, void, load_interp_fail,
     halt("read interp failed %v\n", s);
 }
 
-closure_function(2, 4, void, exec_elf_map,
-                 process, p, kernel_heaps, kh,
+closure_function(3, 4, void, exec_elf_map,
+                 process, p, kernel_heaps, kh, u32, allowed_flags,
                  u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     kernel_heaps kh = bound(kh);
@@ -162,7 +162,8 @@ closure_function(2, 4, void, exec_elf_map,
     boolean is_bss = paddr == INVALID_PHYSICAL;
     exec_debug("%s: add to vmap: %R vmflags 0x%lx%s\n",
                __func__, r, vmflags, is_bss ? " bss" : "");
-    assert(allocate_vmap(bound(p)->vmaps, r, ivmap(vmflags, 0, 0, 0)) != INVALID_ADDRESS);
+    assert(allocate_vmap(bound(p)->vmaps, r, ivmap(vmflags, bound(allowed_flags), 0, 0)) !=
+            INVALID_ADDRESS);
     if (is_bss) {
         /* bss */
         paddr = allocate_u64((heap)heap_physical(kh), size);
@@ -184,7 +185,7 @@ closure_function(2, 1, status, load_interp_complete,
     exec_debug("interpreter load complete, reading elf\n");
     u64 where = allocate_u64((heap)t->p->virtual, HUGE_PAGESIZE);
     assert(where != INVALID_PHYSICAL);
-    void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh));
+    void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh, 0));
     exec_debug("starting process tid %d, start %p\n", t->tid, start);
     start_process(t, start);
     closure_finish();
@@ -248,7 +249,9 @@ process exec_elf(buffer ex, process kp)
 
     exec_debug("offset 0x%lx, range after adjustment: %R, span 0x%lx\n",
                load_offset, load_range, range_span(load_range));
-    void * entry = load_elf(ex, load_offset, stack_closure(exec_elf_map, proc, kh));
+    u32 allowed_flags = proc_is_exec_protected(proc) ? 0 :
+            (VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE | VMAP_FLAG_EXEC);
+    void * entry = load_elf(ex, load_offset, stack_closure(exec_elf_map, proc, kh, allowed_flags));
 
     u64 brk_offset = aslr ? get_aslr_offset(PROCESS_HEAP_ASLR_RANGE) : 0;
     u64 brk = pad(load_range.end, PAGESIZE) + brk_offset;
