@@ -9,8 +9,8 @@
  * the extra space with the allocation size and allocation return address. The
  * deallocation size is checked against the saved allocation size to make sure
  * they match. The size of the padding on either side is specified at heap
- * creation, where 0 uses default values. This can be used if the heap is
- * expected to return aligned values. The backed_heap version of this wrapper
+ * creation, where 0 uses the default value. Use a non-zero padding if the heap
+ * is expected to return aligned values. The backed_heap version of this wrapper
  * defaults to PAGESIZE padding.
  * Additional checks can be performed if defined:
  * MEMDBG_OVERRUN sets a pattern in the padding around the requested allocation
@@ -79,7 +79,7 @@ static void get_debug_alloc_size(bytes b, bytes padsize, bytes *nb, bytes *paddi
         *nb = pad(*nb, PAGESIZE);
 }
 
-/* These functions use volatile so the hdr address won't be optimized out. */
+/* These functions use volatile so the hdr address won't be optimized out when debugging. */
 static u64 alloc_check(volatile memdbg_hdr hdr, bytes b, bytes padding)
 {
     #ifdef MEMDBG_OVERRUN
