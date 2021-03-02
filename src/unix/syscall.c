@@ -1397,8 +1397,11 @@ static void fill_stat(int type, filesystem fs, tuple n, struct stat *s)
     s->st_ino = u64_from_pointer(n);
     if (type == FDESC_TYPE_REGULAR) {
         fsfile f = fsfile_from_node(fs, n);
-        if (f)
+        if (f) {
             s->st_size = fsfile_get_length(f);
+            s->st_blocks = fsfile_get_blocks(f);
+        }
+        s->st_blksize = PAGESIZE;   /* "preferred" block size for efficient filesystem I/O */
     }
     if (n) {
         struct timespec ts;

@@ -89,6 +89,18 @@ void basic_write_test()
         printf("basic write fail: string mismatch\n");
         exit(EXIT_FAILURE);
     }
+
+    struct stat s;
+    rv = fstat(fd, &s);
+    if (rv < 0) {
+        perror("stat");
+        goto out_fail;
+    }
+    if (s.st_blocks < 1) {
+        printf("invalid number of allocated blocks: %ld\n", s.st_blocks);
+        goto out_fail;
+    }
+
     close(fd);
     writetest_debug("basic write test passed\n");
     return;
