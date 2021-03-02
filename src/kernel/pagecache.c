@@ -584,9 +584,10 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
 
     /* issue write */
     bound(complete) = true;
+    status_handler completion = bound(completion);
     pagecache_debug("   calling fs_write, range %R, sg %p\n", r, write_sg);
     apply(pn->fs_write, write_sg, r, (status_handler)closure_self());
-    apply(bound(completion), STATUS_OK);
+    apply(completion, STATUS_OK);
 }
 
 closure_function(1, 3, void, pagecache_write_sg,
