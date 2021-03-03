@@ -57,6 +57,7 @@ void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim);
 
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64);
+u64 fsfile_get_blocks(fsfile f);    /* returns the number of allocated blocks */
 fsfile fsfile_from_node(filesystem fs, tuple n);
 fsfile file_lookup(filesystem fs, vector v);
 void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler s);

@@ -43,6 +43,15 @@ void fsfile_set_length(fsfile f, u64 length)
     pagecache_set_node_length(f->cache_node, length);
 }
 
+u64 fsfile_get_blocks(fsfile f)
+{
+    u64 blocks = 0;
+    rangemap_foreach(f->extentmap, n) {
+        blocks += range_span(n->r);
+    }
+    return blocks;
+}
+
 tuple fsfile_get_meta(fsfile f)
 {
     return f->md;
