@@ -58,15 +58,15 @@ u32 pat_redzone = 0xcafefade;
 static void set_pattern(void *v, bytes sz, void *p, bytes psz)
 {
     u8 *bp = v;
-    for (; sz > 0; sz -= psz, bp += psz)
-        runtime_memcpy(bp, p, MIN(psz, sz));
+    for (s64 ssz = sz; ssz > 0; ssz -= psz, bp += psz)
+        runtime_memcpy(bp, p, MIN(psz, ssz));
 }
 
 static boolean check_pattern(void *v, bytes sz, void *p, bytes psz)
 {
     u8 *bp = v;
-    for (; sz > 0; sz -= psz, bp += psz)
-        if (runtime_memcmp(bp, p, MIN(psz, sz)) != 0)
+    for (s64 ssz = sz; ssz > 0; ssz -= psz, bp += psz)
+        if (runtime_memcmp(bp, p, MIN(psz, ssz)) != 0)
             return false;
     return true;
 }
