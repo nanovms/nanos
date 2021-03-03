@@ -25,30 +25,30 @@
 #define MEMDBG_INIT
 #define MEMDBG_FREE
 
-#define DBG_HDR_SIG 0xfabfacedbaddecaf
+#define DBG_HDR_SIG 0xd00d00d00d00d00d
 #define PAD_MIN 64
 #define PAD_MIN_BACKED PAGESIZE
 
-typedef struct memdbg_heap {
+typedef struct mem_debug_heap {
     struct heap h;
     heap parent;
     u64 padsize;
-} *memdbg_heap;
+} *mem_debug_heap;
 
 #ifdef KERNEL
-typedef struct memdbg_backed_heap {
+typedef struct mem_debug_backed_heap {
     struct backed_heap bh;
     backed_heap parent;
     u64 padsize;
-} *memdbg_backed_heap;
+} *mem_debug_backed_heap;
 #endif
 
-typedef struct memdbg_hdr {
+typedef struct mem_debug_hdr {
     u64 sig;
     u64 allocsize;
     u64 padsize;
     u64 alloc_addr;
-} *memdbg_hdr;
+} *mem_debug_hdr;
 
 u32 pat_init = 0xfeedbeef;
 u32 pat_freed = 0xdeaddead;
@@ -81,7 +81,7 @@ static void get_debug_alloc_size(bytes b, bytes padsize, bytes *nb, bytes *paddi
 }
 
 /* These functions use volatile so the hdr address won't be optimized out when debugging. */
-static u64 alloc_check(volatile memdbg_hdr hdr, bytes b, bytes padding)
+static u64 alloc_check(volatile mem_debug_hdr hdr, bytes b, bytes padding)
 {
     #ifdef MEMDBG_OVERRUN
     set_pattern(hdr, padding, &pat_redzone, sizeof(pat_redzone));
@@ -97,7 +97,7 @@ static u64 alloc_check(volatile memdbg_hdr hdr, bytes b, bytes padding)
     return u64_from_pointer(buf);
 }
 
-static void dealloc_check(volatile memdbg_hdr hdr, u64 a, bytes b, bytes nb, bytes padding)
+static void dealloc_check(volatile mem_debug_hdr hdr, u64 a, bytes b, bytes nb, bytes padding)
 {
     assert(hdr->sig == DBG_HDR_SIG);
     assert(b == hdr->allocsize);
@@ -112,11 +112,11 @@ static void dealloc_check(volatile memdbg_hdr hdr, u64 a, bytes b, bytes nb, byt
 
 static u64 mem_debug_alloc(heap h, bytes b)
 {
-    memdbg_heap mdh = (memdbg_heap)h;
+    mem_debug_heap mdh = (mem_debug_heap)h;
     bytes padding, nb;
 
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
-    memdbg_hdr hdr = allocate(mdh->parent, nb);
+    mem_debug_hdr hdr = allocate(mdh->parent, nb);
     if (hdr == INVALID_ADDRESS)
         return INVALID_PHYSICAL;
     hdr->alloc_addr = u64_from_pointer(__builtin_extract_return_addr(__builtin_return_address(0)));
@@ -125,19 +125,19 @@ static u64 mem_debug_alloc(heap h, bytes b)
 
 static void mem_debug_dealloc(heap h, u64 a, bytes b)
 {
-    memdbg_heap mdh = (memdbg_heap)h;
+    mem_debug_heap mdh = (mem_debug_heap)h;
     bytes padding, nb;
 
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
-    memdbg_hdr hdr = (memdbg_hdr)pointer_from_u64(a - padding);
+    mem_debug_hdr hdr = (mem_debug_hdr)pointer_from_u64(a - padding);
     dealloc_check(hdr, a, b, nb, padding);
     deallocate(mdh->parent, u64_from_pointer(hdr), nb);
 }
 
-heap mem_debug_heap(heap meta, heap parent, u64 padsize)
+heap mem_debug(heap meta, heap parent, u64 padsize)
 {
-    build_assert(PAD_MIN > sizeof(memdbg_hdr));
-    memdbg_heap mdh = allocate(meta, sizeof(*mdh));
+    build_assert(PAD_MIN > sizeof(mem_debug_hdr));
+    mem_debug_heap mdh = allocate(meta, sizeof(*mdh));
     mdh->parent = parent;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
@@ -148,12 +148,12 @@ heap mem_debug_heap(heap meta, heap parent, u64 padsize)
 #ifdef KERNEL
 static void *mem_debug_backed_alloc_map(backed_heap h, bytes b, u64 *phys)
 {
-    memdbg_backed_heap mdh = (memdbg_backed_heap)h;
+    mem_debug_backed_heap mdh = (mem_debug_backed_heap)h;
     bytes padding, nb;
     u64 nphys;
 
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
-    memdbg_hdr hdr = alloc_map(mdh->parent, nb, &nphys);
+    mem_debug_hdr hdr = alloc_map(mdh->parent, nb, &nphys);
     if (hdr == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     assert(alloc_check(hdr, b, padding) == u64_from_pointer(hdr) + padding);
@@ -165,12 +165,12 @@ static void *mem_debug_backed_alloc_map(backed_heap h, bytes b, u64 *phys)
 
 static void mem_debug_backed_dealloc_unmap(backed_heap h, void *v, u64 p, bytes b)
 {
-    memdbg_backed_heap mdh = (memdbg_backed_heap)h;
+    mem_debug_backed_heap mdh = (mem_debug_backed_heap)h;
     bytes padding, nb;
     u64 a = u64_from_pointer(v);
 
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
-    memdbg_hdr hdr = (memdbg_hdr)pointer_from_u64(a - padding);
+    mem_debug_hdr hdr = (mem_debug_hdr)pointer_from_u64(a - padding);
     dealloc_check(hdr, a, b, nb, padding);
     dealloc_unmap(mdh->parent, hdr, 0, nb);
 }
@@ -185,9 +185,9 @@ static void mem_debug_backed_dealloc(heap h, u64 a, bytes b)
     mem_debug_backed_dealloc_unmap((backed_heap)h, pointer_from_u64(a), 0, b);
 }
 
-backed_heap mem_debug_backed_heap(heap meta, backed_heap parent, u64 padsize)
+backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize)
 {
-    memdbg_backed_heap mbh = allocate(meta, sizeof(*mbh));
+    mem_debug_backed_heap mbh = allocate(meta, sizeof(*mbh));
     mbh->parent = parent;
     mbh->bh.h.alloc = mem_debug_backed_alloc;
     mbh->bh.h.dealloc = mem_debug_backed_dealloc;

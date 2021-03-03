@@ -10,7 +10,7 @@ struct heap {
 };
 
 heap debug_heap(heap m, heap p);
-heap mem_debug_heap(heap m, heap p, u64 padsize);
+heap mem_debug(heap m, heap p, u64 padsize);
 
 static inline u64 heap_allocated(heap h)
 {
