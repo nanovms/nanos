@@ -241,7 +241,7 @@ status virtqueue_alloc(vtdev dev,
                        queue sched_queue)
 {
     u64 vq_alloc_size = sizeof(struct virtqueue) + size * sizeof(vqmsg);
-    virtqueue vq = allocate(dev->general, vq_alloc_size);
+    virtqueue vq = allocate_zero(dev->general, vq_alloc_size);
     vq->avail_offset = size * sizeof(struct vring_desc);
     vq->used_offset = pad(vq->avail_offset + sizeof(*vq->avail) + sizeof(vq->avail->ring[0]) * size, align);
     bytes alloc = vq->used_offset + pad(sizeof(*vq->used) + sizeof(vq->used->ring[0]) * size, align);

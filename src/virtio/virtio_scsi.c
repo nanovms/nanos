@@ -158,7 +158,7 @@ closure_function(4, 1, void, virtio_scsi_request_complete,
     apply(bound(c), s, r);
     backed_heap contiguous = s->v->virtio_dev.contiguous;
     dealloc_unmap(contiguous, r, bound(r_phys),
-                  pad(sizeof(*r) + r->alloc_len, contiguous->h.pagesize));
+                  sizeof(*r) + r->alloc_len);
     closure_finish();
 }
 
