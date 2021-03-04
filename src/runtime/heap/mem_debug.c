@@ -172,7 +172,7 @@ static void mem_debug_backed_dealloc_unmap(backed_heap h, void *v, u64 p, bytes 
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
     mem_debug_hdr hdr = (mem_debug_hdr)pointer_from_u64(a - padding);
     dealloc_check(hdr, a, b, nb, padding);
-    dealloc_unmap(mdh->parent, hdr, p - padding, nb);
+    dealloc_unmap(mdh->parent, hdr, p ? p - padding : 0, nb);
 }
 
 static u64 mem_debug_backed_alloc(heap h, bytes b)
