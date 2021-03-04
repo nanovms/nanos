@@ -462,6 +462,7 @@ void init_service(u64 rdi, u64 rsi)
 }
 
 extern boolean init_hpet(kernel_heaps kh);
+extern boolean init_tsc_timer(kernel_heaps kh);
 
 void detect_hypervisor(kernel_heaps kh)
 {
@@ -470,9 +471,12 @@ void detect_hypervisor(kernel_heaps kh)
         if (!xen_detect(kh)) {
             if (!hyperv_detect(kh)) {
                 init_debug("no hypervisor detected; assuming qemu full emulation");
-                if (!init_hpet(kh)) {
-                    halt("HPET initialization failed; no timer source\n");
-                }
+                if (init_tsc_timer(kh))
+                    init_debug("using calibrated TSC as timer source");
+                else if (init_hpet(kh))
+                    init_debug("using HPET as timer source");
+                else
+                    halt("timer initialization failed; no timer source");
             } else {
                 init_debug("hyper-v hypervisor detected");
             }

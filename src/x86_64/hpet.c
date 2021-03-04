@@ -197,7 +197,6 @@ boolean init_hpet(kernel_heaps kh) {
 
     u64 femtoperiod = field_from_u64(hpet->capid, HPET_CAPID_COUNTER_CLOCK_PERIOD);
     if ((femtoperiod > HPET_MAXIMUM_INCREMENT_PERIOD) || !femtoperiod) {
-        msg_err("failed to initialize HPET; invalid femtoperiod\n");
         return false;
     }
 
