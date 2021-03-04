@@ -83,17 +83,17 @@ static void get_debug_alloc_size(bytes b, bytes padsize, bytes *nb, bytes *paddi
 /* These functions use volatile so the hdr address won't be optimized out when debugging. */
 static u64 alloc_check(volatile mem_debug_hdr hdr, bytes b, bytes padding)
 {
-    #ifdef MEMDBG_OVERRUN
-    set_pattern(hdr, padding, &pat_redzone, sizeof(pat_redzone));
+#ifdef MEMDBG_OVERRUN
+    set_pattern(hdr + 1, padding - sizeof(*hdr), &pat_redzone, sizeof(pat_redzone));
     set_pattern((u8 *)hdr + padding + b, padding, &pat_redzone, sizeof(pat_redzone));
-    #endif
+#endif
     hdr->sig = DBG_HDR_SIG;
     hdr->allocsize = b;
     hdr->padsize = padding;
     u8 *buf = (u8 *)hdr + padding;
-    #ifdef MEMDBG_INIT
+#ifdef MEMDBG_INIT
     set_pattern(buf, b, &pat_init, sizeof(pat_init));
-    #endif
+#endif
     return u64_from_pointer(buf);
 }
 
@@ -101,13 +101,13 @@ static void dealloc_check(volatile mem_debug_hdr hdr, u64 a, bytes b, bytes nb, 
 {
     assert(hdr->sig == DBG_HDR_SIG);
     assert(b == hdr->allocsize);
-    #ifdef MEMDBG_OVERRUN
+#ifdef MEMDBG_OVERRUN
     assert(check_pattern(hdr + 1, padding - sizeof(*hdr), &pat_redzone, sizeof(pat_redzone)));
     assert(check_pattern(pointer_from_u64(a + b), padding, &pat_redzone, sizeof(pat_redzone)));
-    #endif
-    #ifdef MEMDBG_FREE
+#endif
+#ifdef MEMDBG_FREE
     set_pattern(hdr, nb, &pat_freed, sizeof(pat_freed));
-    #endif
+#endif
 }
 
 static u64 mem_debug_alloc(heap h, bytes b)
@@ -172,7 +172,7 @@ static void mem_debug_backed_dealloc_unmap(backed_heap h, void *v, u64 p, bytes 
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
     mem_debug_hdr hdr = (mem_debug_hdr)pointer_from_u64(a - padding);
     dealloc_check(hdr, a, b, nb, padding);
-    dealloc_unmap(mdh->parent, hdr, 0, nb);
+    dealloc_unmap(mdh->parent, hdr, p - padding, nb);
 }
 
 static u64 mem_debug_backed_alloc(heap h, bytes b)
