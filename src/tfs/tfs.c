@@ -174,10 +174,24 @@ static inline extent allocate_extent(heap h, range file_blocks, range storage_bl
     return e;
 }
 
+u64 filesystem_allocate_storage(filesystem fs, u64 nblocks)
+{
+    if (fs->w)
+        return allocate_u64((heap)fs->storage, nblocks);
+    return INVALID_PHYSICAL;
+}
+
 boolean filesystem_reserve_storage(filesystem fs, range blocks)
 {
     if (fs->w)
         return id_heap_set_area(fs->storage, blocks.start, range_span(blocks), true, true);
+    return true;
+}
+
+boolean filesystem_free_storage(filesystem fs, range blocks)
+{
+    if (fs->w)
+        return id_heap_set_area(fs->storage, blocks.start, range_span(blocks), true, false);
     return true;
 }
 
@@ -410,7 +424,7 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
 
     tfs_debug("create_extent: blocks %R, uninited %d, nblocks %ld\n", blocks, uninited, nblocks);
 
-    u64 start_block = allocate_u64((heap)fs->storage, nblocks);
+    u64 start_block = filesystem_allocate_storage(fs, nblocks);
     if (start_block == u64_from_pointer(INVALID_ADDRESS)) {
         /* In lieu of precise error handling up the stack, report here... */
         msg_err("out of storage allocating %ld blocks\n", nblocks);
@@ -430,7 +444,9 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
 
 static void destroy_extent(filesystem fs, extent ex)
 {
-    deallocate_u64((heap)fs->storage, ex->start_block, ex->allocated);
+    range q = irangel(ex->start_block, ex->allocated);
+    if (!filesystem_free_storage(fs, q))
+        msg_err("failed to mark extent at %R as free", q);
     deallocate(fs->h, ex, sizeof(*ex));
 }
 

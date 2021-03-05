@@ -59,7 +59,9 @@ boolean log_write_eav(log tl, tuple e, symbol a, value v);
 void log_flush(log tl, status_handler completion);
 void log_destroy(log tl);
 void flush(filesystem fs, status_handler);
+u64 filesystem_allocate_storage(filesystem fs, u64 nblocks);
 boolean filesystem_reserve_storage(filesystem fs, range storage_blocks);
+boolean filesystem_free_storage(filesystem fs, range storage_blocks);
 void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op);
     
 void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh);

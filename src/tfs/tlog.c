@@ -292,7 +292,7 @@ static log_ext log_ext_new(log tl)
 {
     filesystem fs = tl->fs;
     u64 ext_size = TFS_LOG_DEFAULT_EXTENSION_SIZE >> fs->blocksize_order;
-    u64 ext_offset = allocate_u64((heap)fs->storage, ext_size);
+    u64 ext_offset = filesystem_allocate_storage(fs, ext_size);
     if (ext_offset == INVALID_PHYSICAL)
         return INVALID_ADDRESS;
     range sectors = irangel(ext_offset, ext_size);
@@ -345,7 +345,7 @@ log_ext log_extend(log tl, u64 size, status_handler sh) {
 
     /* allocate new log and write with end of log */
     size >>= tl->fs->blocksize_order;
-    u64 offset = allocate_u64((heap)tl->fs->storage, size);
+    u64 offset = filesystem_allocate_storage(tl->fs, size);
     if (offset == INVALID_PHYSICAL) {
         // TODO should initiate flush of current extension before failing
         return INVALID_ADDRESS;
@@ -466,7 +466,8 @@ closure_function(2, 1, void, log_switch_complete,
         }
     rangemap_foreach(to_be_destroyed->extensions, ext) {
         tlog_debug("  deallocating extension at %R\n", __func__, ext->r);
-        deallocate_u64((heap)fs->storage, ext->r.start, range_span(ext->r));
+        if (!filesystem_free_storage(fs, ext->r))
+            msg_err("failed to mark to_be_destroyed log at %R as free", ext->r);
     }
 
     run_flush_completions(old_tl, s);
@@ -529,8 +530,8 @@ void log_flush(log tl, status_handler completion)
         deallocate_closure(switch_complete);
   fail_log_ext_close:
         close_log_extension(new_ext);
-        deallocate_u64((heap)fs->storage, new_ext->sectors.start,
-                       range_span(new_ext->sectors));
+        if (!filesystem_free_storage(fs, new_ext->sectors))
+            msg_err("failed to mark new_ext at %R as free", new_ext->sectors);
   fail_log_destroy:
         log_destroy(new_tl);
     }
