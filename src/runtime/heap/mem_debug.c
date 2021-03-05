@@ -139,6 +139,7 @@ heap mem_debug(heap meta, heap parent, u64 padsize)
     build_assert(PAD_MIN > sizeof(mem_debug_hdr));
     mem_debug_heap mdh = allocate(meta, sizeof(*mdh));
     mdh->parent = parent;
+    mdh->h.pagesize = parent->pagesize;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
     mdh->padsize = MAX(padsize, PAD_MIN);
@@ -189,6 +190,7 @@ backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize)
 {
     mem_debug_backed_heap mbh = allocate(meta, sizeof(*mbh));
     mbh->parent = parent;
+    mbh->bh.h.pagesize = parent->h.pagesize;
     mbh->bh.h.alloc = mem_debug_backed_alloc;
     mbh->bh.h.dealloc = mem_debug_backed_dealloc;
     mbh->bh.alloc_map = mem_debug_backed_alloc_map;
