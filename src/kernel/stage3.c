@@ -8,6 +8,7 @@
 #include <storage.h>
 #include <symtab.h>
 #include <virtio/virtio.h>
+#include <serial.h>
 
 closure_function(2, 0, void, program_start,
                  buffer, elf, process, kp)
@@ -180,6 +181,15 @@ closure_function(3, 0, void, startup,
         rprintf("Debug http server started on port 9090\n");
     }
 #endif
+
+    /* enable buffered, interrupt-driven console output, unless explicitly
+       disabled or one of the trace options are specified */
+    if (!table_find(root, sym(polled_serial)) &&
+        !table_find(root, sym(trace)) &&
+        !table_find(root, sym(debugsyscalls)) &&
+        !table_find(root, sym(futex_trace)))
+        serial_enable_buffered_output(heap_locked(kh));
+
     value p = table_find(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));

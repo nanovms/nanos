@@ -151,6 +151,8 @@ void vm_exit(u8 code)
     }
 #endif
 
+    serial_flush_and_disable_buffered_output();
+
     /* TODO MP: coordinate via IPIs */
     tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
     if (root && table_find(root, sym(reboot_on_exit))) {

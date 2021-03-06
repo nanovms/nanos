@@ -23,3 +23,13 @@ void serial_set_devbase(u64 devbase)
     UART0_DR = ((void*)UART0_DR) + devbase;
     UART0_FR = ((void*)UART0_FR) + devbase;
 }
+
+void serial_enable_buffered_output(heap h)
+{
+    /* TODO */
+}
+
+void serial_flush_and_disable_buffered_output(void)
+{
+    /* TODO */
+}
