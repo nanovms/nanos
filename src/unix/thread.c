@@ -186,6 +186,7 @@ define_closure_function(1, 0, void, run_thread,
 {
     thread t = bound(t);
     dispatch_signals(t);
+    current_cpu()->state = cpu_user;
     run_thread_frame(t);
 }
 
@@ -198,6 +199,7 @@ define_closure_function(1, 0, void, pause_thread,
 define_closure_function(1, 0, void, run_sighandler,
                         thread, t)
 {
+    current_cpu()->state = cpu_user;
     run_thread_frame(bound(t));
 }
 
