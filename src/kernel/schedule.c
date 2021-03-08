@@ -67,11 +67,9 @@ timer kern_register_timer(clock_id id, timestamp val, boolean absolute,
 }
 KLIB_EXPORT(kern_register_timer);
 
-static void run_thunk(thunk t, int cpustate)
+static void run_thunk(thunk t)
 {
-    cpuinfo ci = current_cpu();
-    sched_debug(" run: %F state: %s\n", t, state_strings[cpustate]);
-    ci->state = cpustate;
+    sched_debug(" run: %F state: %s\n", t, state_strings[current_cpu()->state]);
     apply(t);
     // do we want to enforce this? i kinda just want to collapse
     // the stack and ensure that the thunk actually wanted to come back here
@@ -189,7 +187,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     /* bhqueue is for operations outside the realm of the kernel lock,
        e.g. storage I/O completions */
     while ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
-        run_thunk(t, cpu_kernel);
+        run_thunk(t);
 
     if (kern_try_lock()) {
         /* invoke expired timer callbacks */
@@ -197,7 +195,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
         timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC_RAW));
 
         while ((t = dequeue(runqueue)) != INVALID_ADDRESS)
-            run_thunk(t, cpu_kernel);
+            run_thunk(t);
 
         /* should be a list of per-runloop checks - also low-pri background */
         mm_service();
@@ -249,7 +247,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                     ci->last_timer_update = here + runloop_timer_max;
                 }
             }
-            run_thunk(t, cpu_user);
+            run_thunk(t);
         }
     }
 
