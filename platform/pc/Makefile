@@ -295,7 +295,7 @@ VDSO_LDFLAGS+=  -undefined dynamic_lookup
 LD=             x86_64-elf-ld
 OBJDUMP=        x86_64-elf-objdump
 REL_OS=		darwin
-QEMU_ACCEL=	-accel $(ACCEL) -cpu host
+QEMU_ACCEL=	-accel $(ACCEL) -cpu host,-rdtscp
 ACCEL?=		hvf
 else
 # XXX already defined?
