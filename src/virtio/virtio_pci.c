@@ -337,13 +337,13 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
         feature_mask |= VIRTIO_F_VERSION_1;
 
     dev->dev = d;
+    dev->msix_enabled = pci_enable_msix(dev->dev) > 0;
     if (feature_mask & VIRTIO_F_VERSION_1) {
         vtpci_modern_alloc_resources(dev);
     } else {
         vtpci_legacy_alloc_resources(dev);
     }
     pci_set_bus_master(dev->dev);
-    dev->msix_enabled = pci_enable_msix(dev->dev) > 0;
     pci_enable_io_and_memory(dev->dev);
 
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
