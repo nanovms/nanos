@@ -265,10 +265,10 @@ void init_scheduler(heap h)
     spin_lock_init(&kernel_lock);
     runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
-    wakeup_vector = allocate_interrupt();
+    wakeup_vector = allocate_ipi_interrupt();
 
     register_interrupt(wakeup_vector, ignore, "wakeup ipi");
-    shutdown_vector = allocate_interrupt();
+    shutdown_vector = allocate_ipi_interrupt();
     register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
     assert(wakeup_vector != INVALID_PHYSICAL);
     /* scheduling queues init */

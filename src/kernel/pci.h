@@ -139,7 +139,9 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
  */
 
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length);
-void pci_platform_init_bar(pci_dev dev);
+void pci_platform_init_bar(pci_dev dev, int bar);
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data);
+void pci_platform_deallocate_msi(pci_dev dev, u64 v);
 
 u8 pci_bar_read_1(struct pci_bar *b, u64 offset);
 void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val);
@@ -165,7 +167,7 @@ void pci_set_bus_master(pci_dev dev);
 int pci_get_msix_count(pci_dev dev);
 int pci_enable_msix(pci_dev dev);
 void pci_enable_io_and_memory(pci_dev dev);
-void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
+u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
 void pci_teardown_msix(pci_dev dev, int msi_slot);
 void pci_disable_msix(pci_dev dev);
 void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name);

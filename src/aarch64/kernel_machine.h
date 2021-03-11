@@ -128,10 +128,12 @@
 #define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
 #define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */
 #define SCTLR_EL1_SPAN    U64_FROM_BIT(23) /* Set Privileged Access Never */
+#define SCTLR_EL1_EIS     U64_FROM_BIT(22) /* exception entry is context synchronizing */
 #define SCTLR_EL1_WXN     U64_FROM_BIT(19) /* write implies execute never */
 #define SCTLR_EL1_nTWE    U64_FROM_BIT(18) /* no trap on WFE */
 #define SCTLR_EL1_nTWI    U64_FROM_BIT(16) /* no trap on WFI */
 #define SCTLR_EL1_I       U64_FROM_BIT(12) /* instruction cacheability (no effect) */
+#define SCTLR_EL1_CP15BEN U64_FROM_BIT(5) /* memory barrier enable from EL0 */
 #define SCTLR_EL1_SA0     U64_FROM_BIT(4) /* SP alignment fault enable for EL0 */
 #define SCTLR_EL1_SA      U64_FROM_BIT(3) /* SP alignment fault enable */
 #define SCTLR_EL1_C       U64_FROM_BIT(2) /* cacheability (no effect) */
@@ -368,6 +370,11 @@ static inline void machine_halt(void)
 {
     __asm__("hlt #0"); /* XXX */
 }
+
+u64 allocate_msi_interrupt(void);
+void deallocate_msi_interrupt(u64 v);
+u64 allocate_mmio_interrupt(void);
+void deallocate_mmio_interrupt(u64 v);
 
 #define send_ipi(cpu, vector)
 #endif /* __ASSEMBLY__ */

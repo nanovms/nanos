@@ -27,6 +27,9 @@
 #define DEV_BASE_PCIE_ECAM    0x3f000000
 
 #define VIRT_PCIE_IRQ_BASE 3
+#define VIRT_PCIE_IRQ_NUM  4
+#define VIRT_MMIO_IRQ_BASE 16
+#define VIRT_MMIO_IRQ_NUM  32
 
 #ifndef __ASSEMBLY__
 #define mmio_base_addr(x) ((u64)(DEVICE_BASE + DEV_BASE_ ##x))

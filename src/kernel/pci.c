@@ -32,9 +32,11 @@ u64 pci_bar_size(pci_dev dev, struct pci_bar *b, int bar)
 
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length)
 {
+    pci_debug("%s: bus %d, slot %d, function %d, bar %d, offset 0x%lx, length 0x%lx\n",
+              dev->bus, dev->slot, dev->function, bar, offset, length);
+    pci_platform_init_bar(dev, bar);
     u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
-    pci_debug("%s: bus %d, slot %d, function %d, bar %d, base 0x%x\n", __func__,
-              dev->bus, dev->slot, dev->function, bar, base);
+    pci_debug("   base 0x%x\n", base);
     b->type = base & PCI_BAR_B_TYPE_MASK;
 
     if (b->type == PCI_BAR_MEMORY) {
@@ -134,7 +136,6 @@ int pci_enable_msix(pci_dev dev)
     u32 msix_table = pci_cfgread(dev, cp + 4, 4);
     int bar = msix_table & 0x7;
     bytes offset = msix_table & ~0x7;
-    pci_cfgwrite(dev, PCIR_BAR(bar), 4, 0x10040000 + (dev->slot << 12));
     pci_bar_init(dev, &dev->msix_bar, bar, offset, -1);
     pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__,
               msix_table, dev->msix_bar.vaddr);
@@ -148,44 +149,28 @@ int pci_enable_msix(pci_dev dev)
     return num_entries;
 }
 
-void msi_format(u32 *address, u32 *data, int vector)
-{
-//    u32 dm = 0;             // destination mode: ignored if rh == 0
-//    u32 rh = 0;             // redirection hint: 0 - disabled
-//    u32 destination = 0;    // destination APIC
-//    *address = (0xfee << 20) | (destination << 12) | (rh << 3) | (dm << 2);
-    *address = 0x08020040; // v2m + V2M_MSI_SETSPI_NS
-
-//    u32 mode = 0;           // delivery mode: 000 fixed, 001 lowest, 010 smi, 100 nmi, 101 init, 111 extint
-//    u32 level = 0;          // trigger level: 0 - deassert, 1 - assert
-//    u32 trigger = 0;        // trigger mode: 0 - edge, 1 - level
-//    *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
-    *data = vector; // XXX
-}
-
 u64 pci_msix_table_slot_addr(pci_dev dev, int msi_slot)
 {
     return pci_msix_table_addr(dev) + (msi_slot * sizeof(u32) * 4);
 }
 
-void pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
+u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 {
-    int v = allocate_interrupt();
-    register_interrupt(v, h, name);
+    pci_debug("%s: msi %d: %s\n", __func__, msi_slot, name);
+
+    u32 address, data;
+    u64 vector = pci_platform_allocate_msi(dev, h, name, &address, &data);
+    if (vector == INVALID_PHYSICAL)
+        return vector;
+
     u64 slot_addr = pci_msix_table_slot_addr(dev, msi_slot);
-    pci_debug("%s: msi %d: table slot addr 0x%lx int %d, %s\n", __func__,
-              msi_slot, slot_addr, v, name);
-
-    // XXX store num_entries
-
-    u32 a, d;
-    msi_format(&a, &d, v);
-
-    rprintf("%s: slot_addr 0x%lx, a 0x%x, d 0x%x\n", __func__, slot_addr, a, d);
-    mmio_write_32(slot_addr + (sizeof(u32) * 0), a);
+    pci_debug("   vector %d, address 0x%x, data 0x%x, table slot addr 0x%lx\n",
+              vector, address, data, slot_addr);
+    mmio_write_32(slot_addr + (sizeof(u32) * 0), address);
     mmio_write_32(slot_addr + (sizeof(u32) * 1), 0);
-    mmio_write_32(slot_addr + (sizeof(u32) * 2), d);
+    mmio_write_32(slot_addr + (sizeof(u32) * 2), data);
     mmio_write_32(slot_addr + (sizeof(u32) * 3), 0);
+    return vector;
 }
 
 void pci_teardown_msix(pci_dev dev, int msi_slot)
@@ -194,8 +179,7 @@ void pci_teardown_msix(pci_dev dev, int msi_slot)
     int v = mmio_read_32(slot_addr + sizeof(u32) * 2) & 0xff;
     pci_debug("%s: table slot addr 0x%lx, msi %d: int %d\n", __func__, slot_addr, msi_slot, v);
     mmio_write_32(slot_addr + (sizeof(u32) * 3), 1); /* set Masked bit to 1 */
-    unregister_interrupt(v);
-    deallocate_interrupt(v);
+    pci_platform_deallocate_msi(dev, v);
 }
 
 void pci_disable_msix(pci_dev dev)

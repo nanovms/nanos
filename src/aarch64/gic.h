@@ -3,7 +3,7 @@
 #define GIC_PPI_INTS_START 16
 #define GIC_PPI_INTS_END   32
 #define GIC_SPI_INTS_START 32
-#define GIC_SPI_INTS_END   144 // XXX
+#define GIC_SPI_INTS_END   (GIC_SPI_INTS_START + 256) /* virt */
 #define GIC_MAX_INT        GIC_SPI_INTS_END
 #define GIC_MAX_PRIO       16
 #define GIC_TIMER_IRQ      27
@@ -148,6 +148,9 @@
 #define GIC_V2M_MSI_TYPER_NUM_SHIFT  0
 #define GIC_V2M_MSI_SETSPI_NS        0x40
 #define GIC_V2M_MSI_IIDR             GIC_V2M_REG(0xfcc)
+
+extern u16 gic_msi_vector_base;
+extern u16 gic_msi_vector_num;
 
 void gic_disable_int(int irq);
 void gic_enable_int(int irq);

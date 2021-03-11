@@ -138,6 +138,12 @@ void gic_eoi(int irq)
     gicc_write(EOIR1, irq);
 }
 
+void msi_format(u32 *address, u32 *data, int vector)
+{
+    *address = DEV_BASE_GIC_V2M + GIC_V2M_MSI_SETSPI_NS;
+    *data = vector;
+}
+
 static void init_gicc(void)
 {
     /* disable all interrupt groups */
@@ -173,6 +179,9 @@ static void init_gicc(void)
     }
 }
 
+u16 gic_msi_vector_base;
+u16 gic_msi_vector_num;
+
 void init_gic(void)
 {
     u32 iidr = mmio_read_32(GICC_IIDR);
@@ -185,12 +194,14 @@ void init_gic(void)
                           ICC_CTLR_EL1_IDbits_24) ? MASK(24) : MASK(16);
     } else {
         gic_intid_mask = MASK(10);
+
+        /* virt is currently the only aarch64 platform, so we trust that gicv2
+           implies v2m - but really this should consult the dev tree or acpi
+           before probing. */
+        u64 typer = mmio_read_32(GIC_V2M_MSI_TYPER);
+        gic_msi_vector_base = field_from_u64(typer, GIC_V2M_MSI_TYPER_BASE);
+        gic_msi_vector_num = field_from_u64(typer, GIC_V2M_MSI_TYPER_NUM);
     }
-#if 1 // XXX test, need another plat init
-    u64 typer = mmio_read_32(GIC_V2M_MSI_TYPER);
-    u16 base = field_from_u64(typer, GIC_V2M_MSI_TYPER_BASE);
-    rprintf("%s: typer 0x%lx, base %d\n", __func__, typer, base);
-#endif
 
     init_gicd();
     init_gicc();

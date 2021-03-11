@@ -392,3 +392,10 @@ static inline void machine_halt(void)
 }
 
 void send_ipi(u64 cpu, u8 vector);
+
+u64 allocate_interrupt(void);
+void deallocate_interrupt(u64 irq);
+#define allocate_ipi_interrupt allocate_interrupt
+#define deallocate_ipi_interrupt deallocate_interrupt
+#define allocate_mmio_interrupt allocate_interrupt
+#define deallocate_mmio_interrupt deallocate_interrupt

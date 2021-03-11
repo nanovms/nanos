@@ -48,17 +48,6 @@ static void print_far_if_valid(u32 iss)
 
 void print_frame(context f)
 {
-    u64 v = f[FRAME_VECTOR];
-    rputs(" interrupt: ");
-    print_u64(v);
-    if (v < GIC_SPI_INTS_START) {
-        list_foreach(&handlers[v], l) {
-            inthandler h = struct_from_list(l, inthandler, l);
-            rputs(" (");
-            rputs((char *)h->name);
-            rputs(")");
-        }
-    }
     rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
     rputs("\n      spsr: ");
@@ -317,30 +306,26 @@ void invalid_handler(void)
     halt("%s\n", __func__);
 }
 
-static id_heap interrupt_vector_heap;
+static id_heap ipi_vector_heap;
+static id_heap msi_vector_heap;
+static id_heap mmio_vector_heap;
 static heap int_general;
 
-u64 allocate_interrupt(void)
-{
-    return allocate_u64((heap)interrupt_vector_heap, 1);
-}
+#define MK_INT_ALLOC_FNS(name)                                          \
+    u64 allocate_## name ##_interrupt(void)                             \
+    {                                                                   \
+        return name ## _vector_heap ? allocate_u64((heap)name ## _vector_heap, 1) : INVALID_PHYSICAL; \
+    }                                                                   \
+    void deallocate_## name ##_interrupt(u64 irq)                       \
+    {                                                                   \
+        if (name ## _vector_heap)                                       \
+            deallocate_u64((heap)name ## _vector_heap, irq, 1);         \
+    }
 
-void deallocate_interrupt(u64 irq)
-{
-    deallocate_u64((heap)interrupt_vector_heap, irq, 1);
-}
+MK_INT_ALLOC_FNS(ipi)
+MK_INT_ALLOC_FNS(msi)
+MK_INT_ALLOC_FNS(mmio)
 
-boolean reserve_interrupt(u64 irq)
-{
-    return id_heap_set_area(interrupt_vector_heap, irq, 1, true, true);
-}
-
-/* XXX interface rework in order here:
-   - gic-specific setup should go through platform code
-   - we're beginning to have to deal with different classes of vectors,
-     e.g. MSI, PPI vs SPI etc.
-     - maybe fine to assume that allocating an interrupt
-   */
 void register_interrupt(int vector, thunk t, const char *name)
 {
     boolean initialized = !list_empty(&handlers[vector]);
@@ -355,7 +340,8 @@ void register_interrupt(int vector, thunk t, const char *name)
 
     if (!initialized) {
         gic_set_int_priority(vector, 0);
-        if (vector > 80) // XXX plat
+        if (vector >= gic_msi_vector_base &&
+            vector < (gic_msi_vector_base + gic_msi_vector_num))
             gic_set_int_config(vector, GICD_ICFGR_EDGE);
         gic_clear_pending_int(vector);
         gic_enable_int(vector);
@@ -395,17 +381,31 @@ void init_interrupts(kernel_heaps kh)
     for (int i = 0; i < GIC_MAX_INT; i++)
         list_init(&handlers[i]);
 
-    interrupt_vector_heap = create_id_heap(int_general, int_general, //GIC_SPI_INTS_START,
-                                           80, // XXX plat - source from v2m TYPER
-                                           GIC_SPI_INTS_END - GIC_SPI_INTS_START, 1, false);
-    assert(interrupt_vector_heap != INVALID_ADDRESS);
-
     /* set exception vector table base */
     register u64 v = u64_from_pointer(&exception_vectors);
     asm volatile("dsb sy; msr vbar_el1, %0" :: "r"(v));
 
     /* initialize interrupt controller */
     init_gic();
+
+    /* msi vector heap */
+    if (gic_msi_vector_num > 0) {
+        assert(gic_msi_vector_base >= GIC_SPI_INTS_START);
+        msi_vector_heap = create_id_heap(int_general, int_general, gic_msi_vector_base,
+                                         gic_msi_vector_num, 1, false);
+        assert(msi_vector_heap != INVALID_ADDRESS);
+    }
+
+    /* inter-processor vector heap */
+    ipi_vector_heap = create_id_heap(int_general, int_general, GIC_SGI_INTS_START,
+                                     GIC_SGI_INTS_END - GIC_SGI_INTS_START, 1, false);
+    assert(ipi_vector_heap != INVALID_ADDRESS);
+
+    /* virtio mmio vector heap */
+    mmio_vector_heap = create_id_heap(int_general, int_general,
+                                      GIC_SPI_INTS_START + VIRT_MMIO_IRQ_BASE,
+                                      VIRT_MMIO_IRQ_NUM, 1, false);
+    assert(mmio_vector_heap != INVALID_ADDRESS);
 
     /* timer init is minimal, stash irq setup here */
     gic_set_int_config(GIC_TIMER_IRQ, GICD_ICFGR_LEVEL);

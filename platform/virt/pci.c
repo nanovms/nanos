@@ -100,17 +100,47 @@ MK_PCI_BAR_WRITE(4, 32)
 void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
 {
     /* queue index ignored; virtio ints are shared */
-    u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % 4);
+    u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % VIRT_PCIE_IRQ_NUM);
     pci_plat_debug("%s: dev %p, idx %d, irq %d, handler %F, name %s\n",
                    __func__, dev, idx, v, h, name);
-    reserve_interrupt(v); /* failure ok if shared int */
     register_interrupt(v, h, name);
 }
 
-void pci_platform_init_bar(pci_dev dev)
+/* Rudimentary resource allocation based on fixed offests for virt
+   This could be replaced with generic PCI resource allocation. */
+void pci_platform_init_bar(pci_dev dev, int bar_idx)
 {
-    /* XXX consts */
-    u64 base = 0x1000 + ((dev->bus << 12) | (dev->slot << 8) | (dev->function << 6));
-    pci_plat_debug("%s: dev %d:%d:%d, base 0x%x\n", __func__, dev->bus, dev->slot, dev->function, base);
-    pci_cfgwrite(dev, PCIR_BAR(0), 4, base);
+    pci_plat_debug("%s: dev %p, %d:%d:%d, bar_idx %d\n", __func__,
+                   dev, dev->bus, dev->slot, dev->function, bar_idx);
+    u32 bar = pci_cfgread(dev, PCIR_BAR(bar_idx), 4);
+    pci_plat_debug("   bar before 0x%x\n", bar);
+    boolean is_io = (bar & 1) != 0;
+    u32 base = bar & (is_io ? ~3 : ~15);
+    if (base == 0) {
+        if (is_io) {
+            base = ((dev->bus + 1) << 12) | (dev->slot << 8) |
+                (dev->function << 6) | (bar << 3) | 1;
+        } else {
+            base = DEV_BASE_PCIE_MMIO + ((dev->bus + 1) << 18) + (dev->slot << 12) +
+                (dev->function << 8) + (bar << 4);
+        }
+        pci_plat_debug("%s: dev %d:%d:%d, base 0x%x\n", __func__, dev->bus, dev->slot, dev->function, base);
+        pci_cfgwrite(dev, PCIR_BAR(bar_idx), 4, base);
+    }
+}
+
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data)
+{
+    u64 v = allocate_msi_interrupt();
+    if (v == INVALID_PHYSICAL)
+        return v;
+    register_interrupt(v, h, name);
+    msi_format(address, data, v);
+    return v;
+}
+
+void pci_platform_deallocate_msi(pci_dev dev, u64 v)
+{
+    unregister_interrupt(v);
+    deallocate_msi_interrupt(v);
 }

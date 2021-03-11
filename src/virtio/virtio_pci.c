@@ -235,7 +235,8 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     if (dev->msix_enabled) {
         // setup virtqueue MSI-X interrupt
-        pci_setup_msix(dev->dev, idx, handler, name);
+        if (pci_setup_msix(dev->dev, idx, handler, name) == INVALID_PHYSICAL)
+            return timm("status", "failed to allocate MSI-X vector");
         pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], idx);
         int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR]);
         if (check_idx != idx)
@@ -270,7 +271,6 @@ static void vtpci_legacy_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VIRTIO_MSI_QUEUE_VECTOR;
     dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
-    pci_platform_init_bar(dev->dev);
     pci_bar_init(dev->dev, &dev->common_config, 0, 0, -1);
     runtime_memcpy(&dev->notify_config, &dev->common_config, sizeof(dev->notify_config));
     pci_bar_init(dev->dev, &dev->device_config, 0,

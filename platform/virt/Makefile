@@ -1,10 +1,10 @@
 LWIPDIR=	$(VENDORDIR)/lwip
-PROGRAMS=	kernel.elf
+PROGRAMS=	kernel.img
 
 # XXX temp
 WITHOUT_SSP=	1
 
-SRCS-kernel.elf= \
+SRCS-kernel.img= \
 	$(CURDIR)/service.c \
 	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
@@ -124,14 +124,14 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8-a+nofp -mcpu=cortex-a72 -ffixed-x18 -fno-pic
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18 -fno-pic
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
 # Enable tracing by specifying TRACE=ftrace on command line
 ifeq ($(TRACE),ftrace)
 CFLAGS+= -DCONFIG_FTRACE -pg
-SRCS-kernel.elf+= \
+SRCS-kernel.img+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
 endif
@@ -151,7 +151,7 @@ VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
 
 DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG)
 CLEANDIRS+=     $(foreach d,output/platform output src vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 OBJCOPYFLAGS	= -S -O binary
@@ -198,7 +198,7 @@ contgen:
 mkfs vdsogen: contgen
 	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
 
-kernel: contgen $(PROG-kernel.elf) $(OBJDIR)/kernel.dis $(KERNEL)
+kernel: contgen $(KERNEL) $(OBJDIR)/kernel.dis $(KERNEL)
 
 target: contgen
 ifeq ($(TARGET),)
@@ -232,7 +232,7 @@ release: mkfs kernel
 $(VDSOGEN):
 	@$(MAKE) -C $(ROOTDIR)/tools vdsogen
 
-$(OBJDIR)/kernel.dis: $(PROG-kernel.elf)
+$(OBJDIR)/kernel.dis: $(KERNEL)
 	$(call cmd,objdump)
 
 $(VDSO_OBJDIR)/%.o: $(VDSO_SRCDIR)/%.c
@@ -250,10 +250,7 @@ $(VDSO_OBJDIR)/vdso-offset.h: $(VDSO_OBJDIR)/vdso.so
 
 $(OBJDIR)/src/$(ARCH)/unix_machine.o: $(VDSO_OBJDIR)/vdso-offset.h
 
-$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c
-
-$(KERNEL): $(PROG-kernel.elf)
-	$(call cmd,objcopy)
+$(KERNEL): linker_script $(VDSO_OBJDIR)/vdso-image.c
 
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
@@ -280,7 +277,7 @@ NETWORK=	virtio-net
 QEMU_MACHINE=	-machine $(MACHINE_TYPE) -machine gic-version=2 -machine highmem=off
 QEMU_MEMORY=	-m 1G
 PCI_BUS=	pcie.0
-QEMU_KERNEL=	-kernel $(PROG-kernel.elf)
+QEMU_KERNEL=	-kernel $(KERNEL)
 
 QEMU_DISPLAY=	-display none
 #QEMU_DISPLAY=	-nographic

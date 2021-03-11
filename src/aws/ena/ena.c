@@ -928,8 +928,9 @@ static int ena_request_mgmnt_irq(struct ena_adapter *adapter)
 
     irq = &adapter->irq_tbl[ENA_MGMNT_IRQ_IDX];
 
-    pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
-                   "ena_mgmnt");
+    if (pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
+                       "ena_mgmnt") == INVALID_PHYSICAL)
+        return ENA_COM_FAULT;
     return 0;
 }
 
@@ -945,8 +946,9 @@ static int ena_request_io_irq(struct ena_adapter *adapter)
 
     for (i = ENA_IO_IRQ_FIRST_IDX; i < adapter->msix_vecs; i++) {
         irq = &adapter->irq_tbl[i];
-        pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
-                       "ena_io");
+        if (pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
+                           "ena_io") == INVALID_PHYSICAL)
+            return ENA_COM_FAULT;
         ena_trace(NULL, ENA_INFO, "queue %d\n", i - ENA_IO_IRQ_FIRST_IDX);
     }
 
