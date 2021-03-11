@@ -124,6 +124,12 @@
 #define ID_AA64ISAR0_EL1_RNDR_SHIFT       60
 #define ID_AA64ISAR0_EL1_RNDR_IMPLEMENTED 1 /* RNDR, RNDRRS MSRs */
 
+#define ID_AA64PFR0_EL1_GIC_BITS                4
+#define ID_AA64PFR0_EL1_GIC_SHIFT               24
+#define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_NONE    0
+#define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_3_0_4_0 1
+#define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_4_1     3
+
 #define SCTLR_EL1_UCI     U64_FROM_BIT(26) /* trap cache instructions in EL0 */
 #define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
 #define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */
@@ -375,6 +381,10 @@ u64 allocate_msi_interrupt(void);
 void deallocate_msi_interrupt(u64 v);
 u64 allocate_mmio_interrupt(void);
 void deallocate_mmio_interrupt(u64 v);
+
+void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
+void angel_shutdown(u64 x0);
+void psci_shutdown(void);
 
 #define send_ipi(cpu, vector)
 #endif /* __ASSEMBLY__ */

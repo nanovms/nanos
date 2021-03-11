@@ -184,10 +184,19 @@ u16 gic_msi_vector_num;
 
 void init_gic(void)
 {
-    u32 iidr = mmio_read_32(GICC_IIDR);
-    int version = field_from_u64(iidr, GICC_IIDR_Architecture_version);
-    gic_debug("%s: iidr 0x%x (version %d)\n", __func__, iidr, version);
-    gicc_v3_iface = version >= 3;
+    u64 aa64pfr0 = read_psr(ID_AA64PFR0_EL1);
+    u8 gic_iface = field_from_u64(aa64pfr0, ID_AA64PFR0_EL1_GIC);
+    switch (gic_iface) {
+    case ID_AA64PFR0_EL1_GIC_GICC_SYSREG_NONE:
+        gicc_v3_iface = false;
+        break;
+    case ID_AA64PFR0_EL1_GIC_GICC_SYSREG_3_0_4_0:
+        gicc_v3_iface = true;
+        break;
+    default:
+        halt("%s: gic type %d from ID_AA64PFR0_EL1 not supported\n", __func__, gic_iface);
+    }
+
     if (gicc_v3_iface) {
         u64 icc_ctlr = read_psr_s(ICC_CTLR_EL1);
         gic_intid_mask = (field_from_u64(icc_ctlr, ICC_CTLR_EL1_IDbits) ==

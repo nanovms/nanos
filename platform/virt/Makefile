@@ -268,13 +268,12 @@ QEMU_ACCEL=	-enable-kvm -cpu host
 .PHONY: run run-bridge run-nokvm
 
 QEMU=		qemu-system-aarch64
-MACHINE_TYPE=	virt
 QEMU_CPU=	-cpu max
 DISPLAY=	none
 STORAGE=	virtio-blk
 NETWORK=	virtio-net
 
-QEMU_MACHINE=	-machine $(MACHINE_TYPE) -machine gic-version=2 -machine highmem=off
+QEMU_MACHINE=	-machine virt -machine gic-version=2 -machine highmem=off
 QEMU_MEMORY=	-m 1G
 PCI_BUS=	pcie.0
 QEMU_KERNEL=	-kernel $(KERNEL)

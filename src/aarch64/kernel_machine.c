@@ -74,3 +74,10 @@ void interrupt_exit(void)
 {
     gic_eoi(gic_dispatch_int());
 }
+
+void psci_shutdown(void)
+{
+    u32 psci_fn = 0x84000000 /* fn base */ + 0x8 /* system off */;
+    arm_hvc(psci_fn, 0, 0, 0);
+}
+
