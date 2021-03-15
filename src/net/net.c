@@ -196,10 +196,21 @@ static boolean get_static_config(tuple root, struct netif *n, boolean trace) {
     ip4_addr_t netmask;
     ip4_addr_t gw;
 
-    if (!get_config_addr(root, sym(ipaddr), &ip) ||
-        !get_config_addr(root, sym(gateway), &gw) ||
-        !get_config_addr(root, sym(netmask), &netmask))
+    if (!get_config_addr(root, sym(ipaddr), &ip))
         return false;
+
+    if (!get_config_addr(root, sym(netmask), &netmask))
+        ip4_addr_set_u32(&netmask, lwip_htonl(0xffffff00)); // 255.255.255.0
+
+    if (!get_config_addr(root, sym(gateway), &gw)) {
+        // common best practices are: network + 1 or broadcast - 1,
+        // so we will use latter if former is in use.
+        u32_t ip_after_network = (netmask.addr & ip.addr) + lwip_htonl(1);
+        if (ip_after_network == ip.addr)
+            ip4_addr_set_u32(&gw, (~(netmask.addr) | ip.addr) - lwip_htonl(1));
+        else
+            ip4_addr_set_u32(&gw, ip_after_network);
+    }
 
     if (trace) {
         rprintf("NET: static IP config:\n");
