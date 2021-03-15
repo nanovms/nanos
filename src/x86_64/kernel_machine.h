@@ -122,6 +122,35 @@ void install_gdt64_and_tss(u64 cpu);
 #include <lock.h>
 #endif
 
+/* device mmio region access */
+static inline u32 mmio_read_32(u64 addr)
+{
+    u32 val;
+    asm volatile("movl %1, %0" : "=r"(val) :
+                 "m"(*(volatile u32 *)pointer_from_u64(addr)));
+    return val;
+}
+
+static inline u64 mmio_read_64(u64 addr)
+{
+    u64 val;
+    asm volatile("movq %1, %0" : "=r"(val) :
+                 "m"(*(volatile u64 *)pointer_from_u64(addr)));
+    return val;
+}
+
+static inline void mmio_write_32(u64 addr, u32 val)
+{
+    asm volatile("movl %0, %1" :: "r"(val),
+                 "m"(*(volatile u64 *)pointer_from_u64(addr)));
+}
+
+static inline void mmio_write_64(u64 addr, u64 val)
+{
+    asm volatile("movq %0, %1" :: "r"(val),
+                 "m"(*(volatile u64 *)pointer_from_u64(addr)));
+}
+
 /* special register access */
 extern u64 read_msr(u64);
 extern void write_msr(u64, u64);
@@ -363,3 +392,10 @@ static inline void machine_halt(void)
 }
 
 void send_ipi(u64 cpu, u8 vector);
+
+u64 allocate_interrupt(void);
+void deallocate_interrupt(u64 irq);
+#define allocate_ipi_interrupt allocate_interrupt
+#define deallocate_ipi_interrupt deallocate_interrupt
+#define allocate_mmio_interrupt allocate_interrupt
+#define deallocate_mmio_interrupt deallocate_interrupt

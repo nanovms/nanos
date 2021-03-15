@@ -179,7 +179,7 @@ status vtmmio_alloc_virtqueue(vtmmio dev, const char *name, int idx, queue sched
     if (!is_ok(s))
         return s;
     if (!dev->irq_vector) {
-        dev->irq_vector = allocate_interrupt();
+        dev->irq_vector = allocate_mmio_interrupt();
         assert(dev->irq_vector != INVALID_PHYSICAL);
         register_interrupt(dev->irq_vector,
                            init_closure(&dev->irq_handler, vtmmio_irq, dev),

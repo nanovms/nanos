@@ -774,7 +774,11 @@ static boolean nvme_create_iocq(nvme n, storage_attach a)
         nvme_deinit_cq(n, &n->iocq);
         return false;
     }
-    pci_setup_msix(n->d, NVME_IOQ_MSIX, init_closure(&n->io_irq, nvme_io_irq, n), "nvme I/O");
+    if (pci_setup_msix(n->d, NVME_IOQ_MSIX, init_closure(&n->io_irq, nvme_io_irq, n),
+                       "nvme I/O") == INVALID_PHYSICAL) {
+        msg_err("failed to allocate MSI-X vector\n");
+        return false;
+    }
     struct nvme_sqe *cmd = nvme_get_sqe(&n->asq);
     assert(cmd);
     zero(cmd, sizeof(*cmd));
@@ -860,7 +864,11 @@ closure_function(3, 1, boolean, nvme_probe,
     }
     n->d = d;
     pci_enable_msix(d);
-    pci_setup_msix(d, NVME_AQ_MSIX, init_closure(&n->admin_irq, nvme_admin_irq, n), "nvme admin");
+    if (pci_setup_msix(d, NVME_AQ_MSIX, init_closure(&n->admin_irq, nvme_admin_irq, n),
+                       "nvme admin") == INVALID_PHYSICAL) {
+        msg_err("failed to allocate MSI-X vector\n");
+        goto free_cmds;
+    }
     list_init(&n->pending_reqs);
     list_init(&n->free_reqs);
     list_init(&n->done_reqs);

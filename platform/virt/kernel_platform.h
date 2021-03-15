@@ -27,9 +27,12 @@
 #define DEV_BASE_PCIE_ECAM    0x3f000000
 
 #define VIRT_PCIE_IRQ_BASE 3
+#define VIRT_PCIE_IRQ_NUM  4
+#define VIRT_MMIO_IRQ_BASE 16
+#define VIRT_MMIO_IRQ_NUM  32
 
 #ifndef __ASSEMBLY__
-#define dev_base_pointer(x) (pointer_from_u64(DEVICE_BASE + DEV_BASE_ ##x))
+#define mmio_base_addr(x) ((u64)(DEVICE_BASE + DEV_BASE_ ##x))
 
 void early_debug(const char *s);
 void early_debug_u64(u64 n);

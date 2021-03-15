@@ -38,6 +38,10 @@
 #define PAGE_ATTR_AF             U64_FROM_BIT(10)
 #define PAGE_ATTR_SH_SHIFT       8
 #define PAGE_ATTR_SH_BITS        2
+#define PAGE_ATTR_SH_NON         0
+#define PAGE_ATTR_SH_RESV        1
+#define PAGE_ATTR_SH_OUTER       2
+#define PAGE_ATTR_SH_INNER       3
 #define PAGE_ATTR_AP_2_1_SHIFT   6
 #define PAGE_ATTR_AP_2_1_BITS    2
 #define PAGE_ATTR_NS             U64_FROM_BIT(5)
@@ -162,10 +166,7 @@ typedef struct pageflags {
     u64 w;                      /* _PAGE_* flags, keep private to page.[hc] */
 } pageflags;
 
-#define _PAGE_NORMAL       u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_NORM)
-#define _PAGE_DEVICE       u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_DEV_nGnRnE)
-#define _PAGE_BACKED_FLAGS _PAGE_NORMAL
-#define _PAGE_DEV_FLAGS    _PAGE_DEVICE
+// XXX clean up underbar cruft
 #define _PAGE_NO_EXEC      PAGE_ATTR_UXN_XN
 #define _PAGE_WRITABLE     0
 #define _PAGE_READONLY     u64_from_field(PAGE_ATTR_AP_2_1, PAGE_ATTR_AP_2_1_RO)
@@ -197,12 +198,14 @@ extern const int page_level_shifts_4K[_PAGE_NLEVELS];
 static inline pageflags pageflags_memory(void)
 {
     return (pageflags){.w = u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_NORM)
+            | u64_from_field(PAGE_ATTR_SH, PAGE_ATTR_SH_INNER)
             | _PAGE_DEFAULT_PERMISSIONS};
 }
 
 static inline pageflags pageflags_memory_writethrough(void)
 {
     return (pageflags){.w = u64_from_field(_PAGE_MEMATTR, _PAGE_MEMATTR_NORM_WT)
+            | u64_from_field(PAGE_ATTR_SH, PAGE_ATTR_SH_INNER)
             | _PAGE_DEFAULT_PERMISSIONS};
 }
 

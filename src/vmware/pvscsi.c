@@ -522,7 +522,7 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
 
     // setup interrupts
     dev->intr_handler = closure(dev->general, intr_handler, dev);
-    pci_setup_msix(dev->dev, 0, dev->intr_handler, "pvscsi intr");
+    assert(pci_setup_msix(dev->dev, 0, dev->intr_handler, "pvscsi intr") != INVALID_PHYSICAL);
     pvscsi_reg_write(dev, PVSCSI_REG_OFFSET_INTR_MASK, PVSCSI_INTR_CMPL_MASK);
 
     // scan bus

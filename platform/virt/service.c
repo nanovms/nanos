@@ -123,23 +123,15 @@ void reclaim_regions(void)
 
 extern filesystem root_fs;
 
-extern void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
-extern void angel_shutdown(u64 x0);
-
-static void psci_shutdown(void)
-{
-    u32 psci_fn = 0x84000000 /* fn base */ + 0x8 /* system off */;
-    arm_hvc(psci_fn, 0, 0, 0);
-}
-
 static inline void virt_shutdown(u64 code)
 {
     if (root_fs) {
         tuple root = filesystem_getroot(root_fs);
-        if (root && table_find(root, sym(psci)))
-            psci_shutdown();
+        if (root && !table_find(root, sym(psci)))
+            angel_shutdown(code);
+
     }
-    angel_shutdown(code);
+    psci_shutdown();
 }
 
 void vm_exit(u8 code)

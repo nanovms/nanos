@@ -157,7 +157,23 @@ void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
     ioapic_register_int(gsi, h, name);
 }
 
-void pci_platform_init_bar(pci_dev dev)
+void pci_platform_init_bar(pci_dev dev, int bar)
 {
-    /* bars configured before boot, nop */
+    /* bars configured by BIOS; nop */
+}
+
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data)
+{
+    u64 v = allocate_interrupt();
+    if (v == INVALID_PHYSICAL)
+        return v;
+    register_interrupt(v, h, name);
+    msi_format(address, data, v);
+    return v;
+}
+
+void pci_platform_deallocate_msi(pci_dev dev, u64 v)
+{
+    unregister_interrupt(v);
+    deallocate_interrupt(v);
 }

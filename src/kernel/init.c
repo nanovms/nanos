@@ -56,6 +56,7 @@ closure_function(3, 2, void, fsstarted,
                  u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
 {
+    init_debug("%s\n", __func__);
     heap h = heap_locked(init_heaps);
     if (!is_ok(s)) {
         buffer b = allocate_buffer(h, 128);

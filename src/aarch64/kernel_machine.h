@@ -105,15 +105,41 @@
 #define ESR_ISS_ID_ABRT_FSC_SYNC_PARITY_ECC_L3 0x1f
 #define ESR_ISS_ID_ABRT_FSC_TLB_CONFLICT_ABORT 0x30
 
+#define ESR_ISS_SERROR_INT_IDS        0x1000000
+#define ESR_ISS_SERROR_INT_IESB       0x2000
+#define ESR_ISS_SERROR_INT_AET_BITS   3
+#define ESR_ISS_SERROR_INT_AET_SHIFT  10
+#define ESR_ISS_SERROR_INT_AET_UC     0
+#define ESR_ISS_SERROR_INT_AET_UEU    1
+#define ESR_ISS_SERROR_INT_AET_UEO    2
+#define ESR_ISS_SERROR_INT_AET_UER    3
+#define ESR_ISS_SERROR_INT_AET_CE     6
+#define ESR_ISS_SERROR_INT_EA         0x200
+#define ESR_ISS_SERROR_INT_DFSC_BITS  3
+#define ESR_ISS_SERROR_INT_DFSC_SHIFT 10
+#define ESR_ISS_SERROR_INT_DFSC_UNCAT 0
+#define ESR_ISS_SERROR_INT_DFSC_ASYNC 0x11
+
 #define ID_AA64ISAR0_EL1_RNDR_BITS        4
 #define ID_AA64ISAR0_EL1_RNDR_SHIFT       60
 #define ID_AA64ISAR0_EL1_RNDR_IMPLEMENTED 1 /* RNDR, RNDRRS MSRs */
 
+#define ID_AA64PFR0_EL1_GIC_BITS                4
+#define ID_AA64PFR0_EL1_GIC_SHIFT               24
+#define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_NONE    0
+#define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_3_0_4_0 1
+#define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_4_1     3
+
 #define SCTLR_EL1_UCI     U64_FROM_BIT(26) /* trap cache instructions in EL0 */
 #define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
 #define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */
+#define SCTLR_EL1_SPAN    U64_FROM_BIT(23) /* Set Privileged Access Never */
+#define SCTLR_EL1_EIS     U64_FROM_BIT(22) /* exception entry is context synchronizing */
 #define SCTLR_EL1_WXN     U64_FROM_BIT(19) /* write implies execute never */
+#define SCTLR_EL1_nTWE    U64_FROM_BIT(18) /* no trap on WFE */
+#define SCTLR_EL1_nTWI    U64_FROM_BIT(16) /* no trap on WFI */
 #define SCTLR_EL1_I       U64_FROM_BIT(12) /* instruction cacheability (no effect) */
+#define SCTLR_EL1_CP15BEN U64_FROM_BIT(5) /* memory barrier enable from EL0 */
 #define SCTLR_EL1_SA0     U64_FROM_BIT(4) /* SP alignment fault enable for EL0 */
 #define SCTLR_EL1_SA      U64_FROM_BIT(3) /* SP alignment fault enable */
 #define SCTLR_EL1_C       U64_FROM_BIT(2) /* cacheability (no effect) */
@@ -155,6 +181,31 @@ static inline void wait_for_interrupt(void)
 
 /* locking constructs */
 #include <lock.h>
+
+/* device mmio region access */
+#define MK_MMIO_READ(BITS, ISUFFIX, RPREFIX) \
+    static inline u##BITS mmio_read_##BITS(u64 addr)                    \
+    {                                                                   \
+        u##BITS val;                                                    \
+        asm volatile("ldr" ISUFFIX " %" RPREFIX "0, [%1]" : "=r"(val) : "r"(addr)); \
+        return val;                                                     \
+    }                                                                   \
+
+MK_MMIO_READ(8, "b", "w");
+MK_MMIO_READ(16, "h", "w");
+MK_MMIO_READ(32, "", "w");
+MK_MMIO_READ(64, "", "x");
+
+#define MK_MMIO_WRITE(BITS, ISUFFIX, RPREFIX)                           \
+    static inline void mmio_write_##BITS(u64 addr, u##BITS val)         \
+    {                                                                   \
+        asm volatile("str" ISUFFIX " %" RPREFIX "0, [%1]" :: "rZ"(val), "r"(addr)); \
+    }
+
+MK_MMIO_WRITE(8, "b", "w");
+MK_MMIO_WRITE(16, "h", "w");
+MK_MMIO_WRITE(32, "", "w");
+MK_MMIO_WRITE(64, "", "x");
 
 /* special register access */
 #define read_psr(reg) ({ register u64 r; asm volatile("mrs %0, " #reg : "=r"(r)); r;})
@@ -325,6 +376,15 @@ static inline void machine_halt(void)
 {
     __asm__("hlt #0"); /* XXX */
 }
+
+u64 allocate_msi_interrupt(void);
+void deallocate_msi_interrupt(u64 v);
+u64 allocate_mmio_interrupt(void);
+void deallocate_mmio_interrupt(u64 v);
+
+void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
+void angel_shutdown(u64 x0);
+void psci_shutdown(void);
 
 #define send_ipi(cpu, vector)
 #endif /* __ASSEMBLY__ */

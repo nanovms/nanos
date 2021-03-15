@@ -136,7 +136,8 @@ struct vtpci_common_config {
 
 boolean vtpci_probe(pci_dev d, int virtio_dev_id)
 {
-    virtio_pci_debug("%s: vendor is 0x%x\n", __func__, pci_get_vendor(d));
+    virtio_pci_debug("%s: vendor is 0x%x, virtio_dev_id 0x%x\n", __func__,
+                     pci_get_vendor(d), virtio_dev_id);
     if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID) {
         return false;
     }
@@ -148,6 +149,7 @@ boolean vtpci_probe(pci_dev d, int virtio_dev_id)
     }
 
     if (device >= VIRTIO_PCI_DEVICEID_MODERN_MIN) {
+        virtio_pci_debug("   device is modern\n");
         // modern device
         return device == VIRTIO_PCI_DEVICEID_MODERN_MIN + virtio_dev_id;
     }
@@ -233,7 +235,8 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     if (dev->msix_enabled) {
         // setup virtqueue MSI-X interrupt
-        pci_setup_msix(dev->dev, idx, handler, name);
+        if (pci_setup_msix(dev->dev, idx, handler, name) == INVALID_PHYSICAL)
+            return timm("status", "failed to allocate MSI-X vector");
         pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], idx);
         int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR]);
         if (check_idx != idx)
@@ -268,7 +271,6 @@ static void vtpci_legacy_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VIRTIO_MSI_QUEUE_VECTOR;
     dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
-    pci_platform_init_bar(dev->dev);
     pci_bar_init(dev->dev, &dev->common_config, 0, 0, -1);
     runtime_memcpy(&dev->notify_config, &dev->common_config, sizeof(dev->notify_config));
     pci_bar_init(dev->dev, &dev->device_config, 0,
@@ -331,10 +333,10 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
     assert(dev != INVALID_ADDRESS);
     vtdev virtio_dev = &dev->virtio_dev;
 
-    virtio_pci_debug("%s: dev %x\n", __func__, pci_get_device(d));
     boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
     if (is_modern)
         feature_mask |= VIRTIO_F_VERSION_1;
+    virtio_pci_debug("%s: dev %x%s\n", __func__, pci_get_device(d), is_modern ? "is modern" : "");
 
     dev->dev = d;
     dev->msix_enabled = pci_enable_msix(dev->dev) > 0;

@@ -378,7 +378,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     vn->rx_service = closure(dev->general, vmxnet3_rx_service_bh, vn);
 
     vn->rx_intr_handler = closure(dev->general, rx_interrupt, vn);
-    pci_setup_msix(dev->dev, 1, vn->rx_intr_handler, "vmxnet3 rx");
+    assert(pci_setup_msix(dev->dev, 1, vn->rx_intr_handler, "vmxnet3 rx") != INVALID_PHYSICAL);
     // interrupts are not used for tx
 
     vmxnet3_tx_queues_alloc(dev);

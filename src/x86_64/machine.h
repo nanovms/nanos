@@ -62,6 +62,11 @@ static inline __attribute__((always_inline)) word fetch_and_add(word *variable, 
     return __sync_fetch_and_add(variable, value);
 }
 
+static inline __attribute__((always_inline)) u8 compare_and_swap_32(u32 *p, u32 old, u32 new)
+{
+    return __sync_bool_compare_and_swap(p, old, new);
+}
+
 static inline __attribute__((always_inline)) void atomic_set_bit(u64 *target, u64 bit)
 {
     asm volatile("lock btsq %1, %0": "+m"(*target): "r"(bit) : "memory");

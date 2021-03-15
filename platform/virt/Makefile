@@ -1,10 +1,10 @@
 LWIPDIR=	$(VENDORDIR)/lwip
-PROGRAMS=	kernel.elf
+PROGRAMS=	kernel.img
 
 # XXX temp
 WITHOUT_SSP=	1
 
-SRCS-kernel.elf= \
+SRCS-kernel.img= \
 	$(CURDIR)/service.c \
 	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
@@ -124,14 +124,14 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8.1-a+nofp -ffixed-x18 -fno-pic
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18 -fno-pic
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
 # Enable tracing by specifying TRACE=ftrace on command line
 ifeq ($(TRACE),ftrace)
 CFLAGS+= -DCONFIG_FTRACE -pg
-SRCS-kernel.elf+= \
+SRCS-kernel.img+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
 endif
@@ -151,7 +151,7 @@ VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
 
 DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG)
 CLEANDIRS+=     $(foreach d,output/platform output src vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 OBJCOPYFLAGS	= -S -O binary
@@ -198,7 +198,7 @@ contgen:
 mkfs vdsogen: contgen
 	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
 
-kernel: contgen $(PROG-kernel.elf) $(OBJDIR)/kernel.dis $(KERNEL)
+kernel: contgen $(KERNEL) $(OBJDIR)/kernel.dis $(KERNEL)
 
 target: contgen
 ifeq ($(TARGET),)
@@ -232,7 +232,7 @@ release: mkfs kernel
 $(VDSOGEN):
 	@$(MAKE) -C $(ROOTDIR)/tools vdsogen
 
-$(OBJDIR)/kernel.dis: $(PROG-kernel.elf)
+$(OBJDIR)/kernel.dis: $(KERNEL)
 	$(call cmd,objdump)
 
 $(VDSO_OBJDIR)/%.o: $(VDSO_SRCDIR)/%.c
@@ -250,10 +250,7 @@ $(VDSO_OBJDIR)/vdso-offset.h: $(VDSO_OBJDIR)/vdso.so
 
 $(OBJDIR)/src/$(ARCH)/unix_machine.o: $(VDSO_OBJDIR)/vdso-offset.h
 
-$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c
-
-$(KERNEL): $(PROG-kernel.elf)
-	$(call cmd,objcopy)
+$(KERNEL): linker_script $(VDSO_OBJDIR)/vdso-image.c
 
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
@@ -271,16 +268,15 @@ QEMU_ACCEL=	-enable-kvm -cpu host
 .PHONY: run run-bridge run-nokvm
 
 QEMU=		qemu-system-aarch64
-MACHINE_TYPE=	virt
 QEMU_CPU=	-cpu max
 DISPLAY=	none
 STORAGE=	virtio-blk
 NETWORK=	virtio-net
 
-QEMU_MACHINE=	-machine $(MACHINE_TYPE) -machine gic-version=3 -machine highmem=off
+QEMU_MACHINE=	-machine virt -machine gic-version=2 -machine highmem=off
 QEMU_MEMORY=	-m 1G
 PCI_BUS=	pcie.0
-QEMU_KERNEL=	-kernel $(PROG-kernel.elf)
+QEMU_KERNEL=	-kernel $(KERNEL)
 
 QEMU_DISPLAY=	-display none
 #QEMU_DISPLAY=	-nographic
@@ -308,6 +304,8 @@ QEMU_FLAGS+=	-semihosting
 #QEMU_FLAGS+=	-d in_asm,cpu -D $(ROOTDIR)/asm.out
 #QEMU_FLAGS+=	-d int -D int
 #QEMU_FLAGS+=	-s -S
+#QEMU_FLAGS+=   -d int,trace:pci_cfg_write,trace:pci_cfg_read,trace:msix_write_config,trace:virtio_blk_req_complete,trace:virtio_blk_rw_complete,trace:virtio_blk_handle_read,trace:virtio_blk_handle_write,trace:virtio_blk_submit_multireq,trace:virtio_blk_handle_write,trace:virtio_blk_handle_read,trace:virtio_blk_submit_multireq,trace:virtio_queue_notify,trace:virtio_notify,trace:virtio_set_status,trace:virtio_notify_irqfd,guest_errors,trace:virtio_blk_data_plane_start,trace:virtio_input_queue_full,trace:kvm_irqchip_commit_routes,trace:kvm_irqchip_add_msi_route,trace:kvm_irqchip_update_msi_route,trace:kvm_irqchip_release_virq,trace:kvm_set_ioeventfd_mmio,trace:kvm_set_ioeventfd_pio,trace:kvm_set_user_memory,trace:kvm_clear_dirty_log,trace:kvm_resample_fd_notify,trace:kvm_run_exit,trace:kvm_arm_fixup_msi_route,trace:kvm_ioctl,trace:kvm_vm_ioctl,trace:kvm_vcpu_ioctl,trace:kvm_device_ioctl,trace:gic_acknowledge_irq,trace:gic_cpu_read,trace:gic_cpu_write,trace:gic_disable_irq,trace:gic_dist_read,trace:gic_dist_write,trace:gic_enable_irq,trace:gic_hyp_read,trace:gic_hyp_write,trace:gic_lr_entry,trace:gic_set_irq -D $(ROOTDIR)/trace.out
+
 #QEMU_FLAGS+=	-monitor telnet:127.0.0.1:9999,server,nowait
 
 QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_PCI) $(QEMU_SERIAL) $(QEMU_STORAGE) -no-reboot $(QEMU_FLAGS)
