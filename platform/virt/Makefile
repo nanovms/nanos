@@ -1,10 +1,10 @@
 LWIPDIR=	$(VENDORDIR)/lwip
-PROGRAMS=	kernel.img
+PROGRAMS=	kernel.elf
 
 # XXX temp
 WITHOUT_SSP=	1
 
-SRCS-kernel.img= \
+SRCS-kernel.elf= \
 	$(CURDIR)/service.c \
 	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
@@ -131,7 +131,7 @@ CFLAGS+=$(INCLUDES)
 # Enable tracing by specifying TRACE=ftrace on command line
 ifeq ($(TRACE),ftrace)
 CFLAGS+= -DCONFIG_FTRACE -pg
-SRCS-kernel.img+= \
+SRCS-kernel.elf+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
 endif
@@ -149,9 +149,10 @@ VDSO_CFLAGS=    -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(SRCDIR) -fPI
 VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(ARCHDIR)/vdso.lds
 VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
+STRIPFLAGS=	-g
 
 DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis bin/kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis bin/kernel.elf src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG) $(KERNEL)
 CLEANDIRS+=     $(foreach d,output/platform output src vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 OBJCOPYFLAGS	= -S -O binary
@@ -192,15 +193,12 @@ endif
 
 all: $(KERNEL) kernel.dis
 
-contgen:
+mkfs vdsogen:
 	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
 
-mkfs vdsogen: contgen
-	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
+kernel: $(KERNEL) $(OBJDIR)/kernel.dis
 
-kernel: contgen $(KERNEL) $(OBJDIR)/kernel.dis $(KERNEL)
-
-target: contgen
+target:
 ifeq ($(TARGET),)
 	@echo TARGET variable not specified
 	@false
@@ -211,7 +209,7 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
 endif
 
-image: contgen mkfs kernel target $(BOOTIMG)
+image: mkfs kernel target $(BOOTIMG)
 ifeq ($(IMAGE),)
 	@echo IMAGE variable not specified
 	@false
@@ -250,7 +248,10 @@ $(VDSO_OBJDIR)/vdso-offset.h: $(VDSO_OBJDIR)/vdso.so
 
 $(OBJDIR)/src/$(ARCH)/unix_machine.o: $(VDSO_OBJDIR)/vdso-offset.h
 
-$(KERNEL): linker_script $(VDSO_OBJDIR)/vdso-image.c
+$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c
+
+$(KERNEL): $(PROG-kernel.elf)
+	$(call cmd,strip)
 
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
