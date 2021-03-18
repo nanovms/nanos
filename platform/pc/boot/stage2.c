@@ -202,7 +202,7 @@ static void setup_page_tables()
 
 static u64 working_saved_base;
 
-closure_function(0, 4, void, kernel_elf_map,
+closure_function(0, 4, u64, kernel_elf_map,
                  u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     stage2_debug("%s: vaddr 0x%lx, paddr 0x%lx, size 0x%lx, flags 0x%lx\n",
@@ -215,6 +215,7 @@ closure_function(0, 4, void, kernel_elf_map,
         zero(pointer_from_u64(paddr), size);
     }
     map(vaddr, paddr, size, flags);
+    return paddr;
 }
 
 closure_function(0, 1, status, kernel_read_complete,

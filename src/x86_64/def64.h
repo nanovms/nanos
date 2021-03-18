@@ -28,9 +28,6 @@ typedef u64 bytes;
 
 #define pointer_from_u64(__a) ((void *)(__a))
 #define u64_from_pointer(__a) ((u64)(__a))
-// a super sad hack to allow us to write to the bss in elf.c as
-// phy instead of virt
-#define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
 
 #define field_from_u64(u, f) (((u) >> f ## _SHIFT) & MASK(f ## _BITS))
 
