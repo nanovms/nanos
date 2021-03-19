@@ -219,6 +219,9 @@ void kern_unlock(void);
 void init_scheduler(heap);
 void mm_service(void);
 
+typedef closure_type(balloon_deflater, u64, u64);
+void mm_register_balloon_deflater(balloon_deflater deflater);
+
 kernel_heaps get_kernel_heaps(void);
 
 tuple get_root_tuple(void);

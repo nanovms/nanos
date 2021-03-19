@@ -170,7 +170,7 @@ void pci_enable_io_and_memory(pci_dev dev);
 u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
 void pci_teardown_msix(pci_dev dev, int msi_slot);
 void pci_disable_msix(pci_dev dev);
-void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name);
+void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name);
 
 static inline u64 pci_msix_table_addr(pci_dev dev)
 {

@@ -525,4 +525,6 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
 
     /* misc / platform */
     init_acpi(kh);
+
+    init_virtio_balloon(kh);
 }

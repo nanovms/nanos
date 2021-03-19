@@ -117,10 +117,17 @@ closure_function(3, 2, void, fsstarted,
 #define mm_debug(x, ...) do { } while(0)
 #endif
 
+static balloon_deflater mm_balloon_deflater;
+
+void mm_register_balloon_deflater(balloon_deflater deflater)
+{
+    mm_balloon_deflater = deflater;
+}
+
 void mm_service(void)
 {
     heap phys = (heap)heap_physical(init_heaps);
-    u64 free = heap_total(phys) - heap_allocated(phys);
+    u64 free = heap_free(phys);
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__,
              heap_total(phys), heap_allocated(phys), free);
     if (free < PAGECACHE_DRAIN_CUTOFF) {
@@ -128,6 +135,15 @@ void mm_service(void)
         u64 drained = pagecache_drain(drain_bytes);
         if (drained > 0)
             mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
+        free = heap_free(phys);
+    }
+
+    if (mm_balloon_deflater && free < BALLOON_DEFLATE_THRESHOLD) {
+        u64 deflate_bytes = BALLOON_DEFLATE_THRESHOLD - free;
+        mm_debug("   requesting %ld bytes from deflater\n", deflate_bytes);
+        u64 deflated = apply(mm_balloon_deflater, deflate_bytes);
+        mm_debug("   deflated %ld bytes\n", deflated);
+        (void)deflated;
     }
 }
 

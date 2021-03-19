@@ -101,7 +101,7 @@ struct vtpci_common_config {
     u32 device_feature;              /* read-only for driver */
     u32 driver_feature_select;       /* read-write */
     u32 driver_feature;              /* read-write */
-    u16 msix_config;                 /* read-write */
+    u16 config_msix_vector;          /* read-write */
     u16 num_queues;                  /* read-only for driver */
     u8 device_status;                /* read-write */
     u8 config_generation;            /* read-only for driver */
@@ -121,7 +121,7 @@ struct vtpci_common_config {
 #define VTPCI_R_DEVICE_FEATURE        (offsetof(struct vtpci_common_config *, device_feature))
 #define VTPCI_R_DRIVER_FEATURE_SELECT (offsetof(struct vtpci_common_config *, driver_feature_select))
 #define VTPCI_R_DRIVER_FEATURE        (offsetof(struct vtpci_common_config *, driver_feature))
-#define VTPCI_R_MSIX_CONFIG           (offsetof(struct vtpci_common_config *, msix_config))
+#define VTPCI_R_CONFIG_MSIX_VECTOR    (offsetof(struct vtpci_common_config *, config_msix_vector))
 #define VTPCI_R_NUM_QUEUES            (offsetof(struct vtpci_common_config *, num_queues))
 #define VTPCI_R_DEVICE_STATUS         (offsetof(struct vtpci_common_config *, device_status))
 #define VTPCI_R_CONFIG_GENERATION     (offsetof(struct vtpci_common_config *, config_generation))
@@ -194,21 +194,56 @@ static u8 vtpci_get_isr_status(vtpci dev)
     return pci_bar_read_1(&dev->common_config, dev->regs[VTPCI_REG_ISR_STATUS]);
 }
 
-closure_function(3, 0, void, vtpci_non_msix_interrupt,
-                 vtpci, dev, const char *, name, thunk, handler)
+closure_function(1, 0, void, vtpci_non_msix_irq,
+                 vtpci, dev)
 {
-    virtio_pci_debug("%s: dev %p, name %s, handler %p (%F)\n", __func__, bound(dev),
-                     bound(name), bound(handler), bound(handler));
+    vtpci dev = bound(dev);
+    virtio_pci_debug("%s: dev %p\n", __func__, dev);
 
-    /* clear pending; ignore INTR flag here as it may have been
-       cleared by another (shared) handler... */
-    u8 isr_status = vtpci_get_isr_status(bound(dev));
-    virtio_pci_debug("   isr status 0x%x applying handler %p (%F)\n", isr_status,
-                     bound(handler), bound(handler));
-    apply(bound(handler));
+    /* read and clear interrupt status */
+    u8 isr_status = vtpci_get_isr_status(dev);
+    virtio_pci_debug("   isr status 0x%x\n", isr_status);
+    if ((isr_status & VIRTIO_PCI_ISR_INTR) && dev->vq_handlers) {
+        thunk t;
+        vector_foreach(dev->vq_handlers, t) {
+            assert(t && t != INVALID_ADDRESS);
+            virtio_pci_debug("      applying queue handler %F\n", t);
+            apply(t);
+        }
+    }
 
-    if (isr_status & VIRTIO_PCI_ISR_CONFIG)
-        rprintf("%s: config change interrupt; unhandled\n", __func__);
+    if ((isr_status & VIRTIO_PCI_ISR_CONFIG) && dev->config_handler) {
+        virtio_pci_debug("       queueing config change handler %F to queue %p\n",
+                         dev->config_handler, dev->config_sched_queue);
+        enqueue(dev->config_sched_queue, dev->config_handler);
+    }
+}
+
+static void vtpci_register_non_msix_irq(vtpci dev)
+{
+    if (dev->non_msix_handler)
+        return;
+    dev->non_msix_handler = closure(dev->virtio_dev.general, vtpci_non_msix_irq, dev);
+    assert(dev->non_msix_handler != INVALID_ADDRESS);
+    dev->vq_handlers = allocate_vector(dev->virtio_dev.general, 2);
+    assert(dev->vq_handlers != INVALID_ADDRESS);
+
+    /* XXX should really have separate dev name and queue names */
+    pci_setup_non_msi_irq(dev->dev, dev->non_msix_handler, "vtpci non-msix");
+}
+
+static void vtpci_register_non_msix_queue_handler(vtpci dev, thunk handler)
+{
+    vtpci_register_non_msix_irq(dev);
+    vector_push(dev->vq_handlers, handler);
+}
+
+static void vtpci_register_non_msix_config_handler(vtpci dev, thunk handler, queue sched_queue)
+{
+    vtpci_register_non_msix_irq(dev);
+    assert(!dev->config_handler);
+    dev->config_handler = handler;
+    dev->config_sched_queue = sched_queue;
 }
 
 status vtpci_alloc_virtqueue(vtpci dev,
@@ -235,16 +270,15 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     if (dev->msix_enabled) {
         // setup virtqueue MSI-X interrupt
-        if (pci_setup_msix(dev->dev, idx, handler, name) == INVALID_PHYSICAL)
+        int msi_slot = idx + 1; /* 0 reserved for config change */
+        if (pci_setup_msix(dev->dev, msi_slot, handler, name) == INVALID_PHYSICAL)
             return timm("status", "failed to allocate MSI-X vector");
-        pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], idx);
+        pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], msi_slot);
         int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR]);
-        if (check_idx != idx)
+        if (check_idx != msi_slot)
             return timm("status", "cannot configure virtqueue MSI-X vector");
     } else {
-        thunk t = closure(dev->virtio_dev.general, vtpci_non_msix_interrupt, dev, name, handler);
-        assert(t != INVALID_ADDRESS);
-        pci_setup_non_msi_irq(dev->dev, idx, t, name);
+        vtpci_register_non_msix_queue_handler(dev, handler);
     }
 
     // queue ring
@@ -263,12 +297,41 @@ status vtpci_alloc_virtqueue(vtpci dev,
     return STATUS_OK;
 }
 
+closure_function(3, 0, void, vtpci_config_change_msix_irq,
+                 vtpci, dev, thunk, handler, queue, sched_queue)
+{
+    virtio_pci_debug("%s: dev %p, queueing config change handler %F to queue %p\n",
+                     bound(dev), bound(handler), bound(sched_queue));
+    enqueue(bound(sched_queue), bound(handler));
+}
+
+status vtpci_register_config_change_handler(vtpci dev, thunk handler, queue sched_queue)
+{
+    virtio_pci_debug("%s: dev %p, handler %p (%F), sched_queue %p\n",
+                     __func__, dev, handler, handler, sched_queue);
+    if (dev->msix_enabled) {
+        thunk t = closure(dev->virtio_dev.general, vtpci_config_change_msix_irq, dev, handler, sched_queue);
+        assert(t != INVALID_ADDRESS);
+
+        // XXX vtdev name
+        if (pci_setup_msix(dev->dev, 0, t, "config change") == INVALID_PHYSICAL)
+            return timm("status", "failed to allocate config change MSI-X vector");
+        pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_CONFIG_MSIX_VECTOR], 0);
+        if (pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_CONFIG_MSIX_VECTOR]) != 0)
+            return timm("status", "cannot configure config change MSI-X vector");
+    } else {
+        vtpci_register_non_msix_config_handler(dev, handler, sched_queue);
+    }
+    return STATUS_OK;
+}
+
 static void vtpci_legacy_alloc_resources(vtpci dev)
 {
     dev->regs[VTPCI_REG_DEVICE_STATUS] = VIRTIO_PCI_STATUS;
     dev->regs[VTPCI_REG_QUEUE_SELECT] = VIRTIO_PCI_QUEUE_SEL;
     dev->regs[VTPCI_REG_QUEUE_SIZE] = VIRTIO_PCI_QUEUE_NUM;
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VIRTIO_MSI_QUEUE_VECTOR;
+    dev->regs[VTPCI_REG_CONFIG_MSIX_VECTOR] = VIRTIO_MSI_CONFIG_VECTOR;
     dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
     pci_bar_init(dev->dev, &dev->common_config, 0, 0, -1);
@@ -306,6 +369,7 @@ static void vtpci_modern_alloc_resources(vtpci dev)
     dev->regs[VTPCI_REG_QUEUE_SELECT] = VTPCI_R_QUEUE_SELECT;
     dev->regs[VTPCI_REG_QUEUE_SIZE] = VTPCI_R_QUEUE_SIZE;
     dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR] = VTPCI_R_QUEUE_MSIX_VECTOR;
+    dev->regs[VTPCI_REG_CONFIG_MSIX_VECTOR] = VTPCI_R_CONFIG_MSIX_VECTOR;
     dev->regs[VTPCI_REG_ISR_STATUS] = VIRTIO_PCI_ISR;
 
     // scan PCI capabilities
@@ -373,7 +437,7 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
 
         // write negotiated features
         virtio_dev->features = virtio_dev->dev_features & feature_mask;
-        pci_bar_write_4(&dev->common_config, VIRTIO_PCI_GUEST_FEATURES, virtio_dev->features & feature_mask);
+        pci_bar_write_4(&dev->common_config, VIRTIO_PCI_GUEST_FEATURES, virtio_dev->features);
     }
     virtio_pci_debug("%s: device features 0x%lx, negotiated features 0x%lx\n",
         __func__, virtio_dev->dev_features, virtio_dev->features);
@@ -382,6 +446,9 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
     init_closure(&dev->notify, vtpci_notify, dev);
     dev->virtio_dev.notify = (vtdev_notify)&dev->notify;
     virtio_attach(h, page_allocator, VTIO_TRANSPORT_PCI, virtio_dev);
-
+    dev->non_msix_handler = 0;
+    dev->vq_handlers = 0;
+    dev->config_handler = 0;
+    dev->config_sched_queue = 0;
     return dev;
 }

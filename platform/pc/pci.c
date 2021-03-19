@@ -147,9 +147,9 @@ void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
         out64(b->addr + offset, val);
 }
 
-void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
+void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
 {
-    pci_plat_debug("%s: idx %d, h %F, name %s\n", __func__, idx, h, name);
+    pci_plat_debug("%s: h %F, name %s\n", __func__, h, name);
 
     /* For maximum portability, the GSI should be retrieved via the ACPI _PRT method. */
     unsigned int gsi = pci_cfgread(dev, PCIR_INTERRUPT_LINE, 1);

@@ -16,6 +16,16 @@ u32 vtdev_cfg_read_4(vtdev dev, u64 offset)
     }
 }
 
+void vtdev_cfg_write_4(vtdev dev, u64 offset, u32 value)
+{
+    switch (dev->transport) {
+    case VTIO_TRANSPORT_MMIO:
+        vtmmio_set_u32((vtmmio)dev, VTMMIO_OFFSET_CONFIG + offset, value);
+    case VTIO_TRANSPORT_PCI:
+        pci_bar_write_4(&((vtpci)dev)->device_config, offset, value);
+    }
+}
+
 void vtdev_cfg_read_mem(vtdev dev, void *dest, bytes len)
 {
     switch (dev->transport) {
@@ -53,6 +63,18 @@ status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, queue sched_
         return vtmmio_alloc_virtqueue((vtmmio)dev, name, idx, sched_queue, result);
     case VTIO_TRANSPORT_PCI:
         return vtpci_alloc_virtqueue((vtpci)dev, name, idx, sched_queue, result);
+    default:
+        return timm("status", "unknown transport %d", dev->transport);
+    }
+}
+
+status virtio_register_config_change_handler(vtdev dev, thunk handler, queue sched_queue)
+{
+    switch (dev->transport) {
+    case VTIO_TRANSPORT_MMIO:
+        return timm("status", "not implemented");
+    case VTIO_TRANSPORT_PCI:
+        return vtpci_register_config_change_handler((vtpci)dev, handler, sched_queue);
     default:
         return timm("status", "unknown transport %d", dev->transport);
     }
