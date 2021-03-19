@@ -146,19 +146,18 @@ closure_function(0, 1, void, load_interp_fail,
     halt("read interp failed %v\n", s);
 }
 
-closure_function(3, 4, void, exec_elf_map,
+closure_function(3, 4, u64, exec_elf_map,
                  process, p, kernel_heaps, kh, u32, allowed_flags,
                  u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     kernel_heaps kh = bound(kh);
-    u64 target = vaddr;
     u64 vmflags = 0;
     if (pageflags_is_exec(flags))
         vmflags |= VMAP_FLAG_EXEC;
     if (pageflags_is_writable(flags))
         vmflags |= VMAP_FLAG_WRITABLE;
 
-    range r = irange(target, target + size);
+    range r = irangel(vaddr, size);
     boolean is_bss = paddr == INVALID_PHYSICAL;
     exec_debug("%s: add to vmap: %R vmflags 0x%lx%s\n",
                __func__, r, vmflags, is_bss ? " bss" : "");
@@ -169,10 +168,10 @@ closure_function(3, 4, void, exec_elf_map,
         paddr = allocate_u64((heap)heap_physical(kh), size);
         assert(paddr != INVALID_PHYSICAL);
     }
-    map(target, paddr, size, pageflags_user(flags));
-    if (is_bss) {
-        zero(pointer_from_u64(target), size);
-    }
+    map(vaddr, paddr, size, pageflags_user(flags));
+    if (is_bss)
+        zero(pointer_from_u64(vaddr), size);
+    return vaddr;
 }
 
 closure_function(2, 1, status, load_interp_complete,

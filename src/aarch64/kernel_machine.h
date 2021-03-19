@@ -368,9 +368,6 @@ static inline void frame_set_sp(context f, u64 sp)
             rv;                                                         \
         })
 
-/* vestige from pc land */
-#define vpzero(__v, __p, __y) zero(pointer_from_u64(__v), __y)
-
 /* IPI */
 static inline void machine_halt(void)
 {

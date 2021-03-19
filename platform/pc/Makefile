@@ -1,8 +1,8 @@
 SUBDIR=		boot
 LWIPDIR=	$(VENDORDIR)/lwip
-PROGRAMS=	kernel.img
+PROGRAMS=	kernel.elf
 
-SRCS-kernel.img= \
+SRCS-kernel.elf= \
 	$(CURDIR)/service.c \
 	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
@@ -168,7 +168,7 @@ CFLAGS+=$(INCLUDES)
 # Enable tracing by specifying TRACE=ftrace on command line
 ifeq ($(TRACE),ftrace)
 CFLAGS+= -DCONFIG_FTRACE -pg
-SRCS-kernel.img+= \
+SRCS-kernel.elf+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
 endif
@@ -188,9 +188,10 @@ VDSO_CFLAGS=    -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(SRCDIR) -fPI
 VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(ARCHDIR)/vdso.lds
 VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
+STRIPFLAGS=	-g
 
 DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.img src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS) $(KERNEL)
 CLEANDIRS+=     $(foreach d,output/platform output src src/aws src/hyperv vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src platform,$(OBJDIR)/$d)
 
 msg_vdsogen=    VDSOGEN	$@
@@ -229,7 +230,7 @@ mkfs vdsogen:
 boot:
 	$(Q) $(MAKE) -C boot
 
-kernel: $(PROG-kernel.img) $(OBJDIR)/kernel.dis
+kernel: $(KERNEL) $(OBJDIR)/kernel.dis
 
 target:
 ifeq ($(TARGET),)
@@ -264,7 +265,7 @@ release: mkfs boot kernel
 $(VDSOGEN):
 	@$(MAKE) -C $(ROOTDIR)/tools vdsogen
 
-$(OBJDIR)/kernel.dis: $(PROG-kernel.img)
+$(OBJDIR)/kernel.dis: $(PROG-kernel.elf)
 	$(call cmd,objdump)
 
 $(VDSO_OBJDIR)/%.o: $(VDSO_SRCDIR)/%.c
@@ -277,7 +278,10 @@ $(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
 $(VDSO_OBJDIR)/vdso-image.c: $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
 	$(call cmd,vdsogen)
 
-$(PROG-kernel.img): linker_script $(VDSO_OBJDIR)/vdso-image.c
+$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c
+
+$(KERNEL): $(PROG-kernel.elf)
+	$(call cmd,strip)
 
 $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 	$(call cmd,version)
