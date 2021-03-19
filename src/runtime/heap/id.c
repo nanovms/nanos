@@ -122,7 +122,6 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
     if (bit == INVALID_PHYSICAL)
         return bit;
 
-    r->next_bit = bit;
     i->allocated += pages << page_order(i);
     u64 result = (r->n.r.start + bit) << page_order(i);
     id_debug("allocated bit %ld, range page start %ld, returning 0x%lx\n",
@@ -168,9 +167,6 @@ closure_function(2, 1, void, dealloc_from_range,
         msg_err("heap %p: bitmap dealloc for range %R failed; leaking\n", i, q);
         return;
     }
-
-    if (bit < r->next_bit)
-        r->next_bit = bit;
 
     u64 deallocated = pages << page_order(i);
     assert(i->allocated >= deallocated);
