@@ -100,47 +100,47 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
     foreach_phdr(e, p) {
         ELF_CHECK_PTR(p, Elf64_Phdr);
         if (p->p_type == PT_LOAD) {
-            elf_debug("   PT_LOAD vaddr 0x%lx, offset 0x%lx, ssize 0x%lx\n",
+            elf_debug("   PT_LOAD p_vaddr 0x%lx, p_offset 0x%lx, p_filesz 0x%lx\n",
                       p->p_vaddr, p->p_offset, p->p_filesz);
-            // unaligned segment? doesn't seem useful
-            u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
-            u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
-            u64 vstart = u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG);
-            u64 phy = physical_from_virtual(pointer_from_u64(vstart));
-            int ssize = pad(p->p_filesz + trim_offset, PAGESIZE);
-
             /* determine access permissions */
             pageflags flags = pageflags_memory();
             if (p->p_flags & PF_X)
                 flags = pageflags_exec(flags);
             if (p->p_flags & PF_W)
                 flags = pageflags_writable(flags);
-            apply(mapper, aligned + load_offset, phy, ssize, flags);
 
-            // always zero up to the next aligned page start
+            u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
+            u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
+            u64 src = u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG);
+            u64 phys = physical_from_virtual(pointer_from_u64(src));
             s64 bss_size = p->p_memsz - p->p_filesz;
-            elf_debug("   bss_size 0x%lx\n", bss_size);
-
             if (bss_size < 0)
                 halt("load_elf with p->p_memsz (%ld) < p->p_filesz (%ld)\n",
                      p->p_memsz, p->p_filesz);
-            else if (bss_size == 0)
-                continue;
-
             u64 bss_start = p->p_vaddr + load_offset + p->p_filesz;
+            u64 ssize = p->p_filesz + trim_offset;
 
-            /* Zero bss up to a page boundary. ld-linux may use the unused
-               part of the page after bss and expects it to be zeroed. */
-            u64 initial_len_padded = pad(bss_start, PAGESIZE) - bss_start;
-            elf_debug("   bss_start 0x%lx, initial_len 0x%lx\n", bss_start, initial_len_padded);
+            /* If there is a bss in this segment and it doesn't start on a
+               page boundary, truncate the mapped file data to the page
+               boundary and copy the remainder into the bss mapping. */
+            u64 tail_copy = ssize & MASK(PAGELOG);
+            if (bss_size > 0 && tail_copy != 0)
+                ssize &= ~MASK(PAGELOG);
 
-            /* vpzero does the right thing whether stage2 or 3... */
-            vpzero(pointer_from_u64(bss_start), phy + p->p_filesz, initial_len_padded);
+            elf_debug("      src 0x%lx, phys 0x%lx, bss_size 0x%lx, bss_start 0x%lx\n",
+                      src, phys, bss_size, bss_start);
+            elf_debug("      ssize 0x%lx, tail_copy 0x%lx, flags 0x%lx\n",
+                      ssize, tail_copy, flags);
 
-            if (bss_size > initial_len_padded) {
-                u64 pstart = bss_start + initial_len_padded;
-                u64 psize = pad((bss_size - initial_len_padded), PAGESIZE);
-                apply(mapper, pstart, INVALID_PHYSICAL, psize, flags);
+            if (ssize > 0)
+                apply(mapper, aligned + load_offset, phys, pad(ssize, PAGESIZE), flags);
+
+            if (bss_size > 0) {
+                u64 map_start = bss_start & ~MASK(PAGELOG);
+                u64 va = apply(mapper, map_start, INVALID_PHYSICAL,
+                               pad(tail_copy + bss_size, PAGESIZE), flags);
+                if (tail_copy > 0)
+                    runtime_memcpy(pointer_from_u64(va), pointer_from_u64(src + ssize), tail_copy);
             }
         }
     }

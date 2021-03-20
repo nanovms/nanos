@@ -1,10 +1,9 @@
 /* identity-mapped space for initial page tables */
 #define INITIAL_PAGES_SIZE (64 * KB)
 
-/* the stage2 secondary working heap - this needs to be large enough
-   to accomodate all tfs allocations when loading the kernel - it gets
-   recycled in stage3, so be generous */
-#define STAGE2_WORKING_HEAP_SIZE (128 * MB)
+/* The stage2 working heap needs to be large enough to accomodate all tfs
+   allocations when loading the kernel. It gets recycled on stage3 entry. */
+#define STAGE2_WORKING_HEAP_SIZE (4 * MB)
 
 #define STAGE2_STACK_SIZE  (128 * KB)  /* stage2 stack is recycled, too */
 #define KERNEL_STACK_SIZE  (128 * KB)  /* must match value in crt0.s */

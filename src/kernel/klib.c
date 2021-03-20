@@ -47,7 +47,7 @@ closure_function(1, 1, void, klib_elf_walk,
     klib_debug("%s: kl %s, r %R, load_range %R\n", __func__, kl->name, r, kl->load_range);
 }
 
-closure_function(1, 4, void, klib_elf_map,
+closure_function(1, 4, u64, klib_elf_map,
                  klib, kl,
                  u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
@@ -71,6 +71,7 @@ closure_function(1, 4, void, klib_elf_map,
     map(vaddr, paddr, size, flags);
     if (is_bss)
         zero(pointer_from_u64(vaddr), size);
+    return vaddr;
 }
 
 closure_function(2, 1, status, load_klib_complete,
