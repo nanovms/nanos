@@ -333,19 +333,14 @@ static boolean alloc_subrange_test(heap h)
     }
 
     for (int i = 0; i < pages_remaining; i++) {
-        switch (i) {
-        case 0:
-            expect -= PAGESIZE; /* next fit should pick up last remaining page */
-            break;
-        case 1:
-            expect = SUBRANGE_TEST_MIN; /* should wrap around and pick up skipped page from above */
-            break;
-        default:
-            expect = (15 * PAGESIZE) + 4 * (i - 2) * PAGESIZE;
-        }
+        if (i == 0)
+            expect = SUBRANGE_TEST_MIN; /* should pick up skipped page */
+        else
+            expect = (15 * PAGESIZE) + 4 * (i - 1) * PAGESIZE;
 
         if ((res = allocate_u64((heap)id, PAGESIZE)) != expect) {
-            msg_err("%s: remainder alloc returned 0x%lx, should be 0x%lx\n", __func__, res, expect);
+            msg_err("%s: remainder alloc returned 0x%lx, should be 0x%lx (iter %d)\n",
+                    __func__, res, expect, i);
             return false;
         }
     }
