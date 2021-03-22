@@ -228,7 +228,8 @@ define_closure_function(1, 1, context, default_fault_handler,
 //        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
 //        thread_sleep_uninterruptible();
     }
-    halt("halt\n");
+    /* XXX need a safe, polling storage driver to try to save crash dump here */
+    vm_exit(VM_EXIT_FAULT);
 }
 
 void init_thread_fault_handler(thread t)
