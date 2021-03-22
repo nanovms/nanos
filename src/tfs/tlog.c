@@ -250,6 +250,7 @@ closure_function(4, 1, void, flush_log_extension_complete,
     deallocate_sg_list(bound(sg));
     apply(bound(complete), s);
     refcount_release(&ext->tl->refcount);
+    refcount_release(&ext->refcount);
     if (bound(release))
         close_log_extension(ext);
     closure_finish();
@@ -257,6 +258,7 @@ closure_function(4, 1, void, flush_log_extension_complete,
 
 static void flush_log_extension(log_ext ext, boolean release, status_handler complete)
 {
+    refcount_reserve(&ext->refcount);
     refcount_reserve(&ext->tl->refcount);
     filesystem fs = ext->tl->fs;
     buffer b = ext->staging;
