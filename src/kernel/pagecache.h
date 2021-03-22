@@ -12,9 +12,11 @@ void pagecache_sync_node(pagecache_node pn, status_handler complete);
 
 void pagecache_sync_volume(pagecache_volume pv, status_handler complete);
 
-void *pagecache_get_zero_page();
+void *pagecache_get_zero_page(void);
 
-int pagecache_get_page_order();
+int pagecache_get_page_order(void);
+
+u64 pagecache_get_occupancy(void);
 
 u64 pagecache_drain(u64 drain_bytes);
 

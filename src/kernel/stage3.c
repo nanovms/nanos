@@ -180,7 +180,6 @@ closure_function(3, 0, void, startup,
         rprintf("Debug http server started on port 9090\n");
     }
 #endif
-
     value p = table_find(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));

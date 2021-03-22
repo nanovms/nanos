@@ -11,6 +11,7 @@
    resuming a kernel context is the exception, not the norm. */
 
 static kernel_context spare_kernel_context;
+struct mm_stats mm_stats;
 
 context allocate_frame(heap h)
 {

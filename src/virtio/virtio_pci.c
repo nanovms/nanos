@@ -301,7 +301,7 @@ closure_function(3, 0, void, vtpci_config_change_msix_irq,
                  vtpci, dev, thunk, handler, queue, sched_queue)
 {
     virtio_pci_debug("%s: dev %p, queueing config change handler %F to queue %p\n",
-                     bound(dev), bound(handler), bound(sched_queue));
+                     __func__, bound(dev), bound(handler), bound(sched_queue));
     enqueue(bound(sched_queue), bound(handler));
 }
 
