@@ -113,7 +113,12 @@ void print_root(buffer b, tuple z)
 
 static void format_tuple(buffer dest, struct formatter_state *s, vlist *v)
 {
-    print_tuple(dest, varg(*v, tuple));
+    tuple t = varg(*v, tuple);
+    if (!t) {
+        bprintf(dest, "(none)");
+        return;
+    }
+    print_tuple(dest, t);
 }
 
 static void format_value(buffer dest, struct formatter_state *s, vlist *v)
