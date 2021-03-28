@@ -23,10 +23,10 @@ extern  init_service
 %include "debug.inc"
 %endif
 
-;; CS == 0x8 is kernel mode - no swapgs
+;; 2 least significant bits of CS (CPL) == 0 -> kernel mode - no swapgs
 %macro check_swapgs 1
-        cmp qword [rsp + %1], 0x08
-        je %%skip
+        test qword [rsp + %1], 0x03
+        jz %%skip
         swapgs
 %%skip:
 %endmacro
