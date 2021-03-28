@@ -31,6 +31,7 @@ CFLAGS+=	$(KERNCFLAGS) -DBOOT -DPAGE_USE_FLUSH -fno-pic
 CFLAGS+= \
 	-I$(CURDIR) \
 	-I$(SRCDIR) \
+	-I$(SRCDIR)/boot \
 	-I$(SRCDIR)/tfs \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/kernel \

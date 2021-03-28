@@ -42,12 +42,12 @@ static u64 (*pteaddr_from_pointer)(u64 *p);
 #ifdef BOOT
 static inline u64 *boot_pointer_from_pteaddr(u64 pa)
 {
-    return (u64*)(u32)pa;
+    return pointer_from_u64(pa);
 }
 
 static inline u64 boot_pteaddr_from_pointer(u64 *p)
 {
-    return (u64)(u32)p;
+    return u64_from_pointer(p);
 }
 #else
 static table pt_p2v;
