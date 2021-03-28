@@ -245,35 +245,6 @@ closure_function(0, 1, status, kernel_read_complete,
     halt("failed to start long mode\n");
 }
 
-typedef struct tagged_allocator {
-    struct heap h;
-    u8 tag;
-    heap parent;
-} *tagged_allocator;
-
-static u64 tagged_allocate(heap h, bytes length)
-{
-    tagged_allocator ta = (void *)h;
-    u64 base = allocate_u64(ta->parent, length + 1);
-    return base + 1;    
-}
-
-static void tagged_deallocate(heap h, u64 a, bytes length)
-{
-    tagged_allocator ta = (void *)h;
-    deallocate_u64(ta->parent, a - 1, length + 1);
-}
-
-static heap allocate_tagged_region(heap h, u64 tag)
-{
-    tagged_allocator ta = allocate(h, sizeof(struct tagged_allocator));
-    ta->h.alloc = tagged_allocate;
-    ta->h.dealloc = tagged_deallocate;
-    ta->tag = tag;
-    ta->parent = h;
-    return (heap)ta;
-}
-
 region fsregion()
 {
     for_regions(r) {

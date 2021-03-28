@@ -203,8 +203,12 @@ static inline void bhqueue_enqueue_irqsafe(thunk t)
     irq_restore(flags);
 }
 
+#if !defined(BOOT)
+
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);
 heap locking_heap_wrapper(heap meta, heap parent);
+
+#endif
 
 void print_stack(context c);
 void print_frame(context f);

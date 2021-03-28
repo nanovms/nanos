@@ -110,6 +110,9 @@ typedef struct heap *heap;
 // transient objects shouldnt be shared.
 extern heap transient;
 
+#if defined(BOOT)
+#include <boot.h>
+#endif
 #include <buffer.h>
 
 typedef u64 physical;
