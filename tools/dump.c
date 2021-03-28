@@ -142,7 +142,7 @@ closure_function(3, 2, void, fsc,
     closure_finish();
 }
 
-static u64 get_fs_offset(descriptor fd, int part)
+static u64 get_fs_offset(descriptor fd, int part, boolean by_index)
 {
     char buf[512];
 
@@ -152,7 +152,8 @@ static u64 get_fs_offset(descriptor fd, int part)
 	exit(EXIT_FAILURE);
     }
 
-    struct partition_entry *rootfs_part = partition_get(buf, part);
+    struct partition_entry *rootfs_part =
+            (by_index ? partition_at(buf, part) : partition_get(buf, part));
 
     if (!rootfs_part || rootfs_part->lba_start == 0 ||
             rootfs_part->nsectors == 0) {
@@ -169,12 +170,12 @@ static void dump_klog(int fd)
 {
     u64 i, off;
 
-    off = get_fs_offset(fd, PARTITION_BOOTFS);
+    off = get_fs_offset(fd, 0, true);
     if (off == 0) {
         fprintf(stderr, "no boot filesystem found\n");
         exit(EXIT_FAILURE);
     }
-    /* The klog ends at the bootfs offset, but has a configurable size,
+    /* The klog ends at the start of the first partition, but has a configurable size,
      * so work backwards from the end to find the start magic
      */
     for (i = off - SECTOR_SIZE; i > 0; i -= SECTOR_SIZE) {
@@ -255,7 +256,7 @@ int main(int argc, char **argv)
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,
-                      closure(h, bread, fd, get_fs_offset(fd, PARTITION_ROOTFS)),
+                      closure(h, bread, fd, get_fs_offset(fd, PARTITION_ROOTFS, false)),
                       0, /* no write */
                       false,
                       closure(h, fsc, h, target_dir, options));
