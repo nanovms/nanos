@@ -8,6 +8,7 @@ struct partition_entry {
 } __attribute__((packed));
 
 enum partition {
+    PARTITION_UEFI,
     PARTITION_BOOTFS,
     PARTITION_ROOTFS,
 };
@@ -21,13 +22,22 @@ enum partition {
 
 #define VOLUME_LABEL_MAX_LEN    32  /* null-terminated string */
 
-#define partition_get(mbr, index)    ({ \
+#define partition_at(mbr, index)                                            \
+    (struct partition_entry *)(u64_from_pointer(mbr) + SECTOR_SIZE - 2 -    \
+            (4 - (index)) * sizeof(struct partition_entry))
+
+#define partition_get(mbr, part)    ({  \
     u16 *mbr_sig = (u16 *)((u64)(mbr) + SECTOR_SIZE - sizeof(*mbr_sig));  \
     struct partition_entry *e;  \
-    if (*mbr_sig == 0xaa55) \
-        e = (struct partition_entry *)(((void *)mbr_sig) -  \
-                (4 - (index)) * sizeof(struct partition_entry));    \
-    else    \
+    if (*mbr_sig == 0xaa55) {   \
+        struct partition_entry *first = (struct partition_entry *)(((void *)mbr_sig) -  \
+                4 * sizeof(struct partition_entry));    \
+        boolean uefi = (first->type == 0xEF);   \
+        if (((part) == PARTITION_UEFI) && !uefi)    \
+            e = 0;  \
+        else    \
+            e = (uefi ? (first + (part)) : (first + (part) - 1));   \
+    } else  \
         e = 0;  \
     e;  \
 })

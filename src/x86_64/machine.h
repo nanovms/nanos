@@ -1,5 +1,11 @@
 #ifdef BOOT
+
+#if !defined(UEFI)
 #include <def32.h>
+#else
+#include <def64.h>
+#endif
+
 #else
 /* kernel or userland */
 #include <def64.h>

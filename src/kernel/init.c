@@ -206,9 +206,9 @@ closure_function(4, 1, void, mbr_read,
             init_debug("unformatted storage device, ignoring");
         deallocate(heap_locked(init_heaps), mbr, SECTOR_SIZE);
     } else {
-        /* The on-disk kernel log dump section is immediately before the boot FS partition. */
-        struct partition_entry *bootfs_part = partition_get(mbr, PARTITION_BOOTFS);
-        klog_disk_setup(bootfs_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
+        /* The on-disk kernel log dump section is immediately before the first partition. */
+        struct partition_entry *first_part = partition_at(mbr, 0);
+        klog_disk_setup(first_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
 
         rootfs_init(mbr, rootfs_part->lba_start * SECTOR_SIZE,
                     bound(r), bound(w), bound(length));

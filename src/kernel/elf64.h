@@ -167,12 +167,37 @@ typedef struct {
 typedef struct {
     Elf64_Addr r_offset;
     Elf64_Xword r_info;
+} Elf64_Rel;
+
+typedef struct {
+    Elf64_Addr r_offset;
+    Elf64_Xword r_info;
     Elf64_Sxword r_addend;
 } Elf64_Rela;
 
 /* Macros for accessing r_info. */
 #define ELF64_R_SYM(i)  ((i) >> 32)
 #define ELF64_R_TYPE(i) ((i) & 0xffffffff)
+
+typedef struct {
+    Elf64_Sxword d_tag;
+    union {
+        Elf64_Xword d_val;
+        Elf64_Addr d_ptr;
+    } d_un;
+} Elf64_Dyn;
+
+/* d_tag (dynamic entry type) values */
+#define DT_NULL     0
+#define DT_NEEDED   1
+#define DT_PLTRELSZ 2
+#define DT_PLTGOT   3
+#define DT_HASH     4
+#define DT_STRTAB   5
+#define DT_SYMTAB   6
+#define DT_RELA     7
+#define DT_RELASZ   8
+#define DT_RELAENT  9
 
 #define SHT_SYMTAB 2/* symbol table section */
 #define SHT_STRTAB 3/* string table section */
