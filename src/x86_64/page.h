@@ -170,11 +170,16 @@ void dump_ptes(void *x);
 
 static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
 {
-    /* proc configured to trap on not writeable only when in cpl 3 */
     assert((v & MASK(PAGELOG)) == 0);
     assert((p & MASK(PAGELOG)) == 0);
-    map(v, p, length, flags);
-    zero(pointer_from_u64(v), length);
+    if (pageflags_is_readonly(flags)) {
+        map(v, p, length, pageflags_writable(flags));
+        zero(pointer_from_u64(v), length);
+        update_map_flags(v, length, flags);
+    } else {
+        map(v, p, length, flags);
+        zero(pointer_from_u64(v), length);
+    }
 }
 
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,

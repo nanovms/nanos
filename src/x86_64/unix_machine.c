@@ -39,8 +39,9 @@ void init_vsyscall(heap phys)
     /* build vsyscall vectors */
     u64 p = allocate_u64(phys, PAGESIZE);
     assert(p != INVALID_PHYSICAL);
-    map(VSYSCALL_BASE, p, PAGESIZE,
-        pageflags_user(pageflags_readonly(pageflags_exec(pageflags_memory()))));
+    pageflags flags = pageflags_user(pageflags_writable(pageflags_exec(pageflags_memory())));
+    map(VSYSCALL_BASE, p, PAGESIZE, flags);
+
     buffer b = alloca_wrap_buffer(pointer_from_u64(VSYSCALL_BASE), PAGESIZE);
     b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
     mov_64_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
@@ -53,12 +54,13 @@ void init_vsyscall(heap phys)
     b->end = VSYSCALL_OFFSET_VGETCPU;
     mov_64_imm(b, 0, u64_from_pointer(vsyscall_getcpu));
     jump_indirect(b, 0);
+    update_map_flags(VSYSCALL_BASE, PAGESIZE, pageflags_readonly(flags));
 
     /* allow user execution for vsyscall pages */
     u64 vs = u64_from_pointer(&vsyscall_start);
     u64 ve = u64_from_pointer(&vsyscall_end);
     u64 len = pad(ve - vs, PAGESIZE);
-    pageflags flags = pageflags_user(pageflags_readonly(pageflags_exec(pageflags_memory())));
+    flags = pageflags_user(pageflags_readonly(pageflags_exec(pageflags_memory())));
     update_map_flags(vs, len, flags);
 }
 

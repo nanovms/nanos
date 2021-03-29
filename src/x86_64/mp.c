@@ -29,7 +29,7 @@ void cpu_init(int cpu)
     cr |= CR4_PGE | CR4_OSFXSR | CR4_OSXMMEXCPT;
     mov_to_cr("cr4", cr);
     mov_from_cr("cr0", cr);
-    cr |= C0_MP;
+    cr |= C0_MP | C0_WP;
     cr &= ~C0_EM;
     mov_to_cr("cr0", cr);
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
