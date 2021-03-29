@@ -148,6 +148,7 @@ struct pvscsi_ring_cmp_desc {
 	MAX(PVSCSI_MAX_REQ_QUEUE_DEPTH, PVSCSI_MAX_CMP_QUEUE_DEPTH)
 
 #define BTSTAT_SUCCESS 0
+#define BTSTAT_DATARUN 0x12
 
 #define MAX_LUN 1
 

@@ -33,7 +33,7 @@ u64 pci_bar_size(pci_dev dev, struct pci_bar *b, int bar)
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length)
 {
     pci_debug("%s: bus %d, slot %d, function %d, bar %d, offset 0x%lx, length 0x%lx\n",
-              dev->bus, dev->slot, dev->function, bar, offset, length);
+              __func__, dev->bus, dev->slot, dev->function, bar, offset, length);
     pci_platform_init_bar(dev, bar);
     u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
     pci_debug("   base 0x%x\n", base);
@@ -50,8 +50,8 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         pci_debug("   i/o: addr 0x%x\n", b->addr);
     }
     b->size = pci_bar_size(dev, b, bar);
-    pci_debug("%s: bar %d: type %d, addr 0x%lx, size 0x%lx, flags 0x%x\n",
-              __func__, bar, b->type, b->addr, b->size, b->flags);
+    pci_debug("   bar %d: type %d, addr 0x%lx, size 0x%lx, flags 0x%x\n",
+              bar, b->type, b->addr, b->size, b->flags);
 
     if (b->type == PCI_BAR_MEMORY) {
         // map memory
@@ -61,7 +61,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         b->vlen = pad(length, PAGESIZE);
         b->vaddr = allocate_u64(virtual_page, b->vlen);
         assert(b->vaddr != INVALID_PHYSICAL);
-        pci_debug("%s: 0x%lx[0x%x] -> 0x%lx[0x%lx]+0x%x\n", __func__, b->vaddr,
+        pci_debug("   0x%lx[0x%x] -> 0x%lx[0x%lx]+0x%x\n", b->vaddr,
                   b->vlen, b->addr, b->size, offset);
         u64 pa = b->addr + offset;
         map(u64_from_pointer(b->vaddr), pa & ~PAGEMASK, b->vlen, pageflags_writable(pageflags_device()));
