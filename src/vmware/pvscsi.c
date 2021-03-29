@@ -135,11 +135,11 @@ static void pvscsi_action_io_queued(pvscsi dev, struct pvscsi_hcb *hcb, u16 targ
         spin_unlock(&dev->queue_lock);
         return;
     }
-    spin_unlock(&dev->queue_lock);
 
     if (!pvscsi_action_io(dev, hcb)) {
         list_push_back(&dev->hcb_queue, &hcb->links);
     }
+    spin_unlock(&dev->queue_lock);
 }
 
 static inline void pvscsi_action(pvscsi dev, struct pvscsi_hcb *hcb, u16 target, u16 lun)
