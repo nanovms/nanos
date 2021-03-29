@@ -1,0 +1,138 @@
+The physical memory footprint of a Nanos instance can be managed through the
+use of a balloon driver. Here are some quick notes to get the virtio-balloon
+device up and running under Nanos.
+
+The virtio balloon driver is built into the Nanos kernel by default. When
+starting qemu, enable the device by specifying "-device virtio-balloon-pci"
+(or ENABLE_BALLOON=1 on the commandline if booting via make).
+
+To manually manage the balloon properties and inspect memory statistics
+reported through the balloon "statsq", enable the QEMU Machine Protocol (QMP)
+interface by specifying "-qmp unix:qmp-sock,server,nowait" if using a unix
+socket interface (which we'll use in the example below) or "-qmp
+tcp:localhost:<port>,server,nowait" if using the telnet interface. Specifying
+ENABLE_QMP=1 on the commandline will invoke qemu with the former option.
+
+The following example will use the "qmp-shell" utility provided with qemu. You
+can find it in scripts/qmp/qmp-shell in the qemu source tree. You may need to
+first install the prerequisite qemu python package (in python/qemu). Or you
+may wish to forego qmp-shell and instead use the aforementioned telnet
+interface - see docs/virtio-balloon-stats.txt in the QEMU tree.
+
+First run webg on Nanos with virtio-balloon and QMP enabled:
+
+   $ make ENABLE_BALLOON=1 ENABLE_QMP=1 TARGET=webg run
+
+   [...]
+   en1: assigned 10.0.2.15
+   Server started on port 8080
+
+Then start qmp-shell:
+
+   $ qmp-shell ./qmp-sock
+   Welcome to the QMP low-level shell!
+   Connected to QEMU 3.1.0
+
+   (QEMU)
+
+Query the balloon device:
+
+   (QEMU) query-balloon
+   {"return": {"actual": 2147483648}}
+
+This reports the entire 2GB allocated for the VM on initialization, as the
+balloon is currently empty. Before we inflate the balloon, let's instruct QEMU
+to begin polling for memory stats from the balloon device.
+
+First validate the path of the virtio-balloon device:
+
+   (QEMU) qom-list path=/machine/peripheral-anon/
+
+   {"return": [{"name": "type", "type": "string"}, {"name": "device[0]",
+   "type": "child<virtio-balloon-pci>"}, {"name": " device[1]", "type":
+   "child<scsi-hd>"}, {"name": "device[2]", "type": "child<isa-debug-exit>"},
+   {"name": "device[3]", " type": "child<virtio-net-pci>"}]}
+
+Here we see the path is "/machine/peripheral-anon/device[0]". Now enable
+polling at 2 second intervals:
+
+   (QEMU) qom-set path=/machine/peripheral-anon/device[0] \
+   property=guest-stats-polling-interval value=2
+
+And let's see a snapshot of the latest stats:
+
+   (QEMU) qom-get path=/machine/peripheral-anon/device[0] property=guest-stats
+
+   {"return": {"stats": {"stat-htlb-pgalloc": 0, "stat-swap-out": 0,
+   "stat-available-memory": 2053791744, "stat-htlb-pgf ail": 0,
+   "stat-free-memory": 2053791744, "stat-minor-faults": 212,
+   "stat-major-faults": 22, "stat-total-memory": 2139226112, "stat-swap-in":
+   0, "stat-disk-caches": 9216000}, "last-update": 1616532297}}
+
+Now let's alter the balloon value and look at the effects:
+
+   (QEMU) balloon value=1000000000
+   {"return": {}}
+   (QEMU) qom-get path=/machine/peripheral-anon/device[0] property=guest-stats
+   {"return": {"stats": {"stat-htlb-pgalloc": 0, "stat-swap-out": 0,
+   "stat-available-memory": 902307840, "stat-htlb-pgfa il": 0,
+   "stat-free-memory": 902307840, "stat-minor-faults": 212,
+   "stat-major-faults": 22, "stat-total-memory": 2139226112, "stat-swap-in":
+   0, "stat-disk-caches": 9216000}, "last-update": 1616532413}}
+
+We can see here that the available / free memory shrank accordingly. If we set
+the balloon value back to its original value, we should see the effects of the
+balloon deflating:
+
+   (QEMU) balloon value=2147483648
+   {"return": {}}
+
+   (QEMU) qom-get path=/machine/peripheral-anon/device[0] property=guest-stats
+   {"return": {"stats": {"stat-htlb-pgalloc": 0, "stat-swap-out": 0,
+   "stat-available-memory": 2051547136, "stat-htlb-pgf ail": 0,
+   "stat-free-memory": 2051547136, "stat-minor-faults": 212,
+   "stat-major-faults": 22, "stat-total-memory": 2139226112, "stat-swap-in":
+   0, "stat-disk-caches": 9216000}, "last-update": 1616532581}}
+
+The available memory is back to the original value, save for some balloon page
+structures which have been cached in the virtio_balloon driver.
+
+Let's try something more aggressive:
+
+   (QEMU) balloon value=1
+   {"return": {}}
+   (QEMU) query-balloon
+   {"return": {"actual": 115343360}}
+   (QEMU) qom-get path=/machine/peripheral-anon/device[0] property=guest-stats
+   {"return": {"stats": {"stat-htlb-pgalloc": 0, "stat-swap-out": 0,
+   "stat-available-memory": 17760256, "stat-htlb-pgfai l": 0,
+   "stat-free-memory": 17760256, "stat-minor-faults": 214,
+   "stat-major-faults": 20, "stat-total-memory": 2139226112, "stat-swap-in":
+   0, "stat-disk-caches": 1384448}, "last-update": 1616533279}}
+
+The balloon is now inflated to the maximum extent, save for a minimum amount
+of free memory as defined by BALLOON_MEMORY_MINIMUM in src/config.h.
+
+If we apply some pressure on the memory system by sending web requests, we can
+see the effects of Nanos deflating the balloon to maintain a minimum amount of
+free memory:
+
+   $ ab -n 1000 -c 100 http://127.0.0.1:8080/
+   [...]
+
+   (QEMU) query-balloon
+   {"return": {"actual": 121634816}}
+   (QEMU) qom-get path=/machine/peripheral-anon/device[0] property=guest-stats
+   {"return": {"stats": {"stat-htlb-pgalloc": 0, "stat-swap-out": 0,
+   "stat-available-memory": 18685952, "stat-htlb-pgfai l": 0,
+   "stat-free-memory": 18685952, "stat-minor-faults": 1009,
+   "stat-major-faults": 20, "stat-total-memory": 2139226112, "stat-swap-in":
+   0, "stat-disk-caches": 1384448}, "last-update": 1616533311}}
+
+Note the increase in "actual" memory to maintain BALLOON_DEFLATE_THRESHOLD
+amount of free memory.
+
+Related links:
+
+https://wiki.qemu.org/Documentation/QMP
+https://github.com/qemu/qemu/blob/master/docs/virtio-balloon-stats.txt

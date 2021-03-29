@@ -293,4 +293,5 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_virtio_network(kh);
     init_virtio_blk(kh, sa);
     init_virtio_scsi(kh, sa);
+    init_virtio_balloon(kh);
 }

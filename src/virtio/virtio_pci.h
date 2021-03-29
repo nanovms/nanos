@@ -44,6 +44,7 @@ enum {
     VTPCI_REG_QUEUE_SELECT,
     VTPCI_REG_QUEUE_SIZE,
     VTPCI_REG_QUEUE_MSIX_VECTOR,
+    VTPCI_REG_CONFIG_MSIX_VECTOR,
     VTPCI_REG_ISR_STATUS,
     VTPCI_REG_MAX
 };
@@ -67,8 +68,11 @@ struct vtpci {
 
     closure_struct(vtpci_notify, notify);
 
-    int vtpci_nvqs;
-    struct virtqueue *vtpci_vqs;
+    /* for non-MSIX */
+    thunk non_msix_handler;
+    vector vq_handlers;         /* queue handler thunks */
+    thunk config_handler;
+    queue config_sched_queue;
 };
 
 /* VirtIO ABI version, this must match exactly. */
@@ -92,6 +96,7 @@ struct vtpci {
 boolean vtpci_probe(pci_dev d, int virtio_dev_id);
 vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_mask);
 status vtpci_alloc_virtqueue(vtpci dev, const char *name, int idx, queue sched_queue, struct virtqueue **result);
+status vtpci_register_config_change_handler(vtpci dev, thunk handler, queue sched_queue);
 void vtpci_set_status(vtpci dev, u8 status);
 boolean vtpci_is_modern(vtpci dev);
 

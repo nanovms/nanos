@@ -34,6 +34,14 @@ typedef struct cpuinfo {
 
 extern struct cpuinfo cpuinfos[];
 
+/* subsume with introspection */
+struct mm_stats {
+    word minor_faults;
+    word major_faults;
+};
+
+extern struct mm_stats mm_stats;
+
 static inline cpuinfo cpuinfo_from_id(int cpu)
 {
     assert(cpu >= 0 && cpu < MAX_CPUS);
@@ -85,6 +93,16 @@ static inline __attribute__((always_inline)) context frame_from_kernel_context(k
 static inline __attribute__((always_inline)) void *stack_from_kernel_context(kernel_context c)
 {
     return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
+}
+
+static inline void count_minor_fault(void)
+{
+    fetch_and_add(&mm_stats.minor_faults, 1);
+}
+
+static inline void count_major_fault(void)
+{
+    fetch_and_add(&mm_stats.major_faults, 1);
 }
 
 void runloop_internal() __attribute__((noreturn));
@@ -218,6 +236,9 @@ boolean kern_try_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
 void mm_service(void);
+
+typedef closure_type(balloon_deflater, u64, u64);
+void mm_register_balloon_deflater(balloon_deflater deflater);
 
 kernel_heaps get_kernel_heaps(void);
 

@@ -76,6 +76,7 @@ typedef struct vtdev {
 } *vtdev;
 
 u32 vtdev_cfg_read_4(vtdev dev, u64 offset);
+void vtdev_cfg_write_4(vtdev dev, u64 offset, u32 value);
 void vtdev_cfg_read_mem(vtdev dev, void *dest, bytes len);
 void vtdev_set_status(vtdev dev, u8 status);
 
@@ -94,6 +95,7 @@ static inline void virtio_attach(heap h, backed_heap page_allocator,
 
 status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, queue sched_queue,
                               struct virtqueue **result);
+status virtio_register_config_change_handler(vtdev dev, thunk handler, queue sched_queue);
 
 status virtqueue_alloc(vtdev dev,
                        const char *name,

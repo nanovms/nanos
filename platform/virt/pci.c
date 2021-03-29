@@ -97,12 +97,11 @@ MK_PCI_BAR_WRITE(1, 8)
 MK_PCI_BAR_WRITE(2, 16)
 MK_PCI_BAR_WRITE(4, 32)
 
-void pci_setup_non_msi_irq(pci_dev dev, int idx, thunk h, const char *name)
+void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
 {
     /* queue index ignored; virtio ints are shared */
     u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % VIRT_PCIE_IRQ_NUM);
-    pci_plat_debug("%s: dev %p, idx %d, irq %d, handler %F, name %s\n",
-                   __func__, dev, idx, v, h, name);
+    pci_plat_debug("%s: dev %p, irq %d, handler %F, name %s\n", __func__, dev, v, h, name);
     register_interrupt(v, h, name);
 }
 

@@ -92,6 +92,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         }
 
         map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, pageflags_from_vmflags(vm->flags));
+        count_minor_fault();
     } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
         u64 page_addr = vaddr & ~PAGEMASK;
         u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
@@ -131,6 +132,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                                true /* complete on bhqueue */);
             if (kernel_demand_page_completed) {
                 pf_debug("   immediate completion\n");
+                count_minor_fault();
                 return true;
             }
             faulting_kernel_context = suspend_kernel_context();
@@ -140,6 +142,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
                page, but we can't allocate anything, fill a page or start a storage operation. */
             if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags)) {
                 pf_debug("   immediate completion\n");
+                count_minor_fault();
                 return true;
             }
 
@@ -151,6 +154,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
             init_closure(&t->demand_file_page_complete, thread_demand_file_page_complete, t, frame, vaddr);
             enqueue(runqueue, &t->demand_file_page);
         }
+        count_major_fault();
 
         /* suspending */
         context f = frame_from_kernel_context(get_kernel_context(ci));

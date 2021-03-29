@@ -1268,9 +1268,14 @@ void *pagecache_get_zero_page(void)
     return global_pagecache->zero_page;
 }
 
-int pagecache_get_page_order()
+int pagecache_get_page_order(void)
 {
     return global_pagecache->page_order;
+}
+
+u64 pagecache_get_occupancy(void)
+{
+    return global_pagecache->total_pages << pagecache_get_page_order();
 }
 
 pagecache_volume pagecache_allocate_volume(u64 length, int block_order)

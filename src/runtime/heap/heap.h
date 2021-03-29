@@ -22,6 +22,11 @@ static inline u64 heap_total(heap h)
     return h->total ? h->total(h) : INVALID_PHYSICAL;
 }
 
+static inline u64 heap_free(heap h)
+{
+    return heap_total(h) - heap_allocated(h);
+}
+
 heap wrap_freelist(heap meta, heap parent, bytes size);
 heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize);
 boolean objcache_validate(heap h);
