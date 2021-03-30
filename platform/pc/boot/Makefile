@@ -128,7 +128,7 @@ CFLAGS+=	-target i386-elf
 CFLAGS-uefi+=	-target x86_64-elf
 LD=		x86_64-elf-ld
 STRIP=		x86_64-elf-strip
-OBJCOPY=	/usr/local/opt/binutils/bin/objcopy
+OBJCOPY=	x86_64-elf-objcopy
 SIZE_CMD=	stat -f %z
 else
 LD=		$(CROSS_COMPILE)ld
@@ -147,7 +147,7 @@ msg_uefi_ld=    LD	$@
 cmd_uefi_ld=    $(LD) $(LDLAGS-uefi) $(OBJS-uefi) -o $@
 
 msg_uefi_objcopy=    OBJCOPY	$(OBJDIR)/bootx64.efi
-cmd_uefi_objcopy=    $(OBJCOPY) -j .text -j .sdata -j .data -j .dynamic -j .dynsym  -j .rel -j .rela -j .rel.* -j .rela.* -j .rel* -j .rela* -j .reloc --target efi-app-x86_64 --subsystem=10 $< $@
+cmd_uefi_objcopy=    $(OBJCOPY) -j .text -j .sdata -j .data -j .dynamic -j .dynsym  -j .rel -j .rela -j .rel.* -j .rela.* -j .rel* -j .rela* -j .reloc --target pei-x86-64 --subsystem=10 $< $@
 
 $(OBJDIR-uefi)/x86_64/uefi-crt0.o:	$(SRCDIR)/x86_64/uefi-crt0.s
 	$(call cmd,uefi_as)

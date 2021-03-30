@@ -56,8 +56,7 @@ jobs:
       - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
       - run: brew update && brew install nasm go wget qemu ent
       - run: brew tap nanovms/homebrew-x86_64-elf
-      - run: brew install binutils
-      - run: brew install x86_64-elf-binutils
+      - run: brew install nanovms/x86_64-elf/x86_64-elf-binutils
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xfvz target-root.tar.gz
       - run: curl https://ops.city/get.sh -sSfL | sh
       - run:
@@ -77,8 +76,7 @@ jobs:
       - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
       - run: brew update && brew install nasm go wget ent
       - run: brew tap nanovms/homebrew-x86_64-elf
-      - run: brew install binutils
-      - run: brew install x86_64-elf-binutils
+      - run: brew install nanovms/x86_64-elf/x86_64-elf-binutils
       - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
       - run:
           name: macbuild
@@ -154,8 +152,7 @@ workflows:
   version: 2
   commit-workflow:
     jobs:
-      - build-pc
-      - build-virt
+      - build-mac
   nightly:
     triggers:
       - schedule:
