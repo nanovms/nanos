@@ -162,13 +162,14 @@ typedef struct flush_entry *flush_entry;
 // value is a pointer that we can meaningfully inquire about the type of 
 typedef void *value;
 
-// try not to go crazy here
-#define tag_unknown (0ull)
-#define tag_symbol (1ull)
-#define tag_tuple (2ull)
-#define tag_string (3ull)
-#define tag_buffer_promise (4ull) //?
-#define tag_max (5ull)
+/* We practically have 8 bits to work with for x86_64 and aarch64, but try to
+   be conservative in allocating these. */
+#define tag_unknown        (0ull) /* untyped */
+#define tag_string         (1ull) /* buffer of utf-encoded characters */
+#define tag_symbol         (2ull) /* struct symbol */
+#define tag_tuple          (3ull) /* table-based tuple */
+#define tag_function_tuple (4ull) /* backed tuple; struct function_tuple */
+#define tag_max            (5ull)
 
 #include <symbol.h>
 

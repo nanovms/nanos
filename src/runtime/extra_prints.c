@@ -54,27 +54,48 @@ void print_csum_buffer(buffer s, buffer b)
     bprintf(s, "%lx", csum);
 }
 
-void print_tuple(buffer b, tuple z)
+static void print_tuple_internal(buffer b, tuple t, table visited);
+
+closure_function(3, 2, void, _value_handler,
+                 buffer, b, boolean *, sub, table, visited,
+                 symbol, a, value, v)
 {
-    table t = valueof(z);
+    if (*bound(sub))
+        push_character(bound(b), ' ');
+    bprintf(bound(b), "%b:", symbol_string((symbol)a));
+
+    /* this should be "print_value" */
+    if (is_tuple(v)) {
+        if (table_find(bound(visited), v)) {
+            bprintf(bound(b), "<visited>");
+        } else {
+            table_set(bound(visited), v, (void *)1);
+            print_tuple_internal(bound(b), v, bound(visited));
+        }
+    } else {
+        bprintf(bound(b), "%b", v);
+    }
+    *bound(sub) = true;
+}
+
+static void print_tuple_internal(buffer b, tuple t, table visited)
+{
     boolean sub = false;
     bprintf(b, "(");
-    table_foreach(t, n, v) {
-        if (sub) {
-            push_character(b, ' ');
-        }
-        bprintf(b, "%b:", symbol_string((symbol)n));
-        // xxx print value
-        if (tagof(v) == tag_tuple) {
-            print_tuple(b, v);
-        } else {
-            bprintf(b, "%b", v);
-        }
-        sub = true;
-    }
+    iterate(t, stack_closure(_value_handler, b, &sub, visited));
     bprintf(b, ")");
 }
 
+void print_tuple(buffer b, tuple t)
+{
+    // XXX need an alloca heap
+    table visited = allocate_table(transient, identity_key, pointer_equal);
+    assert(visited != INVALID_ADDRESS);
+    print_tuple_internal(b, t, visited);
+    deallocate_table(visited);
+}
+
+// XXX iterate, or replace?
 // copied from print_tuple()
 static void _print_root(buffer b, tuple z, int indent, boolean is_children)
 {

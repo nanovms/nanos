@@ -127,7 +127,7 @@ static inline void virt_shutdown(u64 code)
 {
     if (root_fs) {
         tuple root = filesystem_getroot(root_fs);
-        if (root && !table_find(root, sym(psci)))
+        if (root && !get(root, sym(psci)))
             angel_shutdown(code);
 
     }
@@ -156,7 +156,7 @@ void vm_exit(u8 code)
 #if 0
     /* TODO MP: coordinate via IPIs */
     tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
-    if (root && table_find(root, sym(reboot_on_exit))) {
+    if (root && get(root, sym(reboot_on_exit))) {
         triple_fault();
     } else {
         QEMU_HALT(code);

@@ -50,12 +50,12 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     s += PROCESS_STACK_SIZE >> 3;
 
     // argv ASCIIZ strings
-    vector arguments = vector_from_tuple(transient, table_find(process_root, sym(arguments)));
+    vector arguments = vector_from_tuple(transient, get(process_root, sym(arguments)));
     if (!arguments)
         arguments = allocate_vector(transient, 1);
 
     if (vector_length(arguments) == 0) {
-        value p = table_find(process_root, sym(program));
+        value p = get(process_root, sym(program));
         assert(p);
         vector_push(arguments, p);
     }
@@ -79,7 +79,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     deallocate_vector(arguments);
 
     // envp ASCIIZ strings
-    tuple environment = table_find(process_root, sym(environment));
+    tuple environment = get(process_root, sym(environment));
     int envc = table_elements(environment);
     char **envp = stack_allocate(envc * sizeof(u64));
     envc = 0;
@@ -130,7 +130,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 void start_process(thread t, void *start)
 {
     t->default_frame[SYSCALL_FRAME_PC] = u64_from_pointer(start);
-    if (table_find(t->p->process_root, sym(gdb))) {
+    if (get(t->p->process_root, sym(gdb))) {
         rputs("TODO: in-kernel gdb needs revisiting\n");
 //        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
     } else {
@@ -266,7 +266,7 @@ process exec_elf(buffer ex, process kp)
     //current_cpu()->current_thread = (nanos_thread)t;
     build_exec_stack(proc, t, e, entry, load_range.start, root, aslr);
 
-    if (table_find(proc->process_root, sym(ingest_program_symbols))) {
+    if (get(proc->process_root, sym(ingest_program_symbols))) {
         exec_debug("ingesting symbols...\n");
         add_elf_syms(ex, load_offset);
         exec_debug("...done\n");

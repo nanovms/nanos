@@ -30,6 +30,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/log.c \
+	$(SRCDIR)/kernel/management.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/pvclock.c \

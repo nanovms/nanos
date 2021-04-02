@@ -154,7 +154,7 @@ void vm_exit(u8 code)
 
     /* TODO MP: coordinate via IPIs */
     tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
-    if (root && table_find(root, sym(reboot_on_exit))) {
+    if (root && get(root, sym(reboot_on_exit))) {
         triple_fault();
     } else if (vm_halt) {
         apply(vm_halt, code);

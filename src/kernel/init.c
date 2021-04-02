@@ -73,15 +73,15 @@ closure_function(3, 2, void, fsstarted,
     tuple root = filesystem_getroot(fs);
     root_fs = fs;
     storage_set_root_fs(fs);
-    tuple mounts = table_find(root, sym(mounts));
+    tuple mounts = get(root, sym(mounts));
     if (mounts && (tagof(mounts) == tag_tuple))
         storage_set_mountpoints(mounts);
-    value klibs = table_find(root, sym(klibs));
+    value klibs = get(root, sym(klibs));
     boolean klibs_in_bootfs = klibs && tagof(klibs) != tag_tuple &&
         buffer_compare_with_cstring(klibs, "bootfs");
 
     if (mbr) {
-        boolean ingest_kernel_syms = table_find(root, sym(ingest_kernel_symbols)) != 0;
+        boolean ingest_kernel_syms = get(root, sym(ingest_kernel_symbols)) != 0;
         struct partition_entry *bootfs_part;
         if ((ingest_kernel_syms || klibs_in_bootfs) &&
             (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
@@ -102,7 +102,7 @@ closure_function(3, 2, void, fsstarted,
     enqueue(runqueue, create_init(init_heaps, root, fs));
     closure_finish();
     symbol booted = sym(booted);
-    if (!table_find(root, booted))
+    if (!get(root, booted))
         filesystem_write_eav(fs, root, booted, null_value);
     config_console(root);
 }
@@ -161,13 +161,13 @@ KLIB_EXPORT(get_root_tuple);
 
 tuple get_environment(void)
 {
-    return table_find(filesystem_getroot(root_fs), sym(environment));
+    return get(filesystem_getroot(root_fs), sym(environment));
 }
 KLIB_EXPORT(get_environment);
 
 boolean first_boot(void)
 {
-    return !table_find(filesystem_getroot(root_fs), sym(booted));
+    return !get(filesystem_getroot(root_fs), sym(booted));
 }
 KLIB_EXPORT(first_boot);
 

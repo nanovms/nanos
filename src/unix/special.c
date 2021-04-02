@@ -116,7 +116,7 @@ void register_special_files(process p)
             assert(resolve_cstring(0, p->cwd, "/proc/self", &proc_self, 0) == 0);
         }
         assert(proc_self);
-        value program = table_find(p->process_root, sym(program));
+        value program = get(p->process_root, sym(program));
         assert(program);
         buffer b = allocate_buffer(h, buffer_length(program) + 2);
         assert(b != INVALID_ADDRESS);

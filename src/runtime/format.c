@@ -172,7 +172,7 @@ KLIB_EXPORT(rsnprintf);
 void rprintf(const char *format, ...)
 {
     /* What's a reasonable limit here? This needs to be reentrant. */
-    buffer b = little_stack_buffer(1024);
+    buffer b = little_stack_buffer(32768);
     vlist a;
     vstart(a, format);
     buffer f = alloca_wrap_buffer(format, runtime_strlen(format));

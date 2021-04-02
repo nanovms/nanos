@@ -2436,9 +2436,9 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
 
 void configure_syscalls(process p)
 {
-    debugsyscalls = !!table_find(p->process_root, sym(debugsyscalls));
-    syscall_defer = !!table_find(p->process_root, sym(syscall_defer));
-    void *notrace = table_find(p->process_root, sym(notrace));
+    debugsyscalls = !!get(p->process_root, sym(debugsyscalls));
+    syscall_defer = !!get(p->process_root, sym(syscall_defer));
+    void *notrace = get(p->process_root, sym(notrace));
     if (notrace) {
         table_foreach(notrace, k, v) {
             (void) &k;

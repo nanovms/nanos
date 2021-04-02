@@ -16,6 +16,51 @@ static heap theap;
 #define immediate 1
 #define reference 0
 
+value get(tuple e, symbol a)
+{
+    u16 tag = tagof(e);
+    switch (tag) {
+    case tag_tuple:
+        return table_find(e, a);
+    case tag_function_tuple:
+        return apply(((function_tuple)e)->g, a);
+    default:
+        halt("set: unsupported tag %d\n", tag);
+    }
+}
+
+void set(tuple e, symbol a, value v)
+{
+    u16 tag = tagof(e);
+    switch (tag) {
+    case tag_tuple:
+        table_set(e, a, v);
+        break;
+    case tag_function_tuple:
+        apply(((function_tuple)e)->s, a, v);
+        break;
+    default:
+        halt("set: unsupported tag %d\n", tag);
+    }
+}
+
+void iterate(tuple e, binding_handler h)
+{
+    u16 tag = tagof(e);
+    switch (tag) {
+    case tag_tuple:
+        table_foreach(e, a, v) {
+            apply(h, a, v);
+        }
+        break;
+    case tag_function_tuple:
+        apply(((function_tuple)e)->i, h);
+        break;
+    default:
+        halt("iterate: unsupported tag %d\n", tag);
+    }
+}
+
 static inline void drecord(table dictionary, void *x)
 {
     u64 count = dictionary->count + 1;
@@ -168,7 +213,7 @@ value decode_value(heap h, tuple dictionary, buffer source, u64 *total,
             }
             value nv = decode_value(h, dictionary, source, total, obsolete);
             if (obsolete) {
-                value old_v = table_find(t, s);
+                value old_v = get(t, s);
                 if (old_v) {
                     (*obsolete)++;
                     if (!nv)

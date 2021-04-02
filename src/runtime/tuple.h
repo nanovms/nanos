@@ -51,3 +51,39 @@ static inline tuple find_or_allocate_tuple(tuple t, symbol s)
     assert(tagof(v) == tag_tuple);
     return (tuple)v;
 }
+
+typedef closure_type(tuple_generator, tuple);
+typedef closure_type(tuple_set, void, symbol, value);
+typedef closure_type(tuple_get, value, value);
+typedef closure_type(binding_handler, void, symbol, value);
+typedef closure_type(tuple_iterate, void, binding_handler);
+
+typedef struct function_tuple {
+    tuple_get g;
+    tuple_set s;
+    tuple_iterate i;
+} *function_tuple;
+
+value get(tuple e, symbol a);
+void set(tuple e, symbol a, value v);
+void iterate(tuple e, binding_handler h);
+
+static inline boolean is_tuple(value v)
+{
+    u16 tag = tagof(v);
+    return tag == tag_tuple || tag == tag_function_tuple;
+}
+
+/* get and validate that result is a tuple type */
+static inline tuple get_tuple(tuple e, symbol a)
+{
+    value v = get(e, a);
+    return (v && is_tuple(v)) ? v : 0;
+}
+
+static inline string get_string(tuple e, symbol a)
+{
+    value v = get(e, a);
+    // XXX change to use string tag
+    return (v && tagof(v) == tag_unknown) ? v : 0;
+}

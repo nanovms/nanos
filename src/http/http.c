@@ -43,12 +43,12 @@ static void http_header(buffer dest, tuple t)
 status http_request(heap h, buffer_handler bh, http_method method, tuple headers, buffer body)
 {
     buffer b = allocate_buffer(h, 100);
-    buffer url = table_find(headers, sym(url));
+    buffer url = get(headers, sym(url));
     bprintf(b, "%s %b HTTP/1.1\r\n", http_request_methods[method], url);
     if (body) {
         buffer content_len = little_stack_buffer(16);
         bprintf(content_len, "%ld", buffer_length(body));
-        table_set(headers, sym(Content-Length), content_len);
+        set(headers, sym(Content-Length), content_len);
     }
     http_header(b, headers);
     status s = apply(bh, b);
@@ -69,7 +69,7 @@ static status send_http_headers(buffer_handler out, tuple t)
     bprintf(d, "HTTP/1.1 ");
     value v;
     symbol ss = sym(status);
-    if ((v = table_find(t, ss)))
+    if ((v = get(t, ss)))
         bprintf(d, "%b\r\n", (buffer)v);
     else
         bprintf(d, "200 OK\r\n");
@@ -126,7 +126,7 @@ status send_http_chunk(buffer_handler out, buffer c)
 /* consumes t */
 status send_http_chunked_response(buffer_handler out, tuple t)
 {
-    table_set(t, sym(Transfer-Encoding), aprintf(transient, "chunked"));
+    set(t, sym(Transfer-Encoding), aprintf(transient, "chunked"));
     status s = send_http_headers(out, t);
     if (!is_ok(s))
         return timm_up(s, "%s failed to send", __func__);
@@ -138,7 +138,7 @@ status send_http_response(buffer_handler out, tuple t, buffer c)
 {
     if (c) {
         assert(!buffer_is_wrapped(c));
-        table_set(t, sym(Content-Length), aprintf(transient, "%d", buffer_length(c)));
+        set(t, sym(Content-Length), aprintf(transient, "%d", buffer_length(c)));
     }
 
     status s = send_http_headers(out, t);
@@ -227,7 +227,7 @@ closure_function(1, 1, status, http_recv,
                     if (!parse_int(p->word, 10, &p->content_length))
                         msg_err("failed to parse content length\n");
                 }
-                table_set(p->header, p->s, p->word);
+                set(p->header, p->s, p->word);
                 p->word = allocate_buffer(p->h, 0);                
                 p->state = STATE_HEADER;
             } else {
@@ -249,10 +249,10 @@ closure_function(1, 1, status, http_recv,
     start_line = allocate_tuple();
     for (u64 i = 0; i < vector_length(p->start_line); i++) {
         buffer a = vector_get(p->start_line, i);
-        table_set(start_line, intern_u64(i), a);
+        set(start_line, intern_u64(i), a);
     }
-    table_set(p->header, sym(start_line), start_line);
-    table_set(p->header, sym(content), p->word);
+    set(p->header, sym(start_line), start_line);
+    set(p->header, sym(content), p->word);
     apply(p->each, p->header);
     reset_parser(p);
     return STATUS_OK;
@@ -300,7 +300,7 @@ closure_function(2, 1, void, each_http_request,
 {
     http_method method;
     http_listener hl = bound(hl);
-    vector vsl = vector_from_tuple(hl->h, table_find(v, sym(start_line)));
+    vector vsl = vector_from_tuple(hl->h, get(v, sym(start_line)));
     if (!vsl || vsl == INVALID_ADDRESS)
         goto not_found;
 
@@ -341,7 +341,7 @@ closure_function(2, 1, void, each_http_request,
     buffer_consume(uri, top_len);
 
     if (buffer_length(uri) > 0)
-        table_set(v, sym(relative_uri), uri);
+        set(v, sym(relative_uri), uri);
 
     list_foreach(&hl->registrants, l) {
         http_listener_registrant r = struct_from_list(l, http_listener_registrant, l);

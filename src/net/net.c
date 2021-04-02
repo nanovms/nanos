@@ -189,7 +189,7 @@ KLIB_EXPORT(udp_recv);
 
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
 {
-    value v = table_find(root, s);
+    value v = get(root, s);
     if (!v || tagof(v) == tag_tuple)
         return false;
     int len = MIN(buffer_length((buffer)v), MAX_ADDR_LEN);
@@ -250,8 +250,8 @@ void init_network_iface(tuple root) {
         return;
     }
 
-    boolean trace = table_find(root, sym(trace)) != 0;
-    value v = table_find(root, sym(mtu));
+    boolean trace = get(root, sym(trace)) != 0;
+    value v = get(root, sym(mtu));
     if (v) {
         u64 mtu;
         if (u64_from_value(v, &mtu)) {

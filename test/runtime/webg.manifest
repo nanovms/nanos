@@ -14,6 +14,7 @@
 #    http:t
 #    fault:t
 #    reboot_on_exit:t
+    telnet_mgmt:t
     arguments:[webg longargument]
     environment:(USER:bobby PWD:password)
 )

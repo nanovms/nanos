@@ -257,7 +257,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
                klib_heap_start, klib_heap_size);
     klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE, false);
     assert(klib_heap != INVALID_ADDRESS);
-    if (table_find(config_root, sym(klib_test))) {
+    if (get(config_root, sym(klib_test))) {
         klib_debug("   loading klib test\n");
         load_klib("/klib/test", closure(h, klib_test_loaded));
     }

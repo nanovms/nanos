@@ -224,7 +224,7 @@ define_closure_function(1, 1, context, default_fault_handler,
     print_stack(frame);
     frame[FRAME_FULL] = 0;
 
-    if (p && table_find(p->process_root, sym(fault))) {
+    if (p && get(p->process_root, sym(fault))) {
         rputs("TODO: in-kernel gdb needs revisiting\n");
 //        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
 //        thread_sleep_uninterruptible();
@@ -316,7 +316,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     heap h = heap_general(kh);
     process p = allocate(h, sizeof(struct process));
     assert(p != INVALID_ADDRESS); 
-    boolean aslr = table_find(root, sym(noaslr)) == 0;
+    boolean aslr = get(root, sym(noaslr)) == 0;
 
     p->uh = uh;
     p->brk = 0;
@@ -360,7 +360,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->itimers = allocate_vector(h, 3);
     p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(h, 8);
-    p->trace = !!table_find(root, sym(trace));
+    p->trace = !!get(root, sym(trace));
     return p;
 }
 
@@ -531,7 +531,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_timer_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
     configure_syscalls(kernel_process);
-    do_syscall_stats = table_find(kernel_process->process_root, sym(syscall_summary)) != 0;
+    do_syscall_stats = get(kernel_process->process_root, sym(syscall_summary)) != 0;
     if (do_syscall_stats)
         vector_push(shutdown_completions, print_syscall_stats);
     return kernel_process;
