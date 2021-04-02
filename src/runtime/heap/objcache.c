@@ -455,6 +455,8 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
 heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, heap wrapper)
 {
     objcache o = (objcache)allocate_objcache(meta, parent, objsize, pagesize);
+    if (o == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
     o->wrapper_heap = wrapper;
     return (heap)o;
 }
