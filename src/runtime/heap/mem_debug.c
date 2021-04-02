@@ -62,7 +62,9 @@ static void set_pattern(void *v, bytes sz, void *p, bytes psz)
     for (s64 ssz = sz; ssz > 0; ssz -= psz, bp += psz)
         runtime_memcpy(bp, p, MIN(psz, ssz));
 }
+#endif
 
+#if defined(MEMDBG_OVERRUN)
 static boolean check_pattern(void *v, bytes sz, void *p, bytes psz)
 {
     u8 *bp = v;
@@ -142,7 +144,7 @@ static void mem_debug_dealloc(heap h, u64 a, bytes b)
 heap mem_debug(heap meta, heap parent, u64 padsize)
 {
     build_assert(PAD_MIN > sizeof(mem_debug_hdr));
-    mem_debug_heap mdh = allocate(meta, sizeof(*mdh));
+    mem_debug_heap mdh = allocate_zero(meta, sizeof(*mdh));
     mdh->parent = parent;
     mdh->h.pagesize = parent->pagesize;
     mdh->h.alloc = mem_debug_alloc;
@@ -153,7 +155,7 @@ heap mem_debug(heap meta, heap parent, u64 padsize)
 
 heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize)
 {
-    mem_debug_heap mdh = allocate(meta, sizeof(*mdh));
+    mem_debug_heap mdh = allocate_zero(meta, sizeof(*mdh));
     u64 newsize;
     u64 padding = objsize >= PAGESIZE ? PAGESIZE : PAD_MIN;
 
@@ -209,7 +211,7 @@ static void mem_debug_backed_dealloc(heap h, u64 a, bytes b)
 
 backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize)
 {
-    mem_debug_backed_heap mbh = allocate(meta, sizeof(*mbh));
+    mem_debug_backed_heap mbh = allocate_zero(meta, sizeof(*mbh));
     mbh->parent = parent;
     mbh->bh.h.pagesize = parent->h.pagesize;
     mbh->bh.h.alloc = mem_debug_backed_alloc;
