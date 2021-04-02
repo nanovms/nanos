@@ -33,6 +33,7 @@ typedef struct mem_debug_heap {
     struct heap h;
     heap parent;
     u64 padsize;
+    u32 objsize;
 } *mem_debug_heap;
 
 #ifdef KERNEL
@@ -115,6 +116,8 @@ static u64 mem_debug_alloc(heap h, bytes b)
     mem_debug_heap mdh = (mem_debug_heap)h;
     bytes padding, nb;
 
+    if (mdh->objsize)
+        b = mdh->objsize;
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
     mem_debug_hdr hdr = allocate(mdh->parent, nb);
     if (hdr == INVALID_ADDRESS)
@@ -128,6 +131,8 @@ static void mem_debug_dealloc(heap h, u64 a, bytes b)
     mem_debug_heap mdh = (mem_debug_heap)h;
     bytes padding, nb;
 
+    if (mdh->objsize)
+        b = mdh->objsize;
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
     mem_debug_hdr hdr = (mem_debug_hdr)pointer_from_u64(a - padding);
     dealloc_check(hdr, a, b, nb, padding);
@@ -143,6 +148,22 @@ heap mem_debug(heap meta, heap parent, u64 padsize)
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
     mdh->padsize = MAX(padsize, PAD_MIN);
+    return &mdh->h;
+}
+
+heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize)
+{
+    mem_debug_heap mdh = allocate(meta, sizeof(*mdh));
+    u64 newsize;
+    u64 padding = objsize >= PAGESIZE ? PAGESIZE : PAD_MIN;
+
+    newsize = objsize + padding * 2;
+    mdh->parent = allocate_wrapped_objcache(meta, parent, newsize, pagesize, &mdh->h);
+    mdh->h.pagesize = objsize;
+    mdh->h.alloc = mem_debug_alloc;
+    mdh->h.dealloc = mem_debug_dealloc;
+    mdh->padsize = padding;
+    mdh->objsize = objsize;
     return &mdh->h;
 }
 
