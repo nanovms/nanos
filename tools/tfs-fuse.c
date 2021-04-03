@@ -26,6 +26,8 @@ static id_heap fdallocator;
 vector files;
 
 /* unix internal */
+#define NAME_MAX 255
+
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
 #define FDESC_TYPE_SYMLINK     11
@@ -275,13 +277,9 @@ static void fill_stat(int type, tuple n, struct stat *s)
     if (n) {
         struct timespec ts;
         timespec_from_time(&ts, filesystem_get_atime(rootfs, n));
-        s->st_atimespec = ts; // XXX OS X specific?
         s->st_atime = ts.tv_sec;
-    //     s->st_atime_nsec = ts.tv_nsec;
         timespec_from_time(&ts, filesystem_get_mtime(rootfs, n));
-        s->st_mtimespec = ts; // XXX OS X specific?
         s->st_mtime = ts.tv_sec;
-    //     s->st_mtime_nsec = ts.tv_nsec;
     }
 }
 
