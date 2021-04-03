@@ -589,13 +589,10 @@ static void hv_storvsc_on_channel_callback(struct vmbus_channel *channel, void *
                             vstor_packet, request);
                 break;
             case VSTOR_OPERATION_REMOVEDEVICE:
+            case VSTOR_OPERATION_ENUMERATE_BUS:
                 storvsc_debug("VMBUS: storvsc operation %d not "
                     "implemented.", vstor_packet->operation);
                 // not supported
-                break;
-            case VSTOR_OPERATION_ENUMERATE_BUS:
-                // not supported
-                halt("VSTOR_OPERATION_ENUMERATE_BUS not supported");
                 break;
             default:
                 break;
