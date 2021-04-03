@@ -1,7 +1,7 @@
 override ARCH=$(shell uname -m)
 override CROSS_COMPILE=
 CONTGEN=$(OBJDIR)/bin/contgen
-PROGRAMS=dump mkfs vdsogen
+PROGRAMS=dump mkfs tfs-fuse vdsogen
 
 SRCS-dump= \
 	$(CURDIR)/dump.c \
@@ -10,6 +10,15 @@ SRCS-dump= \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
+
+SRCS-tfs-fuse= \
+	$(CURDIR)/tfs-fuse.c \
+	$(SRCDIR)/kernel/pagecache.c \
+	$(RUNTIME) \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c
+LIBS-tfs-fuse=	-lfuse
 
 SRCS-mkfs= \
 	$(SRCDIR)/kernel/pagecache.c \
