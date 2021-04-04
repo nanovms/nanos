@@ -1,7 +1,8 @@
 override ARCH=$(shell uname -m)
 override CROSS_COMPILE=
 CONTGEN=$(OBJDIR)/bin/contgen
-PROGRAMS=dump mkfs tfs-fuse vdsogen
+TFS_FUSE=tfs-fuse
+PROGRAMS=dump mkfs vdsogen
 
 SRCS-dump= \
 	$(CURDIR)/dump.c \
@@ -40,6 +41,7 @@ CFLAGS+=-I$(ARCHDIR) \
 all: $(PROGRAMS)
 
 include ../rules.mk
+$(eval $(call build_program,$(TFS_FUSE)))
 
 contgen: $(CONTGEN)
 

@@ -76,7 +76,7 @@ distclean: clean
 
 .PHONY: test-all test test-noaccel
 
-contgen mkfs:
+contgen mkfs tfs-fuse:
 	$(Q) $(MAKE) -C tools $@
 
 test-all: contgen
