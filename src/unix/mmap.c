@@ -608,7 +608,6 @@ closure_function(3, 1, void, vmap_remove_intersection,
 
     if (!head && !tail) {
         rangemap_remove_node(pvmap, node);
-        deallocate_vmap(pvmap, match);
     } else if (head) {
         /* truncate node at start */
         assert(rangemap_reinsert(pvmap, node, irange(rn.start, ri.start)));
@@ -635,6 +634,8 @@ closure_function(3, 1, void, vmap_remove_intersection,
         k.node.r = ri;
         apply(bound(unmap), &k);
     }
+    if (!head && !tail)
+        deallocate_vmap(pvmap, match);
 }
 
 closure_function(4, 1, void, vmap_paint_gap,
