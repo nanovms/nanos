@@ -60,21 +60,31 @@ closure_function(1, 1, status, write_file,
     return STATUS_OK;
 }
 
+void readdir(filesystem fs, heap h, tuple w, buffer path);
+
+closure_function(3, 2, boolean, readdir_each_child,
+                 filesystem, fs, heap, h, buffer, path,
+                 symbol, k, value, v)
+{
+    if (k == sym_this(".") || k == sym_this(".."))
+        return true;
+    assert(is_tuple(v));
+    readdir(bound(fs), bound(h), (tuple)v, aprintf(bound(h), "%b/%b", bound(path), symbol_string(k)));
+    return true;
+}
+
 // h just for extending path
 // isn't there an internal readdir?
 void readdir(filesystem fs, heap h, tuple w, buffer path)
 {
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    table_foreach(w, k, v) {
-        if (k == sym(children)) {
-            mkdir(cstring(path, tmpbuf), 0777);
-            table_foreach((tuple)v, k, vc) {
-                if (k == sym_this(".") || k == sym_this(".."))
-                    continue;
-                readdir(fs, h, (tuple)vc, aprintf(h, "%b/%b", path, symbol_string((symbol)k)));
-            }
-        }
-        if (k == sym(extents))
+    tuple t = get_tuple(w, sym(children));
+    if (t) {
+        mkdir(cstring(path, tmpbuf), 0777);
+        iterate(t, stack_closure(readdir_each_child, fs, h, path));
+    } else {
+        t = get_tuple(w, sym(extents));
+        if (t)
             filesystem_read_entire(fs, w, h, closure(h, write_file, path), (void *)ignore);
     }
 }
@@ -88,18 +98,27 @@ static void print_colored(int indent, int color, symbol s, boolean newline)
            TERM_COLOR_WHITE, newline ? "\n" : "");
 }
 
+static void dump_fsentry(int indent, symbol name, tuple t);
+
+closure_function(1, 2, boolean, dump_fsentry_each,
+                 int, indent,
+                 symbol, k, value, vc)
+{
+    if (k == sym_this(".") || k == sym_this(".."))
+        return true;
+    assert(is_tuple(vc));
+    dump_fsentry(bound(indent) + 1, k, (tuple)vc);
+    return true;
+}
+
 static void dump_fsentry(int indent, symbol name, tuple t)
 {
-    table c;
+    tuple c;
     buffer target_buf;
     if ((c = children(t))) {
         print_colored(indent, TERM_COLOR_BLUE, name, true);
-        table_foreach((tuple)c, k, vc) {
-            if (k == sym_this(".") || k == sym_this(".."))
-                continue;
-            dump_fsentry(indent + 1, (symbol)k, (tuple)vc);
-        }
-    } else if ((target_buf = table_find(t, sym(linktarget)))) {
+        iterate(c, stack_closure(dump_fsentry_each, indent));
+    } else if ((target_buf = get(t, sym(linktarget)))) {
         buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
         print_colored(indent, TERM_COLOR_CYAN, name, false);
         printf(" -> %s\n", cstring(target_buf, tmpbuf));
@@ -126,7 +145,7 @@ closure_function(3, 2, void, fsc,
     bprintf(rb, "UUID: ");
     print_uuid(rb, uuid);
     bprintf(rb, "\nmetadata ");
-    print_root(rb, root);
+    print_tuple(rb, root, 0);
     buffer_print(rb);
     rprintf("\n");
     deallocate_buffer(rb);

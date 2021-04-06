@@ -153,7 +153,7 @@ static status xennet_inform_backend(xennet_dev xnd)
     node = "transaction end";
     s = xenstore_transaction_end(tx_id, false);
     if (!is_ok(s)) {
-        value v = table_find(s, sym(errno));
+        value v = get(s, sym(errno)); // XXX get_string
         if (v) {
             if (!runtime_strcmp("EAGAIN", buffer_ref((buffer)v, 0))) {
                 deallocate_tuple(s);
@@ -760,8 +760,8 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     assert(xd->netif != INVALID_ADDRESS);
 
     /* get MAC address */
-    v = table_find(meta, sym(mac));
-    if (!v || tagof(v) == tag_tuple) {
+    v = get(meta, sym(mac)); // XXX get_string
+    if (!v || is_tuple(v)) {
         s = timm("result", "unable to find mac address");
         goto out_dealloc_xd;
     }

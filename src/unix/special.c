@@ -135,7 +135,7 @@ void register_special_files(process p)
         /* create special file */
         tuple entry = allocate_tuple();
         buffer b = wrap_buffer(h, sf, sizeof(*sf));
-        table_set(entry, sym(special), b);
+        set(entry, sym(special), b);
         filesystem_mkentry(p->root_fs, 0, sf->path, entry, false, true);
     }
 
@@ -145,7 +145,8 @@ void register_special_files(process p)
 static special_file *
 get_special(file f)
 {
-    buffer b = table_find(file_get_meta(f), sym(special));
+    // XXX untyped binary type
+    buffer b = get(file_get_meta(f), sym(special));
     assert(b);
     return (special_file *) buffer_ref(b, 0);
 }

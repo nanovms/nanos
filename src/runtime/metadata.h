@@ -10,7 +10,7 @@ static inline vector vector_from_tuple(heap h, tuple n)
         return r;
 
     void *x;
-    for (int i = 0; (x = table_find(n, intern_u64(i))); i++)
+    for (int i = 0; (x = get(n, intern_u64(i))); i++)
         vector_push(r, x);
     
     return r;
@@ -27,7 +27,7 @@ static inline tuple tuple_from_vector(vector v)
 
     // reversal?
     while ((p = vector_pop(v))) 
-        table_set(t, intern_u64(i++), p);
+        set(t, intern_u64(i++), p);
 
     return t;
 }
@@ -39,29 +39,32 @@ static inline tuple resolve_path(tuple n, vector v)
         /* null entries ("//") are skipped in path */
         if (buffer_length(i) == 0)
             continue;
-        tuple c = table_find(n, sym(children));
+        tuple c = get_tuple(n, sym(children));
         if (!c)
             return c;
-        n = table_find(c, intern(i));
+        n = get_tuple(c, intern(i));
         if (!n)
             return n;
     }
     return n;
 }
 
-static inline table children(table x)
+static inline tuple children(tuple x)
 {
-    return table_find(x, sym(children));
+    return get_tuple(x, sym(children));
 }
 
-static inline buffer contents(table x)
+// XXX string
+static inline buffer contents(tuple x)
 {
-    return table_find(x, sym(contents));
+    // XXX get_string
+    return get(x, sym(contents));
 }
 
 static inline tuple lookup(tuple t, symbol a)
 {
-    void *c = children(t);
-    if (!c) return c;
-    return table_find(c, a);
+    tuple c = children(t);
+    if (!c)
+        return c;
+    return get_tuple(c, a);
 }

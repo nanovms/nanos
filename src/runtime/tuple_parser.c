@@ -111,7 +111,7 @@ closure_function(3, 1, parser, value_complete,
                  tuple, t, symbol, name, parser, check,
                  void *, v)
 {
-    table_set(bound(t), bound(name), v);
+    set(bound(t), bound(name), v);
     parser c = bound(check);
     closure_finish();
     return c;

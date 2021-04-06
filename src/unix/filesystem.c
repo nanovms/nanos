@@ -26,23 +26,44 @@ sysreturn sysreturn_from_fs_status_value(status s)
 {
     if (is_ok(s))
         return 0;
-    value v = table_find(s, sym(fsstatus));
+    value v = get(s, sym(fsstatus)); // XXX get_string / num
     u64 fss;
     sysreturn rv;
 
     /* block r/w errors won't include an fs status, so assume I/O error if none found */
-    if (v && tagof(v) != tag_tuple && u64_from_value(v, &fss))
+    if (v && !is_tuple(v) && u64_from_value(v, &fss))
         rv = sysreturn_from_fs_status(fss);
     else
         rv = -EIO;
     return rv;
 }
 
+closure_function(2, 2, boolean, lookup_sym_each,
+                 tuple, t, symbol *, s,
+                 symbol, k, value, v)
+{
+    if (v == bound(t)) {
+        *bound(s) = k;
+        return false;
+    }
+    return true;
+}
+
+symbol lookup_sym(tuple parent, tuple t)
+{
+    tuple c = children(parent);
+    symbol s = 0;
+    if (c)
+        iterate(c, stack_closure(lookup_sym_each, t, &s));
+    return s;
+}
+
 static tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
 {
-    tuple m = table_find(t, sym(mount));
+    tuple m = get_tuple(t, sym(mount));
+
     if (m) {
-        t = table_find(m, sym(root));
+        t = get_tuple(m, sym(root));
         if (fs)
             *fs = storage_get_fs(t);
     } else if ((t == *p) && (a == sym_this(".."))) {

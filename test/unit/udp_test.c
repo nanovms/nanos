@@ -20,16 +20,16 @@ void fail(char * s)
     exit(EXIT_FAILURE);
 }
 
-table parse_arguments(heap h, int argc, char **argv);
+tuple parse_arguments(heap h, int argc, char **argv);
 
 int main(int argc, char ** argv)
 {
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
-    value unassoc = table_find(t, sym(unassociated));
+    value unassoc = get(t, sym(unassociated));
     if (!unassoc)
         halt("specify target as <ip addr>:<port>\n");
-    boolean terminate = table_find(t, sym(terminate)) != 0;
+    boolean terminate = get(t, sym(terminate)) != 0;
 
     char sbuf[BUFLEN], rbuf[BUFLEN];
 
@@ -39,13 +39,13 @@ int main(int argc, char ** argv)
     parse_v4_address_and_port(target, &daddr, &dport);
 
     u16 lport = DEFAULT_LOCAL_PORT;
-    value v = table_find(t, sym(localport));
+    value v = get(t, sym(localport));
     u64 result;
     if (v && u64_from_value(v, &result))
 	lport = result;
 
     int iterations = DEFAULT_LOCAL_ITERATIONS;
-    v = table_find(t, sym(iterations));
+    v = get(t, sym(iterations));
     if (v && u64_from_value(v, &result))
         iterations = result;
 

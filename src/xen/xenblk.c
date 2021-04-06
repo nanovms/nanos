@@ -289,7 +289,7 @@ static status xenblk_inform_backend(xenblk_dev xbd)
         goto abort;
     s = xenstore_transaction_end(tx_id, false);
     if (!is_ok(s)) {
-        value v = table_find(s, sym(errno));
+        value v = get(s, sym(errno)); // XXX get_string
         if (v) {
             if (!buffer_strcmp((buffer)v, "EAGAIN")) {
                 deallocate_tuple(s);

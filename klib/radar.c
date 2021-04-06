@@ -62,9 +62,9 @@ static struct telemetry {
     int stats_count;
     void (*rprintf)(const char *format, ...);
     tuple (*allocate_tuple)(void);
-    void (*set)(table z, void *c, void *v);
-    void *(*get)(table z, void *c);
-    void (*deallocate_table)(table t);
+    void (*set)(value z, void *c, void *v);
+    void *(*get)(value z, void *c);
+    void (*deallocate_tuple)(tuple t);
     void (*destruct_tuple)(tuple t, boolean recursive);
     void (*timm_dealloc)(tuple t);
     symbol (*intern)(string name);
@@ -148,7 +148,7 @@ static boolean telemetry_req(const char *url, buffer data, buffer_handler bh)
     kfunc(set)(req, sym(RADAR-KEY), telemetry.auth_header);
     kfunc(set)(req, sym(Content-Type), alloca_wrap_cstring("application/json"));
     status s = kfunc(http_request)(telemetry.h, bh, HTTP_REQUEST_METHOD_POST, req, data);
-    kfunc(deallocate_table)(req);
+    kfunc(deallocate_tuple)(req);
     if (is_ok(s)) {
         return true;
     } else {
@@ -486,7 +486,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(telemetry.allocate_tuple = get_sym("allocate_tuple")) ||
             !(telemetry.set = get_sym("set")) ||
             !(telemetry.get = get_sym("get")) ||
-            !(telemetry.deallocate_table = get_sym("deallocate_table")) ||
+            !(telemetry.deallocate_tuple = get_sym("deallocate_tuple")) ||
             !(telemetry.destruct_tuple = get_sym("destruct_tuple")) ||
             !(telemetry.timm_dealloc = get_sym("timm_dealloc")) ||
             !(telemetry.intern = get_sym("intern")) ||

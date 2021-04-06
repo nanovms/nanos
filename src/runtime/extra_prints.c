@@ -54,10 +54,10 @@ void print_csum_buffer(buffer s, buffer b)
     bprintf(s, "%lx", csum);
 }
 
-static void print_tuple_internal(buffer b, tuple t, table visited);
+static void print_tuple_internal(buffer b, tuple t, table visited, u32 depth);
 
-closure_function(3, 2, void, _value_handler,
-                 buffer, b, boolean *, sub, table, visited,
+closure_function(4, 2, boolean, _value_handler,
+                 buffer, b, boolean *, sub, table, visited, u32, depth,
                  symbol, a, value, v)
 {
     if (*bound(sub))
@@ -70,66 +70,33 @@ closure_function(3, 2, void, _value_handler,
             bprintf(bound(b), "<visited>");
         } else {
             table_set(bound(visited), v, (void *)1);
-            print_tuple_internal(bound(b), v, bound(visited));
+            if (bound(depth) > 1)
+                print_tuple_internal(bound(b), v, bound(visited), bound(depth) - 1);
+            else
+                bprintf(bound(b), "<pruned>");
         }
     } else {
         bprintf(bound(b), "%b", v);
     }
     *bound(sub) = true;
+    return true;
 }
 
-static void print_tuple_internal(buffer b, tuple t, table visited)
+static void print_tuple_internal(buffer b, tuple t, table visited, u32 depth)
 {
     boolean sub = false;
     bprintf(b, "(");
-    iterate(t, stack_closure(_value_handler, b, &sub, visited));
+    iterate(t, stack_closure(_value_handler, b, &sub, visited, depth));
     bprintf(b, ")");
 }
 
-void print_tuple(buffer b, tuple t)
+void print_tuple(buffer b, tuple t, u32 depth)
 {
     // XXX need an alloca heap
     table visited = allocate_table(transient, identity_key, pointer_equal);
     assert(visited != INVALID_ADDRESS);
-    print_tuple_internal(b, t, visited);
+    print_tuple_internal(b, t, visited, depth == 0 ? U32_MAX : depth);
     deallocate_table(visited);
-}
-
-// XXX iterate, or replace?
-// copied from print_tuple()
-static void _print_root(buffer b, tuple z, int indent, boolean is_children)
-{
-    table t = valueof(z);
-    boolean sub = false;
-    bprintf(b, "(");
-    if (is_children)
-        push_character(b, '\n');
-    table_foreach(t, n, v) {
-        if (sub) {
-            if (is_children)
-                push_character(b, '\n');
-            else
-                push_character(b, ' ');
-        }
-        bprintf(b, "%n%b:", is_children ? indent : 0, symbol_string((symbol)n));
-        if (n != sym_this(".") && n != sym_this("..") && n != sym(special)) {
-            if (tagof(v) == tag_tuple) {
-                boolean is_children = n == sym(children);
-                _print_root(b, v, is_children ? indent + 4 : indent, is_children);
-            } else {
-                bprintf(b, "%b", v);
-            }
-        }
-        sub = true;
-    }
-    if (is_children && indent >= 4)
-        bprintf(b, "\n%n", indent - 4);
-    bprintf(b, ")");
-}
-
-void print_root(buffer b, tuple z)
-{
-    _print_root(b, z, 0, true);
 }
 
 static void format_tuple(buffer dest, struct formatter_state *s, vlist *v)
@@ -139,32 +106,49 @@ static void format_tuple(buffer dest, struct formatter_state *s, vlist *v)
         bprintf(dest, "(none)");
         return;
     }
-    print_tuple(dest, t);
+    print_tuple(dest, t, U32_MAX);
+}
+
+void print_value(buffer dest, value v, u32 depth)
+{
+    if (is_tuple(v))
+        print_tuple(dest, (tuple)v, depth);
+    else if (is_symbol(v))
+        bprintf(dest, "%b", symbol_string((symbol)v));
+    else {
+        // XXX string vs binary
+        buffer b = (buffer)v;
+        if (buffer_length(b) > 20)
+            bprintf(dest, "{buffer %d}", buffer_length(b));
+        else
+            bprintf(dest, "%b", b);
+    }
 }
 
 static void format_value(buffer dest, struct formatter_state *s, vlist *v)
 {
-    buffer b;
     value x = varg(*v, value);
     if (!x) {
         bprintf(dest, "(none)");
         return;
     }
 
-    switch(tagof(x)) {
-    case tag_tuple:
-        print_tuple(dest, (tuple)x);
-        break;
-    case tag_symbol:
-        bprintf(dest, "%b", symbol_string((symbol)x));
-        break;
-    default:
-        b = (buffer)x;
-        if (buffer_length(b) > 20)
-            bprintf(dest, "{buffer %d}", buffer_length(b));
-        else
-            bprintf(dest, "%b", b);
+    print_value(dest, x, U32_MAX);
+}
+
+static void format_value_with_depth(buffer dest, struct formatter_state *s, vlist *v)
+{
+    value x = varg(*v, value);
+    if (!x) {
+        bprintf(dest, "(none)");
+        return;
     }
+
+    u32 depth = varg(*v, u32);
+    if (depth == 0)
+        return; /* meaning? */
+
+    print_value(dest, x, depth);
 }
 
 static void format_hex_buffer(buffer dest, struct formatter_state *s, vlist *a)
@@ -203,6 +187,7 @@ void init_extra_prints(void)
 {
     register_format('t', format_tuple, 0);
     register_format('v', format_value, 0);
+    register_format('V', format_value_with_depth, 0);
     register_format('X', format_hex_buffer, 0);
     register_format('T', format_timestamp, 0);
     register_format('R', format_range, 0);

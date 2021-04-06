@@ -261,7 +261,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         return KLIB_INIT_FAILED;
     tuple (*get_root_tuple)(void) = get_sym("get_root_tuple");
     symbol (*intern)(string name) = get_sym("intern");
-    void *(*get)(table z, void *c) = get_sym("get");
+    void *(*get)(value z, void *c) = get_sym("get");
     void (*memcopy)(void *a, const void *b, unsigned long len) = get_sym("runtime_memcpy");
     struct udp_pcb *(*udp_new)(void) = get_sym("udp_new");
     void (*udp_recv)(struct udp_pcb *pcb, udp_recv_fn recv, void *recv_arg) = get_sym("udp_recv");

@@ -497,7 +497,7 @@ static inline u32 anon_perms(process p)
 static inline u32 file_meta_perms(process p, tuple m)
 {
     if (proc_is_exec_protected(p)) {
-        if (table_find(m, sym(exec)))
+        if (get(m, sym(exec)))
             return (ACCESS_PERM_READ | ACCESS_PERM_EXEC);
         else
             return (ACCESS_PERM_READ | ACCESS_PERM_WRITE);

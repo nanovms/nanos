@@ -6,10 +6,11 @@ static struct management {
     tuple root;
 } management;
 
-closure_function(0, 2, void, dump_syms,
+closure_function(0, 2, boolean, dump_syms,
                  symbol, a, value, v)
 {
     rprintf("sym %v\n", a);
+    return true;
 }
 
 static value resolve_tuple_path(tuple n, string path)
@@ -44,8 +45,15 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
         if (path) {
             tuple target = resolve_tuple_path(management.root, path);
             if (target) {
-                /* XXX add a V format specifier that takes a depth arg */
-                bprintf(b, "%v\n", target);
+                string depthstr = get_string(args, sym(depth));
+                u64 depth = 1;
+                if (depthstr) {
+                    if (!u64_from_value(depthstr, &depth)) {
+                        bprintf(b, "unable to parse depth value\n");
+                        goto out;
+                    }
+                }
+                bprintf(b, "%V\n", target, depth);
             } else {
                 bprintf(b, "not found\n");
             }
@@ -55,6 +63,7 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
     } else {
         bprintf(b, "unable to parse request\n");
     }
+  out:
     apply(bound(out), b);
 }
 

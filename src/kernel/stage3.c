@@ -30,7 +30,7 @@ closure_function(3, 1, status, read_program_complete,
            won't go haywire on a large manifest... */
 #if 0
         buffer b = allocate_buffer(transient, 64);
-        print_root(b, root);
+        print_tuple(b, root, 0);
         buffer_print(b);
         deallocate_buffer(b);
         rprintf("\n");
@@ -127,7 +127,7 @@ closure_function(3, 0, void, startup,
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
     if (get(root, sym(exec_protection)))
-        table_set(pro, sym(exec), null_value);  /* set executable flag */
+        set(pro, sym(exec), null_value);  /* set executable flag */
     init_network_iface(root);
     filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
     closure_finish();
@@ -161,15 +161,13 @@ closure_function(4, 2, void, bootfs_complete,
         init_klib(bound(kh), fs, bound(root), boot_root);
 
     if (bound(ingest_kernel_syms)) {
-        table_foreach(c, k, v) {
-            if (!buffer_strcmp(symbol_string(k), "kernel")) {
-                kernel_heaps kh = bound(kh);
-                filesystem_read_entire(fs, v, heap_backed(kh),
-                                       closure(heap_general(kh),
-                                               kernel_read_complete, fs, !bound(klibs_in_bootfs)),
-                                       ignore_status);
-                break;
-            }
+        tuple v = get_tuple(c, sym(kernel));
+        if (v) {
+            kernel_heaps kh = bound(kh);
+            filesystem_read_entire(fs, v, heap_backed(kh),
+                                   closure(heap_general(kh),
+                                           kernel_read_complete, fs, !bound(klibs_in_bootfs)),
+                                   ignore_status);
         }
     }
     closure_finish();

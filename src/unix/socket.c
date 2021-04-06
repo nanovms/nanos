@@ -363,7 +363,9 @@ closure_function(1, 2, sysreturn, unixsock_close,
         deallocate_queue(s->conn_q);
     }
     if (s->fs_entry) {
-        buffer_clear(table_find(s->fs_entry, sym(socket)));
+        // XXX type
+        buffer b = get(s->fs_entry, sym(socket));
+        buffer_clear(b);
     }
     unixsock_dealloc(s);
     return io_complete(completion, t, 0);
@@ -405,7 +407,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
      * be persisted in the filesystem, the buffer must be empty when
      * filesystem_add_tuple() is called, and must be filled afterwards. */
     buffer b = allocate_buffer(sock->h, sizeof(u64));
-    table_set(s->fs_entry, sym(socket), b);
+    set(s->fs_entry, sym(socket), b);
     sysreturn ret = filesystem_add_tuple(unixaddr->sun_path, s->fs_entry);
     if (ret) {
         deallocate_buffer(b);
@@ -486,7 +488,7 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
     if (filesystem_get_tuple(unixaddr->sun_path, &t) < 0) {
         return -ECONNREFUSED;
     }
-    b = table_find(t, sym(socket));
+    b = get(t, sym(socket)); // XXX untyped binary
     if (!b || (buffer_length(b) != sizeof(u64))) {
         return -ECONNREFUSED;
     }

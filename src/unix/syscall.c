@@ -315,7 +315,7 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
 
 static boolean is_special(tuple n)
 {
-    return table_find(n, sym(special)) ? true : false;
+    return get(n, sym(special)) ? true : false;
 }
 
 closure_function(9, 2, void, sendfile_bh,
@@ -1007,6 +1007,22 @@ static int try_write_dirent(tuple root, struct linux_dirent *dirp, char *p,
     return 0;
 }
 
+closure_function(6, 2, boolean, getdents_each,
+                 file, f, struct linux_dirent **, dirp, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
+                 symbol, k, value, v)
+{
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *p = cstring(symbol_string(k), tmpbuf);
+    *bound(r) = try_write_dirent(file_get_meta(bound(f)), *bound(dirp), p,
+                                 bound(read_sofar), bound(written_sofar), &bound(f)->offset, bound(count),
+                                 dt_from_tuple(v));
+    if (*bound(r) < 0)
+        return false;
+
+    *bound(dirp) = (struct linux_dirent *)(((char *)*bound(dirp)) + *bound(r));
+    return true;
+}
+
 sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 {
     if (!validate_user_memory(dirp, count, true))
@@ -1018,19 +1034,7 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k), tmpbuf);
-        r = try_write_dirent(file_get_meta(f), dirp, p,
-                    &read_sofar, &written_sofar, &f->offset, &count,
-                    dt_from_tuple(v));
-        if (r < 0)
-            goto done;
-
-        dirp = (struct linux_dirent *)(((char *)dirp) + r);
-    }
-
-done:
+    iterate(c, stack_closure(getdents_each, f, &dirp, &read_sofar, &written_sofar, &count, &r));
     filesystem_update_atime(f->fs, file_get_meta(f));
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
@@ -1073,6 +1077,22 @@ static int try_write_dirent64(tuple root, struct linux_dirent64 *dirp, char *p,
     return 0;
 }
 
+closure_function(6, 2, boolean, getdents64_each,
+                 file, f, struct linux_dirent64 **, dirp, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
+                 symbol, k, value, v)
+{
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *p = cstring(symbol_string(k), tmpbuf);
+    *bound(r) = try_write_dirent64(file_get_meta(bound(f)), *bound(dirp), p,
+                                   bound(read_sofar), bound(written_sofar), &bound(f)->offset, bound(count),
+                                   dt_from_tuple(v));
+    if (*bound(r) < 0)
+        return false;
+
+    *bound(dirp) = (struct linux_dirent64 *)(((char *)*bound(dirp)) + *bound(r));
+    return true;
+}
+
 sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 {
     if (!validate_user_memory(dirp, count, true))
@@ -1084,19 +1104,7 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k), tmpbuf);
-        r = try_write_dirent64(file_get_meta(f), dirp, p,
-                    &read_sofar, &written_sofar, &f->offset, &count,
-                    dt_from_tuple(v));
-        if (r < 0)
-            goto done;
-
-        dirp = (struct linux_dirent64 *)(((char *)dirp) + r);
-    }
-
-done:
+    iterate(c, stack_closure(getdents64_each, f, &dirp, &read_sofar, &written_sofar, &count, &r));
     filesystem_update_atime(f->fs, file_get_meta(f));
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
@@ -1128,7 +1136,7 @@ sysreturn chdir(const char *path)
 sysreturn fchdir(int dirfd)
 {
     file f = resolve_fd(current->p, dirfd);
-    tuple children = table_find(file_get_meta(f), sym(children));
+    tuple children = get_tuple(file_get_meta(f), sym(children));
     if (!children)
         return set_syscall_error(current, -ENOTDIR);
 
@@ -1659,6 +1667,21 @@ static sysreturn unlink_internal(filesystem fs, tuple cwd, const char *pathname)
     return sysreturn_from_fs_status(s);
 }
 
+closure_function(1, 2, boolean, check_notempty_each,
+                 boolean *, notempty,
+                 symbol, k, value, v)
+{
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *p = cstring(symbol_string(k), tmpbuf);
+
+    if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
+        thread_log(current, "%s: found entry '%s'", __func__, p);
+        *bound(notempty) = true;
+        return false;
+    }
+    return true;
+}
+
 static sysreturn rmdir_internal(filesystem fs, tuple cwd, const char *pathname)
 {
     tuple n;
@@ -1671,15 +1694,11 @@ static sysreturn rmdir_internal(filesystem fs, tuple cwd, const char *pathname)
         return set_syscall_error(current, ENOTDIR);
     }
     tuple c = children(n);
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k), tmpbuf);
+    boolean notempty = false;
+    iterate(c, stack_closure(check_notempty_each, &notempty));
+    if (notempty)
+        return set_syscall_error(current, ENOTEMPTY);
 
-        if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
-            thread_log(current, "%s: found entry '%s'", __func__, p);
-            return set_syscall_error(current, ENOTEMPTY);
-        }
-    }
     fs_status s = filesystem_delete(fs, parent,
         lookup_sym(parent, n));
     if (s == FS_STATUS_OK)
@@ -1750,15 +1769,10 @@ static sysreturn rename_internal(filesystem oldfs, tuple oldwd,
             return set_syscall_error(current, EISDIR);
         }
         tuple c = children(new);
-        buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-        table_foreach(c, k, v) {
-            char *p = cstring(symbol_string(k), tmpbuf);
-
-            if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
-                thread_log(current, "%s: found entry '%s'", __func__, p);
-                return set_syscall_error(current, ENOTEMPTY);
-            }
-        }
+        boolean notempty = false;
+        iterate(c, stack_closure(check_notempty_each, &notempty));
+        if (notempty)
+            return set_syscall_error(current, ENOTEMPTY);
     }
     if (new && !is_dir(new) && is_dir(old)) {
         return set_syscall_error(current, ENOTDIR);
@@ -2434,27 +2448,29 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
     m[n].name = name;
 }
 
+closure_function(0, 2, boolean, notrace_each,
+                 symbol, k, value, v)
+{
+    for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
+        struct syscall *s = current->p->syscalls + i;
+        if (!s->name)
+            continue;
+
+        buffer name = alloca_wrap_buffer(s->name, runtime_strlen(s->name));
+        if (!buffer_compare(name, v))
+            continue;
+
+        s->flags |= SYSCALL_F_NOTRACE;
+        break;
+    }
+    return true;
+}
+
 void configure_syscalls(process p)
 {
     debugsyscalls = !!get(p->process_root, sym(debugsyscalls));
     syscall_defer = !!get(p->process_root, sym(syscall_defer));
     void *notrace = get(p->process_root, sym(notrace));
-    if (notrace) {
-        table_foreach(notrace, k, v) {
-            (void) &k;
-
-            for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
-                struct syscall *s = current->p->syscalls + i;
-                if (!s->name)
-                    continue;
-
-                buffer name = alloca_wrap_buffer(s->name, runtime_strlen(s->name));
-                if (!buffer_compare(name, v))
-                    continue;
-
-                s->flags |= SYSCALL_F_NOTRACE;
-                break;
-            }
-        }
-    }
+    if (notrace)
+        iterate(notrace, stack_closure(notrace_each));
 }

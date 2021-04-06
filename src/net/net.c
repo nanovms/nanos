@@ -189,8 +189,8 @@ KLIB_EXPORT(udp_recv);
 
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
 {
-    value v = get(root, s);
-    if (!v || tagof(v) == tag_tuple)
+    value v = get_tuple(root, s);
+    if (!v)
         return false;
     int len = MIN(buffer_length((buffer)v), MAX_ADDR_LEN);
     char str[MAX_ADDR_LEN + 1];

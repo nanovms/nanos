@@ -21,6 +21,14 @@
             ((char *)__s)[buffer_length(__b)] = '\0';                     \
             (char *)__s;})
 
+closure_function(4, 2, boolean, environment_each,
+                 char **, envp, int *, envc, u64 **, s, buffer, b,
+                 symbol, n, value, v)
+{
+    bound(envp)[(*bound(envc))++] = ppush((*bound(s)), bound(b), "%b=%b", symbol_string(n), v);
+    return true;
+}
+
 static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         u64 va, tuple process_root, boolean aslr)
 {
@@ -79,13 +87,14 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     deallocate_vector(arguments);
 
     // envp ASCIIZ strings
-    tuple environment = get(process_root, sym(environment));
-    int envc = table_elements(environment);
-    char **envp = stack_allocate(envc * sizeof(u64));
-    envc = 0;
-    buffer b = allocate_buffer(transient, 128);
-    table_foreach(environment, n, v)
-        envp[envc++] = ppush(s, b, "%b=%b", symbol_string(n), v);
+    char **envp = 0;
+    int envc = 0;
+    tuple environment = get_tuple(process_root, sym(environment));
+    if (environment) {
+        envp = stack_allocate(tuple_count(environment) * sizeof(u64));
+        buffer b = allocate_buffer(transient, 128);
+        iterate(environment, stack_closure(environment_each, envp, &envc, &s, b));
+    }
 
     // stack padding
     if ((envc + 1 + argc + 1 + 1) % 2 == 1) {
@@ -203,7 +212,7 @@ process exec_elf(buffer ex, process kp)
     thread t = create_thread(proc);
     tuple interp = 0;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
-    boolean aslr = table_find(root, sym(noaslr)) == 0;
+    boolean aslr = get(root, sym(noaslr)) == 0;
 
     proc->brk = 0;
 

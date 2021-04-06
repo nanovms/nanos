@@ -61,7 +61,7 @@ closure_function(3, 2, void, fsstarted,
     if (!is_ok(s)) {
         buffer b = allocate_buffer(h, 128);
         bprintf(b, "unable to open filesystem: ");
-        print_tuple(b, s);
+        print_tuple(b, s, 0);
         buffer_print(b);
         halt("\n");
     }
@@ -73,11 +73,11 @@ closure_function(3, 2, void, fsstarted,
     tuple root = filesystem_getroot(fs);
     root_fs = fs;
     storage_set_root_fs(fs);
-    tuple mounts = get(root, sym(mounts));
-    if (mounts && (tagof(mounts) == tag_tuple))
+    tuple mounts = get_tuple(root, sym(mounts));
+    if (mounts)
         storage_set_mountpoints(mounts);
-    value klibs = get(root, sym(klibs));
-    boolean klibs_in_bootfs = klibs && tagof(klibs) != tag_tuple &&
+    value klibs = get(root, sym(klibs)); // XXX get_string
+    boolean klibs_in_bootfs = klibs && !is_tuple(klibs) &&
         buffer_compare_with_cstring(klibs, "bootfs");
 
     if (mbr) {

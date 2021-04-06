@@ -141,7 +141,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
 
     if (!validate_user_memory(uaddr, sizeof(int), false))
         return set_syscall_error(current, EFAULT);
-    boolean verbose = table_find(current->p->process_root, sym(futex_trace))
+    boolean verbose = get(current->p->process_root, sym(futex_trace))
         ? true : false;
 
     f = soft_create_futex(current->p, u64_from_pointer(uaddr));

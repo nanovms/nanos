@@ -16,48 +16,75 @@ static heap theap;
 #define immediate 1
 #define reference 0
 
-value get(tuple e, symbol a)
+value get(value e, symbol a)
 {
     u16 tag = tagof(e);
+    tuple t = (tuple)e;
     switch (tag) {
-    case tag_tuple:
-        return table_find(e, a);
+    case tag_table_tuple:
+        return table_find(&t->t, a);
     case tag_function_tuple:
-        return apply(((function_tuple)e)->g, a);
+        return apply(t->f.g, a);
     default:
-        halt("set: unsupported tag %d\n", tag);
+        assert(0);
     }
 }
 
-void set(tuple e, symbol a, value v)
+void set(value e, symbol a, value v)
 {
     u16 tag = tagof(e);
+    tuple t = (tuple)e;
     switch (tag) {
-    case tag_tuple:
-        table_set(e, a, v);
+    case tag_table_tuple:
+        table_set(&t->t, a, v);
         break;
     case tag_function_tuple:
-        apply(((function_tuple)e)->s, a, v);
+        apply(t->f.s, a, v);
         break;
     default:
-        halt("set: unsupported tag %d\n", tag);
+        assert(0);
     }
 }
 
-void iterate(tuple e, binding_handler h)
+void iterate(value e, binding_handler h)
 {
     u16 tag = tagof(e);
+    tuple t = (tuple)e;
     switch (tag) {
-    case tag_tuple:
-        table_foreach(e, a, v) {
-            apply(h, a, v);
+    case tag_table_tuple:
+        table_foreach(&t->t, a, v) {
+            if (!apply(h, a, v))
+                break;
         }
         break;
     case tag_function_tuple:
-        apply(((function_tuple)e)->i, h);
+        apply(t->f.i, h);
         break;
     default:
-        halt("iterate: unsupported tag %d\n", tag);
+        assert(0);
+    }
+}
+
+closure_function(1, 2, boolean, tuple_count_each,
+                 int *, count,
+                 symbol, s, value, v)
+{
+    (*bound(count))++;
+    return true;
+}
+
+int tuple_count(tuple t)
+{
+    u16 tag = tagof(t);
+    int count = 0;
+    switch (tag) {
+    case tag_table_tuple:
+        return t->t.count;
+    case tag_function_tuple:
+        apply(t->f.i, stack_closure(tuple_count_each, &count));
+        return count;
+    default:
+        assert(0);
     }
 }
 
@@ -77,24 +104,31 @@ static inline void srecord(table dictionary, void *x)
 
 // decode dictionary can really be a vector
 // region?
-tuple allocate_tuple()
+tuple allocate_tuple(void)
 {
-    return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_tuple);
+    return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_table_tuple);
 }
 KLIB_EXPORT(allocate_tuple);
 
+void destruct_tuple(tuple t, boolean recursive);
+
+closure_function(2, 2, boolean, destruct_tuple_each,
+                 tuple, t, boolean, recursive,
+                 symbol, s, value, v)
+{
+    if (is_tuple(v)) {
+        if (bound(recursive))
+            destruct_tuple(v, true);
+    } else if (v != null_value) {
+        // XXX further validate type
+        deallocate_buffer(v);
+    }
+    return true;
+}
+
 void destruct_tuple(tuple t, boolean recursive)
 {
-    table_foreach(t, k, v) {
-        (void)k;
-        if (!v)
-            continue;
-        if (tagof(v) == tag_tuple) {
-            if (recursive)
-                destruct_tuple(v, true);
-        } else if (v != null_value)
-            deallocate_buffer(v);
-    }
+    iterate(t, stack_closure(destruct_tuple_each, t, recursive));
     deallocate_tuple(t);
 }
 KLIB_EXPORT(destruct_tuple);
@@ -176,7 +210,7 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
 // h is for buffer values, copy them out
 // would be nice to merge into a tuple dest, but it changes the loop and makes
 // it weird in the reference case
-value decode_value(heap h, tuple dictionary, buffer source, u64 *total,
+value decode_value(heap h, table dictionary, buffer source, u64 *total,
                    u64 *obsolete)
 {
     u8 type;
@@ -220,7 +254,7 @@ value decode_value(heap h, tuple dictionary, buffer source, u64 *total,
                         (*obsolete)++;
                 }
             }
-            table_set(t, s, nv);
+            set(t, s, nv);
             if (total)
                 (*total)++;
         }
@@ -264,7 +298,7 @@ void encode_value(buffer dest, table dictionary, value v, u64 *total)
     if (!v) {
         push_header(dest, immediate, type_buffer, 0);
     }
-    else if (tagof(v) == tag_tuple) {
+    else if (is_tuple(v)) {
         encode_tuple(dest, dictionary, (tuple)v, total);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
@@ -295,7 +329,7 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
     encode_symbol(dest, dictionary, a);
     encode_value(dest, dictionary, v, 0);
     if (obsolete) {
-        value old_v = table_find(e, a);
+        value old_v = get(e, a);
         if (old_v) {
             (*obsolete)++;
             if (!v)
@@ -304,16 +338,35 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
     }
 }
 
+closure_function(1, 2, boolean, encode_tuple_count_each,
+                 u64 *, count,
+                 symbol, s, value, v)
+{
+    if (!(is_tuple(v) && get(v, sym(no_encode))))
+        (*bound(count))++;
+    return true;
+}
+
+closure_function(3, 2, boolean, encode_tuple_each,
+                 buffer, dest, table, dictionary, u64 *, total,
+                 symbol, s, value, v)
+{
+    tuple_debug("   s %b, v %p, tag %d\n", symbol_string(s), v, tagof(v));
+    if (is_tuple(v) && get(v, sym(no_encode)))
+        return true;
+    encode_symbol(bound(dest), bound(dictionary), s);
+    encode_value(bound(dest), bound(dictionary), v, bound(total));
+    if (bound(total))
+        (*bound(total))++;
+    return true;
+}
+
 void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
 {
     tuple_debug("%s: dest %p, dictionary %p, tuple %p\n", __func__, dest, dictionary, t);
     u64 d = u64_from_pointer(table_find(dictionary, t));
-    u64 count = t->count;
-    table_foreach (t, n, v) {
-        (void)n;
-        if ((tagof(v) == tag_tuple) && table_find(v, sym(no_encode)))
-            count--;
-    }
+    u64 count = 0;
+    iterate(t, stack_closure(encode_tuple_count_each, &count));
     if (d) {
         push_header(dest, reference, type_tuple, count);
         push_varint(dest, d);
@@ -321,15 +374,27 @@ void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
         push_header(dest, immediate, type_tuple, count);
         srecord(dictionary, t);
     }
-    table_foreach (t, n, v) {
-        tuple_debug("   tfe n %p, v %p, tag %d\n", n, v, tagof(v));
-        if ((tagof(v) == tag_tuple) && table_find(v, sym(no_encode)))
-            continue;
-        encode_symbol(dest, dictionary, n);
-        encode_value(dest, dictionary, v, total);
-        if (total)
-            (*total)++;
-    }        
+    iterate(t, stack_closure(encode_tuple_each, dest, dictionary, total));
+}
+
+void deallocate_function_tuple(function_tuple ft)
+{
+    // XXX
+}
+
+void deallocate_tuple(tuple t)
+{
+    value_tag tag = tagof(t);
+    switch (tag) {
+    case tag_table_tuple:
+        deallocate_table((table)t);
+        break;
+    case tag_function_tuple:
+        deallocate_function_tuple((function_tuple)t);
+        break;
+    default:
+        halt("%s: value %p (tag %d) not a tuple\n", __func__, t, tag);
+    }
 }
 
 void init_tuples(heap h)

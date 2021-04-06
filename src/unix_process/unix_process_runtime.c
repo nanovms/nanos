@@ -178,7 +178,7 @@ heap init_process_runtime()
     platform_monotonic_now = closure(h, unix_now);
     init_random();
     init_runtime(h, h);
-    init_tuples(allocate_tagged_region(h, tag_tuple));
+    init_tuples(allocate_tagged_region(h, tag_table_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
     init_sg(h);
     init_extra_prints();
@@ -212,7 +212,7 @@ tuple parse_arguments(heap h, int argc, char **argv)
             tag = intern(b);
         } else {
             if (tag) {
-                table_set(t, tag, b);
+                set(t, tag, b);
                 tag = 0;
             } else {
                 if (!unassociated) {
@@ -223,7 +223,7 @@ tuple parse_arguments(heap h, int argc, char **argv)
         }
     }
     if (unassociated)
-        table_set(t, sym(unassociated), tuple_from_vector(unassociated));
+        set(t, sym(unassociated), tuple_from_vector(unassociated));
 
     return t;
 }

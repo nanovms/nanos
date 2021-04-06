@@ -283,27 +283,33 @@ static buffer get_file_contents(heap h, const char *target_root, value v)
     return 0;
 }
 
+static value translate(heap h, vector worklist,
+                       const char *target_root, filesystem fs, value v, status_handler sh);
+
+closure_function(6, 2, boolean, translate_each,
+                 heap, h, vector, worklist, const char *, target_root, filesystem, fs, status_handler, sh, tuple, out,
+                 symbol, k, value, child)
+{
+    if (k == sym(contents)) {
+        vector_push(bound(worklist), build_vector(bound(h), bound(out), child));
+    } else {
+        set(bound(out), k, translate(bound(h), bound(worklist), bound(target_root),
+                                     bound(fs), child, bound(sh)));
+    }
+    return true;
+}
+
 // dont really like the file/tuple duality, but we need to get something running today,
 // so push all the bodies onto a worklist
 static value translate(heap h, vector worklist,
                        const char *target_root, filesystem fs, value v, status_handler sh)
 {
-    switch(tagof(v)) {
-    case tag_tuple:
-        {
-            tuple out = allocate_tuple();
-            table_foreach((table)v, k, child) {
-                if (k == sym(contents)) {
-                    vector_push(worklist, build_vector(h, out, child));
-                } else {
-                    table_set(out, k, translate(h, worklist, target_root, fs, child, sh));
-                }
-            }
-            return out;
-        }
-    default:
-        return v;
+    if (is_tuple(v)) {
+        tuple out = allocate_tuple();
+        iterate((tuple)v, stack_closure(translate_each, h, worklist, target_root, fs, sh, out));
+        return out;
     }
+    return v;
 }
 
 extern heap init_process_runtime();
@@ -336,7 +342,7 @@ closure_function(4, 2, void, fsc,
     bprintf(b, "UUID: ");
     print_uuid(b, uuid);
     bprintf(b, "\nmetadata ");
-    print_tuple(b, md);
+    print_tuple(b, md, 0);
     buffer_print(b);
     deallocate_buffer(b);
     rprintf("\n");
@@ -643,7 +649,7 @@ int main(int argc, char **argv)
 
     if (empty_fs) {
         root = allocate_tuple();
-        table_set(root, sym(children), allocate_tuple());
+        set(root, sym(children), allocate_tuple());
     } else {
         parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
         // this can be streaming
@@ -654,9 +660,9 @@ int main(int argc, char **argv)
     mkfs_write_status = closure(h, mkfs_write_handler);
 
     if (root && !empty_fs) {
-        value v = table_find(root, sym(imagesize));
-        if (v && tagof(v) != tag_tuple) {
-            table_set(root, sym(imagesize), 0); /* consume it, kernel doesn't need it */
+        value v = get(root, sym(imagesize));
+        if (v) {
+            set(root, sym(imagesize), 0); /* consume it, kernel doesn't need it */
             push_u8((buffer)v, 0);
             char *s = buffer_ref((buffer)v, 0);
             if (!parse_size(s, &img_size)) {
@@ -665,7 +671,7 @@ int main(int argc, char **argv)
             deallocate_buffer((buffer)v);
         }
 
-        tuple boot = table_find(root, sym(boot));
+        tuple boot = get_tuple(root, sym(boot));
         if (kernelimg_path != NULL) {
             if (!boot)
                 boot = allocate_tuple();
@@ -673,21 +679,21 @@ int main(int argc, char **argv)
             tuple kernel = find_or_allocate_tuple(children, sym(kernel));
             tuple contents = find_or_allocate_tuple(kernel, sym(contents));
             buffer b = alloca_wrap_buffer(kernelimg_path, runtime_strlen(kernelimg_path));
-            table_set(contents, sym(host), b);
-            table_set(kernel, sym(contents), contents);
-            table_set(children, sym(kernel), kernel);
-            table_set(boot, sym(children), children);
+            set(contents, sym(host), b);
+            set(kernel, sym(contents), contents);
+            set(children, sym(kernel), kernel);
+            set(boot, sym(children), children);
         } else if (!boot) {
             /* Look for kernel file in root filesystem, for backward
              * compatibility. */
             tuple c = children(root);
             assert(c);
-            tuple kernel = table_find(c, sym(kernel));
+            tuple kernel = get_tuple(c, sym(kernel));
             if (kernel) {
                 boot = allocate_tuple();
                 c = allocate_tuple();
-                table_set(boot, sym(children), c);
-                table_set(c, sym(kernel), kernel);
+                set(boot, sym(children), c);
+                set(c, sym(kernel), kernel);
             }
         }
         if (boot) {
@@ -697,7 +703,7 @@ int main(int argc, char **argv)
             offset += BOOTFS_SIZE;
 
             /* Remove tuple from root, so it doesn't end up in the root FS. */
-            table_set(root, sym(boot), 0);
+            set(root, sym(boot), 0);
         } else if (bootimg_path) {
             halt("kernel or boot FS not specified\n");
         }

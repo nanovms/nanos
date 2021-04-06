@@ -10,6 +10,8 @@ typedef u32 bytes;
 // not sure if we keep word, sizeof(word) == sizeof(void **), so I guess its uintptr_t
 typedef u32 word;
 
+#define U32_MAX (~0u)
+
 #define pointer_from_u64(__a) ((void *)(u32)(__a))
 #define u64_from_pointer(__a) ((u64)(u32)(__a))
 

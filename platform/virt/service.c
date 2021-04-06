@@ -221,7 +221,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
     page_heap_init(heap_locked(kh), heap_physical(kh));
-    init_tuples(allocate_tagged_region(kh, tag_tuple));
+    init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
     init_debug("calling runtime init\n");
     kernel_runtime_init(kh);

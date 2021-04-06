@@ -18,25 +18,29 @@ typedef struct http_parser {
     u64 content_length;
 } *http_parser;
 
-static void each_header(buffer dest, symbol n, value v)
+closure_function(3, 2, boolean, each_header,
+                 buffer, dest, symbol, ignore, boolean, dealloc,
+                 symbol, n, value, v)
 {
-    if (n != sym(url)) {
-        switch(tagof(v)) {
-        case tag_tuple:
-        case tag_symbol:
-            bprintf(dest, "%v: %v\r\n", n, v);
-            break;
-        default:
-            bprintf(dest, "%v: %b\r\n", n, (buffer)v);
-            break;
-        }
+    if (n != bound(ignore)) {
+        // XXX string
+        if (is_tuple(v) || is_symbol(v))
+            bprintf(bound(dest), "%v: %v\r\n", n, v);
+        else
+            bprintf(bound(dest), "%v: %b\r\n", n, (buffer)v);
     }
+
+    if (bound(dealloc)) {
+        assert(!is_tuple(v));
+        /* XXX dealloc by tag type */
+        deallocate_buffer((buffer)v);
+    }
+    return true;
 }
 
 static void http_header(buffer dest, tuple t)
 {
-    // asynch in new world
-    table_foreach(t, k , v) each_header(dest, k, v);
+    iterate(t, stack_closure(each_header, dest, sym(url), false));
     bprintf(dest, "\r\n");    
 }
 
@@ -75,14 +79,7 @@ static status send_http_headers(buffer_handler out, tuple t)
         bprintf(d, "200 OK\r\n");
 
     /* destructive */
-    table_foreach(t, k, v) {
-        if (k != ss)
-            each_header(d, k, v);
-        if (v) {
-            /* XXX assert tag type */
-            deallocate_buffer((buffer)v);
-        }
-    }
+    iterate(t, stack_closure(each_header, d, ss, true));
     deallocate_tuple(t);
     bprintf(d, "\r\n");
 

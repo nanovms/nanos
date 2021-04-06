@@ -461,7 +461,7 @@ closure_function(2, 1, void, log_switch_complete,
     if (is_ok(s))
         table_foreach(old_tl->dictionary, k, v) {
             (void)v;
-            if ((tagof(k) == tag_tuple) && !table_find(new_tl->dictionary, k)) {
+            if (is_tuple(k) && !table_find(new_tl->dictionary, k)) {
                 tlog_debug("  destroying tuple %p\n", __func__, k);
                 destruct_tuple(k, false);
             }
@@ -604,28 +604,39 @@ boolean log_write(log tl, tuple t)
 
 #endif /* !TLOG_READ_ONLY */
 
+static void log_process_tuple(log tl, tuple t);
+
+closure_function(4, 2, boolean, log_process_tuple_each,
+                 log, tl, tuple, t, fsfile *, f, u64 *, filelength,
+                 symbol, k, value, v)
+{
+    log tl = bound(tl);
+    if (k == sym(extents)) {
+        tlog_debug("extents: %p\n", v);
+        /* don't know why this needs to be in fs, it's really tlog-specific */
+        fsfile f;
+        if (!(f = table_find(tl->extents, v))) {
+            f = allocate_fsfile(tl->fs, bound(t));
+            table_set(tl->extents, v, f);
+            tlog_debug("   created fsfile %p\n", f);
+        } else {
+            tlog_debug("   found fsfile %p\n", f);
+        }
+        *bound(f) = f;
+    } else if (k == sym(filelength)) {
+        assert(u64_from_value(v, bound(filelength)));
+    } else if (is_tuple(v)) {
+        log_process_tuple(tl, v);
+    }
+    return true;
+}
+
 static void log_process_tuple(log tl, tuple t)
 {
     fsfile f = 0;
     u64 filelength = infinity;
 
-    table_foreach(t, k, v) {
-        if (k == sym(extents)) {
-            tlog_debug("extents: %p\n", v);
-            /* don't know why this needs to be in fs, it's really tlog-specific */
-            if (!(f = table_find(tl->extents, v))) {
-                f = allocate_fsfile(tl->fs, t);
-                table_set(tl->extents, v, f);
-                tlog_debug("   created fsfile %p\n", f);
-            } else {
-                tlog_debug("   found fsfile %p\n", f);
-            }
-        } else if (k == sym(filelength)) {
-            assert(u64_from_value(v, &filelength));
-        } else if (tagof(v) == tag_tuple) {
-            log_process_tuple(tl, v);
-        }
-    }
+    iterate(t, stack_closure(log_process_tuple_each, tl, t, &f, &filelength));
         
     if (f && filelength != infinity) {
         tlog_debug("   update fsfile length to %ld\n", filelength);
@@ -638,7 +649,7 @@ static boolean log_parse_tuple(log tl, buffer b)
     tuple dv = decode_value(tl->h, tl->dictionary, b, &tl->total_entries,
         &tl->obsolete_entries);
     tlog_debug("   decoded %v\n", dv);
-    if (tagof(dv) != tag_tuple)
+    if (!is_tuple(dv))
         return false;
 
     log_process_tuple(tl, (tuple)dv);
@@ -669,6 +680,15 @@ static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid,
             return timm("result", "invalid label");
     }
     return STATUS_OK;
+}
+
+closure_function(1, 2, boolean, log_read_ingest_extent,
+                 fsfile, f,
+                 symbol, s, value, v)
+{
+    tlog_debug("   tlog ingesting sym %p, val %p\n", symbol_string(off), e);
+    ingest_extent(bound(f), s, v);
+    return true;
 }
 
 static void log_read(log tl, status_handler sh);
@@ -801,10 +821,8 @@ closure_function(4, 1, void, log_read_complete,
     tlog_debug("   log parse finished, end now at %d\n", b->end);
 
     table_foreach(tl->extents, t, f) {
-        table_foreach(t, off, e) {
-            tlog_debug("   tlog ingesting sym %p, val %p\n", symbol_string(off), e);
-            ingest_extent((fsfile)f, off, e);
-        }
+        assert(is_tuple(t));
+        iterate((tuple)t, stack_closure(log_read_ingest_extent, (fsfile)f));
     }
     deallocate_table(tl->extents);  /* not needed anymore */
     tl->extents = 0;
@@ -817,7 +835,7 @@ closure_function(4, 1, void, log_read_complete,
         table newdict = allocate_table(tl->h, identity_key, pointer_equal);
         table_foreach(tl->dictionary, k, v) {
             tlog_debug("   dict swap: k %p, v %p, type %d\n", k, v, tagof(v));
-            if (tagof(v) == tag_tuple || tagof(v) == tag_symbol)
+            if (is_tuple(v) || is_symbol(v))
                 table_set(newdict, v, k);
         }
         deallocate_table(tl->dictionary);

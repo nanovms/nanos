@@ -195,7 +195,7 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
     aligned_heap.dealloc = leak;
     aligned_heap.pagesize = PAGESIZE;
     init_runtime(&general, &general);
-    init_tuples(allocate_tagged_region(&general, tag_tuple));
+    init_tuples(allocate_tagged_region(&general, tag_table_tuple));
     init_symbols(allocate_tagged_region(&general, tag_symbol), &general);
     init_sg(&general);
     uefi_arch_setup(&general, &aligned_heap);

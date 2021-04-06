@@ -261,7 +261,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
         klib_debug("   loading klib test\n");
         load_klib("/klib/test", closure(h, klib_test_loaded));
     }
-    if (table_find(get_environment(), sym(RADAR_KEY)))
+    if (get(get_environment(), sym(RADAR_KEY)))
         load_klib("/klib/radar", closure(h, radar_loaded));
     load_klib("/klib/cloud_init", closure(h, klib_optional_loaded));
     load_klib("/klib/ntp", closure(h, klib_optional_loaded));

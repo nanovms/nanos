@@ -1,29 +1,39 @@
-typedef table tuple;
-typedef struct encoder *encoder;
-typedef struct dencoder *dencoder;
+union tuple;
+typedef union tuple *tuple;
+
+typedef closure_type(tuple_generator, tuple);
+typedef closure_type(tuple_set, void, symbol, value);
+typedef closure_type(tuple_get, value, value);
+typedef closure_type(binding_handler, boolean, symbol, value);
+typedef closure_type(tuple_iterate, void, binding_handler);
+
+typedef struct function_tuple {
+    tuple_get g;
+    tuple_set s;
+    tuple_iterate i;
+} *function_tuple;
+
+union tuple {
+    struct table t;
+    struct function_tuple f;
+};
+
+value get(value e, symbol a);
+void set(value e, symbol a, value v);
+void iterate(value e, binding_handler h);
 
 void init_tuples(heap theap);
-void print_tuple(buffer b, tuple t);
-void print_root(buffer b, tuple t);
-
+void print_tuple(buffer b, tuple t, u32 depth);
+int tuple_count(tuple t);
 tuple allocate_tuple();
-static inline void deallocate_tuple(tuple t)
-{
-    deallocate_table(t);
-}
-
-static inline void clear_tuple(tuple t)
-{
-    table_clear(t);
-}
-
+void deallocate_tuple(tuple t);
+void deallocate_function_tuple(function_tuple ft);
 void destruct_tuple(tuple t, boolean recursive);
 
 void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total);
 
-
 // h is for the bodies, the space for symbols and tuples are both implicit
-void *decode_value(heap h, tuple dictionary, buffer source, u64 *total,
+void *decode_value(heap h, table dictionary, buffer source, u64 *total,
                    u64 *obsolete);
 void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
                 u64 *obsolete);
@@ -32,6 +42,7 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
 // ints have an anambiguous translation back and forth to strings (?)
 static inline boolean u64_from_value(value v, u64 *result)
 {
+    // XXX these are next
     return parse_int(alloca_wrap((buffer)v), 10, result);
 }
 
@@ -42,46 +53,36 @@ static inline value value_from_u64(heap h, u64 v)
     return result;
 }
 
-static inline tuple find_or_allocate_tuple(tuple t, symbol s)
-{
-    assert(tagof(t) == tag_tuple);
-    value v = table_find(t, s);
-    if (!v)
-        return allocate_tuple();
-    assert(tagof(v) == tag_tuple);
-    return (tuple)v;
-}
-
-typedef closure_type(tuple_generator, tuple);
-typedef closure_type(tuple_set, void, symbol, value);
-typedef closure_type(tuple_get, value, value);
-typedef closure_type(binding_handler, void, symbol, value);
-typedef closure_type(tuple_iterate, void, binding_handler);
-
-typedef struct function_tuple {
-    tuple_get g;
-    tuple_set s;
-    tuple_iterate i;
-} *function_tuple;
-
-value get(tuple e, symbol a);
-void set(tuple e, symbol a, value v);
-void iterate(tuple e, binding_handler h);
-
 static inline boolean is_tuple(value v)
 {
     u16 tag = tagof(v);
-    return tag == tag_tuple || tag == tag_function_tuple;
+    return tag == tag_table_tuple || tag == tag_function_tuple;
+}
+
+static inline boolean is_symbol(value v)
+{
+    return tagof(v) == tag_symbol;
+}
+
+/* XXX questionable part of interface */
+static inline tuple find_or_allocate_tuple(tuple t, symbol s)
+{
+    value v = get(t, s);
+    assert(v != INVALID_ADDRESS);
+    if (!v)
+        return allocate_tuple();
+    assert(is_tuple(v));
+    return (tuple)v;
 }
 
 /* get and validate that result is a tuple type */
-static inline tuple get_tuple(tuple e, symbol a)
+static inline tuple get_tuple(value e, symbol a)
 {
     value v = get(e, a);
     return (v && is_tuple(v)) ? v : 0;
 }
 
-static inline string get_string(tuple e, symbol a)
+static inline string get_string(value e, symbol a)
 {
     value v = get(e, a);
     // XXX change to use string tag
