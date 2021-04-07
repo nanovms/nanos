@@ -34,7 +34,7 @@
 #define init_debug(x, ...)
 #endif
 
-static filesystem root_fs;
+extern filesystem root_fs;
 
 #define BOOTSTRAP_REGION_SIZE_KB	2048
 static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE_KB << 10];
