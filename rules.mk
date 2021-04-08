@@ -186,7 +186,7 @@ CLEANFILES+=	$$(PROG-$1) $$(OBJS-$1) $$(DEPS-$1) $$(GENHEADERS-$1)
 CLEANDIRS+=	$(OBJDIR)/bin $(OBJDIR)/src $$(OBJDIRS-$1)
 endef
 
-$(foreach prog, $(PROGRAMS), $(eval $(call build_program,$(prog))))
+$(foreach prog, $(PROGRAMS) $(ADDITIONAL_PROGRAMS), $(eval $(call build_program,$(prog))))
 
 ifeq ($(filter print-% clean cleandepend,$(MAKECMDGOALS)),)
 -include $(sort $(DEPFILES))

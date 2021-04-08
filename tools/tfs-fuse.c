@@ -12,10 +12,18 @@
 #include <errno.h>
 #include <string.h>
 
+#define TFS_FUSE_DEBUG 1
+#ifdef TFS_FUSE_DEBUG
+#define tfs_fuse_debug(fmt, ...) rprintf(fmt, ##__VA_ARGS__)
+#else
+#define tfs_fuse_debug(fmt, ...)
+#endif
+
 #define FUSE_USE_VERSION 26
 #define _FILE_OFFSET_BITS 64
 #include <fuse.h>
 
+static int dfd;
 static heap h;
 static int osargc;
 static char **osargv;
@@ -26,8 +34,6 @@ static id_heap fdallocator;
 vector files;
 
 /* unix internal */
-#define NAME_MAX 255
-
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
 #define FDESC_TYPE_SYMLINK     11
@@ -39,15 +45,11 @@ typedef closure_type(file_io, int, void *buf, u64 length, u64 offset);
 
 typedef struct fdesc {
     file_io read, write;
-    // sg_file_io sg_read, sg_write;
-    // closure_type(events, u32, thread);
-    // closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
     // closure_type(close, sysreturn, thread t, io_completion completion);
 
     u64 refcnt;
     int type;
     int flags;                  /* F_GETFD/F_SETFD flags */
-    //notify_set ns;
 } *fdesc;
 
 typedef struct file {
@@ -70,15 +72,10 @@ static inline void init_fdesc(heap h, fdesc f, int type)
 {
     f->read = 0;
     f->write = 0;
-    // f->sg_read = 0;
-    // f->sg_write = 0;
     // f->close = 0;
-    // f->events = 0;
-    // f->ioctl = 0;
     f->refcnt = 1;
     f->type = type;
     f->flags = 0;
-    //f->ns = allocate_notify_set(h);
 }
 
 u64 allocate_fd(void *f)
@@ -107,25 +104,6 @@ static inline void timespec_from_time(struct timespec *ts, timestamp t)
     ts->tv_nsec = nsec_from_timestamp(truncate_seconds(t));
 }
 
-/* filesystem.h stuff */
-#define resolve_dir(__fs, __dirfd, __path) ({ \
-    tuple cwd; \
-    if (*(__path) == '/') { \
-        __fs = current->p->root_fs; \
-        cwd = filesystem_getroot(__fs); \
-    } else if (__dirfd == AT_FDCWD) { \
-        __fs = current->p->cwd_fs; \
-        cwd = current->p->cwd; \
-    } else { \
-        file f = resolve_fd(current->p, __dirfd); \
-        tuple t = file_get_meta(f); \
-        if (!is_dir(t)) return set_syscall_error(current, ENOTDIR); \
-        __fs = f->fs; \
-        cwd = t; \
-    } \
-    cwd; \
-})
-
 int rv_from_fs_status(fs_status s)
 {
     switch (s) {
@@ -139,6 +117,8 @@ int rv_from_fs_status(fs_status s)
         return -EEXIST;
     case FS_STATUS_NOTDIR:
         return -ENOTDIR;
+    case FS_STATUS_LINKLOOP:
+        return -ELOOP;
     default:
         return 0;
     }
@@ -160,42 +140,20 @@ int rv_from_fs_status_value(status s)
     return rv;
 }
 
-static inline buffer linktarget(table x)
+int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry, tuple *parent)
 {
-    return table_find(x, sym(linktarget));
+    if (!f)
+        return -EFAULT;
+    return rv_from_fs_status(filesystem_resolve_cstring(fs, cwd, f, entry, parent));
 }
 
-static inline boolean is_dir(tuple n)
-{
-    return children(n) ? true : false;
-}
-
-static inline boolean is_symlink(tuple n)
-{
-    return linktarget(n) ? true : false;
-}
-
-static inline tuple file_get_meta(file f)
-{
-    return f->f.type == FDESC_TYPE_REGULAR ? fsfile_get_meta(f->fsf) : f->meta;
-}
-
-tuple lookup_child(tuple t, symbol a, tuple *p);
-
-int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-                    tuple *parent);
-
-/* Same as resolve_cstring(), except that if the entry is a symbolic link this
- * function follows the link (recursively). */
 int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-        tuple *parent);
-
-int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
-                            tuple *target);
-
-int filesystem_add_tuple(const char *path, tuple t);
-
-/* end */
+        tuple *parent)
+{
+    if (!f)
+        return -EFAULT;
+    return rv_from_fs_status(filesystem_resolve_cstring_follow(fs, cwd, f, entry, parent));
+}
 
 static int file_type_from_tuple(tuple n)
 {
@@ -205,6 +163,11 @@ static int file_type_from_tuple(tuple n)
         return FDESC_TYPE_SYMLINK;
     else
         return FDESC_TYPE_REGULAR;
+}
+
+static inline tuple file_get_meta(file f)
+{
+    return f->f.type == FDESC_TYPE_REGULAR ? fsfile_get_meta(f->fsf) : f->meta;
 }
 
 closure_function(2, 3, void, bread,
@@ -225,7 +188,27 @@ closure_function(2, 3, void, bread,
     apply(c, STATUS_OK);
 }
 
-static u64 get_fs_offset(descriptor fd, int part, boolean by_index)
+closure_function(2, 3, void, bwrite,
+                 descriptor, d, u64, fs_offset,
+                 void *, src, range, blocks, status_handler, c)
+{
+    rprintf("bwrite from %p blocks %R", src, blocks);
+    ssize_t start = bound(fs_offset) + (blocks.start << SECTOR_OFFSET);
+    ssize_t size = range_span(blocks) << SECTOR_OFFSET;
+    ssize_t total = 0;
+    while (total < size) {
+        ssize_t rv = pwrite(bound(d), src + total, size - total, start + total);
+        rprintf(" rv %d\n", rv);
+        if (rv < 0 && errno != EINTR) {
+            apply(c, timm("error", "pwrite error: %s", strerror(errno)));
+            return;
+        }
+        total += rv;
+    }
+    apply(c, STATUS_OK);
+}
+
+static u64 get_fs_offset(descriptor fd, int part, boolean by_index, u64 *length)
 {
     char buf[512];
 
@@ -245,6 +228,8 @@ static u64 get_fs_offset(descriptor fd, int part, boolean by_index)
     }
 
     u64 fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
+    if (length)
+        *length = rootfs_part->nsectors * SECTOR_SIZE;
     printf("detected filesystem at 0x%llx\n", fs_offset);
     return fs_offset;
 }
@@ -257,10 +242,10 @@ static void fill_stat(int type, tuple n, struct stat *s)
         s->st_mode = S_IFDIR | 0777;
         break;
     case FDESC_TYPE_SYMLINK:
-        s->st_mode = S_IFLNK;
+        s->st_mode = S_IFLNK | 0777;
         break;
     case FDESC_TYPE_REGULAR:
-        s->st_mode = S_IFREG | 0644;
+        s->st_mode = S_IFREG | 0666;
         break;
     default:
         assert(0);
@@ -286,8 +271,7 @@ static void fill_stat(int type, tuple n, struct stat *s)
 static int tfs_getattr(const char *name, struct stat *s)
 {
     tuple n;
-    filesystem fs = rootfs;
-    int r = resolve_cstring(&fs, cwd, name, &n, 0);
+    int r = resolve_cstring(0, cwd, name, &n, 0);
     if (r)
         return r;
     fill_stat(file_type_from_tuple(n), n, s);
@@ -334,29 +318,95 @@ closure_function(2, 3, int, file_read,
     return rv;
 }
 
+closure_function(5, 1, void, file_write_complete,
+                 file, f, sg_list, sg, u64, length, boolean, is_file_offset, int *, rv,
+                 status, s)
+{
+    rprintf("file_write_complete status %v\n", s);
+    sg_list_release(bound(sg));
+    deallocate_sg_list(bound(sg));
+    file f = bound(f);
+    u64 len = bound(length);
+    int *rv = bound(rv);
+    if (is_ok(s)) {
+        /* if regular file, update length */
+        if (f->fsf)
+            f->length = fsfile_get_length(f->fsf);
+        if (bound(is_file_offset))
+            f->offset += len;
+        *rv = len;
+    } else {
+        *rv = rv_from_fs_status_value(s);
+    }
+    closure_finish();
+}
+
+closure_function(2, 3, int, file_write,
+                file, f, fsfile, fsf,
+                void *, src, u64, length, u64, offset_arg)
+{
+    file f = bound(f);
+    boolean is_file_offset = offset_arg == infinity;
+    u64 offset = is_file_offset ? f->offset : offset_arg;
+
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS) {
+        printf("   unable to allocate sg list");
+        return -ENOMEM;
+    }
+    sg_buf sgb = sg_list_tail_add(sg, length);
+    sgb->buf = src;
+    sgb->size = length;
+    sgb->offset = 0;
+    sgb->refcount = 0;
+
+    int rv;
+    rprintf("file_write range %R\n", irangel(offset, length));
+    apply(f->fs_write, sg, irangel(offset, length), closure(h, file_write_complete,
+                                                            f, sg, length, is_file_offset, &rv));
+    return rv;
+}
+
 #ifndef O_PATH
 #define O_PATH 0
 #endif
-static int open_internal(const char *name, struct fuse_file_info *fi)
+static int open_internal(const char *name, int flags, int mode)
 {
     tuple n;
     tuple parent;
     int ret;
-    filesystem fs = rootfs;
 
-    if (fi->flags & O_NOFOLLOW) {
-        ret = resolve_cstring(&fs, cwd, name, &n, &parent);
-        if (!ret && is_symlink(n) && !(fi->flags & O_PATH)) {
+    if (flags & O_NOFOLLOW) {
+        ret = resolve_cstring(0, cwd, name, &n, &parent);
+        if (!ret && is_symlink(n) && !(flags & O_PATH)) {
             ret = -ELOOP;
         }
     } else {
-        ret = resolve_cstring_follow(&fs, cwd, name, &n, &parent);
+        ret = resolve_cstring_follow(0, cwd, name, &n, &parent);
     }
+
+    if ((flags & O_CREAT)) {
+        if (!ret && (flags & O_EXCL)) {
+            return -EEXIST;
+        } else if ((ret == -ENOENT) && parent) {
+            n = filesystem_creat(rootfs, parent, filename_from_path(name));
+            if (n) {
+                filesystem_update_mtime(rootfs, parent);
+                ret = 0;
+            } else {
+                ret = -ENOMEM;
+            }
+        }
+    }
+
+    if (ret)
+        return ret;
+
     u64 length = 0;
     fsfile fsf = 0;
     int type = file_type_from_tuple(n);
     if (type == FDESC_TYPE_REGULAR) {
-        fsf = fsfile_from_node(fs, n);
+        fsf = fsfile_from_node(rootfs, n);
         assert(fsf);
         length = fsfile_get_length(fsf);
     }
@@ -371,36 +421,52 @@ static int open_internal(const char *name, struct fuse_file_info *fi)
         return -ENOMEM;
     }
     init_fdesc(h, &f->f, type);
-    f->f.flags = fi->flags;
+    f->f.flags = flags;
     f->f.read = closure(h, file_read, f, fsf);
-    //f->f.write = closure(h, file_write, f, fsf);
-    f->fs = fs;
+    f->f.write = closure(h, file_write, f, fsf);
+    f->fs = rootfs;
     if (type == FDESC_TYPE_REGULAR) {
         f->fsf = fsf;
         f->fs_read = fsfile_get_reader(fsf);
         assert(f->fs_read);
-        // f->fs_write = fsfile_get_writer(fsf);
-        // assert(f->fs_write);
-        //f->fadv = POSIX_FADV_NORMAL;
+        f->fs_write = fsfile_get_writer(fsf);
+        assert(f->fs_write);
     } else {
         f->meta = n;
     }
     f->length = length;
-    f->offset = (fi->flags & O_APPEND) ? length : 0;
-    fi->fh = fd;
+    f->offset = (flags & O_APPEND) ? length : 0;
     if (ret)
         return ret;
-    return 0;
+    return fd;
 }
 
 static int tfs_open(const char *name, struct fuse_file_info *fi)
 {
-    return open_internal(name, fi);
+    int fd = open_internal(name, fi->flags, 0);
+    if (fd < 0)
+        return fd;
+    fi->fh = fd;
+    return 0;
+}
+
+static int tfs_create(const char *name, mode_t mode, struct fuse_file_info *fi)
+{
+    tfs_fuse_debug("%s: path %s\n", __func__, name);
+    int fd = open_internal(name, O_CREAT|O_WRONLY|O_TRUNC, mode);
+    if (fd < 0)
+        return fd;
+    fi->fh = fd;
+    return 0;
 }
 
 static int tfs_opendir(const char *name, struct fuse_file_info *fi)
 {
-    return open_internal(name, fi);
+    int fd = open_internal(name, fi->flags, 0);
+    if (fd < 0)
+        return fd;
+    fi->fh = fd;
+    return 0;
 }
 
 static int release_internal(const char *name, struct fuse_file_info *fi)
@@ -428,6 +494,7 @@ static int tfs_releasedir(const char *name, struct fuse_file_info *fi)
 
 static int tfs_read(const char *path, char *buf, size_t size, off_t off, struct fuse_file_info *fi)
 {
+    tfs_fuse_debug("%s: path %s\n", __func__, path);
     int fd = fi->fh;
     fdesc f = resolve_fd(fd);
     if (!f->read)
@@ -437,8 +504,22 @@ static int tfs_read(const char *path, char *buf, size_t size, off_t off, struct 
     return apply(f->read, buf, size, off);
 }
 
+static int tfs_write(const char *path, const char *buf, size_t size, off_t off, struct fuse_file_info *fi)
+{
+    tfs_fuse_debug("%s: path %s\n", __func__, path);
+    int fd = fi->fh;
+    fdesc f = resolve_fd(fd);
+    rprintf("tfs_write fd %d fdesc %p\n", fd, f);
+    if (!f->read)
+        return -EINVAL;
+
+    /* use (and update) file offset */
+    return apply(f->write, (void *)buf, size, off);
+}
+
 static int tfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off, struct fuse_file_info *fi)
 {
+    tfs_fuse_debug("%s: path %s\n", __func__, path);
     file f = resolve_fd(fi->fh);
     tuple c = children(file_get_meta(f));
     if (!c)
@@ -457,6 +538,213 @@ static int tfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_
     return 0;
 }
 
+static int tfs_readlink(const char *path, char *buf, size_t bufsiz)
+{
+    tfs_fuse_debug("%s: path %s\n", __func__, path);
+    tuple n;
+    int ret = resolve_cstring(0, cwd, path, &n, 0);
+    if (ret)
+        return ret;
+    if (!is_symlink(n))
+        return -EINVAL;
+    buffer target = linktarget(n);
+    bytes len = buffer_length(target);
+    if (bufsiz < len - 1)
+        len = bufsiz - 1;
+    runtime_memcpy(buf, buffer_ref(target, 0), len);
+    buf[len] = 0;
+    return 0;
+}
+
+static void tfs_destroy(void *v)
+{
+    filesystem_flush(rootfs, ignore_status);
+    close(dfd);
+}
+
+static int tfs_mkdir(const char *pathname, mode_t mode)
+{
+    tfs_fuse_debug("%s: path %s\n", __func__, pathname);
+    tuple parent;
+    int ret = filesystem_resolve_cstring(0, cwd, pathname, 0, &parent);
+    if ((ret != -ENOENT) || !parent) {
+        return ret;
+    }
+    buffer b = little_stack_buffer(NAME_MAX + 1);
+    if (!dirname_from_path(b, pathname))
+        return -ENAMETOOLONG;
+    if (filesystem_mkdir(rootfs, parent, (char *)buffer_ref(b, 0))) {
+        filesystem_update_mtime(rootfs, parent);
+        return 0;
+    } else {
+        return -ENOSPC;
+    }
+}
+
+static int tfs_rename(const char *oldpath, const char *newpath)
+{
+    tfs_fuse_debug("%s: oldpath %s newpath %s\n", __func__, oldpath, newpath);
+    if (!oldpath[0] || !newpath[0]) {
+        return -ENOENT;
+    }
+    int ret;
+    tuple old;
+    tuple oldparent;
+    ret = resolve_cstring(0, cwd, oldpath, &old, &oldparent);
+    if (ret) {
+        return ret;
+    }
+    tuple new, newparent;
+    ret = resolve_cstring(0, cwd, newpath, &new, &newparent);
+    if (ret && (ret != -ENOENT)) {
+        return ret;
+    }
+    if (!newparent) {
+        return -ENOENT;
+    }
+    if (!ret && is_dir(new)) {
+        if (!is_dir(old)) {
+            return -EISDIR;
+        }
+        tuple c = children(new);
+        buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+        table_foreach(c, k, v) {
+            char *p = cstring(symbol_string(k), tmpbuf);
+
+            if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
+                return -ENOTEMPTY;
+            }
+        }
+    }
+    if (new && !is_dir(new) && is_dir(old)) {
+        return -ENOTDIR;
+    }
+    if (filepath_is_ancestor(cwd, oldpath, cwd, newpath)) {
+        return -EINVAL;
+    }
+    if ((newparent == oldparent) && (new == old))
+        return 0;
+    fs_status s = filesystem_rename(rootfs, oldparent,
+        lookup_sym(oldparent, old), newparent, filename_from_path(newpath));
+    if (s == FS_STATUS_OK) {
+        filesystem_update_mtime(rootfs, oldparent);
+        filesystem_update_mtime(rootfs, newparent);
+    }
+    return rv_from_fs_status(s);
+}
+
+static int rmdir_internal(filesystem fs, tuple cwd, const char *pathname)
+{
+    tuple n;
+    tuple parent;
+    int ret = resolve_cstring(&fs, cwd, pathname, &n, &parent);
+    if (ret) {
+        return ret;
+    }
+    if (!is_dir(n)) {
+        return -ENOTDIR;
+    }
+    tuple c = children(n);
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    table_foreach(c, k, v) {
+        char *p = cstring(symbol_string(k), tmpbuf);
+
+        if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
+            return -ENOTEMPTY;
+        }
+    }
+    fs_status s = filesystem_delete(fs, parent,
+        lookup_sym(parent, n));
+    if (s == FS_STATUS_OK)
+        filesystem_update_mtime(fs, parent);
+    return rv_from_fs_status(s);
+}
+
+static int tfs_rmdir(const char *pathname)
+{
+    tfs_fuse_debug("%s: path %s\n", __func__, pathname);
+    return rmdir_internal(rootfs, cwd, pathname);
+}
+
+static int unlink_internal(filesystem fs, tuple cwd, const char *pathname)
+{
+    tuple n;
+    tuple parent;
+    int ret = resolve_cstring(&fs, cwd, pathname, &n, &parent);
+    if (ret) {
+        return ret;
+    }
+    if (is_dir(n)) {
+        return -EISDIR;
+    }
+    fs_status s = filesystem_delete(fs, parent,
+        lookup_sym(parent, n));
+    if (s == FS_STATUS_OK)
+        filesystem_update_mtime(fs, parent);
+    return rv_from_fs_status(s);
+}
+
+static int tfs_unlink(const char *pathname)
+{
+    tfs_fuse_debug("%s: unlink %s\n", __func__, pathname);
+    return unlink_internal(rootfs, cwd, pathname);
+}
+
+static int tfs_truncate(const char *path, off_t length)
+{
+    tfs_fuse_debug("%s: path %s length %ld\n", __func__, path, length);
+    tuple t;
+    filesystem fs = rootfs;
+    int ret = resolve_cstring_follow(0, cwd, path, &t, 0);
+    if (ret) {
+        return ret;
+    }
+    if (is_dir(t)) {
+        return -EISDIR;
+    }
+    if (length < 0) {
+        return -EINVAL;
+    }
+    fsfile fsf = fsfile_from_node(fs, t);
+    if (!fsf) {
+        return -ENOENT;
+    }
+    if (length == fsfile_get_length(fsf))
+        return 0;
+    fs_status s = filesystem_truncate(fs, fsf, length);
+    if (s == FS_STATUS_OK) {
+        filesystem_update_mtime(fs, t);
+    }
+    return rv_from_fs_status(s);
+}
+
+/* The target provided to symlink is provided as-is, and not
+ * made relative to the mount point of the fs as paths in other
+ * callbacks are. This normally makes sense since the target could be
+ * anywhere, but not for tfs where a volume is normally used in a vm.
+ * The best implementation of this callback should involve sanitizing
+ * and transforming the target path into a relative path between files
+ * on the same volume or perhaps an absolute path from the root
+ * of the volume (not the host root). Not using the callback seems
+ * like the best choice to avoid mis-use or errors in symlinking. */
+#if 0
+static int tfs_symlink(const char *target, const char *path)
+{
+    tfs_fuse_debug("%s: path %s target %s\n", __func__, path, target);
+    filesystem fs = rootfs;
+    tuple parent;
+    int ret = resolve_cstring(&fs, cwd, path, 0, &parent);
+    if ((ret != -ENOENT) || !parent) {
+        rprintf("symlink ret %d parent %p\n", ret, parent);
+        return ret;
+    }
+    if (filesystem_symlink(fs, parent, filename_from_path(path),
+        target))
+        return 0;
+    else
+        return -ENOSPC;
+}
+#endif
 static struct fuse_operations tfs_op = {
     .getattr        = tfs_getattr,
     .open           = tfs_open,
@@ -465,6 +753,15 @@ static struct fuse_operations tfs_op = {
     .releasedir     = tfs_releasedir,
     .read           = tfs_read,
     .readdir        = tfs_readdir,
+    .readlink       = tfs_readlink,
+    .write          = tfs_write,
+    .create         = tfs_create,
+    .destroy        = tfs_destroy,
+    .mkdir          = tfs_mkdir,
+    .rename         = tfs_rename,
+    .rmdir          = tfs_rmdir,
+    .unlink         = tfs_unlink,
+    .truncate       = tfs_truncate,
 };
 
 closure_function(0, 2, void, fsc,
@@ -477,157 +774,55 @@ closure_function(0, 2, void, fsc,
 
     printf("filesystem load complete\n");
     rootfs = fs;
+    cwd = filesystem_getroot(rootfs);
 
     closure_finish();
 }
 
+filesystem get_root_fs(void)
+{
+    return rootfs;
+}
+
+void usage(const char *prog)
+{
+    const char *p = strrchr(prog, '/');
+    p = p != NULL ? p + 1 : prog;
+    fprintf(stderr, "Usage: %s [OPTION]... <mount point> <fs image>\n", p);
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  -s\t\t\tSingle threaded\n");
+    fprintf(stderr, "  -f\t\t\tStay in foreground\n");
+    fprintf(stderr, "  -d\t\t\tFuse debug messages\n");
+    exit(EXIT_FAILURE);
+}
+
 int main(int argc, char **argv)
 {
-    if (argc < 2)
-        return -1;
-    int fd = open(argv[argc - 1], O_RDONLY);
+    if (argc < 3)
+        usage(argv[0]);
+    int fd = open(argv[argc - 1], O_RDWR);
     if (fd < 0) {
-        fprintf(stderr, "couldn't open file %s: %s\n", argv[argc - 1],
+        fprintf(stderr, "couldn't open fs image file %s: %s\n", argv[argc - 1],
             strerror(errno));
         exit(EXIT_FAILURE);
     }
+    dfd = fd;
     osargc = --argc;
     osargv = argv;
 
     h = init_process_runtime();
     init_pagecache(h, h, 0, PAGESIZE);
+    u64 length;
+    u64 offset = get_fs_offset(fd, PARTITION_ROOTFS, false, &length);
     create_filesystem(h,
                       SECTOR_SIZE,
-                      infinity,
-                      closure(h, bread, fd, get_fs_offset(fd, PARTITION_ROOTFS, false)),
-                      0, /* no write */
+                      length,
+                      closure(h, bread, fd, offset),
+                      closure(h, bwrite, fd, offset),
                       false,
                       closure(h, fsc));
     fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
     files = allocate_vector(h, 64);
+    fs_set_path_helper(get_root_fs, 0);
     return fuse_main(osargc, osargv, &tfs_op, NULL);
-}
-
-/* filesystem.c stuff */
-#define SYMLINK_HOPS_MAX    8
-
-/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
- * point), the 'fs' argument (if non-null) is updated to point to the new
- * filesystem. */
-// fused buffer wrap, split, and resolve
-int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-                    tuple *parent)
-{
-    if (!f)
-        return -EFAULT;
-
-    tuple t = *f == '/' ? filesystem_getroot(rootfs) : cwd;
-    if (fs && (*f == '/'))
-        *fs = rootfs;
-    tuple p = t;
-    buffer a = little_stack_buffer(NAME_MAX);
-    char y;
-    int nbytes;
-    int err;
-
-    while ((y = *f)) {
-        if (y == '/') {
-            if (buffer_length(a)) {
-                t = lookup_child(t, intern(a), &p);
-                if (!t) {
-                    err = -ENOENT;
-                    goto done;
-                }
-                err = filesystem_follow_links(fs, t, p, &t);
-                if (err) {
-                    t = false;
-                    goto done;
-                }
-                if (!children(t))
-                    return -ENOTDIR;
-                buffer_clear(a);
-            }
-            f++;
-        } else {
-            nbytes = push_utf8_character(a, f);
-            if (!nbytes) {
-                rprintf("Invalid UTF-8 sequence.\n");
-                err = -ENOENT;
-                p = false;
-                goto done;
-            }
-            f += nbytes;
-        }
-    }
-
-    if (buffer_length(a)) {
-        t = lookup_child(t, intern(a), &p);
-    }
-    err = -ENOENT;
-done:
-    if (!t && (*f == '/') && (*(f + 1)))
-        /* The path being resolved contains entries under a non-existent
-         * directory. */
-        p = false;
-    if (parent)
-        *parent = p;
-    if (entry)
-        *entry = t;
-    return (t ? 0 : err);
-}
-
-/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
- * point), the 'fs' argument (if non-null) is updated to point to the new
- * filesystem. */
-int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-        tuple *parent)
-{
-    tuple t, p;
-    int ret = resolve_cstring(fs, cwd, f, &t, &p);
-    if (!ret) {
-        ret = filesystem_follow_links(fs, t, p, &t);
-    }
-    if ((ret == 0) && entry) {
-        *entry = t;
-    }
-    if (parent) {
-        *parent = p;
-    }
-    return ret;
-}
-
-int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
-                            tuple *target)
-{
-    if (!is_symlink(link)) {
-        return 0;
-    }
-
-    tuple target_t;
-    buffer buf = little_stack_buffer(NAME_MAX + 1);
-    int hop_count = 0;
-    while (true) {
-        buffer target_b = linktarget(link);
-        if (!target_b) {
-            *target = link;
-            return 0;
-        }
-        int ret = resolve_cstring(fs, parent, cstring(target_b, buf), &target_t,
-                &parent);
-        if (ret) {
-            return ret;
-        }
-        if (is_symlink(target_t)) {
-            if (hop_count++ == SYMLINK_HOPS_MAX) {
-                return -ELOOP;
-            }
-        }
-        link = target_t;
-    }
-}
-
-tuple lookup_child(tuple t, symbol a, tuple *p)
-{
-    *p = t;
-    return lookup(t, a);
 }

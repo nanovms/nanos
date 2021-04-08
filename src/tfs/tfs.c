@@ -1282,3 +1282,212 @@ u64 fs_freeblocks(filesystem fs)
 {
     return (fs->storage->total - fs->storage->allocated);
 }
+
+static struct {
+    filesystem (*get_root_fs)();    /* return filesystem at "/" */
+    tuple (*lookup_follow)(filesystem *, tuple, symbol, tuple *); /* find symbol across mounts */
+} fs_path_helper;
+
+void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*lookup_follow)(filesystem *, tuple, symbol, tuple *))
+{
+    assert(get_root_fs);
+    fs_path_helper.get_root_fs = get_root_fs;
+    fs_path_helper.lookup_follow = lookup_follow;
+}
+
+static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
+{
+    *p = t;
+    t = lookup(t, a);
+    if (!t)
+        return t;
+    if (fs_path_helper.lookup_follow)
+        t = fs_path_helper.lookup_follow(fs, t, a, p);
+    return t;
+}
+
+/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
+ * point), the 'fs' argument (if non-null) is updated to point to the new
+ * filesystem. */
+// fused buffer wrap, split, and resolve
+int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
+                    tuple *parent)
+{
+    assert(fs_path_helper.get_root_fs);
+    assert(f);
+
+    tuple t = *f == '/' ? filesystem_getroot(fs_path_helper.get_root_fs()) : cwd;
+    if (fs && (*f == '/'))
+        *fs = fs_path_helper.get_root_fs();
+    tuple p = t;
+    buffer a = little_stack_buffer(NAME_MAX);
+    char y;
+    int nbytes;
+    int err;
+
+    while ((y = *f)) {
+        if (y == '/') {
+            if (buffer_length(a)) {
+                t = lookup_follow(fs, t, intern(a), &p);
+                if (!t) {
+                    err = FS_STATUS_NOENT;
+                    goto done;
+                }
+                err = filesystem_follow_links(fs, t, p, &t);
+                if (err) {
+                    t = false;
+                    goto done;
+                }
+                if (!children(t))
+                    return FS_STATUS_NOTDIR;
+                buffer_clear(a);
+            }
+            f++;
+        } else {
+            nbytes = push_utf8_character(a, f);
+            if (!nbytes) {
+                msg_err("Invalid UTF-8 sequence.\n");
+                err = FS_STATUS_NOENT;
+                p = false;
+                goto done;
+            }
+            f += nbytes;
+        }
+    }
+
+    if (buffer_length(a)) {
+        t = lookup_follow(fs, t, intern(a), &p);
+    }
+    err = FS_STATUS_NOENT;
+done:
+    if (!t && (*f == '/') && (*(f + 1)))
+        /* The path being resolved contains entries under a non-existent
+         * directory. */
+        p = false;
+    if (parent)
+        *parent = p;
+    if (entry)
+        *entry = t;
+    return (t ? 0 : err);
+}
+
+/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
+ * point), the 'fs' argument (if non-null) is updated to point to the new
+ * filesystem. */
+int filesystem_resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
+        tuple *parent)
+{
+    tuple t, p;
+    int ret = filesystem_resolve_cstring(fs, cwd, f, &t, &p);
+    if (!ret) {
+        ret = filesystem_follow_links(fs, t, p, &t);
+    }
+    if ((ret == 0) && entry) {
+        *entry = t;
+    }
+    if (parent) {
+        *parent = p;
+    }
+    return ret;
+}
+
+#define SYMLINK_HOPS_MAX    8
+
+int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
+                            tuple *target)
+{
+    if (!is_symlink(link)) {
+        return 0;
+    }
+
+    tuple target_t;
+    buffer buf = little_stack_buffer(NAME_MAX + 1);
+    int hop_count = 0;
+    while (true) {
+        buffer target_b = linktarget(link);
+        if (!target_b) {
+            *target = link;
+            return 0;
+        }
+        int ret = filesystem_resolve_cstring(fs, parent, cstring(target_b, buf), &target_t,
+                &parent);
+        if (ret) {
+            return ret;
+        }
+        if (is_symlink(target_t)) {
+            if (hop_count++ == SYMLINK_HOPS_MAX) {
+                return FS_STATUS_LINKLOOP;
+            }
+        }
+        link = target_t;
+    }
+}
+
+int file_get_path(tuple n, char *buf, u64 len)
+{
+    if (len < 2) {
+        return -1;
+    }
+    tuple c = children(n);
+    if (!c) {   /* Retrieving path of non-directory tuples is not supported. */
+        return -1;
+    }
+    buf[0] = '\0';
+    int cur_len = 1;
+    tuple p;
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+next:
+    n = lookup_follow(0, n, sym_this(".."), &p);
+    assert(n);
+    if (n == p) {   /* this is the root directory */
+        if (cur_len == 1) {
+            buf[0] = '/';
+            buf[1] = '\0';
+            cur_len = 2;
+        }
+        c = 0;
+    } else {
+        c = children(n);
+    }
+    if (!c)
+        goto done;
+    table_foreach(c, k, v) {
+        if (v == p) {
+            char *name = cstring(symbol_string(k), tmpbuf);
+            int name_len = runtime_strlen(name);
+            if (len < 1 + name_len + cur_len)
+                return -1;
+            runtime_memcpy(buf + 1 + name_len, buf, cur_len);
+            buf[0] = '/';
+            runtime_memcpy(buf + 1, name, name_len);
+            cur_len += 1 + name_len;
+            break;
+        }
+    }
+    goto next;
+done:
+    return cur_len;
+}
+
+/* Check if fp1 is a (direct or indirect) ancestor if fp2. */
+boolean filepath_is_ancestor(tuple wd1, const char *fp1,
+        tuple wd2, const char *fp2)
+{
+    tuple t1;
+    int ret = filesystem_resolve_cstring(0, wd1, fp1, &t1, 0);
+    if (ret) {
+        return false;
+    }
+    tuple p2;
+    ret = filesystem_resolve_cstring(0, wd2, fp2, 0, &p2);
+    if ((ret && (ret != FS_STATUS_NOENT)) || !p2) {
+        return false;
+    }
+    while (p2 != t1) {
+        tuple p = lookup(p2, sym_this(".."));
+        if (p == p2)
+            return false;   /* we reached the filesystem root */
+        p2 = p;
+    }
+    return true;
+}
