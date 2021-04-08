@@ -289,7 +289,7 @@ static void init_parser(heap h)
 {
     if (whitespace)
         return;
-    whitespace = charset_from_string(h, " \n\t");
+    whitespace = charset_from_string(h, " \n\r\t");
     name_terminal = charset_from_string(h, "()[]");
     value_terminal = charset_union(h, name_terminal, whitespace);
     property_sigils = charset_from_string(h, ":|/"); // dot should be here

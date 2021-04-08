@@ -3,6 +3,7 @@
 #include <symtab.h>
 #include <pagecache.h>
 #include <tfs.h>
+#include <management.h>
 #include <apic.h>
 #include <aws/aws.h>
 #include <drivers/acpi.h>
@@ -153,7 +154,7 @@ void vm_exit(u8 code)
 #endif
 
     /* TODO MP: coordinate via IPIs */
-    tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
+    tuple root = get_root_tuple();
     if (root && get(root, sym(reboot_on_exit))) {
         triple_fault();
     } else if (vm_halt) {
@@ -255,6 +256,7 @@ static void __attribute__((noinline)) init_service_new_stack()
         }
     }
 
+    init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
     init_debug("init_hwrand");
     init_hwrand();
 

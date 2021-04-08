@@ -37,6 +37,7 @@ static struct {
 #define storage_unlock()    spin_unlock_irq(&storage.lock, _irqflags)
 
 /* Called with mutex locked. */
+// XXX this won't work with wrapped root...
 static volume storage_get_volume(tuple root)
 {
     list_foreach(&storage.volumes, e) {

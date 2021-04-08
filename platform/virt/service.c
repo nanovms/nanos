@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <pagecache.h>
 #include <tfs.h>
+#include <management.h>
 #include <virtio/virtio.h>
 #include "serial.h"
 
@@ -126,7 +127,7 @@ extern filesystem root_fs;
 static inline void virt_shutdown(u64 code)
 {
     if (root_fs) {
-        tuple root = filesystem_getroot(root_fs);
+        tuple root = get_root_tuple();
         if (root && !get(root, sym(psci)))
             angel_shutdown(code);
 
@@ -155,7 +156,7 @@ void vm_exit(u8 code)
 
 #if 0
     /* TODO MP: coordinate via IPIs */
-    tuple root = root_fs ? filesystem_getroot(root_fs) : 0;
+    tuple root = get_root_tuple();
     if (root && get(root, sym(reboot_on_exit))) {
         triple_fault();
     } else {
@@ -223,6 +224,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     page_heap_init(heap_locked(kh), heap_physical(kh));
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
+    init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
     init_debug("calling runtime init\n");
     kernel_runtime_init(kh);
     while(1);

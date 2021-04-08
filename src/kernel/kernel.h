@@ -248,6 +248,7 @@ kernel_heaps get_kernel_heaps(void);
 
 tuple get_root_tuple(void);
 tuple get_environment(void);
+void register_root_notify(symbol s, value_handler vh);
 
 boolean first_boot(void);
 

@@ -3,7 +3,7 @@ typedef union tuple *tuple;
 
 typedef closure_type(tuple_generator, tuple);
 typedef closure_type(tuple_set, void, symbol, value);
-typedef closure_type(tuple_get, value, value);
+typedef closure_type(tuple_get, value, symbol);
 typedef closure_type(binding_handler, boolean, symbol, value);
 typedef closure_type(tuple_iterate, void, binding_handler);
 
@@ -64,6 +64,11 @@ static inline boolean is_symbol(value v)
     return tagof(v) == tag_symbol;
 }
 
+static inline boolean is_string(value v)
+{
+    return tagof(v) == tag_unknown; // XXX tag_string
+}
+
 /* XXX questionable part of interface */
 static inline tuple find_or_allocate_tuple(tuple t, symbol s)
 {
@@ -85,6 +90,11 @@ static inline tuple get_tuple(value e, symbol a)
 static inline string get_string(value e, symbol a)
 {
     value v = get(e, a);
-    // XXX change to use string tag
     return (v && tagof(v) == tag_unknown) ? v : 0;
+}
+
+/* really just for parser output */
+static inline boolean is_null_string(value v)
+{
+    return is_string(v) && buffer_length(v) == 0;
 }

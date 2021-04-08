@@ -7,6 +7,7 @@ RUNTIME=$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/heap/id.c \
 	$(SRCDIR)/runtime/heap/mcache.c \
 	$(SRCDIR)/runtime/heap/objcache.c \
+	$(SRCDIR)/runtime/management.c \
 	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
 	$(SRCDIR)/runtime/pqueue.c \

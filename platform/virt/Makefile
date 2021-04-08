@@ -28,7 +28,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/log.c \
-	$(SRCDIR)/kernel/management.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/schedule.c \

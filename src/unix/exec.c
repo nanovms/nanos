@@ -200,6 +200,16 @@ closure_function(2, 1, status, load_interp_complete,
     return STATUS_OK;
 }
 
+closure_function(1, 1, void, trace_notify,
+                 process, p,
+                 value, v)
+{
+    if (v == INVALID_ADDRESS)
+        closure_finish();
+    else
+        bound(p)->trace = !!v;
+}
+
 process exec_elf(buffer ex, process kp)
 {
     // is process md always root?
@@ -280,6 +290,8 @@ process exec_elf(buffer ex, process kp)
         add_elf_syms(ex, load_offset);
         exec_debug("...done\n");
     }
+
+    register_root_notify(sym(trace), closure(heap_general(kh), trace_notify, proc));
 
     if (interp) {
         exec_debug("reading interp...\n");

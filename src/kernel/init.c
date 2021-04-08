@@ -3,6 +3,7 @@
 #include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
+#include <management.h>
 #include <log.h>
 #include <net.h>
 #include <symtab.h>
@@ -52,6 +53,8 @@ extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                           boolean klibs_in_bootfs,
                                           boolean ingest_kernel_syms);
 
+static tuple_notifier wrapped_root;
+
 closure_function(3, 2, void, fsstarted,
                  u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
@@ -70,9 +73,13 @@ closure_function(3, 2, void, fsstarted,
         halt("multiple root filesystems found\n");
 
     u8 *mbr = bound(mbr);
-    tuple root = filesystem_getroot(fs);
     root_fs = fs;
     storage_set_root_fs(fs);
+
+    wrapped_root = tuple_notifier_wrap(filesystem_getroot(fs));
+    assert(wrapped_root != INVALID_ADDRESS);
+
+    tuple root = (tuple)wrapped_root;
     tuple mounts = get_tuple(root, sym(mounts));
     if (mounts)
         storage_set_mountpoints(mounts);
@@ -155,19 +162,25 @@ KLIB_EXPORT(get_kernel_heaps);
 
 tuple get_root_tuple(void)
 {
-    return filesystem_getroot(root_fs);
+    return (tuple)wrapped_root;
 }
 KLIB_EXPORT(get_root_tuple);
 
+void register_root_notify(symbol s, value_handler vh)
+{
+    tuple_notifier_register_notify(wrapped_root, s, vh);
+}
+KLIB_EXPORT(register_root_notify);
+
 tuple get_environment(void)
 {
-    return get(filesystem_getroot(root_fs), sym(environment));
+    return get(get_root_tuple(), sym(environment));
 }
 KLIB_EXPORT(get_environment);
 
 boolean first_boot(void)
 {
-    return !get(filesystem_getroot(root_fs), sym(booted));
+    return !get(get_root_tuple(), sym(booted));
 }
 KLIB_EXPORT(first_boot);
 

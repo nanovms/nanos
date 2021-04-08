@@ -108,8 +108,8 @@ closure_function(3, 0, void, startup,
     heap general = heap_general(kh);
     buffer_handler pg = closure(general, read_program_complete, general, kp, root);
 
-    if (get(root, sym(telnet_mgmt)))
-        init_telnet_management(general, root);
+    /* register root tuple with management and kick off interfaces, if any */
+    init_management_root(root);
 
 #if 0
     http_listener hl = allocate_http_listener(general, 9090);

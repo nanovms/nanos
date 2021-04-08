@@ -360,7 +360,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->itimers = allocate_vector(h, 3);
     p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(h, 8);
-    p->trace = !!get(root, sym(trace));
+    p->trace = 0;
     return p;
 }
 

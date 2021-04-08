@@ -2466,11 +2466,40 @@ closure_function(0, 2, boolean, notrace_each,
     return true;
 }
 
+closure_function(0, 1, void, debugsyscalls_notify,
+                 value, v)
+{
+    if (v == INVALID_ADDRESS)
+        closure_finish();
+    else
+        debugsyscalls = !!v;
+}
+
+closure_function(0, 1, void, syscall_defer_notify,
+                 value, v)
+{
+    if (v == INVALID_ADDRESS)
+        closure_finish();
+    else
+        syscall_defer = !!v;
+}
+
+closure_function(0, 1, void, notrace_notify,
+                 value, v)
+{
+    if (v == INVALID_ADDRESS)
+        closure_finish();
+    else {
+        if (is_tuple(v))
+            iterate(v, stack_closure(notrace_each));
+        // XXX should clear on unset
+    }
+}
+
 void configure_syscalls(process p)
 {
-    debugsyscalls = !!get(p->process_root, sym(debugsyscalls));
-    syscall_defer = !!get(p->process_root, sym(syscall_defer));
-    void *notrace = get(p->process_root, sym(notrace));
-    if (notrace)
-        iterate(notrace, stack_closure(notrace_each));
+    heap h = heap_general(&p->uh->kh);
+    register_root_notify(sym(debugsyscalls), closure(h, debugsyscalls_notify));
+    register_root_notify(sym(syscall_defer), closure(h, syscall_defer_notify));
+    register_root_notify(sym(notrace), closure(h, notrace_notify));
 }

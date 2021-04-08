@@ -145,9 +145,6 @@ static void format_value_with_depth(buffer dest, struct formatter_state *s, vlis
     }
 
     u32 depth = varg(*v, u32);
-    if (depth == 0)
-        return; /* meaning? */
-
     print_value(dest, x, depth);
 }
 
