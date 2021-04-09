@@ -19,9 +19,6 @@
 #define VA_TAG_OFFSET 39
 #define VA_TAG_WIDTH  8
 
-typedef void *value;
-typedef u8 value_tag;
-
 static inline __attribute__((always_inline)) void *tag(void* v, value_tag t) {
     return pointer_from_u64(VA_TAG_BASE | (((u64)t) << VA_TAG_OFFSET) | u64_from_pointer(v));
 }

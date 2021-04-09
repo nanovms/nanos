@@ -93,6 +93,18 @@ closure_function(1, 3, void, each_test_request,
 }
 #endif
 
+static void init_kernel_heaps_management(tuple root)
+{
+    kernel_heaps kh = get_kernel_heaps();
+    tuple heaps = allocate_tuple();
+    assert(heaps);
+    // this will become hierarchical
+    set(heaps, sym(virtual_huge), heap_management((heap)heap_virtual_huge(kh)));
+    set(heaps, sym(virtual_page), heap_management((heap)heap_virtual_page(kh)));
+    set(heaps, sym(physical), heap_management((heap)heap_physical(kh)));
+    set(root, sym(heaps), heaps);
+}
+
 closure_function(3, 0, void, startup,
                  kernel_heaps, kh, tuple, root, filesystem, fs)
 {
@@ -110,7 +122,7 @@ closure_function(3, 0, void, startup,
 
     /* register root tuple with management and kick off interfaces, if any */
     init_management_root(root);
-
+    init_kernel_heaps_management(root);
 #if 0
     http_listener hl = allocate_http_listener(general, 9090);
     assert(hl != INVALID_ADDRESS);

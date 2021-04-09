@@ -2,8 +2,8 @@ union tuple;
 typedef union tuple *tuple;
 
 typedef closure_type(tuple_generator, tuple);
-typedef closure_type(tuple_set, void, symbol, value);
 typedef closure_type(tuple_get, value, symbol);
+typedef closure_type(tuple_set, void, symbol, value);
 typedef closure_type(binding_handler, boolean, symbol, value);
 typedef closure_type(tuple_iterate, void, binding_handler);
 

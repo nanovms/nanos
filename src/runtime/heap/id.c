@@ -1,5 +1,6 @@
 #ifdef KERNEL
 #include <kernel.h>
+#include <management.h>
 #else
 #include <runtime.h>
 #endif
@@ -365,7 +366,74 @@ static void set_next_locking(id_heap i, u64 next)
     set_next(i, next);
     spin_unlock_irq(id_lock(i), flags);
 }
-#endif
+
+static value id_value_allocated(id_heap i)
+{
+    return value_from_u64(i->meta, i->allocated);
+}
+
+static value id_value_total(id_heap i)
+{
+    return value_from_u64(i->meta, i->total);
+}
+
+static value id_value_free(id_heap i)
+{
+    return value_from_u64(i->meta, i->total - i->allocated);
+}
+
+struct mgmt_fn_map {
+    const char *name;
+    value (*vfunc)(id_heap i);
+} mgmt_fn_maps[] = {
+    { "allocated", id_value_allocated },
+    { "total", id_value_total },
+    { "free", id_value_free },
+    { 0, 0 }
+};
+
+closure_function(1, 1, value, id_mgmt_get,
+                 id_heap, i,
+                 symbol, s)
+{
+    for (int i = 0; mgmt_fn_maps[i].name; i++) {
+        if (sym_cstring_compare(s, mgmt_fn_maps[i].name))
+            return mgmt_fn_maps[i].vfunc(bound(i));
+    }
+    // XXX ranges
+    return 0;
+}
+
+closure_function(1, 2, void, id_mgmt_set,
+                 id_heap, i,
+                 symbol, s, value, v)
+{
+    // XXX?
+}
+
+// XXX make vector of symbols
+closure_function(1, 1, void, id_mgmt_iterate,
+                 id_heap, i,
+                 binding_handler, h)
+{
+    for (int i = 0; mgmt_fn_maps[i].name; i++) {
+        apply(h, sym_this(mgmt_fn_maps[i].name), mgmt_fn_maps[i].vfunc(bound(i)));
+    }
+    return;
+}
+
+static value id_management(heap h)
+{
+    id_heap i = (id_heap)h;
+    if (!i->mgmt) {
+        i->mgmt = allocate_function_tuple(closure(i->meta, id_mgmt_get, i),
+                                          closure(i->meta, id_mgmt_set, i),
+                                          closure(i->meta, id_mgmt_iterate, i));
+    }
+    return i->mgmt;
+}
+
+#endif /* KERNEL */
 
 id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
 {
@@ -378,8 +446,10 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
     i->h.destroy = id_destroy;
     i->h.allocated = id_allocated;
     i->h.total = id_total;
+    i->mgmt = 0;
 
 #ifdef KERNEL
+    i->h.management = id_management;
     if (locking) {
         spin_lock_init(id_lock(i));
         i->h.alloc = id_alloc_locking;
@@ -390,6 +460,8 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
         i->alloc_subrange = alloc_subrange_locking;
         i->set_next = set_next_locking;
     } else
+#else
+    i->h.management = 0;
 #endif
     {
         i->h.alloc = id_alloc;
@@ -409,8 +481,8 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
     i->parent = 0;
     i->ranges = allocate_rangemap(meta);
     if (i->ranges == INVALID_ADDRESS) {
-	deallocate(meta, i, sizeof(struct id_heap));
-	return INVALID_ADDRESS;
+        deallocate(meta, i, id_size());
+        return INVALID_ADDRESS;
     }
     return i;
 }

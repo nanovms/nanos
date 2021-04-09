@@ -12,6 +12,9 @@ typedef u32 word;
 
 #define U32_MAX (~0u)
 
+typedef void *value;
+typedef u8 value_tag;
+
 #define pointer_from_u64(__a) ((void *)(u32)(__a))
 #define u64_from_pointer(__a) ((u64)(u32)(__a))
 

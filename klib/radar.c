@@ -267,10 +267,10 @@ closure_function(0, 1, void, telemetry_crash_recv,
                  value, v)
 {
     if (v) {
-        tuple resp = kfunc(table_find)(v, sym(start_line));
-        if (resp && (tagof(resp) == tag_tuple)) {
+        tuple resp = kfunc(get)(v, sym(start_line));
+        if (resp && is_tuple(resp)) {
             buffer word;
-            for (u64 i = 0; (word = kfunc(table_find)(resp, kfunc(intern_u64)(i))); i++)
+            for (u64 i = 0; (word = kfunc(get)(resp, kfunc(intern_u64)(i))); i++)
                 if (kfunc(buffer_strstr)(word, "OK") == 0) {
                     telemetry.dump_done = true;
                     break;

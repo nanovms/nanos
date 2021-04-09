@@ -17,3 +17,8 @@ string symbol_string(symbol s);
 
 table symbol_table();
 key key_from_symbol(void *z);
+
+static inline boolean sym_cstring_compare(symbol s, const char *c)
+{
+    return buffer_compare_with_cstring(symbol_string(s), c);
+}

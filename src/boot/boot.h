@@ -1,8 +1,5 @@
 #define physical_from_virtual(__x) u64_from_pointer(__x)
 
-typedef void *value;
-typedef u8 value_tag;
-
 typedef struct tagged_allocator {
     struct heap h;
     u8 tag;
