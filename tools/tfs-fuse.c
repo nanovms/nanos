@@ -1,10 +1,16 @@
 
-#include <runtime.h>
+/* tfs-fuse: a FUSE driver for mounting the root TFS volume from a raw disk
+ * image on the host
+ *
+ * This program requires the FUSE library and kernel driver to be installed,
+ * for example:
+ * Ubuntu/Debian: sudo apt install fuse libfuse-dev
+ * Mac OSX: brew install macfuse
+ */
 
+#include <runtime.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <pagecache.h>
 #include <tfs.h>
@@ -14,6 +20,10 @@
 #include <pthread.h>
 #include <signal.h>
 
+#define FUSE_USE_VERSION 26
+#define _FILE_OFFSET_BITS 64
+#include <fuse.h>
+
 //#define TFS_FUSE_DEBUG
 #ifdef TFS_FUSE_DEBUG
 #define tfs_fuse_debug(fmt, ...) rprintf(fmt, ##__VA_ARGS__)
@@ -22,10 +32,6 @@
 #endif
 
 #define FLUSH_TIMEOUT 5
-
-#define FUSE_USE_VERSION 26
-#define _FILE_OFFSET_BITS 64
-#include <fuse.h>
 
 static int dfd;
 static heap h;
@@ -903,7 +909,7 @@ closure_function(0, 2, void, fsc,
         exit(EXIT_FAILURE);
     }
 
-    printf("filesystem load complete\n");
+    printf("Filesystem load complete, mounting...\n");
     rootfs = fs;
     cwd = filesystem_getroot(rootfs);
 
