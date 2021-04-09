@@ -19,7 +19,7 @@ SRCS-tfs-fuse= \
 	$(SRCDIR)/tfs/tfs.c \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
-LIBS-tfs-fuse=	-lfuse
+LIBS-tfs-fuse=	-lfuse -lpthread
 
 SRCS-mkfs= \
 	$(SRCDIR)/kernel/pagecache.c \

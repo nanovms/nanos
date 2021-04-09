@@ -85,7 +85,7 @@ u64 allocate_fd(void *f)
 {
     u64 fd = allocate_u64((heap)fdallocator, 1);
     if (fd == INVALID_PHYSICAL) {
-        rprintf("fail; maxed out\n");
+        fprintf(stderr, "fail; maxed out\n");
         return fd;
     }
     if (!vector_set(files, fd, f)) {
@@ -195,13 +195,13 @@ closure_function(2, 3, void, bwrite,
                  descriptor, d, u64, fs_offset,
                  void *, src, range, blocks, status_handler, c)
 {
-    rprintf("bwrite from %p blocks %R", src, blocks);
+    tfs_fuse_debug("bwrite from %p blocks %R", src, blocks);
     ssize_t start = bound(fs_offset) + (blocks.start << SECTOR_OFFSET);
     ssize_t size = range_span(blocks) << SECTOR_OFFSET;
     ssize_t total = 0;
     while (total < size) {
         ssize_t rv = pwrite(bound(d), src + total, size - total, start + total);
-        rprintf(" rv %d\n", rv);
+        tfs_fuse_debug(" rv %d\n", rv);
         if (rv < 0 && errno != EINTR) {
             apply(c, timm("error", "pwrite error: %s", strerror(errno)));
             return;
@@ -233,7 +233,7 @@ static u64 get_fs_offset(descriptor fd, int part, boolean by_index, u64 *length)
     u64 fs_offset = rootfs_part->lba_start * SECTOR_SIZE;
     if (length)
         *length = rootfs_part->nsectors * SECTOR_SIZE;
-    printf("detected filesystem at 0x%llx\n", fs_offset);
+    tfs_fuse_debug("detected filesystem at 0x%llx\n", fs_offset);
     return fs_offset;
 }
 
@@ -322,7 +322,7 @@ closure_function(2, 3, int, file_read,
     }
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
-        printf( "   unable to allocate sg list");
+        fprintf(stderr, "   unable to allocate sg list");
         return -ENOMEM;
     }
     int rv;
@@ -335,7 +335,7 @@ closure_function(5, 1, void, file_write_complete,
                  file, f, sg_list, sg, u64, length, boolean, is_file_offset, int *, rv,
                  status, s)
 {
-    rprintf("file_write_complete status %v\n", s);
+    tfs_fuse_debug("file_write_complete status %v\n", s);
     sg_list_release(bound(sg));
     deallocate_sg_list(bound(sg));
     file f = bound(f);
@@ -364,7 +364,7 @@ closure_function(2, 3, int, file_write,
 
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
-        printf("   unable to allocate sg list");
+        fprintf(stderr, "   unable to allocate sg list");
         return -ENOMEM;
     }
     sg_buf sgb = sg_list_tail_add(sg, length);
@@ -374,7 +374,7 @@ closure_function(2, 3, int, file_write,
     sgb->refcount = 0;
 
     int rv;
-    rprintf("file_write range %R\n", irangel(offset, length));
+    tfs_fuse_debug("file_write range %R\n", irangel(offset, length));
     apply(f->fs_write, sg, irangel(offset, length), closure(h, file_write_complete,
                                                             f, sg, length, is_file_offset, &rv));
     return rv;
@@ -425,12 +425,12 @@ static int open_internal(const char *name, int flags, int mode)
     }
     file f = allocate(h, sizeof(struct file));
     if (f == INVALID_ADDRESS) {
-        rprintf("failed to allocate file\n");
+        fprintf(stderr, "failed to allocate file\n");
         return -ENOMEM;
     }
     int fd = allocate_fd(f);
     if (fd == INVALID_PHYSICAL) {
-        rprintf("failed to allocate fd");
+        fprintf(stderr, "failed to allocate fd");
         return -ENOMEM;
     }
     init_fdesc(h, &f->f, type);
@@ -518,7 +518,7 @@ static int tfs_read(const char *path, char *buf, size_t size, off_t off, struct 
 {
     tfs_fuse_debug("%s: path %s\n", __func__, path);
     int rv;
-    pthread_rwlock_rdlock(&rwlock);
+    pthread_rwlock_wrlock(&rwlock);
     int fd = fi->fh;
     fdesc f = resolve_fd(fd);
     if (!f->read) {
@@ -826,7 +826,7 @@ static int tfs_symlink(const char *target, const char *path)
     pthread_rwlock_wrlock(&rwlock);
     int rv = resolve_cstring(&fs, cwd, path, 0, &parent);
     if ((rv != -ENOENT) || !parent) {
-        rprintf("symlink ret %d parent %p\n", ret, parent);
+        tfs_fuse_debug("symlink ret %d parent %p\n", ret, parent);
         goto out;
     }
     if (filesystem_symlink(fs, parent, filename_from_path(path),
