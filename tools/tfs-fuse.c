@@ -54,7 +54,7 @@ typedef closure_type(file_io, int, void *buf, u64 length, u64 offset);
 
 typedef struct fdesc {
     file_io read, write;
-    // closure_type(close, sysreturn, thread t, io_completion completion);
+    closure_type(close, void);
 
     u64 refcnt;
     int type;
@@ -81,7 +81,7 @@ static inline void init_fdesc(heap h, fdesc f, int type)
 {
     f->read = 0;
     f->write = 0;
-    // f->close = 0;
+    f->close = 0;
     f->refcnt = 1;
     f->type = type;
     f->flags = 0;
@@ -324,7 +324,7 @@ closure_function(2, 3, int, file_read,
     u64 offset = is_file_offset ? f->offset : offset_arg;
 
     if (offset >= f->length) {
-        return 0; //io_complete(completion, t, 0);
+        return 0;
     }
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
@@ -386,6 +386,16 @@ closure_function(2, 3, int, file_write,
     return rv;
 }
 
+closure_function(2, 0, void, file_close,
+                file, f, fsfile, fsf)
+{
+    file f = bound(f);
+    deallocate_closure(f->f.read);
+    deallocate_closure(f->f.write);
+    deallocate_closure(f->f.close);
+    deallocate(h, f, sizeof(struct file));
+}
+
 #ifndef O_PATH
 #define O_PATH 0
 #endif
@@ -443,6 +453,7 @@ static int open_internal(const char *name, int flags, int mode)
     f->f.flags = flags;
     f->f.read = closure(h, file_read, f, fsf);
     f->f.write = closure(h, file_write, f, fsf);
+    f->f.close = closure(h, file_close, f, fsf);
     f->fs = rootfs;
     if (type == FDESC_TYPE_REGULAR) {
         f->fsf = fsf;
@@ -503,8 +514,8 @@ static int release_internal(const char *name, struct fuse_file_info *fi)
     deallocate_fd(fd);
 
     if (fetch_and_add(&f->refcnt, -1) == 1) {
-        // if (f->close)
-        //     return apply(f->close, current, syscall_io_complete);
+        if (f->close)
+            apply(f->close);
     }
     pthread_rwlock_unlock(&rwlock);
     return 0;
