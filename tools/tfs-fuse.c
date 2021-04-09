@@ -840,6 +840,41 @@ out:
     return rv;
 }
 #endif
+
+static int statfs_internal(filesystem fs, tuple t, struct statvfs *buf)
+{
+    if (!buf) {
+        return -EFAULT;
+    }
+    runtime_memset((u8 *) buf, 0, sizeof(*buf));
+    if (fs) {
+        buf->f_bsize = fs_blocksize(fs);
+        buf->f_blocks = fs_totalblocks(fs);
+        buf->f_bfree = buf->f_bavail = fs_freeblocks(fs);
+    } else {
+        buf->f_bsize = PAGESIZE;
+    }
+    buf->f_frsize = buf->f_bsize;
+    u64 id = u64_from_pointer(t);
+    buf->f_fsid = id;
+    buf->f_namemax = NAME_MAX;
+    return 0;
+}
+
+static int tfs_statfs(const char *path, struct statvfs *buf)
+{
+    filesystem fs = rootfs;
+    tuple t;
+    pthread_rwlock_wrlock(&rwlock);
+    int rv = resolve_cstring(&fs, cwd, path, &t, 0);
+    if (rv)
+        goto out;
+    rv = statfs_internal(fs, t, buf);
+out:
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
+}
+
 static struct fuse_operations tfs_op = {
     .getattr        = tfs_getattr,
     .open           = tfs_open,
@@ -857,6 +892,7 @@ static struct fuse_operations tfs_op = {
     .rmdir          = tfs_rmdir,
     .unlink         = tfs_unlink,
     .truncate       = tfs_truncate,
+    .statfs         = tfs_statfs,
 };
 
 closure_function(0, 2, void, fsc,
