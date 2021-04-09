@@ -11,13 +11,17 @@
 #include <storage.h>
 #include <errno.h>
 #include <string.h>
+#include <pthread.h>
+#include <signal.h>
 
-#define TFS_FUSE_DEBUG 1
+//#define TFS_FUSE_DEBUG
 #ifdef TFS_FUSE_DEBUG
 #define tfs_fuse_debug(fmt, ...) rprintf(fmt, ##__VA_ARGS__)
 #else
 #define tfs_fuse_debug(fmt, ...)
 #endif
+
+#define FLUSH_TIMEOUT 5
 
 #define FUSE_USE_VERSION 26
 #define _FILE_OFFSET_BITS 64
@@ -25,13 +29,12 @@
 
 static int dfd;
 static heap h;
-static int osargc;
-static char **osargv;
 
 static filesystem rootfs;
 static tuple cwd;
 static id_heap fdallocator;
-vector files;
+static vector files;
+static pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
 /* unix internal */
 #define FDESC_TYPE_REGULAR      1
@@ -234,6 +237,12 @@ static u64 get_fs_offset(descriptor fd, int part, boolean by_index, u64 *length)
     return fs_offset;
 }
 
+static void set_flush_timeout()
+{
+    alarm(0);
+    alarm(FLUSH_TIMEOUT);
+}
+
 static void fill_stat(int type, tuple n, struct stat *s)
 {
     zero(s, sizeof(struct stat));
@@ -271,10 +280,14 @@ static void fill_stat(int type, tuple n, struct stat *s)
 static int tfs_getattr(const char *name, struct stat *s)
 {
     tuple n;
+    pthread_rwlock_rdlock(&rwlock);
     int r = resolve_cstring(0, cwd, name, &n, 0);
-    if (r)
+    if (r) {
+        pthread_rwlock_unlock(&rwlock);
         return r;
+    }
     fill_stat(file_type_from_tuple(n), n, s);
+    pthread_rwlock_unlock(&rwlock);
     return 0;
 }
 
@@ -443,7 +456,9 @@ static int open_internal(const char *name, int flags, int mode)
 
 static int tfs_open(const char *name, struct fuse_file_info *fi)
 {
+    pthread_rwlock_wrlock(&rwlock);
     int fd = open_internal(name, fi->flags, 0);
+    pthread_rwlock_unlock(&rwlock);
     if (fd < 0)
         return fd;
     fi->fh = fd;
@@ -453,16 +468,21 @@ static int tfs_open(const char *name, struct fuse_file_info *fi)
 static int tfs_create(const char *name, mode_t mode, struct fuse_file_info *fi)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, name);
+    pthread_rwlock_wrlock(&rwlock);
     int fd = open_internal(name, O_CREAT|O_WRONLY|O_TRUNC, mode);
+    pthread_rwlock_unlock(&rwlock);
     if (fd < 0)
         return fd;
     fi->fh = fd;
+    set_flush_timeout();
     return 0;
 }
 
 static int tfs_opendir(const char *name, struct fuse_file_info *fi)
 {
+    pthread_rwlock_wrlock(&rwlock);
     int fd = open_internal(name, fi->flags, 0);
+    pthread_rwlock_unlock(&rwlock);
     if (fd < 0)
         return fd;
     fi->fh = fd;
@@ -471,6 +491,7 @@ static int tfs_opendir(const char *name, struct fuse_file_info *fi)
 
 static int release_internal(const char *name, struct fuse_file_info *fi)
 {
+    pthread_rwlock_wrlock(&rwlock);
     int fd = fi->fh;
     fdesc f = resolve_fd(fd);
     deallocate_fd(fd);
@@ -479,6 +500,7 @@ static int release_internal(const char *name, struct fuse_file_info *fi)
         // if (f->close)
         //     return apply(f->close, current, syscall_io_complete);
     }
+    pthread_rwlock_unlock(&rwlock);
     return 0;
 }
 
@@ -495,35 +517,54 @@ static int tfs_releasedir(const char *name, struct fuse_file_info *fi)
 static int tfs_read(const char *path, char *buf, size_t size, off_t off, struct fuse_file_info *fi)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, path);
+    int rv;
+    pthread_rwlock_rdlock(&rwlock);
     int fd = fi->fh;
     fdesc f = resolve_fd(fd);
-    if (!f->read)
-        return -EINVAL;
+    if (!f->read) {
+        rv = -EINVAL;
+        goto out;
+    }
 
     /* use (and update) file offset */
-    return apply(f->read, buf, size, off);
+    rv = apply(f->read, buf, size, off);
+out:
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
 static int tfs_write(const char *path, const char *buf, size_t size, off_t off, struct fuse_file_info *fi)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, path);
+    pthread_rwlock_wrlock(&rwlock);
     int fd = fi->fh;
     fdesc f = resolve_fd(fd);
-    rprintf("tfs_write fd %d fdesc %p\n", fd, f);
-    if (!f->read)
-        return -EINVAL;
+    int rv;
+    tfs_fuse_debug("  fd %d fdesc %p\n", fd, f);
+    if (!f->read){
+        rv = -EINVAL;
+        goto out;
+    }
 
     /* use (and update) file offset */
-    return apply(f->write, (void *)buf, size, off);
+    rv = apply(f->write, (void *)buf, size, off);
+    set_flush_timeout();
+out:
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
 static int tfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off, struct fuse_file_info *fi)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, path);
+    int rv = 0;
+    pthread_rwlock_rdlock(&rwlock);
     file f = resolve_fd(fi->fh);
     tuple c = children(file_get_meta(f));
-    if (!c)
-        return -ENOTDIR;
+    if (!c) {
+        rv = -ENOTDIR;
+        goto out;
+    }
 
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     table_foreach(c, k, v) {
@@ -535,30 +576,41 @@ static int tfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_
         if (filler(buf, p, &s, 0))
             break;
     }
-    return 0;
+out:
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
 static int tfs_readlink(const char *path, char *buf, size_t bufsiz)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, path);
+    pthread_rwlock_rdlock(&rwlock);
     tuple n;
     int ret = resolve_cstring(0, cwd, path, &n, 0);
     if (ret)
-        return ret;
-    if (!is_symlink(n))
-        return -EINVAL;
+        goto out;
+    if (!is_symlink(n)) {
+        ret = -EINVAL;
+        goto out;
+    }
     buffer target = linktarget(n);
     bytes len = buffer_length(target);
     if (bufsiz < len - 1)
         len = bufsiz - 1;
     runtime_memcpy(buf, buffer_ref(target, 0), len);
     buf[len] = 0;
-    return 0;
+    ret = 0;
+out:
+    pthread_rwlock_unlock(&rwlock);
+    return ret;
 }
 
 static void tfs_destroy(void *v)
 {
+    alarm(0);
+    pthread_rwlock_wrlock(&rwlock);
     filesystem_flush(rootfs, ignore_status);
+    pthread_rwlock_unlock(&rwlock);
     close(dfd);
 }
 
@@ -566,24 +618,32 @@ static int tfs_mkdir(const char *pathname, mode_t mode)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
     tuple parent;
-    int ret = filesystem_resolve_cstring(0, cwd, pathname, 0, &parent);
+    int rv;
+    pthread_rwlock_wrlock(&rwlock);
+    int ret = resolve_cstring(0, cwd, pathname, 0, &parent);
     if ((ret != -ENOENT) || !parent) {
-        return ret;
+        rv = ret;
+        goto out;
     }
     buffer b = little_stack_buffer(NAME_MAX + 1);
-    if (!dirname_from_path(b, pathname))
-        return -ENAMETOOLONG;
+    if (!dirname_from_path(b, pathname)) {
+        rv = -ENAMETOOLONG;
+        goto out;
+    }
     if (filesystem_mkdir(rootfs, parent, (char *)buffer_ref(b, 0))) {
         filesystem_update_mtime(rootfs, parent);
-        return 0;
+        rv = 0;
+        set_flush_timeout();
     } else {
-        return -ENOSPC;
+        rv = -ENOSPC;
     }
+out:
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
-static int tfs_rename(const char *oldpath, const char *newpath)
+static int rename_internal(const char *oldpath, const char *newpath)
 {
-    tfs_fuse_debug("%s: oldpath %s newpath %s\n", __func__, oldpath, newpath);
     if (!oldpath[0] || !newpath[0]) {
         return -ENOENT;
     }
@@ -629,8 +689,18 @@ static int tfs_rename(const char *oldpath, const char *newpath)
     if (s == FS_STATUS_OK) {
         filesystem_update_mtime(rootfs, oldparent);
         filesystem_update_mtime(rootfs, newparent);
+        set_flush_timeout();
     }
     return rv_from_fs_status(s);
+}
+
+static int tfs_rename(const char *oldpath, const char *newpath)
+{
+    tfs_fuse_debug("%s: oldpath %s newpath %s\n", __func__, oldpath, newpath);
+    pthread_rwlock_wrlock(&rwlock);
+    int rv = rename_internal(oldpath, newpath);
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
 static int rmdir_internal(filesystem fs, tuple cwd, const char *pathname)
@@ -655,15 +725,21 @@ static int rmdir_internal(filesystem fs, tuple cwd, const char *pathname)
     }
     fs_status s = filesystem_delete(fs, parent,
         lookup_sym(parent, n));
-    if (s == FS_STATUS_OK)
+    if (s == FS_STATUS_OK) {
         filesystem_update_mtime(fs, parent);
+        set_flush_timeout();
+    }
     return rv_from_fs_status(s);
 }
 
 static int tfs_rmdir(const char *pathname)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
-    return rmdir_internal(rootfs, cwd, pathname);
+    int rv;
+    pthread_rwlock_wrlock(&rwlock);
+    rv = rmdir_internal(rootfs, cwd, pathname);
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
 static int unlink_internal(filesystem fs, tuple cwd, const char *pathname)
@@ -679,20 +755,24 @@ static int unlink_internal(filesystem fs, tuple cwd, const char *pathname)
     }
     fs_status s = filesystem_delete(fs, parent,
         lookup_sym(parent, n));
-    if (s == FS_STATUS_OK)
+    if (s == FS_STATUS_OK) {
         filesystem_update_mtime(fs, parent);
+        set_flush_timeout();
+    }
     return rv_from_fs_status(s);
 }
 
 static int tfs_unlink(const char *pathname)
 {
     tfs_fuse_debug("%s: unlink %s\n", __func__, pathname);
-    return unlink_internal(rootfs, cwd, pathname);
+    pthread_rwlock_wrlock(&rwlock);
+    int rv = unlink_internal(rootfs, cwd, pathname);
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
-static int tfs_truncate(const char *path, off_t length)
+static int truncate_internal(const char *path, off_t length)
 {
-    tfs_fuse_debug("%s: path %s length %ld\n", __func__, path, length);
     tuple t;
     filesystem fs = rootfs;
     int ret = resolve_cstring_follow(0, cwd, path, &t, 0);
@@ -714,8 +794,18 @@ static int tfs_truncate(const char *path, off_t length)
     fs_status s = filesystem_truncate(fs, fsf, length);
     if (s == FS_STATUS_OK) {
         filesystem_update_mtime(fs, t);
+        set_flush_timeout();
     }
     return rv_from_fs_status(s);
+}
+
+static int tfs_truncate(const char *path, off_t length)
+{
+    tfs_fuse_debug("%s: path %s length %ld\n", __func__, path, length);
+    pthread_rwlock_wrlock(&rwlock);
+    int rv = truncate_internal(path, length);
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
 /* The target provided to symlink is provided as-is, and not
@@ -733,16 +823,21 @@ static int tfs_symlink(const char *target, const char *path)
     tfs_fuse_debug("%s: path %s target %s\n", __func__, path, target);
     filesystem fs = rootfs;
     tuple parent;
-    int ret = resolve_cstring(&fs, cwd, path, 0, &parent);
-    if ((ret != -ENOENT) || !parent) {
+    pthread_rwlock_wrlock(&rwlock);
+    int rv = resolve_cstring(&fs, cwd, path, 0, &parent);
+    if ((rv != -ENOENT) || !parent) {
         rprintf("symlink ret %d parent %p\n", ret, parent);
-        return ret;
+        goto out;
     }
     if (filesystem_symlink(fs, parent, filename_from_path(path),
-        target))
-        return 0;
-    else
-        return -ENOSPC;
+        target)) {
+        rv = 0;
+        set_flush_timeout();
+    } else
+        rv = -ENOSPC;
+out:
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 #endif
 static struct fuse_operations tfs_op = {
@@ -784,6 +879,14 @@ filesystem get_root_fs(void)
     return rootfs;
 }
 
+void sig_handler(int signum)
+{
+    tfs_fuse_debug("flush triggered after timeout\n");
+    pthread_rwlock_wrlock(&rwlock);
+    filesystem_flush(rootfs, ignore_status);
+    pthread_rwlock_unlock(&rwlock);
+}
+
 void usage(const char *prog)
 {
     const char *p = strrchr(prog, '/');
@@ -807,9 +910,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
     dfd = fd;
-    osargc = --argc;
-    osargv = argv;
-
+    --argc;
     h = init_process_runtime();
     init_pagecache(h, h, 0, PAGESIZE);
     u64 length;
@@ -824,5 +925,7 @@ int main(int argc, char **argv)
     fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
     files = allocate_vector(h, 64);
     fs_set_path_helper(get_root_fs, 0);
-    return fuse_main(osargc, osargv, &tfs_op, NULL);
+    signal(SIGALRM, sig_handler);
+    printf("WARNING: Do not externally modify disk image file while mounted!\n");
+    return fuse_main(argc, argv, &tfs_op, NULL);
 }
