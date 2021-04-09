@@ -892,6 +892,34 @@ out:
     return rv;
 }
 
+static int utime_internal(const char *filename, timestamp actime,
+        timestamp modtime)
+{
+    tuple t;
+    filesystem fs = rootfs;
+    int ret = resolve_cstring(&fs, cwd, filename, &t, 0);
+    if (ret) {
+        return ret;
+    }
+    filesystem_set_atime(fs, t, actime);
+    filesystem_set_mtime(fs, t, modtime);
+    return 0;
+}
+
+static inline timestamp time_from_timespec(const struct timespec *t)
+{
+    return seconds(t->tv_sec) + nanoseconds(t->tv_nsec);
+}
+
+static int tfs_utimens(const char *filename, const struct timespec tv[2])
+{
+    timestamp atime =
+        tv ? time_from_timespec(&tv[0]) : now(CLOCK_ID_REALTIME);
+    timestamp mtime =
+        tv ? time_from_timespec(&tv[1]) : now(CLOCK_ID_REALTIME);
+    return utime_internal(filename, atime, mtime);
+}
+
 static struct fuse_operations tfs_op = {
     .getattr        = tfs_getattr,
     .open           = tfs_open,
@@ -910,6 +938,7 @@ static struct fuse_operations tfs_op = {
     .unlink         = tfs_unlink,
     .truncate       = tfs_truncate,
     .statfs         = tfs_statfs,
+    .utimens        = tfs_utimens,
 };
 
 closure_function(0, 2, void, fsc,
