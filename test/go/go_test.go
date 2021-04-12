@@ -26,8 +26,6 @@ func prepareTestImage(finalImage string) {
 	writeFile(filepath)
 
 	c.BaseVolumeSz = "32M"
-	c.Files = append(c.Files, "/lib/x86_64-linux-gnu/libnss_dns.so.2")
-	c.Files = append(c.Files, "/etc/ssl/certs/ca-certificates.crt")
 	c.Files = append(c.Files, filepath)
 
 	c.Args = append(c.Args, "longargument")
