@@ -83,7 +83,7 @@ closure_function(3, 2, void, fsstarted,
     tuple mounts = get_tuple(root, sym(mounts));
     if (mounts)
         storage_set_mountpoints(mounts);
-    value klibs = get(root, sym(klibs)); // XXX get_string
+    value klibs = get_string(root, sym(klibs));
     boolean klibs_in_bootfs = klibs && !is_tuple(klibs) &&
         buffer_compare_with_cstring(klibs, "bootfs");
 

@@ -251,18 +251,15 @@ void init_network_iface(tuple root) {
     }
 
     boolean trace = get(root, sym(trace)) != 0;
-    value v = get(root, sym(mtu));
-    if (v) {
-        u64 mtu;
-        if (u64_from_value(v, &mtu)) {
-            if (mtu < U64_FROM_BIT(16)) {
-                if (trace)
-                    rprintf("NET: setting MTU for interface %c%c%d to %ld\n",
-                            n->name[0], n->name[1], n->num, mtu);
-                n->mtu = mtu;
-            } else {
-                msg_err("invalid MTU %ld; ignored\n", mtu);
-            }
+    u64 mtu;
+    if (get_u64(root, sym(mtu), &mtu)) {
+        if (mtu < U64_FROM_BIT(16)) {
+            if (trace)
+                rprintf("NET: setting MTU for interface %c%c%d to %ld\n",
+                        n->name[0], n->name[1], n->num, mtu);
+            n->mtu = mtu;
+        } else {
+            msg_err("invalid MTU %ld; ignored\n", mtu);
         }
     }
 

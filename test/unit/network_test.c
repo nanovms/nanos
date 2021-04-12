@@ -110,10 +110,8 @@ tuple parse_arguments(heap h, int argc, char **argv);
 u64 extract_u64_with_default(tuple t, symbol n, u64 otherwise)
 {
     u64 result;
-    value v = get(t, n); // XXX get string or int
-    if (v && u64_from_value(v, &result)) {
+    if (get_u64(t, n, &result))
         return result;
-    }
     return otherwise;
 }
 

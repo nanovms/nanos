@@ -120,8 +120,7 @@ closure_function(2, 2, boolean, destruct_tuple_each,
         if (bound(recursive))
             destruct_tuple(v, true);
     } else if (v != null_value) {
-        // XXX further validate type
-        deallocate_buffer(v);
+        deallocate_value(v);
     }
     return true;
 }
@@ -129,7 +128,7 @@ closure_function(2, 2, boolean, destruct_tuple_each,
 void destruct_tuple(tuple t, boolean recursive)
 {
     iterate(t, stack_closure(destruct_tuple_each, t, recursive));
-    deallocate_tuple(t);
+    deallocate_value(t);
 }
 KLIB_EXPORT(destruct_tuple);
 
@@ -382,7 +381,7 @@ void deallocate_function_tuple(function_tuple ft)
     // XXX
 }
 
-void deallocate_tuple(tuple t)
+void deallocate_value(tuple t)
 {
     value_tag tag = tagof(t);
     switch (tag) {
@@ -393,7 +392,9 @@ void deallocate_tuple(tuple t)
         deallocate_function_tuple((function_tuple)t);
         break;
     default:
-        halt("%s: value %p (tag %d) not a tuple\n", __func__, t, tag);
+        /* XXX assuming string buffer until we have complete type coverage */
+        deallocate_buffer((buffer)t);
+        break;
     }
 }
 

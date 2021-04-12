@@ -39,14 +39,12 @@ int main(int argc, char ** argv)
     parse_v4_address_and_port(target, &daddr, &dport);
 
     u16 lport = DEFAULT_LOCAL_PORT;
-    value v = get(t, sym(localport));
     u64 result;
-    if (v && u64_from_value(v, &result))
-	lport = result;
+    if (get_u64(t, sym(localport), &result))
+        lport = result;
 
     int iterations = DEFAULT_LOCAL_ITERATIONS;
-    v = get(t, sym(iterations));
-    if (v && u64_from_value(v, &result))
+    if (get_u64(t, sym(iterations), &result))
         iterations = result;
 
     int fd = socket(AF_INET, SOCK_DGRAM, 0);

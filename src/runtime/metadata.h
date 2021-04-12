@@ -54,11 +54,9 @@ static inline tuple children(tuple x)
     return get_tuple(x, sym(children));
 }
 
-// XXX string
-static inline buffer contents(tuple x)
+static inline string contents(tuple x)
 {
-    // XXX get_string
-    return get(x, sym(contents));
+    return get_string(x, sym(contents));
 }
 
 static inline tuple lookup(tuple t, symbol a)

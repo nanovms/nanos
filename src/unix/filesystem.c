@@ -26,12 +26,11 @@ sysreturn sysreturn_from_fs_status_value(status s)
 {
     if (is_ok(s))
         return 0;
-    value v = get(s, sym(fsstatus)); // XXX get_string / num
     u64 fss;
     sysreturn rv;
 
     /* block r/w errors won't include an fs status, so assume I/O error if none found */
-    if (v && !is_tuple(v) && u64_from_value(v, &fss))
+    if (get_u64(s, sym(fsstatus), &fss))
         rv = sysreturn_from_fs_status(fss);
     else
         rv = -EIO;

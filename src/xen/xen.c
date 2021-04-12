@@ -722,17 +722,14 @@ status xendev_attach(xen_dev xd, int id, buffer frontend, tuple meta)
 {
     xd->if_id = id;
     xd->frontend = frontend;
-    u64 val = infinity;
-    value v = get(meta, sym(backend-id)); // XXX string / num
-    if (v)
-        u64_from_value(v, &val);
-    if (val == infinity)
+    u64 val;
+    if (!get_u64(meta, sym(backend-id), &val))
         return timm("result", "unable to find backend-id");
     xd->backend_id = val;
-    v = get(meta, sym(backend)); // XXX get_string
-    if (!v || is_tuple(v))
+    string b = get_string(meta, sym(backend));
+    if (!b)
         return timm("result", "unable to find backend path");
-    xd->backend = (buffer)v;
+    xd->backend = b;
 
     /* check if the backend is ready for us
        XXX This should poll or, better yet, set up an asynchronous xenstore watch...

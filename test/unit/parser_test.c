@@ -129,8 +129,8 @@ PARSE_TEST(partial_comment_test, "#[]\n()")
     return true;
 }
 
-// XXX most of these gets should be get_string...
-
+/* XXX Most of these calls to get should be to get_string; but they currently
+   fail due to the user va tags issue. Fix once user tags are changed over to rewind type. */
 PARSE_TEST(tuple_simple_test, "(key:value)")
 {
     test_no_errors();

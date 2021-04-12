@@ -153,10 +153,10 @@ static status xennet_inform_backend(xennet_dev xnd)
     node = "transaction end";
     s = xenstore_transaction_end(tx_id, false);
     if (!is_ok(s)) {
-        value v = get(s, sym(errno)); // XXX get_string
+        value v = get_string(s, sym(errno));
         if (v) {
             if (!runtime_strcmp("EAGAIN", buffer_ref((buffer)v, 0))) {
-                deallocate_tuple(s);
+                deallocate_value(s);
                 if (retries-- == 0) {
                     return timm("result", "%s failed: transaction end returned EAGAIN after %d tries",
                              __func__, XENNET_INFORM_BACKEND_RETRIES);
@@ -760,8 +760,8 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     assert(xd->netif != INVALID_ADDRESS);
 
     /* get MAC address */
-    v = get(meta, sym(mac)); // XXX get_string
-    if (!v || is_tuple(v)) {
+    v = get_string(meta, sym(mac));
+    if (!v) {
         s = timm("result", "unable to find mac address");
         goto out_dealloc_xd;
     }
@@ -786,12 +786,9 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     xd->mtu = 1500;
     /* XXX t2 reports ~9k MTU which exceeds pagesize; sort out later */
 #if 0
-    v = table_find(meta, sym(mtu));
-    if (v && tagof(v) != tag_tuple) {
-        u64 val;
-        if (u64_from_value(v, &val))
-            xd->mtu = val;
-    }
+    u64 val;
+    if (get_u64(meta, sym(mtu), &val))
+        xd->mtu = val;
 #endif
     xennet_debug("MTU %d, ring sizes: rx %d, tx %d\n", xd->mtu, XENNET_RX_RING_SIZE, XENNET_TX_RING_SIZE);
     xd->rxbufs = allocate_vector(h, 2 * XENNET_RX_RING_SIZE);

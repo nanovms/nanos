@@ -411,7 +411,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
     sysreturn ret = filesystem_add_tuple(unixaddr->sun_path, s->fs_entry);
     if (ret) {
         deallocate_buffer(b);
-        deallocate_tuple(s->fs_entry);
+        deallocate_value(s->fs_entry);
         s->fs_entry = 0;
         if (ret == -EEXIST) {
             return -EADDRINUSE;

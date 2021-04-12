@@ -39,7 +39,6 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
 
     string path = 0;
     string attr = 0;
-    string depthstr = 0;
     tuple target = 0;
     value v = 0;
     u64 depth = 1;
@@ -73,13 +72,7 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
                 goto out;
             }
         }
-        depthstr = get_string(args, sym(depth));
-        if (depthstr) {
-            if (!u64_from_value(depthstr, &depth)) {
-                bprintf(b, "unable to parse depth value\n");
-                goto out;
-            }
-        }
+        get_u64(args, sym(depth), &depth);
         bprintf(b, "%V\n", target, depth);
         break;
     case MGMT_REQ_SET:
@@ -87,7 +80,7 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
             bprintf(b, "set: no attr found\n");
             goto out;
         }
-        v = get(args, sym(value));
+        v = get_string(args, sym(value));
         if (!v) {
             bprintf(b, "value not found\n");
             goto out;
@@ -210,7 +203,7 @@ void init_management_root(tuple root)
 
 #ifdef KERNEL // XXX should be runtime mgmt options
     /* XXX move interfaces into klibs */
-    value v = get(root, sym(telnet_mgmt));
+    value v = get_string(root, sym(telnet_mgmt));
     if (v)
         init_management_telnet(management.h, v);
 #endif

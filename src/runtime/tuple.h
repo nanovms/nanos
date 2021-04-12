@@ -26,9 +26,9 @@ void init_tuples(heap theap);
 void print_tuple(buffer b, tuple t, u32 depth);
 int tuple_count(tuple t);
 tuple allocate_tuple();
-void deallocate_tuple(tuple t);
 void deallocate_function_tuple(function_tuple ft);
 void destruct_tuple(tuple t, boolean recursive);
+void deallocate_value(tuple t);
 
 void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total);
 
@@ -87,10 +87,25 @@ static inline tuple get_tuple(value e, symbol a)
     return (v && is_tuple(v)) ? v : 0;
 }
 
+/* TODO - change to validate string tag type */
 static inline string get_string(value e, symbol a)
 {
     value v = get(e, a);
     return (v && tagof(v) == tag_unknown) ? v : 0;
+}
+
+/* TODO - change to validate number type */
+static inline string get_number(value e, symbol a)
+{
+    return get_string(e, a);
+}
+
+static inline boolean get_u64(value e, symbol a, u64 *result)
+{
+    string s = get_number(e, a);
+    if (!s)
+        return false;
+    return u64_from_value(s, result);
 }
 
 /* really just for parser output */

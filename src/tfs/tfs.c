@@ -85,10 +85,7 @@ void filesystem_write_sg(fsfile f, sg_list sg, range q, status_handler completio
 static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)
 {
     timestamp tim = 0;
-    value time_val = get(t, s);
-    if (time_val) {
-        u64_from_value(time_val, &tim);
-    }
+    get_u64(t, s, &tim);
     return tim;
 }
 
@@ -106,13 +103,13 @@ static inline void filesystem_set_time(filesystem fs, tuple t, symbol s,
         timestamp tim)
 {
     timestamp cur_time = 0;
-    value time_val = get(t, s);
+    value time_val = get_number(t, s);
     if (time_val) {
         u64_from_value(time_val, &cur_time);
     }
     if (tim != cur_time) {
         if (time_val) {
-            deallocate_buffer(time_val);
+            deallocate_value(time_val);
         }
         time_val = value_from_u64(fs->h, tim);
         assert(time_val);
@@ -463,11 +460,11 @@ static fs_status add_extent_to_file(fsfile f, extent ex)
     tuple extents;
     symbol a = sym(extents);
     assert(f->md);
-    if (!(extents = get(f->md, a))) {
+    if (!(extents = get_tuple(f->md, a))) {
         extents = allocate_tuple();
         fs_status s = filesystem_write_eav(f->fs, f->md, a, extents);
         if (s != FS_STATUS_OK) {
-            deallocate_tuple(extents);
+            deallocate_value(extents);
             return s;
         }
         set(f->md, a, extents);
@@ -599,9 +596,9 @@ static fs_status update_extent_length(fsfile f, extent ex, u64 new_length)
     ex->node.r = irangel(ex->node.r.start, new_length);
     tfs_debug("   %s: now %R\n", __func__, ex->node.r);
     assert(ex->md);
-    string length = get(ex->md, sym(length));
-    assert(length);
-    deallocate_buffer(length);
+    value oldval = get(ex->md, sym(length));
+    assert(oldval);
+    deallocate_value(oldval);
     set(ex->md, sym(length), v);
     return FS_STATUS_OK;
 }

@@ -32,8 +32,7 @@ closure_function(3, 2, boolean, each_header,
 
     if (bound(dealloc)) {
         assert(!is_tuple(v));
-        /* XXX dealloc by tag type */
-        deallocate_buffer((buffer)v);
+        deallocate_value(v);
     }
     return true;
 }
@@ -71,16 +70,16 @@ static status send_http_headers(buffer_handler out, tuple t)
     status s;
     buffer d = allocate_buffer(transient, 128);
     bprintf(d, "HTTP/1.1 ");
-    value v;
     symbol ss = sym(status);
-    if ((v = get(t, ss)))
-        bprintf(d, "%b\r\n", (buffer)v);
+    string sstr = get_string(t, ss);
+    if (sstr)
+        bprintf(d, "%b\r\n", sstr);
     else
         bprintf(d, "200 OK\r\n");
 
     /* destructive */
     iterate(t, stack_closure(each_header, d, ss, true));
-    deallocate_tuple(t);
+    deallocate_value(t);
     bprintf(d, "\r\n");
 
     s = apply(out, d);
