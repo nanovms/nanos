@@ -374,7 +374,7 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     iour->cq_entries = params->cq_entries;
     iour->cq_mask = iour->cq_entries - 1;
 
-    iour->vh = (heap)current->p->virtual_page;
+    iour->vh = current->p->virtual;
     u64 alloc_size = IOUR_ALLOC_SIZE(iour);
     iour_debug("allocating %ld bytes", alloc_size);
     iour->rings = (io_rings)allocate(h, alloc_size);

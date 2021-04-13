@@ -182,7 +182,7 @@ closure_function(2, 1, status, load_interp_complete,
     kernel_heaps kh = bound(kh);
 
     exec_debug("interpreter load complete, reading elf\n");
-    u64 where = allocate_u64((heap)t->p->virtual, HUGE_PAGESIZE);
+    u64 where = process_get_virt_range(t->p, HUGE_PAGESIZE);
     assert(where != INVALID_PHYSICAL);
     void * start = load_elf(b, where, stack_closure(exec_elf_map, t->p, kh, 0));
     exec_debug("starting process tid %d, start %p\n", t->tid, start);

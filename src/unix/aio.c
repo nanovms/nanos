@@ -74,26 +74,24 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
 
     /* Allocate AIO ring structure and add it to process memory map.*/
     kernel_heaps kh = get_kernel_heaps();
-    heap vh = (heap) current->p->virtual_page;
     aio_ring ctx;
     nr_events += 1; /* needed because of head/tail management in ring buffer */
     u64 alloc_size = pad(sizeof(*ctx) + nr_events * sizeof(struct io_event),
             PAGESIZE);
-    ctx = (aio_ring) allocate_u64(vh, alloc_size);
-    if (ctx == INVALID_ADDRESS) {
-        return -ENOMEM;
-    }
     u64 phys = allocate_u64((heap) heap_physical(kh), alloc_size);
     if (phys == INVALID_PHYSICAL) {
-        deallocate(vh, ctx, alloc_size);
         return -ENOMEM;
     }
-    pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
-    map(u64_from_pointer(ctx), phys, alloc_size, flags);
+    ctx = (aio_ring)process_map_physical(current->p, phys, alloc_size,
+        VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE);
+    if (ctx == INVALID_ADDRESS) {
+        deallocate_u64((heap)heap_physical(kh), phys, alloc_size);
+        return -ENOMEM;
+    }
 
     struct aio *aio = aio_alloc(current->p, kh, &ctx->id);
     assert(aio);
-    aio->vh = vh;
+    aio->vh = current->p->virtual;
     aio->ring = ctx;
     spin_lock_init(&aio->lock);
     aio->bq = 0;

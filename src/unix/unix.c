@@ -325,16 +325,6 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
-        /* start huge virtual at zero so that parent allocations abide by alignment */
-        p->virtual = create_id_heap(h, h, 0, PROCESS_VIRTUAL_HEAP_LIMIT, HUGE_PAGESIZE, false);
-        assert(p->virtual != INVALID_ADDRESS);
-
-        /* reserve the lowest huge page for program, heap and stack (and virtual32 on x86_64) */
-        assert(id_heap_set_area(p->virtual, 0, HUGE_PAGESIZE, true, true));
-        p->virtual_page = create_id_heap_backed(h, heap_backed(kh), (heap)p->virtual, PAGESIZE, false);
-        assert(p->virtual_page != INVALID_ADDRESS);
-        if (aslr)
-            id_heap_set_randomize(p->virtual_page, true);
 
 #ifdef __x86_64__
         /* This heap is used to track the lowest 32 bits of process
@@ -345,13 +335,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
 #endif
-        mmap_process_init(p);
+        mmap_process_init(p, aslr);
         init_vdso(p);
     } else {
 #ifdef __x86_64__
         p->virtual32 = 0;
 #endif
-        p->virtual = p->virtual_page = 0;
+        p->virtual = 0;
         p->vareas = p->vmaps = INVALID_ADDRESS;
     }
     p->root_fs = p->cwd_fs = fs;

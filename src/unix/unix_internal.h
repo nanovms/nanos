@@ -395,6 +395,9 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
 vmap allocate_vmap(rangemap rm, range r, struct vmap q);
 boolean adjust_process_heap(process p, range new);
 
+u64 process_get_virt_range(process p, u64 size);
+void *process_map_physical(process p, u64 phys_addr, u64 size, u64 vmflags);
+
 typedef struct file *file;
 
 struct syscall;
@@ -405,8 +408,7 @@ typedef struct process {
     void             *brk;
     u64               heap_base;
     u64               vdso_base;
-    id_heap           virtual;  /* huge virtual, parent of virtual_page */
-    id_heap           virtual_page; /* pagesized, default for mmaps */
+    heap              virtual; /* pagesized, default for mmaps */
 #ifdef __x86_64__
     id_heap           virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
 #endif
@@ -597,7 +599,7 @@ void deallocate_fd(process p, int fd);
 
 void init_vdso(process p);
 
-void mmap_process_init(process p);
+void mmap_process_init(process p, boolean aslr);
 
 /* This "validation" is just a simple limit check right now, but this
    could optionally expand to do more rigorous validation (e.g. vmap

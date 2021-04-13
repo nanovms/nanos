@@ -1510,7 +1510,7 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
         rlim->rlim_max = 65536;
         return 0;
     case RLIMIT_AS:
-        rlim->rlim_cur = rlim->rlim_max = heap_total(&current->p->virtual->h);
+        rlim->rlim_cur = rlim->rlim_max = heap_total(current->p->virtual);
         return 0;
     }
 
