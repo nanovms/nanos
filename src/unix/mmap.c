@@ -317,10 +317,6 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     /* remove old mapping, preserving attributes */
     u64 vmflags = old_vm->flags;
 
-    /* we're moving the vmap to a new address region, so we can safely remove
-     * the old node entirely */
-    rangemap_remove_node(p->vmaps, &old_vm->node);
-
     /* new virtual allocation */
     u64 maplen = pad(new_size, vh->pagesize);
     u64 vnew = allocate_u64(vh, maplen);
@@ -348,6 +344,10 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         goto unlock_out;
     }
     thread_log(current, "   new physical pages at 0x%lx, size %ld", dphys, dlen);
+
+    /* we're moving the vmap to a new address region, so we can safely remove
+     * the old node entirely */
+    rangemap_remove_node(p->vmaps, &old_vm->node);
 
     /*
      * XXX : if we decide to handle MREMAP_FIXED, we'll need to be careful about
