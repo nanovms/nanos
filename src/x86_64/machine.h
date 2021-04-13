@@ -14,14 +14,10 @@
 #define USER_LIMIT  0x0000800000000000ull
 
 #if defined(KERNEL) || defined(KLIB)
+
 #define VA_TAG_BASE   KMEM_BASE
 #define VA_TAG_OFFSET 39
 #define VA_TAG_WIDTH  8
-#else
-#define VA_TAG_BASE   0
-#define VA_TAG_OFFSET USER_VA_TAG_OFFSET
-#define VA_TAG_WIDTH  USER_VA_TAG_WIDTH
-#endif
 
 static inline __attribute__((always_inline)) void *tag(void* v, u64 tval) {
     return pointer_from_u64(VA_TAG_BASE | (tval << VA_TAG_OFFSET) | u64_from_pointer(v));
@@ -32,6 +28,26 @@ static inline __attribute__((always_inline)) u16 tagof(void* v) {
 }
 
 #define valueof(__x) (__x)
+
+#else
+
+static inline void *tag(void *v, u8 tval)
+{
+    *((u8 *)v-1) = tval;
+    return v;
+}
+
+static inline u8 tagof(void *v)
+{
+    return *((u8 *)v-1);
+}
+
+static inline void *valueof(void *v)
+{
+    return v;
+}
+
+#endif
 
 typedef struct spinlock {
     word w;

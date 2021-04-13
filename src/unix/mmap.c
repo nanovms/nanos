@@ -1019,16 +1019,6 @@ void mmap_process_init(process p)
     /* allow (tracked) reservations in p->virtual */
     add_varea(p, PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT, p->virtual_page, true);
 
-    /* XXX todo: tagged addresses logically above kernel area - handle in mmap? */
-#ifdef __x86_64__
-    /* reserve end of p->virtual to user tag region */
-    u64 user_va_tag_start = U64_FROM_BIT(USER_VA_TAG_OFFSET);
-    u64 user_va_tag_end = user_va_tag_start * tag_max;
-
-    /* allow untracked mmaps in user va tag area */
-    add_varea(p, user_va_tag_start, user_va_tag_end, 0, true);
-#endif
-
     /* reserve kernel memory and non-canonical addresses */
     add_varea(p, USER_LIMIT, -1ull, 0, false);
 
