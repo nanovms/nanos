@@ -110,7 +110,7 @@ __bswap64(u64 _x)
 #define VA_TAG_WIDTH     USER_VA_TAG_WIDTH
 #else
 #define KMEM_BASE        0x00ff000000000000ull
-#define USER_LIMIT       KMEM_BASE
+#define USER_LIMIT       0x0001000000000000ull  /* 4-level page tables -> 48-bit addresses */
 #define VA_TAG_BASE      KMEM_BASE
 #define VA_TAG_OFFSET    56
 #define VA_TAG_WIDTH     8

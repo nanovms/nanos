@@ -307,7 +307,8 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
             }
             u64 nexttable = page_from_pte(pte);
             u64 *nexttable_ptr = pointer_from_pteaddr(nexttable);
-            u64 len = MIN(range_span(v), ((i + 1) << shift) - v.start);
+            u64 end = vlbase | (((u64)(i + 1)) << shift);
+            u64 len = MIN(range_span(v), end - v.start);
             page_init_debug("   len 2 ");
             page_init_debug_u64(len);
             page_init_debug("\n");
