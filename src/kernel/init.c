@@ -3,7 +3,6 @@
 #include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
-#include <management.h>
 #include <log.h>
 #include <net.h>
 #include <symtab.h>
@@ -166,9 +165,9 @@ tuple get_root_tuple(void)
 }
 KLIB_EXPORT(get_root_tuple);
 
-void register_root_notify(symbol s, value_handler vh)
+void register_root_notify(symbol s, set_value_notify n)
 {
-    tuple_notifier_register_notify(wrapped_root, s, vh);
+    tuple_notifier_register_set_notify(wrapped_root, s, n);
 }
 KLIB_EXPORT(register_root_notify);
 

@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <net.h>
-#include <management.h>
 
 closure_function(3, 1, status, telnet_recv,
                  heap, h, buffer_handler, out, parser, p,

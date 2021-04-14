@@ -1264,6 +1264,11 @@ void destroy_filesystem(filesystem fs)
 
 #endif
 
+/* Note: This function is used to retrieve the root metadata for a given
+   filesystem. To access the system-wide root tuple for other uses, such as to
+   probe for configuration options or to register a management interface, use
+   get_root_tuple() in src/kernel/init.c. */
+
 tuple filesystem_getroot(filesystem fs)
 {
     return fs->root;

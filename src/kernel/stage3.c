@@ -7,7 +7,6 @@
 #include <gdb.h>
 #include <storage.h>
 #include <symtab.h>
-#include <management.h>
 #include <virtio/virtio.h>
 
 closure_function(2, 0, void, program_start,
@@ -98,10 +97,12 @@ static void init_kernel_heaps_management(tuple root)
     kernel_heaps kh = get_kernel_heaps();
     tuple heaps = allocate_tuple();
     assert(heaps);
-    // this will become hierarchical
+    /* TODO: This should become hierarchical, with child heaps registering with parents. */
     set(heaps, sym(virtual_huge), heap_management((heap)heap_virtual_huge(kh)));
     set(heaps, sym(virtual_page), heap_management((heap)heap_virtual_page(kh)));
     set(heaps, sym(physical), heap_management((heap)heap_physical(kh)));
+    set(heaps, sym(general), heap_management((heap)heap_general(kh)));
+    set(heaps, sym(locked), heap_management((heap)heap_locked(kh)));
     set(root, sym(heaps), heaps);
 }
 

@@ -65,6 +65,7 @@ heap wrap_freelist(heap meta, heap parent, bytes size)
     f->h.allocated = freelist_allocated;
     f->h.total = freelist_total;
     f->h.pagesize = size; // not necessarily a power of two
+    f->h.management = 0;  /* TODO */
     f->count = 0;
     f->total = 0;
     f->parent = parent;

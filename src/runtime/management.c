@@ -85,6 +85,8 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
             bprintf(b, "value not found\n");
             goto out;
         }
+        if (is_null_string(v))
+            v = 0;              /* unset */
         set(target, intern(attr), v);
         break;
     default:
@@ -127,36 +129,67 @@ KLIB_EXPORT(allocate_function_tuple);
 typedef struct tuple_notifier {
     struct function_tuple f;
     tuple parent;
-    table notifys;              /* value_handlers */
+    table get_notifys;           /* get_value_notifys */
+    table set_notifys;           /* set_value_notifys */
 } *tuple_notifier;
+
+/* It might be a shade more elegant to make a function-backed value to poll
+   dynamic values rather than use a get notifier, and it would avoid the table
+   lookup in get_notifys. There are some subtleties that need to be sorted
+   out, though. For instance, would a get or iterate always return the
+   function-backed value or the resolved value (value of function)? If the
+   former, then every value returned by a get may require additional
+   resolution. One advantage of this method is that the backed value may be
+   stored and later resolved before use, whereas resolution at the get would
+   strip the value of this backed property.
+
+   In the latter case, which makes such backing transparent for most uses,
+   some uses such as destruct_tuple would need non-resolving variants of get
+   and iterate to operate on the backed value itself. */
 
 closure_function(1, 1, value, tuple_notifier_get,
                  tuple_notifier, tn,
                  symbol, s)
 {
-    /* transparent */
-    return get(bound(tn)->parent, s);
+    get_value_notify n;
+    if (bound(tn)->get_notifys && (n = table_find(bound(tn)->get_notifys, s)))
+        return apply(n);
+    else
+        return get(bound(tn)->parent, s); /* transparent */
 }
 
 closure_function(1, 2, void, tuple_notifier_set,
                  tuple_notifier, tn,
                  symbol, s, value, v)
 {
-    if (is_null_string(v))
-        v = 0;
-    set(bound(tn)->parent, s, v);
-
     /* check for notify */
-    value_handler vh = table_find(bound(tn)->notifys, s);
-    if (vh)
-        apply(vh, v);
+    set_value_notify vh = table_find(bound(tn)->set_notifys, s);
+    if (vh) {
+        if (!apply(vh, v))
+            return;             /* setting of value not allowed */
+    }
+    set(bound(tn)->parent, s, v);
+}
+
+closure_function(2, 2, boolean, tuple_notifier_iterate_each,
+                 tuple_notifier, tn, binding_handler, h,
+                 symbol, s, value, v)
+{
+    get_value_notify n;
+    if (bound(tn)->get_notifys && (n = table_find(bound(tn)->get_notifys, s)))
+        v = apply(n);
+    return apply(bound(h), s, v);
 }
 
 closure_function(1, 1, void, tuple_notifier_iterate,
                  tuple_notifier, tn,
                  binding_handler, h)
 {
-    iterate(bound(tn)->parent, h);
+    /* This assumes that all attributes of interest exist in the parent
+       tuple. Values that are served by get_notifys should still have
+       corresponding entries in the parent tuple if they are to be included in
+       an iterate. */
+    iterate(bound(tn)->parent, stack_closure(tuple_notifier_iterate_each, bound(tn), h));
 }
 
 tuple_notifier tuple_notifier_wrap(tuple parent)
@@ -165,7 +198,8 @@ tuple_notifier tuple_notifier_wrap(tuple parent)
     if (tn == INVALID_ADDRESS)
         return tn;
     tn->parent = parent;
-    tn->notifys = allocate_table(management.h, identity_key, pointer_equal);
+    tn->get_notifys = 0;
+    tn->set_notifys = 0;
     tn->f.g = closure(management.h, tuple_notifier_get, tn);
     tn->f.s = closure(management.h, tuple_notifier_set, tn);
     tn->f.i = closure(management.h, tuple_notifier_iterate, tn);
@@ -174,23 +208,35 @@ tuple_notifier tuple_notifier_wrap(tuple parent)
 
 void tuple_notifier_unwrap(tuple_notifier tn)
 {
-    table_foreach(tn->notifys, s, n) {
-        (void)s;
-        apply((value_handler)n, INVALID_ADDRESS);
-    }
-    deallocate_table(tn->notifys);
+    if (tn->set_notifys)
+        deallocate_table(tn->set_notifys);
+    if (tn->get_notifys)
+        deallocate_table(tn->get_notifys);
     deallocate_closure(tn->f.g);
     deallocate_closure(tn->f.s);
     deallocate_closure(tn->f.i);
     deallocate(management.fth, tn, sizeof(struct tuple_notifier));
 }
 
-void tuple_notifier_register_notify(tuple_notifier tn, symbol s, value_handler vh)
+void tuple_notifier_register_get_notify(tuple_notifier tn, symbol s, get_value_notify n)
 {
-    table_set(tn->notifys, s, vh);
+    if (!tn->get_notifys) {
+        tn->get_notifys = allocate_table(management.h, identity_key, pointer_equal);
+        assert(tn->get_notifys != INVALID_ADDRESS);
+    }
+    table_set(tn->get_notifys, s, n);
+}
+
+void tuple_notifier_register_set_notify(tuple_notifier tn, symbol s, set_value_notify n)
+{
+    if (!tn->set_notifys) {
+        tn->set_notifys = allocate_table(management.h, identity_key, pointer_equal);
+        assert(tn->set_notifys != INVALID_ADDRESS);
+    }
+    table_set(tn->set_notifys, s, n);
     value v = get(tn->parent, s);
     if (v)
-        apply(vh, v);
+        apply(n, v);
 }
 
 extern void init_management_telnet(heap h, value meta);
@@ -215,4 +261,3 @@ void init_management(heap function_tuple_heap, heap general)
     management.fth = function_tuple_heap;
     management.root = 0;
 }
-

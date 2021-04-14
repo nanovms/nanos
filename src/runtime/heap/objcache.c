@@ -19,6 +19,7 @@
 */
 
 #include <runtime.h>
+#include <management.h>
 
 #define FOOTER_MAGIC    (u16)(0xcafe)
 
@@ -34,6 +35,7 @@ typedef struct footer {
 
 typedef struct objcache {
     struct heap h;
+    heap meta;
     heap parent;
     struct list free;       /* pages with available objects */
     struct list full;       /* fully-occupied pages */
@@ -42,6 +44,7 @@ typedef struct objcache {
     u64 total_objs;         /* total objects in cache */
     u64 alloced_objs;       /* total cache occupancy (of total_objs) */
     heap wrapper_heap;      /* heap wrapper */
+    tuple mgmt;
 } *objcache;
 
 typedef u64 page;
@@ -393,6 +396,49 @@ boolean objcache_validate(heap h)
     return true;
 }
 
+closure_function(2, 0, value, objcache_get_allocated,
+                 objcache, o, value, v)
+{
+    return value_rewrite_u64(bound(v), objcache_allocated((heap)bound(o)));
+}
+
+closure_function(2, 0, value, objcache_get_total,
+                 objcache, o, value, v)
+{
+    return value_rewrite_u64(bound(v), objcache_total((heap)bound(o)));
+}
+
+closure_function(2, 0, value, objcache_get_free,
+                 objcache, o, value, v)
+{
+    heap h = (heap)bound(o);
+    return value_rewrite_u64(bound(v), objcache_total(h) - objcache_allocated(h));
+}
+
+#define register_stat(o, n, t, name)                                    \
+    v = value_from_u64(o->meta, 0);                                     \
+    s = sym(name);                                                      \
+    set(t, s, v);                                                       \
+    tuple_notifier_register_get_notify(n, s, closure(o->meta, objcache_get_ ##name, o, v));
+
+static value objcache_management(heap h)
+{
+    objcache o = (objcache)h;
+    if (o->mgmt)
+        return o->mgmt;
+    value v;
+    symbol s;
+    tuple t = timm("type", "objcache");
+    assert(t != INVALID_ADDRESS);
+    tuple_notifier n = tuple_notifier_wrap(t);
+    assert(n != INVALID_ADDRESS);
+    register_stat(o, n, t, allocated);
+    register_stat(o, n, t, total);
+    register_stat(o, n, t, free);
+    o->mgmt = (tuple)n;
+    return n;
+}
+
 /* If the parent heap gives allocations that are aligned to size, the
    caller may choose a power-of-2 pagesize that is larger than the
    parent pagesize. Otherwise, pagesize must be equal to parent
@@ -439,6 +485,8 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     o->h.allocated = objcache_allocated;
     o->h.total = objcache_total;
     o->h.pagesize = objsize;
+    o->h.management = objcache_management;
+    o->meta = meta;
     o->parent = parent;
 
     list_init(&o->free);

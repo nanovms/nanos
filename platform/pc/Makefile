@@ -1,4 +1,4 @@
-\SUBDIR=		boot
+SUBDIR=		boot
 LWIPDIR=	$(VENDORDIR)/lwip
 PROGRAMS=	kernel.elf
 

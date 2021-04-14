@@ -200,14 +200,12 @@ closure_function(2, 1, status, load_interp_complete,
     return STATUS_OK;
 }
 
-closure_function(1, 1, void, trace_notify,
+closure_function(1, 1, boolean, trace_notify,
                  process, p,
                  value, v)
 {
-    if (v == INVALID_ADDRESS)
-        closure_finish();
-    else
-        bound(p)->trace = !!v;
+    bound(p)->trace = !!v;      /* allow any value for true */
+    return true;
 }
 
 process exec_elf(buffer ex, process kp)

@@ -282,13 +282,11 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     return set_syscall_error(current, ENOSYS);
 }
 
-closure_function(0, 1, void, futex_trace_notify,
+closure_function(0, 1, boolean, futex_trace_notify,
                  value, v)
 {
-    if (v == INVALID_ADDRESS)
-        closure_finish();
-    else
-        futex_verbose = !!v;
+    futex_verbose = !!v;
+    return true;
 }
 
 void

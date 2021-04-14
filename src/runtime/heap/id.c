@@ -1,9 +1,9 @@
 #ifdef KERNEL
 #include <kernel.h>
-#include <management.h>
 #else
 #include <runtime.h>
 #endif
+#include <management.h>
 
 //#define ID_HEAP_DEBUG
 #ifdef ID_HEAP_DEBUG
@@ -48,7 +48,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     u64 page_start = base >> page_order(i);
     u64 pages = length >> page_order(i);
     id_range ir = allocate(i->meta, sizeof(struct id_range));
-    ir->n.r = irange(page_start, page_start + pages);
+    ir->n.r = irangel(page_start, pages);
     id_debug("page range %R\n", ir->n.r);
     if (ir == INVALID_ADDRESS)
 	return ir;
@@ -186,7 +186,7 @@ static inline void id_dealloc(heap h, u64 a, bytes count)
         return;
     }
 
-    range q = irange(a >> page_order(i), (a + count) >> page_order(i));
+    range q = range_rshift(irangel(a, count), page_order(i));
     rmnode_handler nh = stack_closure(dealloc_from_range, i, q);
     if (!rangemap_range_lookup(i->ranges, q, nh))
         msg_err("heap %p: no match for range %R\n", h, q);
@@ -250,7 +250,7 @@ static inline boolean set_area(id_heap i, u64 base, u64 length, boolean validate
     base &= ~page_mask(i);
     length = pad(length, page_size(i));
 
-    range q = irange(base >> page_order(i), (base + length) >> page_order(i));
+    range q = range_rshift(irangel(base, length), page_order(i));
     boolean fail = false;
     rmnode_handler nh = stack_closure(set_intersection, q, &fail, validate, allocate);
     boolean result = rangemap_range_lookup(i->ranges, q, nh);
@@ -367,70 +367,46 @@ static void set_next_locking(id_heap i, u64 next)
     spin_unlock_irq(id_lock(i), flags);
 }
 
-static value id_value_allocated(id_heap i)
+closure_function(2, 0, value, id_get_allocated,
+                 id_heap, i, value, v)
 {
-    return value_from_u64(i->meta, i->allocated);
+    return value_rewrite_u64(bound(v), bound(i)->allocated);
 }
 
-static value id_value_total(id_heap i)
+closure_function(2, 0, value, id_get_total,
+                 id_heap, i, value, v)
 {
-    return value_from_u64(i->meta, i->total);
+    return value_rewrite_u64(bound(v), bound(i)->total);
 }
 
-static value id_value_free(id_heap i)
+closure_function(2, 0, value, id_get_free,
+                 id_heap, i, value, v)
 {
-    return value_from_u64(i->meta, i->total - i->allocated);
+    return value_rewrite_u64(bound(v), bound(i)->total - bound(i)->allocated);
 }
 
-struct mgmt_fn_map {
-    const char *name;
-    value (*vfunc)(id_heap i);
-} mgmt_fn_maps[] = {
-    { "allocated", id_value_allocated },
-    { "total", id_value_total },
-    { "free", id_value_free },
-    { 0, 0 }
-};
-
-closure_function(1, 1, value, id_mgmt_get,
-                 id_heap, i,
-                 symbol, s)
-{
-    for (int i = 0; mgmt_fn_maps[i].name; i++) {
-        if (sym_cstring_compare(s, mgmt_fn_maps[i].name))
-            return mgmt_fn_maps[i].vfunc(bound(i));
-    }
-    // XXX ranges
-    return 0;
-}
-
-closure_function(1, 2, void, id_mgmt_set,
-                 id_heap, i,
-                 symbol, s, value, v)
-{
-    // XXX?
-}
-
-// XXX make vector of symbols
-closure_function(1, 1, void, id_mgmt_iterate,
-                 id_heap, i,
-                 binding_handler, h)
-{
-    for (int i = 0; mgmt_fn_maps[i].name; i++) {
-        apply(h, sym_this(mgmt_fn_maps[i].name), mgmt_fn_maps[i].vfunc(bound(i)));
-    }
-    return;
-}
+#define register_stat(i, n, t, name)                                    \
+    v = value_from_u64(i->meta, 0);                                     \
+    s = sym(name);                                                      \
+    set(t, s, v);                                                       \
+    tuple_notifier_register_get_notify(n, s, closure(i->meta, id_get_ ##name, i, v));
 
 static value id_management(heap h)
 {
     id_heap i = (id_heap)h;
-    if (!i->mgmt) {
-        i->mgmt = allocate_function_tuple(closure(i->meta, id_mgmt_get, i),
-                                          closure(i->meta, id_mgmt_set, i),
-                                          closure(i->meta, id_mgmt_iterate, i));
-    }
-    return i->mgmt;
+    if (i->mgmt)
+        return i->mgmt;
+    value v;
+    symbol s;
+    tuple t = timm("type", "id");
+    assert(t != INVALID_ADDRESS);
+    tuple_notifier n = tuple_notifier_wrap(t);
+    assert(n != INVALID_ADDRESS);
+    register_stat(i, n, t, allocated);
+    register_stat(i, n, t, total);
+    register_stat(i, n, t, free);
+    i->mgmt = (tuple)n;
+    return n;
 }
 
 #endif /* KERNEL */

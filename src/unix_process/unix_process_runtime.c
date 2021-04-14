@@ -95,6 +95,7 @@ heap malloc_allocator()
     h->pagesize = PAGESIZE;
     h->allocated = allocated;
     h->total = 0;
+    h->management = 0;
     bytes_allocated = 0;
     return h;
 }
@@ -157,7 +158,8 @@ static heap allocate_tagged_region(heap h, u64 tag)
     th->h.pagesize = 32; // XXX
     th->h.allocated = 0;
     th->h.total = 0;
-    tag_debug("tag %d, heap %p\n", tag, th);
+    th->h.management = 0;
+    tag_debug("tag %d, bits 0x%lx, heap %p\n", tag, th->vtag, th);
     return &th->h;
 }
 

@@ -2448,6 +2448,14 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
     m[n].name = name;
 }
 
+static void notrace_reset(void)
+{
+    for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
+        struct syscall *s = current->p->syscalls + i;
+        s->flags &= ~SYSCALL_F_NOTRACE;
+    }
+}
+
 closure_function(0, 2, boolean, notrace_each,
                  symbol, k, value, v)
 {
@@ -2466,34 +2474,27 @@ closure_function(0, 2, boolean, notrace_each,
     return true;
 }
 
-closure_function(0, 1, void, debugsyscalls_notify,
+closure_function(0, 1, boolean, debugsyscalls_notify,
                  value, v)
 {
-    if (v == INVALID_ADDRESS)
-        closure_finish();
-    else
-        debugsyscalls = !!v;
+    debugsyscalls = !!v;
+    return true;
 }
 
-closure_function(0, 1, void, syscall_defer_notify,
+closure_function(0, 1, boolean, syscall_defer_notify,
                  value, v)
 {
-    if (v == INVALID_ADDRESS)
-        closure_finish();
-    else
-        syscall_defer = !!v;
+    syscall_defer = !!v;
+    return true;
 }
 
-closure_function(0, 1, void, notrace_notify,
+closure_function(0, 1, boolean, notrace_notify,
                  value, v)
 {
-    if (v == INVALID_ADDRESS)
-        closure_finish();
-    else {
-        if (is_tuple(v))
-            iterate(v, stack_closure(notrace_each));
-        // XXX should clear on unset
-    }
+    notrace_reset();
+    if (is_tuple(v))
+        iterate(v, stack_closure(notrace_each));
+    return true;
 }
 
 void configure_syscalls(process p)

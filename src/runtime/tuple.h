@@ -38,21 +38,6 @@ void *decode_value(heap h, table dictionary, buffer source, u64 *total,
 void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
                 u64 *obsolete);
 
-// seriously reconsider types allowed in tuples.. in particular simple
-// ints have an anambiguous translation back and forth to strings (?)
-static inline boolean u64_from_value(value v, u64 *result)
-{
-    // XXX these are next
-    return parse_int(alloca_wrap((buffer)v), 10, result);
-}
-
-static inline value value_from_u64(heap h, u64 v)
-{
-    value result = allocate_buffer(h, 10);
-    print_number((buffer)result, v, 10, 0);
-    return result;
-}
-
 static inline boolean is_tuple(value v)
 {
     u16 tag = tagof(v);
@@ -67,6 +52,28 @@ static inline boolean is_symbol(value v)
 static inline boolean is_string(value v)
 {
     return tagof(v) == tag_unknown; // XXX tag_string
+}
+
+// seriously reconsider types allowed in tuples.. in particular simple
+// ints have an anambiguous translation back and forth to strings (?)
+static inline boolean u64_from_value(value v, u64 *result)
+{
+    return parse_int(alloca_wrap((buffer)v), 10, result);
+}
+
+static inline value value_from_u64(heap h, u64 n)
+{
+    value result = allocate_buffer(h, 10);
+    print_number((buffer)result, n, 10, 0);
+    return result;
+}
+
+static inline value value_rewrite_u64(value v, u64 n)
+{
+    assert(!is_tuple(v));
+    buffer_clear((buffer)v);
+    print_number((buffer)v, n, 10, 0);
+    return v;
 }
 
 /* XXX questionable part of interface */
