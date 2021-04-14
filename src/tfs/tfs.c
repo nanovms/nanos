@@ -368,7 +368,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
               t, bufheap, c, sh);
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(sh, timm("result", "no such file %t", t,
+        apply(sh, timm("result", "no such file %v", t,
                        "fsstatus", "%d", FS_STATUS_NOENT));
         return;
     }

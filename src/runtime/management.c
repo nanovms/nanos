@@ -41,7 +41,8 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
     string attr = 0;
     tuple target = 0;
     value v = 0;
-    u64 depth = 1;
+    u64 depth = 0;
+    char *resultstr = 0;
 
     if ((args = get_tuple(t, sym(get)))) {
         req = MGMT_REQ_GET;
@@ -52,47 +53,54 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
     if (req == MGMT_REQ_GET || req == MGMT_REQ_SET) {
         path = get_string(args, sym(path));
         if (!path) {
-            bprintf(b, "could not parse path attribute\n");
+            resultstr = "could not parse path attribute";
             goto out;
         }
         target = resolve_tuple_path(management.root, path);
         if (!target) {
-            bprintf(b, "could not resolve path\n");
+            resultstr = "could not resolve path";
             goto out;
         }
         attr = get_string(args, sym(attr));
     }
 
+    tuple attrs;
     switch (req) {
     case MGMT_REQ_GET:
         if (attr) {
             target = get(target, intern(attr));
             if (!target) {
-                bprintf(b, "attribute not found\n");
+                resultstr = "attribute not found";
                 goto out;
             }
         }
-        get_u64(args, sym(depth), &depth);
-        bprintf(b, "%V\n", target, depth);
+        attrs = timm("indent", "3");
+        if (get_u64(args, sym(depth), &depth))
+            timm_append(attrs, "depth", "%ld", depth);
+        bprintf(b, "(v:%V)\n", target, attrs);
+        deallocate_value(attrs);
         break;
     case MGMT_REQ_SET:
         if (!attr) {
-            bprintf(b, "set: no attr found\n");
+            resultstr = "attribute not found";
             goto out;
         }
         v = get_string(args, sym(value));
         if (!v) {
-            bprintf(b, "value not found\n");
+            resultstr = "value not found";
             goto out;
         }
         if (is_null_string(v))
             v = 0;              /* unset */
         set(target, intern(attr), v);
+        bprintf(b, "()\n");
         break;
     default:
-        bprintf(b, "unable to parse request\n");
+        resultstr = "unable to parse request";
     }
   out:
+    if (resultstr)
+        bprintf(b, "(result:%s)\n", resultstr);
     apply(bound(out), b);
 }
 

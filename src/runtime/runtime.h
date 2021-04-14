@@ -212,6 +212,8 @@ typedef closure_type(storage_attach, void, block_io, block_io, u64);
 
 #include <sg.h>
 
+void print_value(buffer dest, value v, tuple attrs);
+
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);
 // change to status_handler

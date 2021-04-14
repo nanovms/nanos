@@ -54,66 +54,85 @@ void print_csum_buffer(buffer s, buffer b)
     bprintf(s, "%lx", csum);
 }
 
-static void print_tuple_internal(buffer b, tuple t, table visited, u32 depth);
-
-closure_function(4, 2, boolean, _value_handler,
-                 buffer, b, boolean *, sub, table, visited, u32, depth,
-                 symbol, a, value, v)
+closure_function(1, 2, boolean, _sort_handler,
+                 vector, pairs,
+                 symbol, s, value, v)
 {
-    if (*bound(sub))
-        push_character(bound(b), ' ');
-    bprintf(bound(b), "%b:", symbol_string((symbol)a));
-
-    /* this should be "print_value" */
-    if (is_tuple(v)) {
-        if (table_find(bound(visited), v)) {
-            bprintf(bound(b), "<visited>");
-        } else {
-            table_set(bound(visited), v, (void *)1);
-            if (bound(depth) > 1)
-                print_tuple_internal(bound(b), v, bound(visited), bound(depth) - 1);
-            else
-                bprintf(bound(b), "<pruned>");
-        }
-    } else {
-        bprintf(bound(b), "%b", v);
-    }
-    *bound(sub) = true;
+    vector_push(bound(pairs), s);
+    vector_push(bound(pairs), v);
     return true;
 }
 
-static void print_tuple_internal(buffer b, tuple t, table visited, u32 depth)
+static boolean _symptr_compare(void *a, void *b)
 {
-    boolean sub = false;
-    bprintf(b, "(");
-    iterate(t, stack_closure(_value_handler, b, &sub, visited, depth));
-    bprintf(b, ")");
+    symbol s1 = *(symbol*)a;
+    symbol s2 = *(symbol*)b;
+    return buffer_lt(symbol_string(s2), symbol_string(s1));
 }
 
-void print_tuple(buffer b, tuple t, u32 depth)
-{
-    // XXX need an alloca heap
-    table visited = allocate_table(transient, identity_key, pointer_equal);
-    assert(visited != INVALID_ADDRESS);
-    print_tuple_internal(b, t, visited, depth == 0 ? U32_MAX : depth);
-    deallocate_table(visited);
-}
+static void print_value_internal(buffer dest, value v, table visited, s32 indent, s32 depth);
 
-static void format_tuple(buffer dest, struct formatter_state *s, vlist *v)
+#define TUPLE_INDENT_SPACES 2
+static void print_tuple_internal(buffer b, tuple t, table visited, s32 indent, s32 depth)
 {
-    tuple t = varg(*v, tuple);
-    if (!t) {
-        bprintf(dest, "(none)");
-        return;
+    /* This is a little heavy, but we don't have a sorted iterate. */
+    pqueue pq = allocate_pqueue(transient, _symptr_compare);
+    assert(pq != INVALID_ADDRESS);
+    vector v = allocate_vector(transient, 16);
+    assert(v != INVALID_ADDRESS);
+    iterate(t, stack_closure(_sort_handler, v));
+
+    for (int i = 0; i < vector_length(v); i += 2) {
+        void *p = buffer_ref(v, i * sizeof(void *));
+        pqueue_insert(pq, p);
     }
-    print_tuple(dest, t, U32_MAX);
+
+    bprintf(b, "(");
+    if (indent >= 0)
+        indent++;
+    void **p;
+    boolean sub = false;
+    while ((p = pqueue_pop(pq)) != INVALID_ADDRESS) {
+        symbol s = p[0];
+        value v = p[1];
+        if (sub) {
+            if (indent >= 0)
+                bprintf(b, "\n%n", indent);
+            else
+                bprintf(b, " ");
+        } else {
+            sub = true;
+        }
+        bytes start = buffer_length(b);
+        bprintf(b, "%b:", symbol_string(s));
+        s32 next_indent = indent >= 0 ? indent + buffer_length(b) - start : indent;
+        print_value_internal(b, v, visited, next_indent, depth);
+    }
+    bprintf(b, ")");
+    deallocate_vector(v);
+    deallocate_pqueue(pq);
 }
 
-void print_value(buffer dest, value v, u32 depth)
+/* XXX Marking root as visited breaks with wrapped root...eval method? */
+
+static void print_value_internal(buffer dest, value v, table visited, s32 indent, s32 depth)
 {
-    if (is_tuple(v))
-        print_tuple(dest, (tuple)v, depth);
-    else if (is_symbol(v))
+    if (is_tuple(v)) {
+        if (!visited) {
+            visited = allocate_table(transient, identity_key, pointer_equal);
+            assert(visited != INVALID_ADDRESS);
+        }
+
+        if (table_find(visited, v)) {
+            bprintf(dest, "<visited>");
+        } else {
+            table_set(visited, v, (void *)1);
+            if (depth > 0)
+                print_tuple_internal(dest, v, visited, indent, depth - 1);
+            else
+                bprintf(dest, "<pruned>");
+        }
+    } else if (is_symbol(v))
         bprintf(dest, "%b", symbol_string((symbol)v));
     else {
         // XXX string vs binary
@@ -125,6 +144,18 @@ void print_value(buffer dest, value v, u32 depth)
     }
 }
 
+void print_value(buffer dest, value v, tuple attrs)
+{
+    u64 indent = (s32)-1;
+    u64 depth = 0;
+
+    if (attrs) {
+        get_u64(attrs, sym(indent), &indent);
+        get_u64(attrs, sym(depth), &depth);
+    }
+    print_value_internal(dest, v, 0, indent, depth == 0 ? S32_MAX : depth);
+}
+
 static void format_value(buffer dest, struct formatter_state *s, vlist *v)
 {
     value x = varg(*v, value);
@@ -133,10 +164,10 @@ static void format_value(buffer dest, struct formatter_state *s, vlist *v)
         return;
     }
 
-    print_value(dest, x, U32_MAX);
+    print_value(dest, x, 0);
 }
 
-static void format_value_with_depth(buffer dest, struct formatter_state *s, vlist *v)
+static void format_value_with_attributes(buffer dest, struct formatter_state *s, vlist *v)
 {
     value x = varg(*v, value);
     if (!x) {
@@ -144,8 +175,9 @@ static void format_value_with_depth(buffer dest, struct formatter_state *s, vlis
         return;
     }
 
-    u32 depth = varg(*v, u32);
-    print_value(dest, x, depth);
+    value a = varg(*v, tuple);
+    assert(!a || is_tuple(a));
+    print_value(dest, x, a);
 }
 
 static void format_hex_buffer(buffer dest, struct formatter_state *s, vlist *a)
@@ -182,9 +214,8 @@ static void format_closure(buffer dest, struct formatter_state *s, vlist *a)
 
 void init_extra_prints(void)
 {
-    register_format('t', format_tuple, 0);
     register_format('v', format_value, 0);
-    register_format('V', format_value_with_depth, 0);
+    register_format('V', format_value_with_attributes, 0);
     register_format('X', format_hex_buffer, 0);
     register_format('T', format_timestamp, 0);
     register_format('R', format_range, 0);

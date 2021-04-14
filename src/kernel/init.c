@@ -63,7 +63,7 @@ closure_function(3, 2, void, fsstarted,
     if (!is_ok(s)) {
         buffer b = allocate_buffer(h, 128);
         bprintf(b, "unable to open filesystem: ");
-        print_tuple(b, s, 0);
+        print_value(b, s, 0);
         buffer_print(b);
         halt("\n");
     }

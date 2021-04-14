@@ -24,7 +24,13 @@ static inline __attribute__((always_inline)) void *tag(void* v, value_tag t) {
 }
 
 static inline __attribute__((always_inline)) value_tag tagof(void* v) {
-    return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
+    value_tag t = (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
+    /* XXX very temporary kludge for user tag clash; after merge user tags will switch to rewind */
+#if !(defined(KERNEL) || defined(KLIB) || defined(UEFI))
+    if (t == 5)
+        t = 0;
+#endif
+    return t;
 }
 
 #else

@@ -257,7 +257,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
             if (total)
                 (*total)++;
         }
-        tuple_debug("decode_value: decoded tuple %t\n", t);
+        tuple_debug("decode_value: decoded tuple %v\n", t);
         return t;
     } else {
         if (len == 0)
@@ -315,11 +315,11 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
     // (set/get/iterate)
     u64 d = u64_from_pointer(table_find(dictionary, e));
     if (d) {
-        tuple_debug("encode_eav: e (%t) indirect at index 0x%lx\n", e, d);
+        tuple_debug("encode_eav: e (%v) indirect at index 0x%lx\n", e, d);
         push_header(dest, reference, type_tuple, 1);
         push_varint(dest, d);
     } else {
-        tuple_debug("encode_eav: e (%t) immediate at index 0x%lx\n",
+        tuple_debug("encode_eav: e (%v) immediate at index 0x%lx\n",
                     e, dictionary->count + 1);
         push_header(dest, immediate, type_tuple, 1);
         srecord(dictionary, e);
@@ -337,11 +337,16 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
     }
 }
 
+static boolean no_encode(value v)
+{
+    return (v && is_tuple(v) && get(v, sym(no_encode)));
+}
+
 closure_function(1, 2, boolean, encode_tuple_count_each,
                  u64 *, count,
                  symbol, s, value, v)
 {
-    if (!(is_tuple(v) && get(v, sym(no_encode))))
+    if (!no_encode(v))
         (*bound(count))++;
     return true;
 }
@@ -351,7 +356,7 @@ closure_function(3, 2, boolean, encode_tuple_each,
                  symbol, s, value, v)
 {
     tuple_debug("   s %b, v %p, tag %d\n", symbol_string(s), v, tagof(v));
-    if (is_tuple(v) && get(v, sym(no_encode)))
+    if (no_encode(v))
         return true;
     encode_symbol(bound(dest), bound(dictionary), s);
     encode_value(bound(dest), bound(dictionary), v, bound(total));

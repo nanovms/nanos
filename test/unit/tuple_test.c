@@ -26,7 +26,7 @@ boolean all_tests(heap h)
         buffer b1 = wrap_buffer_cstring(h, tst[i]);
         set(t1, intern_u64(i), b1);
     }
-    test_assert(tuple_count(t1) == COUNT_ELM);//rprintf("%t\n", t1);
+    test_assert(tuple_count(t1) == COUNT_ELM);//rprintf("%v\n", t1);
 
     // from vector
     vector v1 = allocate_vector(h, COUNT_ELM);
@@ -34,7 +34,7 @@ boolean all_tests(heap h)
         vector_push(v1, wrap_buffer_cstring(h, tst[i]));
     }
     tuple t2 = tuple_from_vector(v1);
-    test_assert(tuple_count(t2) == COUNT_ELM);//rprintf("%t\n", t2);
+    test_assert(tuple_count(t2) == COUNT_ELM);//rprintf("%v\n", t2);
     destruct_tuple(t2, true);
     deallocate_vector(v1);
 
@@ -85,7 +85,7 @@ boolean encode_decode_test(heap h)
 
     test_assert((total_entries == 1) && (obsolete_entries == 0));
     buffer buf = allocate_buffer(h, 128);
-    bprintf(buf, "%t", t4);
+    bprintf(buf, "%v", t4);
     test_assert(strncmp(buf->contents, "(1:200)", buffer_length(buf)) == 0);
 
     // update tuple by removing an entry
@@ -136,7 +136,7 @@ boolean encode_decode_reference_test(heap h)
     test_assert((total_entries == 4) && (obsolete_entries == 1));
 
     buffer buf = allocate_buffer(h, 128);
-    bprintf(buf, "%t", t4);
+    bprintf(buf, "%v", t4);
     test_assert((strncmp(buf->contents, "(1:(1:200) 2:<visited>)", buf->length) == 0) ||
                 (strncmp(buf->contents, "(2:(1:200) 1:<visited>)", buf->length) == 0));
     failure = false;

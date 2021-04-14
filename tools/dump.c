@@ -144,8 +144,8 @@ closure_function(3, 2, void, fsc,
     bprintf(rb, "Label: %s\n", filesystem_get_label(fs));
     bprintf(rb, "UUID: ");
     print_uuid(rb, uuid);
-    bprintf(rb, "\nmetadata ");
-    print_tuple(rb, root, 0);
+    bprintf(rb, "\nmetadata\n");
+    print_value(rb, root, timm("indent", "0"));
     buffer_print(rb);
     rprintf("\n");
     deallocate_buffer(rb);

@@ -23,7 +23,6 @@ void set(value e, symbol a, value v);
 void iterate(value e, binding_handler h);
 
 void init_tuples(heap theap);
-void print_tuple(buffer b, tuple t, u32 depth);
 int tuple_count(tuple t);
 tuple allocate_tuple();
 void deallocate_function_tuple(function_tuple ft);

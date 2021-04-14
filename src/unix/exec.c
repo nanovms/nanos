@@ -245,7 +245,7 @@ process exec_elf(buffer ex, process kp)
     exec_debug("range of loadable segments prior to adjustment: %R\n", load_range);
 
     if (interp)
-        exec_debug("interp: %t\n", interp);
+        exec_debug("interp: %v\n", interp);
 
     u64 load_offset = 0;
     if (e->e_type == ET_DYN && interp) {

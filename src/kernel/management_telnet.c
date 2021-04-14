@@ -1,6 +1,13 @@
 #include <kernel.h>
 #include <net.h>
 
+//#define MGMT_DEBUG
+#ifdef MGMT_DEBUG
+#define mgmt_debug(x, ...) do {rprintf("MGMT: " x, ##__VA_ARGS__);} while(0)
+#else
+#define mgmt_debug(x, ...)
+#endif
+
 closure_function(3, 1, status, telnet_recv,
                  heap, h, buffer_handler, out, parser, p,
                  buffer, b)
@@ -8,13 +15,13 @@ closure_function(3, 1, status, telnet_recv,
     buffer_handler out = bound(out);
     if (!b) {
         // XXX need tuple parser dealloc
-        rprintf("telnet: remote closed\n");
+        mgmt_debug("%s: remote closed\n", __func__);
         return STATUS_OK;
     }
-    rprintf("%s: got request \"%b\"\n", __func__, b);
+    mgmt_debug("%s: got request \"%b\"\n", __func__, b);
     switch (*((u8*)buffer_ref(b, 0))) {
     case 0x04:                  /* EOT */
-        rprintf("telnet: remote sent quit\n");
+        mgmt_debug("   remote sent quit\n");
         apply(out, 0);
         break;
     default:
@@ -28,10 +35,7 @@ closure_function(1, 1, buffer_handler, each_telnet_connection,
                  buffer_handler, out)
 {
     heap h = bound(h);
-    buffer response = allocate_buffer(h, 1024);
-    rprintf("telnet: connection\n"); // XXX
-    bprintf(response, "nanos tuple interface\r\n");
-    apply(out, response);
+    mgmt_debug("telnet: connection\n");
     parser p = management_parser(out);
     return closure(h, telnet_recv, h, out, p);
 }

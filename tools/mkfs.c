@@ -341,8 +341,8 @@ closure_function(4, 2, void, fsc,
     filesystem_get_uuid(fs, uuid);
     bprintf(b, "UUID: ");
     print_uuid(b, uuid);
-    bprintf(b, "\nmetadata ");
-    print_tuple(b, md, 0);
+    bprintf(b, "\nmetadata\n");
+    print_value(b, md, timm("indent", "0"));
     buffer_print(b);
     deallocate_buffer(b);
     rprintf("\n");
