@@ -4,8 +4,8 @@ typedef union tuple *tuple;
 typedef closure_type(tuple_generator, tuple);
 typedef closure_type(tuple_get, value, symbol);
 typedef closure_type(tuple_set, void, symbol, value);
-typedef closure_type(binding_handler, boolean, symbol, value);
-typedef closure_type(tuple_iterate, void, binding_handler);
+typedef closure_type(binding_handler, boolean, value, value);
+typedef closure_type(tuple_iterate, boolean, binding_handler);
 
 typedef struct function_tuple {
     tuple_get g;
@@ -20,7 +20,7 @@ union tuple {
 
 value get(value e, symbol a);
 void set(value e, symbol a, value v);
-void iterate(value e, binding_handler h);
+boolean iterate(value e, binding_handler h);
 
 void init_tuples(heap theap);
 int tuple_count(tuple t);

@@ -64,8 +64,9 @@ void readdir(filesystem fs, heap h, tuple w, buffer path);
 
 closure_function(3, 2, boolean, readdir_each_child,
                  filesystem, fs, heap, h, buffer, path,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
+    assert(is_symbol(k));
     if (k == sym_this(".") || k == sym_this(".."))
         return true;
     assert(is_tuple(v));
@@ -102,8 +103,9 @@ static void dump_fsentry(int indent, symbol name, tuple t);
 
 closure_function(1, 2, boolean, dump_fsentry_each,
                  int, indent,
-                 symbol, k, value, vc)
+                 value, k, value, vc)
 {
+    assert(is_symbol(k));
     if (k == sym_this(".") || k == sym_this(".."))
         return true;
     assert(is_tuple(vc));

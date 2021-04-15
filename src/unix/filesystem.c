@@ -39,8 +39,9 @@ sysreturn sysreturn_from_fs_status_value(status s)
 
 closure_function(2, 2, boolean, lookup_sym_each,
                  tuple, t, symbol *, s,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
+    assert(is_symbol(k));
     if (v == bound(t)) {
         *bound(s) = k;
         return false;

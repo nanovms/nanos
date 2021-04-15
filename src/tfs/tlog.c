@@ -608,9 +608,10 @@ static void log_process_tuple(log tl, tuple t);
 
 closure_function(4, 2, boolean, log_process_tuple_each,
                  log, tl, tuple, t, fsfile *, f, u64 *, filelength,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
     log tl = bound(tl);
+    assert(is_symbol(k));
     if (k == sym(extents)) {
         tlog_debug("extents: %p\n", v);
         /* don't know why this needs to be in fs, it's really tlog-specific */
@@ -684,8 +685,9 @@ static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid,
 
 closure_function(1, 2, boolean, log_read_ingest_extent,
                  fsfile, f,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
+    assert(is_symbol(s));
     tlog_debug("   tlog ingesting sym %p, val %p\n", symbol_string(off), e);
     ingest_extent(bound(f), s, v);
     return true;

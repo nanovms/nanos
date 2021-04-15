@@ -131,7 +131,7 @@ void fixup_directory(tuple parent, tuple dir);
 
 closure_function(1, 2, boolean, fixup_directory_each,
                  tuple, dir,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
     if (is_tuple(v))
         fixup_directory(bound(dir), v);
@@ -891,7 +891,7 @@ static tuple fs_new_entry(filesystem fs)
 static void cleanup_directory(tuple dir);
 
 closure_function(0, 2, boolean, cleanup_directory_each,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
     if (is_tuple(v))
         cleanup_directory(v);

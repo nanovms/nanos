@@ -149,8 +149,9 @@ void storage_set_root_fs(filesystem root_fs)
 }
 
 closure_function(0, 2, boolean, storage_set_mountpoints_each,
-                 symbol, k, value, path)
+                 value, k, value, path)
 {
+    assert(is_symbol(k));
     assert(!is_tuple(path)); // XXX is_string
     storage_debug("mount point for volume %b at %b", symbol_string(k),
                   path);
@@ -172,8 +173,9 @@ void storage_set_mountpoints(tuple mounts)
 
 closure_function(1, 2, boolean, volume_add_mount_each,
                  volume, v,
-                 symbol, k, value, path)
+                 value, k, value, path)
 {
+    assert(is_symbol(k));
     assert(!is_tuple(path)); // XXX is_string
     if (volume_match(k, bound(v)))
         volume_mount(bound(v), path);

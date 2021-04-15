@@ -88,13 +88,14 @@ closure_function(1, 2, void, heaplock_set,
     unlock_heap(bound(hl));
 }
 
-closure_function(1, 1, void, heaplock_iterate,
+closure_function(1, 1, boolean, heaplock_iterate,
                  heaplock, hl,
                  binding_handler, h)
 {
     lock_heap(bound(hl));
-    iterate(bound(hl)->parent_mgmt, h);
+    boolean result = iterate(bound(hl)->parent_mgmt, h);
     unlock_heap(bound(hl));
+    return result;
 }
 
 static value heaplock_management(heap h)

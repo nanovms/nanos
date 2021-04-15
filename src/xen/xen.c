@@ -804,8 +804,9 @@ static inline status traverse_directory(heap h, const char * path, tuple *node)
 
 closure_function(3, 2, boolean, xen_probe_id_each,
                  xen_driver, xd, string, name, status *, s,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
+    assert(is_symbol(k));
     u64 id;
     if (!u64_from_value(symbol_string(k), &id)) {
         *bound(s) = timm("result", "failed to parse device id \"%v\"", symbol_string(k));
@@ -821,8 +822,9 @@ closure_function(3, 2, boolean, xen_probe_id_each,
 
 closure_function(1, 2, boolean, xen_probe_devices_each,
                  status *, s,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
+    assert(is_symbol(k));
     if (!is_tuple(v))
         return true;
     list_foreach(&xen_info.driver_list, l) {

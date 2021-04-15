@@ -22,6 +22,7 @@ closure_function(3, 1, status, telnet_recv,
     switch (*((u8*)buffer_ref(b, 0))) {
     case 0x04:                  /* EOT */
         mgmt_debug("   remote sent quit\n");
+        management_reset();
         apply(out, 0);
         break;
     default:

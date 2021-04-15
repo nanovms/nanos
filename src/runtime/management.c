@@ -1,107 +1,170 @@
+#ifdef KERNEL
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
 #include <management.h>
+
+declare_closure_struct(2, 1, void, mgmt_timer_expiry,
+                       tuple, req, buffer_handler, out,
+                       u64, overruns);
 
 static struct management {
     heap h;
     heap fth;                   /* function_tuples */
     tuple root;
+    timer t;
+    tuple timer_req;
+    closure_struct(mgmt_timer_expiry, timer_expiry);
 } management;
 
-static value resolve_tuple_path(tuple n, string path)
+static value resolve_tuple_path(tuple n, string path, tuple *parent, symbol *a)
 {
     vector v = split(management.h, (buffer) /* XXX */ path, '/');
     buffer i;
     vector_foreach(v, i) {
         /* null entries ("//") are skipped in path */
-        if (buffer_length(i) == 0)
+        if (buffer_length(i) == 0) {
+            deallocate_buffer(i);
             continue;
-        n = (tuple)get(n, intern(i));
+        }
+        if (parent)
+            *parent = n;
+        symbol s = intern(i);
+        deallocate_buffer(i);
+        if (a)
+            *a = s;
+        n = (tuple)get(n, s);
         if (!n)
-            return n;
+            break;
     }
+    deallocate_vector(v);
     return n;
 }
 
-closure_function(1, 1, void, mgmt_tuple_parsed,
-                 buffer_handler, out,
-                 void *, p)
-{
-    enum {
-        MGMT_REQ_UNDEF,
-        MGMT_REQ_GET,
-        MGMT_REQ_SET,
-    } req = MGMT_REQ_UNDEF;
+declare_closure_function(1, 2, boolean, each_request,
+                         buffer_handler, out,
+                         value, k, value, args);
 
-    tuple t = (tuple)p;
-    tuple args;
+static void handle_request(tuple req, buffer_handler out)
+{
+    if (is_tuple(req))
+        iterate(req, stack_closure(each_request, out));
+    else {
+        buffer b = aprintf(management.h, "(result:request not tuple)");
+        apply(out, b);
+    }
+}
+
+#ifdef KERNEL
+define_closure_function(1, 1, void, mgmt_timer_expiry,
+                        buffer_handler, out,
+                        u64, overruns)
+{
+    handle_request(management.timer_req, bound(out));
+}
+#endif
+
+define_closure_function(1, 2, boolean, each_request,
+                        buffer_handler, out,
+                        value, k, value, args)
+{
+    char *resultstr = 0;
     buffer b = allocate_buffer(management.h, 256);
     assert(b != INVALID_ADDRESS);
-
-    string path = 0;
-    string attr = 0;
-    tuple target = 0;
-    value v = 0;
-    u64 depth = 0;
-    char *resultstr = 0;
-
-    if ((args = get_tuple(t, sym(get)))) {
-        req = MGMT_REQ_GET;
-    } else if ((args = get_tuple(t, sym(set)))) {
-        req = MGMT_REQ_SET;
-    }
-
-    if (req == MGMT_REQ_GET || req == MGMT_REQ_SET) {
-        path = get_string(args, sym(path));
+    if (k == sym(get)) {
+        string path = get_string(args, sym(path));
         if (!path) {
             resultstr = "could not parse path attribute";
             goto out;
         }
-        target = resolve_tuple_path(management.root, path);
+        value target = resolve_tuple_path(management.root, path, 0, 0);
         if (!target) {
             resultstr = "could not resolve path";
             goto out;
         }
-        attr = get_string(args, sym(attr));
-    }
-
-    tuple attrs;
-    switch (req) {
-    case MGMT_REQ_GET:
-        if (attr) {
-            target = get(target, intern(attr));
-            if (!target) {
-                resultstr = "attribute not found";
-                goto out;
-            }
-        }
-        attrs = timm("indent", "3");
+        tuple attrs = timm("indent", "3");
+        u64 depth;
         if (get_u64(args, sym(depth), &depth))
             timm_append(attrs, "depth", "%ld", depth);
         bprintf(b, "(v:%V)\n", target, attrs);
         deallocate_value(attrs);
-        break;
-    case MGMT_REQ_SET:
-        if (!attr) {
-            resultstr = "attribute not found";
+    } else if (k == sym(set)) {
+        string path = get_string(args, sym(path));
+        if (!path) {
+            resultstr = "could not parse path attribute";
             goto out;
         }
-        v = get_string(args, sym(value));
+        symbol a = 0;
+        tuple parent = 0;
+        resolve_tuple_path(management.root, path, &parent, &a);
+        if (!parent) {
+            resultstr = "could not resolve path";
+            goto out;
+        }
+        value v = get_string(args, sym(value));
         if (!v) {
             resultstr = "value not found";
             goto out;
         }
         if (is_null_string(v))
             v = 0;              /* unset */
-        set(target, intern(attr), v);
+        set(parent, a, v);
         bprintf(b, "()\n");
-        break;
-    default:
-        resultstr = "unable to parse request";
+#ifdef KERNEL
+    } else if (k == sym(timer)) {
+        if (is_null_string(args)) {
+            if (management.t) {
+                remove_timer(management.t, 0);
+                management.t = 0;
+            }
+        } else if (is_tuple(args)) {
+            tuple req = get_tuple(args, sym(request));
+            if (!req) {
+                resultstr = "could not parse request";
+                goto out;
+            }
+            /* prune the request; timer will hold onto it */
+            set(args, sym(request), 0);
+
+            u64 period;
+            if (!get_u64(args, sym(period), &period)) {
+                resultstr = "could not parse period";
+                goto out;
+            }
+            handle_request(req, bound(out));
+            timestamp t = seconds(period);
+            management.timer_req = req;
+            management.t = register_timer(runloop_timers, CLOCK_ID_MONOTONIC, t, false, t,
+                                          init_closure(&management.timer_expiry, mgmt_timer_expiry,
+                                                       bound(out)));
+            if (management.t == INVALID_ADDRESS) {
+                management.t = 0;
+                resultstr = "failed to allocate timer";
+                goto out;
+            }
+        } else {
+            resultstr = "could not parse timer tuple";
+            goto out;
+        }
+        bprintf(b, "()\n");
+#endif
+    } else {
+        resultstr = "unknown command";
     }
   out:
     if (resultstr)
         bprintf(b, "(result:%s)\n", resultstr);
     apply(bound(out), b);
+    return true;
+}
+
+closure_function(1, 1, void, mgmt_tuple_parsed,
+                 buffer_handler, out,
+                 void *, p)
+{
+    handle_request(p, bound(out));
+    destruct_tuple(p, true);
 }
 
 closure_function(1, 1, void, mgmt_tuple_parse_error,
@@ -113,6 +176,20 @@ closure_function(1, 1, void, mgmt_tuple_parse_error,
     bprintf(b, "failed to parse request tuple: %b\n", s);
     apply(bound(out), b);
 }
+
+/* icky; only one interface supported */
+void management_reset(void)
+{
+    if (management.t) {
+        remove_timer(management.t, 0);
+        management.t = 0;
+        if (management.timer_req) {
+            destruct_tuple(management.timer_req, true);
+            management.timer_req = 0;
+        }
+    }
+}
+KLIB_EXPORT(management_reset);
 
 parser management_parser(buffer_handler out)
 {
@@ -181,15 +258,16 @@ closure_function(1, 2, void, tuple_notifier_set,
 
 closure_function(2, 2, boolean, tuple_notifier_iterate_each,
                  tuple_notifier, tn, binding_handler, h,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
     get_value_notify n;
+    assert(is_symbol(s));
     if (bound(tn)->get_notifys && (n = table_find(bound(tn)->get_notifys, s)))
         v = apply(n);
     return apply(bound(h), s, v);
 }
 
-closure_function(1, 1, void, tuple_notifier_iterate,
+closure_function(1, 1, boolean, tuple_notifier_iterate,
                  tuple_notifier, tn,
                  binding_handler, h)
 {
@@ -197,7 +275,7 @@ closure_function(1, 1, void, tuple_notifier_iterate,
        tuple. Values that are served by get_notifys should still have
        corresponding entries in the parent tuple if they are to be included in
        an iterate. */
-    iterate(bound(tn)->parent, stack_closure(tuple_notifier_iterate_each, bound(tn), h));
+    return iterate(bound(tn)->parent, stack_closure(tuple_notifier_iterate_each, bound(tn), h));
 }
 
 tuple_notifier tuple_notifier_wrap(tuple parent)
@@ -268,4 +346,5 @@ void init_management(heap function_tuple_heap, heap general)
     management.h = general;
     management.fth = function_tuple_heap;
     management.root = 0;
+    management.t = 0;
 }

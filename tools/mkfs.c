@@ -288,8 +288,9 @@ static value translate(heap h, vector worklist,
 
 closure_function(6, 2, boolean, translate_each,
                  heap, h, vector, worklist, const char *, target_root, filesystem, fs, status_handler, sh, tuple, out,
-                 symbol, k, value, child)
+                 value, k, value, child)
 {
+    assert(is_symbol(k));
     if (k == sym(contents)) {
         vector_push(bound(worklist), build_vector(bound(h), bound(out), child));
     } else {

@@ -1009,8 +1009,9 @@ static int try_write_dirent(tuple root, struct linux_dirent *dirp, char *p,
 
 closure_function(6, 2, boolean, getdents_each,
                  file, f, struct linux_dirent **, dirp, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
+    assert(is_symbol(k));
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     char *p = cstring(symbol_string(k), tmpbuf);
     *bound(r) = try_write_dirent(file_get_meta(bound(f)), *bound(dirp), p,
@@ -1079,8 +1080,9 @@ static int try_write_dirent64(tuple root, struct linux_dirent64 *dirp, char *p,
 
 closure_function(6, 2, boolean, getdents64_each,
                  file, f, struct linux_dirent64 **, dirp, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
+    assert(is_symbol(k));
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     char *p = cstring(symbol_string(k), tmpbuf);
     *bound(r) = try_write_dirent64(file_get_meta(bound(f)), *bound(dirp), p,
@@ -1669,8 +1671,9 @@ static sysreturn unlink_internal(filesystem fs, tuple cwd, const char *pathname)
 
 closure_function(1, 2, boolean, check_notempty_each,
                  boolean *, notempty,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
+    assert(is_symbol(k));
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     char *p = cstring(symbol_string(k), tmpbuf);
 
@@ -2457,7 +2460,7 @@ static void notrace_reset(void)
 }
 
 closure_function(0, 2, boolean, notrace_each,
-                 symbol, k, value, v)
+                 value, k, value, v)
 {
     for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
         struct syscall *s = current->p->syscalls + i;

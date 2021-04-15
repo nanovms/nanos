@@ -23,8 +23,9 @@
 
 closure_function(4, 2, boolean, environment_each,
                  char **, envp, int *, envc, u64 **, s, buffer, b,
-                 symbol, n, value, v)
+                 value, n, value, v)
 {
+    assert(is_symbol(n));
     bound(envp)[(*bound(envc))++] = ppush((*bound(s)), bound(b), "%b=%b", symbol_string(n), v);
     return true;
 }

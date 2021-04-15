@@ -56,8 +56,9 @@ void print_csum_buffer(buffer s, buffer b)
 
 closure_function(1, 2, boolean, _sort_handler,
                  vector, pairs,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
+    assert(is_symbol(s));
     vector_push(bound(pairs), s);
     vector_push(bound(pairs), v);
     return true;
@@ -70,10 +71,10 @@ static boolean _symptr_compare(void *a, void *b)
     return buffer_lt(symbol_string(s2), symbol_string(s1));
 }
 
-static void print_value_internal(buffer dest, value v, table visited, s32 indent, s32 depth);
+static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth);
 
 #define TUPLE_INDENT_SPACES 2
-static void print_tuple_internal(buffer b, tuple t, table visited, s32 indent, s32 depth)
+static void print_tuple_internal(buffer b, tuple t, table* visited, s32 indent, s32 depth)
 {
     /* This is a little heavy, but we don't have a sorted iterate. */
     pqueue pq = allocate_pqueue(transient, _symptr_compare);
@@ -115,18 +116,18 @@ static void print_tuple_internal(buffer b, tuple t, table visited, s32 indent, s
 
 /* XXX Marking root as visited breaks with wrapped root...eval method? */
 
-static void print_value_internal(buffer dest, value v, table visited, s32 indent, s32 depth)
+static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth)
 {
     if (is_tuple(v)) {
-        if (!visited) {
-            visited = allocate_table(transient, identity_key, pointer_equal);
+        if (!*visited) {
+            *visited = allocate_table(transient, identity_key, pointer_equal);
             assert(visited != INVALID_ADDRESS);
         }
 
-        if (table_find(visited, v)) {
+        if (table_find(*visited, v)) {
             bprintf(dest, "<visited>");
         } else {
-            table_set(visited, v, (void *)1);
+            table_set(*visited, v, (void *)1);
             if (depth > 0)
                 print_tuple_internal(dest, v, visited, indent, depth - 1);
             else
@@ -153,7 +154,11 @@ void print_value(buffer dest, value v, tuple attrs)
         get_u64(attrs, sym(indent), &indent);
         get_u64(attrs, sym(depth), &depth);
     }
-    print_value_internal(dest, v, 0, indent, depth == 0 ? S32_MAX : depth);
+
+    table visited = 0;
+    print_value_internal(dest, v, &visited, indent, depth == 0 ? S32_MAX : depth);
+    if (visited)
+        deallocate_table(visited);
 }
 
 static void format_value(buffer dest, struct formatter_state *s, vlist *v)

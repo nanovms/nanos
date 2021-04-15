@@ -20,7 +20,7 @@ typedef struct http_parser {
 
 closure_function(3, 2, boolean, each_header,
                  buffer, dest, symbol, ignore, boolean, dealloc,
-                 symbol, n, value, v)
+                 value, n, value, v)
 {
     if (n != bound(ignore)) {
         // XXX string

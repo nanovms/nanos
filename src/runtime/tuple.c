@@ -46,7 +46,7 @@ void set(value e, symbol a, value v)
     }
 }
 
-void iterate(value e, binding_handler h)
+boolean iterate(value e, binding_handler h)
 {
     u16 tag = tagof(e);
     tuple t = (tuple)e;
@@ -54,12 +54,11 @@ void iterate(value e, binding_handler h)
     case tag_table_tuple:
         table_foreach(&t->t, a, v) {
             if (!apply(h, a, v))
-                break;
+                return false;
         }
-        break;
+        return true;
     case tag_function_tuple:
-        apply(t->f.i, h);
-        break;
+        return apply(t->f.i, h);
     default:
         assert(0);
     }
@@ -67,8 +66,9 @@ void iterate(value e, binding_handler h)
 
 closure_function(1, 2, boolean, tuple_count_each,
                  int *, count,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
+    assert(is_symbol(s));
     (*bound(count))++;
     return true;
 }
@@ -114,7 +114,7 @@ void destruct_tuple(tuple t, boolean recursive);
 
 closure_function(2, 2, boolean, destruct_tuple_each,
                  tuple, t, boolean, recursive,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
     if (is_tuple(v)) {
         if (bound(recursive))
@@ -344,7 +344,7 @@ static boolean no_encode(value v)
 
 closure_function(1, 2, boolean, encode_tuple_count_each,
                  u64 *, count,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
     if (!no_encode(v))
         (*bound(count))++;
@@ -353,8 +353,9 @@ closure_function(1, 2, boolean, encode_tuple_count_each,
 
 closure_function(3, 2, boolean, encode_tuple_each,
                  buffer, dest, table, dictionary, u64 *, total,
-                 symbol, s, value, v)
+                 value, s, value, v)
 {
+    assert(is_symbol(s));
     tuple_debug("   s %b, v %p, tag %d\n", symbol_string(s), v, tagof(v));
     if (no_encode(v))
         return true;
