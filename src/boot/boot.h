@@ -9,14 +9,17 @@ typedef struct tagged_allocator {
 static inline u64 tagged_allocate(heap h, bytes length)
 {
     tagged_allocator ta = (void *)h;
-    u64 base = allocate_u64(ta->parent, length + 1);
-    return base + 1;
+    u64 base = allocate_u64(ta->parent, length + 8);    /* 8 bytes to preserve 64-bit alignment */
+    if (base == INVALID_PHYSICAL)
+        return base;
+    *(u8 *)pointer_from_u64(base + 7) = ta->tag;
+    return base + 8;
 }
 
 static inline void tagged_deallocate(heap h, u64 a, bytes length)
 {
     tagged_allocator ta = (void *)h;
-    deallocate_u64(ta->parent, a - 1, length + 1);
+    deallocate_u64(ta->parent, a - 8, length + 8);
 }
 
 static inline heap allocate_tagged_region(heap h, u64 tag)
