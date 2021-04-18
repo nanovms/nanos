@@ -163,35 +163,7 @@ static inline const char *filename_from_path(const char *path)
 }
 
 /* Expects an empty buffer, and never resizes the buffer. */
-static inline boolean dirname_from_path(buffer dest, const char *path)
-{
-    int pathlen = runtime_strlen(path);
-    const char *last_delim = path_find_last_delim(path, PATH_MAX);
-    const char *dirname;
-    int len;
-    if (!last_delim) {
-        dirname = path;
-        len = pathlen;
-    } else if (last_delim < path + pathlen - 1) {
-        dirname = last_delim + 1;
-        len = pathlen - (dirname - path);
-    } else {    /* The path ends with '/'. */
-        const char *delim = path_find_last_delim(path, last_delim - path);
-        if (!delim) {
-            dirname = path;
-            len = pathlen - 1;
-        } else {
-            dirname = delim + 1;
-            len = last_delim - dirname;
-        }
-    }
-    if (len >= dest->length)
-        return false;
-    if (!buffer_write(dest, dirname, len))
-        return false;
-    push_u8(dest, '\0');
-    return true;
-}
+boolean dirname_from_path(buffer dest, const char *path);
 
 void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*lookup_follow)(filesystem *, tuple, symbol, tuple *));
 
@@ -205,8 +177,6 @@ int filesystem_resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, 
 
 int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
                             tuple *target);
-
-int filesystem_add_tuple(const char *path, tuple t);
 
 boolean filepath_is_ancestor(tuple wd1, const char *fp1, tuple wd2, const char *fp2);
 

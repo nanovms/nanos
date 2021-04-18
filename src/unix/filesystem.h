@@ -32,6 +32,8 @@ int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entr
 int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
                             tuple *target);
 
+int filesystem_add_tuple(const char *path, tuple t);
+
 static inline int filesystem_get_tuple(const char *path, tuple *t)
 {
     return resolve_cstring(0, current->p->cwd, path, t, 0);
