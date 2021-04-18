@@ -2,9 +2,6 @@
    arch-specific bits live in corresponding unix_machine.h */
 
 /* limits */
-#define NAME_MAX 255
-#define PATH_MAX 4096
-
 #define S_IFMT   00170000
 #define S_IFSOCK 0140000
 #define S_IFLNK	 0120000

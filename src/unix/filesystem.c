@@ -2,8 +2,6 @@
 #include <filesystem.h>
 #include <storage.h>
 
-#define SYMLINK_HOPS_MAX    8
-
 sysreturn sysreturn_from_fs_status(fs_status s)
 {
     switch (s) {
@@ -17,6 +15,8 @@ sysreturn sysreturn_from_fs_status(fs_status s)
         return -EEXIST;
     case FS_STATUS_NOTDIR:
         return -ENOTDIR;
+    case FS_STATUS_LINKLOOP:
+        return -ELOOP;
     default:
         return 0;
     }
@@ -38,12 +38,8 @@ sysreturn sysreturn_from_fs_status_value(status s)
     return rv;
 }
 
-tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
+static tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
 {
-    *p = t;
-    t = lookup(t, a);
-    if (!t)
-        return t;
     tuple m = table_find(t, sym(mount));
     if (m) {
         t = table_find(m, sym(root));
@@ -64,6 +60,16 @@ tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
     return t;
 }
 
+static filesystem get_root(void)
+{
+    return current->p->root_fs;
+}
+
+void init_fs_path_helper()
+{
+    fs_set_path_helper(get_root, lookup_follow_mounts);
+}
+
 /* If the file path being resolved crosses a filesystem boundary (i.e. a mount
  * point), the 'fs' argument (if non-null) is updated to point to the new
  * filesystem. */
@@ -73,60 +79,7 @@ int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
 {
     if (!f)
         return -EFAULT;
-
-    tuple t = *f == '/' ? filesystem_getroot(current->p->root_fs) : cwd;
-    if (fs && (*f == '/'))
-        *fs = current->p->root_fs;
-    tuple p = t;
-    buffer a = little_stack_buffer(NAME_MAX);
-    char y;
-    int nbytes;
-    int err;
-
-    while ((y = *f)) {
-        if (y == '/') {
-            if (buffer_length(a)) {
-                t = lookup_follow_mounts(fs, t, intern(a), &p);
-                if (!t) {
-                    err = -ENOENT;
-                    goto done;
-                }
-                err = filesystem_follow_links(fs, t, p, &t);
-                if (err) {
-                    t = false;
-                    goto done;
-                }
-                if (!children(t))
-                    return -ENOTDIR;
-                buffer_clear(a);
-            }
-            f++;
-        } else {
-            nbytes = push_utf8_character(a, f);
-            if (!nbytes) {
-                thread_log(current, "Invalid UTF-8 sequence.\n");
-                err = -ENOENT;
-                p = false;
-                goto done;
-            }
-            f += nbytes;
-        }
-    }
-
-    if (buffer_length(a)) {
-        t = lookup_follow_mounts(fs, t, intern(a), &p);
-    }
-    err = -ENOENT;
-done:
-    if (!t && (*f == '/') && (*(f + 1)))
-        /* The path being resolved contains entries under a non-existent
-         * directory. */
-        p = false;
-    if (parent)
-        *parent = p;
-    if (entry)
-        *entry = t;
-    return (t ? 0 : err);
+    return sysreturn_from_fs_status(filesystem_resolve_cstring(fs, cwd, f, entry, parent));
 }
 
 /* If the file path being resolved crosses a filesystem boundary (i.e. a mount
@@ -135,48 +88,9 @@ done:
 int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
         tuple *parent)
 {
-    tuple t, p;
-    int ret = resolve_cstring(fs, cwd, f, &t, &p);
-    if (!ret) {
-        ret = filesystem_follow_links(fs, t, p, &t);
-    }
-    if ((ret == 0) && entry) {
-        *entry = t;
-    }
-    if (parent) {
-        *parent = p;
-    }
-    return ret;
-}
-
-int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
-                            tuple *target)
-{
-    if (!is_symlink(link)) {
-        return 0;
-    }
-
-    tuple target_t;
-    buffer buf = little_stack_buffer(NAME_MAX + 1);
-    int hop_count = 0;
-    while (true) {
-        buffer target_b = linktarget(link);
-        if (!target_b) {
-            *target = link;
-            return 0;
-        }
-        int ret = resolve_cstring(fs, parent, cstring(target_b, buf), &target_t,
-                &parent);
-        if (ret) {
-            return ret;
-        }
-        if (is_symlink(target_t)) {
-            if (hop_count++ == SYMLINK_HOPS_MAX) {
-                return -ELOOP;
-            }
-        }
-        link = target_t;
-    }
+    if (!f)
+        return -EFAULT;
+    return sysreturn_from_fs_status(filesystem_resolve_cstring_follow(fs, cwd, f, entry, parent));
 }
 
 int filesystem_add_tuple(const char *path, tuple t)

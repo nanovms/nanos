@@ -2,6 +2,7 @@
 #include <ftrace.h>
 #include <gdb.h>
 #include <log.h>
+#include <filesystem.h>
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
@@ -500,7 +501,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     if (!netsyscall_init(uh))
         goto alloc_fail;
 #endif
-
+    init_fs_path_helper();
     process kernel_process = create_process(uh, root, fs);
     dummy_thread = create_thread(kernel_process);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
