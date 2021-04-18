@@ -33,6 +33,7 @@ typedef struct mem_debug_heap {
     struct heap h;
     heap parent;
     u64 padsize;
+    u32 objsize;
 } *mem_debug_heap;
 
 #ifdef KERNEL
@@ -61,7 +62,9 @@ static void set_pattern(void *v, bytes sz, void *p, bytes psz)
     for (s64 ssz = sz; ssz > 0; ssz -= psz, bp += psz)
         runtime_memcpy(bp, p, MIN(psz, ssz));
 }
+#endif
 
+#if defined(MEMDBG_OVERRUN)
 static boolean check_pattern(void *v, bytes sz, void *p, bytes psz)
 {
     u8 *bp = v;
@@ -115,6 +118,8 @@ static u64 mem_debug_alloc(heap h, bytes b)
     mem_debug_heap mdh = (mem_debug_heap)h;
     bytes padding, nb;
 
+    if (mdh->objsize)
+        b = mdh->objsize;
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
     mem_debug_hdr hdr = allocate(mdh->parent, nb);
     if (hdr == INVALID_ADDRESS)
@@ -128,6 +133,8 @@ static void mem_debug_dealloc(heap h, u64 a, bytes b)
     mem_debug_heap mdh = (mem_debug_heap)h;
     bytes padding, nb;
 
+    if (mdh->objsize)
+        b = mdh->objsize;
     get_debug_alloc_size(b, mdh->padsize, &nb, &padding);
     mem_debug_hdr hdr = (mem_debug_hdr)pointer_from_u64(a - padding);
     dealloc_check(hdr, a, b, nb, padding);
@@ -137,12 +144,28 @@ static void mem_debug_dealloc(heap h, u64 a, bytes b)
 heap mem_debug(heap meta, heap parent, u64 padsize)
 {
     build_assert(PAD_MIN > sizeof(mem_debug_hdr));
-    mem_debug_heap mdh = allocate(meta, sizeof(*mdh));
+    mem_debug_heap mdh = allocate_zero(meta, sizeof(*mdh));
     mdh->parent = parent;
     mdh->h.pagesize = parent->pagesize;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
     mdh->padsize = MAX(padsize, PAD_MIN);
+    return &mdh->h;
+}
+
+heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize)
+{
+    mem_debug_heap mdh = allocate_zero(meta, sizeof(*mdh));
+    u64 newsize;
+    u64 padding = objsize >= PAGESIZE ? PAGESIZE : PAD_MIN;
+
+    newsize = objsize + padding * 2;
+    mdh->parent = allocate_wrapped_objcache(meta, parent, newsize, pagesize, &mdh->h);
+    mdh->h.pagesize = objsize;
+    mdh->h.alloc = mem_debug_alloc;
+    mdh->h.dealloc = mem_debug_dealloc;
+    mdh->padsize = padding;
+    mdh->objsize = objsize;
     return &mdh->h;
 }
 
@@ -188,7 +211,7 @@ static void mem_debug_backed_dealloc(heap h, u64 a, bytes b)
 
 backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize)
 {
-    mem_debug_backed_heap mbh = allocate(meta, sizeof(*mbh));
+    mem_debug_backed_heap mbh = allocate_zero(meta, sizeof(*mbh));
     mbh->parent = parent;
     mbh->bh.h.pagesize = parent->h.pagesize;
     mbh->bh.h.alloc = mem_debug_backed_alloc;

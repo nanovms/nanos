@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <drivers/dmi.h>
 #include <kernel_machine.h>
 #include <page.h>
 #include <region.h>
@@ -79,6 +80,13 @@ void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer
     u64 kern_len = pad(buffer_length(kern_elf), PAGESIZE);
     create_region(kern_base, kern_len, REGION_KERNIMAGE);
     rsvd_mem_add(irangel(kern_base, kern_len));
+    for (int i = 0; i < system_table->number_of_table_entries; i++) {
+        efi_configuration_table table = &system_table->configuration_table[i];
+        if (!runtime_memcmp(&table->guid, &uefi_smbios_table, sizeof(table->guid))) {
+            create_region(u64_from_pointer(table->table), SMBIOS_EP_SIZE, REGION_SMBIOS);
+            break;
+        }
+    }
     struct uefi_mem_map map;
     uefi_exit_bs(&map);
     int num_desc = map.map_size / map.desc_size;

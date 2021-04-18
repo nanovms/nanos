@@ -11,6 +11,7 @@ struct heap {
 
 heap debug_heap(heap m, heap p);
 heap mem_debug(heap m, heap p, u64 padsize);
+heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize);
 
 static inline u64 heap_allocated(heap h)
 {
@@ -29,6 +30,7 @@ static inline u64 heap_free(heap h)
 
 heap wrap_freelist(heap meta, heap parent, bytes size);
 heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize);
+heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, heap wrapper);
 boolean objcache_validate(heap h);
 heap objcache_from_object(u64 obj, bytes parent_pagesize);
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize);

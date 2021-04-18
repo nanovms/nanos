@@ -52,6 +52,7 @@ static struct telemetry {
     tuple env;
     buffer auth_header;
     klog_dump dump;
+    boolean dump_done;
     u64 boot_id;
     boolean running;
     timestamp retry_backoff;
@@ -67,6 +68,7 @@ static struct telemetry {
     void (*destruct_tuple)(tuple t, boolean recursive);
     void (*timm_dealloc)(tuple t);
     symbol (*intern)(string name);
+    symbol (*intern_u64)(u64 u);
     void *(*klib_sym)(klib kl, symbol s);
     void (*klog_load)(klog_dump dest, status_handler sh);
     void (*klog_dump_clear)(void);
@@ -118,6 +120,24 @@ static void telemetry_dns_cb(const char *name, const ip_addr_t *ipaddr, void *ca
     deallocate_closure(ch);
 }
 
+define_closure_function(0, 1, void, retry_timer_func,
+                        u64, overruns)
+{
+    if (telemetry.dump)
+        telemetry_crash_report();
+    else
+        telemetry_boot();
+}
+
+static void telemetry_retry(void)
+{
+    kfunc(rprintf)("retry\n");
+    kfunc(register_timer)(CLOCK_ID_MONOTONIC, telemetry.retry_backoff, false, 0,
+            init_closure(&telemetry.retry_func, retry_timer_func));
+    if (telemetry.retry_backoff < seconds(600))
+        telemetry.retry_backoff <<= 1;
+}
+
 static boolean telemetry_req(const char *url, buffer data, buffer_handler bh)
 {
     tuple req = kfunc(allocate_tuple)();
@@ -146,7 +166,11 @@ closure_function(2, 1, status, telemetry_recv,
         if (vh) {
             buffer_handler parser = kfunc(allocate_http_parser)(telemetry.h, vh);
             if (parser != INVALID_ADDRESS) {
-                apply(parser, data);
+                status s = apply(parser, data);
+                if (!is_ok(s)) {
+                    kfunc(rprintf)("Radar: failed to parse HTTP response: %v\n", s);
+                    kfunc(timm_dealloc)(s);
+                }
             } else {
                 kfunc(rprintf)("Radar: failed to allocate HTTP parser\n");
                 apply(vh, 0);
@@ -156,21 +180,29 @@ closure_function(2, 1, status, telemetry_recv,
     } else {  /* connection closed */
         closure_finish();
         if (telemetry.dump) {
-            /* We just sent a crash report: clear the log dump (so that it's not
-             * sent again at the next boot), then send a boot event. */
-            kfunc(klog_dump_clear)();
-            deallocate(telemetry.h, telemetry.dump, sizeof(*telemetry.dump));
-            telemetry.dump = 0;
-            telemetry_boot();
+            if (telemetry.dump_done) {
+                /* We just sent a crash report: clear the log dump (so that it's not
+                 * sent again at the next boot), then send a boot event. */
+                kfunc(klog_dump_clear)();
+                deallocate(telemetry.h, telemetry.dump, sizeof(*telemetry.dump));
+                telemetry.dump = 0;
+                telemetry_boot();
+            } else {
+                telemetry_retry();
+            }
         } else if (!telemetry.running) {
-            /* The boot event has been sent: start collecting usage metrics. */
-            for (int count = 0; count < RADAR_STATS_BATCH_SIZE; count++)
-                telemetry.stats_mem_used[count] = heap_allocated(telemetry.phys);
-            telemetry_stats_send();
-            telemetry.stats_count = 0;
-            kfunc(register_timer)(CLOCK_ID_MONOTONIC, RADAR_STATS_INTERVAL, false,
-                    RADAR_STATS_INTERVAL, (timer_handler)&telemetry.stats_func);
-            telemetry.running = true;
+            if (telemetry.boot_id) {
+                /* The boot event has been sent: start collecting usage metrics. */
+                for (int count = 0; count < RADAR_STATS_BATCH_SIZE; count++)
+                    telemetry.stats_mem_used[count] = heap_allocated(telemetry.phys);
+                telemetry_stats_send();
+                telemetry.stats_count = 0;
+                kfunc(register_timer)(CLOCK_ID_MONOTONIC, RADAR_STATS_INTERVAL, false,
+                        RADAR_STATS_INTERVAL, (timer_handler)&telemetry.stats_func);
+                telemetry.running = true;
+            } else {
+                telemetry_retry();
+            }
         }
     }
     return STATUS_OK;
@@ -190,6 +222,8 @@ closure_function(3, 1, buffer_handler, telemetry_ch,
             deallocate_buffer(data);
     } else {    /* connection failed */
         deallocate_buffer(data);
+        if (!telemetry.running)
+            telemetry_retry();
     }
     closure_finish();
     return in;
@@ -214,23 +248,6 @@ boolean telemetry_send(const char *url, buffer data, value_handler vh)
     return false;
 }
 
-define_closure_function(0, 1, void, retry_timer_func,
-                        u64, overruns)
-{
-    if (telemetry.dump)
-        telemetry_crash_report();
-    else
-        telemetry_boot();
-}
-
-static void telemetry_retry(void)
-{
-    kfunc(register_timer)(CLOCK_ID_MONOTONIC, telemetry.retry_backoff, false, 0,
-            init_closure(&telemetry.retry_func, retry_timer_func));
-    if (telemetry.retry_backoff < seconds(600))
-        telemetry.retry_backoff <<= 1;
-}
-
 static void telemetry_print_env(buffer b)
 {
     /* Assumes that the buffer already contains at least one JSON attribute
@@ -246,11 +263,33 @@ static void telemetry_print_env(buffer b)
         kfunc(bprintf)(b, ",\"imageName\":\"%b\"", image_name);
 }
 
+closure_function(0, 1, void, telemetry_crash_recv,
+                 value, v)
+{
+    if (v) {
+        tuple resp = kfunc(table_find)(v, sym(start_line));
+        if (resp && (tagof(resp) == tag_tuple)) {
+            buffer word;
+            for (u64 i = 0; (word = kfunc(table_find)(resp, kfunc(intern_u64)(i))); i++)
+                if (kfunc(buffer_strstr)(word, "OK") == 0) {
+                    telemetry.dump_done = true;
+                    break;
+                }
+        }
+        kfunc(destruct_tuple)(v, true);
+    }
+    closure_finish();
+}
+
 static void telemetry_crash_report(void)
 {
     buffer b = kfunc(allocate_buffer)(telemetry.h, PAGESIZE);
     if (b == INVALID_ADDRESS)
         goto error;
+    value_handler vh = closure(telemetry.h, telemetry_crash_recv);
+    if (vh == INVALID_ADDRESS) {
+        goto err_free_buf;
+    }
     kfunc(bprintf)(b, "{\"bootID\":%ld", telemetry.dump->boot_id);
     telemetry_print_env(b);
     buffer_write_cstring(b, ",\"dump\":\"");
@@ -287,11 +326,12 @@ static void telemetry_crash_report(void)
         }
     }
     buffer_write_cstring(b, "\"}\r\n");
-    if (!telemetry_send("/api/v1/crashes", b, 0)) {
-        deallocate_buffer(b);
-        goto error;
+    if (!telemetry_send("/api/v1/crashes", b, vh)) {
+        goto err_free_buf;
     }
     return;
+  err_free_buf:
+    deallocate_buffer(b);
   error:
     telemetry_retry();
 }
@@ -450,6 +490,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(telemetry.destruct_tuple = get_sym("destruct_tuple")) ||
             !(telemetry.timm_dealloc = get_sym("timm_dealloc")) ||
             !(telemetry.intern = get_sym("intern")) ||
+            !(telemetry.intern_u64 = get_sym("intern_u64")) ||
             !(telemetry.klib_sym = get_sym("klib_sym")) ||
             !(telemetry.klog_load = get_sym("klog_load")) ||
             !(telemetry.klog_dump_clear = get_sym("klog_dump_clear")) ||

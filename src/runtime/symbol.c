@@ -15,6 +15,7 @@ symbol intern_u64(u64 u)
     print_number(b, u, 10, 0);
     return intern(b);
 }
+KLIB_EXPORT(intern_u64);
 
 symbol intern(string name)
 {

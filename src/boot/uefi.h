@@ -329,7 +329,10 @@ typedef struct efi_boot_services {
     efi_create_event_ex create_event_ex;
 } *efi_boot_services;
 
-typedef struct efi_configuration_table *efi_configuration_table;
+typedef struct efi_configuration_table {
+    struct efi_guid guid;
+    void *table;
+} *efi_configuration_table;
 
 typedef struct efi_system_table {
     struct efi_table_header hdr;
@@ -357,6 +360,8 @@ typedef struct uefi_mem_map {
 } *uefi_mem_map;
 
 void uefi_exit_bs(uefi_mem_map map);
+
+extern struct efi_guid uefi_smbios_table;
 
 /* Arch-specific functions */
 

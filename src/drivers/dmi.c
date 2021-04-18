@@ -22,38 +22,62 @@ struct dmi_header {
     u16 handle;
 } __attribute__((packed));
 
+u64 smbios_entry_point;
+
 static u32 dmi_len;
 static u16 dmi_num;
 static void *dmi_base;
 
+static void dmi_parse(heap h, u8 *p)
+{
+    if (!runtime_memcmp(p, "_DMI_", 5)) {
+        u8 buf[16];
+        runtime_memcpy(buf, p, sizeof(buf));    /* so that unaligned access is possible */
+        dmi_len = le16toh(*(u16 *)(buf + 6));
+        u64 phys_base = le32toh(*(u32 *)(buf + 8));
+        dmi_num = le16toh(*(u16 *)(buf + 12));
+        dmi_debug("mapping base %p, len %d, num %d", phys_base, dmi_len, dmi_num);
+        dmi_base = allocate(h, dmi_len);
+        if (dmi_base == INVALID_ADDRESS) {
+            dmi_base = 0;
+            return;
+        }
+        u64 map_end = pad(phys_base + dmi_len, PAGESIZE);
+        map(u64_from_pointer(dmi_base), phys_base & ~PAGEMASK, map_end - (phys_base & ~PAGEMASK),
+            pageflags_writable(pageflags_device()));
+        dmi_base += phys_base & PAGEMASK;
+    }
+}
+
 static void dmi_map(void)
 {
     heap h = (heap)heap_virtual_page(get_kernel_heaps());
+    if (smbios_entry_point) {
+        u64 ep_end = smbios_entry_point + SMBIOS_EP_SIZE;
+        u64 ep_map_size = ((ep_end & ~PAGEMASK) == (smbios_entry_point & ~PAGEMASK)) ?
+                PAGESIZE : (2 * PAGESIZE);
+        u8 *smbios = allocate(h, ep_map_size);
+        if (smbios == INVALID_ADDRESS)
+            return;
+        map(u64_from_pointer(smbios), smbios_entry_point & ~PAGEMASK, ep_map_size,
+            pageflags_writable(pageflags_device()));
+        /* DMI header is 16 bytes after SMBIOS header. */
+        dmi_parse(h, smbios + (smbios_entry_point & PAGEMASK) + 16);
+        unmap(u64_from_pointer(smbios), ep_map_size);
+        deallocate(h, smbios, ep_map_size);
+        if (dmi_base)
+            return;
+    }
     u8 *smbios = allocate(h, SMBIOS_SCAN_SIZE);
     if (smbios == INVALID_ADDRESS)
         return;
     map(u64_from_pointer(smbios), SMBIOS_SCAN_START, SMBIOS_SCAN_SIZE,
         pageflags_writable(pageflags_device()));
     for (u8 *p = smbios; p < smbios + SMBIOS_SCAN_SIZE; p += 16) {
-        if (!runtime_memcmp(p, "_DMI_", 5)) {
-            u8 buf[16];
-            runtime_memcpy(buf, p, sizeof(buf));    /* so that unaligned access is possible */
-            dmi_len = le16toh(*(u16 *)(buf + 6));
-            u64 phys_base = le32toh(*(u32 *)(buf + 8));
-            dmi_num = le16toh(*(u16 *)(buf + 12));
-            dmi_debug("mapping base %p, len %d, num %d", phys_base, dmi_len, dmi_num);
+        dmi_parse(h, p);
+        if (dmi_base) {
             unmap(u64_from_pointer(smbios), SMBIOS_SCAN_SIZE);
             deallocate(h, smbios, SMBIOS_SCAN_SIZE);
-            dmi_base = allocate(h, dmi_len);
-            if (dmi_base == INVALID_ADDRESS) {
-                dmi_base = 0;
-                return;
-            }
-            u64 map_end = pad(phys_base + dmi_len, PAGESIZE);
-            map(u64_from_pointer(dmi_base), phys_base & ~PAGEMASK,
-                map_end - (phys_base & ~PAGEMASK),
-                pageflags_writable(pageflags_device()));
-            dmi_base += phys_base & PAGEMASK;
             return;
         }
     }

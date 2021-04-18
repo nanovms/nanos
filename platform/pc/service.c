@@ -7,6 +7,7 @@
 #include <aws/aws.h>
 #include <drivers/acpi.h>
 #include <drivers/ata-pci.h>
+#include <drivers/dmi.h>
 #include <drivers/nvme.h>
 #include <hyperv_platform.h>
 #include <kvm_platform.h>
@@ -33,7 +34,7 @@
 #define init_debug(x, ...)
 #endif
 
-static filesystem root_fs;
+extern filesystem root_fs;
 
 #define BOOTSTRAP_REGION_SIZE_KB	2048
 static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE_KB << 10];
@@ -246,6 +247,13 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("in init_service_new_stack");
     init_tuples(allocate_tagged_region(kh, tag_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
+
+    for_regions(e) {
+        if (e->type == REGION_SMBIOS) {
+            smbios_entry_point = e->base;
+            break;
+        }
+    }
 
     init_debug("init_hwrand");
     init_hwrand();
