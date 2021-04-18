@@ -224,7 +224,7 @@ static u64 get_fs_offset(descriptor fd, int part, boolean by_index, u64 *length)
     ssize_t nr = read(fd, buf, sizeof(buf));
     if (nr < 0 || nr < sizeof(buf)) {
         perror("read");
-	exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE);
     }
 
     struct partition_entry *rootfs_part =
@@ -245,7 +245,6 @@ static u64 get_fs_offset(descriptor fd, int part, boolean by_index, u64 *length)
 
 static void set_flush_timeout()
 {
-    alarm(0);
     alarm(FLUSH_TIMEOUT);
 }
 
@@ -558,7 +557,7 @@ static int tfs_write(const char *path, const char *buf, size_t size, off_t off, 
     fdesc f = resolve_fd(fd);
     int rv;
     tfs_fuse_debug("  fd %d fdesc %p\n", fd, f);
-    if (!f->read){
+    if (!f->write){
         rv = -EINVAL;
         goto out;
     }
@@ -917,7 +916,10 @@ static int tfs_utimens(const char *filename, const struct timespec tv[2])
         tv ? time_from_timespec(&tv[0]) : now(CLOCK_ID_REALTIME);
     timestamp mtime =
         tv ? time_from_timespec(&tv[1]) : now(CLOCK_ID_REALTIME);
-    return utime_internal(filename, atime, mtime);
+    pthread_rwlock_wrlock(&rwlock);
+    int rv = utime_internal(filename, atime, mtime);
+    pthread_rwlock_unlock(&rwlock);
+    return rv;
 }
 
 static struct fuse_operations tfs_op = {
