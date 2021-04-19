@@ -30,7 +30,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/log.c \
-	$(SRCDIR)/kernel/management_telnet.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/pvclock.c \
@@ -174,6 +173,12 @@ CFLAGS+= -DCONFIG_FTRACE -pg
 SRCS-kernel.elf+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
+endif
+
+ifeq ($(MANAGEMENT),telnet)
+CFLAGS+= -DMANAGEMENT_TELNET
+SRCS-kernel.elf+= \
+	$(SRCDIR)/kernel/management_telnet.c
 endif
 
 CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP

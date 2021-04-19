@@ -1467,6 +1467,28 @@ boolean dirname_from_path(buffer dest, const char *path)
     return true;
 }
 
+closure_function(4, 2, boolean, file_get_path_each,
+                 tuple, p, char *, buf, u64, len, int *, cur_len,
+                 value, k, value, v)
+{
+    if (v != bound(p))
+        return true;
+
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *name = cstring(symbol_string(k), tmpbuf);
+    int name_len = runtime_strlen(name);
+    if (bound(len) < 1 + name_len + *bound(cur_len)) {
+        *bound(cur_len) = 0;
+        return false;
+    }
+    char *buf = bound(buf);
+    runtime_memcpy(buf + 1 + name_len, buf, *bound(cur_len));
+    buf[0] = '/';
+    runtime_memcpy(buf + 1, name, name_len);
+    *bound(cur_len) += 1 + name_len;
+    return false;
+}
+
 int file_get_path(tuple n, char *buf, u64 len)
 {
     if (len < 2) {
@@ -1479,38 +1501,25 @@ int file_get_path(tuple n, char *buf, u64 len)
     buf[0] = '\0';
     int cur_len = 1;
     tuple p;
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-next:
-    n = lookup_follow(0, n, sym_this(".."), &p);
-    assert(n);
-    if (n == p) {   /* this is the root directory */
-        if (cur_len == 1) {
-            buf[0] = '/';
-            buf[1] = '\0';
-            cur_len = 2;
+    do {
+        n = lookup_follow(0, n, sym_this(".."), &p);
+        assert(n);
+        if (n == p) {   /* this is the root directory */
+            if (cur_len == 1) {
+                buf[0] = '/';
+                buf[1] = '\0';
+                cur_len = 2;
+            }
+            c = 0;
+        } else {
+            c = children(n);
         }
-        c = 0;
-    } else {
-        c = children(n);
-    }
-    if (!c)
-        goto done;
-    table_foreach(c, k, v) {
-        if (v == p) {
-            char *name = cstring(symbol_string(k), tmpbuf);
-            int name_len = runtime_strlen(name);
-            if (len < 1 + name_len + cur_len)
-                return -1;
-            runtime_memcpy(buf + 1 + name_len, buf, cur_len);
-            buf[0] = '/';
-            runtime_memcpy(buf + 1, name, name_len);
-            cur_len += 1 + name_len;
-            break;
-        }
-    }
-    goto next;
-done:
-    return cur_len;
+        if (!c)
+            return cur_len;
+
+        iterate(c, stack_closure(file_get_path_each, p, buf, len, &cur_len));
+    } while (cur_len > 0);
+    return -1;
 }
 
 /* Check if fp1 is a (direct or indirect) ancestor if fp2. */

@@ -28,7 +28,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/log.c \
-	$(SRCDIR)/kernel/management_telnet.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/schedule.c \
@@ -137,6 +136,12 @@ CFLAGS+= -DCONFIG_FTRACE -pg
 SRCS-kernel.elf+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
+endif
+
+ifeq ($(MANAGEMENT),telnet)
+CFLAGS+= -DMANAGEMENT_TELNET
+SRCS-kernel.elf+= \
+	$(SRCDIR)/kernel/management_telnet.c
 endif
 
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG

@@ -333,8 +333,7 @@ void init_management_root(tuple root)
     assert(!management.root);
     management.root = root;
 
-#ifdef KERNEL // XXX should be runtime mgmt options
-    /* XXX move interfaces into klibs */
+#ifdef MANAGEMENT_TELNET
     value v = get_string(root, sym(telnet_mgmt));
     if (v)
         init_management_telnet(management.h, v);
