@@ -31,6 +31,9 @@ static struct net_lwip_timer net_lwip_timers[] = {
     {ARP_TMR_INTERVAL, etharp_tmr, "arp"},
     {DHCP_COARSE_TIMER_MSECS, dhcp_coarse_tmr, "dhcp coarse"},
     {DHCP_FINE_TIMER_MSECS, dhcp_fine_tmr, "dhcp fine"},
+    {ND6_TMR_INTERVAL, nd6_tmr, "nd6"},
+    {IP6_REASS_TMR_INTERVAL, ip6_reass_tmr, "ip6 reass"},
+    {MLD6_TMR_INTERVAL, mld6_tmr, "mld6"},
 };
 
 closure_function(2, 1, void, dispatch_lwip_timer,
@@ -82,11 +85,15 @@ void lwip_deallocate(void *x)
 static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
                               const netif_ext_callback_args_t* args)
 {
+    char ifname[4];
+    netif_name_cpy(ifname, netif);
     if (reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) {
         u8 *n = (u8 *)&netif->ip_addr;
-        rprintf("%c%c%d: assigned %d.%d.%d.%d\n", netif->name[0], netif->name[1], netif->num,
-                n[0], n[1], n[2], n[3]);
+        rprintf("%s: assigned %d.%d.%d.%d\n", ifname, n[0], n[1], n[2], n[3]);
     }
+    if ((reason & LWIP_NSC_IPV6_ADDR_STATE_CHANGED) &&
+            (netif_ip6_addr_state(netif, args->ipv6_addr_state_changed.addr_index) & IP6_ADDR_VALID))
+        rprintf("%s: assigned %s\n", ifname, ipaddr_ntoa(args->ipv6_addr_state_changed.address));
 }
 
 u32_t lwip_rand(void)
@@ -177,6 +184,9 @@ KLIB_EXPORT(udp_sendto);
 KLIB_EXPORT(udp_recv);
 
 #define MAX_ADDR_LEN 20
+
+#define MAX_IP6_ADDR_LEN    39
+
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
 {
     value v = table_find(root, s);
@@ -196,6 +206,16 @@ static boolean get_static_config(tuple root, struct netif *n, boolean trace) {
     ip4_addr_t netmask;
     ip4_addr_t gw;
 
+    buffer b = table_find(root, sym(ip6addr));
+    if (b && (tagof(b) == tag_unknown) && (buffer_length(b) <= MAX_IP6_ADDR_LEN)) {
+        bytes len = buffer_length(b);
+        char str[len + 1];
+        runtime_memcpy(str, buffer_ref(b, 0), len);
+        str[len] = '\0';
+        ip6_addr_t ip6;
+        if (ip6addr_aton(str, &ip6))
+            netif_add_ip6_address(n, &ip6, 0);
+    }
     if (!get_config_addr(root, sym(ipaddr), &ip))
         return false;
 
@@ -246,6 +266,9 @@ void init_network_iface(tuple root) {
         }
     }
 
+    n->output_ip6 = ethip6_output;
+    netif_create_ip6_linklocal_address(n, 1);
+    netif_set_flags(n, NETIF_FLAG_MLD6);
     netif_set_default(n);
     if (!get_static_config(root, n, trace)) {
         dhcp_start(n);

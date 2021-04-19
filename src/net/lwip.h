@@ -7,9 +7,13 @@
 #include <lwip/tcp.h>
 #include <lwip/timeouts.h>
 #include <lwip/ip4_frag.h>
+#include <lwip/ip6_frag.h>
 #include <lwip/etharp.h>
+#include <lwip/ethip6.h>
 #include <lwip/dhcp.h>
 #include <lwip/dns.h>
+#include <lwip/mld6.h>
+#include <lwip/nd6.h>
 
 #define MAX_LWIP_ALLOC_ORDER 16
 
