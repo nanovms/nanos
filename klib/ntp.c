@@ -135,8 +135,8 @@ static void ntp_query(const ip_addr_t *server_addr)
     pkt->vn = 3;    /* NTP version number */
     pkt->mode = 3;  /* client mode */
     struct ntp_ts t;
-    ntp.runtime_memcpy(&t, &pkt->transmit_ts, sizeof(t));
     timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), &t);
+    ntp.runtime_memcpy(&pkt->transmit_ts, &t, sizeof(t));
     err_t err = ntp.udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
     if (err != ERR_OK) {
         ntp.rprintf("%s: failed to send request: %d\n", __func__, err);
