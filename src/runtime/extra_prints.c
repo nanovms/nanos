@@ -113,7 +113,17 @@ static void print_tuple_internal(buffer b, tuple t, table* visited, s32 indent, 
     deallocate_pqueue(pq);
 }
 
-/* XXX Marking root as visited breaks with wrapped root...eval method? */
+/* Ideally, we would have types distinguishing text-only and binary buffers,
+   facilitating UTF8 handling. For now, squelch output on non-printable ASCII. */
+
+static boolean is_binary_buffer(buffer b)
+{
+    foreach_character(i, c, b) {
+        if (c < 0x20 || c > 0x7e)
+            return true;
+    }
+    return false;
+}
 
 static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth)
 {
@@ -127,18 +137,22 @@ static void print_value_internal(buffer dest, value v, table* visited, s32 inden
             bprintf(dest, "<visited>");
         } else {
             table_set(*visited, v, (void *)1);
+            value wrapped = get_tuple(v, sym(/wrapped));
+            if (wrapped)
+                table_set(*visited, wrapped, (void *)1);
             if (depth > 0)
                 print_tuple_internal(dest, v, visited, indent, depth - 1);
             else
                 bprintf(dest, "<pruned>");
         }
-    } else if (is_symbol(v))
+    } else if (is_symbol(v)) {
         bprintf(dest, "%b", symbol_string((symbol)v));
-    else {
-        // XXX string vs binary
+    } else if (v == null_value) {
+        bprintf(dest, "<null>");
+    } else {
         buffer b = (buffer)v;
-        if (buffer_length(b) > 20)
-            bprintf(dest, "{buffer %d}", buffer_length(b));
+        if (is_binary_buffer(b))
+            bprintf(dest, "{binary, length %d}", buffer_length(b));
         else
             bprintf(dest, "%b", b);
     }

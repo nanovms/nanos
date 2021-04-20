@@ -278,30 +278,10 @@ closure_function(1, 1, boolean, tuple_notifier_iterate,
     return iterate(bound(tn)->parent, stack_closure(tuple_notifier_iterate_each, bound(tn), h));
 }
 
-tuple_notifier tuple_notifier_wrap(tuple parent)
+closure_function(1, 0, value, tuple_notifier_wrapped,
+                 tuple_notifier, tn)
 {
-    tuple_notifier tn = allocate(management.fth, sizeof(struct tuple_notifier));
-    if (tn == INVALID_ADDRESS)
-        return tn;
-    tn->parent = parent;
-    tn->get_notifys = 0;
-    tn->set_notifys = 0;
-    tn->f.g = closure(management.h, tuple_notifier_get, tn);
-    tn->f.s = closure(management.h, tuple_notifier_set, tn);
-    tn->f.i = closure(management.h, tuple_notifier_iterate, tn);
-    return tn;
-}
-
-void tuple_notifier_unwrap(tuple_notifier tn)
-{
-    if (tn->set_notifys)
-        deallocate_table(tn->set_notifys);
-    if (tn->get_notifys)
-        deallocate_table(tn->get_notifys);
-    deallocate_closure(tn->f.g);
-    deallocate_closure(tn->f.s);
-    deallocate_closure(tn->f.i);
-    deallocate(management.fth, tn, sizeof(struct tuple_notifier));
+    return bound(tn)->parent;
 }
 
 void tuple_notifier_register_get_notify(tuple_notifier tn, symbol s, get_value_notify n)
@@ -323,6 +303,37 @@ void tuple_notifier_register_set_notify(tuple_notifier tn, symbol s, set_value_n
     value v = get(tn->parent, s);
     if (v)
         apply(n, v);
+}
+
+tuple_notifier tuple_notifier_wrap(tuple parent)
+{
+    tuple_notifier tn = allocate(management.fth, sizeof(struct tuple_notifier));
+    if (tn == INVALID_ADDRESS)
+        return tn;
+    tn->parent = parent;
+    tn->get_notifys = 0;
+    tn->set_notifys = 0;
+    tn->f.g = closure(management.h, tuple_notifier_get, tn);
+    tn->f.s = closure(management.h, tuple_notifier_set, tn);
+    tn->f.i = closure(management.h, tuple_notifier_iterate, tn);
+
+    /* The special /wrapped attribute is probed by print_value and friends.
+       Since it's not in the parent tuple, it won't show up in an iterate; it's hidden. */
+    tuple_notifier_register_get_notify(tn, sym(/wrapped),
+                                       closure(management.h, tuple_notifier_wrapped, tn));
+    return tn;
+}
+
+void tuple_notifier_unwrap(tuple_notifier tn)
+{
+    if (tn->set_notifys)
+        deallocate_table(tn->set_notifys);
+    if (tn->get_notifys)
+        deallocate_table(tn->get_notifys);
+    deallocate_closure(tn->f.g);
+    deallocate_closure(tn->f.s);
+    deallocate_closure(tn->f.i);
+    deallocate(management.fth, tn, sizeof(struct tuple_notifier));
 }
 
 extern void init_management_telnet(heap h, value meta);
