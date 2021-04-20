@@ -17,7 +17,7 @@ typedef struct azure {
     tuple (*allocate_tuple)(void);
     void (*set)(value z, void *c, void *v);
     void *(*get)(value z, void *c);
-    void (*deallocate_tuple)(tuple t);
+    void (*deallocate_value)(tuple t);
     void (*destruct_tuple)(tuple t, boolean recursive);
     void (*timm_dealloc)(tuple t);
     symbol (*intern)(string name);
@@ -130,7 +130,7 @@ closure_function(1, 1, buffer_handler, wireserver_get_ch,
         az->set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
         az->set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
         status s = az->http_request(az->h, out, HTTP_REQUEST_METHOD_GET, req, 0);
-        az->deallocate_tuple(req);
+        az->deallocate_value(req);
         if (is_ok(s))
             in = closure(az->h, wireserver_get_resp, az, out);
         else
@@ -166,7 +166,7 @@ closure_function(1, 1, buffer_handler, wireserver_post_ch,
             goto exit;
         buffer b = az->allocate_buffer(az->h, 512);
         if (b == INVALID_ADDRESS) {
-            az->deallocate_tuple(req);
+            az->deallocate_value(req);
             goto exit;
         }
         az->set(req, sym(url), alloca_wrap_cstring("/machine?comp=health"));
@@ -190,7 +190,7 @@ closure_function(1, 1, buffer_handler, wireserver_post_ch,
                   </Container>\n\
                 </Health>\n", az->container_id, az->instance_id);
         status s = az->http_request(az->h, out, HTTP_REQUEST_METHOD_POST, req, b);
-        az->deallocate_tuple(req);
+        az->deallocate_value(req);
         if (is_ok(s))
             in = closure(az->h, wireserver_post_resp, out);
         else
@@ -229,7 +229,7 @@ boolean azure_cloud_init(heap h, klib_get_sym get_sym)
     if (!(az->allocate_tuple = get_sym("allocate_tuple")) ||
             !(az->set = get_sym("set")) ||
             !(az->get = get_sym("get")) ||
-            !(az->deallocate_tuple = get_sym("deallocate_tuple")) ||
+            !(az->deallocate_value = get_sym("deallocate_value")) ||
             !(az->destruct_tuple = get_sym("destruct_tuple")) ||
             !(az->timm_dealloc = get_sym("timm_dealloc")) ||
             !(az->intern = get_sym("intern")) ||

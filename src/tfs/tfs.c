@@ -1309,6 +1309,27 @@ void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*lookup_follow)(file
     fs_path_helper.lookup_follow = lookup_follow;
 }
 
+closure_function(2, 2, boolean, lookup_sym_each,
+                 tuple, t, symbol *, s,
+                 value, k, value, v)
+{
+    assert(is_symbol(k));
+    if (v == bound(t)) {
+        *bound(s) = k;
+        return false;
+    }
+    return true;
+}
+
+symbol lookup_sym(tuple parent, tuple t)
+{
+    tuple c = children(parent);
+    symbol s = 0;
+    if (c)
+        iterate(c, stack_closure(lookup_sym_each, t, &s));
+    return s;
+}
+
 static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
 {
     *p = t;

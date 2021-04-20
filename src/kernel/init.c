@@ -83,8 +83,7 @@ closure_function(3, 2, void, fsstarted,
     if (mounts)
         storage_set_mountpoints(mounts);
     value klibs = get_string(root, sym(klibs));
-    boolean klibs_in_bootfs = klibs && !is_tuple(klibs) &&
-        buffer_compare_with_cstring(klibs, "bootfs");
+    boolean klibs_in_bootfs = klibs && buffer_compare_with_cstring(klibs, "bootfs");
 
     if (mbr) {
         boolean ingest_kernel_syms = get(root, sym(ingest_kernel_symbols)) != 0;

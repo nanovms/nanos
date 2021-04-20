@@ -8,7 +8,6 @@ typedef struct heaplock {
     heap meta;
     tuple mgmt;
     tuple parent_mgmt;
-    tuple ft;
 } *heaplock;
 
 #define lock_heap(hl) u64 _flags = spin_lock_irq(&hl->lock)

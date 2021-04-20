@@ -129,8 +129,6 @@ PARSE_TEST(partial_comment_test, "#[]\n()")
     return true;
 }
 
-/* XXX Most of these calls to get should be to get_string; but they currently
-   fail due to the user va tags issue. Fix once user tags are changed over to rewind type. */
 PARSE_TEST(tuple_simple_test, "(key:value)")
 {
     test_no_errors();
@@ -138,7 +136,7 @@ PARSE_TEST(tuple_simple_test, "(key:value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -153,7 +151,7 @@ PARSE_TEST(tuple_simple_spaced_test, " ( key : value ) ")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -167,7 +165,7 @@ PARSE_TEST(vector_simple_test, "[val1]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern_u64(0));
+    buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "val1");
 
@@ -181,12 +179,12 @@ PARSE_TEST(tuple_2elements_test, "(key1:value1 key2:value2)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 2);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key1")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key1")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value1");
     deallocate_buffer(v1);
 
-    buffer v2 = get(root, intern(wrap_buffer_cstring(h, "key2")));
+    buffer v2 = get_string(root, intern(wrap_buffer_cstring(h, "key2")));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -200,11 +198,11 @@ PARSE_TEST(vector_2elements_test, "[val1 val2]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 2);
 
-    buffer v1 = get(root, intern_u64(0));
+    buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "val1");
 
-    buffer v2 = get(root, intern_u64(1));
+    buffer v2 = get_string(root, intern_u64(1));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "val2");
 
@@ -217,11 +215,11 @@ PARSE_TEST(whitespace_after_last_vector_value_test, "[val ]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 2);
 
-    buffer v1 = get(root, intern_u64(0));
+    buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "val");
 
-    buffer v2 = get(root, intern_u64(1));
+    buffer v2 = get_string(root, intern_u64(1));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "");
 
@@ -235,11 +233,11 @@ PARSE_TEST(tuple_nested_tuple_test, "(key:(key2:value2))")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    tuple v1 = (tuple)get(root, intern(wrap_buffer_cstring(h, "key")));
+    tuple v1 = get_tuple(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get(v1, intern(wrap_buffer_cstring(h, "key2")));
+    buffer v2 = get_string(v1, intern(wrap_buffer_cstring(h, "key2")));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -254,11 +252,11 @@ PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    tuple v1 = (tuple)get(root, intern_u64(0));
+    tuple v1 = get_tuple(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get(v1, intern(wrap_buffer_cstring(h, "key2")));
+    buffer v2 = get_string(v1, intern(wrap_buffer_cstring(h, "key2")));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -273,11 +271,11 @@ PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    tuple v1 = (tuple)get(root, intern(wrap_buffer_cstring(h, "key")));
+    tuple v1 = get_tuple(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get(v1, intern_u64(0));
+    buffer v2 = get_string(v1, intern_u64(0));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -292,11 +290,11 @@ PARSE_TEST(vector_nested_vector_test, "[[value2]]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    tuple v1 = (tuple)get(root, intern_u64(0));
+    tuple v1 = get_tuple(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get(v1, intern_u64(0));
+    buffer v2 = get_string(v1, intern_u64(0));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -311,7 +309,7 @@ PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -326,7 +324,7 @@ PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -341,7 +339,7 @@ PARSE_TEST(quoted_tuple_name_value_test, "(\"key\":\"value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -356,7 +354,7 @@ PARSE_TEST(spaced_quoted_tuple_name_value_test, "( \"key\" : \"value\" )")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -371,7 +369,7 @@ PARSE_TEST(quoted_spaced_tuple_value_test, "(key:\"hello value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "hello value");
     deallocate_buffer(v1);
@@ -386,7 +384,7 @@ PARSE_TEST(quoted_spaced_tuple_name_test, "(\"hello key\":value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "hello key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "hello key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -401,7 +399,7 @@ PARSE_TEST(quoted_spaced_tuple_name_value_test, "(\"hello key\":\"hello value\")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern(wrap_buffer_cstring(h, "hello key")));
+    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "hello key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "hello value");
     deallocate_buffer(v1);
@@ -415,7 +413,7 @@ PARSE_TEST(quoted_vector_value_test, "[\"value\"]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern_u64(0));
+    buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
 
@@ -428,7 +426,7 @@ PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern_u64(0));
+    buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "hello value");
 
@@ -441,7 +439,7 @@ PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"\"]")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get(root, intern_u64(0));
+    buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "hello \"value\"");
 

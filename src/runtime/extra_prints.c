@@ -73,7 +73,6 @@ static boolean _symptr_compare(void *a, void *b)
 
 static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth);
 
-#define TUPLE_INDENT_SPACES 2
 static void print_tuple_internal(buffer b, tuple t, table* visited, s32 indent, s32 depth)
 {
     /* This is a little heavy, but we don't have a sorted iterate. */

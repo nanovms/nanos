@@ -152,7 +152,7 @@ closure_function(0, 2, boolean, storage_set_mountpoints_each,
                  value, k, value, path)
 {
     assert(is_symbol(k));
-    assert(!is_tuple(path)); // XXX is_string
+    assert(is_string(path));
     storage_debug("mount point for volume %b at %b", symbol_string(k),
                   path);
     list_foreach(&storage.volumes, e) {
@@ -176,9 +176,11 @@ closure_function(1, 2, boolean, volume_add_mount_each,
                  value, k, value, path)
 {
     assert(is_symbol(k));
-    assert(!is_tuple(path)); // XXX is_string
-    if (volume_match(k, bound(v)))
+    assert(is_string(path));
+    if (volume_match(k, bound(v))) {
         volume_mount(bound(v), path);
+        return false;
+    }
     return true;
 }
 

@@ -159,7 +159,7 @@ static heap allocate_tagged_region(heap h, u64 tag)
     th->h.allocated = 0;
     th->h.total = 0;
     th->h.management = 0;
-    tag_debug("tag %d, bits 0x%lx, heap %p\n", tag, th->vtag, th);
+    tag_debug("tag %d, bits 0x%lx, heap %p\n", tag, th->tag, th);
     return &th->h;
 }
 

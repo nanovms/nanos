@@ -137,12 +137,11 @@ int rv_from_fs_status_value(status s)
 {
     if (is_ok(s))
         return 0;
-    value v = table_find(s, sym(fsstatus));
     u64 fss;
     int rv;
 
     /* block r/w errors won't include an fs status, so assume I/O error if none found */
-    if (v && tagof(v) != tag_tuple && u64_from_value(v, &fss))
+    if (get_u64(s, sym(fsstatus), &fss))
         rv = rv_from_fs_status(fss);
     else
         rv = -EIO;
@@ -570,6 +569,21 @@ out:
     return rv;
 }
 
+closure_function(3, 2, boolean, tfs_readdir_each,
+                 void *, buf, file, f, fuse_fill_dir_t, filler,
+                 value, k, value, v)
+{
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *p = cstring(symbol_string(k), tmpbuf);
+    tuple n;
+    resolve_cstring(0, file_get_meta(bound(f)), p, &n, 0);
+    struct stat s;
+    fill_stat(file_type_from_tuple(n), n, &s);
+    if (bound(filler)(bound(buf), p, &s, 0))
+        return false;
+    return true;
+}
+
 static int tfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t off, struct fuse_file_info *fi)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, path);
@@ -577,22 +591,11 @@ static int tfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_
     pthread_rwlock_rdlock(&rwlock);
     file f = resolve_fd(fi->fh);
     tuple c = children(file_get_meta(f));
-    if (!c) {
+    if (c) {
+        iterate(c, stack_closure(tfs_readdir_each, buf, f, filler));
+    } else {
         rv = -ENOTDIR;
-        goto out;
     }
-
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k), tmpbuf);
-        tuple n;
-        resolve_cstring(0, file_get_meta(f), p, &n, 0);
-        struct stat s;
-        fill_stat(file_type_from_tuple(n), n, &s);
-        if (filler(buf, p, &s, 0))
-            break;
-    }
-out:
     pthread_rwlock_unlock(&rwlock);
     return rv;
 }
@@ -658,6 +661,14 @@ out:
     return rv;
 }
 
+closure_function(0, 2, boolean, dir_checkempty,
+                 value, s, value, v)
+{
+    assert(is_symbol(s));
+    string ss = symbol_string(s);
+    return buffer_compare_with_cstring(ss, ".") || buffer_compare_with_cstring(ss, "..");
+}
+
 static int rename_internal(const char *oldpath, const char *newpath)
 {
     if (!oldpath[0] || !newpath[0]) {
@@ -683,14 +694,8 @@ static int rename_internal(const char *oldpath, const char *newpath)
             return -EISDIR;
         }
         tuple c = children(new);
-        buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-        table_foreach(c, k, v) {
-            char *p = cstring(symbol_string(k), tmpbuf);
-
-            if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
-                return -ENOTEMPTY;
-            }
-        }
+        if (!iterate(c, stack_closure(dir_checkempty)))
+            return -ENOTEMPTY;
     }
     if (new && !is_dir(new) && is_dir(old)) {
         return -ENOTDIR;
@@ -731,14 +736,8 @@ static int rmdir_internal(filesystem fs, tuple cwd, const char *pathname)
         return -ENOTDIR;
     }
     tuple c = children(n);
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    table_foreach(c, k, v) {
-        char *p = cstring(symbol_string(k), tmpbuf);
-
-        if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
-            return -ENOTEMPTY;
-        }
-    }
+    if (!iterate(c, stack_closure(dir_checkempty)))
+        return -ENOTEMPTY;
     fs_status s = filesystem_delete(fs, parent,
         lookup_sym(parent, n));
     if (s == FS_STATUS_OK) {

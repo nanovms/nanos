@@ -37,27 +37,6 @@ sysreturn sysreturn_from_fs_status_value(status s)
     return rv;
 }
 
-closure_function(2, 2, boolean, lookup_sym_each,
-                 tuple, t, symbol *, s,
-                 value, k, value, v)
-{
-    assert(is_symbol(k));
-    if (v == bound(t)) {
-        *bound(s) = k;
-        return false;
-    }
-    return true;
-}
-
-symbol lookup_sym(tuple parent, tuple t)
-{
-    tuple c = children(parent);
-    symbol s = 0;
-    if (c)
-        iterate(c, stack_closure(lookup_sym_each, t, &s));
-    return s;
-}
-
 static tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
 {
     tuple m = get_tuple(t, sym(mount));

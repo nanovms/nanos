@@ -29,6 +29,7 @@ value get(value e, symbol a)
         assert(0);
     }
 }
+KLIB_EXPORT(get);
 
 void set(value e, symbol a, value v)
 {
@@ -45,6 +46,7 @@ void set(value e, symbol a, value v)
         assert(0);
     }
 }
+KLIB_EXPORT(set);
 
 boolean iterate(value e, binding_handler h)
 {
@@ -63,6 +65,7 @@ boolean iterate(value e, binding_handler h)
         assert(0);
     }
 }
+KLIB_EXPORT(iterate);
 
 closure_function(1, 2, boolean, tuple_count_each,
                  int *, count,
@@ -403,6 +406,7 @@ void deallocate_value(tuple t)
         break;
     }
 }
+KLIB_EXPORT(deallocate_value);
 
 void init_tuples(heap h)
 {

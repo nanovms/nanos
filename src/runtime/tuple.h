@@ -39,7 +39,7 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
 
 static inline boolean is_tuple(value v)
 {
-    u16 tag = tagof(v);
+    value_tag tag = tagof(v);
     return tag == tag_table_tuple || tag == tag_function_tuple;
 }
 
