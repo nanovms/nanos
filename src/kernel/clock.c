@@ -45,7 +45,7 @@ closure_function(0, 1, boolean, timer_id_rtc,
     return false;
 }
 
-void clock_reset(timestamp wallclock_now)
+void clock_reset_rtc(timestamp wallclock_now)
 {
     clock_debug("%s: now %T, wallclock_now %T\n",
                 __func__, now(CLOCK_ID_REALTIME), wallclock_now);
@@ -53,4 +53,4 @@ void clock_reset(timestamp wallclock_now)
     timer_adjust(runloop_timers, stack_closure(timer_id_rtc), wallclock_now - now(CLOCK_ID_REALTIME));
     reset_clock_vdso_dat();
 }
-KLIB_EXPORT(clock_reset);
+KLIB_EXPORT(clock_reset_rtc);

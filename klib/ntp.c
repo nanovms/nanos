@@ -70,7 +70,7 @@ static struct {
     void (*runtime_memset)(u8 *a, u8 b, bytes len);
     timestamp (*now)(clock_id id);
     void (*clock_adjust)(timestamp now, s64 temp_cal, timestamp sync_complete, s64 cal);
-    void (*clock_reset)(timestamp now);
+    void (*clock_reset_rtc)(timestamp now);
 } ntp;
 
 /* Calculates a division between a 128-bit value and a 64-bit value and returns a 64-bit quotient.
@@ -172,7 +172,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     s64 offset = ntptime_to_timestamp(&t1) - wallclock_now + rtd / 2;
     s64 sec = sec_from_timestamp(offset < 0 ? -offset : offset);
     if (sec > NTP_CLOCK_RESET_THRESHOLD) {
-        ntp.clock_reset(wallclock_now + offset);
+        ntp.clock_reset_rtc(wallclock_now + offset);
         ntp.last_offset = 0;
         ntp.last_raw = 0;
         success = true;
@@ -284,7 +284,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(ntp.runtime_memcpy = get_sym("runtime_memcpy")) ||
             !(ntp.runtime_memset = get_sym("runtime_memset")) ||
             !(ntp.now = get_sym("now")) || !(ntp.clock_adjust = get_sym("clock_adjust")) ||
-            !(ntp.clock_reset = get_sym("clock_reset"))) {
+            !(ntp.clock_reset_rtc = get_sym("clock_reset_rtc"))) {
         ntp.rprintf("NTP: kernel symbols not found\n");
         return KLIB_INIT_FAILED;
     }

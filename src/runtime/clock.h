@@ -126,7 +126,7 @@ static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 }
 
 void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal);
-void clock_reset(timestamp wallclock_now);
+void clock_reset_rtc(timestamp wallclock_now);
 #if defined(KERNEL) || defined(BUILD_VDSO)
 #undef __vdso_dat
 #endif
