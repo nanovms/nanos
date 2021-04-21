@@ -35,3 +35,22 @@ void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
 }
 KLIB_EXPORT(clock_adjust);
+
+closure_function(0, 1, boolean, timer_id_rtc,
+                timer, t)
+{
+    if (t->id == CLOCK_ID_REALTIME || t->id == CLOCK_ID_REALTIME_ALARM) {
+        return true;
+    }
+    return false;
+}
+
+void clock_reset(timestamp wallclock_now)
+{
+    clock_debug("%s: now %T, wallclock_now %T\n",
+                __func__, now(CLOCK_ID_REALTIME), wallclock_now);
+    rtc_settimeofday(sec_from_timestamp(wallclock_now));
+    timer_adjust(runloop_timers, stack_closure(timer_id_rtc), wallclock_now - now(CLOCK_ID_REALTIME));
+    reset_clock_vdso_dat();
+}
+KLIB_EXPORT(clock_reset);
