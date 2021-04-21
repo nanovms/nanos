@@ -15,7 +15,7 @@
 
 #define NTP_MAX_SLEW_RATE   ((1ll << CLOCK_CALIBR_BITS) / 2000) /* 500 PPM */
 
-#define NTP_CLOCK_RESET_THRESHOLD   60
+#define NTP_RESET_THRESHOLD_MIN 60  /* 60 seconds */
 
 struct ntp_ts {
     u32 seconds;
@@ -48,6 +48,7 @@ static struct {
     timer query_timer;
     closure_struct(ntp_query_func, query_func);
     boolean query_ongoing;
+    u64 reset_threshold;
 
     /* interval values expressed as bit order of number of seconds */
     int pollmin, pollmax;
@@ -170,7 +171,8 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     ntp.runtime_memcpy(&t2, &pkt->receive_ts, sizeof(t2));
     timestamp rtd = wallclock_now - origin - ntptime_diff(&t1, &t2);
     s64 offset = ntptime_to_timestamp(&t1) - wallclock_now + rtd / 2;
-    if (sec_from_timestamp(offset < 0 ? -offset : offset) > NTP_CLOCK_RESET_THRESHOLD) {
+    if (ntp.reset_threshold > 0 &&
+            sec_from_timestamp(offset < 0 ? -offset : offset) > ntp.reset_threshold) {
         ntp.clock_reset_rtc(wallclock_now + offset);
         ntp.last_offset = 0;
         ntp.last_raw = 0;
@@ -345,6 +347,16 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             }
             ntp.pollmin = interval;
         }
+    }
+    ntp.reset_threshold = 0;
+    value reset_thresh = table_find(root, sym_intern(ntp_reset_threshold, intern));
+    if (reset_thresh) {
+        u64 thresh;
+        if (!u64_from_value(reset_thresh, &thresh) || (thresh > 0 && thresh < NTP_RESET_THRESHOLD_MIN)) {
+            ntp.rprintf("NTP: invalid reset threshold\n");
+            return KLIB_INIT_FAILED;
+        }
+        ntp.reset_threshold = thresh;
     }
     ntp.pcb = udp_new();
     if (!ntp.pcb) {
