@@ -78,11 +78,13 @@ void pqueue_reorder(pqueue q)
         heal(q, i);
 }
 
-void pqueue_walk(pqueue q, pqueue_element_handler h)
+boolean pqueue_walk(pqueue q, pqueue_element_handler h)
 {
     void *e;
     vector_foreach(q->body, e)
-        apply(h, e);
+        if (!apply(h, e))
+            return false;
+    return true;
 }
 
 pqueue allocate_pqueue(heap h, boolean(*sort)(void *, void *))

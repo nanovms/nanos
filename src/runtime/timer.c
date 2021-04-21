@@ -70,7 +70,7 @@ void timer_service(timerheap th, timestamp here)
     }
 }
 
-closure_function(2, 1, void, timer_adjust_handler,
+closure_function(2, 1, boolean, timer_adjust_handler,
                 timer_select, sel, s64, amt,
                 void *, v)
 {
@@ -78,6 +78,7 @@ closure_function(2, 1, void, timer_adjust_handler,
 
     if (apply(bound(sel), t))
         t->expiry += bound(amt);
+    return true;
 }
 
 void timer_adjust(timerheap th, timer_select sel, s64 amt)

@@ -15,6 +15,8 @@
 
 #define NTP_MAX_SLEW_RATE   ((1ll << CLOCK_CALIBR_BITS) / 2000) /* 500 PPM */
 
+#define NTP_CLOCK_RESET_THRESHOLD   60
+
 struct ntp_ts {
     u32 seconds;
     u32 fraction;
@@ -168,9 +170,9 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     ntp.runtime_memcpy(&t2, &pkt->receive_ts, sizeof(t2));
     timestamp rtd = wallclock_now - origin - ntptime_diff(&t1, &t2);
     s64 offset = ntptime_to_timestamp(&t1) - wallclock_now + rtd / 2;
-    s64 sec = (offset < 0 ? (-offset) : offset)>>32;
-    if (sec > 60) {
-        ntp.clock_reset(ntptime_to_timestamp(&t2));
+    s64 sec = sec_from_timestamp(offset < 0 ? -offset : offset);
+    if (sec > NTP_CLOCK_RESET_THRESHOLD) {
+        ntp.clock_reset(wallclock_now + offset);
         ntp.last_offset = 0;
         ntp.last_raw = 0;
         success = true;
