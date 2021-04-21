@@ -170,8 +170,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     ntp.runtime_memcpy(&t2, &pkt->receive_ts, sizeof(t2));
     timestamp rtd = wallclock_now - origin - ntptime_diff(&t1, &t2);
     s64 offset = ntptime_to_timestamp(&t1) - wallclock_now + rtd / 2;
-    s64 sec = sec_from_timestamp(offset < 0 ? -offset : offset);
-    if (sec > NTP_CLOCK_RESET_THRESHOLD) {
+    if (sec_from_timestamp(offset < 0 ? -offset : offset) > NTP_CLOCK_RESET_THRESHOLD) {
         ntp.clock_reset_rtc(wallclock_now + offset);
         ntp.last_offset = 0;
         ntp.last_raw = 0;
