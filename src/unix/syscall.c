@@ -2451,19 +2451,20 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
     m[n].name = name;
 }
 
-static void notrace_reset(void)
+static void notrace_reset(process p)
 {
     for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
-        struct syscall *s = current->p->syscalls + i;
+        struct syscall *s = p->syscalls + i;
         s->flags &= ~SYSCALL_F_NOTRACE;
     }
 }
 
-closure_function(0, 2, boolean, notrace_each,
+closure_function(1, 2, boolean, notrace_each,
+                 process, p,
                  value, k, value, v)
 {
     for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
-        struct syscall *s = current->p->syscalls + i;
+        struct syscall *s = bound(p)->syscalls + i;
         if (!s->name)
             continue;
 
@@ -2491,12 +2492,13 @@ closure_function(0, 1, boolean, syscall_defer_notify,
     return true;
 }
 
-closure_function(0, 1, boolean, notrace_notify,
+closure_function(1, 1, boolean, notrace_notify,
+                 process, p,
                  value, v)
 {
-    notrace_reset();
+    notrace_reset(bound(p));
     if (is_tuple(v))
-        iterate(v, stack_closure(notrace_each));
+        iterate(v, stack_closure(notrace_each, bound(p)));
     return true;
 }
 
@@ -2505,5 +2507,5 @@ void configure_syscalls(process p)
     heap h = heap_general(&p->uh->kh);
     register_root_notify(sym(debugsyscalls), closure(h, debugsyscalls_notify));
     register_root_notify(sym(syscall_defer), closure(h, syscall_defer_notify));
-    register_root_notify(sym(notrace), closure(h, notrace_notify));
+    register_root_notify(sym(notrace), closure(h, notrace_notify, p));
 }

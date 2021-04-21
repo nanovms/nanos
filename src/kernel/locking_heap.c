@@ -142,6 +142,7 @@ heap locking_heap_wrapper(heap meta, heap parent)
     hl->parent = parent;
     hl->meta = meta;
     hl->mgmt = 0;
+    hl->parent_mgmt = 0;
     spin_lock_init(&hl->lock);
     return (heap)hl;
 }

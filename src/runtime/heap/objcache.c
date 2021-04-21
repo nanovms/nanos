@@ -497,6 +497,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     o->total_objs = 0;
     o->alloced_objs = 0;
     o->wrapper_heap = 0;
+    o->mgmt = 0;
 
     return (heap)o;
 }

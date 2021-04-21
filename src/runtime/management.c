@@ -73,6 +73,10 @@ define_closure_function(1, 2, boolean, each_request,
     buffer b = allocate_buffer(management.h, 256);
     assert(b != INVALID_ADDRESS);
     if (k == sym(get)) {
+        if (!is_tuple(args)) {
+            resultstr = "missing arguments tuple";
+            goto out;
+        }
         string path = get_string(args, sym(path));
         if (!path) {
             resultstr = "could not parse path attribute";
@@ -90,6 +94,10 @@ define_closure_function(1, 2, boolean, each_request,
         bprintf(b, "(v:%V)\n", target, attrs);
         deallocate_value(attrs);
     } else if (k == sym(set)) {
+        if (!is_tuple(args)) {
+            resultstr = "missing arguments tuple";
+            goto out;
+        }
         string path = get_string(args, sym(path));
         if (!path) {
             resultstr = "could not parse path attribute";
@@ -102,7 +110,7 @@ define_closure_function(1, 2, boolean, each_request,
             resultstr = "could not resolve path";
             goto out;
         }
-        value v = get_string(args, sym(value));
+        value v = get(args, sym(value));
         if (!v) {
             resultstr = "value not found";
             goto out;

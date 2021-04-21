@@ -385,11 +385,6 @@ void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
     iterate(t, stack_closure(encode_tuple_each, dest, dictionary, total));
 }
 
-void deallocate_function_tuple(function_tuple ft)
-{
-    // XXX
-}
-
 void deallocate_value(tuple t)
 {
     value_tag tag = tagof(t);
@@ -398,7 +393,7 @@ void deallocate_value(tuple t)
         deallocate_table((table)t);
         break;
     case tag_function_tuple:
-        deallocate_function_tuple((function_tuple)t);
+        /* XXX No standard interface to remove function tuple...release a refcount? */
         break;
     default:
         /* XXX assuming string buffer until we have complete type coverage */

@@ -290,6 +290,7 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
     m->pagesize = pagesize;
     m->allocated = 0;
     m->parent_threshold = U64_FROM_BIT(max_order);
+    m->mgmt = 0;
 
     for(int i = 0, order = min_order; order <= max_order; i++, order++) {
 	u64 obj_size = U64_FROM_BIT(order);
