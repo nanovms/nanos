@@ -12,7 +12,6 @@ typedef enum {
 } http_method;
 
 typedef closure_type(http_response, void, tuple);
-typedef closure_type(value_handler, void, value);
 
 buffer_handler allocate_http_parser(heap h, value_handler each);
 // just format the buffer?

@@ -2,6 +2,7 @@
 #include <runtime.h>
 #include <kernel_heaps.h>
 #include <kernel_machine.h>
+#include <management.h>
 #include <page.h>
 #include "klib.h"
 
@@ -248,6 +249,7 @@ kernel_heaps get_kernel_heaps(void);
 
 tuple get_root_tuple(void);
 tuple get_environment(void);
+void register_root_notify(symbol s, set_value_notify n);
 
 boolean first_boot(void);
 

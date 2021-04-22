@@ -111,7 +111,7 @@ closure_function(3, 1, parser, value_complete,
                  tuple, t, symbol, name, parser, check,
                  void *, v)
 {
-    table_set(bound(t), bound(name), v);
+    set(bound(t), bound(name), v);
     parser c = bound(check);
     closure_finish();
     return c;
@@ -289,7 +289,7 @@ static void init_parser(heap h)
 {
     if (whitespace)
         return;
-    whitespace = charset_from_string(h, " \n\t");
+    whitespace = charset_from_string(h, " \n\r\t");
     name_terminal = charset_from_string(h, "()[]");
     value_terminal = charset_union(h, name_terminal, whitespace);
     property_sigils = charset_from_string(h, ":|/"); // dot should be here

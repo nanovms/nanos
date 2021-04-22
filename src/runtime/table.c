@@ -37,22 +37,21 @@ void table_validate(table t, char *n)
 
 table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y))
 {
-    table new = allocate(h, sizeof(struct table));
-    if (new == INVALID_ADDRESS)
-        return new;
+    table t = allocate(h, sizeof(struct table));
+    if (t == INVALID_ADDRESS)
+        return t;
 
-    table t = tablev(new);
     t->h = h;
     t->count = 0;
     t->buckets = 4;
     t->entries = allocate_zero(h, t->buckets * sizeof(void *));
     if (t->entries == INVALID_ADDRESS) {
-        deallocate(h, new, sizeof(struct table));
+        deallocate(h, t, sizeof(struct table));
         return INVALID_ADDRESS;
     }
     t->key_function = key_function;
     t->equals_function = equals_function;
-    return new;
+    return t;
 }
 
 void deallocate_table(table t)
@@ -69,11 +68,10 @@ static inline key position(int buckets, key x)
     return x & (buckets-1);
 }
 
-static void resize_table(table z, int buckets)
+static void resize_table(table t, int buckets)
 {
     assert((buckets & (buckets - 1)) == 0);
     assert(buckets <= TABLE_MAX_BUCKETS);
-    table t = valueof(z);
     entry *nentries = allocate_zero(t->h, buckets * sizeof(void *));
     if (nentries == INVALID_ADDRESS)
         halt("resize_table: allocate fail for %d buckets\n", buckets);
@@ -91,9 +89,8 @@ static void resize_table(table z, int buckets)
     table_paranoia(t, "resize");
 }
 
-void *table_find(table z, void *c)
+void *table_find(table t, void *c)
 {
-    table t = valueof(z);
     assert(t);
     key k = t->key_function(c);
     for (entry i = t->entries[position(t->buckets, k)]; i; i = i->next){
@@ -104,9 +101,8 @@ void *table_find(table z, void *c)
 }
 KLIB_EXPORT(table_find);
 
-void table_set(table z, void *c, void *v)
+void table_set(table t, void *c, void *v)
 {
-    table t = valueof(z);
     key k = t->key_function(c);
     key p = position(t->buckets, k);
     entry *e = t->entries + p;
@@ -127,7 +123,7 @@ void table_set(table z, void *c, void *v)
     }
 
     if (v != EMPTY) {
-        entry n = valueof(allocate(t->h, sizeof(struct entry)));
+        entry n = allocate(t->h, sizeof(struct entry));
         if (n == INVALID_ADDRESS)
             halt("couldn't allocate table entry\n");
 
@@ -147,10 +143,9 @@ void table_set(table z, void *c, void *v)
 }
 KLIB_EXPORT(table_set);
 
-int table_elements(table z)
+int table_elements(table t)
 {
-    table t = valueof(z);
-    return(t->count);
+    return t->count;
 }
 
 void table_clear(table t)

@@ -21,7 +21,7 @@ closure_function(3, 1, status, read_program_complete,
                  buffer, b)
 {
     tuple root = bound(root);
-    if (table_find(root, sym(trace))) {
+    if (get(root, sym(trace))) {
         rprintf("read program complete: %p ", root);
         rprintf("gitversion: %s ", gitversion);
 
@@ -29,7 +29,7 @@ closure_function(3, 1, status, read_program_complete,
            won't go haywire on a large manifest... */
 #if 0
         buffer b = allocate_buffer(transient, 64);
-        print_root(b, root);
+        print_tuple(b, root, 0);
         buffer_print(b);
         deallocate_buffer(b);
         rprintf("\n");
@@ -47,62 +47,6 @@ closure_function(0, 1, void, read_program_fail,
     closure_finish();
     halt("read program failed %v\n", s);
 }
-
-/* XXX Note: temporarily putting these connection tests here until we
-   get tracing hooked up... */
-
-#if 0
-/* limited to 1M on general heap at the moment... */
-#define BULK_TEST_BUFSIZ (1ull << 20)
-static buffer bulk_test_buffer(heap h)
-{
-    buffer b = allocate_buffer(h, BULK_TEST_BUFSIZ);
-    for (int i = 0; i < (BULK_TEST_BUFSIZ / 10); i += 8) {
-        bprintf(b, "%08d %08d %08d %08d %08d %08d %08d %08d\r\n",
-                i, i + 1, i + 2, i + 3, i + 4, i + 5, i + 6, i + 7);
-    }
-    return b;
-}
-
-/* raw tcp socket test */
-closure_function(2, 1, status, test_recv,
-                 heap, h,
-                 buffer_handler, out,
-                 buffer, b)
-{
-    buffer response = allocate_buffer(bound(h), 1024);
-    buffer_handler out = bound(out);
-    if (!b) {
-        rprintf("telnet: remote closed\n");
-        return STATUS_OK;
-    }
-    bprintf(response, "read: %b", b);
-    apply(out, response);
-    switch (*((u8*)buffer_ref(b, 0))) {
-    case 'q':
-        rprintf("telnet: remote sent quit\n");
-        apply(out, 0);
-        break;
-    case 'b':
-        rprintf("telnet: remote requested bulk buffer\n");
-        apply(out, bulk_test_buffer(bound(h)));
-        break;
-    }
-    return STATUS_OK;
-}
-
-closure_function(1, 1, buffer_handler, each_telnet_connection,
-                 heap, h,
-                 buffer_handler, out)
-{
-    heap h = bound(h);
-    buffer response = allocate_buffer(h, 1024);
-    rprintf("telnet: connection\n");
-    bprintf(response, "nanos telnet test interface\r\n");
-    apply(out, response);
-    return closure(h, test_recv, h, out);
-}
-#endif
 
 /* http debug test */
 #if 0
@@ -148,6 +92,20 @@ closure_function(1, 3, void, each_test_request,
 }
 #endif
 
+static void init_kernel_heaps_management(tuple root)
+{
+    kernel_heaps kh = get_kernel_heaps();
+    tuple heaps = allocate_tuple();
+    assert(heaps);
+    /* TODO: This should become hierarchical, with child heaps registering with parents. */
+    set(heaps, sym(virtual_huge), heap_management((heap)heap_virtual_huge(kh)));
+    set(heaps, sym(virtual_page), heap_management((heap)heap_virtual_page(kh)));
+    set(heaps, sym(physical), heap_management((heap)heap_physical(kh)));
+    set(heaps, sym(general), heap_management((heap)heap_general(kh)));
+    set(heaps, sym(locked), heap_management((heap)heap_locked(kh)));
+    set(root, sym(heaps), heaps);
+}
+
 closure_function(3, 0, void, startup,
                  kernel_heaps, kh, tuple, root, filesystem, fs)
 {
@@ -163,28 +121,26 @@ closure_function(3, 0, void, startup,
     heap general = heap_general(kh);
     buffer_handler pg = closure(general, read_program_complete, general, kp, root);
 
+    /* register root tuple with management and kick off interfaces, if any */
+    init_management_root(root);
+    init_kernel_heaps_management(root);
 #if 0
-    if (table_find(root, sym(telnet))) {
-        listen_port(general, 9090, closure(general, each_telnet_connection, general));
-        rprintf("Debug telnet server started on port 9090\n");
-    }
-
     http_listener hl = allocate_http_listener(general, 9090);
     assert(hl != INVALID_ADDRESS);
     http_register_uri_handler(hl, "test", closure(general, each_test_request, general));
 
-    if (table_find(root, sym(http))) {
+    if (get(root, sym(http))) {
         status s = listen_port(general, 9090, connection_handler_from_http_listener(hl));
         if (!is_ok(s))
             halt("listen_port failed for http listener: %v\n", s);
         rprintf("Debug http server started on port 9090\n");
     }
 #endif
-    value p = table_find(root, sym(program));
+    value p = get(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
-    if (table_find(root, sym(exec_protection)))
-        table_set(pro, sym(exec), null_value);  /* set executable flag */
+    if (get(root, sym(exec_protection)))
+        set(pro, sym(exec), null_value);  /* set executable flag */
     init_network_iface(root);
     filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
     closure_finish();
@@ -218,15 +174,13 @@ closure_function(4, 2, void, bootfs_complete,
         init_klib(bound(kh), fs, bound(root), boot_root);
 
     if (bound(ingest_kernel_syms)) {
-        table_foreach(c, k, v) {
-            if (!buffer_strcmp(symbol_string(k), "kernel")) {
-                kernel_heaps kh = bound(kh);
-                filesystem_read_entire(fs, v, heap_backed(kh),
-                                       closure(heap_general(kh),
-                                               kernel_read_complete, fs, !bound(klibs_in_bootfs)),
-                                       ignore_status);
-                break;
-            }
+        tuple v = get_tuple(c, sym(kernel));
+        if (v) {
+            kernel_heaps kh = bound(kh);
+            filesystem_read_entire(fs, v, heap_backed(kh),
+                                   closure(heap_general(kh),
+                                           kernel_read_complete, fs, !bound(klibs_in_bootfs)),
+                                   ignore_status);
         }
     }
     closure_finish();

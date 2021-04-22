@@ -36,7 +36,7 @@ static u64 tag_alloc(heap h, bytes s)
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     struct tagheap *th = allocate(h, sizeof(struct tagheap));
     if (th == INVALID_ADDRESS)
         return INVALID_ADDRESS;
@@ -49,6 +49,7 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     th->h.pagesize = 32; // XXX
     th->h.allocated = 0;
     th->h.total = 0;
+    th->h.management = 0;
     tag_debug("%s: tag %d, bits 0x%lx, heap %p\n", __func__, tag, th->vtag, th);
     return &th->h;
 }

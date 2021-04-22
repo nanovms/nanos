@@ -138,6 +138,12 @@ SRCS-kernel.elf+= \
 	$(ARCHDIR)/ftrace.s
 endif
 
+ifeq ($(MANAGEMENT),telnet)
+CFLAGS+= -DMANAGEMENT_TELNET
+SRCS-kernel.elf+= \
+	$(SRCDIR)/kernel/management_telnet.c
+endif
+
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script

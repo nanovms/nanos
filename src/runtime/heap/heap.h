@@ -6,6 +6,7 @@ struct heap {
     void (*destroy)(struct heap *h);
     bytes (*allocated)(struct heap *h);
     bytes (*total)(struct heap *h);
+    value (*management)(struct heap *h);
     bytes pagesize;
 };
 
@@ -26,6 +27,11 @@ static inline u64 heap_total(heap h)
 static inline u64 heap_free(heap h)
 {
     return heap_total(h) - heap_allocated(h);
+}
+
+static inline value heap_management(heap h)
+{
+    return h->management ? h->management(h) : 0;
 }
 
 heap wrap_freelist(heap meta, heap parent, bytes size);

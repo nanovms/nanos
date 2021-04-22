@@ -14,7 +14,7 @@ void interrupt_exit(void)
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     heap p = (heap)heap_physical(kh);
     assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
     u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);

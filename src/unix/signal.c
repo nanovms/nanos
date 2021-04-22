@@ -594,14 +594,16 @@ sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
     // it doesn't seem possible to re-enable without setting
     // a new stack....so we think this is a valid interpretation
     if (ss) {
-        if (!validate_user_memory(ss, sizeof(stack_t), false) ||
-            !validate_user_memory(ss->ss_sp, ss->ss_size, true))
+        if (!validate_user_memory(ss, sizeof(stack_t), false)) {
             return -EFAULT;
+        }
         if (thread_is_on_altsigstack(t)) {
             return -EPERM;
         }
         if (ss->ss_flags & SS_DISABLE) {
             t->signal_stack = 0;
+        } else if (!validate_user_memory(ss->ss_sp, ss->ss_size, true)) {
+            return -EFAULT;
         } else {
             if (ss->ss_flags) { /* unknown flags */
                 return -EINVAL;

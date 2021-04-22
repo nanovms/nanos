@@ -464,7 +464,7 @@ void init_thread_fault_handler(thread t);
 
 static inline boolean proc_is_exec_protected(process p)
 {
-    return !!table_find(p->process_root, sym(exec_protection));
+    return !!get(p->process_root, sym(exec_protection));
 }
 
 static inline fsfile file_get_fsfile(file f)
@@ -497,7 +497,7 @@ static inline u32 anon_perms(process p)
 static inline u32 file_meta_perms(process p, tuple m)
 {
     if (proc_is_exec_protected(p)) {
-        if (table_find(m, sym(exec)))
+        if (get(m, sym(exec)))
             return (ACCESS_PERM_READ | ACCESS_PERM_EXEC);
         else
             return (ACCESS_PERM_READ | ACCESS_PERM_WRITE);

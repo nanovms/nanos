@@ -29,10 +29,9 @@ void table_clear(table t);
 
 #define eZ(x,y) ((entry) x)->y
 
-#define tablev(__z) ((table)valueof(__z))
 #define table_foreach(__t, __k, __v)\
-    for (int __i = 0 ; __i< tablev(__t)->buckets; __i++) \
-        for (void *__k, *__v, *__j = (tablev(__t)->entries[__i]), *__next;    \
+    for (int __i = 0 ; __i< (__t)->buckets; __i++)                    \
+        for (void *__k, *__v, *__j = ((__t)->entries[__i]), *__next;    \
              __j && (__next =  eZ((__j), next) , __k = eZ(__j, c), __v = eZ(__j, v)); \
              __j = __next)
 

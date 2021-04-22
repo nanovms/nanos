@@ -293,6 +293,20 @@ static inline boolean buffer_compare(void *za, void *zb)
     return true;
 }
 
+static inline boolean buffer_lt(buffer a, buffer b)
+{
+    int alen = buffer_length(a);
+    int blen = buffer_length(b);
+    for (int i = 0; i < blen; i++) {
+        if (i >= alen ||
+            byte(a, i) < byte(b, i))
+            return true;
+        if (byte(a, i) > byte(b, i))
+            return false;
+    }
+    return false;
+}
+
 static inline boolean buffer_compare_with_cstring(buffer b, const char *x)
 {
     int len = buffer_length(b);

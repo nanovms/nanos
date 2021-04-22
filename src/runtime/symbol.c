@@ -29,12 +29,11 @@ symbol intern(string name)
         s = allocate(sheap, sizeof(struct symbol));
         if (s == INVALID_ADDRESS)
             goto alloc_fail;
-        symbol n = valueof(s);
-        n->k = random_u64();
-        n->s = b;
+        s->k = random_u64();
+        s->s = b;
         table_set(symbols, b, s);
     }
-    return valueof(s);
+    return s;
   alloc_fail:
     halt("intern: alloc fail\n");
 }

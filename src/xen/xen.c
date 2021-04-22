@@ -722,17 +722,14 @@ status xendev_attach(xen_dev xd, int id, buffer frontend, tuple meta)
 {
     xd->if_id = id;
     xd->frontend = frontend;
-    u64 val = infinity;
-    value v = table_find(meta, sym(backend-id));
-    if (v)
-        u64_from_value(v, &val);
-    if (val == infinity)
+    u64 val;
+    if (!get_u64(meta, sym(backend-id), &val))
         return timm("result", "unable to find backend-id");
     xd->backend_id = val;
-    v = table_find(meta, sym(backend));
-    if (!v || tagof(v) == tag_tuple)
+    string b = get_string(meta, sym(backend));
+    if (!b)
         return timm("result", "unable to find backend path");
-    xd->backend = (buffer)v;
+    xd->backend = b;
 
     /* check if the backend is ready for us
        XXX This should poll or, better yet, set up an asynchronous xenstore watch...
@@ -789,7 +786,7 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
             }
             child_node = (value)leaf_value;
         }
-        table_set(*parent, sym_this(child), child_node);
+        set(*parent, sym_this(child), child_node);
         buffer_consume(response, child_len);
         splice->end = splice_saved_end; /* XXX see above */
     } while (buffer_length(response) > 0 && *(u8 *)buffer_ref(response, 0) != '\0');
@@ -803,6 +800,44 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
 static inline status traverse_directory(heap h, const char * path, tuple *node)
 {
     return traverse_directory_internal(h, alloca_wrap_buffer(path, runtime_strlen(path) + 1), node);
+}
+
+closure_function(3, 2, boolean, xen_probe_id_each,
+                 xen_driver, xd, string, name, status *, s,
+                 value, k, value, v)
+{
+    assert(is_symbol(k));
+    u64 id;
+    if (!u64_from_value(symbol_string(k), &id)) {
+        *bound(s) = timm("result", "failed to parse device id \"%v\"", symbol_string(k));
+        return false;
+    }
+    xen_debug("driver match, id %d, value %v", id, v);
+    /* XXX check result, dealloc on fail */
+    buffer frontend = allocate_buffer(xen_info.h, buffer_length(bound(name)) + 10);
+    bprintf(frontend, "device/%b/%d", bound(name), id);
+    apply(bound(xd)->probe, (int)id, frontend, v);
+    return true;
+}
+
+closure_function(1, 2, boolean, xen_probe_devices_each,
+                 status *, s,
+                 value, k, value, v)
+{
+    assert(is_symbol(k));
+    if (!is_tuple(v))
+        return true;
+    list_foreach(&xen_info.driver_list, l) {
+        xen_driver xd = struct_from_list(l, xen_driver, l);
+        /* XXX must be a cleaner way to compare symbols? */
+        string name = symbol_string(k);
+        if (runtime_memcmp(buffer_ref(name, 0), xd->name, MIN(buffer_length(name), XEN_DRIVER_NAME_MAX)))
+            continue;
+        iterate(v, stack_closure(xen_probe_id_each, xd, name, bound(s)));
+        if (*bound(s) != STATUS_OK)
+            return false;
+    }
+    return true;
 }
 
 status xen_probe_devices(void)
@@ -819,28 +854,7 @@ status xen_probe_devices(void)
     xen_info.device_tree = node;
     xen_debug("success; result: %v", node);
 
-    table_foreach(node, k, v) {
-        if (tagof(v) != tag_tuple)
-            continue;
-        list_foreach(&xen_info.driver_list, l) {
-            xen_driver xd = struct_from_list(l, xen_driver, l);
-            /* XXX must be a cleaner way to compare symbols? */
-            string name = symbol_string(k);
-            if (runtime_memcmp(buffer_ref(name, 0), xd->name, MIN(buffer_length(name), XEN_DRIVER_NAME_MAX)))
-                continue;
-            table_foreach(v, k2, v2) {
-                u64 id;
-                if (!u64_from_value(symbol_string(k2), &id)) {
-                    return timm("result", "failed to parse device id \"%v\"", symbol_string(k2));
-                }
-                xen_debug("driver match, id %d, value %v", id, v2);
-                /* XXX check result, dealloc on fail */
-                buffer frontend = allocate_buffer(xen_info.h, buffer_length(name) + 10);
-                bprintf(frontend, "device/%b/%d", name, id);
-                apply(xd->probe, (int)id, frontend, v2);
-            }
-        }
-    }
+    iterate(node, stack_closure(xen_probe_devices_each, &s));
     return s;
 }
 

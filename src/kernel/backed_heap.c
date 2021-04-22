@@ -114,5 +114,6 @@ backed_heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesi
     b->physical = physical;
     b->virtual = virtual;
     b->h.pagesize = pagesize;
+    b->h.management = 0;
     return b;
 }

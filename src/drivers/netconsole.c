@@ -44,7 +44,7 @@ static void netconsole_config(void *_d, tuple r)
         return;
     }
 
-    buffer dst_ip = table_find(r, sym(netconsole_ip));
+    buffer dst_ip = get(r, sym(netconsole_ip));
     char *s = dst_ip ? buffer_ref(dst_ip, 0) : DEFAULT_IP;
     bytes len = dst_ip ? buffer_length(dst_ip) : runtime_strlen(DEFAULT_IP);
 
@@ -61,7 +61,7 @@ static void netconsole_config(void *_d, tuple r)
         return;
     }
 
-    buffer dst_port = table_find(r, sym(netconsole_port));
+    buffer dst_port = get(r, sym(netconsole_port));
     u64 port = DEFAULT_PORT;
     if (dst_port && !parse_int(dst_port, 10, &port)) {
         msg_err("%s: failed to parse port\n");

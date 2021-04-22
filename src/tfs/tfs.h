@@ -115,9 +115,9 @@ extern const char *gitversion;
 #define NAME_MAX 255
 #define PATH_MAX 4096
 
-static inline buffer linktarget(table x)
+static inline buffer linktarget(tuple x)
 {
-    return table_find(x, sym(linktarget));
+    return get_string(x, sym(linktarget));
 }
 
 static inline boolean is_dir(tuple n)
@@ -132,18 +132,7 @@ static inline boolean is_symlink(tuple n)
 
 static inline boolean is_socket(tuple n)
 {
-    return table_find(n, sym(socket)) ? true : false;
-}
-
-static inline symbol lookup_sym(tuple parent, tuple t)
-{
-    void *c = children(parent);
-    if (!c) return false;
-    table_foreach(c, k, v) {
-        if (v == t)
-            return k;
-    }
-    return false;
+    return get(n, sym(socket)) ? true : false;
 }
 
 static inline char *path_find_last_delim(const char *path, unsigned int len)
@@ -161,6 +150,8 @@ static inline const char *filename_from_path(const char *path)
     }
     return filename;
 }
+
+symbol lookup_sym(tuple parent, tuple t);
 
 /* Expects an empty buffer, and never resizes the buffer. */
 boolean dirname_from_path(buffer dest, const char *path);

@@ -37,6 +37,7 @@ static struct {
 #define storage_unlock()    spin_unlock_irq(&storage.lock, _irqflags)
 
 /* Called with mutex locked. */
+// XXX this won't work with wrapped root...
 static volume storage_get_volume(tuple root)
 {
     list_foreach(&storage.volumes, e) {
@@ -94,9 +95,9 @@ closure_function(2, 2, void, volume_link,
         tuple mount_dir = bound(mount_dir);
         tuple volume_root = filesystem_getroot(fs);
         tuple mount = allocate_tuple();
-        table_set(mount, sym(root), volume_root);
-        table_set(mount, sym(no_encode), null_value); /* non-persistent entry */
-        table_set(mount_dir, sym(mount), mount);
+        set(mount, sym(root), volume_root);
+        set(mount, sym(no_encode), null_value); /* non-persistent entry */
+        set(mount_dir, sym(mount), mount);
         v->fs = fs;
         v->mount_dir = mount_dir;
         storage_debug("volume mounted, mount directory %p, root %p", mount_dir,
@@ -147,20 +148,40 @@ void storage_set_root_fs(filesystem root_fs)
     storage.root_fs = root_fs;
 }
 
+closure_function(0, 2, boolean, storage_set_mountpoints_each,
+                 value, k, value, path)
+{
+    assert(is_symbol(k));
+    assert(is_string(path));
+    storage_debug("mount point for volume %b at %b", symbol_string(k),
+                  path);
+    list_foreach(&storage.volumes, e) {
+        volume v = struct_from_list(e, volume, l);
+        if (volume_match(k, v))
+            volume_mount(v, path);
+    }
+    return true;
+}
+
 void storage_set_mountpoints(tuple mounts)
 {
     storage_lock();
     storage.mounts = mounts;
-    table_foreach(mounts, k, path) {
-        storage_debug("mount point for volume %b at %b", symbol_string(k),
-            path);
-        list_foreach(&storage.volumes, e) {
-            volume v = struct_from_list(e, volume, l);
-            if (volume_match(k, v))
-                volume_mount(v, path);
-        }
-    }
+    iterate(mounts, stack_closure(storage_set_mountpoints_each));
     storage_unlock();
+}
+
+closure_function(1, 2, boolean, volume_add_mount_each,
+                 volume, v,
+                 value, k, value, path)
+{
+    assert(is_symbol(k));
+    assert(is_string(path));
+    if (volume_match(k, bound(v))) {
+        volume_mount(bound(v), path);
+        return false;
+    }
+    return true;
 }
 
 boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, u64 size)
@@ -180,12 +201,7 @@ boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, u64 size)
     storage_lock();
     list_push_back(&storage.volumes, &v->l);
     if (storage.mounts)
-        table_foreach(storage.mounts, k, path) {
-            if (volume_match(k, v)) {
-                volume_mount(v, path);
-                break;
-            }
-        }
+        iterate(storage.mounts, stack_closure(volume_add_mount_each, v));
     storage_unlock();
     return true;
 }

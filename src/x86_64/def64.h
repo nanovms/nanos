@@ -23,6 +23,9 @@ typedef u64 bytes;
 #define S64_MAX ((s64)(U64_MAX >> 1))
 #define S64_MIN (-S64_MAX - 1)
 
+typedef void *value;
+typedef u8 value_tag;
+
 #define pointer_from_u64(__a) ((void *)(__a))
 #define u64_from_pointer(__a) ((u64)(__a))
 

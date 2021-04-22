@@ -72,7 +72,7 @@ static inline void region_heap_init(region_heap rh, u64 pagesize, int type)
 
 static inline heap region_allocator(heap h, u64 pagesize, int type)
 {
-    region_heap rh = allocate(h, sizeof(struct region_heap));
+    region_heap rh = allocate_zero(h, sizeof(struct region_heap));
     if (rh == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     region_heap_init(rh, pagesize, type);

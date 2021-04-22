@@ -189,12 +189,12 @@ KLIB_EXPORT(udp_recv);
 
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
 {
-    value v = table_find(root, s);
-    if (!v || tagof(v) == tag_tuple)
+    string v = get_string(root, s);
+    if (!v)
         return false;
-    int len = MIN(buffer_length((buffer)v), MAX_ADDR_LEN);
+    int len = MIN(buffer_length(v), MAX_ADDR_LEN);
     char str[MAX_ADDR_LEN + 1];
-    runtime_memcpy(str, buffer_ref((buffer)v, 0), len);
+    runtime_memcpy(str, buffer_ref(v, 0), len);
     str[len] = '\0';
     if (ip4addr_aton(str, addr) == 1)
         return true;
@@ -206,8 +206,8 @@ static boolean get_static_config(tuple root, struct netif *n, boolean trace) {
     ip4_addr_t netmask;
     ip4_addr_t gw;
 
-    buffer b = table_find(root, sym(ip6addr));
-    if (b && (tagof(b) == tag_unknown) && (buffer_length(b) <= MAX_IP6_ADDR_LEN)) {
+    string b = get_string(root, sym(ip6addr));
+    if (b && (buffer_length(b) <= MAX_IP6_ADDR_LEN)) {
         bytes len = buffer_length(b);
         char str[len + 1];
         runtime_memcpy(str, buffer_ref(b, 0), len);
@@ -250,19 +250,16 @@ void init_network_iface(tuple root) {
         return;
     }
 
-    boolean trace = table_find(root, sym(trace)) != 0;
-    value v = table_find(root, sym(mtu));
-    if (v) {
-        u64 mtu;
-        if (u64_from_value(v, &mtu)) {
-            if (mtu < U64_FROM_BIT(16)) {
-                if (trace)
-                    rprintf("NET: setting MTU for interface %c%c%d to %ld\n",
-                            n->name[0], n->name[1], n->num, mtu);
-                n->mtu = mtu;
-            } else {
-                msg_err("invalid MTU %ld; ignored\n", mtu);
-            }
+    boolean trace = get(root, sym(trace)) != 0;
+    u64 mtu;
+    if (get_u64(root, sym(mtu), &mtu)) {
+        if (mtu < U64_FROM_BIT(16)) {
+            if (trace)
+                rprintf("NET: setting MTU for interface %c%c%d to %ld\n",
+                        n->name[0], n->name[1], n->num, mtu);
+            n->mtu = mtu;
+        } else {
+            msg_err("invalid MTU %ld; ignored\n", mtu);
         }
     }
 

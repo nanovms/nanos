@@ -159,16 +159,24 @@ typedef struct flush_entry *flush_entry;
 #define msg_debug(fmt, ...)
 #endif
 
-// value is a pointer that we can meaningfully inquire about the type of 
-typedef void *value;
+/* Value tags
 
-// try not to go crazy here
-#define tag_unknown (0ull)
-#define tag_symbol (1ull)
-#define tag_tuple (2ull)
-#define tag_string (3ull)
-#define tag_buffer_promise (4ull) //?
-#define tag_max (5ull)
+   A value is a pointer whose type can be meaningfully inquired.
+
+   The tag is not necessarily the value type. For instance, a tuple may be one
+   of a number of tags (tag_table_tuple, tag_function_tuple). Rather, the tag
+   steers us toward the correct access methods.
+
+   We practically have 8 bits to work with for x86_64 and aarch64, but try to
+   be conservative in allocating these.
+*/
+
+#define tag_unknown        (0ull) /* untyped */
+#define tag_string         (1ull) /* buffer of utf-encoded characters */
+#define tag_symbol         (2ull) /* struct symbol */
+#define tag_table_tuple    (3ull) /* table-based tuple */
+#define tag_function_tuple (4ull) /* backed tuple; struct function_tuple */
+#define tag_max            (6ull)
 
 #include <symbol.h>
 
@@ -197,11 +205,14 @@ typedef closure_type(thunk, void);
 
 typedef closure_type(buffer_handler, status, buffer);
 typedef closure_type(connection_handler, buffer_handler, buffer_handler);
+typedef closure_type(value_handler, void, value);
 typedef closure_type(io_status_handler, void, status, bytes);
 typedef closure_type(block_io, void, void *, range, status_handler);
 typedef closure_type(storage_attach, void, block_io, block_io, u64);
 
 #include <sg.h>
+
+void print_value(buffer dest, value v, tuple attrs);
 
 // should be  (parser, parser, character)
 typedef closure_type(parser, void *, character);
