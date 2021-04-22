@@ -349,7 +349,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         }
     }
     ntp.reset_threshold = 0;
-    value reset_thresh = table_find(root, sym_intern(ntp_reset_threshold, intern));
+    value reset_thresh = get(root, sym_intern(ntp_reset_threshold, intern));
     if (reset_thresh) {
         u64 thresh;
         if (!u64_from_value(reset_thresh, &thresh) || (thresh > 0 && thresh < NTP_RESET_THRESHOLD_MIN)) {
