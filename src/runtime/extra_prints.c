@@ -54,6 +54,13 @@ void print_csum_buffer(buffer s, buffer b)
     bprintf(s, "%lx", csum);
 }
 
+/* This is really lame, but we're pruning value printing in the stage2 build
+   to keep the image size under 64kB, else Xen/AWS booting will fall over.
+
+   See: https://github.com/nanovms/nanos/pull/1383
+*/
+
+#ifndef BOOT
 closure_function(1, 2, boolean, _sort_handler,
                  vector, pairs,
                  value, s, value, v)
@@ -197,6 +204,7 @@ static void format_value_with_attributes(buffer dest, struct formatter_state *s,
     assert(!a || is_tuple(a));
     print_value(dest, x, a);
 }
+#endif
 
 static void format_hex_buffer(buffer dest, struct formatter_state *s, vlist *a)
 {
@@ -232,8 +240,10 @@ static void format_closure(buffer dest, struct formatter_state *s, vlist *a)
 
 void init_extra_prints(void)
 {
+#ifndef BOOT
     register_format('v', format_value, 0);
     register_format('V', format_value_with_attributes, 0);
+#endif
     register_format('X', format_hex_buffer, 0);
     register_format('T', format_timestamp, 0);
     register_format('R', format_range, 0);
