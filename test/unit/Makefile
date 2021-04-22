@@ -22,7 +22,7 @@ SRCS-bitmap_test= \
 	$(CURDIR)/bitmap_test.c \
 	$(RUNTIME)\
 	$(SRCDIR)/unix_process/unix_process_runtime.c
-	
+
 SRCS-buffer_test= \
 	$(CURDIR)/buffer_test.c \
 	$(RUNTIME)\
@@ -118,7 +118,8 @@ SRCS-vector_test= \
 	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 
-CFLAGS+=	-I$(ARCHDIR) \
+CFLAGS+=	-O3 \
+		-I$(ARCHDIR) \
 		-I$(SRCDIR) \
 		-I$(SRCDIR)/http \
 		-I$(SRCDIR)/kernel \

@@ -263,7 +263,7 @@ SRCS-readv = \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-readv=		-static
 
-CFLAGS+=	-DENABLE_MSG_DEBUG
+CFLAGS+=	-O3 -DENABLE_MSG_DEBUG
 CFLAGS+=	-I$(ARCHDIR) \
 		-I$(SRCDIR) \
 		-I$(SRCDIR)/http \

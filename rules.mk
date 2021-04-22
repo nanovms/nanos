@@ -90,7 +90,7 @@ GCOV=		gcov
 LCOV=		lcov
 GENHTML=	genhtml
 
-CFLAGS+=	-std=gnu11 -O3 -g
+CFLAGS+=	-std=gnu11 -g
 CFLAGS+=	-Wall -Werror -Wno-char-subscripts -Wno-format-truncation -Wno-unknown-warning-option
 CFLAGS+=	-I$(OBJDIR)
 
