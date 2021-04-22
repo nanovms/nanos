@@ -39,7 +39,14 @@ KLIB_EXPORT(clock_adjust);
 closure_function(0, 1, boolean, timer_id_rtc,
                 timer, t)
 {
-    return t->id == CLOCK_ID_REALTIME || t->id == CLOCK_ID_REALTIME_ALARM;
+    switch (t->id) {
+    case CLOCK_ID_REALTIME:
+    case CLOCK_ID_REALTIME_COARSE:
+    case CLOCK_ID_REALTIME_ALARM:
+        return true;
+    default:
+        return false;
+    }
 }
 
 void clock_reset_rtc(timestamp wallclock_now)
