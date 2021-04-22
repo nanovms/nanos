@@ -105,15 +105,13 @@ closure_function(1, 1, void, finished,
 }
 
 // no good place to put this
-table parse_arguments(heap h, int argc, char **argv);
+tuple parse_arguments(heap h, int argc, char **argv);
 
 u64 extract_u64_with_default(tuple t, symbol n, u64 otherwise)
 {
     u64 result;
-    value v = table_find(t, n);
-    if (v && u64_from_value(v, &result)) {
+    if (get_u64(t, n, &result))
         return result;
-    }
     return otherwise;
 }
 
@@ -122,13 +120,13 @@ int main(int argc, char **argv)
 {
     heap h = init_process_runtime();    
     tuple t = parse_arguments(h, argc, argv);
-    value unassoc = table_find(t, sym(unassociated));
+    value unassoc = get(t, sym(unassociated));
     if (!unassoc) {
         halt("must provide target\n");
     }
 
-    notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
-        table_find(t, sym(poll)) ? create_poll_notifier(h) :
+    notifier n = get(t, sym(select)) ? create_select_notifier(h) :
+        get(t, sym(poll)) ? create_poll_notifier(h) :
 #ifndef NO_EPOLL
 	create_epoll_notifier(h);
 #else

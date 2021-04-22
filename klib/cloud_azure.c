@@ -15,9 +15,9 @@ typedef struct azure {
     timestamp report_backoff;
     closure_struct(report_ready_func, report_ready);
     tuple (*allocate_tuple)(void);
-    void (*table_set)(table z, void *c, void *v);
-    void *(*table_find)(table z, void *c);
-    void (*deallocate_table)(table t);
+    void (*set)(value z, void *c, void *v);
+    void *(*get)(value z, void *c);
+    void (*deallocate_value)(tuple t);
     void (*destruct_tuple)(tuple t, boolean recursive);
     void (*timm_dealloc)(tuple t);
     symbol (*intern)(string name);
@@ -58,7 +58,7 @@ closure_function(1, 1, void, wireserver_parse_resp,
                  value, v)
 {
     azure az = bound(az);
-    buffer content = az->table_find(v, sym(content));
+    buffer content = az->get(v, sym(content));
     if (content) {
         int index = az->buffer_strstr(content, "<ContainerId>");
         if (index < 0)
@@ -126,11 +126,11 @@ closure_function(1, 1, buffer_handler, wireserver_get_ch,
         tuple req = az->allocate_tuple();
         if (req == INVALID_ADDRESS)
             goto exit;
-        az->table_set(req, sym(url), alloca_wrap_cstring("/machine?comp=goalstate"));
-        az->table_set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
-        az->table_set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
+        az->set(req, sym(url), alloca_wrap_cstring("/machine?comp=goalstate"));
+        az->set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
+        az->set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
         status s = az->http_request(az->h, out, HTTP_REQUEST_METHOD_GET, req, 0);
-        az->deallocate_table(req);
+        az->deallocate_value(req);
         if (is_ok(s))
             in = closure(az->h, wireserver_get_resp, az, out);
         else
@@ -166,13 +166,13 @@ closure_function(1, 1, buffer_handler, wireserver_post_ch,
             goto exit;
         buffer b = az->allocate_buffer(az->h, 512);
         if (b == INVALID_ADDRESS) {
-            az->deallocate_table(req);
+            az->deallocate_value(req);
             goto exit;
         }
-        az->table_set(req, sym(url), alloca_wrap_cstring("/machine?comp=health"));
-        az->table_set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
-        az->table_set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
-        az->table_set(req, sym(Content-Type), alloca_wrap_cstring("text/xml;charset=utf-8"));
+        az->set(req, sym(url), alloca_wrap_cstring("/machine?comp=health"));
+        az->set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
+        az->set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
+        az->set(req, sym(Content-Type), alloca_wrap_cstring("text/xml;charset=utf-8"));
         az->bprintf(b, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
                 <Health xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\
                 xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\n\
@@ -190,7 +190,7 @@ closure_function(1, 1, buffer_handler, wireserver_post_ch,
                   </Container>\n\
                 </Health>\n", az->container_id, az->instance_id);
         status s = az->http_request(az->h, out, HTTP_REQUEST_METHOD_POST, req, b);
-        az->deallocate_table(req);
+        az->deallocate_value(req);
         if (is_ok(s))
             in = closure(az->h, wireserver_post_resp, out);
         else
@@ -227,9 +227,9 @@ boolean azure_cloud_init(heap h, klib_get_sym get_sym)
     if (az == INVALID_ADDRESS)
         return false;
     if (!(az->allocate_tuple = get_sym("allocate_tuple")) ||
-            !(az->table_set = get_sym("table_set")) ||
-            !(az->table_find = get_sym("table_find")) ||
-            !(az->deallocate_table = get_sym("deallocate_table")) ||
+            !(az->set = get_sym("set")) ||
+            !(az->get = get_sym("get")) ||
+            !(az->deallocate_value = get_sym("deallocate_value")) ||
             !(az->destruct_tuple = get_sym("destruct_tuple")) ||
             !(az->timm_dealloc = get_sym("timm_dealloc")) ||
             !(az->intern = get_sym("intern")) ||

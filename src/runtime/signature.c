@@ -14,23 +14,34 @@ void signature_xor(signature sdest, signature source)
     sdest->s[3] ^= source->s[3];    
 }
 
+void tuple_signature(tuple t, signature dest);
+
+closure_function(2, 2, boolean, tuple_signature_each,
+                 signature, dest, u64, slen,
+                 value, n, value, v)
+{
+    u64 slen = bound(slen);
+    buffer b = little_stack_buffer(2*slen);
+    buffer nv = little_stack_buffer(slen);
+
+    assert(is_symbol(n));
+    buffer_signature(symbol_string(n), buffer_ref(b, 0));
+    if (is_tuple(v)) {
+        tuple_signature(v, buffer_ref(b, slen));
+    } else {
+        // XXX type
+        buffer_signature(v, buffer_ref(b, slen));
+    }
+    sha256(nv, b);
+    signature_xor(bound(dest), buffer_ref(nv, 0));
+    return true;
+}
+
 void tuple_signature(tuple t, signature dest)
 {
     u64 slen = sizeof(struct signature);
     zero(dest, slen);
-    table_foreach(t, n, v) {
-        buffer b = little_stack_buffer(2*slen);
-        buffer nv = little_stack_buffer(slen);
-        
-        buffer_signature(symbol_string(n), buffer_ref(b, 0));
-        if (tagof(v) == tag_tuple) {
-            tuple_signature(v, buffer_ref(b, slen));
-        } else {
-            buffer_signature(v, buffer_ref(b, slen));
-        }
-        sha256(nv, b);
-        signature_xor(dest, buffer_ref(nv, 0));
-    }
+    iterate(t, stack_closure(tuple_signature_each, dest, slen));
 }
 
 static inline boolean signature_equal(void *a, void* b)

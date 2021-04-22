@@ -62,9 +62,9 @@ static struct telemetry {
     int stats_count;
     void (*rprintf)(const char *format, ...);
     tuple (*allocate_tuple)(void);
-    void (*table_set)(table z, void *c, void *v);
-    void *(*table_find)(table z, void *c);
-    void (*deallocate_table)(table t);
+    void (*set)(value z, void *c, void *v);
+    void *(*get)(value z, void *c);
+    void (*deallocate_value)(tuple t);
     void (*destruct_tuple)(tuple t, boolean recursive);
     void (*timm_dealloc)(tuple t);
     symbol (*intern)(string name);
@@ -143,12 +143,12 @@ static boolean telemetry_req(const char *url, buffer data, buffer_handler bh)
     tuple req = kfunc(allocate_tuple)();
     if (req == INVALID_ADDRESS)
         return false;
-    kfunc(table_set)(req, sym(url), alloca_wrap_cstring(url));
-    kfunc(table_set)(req, sym(Host), alloca_wrap_cstring(RADAR_HOSTNAME));
-    kfunc(table_set)(req, sym(RADAR-KEY), telemetry.auth_header);
-    kfunc(table_set)(req, sym(Content-Type), alloca_wrap_cstring("application/json"));
+    kfunc(set)(req, sym(url), alloca_wrap_cstring(url));
+    kfunc(set)(req, sym(Host), alloca_wrap_cstring(RADAR_HOSTNAME));
+    kfunc(set)(req, sym(RADAR-KEY), telemetry.auth_header);
+    kfunc(set)(req, sym(Content-Type), alloca_wrap_cstring("application/json"));
     status s = kfunc(http_request)(telemetry.h, bh, HTTP_REQUEST_METHOD_POST, req, data);
-    kfunc(deallocate_table)(req);
+    kfunc(deallocate_value)(req);
     if (is_ok(s)) {
         return true;
     } else {
@@ -252,13 +252,13 @@ static void telemetry_print_env(buffer b)
 {
     /* Assumes that the buffer already contains at least one JSON attribute
      * (hence the initial comma in the strings below). */
-    buffer nanos_ver = kfunc(table_find)(telemetry.env, sym(NANOS_VERSION));
+    buffer nanos_ver = kfunc(get)(telemetry.env, sym(NANOS_VERSION));
     if (nanos_ver)
         kfunc(bprintf)(b, ",\"nanosVersion\":\"%b\"", nanos_ver);
-    buffer ops_ver = kfunc(table_find)(telemetry.env, sym(OPS_VERSION));
+    buffer ops_ver = kfunc(get)(telemetry.env, sym(OPS_VERSION));
     if (ops_ver)
         kfunc(bprintf)(b, ",\"opsVersion\":\"%b\"", ops_ver);
-    buffer image_name = kfunc(table_find)(telemetry.env, sym(RADAR_IMAGE_NAME));
+    buffer image_name = kfunc(get)(telemetry.env, sym(RADAR_IMAGE_NAME));
     if (image_name)
         kfunc(bprintf)(b, ",\"imageName\":\"%b\"", image_name);
 }
@@ -267,10 +267,10 @@ closure_function(0, 1, void, telemetry_crash_recv,
                  value, v)
 {
     if (v) {
-        tuple resp = kfunc(table_find)(v, sym(start_line));
-        if (resp && (tagof(resp) == tag_tuple)) {
+        tuple resp = kfunc(get)(v, sym(start_line));
+        if (resp && is_tuple(resp)) {
             buffer word;
-            for (u64 i = 0; (word = kfunc(table_find)(resp, kfunc(intern_u64)(i))); i++)
+            for (u64 i = 0; (word = kfunc(get)(resp, kfunc(intern_u64)(i))); i++)
                 if (kfunc(buffer_strstr)(word, "OK") == 0) {
                     telemetry.dump_done = true;
                     break;
@@ -342,7 +342,7 @@ closure_function(0, 1, void, telemetry_boot_recv,
     telemetry.boot_id = 0;
     if (!v) /* couldn't allocate HTTP parser */
         return;
-    buffer content = kfunc(table_find)(v, sym(content));
+    buffer content = kfunc(get)(v, sym(content));
     if (content) {
         int index = kfunc(buffer_strstr)(content, "\"id\"");
         if (index < 0)
@@ -484,9 +484,9 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     void (*load_klib)(const char *, klib_handler) = get_sym("load_klib");
     if (!get_kernel_heaps || !get_environment || !random_u64 || !load_klib ||
             !(telemetry.allocate_tuple = get_sym("allocate_tuple")) ||
-            !(telemetry.table_set = get_sym("table_set")) ||
-            !(telemetry.table_find = get_sym("table_find")) ||
-            !(telemetry.deallocate_table = get_sym("deallocate_table")) ||
+            !(telemetry.set = get_sym("set")) ||
+            !(telemetry.get = get_sym("get")) ||
+            !(telemetry.deallocate_value = get_sym("deallocate_value")) ||
             !(telemetry.destruct_tuple = get_sym("destruct_tuple")) ||
             !(telemetry.timm_dealloc = get_sym("timm_dealloc")) ||
             !(telemetry.intern = get_sym("intern")) ||
@@ -521,7 +521,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         return KLIB_INIT_FAILED;
     }
     telemetry.env = get_environment();
-    telemetry.auth_header = kfunc(table_find)(telemetry.env, sym(RADAR_KEY));
+    telemetry.auth_header = kfunc(get)(telemetry.env, sym(RADAR_KEY));
     telemetry.retry_backoff = seconds(1);
     telemetry.running = false;
     init_closure(&telemetry.stats_func, telemetry_stats);

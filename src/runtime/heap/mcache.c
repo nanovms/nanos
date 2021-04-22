@@ -16,6 +16,7 @@
 //#define MCACHE_DEBUG
 
 #include <runtime.h>
+#include <management.h>
 
 typedef struct mcache {
     struct heap h;
@@ -25,6 +26,7 @@ typedef struct mcache {
     u64 pagesize;
     u64 allocated;
     u64 parent_threshold;
+    tuple mgmt;
 } *mcache;
 
 u64 mcache_alloc(heap h, bytes b)
@@ -184,6 +186,68 @@ static u64 mcache_allocated(heap h)
     return ((mcache)h)->allocated;
 }
 
+static u64 mcache_total(heap h)
+{
+    u64 sum = 0;
+    heap o;
+    vector_foreach(((mcache)h)->caches, o) {
+        if (o)
+            sum += heap_total(o);
+    }
+    return sum;
+}
+
+closure_function(2, 0, value, mcache_get_allocated,
+                 mcache, m, value, v)
+{
+    return value_rewrite_u64(bound(v), mcache_allocated((heap)bound(m)));
+}
+
+closure_function(2, 0, value, mcache_get_total,
+                 mcache, m, value, v)
+{
+    return value_rewrite_u64(bound(v), mcache_total((heap)bound(m)));
+}
+
+closure_function(2, 0, value, mcache_get_free,
+                 mcache, m, value, v)
+{
+    heap h = (heap)bound(m);
+    return value_rewrite_u64(bound(v), mcache_total(h) - mcache_allocated(h));
+}
+
+#define register_stat(m, n, t, name)                                    \
+    v = value_from_u64(m->meta, 0);                                     \
+    s = sym(name);                                                      \
+    set(t, s, v);                                                       \
+    tuple_notifier_register_get_notify(n, s, closure(m->meta, mcache_get_ ##name, m, v));
+
+static value mcache_management(heap h)
+{
+    mcache m = (mcache)h;
+    if (m->mgmt)
+        return m->mgmt;
+    value v;
+    symbol s;
+    tuple t = timm("type", "mcache", "pagesize", "%d", m->h.pagesize);
+    assert(t != INVALID_ADDRESS);
+    tuple_notifier n = tuple_notifier_wrap(t);
+    assert(n != INVALID_ADDRESS);
+    register_stat(m, n, t, allocated);
+    register_stat(m, n, t, total);
+    register_stat(m, n, t, free);
+    tuple c = allocate_tuple();
+    assert(c != INVALID_ADDRESS);
+    heap o;
+    vector_foreach(m->caches, o) {
+        if (o)
+            set(c, intern_u64(o->pagesize), heap_management(o));
+    }
+    set(t, sym(caches), c);
+    m->mgmt = (tuple)n;
+    return n;
+}
+
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize)
 {
     if (pagesize < parent->pagesize ||
@@ -218,13 +282,15 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
     m->h.destroy = destroy_mcache;
     m->h.pagesize = U64_FROM_BIT(min_order); /* default to smallest obj size */
     m->h.allocated = mcache_allocated;
-    m->h.total = 0;
+    m->h.total = mcache_total;
+    m->h.management = mcache_management;
     m->meta = meta;
     m->parent = parent;
     m->caches = allocate_vector(meta, 1);
     m->pagesize = pagesize;
     m->allocated = 0;
     m->parent_threshold = U64_FROM_BIT(max_order);
+    m->mgmt = 0;
 
     for(int i = 0, order = min_order; order <= max_order; i++, order++) {
 	u64 obj_size = U64_FROM_BIT(order);

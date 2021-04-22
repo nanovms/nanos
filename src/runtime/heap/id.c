@@ -3,6 +3,7 @@
 #else
 #include <runtime.h>
 #endif
+#include <management.h>
 
 //#define ID_HEAP_DEBUG
 #ifdef ID_HEAP_DEBUG
@@ -47,7 +48,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     u64 page_start = base >> page_order(i);
     u64 pages = length >> page_order(i);
     id_range ir = allocate(i->meta, sizeof(struct id_range));
-    ir->n.r = irange(page_start, page_start + pages);
+    ir->n.r = irangel(page_start, pages);
     id_debug("page range %R\n", ir->n.r);
     if (ir == INVALID_ADDRESS)
 	return ir;
@@ -185,7 +186,7 @@ static inline void id_dealloc(heap h, u64 a, bytes count)
         return;
     }
 
-    range q = irange(a >> page_order(i), (a + count) >> page_order(i));
+    range q = range_rshift(irangel(a, count), page_order(i));
     rmnode_handler nh = stack_closure(dealloc_from_range, i, q);
     if (!rangemap_range_lookup(i->ranges, q, nh))
         msg_err("heap %p: no match for range %R\n", h, q);
@@ -249,7 +250,7 @@ static inline boolean set_area(id_heap i, u64 base, u64 length, boolean validate
     base &= ~page_mask(i);
     length = pad(length, page_size(i));
 
-    range q = irange(base >> page_order(i), (base + length) >> page_order(i));
+    range q = range_rshift(irangel(base, length), page_order(i));
     boolean fail = false;
     rmnode_handler nh = stack_closure(set_intersection, q, &fail, validate, allocate);
     boolean result = rangemap_range_lookup(i->ranges, q, nh);
@@ -365,7 +366,50 @@ static void set_next_locking(id_heap i, u64 next)
     set_next(i, next);
     spin_unlock_irq(id_lock(i), flags);
 }
-#endif
+
+closure_function(2, 0, value, id_get_allocated,
+                 id_heap, i, value, v)
+{
+    return value_rewrite_u64(bound(v), bound(i)->allocated);
+}
+
+closure_function(2, 0, value, id_get_total,
+                 id_heap, i, value, v)
+{
+    return value_rewrite_u64(bound(v), bound(i)->total);
+}
+
+closure_function(2, 0, value, id_get_free,
+                 id_heap, i, value, v)
+{
+    return value_rewrite_u64(bound(v), bound(i)->total - bound(i)->allocated);
+}
+
+#define register_stat(i, n, t, name)                                    \
+    v = value_from_u64(i->meta, 0);                                     \
+    s = sym(name);                                                      \
+    set(t, s, v);                                                       \
+    tuple_notifier_register_get_notify(n, s, closure(i->meta, id_get_ ##name, i, v));
+
+static value id_management(heap h)
+{
+    id_heap i = (id_heap)h;
+    if (i->mgmt)
+        return i->mgmt;
+    value v;
+    symbol s;
+    tuple t = timm("type", "id", "pagesize", "%d", i->h.pagesize);
+    assert(t != INVALID_ADDRESS);
+    tuple_notifier n = tuple_notifier_wrap(t);
+    assert(n != INVALID_ADDRESS);
+    register_stat(i, n, t, allocated);
+    register_stat(i, n, t, total);
+    register_stat(i, n, t, free);
+    i->mgmt = (tuple)n;
+    return n;
+}
+
+#endif /* KERNEL */
 
 id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
 {
@@ -378,8 +422,10 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
     i->h.destroy = id_destroy;
     i->h.allocated = id_allocated;
     i->h.total = id_total;
+    i->mgmt = 0;
 
 #ifdef KERNEL
+    i->h.management = id_management;
     if (locking) {
         spin_lock_init(id_lock(i));
         i->h.alloc = id_alloc_locking;
@@ -390,6 +436,8 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
         i->alloc_subrange = alloc_subrange_locking;
         i->set_next = set_next_locking;
     } else
+#else
+    i->h.management = 0;
 #endif
     {
         i->h.alloc = id_alloc;
@@ -409,8 +457,8 @@ id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
     i->parent = 0;
     i->ranges = allocate_rangemap(meta);
     if (i->ranges == INVALID_ADDRESS) {
-	deallocate(meta, i, sizeof(struct id_heap));
-	return INVALID_ADDRESS;
+        deallocate(meta, i, id_size());
+        return INVALID_ADDRESS;
     }
     return i;
 }

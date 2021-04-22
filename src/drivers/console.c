@@ -57,7 +57,7 @@ void init_console(kernel_heaps kh)
 void config_console(tuple root)
 {
     buffer b;
-    vector v = vector_from_tuple(transient, table_find(root, sym(consoles)));
+    vector v = vector_from_tuple(transient, get(root, sym(consoles)));
 
     if (v == 0)
         return;

@@ -52,7 +52,9 @@ struct _closure_common {
 
 /* use these for closures embedded within structs */
 #define declare_closure_struct(nl, nr, ...) __closure_struct_declare(nl, nr)(__VA_ARGS__)
-#define declare_closure_function(nl, nr, ...) __closure_function_declare(nl, nr)(__VA_ARGS__)
+#define declare_closure_function(nl, nr, ...)           \
+    __closure_struct_declare(nl, nr)(__VA_ARGS__)       \
+    __closure_function_declare(nl, nr)(__VA_ARGS__)
 #define define_closure_function(nl, nr, ...)            \
     __closure_function_declare(nl, nr)(__VA_ARGS__)     \
     __closure_define(nl, nr)(__VA_ARGS__)

@@ -85,10 +85,7 @@ void filesystem_write_sg(fsfile f, sg_list sg, range q, status_handler completio
 static inline timestamp filesystem_get_time(filesystem fs, tuple t, symbol s)
 {
     timestamp tim = 0;
-    value time_val = table_find(t, s);
-    if (time_val) {
-        u64_from_value(time_val, &tim);
-    }
+    get_u64(t, s, &tim);
     return tim;
 }
 
@@ -106,17 +103,17 @@ static inline void filesystem_set_time(filesystem fs, tuple t, symbol s,
         timestamp tim)
 {
     timestamp cur_time = 0;
-    value time_val = table_find(t, s);
+    value time_val = get_number(t, s);
     if (time_val) {
         u64_from_value(time_val, &cur_time);
     }
     if (tim != cur_time) {
         if (time_val) {
-            deallocate_buffer(time_val);
+            deallocate_value(time_val);
         }
         time_val = value_from_u64(fs->h, tim);
         assert(time_val);
-        table_set(t, s, time_val);
+        set(t, s, time_val);
     }
 }
 
@@ -130,25 +127,32 @@ void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim)
     filesystem_set_time(fs, t, sym(mtime), tim);
 }
 
+void fixup_directory(tuple parent, tuple dir);
+
+closure_function(1, 2, boolean, fixup_directory_each,
+                 tuple, dir,
+                 value, s, value, v)
+{
+    if (is_tuple(v))
+        fixup_directory(bound(dir), v);
+    return true;
+}
+
 void fixup_directory(tuple parent, tuple dir)
 {
     tuple c = children(dir);
     if (!c)
         return;
 
-    table_foreach(c, k, v) {
-        (void) k;
-        if (tagof(v) == tag_tuple)
-            fixup_directory(dir, v);
-    }
-
-    table_set(c, sym_this("."), dir);
-    table_set(c, sym_this(".."), parent);
+    iterate(c, stack_closure(fixup_directory_each, dir));
+    set(c, sym_this("."), dir);
+    set(c, sym_this(".."), parent);
 }
 
 static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
 {
-    buffer b = table_find(value, s);
+    buffer b = get(value, s);
+    // XXX type
     /* bark, because these shouldn't really happen */
     if (!b) {
         msg_err("value missing %b\n", symbol_string(s));
@@ -217,7 +221,7 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     if (ex == INVALID_ADDRESS)
         halt("out of memory\n");
     ex->md = value;
-    if (table_find(value, sym(uninited)))
+    if (get(value, sym(uninited)))
         ex->uninited = true;
     assert(rangemap_insert(f->extentmap, &ex->node));
 }
@@ -364,7 +368,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
               t, bufheap, c, sh);
     fsfile f;
     if (!(f = table_find(fs->files, t))) {
-        apply(sh, timm("result", "no such file %t", t,
+        apply(sh, timm("result", "no such file %v", t,
                        "fsstatus", "%d", FS_STATUS_NOENT));
         return;
     }
@@ -456,31 +460,31 @@ static fs_status add_extent_to_file(fsfile f, extent ex)
     tuple extents;
     symbol a = sym(extents);
     assert(f->md);
-    if (!(extents = table_find(f->md, a))) {
+    if (!(extents = get_tuple(f->md, a))) {
         extents = allocate_tuple();
         fs_status s = filesystem_write_eav(f->fs, f->md, a, extents);
         if (s != FS_STATUS_OK) {
-            deallocate_tuple(extents);
+            deallocate_value(extents);
             return s;
         }
-        table_set(f->md, a, extents);
+        set(f->md, a, extents);
     }
 
     // XXX encode this as an immediate bitstring
     tuple e = allocate_tuple();
     ex->md = e;
-    table_set(e, sym(offset), value_from_u64(h, ex->start_block));
-    table_set(e, sym(length), value_from_u64(h, range_span(ex->node.r)));
-    table_set(e, sym(allocated), value_from_u64(h, ex->allocated));
+    set(e, sym(offset), value_from_u64(h, ex->start_block));
+    set(e, sym(length), value_from_u64(h, range_span(ex->node.r)));
+    set(e, sym(allocated), value_from_u64(h, ex->allocated));
     if (ex->uninited)
-        table_set(e, sym(uninited), null_value);
+        set(e, sym(uninited), null_value);
     symbol offs = intern_u64(ex->node.r.start);
     fs_status s = filesystem_write_eav(f->fs, extents, offs, e);
     if (s != FS_STATUS_OK) {
         destruct_tuple(e, true);
         return s;
     }
-    table_set(extents, offs, e);
+    set(extents, offs, e);
     tfs_debug("%s: f %p, reserve %R\n", __func__, f, ex->node.r);
     if (!rangemap_insert(f->extentmap, &ex->node)) {
         rbtree_dump(&f->extentmap->t, RB_INORDER);
@@ -494,11 +498,11 @@ static void remove_extent_from_file(fsfile f, extent ex)
     /* The tuple corresponding to this extent will be destroyed when the
      * filesystem log is compacted. */
 
-    tuple extents = table_find(f->md, sym(extents));
+    tuple extents = get(f->md, sym(extents));
     assert(extents);
     symbol offs = intern_u64(ex->node.r.start);
     filesystem_write_eav(f->fs, extents, offs, 0);
-    table_set(extents, offs, 0);
+    set(extents, offs, 0);
     rangemap_remove_node(f->extentmap, &ex->node);
 }
 
@@ -549,7 +553,7 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
             if (data_end < extent_end)
                 zero_blocks(fs, range_add(irange(data_end, extent_end), ex->start_block), m);
             assert(ex->md);
-            table_set(ex->md, a, 0);
+            set(ex->md, a, 0);
             ex->uninited = false;
         }
         filesystem_storage_op(fs, sg, m, r, fs->w);
@@ -592,10 +596,10 @@ static fs_status update_extent_length(fsfile f, extent ex, u64 new_length)
     ex->node.r = irangel(ex->node.r.start, new_length);
     tfs_debug("   %s: now %R\n", __func__, ex->node.r);
     assert(ex->md);
-    string length = table_find(ex->md, sym(length));
-    assert(length);
-    deallocate_buffer(length);
-    table_set(ex->md, sym(length), v);
+    value oldval = get(ex->md, sym(length));
+    assert(oldval);
+    deallocate_value(oldval);
+    set(ex->md, sym(length), v);
     return FS_STATUS_OK;
 }
 
@@ -750,7 +754,7 @@ fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
     symbol l = sym(filelength);
     fs_status s = filesystem_write_eav(fs, f->md, l, v);
     if (s == FS_STATUS_OK) {
-        table_set(f->md, l, v);
+        set(f->md, l, v);
         fsfile_set_length(f, len);
     }
     return s;
@@ -814,7 +818,7 @@ void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
 {
     fsfile f = table_find(fs->files, t);
     assert(f);
-    tuple extents = table_find(t, sym(extents));
+    tuple extents = get(t, sym(extents));
     if (!extents) {
         apply(completion, f, FS_STATUS_NOENT);
         return;
@@ -884,20 +888,25 @@ static tuple fs_new_entry(filesystem fs)
     return t;
 }
 
+static void cleanup_directory(tuple dir);
+
+closure_function(0, 2, boolean, cleanup_directory_each,
+                 value, s, value, v)
+{
+    if (is_tuple(v))
+        cleanup_directory(v);
+    return true;
+}
+
 static void cleanup_directory(tuple dir)
 {
     tuple c = children(dir);
     if (!c) {
         return;
     }
-    table_set(c, sym_this("."), 0);
-    table_set(c, sym_this(".."), 0);
-    table_foreach(c, k, v) {
-        (void) k;
-        if (tagof(v) == tag_tuple) {
-            cleanup_directory(v);
-        }
-    }
+    set(c, sym_this("."), 0);
+    set(c, sym_this(".."), 0);
+    iterate(c, stack_closure(cleanup_directory_each));
 }
 
 static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
@@ -911,7 +920,7 @@ static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
     tuple c = children(parent);
     fs_status s = filesystem_write_eav(fs, c, name_sym, child);
     if (s == FS_STATUS_OK)
-        table_set(c, name_sym, child);
+        set(c, name_sym, child);
     if (child) {
         /* If this is a directory, re-add its . and .. directory entries. */
         fixup_directory(parent, child);
@@ -930,12 +939,12 @@ fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
     if (persistent) {
         s = filesystem_write_eav(fs, c, name_sym, entry);
     } else {
-        table_set(entry, sym(no_encode), null_value);
+        set(entry, sym(no_encode), null_value);
         s = FS_STATUS_OK;
     }
 
     if (s == FS_STATUS_OK)
-        table_set(c, name_sym, entry);
+        set(c, name_sym, entry);
     fixup_directory(parent, entry);
     return s;
 }
@@ -964,7 +973,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
                 if (recursive) {
                     /* create intermediate directory */
                     tuple dir = fs_new_entry(fs);
-                    table_set(dir, sym(children), allocate_tuple());
+                    set(dir, sym(children), allocate_tuple());
                     status = do_mkentry(fs, parent, token, dir, persistent);
                     if (status != FS_STATUS_OK)
                         break;
@@ -1006,7 +1015,7 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
 {
     tuple dir = fs_new_entry(fs);
     /* 'make it a folder' by attaching a children node to the tuple */
-    table_set(dir, sym(children), allocate_tuple());
+    set(dir, sym(children), allocate_tuple());
 
     return filesystem_mkentry(fs, cwd, fp, dir, persistent, true);
 }
@@ -1014,7 +1023,7 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
 tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name)
 {
     tuple dir = fs_new_entry(fs);
-    table_set(dir, sym(children), allocate_tuple());
+    set(dir, sym(children), allocate_tuple());
     if (fs_set_dir_entry(fs, parent, sym_this(name), dir) == FS_STATUS_OK) {
         return dir;
     } else {
@@ -1031,7 +1040,7 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
     tuple dir = fs_new_entry(fs);
 
     /* 'make it a file' by adding an empty extents list */
-    table_set(dir, sym(extents), allocate_tuple());
+    set(dir, sym(extents), allocate_tuple());
 
     if (fs_set_dir_entry(fs, parent, sym_this(name), dir) == FS_STATUS_OK) {
         fsfile f = allocate_fsfile(fs, dir);
@@ -1048,7 +1057,7 @@ tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
                          const char *target)
 {
     tuple link = fs_new_entry(fs);
-    table_set(link, sym(linktarget), buffer_cstring(fs->h, target));
+    set(link, sym(linktarget), buffer_cstring(fs->h, target));
     if (fs_set_dir_entry(fs, parent, sym_this(name), link) == FS_STATUS_OK) {
         return link;
     } else {
@@ -1255,6 +1264,11 @@ void destroy_filesystem(filesystem fs)
 
 #endif
 
+/* Note: This function is used to retrieve the root metadata for a given
+   filesystem. To access the system-wide root tuple for other uses, such as to
+   probe for configuration options or to register a management interface, use
+   get_root_tuple() in src/kernel/init.c. */
+
 tuple filesystem_getroot(filesystem fs)
 {
     return fs->root;
@@ -1293,6 +1307,27 @@ void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*lookup_follow)(file
     assert(get_root_fs);
     fs_path_helper.get_root_fs = get_root_fs;
     fs_path_helper.lookup_follow = lookup_follow;
+}
+
+closure_function(2, 2, boolean, lookup_sym_each,
+                 tuple, t, symbol *, s,
+                 value, k, value, v)
+{
+    assert(is_symbol(k));
+    if (v == bound(t)) {
+        *bound(s) = k;
+        return false;
+    }
+    return true;
+}
+
+symbol lookup_sym(tuple parent, tuple t)
+{
+    tuple c = children(parent);
+    symbol s = 0;
+    if (c)
+        iterate(c, stack_closure(lookup_sym_each, t, &s));
+    return s;
 }
 
 static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
@@ -1453,6 +1488,28 @@ boolean dirname_from_path(buffer dest, const char *path)
     return true;
 }
 
+closure_function(4, 2, boolean, file_get_path_each,
+                 tuple, p, char *, buf, u64, len, int *, cur_len,
+                 value, k, value, v)
+{
+    if (v != bound(p))
+        return true;
+
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *name = cstring(symbol_string(k), tmpbuf);
+    int name_len = runtime_strlen(name);
+    if (bound(len) < 1 + name_len + *bound(cur_len)) {
+        *bound(cur_len) = 0;
+        return false;
+    }
+    char *buf = bound(buf);
+    runtime_memcpy(buf + 1 + name_len, buf, *bound(cur_len));
+    buf[0] = '/';
+    runtime_memcpy(buf + 1, name, name_len);
+    *bound(cur_len) += 1 + name_len;
+    return false;
+}
+
 int file_get_path(tuple n, char *buf, u64 len)
 {
     if (len < 2) {
@@ -1465,38 +1522,25 @@ int file_get_path(tuple n, char *buf, u64 len)
     buf[0] = '\0';
     int cur_len = 1;
     tuple p;
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-next:
-    n = lookup_follow(0, n, sym_this(".."), &p);
-    assert(n);
-    if (n == p) {   /* this is the root directory */
-        if (cur_len == 1) {
-            buf[0] = '/';
-            buf[1] = '\0';
-            cur_len = 2;
+    do {
+        n = lookup_follow(0, n, sym_this(".."), &p);
+        assert(n);
+        if (n == p) {   /* this is the root directory */
+            if (cur_len == 1) {
+                buf[0] = '/';
+                buf[1] = '\0';
+                cur_len = 2;
+            }
+            c = 0;
+        } else {
+            c = children(n);
         }
-        c = 0;
-    } else {
-        c = children(n);
-    }
-    if (!c)
-        goto done;
-    table_foreach(c, k, v) {
-        if (v == p) {
-            char *name = cstring(symbol_string(k), tmpbuf);
-            int name_len = runtime_strlen(name);
-            if (len < 1 + name_len + cur_len)
-                return -1;
-            runtime_memcpy(buf + 1 + name_len, buf, cur_len);
-            buf[0] = '/';
-            runtime_memcpy(buf + 1, name, name_len);
-            cur_len += 1 + name_len;
-            break;
-        }
-    }
-    goto next;
-done:
-    return cur_len;
+        if (!c)
+            return cur_len;
+
+        iterate(c, stack_closure(file_get_path_each, p, buf, len, &cur_len));
+    } while (cur_len > 0);
+    return -1;
 }
 
 /* Check if fp1 is a (direct or indirect) ancestor if fp2. */

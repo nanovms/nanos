@@ -261,11 +261,11 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         return KLIB_INIT_FAILED;
     tuple (*get_root_tuple)(void) = get_sym("get_root_tuple");
     symbol (*intern)(string name) = get_sym("intern");
-    void *(*table_find)(table z, void *c) = get_sym("table_find");
+    void *(*get)(value z, void *c) = get_sym("get");
     void (*memcopy)(void *a, const void *b, unsigned long len) = get_sym("runtime_memcpy");
     struct udp_pcb *(*udp_new)(void) = get_sym("udp_new");
     void (*udp_recv)(struct udp_pcb *pcb, udp_recv_fn recv, void *recv_arg) = get_sym("udp_recv");
-    if (!get_root_tuple || !intern || !table_find || !memcopy || !udp_new || !udp_recv ||
+    if (!get_root_tuple || !intern || !get || !memcopy || !udp_new || !udp_recv ||
             !(ntp.register_timer = get_sym("kern_register_timer")) ||
             !(ntp.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
             !(ntp.pbuf_alloc = get_sym("pbuf_alloc")) || !(ntp.pbuf_free = get_sym("pbuf_free")) ||
@@ -281,7 +281,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         ntp.rprintf("NTP: failed to get root tuple\n");
         return KLIB_INIT_FAILED;
     }
-    buffer server_addr = table_find(root, sym_intern(ntp_address, intern));
+    buffer server_addr = get(root, sym_intern(ntp_address, intern));
     if (server_addr) {
         bytes len = buffer_length(server_addr);
         if (len >= sizeof(ntp.server_addr)) {
@@ -293,7 +293,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     } else {
         memcopy(ntp.server_addr, NTP_SERVER_DEFAULT, sizeof(NTP_SERVER_DEFAULT));
     }
-    value server_port = table_find(root, sym_intern(ntp_port, intern));
+    value server_port = get(root, sym_intern(ntp_port, intern));
     if (server_port) {
         u64 port;
         if (!u64_from_value(server_port, &port) || (port > U16_MAX)) {
@@ -306,7 +306,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     }
     ntp.pollmin = 6;
     ntp.pollmax = 10;
-    value pollmin = table_find(root, sym_intern(ntp_poll_min, intern));
+    value pollmin = get(root, sym_intern(ntp_poll_min, intern));
     if (pollmin) {
         u64 interval;
         if (!u64_from_value(pollmin, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
@@ -318,7 +318,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         if (interval > ntp.pollmax)
             ntp.pollmax = interval;
     }
-    value pollmax = table_find(root, sym_intern(ntp_poll_max, intern));
+    value pollmax = get(root, sym_intern(ntp_poll_max, intern));
     if (pollmax) {
         u64 interval;
         if (!u64_from_value(pollmax, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||

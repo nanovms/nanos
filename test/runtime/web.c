@@ -21,14 +21,14 @@ closure_function(1, 1, buffer_handler, conn,
 }
 
 // no good place to put this
-table parse_arguments(heap h, int argc, char **argv);
+tuple parse_arguments(heap h, int argc, char **argv);
 
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
-    notifier n = table_find(t, sym(select)) ? create_select_notifier(h) :
-        table_find(t, sym(poll)) ? create_poll_notifier(h) :
+    notifier n = get(t, sym(select)) ? create_select_notifier(h) :
+        get(t, sym(poll)) ? create_poll_notifier(h) :
 	create_epoll_notifier(h);
     u16 port = 8080;
     listen_port(h, n, port, closure(h, conn, h));

@@ -6,13 +6,13 @@ typedef closure_type(status_handler, void, status);
 // initialize..transient?
 extern heap errheap;
 
-static inline void timm_term(table t, char *n, vlist *a)
+static inline void timm_term(tuple t, char *n, vlist *a)
 {
     symbol k = intern(alloca_wrap_buffer(n, runtime_strlen(n)));
     char *f = varg(*a, char *);
     buffer b = allocate_buffer(errheap, 100);
     vbprintf(b, alloca_wrap_buffer(f, runtime_strlen(f)), a);
-    table_set(t, k, b);
+    set(t, k, b);
 }
 
 // if the format strings and subsequent arguments dont line up, this whole thing goes sideways
@@ -44,7 +44,7 @@ void timm_dealloc(tuple t);
 #define timm_up(sd, first, ...)                     \
     ({                                              \
         tuple __up = timm(first, __VA_ARGS__);      \
-        table_set(__up, sym(down), sd);             \
+        set(__up, sym(down), sd);                   \
         __up;                                       \
     })
 

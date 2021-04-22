@@ -52,6 +52,8 @@ extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                           boolean klibs_in_bootfs,
                                           boolean ingest_kernel_syms);
 
+static tuple_notifier wrapped_root;
+
 closure_function(3, 2, void, fsstarted,
                  u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
@@ -61,7 +63,7 @@ closure_function(3, 2, void, fsstarted,
     if (!is_ok(s)) {
         buffer b = allocate_buffer(h, 128);
         bprintf(b, "unable to open filesystem: ");
-        print_tuple(b, s);
+        print_value(b, s, 0);
         buffer_print(b);
         halt("\n");
     }
@@ -70,18 +72,21 @@ closure_function(3, 2, void, fsstarted,
         halt("multiple root filesystems found\n");
 
     u8 *mbr = bound(mbr);
-    tuple root = filesystem_getroot(fs);
     root_fs = fs;
     storage_set_root_fs(fs);
-    tuple mounts = table_find(root, sym(mounts));
-    if (mounts && (tagof(mounts) == tag_tuple))
+
+    wrapped_root = tuple_notifier_wrap(filesystem_getroot(fs));
+    assert(wrapped_root != INVALID_ADDRESS);
+
+    tuple root = (tuple)wrapped_root;
+    tuple mounts = get_tuple(root, sym(mounts));
+    if (mounts)
         storage_set_mountpoints(mounts);
-    value klibs = table_find(root, sym(klibs));
-    boolean klibs_in_bootfs = klibs && tagof(klibs) != tag_tuple &&
-        buffer_compare_with_cstring(klibs, "bootfs");
+    value klibs = get_string(root, sym(klibs));
+    boolean klibs_in_bootfs = klibs && buffer_compare_with_cstring(klibs, "bootfs");
 
     if (mbr) {
-        boolean ingest_kernel_syms = table_find(root, sym(ingest_kernel_symbols)) != 0;
+        boolean ingest_kernel_syms = get(root, sym(ingest_kernel_symbols)) != 0;
         struct partition_entry *bootfs_part;
         if ((ingest_kernel_syms || klibs_in_bootfs) &&
             (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
@@ -102,7 +107,7 @@ closure_function(3, 2, void, fsstarted,
     enqueue(runqueue, create_init(init_heaps, root, fs));
     closure_finish();
     symbol booted = sym(booted);
-    if (!table_find(root, booted))
+    if (!get(root, booted))
         filesystem_write_eav(fs, root, booted, null_value);
     config_console(root);
 }
@@ -155,19 +160,25 @@ KLIB_EXPORT(get_kernel_heaps);
 
 tuple get_root_tuple(void)
 {
-    return filesystem_getroot(root_fs);
+    return (tuple)wrapped_root;
 }
 KLIB_EXPORT(get_root_tuple);
 
+void register_root_notify(symbol s, set_value_notify n)
+{
+    tuple_notifier_register_set_notify(wrapped_root, s, n);
+}
+KLIB_EXPORT(register_root_notify);
+
 tuple get_environment(void)
 {
-    return table_find(filesystem_getroot(root_fs), sym(environment));
+    return get(get_root_tuple(), sym(environment));
 }
 KLIB_EXPORT(get_environment);
 
 boolean first_boot(void)
 {
-    return !table_find(filesystem_getroot(root_fs), sym(booted));
+    return !get(get_root_tuple(), sym(booted));
 }
 KLIB_EXPORT(first_boot);
 

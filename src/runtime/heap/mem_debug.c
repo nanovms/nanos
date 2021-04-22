@@ -149,6 +149,7 @@ heap mem_debug(heap meta, heap parent, u64 padsize)
     mdh->h.pagesize = parent->pagesize;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
+    mdh->h.management = 0;      /* TODO */
     mdh->padsize = MAX(padsize, PAD_MIN);
     return &mdh->h;
 }
@@ -164,6 +165,7 @@ heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize)
     mdh->h.pagesize = objsize;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
+    mdh->h.management = 0;      /* TODO */
     mdh->padsize = padding;
     mdh->objsize = objsize;
     return &mdh->h;

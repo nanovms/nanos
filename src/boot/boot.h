@@ -32,18 +32,13 @@ static inline heap allocate_tagged_region(heap h, u64 tag)
     return (heap)ta;
 }
 
-static inline void *tag(void *v, u8 tval)
+static inline value tag(void *v, value_tag tval)
 {
     *((u8 *)v-1) = tval;
     return v;
 }
 
-static inline u8 tagof(void *v)
+static inline value_tag tagof(value v)
 {
     return *((u8 *)v-1);
-}
-
-static inline void *valueof(void *v)
-{
-    return v;
 }

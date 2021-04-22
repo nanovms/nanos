@@ -128,7 +128,7 @@ direct_map allocate_direct_map_heap(heap meta, heap physical, u64 phys_base)
     dm->h.allocated = direct_allocated;
     dm->h.total = direct_total;
     dm->h.pagesize = physical->pagesize;
-
+    dm->h.management = 0;
     dm->meta = meta;
     dm->physical = physical;
     dm->map_offset = phys_base >> DIRECT_MAP_PAGELOG;

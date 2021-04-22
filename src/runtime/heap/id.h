@@ -14,6 +14,7 @@ typedef struct id_heap {
     heap map;
     heap parent;
     rangemap ranges;
+    tuple mgmt;
     /* additional private data may extend past this definition */
 } *id_heap;
 

@@ -175,6 +175,12 @@ SRCS-kernel.elf+= \
 	$(ARCHDIR)/ftrace.s
 endif
 
+ifeq ($(MANAGEMENT),telnet)
+CFLAGS+= -DMANAGEMENT_TELNET
+SRCS-kernel.elf+= \
+	$(SRCDIR)/kernel/management_telnet.c
+endif
+
 CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
 #CFLAGS+=	-DSMP_ENABLE
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG

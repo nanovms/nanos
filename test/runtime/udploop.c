@@ -15,20 +15,18 @@ void fail(char * s)
     exit(EXIT_FAILURE);
 }
 
-table parse_arguments(heap h, int argc, char **argv);
+tuple parse_arguments(heap h, int argc, char **argv);
 
 int main(int argc, char ** argv)
 {
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
     u16 lport = DEFAULT_PORT;
-    value v = table_find(t, sym(port));
     char buf[BUFLEN];
-
     u64 result;
-    if (v && u64_from_value(v, &result)) {
-	lport = result;
-    }
+
+    if (get_u64(t, sym(port), &result))
+        lport = result;
     rprintf("using local port %d\n", lport);
 
     int fd = socket(AF_INET, SOCK_DGRAM, 0);

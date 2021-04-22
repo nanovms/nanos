@@ -54,97 +54,157 @@ void print_csum_buffer(buffer s, buffer b)
     bprintf(s, "%lx", csum);
 }
 
-void print_tuple(buffer b, tuple z)
+/* This is really lame, but we're pruning value printing in the stage2 build
+   to keep the image size under 64kB, else Xen/AWS booting will fall over.
+
+   See: https://github.com/nanovms/nanos/pull/1383
+*/
+
+#ifndef BOOT
+closure_function(1, 2, boolean, _sort_handler,
+                 vector, pairs,
+                 value, s, value, v)
 {
-    table t = valueof(z);
-    boolean sub = false;
-    bprintf(b, "(");
-    table_foreach(t, n, v) {
-        if (sub) {
-            push_character(b, ' ');
-        }
-        bprintf(b, "%b:", symbol_string((symbol)n));
-        // xxx print value
-        if (tagof(v) == tag_tuple) {
-            print_tuple(b, v);
-        } else {
-            bprintf(b, "%b", v);
-        }
-        sub = true;
-    }
-    bprintf(b, ")");
+    assert(is_symbol(s));
+    vector_push(bound(pairs), s);
+    vector_push(bound(pairs), v);
+    return true;
 }
 
-// copied from print_tuple()
-static void _print_root(buffer b, tuple z, int indent, boolean is_children)
+static boolean _symptr_compare(void *a, void *b)
 {
-    table t = valueof(z);
-    boolean sub = false;
+    symbol s1 = *(symbol*)a;
+    symbol s2 = *(symbol*)b;
+    return buffer_lt(symbol_string(s2), symbol_string(s1));
+}
+
+static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth);
+
+static void print_tuple_internal(buffer b, tuple t, table* visited, s32 indent, s32 depth)
+{
+    /* This is a little heavy, but we don't have a sorted iterate. */
+    pqueue pq = allocate_pqueue(transient, _symptr_compare);
+    assert(pq != INVALID_ADDRESS);
+    vector v = allocate_vector(transient, 16);
+    assert(v != INVALID_ADDRESS);
+    iterate(t, stack_closure(_sort_handler, v));
+
+    for (int i = 0; i < vector_length(v); i += 2) {
+        void *p = buffer_ref(v, i * sizeof(void *));
+        pqueue_insert(pq, p);
+    }
+
     bprintf(b, "(");
-    if (is_children)
-        push_character(b, '\n');
-    table_foreach(t, n, v) {
+    if (indent >= 0)
+        indent++;
+    void **p;
+    boolean sub = false;
+    while ((p = pqueue_pop(pq)) != INVALID_ADDRESS) {
+        symbol s = p[0];
+        value v = p[1];
         if (sub) {
-            if (is_children)
-                push_character(b, '\n');
+            if (indent >= 0)
+                bprintf(b, "\n%n", indent);
             else
-                push_character(b, ' ');
+                bprintf(b, " ");
+        } else {
+            sub = true;
         }
-        bprintf(b, "%n%b:", is_children ? indent : 0, symbol_string((symbol)n));
-        if (n != sym_this(".") && n != sym_this("..") && n != sym(special)) {
-            if (tagof(v) == tag_tuple) {
-                boolean is_children = n == sym(children);
-                _print_root(b, v, is_children ? indent + 4 : indent, is_children);
-            } else {
-                bprintf(b, "%b", v);
-            }
-        }
-        sub = true;
+        bytes start = buffer_length(b);
+        bprintf(b, "%b:", symbol_string(s));
+        s32 next_indent = indent >= 0 ? indent + buffer_length(b) - start : indent;
+        print_value_internal(b, v, visited, next_indent, depth);
     }
-    if (is_children && indent >= 4)
-        bprintf(b, "\n%n", indent - 4);
     bprintf(b, ")");
+    deallocate_vector(v);
+    deallocate_pqueue(pq);
 }
 
-void print_root(buffer b, tuple z)
-{
-    _print_root(b, z, 0, true);
-}
+/* Ideally, we would have types distinguishing text-only and binary buffers,
+   facilitating UTF8 handling. For now, squelch output on non-printable ASCII. */
 
-static void format_tuple(buffer dest, struct formatter_state *s, vlist *v)
+static boolean is_binary_buffer(buffer b)
 {
-    tuple t = varg(*v, tuple);
-    if (!t) {
-        bprintf(dest, "(none)");
-        return;
+    foreach_character(i, c, b) {
+        if (c < 0x20 || c > 0x7e)
+            return true;
     }
-    print_tuple(dest, t);
+    return false;
+}
+
+static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth)
+{
+    if (is_tuple(v)) {
+        if (!*visited) {
+            *visited = allocate_table(transient, identity_key, pointer_equal);
+            assert(visited != INVALID_ADDRESS);
+        }
+
+        if (table_find(*visited, v)) {
+            bprintf(dest, "<visited>");
+        } else {
+            table_set(*visited, v, (void *)1);
+            value wrapped = get_tuple(v, sym(/wrapped));
+            if (wrapped)
+                table_set(*visited, wrapped, (void *)1);
+            if (depth > 0)
+                print_tuple_internal(dest, v, visited, indent, depth - 1);
+            else
+                bprintf(dest, "<pruned>");
+        }
+    } else if (is_symbol(v)) {
+        bprintf(dest, "%b", symbol_string((symbol)v));
+    } else if (v == null_value) {
+        bprintf(dest, "<null>");
+    } else {
+        buffer b = (buffer)v;
+        if (is_binary_buffer(b))
+            bprintf(dest, "{binary, length %d}", buffer_length(b));
+        else
+            bprintf(dest, "%b", b);
+    }
+}
+
+void print_value(buffer dest, value v, tuple attrs)
+{
+    u64 indent = (s32)-1;
+    u64 depth = 0;
+
+    if (attrs) {
+        get_u64(attrs, sym(indent), &indent);
+        get_u64(attrs, sym(depth), &depth);
+    }
+
+    table visited = 0;
+    print_value_internal(dest, v, &visited, indent, depth == 0 ? S32_MAX : depth);
+    if (visited)
+        deallocate_table(visited);
 }
 
 static void format_value(buffer dest, struct formatter_state *s, vlist *v)
 {
-    buffer b;
     value x = varg(*v, value);
     if (!x) {
         bprintf(dest, "(none)");
         return;
     }
 
-    switch(tagof(x)) {
-    case tag_tuple:
-        print_tuple(dest, (tuple)x);
-        break;
-    case tag_symbol:
-        bprintf(dest, "%b", symbol_string((symbol)x));
-        break;
-    default:
-        b = (buffer)x;
-        if (buffer_length(b) > 20)
-            bprintf(dest, "{buffer %d}", buffer_length(b));
-        else
-            bprintf(dest, "%b", b);
-    }
+    print_value(dest, x, 0);
 }
+
+static void format_value_with_attributes(buffer dest, struct formatter_state *s, vlist *v)
+{
+    value x = varg(*v, value);
+    if (!x) {
+        bprintf(dest, "(none)");
+        return;
+    }
+
+    value a = varg(*v, tuple);
+    assert(!a || is_tuple(a));
+    print_value(dest, x, a);
+}
+#endif
 
 static void format_hex_buffer(buffer dest, struct formatter_state *s, vlist *a)
 {
@@ -180,8 +240,10 @@ static void format_closure(buffer dest, struct formatter_state *s, vlist *a)
 
 void init_extra_prints(void)
 {
-    register_format('t', format_tuple, 0);
+#ifndef BOOT
     register_format('v', format_value, 0);
+    register_format('V', format_value_with_attributes, 0);
+#endif
     register_format('X', format_hex_buffer, 0);
     register_format('T', format_timestamp, 0);
     register_format('R', format_range, 0);
