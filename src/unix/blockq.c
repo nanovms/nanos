@@ -142,7 +142,8 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
     if ((flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) ||
         (rv != BLOCKQ_BLOCK_REQUIRED))
         blockq_item_finish(bq, bi);
-    thread_resume(ot);
+    if (ot)
+        thread_resume(ot);
 }
 
 /*
