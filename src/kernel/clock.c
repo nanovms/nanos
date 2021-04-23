@@ -36,25 +36,31 @@ void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete
 }
 KLIB_EXPORT(clock_adjust);
 
-closure_function(0, 1, boolean, timer_id_rtc,
-                timer, t)
+closure_function(1, 1, boolean, timer_adjust_handler,
+                s64, amt,
+                void *, v)
 {
+    timer t = v;
     switch (t->id) {
     case CLOCK_ID_REALTIME:
     case CLOCK_ID_REALTIME_COARSE:
     case CLOCK_ID_REALTIME_ALARM:
-        return true;
+        t->expiry += bound(amt);
+        break;
     default:
-        return false;
+        break;
     }
+    return true;
 }
 
 void clock_reset_rtc(timestamp wallclock_now)
 {
     clock_debug("%s: now %T, wallclock_now %T\n",
                 __func__, now(CLOCK_ID_REALTIME), wallclock_now);
+    timestamp n = now(CLOCK_ID_REALTIME);
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
-    timer_adjust(runloop_timers, stack_closure(timer_id_rtc), wallclock_now - now(CLOCK_ID_REALTIME));
+    pqueue_walk(runloop_timers->pq, stack_closure(timer_adjust_handler, wallclock_now - n));
+    timer_reorder(runloop_timers);
     reset_clock_vdso_dat();
 }
 KLIB_EXPORT(clock_reset_rtc);

@@ -70,23 +70,6 @@ void timer_service(timerheap th, timestamp here)
     }
 }
 
-closure_function(2, 1, boolean, timer_adjust_handler,
-                timer_select, sel, s64, amt,
-                void *, v)
-{
-    timer t = v;
-
-    if (apply(bound(sel), t))
-        t->expiry += bound(amt);
-    return true;
-}
-
-void timer_adjust(timerheap th, timer_select sel, s64 amt)
-{
-    pqueue_walk(th->pq, stack_closure(timer_adjust_handler, sel, amt));
-    timer_reorder(th);
-}
-
 void timer_reorder(timerheap th)
 {
     pqueue_reorder(th->pq);

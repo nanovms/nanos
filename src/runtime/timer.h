@@ -110,7 +110,6 @@ typedef closure_type(timer_select, boolean, timer);
 timerheap allocate_timerheap(heap h, const char *name);
 void timer_service(timerheap th, timestamp here);
 void timer_reorder(timerheap th);
-void timer_adjust(timerheap th, timer_select sel, s64 amt);
 void print_timestamp(buffer, timestamp);
 
 #define THOUSAND         (1000ull)
