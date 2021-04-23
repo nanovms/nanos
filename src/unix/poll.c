@@ -321,8 +321,8 @@ closure_function(1, 2, void, epoll_wait_notify,
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
 
     /* XXX check this */
-    if (efd->eventmask & EPOLLONESHOT)
-        efd->zombie = true;
+    // if (efd->eventmask & EPOLLONESHOT)
+    //     efd->zombie = true;
 
     /* now that we've reported these events, update last */
     efd->lastevents |= report;
