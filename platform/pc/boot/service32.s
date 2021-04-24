@@ -343,6 +343,11 @@ run64:
         push eax
 
 		ENTER_LONG_MODE eax
+[BITS 64]
+        ;; clear %rsi; init_service in stage3 expects it to be clear when entering from stage2
+        xor rsi, rsi
+[BITS 32]
+
         ;; 64 bit compatibility into the proper long mode
         lgdt [GDT64.Pointer]    ; Load the 64-bit global descriptor table.
         jmp GDT64.Code:setup64

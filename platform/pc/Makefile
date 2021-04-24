@@ -163,7 +163,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)/
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -fno-pic -mcmodel=kernel
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3 -fno-pic -mcmodel=kernel
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 

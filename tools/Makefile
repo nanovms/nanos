@@ -31,7 +31,8 @@ SRCS-mkfs= \
 
 SRCS-vdsogen=	$(CURDIR)/vdsogen.c
 
-CFLAGS+=-I$(ARCHDIR) \
+CFLAGS+=-O3 \
+	-I$(ARCHDIR) \
 	-I$(SRCDIR) \
 	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/runtime \

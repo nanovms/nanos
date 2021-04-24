@@ -135,7 +135,7 @@ DEFINES= \
 	-DKLIB \
 	-DMBEDTLS_USER_CONFIG_FILE=\"mbedtls_conf.h\" \
 
-CFLAGS+=	$(KERNCFLAGS) $(INCLUDES) -fPIC $(DEFINES)
+CFLAGS+=	$(KERNCFLAGS) -O3 $(INCLUDES) -fPIC $(DEFINES)
 
 # TODO should add stack protection to klibs...
 CFLAGS+=	-fno-stack-protector
