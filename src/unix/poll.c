@@ -313,7 +313,6 @@ closure_function(1, 2, void, epoll_wait_notify,
         return;
     }
 
-    thread_resume(w->t);
     struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
     e->data = efd->data;
     e->events = report;
@@ -576,7 +575,6 @@ closure_function(1, 2, void, select_notify,
     if (t && t != w->t)
         return;
 
-    thread_resume(w->t);
     assert(w->epoll_type == EPOLL_TYPE_SELECT);
     int count = 0;
     /* XXX need thread safe / cas bitmap ops */
@@ -820,7 +818,6 @@ closure_function(1, 2, void, poll_notify,
     if (t && t != w->t)
         return;
 
-    thread_resume(w->t);
     struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
     fetch_and_add(&w->poll_retcount, 1);
     pfd->revents = events;

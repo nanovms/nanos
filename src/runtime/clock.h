@@ -105,21 +105,28 @@ static inline timestamp uptime(void)
 u64 rtc_gettimeofday(void);
 void rtc_settimeofday(u64 seconds);
 
+#if defined(KERNEL) || defined(BUILD_VDSO)
+static inline void reset_clock_vdso_dat()
+{
+    u64 rt = rtc_gettimeofday();
+    __vdso_dat->rtc_offset = rt ? (rt << 32) - apply(platform_monotonic_now) : 0;
+    __vdso_dat->temp_cal = __vdso_dat->cal = 0;
+    __vdso_dat->sync_complete = 0;
+    __vdso_dat->last_raw = __vdso_dat->last_drift = 0;
+}
+#endif
+
 static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 {
     platform_monotonic_now = cn;
 #if defined(KERNEL) || defined(BUILD_VDSO)
     __vdso_dat->clock_src = id;
-    u64 rt = rtc_gettimeofday();
-    __vdso_dat->rtc_offset = rt ? (rt << 32) - apply(cn) : 0;
-    __vdso_dat->temp_cal = __vdso_dat->cal = 0;
-    __vdso_dat->sync_complete = 0;
-    __vdso_dat->last_raw = __vdso_dat->last_drift = 0;
+    reset_clock_vdso_dat();
 #endif
 }
 
 void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal);
-
+void clock_reset_rtc(timestamp wallclock_now);
 #if defined(KERNEL) || defined(BUILD_VDSO)
 #undef __vdso_dat
 #endif

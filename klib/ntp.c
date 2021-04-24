@@ -15,6 +15,8 @@
 
 #define NTP_MAX_SLEW_RATE   ((1ll << CLOCK_CALIBR_BITS) / 2000) /* 500 PPM */
 
+#define NTP_RESET_THRESHOLD_MIN 60  /* 60 seconds */
+
 struct ntp_ts {
     u32 seconds;
     u32 fraction;
@@ -46,6 +48,7 @@ static struct {
     timer query_timer;
     closure_struct(ntp_query_func, query_func);
     boolean query_ongoing;
+    u64 reset_threshold;
 
     /* interval values expressed as bit order of number of seconds */
     int pollmin, pollmax;
@@ -68,6 +71,7 @@ static struct {
     void (*runtime_memset)(u8 *a, u8 b, bytes len);
     timestamp (*now)(clock_id id);
     void (*clock_adjust)(timestamp now, s64 temp_cal, timestamp sync_complete, s64 cal);
+    void (*clock_reset_rtc)(timestamp now);
 } ntp;
 
 /* Calculates a division between a 128-bit value and a 64-bit value and returns a 64-bit quotient.
@@ -167,6 +171,14 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     ntp.runtime_memcpy(&t2, &pkt->receive_ts, sizeof(t2));
     timestamp rtd = wallclock_now - origin - ntptime_diff(&t1, &t2);
     s64 offset = ntptime_to_timestamp(&t1) - wallclock_now + rtd / 2;
+    if (ntp.reset_threshold > 0 &&
+            sec_from_timestamp(offset < 0 ? -offset : offset) > ntp.reset_threshold) {
+        ntp.clock_reset_rtc(wallclock_now + offset);
+        ntp.last_offset = 0;
+        ntp.last_raw = 0;
+        success = true;
+        goto done;
+    }
     u128 offset_calibr = ((u128)ABS(offset)) << CLOCK_CALIBR_BITS;
     s64 temp_cal, cal;
     timestamp raw = ntp.now(CLOCK_ID_MONOTONIC_RAW);
@@ -272,7 +284,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(ntp.udp_sendto = get_sym("udp_sendto")) ||
             !(ntp.runtime_memcpy = get_sym("runtime_memcpy")) ||
             !(ntp.runtime_memset = get_sym("runtime_memset")) ||
-            !(ntp.now = get_sym("now")) || !(ntp.clock_adjust = get_sym("clock_adjust"))) {
+            !(ntp.now = get_sym("now")) || !(ntp.clock_adjust = get_sym("clock_adjust")) ||
+            !(ntp.clock_reset_rtc = get_sym("clock_reset_rtc"))) {
         ntp.rprintf("NTP: kernel symbols not found\n");
         return KLIB_INIT_FAILED;
     }
@@ -334,6 +347,16 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             }
             ntp.pollmin = interval;
         }
+    }
+    ntp.reset_threshold = 0;
+    value reset_thresh = get(root, sym_intern(ntp_reset_threshold, intern));
+    if (reset_thresh) {
+        u64 thresh;
+        if (!u64_from_value(reset_thresh, &thresh) || (thresh > 0 && thresh < NTP_RESET_THRESHOLD_MIN)) {
+            ntp.rprintf("NTP: invalid reset threshold\n");
+            return KLIB_INIT_FAILED;
+        }
+        ntp.reset_threshold = thresh;
     }
     ntp.pcb = udp_new();
     if (!ntp.pcb) {

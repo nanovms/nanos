@@ -132,6 +132,7 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
                  (flags & BLOCKQ_ACTION_NULLIFY) ? "nullify " : "",
                  (flags & BLOCKQ_ACTION_TIMEDOUT) ? "timedout" : "");
 
+    thread ot = current;
     thread_resume(bi->t);
     rv = apply(bi->a, flags);
     blockq_debug("   - returned %ld\n", rv);
@@ -141,6 +142,8 @@ static void blockq_apply_bi_locked(blockq bq, blockq_item bi, u64 flags)
     if ((flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) ||
         (rv != BLOCKQ_BLOCK_REQUIRED))
         blockq_item_finish(bq, bi);
+    if (ot)
+        thread_resume(ot);
 }
 
 /*
