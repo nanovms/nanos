@@ -103,6 +103,7 @@ static void init_kernel_heaps_management(tuple root)
     set(heaps, sym(physical), heap_management((heap)heap_physical(kh)));
     set(heaps, sym(general), heap_management((heap)heap_general(kh)));
     set(heaps, sym(locked), heap_management((heap)heap_locked(kh)));
+    set(heaps, sym(no_encode), null_value);
     set(root, sym(heaps), heaps);
 }
 
