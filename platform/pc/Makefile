@@ -336,7 +336,7 @@ STORAGE=	virtio-scsi
 STORAGE_BUS=	,bus=pci.2,addr=0x0
 NETWORK=	virtio-net
 NETWORK_BUS=	,bus=pci.3,addr=0x0
-
+NETWORK_BUS_2=  ,bus=pci.3,addr=0x1
 QEMU_MACHINE=	-machine $(MACHINE_TYPE)
 QEMU_MEMORY=	-m 2G
 QEMU_PCI=	-device pcie-root-port,port=0x10,chassis=1,id=pci.1,bus=$(PCI_BUS),multifunction=on,addr=0x3 \
@@ -372,6 +372,10 @@ endif
 QEMU_TAP=	-netdev tap,id=n0,ifname=tap0,script=no,downscript=no
 QEMU_NET=	-device $(NETWORK)$(NETWORK_BUS),mac=7e:b8:7e:87:4a:ea,netdev=n0 $(QEMU_TAP)
 QEMU_USERNET=	-device $(NETWORK)$(NETWORK_BUS),netdev=n0 -netdev user,id=n0,hostfwd=tcp::8080-:8080,hostfwd=tcp::9090-:9090,hostfwd=udp::5309-:5309
+ifneq ($(ENABLE_SECOND_IFACE),)
+QEMU_NET+=	-device $(NETWORK)$(NETWORK_BUS_2),mac=7e:b8:7e:87:4b:ea,netdev=n1 -netdev tap,id=n1,ifname=tap1,script=no,downscript=no
+QEMU_USERNET+=  -device $(NETWORK)$(NETWORK_BUS_2),netdev=n1 -netdev user,id=n1
+endif
 ifneq ($(ENABLE_BALLOON),)
 QEMU_BALLOON=   -device virtio-balloon-pci
 endif
