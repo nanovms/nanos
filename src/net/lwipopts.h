@@ -75,6 +75,7 @@ typedef unsigned long size_t;
 #define LWIP_DNS 1
 
 #define LWIP_IPV6   1
+#define LWIP_IPV6_DHCP6 1
 
 typedef unsigned long u64_t;
 typedef unsigned u32_t;

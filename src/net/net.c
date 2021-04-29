@@ -34,6 +34,7 @@ static struct net_lwip_timer net_lwip_timers[] = {
     {ND6_TMR_INTERVAL, nd6_tmr, "nd6"},
     {IP6_REASS_TMR_INTERVAL, ip6_reass_tmr, "ip6 reass"},
     {MLD6_TMR_INTERVAL, mld6_tmr, "mld6"},
+    {DHCP6_TIMER_MSECS, dhcp6_tmr, "dhcp6"},
 };
 
 closure_function(2, 1, void, dispatch_lwip_timer,
@@ -206,16 +207,6 @@ static boolean get_static_config(tuple t, struct netif *n, const char *ifname, b
     ip4_addr_t netmask;
     ip4_addr_t gw;
 
-    string b = get_string(t, sym(ip6addr));
-    if (b && (buffer_length(b) <= MAX_IP6_ADDR_LEN)) {
-        bytes len = buffer_length(b);
-        char str[len + 1];
-        runtime_memcpy(str, buffer_ref(b, 0), len);
-        str[len] = '\0';
-        ip6_addr_t ip6;
-        if (ip6addr_aton(str, &ip6))
-            netif_add_ip6_address(n, &ip6, 0);
-    }
     if (!get_config_addr(t, sym(ipaddr), &ip))
         return false;
 
@@ -242,6 +233,25 @@ static boolean get_static_config(tuple t, struct netif *n, const char *ifname, b
     netif_set_addr(n, &ip, &netmask, &gw);
     netif_set_up(n);
     return true;
+}
+
+static boolean get_static_ip6_config(tuple t, struct netif *n, const char *ifname, boolean trace)
+{
+    string b = get_string(t, sym(ip6addr));
+    if (b && (buffer_length(b) <= MAX_IP6_ADDR_LEN)) {
+        bytes len = buffer_length(b);
+        char str[len + 1];
+        runtime_memcpy(str, buffer_ref(b, 0), len);
+        str[len] = '\0';
+        ip6_addr_t ip6;
+        if (ip6addr_aton(str, &ip6)) {
+            if (trace)
+                rprintf("NET: static IPv6 address for interface %s: %s\n", ifname, str);
+            netif_add_ip6_address(n, &ip6, 0);
+            return true;
+        }
+    }
+    return false;
 }
 
 void init_network_iface(tuple root) {
@@ -294,6 +304,11 @@ void init_network_iface(tuple root) {
             if (trace)
                 rprintf("NET: starting DHCP for interface %s\n", ifname);
             dhcp_start(n);
+        }
+        if (!t || !get_static_ip6_config(t, n, ifname, trace)) {
+            if (trace)
+                rprintf("NET: starting DHCPv6 for interface %s\n", ifname);
+            dhcp6_enable_stateful(n);
         }
     }
 

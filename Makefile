@@ -41,7 +41,7 @@ include rules.mk
 
 THIRD_PARTY= $(LWIPDIR)/.vendored $(MBEDTLS_DIR)/.vendored
 
-$(LWIPDIR)/.vendored: GITFLAGS= --depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_2_RELEASE
+$(LWIPDIR)/.vendored: GITFLAGS= --depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_x
 $(MBEDTLS_DIR)/.vendored: GITFLAGS= --depth 1 https://github.com/nanovms/mbedtls.git
 
 image: $(THIRD_PARTY) tools

@@ -11,6 +11,7 @@
 #include <lwip/etharp.h>
 #include <lwip/ethip6.h>
 #include <lwip/dhcp.h>
+#include <lwip/dhcp6.h>
 #include <lwip/dns.h>
 #include <lwip/mld6.h>
 #include <lwip/nd6.h>
