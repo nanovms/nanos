@@ -121,6 +121,14 @@ define_closure_function(1, 0, void, epollfd_free,
     unix_cache_free(get_unix_heaps(), epollfd, efd);
 }
 
+static void reset_epollfd(epollfd efd, u32 eventmask, u64 data)
+{
+    efd->eventmask = eventmask;
+    efd->lastevents = 0;
+    efd->zombie = false;
+    efd->data = data;
+}
+
 static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
 {
     epoll_debug("e %p, fd %d, eventmask 0x%x, data 0x%lx\n", e, fd, eventmask, data);
@@ -128,13 +136,10 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     if (efd == INVALID_ADDRESS)
 	return efd;
     efd->fd = fd;
-    efd->eventmask = eventmask;
-    efd->lastevents = 0;
     efd->e = e;
-    efd->data = data;
+    reset_epollfd(efd, eventmask, data);
     init_refcount(&efd->refcount, 1, init_closure(&efd->free, epollfd_free, efd));
     efd->registered = false;
-    efd->zombie = false;
     assert(vector_set(e->events, fd, efd));
     bitmap_set(e->fds, fd, 1);
     if (fd >= e->nfds)
@@ -475,12 +480,14 @@ static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
     }
 
     epoll_debug("   adding %d, events 0x%x, data 0x%lx\n", fd, events, data);
+    events |= EPOLLERR | EPOLLHUP;
     if (efd == INVALID_ADDRESS) {
-        if (alloc_epollfd(e, fd, events | EPOLLERR | EPOLLHUP, data) ==
-                INVALID_ADDRESS)
+        if (alloc_epollfd(e, fd, events, data) == INVALID_ADDRESS)
             return -ENOMEM;
         efd = epollfd_from_fd(e, fd);
         assert(efd != INVALID_ADDRESS);
+    } else {
+        reset_epollfd(efd, events, data);
     }
     fdesc f = resolve_fd_noret(current->p, efd->fd);
     assert(f);
@@ -890,8 +897,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         if (efd != INVALID_ADDRESS) {
             if (!efd->registered) {
                 epoll_debug("   = fd %d (registering)\n", pfd->fd);
-                efd->eventmask = pfd->events;
-                efd->data = i;
+                reset_epollfd(efd, pfd->events, i);
                 register_epollfd(efd, closure(e->h, poll_notify, efd));
             } else {
                 if (efd->eventmask != pfd->events || efd->data != i) {
