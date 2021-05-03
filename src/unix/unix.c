@@ -140,7 +140,7 @@ define_closure_function(1, 1, context, default_fault_handler,
 
     thread current_thread = current;
     if (!current_thread) {
-        rprintf("\nPage fault outside of thread context\n");
+        rprintf("\nPage fault outside of thread context (vaddr 0x%lx)\n", vaddr);
         goto bug;
     }
 

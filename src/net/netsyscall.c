@@ -867,7 +867,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
         shut_tx = 1;
         break;
     default:
-        msg_warn("Wrong value passed for direction sock %d, type %d\n", sockfd, s->type);
+        msg_warn("Wrong value passed for direction sock %d, type %d\n", sock->fd, s->sock.type);
         return -EINVAL;
     }
     switch (s->sock.type) {
@@ -1110,7 +1110,7 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
         net_debug("calling udp_bind, pcb %p, port %d\n", s->info.udp.lw, port);
         err = udp_bind(s->info.udp.lw, &ipaddr, port);
     } else {
-	msg_warn("unsupported socket type %d\n", s->type);
+	msg_warn("unsupported socket type %d\n", s->sock.type);
 	return -EINVAL;
     }
     return lwip_to_errno(err);
@@ -1256,7 +1256,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
         } else if (s->info.tcp.state == TCP_SOCK_OPEN) {
             err = ERR_ISCONN;
         } else if (s->info.tcp.state == TCP_SOCK_LISTENING) {
-            msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sockfd);
+            msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sock->fd);
             err = ERR_ARG;
         } else {
             err = connect_tcp(s, &ipaddr, port);
