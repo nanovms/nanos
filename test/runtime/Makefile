@@ -9,6 +9,7 @@ PROGRAMS= \
 	fadvise \
 	fcntl \
 	fst \
+	fs_full \
 	ftrace \
 	futex \
 	futexrobust \
@@ -88,6 +89,11 @@ SRCS-fcntl= \
 	$(CURDIR)/fcntl.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-fcntl=		-static
+
+SRCS-fs_full= \
+	$(CURDIR)/fs_full.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-fs_full=	-static
 
 SRCS-ftrace= \
 	$(CURDIR)/ftrace.c \
