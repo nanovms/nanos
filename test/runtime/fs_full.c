@@ -32,7 +32,7 @@ int write_blocks(int fd, int nb)
         while (p < (uint64_t *)(buf + sizeof(buf))) {
             if (*p++ != b) {
                 printf("block %d does not match expected pattern in validation\n", b);
-                break;
+                return b;
             }
         }
     }
@@ -68,9 +68,9 @@ int main(int argc, char **argv)
     assert(statfs(argv[0], &statbuf) == 0);
     uint64_t bfree = statbuf.f_bfree;
     uint64_t btotal = statbuf.f_blocks;
-    printf("total bytes: %lu free bytes: %lu (actual: %lu)\n", btotal * 512, bfree * 512, statbuf.f_bfree*512);
+    printf("total bytes: %lu free bytes: %lu\n", btotal * 512, bfree * 512);
     /* create big file test */
-    fd = open(BIGDATA, O_CREAT|O_RDWR | 0644);
+    fd = open(BIGDATA, O_CREAT|O_RDWR, 0644);
     assert(fd >= 0);
     uint64_t bwritten = write_blocks(fd, bfree);
     assert(statfs(argv[0], &statbuf) == 0);
