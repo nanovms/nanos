@@ -621,11 +621,20 @@ closure_function(1, 3, void, pagecache_write_sg,
         get_current_thread(), pn, q, sg, completion, false));
     status_handler sh = apply_merge(m);
 
-    /* initiate reads for rmw start and/or end */
     u64 start_offset = q.start & MASK(pc->page_order);
     u64 end_offset = q.end & MASK(pc->page_order);
     range r = range_rshift(q, pc->page_order);
     pagecache_lock_node(pn);
+    /* attempt to reserve disk space for the write */
+    if (pn->fs_reserve && sg) {
+        status ss;
+        if ((ss = apply(pn->fs_reserve, q)) != STATUS_OK) {
+            pagecache_unlock_node(pn);
+            apply(completion, ss);
+            return;
+        }
+    }
+    /* initiate reads for rmw start and/or end */
     if (start_offset != 0) {
         touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m, false);
         r.start++;
@@ -1233,7 +1242,7 @@ sg_io pagecache_node_get_writer(pagecache_node pn)
     return pn->cache_write;
 }
 
-pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write)
+pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write, pagecache_node_reserve fs_reserve)
 {
     heap h = pv->pc->h;
     pagecache_node pn = allocate(h, sizeof(struct pagecache_node));
@@ -1260,6 +1269,7 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
 #endif
     pn->fs_read = fs_read;
     pn->fs_write = fs_write;
+    pn->fs_reserve = fs_reserve;
     return pn;
 }
 

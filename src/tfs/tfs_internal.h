@@ -29,6 +29,8 @@ typedef struct filesystem {
     pagecache_volume pv;
     log tl;
     log temp_log;
+    u64 next_extend_log_offset;
+    u64 next_new_log_offset;
     tuple root;
 } *filesystem;
 
@@ -66,6 +68,8 @@ void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, blo
     
 void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh);
 void filesystem_log_rebuild_done(filesystem fs, log new_tl);
+
+boolean filesystem_reserve_log_space(filesystem fs, u64 *next_offset, u64 *offset, u64 size);
 
 typedef closure_type(buffer_status, buffer, status);
 fsfile allocate_fsfile(filesystem fs, tuple md);

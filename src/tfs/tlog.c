@@ -120,7 +120,7 @@ static log_ext open_log_extension(log tl, range sectors)
     sg_io r_op = tl->fs->r ? closure(tl->h, log_storage_op, tl->fs, sectors.start, tl->fs->r) :
         closure(tl->h, zero_fill);  /* mkfs */
     sg_io w_op = closure(tl->h, log_storage_op, tl->fs, sectors.start, tl->fs->w);
-    ext->cache_node = pagecache_allocate_node(tl->fs->pv, r_op, w_op);
+    ext->cache_node = pagecache_allocate_node(tl->fs->pv, r_op, w_op, 0);
     if (ext->cache_node == INVALID_ADDRESS)
         goto fail_dealloc_staging;
 
@@ -294,8 +294,8 @@ static log_ext log_ext_new(log tl)
 {
     filesystem fs = tl->fs;
     u64 ext_size = TFS_LOG_DEFAULT_EXTENSION_SIZE >> fs->blocksize_order;
-    u64 ext_offset = filesystem_allocate_storage(fs, ext_size);
-    if (ext_offset == INVALID_PHYSICAL)
+    u64 ext_offset;
+    if (!filesystem_reserve_log_space(fs, &fs->next_new_log_offset, &ext_offset, ext_size))
         return INVALID_ADDRESS;
     range sectors = irangel(ext_offset, ext_size);
     tlog_debug("new extension at %R\n", sectors);
@@ -347,8 +347,8 @@ log_ext log_extend(log tl, u64 size, status_handler sh) {
 
     /* allocate new log and write with end of log */
     size >>= tl->fs->blocksize_order;
-    u64 offset = filesystem_allocate_storage(tl->fs, size);
-    if (offset == INVALID_PHYSICAL) {
+    u64 offset;
+    if (!filesystem_reserve_log_space(tl->fs, &tl->fs->next_extend_log_offset, &offset, size)) {
         // TODO should initiate flush of current extension before failing
         return INVALID_ADDRESS;
     }
@@ -907,6 +907,8 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         random_buffer(uuid);
         log_ext init_ext = tl->current;
         log_extension_init(init_ext);
+        filesystem_reserve_log_space(fs, &fs->next_new_log_offset, 0, 0);
+        filesystem_reserve_log_space(fs, &fs->next_extend_log_offset, 0, 0);
         log_ext new_ext = log_ext_new(tl);
         assert(new_ext != INVALID_ADDRESS);
         log_extension_init(new_ext);

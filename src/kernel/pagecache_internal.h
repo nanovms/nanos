@@ -83,6 +83,7 @@ typedef struct pagecache_node {
     sg_io cache_write;
     sg_io fs_read;
     sg_io fs_write;
+    pagecache_node_reserve fs_reserve;
 } *pagecache_node;
 
 typedef struct pagecache_shared_map {
