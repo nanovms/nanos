@@ -52,8 +52,6 @@ extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                           boolean klibs_in_bootfs,
                                           boolean ingest_kernel_syms);
 
-static tuple_notifier wrapped_root;
-
 closure_function(3, 2, void, fsstarted,
                  u8 *, mbr, block_io, r, block_io, w,
                  filesystem, fs, status, s)
@@ -75,10 +73,7 @@ closure_function(3, 2, void, fsstarted,
     root_fs = fs;
     storage_set_root_fs(fs);
 
-    wrapped_root = tuple_notifier_wrap(filesystem_getroot(fs));
-    assert(wrapped_root != INVALID_ADDRESS);
-
-    tuple root = (tuple)wrapped_root;
+    tuple root = filesystem_getroot(root_fs);
     tuple mounts = get_tuple(root, sym(mounts));
     if (mounts)
         storage_set_mountpoints(mounts);
@@ -160,13 +155,14 @@ KLIB_EXPORT(get_kernel_heaps);
 
 tuple get_root_tuple(void)
 {
-    return (tuple)wrapped_root;
+    return filesystem_getroot(root_fs);
 }
 KLIB_EXPORT(get_root_tuple);
 
 void register_root_notify(symbol s, set_value_notify n)
 {
-    tuple_notifier_register_set_notify(wrapped_root, s, n);
+    // XXX to be restored when root fs tuple is separated from root tuple
+    //tuple_notifier_register_set_notify(wrapped_root, s, n);
 }
 KLIB_EXPORT(register_root_notify);
 
