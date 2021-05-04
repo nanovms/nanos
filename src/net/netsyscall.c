@@ -1169,7 +1169,6 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
 
     rv = lwip_to_errno(err);
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        /* XXX spinlock */
         if (rv == 0) {
             s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
             rv = -ERESTARTSYS;
@@ -1177,8 +1176,13 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
         goto out;
     }
 
-    if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION)
+    if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION) {
+        if (s->sock.f.flags & SOCK_NONBLOCK) {
+            rv = -EINPROGRESS;
+            goto out;
+        }
         return BLOCKQ_BLOCK_REQUIRED;
+    }
     assert(s->info.tcp.state == TCP_SOCK_OPEN);
   out:
     closure_finish();
@@ -1199,26 +1203,25 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
    s->info.tcp.state = TCP_SOCK_OPEN; /* XXX state handling needs fixing; this could indicate an error as well */
    set_lwip_error(s, err);
-   blockq_wake_one(s->sock.rxbq);
+   wakeup_sock(s, WAKEUP_SOCK_TX);
    return ERR_OK;
 }
 
-static inline err_t connect_tcp(netsock s, const ip_addr_t* address,
-                                unsigned short port)
+static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
+                                    unsigned short port)
 {
     net_debug("sock %d, tcp state %d, port %d\n", s->sock.fd,
             s->info.tcp.state, port);
     switch (s->info.tcp.state) {
     case TCP_SOCK_IN_CONNECTION:
     case TCP_SOCK_ABORTING_CONNECTION:
-        return ERR_ALREADY;
+        return -EALREADY;
     case TCP_SOCK_OPEN:
-        return ERR_ISCONN;
+        return -EISCONN;
     case TCP_SOCK_CREATED:
         break;
     default:
-        msg_err("connect attempt while in state %d\n", s->info.tcp.state);
-        return ERR_VAL;
+        return -EINVAL;
     }
     struct tcp_pcb * lw = s->info.tcp.lw;
     tcp_arg(lw, s);
@@ -1229,14 +1232,11 @@ static inline err_t connect_tcp(netsock s, const ip_addr_t* address,
     set_lwip_error(s, ERR_OK);
     err_t err = tcp_connect(lw, address, port, connect_tcp_complete);
     if (err != ERR_OK)
-        return err;
+        return lwip_to_errno(err);
     netsock_check_loop();
 
-    sysreturn rv = blockq_check(s->sock.rxbq, current,
-            closure(s->sock.h, connect_tcp_bh, s, current), false);
-    /* should not return under normal cirucmstances */
-    msg_err("blockq check error: %ld\n", rv);
-    return ERR_OK;
+    return blockq_check(s->sock.txbq, current,
+                        closure(s->sock.h, connect_tcp_bh, s, current), false);
 }
 
 static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
@@ -1259,7 +1259,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
             msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sock->fd);
             err = ERR_ARG;
         } else {
-            err = connect_tcp(s, &ipaddr, port);
+            return connect_tcp(s, &ipaddr, port);
         }
     } else if (s->sock.type == SOCK_DGRAM) {
 	/* Set remote endpoint */
