@@ -48,7 +48,7 @@ void print_frame_trace_from_here();
     do {                                            \
         if (!(x)) {                                 \
             print_frame_trace_from_here();          \
-            halt("assertion " #x " failed in " __FILE__ ": %s() on line %d; halt\n", __func__, __LINE__); \
+            halt("assertion " #x " failed at " __FILE__ ":%d  in %s(); halt\n", __LINE__, __func__); \
         }                                           \
     } while(0)
 #endif
