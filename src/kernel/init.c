@@ -77,8 +77,8 @@ closure_function(3, 2, void, fsstarted,
 
     wrapped_root = tuple_notifier_wrap(filesystem_getroot(fs));
     assert(wrapped_root != INVALID_ADDRESS);
-
-    tuple root = (tuple)wrapped_root;
+    // XXX use wrapped_root after root fs is separate
+    tuple root = filesystem_getroot(root_fs);
     tuple mounts = get_tuple(root, sym(mounts));
     if (mounts)
         storage_set_mountpoints(mounts);
@@ -160,12 +160,13 @@ KLIB_EXPORT(get_kernel_heaps);
 
 tuple get_root_tuple(void)
 {
-    return (tuple)wrapped_root;
+    return filesystem_getroot(root_fs);
 }
 KLIB_EXPORT(get_root_tuple);
 
 void register_root_notify(symbol s, set_value_notify n)
 {
+    // XXX to be restored when root fs tuple is separated from root tuple
     tuple_notifier_register_set_notify(wrapped_root, s, n);
 }
 KLIB_EXPORT(register_root_notify);
