@@ -8,6 +8,5 @@
         "Ports": ["4567"]
     },
     "Boot": "../../../output/test/e2e/boot.img",
-    "Kernel": "../../../output/test/e2e/kernel.img",
-    "Mkfs": "../../../output/tools/bin/mkfs"
+    "Kernel": "../../../output/test/e2e/kernel.img"
 }
