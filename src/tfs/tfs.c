@@ -616,8 +616,6 @@ static u64 extend(fsfile f, extent ex, sg_list sg, range blocks, merge m, boolea
     tfs_debug("   %s: node %R, free 0x%lx (%R), i %R\n", __func__, ex->node.r, free, r, i);
     if (range_span(i) == 0)
         return blocks.start;
-    if (!write)
-        goto out;
     assert(blocks.start >= ex->node.r.end); // XXX temp
     assert(ex->node.r.end <= i.start); // XXX temp
     range z = irange(ex->node.r.end, i.start);
@@ -627,6 +625,8 @@ static u64 extend(fsfile f, extent ex, sg_list sg, range blocks, merge m, boolea
             "fsstatus", "%d", s));
         goto out;
     }
+    if (!write)
+        goto out;
     if (range_span(z) > 0) {
         tfs_debug("      zero %R\n", z);
         write_extent(f, ex, 0, z, m);
