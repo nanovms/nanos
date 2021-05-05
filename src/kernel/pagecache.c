@@ -498,7 +498,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
     if (!is_ok(s) || bound(complete)) {
         /* TODO: We handle storage errors after the syscall write
            completion has been applied. This means that storage
-           allocation and I/O errors aren't being propagated back to
+           I/O errors other than ENOSPC aren't being propagated back to
            the syscalls that caused them and are therefore imprecise.
            For now, we take note of any write error and stash it in
            the volume to be returned on a subsequent call.
@@ -506,12 +506,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
            As of now, we do not automatically clear a pending error
            condition after reporting. Some logic will need to be added
            to clear specific conditions and allow the application to
-           recover from an error (e.g. test for and clear a pending
-           FS_STATUS_NOSPACE after an extent has been deleted).
-
-           This is clearly a stop-gap, meant to prevent endless,
-           runaway writes on common conditions like storage
-           exhaustion. */
+           recover from an error. */
 
         if (!is_ok(s)) {
             pagecache_debug("%s: %s error: %v\n", __func__, bound(complete) ? "write" : "read", s);
@@ -616,16 +611,26 @@ closure_function(1, 3, void, pagecache_write_sg,
     if (q.end > pn->length)
         pn->length = q.end;
 
+    u64 start_offset = q.start & MASK(pc->page_order);
+    u64 end_offset = q.end & MASK(pc->page_order);
+    range r = range_rshift(q, pc->page_order);
+    pagecache_lock_node(pn);
+    /* attempt to reserve disk space for the write */
+    if (pn->fs_reserve && sg) {
+        status ss;
+        if ((ss = apply(pn->fs_reserve, q)) != STATUS_OK) {
+            pagecache_unlock_node(pn);
+            apply(completion, ss);
+            return;
+        }
+    }
+
     /* prepare pages for writing */
     merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish,
         get_current_thread(), pn, q, sg, completion, false));
     status_handler sh = apply_merge(m);
 
     /* initiate reads for rmw start and/or end */
-    u64 start_offset = q.start & MASK(pc->page_order);
-    u64 end_offset = q.end & MASK(pc->page_order);
-    range r = range_rshift(q, pc->page_order);
-    pagecache_lock_node(pn);
     if (start_offset != 0) {
         touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m, false);
         r.start++;
@@ -1233,7 +1238,7 @@ sg_io pagecache_node_get_writer(pagecache_node pn)
     return pn->cache_write;
 }
 
-pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write)
+pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write, pagecache_node_reserve fs_reserve)
 {
     heap h = pv->pc->h;
     pagecache_node pn = allocate(h, sizeof(struct pagecache_node));
@@ -1260,6 +1265,7 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
 #endif
     pn->fs_read = fs_read;
     pn->fs_write = fs_write;
+    pn->fs_reserve = fs_reserve;
     return pn;
 }
 

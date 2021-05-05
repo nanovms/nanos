@@ -1,0 +1,14 @@
+(
+    children:(
+	      fs_full:(contents:(host:output/test/runtime/bin/fs_full))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/fs_full
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+    fault:t
+    arguments:[fs_full]
+    environment:(USER:bobby PWD:/)
+    imagesize:128M
+)

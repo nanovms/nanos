@@ -2,6 +2,8 @@ typedef struct pagecache_volume *pagecache_volume;
 
 typedef struct pagecache_node *pagecache_node;
 
+typedef closure_type(pagecache_node_reserve, status, range);
+
 void pagecache_set_node_length(pagecache_node pn, u64 length);
 
 u64 pagecache_get_node_length(pagecache_node pn);
@@ -20,7 +22,7 @@ u64 pagecache_get_occupancy(void);
 
 u64 pagecache_drain(u64 drain_bytes);
 
-pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write);
+pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write, pagecache_node_reserve fs_reserve);
 
 void pagecache_deallocate_node(pagecache_node pn);
 
