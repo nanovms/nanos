@@ -8,54 +8,67 @@
 #include <assert.h>
 #include <errno.h>
 
-#define BIGDATA "/bigfile"
-#define NEWFILE "/newfile"
+#define BIGDATA "bigfile"
+#define NEWFILE "newfile"
+#define SECTOR_SIZE 512
+/* this could be up to log ext size */
+#define MAX_FREE_BYTES (512 * 1024)
 
-int write_blocks(int fd, int nb)
+int write_blocks(int fd, int nb, int bs)
 {
-    uint8_t buf[512];
+    assert(bs && (bs & (SECTOR_SIZE-1)) == 0);
+    uint8_t *buf = malloc(bs);
+    assert(buf);
     int b;
+
     for (b = 0; b < nb; b++) {
         uint64_t *p = (uint64_t *)buf;
-        while (p < (uint64_t *)(buf + sizeof(buf)))
+        while (p < (uint64_t *)(buf + bs))
             *p++ = b;
-        if (write(fd, buf, sizeof(buf)) <= 0) {
+        if (write(fd, buf, bs) <= 0) {
             printf("failed writing at block %d err '%s'\n", b, strerror(errno));
             assert(errno == ENOSPC);
             break;
         }
-        if (pread(fd, buf, sizeof(buf), 512 * b) != sizeof(buf)) {
+        if (pread(fd, buf, bs, bs * b) != bs) {
             printf("failed to read written block %d err '%s'\n", b, strerror(errno));
             break;
         }
         p = (uint64_t *)buf;
-        while (p < (uint64_t *)(buf + sizeof(buf))) {
+        while (p < (uint64_t *)(buf + bs)) {
             if (*p++ != b) {
                 printf("block %d does not match expected pattern in validation\n", b);
-                return b;
+                goto out;
             }
         }
     }
+out:
+    free(buf);
     return b;
 }
 
-int check_blocks(int fd, int nb)
+int check_blocks(int fd, int nb, int bs)
 {
-    uint8_t buf[512];
+    assert(bs && (bs & (SECTOR_SIZE-1)) == 0);
+    uint8_t *buf = malloc(bs);
+    assert(buf);
     int b;
+
     for (b = 0; b < nb; b++) {
-        if (read(fd, buf, sizeof(buf)) <= 0) {
+        if (read(fd, buf, bs) <= 0) {
             printf("failed reading at block %d err '%s'\n", b, strerror(errno));
             break;
         }
         uint64_t *p = (uint64_t *)buf;
-        while (p < (uint64_t *)(buf + sizeof(buf))) {
+        while (p < (uint64_t *)(buf + bs)) {
             if (*p++ != b) {
                 printf("block %d does not match expected pattern\n", b);
-                return b;
+                goto out;
             }
         }
     }
+out:
+    free(buf);
     return b;
 }
 
@@ -68,39 +81,51 @@ int main(int argc, char **argv)
     assert(statfs(argv[0], &statbuf) == 0);
     uint64_t bfree = statbuf.f_bfree;
     uint64_t btotal = statbuf.f_blocks;
-    printf("total bytes: %lu free bytes: %lu\n", btotal * 512, bfree * 512);
+    assert(statbuf.f_bsize >= SECTOR_SIZE);
+    int BLOCKSIZE = statbuf.f_bsize;
+    printf("total bytes: %lu free bytes: %lu blocksize: %d\n", btotal * statbuf.f_bsize, bfree * statbuf.f_bsize, BLOCKSIZE);
+
     /* create big file test */
     fd = open(BIGDATA, O_CREAT|O_RDWR, 0644);
     assert(fd >= 0);
-    uint64_t bwritten = write_blocks(fd, bfree);
+    uint64_t bwritten = write_blocks(fd, bfree, BLOCKSIZE);
     assert(statfs(argv[0], &statbuf) == 0);
-    assert(bfree - bwritten < bfree/10);
+    assert(statbuf.f_bfree < MAX_FREE_BYTES/BLOCKSIZE);
+    printf("written blocks: %lu\ncalculated free blocks: %lu\nactual free blocks %lu\nmetadata blocks allocated: %lu\n",
+        bwritten, bfree - bwritten, statbuf.f_bfree, bfree - bwritten - statbuf.f_bfree);
     close(fd);
+
     /* check that still can't write to a new file */
     fd = open(NEWFILE, O_CREAT|O_RDWR, 0644);
     if (fd >= 0) {
-        assert(write_blocks(fd, 32) == 0);
+        assert(write_blocks(fd, 32, BLOCKSIZE) == 0);
         close(fd);
     }
     /* verify big file */
     fd = open(BIGDATA, O_RDWR);
     assert(fd >= 0);
-    assert(check_blocks(fd, bwritten) == bwritten);
+    assert(check_blocks(fd, bwritten, BLOCKSIZE) == bwritten);
     close(fd);
     assert(statfs(argv[0], &statbuf) == 0);
-    assert(statbuf.f_bfree < bfree/10);
+    printf("after verifying big file: total bytes: %lu free bytes: %lu\n", statbuf.f_blocks * statbuf.f_bsize, statbuf.f_bfree * statbuf.f_bsize);
     assert(statbuf.f_blocks == btotal);
-    printf("after creating big file: total bytes: %lu free bytes: %lu\n", statbuf.f_blocks * 512, statbuf.f_bfree * 512);
+
+    /* remove big file and verify free space */
     assert(remove(BIGDATA) == 0);
     assert(statfs(argv[0], &statbuf) == 0);
     assert((bfree - statbuf.f_bfree) < bfree/10);
-    printf("after delete big file: total bytes: %lu free bytes: %lu\n", statbuf.f_blocks * 512, statbuf.f_bfree * 512);
+    printf("after delete big file: total bytes: %lu free bytes: %lu\n", statbuf.f_blocks * statbuf.f_bsize, statbuf.f_bfree * statbuf.f_bsize);
 
     /* check that we can now write to a new file */
     fd = open(NEWFILE, O_CREAT|O_RDWR, 0644);
     assert(fd >= 0);
-    assert(write_blocks(fd, 32) == 32);
+    printf("write %lu blocks to new file\n", bwritten);
+    uint64_t new_bwritten = write_blocks(fd, bwritten, BLOCKSIZE);
+    printf("wrote %lu blocks\n", new_bwritten);
+    /* space for two new logs could be allocated since the first write */
+    assert(new_bwritten > bwritten - 2 * MAX_FREE_BYTES/BLOCKSIZE);
     close(fd);
+    assert(remove(NEWFILE) == 0);
     assert(open(BIGDATA, O_RDWR) < 0);
     printf("filesystem full test successful\n");
     return 0;
