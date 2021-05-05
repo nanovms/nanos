@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <errno.h>
+#include <sys/epoll.h>
 
 #define NETSOCK_TEST_FIO_COUNT  8
 
@@ -175,12 +177,76 @@ static void netsock_test_connclosed(void)
     test_assert(close(fd) == 0);
 }
 
+static void *netsock_test_nonblocking_connect_thread(void *arg)
+{
+    int port = (long)arg;
+    int fd, efd, err;
+    socklen_t slen;
+    struct sockaddr_in addr;
+    struct epoll_event event;
+    struct epoll_event events[1];
+
+    /* Connect with SOCK_NONBLOCK and verify that EINPROGRESS is returned. */
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert((connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1 && errno == EINPROGRESS));
+
+    /* Validate reporting of EPOLLOUT. */
+    efd = epoll_create1(0);
+    test_assert(efd > 0);
+    event.data.fd = fd;
+    event.events = EPOLLOUT;
+    test_assert(epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event) == 0);
+    test_assert(epoll_wait(efd, events, 1, 1000 /* 1s */) == 1);
+    test_assert((events[0].events & EPOLLOUT));
+
+    slen = sizeof(err);
+    test_assert(getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &slen) == 0);
+    test_assert(slen == sizeof(err) && err == 0);
+    test_assert(close(fd) == 0);
+    test_assert(close(efd) == 0);
+    return EXIT_SUCCESS;
+}
+
+static void netsock_test_nonblocking_connect(void)
+{
+    int fd, conn_fd;
+    struct sockaddr_in addr;
+    const int port = 1235;
+    pthread_t pt;
+    int ret;
+    void *thread_ret;
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(listen(fd, 1) == 0);
+    ret = pthread_create(&pt, NULL, netsock_test_nonblocking_connect_thread,
+        (void *)(long)port);
+    test_assert(ret == 0);
+
+    /* Wait for client to connect and return. */
+    conn_fd = accept(fd, NULL, NULL);
+    test_assert(conn_fd > 0);
+    test_assert(pthread_join(pt, &thread_ret) == 0);
+    if (thread_ret != EXIT_SUCCESS)
+        exit((long)thread_ret);
+    test_assert(close(fd) == 0);
+}
+
 int main(int argc, char **argv)
 {
     setbuf(stdout, NULL);
 
     netsock_test_fionread();
     netsock_test_connclosed();
+    netsock_test_nonblocking_connect();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
