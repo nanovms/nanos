@@ -14,6 +14,7 @@ declare_closure_struct(1, 0, void, epollfd_free,
 
 typedef struct epollfd {
     int fd;
+    fdesc f;
     u32 eventmask;  /* epoll events registered - XXX need lock */
     u32 lastevents; /* retain last received events; for edge trigger */
     u64 data;	    /* may be multiple versions of data? */
@@ -134,16 +135,19 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     epoll_debug("e %p, fd %d, eventmask 0x%x, data 0x%lx\n", e, fd, eventmask, data);
     epollfd efd = unix_cache_alloc(get_unix_heaps(), epollfd);
     if (efd == INVALID_ADDRESS)
-	return efd;
+        return efd;
     efd->fd = fd;
     efd->e = e;
+    fdesc f = resolve_fd_noret(current->p, fd);
+    assert(f);
+    efd->f = f;
     reset_epollfd(efd, eventmask, data);
     init_refcount(&efd->refcount, 1, init_closure(&efd->free, epollfd_free, efd));
     efd->registered = false;
     assert(vector_set(e->events, fd, efd));
     bitmap_set(e->fds, fd, 1);
     if (fd >= e->nfds)
-	e->nfds = fd + 1;
+        e->nfds = fd + 1;
     refcount_reserve(&e->refcount);
     return efd;
 }
@@ -271,11 +275,15 @@ static inline u32 report_from_notify_events(epollfd efd, u64 notify_events)
     u32 events = (u32)notify_events;
     boolean edge_detect = (efd->eventmask & EPOLLET) != 0;
 
-    /* catch falling edges for EPOLLET */
     if (edge_detect) {
-        u32 falling = efd->lastevents & ~events;
-        if (falling)
-            efd->lastevents &= ~falling;
+        if (efd->f->edge_trigger_handler) {
+            efd->lastevents = apply(efd->f->edge_trigger_handler, events, efd->lastevents);
+        } else {
+            /* catch falling edges for EPOLLET */
+            u32 falling = efd->lastevents & ~events;
+            if (falling)
+                efd->lastevents &= ~falling;
+        }
     }
 
     /* only report rising edges if edge detect */
@@ -350,9 +358,13 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     return w;
 }
 
-static void check_fdesc(fdesc f, thread t)
+static void check_fdesc(epollfd efd, fdesc f, thread t)
 {
-    notify_dispatch_for_thread(f->ns, apply(f->events, t), t);
+    /* if edge-triggered, only notify the changes to events */
+    u32 events = apply(f->events, t);
+    if (efd->eventmask & EPOLLET)
+        events &= ~efd->lastevents;
+    notify_dispatch_for_thread(f->ns, events, t);
 }
 
 /* It would be nice to devise a way to allow a poll waiter to continue
@@ -436,7 +448,7 @@ sysreturn epoll_wait(int epfd,
         /* event transitions may in some cases need to be polled for
            (e.g. due to change in lwIP internal state), so request a check */
         if (efd->registered)
-            check_fdesc(f, current);
+            check_fdesc(efd, f, current);
     }
 
     timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
@@ -466,7 +478,7 @@ static void epollfd_update(epollfd efd, fdesc f)
     list_foreach(&efd->e->blocked_head, l) {
         epoll_blocked w = struct_from_list(l, epoll_blocked, blocked_list);
         epoll_debug("   posting check for blocked waiter (tid %d)\n", w->t->tid);
-        check_fdesc(f, w->t);
+        check_fdesc(efd, f, w->t);
     }
     /* XXX release lock */
 }
@@ -764,7 +776,7 @@ static sysreturn select_internal(int nfds,
 	    if (!efd->registered)
                 register_epollfd(efd, closure(e->h, select_notify, efd));
 
-            check_fdesc(f, current);
+            check_fdesc(efd, f, current);
 	}
 
 	if (readfds)
@@ -932,7 +944,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
 
         epoll_debug("   register fd %d, eventmask 0x%x, applying check\n",
             efd->fd, efd->eventmask);
-        check_fdesc(f, current);
+        check_fdesc(efd, f, current);
     }
 
     /* clean efds */
