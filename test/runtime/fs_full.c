@@ -123,7 +123,7 @@ int main(int argc, char **argv)
     uint64_t new_bwritten = write_blocks(fd, bwritten, BLOCKSIZE);
     printf("wrote %lu blocks\n", new_bwritten);
     /* space for two new logs could be allocated since the first write */
-    assert(new_bwritten > bwritten - 2 * MAX_FREE_BYTES/BLOCKSIZE);
+    assert(new_bwritten >= bwritten - 2 * MAX_FREE_BYTES/BLOCKSIZE);
     close(fd);
     assert(remove(NEWFILE) == 0);
     assert(open(BIGDATA, O_RDWR) < 0);
