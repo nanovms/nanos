@@ -322,6 +322,7 @@ typedef struct fdesc {
     closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
     closure_type(close, sysreturn, thread t, io_completion completion);
+    closure_type(edge_trigger_handler, u64, u64 events, u64 lastevents);
 
     u64 refcnt;
     int type;
@@ -550,6 +551,7 @@ static inline void init_fdesc(heap h, fdesc f, int type)
     f->sg_write = 0;
     f->close = 0;
     f->events = 0;
+    f->edge_trigger_handler = 0;
     f->ioctl = 0;
     f->refcnt = 1;
     f->type = type;

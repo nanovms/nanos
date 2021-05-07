@@ -11,6 +11,17 @@ struct efd {
     u64 counter;
 };
 
+closure_function(0, 2, u64, efd_edge_handler,
+                u64, events, u64, lastevents)
+{
+    /* A read or a write acts as an edge */
+    if (events & EPOLLIN)
+        lastevents &= ~EPOLLIN;
+    if (events & EPOLLOUT)
+        lastevents &= ~EPOLLOUT;
+    return lastevents;
+}
+
 closure_function(5, 1, sysreturn, efd_read_bh,
                  struct efd *, efd, thread, t, void *, buf, u64, length, io_completion, completion,
                  u64, flags)
@@ -161,6 +172,7 @@ int do_eventfd2(unsigned int count, int flags)
     efd->f.write = closure(h, efd_write, efd);
     efd->f.events = closure(h, efd_events, efd);
     efd->f.close = closure(h, efd_close, efd);
+    efd->f.edge_trigger_handler = closure(h, efd_edge_handler);
     efd->h = h;
     efd->flags = flags;
 
