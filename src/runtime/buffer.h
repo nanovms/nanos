@@ -10,8 +10,16 @@ struct buffer {
     void *contents;
 };
 
+/* don't force klibs import symbols for assert */
+#ifdef KLIB
+#define buffer_assert(x)
+#else
+#define buffer_assert(x) assert(x)
+#endif
+
 static inline void *buffer_ref(buffer b, bytes offset)
 {
+    buffer_assert(b->start + offset <= b->length);
     // alignment?
     return((void *)b->contents + (b->start + offset));
 }
@@ -40,23 +48,27 @@ static inline char peek_char(buffer b)
 
 static inline void buffer_clear(buffer b)
 {
-    b->start = b->end = 0; 
+    b->start = b->end = 0;
 }
 
 static inline void buffer_consume(buffer b, bytes s)
 {
-    b->start += s; 
+    buffer_assert(b->start + s <= b->end);
+    buffer_assert(b->end <= b->length);
+    b->start += s;
 }
 
 static inline void buffer_produce(buffer b, bytes s)
 {
-    b->end += s; 
+    buffer_assert(b->start <= b->end);
+    buffer_assert(b->end + s <= b->length);
+    b->end += s;
 }
 
 static inline bytes buffer_length(buffer b)
 {
     return b->end - b->start;
-} 
+}
 
 static inline boolean buffer_is_wrapped(buffer b)
 {
@@ -65,7 +77,7 @@ static inline boolean buffer_is_wrapped(buffer b)
 
 static inline bytes buffer_set_capacity(buffer b, bytes len)
 {
-    assert(!buffer_is_wrapped(b));  /* wrapped buffers can't be resized */
+    buffer_assert(!buffer_is_wrapped(b));  /* wrapped buffers can't be resized */
     if (len < b->end - b->start)
         len = b->end - b->start;
     if (len != b->length) {
@@ -167,7 +179,7 @@ static inline buffer clone_buffer(heap h, buffer b)
     buffer new = allocate_buffer(h, buffer_length(b));
     if (new == INVALID_ADDRESS)
         return new;
-    assert(push_buffer(new, b));
+    buffer_assert(push_buffer(new, b));
     return new;
 }
 
@@ -179,8 +191,8 @@ static inline buffer buffer_cstring(heap h, const char *x)
 {
     int len = runtime_strlen(x);
     buffer b = allocate_buffer(h, len);
-    assert(b != INVALID_ADDRESS);
-    assert(buffer_append(b, x, len));
+    buffer_assert(b != INVALID_ADDRESS);
+    buffer_assert(buffer_append(b, x, len));
     return b;
 }
 
@@ -373,7 +385,7 @@ int buffer_strstr(buffer b, const char *str);
         __b;                                                            \
     })
 
-    
+
 #define staticbuffer(__n) ({                    \
             static struct buffer b;             \
             b.contents = (__n);                 \
@@ -383,6 +395,8 @@ int buffer_strstr(buffer b, const char *str);
 
 static inline u8 pop_u8(buffer b)
 {
+    buffer_assert(b->start + 1 <= b->end);
+    buffer_assert(b->end <= b->length);
     // bounds
     u8 x = *(u8 *)buffer_ref(b, 0);
     b->start++;
@@ -391,13 +405,16 @@ static inline u8 pop_u8(buffer b)
 
 static inline void push_u8(buffer b, u8 x)
 {
-    assert(buffer_extend(b, 1));
+    buffer_assert(buffer_extend(b, 1));
+    buffer_assert(b->start <= b->end);
+    buffer_assert(b->end < b->length);
     *(u8 *)buffer_ref(b, buffer_length(b)) = x;
     b->end++;
 }
 
 static inline u32 buffer_read_le32(buffer b)
 {
+    buffer_assert(b->start + sizeof(u32) <= b->end);
     // bounds
     u32 x = *(u32 *)buffer_ref(b, 0);
     b->start+=sizeof(u32);
@@ -408,6 +425,7 @@ static inline boolean buffer_write_le32(buffer b, u32 x)
 {
     if (!buffer_extend(b, sizeof(u32)))
         return false;
+    buffer_assert(b->end + sizeof(u32) <= b->length);
     *(u32 *)buffer_ref(b, buffer_length(b)) = x;
     b->end+=sizeof(u32);
     return true;
