@@ -170,7 +170,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
 
 static inline void free_queued_signal(queued_signal qs)
 {
-    deallocate(heap_general(get_kernel_heaps()), qs, sizeof(struct queued_signal));
+    deallocate(heap_locked(get_kernel_heaps()), qs, sizeof(struct queued_signal));
 }
 
 void sigstate_flush_queue(sigstate ss)
@@ -205,7 +205,7 @@ static inline boolean sig_is_ignored(process p, int sig)
 
 static void deliver_signal(sigstate ss, struct siginfo *info)
 {
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     int sig = info->si_signo;
 
     /* Special handling for pending signals */
