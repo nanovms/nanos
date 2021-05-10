@@ -391,6 +391,7 @@ static pagecache_page allocate_page_nodelocked(pagecache_node pn, u64 offset)
     pp->kvirt = p;
     pp->node = pn;
     pp->l.next = pp->l.prev = 0;
+    pp->evicted = false;
 #ifdef KERNEL
     pp->phys = physical_from_virtual(p);
 #endif
