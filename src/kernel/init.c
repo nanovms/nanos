@@ -259,7 +259,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("kernel_runtime_init");
     init_runtime(misc, locked);
     init_sg(locked);
-    init_pagecache(locked, locked, (heap)heap_physical(kh), PAGESIZE);
+    init_pagecache(locked, backed, (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     init_extra_prints();
     init_pci(kh);
