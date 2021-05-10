@@ -103,7 +103,9 @@ define_closure_function(1, 0, void, log_ext_free,
     if (ext->staging)
         deallocate_buffer(ext->staging);
     pagecache_deallocate_node(ext->cache_node);
-    deallocate(ext->tl->h, ext, sizeof(struct log_ext));
+    heap h = ext->tl->h;
+    refcount_release(&ext->tl->refcount);
+    deallocate(h, ext, sizeof(struct log_ext));
 }
 
 static log_ext open_log_extension(log tl, range sectors)
@@ -140,6 +142,7 @@ static log_ext open_log_extension(log tl, range sectors)
         rangemap_insert(tl->extensions, n);
     }
 #endif
+    refcount_reserve(&tl->refcount);
     return ext;
   fail_dealloc_staging:
     deallocate_buffer(ext->staging);
@@ -182,13 +185,9 @@ static log log_new(heap h, filesystem fs)
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
     if (tl->dictionary == INVALID_ADDRESS)
         goto fail_dealloc_log;
-    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
-    tl->current = open_log_extension(tl, sectors);
-    if (tl->current == INVALID_ADDRESS)
-        goto fail_dealloc_dict;
     tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
     if (tl->tuple_staging == INVALID_ADDRESS)
-        goto fail_dealloc_current;
+        goto fail_dealloc_dict;
     tl->encoding_lengths = allocate_vector(h, 512);
     if (tl->encoding_lengths == INVALID_ADDRESS)
         goto fail_dealloc_staging;
@@ -204,19 +203,26 @@ static log log_new(heap h, filesystem fs)
 #ifndef TLOG_READ_ONLY
     tl->extensions = allocate_rangemap(h);
     if (tl->extensions == INVALID_ADDRESS) {
-        deallocate_vector(tl->flush_completions);
-        goto fail_dealloc_encoding_lengths;
+        goto fail_dealloc_completions;
     }
     tl->compacting = false;
     init_refcount(&tl->refcount, 1, init_closure(&tl->free, log_free, tl));
 #endif
+    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
+    tl->current = open_log_extension(tl, sectors);
+    if (tl->current == INVALID_ADDRESS) {
+#ifndef TLOG_READ_ONLY
+        deallocate_rangemap(tl->extensions, stack_closure(log_dealloc_ext_node, tl));
+#endif
+        goto fail_dealloc_completions;
+    }
     return tl;
+  fail_dealloc_completions:
+    deallocate_vector(tl->flush_completions);
   fail_dealloc_encoding_lengths:
     deallocate_vector(tl->encoding_lengths);
   fail_dealloc_staging:
     deallocate_buffer(tl->tuple_staging);
-  fail_dealloc_current:
-    refcount_release(&tl->current->refcount);
   fail_dealloc_dict:
     deallocate_table(tl->dictionary);
   fail_dealloc_log:
@@ -249,7 +255,6 @@ closure_function(4, 1, void, flush_log_extension_complete,
     tlog_debug("%s: status %v\n", __func__, s);
     deallocate_sg_list(bound(sg));
     apply(bound(complete), s);
-    refcount_release(&ext->tl->refcount);
     refcount_release(&ext->refcount);
     if (bound(release))
         close_log_extension(ext);
@@ -259,7 +264,6 @@ closure_function(4, 1, void, flush_log_extension_complete,
 static void flush_log_extension(log_ext ext, boolean release, status_handler complete)
 {
     refcount_reserve(&ext->refcount);
-    refcount_reserve(&ext->tl->refcount);
     filesystem fs = ext->tl->fs;
     buffer b = ext->staging;
     dump_staging(ext);
