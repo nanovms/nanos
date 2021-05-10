@@ -7,7 +7,7 @@
 
 #define STAGE2_STACK_SIZE  (128 * KB)  /* stage2 stack is recycled, too */
 #define KERNEL_STACK_SIZE  (128 * KB)  /* must match value in crt0.s */
-#define EXCEPT_STACK_SIZE  (32 * KB)
+#define EXCEPT_STACK_SIZE  (64 * KB)
 #define INT_STACK_SIZE     (32 * KB)
 #define BH_STACK_SIZE      (32 * KB)
 #define SYSCALL_STACK_SIZE (32 * KB)
