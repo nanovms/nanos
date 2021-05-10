@@ -299,7 +299,6 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
         if (m) {
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m), bh);
         }
-        refcount_reserve(&pp->refcount);
         pagecache_unlock_state(pc);
         return false;
     case PAGECACHE_PAGESTATE_FREE:
@@ -311,7 +310,6 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m), bh);
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
         }
-        refcount_reserve(&pp->refcount);
         pagecache_unlock_state(pc);
 
         if (m) {
@@ -345,7 +343,6 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
     default:
         halt("%s: invalid state %d\n", __func__, page_state(pp));
     }
-    refcount_reserve(&pp->refcount);
     pagecache_unlock_state(pc);
     return true;
 }
@@ -469,13 +466,15 @@ static pagecache_page page_lookup_or_alloc_nodelocked(pagecache_node pn, u64 n)
     return pp;
 }
 
-static void touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u64 n, merge m, boolean bh)
+static pagecache_page touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u64 n, merge m,
+                                                           boolean bh)
 {
     pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, n);
     if (pp == INVALID_ADDRESS)
         apply(apply_merge(m), timm("result", "failed to allocate pagecache_page"));
     else
         touch_or_fill_page_nodelocked(pn, pp, m, bh);
+    return pp;
 }
 
 closure_function(6, 1, void, pagecache_write_sg_finish,
@@ -633,7 +632,10 @@ closure_function(1, 3, void, pagecache_write_sg,
 
     /* initiate reads for rmw start and/or end */
     if (start_offset != 0) {
-        touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m, false);
+        pagecache_page pp = touch_or_fill_page_by_num_nodelocked(pn, q.start >> pc->page_order, m,
+            false);
+        if (pp != INVALID_ADDRESS)
+            refcount_reserve(&pp->refcount);
         r.start++;
     }
     if (end_offset != 0 && (q.end < pn->length) && /* tail rmw */
@@ -814,6 +816,7 @@ closure_function(1, 3, void, pagecache_read_sg,
         sgb->size = length;
         sgb->offset = 0;
         sgb->refcount = &pp->refcount;
+        refcount_reserve(&pp->refcount);
 
         touch_or_fill_page_nodelocked(pn, pp, m, false /* complete on runqueue */);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
@@ -1125,6 +1128,7 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
                                             pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
     touch_or_fill_page_nodelocked(pn, pp, m, bh);
+    refcount_reserve(&pp->refcount);
     pagecache_unlock_node(pn);
     apply(k, STATUS_OK);
 }
@@ -1143,6 +1147,7 @@ boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vad
         mapped = true;
         map_page(pn->pv->pc, pp, vaddr, flags);
     }
+    refcount_reserve(&pp->refcount);
   out:
     pagecache_unlock_node(pn);
     return mapped;
