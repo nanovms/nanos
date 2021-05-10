@@ -638,14 +638,21 @@ closure_function(1, 3, void, pagecache_write_sg,
             refcount_reserve(&pp->refcount);
         r.start++;
     }
-    if (end_offset != 0 && (q.end < pn->length) && /* tail rmw */
-        !((q.start & ~MASK(pc->page_order)) ==
-          (q.end & ~MASK(pc->page_order)) && start_offset != 0) /* no double fill */) {
-        touch_or_fill_page_by_num_nodelocked(pn, q.end >> pc->page_order, m, false);
+    if (end_offset != 0) {
+        if ((q.end < pn->length) && /* tail rmw */
+                !((q.start & ~MASK(pc->page_order)) ==
+                  (q.end & ~MASK(pc->page_order)) && start_offset != 0) /* no double fill */) {
+            pagecache_page pp = touch_or_fill_page_by_num_nodelocked(pn, q.end >> pc->page_order, m,
+                false);
+            if (pp != INVALID_ADDRESS)
+                refcount_reserve(&pp->refcount);
+        } else {
+            r.end++;
+        }
     }
 
     /* prepare whole pages, blocking for any pending reads */
-    for (u64 pi = r.start; pi <= r.end; pi++) {
+    for (u64 pi = r.start; pi < r.end; pi++) {
         pagecache_page pp = page_lookup_nodelocked(pn, pi);
         if (pp == INVALID_ADDRESS) {
             pp = allocate_page_nodelocked(pn, pi);
