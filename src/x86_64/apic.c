@@ -41,9 +41,17 @@ static inline u32 apic_read(int reg)
 
 void apic_ipi(u32 target, u64 flags, u8 vector)
 {
-    if (target != TARGET_EXCLUSIVE_BROADCAST)
-        target = apic_id_map[target];
-    apic_if->ipi(apic_if, target, flags, vector);
+    /* Do not use native "all but self" destination as it is very slow
+     * and may target processors not available */
+    if (target == TARGET_EXCLUSIVE_BROADCAST) {
+        for (int i = 0; i < total_processors; i++) {
+            if (current_cpu()->id == i)
+                continue;
+            apic_if->ipi(apic_if, apic_id_map[i], flags, vector);
+        }
+        return;
+    }
+    apic_if->ipi(apic_if, apic_id_map[target], flags, vector);
 }
 
 static inline void apic_set(int reg, u32 v)
