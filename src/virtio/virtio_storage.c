@@ -121,13 +121,6 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     char * err = 0;
     virtio_blk_debug("virtio_%s: block range %R cap %ld\n", write ? "write" : "read", sectors, st->capacity);
 
-    /* XXX so no, not page aligned but what? 16? */
-    if ((u64_from_pointer(buf) & 15)) {
-        msg_err("misaligned buf: %p\n", buf);
-        err = "write buffer not properly aligned";
-        goto out_inval;
-    }
-
     u64 start_sector = sectors.start;
     u64 nsectors = range_span(sectors);
     if (nsectors == 0) {
