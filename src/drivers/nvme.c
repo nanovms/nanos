@@ -459,7 +459,7 @@ closure_function(4, 0, void, nvme_ns_attach,
     block_io w = closure(n->general, nvme_io, n, ns_id, true);
     if (w != INVALID_ADDRESS) {
         nvme_debug("attaching disk (NS ID %d, capacity %ld bytes)", ns_id, disk_size);
-        apply(bound(a), r, w, disk_size);
+        apply(bound(a), r, w, 0 /* TODO: flush */, disk_size);
     } else {
         msg_err("failed to allocate write closure\n");
         deallocate_closure(r);

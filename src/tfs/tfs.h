@@ -27,6 +27,7 @@ void create_filesystem(heap h,
                        u64 size,
                        block_io read,
                        block_io write,
+                       block_flush flush,
                        const char *label,
                        filesystem_complete complete);
 void destroy_filesystem(filesystem fs);

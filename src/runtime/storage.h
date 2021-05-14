@@ -74,7 +74,7 @@ struct filesystem;
 void init_volumes(heap h);
 void storage_set_root_fs(struct filesystem *root_fs);
 void storage_set_mountpoints(tuple mounts);
-boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, u64 size);
+boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, block_flush flush, u64 size);
 void storage_when_ready(thunk complete);
 void storage_sync(status_handler sh);
 

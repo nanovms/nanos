@@ -94,7 +94,7 @@ closure_function(3, 2, void, fsstarted,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_block_io,
                                       bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, false,
+                              0, 0, 0, /* no write, flush or label */
                               bootfs_handler(init_heaps, root, klibs_in_bootfs,
                                              ingest_kernel_syms));
         }
@@ -184,7 +184,7 @@ boolean first_boot(void)
 KLIB_EXPORT(first_boot);
 
 static void rootfs_init(u8 *mbr, u64 offset,
-                        block_io r, block_io w, u64 length)
+                        block_io r, block_io w, block_flush flush, u64 length)
 {
     init_debug("%s", __func__);
     length -= offset;
@@ -194,12 +194,13 @@ static void rootfs_init(u8 *mbr, u64 offset,
                       length,
                       closure(h, offset_block_io, offset, r),
                       closure(h, offset_block_io, offset, w),
+                      flush,
                       false,
                       closure(h, fsstarted, mbr, r, w));
 }
 
-closure_function(4, 1, void, mbr_read,
-                 u8 *, mbr, block_io, r, block_io, w, u64, length,
+closure_function(5, 1, void, mbr_read,
+                 u8 *, mbr, block_io, r, block_io, w, block_flush, flush, u64, length,
                  status, s)
 {
     init_debug("%s", __func__);
@@ -213,7 +214,7 @@ closure_function(4, 1, void, mbr_read,
         u8 uuid[UUID_LEN];
         char label[VOLUME_LABEL_MAX_LEN];
         if (filesystem_probe(mbr, uuid, label))
-            volume_add(uuid, label, bound(r), bound(w), bound(length));
+            volume_add(uuid, label, bound(r), bound(w), bound(flush), bound(length));
         else
             init_debug("unformatted storage device, ignoring");
         deallocate(heap_locked(init_heaps), mbr, SECTOR_SIZE);
@@ -223,14 +224,14 @@ closure_function(4, 1, void, mbr_read,
         klog_disk_setup(first_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
 
         rootfs_init(mbr, rootfs_part->lba_start * SECTOR_SIZE,
-                    bound(r), bound(w), bound(length));
+                    bound(r), bound(w), bound(flush), bound(length));
     }
   out:
     closure_finish();
 }
 
-closure_function(0, 3, void, attach_storage,
-                 block_io, r, block_io, w, u64, length)
+closure_function(0, 4, void, attach_storage,
+                 block_io, r, block_io, w, block_flush, flush, u64, length)
 {
     heap h = heap_locked(init_heaps);
     /* Read partition table from disk */
@@ -239,7 +240,7 @@ closure_function(0, 3, void, attach_storage,
         msg_err("cannot allocate memory for MBR sector\n");
         return;
     }
-    status_handler sh = closure(h, mbr_read, mbr, r, w, length);
+    status_handler sh = closure(h, mbr_read, mbr, r, w, flush, length);
     if (sh == INVALID_ADDRESS) {
         msg_err("cannot allocate MBR read closure\n");
         deallocate(h, mbr, SECTOR_SIZE);

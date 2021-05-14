@@ -698,8 +698,9 @@ int main(int argc, char **argv)
             }
         }
         if (boot) {
-            create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0,
+            create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0 /* no read */,
                               closure(h, bwrite, out, offset),
+                              0 /* no flush */,
                               "", closure(h, fsc, h, out, boot, target_root));
             offset += BOOTFS_SIZE;
 
@@ -715,6 +716,7 @@ int main(int argc, char **argv)
                       infinity,
                       0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
+                      0, /* no flush */
                       label,
                       closure(h, fsc, h, out, root, target_root));
 
