@@ -569,7 +569,7 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
     return i.end;
 }
 
-static fs_status fill_gap(fsfile f, sg_list sg, range blocks, merge m, u64 *edge, boolean write)
+static fs_status fill_gap(fsfile f, sg_list sg, range blocks, merge m, u64 *edge)
 {
     blocks = irangel(blocks.start, MIN(MAX_EXTENT_SIZE >> f->fs->blocksize_order,
                                        range_span(blocks)));
@@ -583,7 +583,7 @@ static fs_status fill_gap(fsfile f, sg_list sg, range blocks, merge m, u64 *edge
         destroy_extent(f->fs, ex);
         return fss;
     }
-    if (write)
+    if (m)
         write_extent(f, ex, sg, blocks, m);
     *edge = blocks.end;
     return FS_STATUS_OK;
@@ -608,38 +608,37 @@ static fs_status update_extent_length(fsfile f, extent ex, u64 new_length)
     return FS_STATUS_OK;
 }
 
-static u64 extend(fsfile f, extent ex, sg_list sg, range blocks, merge m, boolean write)
+static fs_status extend(fsfile f, extent ex, sg_list sg, range blocks, merge m, u64 *edge)
 {
     u64 free = ex->allocated - range_span(ex->node.r);
     range r = irangel(ex->node.r.end, free);
     range i = range_intersection(r, blocks);
     tfs_debug("   %s: node %R, free 0x%lx (%R), i %R\n", __func__, ex->node.r, free, r, i);
-    if (range_span(i) == 0)
-        return blocks.start;
+    if (range_span(i) == 0) {
+        *edge = blocks.start;
+        return FS_STATUS_OK;
+    }
     assert(blocks.start >= ex->node.r.end); // XXX temp
     assert(ex->node.r.end <= i.start); // XXX temp
     range z = irange(ex->node.r.end, i.start);
     fs_status s = update_extent_length(f, ex, i.end - ex->node.r.start);
-    if (s != FS_STATUS_OK) {
-        apply(apply_merge(m), timm("result", "failed to update extent length",
-            "fsstatus", "%d", s));
-        goto out;
+    if (s == FS_STATUS_OK) {
+        if (m) {
+            if (range_span(z) > 0) {
+                tfs_debug("      zero %R\n", z);
+                write_extent(f, ex, 0, z, m);
+            }
+            tfs_debug("      write %R\n", i);
+            write_extent(f, ex, sg, i, m);
+        }
+        *edge = i.end;
     }
-    if (!write)
-        goto out;
-    if (range_span(z) > 0) {
-        tfs_debug("      zero %R\n", z);
-        write_extent(f, ex, 0, z, m);
-    }
-    tfs_debug("      write %R\n", i);
-    write_extent(f, ex, sg, i, m);
-  out:
-    return i.end;
+    return s;
 }
 
-static status extents_range_handler(filesystem fs, fsfile f, range blocks, boolean write, sg_list sg, merge m)
+static status extents_range_handler(filesystem fs, fsfile f, range blocks, sg_list sg, merge m)
 {
-    tfs_debug("%s: file %p blocks %R write %d sg %p\n", __func__, f, blocks, write, sg);
+    tfs_debug("%s: file %p blocks %R sg %p m %p\n", __func__, f, blocks, sg, m);
 
     rmnode prev;            /* prior to edge, but could be extended */
     rmnode next;            /* intersecting or succeeding */
@@ -658,21 +657,24 @@ static status extents_range_handler(filesystem fs, fsfile f, range blocks, boole
     do {
         tfs_debug("   prev %p, next %p\n", prev, next);
         u64 limit = next == INVALID_ADDRESS ? blocks.end : MIN(blocks.end, next->r.start);
-        if (!write || sg) {
+        fs_status fss;
+        if (!m || sg) {
             if (blocks.start < limit) {
                 /* try to extend previous node */
                 if (prev != INVALID_ADDRESS && prev->r.end < limit) {
                     tfs_debug("   extent start 0x%lx, limit 0x%lx\n", blocks.start, limit);
-                    blocks.start = extend(f, (extent)prev, sg, irange(blocks.start, limit), m, write);
+                    fss = extend(f, (extent)prev, sg, irange(blocks.start, limit), m, &blocks.start);
+                    if (fss != FS_STATUS_OK) {
+                        return timm("result", "unable to extend extent", "fsstatus", "%d", fss);
+                    }
                 }
 
                 /* fill space */
                 while (blocks.start < limit) {
                     tfs_debug("   fill start 0x%lx, limit 0x%lx\n", blocks.start, limit);
-                    fs_status fss = fill_gap(f, sg, irange(blocks.start, limit), m, &blocks.start, write);
+                    fss = fill_gap(f, sg, irange(blocks.start, limit), m, &blocks.start);
                     if (fss != FS_STATUS_OK) {
-                        return timm("result", "unable to create extent",
-                                 "fsstatus", "%d", fss);
+                        return timm("result", "unable to create extent", "fsstatus", "%d", fss);
                     }
                 }
             }
@@ -686,14 +688,14 @@ static status extents_range_handler(filesystem fs, fsfile f, range blocks, boole
             extent ex = (extent)next;
             next = rangemap_next_node(f->extentmap, next);
 
-            if (write && !sg && range_contains(blocks, ex->node.r)) {
+            if (m && !sg && range_contains(blocks, ex->node.r)) {
                 blocks.start = ex->node.r.end;
                 remove_extent_from_file(f, ex);
                 destroy_extent(fs, ex);
                 prev = INVALID_ADDRESS; /* prev isn't used in zero, but just to be safe */
             } else if (blocks.end > ex->node.r.start) {
                 /* TODO: improve write_extent to trim extent on zero */
-                if (write)
+                if (m)
                     blocks.start = write_extent(f, ex, sg, blocks, m);
                 else
                     blocks.start = range_intersection(blocks, ex->node.r).end;
@@ -715,7 +717,7 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
     range blocks = range_rshift_pad(q, fs->blocksize_order);
     tfs_debug("%s: file %p range %R blocks %R\n", __func__, f, q, blocks);
 
-    return extents_range_handler(fs, f, blocks, false, 0, 0);
+    return extents_range_handler(fs, f, blocks, 0, 0);
 }
 
 closure_function(2, 3, void, filesystem_storage_write,
@@ -734,7 +736,7 @@ closure_function(2, 3, void, filesystem_storage_write,
     merge m = allocate_merge(fs->h, complete);
     status_handler sh = apply_merge(m);
 
-    status s = extents_range_handler(fs, f, blocks, true, sg, m);
+    status s = extents_range_handler(fs, f, blocks, sg, m);
     if (s != STATUS_OK)
         goto out;
     if (fsfile_get_length(f) < q.end) {
