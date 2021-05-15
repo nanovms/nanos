@@ -10,6 +10,10 @@
 #include <errno.h>
 #include <sys/epoll.h>
 
+#include <runtime.h>
+
+#define NETSOCK_TEST_BASIC_PORT 1233
+
 #define NETSOCK_TEST_FIO_COUNT  8
 
 #define test_assert(expr) do { \
@@ -18,6 +22,82 @@
         exit(EXIT_FAILURE); \
     } \
 } while (0)
+
+static inline void timespec_sub(struct timespec *a, struct timespec *b, struct timespec *r)
+{
+    r->tv_sec = a->tv_sec - b->tv_sec;
+    r->tv_nsec = a->tv_nsec - b->tv_nsec;
+    if (a->tv_nsec < b->tv_nsec) {
+        r->tv_sec--;
+        r->tv_nsec += 1000000000ull;
+    }
+}
+
+static void *netsock_test_basic_thread(void *arg)
+{
+    int sock_type = (long)arg;
+    int fd;
+    struct sockaddr_in addr;
+    uint8_t rx_buf[8 * KB];
+    int rx;
+
+    fd = socket(AF_INET, sock_type, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(NETSOCK_TEST_BASIC_PORT);
+    test_assert(connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    do {
+        rx = read(fd, rx_buf, sizeof(rx_buf));
+        test_assert(rx >= 0);
+    } while (rx > 0);
+    test_assert(close(fd) == 0);
+    return NULL;
+}
+
+static void netsock_test_basic(int sock_type)
+{
+    int fd, tx_fd;
+    struct sockaddr_in addr;
+    pthread_t pt;
+    int ret;
+    struct timespec start, end, elapsed;
+    const int tx_total = 8 * MB;
+    uint8_t tx_buf[32 * KB];
+    int tx = 0;
+    unsigned long long ns;
+
+    fd = socket(AF_INET, sock_type, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(NETSOCK_TEST_BASIC_PORT);
+    test_assert(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    if (sock_type == SOCK_STREAM) {
+        test_assert(listen(fd, 1) == 0);
+        ret = pthread_create(&pt, NULL, netsock_test_basic_thread, (void *)(long)sock_type);
+        test_assert(ret == 0);
+        tx_fd = accept(fd, NULL, NULL);
+        test_assert(tx_fd > 0);
+        test_assert(close(fd) == 0);
+    } else {
+        tx_fd = fd;
+    }
+    test_assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
+    do {
+        ret = write(tx_fd, tx_buf, sizeof(tx_buf));
+        test_assert(ret > 0);
+        tx += ret;
+    } while (tx < tx_total);
+    test_assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
+    timespec_sub(&end, &start, &elapsed);
+    ns = elapsed.tv_sec * 1000000000ull + elapsed.tv_nsec;
+    printf("%s(%d): transmitted %d bytes in %ld.%.9ld seconds (%lld KB/s)\n", __func__, sock_type,
+           tx_total, elapsed.tv_sec, elapsed.tv_nsec, (1000000000ull / KB) * tx_total / ns);
+    test_assert(close(tx_fd) == 0);
+    if (sock_type == SOCK_STREAM)
+        test_assert(pthread_join(pt, NULL) == 0);
+}
 
 static void *netsock_test_fionread_thread(void *arg)
 {
@@ -244,6 +324,8 @@ int main(int argc, char **argv)
 {
     setbuf(stdout, NULL);
 
+    netsock_test_basic(SOCK_STREAM);
+    netsock_test_basic(SOCK_DGRAM);
     netsock_test_fionread();
     netsock_test_connclosed();
     netsock_test_nonblocking_connect();

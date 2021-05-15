@@ -445,6 +445,9 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
                 fdesc_notify_events(&s->sock.f); /* reset a triggered EPOLLIN condition */
         }
     } while(s->sock.type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
+    if (s->sock.type == SOCK_STREAM)
+        /* Calls to tcp_recved() may have enqueued new packets in the loopback interface. */
+        netsock_check_loop();
 
     rv = xfer_total;
   out:
