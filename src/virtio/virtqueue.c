@@ -142,6 +142,7 @@ void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
     d->len = len;
     d->flags = write ? VRING_DESC_F_WRITE : 0;
     d->next = 0;
+    buffer_produce(m->descv, sizeof(struct vring_desc));
     m->count++;
     virtqueue_debug_verbose("%s: vq %s, vqmsg %p, phys_addr 0x%lx, len 0x%x, %s, m->count now %d\n",
                             __func__, vq->name, m, phys_addr, len, write ? "write" : "read", m->count);
