@@ -517,7 +517,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     install_fallback_fault_handler((fault_handler)&dummy_thread->fault_handler);
 
     register_special_files(kernel_process);
-    init_syscalls();
+    init_syscalls(kernel_process->process_root);
     register_file_syscalls(linux_syscalls);
 #ifdef NET
     register_net_syscalls(linux_syscalls);
@@ -531,9 +531,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_timer_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
     configure_syscalls(kernel_process);
-    do_syscall_stats = get(kernel_process->process_root, sym(syscall_summary)) != 0;
-    if (do_syscall_stats)
-        vector_push(shutdown_completions, print_syscall_stats);
+
     return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");

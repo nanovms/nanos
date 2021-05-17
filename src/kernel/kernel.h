@@ -271,9 +271,8 @@ void start_secondary_cores(kernel_heaps kh);
 void detect_hypervisor(kernel_heaps kh);
 void detect_devices(kernel_heaps kh, storage_attach sa);
 
-#define SHUTDOWN_COMPLETIONS_SIZE    8
-extern vector shutdown_completions;
 typedef closure_type(shutdown_handler, void, int, merge);
+void add_shutdown_completion(shutdown_handler h);
 extern int shutdown_vector;
 extern boolean shutting_down;
 void wakeup_or_interrupt_cpu_all();

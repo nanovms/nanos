@@ -49,7 +49,9 @@ boolean basic_tests(heap h)
     test_assert(buffer_length(b) == 0);
     test_assert(buffer_memcmp(b, test_str, 0) == 0);
     test_assert(buffer_strchr(b, '0') < 0);
+    test_assert(buffer_strrchr(b, '0') < 0);
     test_assert(buffer_strstr(b, test_str) == -1);
+    test_assert(buffer_basename(b) == b);
 
     /* Buffer capacity */
     buffer_write_cstring(b, test_str);
@@ -62,12 +64,23 @@ boolean basic_tests(heap h)
     test_assert(buffer_memcmp(b, test_str, sizeof(test_str)) < 0);
     test_assert(buffer_strchr(b, 't') == 10);
     test_assert(buffer_strchr(b, 'u') < 0);
+    test_assert(buffer_strrchr(b, 'T') == 0);
+    test_assert(buffer_strrchr(b, 'g') == 20);
+    test_assert(buffer_strrchr(b, 'i') == 18);
+    test_assert(buffer_strrchr(b, 'u') == -1);
     test_assert(buffer_strstr(b, "") == 0);
     test_assert(buffer_strstr(b, test_str) == 0);
     test_assert(buffer_strstr(b, "This") == 0);
     test_assert(buffer_strstr(b, "is") == 2);
     test_assert(buffer_strstr(b, "g") == 20);
     test_assert(buffer_strstr(b, "TT") == -1);
+
+    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("/usr/lib")), "lib"));
+    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("/usr/")), "usr"));
+    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("usr")), "usr"));
+    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("/")), "/"));
+    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring(".")), "."));
+    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("..")), ".."));
 
     /* Create and then deallocate a wrapped buffer. */
     deallocate_buffer(wrap_buffer_cstring(h, test_str));

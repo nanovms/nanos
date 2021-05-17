@@ -20,8 +20,10 @@ static kernel_heaps init_heaps;
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
 #define MAX_BLOCK_IO_SIZE (64 * 1024)
+#define SHUTDOWN_COMPLETIONS_SIZE 8
 
 static struct kernel_heaps heaps;
+static vector shutdown_completions;
 
 closure_function(2, 3, void, offset_block_io,
                  u64, offset, block_io, io,
@@ -314,7 +316,10 @@ void kernel_runtime_init(kernel_heaps kh)
     runloop();
 }
 
-vector shutdown_completions;
+void add_shutdown_completion(shutdown_handler h)
+{
+    vector_push(shutdown_completions, h);
+}
 
 closure_function(1, 1, void, sync_complete,
                  u8, code,

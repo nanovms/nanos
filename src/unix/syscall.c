@@ -21,12 +21,15 @@ typedef struct syscall_stat {
 
 static struct syscall_stat stats[SYS_MAX];
 boolean do_syscall_stats;
+static boolean do_missing_files;
+static vector missing_files;
 
 sysreturn close(int fd);
 
 io_completion syscall_io_complete;
 io_completion io_completion_ignore;
 shutdown_handler print_syscall_stats;
+shutdown_handler print_missing_files;
 
 boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
 {
@@ -734,6 +737,7 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
     tuple n;
     tuple parent;
     int ret;
+    buffer b = 0;
 
     if (!validate_user_string(name))
         return -EFAULT;
@@ -761,7 +765,26 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         }
     }
 
+    if (do_missing_files) {
+        b = buffer_cstring(h, name);
+        assert(b != INVALID_ADDRESS);
+        b = buffer_basename(b);
+    }
     if (ret) {
+        if (do_missing_files) {
+            boolean found = false;
+            for (int i = 0; i < vector_length(missing_files); i++) {
+                buffer lb = vector_get(missing_files, i);
+                if (buffer_compare(b, lb)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                vector_push(missing_files, b);
+            else
+                deallocate_buffer(b);
+        }
         thread_log(current, "\"%s\" - not found", name);
         return set_syscall_return(current, ret);
     }
@@ -834,6 +857,17 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         }
     }
 
+    if (do_missing_files) {
+        for (int i = 0; i < vector_length(missing_files); i++) {
+            buffer mf = vector_get(missing_files, i);
+            if (buffer_compare(b, mf)) {
+                vector_delete(missing_files, i);
+                deallocate_buffer(mf);
+                break;
+            }
+        }
+        deallocate_buffer(b);
+    }
     thread_log(current, "   fd %d, length %ld, offset %ld", fd, f->length, f->offset);
     return fd;
 }
@@ -2433,7 +2467,28 @@ static void syscall_schedule(context f)
     syscall_debug(f);
 }
 
-void init_syscalls()
+static char *missing_files_exclude[] = {
+    "ld.so.cache",
+};
+
+closure_function(0, 2, void, print_missing_files_cfn,
+                 int, status, merge, m)
+{
+    buffer b;
+    rprintf("missing_files_begin\n");
+    vector_foreach(missing_files, b) {
+        for (int i = 0; i < sizeof(missing_files_exclude)/sizeof(missing_files_exclude[0]); i++) {
+            if (buffer_compare_with_cstring(b, missing_files_exclude[i]))
+                goto next;
+        }
+        rprintf("%v\n", b);
+next:
+        continue;
+    }
+    rprintf("missing_files_end\n");
+}
+
+void init_syscalls(tuple root)
 {
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
@@ -2441,7 +2496,18 @@ void init_syscalls()
     syscall = syscall_schedule;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
-    print_syscall_stats = closure(h, print_syscall_stats_cfn);
+    do_syscall_stats = get(root, sym(syscall_summary)) != 0;
+    if (do_syscall_stats) {
+        print_syscall_stats = closure(h, print_syscall_stats_cfn);
+        add_shutdown_completion(print_syscall_stats);
+    }
+    do_missing_files = get(root, sym(missing_files)) != 0;
+    if (do_missing_files) {
+        missing_files = allocate_vector(h, 8);
+        assert(missing_files != INVALID_ADDRESS);
+        print_missing_files = closure(h, print_missing_files_cfn);
+        add_shutdown_completion(print_missing_files);
+    }
 }
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name)

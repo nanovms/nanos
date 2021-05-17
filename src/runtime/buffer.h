@@ -361,6 +361,15 @@ static inline int buffer_strchr(buffer b, int c)
     return -1;
 }
 
+static inline int buffer_strrchr(buffer b, int c)
+{
+    for (s64 len = buffer_length(b) - 1; len >= 0; len--) {
+        if (byte(b, len) == c)
+            return len;
+    }
+    return -1;
+}
+
 int buffer_strstr(buffer b, const char *str);
 
 // the ascii subset..utf8 me
@@ -469,3 +478,21 @@ static inline key fnv64(void *z)
 }
 
 void buffer_print(buffer b);
+
+/* modifies the original buffer, buffer must be a string */
+static inline buffer buffer_basename(buffer b)
+{
+    int p;
+
+    if (buffer_length(b) <= 1)
+        return b;
+    if ((p = buffer_strrchr(b, '/')) != -1) {
+        if (p == buffer_length(b) - 1) {
+            b->end--;
+            if ((p = buffer_strrchr(b, '/')) == -1 || buffer_length(b) == 1)
+                return b;
+        }
+        buffer_consume(b, p + 1);
+    }
+    return b;
+}
