@@ -737,8 +737,6 @@ static inline void count_syscall_noreturn(thread t)
     t->syscall_time = 0;
     t->last_syscall = -1;
 }
-extern shutdown_handler print_syscall_stats;
-extern boolean do_syscall_stats;
 
 void register_file_syscalls(struct syscall *);
 void register_net_syscalls(struct syscall *);
@@ -837,7 +835,7 @@ static inline u64 iov_total_len(struct iovec *iov, int iovcnt)
 #define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = resolve_fd_noret(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
-void init_syscalls();
+void init_syscalls(tuple root);
 void init_threads(process p);
 void init_futices(process p);
 
