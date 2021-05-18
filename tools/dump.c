@@ -278,8 +278,7 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       infinity,
                       closure(h, bread, fd, get_fs_offset(fd, PARTITION_ROOTFS, false)),
-                      0, /* no write */
-                      false,
+                      0, 0, 0, /* no write, flush or label */
                       closure(h, fsc, h, target_dir, options));
     return EXIT_SUCCESS;
 }

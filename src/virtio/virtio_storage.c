@@ -41,7 +41,15 @@ struct virtio_blk_config {
        // optimal (suggested maximum) I/O size in blocks
        u32 opt_io_size;
     } topology;
-    u8 reserved;
+    u8 writeback;
+    u8 unused0[3];
+    u32 max_discard_sectors;
+    u32 max_discard_seg;
+    u32 discard_sector_alignment;
+    u32 max_write_zeroes_sectors;
+    u32 max_write_zeroes_seg;
+    u8 write_zeroes_may_unmap;
+    u8 unused1[3];
 } __attribute__((packed));
 
 #define VIRTIO_BLK_F_SIZE_MAX   U64_FROM_BIT(1)
@@ -53,19 +61,25 @@ struct virtio_blk_config {
 #define VIRTIO_BLK_F_TOPOLOGY   U64_FROM_BIT(10)
 #define VIRTIO_BLK_F_CONFIG_WCE U64_FROM_BIT(11)
 
-#define VIRTIO_BLK_R_CAPACITY_LOW		(offsetof(struct virtio_blk_config *, capacity))
-#define VIRTIO_BLK_R_CAPACITY_HIGH		(offsetof(struct virtio_blk_config *, capacity) + 4)
-#define VIRTIO_BLK_R_SIZE_MAX			(offsetof(struct virtio_blk_config *, size_max))
-#define VIRTIO_BLK_R_SEG_MAX			(offsetof(struct virtio_blk_config *, seg_max))
-#define VIRTIO_BLK_R_GEOM_CYLINDERS		(offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, cylinders))
-#define VIRTIO_BLK_R_GEOM_HEADS			(offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, heads))
-#define VIRTIO_BLK_R_GEOM_SECTORS		(offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, sectors))
-#define VIRTIO_BLK_R_BLOCK_SIZE			(offsetof(struct virtio_blk_config *, blk_size))
+#define VIRTIO_BLK_R_CAPACITY_LOW                (offsetof(struct virtio_blk_config *, capacity))
+#define VIRTIO_BLK_R_CAPACITY_HIGH               (offsetof(struct virtio_blk_config *, capacity) + 4)
+#define VIRTIO_BLK_R_SIZE_MAX                    (offsetof(struct virtio_blk_config *, size_max))
+#define VIRTIO_BLK_R_SEG_MAX                     (offsetof(struct virtio_blk_config *, seg_max))
+#define VIRTIO_BLK_R_GEOM_CYLINDERS              (offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, cylinders))
+#define VIRTIO_BLK_R_GEOM_HEADS                  (offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, heads))
+#define VIRTIO_BLK_R_GEOM_SECTORS                (offsetof(struct virtio_blk_config *, geometry) + offsetof(struct virtio_blk_geometry *, sectors))
+#define VIRTIO_BLK_R_BLOCK_SIZE                  (offsetof(struct virtio_blk_config *, blk_size))
 #define VIRTIO_BLK_R_TOPOLOGY_PHYSICAL_BLOCK_EXP (offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, physical_block_exp))
-#define VIRTIO_BLK_R_TOPOLOGY_ALIGNMENT_OFFSET	(offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, alignment_offset))
-#define VIRTIO_BLK_R_TOPOLOGY_MIN_IO_SIZE	(offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, min_io_size))
-#define VIRTIO_BLK_R_TOPOLOGY_OPT_IO_SIZE	(offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, opt_io_size))
-#define VIRTIO_BLK_R_RESERVED			(offsetof(struct virtio_blk_config *, reserved))
+#define VIRTIO_BLK_R_TOPOLOGY_ALIGNMENT_OFFSET   (offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, alignment_offset))
+#define VIRTIO_BLK_R_TOPOLOGY_MIN_IO_SIZE        (offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, min_io_size))
+#define VIRTIO_BLK_R_TOPOLOGY_OPT_IO_SIZE        (offsetof(struct virtio_blk_config *, topology) + offsetof(struct virtio_blk_topology *, opt_io_size))
+#define VIRTIO_BLK_R_WRITEBACK                   (offsetof(struct virtio_blk_config *, writeback))
+#define VIRTIO_BLK_R_MAX_DISCARD_SECTORS         (offsetof(struct virtio_blk_config *, max_discard_sectors))
+#define VIRTIO_BLK_R_MAX_DISCARD_SEG             (offsetof(struct virtio_blk_config *, max_discard_seg))
+#define VIRTIO_BLK_R_DISCARD_SECTOR_ALIGNMENT    (offsetof(struct virtio_blk_config *, discard_sector_alignment))
+#define VIRTIO_BLK_R_MAX_WRITE_ZEROS_SECTORS     (offsetof(struct virtio_blk_config *, max_write_zeroes_sectors))
+#define VIRTIO_BLK_R_MAX_WRITE_ZEROS_SEG         (offsetof(struct virtio_blk_config *, max_write_zeroes_seg))
+#define VIRTIO_BLK_R_WRITE_ZEROS_MAY_UNMAP       (offsetof(struct virtio_blk_config *, write_zeroes_may_unmap))
 
 #define VIRTIO_BLK_REQ_HEADER_SIZE      16
 #define VIRTIO_BLK_REQ_STATUS_SIZE      1
@@ -111,7 +125,6 @@ closure_function(4, 1, void, complete,
     if (bound(req)->status) st = timm("result", "%d", bound(req)->status);
     apply(bound(f), st);
     deallocate_virtio_blk_req(bound(s), bound(req), bound(phys));
-    // s->command->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
     closure_finish();
 }
 
@@ -162,6 +175,24 @@ closure_function(1, 3, void, storage_read,
     storage_rw_internal(bound(st), false, target, blocks, s);
 }
 
+closure_function(1, 1, void, storage_flush,
+                 storage, st,
+                 status_handler, s)
+{
+    virtio_blk_debug("%s: handler %p (%F)\n", __func__, s, s);
+    u64 req_phys;
+    storage st = bound(st);
+    virtio_blk_req req = allocate_virtio_blk_req(st, VIRTIO_BLK_T_FLUSH, 0, &req_phys);
+    virtqueue vq = st->command;
+    vqmsg m = allocate_vqmsg(vq);
+    assert(m != INVALID_ADDRESS);
+    vqmsg_push(vq, m, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
+    vqmsg_push(vq, m, req_phys + VIRTIO_BLK_REQ_HEADER_SIZE, VIRTIO_BLK_REQ_STATUS_SIZE, true);
+    vqfinish c = closure(st->v->general, complete, st, s, req, req_phys);
+    assert(c != INVALID_ADDRESS);
+    vqmsg_commit(vq, m, c);
+}
+
 static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
 {
     storage s = allocate(general, sizeof(struct storage));
@@ -174,12 +205,20 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
 		   ((u64) vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
     virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
     virtio_alloc_virtqueue(v, "virtio blk", 0, bhqueue, &s->command);
-    // initialization complete
+
+    block_flush flush;
+    if (v->features & VIRTIO_BLK_F_FLUSH) {
+        flush = closure(general, storage_flush, s);
+        if (v->features & VIRTIO_BLK_F_CONFIG_WCE)
+            vtdev_cfg_write_1(v, VIRTIO_BLK_R_WRITEBACK, 1 /* writeback */);
+    } else {
+        flush = 0;
+    }
     vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
     block_io in = closure(general, storage_read, s);
     block_io out = closure(general, storage_write, s);
-    apply(a, in, out, s->capacity);
+    apply(a, in, out, flush, s->capacity);
 }
 
 closure_function(3, 1, boolean, vtpci_blk_probe,
@@ -193,7 +232,7 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
     virtio_blk_debug("   attaching\n");
     heap general = bound(general);
     vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d,
-        VIRTIO_BLK_F_BLK_SIZE);
+                                  VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_CONFIG_WCE | VIRTIO_BLK_F_FLUSH);
     virtio_blk_attach(general, bound(a), v);
     return true;
 }
@@ -209,7 +248,8 @@ closure_function(3, 1, void, vtmmio_blk_probe,
         return;
     virtio_blk_debug("   attaching\n");
     heap general = bound(general);
-    if (attach_vtmmio(general, bound(page_allocator), d, VIRTIO_BLK_F_BLK_SIZE))
+    if (attach_vtmmio(general, bound(page_allocator), d,
+                      VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_CONFIG_WCE | VIRTIO_BLK_F_FLUSH))
         virtio_blk_attach(general, bound(a), (vtdev)d);
 }
 

@@ -430,7 +430,8 @@ closure_function(2, 3, boolean, xenblk_probe,
     }
     xenblk_debug("attaching disk, capacity %ld bytes", xbd->capacity);
     apply(bound(sa), init_closure(&xbd->read, xenblk_io, xbd, false),
-          init_closure(&xbd->write, xenblk_io, xbd, true), xbd->capacity);
+          init_closure(&xbd->write, xenblk_io, xbd, true),
+          0 /* TODO: flush */, xbd->capacity);
     return true;
   dealloc_reqs:
     deallocate_vector(xbd->rreqs);

@@ -255,7 +255,7 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
 
     block_io in = closure(s->general, pvscsi_read, d);
     block_io out = closure(s->general, pvscsi_write, d);
-    apply(bound(a), in, out, d->capacity);
+    apply(bound(a), in, out, 0 /* TODO: flush */, d->capacity);
   out:
     closure_finish();
 }

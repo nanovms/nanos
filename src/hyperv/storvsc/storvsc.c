@@ -730,7 +730,7 @@ closure_function(5, 0, void, storvsc_read_capacity_done,
 
     block_io in = closure(s->general, storvsc_read, s);
     block_io out = closure(s->general, storvsc_write, s);
-    apply(bound(a), in, out, s->capacity);
+    apply(bound(a), in, out, 0 /* TODO: flush */, s->capacity);
   out:
     closure_finish();
 }

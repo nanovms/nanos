@@ -75,7 +75,9 @@ typedef struct vtdev {
     vtdev_notify notify;
 } *vtdev;
 
+u8 vtdev_cfg_read_1(vtdev dev, u64 offset);
 u32 vtdev_cfg_read_4(vtdev dev, u64 offset);
+void vtdev_cfg_write_1(vtdev dev, u64 offset, u8 value);
 void vtdev_cfg_write_4(vtdev dev, u64 offset, u32 value);
 void vtdev_cfg_read_mem(vtdev dev, void *dest, bytes len);
 void vtdev_set_status(vtdev dev, u8 status);

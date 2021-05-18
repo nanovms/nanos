@@ -9,6 +9,7 @@ typedef struct volume {
     u8 uuid[UUID_LEN];
     char label[VOLUME_LABEL_MAX_LEN];
     block_io r, w;
+    block_flush flush;
     u64 size;
     boolean mounting;
     filesystem fs;
@@ -129,8 +130,8 @@ static void volume_mount(volume v, buffer mount_point)
     }
     storage_debug("mounting volume at %b", mount_point);
     v->mounting = true;
-    create_filesystem(storage.h, SECTOR_SIZE, v->size, v->r, v->w, false,
-                      complete);
+    create_filesystem(storage.h, SECTOR_SIZE, v->size, v->r, v->w, v->flush,
+                      0 /* no label */, complete);
 }
 
 void init_volumes(heap h)
@@ -184,7 +185,7 @@ closure_function(1, 2, boolean, volume_add_mount_each,
     return true;
 }
 
-boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, u64 size)
+boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, block_flush flush, u64 size)
 {
     storage_debug("new volume (%ld bytes)", size);
     volume v = allocate(storage.h, sizeof(*v));
@@ -194,6 +195,7 @@ boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, u64 size)
     runtime_memcpy(v->label, label, VOLUME_LABEL_MAX_LEN);
     v->r = r;
     v->w = w;
+    v->flush = flush;
     v->size = size;
     v->mounting = false;
     v->fs = 0;

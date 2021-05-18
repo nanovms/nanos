@@ -801,7 +801,10 @@ closure_function(3, 1, void, log_flush_completed,
         bound(sync_complete) = true;
         pagecache_sync_volume(bound(fs)->pv, (status_handler)closure_self());
     } else {
-        apply(bound(completion), s);
+        if (bound(fs)->flush)
+            apply(bound(fs)->flush, bound(completion));
+        else
+            apply(bound(completion), s);
         closure_finish();
     }
 }
@@ -1250,6 +1253,7 @@ void create_filesystem(heap h,
                        u64 size,
                        block_io read,
                        block_io write,
+                       block_flush flush,
                        const char *label,
                        filesystem_complete complete)
 {
@@ -1272,6 +1276,7 @@ void create_filesystem(heap h,
     assert(fs->pv != INVALID_ADDRESS);
 #ifndef TFS_READ_ONLY
     fs->w = write;
+    fs->flush = flush;
     fs->storage = create_id_heap(h, h, 0, size >> fs->blocksize_order, 1, false);
     assert(fs->storage != INVALID_ADDRESS);
     fs->temp_log = 0;

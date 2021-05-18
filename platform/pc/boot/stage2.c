@@ -282,6 +282,7 @@ void newstack()
                       infinity,
                       get_stage2_disk_read(h, fs_offset),
                       closure(h, stage2_empty_write),
+                      0 /* no flush */,
                       false,
                       closure(h, filesystem_initialized, h, backed, bh));
     

@@ -213,8 +213,8 @@ static void virtio_scsi_enqueue_request(virtio_scsi s, virtio_scsi_request r,
  * If we ever really care, the following may be simplified by re-using
  * closures and maintaining a little state machine.
  */
-closure_function(3, 2, void, virtio_scsi_io_done,
-                 status_handler, sh, void *, buf, u64, len,
+closure_function(1, 2, void, virtio_scsi_io_done,
+                 status_handler, sh,
                  virtio_scsi, s, virtio_scsi_request, r)
 {
     struct virtio_scsi_resp_cmd *resp = &r->resp;
@@ -245,8 +245,7 @@ static void virtio_scsi_io(virtio_scsi_disk d, u8 cmd, void *buf, range blocks,
     virtio_scsi_debug("%s: cmd %d, blocks %R, addr 0x%016lx, length 0x%08x\n",
         __func__, cmd, blocks, cdb->addr, cdb->length);
     virtio_scsi_enqueue_request(s, r, r_phys, buf, nblocks * d->block_size,
-        closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh, buf,
-            nblocks * d->block_size));
+                                closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh));
 }
 
 closure_function(1, 3, void, virtio_scsi_write,
@@ -263,6 +262,28 @@ closure_function(1, 3, void, virtio_scsi_read,
     virtio_scsi_io(bound(s), SCSI_CMD_READ_16, buf, blocks, sh);
 }
 
+closure_function(1, 1, void, virtio_scsi_flush,
+                 virtio_scsi_disk, d,
+                 status_handler, sh)
+{
+    virtio_scsi_disk d = bound(d);
+    virtio_scsi s = d->scsi;
+    u64 r_phys;
+    virtio_scsi_request r = virtio_scsi_alloc_request(s, d->target, d->lun,
+                                                      SCSI_CMD_SYNCHRONIZE_CACHE_10,
+                                                      &r_phys);
+    struct scsi_cdb_synchronize_cache_10 *cdb =
+        (struct scsi_cdb_synchronize_cache_10 *) r->req.cdb;
+    cdb->byte2 = 0;             /* no IMMED */
+    cdb->addr = 0;              /* from start */
+    cdb->group = 0;             /* no group */
+    cdb->length = 0;            /* all logical blocks */
+    cdb->control = 0;           /* no ACA */
+    virtio_scsi_debug("%s: cmd %d\n", __func__, cmd);
+    virtio_scsi_enqueue_request(s, r, r_phys, 0, 0,
+                                closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh));
+}
+
 closure_function(2, 0, void, virtio_scsi_init_done,
                  virtio_scsi_disk, d, storage_attach, a)
 {
@@ -271,7 +292,8 @@ closure_function(2, 0, void, virtio_scsi_init_done,
     heap h = s->v->virtio_dev.general;
     block_io in = closure(h, virtio_scsi_read, d);
     block_io out = closure(h, virtio_scsi_write, d);
-    apply(bound(a), in, out, d->capacity);
+    block_flush flush = closure(h, virtio_scsi_flush, d);
+    apply(bound(a), in, out, flush, d->capacity);
     closure_finish();
 }
 
