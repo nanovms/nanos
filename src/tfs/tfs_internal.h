@@ -75,6 +75,8 @@ boolean filesystem_reserve_log_space(filesystem fs, u64 *next_offset, u64 *offse
 typedef closure_type(buffer_status, buffer, status);
 fsfile allocate_fsfile(filesystem fs, tuple md);
 
+#define filesystem_log_blocks(fs) (TFS_LOG_DEFAULT_EXTENSION_SIZE >> (fs)->blocksize_order)
+
 static inline u64 bytes_from_sectors(filesystem fs, u64 sectors)
 {
     return sectors << fs->blocksize_order;
