@@ -227,8 +227,8 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
                    bootfs_part->lba_start, bootfs_part->nsectors);
         init_pagecache(&general, &general, 0, PAGESIZE);
         create_filesystem(&general, SECTOR_SIZE, bootfs_part->nsectors * SECTOR_SIZE,
-                        closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start), 0, 0,
-                        closure(&general, uefi_bootfs_complete, &general, &aligned_heap));
+                          closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start), 0, 0, 0,
+                          closure(&general, uefi_bootfs_complete, &general, &aligned_heap));
     }
     UBS->free_pool(handle_buffer);
     return EFI_LOAD_ERROR;  /* should never reach here */

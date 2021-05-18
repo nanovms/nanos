@@ -328,7 +328,7 @@ closure_function(3, 1, boolean, ata_pci_probe,
     assert(irq != INVALID_PHYSICAL);
     ioapic_set_int(ATA_IRQ(ATA_PRIMARY), irq);
     register_interrupt(irq, (thunk)&dev->irq_handler, "ata pci");
-    apply(bound(a), (block_io)&dev->read, (block_io)&dev->write,
+    apply(bound(a), (block_io)&dev->read, (block_io)&dev->write, 0 /* TODO: flush */,
           ata_get_capacity(dev->ata));
     return true;
 }

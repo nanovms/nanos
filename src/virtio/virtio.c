@@ -4,6 +4,30 @@
 #include "virtio_mmio.h"
 #include "virtio_pci.h"
 
+u8 vtdev_cfg_read_1(vtdev dev, u64 offset)
+{
+    switch (dev->transport) {
+    case VTIO_TRANSPORT_MMIO:
+        return vtmmio_get_u8((vtmmio)dev, VTMMIO_OFFSET_CONFIG + offset);
+    case VTIO_TRANSPORT_PCI:
+        return pci_bar_read_1(&((vtpci)dev)->device_config, offset);
+    default:
+        return 0;
+    }
+}
+
+void vtdev_cfg_write_1(vtdev dev, u64 offset, u8 value)
+{
+    switch (dev->transport) {
+    case VTIO_TRANSPORT_MMIO:
+        vtmmio_set_u8((vtmmio)dev, VTMMIO_OFFSET_CONFIG + offset, value);
+        break;
+    case VTIO_TRANSPORT_PCI:
+        pci_bar_write_1(&((vtpci)dev)->device_config, offset, value);
+        break;
+    }
+}
+
 u32 vtdev_cfg_read_4(vtdev dev, u64 offset)
 {
     switch (dev->transport) {
@@ -21,8 +45,10 @@ void vtdev_cfg_write_4(vtdev dev, u64 offset, u32 value)
     switch (dev->transport) {
     case VTIO_TRANSPORT_MMIO:
         vtmmio_set_u32((vtmmio)dev, VTMMIO_OFFSET_CONFIG + offset, value);
+        break;
     case VTIO_TRANSPORT_PCI:
         pci_bar_write_4(&((vtpci)dev)->device_config, offset, value);
+        break;
     }
 }
 

@@ -41,6 +41,12 @@ typedef struct vtmmio_dev {
     vector vq_handlers;
 } *vtmmio;
 
+#define vtmmio_get_u8(dev, offset) (*((volatile u8 *)((dev)->vbase + offset)))
+
+#define vtmmio_set_u8(dev, offset, value)  do {    \
+    *(volatile u8 *)((dev)->vbase + offset) = value; \
+} while (0)
+
 #define vtmmio_get_u32(dev, offset) (*((volatile u32 *)((dev)->vbase + offset)))
 
 #define vtmmio_set_u32(dev, offset, value)  do {    \

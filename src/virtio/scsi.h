@@ -73,6 +73,7 @@ struct scsi_sense_data_extra {
 
 #define SCSI_CMD_TEST_UNIT_READY        0x00
 #define SCSI_CMD_INQUIRY                0x12
+#define SCSI_CMD_SYNCHRONIZE_CACHE_10   0x35
 #define SCSI_CMD_READ_16                0x88
 #define SCSI_CMD_WRITE_16               0x8a
 #define SCSI_CMD_SERVICE_ACTION         0x9e
@@ -316,6 +317,17 @@ struct scsi_res_report_luns
     u32 length;
     u32 reserved;
     u64 lundata[256];
+} __attribute__((packed));
+
+struct scsi_cdb_synchronize_cache_10
+{
+    u8 opcode;
+    u8 byte2;
+#define SSC_IMMED 0x02
+    u32 addr;
+    u8 group;
+    u16 length;
+    u8 control;
 } __attribute__((packed));
 
 int scsi_data_len(u8 cmd);
