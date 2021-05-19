@@ -83,6 +83,7 @@ static void netsock_test_basic(int sock_type)
     } else {
         tx_fd = fd;
     }
+    test_assert((recv(tx_fd, tx_buf, sizeof(tx_buf), MSG_DONTWAIT) == -1) && (errno == EAGAIN));
     test_assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
     do {
         ret = write(tx_fd, tx_buf, sizeof(tx_buf));
