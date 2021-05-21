@@ -48,6 +48,8 @@
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
 
+#define LWIP_CHKSUM_ALGORITHM   3
+
 #define LWIP_WND_SCALE 1
 #define TCP_MSS 1460            /* Assuming ethernet; may want to derive this */
 #define TCP_WND 65535
@@ -77,6 +79,8 @@ typedef unsigned long size_t;
 #define LWIP_IPV6   1
 #define LWIP_IPV6_DHCP6 1
 #define IPV6_FRAG_COPYHEADER    1
+
+#define LWIP_STATS  0
 
 typedef unsigned long u64_t;
 typedef unsigned u32_t;
@@ -122,6 +126,9 @@ typedef unsigned long long time;
 extern void lwip_debug(char * format, ...);
 
 #define MEM_LIBC_MALLOC 1
+
+#define lwip_htons(x)   PP_HTONS(x)
+#define lwip_htonl(x)   PP_HTONL(x)
 
 extern u32_t lwip_rand(void);
 #define LWIP_RAND   lwip_rand
