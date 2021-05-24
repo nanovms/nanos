@@ -428,16 +428,12 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
 
     tfs_debug("create_extent: blocks %R, uninited %d, nblocks %ld\n", blocks, uninited, nblocks);
     if (!filesystem_reserve_log_space(fs, &fs->next_extend_log_offset, 0, 0) ||
-        !filesystem_reserve_log_space(fs, &fs->next_new_log_offset, 0, 0)) {
-        msg_err("out of storage allocating %ld blocks\n", nblocks);
+        !filesystem_reserve_log_space(fs, &fs->next_new_log_offset, 0, 0))
         return FS_STATUS_NOSPACE;
-    }
+
     u64 start_block = filesystem_allocate_storage(fs, nblocks);
-    if (start_block == u64_from_pointer(INVALID_ADDRESS)) {
-        /* In lieu of precise error handling up the stack, report here... */
-        msg_err("out of storage allocating %ld blocks\n", nblocks);
+    if (start_block == u64_from_pointer(INVALID_ADDRESS))
         return FS_STATUS_NOSPACE;
-    }
 
     range storage_blocks = irangel(start_block, nblocks);
     tfs_debug("   storage_blocks %R\n", storage_blocks);
@@ -1235,7 +1231,7 @@ void filesystem_get_uuid(filesystem fs, u8 *uuid)
 boolean filesystem_reserve_log_space(filesystem fs, u64 *next_offset, u64 *offset, u64 size)
 {
     if (size == 0)
-        size = TFS_LOG_DEFAULT_EXTENSION_SIZE >> fs->blocksize_order;
+        size = filesystem_log_blocks(fs);
     if (*next_offset == INVALID_PHYSICAL) {
         *next_offset = filesystem_allocate_storage(fs, size);
         if (*next_offset == INVALID_PHYSICAL)
@@ -1365,7 +1361,7 @@ KLIB_EXPORT(fs_usedblocks);
 
 u64 fs_freeblocks(filesystem fs)
 {
-    return (fs->storage->total - fs->storage->allocated);
+    return heap_free((heap)fs->storage);
 }
 
 static struct {

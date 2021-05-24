@@ -28,6 +28,7 @@ static const char *tfs_magic = "NVMTFS";
 #define TFS_EXTENSION_HEADER_BYTES (TFS_MAGIC_BYTES + 2 * MAX_VARINT_SIZE)
 #define TFS_EXTENSION_LINK_BYTES (1 + 2 * MAX_VARINT_SIZE)
 #define TFS_LOG_RESERVED_BYTES (TFS_EXTENSION_HEADER_BYTES + TFS_EXTENSION_LINK_BYTES)
+#define TFS_LOG_MAX_TUPLE_STAGING_BYTES (32 * MB)
 
 typedef struct log *log;
 typedef struct log_ext *log_ext;
@@ -63,11 +64,12 @@ struct log {
     vector encoding_lengths;
     u64 tuple_bytes_remain;
 
-    boolean dirty;
-    boolean flushing;
     timer flush_timer;
     vector flush_completions;
+    boolean dirty;
+    boolean flushing;
     boolean compacting;
+    boolean failed;             /* unrecoverable log failure */
     struct refcount refcount;
     closure_struct(log_free, free);
 };
@@ -206,6 +208,7 @@ static log log_new(heap h, filesystem fs)
         goto fail_dealloc_completions;
     }
     tl->compacting = false;
+    tl->failed = false;
     init_refcount(&tl->refcount, 1, init_closure(&tl->free, log_free, tl));
 #endif
     range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
@@ -297,7 +300,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
 static log_ext log_ext_new(log tl)
 {
     filesystem fs = tl->fs;
-    u64 ext_size = TFS_LOG_DEFAULT_EXTENSION_SIZE >> fs->blocksize_order;
+    u64 ext_size = filesystem_log_blocks(fs);
     u64 ext_offset;
     if (!filesystem_reserve_log_space(fs, &fs->next_new_log_offset, &ext_offset, ext_size))
         return INVALID_ADDRESS;
@@ -353,7 +356,7 @@ log_ext log_extend(log tl, u64 size, status_handler sh) {
     size >>= tl->fs->blocksize_order;
     u64 offset;
     if (!filesystem_reserve_log_space(tl->fs, &tl->fs->next_extend_log_offset, &offset, size)) {
-        // TODO should initiate flush of current extension before failing
+        apply(sh, timm("result", "failed to extend log"));
         return INVALID_ADDRESS;
     }
 
@@ -396,10 +399,8 @@ static inline boolean log_write_internal(log tl, merge m)
             if (ext->staging->end + min >= size) {
                 status_handler sh = apply_merge(m);
                 ext = log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE, sh);
-                if (ext == INVALID_ADDRESS) {
-                    apply(sh, timm("result", "failed to extend log"));
+                if (ext == INVALID_ADDRESS)
                     return false;
-                }
                 size = log_size(ext);
             }
             assert(ext->staging->end + min < size);
@@ -412,8 +413,10 @@ static inline boolean log_write_internal(log tl, merge m)
                 push_u8(ext->staging, TUPLE_EXTENDED);
             }
             push_varint(ext->staging, length);
-            if (!buffer_write(ext->staging, buffer_ref(tl->tuple_staging, 0), length))
-                return false;
+
+            /* No graceful way to recover from an alloc failure here, and
+               flushing could leave the log extension in a corrupt state. */
+            assert(buffer_write(ext->staging, buffer_ref(tl->tuple_staging, 0), length));
             buffer_consume(tl->tuple_staging, length);
             remaining -= length;
             written += length;
@@ -502,13 +505,17 @@ void log_flush(log tl, status_handler completion)
     tl->flushing = true;
     merge m = allocate_merge(tl->h, closure(tl->h, log_flush_complete, tl));
     status_handler sh = apply_merge(m);
-    if (!log_write_internal(tl, m)) {
-        apply(sh, timm("result", "log_write_internal failed"));
-        return;
-    }
+
+    /* If we're unable to commit the entire tuple_staging buffer, record an
+       unrecoverable failure in the log, but flush the current extension. */
+    if (!log_write_internal(tl, m))
+        tl->failed = true;
+
+    /* completion merge will close out with the flush; compaction is independent */
     flush_log_extension(tl->current, false, sh);
-    if (!tl->compacting && (tl->obsolete_entries >= TFS_LOG_COMPACT_OBSOLETE) &&
-            (tl->total_entries <= TFS_LOG_COMPACT_RATIO * tl->obsolete_entries)) {
+
+    if (!tl->failed && !tl->compacting && (tl->obsolete_entries >= TFS_LOG_COMPACT_OBSOLETE) &&
+        (tl->total_entries <= TFS_LOG_COMPACT_RATIO * tl->obsolete_entries)) {
         tlog_debug("%ld obsolete entries out of %ld, starting log compaction\n",
             tl->obsolete_entries, tl->total_entries);
         filesystem fs = tl->fs;
@@ -583,27 +590,27 @@ boolean log_write_eav(log tl, tuple e, symbol a, value v)
 {
     tlog_debug("log_write_eav: tl %p, e %p, a %b, v %p\n", tl, e, symbol_string(a), v);
     u64 len = buffer_length(tl->tuple_staging);
-    if (len >= bytes_from_sectors(tl->fs, range_span(tl->current->sectors)))
+    if (tl->failed || len >= TFS_LOG_MAX_TUPLE_STAGING_BYTES)
         return false;
     encode_eav(tl->tuple_staging, tl->dictionary, e, a, v, &tl->obsolete_entries);
     tl->total_entries++;
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
-    return true;
+    return !tl->failed;
 }
 
 boolean log_write(log tl, tuple t)
 {
     tlog_debug("log_write: tl %p, t %p\n", tl, t);
     u64 len = buffer_length(tl->tuple_staging);
-    if (len >= bytes_from_sectors(tl->fs, range_span(tl->current->sectors)))
+    if (tl->failed || len >= TFS_LOG_MAX_TUPLE_STAGING_BYTES)
         return false;
     encode_tuple(tl->tuple_staging, tl->dictionary, t, &tl->total_entries);
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
-    return true;
+    return !tl->failed;
 }
 
 #endif /* !TLOG_READ_ONLY */
@@ -895,8 +902,10 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
 #ifndef TLOG_READ_ONLY
     range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
-    if (!filesystem_reserve_storage(fs, sectors))
+    if (!filesystem_reserve_storage(fs, sectors)) {
         msg_err("failed to reserve sectors in allocation map");
+        return INVALID_ADDRESS;
+    }
 #endif
     log tl = log_new(h, fs);
     if (tl == INVALID_ADDRESS)
@@ -911,10 +920,13 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         random_buffer(uuid);
         log_ext init_ext = tl->current;
         log_extension_init(init_ext);
-        filesystem_reserve_log_space(fs, &fs->next_new_log_offset, 0, 0);
-        filesystem_reserve_log_space(fs, &fs->next_extend_log_offset, 0, 0);
+        if (!filesystem_reserve_log_space(fs, &fs->next_new_log_offset, 0, 0))
+            goto fail;
+        if (!filesystem_reserve_log_space(fs, &fs->next_extend_log_offset, 0, 0))
+            goto fail_alloc_extend_log;
         log_ext new_ext = log_ext_new(tl);
-        assert(new_ext != INVALID_ADDRESS);
+        if (!new_ext)
+            goto fail_ext_new;
         log_extension_init(new_ext);
         tl->current = new_ext;
         apply(closure(tl->h, log_extend_link, init_ext, new_ext->sectors, sh),
@@ -924,6 +936,15 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
         log_read(tl, sh);
     }
     return tl;
+#ifndef TLOG_READ_ONLY
+  fail_ext_new:
+    filesystem_free_storage(fs, irangel(fs->next_extend_log_offset, filesystem_log_blocks(fs)));
+  fail_alloc_extend_log:
+    filesystem_free_storage(fs, irangel(fs->next_new_log_offset, filesystem_log_blocks(fs)));
+  fail:
+    apply(sh, timm("result", "failed to allocate storage"));
+    return INVALID_ADDRESS;
+#endif
 }
 
 void log_destroy(log tl)

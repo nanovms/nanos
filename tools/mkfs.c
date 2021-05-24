@@ -726,7 +726,8 @@ int main(int argc, char **argv)
     }
     if (!img_size)
         img_size = current_size;
-    img_size = pad(img_size - offset, TFS_LOG_DEFAULT_EXTENSION_SIZE) + offset;
+    img_size = pad(img_size - offset + TFS_LOG_DEFAULT_EXTENSION_SIZE,
+                   TFS_LOG_DEFAULT_EXTENSION_SIZE) + offset;
     if (current_size < img_size) {
         if (ftruncate(out, img_size)) {
             halt("could not set image size: %s\n", strerror(errno));
