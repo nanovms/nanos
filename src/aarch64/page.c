@@ -147,6 +147,14 @@ static u64 user_tablebase;
 
 const int page_level_shifts_4K[_PAGE_NLEVELS] = { 39, 30, 21, 12 };
 
+physical physical_from_virtual(void *x)
+{
+    u64 a = u64_from_pointer(x);
+    if (a >= HUGE_BACKED_BASE && a < HUGE_BACKED_LIMIT)
+        return a & ~HUGE_BACKED_BASE;
+    return __physical_from_virtual(x);
+}
+
 static inline void leaf_invalidate(u64 address)
 {
     /* no final sync here; need "dsb ish" at end of operation */
