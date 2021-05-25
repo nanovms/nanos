@@ -405,7 +405,7 @@ closure_function(2, 3, boolean, xenblk_probe,
     }
     xen_dev xd = &xbd->dev;
     xbd->h = h;
-    xbd->contiguous = heap_backed(kh);
+    xbd->contiguous = heap_huge_backed(kh);
     status s = xendev_attach(xd, id, frontend, meta);
     if (!is_ok(s)) {
         msg_err("%s: cannot attach Xen device: %v\n", __func__, s);
