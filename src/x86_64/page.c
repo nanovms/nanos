@@ -118,6 +118,9 @@ static physical physical_from_virtual_locked(void *x)
 
 physical physical_from_virtual(void *x)
 {
+    u64 a = u64_from_pointer(x);
+    if (a >= HUGE_BACKED_BASE && a < HUGE_BACKED_LIMIT)
+        return a & ~HUGE_BACKED_BASE;
     u64 p;
     pagetable_lock();
     p = physical_from_virtual_locked(x);

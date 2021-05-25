@@ -338,6 +338,9 @@ static void init_kernel_heaps(void)
                                    (heap)kh->physical, PAGESIZE, true);
     assert(kh->backed != INVALID_ADDRESS);
 
+    kh->huge_backed = allocate_huge_backed_heap(&bootstrap, (heap)kh->physical);
+    assert(kh->huge_backed != INVALID_ADDRESS);
+
     kh->general = allocate_mcache(&bootstrap, (heap)kh->backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
