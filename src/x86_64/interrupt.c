@@ -404,7 +404,7 @@ void init_interrupts(kernel_heaps kh)
     set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->m.int_stack));
 
     /* IDT setup */
-    idt = allocate(heap_backed(kh), heap_backed(kh)->pagesize);
+    idt = allocate(heap_page_backed(kh), heap_page_backed(kh)->pagesize);
     assert(idt != INVALID_ADDRESS);
 
     /* Rely on ISTs in lieu of TSS stack switch. */

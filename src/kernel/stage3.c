@@ -143,7 +143,7 @@ closure_function(3, 0, void, startup,
     if (get(root, sym(exec_protection)))
         set(pro, sym(exec), null_value);  /* set executable flag */
     init_network_iface(root);
-    filesystem_read_entire(fs, pro, heap_backed(kh), pg, closure(general, read_program_fail));
+    filesystem_read_entire(fs, pro, heap_page_backed(kh), pg, closure(general, read_program_fail));
     closure_finish();
 }
 
@@ -178,7 +178,7 @@ closure_function(4, 2, void, bootfs_complete,
         tuple v = get_tuple(c, sym(kernel));
         if (v) {
             kernel_heaps kh = bound(kh);
-            filesystem_read_entire(fs, v, heap_backed(kh),
+            filesystem_read_entire(fs, v, heap_page_backed(kh),
                                    closure(heap_general(kh),
                                            kernel_read_complete, fs, !bound(klibs_in_bootfs)),
                                    ignore_status);

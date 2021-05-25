@@ -26,8 +26,8 @@ typedef struct kernel_heaps {
        the spaces to their respective heaps. This is presently the
        go-to source for ready-to-use, mapped pages. Accesses are
        protected by spinlock. */
-    backed_heap backed;
-    backed_heap huge_backed;
+    backed_heap page_backed;
+    backed_heap huge_backed;    /* TODO update desc */
 
     /* The general heap is an mcache used for allocations of arbitrary
        sizes from 32B to 1MB. It is the heap that is closest to being
@@ -59,9 +59,14 @@ static inline id_heap heap_virtual_page(kernel_heaps heaps)
     return heaps->virtual_page;
 }
 
-static inline heap heap_backed(kernel_heaps heaps)
+static inline heap heap_page_backed(kernel_heaps heaps)
 {
-    return (heap)heaps->backed;
+    return (heap)heaps->page_backed;
+}
+
+static inline heap heap_huge_backed(kernel_heaps heaps)
+{
+    return (heap)heaps->huge_backed;
 }
 
 static inline heap heap_general(kernel_heaps heaps)

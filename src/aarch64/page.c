@@ -147,10 +147,20 @@ static u64 user_tablebase;
 
 const int page_level_shifts_4K[_PAGE_NLEVELS] = { 39, 30, 21, 12 };
 
+static inline boolean is_huge_backed_address(u64 address)
+{
+    return address >= HUGE_BACKED_BASE && address < HUGE_BACKED_LIMIT;
+}
+
+static inline boolean intersects_huge_backed(range r)
+{
+    return ranges_intersect(r, irange(HUGE_BACKED_BASE, HUGE_BACKED_LIMIT));
+}
+
 physical physical_from_virtual(void *x)
 {
     u64 a = u64_from_pointer(x);
-    if (a >= HUGE_BACKED_BASE && a < HUGE_BACKED_LIMIT)
+    if (is_huge_backed_address(a))
         return a & ~HUGE_BACKED_BASE;
     return __physical_from_virtual(x);
 }
@@ -548,6 +558,8 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
     page_init_debug_u64(flags.w);
     page_init_debug("\n");
 
+    /* Catch any attempt to change page flags in a huge_backed mapping */
+    assert(!intersects_huge_backed(irangel(vaddr, length)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
     page_invalidate_sync(fe, ignore);
