@@ -180,11 +180,13 @@ typedef struct pageflags {
 
 
 // XXX kernel addr, also should return INVALID_PHYSICAL if PAR_EL1.F is set
-#define physical_from_virtual(v) ({                                     \
+#define __physical_from_virtual(v) ({                                     \
             register u64 __r;                                           \
             register u64 __x = u64_from_pointer(v);                     \
             asm volatile("at S1E1R, %1; mrs %0, PAR_EL1" : "=r"(__r) : "r"(__x)); \
             (__r & (MASK(47) & ~MASK(12))) | (__x & MASK(12));})
+
+physical physical_from_virtual(void *x);
 
 extern const int page_level_shifts_4K[_PAGE_NLEVELS];
 

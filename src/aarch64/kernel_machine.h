@@ -9,7 +9,6 @@
 #define DEVICE_BASE      0x00ffffff00000000ull
 #define DIRECT_MAP_LIMIT DEVICE_BASE
 #define DIRECT_MAP_BASE  0x00ffff0000000000ull
-#define KMEM_LIMIT       DIRECT_MAP_BASE
 
 #define DIRECT_MAP_PAGELOG 32
 
@@ -17,7 +16,11 @@
 
 #include <kernel_platform.h>
 
-#define HUGE_PAGESIZE 0x100000000ull
+#define HUGE_BACKED_LIMIT   0x00ffff0000000000ull
+#define HUGE_BACKED_BASE    0x00ff800000000000ull
+#define HUGE_BACKED_PAGELOG 30
+#define HUGE_PAGESIZE       0x100000000ull
+#define KMEM_LIMIT          HUGE_BACKED_BASE
 
 #define STACK_ALIGNMENT     16
 
