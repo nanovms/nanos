@@ -227,10 +227,10 @@ void start_secondary_cores(kernel_heaps kh)
     init_debug("init_mxcsr");
     init_mxcsr();
     init_debug("starting APs");
-    allocate_apboot(heap_backed(kh), new_cpu);
+    allocate_apboot(heap_page_backed(kh), new_cpu);
     for (int i = 1; i < present_processors; i++)
         start_cpu(i);
-    deallocate_apboot(heap_backed(kh));
+    deallocate_apboot(heap_page_backed(kh));
     init_flush(heap_locked(kh));
     init_debug("started %d total processors", total_processors);
 }
@@ -334,18 +334,18 @@ static void init_kernel_heaps(void)
 
     init_page_tables(&bootstrap, kh->physical, find_initial_pages());
 
-    kh->backed = physically_backed(&bootstrap, (heap)kh->virtual_page,
-                                   (heap)kh->physical, PAGESIZE, true);
-    assert(kh->backed != INVALID_ADDRESS);
+    kh->page_backed = physically_backed(&bootstrap, (heap)kh->virtual_page,
+                                        (heap)kh->physical, PAGESIZE, true);
+    assert(kh->page_backed != INVALID_ADDRESS);
 
     kh->huge_backed = allocate_huge_backed_heap(&bootstrap, (heap)kh->physical);
     assert(kh->huge_backed != INVALID_ADDRESS);
 
-    kh->general = allocate_mcache(&bootstrap, (heap)kh->backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
+    kh->general = allocate_mcache(&bootstrap, (heap)kh->huge_backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
     kh->locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)kh->backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
+        allocate_mcache(&bootstrap, (heap)kh->huge_backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
     assert(kh->locked != INVALID_ADDRESS);
 }
 
@@ -471,7 +471,7 @@ void init_service(u64 rdi, u64 rsi)
     if (cmdline)
         cmdline_parse(cmdline);
     u64 stack_size = 32*PAGESIZE;
-    u64 stack_location = allocate_u64(heap_backed(get_kernel_heaps()), stack_size);
+    u64 stack_location = allocate_u64(heap_page_backed(get_kernel_heaps()), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
     switch_stack(stack_location, init_service_new_stack);

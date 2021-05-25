@@ -891,5 +891,5 @@ closure_function(3, 1, boolean, nvme_probe,
 void init_nvme(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, nvme_probe, h, a, heap_backed(kh)));
+    register_pci_driver(closure(h, nvme_probe, h, a, heap_huge_backed(kh)));
 }

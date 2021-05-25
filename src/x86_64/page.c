@@ -30,6 +30,16 @@ static inline u64 flags_from_pte(u64 pte)
     return pte & _PAGE_FLAGS_MASK;
 }
 
+static inline boolean is_huge_backed_address(u64 address)
+{
+    return address >= HUGE_BACKED_BASE && address < HUGE_BACKED_LIMIT;
+}
+
+static inline boolean intersects_huge_backed(range r)
+{
+    return ranges_intersect(r, irange(HUGE_BACKED_BASE, HUGE_BACKED_LIMIT));
+}
+
 static heap pageheap;
 
 static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
@@ -119,7 +129,7 @@ static physical physical_from_virtual_locked(void *x)
 physical physical_from_virtual(void *x)
 {
     u64 a = u64_from_pointer(x);
-    if (a >= HUGE_BACKED_BASE && a < HUGE_BACKED_LIMIT)
+    if (is_huge_backed_address(a))
         return a & ~HUGE_BACKED_BASE;
     u64 p;
     pagetable_lock();
@@ -407,6 +417,9 @@ void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, stat
 {
     flags.w &= ~_PAGE_NO_FAT;
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
+
+    /* Catch any attempt to change page flags in a huge_backed mapping */
+    assert(!intersects_huge_backed(irangel(vaddr, length)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
     page_invalidate_sync(fe, complete);

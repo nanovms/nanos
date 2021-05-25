@@ -1825,7 +1825,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
     int ret;
 
     ftrace_heap = heap_general(&(uh->kh));
-    rbuf_heap = heap_backed(&(uh->kh));
+    rbuf_heap = heap_huge_backed(&(uh->kh));
 
     /* init http listener */
     ret = init_http_listener();

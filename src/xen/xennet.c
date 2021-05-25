@@ -754,7 +754,7 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     assert(xd != INVALID_ADDRESS);
 
     xd->h = heap_general(kh);
-    xd->contiguous = heap_backed(kh);
+    xd->contiguous = heap_huge_backed(kh);
 
     xd->netif = allocate(h, sizeof(struct netif));
     assert(xd->netif != INVALID_ADDRESS);
