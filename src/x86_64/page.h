@@ -2,7 +2,7 @@
 
 #define _PAGE_NO_EXEC       U64_FROM_BIT(63)
 #define _PAGE_NO_FAT        0x0200 /* AVL[0] */
-#define _PAGE_2M_SIZE       0x0080
+#define _PAGE_PS            0x0080
 #define _PAGE_DIRTY         0x0040
 #define _PAGE_ACCESSED      0x0020
 #define _PAGE_CACHE_DISABLE 0x0010
@@ -35,6 +35,11 @@ typedef struct pageflags {
    - no execute
 */
 #define _PAGE_DEFAULT_PERMISSIONS (_PAGE_READONLY | _PAGE_NO_EXEC)
+
+#define PT_SHIFT_L1 39
+#define PT_SHIFT_L2 30
+#define PT_SHIFT_L3 21
+#define PT_SHIFT_L4 12
 
 static inline pageflags pageflags_memory(void)
 {
@@ -114,22 +119,45 @@ static inline boolean pte_is_present(pte entry)
     return (entry & _PAGE_PRESENT) != 0;
 }
 
-static inline boolean pte_is_2M(int level, pte entry)
+static inline int pt_level_shift(int level)
 {
-    return level == 3 && (entry & _PAGE_2M_SIZE) != 0;
+    switch (level) {
+    case 1:
+        return PT_SHIFT_L1;
+    case 2:
+        return PT_SHIFT_L2;
+    case 3:
+        return PT_SHIFT_L3;
+    case 4:
+        return PT_SHIFT_L4;
+    }
+    return 0;
+}
+
+/* log of mapping size (block or page) if valid leaf, else 0 */
+static inline int pte_order(int level, pte entry)
+{
+    assert(level > 0 && level < 5);
+    if (level == 1 || !pte_is_present(entry) ||
+        (level != 4 && !(entry & _PAGE_PS)))
+        return 0;
+    return pt_level_shift(level);
 }
 
 static inline u64 pte_map_size(int level, pte entry)
 {
-    if (pte_is_2M(level, entry))
-        return PAGESIZE_2M;
-    else
-        return level == 4 ? PAGESIZE : INVALID_PHYSICAL;
+    if (pte_is_present(entry)) {
+        if (level == 4)
+            return PAGESIZE;
+        if ((entry & _PAGE_PS) && level != 1)
+            return level == 2 ? HUGE_PAGESIZE : PAGESIZE_2M;
+    }
+    return INVALID_PHYSICAL;
 }
 
 static inline boolean pte_is_mapping(int level, pte entry)
 {
-    return level == 4 || pte_is_2M(level, entry);
+    return pte_map_size(level, entry) != INVALID_PHYSICAL;
 }
 
 static inline boolean pte_is_dirty(pte entry)

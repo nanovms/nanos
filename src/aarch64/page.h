@@ -283,7 +283,7 @@ static inline boolean pte_is_present(pte entry)
 }
 
 /* log of mapping size (block or page) if valid leaf, else 0 */
-static inline int pte_order(unsigned int level, pte entry)
+static inline int pte_order(int level, pte entry)
 {
     assert(level < _PAGE_NLEVELS);
     if (level == 0 || !pte_is_present(entry) ||
