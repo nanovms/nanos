@@ -36,6 +36,7 @@ PROGRAMS= \
 	thread_test \
 	time \
 	tlbshootdown \
+	tun \
 	udploop \
 	unixsocket \
 	unlink \
@@ -215,6 +216,11 @@ SRCS-tlbshootdown= \
 	$(RUNTIME)
 LDFLAGS-tlbshootdown=		-static
 LIBS-tlbshootdown=	-lpthread
+
+SRCS-tun= \
+	$(CURDIR)/tun.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-tun=	-static
 
 SRCS-udploop= \
 	$(CURDIR)/udploop.c \

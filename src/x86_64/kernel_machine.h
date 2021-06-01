@@ -117,7 +117,7 @@ void install_idt(void);
 void set_ist(int cpu, int i, u64 sp);
 void install_gdt64_and_tss(u64 cpu);
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(KLIB)
 /* locking constructs */
 #include <lock.h>
 #endif

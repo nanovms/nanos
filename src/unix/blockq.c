@@ -215,6 +215,12 @@ boolean blockq_wake_one_for_thread(blockq bq, thread t)
     return false;
 }
 
+sysreturn kern_blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
+{
+    return blockq_check(bq, t, a, in_bh);
+}
+KLIB_EXPORT_RENAME(kern_blockq_check, blockq_check);
+
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh,
                                clock_id clkid, timestamp timeout, boolean absolute)
 {
@@ -279,6 +285,13 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     thread_sleep_interruptible();  /* no return */
     assert(0);
 }
+
+void kern_blockq_handle_completion(blockq bq, u64 bq_flags, io_completion completion, thread t,
+                                   sysreturn rv)
+{
+    blockq_handle_completion(bq, bq_flags, completion, t, rv);
+}
+KLIB_EXPORT_RENAME(kern_blockq_handle_completion, blockq_handle_completion);
 
 /* XXX This deserves another pass; blockq_item should really just be embedded into thread. */
 boolean blockq_flush_thread(blockq bq, thread t)
@@ -376,6 +389,7 @@ blockq allocate_blockq(heap h, char * name)
 
     return bq;
 }
+KLIB_EXPORT(allocate_blockq);
 
 void deallocate_blockq(blockq bq)
 {
@@ -387,6 +401,7 @@ void deallocate_blockq(blockq bq)
 
     deallocate(bq->h, bq, sizeof(struct blockq));
 }
+KLIB_EXPORT(deallocate_blockq);
 
 const char * blockq_name(blockq bq)
 {

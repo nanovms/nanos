@@ -17,9 +17,23 @@ queue allocate_queue(heap h, u64 size)
     q->h = h;
     return q;
 }
+KLIB_EXPORT(allocate_queue);
+
+boolean kern_enqueue(queue q, void *p)
+{
+    return enqueue(q, p);
+}
+KLIB_EXPORT_RENAME(kern_enqueue, enqueue);
+
+void *kern_dequeue(queue q)
+{
+    return dequeue(q);
+}
+KLIB_EXPORT_RENAME(kern_dequeue, dequeue);
 
 void deallocate_queue(queue q)
 {
     if (q->h)
         deallocate(q->h, q, _queue_alloc_size(q->order));
 }
+KLIB_EXPORT(deallocate_queue);

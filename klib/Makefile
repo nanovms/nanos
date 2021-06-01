@@ -7,6 +7,7 @@ PROGRAMS= \
 	radar \
 	test \
 	tls \
+	tun \
 
 SRCS-cloud_init= \
 	$(CURDIR)/cloud_azure.c \
@@ -24,6 +25,9 @@ SRCS-test= \
 SRCS-tls= \
 	$(CURDIR)/mbedtls.c \
 	$(SRCS-mbedtls)
+
+SRCS-tun= \
+	$(CURDIR)/tun.c \
 
 SRCS-mbedtls= $(SRCS-mbedtls-crypto) $(SRCS-mbedtls-x509) $(SRCS-mbedtls-tls)
 
@@ -129,6 +133,8 @@ INCLUDES= \
 	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/net \
 	-I$(SRCDIR)/runtime \
+	-I$(SRCDIR)/unix \
+	-I$(SRCDIR)/tfs \
 	-I$(PLATFORMDIR)
 
 DEFINES= \

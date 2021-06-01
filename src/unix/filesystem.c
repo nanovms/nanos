@@ -376,3 +376,4 @@ void file_release(file f)
     release_fdesc(&f->f);
     unix_cache_free(get_unix_heaps(), file, f);
 }
+KLIB_EXPORT(file_release);

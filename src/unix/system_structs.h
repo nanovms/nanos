@@ -67,6 +67,7 @@ typedef struct iovec {
 #define ENOPROTOOPT     42              /* Protocol not available */
 
 #define ETIME           62		/* Timer expired */
+#define EBADFD          77		/* File descriptor in bad state */
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EMSGSIZE        90		/* Message too long */
 #define EOPNOTSUPP      95		/* Operation not supported */

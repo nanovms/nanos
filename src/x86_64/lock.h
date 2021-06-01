@@ -1,6 +1,6 @@
 /* struct spinlock defined in machine.h */
 
-#if defined(KERNEL) && defined(SMP_ENABLE)
+#if (defined(KERNEL) || defined(KLIB)) && defined(SMP_ENABLE)
 static inline boolean spin_try(spinlock l) {
     u64 tmp = 1;
     /* Is it worth the compare and branch to skip a pause? */

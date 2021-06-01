@@ -191,14 +191,21 @@ void netif_name_cpy(char *dest, struct netif *netif)
     dest[sizeof(netif->name)] = '0' + netif->num;
     dest[sizeof(netif->name) + 1] = '\0';
 }
+KLIB_EXPORT(netif_name_cpy);
 
 KLIB_EXPORT(ipaddr_ntoa);
 KLIB_EXPORT(dns_gethostbyname);
 KLIB_EXPORT(pbuf_alloc);
+KLIB_EXPORT(pbuf_ref);
+KLIB_EXPORT(pbuf_copy_partial);
 KLIB_EXPORT(pbuf_free);
 KLIB_EXPORT(udp_new);
 KLIB_EXPORT(udp_sendto);
 KLIB_EXPORT(udp_recv);
+KLIB_EXPORT(netif_add);
+KLIB_EXPORT(netif_find);
+KLIB_EXPORT(netif_input);
+KLIB_EXPORT(netif_remove);
 
 #define MAX_ADDR_LEN 20
 

@@ -1,0 +1,13 @@
+(
+    boot:(
+        children:(
+            klib:(children:(tun:(contents:(host:output/klib/bin/tun))))
+        )
+    )
+    children:(
+        tun:(contents:(host:output/test/runtime/bin/tun))
+    )
+    klibs:bootfs
+    environment:()
+    program:/tun
+)

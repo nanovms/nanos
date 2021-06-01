@@ -1969,6 +1969,7 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap)
         return -ENOSYS;
     }
 }
+KLIB_EXPORT(ioctl_generic);
 
 sysreturn ioctl(int fd, unsigned long request, ...)
 {
