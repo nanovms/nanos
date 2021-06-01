@@ -65,9 +65,18 @@ static u64 huge_backed_alloc(heap h, bytes size)
     return huge_backed_alloc_internal((huge_backed_heap)h, size);
 }
 
+static inline void huge_backed_dealloc_internal(huge_backed_heap hb, u64 x, bytes size)
+{
+    u64 len = pad(size, hb->bh.h.pagesize);
+    x &= ~HUGE_BACKED_BASE;
+    deallocate_u64(hb->physical, x, len);
+    huge_backed_debug("%s: addr 0x%lx, size 0x%lx, len 0x%lx\n", __func__, x, size, len);
+    // XXX todo
+}
+
 static void huge_backed_dealloc(heap h, u64 x, bytes size)
 {
-    // XXX todo
+    huge_backed_dealloc_internal((huge_backed_heap)h, x, size);
 }
 
 static void huge_backed_destroy(heap h)
@@ -96,7 +105,7 @@ static void *huge_backed_alloc_map(backed_heap bh, bytes len, u64 *phys)
 
 static void huge_backed_dealloc_unmap(backed_heap bh, void *virt, u64 phys, bytes len)
 {
-    // XXX todo
+    huge_backed_dealloc_internal((huge_backed_heap)bh, u64_from_pointer(virt), len);
 }
 
 backed_heap allocate_huge_backed_heap(heap meta, heap physical)

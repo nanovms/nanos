@@ -191,7 +191,7 @@ void dump_ptes(void *vaddr)
 static boolean map_area(range v, u64 p, u64 flags);
 
 /* pt_lock should already be held here */
-static boolean get_table_page(u64 *phys)
+static void *get_table_page(u64 *phys)
 {
     if (range_span(current_pt_phys) == 0) {
         page_init_debug("new table page at ");
@@ -200,7 +200,7 @@ static boolean get_table_page(u64 *phys)
         page_init_debug("\n");
         if (va == INVALID_PHYSICAL) {
             msg_err("failed to allocate 2M table page\n");
-            return false;
+            return INVALID_ADDRESS;
         }
 
         current_pt_phys = irangel(direct_map_physical_from_virtual(pageheap, va), PAGESIZE_2M);
@@ -214,6 +214,7 @@ static boolean get_table_page(u64 *phys)
     *phys = current_pt_phys.start;
     current_pt_phys.start += PAGESIZE;
 
+    // can't call runtime_memset?
     u64 *p = pointer_from_pteaddr(*phys);
     for (int i = 0; i < PAGESIZE >> 3; i += 4) {
         p[i] = 0;
@@ -222,7 +223,7 @@ static boolean get_table_page(u64 *phys)
         p[i + 3] = 0;
     }
     page_init_debug("\n");
-    return true;
+    return p;
 }
 
 #define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
@@ -285,13 +286,14 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
                 next_addr(*p, mask);
             } else {
                 page_init_debug("   -new level- ");
-                u64 newtable;
-                if (!get_table_page(&newtable)) {
+                void *tp;
+                u64 tp_phys;
+                if ((tp = get_table_page(&tp_phys)) == INVALID_ADDRESS) {
                     msg_err("failed to allocate page table memory\n");
                     return false;
                 }
-                assert((newtable & ~PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) == 0);
-                pte = newtable | PAGE_ATTR_AF | PAGE_L0_2_DESC_TABLE | PAGE_L0_3_DESC_VALID;
+                assert((tp_phys & ~PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) == 0);
+                pte = tp_phys | PAGE_ATTR_AF | PAGE_L0_2_DESC_TABLE | PAGE_L0_3_DESC_VALID;
                 u64 end = vlbase | (((u64)(i + 1)) << shift);
                 /* length instead of end to avoid overflow at end of space */
                 u64 len = MIN(range_span(v), end - v.start);
@@ -300,15 +302,14 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
                 page_init_debug(", len ");
                 page_init_debug_u64(len);
                 page_init_debug("\n");
-                if (!map_level(pointer_from_pteaddr(newtable), level + 1, irangel(v.start, len),
-                               p, flags))
+                if (!map_level(tp, level + 1, irangel(v.start, len), p, flags))
                     return false;
             }
-            page_init_debug("   installing pte, level ");
+            page_init_debug("   SET level ");
             page_init_debug_u64(level);
             page_init_debug(" @ ");
             page_init_debug_u64(u64_from_pointer(&table_ptr[i]));
-            page_init_debug(", pte ");
+            page_init_debug(" = ");
             page_init_debug_u64(pte);
             page_init_debug("\n");
             table_ptr[i] = pte;
@@ -319,8 +320,8 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
             /* fail if page or block already installed */
             if (level == 3 || (pte & PAGE_L0_2_DESC_TABLE) == 0) {
                 msg_err("would overwrite entry: level %d, v %R, pa 0x%lx, "
-                        "flags 0x%lx, index %d, entry 0x%lx\n", level, v, *p,
-                        flags, i, pte);
+                        "flags 0x%lx, index %d, entry 0x%lx, ra %p\n", level, v, *p,
+                        flags, i, pte, __builtin_return_address(0));
                 return false;
             }
             u64 nexttable = page_from_pte(pte);
