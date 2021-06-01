@@ -169,6 +169,22 @@ u16 ifflags_from_netif(struct netif *netif)
     return flags;
 }
 
+boolean ifflags_to_netif(struct netif *netif, u16 flags)
+{
+    u16 diff = ifflags_from_netif(netif) ^ flags;
+    if (diff & ~(IFF_UP | IFF_RUNNING)) /* attempt to modify read-only flags */
+        return false;
+    if (flags & IFF_UP)
+        netif_set_up(netif);
+    else
+        netif_set_down(netif);
+    if (flags & IFF_RUNNING)
+        netif_set_link_up(netif);
+    else
+        netif_set_link_down(netif);
+    return true;
+}
+
 void netif_name_cpy(char *dest, struct netif *netif)
 {
     runtime_memcpy(dest, netif->name, sizeof(netif->name));

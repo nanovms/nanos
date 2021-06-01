@@ -20,8 +20,16 @@
 
 #define SIOCGIFCONF 0x8912
 #define SIOCGIFFLAGS    0x8913
+#define SIOCSIFFLAGS    0x8914
 #define SIOCGIFADDR 0x8915
+#define SIOCSIFADDR     0x8916
 #define SIOCGIFNETMASK  0x891B
+#define SIOCSIFNETMASK  0x891C
+#define SIOCGIFMTU      0x8921
+#define SIOCSIFMTU      0x8922
+#define SIOCGIFINDEX    0x8933
+
+#define MTU_MAX (32 * KB)
 
 #define IFNAMSIZ    16
 
@@ -762,6 +770,15 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         ifreq->ifr.ifr_flags = ifflags_from_netif(netif);
         return 0;
     }
+    case SIOCSIFFLAGS: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
+            return -EFAULT;
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        if (!netif)
+            return -ENODEV;
+        return (ifflags_to_netif(netif, ifreq->ifr.ifr_flags) ? 0 : -EINVAL);
+    }
     case SIOCGIFADDR: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
@@ -774,6 +791,22 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         addr->family = AF_INET;
         runtime_memcpy(&addr->address, netif_ip4_addr(netif),
                 sizeof(ip4_addr_t));
+        return 0;
+    }
+    case SIOCSIFADDR: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
+            return -EFAULT;
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        if (!netif)
+            return -ENODEV;
+        struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_addr;
+        if (addr->family != AF_INET)
+            return -EINVAL;
+        ip4_addr_t lwip_addr = {
+                .addr = addr->address,
+        };
+        netif_set_ipaddr(netif, &lwip_addr);
         return 0;
     }
     case SIOCGIFNETMASK: {
@@ -789,6 +822,55 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         addr->family = AF_INET;
         runtime_memcpy(&addr->address, netif_ip4_netmask(netif),
                 sizeof(ip4_addr_t));
+        return 0;
+    }
+    case SIOCSIFNETMASK: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
+            return -EFAULT;
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        if (!netif)
+            return -ENODEV;
+        struct sockaddr_in *addr =
+                (struct sockaddr_in *)&ifreq->ifr.ifr_netmask;
+        if (addr->family != AF_INET)
+            return -EINVAL;
+        ip4_addr_t lwip_addr = {
+                .addr = addr->address,
+        };
+        netif_set_netmask(netif, &lwip_addr);
+        return 0;
+    }
+    case SIOCGIFMTU: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
+            return -EFAULT;
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        if (!netif)
+            return -ENODEV;
+        ifreq->ifr.ifr_mtu = netif->mtu;
+        return 0;
+    }
+    case SIOCSIFMTU: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
+            return -EFAULT;
+        if ((ifreq->ifr.ifr_mtu <= 0) || (ifreq->ifr.ifr_mtu > MTU_MAX))
+            return -EINVAL;
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        if (!netif)
+            return -ENODEV;
+        netif->mtu = ifreq->ifr.ifr_mtu;
+        return 0;
+    }
+    case SIOCGIFINDEX: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
+            return -EFAULT;
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        if (!netif)
+            return -ENODEV;
+        ifreq->ifr.ifr_ivalue = netif->num;
         return 0;
     }
     case FIONREAD: {
