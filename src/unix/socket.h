@@ -20,6 +20,35 @@ struct msghdr {
     int msg_flags;
 };
 
+#define IFNAMSIZ    16
+
+struct ifmap {
+    unsigned long mem_start;
+    unsigned long mem_end;
+    unsigned short base_addr;
+    unsigned char irq;
+    unsigned char dma;
+    unsigned char port;
+};
+
+struct ifreq {
+    char ifr_name[IFNAMSIZ];
+    union {
+        struct sockaddr ifr_addr;
+        struct sockaddr ifr_dstaddr;
+        struct sockaddr ifr_broadaddr;
+        struct sockaddr ifr_netmask;
+        struct sockaddr ifr_hwaddr;
+        short ifr_flags;
+        int ifr_ivalue;
+        int ifr_mtu;
+        struct ifmap ifru_map;
+        char ifr_slave[IFNAMSIZ];
+        char ifr_newname[IFNAMSIZ];
+        void *ifr_data;
+    } ifr;
+};
+
 struct sock {
     struct fdesc f;              /* must be first */
     int fd;
