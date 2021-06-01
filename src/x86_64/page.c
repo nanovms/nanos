@@ -5,6 +5,16 @@
 //#define PAGE_UPDATE_DEBUG
 //#define PTE_DEBUG
 
+//#define PAGE_INIT_DEBUG
+#ifdef PAGE_INIT_DEBUG
+#define page_init_debug(x) rputs(x)
+#define page_init_debug_u64(x) print_u64(x)
+#else
+#define page_init_debug(x)
+#define page_init_debug_u64(x)
+#endif
+
+// XXX deprecate
 #if defined(PAGE_DEBUG) && !defined(BOOT)
 #define page_debug(x, ...) do {log_printf("PAGE", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
@@ -19,11 +29,6 @@ static struct spinlock pt_lock;
 #define pagetable_lock()
 #define pagetable_unlock()
 #endif
-
-#define PT1 39
-#define PT2 30
-#define PT3 21
-#define PT4 12
 
 static inline u64 flags_from_pte(u64 pte)
 {
@@ -41,9 +46,6 @@ static inline boolean intersects_huge_backed(range r)
 }
 
 static heap pageheap;
-
-static const int level_shift[5] = { -1, PT1, PT2, PT3, PT4 };
-
 static u64 pagebase;
 
 static u64 *(*pointer_from_pteaddr)(u64 pa);
@@ -73,6 +75,7 @@ static inline u64 boot_pteaddr_from_pointer(u64 *p)
     return (u64)p;
 }
 
+// XXX rid of p2v?
 static inline u64 *kern_pointer_from_pteaddr(u64 pa)
 {
     if (point_in_range(pt_initial_phys, pa)) {
@@ -110,20 +113,25 @@ static inline u64 page_lookup(u64 table, u64 vaddr, int offset)
     return (a & 1) ? page_from_pte(a) : 0;
 }
 
+#define _pfv_level(table, vaddr, level)                                 \
+    u64 *l ## level = pte_lookup_ptr(table, vaddr, PT_SHIFT_L ## level);        \
+    if (!(*l ## level & 1))                                             \
+        return INVALID_PHYSICAL;
+
+#define _pfv_check_ps(level, vaddr)                                     \
+    if (*l ## level & _PAGE_PS)                                         \
+        return page_from_pte(*l ## level) | (vaddr & MASK(PT_SHIFT_L ## level));
+
 static physical physical_from_virtual_locked(void *x)
 {
     u64 xt = u64_from_pointer(x);
-    u64 l3 = page_lookup(pagebase, xt, PT1);
-    if (!l3) return INVALID_PHYSICAL;
-    u64 l2 = page_lookup(l3, xt, PT2);
-    if (!l2) return INVALID_PHYSICAL;
-    u64 l1 = page_lookup(l2, xt, PT3); // 2m pages
-    if (!l1) return INVALID_PHYSICAL;
-    if (*pte_lookup_ptr(l2, xt, PT3) & _PAGE_2M_SIZE) {
-        return (l1 | (xt & MASK(PT3)));
-    }
-    u64 l0 = page_lookup(l1, xt, PT4);
-    return l0 ? l0 | (xt & MASK(PT4)) : INVALID_PHYSICAL;
+    _pfv_level(pagebase, xt, 1);
+    _pfv_level(page_from_pte(*l1), xt, 2);
+    _pfv_check_ps(2, xt);
+    _pfv_level(page_from_pte(*l2), xt, 3);
+    _pfv_check_ps(3, xt);
+    _pfv_level(page_from_pte(*l3), xt, 4);
+    return page_from_pte(*l4) | (xt & MASK(PT_SHIFT_L4));
 }
 
 physical physical_from_virtual(void *x)
@@ -172,160 +180,36 @@ flush_entry get_page_flush_entry()
 #ifndef BOOT
 void dump_ptes(void *x)
 {
+    // XXX TODO
+#if 0
     pagetable_lock();
     u64 xt = u64_from_pointer(x);
 
     rprintf("dump_ptes 0x%lx\n", x);
-    u64 l1 = *pte_lookup_ptr(pagebase, xt, PT1);
+    u64 l1 = *pte_lookup_ptr(pagebase, xt, PT_SHIFT_L1);
     rprintf("  l1: 0x%lx\n", l1);
     if (l1 & 1) {
-        u64 l2 = *pte_lookup_ptr(l1, xt, PT2);
+        u64 l2 = *pte_lookup_ptr(l1, xt, PT_SHIFT_L2);
         rprintf("  l2: 0x%lx\n", l2);
         if (l2 & 1) {
-            u64 l3 = *pte_lookup_ptr(l2, xt, PT3);
+            u64 l3 = *pte_lookup_ptr(l2, xt, PT_SHIFT_L3);
             rprintf("  l3: 0x%lx\n", l3);
             if ((l3 & 1) && (l3 & _PAGE_2M_SIZE) == 0) {
-                u64 l4 = *pte_lookup_ptr(l3, xt, PT4);
+                u64 l4 = *pte_lookup_ptr(l3, xt, PT_SHIFT_L4);
                 rprintf("  l4: 0x%lx\n", l4);
             }
         }
     }
     pagetable_unlock();
-}
-#endif
-
-static void write_pte(u64 target, physical to, u64 flags, boolean * invalidate)
-{
-    u64 new = to | flags;
-    u64 *pteptr = pointer_from_pteaddr(target);
-#ifdef PTE_DEBUG
-    rputs(", write_pte: ");
-    print_u64(u64_from_pointer(target));
-    rputs(" = ");
-    print_u64(new);
-#endif
-    assert((new & _PAGE_NO_FAT) == 0);
-    if (*pteptr == new) {
-#ifdef PTE_DEBUG
-	rputs(", pte same; no op");
-#endif
-	return;
-    }
-    /* Unconditionally invalidate in case this cpu's TLB is not up-to-date. The
-     * TLB can be outdated in SMP situations where another cpu has marked the
-     * PTE as not present but this cpu hasn't processed the shootdown yet. */
-    *invalidate = true;
-#ifdef PTE_DEBUG
-    rputs("   invalidate, old ");
-    print_u64(*pteptr);
-    rputs(", new ");
-    print_u64(new);
-    rputs("\n");
-#endif
-    *pteptr = new;
-#ifdef PTE_DEBUG
-    rputs("\n");
 #endif
 }
-
-#ifdef PTE_DEBUG
-static void print_level(int level)
-{
-    int i;
-    for (i = 0; i < level - 1; i++)
-	rprintf(" ");
-    rprintf("%d", level);
-    for (i = 0; i < 5 - level; i++)
-	rprintf(" ");
-}
 #endif
-
-/* p == 0 && flags == 0 for unmap */
-static boolean force_entry(u64 b, u64 v, physical p, int level,
-			   boolean fat, u64 flags, boolean *invalidate)
-{
-    u64 pte_phys = pte_lookup_phys(b, v, level_shift[level]);
-    assert((flags & _PAGE_NO_FAT) == 0);
-
-    if (level == (fat ? 3 : 4)) {
-#ifdef PTE_DEBUG
-	rputs("! ");
-	print_level(level);
-	rputs(", phys ");
-	print_u64(pte_phys);
-#endif
-	if (fat)
-	    flags |= _PAGE_2M_SIZE;
-	write_pte(pte_phys, p, flags, invalidate);
-	return true;
-    } else {
-        u64 pte = *pointer_from_pteaddr(pte_phys);
-        if (pte & _PAGE_PRESENT) {
-            if (pte_is_2M(level, pte)) {
-                rputs("\nforce_entry fail: attempting to map a 4K page over an "
-                        "existing 2M mapping\n");
-                return false;
-            }
-            /* XXX when unmapping, add a check here to see if the
-               directory page is completely unused, and explicitly
-               remove and free them when possible. This will avoid the
-               occasional invalidate caused by lingering mid
-               directories without entries */
-	    return force_entry(page_from_pte(pte), v, p, level + 1,
-                               fat, flags, invalidate);
-	} else {
-	    if (flags == 0)	/* only lookup for unmap */
-		return false;
-	    u64 *n = allocate_zero(pageheap, PAGESIZE);
-	    if (n == INVALID_ADDRESS)
-		return false;
-
-            /* TODO kind of ridiculous to lose the phys addr from the
-               allocation just to look it up again... */
-            u64 n_addr = pteaddr_from_pointer(n);
-	    if (!force_entry(n_addr, v, p, level + 1, fat, flags, invalidate))
-                return false;
-#ifdef PTE_DEBUG
-            // XXX update debugs
-	    rputs("- ");
-	    print_level(level);
-	    rputs(", phys ");
-	    print_u64(pte_phys);
-#endif
-            /* user and writable are AND of flags from all levels */
-	    write_pte(pte_phys, n_addr, _PAGE_WRITABLE | _PAGE_USER | _PAGE_PRESENT, invalidate);
-	    return true;
-	}
-    }
-}
-
-/* called with lock held */
-static inline boolean map_page(u64 base, u64 v, physical p,
-                               boolean fat, u64 flags, boolean * invalidate, flush_entry fe)
-{
-    boolean invalidate_entry = false;
-#ifdef PAGE_UPDATE_DEBUG
-    rprintf("force entry base 0x%p, v 0x%lx, p 0x%lx, fat %d, flags 0x%lx\n",
-            base, v, p, fat, flags);
-#endif
-    v &= MASK(VIRTUAL_ADDRESS_BITS);
-    if (!force_entry(base, v, p, 1, fat, flags, &invalidate_entry))
-	return false;
-    if (invalidate_entry) {
-        // move this up to construct ranges?
-        page_invalidate(fe, v);
-        if (invalidate)
-            *invalidate = true;
-    }
-    return true;
-}
-
 //#define TRAVERSE_PTES_DEBUG
 
 #define PTE_ENTRIES U64_FROM_BIT(9)
 static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)
 {
-    int shift = level_shift[level];
+    int shift = pt_level_shift(level);
     u64 lsize = U64_FROM_BIT(shift);
     u64 start_idx = vstart > laddr ? ((vstart - laddr) >> shift) : 0;
     u64 x = vstart + len - laddr;
@@ -353,15 +237,10 @@ static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr
 #endif
         if (!apply(ph, level, addr, pte))
             return false;
-        if (!pte_is_present(*pte))
-            continue;
-        if (level == 3 && (*pte & _PAGE_2M_SIZE) != 0)
-            continue;
-        if (level < 4) {
-            if (!recurse_ptes(page_from_pte(*pte), level + 1, vstart, len,
-                              laddr + offset, ph))
-                return false;
-        }
+        if (pte_is_present(*pte) && level < 4 && (level == 1 || (*pte & _PAGE_PS) == 0) &&
+            !recurse_ptes(page_from_pte(*pte), level + 1, vstart, len,
+                          laddr + offset, ph))
+            return false;
     }
     return true;
 }
@@ -424,6 +303,8 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
     page_invalidate_sync(fe, ignore);
 }
 
+static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags);
+
 /* called with lock held */
 closure_function(3, 3, boolean, remap_entry,
                  u64, new, u64, old, flush_entry, fe,
@@ -434,6 +315,8 @@ closure_function(3, 3, boolean, remap_entry,
     u64 new_curr = bound(new) + offset;
     u64 phys = page_from_pte(oldentry);
     u64 flags = flags_from_pte(oldentry);
+    int map_order = pte_order(level, oldentry);
+
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx, entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
                level, curr, phys, new_curr, entry, *entry, flags.w);
@@ -444,7 +327,9 @@ closure_function(3, 3, boolean, remap_entry,
         return true;
 
     /* transpose mapped page */
-    map_page(pagebase, new_curr, phys, pte_is_2M(level, oldentry), flags, 0, bound(fe));
+    assert(map_level(pointer_from_u64(pagebase), 1,
+                     irangel(new_curr & MASK(VIRTUAL_ADDRESS_BITS), U64_FROM_BIT(map_order)),
+                     &phys, flags));
 
     /* reset old entry */
     *entry = 0;
@@ -479,7 +364,7 @@ closure_function(0, 3, boolean, zero_page,
 {
     u64 e = pte_from_pteptr(entry);
     if (pte_is_present(e) && pte_is_mapping(level, e)) {
-        u64 size = pte_is_2M(level, e) ? PAGESIZE_2M : PAGESIZE;
+        u64 size = pte_map_size(level, e);
 #ifdef PAGE_UPDATE_DEBUG
         page_debug("addr 0x%lx, size 0x%lx\n", addr, size);
 #endif
@@ -509,8 +394,7 @@ closure_function(2, 3, boolean, unmap_page,
         page_invalidate(bound(fe), vaddr);
         if (rh) {
             apply(rh, irangel(page_from_pte(old_entry),
-                              (pte_is_2M(level, old_entry) ?
-                               PAGESIZE_2M : PAGESIZE)));
+                              pte_map_size(level, old_entry)));
         }
     }
     return true;
@@ -526,71 +410,154 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
     page_invalidate_sync(fe, ignore);
 }
 
-// error processing
-static void map_range(u64 virtual, physical p, u64 length, u64 flags)
+static void *get_table_page(u64 *phys)
 {
-    u64 len = pad(length, PAGESIZE);
-    u64 vo = virtual;
-    u64 po = p;
-
-    pagetable_lock();
-    u64 pb = pagebase;
-
-    /* may be extreme, but can't be careful enough */
-    memory_barrier();
-
-    if ((virtual & PAGEMASK) || (p & PAGEMASK) || (length & PAGEMASK)) {
-	if (flags == 0)
-	    rputs("un");
-	rputs("map() called with unaligned paramters!\n v: ");
-	print_u64(virtual);
-	rputs(", p: ");
-	print_u64(p);
-	rputs(", length: ");
-	print_u64(length);
-	halt("\n");
-    }
-
-#ifdef PAGE_DEBUG
-    rputs("map_range v: ");
-    print_u64(virtual);
-    rputs(", p: ");
-    print_u64(p);
-    rputs(", length: ");
-    print_u64(length);
-    rputs(", flags: ");
-    print_u64(flags);
-    rputs("\n");
-#endif
-
-    boolean invalidate = false;
-    flush_entry fe = get_page_flush_entry();
-    for (int i = 0; i < len;) {
-        boolean fat = ((flags & _PAGE_NO_FAT) == 0) && !(vo & MASK(PT3)) &&
-            !(po & MASK(PT3)) && ((len - i) >= (1ull<<PT3));
-        if (!map_page(pb, vo, po, fat, flags & ~_PAGE_NO_FAT, &invalidate, fe)) {
-            /* may fail if flags == 0 and no mapping, but that's not a problem */
-            if (flags)
-                halt("map: ran out of page table memory\n");
-        }
-        int off = 1ull << (fat ? PT3 : PT4);
-        vo += off;
-        po += off;
-        i += off;
-    }
-#ifdef PAGE_DEBUG
-    if (invalidate && p)        /* don't care about invalidate on unmap */
-        rputs("   - part of map caused invalidate\n");
-#endif
-
-    memory_barrier();
-    pagetable_unlock();
-    page_invalidate_sync(fe, ignore);
+    // XXX change to backed
+    void *n = allocate_zero(pageheap, PAGESIZE);
+    if (n != INVALID_ADDRESS)
+        *phys = pteaddr_from_pointer(n);
+    return n;
 }
 
-void map(u64 virtual, physical p, u64 length, pageflags flags)
+#define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
+#define INDEX_MASK (PAGEMASK >> 3)
+static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
 {
-    map_range(virtual, p, length, flags.w | _PAGE_PRESENT);
+    int shift = pt_level_shift(level);
+    u64 mask = MASK(shift);
+    u64 vlbase = level > 2 ? v.start & ~MASK(pt_level_shift(level - 1)) : 0;
+    int first_index = (v.start >> shift) & INDEX_MASK;
+    int last_index = ((v.end - 1) >> shift) & INDEX_MASK;
+
+    page_init_debug("\nmap_level: table_ptr ");
+    page_init_debug_u64(u64_from_pointer(table_ptr));
+    page_init_debug(", level ");
+    page_init_debug_u64(level);
+    page_init_debug(", shift ");
+    page_init_debug_u64(shift);
+    page_init_debug("\n   v ");
+    page_init_debug_u64(v.start);
+    page_init_debug(" - ");
+    page_init_debug_u64(v.end);
+    page_init_debug(", p ");
+    page_init_debug_u64(*p);
+    page_init_debug(" first ");
+    page_init_debug_u64(first_index);
+    page_init_debug(" last ");
+    page_init_debug_u64(last_index);
+    page_init_debug("\n");
+    assert(last_index < (PAGESIZE >> 3)); // XXX
+    assert(first_index <= last_index);
+    assert(table_ptr && table_ptr != INVALID_ADDRESS);
+
+    for (int i = first_index; i <= last_index; i++, next_addr(v.start, mask)) {
+        page_init_debug("   index ");
+        page_init_debug_u64(i);
+        page_init_debug(", v.start ");
+        page_init_debug_u64(v.start);
+        page_init_debug(", p ");
+        page_init_debug_u64(*p);
+        page_init_debug("\n");
+        page_init_debug("   GET @ ");
+        page_init_debug_u64(u64_from_pointer(&table_ptr[i]));
+        u64 pte = table_ptr[i];
+        page_init_debug(": ");
+        page_init_debug_u64(pte);
+        page_init_debug("\n");
+        if ((pte & _PAGE_PRESENT) == 0) {
+            if (level == 4) {
+                page_init_debug("   -pte-   ");
+                pte = *p | flags | _PAGE_PRESENT;
+                next_addr(*p, mask);
+            } else if (level > 1 &&
+                       (v.start & mask) == 0 &&
+                       (*p & mask) == 0 &&
+                       range_span(v) >= U64_FROM_BIT(shift)) {
+                page_init_debug(level == 2 ? "   -pdpe-  " : "   -pde-   ");
+                page_init_debug_u64(v.start);
+                page_init_debug(" span ");
+                page_init_debug_u64(range_span(v));
+                page_init_debug(" p ");
+                page_init_debug_u64(*p);
+                page_init_debug("\n");
+                pte = *p | flags | _PAGE_PRESENT | _PAGE_PS;
+                next_addr(*p, mask);
+            } else {
+                page_init_debug("   -new level- ");
+                void *tp;
+                u64 tp_phys;
+                if ((tp = get_table_page(&tp_phys)) == INVALID_ADDRESS) {
+                    msg_err("failed to allocate page table memory\n");
+                    return false;
+                }
+                /* user and writable are AND of flags from all levels */
+                pte = tp_phys | _PAGE_WRITABLE | _PAGE_USER | _PAGE_PRESENT;
+                u64 end = vlbase | (((u64)(i + 1)) << shift);
+                /* length instead of end to avoid overflow at end of space */
+                u64 len = MIN(range_span(v), end - v.start);
+                page_init_debug("  end ");
+                page_init_debug_u64(end);
+                page_init_debug(", len ");
+                page_init_debug_u64(len);
+                page_init_debug("\n");
+                if (!map_level(tp, level + 1, irangel(v.start, len), p, flags))
+                    return false;
+            }
+            page_init_debug("   SET @ ");
+            page_init_debug_u64(u64_from_pointer(&table_ptr[i]));
+            page_init_debug(" = ");
+            page_init_debug_u64(pte);
+            page_init_debug("\n");
+            table_ptr[i] = pte;
+
+            // XXX circle back for invalidation
+//            leaf_invalidate(v.start);
+        } else {
+            /* fail if page or block already installed */
+            if (pte_is_mapping(level, pte)) {
+                msg_err("would overwrite entry: level %d, v %R, pa 0x%lx, "
+                        "flags 0x%lx, index %d, entry 0x%lx\n", level, v, *p,
+                        flags, i, pte);
+                return false;
+            }
+            u64 nexttable = page_from_pte(pte);
+            u64 *nexttable_ptr = pointer_from_pteaddr(nexttable);
+            u64 end = vlbase | (((u64)(i + 1)) << shift);
+            u64 len = MIN(range_span(v), end - v.start);
+            page_init_debug("   len 2 ");
+            page_init_debug_u64(len);
+            page_init_debug("\n");
+            if (!map_level(nexttable_ptr, level + 1, irangel(v.start, len), p, flags))
+                return false;
+        }
+    }
+    return true;
+}
+
+void map(u64 v, physical p, u64 length, pageflags flags)
+{
+    page_init_debug("map: v ");
+    page_init_debug_u64(v);
+    page_init_debug(", p ");
+    page_init_debug_u64(p);
+    page_init_debug(", length ");
+    page_init_debug_u64(length);
+    page_init_debug(", flags ");
+    page_init_debug_u64(flags.w);
+    page_init_debug(", called from ");
+    page_init_debug_u64(u64_from_pointer(__builtin_return_address(0)));
+    page_init_debug("\n");
+
+    assert((v & PAGEMASK) == 0);
+    assert((p & PAGEMASK) == 0);
+    range r = irangel(v & MASK(VIRTUAL_ADDRESS_BITS), pad(length, PAGESIZE));
+    u64 *table_ptr = pointer_from_pteaddr(pagebase);
+    if (!map_level(table_ptr, 1, r, &p, flags.w | _PAGE_PRESENT /* XXX check */)) {
+        rprintf("ra %p\n", __builtin_return_address(0));
+        print_frame_trace_from_here();
+        halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
+             v, p, length, flags.w);
+    }
 }
 
 void unmap(u64 virtual, u64 length)
@@ -654,7 +621,7 @@ static u64 pt_2m_alloc(heap h, bytes size)
         if (p == INVALID_PHYSICAL)
             halt("%s: failed to allocate 2M physical page\n", __func__);
         /* we depend the pmd already being installed to avoid an alloc here */
-        map_page(pagebase, i, p, true, _PAGE_WRITABLE | _PAGE_PRESENT, 0, fe);
+        map(i, p, PAGESIZE_2M, pageflags_writable(pageflags_memory()));
         table_set(pt_p2v, (void *)p, (void *)i);
     }
     page_invalidate_sync(fe, ignore);
@@ -669,19 +636,23 @@ void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
     u64 *pml4;
     mov_from_cr("cr3", pml4);
     flags.w |= _PAGE_PRESENT;
-    pml4[(v >> PT1) & MASK(9)] = u64_from_pointer(pdpt) | flags.w;
-    v &= MASK(PT1);
-    pdpt[v >> PT2] = u64_from_pointer(pdt) | flags.w;
-    v &= MASK(PT2);
+    pml4[(v >> PT_SHIFT_L1) & MASK(9)] = u64_from_pointer(pdpt) | flags.w;
+    v &= MASK(PT_SHIFT_L1);
+    pdpt[v >> PT_SHIFT_L2] = u64_from_pointer(pdt) | flags.w;
+    v &= MASK(PT_SHIFT_L2);
     assert(v + pages <= 512);
     for (int i = 0; i < pages; i++)
-        pdt[v + i] = (p + (i << PAGELOG_2M)) | flags.w | _PAGE_2M_SIZE;
+        pdt[v + i] = (p + (i << PAGELOG_2M)) | flags.w | _PAGE_PS;
     memory_barrier();
 }
 
 /* this happens even before moving to the new stack, so ... be cool */
 void init_page_tables(heap h, id_heap physical, range initial_phys)
 {
+    u32 v[4];
+    cpuid(0x80000001, 0, v);
+    // XXX we could switch off 1GB mappings...
+    assert(v[3] & U64_FROM_BIT(26)); /* 1GB page support */
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
     mov_from_cr("cr3", pagebase);
     pointer_from_pteaddr = kern_pointer_from_pteaddr;
