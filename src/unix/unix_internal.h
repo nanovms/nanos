@@ -872,14 +872,10 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]);
 
 int do_eventfd2(unsigned int count, int flags);
 
+typedef closure_type(spec_file_open, sysreturn, file f);
+
 void register_special_files(process p);
 sysreturn spec_open(file f);
-sysreturn spec_close(file f);
-sysreturn spec_read(file f, void *dest, u64 length, u64 offset_arg, thread t,
-        boolean bh, io_completion completion);
-sysreturn spec_write(file f, void *dest, u64 length, u64 offset_arg, thread t,
-        boolean bh, io_completion completion);
-u32 spec_events(file f);
 
 /* Values to pass as first argument to prctl() */
 #define PR_SET_NAME    15               /* Set process name */

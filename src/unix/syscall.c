@@ -466,9 +466,6 @@ closure_function(2, 6, sysreturn, file_read,
                length, f->length);
     heap h = heap_general(get_kernel_heaps());
 
-    if (f->f.type == FDESC_TYPE_SPECIAL) {
-        return spec_read(f, dest, length, offset, t, bh, completion);
-    }
     if (offset >= f->length) {
         return io_complete(completion, t, 0);
     }
@@ -516,17 +513,11 @@ closure_function(2, 6, sysreturn, file_sg_read,
                length, f->length);
     heap h = heap_general(get_kernel_heaps());
 
-    /* TODO: special files not supported yet */
-    if (f->f.type == FDESC_TYPE_SPECIAL) {
-        apply(completion, t, -EIO);
-        goto out;
-    }
-
     begin_file_read(t, f);
     apply(f->fs_read, sg, irangel(offset, length), closure(h, file_sg_read_complete,
                                                            t, f, sg, is_file_offset, completion));
     file_readahead(f, offset, length);
-  out:
+
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
@@ -580,10 +571,6 @@ closure_function(2, 6, sysreturn, file_write,
                length, f->length);
     heap h = heap_general(get_kernel_heaps());
 
-    if (f->f.type == FDESC_TYPE_SPECIAL) {
-        return spec_write(f, src, length, offset, t, bh, completion);
-    }
-
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
@@ -624,12 +611,6 @@ closure_function(2, 6, sysreturn, file_sg_write,
     file f = bound(f);
     sysreturn rv;
 
-    /* TODO: special files not supported yet */
-    if (f->f.type == FDESC_TYPE_SPECIAL) {
-        rv = -EIO;
-        goto out;
-    }
-
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
@@ -652,23 +633,14 @@ closure_function(2, 2, sysreturn, file_close,
                  file, f, fsfile, fsf,
                  thread, t, io_completion, completion)
 {
-    sysreturn ret = 0;
     file f = bound(f);
-
-    if (f->f.type == FDESC_TYPE_SPECIAL) {
-        ret = spec_close(f);
-    }
-        
-    if (ret == 0) {
-        deallocate_closure(f->f.read);
-        deallocate_closure(f->f.write);
-        deallocate_closure(f->f.sg_read);
-        deallocate_closure(f->f.sg_write);
-        deallocate_closure(f->f.events);
-        deallocate_closure(f->f.close);
-        release_fdesc(&f->f);
-        unix_cache_free(get_unix_heaps(), file, f);
-    }
+    deallocate_closure(f->f.read);
+    deallocate_closure(f->f.write);
+    deallocate_closure(f->f.sg_read);
+    deallocate_closure(f->f.sg_write);
+    deallocate_closure(f->f.events);
+    deallocate_closure(f->f.close);
+    file_release(f);
     return io_complete(completion, t, 0);
 }
 
@@ -678,13 +650,9 @@ closure_function(1, 1, u32, file_events,
 {
     file f = bound(f);
     u32 events;
-    if (f->f.type == FDESC_TYPE_SPECIAL) {
-        events = spec_events(f);
-    } else {
-        /* XXX add nonblocking support */
-        events = f->length < infinity ? EPOLLOUT : 0;
-        events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
-    }
+    /* XXX add nonblocking support */
+    events = f->length < infinity ? EPOLLOUT : 0;
+    events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
     return events;
 }
 
@@ -825,12 +793,6 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
     }
 
     init_fdesc(h, &f->f, type);
-    f->f.read = closure(h, file_read, f, fsf);
-    f->f.write = closure(h, file_write, f, fsf);
-    f->f.sg_read = closure(h, file_sg_read, f, fsf);
-    f->f.sg_write = closure(h, file_sg_write, f, fsf);
-    f->f.close = closure(h, file_close, f, fsf);
-    f->f.events = closure(h, file_events, f);
     f->f.flags = flags;
     f->fs = fs;
     if (type == FDESC_TYPE_REGULAR) {
@@ -855,6 +817,13 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
             unix_cache_free(uh, file, f);
             return set_syscall_return(current, spec_ret);
         }
+    } else {
+        f->f.read = closure(h, file_read, f, fsf);
+        f->f.write = closure(h, file_write, f, fsf);
+        f->f.sg_read = closure(h, file_sg_read, f, fsf);
+        f->f.sg_write = closure(h, file_sg_write, f, fsf);
+        f->f.close = closure(h, file_close, f, fsf);
+        f->f.events = closure(h, file_events, f);
     }
 
     if (do_missing_files) {

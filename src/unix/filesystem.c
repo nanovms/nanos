@@ -370,3 +370,9 @@ sysreturn fadvise64(int fd, s64 off, u64 len, int advice)
     }
     return 0;
 }
+
+void file_release(file f)
+{
+    release_fdesc(&f->f);
+    unix_cache_free(get_unix_heaps(), file, f);
+}

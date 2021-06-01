@@ -104,6 +104,131 @@ static special_file special_files[] = {
     FTRACE_SPECIAL_FILES
 };
 
+closure_function(2, 6, sysreturn, spec_read,
+                 special_file *, sf, file, f,
+                 void *, dest, u64, len, u64, offset, thread, t, boolean, bh, io_completion, completion)
+{
+    special_file *sf = bound(sf);
+    thread_log(t, "spec_read: %s", sf->path);
+    file f = bound(f);
+    sysreturn nr;
+    if (sf->read) {
+        boolean is_file_offset = (offset == infinity);
+        nr = sf->read(f, dest, len, is_file_offset ? f->offset : offset);
+        if ((nr > 0) && is_file_offset)
+            f->offset += nr;
+    } else {
+        nr = 0;
+    }
+    return io_complete(completion, t, nr);
+}
+
+closure_function(2, 6, sysreturn, spec_write,
+                 special_file *, sf, file, f,
+                 void *, dest, u64, len, u64, offset, thread, t, boolean, bh, io_completion, completion)
+{
+    special_file *sf = bound(sf);
+    thread_log(t, "spec_write: %s", sf->path);
+    file f = bound(f);
+    sysreturn nr;
+    if (sf->write) {
+        boolean is_file_offset = (offset == infinity);
+        nr = sf->write(f, dest, len, is_file_offset ? f->offset : offset);
+        if ((nr > 0) && is_file_offset)
+            f->offset += nr;
+    } else {
+        nr = 0;
+    }
+    return io_complete(completion, t, nr);
+}
+
+closure_function(2, 1, u32, spec_events,
+                 special_file *, sf, file, f,
+                 thread, t)
+{
+    special_file *sf = bound(sf);
+    thread_log(current, "spec_events: %s", sf->path);
+    if (sf->events)
+        return sf->events(bound(f));
+    return 0;
+}
+
+closure_function(2, 2, sysreturn, spec_close,
+                 special_file *, sf, file, f,
+                 thread, t, io_completion, completion)
+{
+    special_file *sf = bound(sf);
+    thread_log(current, "spec_close: %s", sf->path);
+    file f = bound(f);
+    sysreturn ret;
+    if (sf->close)
+        ret = sf->close(f);
+    else
+        ret = 0;
+    deallocate_closure(f->f.read);
+    deallocate_closure(f->f.write);
+    deallocate_closure(f->f.events);
+    deallocate_closure(f->f.close);
+    file_release(f);
+    return io_complete(completion, t, ret);
+}
+
+closure_function(1, 1, sysreturn, special_open,
+                 special_file *, sf,
+                 file, f)
+{
+    special_file *sf = bound(sf);
+    heap h = heap_general(get_kernel_heaps());
+    sysreturn ret;
+
+    thread_log(current, "spec_open: %s", sf->path);
+    f->f.read = closure(h, spec_read, sf, f);
+    if (f->f.read == INVALID_ADDRESS)
+        goto no_mem;
+    f->f.write = closure(h, spec_write, sf, f);
+    if (f->f.write == INVALID_ADDRESS)
+        goto no_mem;
+    f->f.events = closure(h, spec_events, sf, f);
+    if (f->f.events == INVALID_ADDRESS)
+        goto no_mem;
+    f->f.close = closure(h, spec_close, sf, f);
+    if (f->f.close == INVALID_ADDRESS)
+        goto no_mem;
+    if (sf->open)
+        ret = sf->open(f);
+    else
+        ret = 0;
+    if (ret)
+        goto err;
+    return 0;
+  no_mem:
+    ret = -ENOMEM;
+  err:
+    if (f->f.read && (f->f.read != INVALID_ADDRESS))
+        deallocate_closure(f->f.read);
+    if (f->f.write && (f->f.write != INVALID_ADDRESS))
+        deallocate_closure(f->f.write);
+    if (f->f.events && (f->f.events != INVALID_ADDRESS))
+        deallocate_closure(f->f.events);
+    if (f->f.close && (f->f.close != INVALID_ADDRESS))
+        deallocate_closure(f->f.close);
+    return ret;
+}
+
+boolean create_special_file(const char *path, spec_file_open open)
+{
+    tuple entry = allocate_tuple();
+    if (entry == INVALID_ADDRESS)
+        return false;
+    set(entry, sym(special), open);
+    fs_status s = filesystem_mkentry(get_root_fs(), 0, path, entry, false, true);
+    if (s == FS_STATUS_OK)
+        return true;
+    deallocate_value(entry);
+    return false;
+}
+KLIB_EXPORT(create_special_file);
+
 void register_special_files(process p)
 {
     heap h = heap_general((kernel_heaps)p->uh);
@@ -133,90 +258,17 @@ void register_special_files(process p)
         special_file *sf = special_files + i;
 
         /* create special file */
-        tuple entry = allocate_tuple();
-        buffer b = wrap_buffer(h, sf, sizeof(*sf));
-        set(entry, sym(special), b);
-        filesystem_mkentry(p->root_fs, 0, sf->path, entry, false, true);
+        spec_file_open open = closure(h, special_open, sf);
+        assert(open != INVALID_ADDRESS);
+        assert(create_special_file(sf->path, open));
     }
 
     filesystem_mkdirpath(p->root_fs, 0, "/sys/devices/system/cpu/cpu0", false);
 }
 
-static special_file *
-get_special(file f)
-{
-    // XXX untyped binary type
-    buffer b = get(file_get_meta(f), sym(special));
-    assert(b);
-    return (special_file *) buffer_ref(b, 0);
-}
-
 sysreturn
 spec_open(file f)
 {
-    special_file *sf = get_special(f);
-    assert(sf);
-
-    thread_log(current, "spec_open: %s", sf->path);
-    if (sf->open)
-        return sf->open(f);
-
-    return 0;
-}
-
-sysreturn
-spec_close(file f)
-{
-    special_file *sf = get_special(f);
-    assert(sf);
-
-    thread_log(current, "spec_close: %s", sf->path);
-    if (sf->close)
-        return sf->close(f);
-
-    return 0;
-}
-
-sysreturn
-spec_read(file f, void *dest, u64 length, u64 offset, thread t, boolean bh,
-        io_completion completion)
-{
-    special_file *sf = get_special(f);
-    assert(sf);
-
-    thread_log(t, "spec_read: %s", sf->path);
-    if (sf->read) {
-        sysreturn nr = sf->read(f, dest, length, offset);
-        if (nr > 0)
-            f->offset += nr;
-        return nr;
-    }
-
-    return 0;
-}
-
-sysreturn
-spec_write(file f, void *dest, u64 length, u64 offset, thread t, boolean bh,
-        io_completion completion)
-{
-    special_file *sf = get_special(f);
-    assert(sf);
-
-    thread_log(t, "spec_write: %s", sf->path);
-    if (sf->write)
-        return sf->write(f, dest, length, offset);
-    return 0;
-}
-
-u32
-spec_events(file f)
-{
-    special_file *sf = get_special(f);
-    assert(sf);
-
-    thread_log(current, "spec_events: %s", sf->path);
-    if (sf->events)
-        return sf->events(f);
-
-    return 0;
+    spec_file_open open = get(file_get_meta(f), sym(special));
+    return apply(open, f);
 }

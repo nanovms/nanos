@@ -56,3 +56,5 @@ sysreturn fstatfs(int fd, struct statfs *buf);
 sysreturn fallocate(int fd, int mode, long offset, long len);
 
 sysreturn fadvise64(int fd, s64 off, u64 len, int advice);
+
+void file_release(file f);

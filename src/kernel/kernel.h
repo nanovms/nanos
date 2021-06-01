@@ -247,6 +247,7 @@ void mm_register_balloon_deflater(balloon_deflater deflater);
 
 kernel_heaps get_kernel_heaps(void);
 
+struct filesystem *get_root_fs(void);
 tuple get_root_tuple(void);
 tuple get_environment(void);
 void register_root_notify(symbol s, set_value_notify n);

@@ -160,6 +160,11 @@ kernel_heaps get_kernel_heaps(void)
 }
 KLIB_EXPORT(get_kernel_heaps);
 
+filesystem get_root_fs(void)
+{
+    return root_fs;
+}
+
 tuple get_root_tuple(void)
 {
     return filesystem_getroot(root_fs);
