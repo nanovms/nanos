@@ -833,9 +833,11 @@ closure_function(4, 1, void, log_read_complete,
     b->start = 0;
     tlog_debug("   log parse finished, end now at %d\n", b->end);
 
+    binding_handler bh = stack_closure(log_read_ingest_extent, 0);
     table_foreach(tl->extents, t, f) {
         assert(is_tuple(t));
-        iterate((tuple)t, stack_closure(log_read_ingest_extent, (fsfile)f));
+        closure_member(log_read_ingest_extent, bh, f) = (fsfile)f;
+        iterate((tuple)t, bh);
     }
     deallocate_table(tl->extents);  /* not needed anymore */
     tl->extents = 0;
