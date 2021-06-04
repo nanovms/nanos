@@ -22,146 +22,26 @@ static struct spinlock pt_lock;
 #define pagetable_unlock()
 #endif
 
-/* direct map heap - prob move to generic */
-
-typedef struct direct_map {
-    struct heap h;
-    heap meta;
-    heap physical;
-    u64 map_offset;
-    struct spinlock lock;
-    bitmap mapped;
-} *direct_map;
-
-#define DIRECT_MAP_IDX_LIMIT ((DIRECT_MAP_LIMIT - DIRECT_MAP_BASE) >> DIRECT_MAP_PAGELOG)
-
-static inline u64 flags_from_pte(u64 pte)
-{
-    return pte & _PAGE_FLAGS_MASK;
-}
-
-static inline int direct_get_index(direct_map dm, u64 paddr)
-{
-    return (paddr >> DIRECT_MAP_PAGELOG) - dm->map_offset;
-}
-
-static inline u64 direct_base_from_index(direct_map dm, int index)
-{
-    return DIRECT_MAP_BASE + ((u64)index << DIRECT_MAP_PAGELOG);
-}
-
-static inline u64 direct_map_add_physical(direct_map dm, u64 p)
-{
-    int index = direct_get_index(dm, p);
-    assert(index < DIRECT_MAP_IDX_LIMIT);
-    boolean mapped = bitmap_get(dm->mapped, index);
-    u64 offset = p & MASK(DIRECT_MAP_PAGELOG);
-    u64 vbase = direct_base_from_index(dm, index);
-    u64 pbase = p & ~MASK(DIRECT_MAP_PAGELOG);
-    if (!mapped) {
-        map(vbase, pbase, U64_FROM_BIT(DIRECT_MAP_PAGELOG), pageflags_writable(pageflags_memory()));
-        bitmap_set(dm->mapped, index, 1);
-    }
-    return vbase + offset;
-}
-
-static inline u64 direct_alloc_internal(direct_map dm, bytes size)
-{
-    u64 len = pad(size, dm->h.pagesize);
-    u64 p = allocate_u64(dm->physical, len);
-    if (p == INVALID_PHYSICAL)
-        return p;
-    return direct_map_add_physical(dm, p);
-}
-
-static inline boolean direct_map_validate_physical(direct_map dm, u64 p)
-{
-    return bitmap_get(dm->mapped, direct_get_index(dm, p));
-}
-
-static inline u64 direct_map_virtual_from_physical(direct_map dm, u64 p)
-{
-    assert(direct_map_validate_physical(dm, p));
-    return direct_base_from_index(dm, direct_get_index(dm, p)) +
-        (p & MASK(DIRECT_MAP_PAGELOG));
-}
-
-static inline u64 direct_map_physical_from_virtual(direct_map dm, u64 v)
-{
-    return (v - DIRECT_MAP_BASE) + dm->map_offset;
-}
-
-static u64 direct_alloc(heap h, bytes size)
-{
-    return direct_alloc_internal((direct_map)h, size);
-}
-
-static void direct_dealloc(heap h, u64 x, bytes size)
-{
-    /* nop */
-}
-
-static void direct_destroy(heap h)
-{
-    /* nop */
-}
-
-/* pass through to phys ... */
-static bytes direct_allocated(heap h)
-{
-    return heap_allocated((heap)((direct_map)h)->physical);
-}
-
-static bytes direct_total(heap h)
-{
-    return heap_total((heap)((direct_map)h)->physical);
-}
-
-direct_map allocate_direct_map_heap(heap meta, heap physical, u64 phys_base)
-{
-    direct_map dm = allocate(meta, sizeof(*dm));
-    if (dm == INVALID_ADDRESS)
-        return dm;
-    dm->h.alloc = direct_alloc;
-    dm->h.dealloc = direct_dealloc;
-    dm->h.destroy = direct_destroy;
-    dm->h.allocated = direct_allocated;
-    dm->h.total = direct_total;
-    dm->h.pagesize = physical->pagesize;
-    dm->h.management = 0;
-    dm->meta = meta;
-    dm->physical = physical;
-    dm->map_offset = phys_base >> DIRECT_MAP_PAGELOG;
-    dm->mapped = allocate_bitmap(meta, meta, DIRECT_MAP_IDX_LIMIT);
-    bitmap_extend(dm->mapped, DIRECT_MAP_IDX_LIMIT - 1);
-    return dm;
-}
-
-static direct_map pageheap;
 static u64 init_table;
 static range current_pt_phys;
 static id_heap physheap;
+static backed_heap pageheap;
 
 static u64 kernel_tablebase;
 static u64 user_tablebase;
 
 const int page_level_shifts_4K[_PAGE_NLEVELS] = { 39, 30, 21, 12 };
 
-static inline boolean is_huge_backed_address(u64 address)
+static inline u64 flags_from_pte(u64 pte)
 {
-    return address >= HUGE_BACKED_BASE && address < HUGE_BACKED_LIMIT;
-}
-
-static inline boolean intersects_huge_backed(range r)
-{
-    return ranges_intersect(r, irange(HUGE_BACKED_BASE, HUGE_BACKED_LIMIT));
+    return pte & _PAGE_FLAGS_MASK;
 }
 
 physical physical_from_virtual(void *x)
 {
     u64 a = u64_from_pointer(x);
     if (is_huge_backed_address(a))
-        return a & ~HUGE_BACKED_BASE;
+        return phys_from_huge_backed_virt(a);
     return __physical_from_virtual(x);
 }
 
@@ -180,7 +60,9 @@ static inline void post_sync(void)
 
 static inline u64 *pointer_from_pteaddr(u64 pa)
 {
-    return pointer_from_u64(pageheap ? direct_map_virtual_from_physical(pageheap, pa) : pa);
+    if (!pageheap)
+        return pointer_from_u64(pa);
+    return virt_from_huge_backed_phys(pa);
 }
 
 void dump_ptes(void *vaddr)
@@ -202,8 +84,8 @@ static void *get_table_page(u64 *phys)
             msg_err("failed to allocate 2M table page\n");
             return INVALID_ADDRESS;
         }
-
-        current_pt_phys = irangel(direct_map_physical_from_virtual(pageheap, va), PAGESIZE_2M);
+        assert(is_huge_backed_address(va));
+        current_pt_phys = irangel(phys_from_huge_backed_virt(va), PAGESIZE_2M);
     }
 
     page_init_debug("current_pt_phys.start ");
@@ -733,15 +615,11 @@ void page_init_mmu(range init_pt, u64 vtarget)
                   "br %1" :: "r" (sctlr), "r" (vtarget));
 }
 
-void page_heap_init(heap locked, id_heap physical)
+void page_heap_init(heap locked, id_heap physical, backed_heap huge_backed)
 {
     physheap = physical;
+    pageheap = huge_backed;
 
-    direct_map dm = allocate_direct_map_heap(locked, (heap)physical, PHYSMEM_BASE);
-    assert(dm != INVALID_ADDRESS);
-    direct_map_add_physical(dm, init_table);
-    pageheap = dm;
-
-    /* unmap temporary identity map */
+    /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
 }

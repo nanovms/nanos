@@ -27,8 +27,9 @@ static inline u64 huge_backed_base_from_index(huge_backed_heap hb, int index)
     return HUGE_BACKED_BASE + ((u64)index << HUGE_BACKED_PAGELOG);
 }
 
-static inline u64 huge_backed_heap_add_physical(huge_backed_heap hb, u64 p)
+u64 huge_backed_heap_add_physical(backed_heap bh, u64 p)
 {
+    huge_backed_heap hb = (huge_backed_heap)bh;
     int index = huge_backed_get_index(hb, p);
     assert(index < HUGE_BACKED_IDX_LIMIT);
     boolean mapped = bitmap_get(hb->mapped, index);
@@ -52,7 +53,7 @@ static inline u64 huge_backed_alloc_internal(huge_backed_heap hb, bytes size)
     if (p == INVALID_PHYSICAL)
         return p;
     huge_backed_debug("%s: size 0x%lx, len 0x%lx, p 0x%lx, ", __func__, size, len, p);
-    return huge_backed_heap_add_physical(hb, p);
+    return huge_backed_heap_add_physical(&hb->bh, p);
 }
 
 static inline boolean huge_backed_heap_validate_physical(huge_backed_heap hb, u64 p)
