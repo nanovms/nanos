@@ -294,7 +294,7 @@ closure_function(2, 3, boolean, update_pte_flags,
 void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 {
     flags.w &= ~_PAGE_NO_FAT;
-    page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
+    page_debug("%s: vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", __func__, vaddr, length, flags.w);
 
     /* Catch any attempt to change page flags in a huge_backed mapping */
     assert(!intersects_huge_backed(irangel(vaddr, length)));
@@ -303,7 +303,7 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
     page_invalidate_sync(fe, ignore);
 }
 
-static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags);
+static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe);
 
 /* called with lock held */
 closure_function(3, 3, boolean, remap_entry,
@@ -319,7 +319,7 @@ closure_function(3, 3, boolean, remap_entry,
 
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx, entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
-               level, curr, phys, new_curr, entry, *entry, flags.w);
+               level, curr, phys, new_curr, entry, *entry, flags);
 #endif
 
     /* only look at ptes at this point */
@@ -327,9 +327,9 @@ closure_function(3, 3, boolean, remap_entry,
         return true;
 
     /* transpose mapped page */
-    assert(map_level(pointer_from_u64(pagebase), 1,
+    assert(map_level(pointer_from_pteaddr(pagebase), 1,
                      irangel(new_curr & MASK(VIRTUAL_ADDRESS_BITS), U64_FROM_BIT(map_order)),
-                     &phys, flags));
+                     &phys, flags, bound(fe)));
 
     /* reset old entry */
     *entry = 0;
@@ -421,7 +421,7 @@ static void *get_table_page(u64 *phys)
 
 #define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
 #define INDEX_MASK (PAGEMASK >> 3)
-static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
+static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe)
 {
     int shift = pt_level_shift(level);
     u64 mask = MASK(shift);
@@ -451,6 +451,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
     assert(table_ptr && table_ptr != INVALID_ADDRESS);
 
     for (int i = first_index; i <= last_index; i++, next_addr(v.start, mask)) {
+        boolean invalidate = false; /* page at v.start */
         page_init_debug("   index ");
         page_init_debug_u64(i);
         page_init_debug(", v.start ");
@@ -469,6 +470,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
                 page_init_debug("   -pte-   ");
                 pte = *p | flags | _PAGE_PRESENT;
                 next_addr(*p, mask);
+                invalidate = true;
             } else if (level > 1 &&
                        (v.start & mask) == 0 &&
                        (*p & mask) == 0 &&
@@ -482,6 +484,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
                 page_init_debug("\n");
                 pte = *p | flags | _PAGE_PRESENT | _PAGE_PS;
                 next_addr(*p, mask);
+                invalidate = true;
             } else {
                 page_init_debug("   -new level- ");
                 void *tp;
@@ -500,7 +503,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
                 page_init_debug(", len ");
                 page_init_debug_u64(len);
                 page_init_debug("\n");
-                if (!map_level(tp, level + 1, irangel(v.start, len), p, flags))
+                if (!map_level(tp, level + 1, irangel(v.start, len), p, flags, fe))
                     return false;
             }
             page_init_debug("   SET @ ");
@@ -509,9 +512,8 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
             page_init_debug_u64(pte);
             page_init_debug("\n");
             table_ptr[i] = pte;
-
-            // XXX circle back for invalidation
-//            leaf_invalidate(v.start);
+            if (invalidate)
+                page_invalidate(fe, v.start);
         } else {
             /* fail if page or block already installed */
             if (pte_is_mapping(level, pte)) {
@@ -527,7 +529,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
             page_init_debug("   len 2 ");
             page_init_debug_u64(len);
             page_init_debug("\n");
-            if (!map_level(nexttable_ptr, level + 1, irangel(v.start, len), p, flags))
+            if (!map_level(nexttable_ptr, level + 1, irangel(v.start, len), p, flags, fe))
                 return false;
         }
     }
@@ -551,13 +553,18 @@ void map(u64 v, physical p, u64 length, pageflags flags)
     assert((v & PAGEMASK) == 0);
     assert((p & PAGEMASK) == 0);
     range r = irangel(v & MASK(VIRTUAL_ADDRESS_BITS), pad(length, PAGESIZE));
+    flush_entry fe = get_page_flush_entry();
+    pagetable_lock();
     u64 *table_ptr = pointer_from_pteaddr(pagebase);
-    if (!map_level(table_ptr, 1, r, &p, flags.w | _PAGE_PRESENT /* XXX check */)) {
+    if (!map_level(table_ptr, 1, r, &p, flags.w, fe)) {
+        pagetable_unlock();
         rprintf("ra %p\n", __builtin_return_address(0));
         print_frame_trace_from_here();
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
              v, p, length, flags.w);
     }
+    page_invalidate_sync(fe, ignore);
+    pagetable_unlock();
 }
 
 void unmap(u64 virtual, u64 length)
