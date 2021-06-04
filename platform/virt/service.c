@@ -208,6 +208,9 @@ static void init_kernel_heaps(void)
     kh->huge_backed = allocate_huge_backed_heap(&bootstrap, (heap)kh->physical);
     assert(kh->huge_backed != INVALID_ADDRESS);
 
+    /* add initial page tables to simplify reverse mapping */
+    huge_backed_heap_add_physical(kh->huge_backed, INIT_PAGEMEM); // XXX const
+
     kh->general = allocate_mcache(&bootstrap, (heap)kh->huge_backed, 5, 20, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
@@ -220,7 +223,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    page_heap_init(heap_locked(kh), heap_physical(kh));
+    page_heap_init(heap_locked(kh), heap_physical(kh), (backed_heap)heap_huge_backed(kh));
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
     init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
@@ -279,7 +282,7 @@ void __attribute__((noreturn)) start(void)
     init_debug("calling page_init_mmu with target ");
     init_debug_u64(u64_from_pointer(init_mmu_target));
     init_debug("\n");
-    page_init_mmu(irangel(0x40200000, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
+    page_init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
 
     while (1);
 }

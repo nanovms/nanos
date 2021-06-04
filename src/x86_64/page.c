@@ -35,16 +35,6 @@ static inline u64 flags_from_pte(u64 pte)
     return pte & _PAGE_FLAGS_MASK;
 }
 
-static inline boolean is_huge_backed_address(u64 address)
-{
-    return address >= HUGE_BACKED_BASE && address < HUGE_BACKED_LIMIT;
-}
-
-static inline boolean intersects_huge_backed(range r)
-{
-    return ranges_intersect(r, irange(HUGE_BACKED_BASE, HUGE_BACKED_LIMIT));
-}
-
 static heap pageheap;
 static u64 pagebase;
 
@@ -138,7 +128,7 @@ physical physical_from_virtual(void *x)
 {
     u64 a = u64_from_pointer(x);
     if (is_huge_backed_address(a))
-        return a & ~HUGE_BACKED_BASE;
+        return phys_from_huge_backed_virt(a);
     u64 p;
     pagetable_lock();
     p = physical_from_virtual_locked(x);
