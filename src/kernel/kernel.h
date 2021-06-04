@@ -198,6 +198,29 @@ void physically_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
 
 backed_heap allocate_huge_backed_heap(heap meta, heap physical);
 
+u64 huge_backed_heap_add_physical(backed_heap hb, u64 p);
+
+static inline boolean is_huge_backed_address(u64 address)
+{
+    return address >= HUGE_BACKED_BASE && address < HUGE_BACKED_LIMIT;
+}
+
+static inline boolean intersects_huge_backed(range r)
+{
+    return ranges_intersect(r, irange(HUGE_BACKED_BASE, HUGE_BACKED_LIMIT));
+}
+
+static inline void *virt_from_huge_backed_phys(u64 address)
+{
+    assert(address < HUGE_BACKED_BASE);
+    return pointer_from_u64(address | HUGE_BACKED_BASE);
+}
+
+static inline u64 phys_from_huge_backed_virt(u64 virt)
+{
+    return virt & ~HUGE_BACKED_BASE;
+}
+
 static inline void bhqueue_enqueue_irqsafe(thunk t)
 {
     /* an interrupted enqueue and competing enqueue from int handler could cause a

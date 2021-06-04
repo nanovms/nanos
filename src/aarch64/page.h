@@ -338,7 +338,7 @@ static inline pageflags pageflags_from_pteptr(pteptr pp)
 }
 
 void page_init_mmu(range init_pt, u64 vtarget);
-void page_heap_init(heap locked, id_heap physical);
+void page_heap_init(heap locked, id_heap physical, backed_heap huge_backed);
 void map(u64 virtual, physical p, u64 length, pageflags flags);
 void unmap(u64 virtual, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
