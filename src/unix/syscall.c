@@ -1604,26 +1604,36 @@ static sysreturn brk(void *addr)
     if (!addr || p->brk == addr)
         goto out;
 
-    u64 old_end = pad(u64_from_pointer(p->brk), PAGESIZE);
-    u64 new_end = pad(u64_from_pointer(addr), PAGESIZE);
-    if (old_end > new_end) {
-        if (u64_from_pointer(addr) < p->heap_base ||
-            !adjust_process_heap(p, irange(p->heap_base, new_end)))
-            goto out;
-        u64 len = old_end - new_end;
-        u64 phys = physical_from_virtual(pointer_from_u64(new_end));
-        write_barrier();
-        unmap(new_end, len);
-        id_heap_set_area(physical, phys, len, true, false);
-    } else if (new_end > old_end) {
-        u64 alloc = new_end - old_end;
-        if (!validate_user_memory(pointer_from_u64(old_end), alloc, true) ||
-            !adjust_process_heap(p, irange(p->heap_base, new_end)))
-            goto out;
-        u64 phys = allocate_u64((heap)physical, alloc);
-        if (phys == INVALID_PHYSICAL) {
-            adjust_process_heap(p, irange(p->heap_base, old_end));
-            goto out;
+    if (x) {
+        u64 old_end = pad(u64_from_pointer(p->brk), PAGESIZE);
+        u64 new_end = pad(u64_from_pointer(x), PAGESIZE);
+        if (p->brk > x) {
+            /* on failure, return the current break */
+            if (u64_from_pointer(x) < p->heap_base)
+                goto fail;
+            p->brk = x;
+            assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(x))));
+            if (old_end > new_end) {
+                u64 len = old_end - new_end;
+                write_barrier();
+                unmap(new_end, len);
+                // XXX making this available now leads to crash in node gotest
+//                id_heap_set_area(heap_physical(kh), new_end, len, true, false);
+            }
+        } else if (p->brk < x) {
+            // I guess assuming we're aligned
+            u64 alloc = new_end - old_end;
+            assert(alloc > 0);
+            assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
+            u64 phys = allocate_u64((heap)heap_physical(kh), alloc);
+            if (phys == INVALID_PHYSICAL)
+                goto fail;
+            /* XXX no exec configurable? */
+            pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
+            map(u64_from_pointer(p->brk), phys, alloc, flags);
+            // people shouldn't depend on this
+            zero(p->brk, alloc);
+            p->brk += alloc;         
         }
         pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
         map_and_zero(old_end, phys, alloc, flags, 0);
