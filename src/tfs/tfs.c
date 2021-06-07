@@ -982,6 +982,18 @@ static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
     return s;
 }
 
+static void file_extents_dealloc(filesystem fs, tuple t)
+{
+    fsfile f = fsfile_from_node(fs, t);
+    if (f) {
+        rangemap_foreach(f->extentmap, n) {
+            extent ex = (extent)n;
+            remove_extent_from_file(f, ex);
+            destroy_extent(fs, ex);
+        }
+    }
+}
+
 fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
                      boolean persistent)
 {
@@ -1124,14 +1136,7 @@ fs_status filesystem_delete(filesystem fs, tuple parent, symbol sym)
 {
     tuple t = lookup(parent, sym);
     assert(t);
-    fsfile f = fsfile_from_node(fs, t);
-    if (f) {
-        rangemap_foreach(f->extentmap, n) {
-            extent ex = (extent)n;
-            remove_extent_from_file(f, ex);
-            destroy_extent(fs, ex);
-        }
-    }
+    file_extents_dealloc(fs, t);
     return fs_set_dir_entry(fs, parent, sym, 0);
 }
 
@@ -1141,6 +1146,9 @@ fs_status filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,
     tuple t = lookup(oldparent, oldsym);
     assert(t);
     symbol newchild_sym = sym_this(newname);
+    tuple to_be_deleted = lookup(newparent, newchild_sym);
+    if (to_be_deleted)
+        file_extents_dealloc(fs, to_be_deleted);
     fs_status s = fs_set_dir_entry(fs, newparent, newchild_sym, t);
     if (s == FS_STATUS_OK)
         s = fs_set_dir_entry(fs, oldparent, oldsym, 0);
