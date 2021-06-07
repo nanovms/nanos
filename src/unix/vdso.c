@@ -15,7 +15,7 @@ void init_vdso(process p)
 {
     physical paddr;
     u64 vaddr, size;
-    pageflags flags = pageflags_readonly(pageflags_user(pageflags_memory()));
+    pageflags flags = pageflags_default_user();
 
     /* sanity checks */
     assert(((unsigned long)&vvar_page & MASK(PAGELOG)) == 0);

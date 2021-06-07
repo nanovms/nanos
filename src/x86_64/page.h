@@ -1,7 +1,7 @@
 #define INITIAL_MAP_SIZE (0xa000)
 
 #define _PAGE_NO_EXEC       U64_FROM_BIT(63)
-#define _PAGE_NO_FAT        0x0200 /* AVL[0] */
+#define _PAGE_NO_PS         0x0200 /* AVL[0] */
 #define _PAGE_PS            0x0080
 #define _PAGE_DIRTY         0x0040
 #define _PAGE_ACCESSED      0x0020
@@ -79,6 +79,17 @@ static inline pageflags pageflags_noexec(pageflags flags)
 static inline pageflags pageflags_exec(pageflags flags)
 {
     return (pageflags){.w = flags.w & ~_PAGE_NO_EXEC};
+}
+
+static inline pageflags pageflags_minpage(pageflags flags)
+{
+    return (pageflags){.w = flags.w | _PAGE_NO_PS};
+}
+
+/* no-exec, read-only */
+static inline pageflags pageflags_default_user(void)
+{
+    return pageflags_user(pageflags_minpage(pageflags_memory()));
 }
 
 static inline boolean pageflags_is_writable(pageflags flags)

@@ -178,6 +178,8 @@ typedef struct pageflags {
 #define _PAGE_NLEVELS      4
 #define _LEVEL_MASK_4K     MASK(9)   /* would be array for certain granule sizes? */
 
+/* bits [58:55] reserved for sw use */
+#define _PAGE_NO_BLOCK       U64_FROM_BIT(55)
 
 // XXX kernel addr, also should return INVALID_PHYSICAL if PAR_EL1.F is set
 #define __physical_from_virtual(v) ({                                     \
@@ -240,6 +242,17 @@ static inline pageflags pageflags_noexec(pageflags flags)
 static inline pageflags pageflags_exec(pageflags flags)
 {
     return (pageflags){.w = flags.w & ~PAGE_ATTR_UXN_XN};
+}
+
+static inline pageflags pageflags_minpage(pageflags flags)
+{
+    return (pageflags){.w = flags.w | _PAGE_NO_BLOCK};
+}
+
+/* no-exec, read-only */
+static inline pageflags pageflags_default_user(void)
+{
+    return pageflags_user(pageflags_minpage(pageflags_memory()));
 }
 
 static inline boolean pageflags_is_writable(pageflags flags)
