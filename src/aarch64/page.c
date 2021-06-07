@@ -152,10 +152,8 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
                 pte = flags | (*p & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
                     PAGE_L3_DESC_PAGE | PAGE_ATTR_AF | PAGE_L0_3_DESC_VALID;
                 next_addr(*p, mask);
-            } else if (level > 0 &&
-                       (v.start & mask) == 0 &&
-                       (*p & mask) == 0 &&
-                       range_span(v) >= U64_FROM_BIT(shift)) {
+            } else if (!(flags & _PAGE_NO_BLOCK) && level > 0 && (v.start & mask) == 0 &&
+                       (*p & mask) == 0 && range_span(v) >= U64_FROM_BIT(shift)) {
                 page_init_debug("   -block- ");
                 page_init_debug_u64(v.start);
                 page_init_debug(" span ");
@@ -435,6 +433,7 @@ closure_function(2, 3, boolean, update_pte_flags,
 /* Update access protection flags for any pages mapped within a given area */
 void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete)
 {
+    flags.w &= ~_PAGE_NO_BLOCK;
     page_init_debug("update_map_flags: vaddr ");
     page_init_debug_u64(vaddr);
     page_init_debug(", length ");

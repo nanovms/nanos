@@ -284,7 +284,7 @@ closure_function(2, 3, boolean, update_pte_flags,
 /* Update access protection flags for any pages mapped within a given area */
 void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete)
 {
-    flags.w &= ~_PAGE_NO_FAT;
+    flags.w &= ~_PAGE_NO_PS;
     page_debug("%s: vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", __func__, vaddr, length, flags.w);
 
     /* Catch any attempt to change page flags in a huge_backed mapping */
@@ -450,8 +450,6 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
         page_init_debug(", p ");
         page_init_debug_u64(*p);
         page_init_debug("\n");
-        page_init_debug("   GET @ ");
-        page_init_debug_u64(u64_from_pointer(&table_ptr[i]));
         u64 pte = table_ptr[i];
         page_init_debug(": ");
         page_init_debug_u64(pte);
@@ -459,13 +457,11 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
         if ((pte & _PAGE_PRESENT) == 0) {
             if (level == 4) {
                 page_init_debug("   -pte-   ");
-                pte = *p | flags | _PAGE_PRESENT;
+                pte = *p | (flags & ~_PAGE_NO_PS) | _PAGE_PRESENT;
                 next_addr(*p, mask);
                 invalidate = true;
-            } else if (level > 1 &&
-                       (v.start & mask) == 0 &&
-                       (*p & mask) == 0 &&
-                       range_span(v) >= U64_FROM_BIT(shift)) {
+            } else if (!(flags & _PAGE_NO_PS) && level > 1 && (v.start & mask) == 0 &&
+                       (*p & mask) == 0 && range_span(v) >= U64_FROM_BIT(shift)) {
                 page_init_debug(level == 2 ? "   -pdpe-  " : "   -pde-   ");
                 page_init_debug_u64(v.start);
                 page_init_debug(" span ");

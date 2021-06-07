@@ -55,7 +55,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 
     exec_debug("stack allocated at %p, size 0x%lx, phys 0x%lx\n", s, PROCESS_STACK_SIZE, sphys);
     map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE,
-        pageflags_writable(pageflags_user(pageflags_noexec(pageflags_memory()))));
+        pageflags_writable(pageflags_default_user()));
 
     s += PROCESS_STACK_SIZE >> 3;
 
@@ -179,7 +179,7 @@ closure_function(3, 4, u64, exec_elf_map,
         paddr = allocate_u64((heap)heap_physical(kh), size);
         assert(paddr != INVALID_PHYSICAL);
     }
-    map(vaddr, paddr, size, pageflags_user(flags));
+    map(vaddr, paddr, size, pageflags_user(pageflags_minpage(flags)));
     if (is_bss)
         zero(pointer_from_u64(vaddr), size);
     return vaddr;
