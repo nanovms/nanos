@@ -60,14 +60,9 @@ static tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
     return t;
 }
 
-static filesystem get_root(void)
-{
-    return current->p->root_fs;
-}
-
 void init_fs_path_helper()
 {
-    fs_set_path_helper(get_root, lookup_follow_mounts);
+    fs_set_path_helper(get_root_fs, lookup_follow_mounts);
 }
 
 /* If the file path being resolved crosses a filesystem boundary (i.e. a mount
