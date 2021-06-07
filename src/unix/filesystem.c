@@ -387,3 +387,34 @@ void file_release(file f)
     unix_cache_free(get_unix_heaps(), file, f);
 }
 KLIB_EXPORT(file_release);
+
+/* file_path is treated as an absolute path. */
+fsfile fsfile_open_or_create(buffer file_path)
+{
+    tuple file, parent;
+    filesystem fs = get_root_fs();
+    tuple root = filesystem_getroot(fs);
+    char *file_str = buffer_to_cstring(file_path);
+    int ret = resolve_cstring(0, root, file_str, &file, &parent);
+    if (ret == -ENOENT) {
+        if (!parent) {
+            int separator = buffer_strrchr(file_path, '/');
+            file_str[separator] = '\0';
+            fs_status s = filesystem_mkdirpath(fs, 0, file_str, true);
+            if (s != FS_STATUS_OK)
+                return 0;
+            file_str[separator] = '/';
+            resolve_cstring(0, root, file_str, 0, &parent);
+        }
+        file = filesystem_creat(fs, parent, filename_from_path(file_str));
+    }
+    return file ? fsfile_from_node(fs, file) : 0;
+}
+KLIB_EXPORT(fsfile_open_or_create);
+
+/* Can be used for files in the root filesystem only. */
+fs_status fsfile_truncate(fsfile f, u64 len)
+{
+    return (filesystem_truncate(get_root_fs(), f, len));
+}
+KLIB_EXPORT(fsfile_truncate);

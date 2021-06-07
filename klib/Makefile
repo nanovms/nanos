@@ -5,6 +5,7 @@ PROGRAMS= \
 	cloud_init \
 	ntp \
 	radar \
+	syslog \
 	test \
 	tls \
 	tun \
@@ -18,6 +19,9 @@ SRCS-ntp= \
 
 SRCS-radar= \
 	$(CURDIR)/radar.c \
+
+SRCS-syslog= \
+	$(CURDIR)/syslog.c \
 
 SRCS-test= \
 	$(CURDIR)/test.c

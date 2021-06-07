@@ -1857,6 +1857,16 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
     }
 }
 
+/* File paths are treated as absolute paths. */
+sysreturn fs_rename(buffer oldpath, buffer newpath)
+{
+    filesystem fs = get_root_fs();
+    tuple root = filesystem_getroot(fs);
+    return rename_internal(fs, root, buffer_to_cstring(oldpath),
+        fs, root, buffer_to_cstring(newpath));
+}
+KLIB_EXPORT(fs_rename);
+
 sysreturn close(int fd)
 {
     thread_log(current, "close: fd %d", fd);

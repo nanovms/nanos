@@ -20,6 +20,15 @@ static struct list console_drivers;
 
 static struct spinlock write_lock;
 
+void attach_console_driver(struct console_driver *driver)
+{
+    spin_lock(&write_lock);
+    list_insert_before(driver->disabled ? list_end(&console_drivers) : list_begin(&console_drivers),
+            &driver->l);
+    spin_unlock(&write_lock);
+}
+KLIB_EXPORT(attach_console_driver);
+
 void console_write(const char *s, bytes count)
 {
     spin_lock(&write_lock);
@@ -35,8 +44,7 @@ void console_write(const char *s, bytes count)
 closure_function(0, 1, void, attach_console,
                  struct console_driver *, d)
 {
-    list_insert_before(d->disabled ? list_end(&console_drivers) : list_begin(&console_drivers),
-            &d->l);
+    attach_console_driver(d);
 }
 
 void init_console(kernel_heaps kh)

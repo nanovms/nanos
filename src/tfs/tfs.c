@@ -58,6 +58,7 @@ u64 fsfile_get_length(fsfile f)
 {
     return f->length;
 }
+KLIB_EXPORT(fsfile_get_length);
 
 void fsfile_set_length(fsfile f, u64 length)
 {
@@ -88,6 +89,7 @@ sg_io fsfile_get_writer(fsfile f)
 {
     return f->write;
 }
+KLIB_EXPORT(fsfile_get_writer);
 
 pagecache_node fsfile_get_cachenode(fsfile f)
 {

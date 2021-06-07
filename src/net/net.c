@@ -194,6 +194,7 @@ void netif_name_cpy(char *dest, struct netif *netif)
 KLIB_EXPORT(netif_name_cpy);
 
 KLIB_EXPORT(ipaddr_ntoa);
+KLIB_EXPORT(ipaddr_ntoa_r);
 KLIB_EXPORT(dns_gethostbyname);
 KLIB_EXPORT(pbuf_alloc);
 KLIB_EXPORT(pbuf_ref);
