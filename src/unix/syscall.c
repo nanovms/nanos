@@ -1738,40 +1738,40 @@ static sysreturn rename_internal(filesystem oldfs, tuple oldwd,
                                  tuple newwd, const char *newpath)
 {
     if (!oldpath[0] || !newpath[0]) {
-        return set_syscall_error(current, ENOENT);
+        return -ENOENT;
     }
     int ret;
     tuple old;
     tuple oldparent;
     ret = resolve_cstring(&oldfs, oldwd, oldpath, &old, &oldparent);
     if (ret) {
-        return set_syscall_return(current, ret);
+        return ret;
     }
     tuple new, newparent;
     ret = resolve_cstring(&newfs, newwd, newpath, &new, &newparent);
     if (ret && (ret != -ENOENT)) {
-        return set_syscall_return(current, ret);
+        return ret;
     }
     if (!newparent) {
-        return set_syscall_error(current, ENOENT);
+        return -ENOENT;
     }
     if (oldfs != newfs)
         return -EXDEV;
     if (!ret && is_dir(new)) {
         if (!is_dir(old)) {
-            return set_syscall_error(current, EISDIR);
+            return -EISDIR;
         }
         tuple c = children(new);
         boolean notempty = false;
         iterate(c, stack_closure(check_notempty_each, &notempty));
         if (notempty)
-            return set_syscall_error(current, ENOTEMPTY);
+            return -ENOTEMPTY;
     }
     if (new && !is_dir(new) && is_dir(old)) {
-        return set_syscall_error(current, ENOTDIR);
+        return -ENOTDIR;
     }
     if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath)) {
-        return set_syscall_error(current, EINVAL);
+        return -EINVAL;
     }
     if ((newparent == oldparent) && (new == old))
         return 0;
