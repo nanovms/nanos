@@ -193,7 +193,7 @@ void init_vsyscall(heap phys);
 
 static inline pageflags pageflags_from_vmflags(u64 vmflags)
 {
-    pageflags flags = pageflags_user(pageflags_memory());
+    pageflags flags = pageflags_default_user();
     if (vmflags & VMAP_FLAG_EXEC)
         flags = pageflags_exec(flags);
     if (vmflags & VMAP_FLAG_WRITABLE)
