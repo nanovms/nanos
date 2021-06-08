@@ -1615,23 +1615,19 @@ static sysreturn brk(void *addr)
             assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(x))));
             if (old_end > new_end) {
                 u64 len = old_end - new_end;
+                u64 phys = physical_from_virtual(pointer_from_u64(new_end));
                 write_barrier();
                 unmap(new_end, len);
-                // XXX making this available now leads to crash in node gotest
-//                id_heap_set_area(heap_physical(kh), new_end, len, true, false);
+                id_heap_set_area(heap_physical(kh), phys, len, true, false);
             }
         } else if (p->brk < x) {
-            // I guess assuming we're aligned
             u64 alloc = new_end - old_end;
             assert(alloc > 0);
             assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
             u64 phys = allocate_u64((heap)heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
                 goto fail;
-            /* XXX no exec configurable? */
-            pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
-            map(u64_from_pointer(p->brk), phys, alloc, flags);
-            // people shouldn't depend on this
+            map(u64_from_pointer(p->brk), phys, alloc, pageflags_writable(pageflags_default_user()));
             zero(p->brk, alloc);
             p->brk += alloc;         
         }
