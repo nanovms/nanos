@@ -31,7 +31,7 @@ func unWarpConfig(file string) *types.Config {
 func TestNodeHelloWorld(t *testing.T) {
 
 	const packageName = "node_v11.5.0"
-	localpackage, err := api.DownloadPackage(packageName)
+	localpackage, err := api.DownloadPackage(packageName, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestNodeHelloWorld(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	api.ExtractPackage(localpackage, staging)
+	api.ExtractPackage(localpackage, staging, nil)
 	// load the package manifest
 	manifest := path.Join(staging, packageName, "package.manifest")
 	if _, err := os.Stat(manifest); err != nil {
