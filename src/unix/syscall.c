@@ -1120,22 +1120,9 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 
 sysreturn chdir(const char *path)
 {
-    int ret;
-    filesystem fs = current->p->cwd_fs;
-    tuple n;
-
     if (!validate_user_string(path))
         return set_syscall_error(current, EFAULT);
-    ret = resolve_cstring_follow(&fs, current->p->cwd, path, &n, 0);
-    if (ret) {
-        return set_syscall_return(current, ret);
-    }
-    if (!is_dir(n)) {
-        return set_syscall_error(current, ENOENT);
-    }
-    current->p->cwd_fs = fs;
-    current->p->cwd = n;
-    return set_syscall_return(current, 0);
+    return sysreturn_from_fs_status(filesystem_chdir(current->p, path));
 }
 
 sysreturn fchdir(int dirfd)

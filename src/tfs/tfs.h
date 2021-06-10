@@ -76,6 +76,8 @@ typedef enum {
     FS_STATUS_LINKLOOP,
 } fs_status;
 
+const char *string_from_fs_status(fs_status s);
+
 fs_status filesystem_write_tuple(filesystem fs, tuple t);
 fs_status filesystem_write_eav(filesystem fs, tuple t, symbol a, value v);
 

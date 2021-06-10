@@ -2,6 +2,7 @@
 #include <elf64.h>
 #include <gdb.h>
 #include <symtab.h>
+#include <filesystem.h>
 
 //#define EXEC_DEBUG
 #ifdef EXEC_DEBUG
@@ -212,7 +213,6 @@ closure_function(1, 1, boolean, trace_notify,
 process exec_elf(buffer ex, process kp)
 {
     // is process md always root?
-    // set cwd
     unix_heaps uh = kp->uh;
     kernel_heaps kh = (kernel_heaps)uh;
     tuple root = kp->process_root;
@@ -298,6 +298,17 @@ process exec_elf(buffer ex, process kp)
                                closure(heap_general(kh), load_interp_complete, t, kh),
                                closure(heap_general(kh), load_interp_fail));
         return proc;
+    }
+
+    /* current needs to be valid for further setup */
+    set_current_thread(&t->thrd);
+
+    string cwd = get_string(root, sym(cwd));
+    if (cwd) {
+        buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+        fs_status fss = filesystem_chdir(proc, cstring(cwd, tmpbuf));
+        if (fss != FS_STATUS_OK)
+            halt("unable to change cwd to \"%b\"; %s\n", cwd, string_from_fs_status(fss));
     }
 
     exec_debug("starting process...\n");

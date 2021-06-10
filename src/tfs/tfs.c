@@ -27,6 +27,28 @@ static inline void report_sha256(buffer b)
 #define report_sha256(b)
 #endif
 
+const char *string_from_fs_status(fs_status s)
+{
+    switch (s) {
+    case FS_STATUS_NOSPACE:
+        return "no space";
+    case FS_STATUS_IOERR:
+        return "I/O error";
+    case FS_STATUS_NOENT:
+        return "no entry";
+    case FS_STATUS_EXIST:
+        return "file exists";
+    case FS_STATUS_NOTDIR:
+        return "not a directory";
+    case FS_STATUS_NOMEM:
+        return "out of memory";
+    case FS_STATUS_LINKLOOP:
+        return "maximum link hops reached";
+    default:
+        return "unknown error";
+    }
+}
+
 pagecache_volume filesystem_get_pagecache_volume(filesystem fs)
 {
     return fs->pv;
