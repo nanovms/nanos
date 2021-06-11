@@ -126,6 +126,21 @@ void file_readahead(file f, u64 offset, u64 len)
             irangel(offset + len, ra_size));
 }
 
+fs_status filesystem_chdir(process p, const char *path)
+{
+    filesystem fs = p->cwd_fs;
+    fs_status fss;
+    tuple n;
+    fss = filesystem_resolve_cstring_follow(&fs, p->cwd, path, &n, 0);
+    if (fss != FS_STATUS_OK)
+        return fss;
+    if (!is_dir(n))
+        return FS_STATUS_NOENT;
+    p->cwd_fs = fs;
+    p->cwd = n;
+    return FS_STATUS_OK;
+}
+
 closure_function(4, 1, void, fs_sync_complete,
                  filesystem, fs, pagecache_node, pn, status_handler, sh, boolean, fs_flushed,
                  status, s)

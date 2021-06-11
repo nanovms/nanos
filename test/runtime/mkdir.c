@@ -13,8 +13,8 @@
 #include <sys/syscall.h>
 #include <libgen.h>
 
-
-#define EXIT_FAILURE 1
+#define TEST_DIR "/tmp/mkdir_test"
+#define DEFAULT_MODE (S_IRWXU)
 
 #define handle_error(msg) \
        do { perror(msg); exit(EXIT_FAILURE); } while (0)
@@ -86,12 +86,23 @@ void _mkdir(const char *path, int m)
     }
 }
 
-void _mkdirat(int fd, const char *path, int m)
+void _mkdirat(int fd, const char *path, int m, int expect)
 {
     errno = 0;
     printf("mkdirat(%d, %s, 0x%x) => ", fd, path, m);
     int r = mkdirat(fd, path, (mode_t) m);
     printf("r = %d, errno = %d\n", r, errno);
+    if (r == 0) {
+        if (expect != 0) {
+            printf("ERROR - mkdirat() succeeded but errno %d expected\n", expect);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        if (errno != expect) {
+            printf("ERROR - mkdirat() errno %d, expecting %d\n", errno, expect);
+            exit(EXIT_FAILURE);
+        }
+    }
 }
 
 void _chdir(const char *path)
@@ -276,50 +287,67 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    _mkdir("/test", 0); check("/test");
-    _mkdir("/test_slash/", 0);
-    _mkdir("/blurb/test/deep", 0);
-    _mkdir("/test/subdir", 0); check("/test/subdir");
-    _mkdir("/test/subdira", 0); check("/test/subdira");
+    /* If a path argument is specified, validate that it matches cwd. */
+    if (argc > 1) {
+        char tmp[PATH_MAX];
+        cwd = getcwd(tmp, PATH_MAX);
+        if (!cwd || strcmp(argv[1], tmp)) {
+            printf("ERROR - cwd \"%s\" doesn't match expected \"%s\"\n", cwd, argv[1]);
+            exit(EXIT_FAILURE);
+        }
+    }
 
-    int fd = OPEN("/test", O_DIRECTORY, 0);
-    listdir("/","/");
-    listdir("/test", "/test");
-    _mkdirat(fd, "subdir2", 0); check("/test/subdir2");
-    listdir("/","/");
-    listdir("/test", "/test");
-    _mkdirat(fd, "subdir2/subdir2a", 0); check("/test/subdir2/subdir2a");
-    listdir("/","/");
-    listdir("/test", "/test");
-    listdir("/test/subdir2","/test/subdir2");
-    _mkdirat(fd, "/test1", 0); check("/test/test1");
-    listdir("/","/");
-    listdir("/test", "/test");
+    _mkdir(TEST_DIR "/test", DEFAULT_MODE); check(TEST_DIR "/test");
+    _mkdir(TEST_DIR "/test_slash/", DEFAULT_MODE);
+    _mkdir(TEST_DIR "/blurb/test/deep", DEFAULT_MODE);
+    _mkdir(TEST_DIR "/test/subdir", DEFAULT_MODE); check(TEST_DIR "/test/subdir");
+    _mkdir(TEST_DIR "/test/subdira", DEFAULT_MODE); check(TEST_DIR "/test/subdira");
+
+    int fd = OPEN(TEST_DIR "/test", O_DIRECTORY, 0);
+    listdir(TEST_DIR "/",TEST_DIR "/");
+    listdir(TEST_DIR "/test", TEST_DIR "/test");
+    _mkdirat(fd, "subdir2", DEFAULT_MODE, 0); check(TEST_DIR "/test/subdir2");
+    listdir(TEST_DIR "/",TEST_DIR "/");
+    listdir(TEST_DIR "/test", TEST_DIR "/test");
+    _mkdirat(fd, "subdir2/subdir2a", DEFAULT_MODE, 0); check(TEST_DIR "/test/subdir2/subdir2a");
+    listdir(TEST_DIR "/",TEST_DIR "/");
+    listdir(TEST_DIR "/test", TEST_DIR "/test");
+    listdir(TEST_DIR "/test/subdir2",TEST_DIR "/test/subdir2");
+    _mkdirat(fd, TEST_DIR "/test1", DEFAULT_MODE, 0); check(TEST_DIR "/test/test1");
+    listdir(TEST_DIR "/",TEST_DIR "/");
+    listdir(TEST_DIR "/test", TEST_DIR "/test");
 
     // Validate AT_FDCWD usage
-    _mkdirat(AT_FDCWD, "test2", 0); check("/test2");
-    listdir("/","/");
-    listdir("/test", "/test");
+    _mkdirat(AT_FDCWD, TEST_DIR "/test2", DEFAULT_MODE, 0); check(TEST_DIR "/test2");
+    listdir(TEST_DIR "/",TEST_DIR "/");
+    listdir(TEST_DIR "/test", TEST_DIR "/test");
+
+    // Validate chdir fail on invalid path
+    int r = chdir(TEST_DIR "/bogus");
+    if (r != -1 || errno != ENOENT) {
+        printf("ERROR - chdir on invalid path didn't return ENOENT error\n");
+        exit(EXIT_FAILURE);
+    }
 
     // Validate it fails on non-directories
-    int r = open("/zip", O_WRONLY | O_CREAT, 0644);
-    _mkdirat(r, "zipa", 0);
+    r = open(TEST_DIR "/zip", O_WRONLY | O_CREAT, 0644);
+    _mkdirat(r, "zipa", DEFAULT_MODE, ENOTDIR);
     close(r);
-    listdir("/","/");
-    listdir("/test", "/test");
+    listdir(TEST_DIR "/",TEST_DIR "/");
+    listdir(TEST_DIR "/test", TEST_DIR "/test");
 
-    _chdir("/");
-    _creat("root_newfile", 0, 0);
-    listdir("/",".");
-    check2(AT_FDCWD, "/root_newfile", "root_newfile", 0);
-    //check2(fd, "/test/subdir/test_newfile", "subdir/test_new_file", 0);
+    _chdir(TEST_DIR);
+    _creat("root_newfile", DEFAULT_MODE, 0);
+    listdir(TEST_DIR "/",".");
+    check2(AT_FDCWD, TEST_DIR "/root_newfile", "root_newfile", 0);
+    //check2(fd, TEST_DIR "/test/subdir/test_newfile", "subdir/test_new_file", 0);
 
     close(fd);
 
-    fd = OPEN("/test/subdir", O_DIRECTORY, 0);
-    _chdir("/test/subdir");
-    _mkdir("testdir_from_chdir", 0); check("testdir_from_chdir");
-    _creat("test_newfile", 0, 0);
+    fd = OPEN(TEST_DIR "/test/subdir", O_DIRECTORY, 0);
+    _chdir(TEST_DIR "/test/subdir");
+    _mkdir("testdir_from_chdir", DEFAULT_MODE); check("testdir_from_chdir");
+    _creat("test_newfile", DEFAULT_MODE, 0);
     int tmpfd = OPENAT(AT_FDCWD, "test_newfile2", O_CREAT, 0660);
     close(tmpfd);
     tmpfd = OPENAT(fd, "test_newfile3", O_CREAT, 0660);
@@ -328,13 +356,13 @@ int main(int argc, char **argv)
     close(tmpfd);
     close(fd);
 
-    _chdir("/test/subdir");
-    listdir("/test/subdir", ".");
-    check2(AT_FDCWD, "/test/subdir/test_newfile", "test_newfile", 0);
-    _chdir("/test");
+    _chdir(TEST_DIR "/test/subdir");
+    listdir(TEST_DIR "/test/subdir", ".");
+    check2(AT_FDCWD, TEST_DIR "/test/subdir/test_newfile", "test_newfile", 0);
+    _chdir(TEST_DIR "/test");
     close(fd);
-    fd = OPEN("/test", O_DIRECTORY, 0);
-    check2(fd, "/test/subdir/test_newfile", "subdir/test_newfile", 0);
+    fd = OPEN(TEST_DIR "/test", O_DIRECTORY, 0);
+    check2(fd, TEST_DIR "/test/subdir/test_newfile", "subdir/test_newfile", 0);
     _fchdir(fd);
     close(fd);
     listdir("test", ".");
