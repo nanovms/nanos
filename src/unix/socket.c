@@ -6,19 +6,20 @@
 declare_closure_struct(1, 0, void, sharedbuf_free,
     struct sharedbuf *, shb);
 
-typedef struct sharedbuf {
-    buffer b;
-    struct refcount refcount;
-    closure_struct(sharedbuf_free, free);
-} *sharedbuf;
-
-#define UNIXSOCK_BUF_MAX_SIZE   PAGESIZE
-#define UNIXSOCK_QUEUE_MAX_LEN  64
-
 struct sockaddr_un {
     u16 sun_family;
     char sun_path[108];
 };
+
+typedef struct sharedbuf {
+    buffer b;
+    struct refcount refcount;
+    closure_struct(sharedbuf_free, free);
+    struct sockaddr_un from_addr;
+} *sharedbuf;
+
+#define UNIXSOCK_BUF_MAX_SIZE   PAGESIZE
+#define UNIXSOCK_QUEUE_MAX_LEN  64
 
 typedef struct unixsock {
     struct sock sock; /* must be first */
@@ -105,8 +106,8 @@ static inline void unixsock_notify_writer(unixsock s)
     notify_dispatch(s->sock.f.ns, EPOLLOUT);
 }
 
-closure_function(6, 1, sysreturn, unixsock_read_bh,
-                 unixsock, s, thread, t, void *, dest, sg_list, sg, u64, length, io_completion, completion,
+closure_function(8, 1, sysreturn, unixsock_read_bh,
+                 unixsock, s, thread, t, void *, dest, sg_list, sg, u64, length, io_completion, completion, struct sockaddr_un *, from_addr, socklen_t *, from_length,
                  u64, flags)
 {
     unixsock s = bound(s);
@@ -122,11 +123,10 @@ closure_function(6, 1, sysreturn, unixsock_read_bh,
     }
     shb = queue_peek(s->data);
     if (shb == INVALID_ADDRESS) {
-        if (!s->peer) {
+        if (s->sock.type == SOCK_STREAM && !s->peer) {
             rv = 0;
             goto out;
-        }
-        else if (s->sock.f.flags & SOCK_NONBLOCK) {
+        } else if (s->sock.f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
         }
@@ -154,6 +154,15 @@ closure_function(6, 1, sysreturn, unixsock_read_bh,
         length -= xfer;
         if (!buffer_length(b) || (s->sock.type == SOCK_DGRAM)) {
             assert(dequeue(s->data) == shb);
+            if (s->sock.type == SOCK_DGRAM) {
+                struct sockaddr_un *from_addr = bound(from_addr);
+                socklen_t *from_length = bound(from_length);
+                if (from_addr && from_length) {
+                    if (from_length > 0)
+                        runtime_memcpy(from_addr, &shb->from_addr, MIN(*from_length, sizeof(shb->from_addr)));
+                    *from_length = __builtin_offsetof(struct sockaddr_un, sun_path) + runtime_strlen(from_addr->sun_path) + 1;
+                }
+            }
             sharedbuf_release(shb);
             shb = queue_peek(s->data);
             if (shb == INVALID_ADDRESS) { /* no more data available to read */
@@ -172,18 +181,21 @@ out:
     return rv;
 }
 
+static sysreturn unixsock_read_with_addr(unixsock s, void *dest, u64 length, u64 offset_arg, thread t, boolean bh, io_completion completion, void *addr, socklen_t *addrlen)
+{
+    if ((s->sock.type == SOCK_STREAM) && (length == 0))
+        return io_complete(completion, t, 0);
+
+    blockq_action ba = closure(s->sock.h, unixsock_read_bh, s, t, dest, 0, length,
+            completion, addr, addrlen);
+    return blockq_check(s->sock.rxbq, t, ba, bh);
+}
+
 closure_function(1, 6, sysreturn, unixsock_read,
                  unixsock, s,
                  void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
-    unixsock s = bound(s);
-    if ((s->sock.type == SOCK_STREAM) && (length == 0)) {
-        return io_complete(completion, t, 0);
-    }
-
-    blockq_action ba = closure(s->sock.h, unixsock_read_bh, s, t, dest, 0, length,
-            completion);
-    return blockq_check(s->sock.rxbq, t, ba, bh);
+    return unixsock_read_with_addr(bound(s), dest, length, offset_arg, t, bh, completion, 0, 0);
 }
 
 static sysreturn unixsock_write_check(unixsock s, u64 len)
@@ -196,7 +208,7 @@ static sysreturn unixsock_write_check(unixsock s, u64 len)
 }
 
 static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
-                                   unixsock dest)
+                                   unixsock dest, unixsock from)
 {
     if (queue_full(dest->data)) {
         return -EAGAIN;
@@ -212,6 +224,8 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
             }
             break;
         }
+        if (from && from->sock.type == SOCK_DGRAM)
+            runtime_memcpy(&shb->from_addr, &from->local_addr, sizeof(struct sockaddr_un));
         if (src) {
             assert(buffer_write(shb->b, src, xfer));
             src = (u8 *) src + xfer;
@@ -230,13 +244,31 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
     return rv;
 }
 
-closure_function(6, 1, sysreturn, unixsock_write_bh,
-                 unixsock, s, thread, t, void *, src, sg_list, sg, u64, length, io_completion, completion,
+static int lookup_socket(unixsock *s, char *path)
+{
+    tuple t;
+    buffer b;
+
+    if (filesystem_get_tuple(path, &t) < 0) {
+        return -ENOENT;
+    }
+    b = get(t, sym(socket)); // XXX untyped binary
+    if (!b || (buffer_length(b) != sizeof(u64))) {
+        return -ECONNREFUSED;
+    }
+    *s = pointer_from_u64(*((u64 *) buffer_ref(b, 0)));
+    assert(*s);
+    return 0;
+}
+
+closure_function(8, 1, sysreturn, unixsock_write_bh,
+                 unixsock, s, thread, t, void *, src, sg_list, sg, u64, length, io_completion, completion, struct sockaddr_un *, addr, socklen_t, addrlen,
                  u64, flags)
 {
     unixsock s = bound(s);
     void *src = bound(src);
     u64 length = bound(length);
+    unixsock dest;
 
     sysreturn rv;
 
@@ -244,16 +276,33 @@ closure_function(6, 1, sysreturn, unixsock_write_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
-    if (!s->peer) {
-        rv = -EPIPE;
-        goto out;
+    if (s->sock.type == SOCK_STREAM) {
+        if (!s->peer) {
+            rv = -EPIPE;
+            goto out;
+        }
+    }
+    dest = s->peer;
+    if (s->sock.type == SOCK_DGRAM) {
+        struct sockaddr_un *addr = bound(addr);
+        if (addr && bound(addrlen)) {
+            if (bound(addrlen) < sizeof(struct sockaddr_un) ||
+                addr->sun_family != AF_UNIX)
+                return -EINVAL;
+            addr->sun_path[sizeof(addr->sun_path)-1] = 0;
+            rv = lookup_socket(&dest, addr->sun_path);
+            if (rv != 0)
+                return rv;
+        } else if (!dest) {
+            return -ENOTCONN;
+        }
     }
 
-    rv = unixsock_write_to(src, bound(sg), length, s->peer);
+    rv = unixsock_write_to(src, bound(sg), length, dest, s);
     if ((rv == -EAGAIN) && !(s->sock.f.flags & SOCK_NONBLOCK)) {
         return BLOCKQ_BLOCK_REQUIRED;
     }
-    if (queue_full(s->peer->data)) { /* no more space available to write */
+    if (queue_full(dest->data)) { /* no more space available to write */
         fdesc_notify_events(&s->sock.f);
     }
 out:
@@ -263,18 +312,22 @@ out:
     return rv;
 }
 
-closure_function(1, 6, sysreturn, unixsock_write,
-                 unixsock, s,
-                 void *, src, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+static sysreturn unixsock_write_with_addr(unixsock s, void *src, u64 length, u64 offset, thread t, boolean bh, io_completion completion, struct sockaddr_un *addr, socklen_t addrlen)
 {
-    unixsock s = bound(s);
     sysreturn rv = unixsock_write_check(s, length);
     if (rv <= 0)
         return io_complete(completion, t, rv);
 
     blockq_action ba = closure(s->sock.h, unixsock_write_bh, s, t, src, 0, length,
-            completion);
+            completion, addr, addrlen);
     return blockq_check(s->sock.txbq, t, ba, bh);
+}
+
+closure_function(1, 6, sysreturn, unixsock_write,
+                 unixsock, s,
+                 void *, src, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+{
+    return unixsock_write_with_addr(bound(s), src, length, offset, t, bh, completion, 0, 0);
 }
 
 closure_function(1, 6, sysreturn, unixsock_sg_read,
@@ -283,7 +336,7 @@ closure_function(1, 6, sysreturn, unixsock_sg_read,
 {
     unixsock s = bound(s);
     blockq_action ba = closure(s->sock.h, unixsock_read_bh, s, t, 0, sg, length,
-        completion);
+        completion, 0, 0);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(s->sock.rxbq, t, ba, bh);
@@ -298,7 +351,7 @@ closure_function(1, 6, sysreturn, unixsock_sg_write,
     if (rv <= 0)
         return io_complete(completion, t, rv);
     blockq_action ba = closure(s->sock.h, unixsock_write_bh, s, t, 0, sg, length,
-        completion);
+        completion, 0, 0);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(s->sock.txbq, t, ba, bh);
@@ -319,15 +372,14 @@ closure_function(1, 1, u32, unixsock_events,
             /* An ongoing connection attempt has been accepted by the peer. */
             events |= EPOLLOUT;
         }
-    }
-    else {
+    } else {
         if (!queue_empty(s->data)) {
             events |= EPOLLIN;
         }
-        if (s->peer && !queue_full(s->peer->data)) {
+        if (s->sock.type == SOCK_DGRAM || (s->peer && !queue_full(s->peer->data))) {
             events |= EPOLLOUT;
         }
-        if (!s->peer) {
+        if (!s->peer && s->sock.type != SOCK_DGRAM) {
             events |= EPOLLHUP;
         }
     }
@@ -376,9 +428,12 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
 {
     unixsock s = (unixsock) sock;
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
-    if (s->fs_entry || (addrlen <= sizeof(unixaddr->sun_family))) {
+    if (s->fs_entry)
+        return -EADDRINUSE;
+
+    if (addrlen < sizeof(unixaddr->sun_family))
         return -EINVAL;
-    }
+
     if (addrlen > sizeof(*unixaddr)) {
         return -ENAMETOOLONG;
     }
@@ -428,6 +483,8 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
 
 static sysreturn unixsock_listen(struct sock *sock, int backlog)
 {
+    if (sock->type & SOCK_DGRAM)
+        return -EOPNOTSUPP;
     unixsock s = (unixsock) sock;
     if (!s->conn_q) {
         s->conn_q = allocate_queue(sock->h, backlog);
@@ -452,7 +509,7 @@ closure_function(2, 1, sysreturn, connect_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
-    if (!s->connecting) {   /* the listening socket has been shut down */
+    if (!s->connecting && !s->peer) {   /* the listening socket has been shut down */
         rv = -ECONNREFUSED;
         goto out;
     }
@@ -463,7 +520,6 @@ closure_function(2, 1, sysreturn, connect_bh,
         }
         return BLOCKQ_BLOCK_REQUIRED;
     }
-    s->connecting = false;  /* connection has been established */
     rv = 0;
 out:
     syscall_return(t, rv);
@@ -482,19 +538,17 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
     }
 
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
-    tuple t;
-    buffer b;
     unixsock listener, peer;
-    if (filesystem_get_tuple(unixaddr->sun_path, &t) < 0) {
-        return -ECONNREFUSED;
-    }
-    b = get(t, sym(socket)); // XXX untyped binary
-    if (!b || (buffer_length(b) != sizeof(u64))) {
-        return -ECONNREFUSED;
-    }
-    listener = pointer_from_u64(*((u64 *) buffer_ref(b, 0)));
-    assert(listener);
+    int rv = lookup_socket(&listener, unixaddr->sun_path);
+    if (rv != 0)
+        return rv;
     if (!s->connecting) {
+        if (s->sock.type & SOCK_DGRAM) {
+            if (!(listener->sock.type & SOCK_DGRAM))
+                return -ECONNREFUSED;
+            s->peer = listener;
+            return 0;
+        }
         if (!listener->conn_q || queue_full(listener->conn_q)) {
             return -ECONNREFUSED;
         }
@@ -536,7 +590,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     if (queue_length(s->conn_q) == 0) {
         fdesc_notify_events(&s->sock.f);
     }
-    child->sock.f.flags = bound(flags);
+    child->sock.f.flags |= bound(flags);
     rv = child->sock.fd;
     if (addr) {
         socklen_t *addrlen = bound(addrlen);
@@ -549,6 +603,8 @@ closure_function(5, 1, sysreturn, accept_bh,
         *addrlen = actual_len;
     }
     child->peer->peer = child;
+    child->connecting = false;
+    child->peer->connecting = false;
     unixsock_notify_writer(child->peer);
 out:
     syscall_return(t, rv);
@@ -560,9 +616,13 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
         socklen_t *addrlen, int flags)
 {
     unixsock s = (unixsock) sock;
+    if (s->sock.type != SOCK_STREAM)
+        return -EOPNOTSUPP;
     if (!s->conn_q) {
         return -EINVAL;
     }
+    if (flags & ~(SOCK_NONBLOCK|SOCK_CLOEXEC))
+        return -EINVAL;
     blockq_action ba = closure(sock->h, accept_bh, s, current, addr, addrlen,
             flags);
     return blockq_check(sock->rxbq, current, ba, false);
@@ -571,21 +631,36 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
 sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
         struct sockaddr *dest_addr, socklen_t addrlen)
 {
-    /* Non-connected sockets are not supported, so destination address is
-     * ignored. */
-    return apply(sock->f.write, buf, len, 0, current, false,
-            syscall_io_complete);
+    unixsock s = (unixsock) sock;
+    if (dest_addr || addrlen) {
+        if ((sock->type & SOCK_STREAM)) {
+            if (s->peer)
+                return -EISCONN;
+            else
+                return -ENOTCONN;
+        }
+        if (!(dest_addr && addrlen))
+            return -EFAULT;
+        if (addrlen < sizeof(struct sockaddr_un))
+            return -EINVAL;
+        if (dest_addr && !validate_user_memory(dest_addr, addrlen, true))
+            return -EFAULT;
+    }
+    return unixsock_write_with_addr(s, buf, len, 0, current, false, syscall_io_complete, (struct sockaddr_un *)dest_addr, addrlen);
 }
 
 sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
-        struct sockaddr *dest_addr, socklen_t *addrlen)
+        struct sockaddr *src_addr, socklen_t *addrlen)
 {
-    /* Non-connected sockets are not supported, so source address is not set. */
-    if (addrlen) {
-        *addrlen = 0;
+    if (src_addr || addrlen) {
+        if (!(src_addr && addrlen))
+            return -EFAULT;
+        if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
+            !validate_user_memory(src_addr, *addrlen, true))
+            return -EFAULT;
     }
-    return apply(sock->f.read, buf, len, 0, current, false,
-            syscall_io_complete);
+    return unixsock_read_with_addr((unixsock)sock, buf, len, 0, current, false,
+        syscall_io_complete, src_addr, addrlen);
 }
 
 closure_function(1, 2, void, sendmsg_complete,
