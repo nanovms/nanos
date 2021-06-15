@@ -182,7 +182,7 @@ typedef struct pageflags {
 #define _PAGE_NO_BLOCK       U64_FROM_BIT(55)
 
 // XXX kernel addr, also should return INVALID_PHYSICAL if PAR_EL1.F is set
-#define __physical_from_virtual(v) ({                                     \
+#define __physical_from_virtual_locked(v) ({                            \
             register u64 __r;                                           \
             register u64 __x = u64_from_pointer(v);                     \
             asm volatile("at S1E1R, %1; mrs %0, PAR_EL1" : "=r"(__r) : "r"(__x)); \
@@ -190,7 +190,13 @@ typedef struct pageflags {
 
 physical physical_from_virtual(void *x);
 
-extern const int page_level_shifts_4K[_PAGE_NLEVELS];
+extern u64 kernel_tablebase;
+extern u64 user_tablebase;
+
+static inline u64 get_pagetable_base(u64 vaddr)
+{
+    return (vaddr & U64_FROM_BIT(55)) ? kernel_tablebase : user_tablebase;
+}
 
 /* Page flags default to minimum permissions:
    - read-only
@@ -198,6 +204,14 @@ extern const int page_level_shifts_4K[_PAGE_NLEVELS];
    - no execute
 */
 #define _PAGE_DEFAULT_PERMISSIONS (_PAGE_READONLY | _PAGE_NO_EXEC)
+
+#define PT_FIRST_LEVEL 0
+#define PT_PTE_LEVEL   3
+
+#define PT_SHIFT_L0 39
+#define PT_SHIFT_L1 30
+#define PT_SHIFT_L2 21
+#define PT_SHIFT_L3 12
 
 static inline pageflags pageflags_memory(void)
 {
@@ -249,6 +263,11 @@ static inline pageflags pageflags_minpage(pageflags flags)
     return (pageflags){.w = flags.w | _PAGE_NO_BLOCK};
 }
 
+static inline pageflags pageflags_no_minpage(pageflags flags)
+{
+    return (pageflags){.w = flags.w & ~_PAGE_NO_BLOCK};
+}
+
 /* no-exec, read-only */
 static inline pageflags pageflags_default_user(void)
 {
@@ -275,8 +294,6 @@ static inline boolean pageflags_is_exec(pageflags flags)
     return !pageflags_is_noexec(flags);
 }
 
-extern const int page_level_shifts_4K[_PAGE_NLEVELS];
-
 typedef u64 pte;
 typedef volatile pte *pteptr;
 
@@ -295,6 +312,26 @@ static inline boolean pte_is_present(pte entry)
     return (entry & PAGE_L0_3_DESC_VALID) != 0;
 }
 
+static inline boolean pte_is_block_mapping(pte entry)
+{
+    return (entry & PAGE_L0_2_DESC_TABLE) == 0;
+}
+
+static inline int pt_level_shift(int level)
+{
+    switch (level) {
+    case 0:
+        return PT_SHIFT_L0;
+    case 1:
+        return PT_SHIFT_L1;
+    case 2:
+        return PT_SHIFT_L2;
+    case 3:
+        return PT_SHIFT_L3;
+    }
+    return 0;
+}
+
 /* log of mapping size (block or page) if valid leaf, else 0 */
 static inline int pte_order(int level, pte entry)
 {
@@ -302,19 +339,53 @@ static inline int pte_order(int level, pte entry)
     if (level == 0 || !pte_is_present(entry) ||
         (level != 3 && (entry & PAGE_L0_2_DESC_TABLE)))
         return 0;
-    return page_level_shifts_4K[level];
+    return pt_level_shift(level);
 }
 
 static inline u64 pte_map_size(int level, pte entry)
 {
-    int order = pte_order(level, entry);
-    return order ? U64_FROM_BIT(order) : INVALID_PHYSICAL;
+    if (pte_is_present(entry)) {
+        int order = pte_order(level, entry);
+        return order ? U64_FROM_BIT(order) : INVALID_PHYSICAL;
+    }
+    return INVALID_PHYSICAL;
 }
 
 static inline boolean pte_is_mapping(int level, pte entry)
 {
-    return ((level == 1 || level == 2) && (entry & PAGE_L0_2_DESC_TABLE) == 0) ||
-        level == 3;
+    return level == 3 || (level > 0 && (entry & PAGE_L0_2_DESC_TABLE) == 0);
+}
+
+static inline u64 flags_from_pte(u64 pte)
+{
+    return pte & _PAGE_FLAGS_MASK;
+}
+
+static inline u64 page_pte(u64 phys, u64 flags)
+{
+    return flags | (phys & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
+        PAGE_L3_DESC_PAGE | PAGE_ATTR_AF | PAGE_L0_3_DESC_VALID;
+}
+
+static inline u64 block_pte(u64 phys, u64 flags)
+{
+    return flags | (phys & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
+        PAGE_ATTR_AF | PAGE_L0_3_DESC_VALID;
+}
+
+static inline u64 new_level_pte(u64 tp_phys)
+{
+    return tp_phys | PAGE_ATTR_AF | PAGE_L0_2_DESC_TABLE | PAGE_L0_3_DESC_VALID;
+}
+
+static inline boolean flags_has_minpage(u64 flags)
+{
+    return (flags & _PAGE_NO_BLOCK) != 0;
+}
+
+static inline u64 canonize_address(u64 addr)
+{
+    return addr;
 }
 
 /* TODO: While the cpu type used under qemu is armv8.1-a, a read of
@@ -350,7 +421,11 @@ static inline pageflags pageflags_from_pteptr(pteptr pp)
     return (pageflags){.w = _PAGE_FLAGS_MASK & *pp};
 }
 
-void page_init_mmu(range init_pt, u64 vtarget);
+/* XXX move to common */
+void *allocate_table_page(u64 *phys);
+void init_mmu(range init_pt, u64 vtarget);
+void init_page_tables(heap pageheap, id_heap physical);
+void init_page_initial_map(void *initial_map, range phys);
 void page_heap_init(heap locked, id_heap physical, backed_heap huge_backed);
 void map(u64 virtual, physical p, u64 length, pageflags flags);
 void unmap(u64 virtual, u64 length);

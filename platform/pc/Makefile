@@ -31,6 +31,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/log.c \
+	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/pvclock.c \

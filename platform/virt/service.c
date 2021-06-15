@@ -223,7 +223,10 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    page_heap_init(heap_locked(kh), heap_physical(kh), (backed_heap)heap_huge_backed(kh));
+    huge_backed_heap_add_physical((backed_heap)heap_huge_backed(kh), INIT_PAGEMEM);
+    init_page_tables(heap_huge_backed(kh), heap_physical(kh));
+    /* mmu init complete; unmap temporary identity map */
+    unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
     init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
@@ -279,10 +282,10 @@ void __attribute__((noreturn)) start(void)
     init_dump(pointer_from_u64(0x40000000), 0x100);
 #endif
 
-    init_debug("calling page_init_mmu with target ");
+    init_debug("calling init_mmu with target ");
     init_debug_u64(u64_from_pointer(init_mmu_target));
     init_debug("\n");
-    page_init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
+    init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
 
     while (1);
 }
