@@ -29,6 +29,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/klib.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/log.c \
+	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/schedule.c \

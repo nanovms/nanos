@@ -36,6 +36,9 @@ typedef struct pageflags {
 */
 #define _PAGE_DEFAULT_PERMISSIONS (_PAGE_READONLY | _PAGE_NO_EXEC)
 
+#define PT_FIRST_LEVEL 1
+#define PT_PTE_LEVEL   4
+
 #define PT_SHIFT_L1 39
 #define PT_SHIFT_L2 30
 #define PT_SHIFT_L3 21
@@ -86,6 +89,11 @@ static inline pageflags pageflags_minpage(pageflags flags)
     return (pageflags){.w = flags.w | _PAGE_NO_PS};
 }
 
+static inline pageflags pageflags_no_minpage(pageflags flags)
+{
+    return (pageflags){.w = flags.w & ~_PAGE_NO_PS};
+}
+
 /* no-exec, read-only */
 static inline pageflags pageflags_default_user(void)
 {
@@ -130,6 +138,11 @@ static inline boolean pte_is_present(pte entry)
     return (entry & _PAGE_PRESENT) != 0;
 }
 
+static inline boolean pte_is_block_mapping(pte entry)
+{
+    return (entry & _PAGE_PS) != 0;
+}
+
 static inline int pt_level_shift(int level)
 {
     switch (level) {
@@ -145,6 +158,46 @@ static inline int pt_level_shift(int level)
     return 0;
 }
 
+static inline u64 flags_from_pte(u64 pte)
+{
+    return pte & _PAGE_FLAGS_MASK;
+}
+
+static inline u64 page_pte(u64 phys, u64 flags)
+{
+    return phys | (flags & ~_PAGE_NO_PS) | _PAGE_PRESENT;
+}
+
+static inline u64 block_pte(u64 phys, u64 flags)
+{
+    return phys | flags | _PAGE_PRESENT | _PAGE_PS;
+}
+
+static inline u64 new_level_pte(u64 tp_phys)
+{
+    return tp_phys | _PAGE_WRITABLE | _PAGE_USER | _PAGE_PRESENT;
+}
+
+static inline boolean flags_has_minpage(u64 flags)
+{
+    return (flags & _PAGE_NO_PS) != 0;
+}
+
+static inline u64 canonize_address(u64 addr)
+{
+    if (addr & U64_FROM_BIT(47))
+        addr |= 0xffff000000000000;
+    return addr;
+}
+
+extern u64 pagebase;
+static inline u64 get_pagetable_base(u64 vaddr)
+{
+    return pagebase;
+}
+
+u64 *pointer_from_pteaddr(u64 pa);
+
 /* log of mapping size (block or page) if valid leaf, else 0 */
 static inline int pte_order(int level, pte entry)
 {
@@ -158,6 +211,7 @@ static inline int pte_order(int level, pte entry)
 static inline u64 pte_map_size(int level, pte entry)
 {
     if (pte_is_present(entry)) {
+        // XXX take from arm
         if (level == 4)
             return PAGESIZE;
         if ((entry & _PAGE_PS) && level != 1)
@@ -188,8 +242,40 @@ static inline void pt_pte_clean(pteptr pp)
 }
 
 #ifndef physical_from_virtual
+static inline u64 pte_lookup_phys(u64 table, u64 vaddr, int offset)
+{
+    return table + (((vaddr >> offset) & MASK(9)) << 3);
+}
+
+static inline u64 *pte_lookup_ptr(u64 table, u64 vaddr, int offset)
+{
+    return pointer_from_pteaddr(pte_lookup_phys(table, vaddr, offset));
+}
+
+#define _pfv_level(table, vaddr, level)                                 \
+    u64 *l ## level = pte_lookup_ptr(table, vaddr, PT_SHIFT_L ## level); \
+    if (!(*l ## level & 1))                                             \
+        return INVALID_PHYSICAL;
+
+#define _pfv_check_ps(level, vaddr)                                     \
+    if (*l ## level & _PAGE_PS)                                         \
+        return page_from_pte(*l ## level) | (vaddr & MASK(PT_SHIFT_L ## level));
+
+static inline physical __physical_from_virtual_locked(void *x)
+{
+    u64 xt = u64_from_pointer(x);
+    _pfv_level(pagebase, xt, 1);
+    _pfv_level(page_from_pte(*l1), xt, 2);
+    _pfv_check_ps(2, xt);
+    _pfv_level(page_from_pte(*l2), xt, 3);
+    _pfv_check_ps(3, xt);
+    _pfv_level(page_from_pte(*l3), xt, 4);
+    return page_from_pte(*l4) | (xt & MASK(PT_SHIFT_L4));
+}
+
 physical physical_from_virtual(void *x);
 #endif
+
 typedef struct flush_entry *flush_entry;
 
 void map(u64 virtual, physical p, u64 length, pageflags flags);
@@ -231,10 +317,13 @@ void page_invalidate_flush();
 void flush_tlb();
 void init_flush(heap);
 void *bootstrap_page_tables(heap initial);
+void init_page_early(void *initial_map, range phys);
 #ifdef KERNEL
 void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
                         u64 *pdpt, u64 *pdt);
-void init_page_tables(heap h, id_heap physical, range initial_map);
+void init_mmu(void);
 #else
-void init_page_tables(heap initial);
+void init_mmu(heap initial);
 #endif
+void init_page_tables(heap pageheap, id_heap physical);
+void init_page_initial_map(void *initial_map, range phys);

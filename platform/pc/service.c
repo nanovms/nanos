@@ -242,10 +242,14 @@ void start_secondary_cores(kernel_heaps kh)
 
 u64 xsave_features();
 
+static range initial_pages;
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = get_kernel_heaps();
     init_debug("in init_service_new_stack");
+    huge_backed_heap_add_physical((backed_heap)heap_huge_backed(kh), initial_pages.start);
+    init_page_tables(heap_huge_backed(kh), heap_physical(kh));
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
 
@@ -268,13 +272,14 @@ static void __attribute__((noinline)) init_service_new_stack()
     while(1);
 }
 
-static range find_initial_pages(void)
+static void find_initial_pages(void)
 {
     for_regions(e) {
 	if (e->type == REGION_INITIAL_PAGES) {
 	    u64 base = e->base;
 	    u64 length = e->length;
-            return irange(base, base + length);
+            initial_pages = irangel(base, length);
+            return;
         }
     }
     halt("no initial pages region found; halt\n");
@@ -332,7 +337,10 @@ static void init_kernel_heaps(void)
     kh->physical = init_physical_id_heap(&bootstrap);
     assert(kh->physical != INVALID_ADDRESS);
 
-    init_page_tables(&bootstrap, kh->physical, find_initial_pages());
+    /* Must occur after physical memory setup but before backed heap init. */
+    find_initial_pages();
+    init_mmu();
+    init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
 
     kh->page_backed = physically_backed(&bootstrap, (heap)kh->virtual_page,
                                         (heap)kh->physical, PAGESIZE, true);
