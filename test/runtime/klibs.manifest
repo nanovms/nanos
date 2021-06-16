@@ -1,7 +1,9 @@
 (
     boot:(
           children:(
-                    klib:(children:(test:(contents:(host:output/klib/bin/test))))
+                    klib:(children:(
+                        test:(children:(test:(contents:(host:output/klib/bin/test))))
+                      ))
                     )
           )
     children:(

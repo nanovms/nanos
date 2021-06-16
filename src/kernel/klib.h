@@ -8,18 +8,21 @@ typedef struct klib_mapping {
     pageflags flags;
 } *klib_mapping;
 
+typedef int (*klib_init)(void *md, klib_get_sym get_sym, klib_add_sym add_sym);
+
 typedef struct klib {
     char name[KLIB_MAX_NAME];
     table syms;
     range load_range;
     rangemap mappings;
     buffer elf;
+    klib_init ki;
 } *klib;
 
-typedef closure_type(klib_handler, void, klib, status);
-typedef int (*klib_init)(void *md, klib_get_sym get_sym, klib_add_sym add_sym);
+typedef closure_type(klib_handler, void, klib, int);
 
 void *klib_sym(klib kl, symbol s);
+void *get_klib_sym(const char *name);
 
 void load_klib(const char *name, klib_handler complete);
 

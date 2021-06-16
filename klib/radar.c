@@ -69,7 +69,6 @@ static struct telemetry {
     void (*timm_dealloc)(tuple t);
     symbol (*intern)(string name);
     symbol (*intern_u64)(u64 u);
-    void *(*klib_sym)(klib kl, symbol s);
     void (*klog_load)(klog_dump dest, status_handler sh);
     void (*klog_dump_clear)(void);
     void (*klog_set_boot_id)(u64 id);
@@ -451,38 +450,22 @@ closure_function(0, 1, void, klog_dump_loaded,
     closure_finish();
 }
 
-closure_function(0, 2, void, tls_loaded,
-                 klib, kl, status, s)
-{
-    closure_finish();
-    if (is_ok(s)) {
-        int (*tls_set_cacert)(void *, u64) = kfunc(klib_sym)(kl, sym(tls_set_cacert));
-        if (tls_set_cacert(RADAR_CA_CERT, sizeof(RADAR_CA_CERT)) == 0) {
-            telemetry.tls_connect = kfunc(klib_sym)(kl, sym(tls_connect));
-            telemetry.dump = allocate(telemetry.h, sizeof(*telemetry.dump));
-            if (telemetry.dump != INVALID_ADDRESS) {
-                status_handler sh = closure(telemetry.h, klog_dump_loaded);
-                if (sh != INVALID_ADDRESS)
-                    kfunc(klog_load)(telemetry.dump, sh);
-                else
-                    deallocate(telemetry.h, telemetry.dump, sizeof(*telemetry.dump));
-            }
-        }
-    } else {
-        kfunc(timm_dealloc)(s);
-    }
-}
-
 int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
 {
+    void *(*get_klib_sym)(const char *name) = get_sym("get_klib_sym");
+    if (!get_klib_sym)
+        return KLIB_INIT_FAILED;
+    int (*tls_set_cacert)(void *cert, u64 len) = get_klib_sym("tls_set_cacert");
+    if ((tls_set_cacert == INVALID_ADDRESS) ||
+            ((telemetry.tls_connect = get_klib_sym("tls_connect")) == INVALID_ADDRESS))
+        return KLIB_MISSING_DEP;
     telemetry.rprintf = get_sym("rprintf");
     if (!telemetry.rprintf)
         return KLIB_INIT_FAILED;
     void *(*get_kernel_heaps)(void) = get_sym("get_kernel_heaps");
     void *(*get_environment)(void) = get_sym("get_environment");
     u64 (*random_u64)(void) = get_sym("random_u64");
-    void (*load_klib)(const char *, klib_handler) = get_sym("load_klib");
-    if (!get_kernel_heaps || !get_environment || !random_u64 || !load_klib ||
+    if (!get_kernel_heaps || !get_environment || !random_u64 ||
             !(telemetry.allocate_tuple = get_sym("allocate_tuple")) ||
             !(telemetry.set = get_sym("set")) ||
             !(telemetry.get = get_sym("get")) ||
@@ -491,7 +474,6 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(telemetry.timm_dealloc = get_sym("timm_dealloc")) ||
             !(telemetry.intern = get_sym("intern")) ||
             !(telemetry.intern_u64 = get_sym("intern_u64")) ||
-            !(telemetry.klib_sym = get_sym("klib_sym")) ||
             !(telemetry.klog_load = get_sym("klog_load")) ||
             !(telemetry.klog_dump_clear = get_sym("klog_dump_clear")) ||
             !(telemetry.klog_set_boot_id = get_sym("klog_set_boot_id")) ||
@@ -516,8 +498,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     kernel_heaps kh = get_kernel_heaps();
     telemetry.h = heap_general(kh);
     telemetry.phys = (heap)heap_physical(kh);
-    klib_handler tls_handler = closure(telemetry.h, tls_loaded);
-    if (tls_handler == INVALID_ADDRESS) {
+    if (tls_set_cacert(RADAR_CA_CERT, sizeof(RADAR_CA_CERT)) != 0) {
+        kfunc(rprintf)("Radar: failed to set CA certificate\n");
         return KLIB_INIT_FAILED;
     }
     telemetry.env = get_environment();
@@ -525,6 +507,17 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     telemetry.retry_backoff = seconds(1);
     telemetry.running = false;
     init_closure(&telemetry.stats_func, telemetry_stats);
-    load_klib("/klib/tls", tls_handler);
+    telemetry.dump = allocate(telemetry.h, sizeof(*telemetry.dump));
+    if (telemetry.dump == INVALID_ADDRESS) {
+        kfunc(rprintf)("Radar: failed to allocate log dump\n");
+        return KLIB_INIT_FAILED;
+    }
+    status_handler sh = closure(telemetry.h, klog_dump_loaded);
+    if (sh == INVALID_ADDRESS) {
+        kfunc(rprintf)("Radar: failed to allocate log dump load handler\n");
+        deallocate(telemetry.h, telemetry.dump, sizeof(*telemetry.dump));
+        return KLIB_INIT_FAILED;
+    }
+    kfunc(klog_load)(telemetry.dump, sh);
     return KLIB_INIT_OK;
 }

@@ -1,5 +1,7 @@
 enum {
     KLIB_INIT_OK = 0,
+    KLIB_LOAD_FAILED,
+    KLIB_MISSING_DEP,
     KLIB_INIT_FAILED
 };
 
