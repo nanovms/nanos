@@ -1,26 +1,5 @@
 #include <kernel.h>
 
-/* Would be nice to have one debug output with a mux to console for early init (i.e. before formatters enabled) */
-//#define PAGE_DEBUG
-//#define PAGE_UPDATE_DEBUG
-//#define PTE_DEBUG
-
-//#define PAGE_INIT_DEBUG
-#ifdef PAGE_INIT_DEBUG
-#define page_init_debug(x) rputs(x)
-#define page_init_debug_u64(x) print_u64(x)
-#else
-#define page_init_debug(x)
-#define page_init_debug_u64(x)
-#endif
-
-// XXX deprecate
-#if defined(PAGE_DEBUG) && !defined(BOOT)
-#define page_debug(x, ...) do {log_printf("PAGE", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
-#else
-#define page_debug(x, ...)
-#endif
-
 u64 pagebase;
 
 /* assumes page table is consistent when called */
@@ -71,7 +50,7 @@ void dump_ptes(void *x)
         if (l2 & 1) {
             u64 l3 = *pte_lookup_ptr(l2, xt, PT_SHIFT_L3);
             rprintf("  l3: 0x%lx\n", l3);
-            if ((l3 & 1) && (l3 & _PAGE_2M_SIZE) == 0) {
+            if ((l3 & 1) && (l3 & PAGE_2M_SIZE) == 0) {
                 u64 l4 = *pte_lookup_ptr(l3, xt, PT_SHIFT_L4);
                 rprintf("  l4: 0x%lx\n", l4);
             }
@@ -102,14 +81,14 @@ void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
     assert(!(p & PAGEMASK_2M));
     u64 *pml4;
     mov_from_cr("cr3", pml4);
-    flags.w |= _PAGE_PRESENT;
+    flags.w |= PAGE_PRESENT;
     pml4[(v >> PT_SHIFT_L1) & MASK(9)] = u64_from_pointer(pdpt) | flags.w;
     v &= MASK(PT_SHIFT_L1);
     pdpt[v >> PT_SHIFT_L2] = u64_from_pointer(pdt) | flags.w;
     v &= MASK(PT_SHIFT_L2);
     assert(v + pages <= 512);
     for (int i = 0; i < pages; i++)
-        pdt[v + i] = (p + (i << PAGELOG_2M)) | flags.w | _PAGE_PS;
+        pdt[v + i] = (p + (i << PAGELOG_2M)) | flags.w | PAGE_PS;
     memory_barrier();
 }
 

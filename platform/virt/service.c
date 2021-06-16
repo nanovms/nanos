@@ -208,9 +208,6 @@ static void init_kernel_heaps(void)
     kh->huge_backed = allocate_huge_backed_heap(&bootstrap, (heap)kh->physical);
     assert(kh->huge_backed != INVALID_ADDRESS);
 
-    /* add initial page tables to simplify reverse mapping */
-    huge_backed_heap_add_physical(kh->huge_backed, INIT_PAGEMEM); // XXX const
-
     kh->general = allocate_mcache(&bootstrap, (heap)kh->huge_backed, 5, 20, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
@@ -223,7 +220,6 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    huge_backed_heap_add_physical((backed_heap)heap_huge_backed(kh), INIT_PAGEMEM);
     init_page_tables(heap_huge_backed(kh), heap_physical(kh));
     /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
