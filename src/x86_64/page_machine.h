@@ -1,40 +1,30 @@
 #define INITIAL_MAP_SIZE (0xa000)
 
-#define _PAGE_NO_EXEC       U64_FROM_BIT(63)
-#define _PAGE_NO_PS         0x0200 /* AVL[0] */
-#define _PAGE_PS            0x0080
-#define _PAGE_DIRTY         0x0040
-#define _PAGE_ACCESSED      0x0020
-#define _PAGE_CACHE_DISABLE 0x0010
-#define _PAGE_WRITETHROUGH  0x0008
-#define _PAGE_USER          0x0004
-#define _PAGE_READONLY      0
-#define _PAGE_WRITABLE      0x0002
-#define _PAGE_PRESENT       0x0001
+#define PAGE_NO_EXEC       U64_FROM_BIT(63)
+#define PAGE_NO_PS         0x0200 /* AVL[0] */
+#define PAGE_PS            0x0080
+#define PAGE_DIRTY         0x0040
+#define PAGE_ACCESSED      0x0020
+#define PAGE_CACHE_DISABLE 0x0010
+#define PAGE_WRITETHROUGH  0x0008
+#define PAGE_USER          0x0004
+#define PAGE_READONLY      0
+#define PAGE_WRITABLE      0x0002
+#define PAGE_PRESENT       0x0001
 
 #define PAGEMASK           MASK(PAGELOG)
 #define PAGEMASK_2M        MASK(PAGELOG_2M)
-#define _PAGE_FLAGS_MASK    (_PAGE_NO_EXEC | PAGEMASK)
-#define _PAGE_PROT_FLAGS    (_PAGE_NO_EXEC | _PAGE_USER | _PAGE_WRITABLE)
-#define _PAGE_DEV_FLAGS     (_PAGE_WRITABLE | _PAGE_CACHE_DISABLE | _PAGE_NO_EXEC)
-#define _PAGE_BACKED_FLAGS  (_PAGE_WRITABLE | _PAGE_NO_EXEC)
-
-/* Though page flags are just a u64, we hide it behind this type to
-   emphasize that page flags should be composed using helpers with
-   clear semantics, not architecture bits. This is to avoid mistakes
-   due to a union of PAGE_* constants on one architecture meaning
-   something entirely different on another. */
-
-typedef struct pageflags {
-    u64 w;                      /* _PAGE_* flags, keep private to page.[hc] */
-} pageflags;
+#define PAGE_FLAGS_MASK    (PAGE_NO_EXEC | PAGEMASK)
+#define PAGE_PROT_FLAGS    (PAGE_NO_EXEC | PAGE_USER | PAGE_WRITABLE)
+#define PAGE_DEV_FLAGS     (PAGE_WRITABLE | PAGE_CACHE_DISABLE | PAGE_NO_EXEC)
+#define PAGE_BACKED_FLAGS  (PAGE_WRITABLE | PAGE_NO_EXEC)
 
 /* Page flags default to minimum permissions:
    - read-only
    - no user access
    - no execute
 */
-#define _PAGE_DEFAULT_PERMISSIONS (_PAGE_READONLY | _PAGE_NO_EXEC)
+#define PAGE_DEFAULT_PERMISSIONS (PAGE_READONLY | PAGE_NO_EXEC)
 
 #define PT_FIRST_LEVEL 1
 #define PT_PTE_LEVEL   4
@@ -46,52 +36,52 @@ typedef struct pageflags {
 
 static inline pageflags pageflags_memory(void)
 {
-    return (pageflags){.w = _PAGE_DEFAULT_PERMISSIONS};
+    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS};
 }
 
 static inline pageflags pageflags_memory_writethrough(void)
 {
-    return (pageflags){.w = _PAGE_DEFAULT_PERMISSIONS | _PAGE_WRITETHROUGH};
+    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS | PAGE_WRITETHROUGH};
 }
 
 static inline pageflags pageflags_device(void)
 {
-    return (pageflags){.w = _PAGE_DEFAULT_PERMISSIONS | _PAGE_CACHE_DISABLE};
+    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS | PAGE_CACHE_DISABLE};
 }
 
 static inline pageflags pageflags_writable(pageflags flags)
 {
-    return (pageflags){.w = flags.w | _PAGE_WRITABLE};
+    return (pageflags){.w = flags.w | PAGE_WRITABLE};
 }
 
 static inline pageflags pageflags_readonly(pageflags flags)
 {
-    return (pageflags){.w = flags.w & ~_PAGE_WRITABLE};
+    return (pageflags){.w = flags.w & ~PAGE_WRITABLE};
 }
 
 static inline pageflags pageflags_user(pageflags flags)
 {
-    return (pageflags){.w = flags.w | _PAGE_USER};
+    return (pageflags){.w = flags.w | PAGE_USER};
 }
 
 static inline pageflags pageflags_noexec(pageflags flags)
 {
-    return (pageflags){.w = flags.w | _PAGE_NO_EXEC};
+    return (pageflags){.w = flags.w | PAGE_NO_EXEC};
 }
 
 static inline pageflags pageflags_exec(pageflags flags)
 {
-    return (pageflags){.w = flags.w & ~_PAGE_NO_EXEC};
+    return (pageflags){.w = flags.w & ~PAGE_NO_EXEC};
 }
 
 static inline pageflags pageflags_minpage(pageflags flags)
 {
-    return (pageflags){.w = flags.w | _PAGE_NO_PS};
+    return (pageflags){.w = flags.w | PAGE_NO_PS};
 }
 
 static inline pageflags pageflags_no_minpage(pageflags flags)
 {
-    return (pageflags){.w = flags.w & ~_PAGE_NO_PS};
+    return (pageflags){.w = flags.w & ~PAGE_NO_PS};
 }
 
 /* no-exec, read-only */
@@ -102,7 +92,7 @@ static inline pageflags pageflags_default_user(void)
 
 static inline boolean pageflags_is_writable(pageflags flags)
 {
-    return (flags.w & _PAGE_WRITABLE) != 0;
+    return (flags.w & PAGE_WRITABLE) != 0;
 }
 
 static inline boolean pageflags_is_readonly(pageflags flags)
@@ -112,7 +102,7 @@ static inline boolean pageflags_is_readonly(pageflags flags)
 
 static inline boolean pageflags_is_noexec(pageflags flags)
 {
-    return (flags.w & _PAGE_NO_EXEC) != 0;
+    return (flags.w & PAGE_NO_EXEC) != 0;
 }
 
 static inline boolean pageflags_is_exec(pageflags flags)
@@ -135,12 +125,12 @@ static inline void pte_set(pteptr pp, pte p)
 
 static inline boolean pte_is_present(pte entry)
 {
-    return (entry & _PAGE_PRESENT) != 0;
+    return (entry & PAGE_PRESENT) != 0;
 }
 
 static inline boolean pte_is_block_mapping(pte entry)
 {
-    return (entry & _PAGE_PS) != 0;
+    return (entry & PAGE_PS) != 0;
 }
 
 static inline int pt_level_shift(int level)
@@ -160,27 +150,27 @@ static inline int pt_level_shift(int level)
 
 static inline u64 flags_from_pte(u64 pte)
 {
-    return pte & _PAGE_FLAGS_MASK;
+    return pte & PAGE_FLAGS_MASK;
 }
 
 static inline u64 page_pte(u64 phys, u64 flags)
 {
-    return phys | (flags & ~_PAGE_NO_PS) | _PAGE_PRESENT;
+    return phys | (flags & ~PAGE_NO_PS) | PAGE_PRESENT;
 }
 
 static inline u64 block_pte(u64 phys, u64 flags)
 {
-    return phys | flags | _PAGE_PRESENT | _PAGE_PS;
+    return phys | flags | PAGE_PRESENT | PAGE_PS;
 }
 
 static inline u64 new_level_pte(u64 tp_phys)
 {
-    return tp_phys | _PAGE_WRITABLE | _PAGE_USER | _PAGE_PRESENT;
+    return tp_phys | PAGE_WRITABLE | PAGE_USER | PAGE_PRESENT;
 }
 
 static inline boolean flags_has_minpage(u64 flags)
 {
-    return (flags & _PAGE_NO_PS) != 0;
+    return (flags & PAGE_NO_PS) != 0;
 }
 
 static inline u64 canonize_address(u64 addr)
@@ -203,7 +193,7 @@ static inline int pte_order(int level, pte entry)
 {
     assert(level > 0 && level < 5);
     if (level == 1 || !pte_is_present(entry) ||
-        (level != 4 && !(entry & _PAGE_PS)))
+        (level != 4 && !(entry & PAGE_PS)))
         return 0;
     return pt_level_shift(level);
 }
@@ -214,7 +204,7 @@ static inline u64 pte_map_size(int level, pte entry)
         // XXX take from arm
         if (level == 4)
             return PAGESIZE;
-        if ((entry & _PAGE_PS) && level != 1)
+        if ((entry & PAGE_PS) && level != 1)
             return level == 2 ? HUGE_PAGESIZE : PAGESIZE_2M;
     }
     return INVALID_PHYSICAL;
@@ -227,7 +217,7 @@ static inline boolean pte_is_mapping(int level, pte entry)
 
 static inline boolean pte_is_dirty(pte entry)
 {
-    return (entry & _PAGE_DIRTY) != 0;
+    return (entry & PAGE_DIRTY) != 0;
 }
 
 static inline u64 page_from_pte(pte p)
@@ -238,7 +228,7 @@ static inline u64 page_from_pte(pte p)
 
 static inline void pt_pte_clean(pteptr pp)
 {
-    *pp &= ~_PAGE_DIRTY;
+    *pp &= ~PAGE_DIRTY;
 }
 
 #ifndef physical_from_virtual
@@ -252,13 +242,13 @@ static inline u64 *pte_lookup_ptr(u64 table, u64 vaddr, int offset)
     return pointer_from_pteaddr(pte_lookup_phys(table, vaddr, offset));
 }
 
-#define _pfv_level(table, vaddr, level)                                 \
+#define _pfv_level(table, vaddr, level)                                  \
     u64 *l ## level = pte_lookup_ptr(table, vaddr, PT_SHIFT_L ## level); \
-    if (!(*l ## level & 1))                                             \
+    if (!(*l ## level & 1))                                              \
         return INVALID_PHYSICAL;
 
-#define _pfv_check_ps(level, vaddr)                                     \
-    if (*l ## level & _PAGE_PS)                                         \
+#define _pfv_check_ps(level, vaddr)                                      \
+    if (*l ## level & PAGE_PS)                                           \
         return page_from_pte(*l ## level) | (vaddr & MASK(PT_SHIFT_L ## level));
 
 static inline physical __physical_from_virtual_locked(void *x)
@@ -278,21 +268,6 @@ physical physical_from_virtual(void *x);
 
 typedef struct flush_entry *flush_entry;
 
-void map(u64 virtual, physical p, u64 length, pageflags flags);
-void unmap(u64 virtual, u64 length);
-void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
-void unmap_and_free_phys(u64 virtual, u64 length);
-
-static inline void unmap_pages(u64 virtual, u64 length)
-{
-    unmap_pages_with_handler(virtual, length, 0);
-}
-
-void update_map_flags(u64 vaddr, u64 length, pageflags flags);
-void zero_mapped_pages(u64 vaddr, u64 length);
-void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
-void dump_ptes(void *x);
-
 static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
 {
     assert((v & MASK(PAGELOG)) == 0);
@@ -307,17 +282,8 @@ static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
     }
 }
 
-typedef closure_type(entry_handler, boolean /* success */, int /* level */,
-        u64 /* vaddr */, pteptr /* entry */);
-boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
-void page_invalidate(flush_entry f, u64 p);
-void page_invalidate_sync(flush_entry f, thunk completion);
-flush_entry get_page_flush_entry();
-void page_invalidate_flush();
 void flush_tlb();
-void init_flush(heap);
 void *bootstrap_page_tables(heap initial);
-void init_page_early(void *initial_map, range phys);
 #ifdef KERNEL
 void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
                         u64 *pdpt, u64 *pdt);
@@ -325,5 +291,7 @@ void init_mmu(void);
 #else
 void init_mmu(heap initial);
 #endif
-void init_page_tables(heap pageheap, id_heap physical);
-void init_page_initial_map(void *initial_map, range phys);
+
+/* for debug in early setup */
+#define early_debug rputs
+#define early_debug_u64 print_u64
