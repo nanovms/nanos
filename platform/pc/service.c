@@ -248,7 +248,7 @@ static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = get_kernel_heaps();
     init_debug("in init_service_new_stack");
-    init_page_tables(heap_huge_backed(kh), heap_physical(kh));
+    init_page_tables(heap_huge_backed(kh));
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
 

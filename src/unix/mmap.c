@@ -730,6 +730,13 @@ static void vmap_return_virtual(process p, vmap k)
         id_heap_set_area(v->h, r.start, range_span(r), false, false);
 }
 
+closure_function(1, 1, void, dealloc_phys_page,
+                 id_heap, physical, range, r)
+{
+    if (!id_heap_set_area(bound(physical), r.start, range_span(r), true, false))
+        msg_err("some of physical range %R not allocated in heap\n", r);
+}
+
 static void vmap_unmap_page_range(process p, vmap k)
 {
     range r = k->node.r;
@@ -737,7 +744,9 @@ static void vmap_unmap_page_range(process p, vmap k)
     u64 len = range_span(r);
     switch (type) {
     case VMAP_MMAP_TYPE_ANONYMOUS:
-        unmap_and_free_phys(r.start, len);
+        unmap_pages_with_handler(r.start, len,
+                                 stack_closure(dealloc_phys_page,
+                                               heap_physical(get_kernel_heaps())));
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
         pagecache_node_unmap_pages(k->cache_node, r, k->node_offset);
