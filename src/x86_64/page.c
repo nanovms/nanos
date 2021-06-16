@@ -66,7 +66,7 @@ void dump_ptes(void *x)
 void *bootstrap_page_tables(heap initial)
 {
     /* page table setup */
-    init_page_tables(initial, 0);
+    init_page_tables(initial);
     void *pgdir = allocate_zero(initial, PAGESIZE);
     assert(pgdir != INVALID_ADDRESS);
     pagebase = u64_from_pointer(pgdir);
