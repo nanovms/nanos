@@ -205,7 +205,7 @@ static void init_kernel_heaps(void)
     kh->page_backed = physically_backed(&bootstrap, (heap)kh->virtual_page, (heap)kh->physical, PAGESIZE, true);
     assert(kh->page_backed != INVALID_ADDRESS);
 
-    kh->huge_backed = allocate_huge_backed_heap(&bootstrap, (heap)kh->physical);
+    kh->huge_backed = allocate_huge_backed_heap(&bootstrap, kh->physical);
     assert(kh->huge_backed != INVALID_ADDRESS);
 
     kh->general = allocate_mcache(&bootstrap, (heap)kh->huge_backed, 5, 20, PAGESIZE_2M);

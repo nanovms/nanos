@@ -62,7 +62,7 @@ u64 *pointer_from_pteaddr(u64 pa)
         assert(pa >= pagemem.initial_physbase); /* may legitimately extend past end */
         return pagemem.initial_map + offset;
     }
-    return virt_from_huge_backed_phys(pa);
+    return pointer_from_u64(virt_from_huge_backed_phys(pa));
 #else
     return pointer_from_u64(pa);
 #endif
@@ -455,10 +455,6 @@ void init_page_tables(heap pageheap)
     page_init_debug("init_page_tables: pageheap ");
     page_init_debug_u64(u64_from_pointer(pageheap));
     page_init_debug("\n");
-#ifdef KERNEL
-    /* A map could happen here, so do before setting pageheap. */
-    huge_backed_heap_add_physical((backed_heap)pageheap, pagemem.initial_physbase);
-#endif
     pagemem.pageheap = pageheap;
 }
 
