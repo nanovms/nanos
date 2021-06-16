@@ -1,7 +1,6 @@
 #include <kernel.h>
 
 //#define PAGE_INIT_DEBUG
-//#define TRAVERSE_PTES_DEBUG
 
 #ifdef PAGE_INIT_DEBUG
 #define page_init_debug(x) early_debug(x)
