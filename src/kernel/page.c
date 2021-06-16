@@ -37,6 +37,7 @@ static struct {
     heap pageheap;
     void *initial_map;
     u64 initial_physbase;
+    u64 levelmask;              /* bitmap of levels allowed to map */
 } pagemem;
 
 #ifndef physical_from_virtual
@@ -353,7 +354,8 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
                 pte = page_pte(*p, flags);
                 next_addr(*p, mask);
                 invalidate = true;
-            } else if (!flags_has_minpage(flags) && level > PT_FIRST_LEVEL && (v.start & mask) == 0 &&
+            } else if (!flags_has_minpage(flags) && level > PT_FIRST_LEVEL &&
+                       (pagemem.levelmask & U64_FROM_BIT(level)) && (v.start & mask) == 0 &&
                        (*p & mask) == 0 && range_span(v) >= U64_FROM_BIT(shift)) {
                 pte = block_pte(*p, flags);
                 next_addr(*p, mask);
@@ -456,6 +458,11 @@ void init_page_tables(heap pageheap)
     page_init_debug_u64(u64_from_pointer(pageheap));
     page_init_debug("\n");
     pagemem.pageheap = pageheap;
+}
+
+void page_set_allowed_levels(u64 levelmask)
+{
+    pagemem.levelmask = levelmask;
 }
 
 #ifdef KERNEL
