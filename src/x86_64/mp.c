@@ -22,11 +22,25 @@ static void (*start_callback)();
 #define mp_debug_u64(x)
 #endif
 
+#define CPUID_XSAVE (1<<26)
+#define CPUID_AVX (1<<28)
+
+#define XCR0_SSE (1<<1)
+#define XCR0_AVX (1<<2)
+u8 use_xsave;
+
 void cpu_init(int cpu)
 {
     u64 cr;
+    u32 v[4];
+
+    cpuid(1, 0, v);
+    if (v[2] & CPUID_XSAVE)
+        use_xsave = 1;
     mov_from_cr("cr4", cr);
     cr |= CR4_PGE | CR4_OSFXSR | CR4_OSXMMEXCPT;
+    if (use_xsave)
+        cr |= CR4_OSXSAVE;
     mov_to_cr("cr4", cr);
     mov_from_cr("cr0", cr);
     cr |= C0_MP | C0_WP;
@@ -37,6 +51,11 @@ void cpu_init(int cpu)
     write_msr(GS_MSR, addr);
     if (VVAR_REF(vdso_dat).platform_has_rdtscp)
         write_msr(TSC_AUX_MSR, cpu);    /* used by vdso_getcpu() */
+    if (use_xsave && (v[2] & CPUID_AVX)) {
+        xgetbv(0, &v[0], &v[1]);
+        v[0] |= XCR0_SSE | XCR0_AVX;
+        xsetbv(0, v[0], v[1]);
+    }
     init_syscall_handler();
 }
 

@@ -45,19 +45,34 @@ extern  init_service
         wrmsr
 %endmacro
 
+extern use_xsave
 
 ;; XXX - stick with fx until we can choose according to capabilities -
 ;; otherwise existing stuff breaks with ops, etc.
 %macro load_extended_registers 1
-;        mov edx, 0xffffffff
-;        mov eax, edx
+        mov al, [use_xsave]
+        test al, al
+        jnz %%xs
         fxrstor [%1+FRAME_EXTENDED_SAVE*8]
+        jmp %%out
+%%xs:
+        mov edx, 0xffffffff
+        mov eax, edx
+        xrstor [%1+FRAME_EXTENDED_SAVE*8]
+%%out:
 %endmacro
         
 %macro save_extended_registers 1
-;        mov edx, 0xffffffff
-;        mov eax, edx
+        mov al, [use_xsave]
+        test al, al
+        jnz %%xs
         fxsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
+        jmp %%out
+%%xs:
+        mov edx, 0xffffffff
+        mov eax, edx
+        xsave [%1+FRAME_EXTENDED_SAVE*8]
+%%out:
 %endmacro
 
         

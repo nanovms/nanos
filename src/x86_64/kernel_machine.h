@@ -165,6 +165,16 @@ static inline void cpuid(u32 fn, u32 ecx, u32 * v)
     asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
 }
 
+static inline void xsetbv(u32 ecx, u32 eax, u32 edx)
+{
+    asm volatile("xsetbv" : : "a" (eax), "d" (edx), "c" (ecx));
+}
+
+static inline void xgetbv(u32 ecx, u32 *eax, u32 *edx)
+{
+    asm volatile("xgetbv" : "=a" (*eax), "=d" (*edx) : "c" (ecx));
+}
+
 /* syscall entry */
 
 static inline void set_syscall_handler(void *syscall_entry)
@@ -239,15 +249,16 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(addr);
 }
 
+extern u8 use_xsave;
+
 static inline u64 extended_frame_size(void)
 {
-#if 0
-    u32 v[4];
-    cpuid(0xd, 0, v);
-    return v[1];
-#else
-    return 512;                 /* XXX fx only right now */
-#endif
+    if (use_xsave) {
+        u32 v[4];
+        cpuid(0xd, 0, v);
+        return v[1];
+    }
+    return 512;
 }
 
 static inline u64 total_frame_size(void)
