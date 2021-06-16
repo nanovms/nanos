@@ -1460,8 +1460,8 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
 sysreturn uname(struct utsname *v)
 {
-    char sysname[] = "pugnix";
-    char release[]= "4.4.0-87";
+    char sysname[] = "Nanos";
+    char release[]= "4.4.0-87";   // TODO: should be obtained from build injection
     char nodename[] = "nanovms"; // TODO: later we probably would want to get this from /etc/hostname
     char version[] = "Nanos unikernel";
     char machine[] = "x86_64";
