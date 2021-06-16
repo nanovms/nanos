@@ -41,3 +41,4 @@ void dump_ptes(void *x);
 
 /* internal use */
 void *allocate_table_page(u64 *phys);
+void page_set_allowed_levels(u64 levelmask);
