@@ -220,7 +220,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    init_page_tables(heap_huge_backed(kh), heap_physical(kh));
+    init_page_tables(heap_huge_backed(kh));
     /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));

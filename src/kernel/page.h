@@ -9,7 +9,7 @@ typedef struct pageflags {
 } pageflags;
 
 void init_page_initial_map(void *initial_map, range phys);
-void init_page_tables(heap pageheap, id_heap physical);
+void init_page_tables(heap pageheap);
 
 /* tlb shootdown */
 void init_flush(heap);
@@ -25,7 +25,6 @@ void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 void unmap(u64 virtual, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
-void unmap_and_free_phys(u64 virtual, u64 length);
 
 static inline void unmap_pages(u64 virtual, u64 length)
 {

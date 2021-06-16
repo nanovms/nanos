@@ -35,7 +35,6 @@ static struct spinlock pt_lock;
 static struct {
     range current_phys;
     heap pageheap;
-    id_heap physical;
     void *initial_map;
     u64 initial_physbase;
 } pagemem;
@@ -450,32 +449,17 @@ void unmap(u64 virtual, u64 length)
     unmap_pages(virtual, length);
 }
 
-closure_function(0, 1, void, dealloc_phys_page,
-                 range, r)
-{
-    if (!id_heap_set_area(pagemem.physical, r.start, range_span(r), true, false))
-        msg_err("some of physical range %R not allocated in heap\n", r);
-}
-
-void unmap_and_free_phys(u64 virtual, u64 length)
-{
-    unmap_pages_with_handler(virtual, length, stack_closure(dealloc_phys_page));
-}
-
 /* Unless this is a bootloader build, pageheap must be the huge backed heap. */
-void init_page_tables(heap pageheap, id_heap physical)
+void init_page_tables(heap pageheap)
 {
     page_init_debug("init_page_tables: pageheap ");
     page_init_debug_u64(u64_from_pointer(pageheap));
-    page_init_debug(" physical ");
-    page_init_debug_u64(u64_from_pointer(physical));
     page_init_debug("\n");
 #ifdef KERNEL
     /* A map could happen here, so do before setting pageheap. */
     huge_backed_heap_add_physical((backed_heap)pageheap, pagemem.initial_physbase);
 #endif
     pagemem.pageheap = pageheap;
-    pagemem.physical = physical;
 }
 
 #ifdef KERNEL
@@ -493,7 +477,6 @@ void init_page_initial_map(void *initial_map, range phys)
     spin_lock_init(&pt_lock);
     pagemem.current_phys = phys;
     pagemem.pageheap = 0;
-    pagemem.physical = 0;
     pagemem.initial_map = initial_map;
     pagemem.initial_physbase = phys.start;
 }
