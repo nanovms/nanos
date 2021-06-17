@@ -182,6 +182,7 @@ static void *uds_dgram_server(void *arg)
     test_assert(addr_len > sizeof(addr.sun_family));
     test_assert(addr_len <= sizeof(addr));
     test_assert(addr.sun_family == AF_UNIX);
+    test_assert(!strcmp(addr.sun_path, CLIENT_SOCKET_PATH));
 
     for (int i = 0; i < SMALLBUF_SIZE / 2; i++) {
         test_assert(readBuf[i] == i);

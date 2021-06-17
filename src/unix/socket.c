@@ -117,7 +117,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
     sharedbuf shb;
     sysreturn rv;
 
-    if ((flags & BLOCKQ_ACTION_NULLIFY) && s->peer) {
+    if ((flags & BLOCKQ_ACTION_NULLIFY) && (s->peer || s->sock.type == SOCK_DGRAM)) {
         rv = -ERESTARTSYS;
         goto out;
     }
@@ -158,8 +158,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
                 struct sockaddr_un *from_addr = bound(from_addr);
                 socklen_t *from_length = bound(from_length);
                 if (from_addr && from_length) {
-                    if (from_length > 0)
-                        runtime_memcpy(from_addr, &shb->from_addr, MIN(*from_length, sizeof(shb->from_addr)));
+                    runtime_memcpy(from_addr, &shb->from_addr, MIN(*from_length, sizeof(shb->from_addr)));
                     *from_length = __builtin_offsetof(struct sockaddr_un, sun_path) + runtime_strlen(from_addr->sun_path) + 1;
                 }
             }
@@ -272,7 +271,7 @@ closure_function(8, 1, sysreturn, unixsock_write_bh,
 
     sysreturn rv;
 
-    if ((flags & BLOCKQ_ACTION_NULLIFY) && s->peer) {
+    if ((flags & BLOCKQ_ACTION_NULLIFY) && (s->peer || s->sock.type == SOCK_DGRAM)) {
         rv = -ERESTARTSYS;
         goto out;
     }
@@ -287,14 +286,17 @@ closure_function(8, 1, sysreturn, unixsock_write_bh,
         struct sockaddr_un *addr = bound(addr);
         if (addr && bound(addrlen)) {
             if (bound(addrlen) < sizeof(struct sockaddr_un) ||
-                addr->sun_family != AF_UNIX)
-                return -EINVAL;
+                addr->sun_family != AF_UNIX) {
+                rv = -EINVAL;
+                goto out;
+            }
             addr->sun_path[sizeof(addr->sun_path)-1] = 0;
             rv = lookup_socket(&dest, addr->sun_path);
             if (rv != 0)
-                return rv;
+                goto out;
         } else if (!dest) {
-            return -ENOTCONN;
+            rv = -ENOTCONN;
+            goto out;
         }
     }
 
@@ -544,7 +546,7 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
         return rv;
     if (!s->connecting) {
         if (s->sock.type & SOCK_DGRAM) {
-            if (!(listener->sock.type & SOCK_DGRAM))
+            if (!(listener->sock.type == SOCK_DGRAM))
                 return -ECONNREFUSED;
             s->peer = listener;
             return 0;
@@ -633,7 +635,7 @@ sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
 {
     unixsock s = (unixsock) sock;
     if (dest_addr || addrlen) {
-        if ((sock->type & SOCK_STREAM)) {
+        if (sock->type == SOCK_STREAM) {
             if (s->peer)
                 return -EISCONN;
             else
@@ -654,9 +656,6 @@ sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
 {
     if (src_addr || addrlen) {
         if (!(src_addr && addrlen))
-            return -EFAULT;
-        if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-            !validate_user_memory(src_addr, *addrlen, true))
             return -EFAULT;
     }
     return unixsock_read_with_addr((unixsock)sock, buf, len, 0, current, false,
