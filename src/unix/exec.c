@@ -294,7 +294,7 @@ process exec_elf(buffer ex, process kp)
 
     if (interp) {
         exec_debug("reading interp...\n");
-        filesystem_read_entire(fs, interp, heap_page_backed(kh),
+        filesystem_read_entire(fs, interp, (heap)heap_page_backed(kh),
                                closure(heap_general(kh), load_interp_complete, t, kh),
                                closure(heap_general(kh), load_interp_fail));
         return proc;

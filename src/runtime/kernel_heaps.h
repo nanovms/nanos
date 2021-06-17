@@ -59,14 +59,14 @@ static inline id_heap heap_virtual_page(kernel_heaps heaps)
     return heaps->virtual_page;
 }
 
-static inline heap heap_page_backed(kernel_heaps heaps)
+static inline backed_heap heap_page_backed(kernel_heaps heaps)
 {
-    return (heap)heaps->page_backed;
+    return heaps->page_backed;
 }
 
-static inline heap heap_huge_backed(kernel_heaps heaps)
+static inline backed_heap heap_huge_backed(kernel_heaps heaps)
 {
-    return (heap)heaps->huge_backed;
+    return heaps->huge_backed;
 }
 
 static inline heap heap_general(kernel_heaps heaps)

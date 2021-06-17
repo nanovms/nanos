@@ -143,7 +143,7 @@ void load_klib(const char *name, klib_handler complete, status_handler sh)
     if (!md) {
         apply(complete, INVALID_ADDRESS, KLIB_LOAD_FAILED);
     } else {
-        filesystem_read_entire(klib_fs, md, heap_page_backed(klib_kh),
+        filesystem_read_entire(klib_fs, md, (heap)heap_page_backed(klib_kh),
                                closure(h, load_klib_complete, name, complete, sh),
                                closure(h, load_klib_failed, complete));
     }

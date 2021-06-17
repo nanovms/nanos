@@ -196,19 +196,22 @@ static void init_kernel_heaps(void)
                                       KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
     assert(kh->virtual_huge != INVALID_ADDRESS);
 
-    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)kh->virtual_huge, PAGESIZE, true);
+    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap,
+                                             (heap)kh->virtual_huge, PAGESIZE, true);
     assert(kh->virtual_page != INVALID_ADDRESS);
 
     kh->physical = init_physical_id_heap(&bootstrap);
     assert(kh->physical != INVALID_ADDRESS);
 
-    kh->page_backed = physically_backed(&bootstrap, (heap)kh->virtual_page, (heap)kh->physical, PAGESIZE, true);
+    kh->page_backed = allocate_page_backed_heap(&bootstrap, (heap)kh->virtual_page,
+                                                (heap)kh->physical, PAGESIZE, true);
     assert(kh->page_backed != INVALID_ADDRESS);
 
     kh->huge_backed = allocate_huge_backed_heap(&bootstrap, kh->physical);
     assert(kh->huge_backed != INVALID_ADDRESS);
 
-    kh->general = allocate_mcache(&bootstrap, (heap)kh->huge_backed, 5, 20, PAGESIZE_2M);
+    kh->general = allocate_mcache(&bootstrap, (heap)kh->huge_backed,
+                                  5, 20, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
     kh->locked = locking_heap_wrapper(&bootstrap,
@@ -220,7 +223,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    init_page_tables(heap_huge_backed(kh));
+    init_page_tables((heap)heap_huge_backed(kh));
     /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
@@ -238,7 +241,7 @@ void init_setup_stack(void)
     init_kernel_heaps();
     init_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
-    void *stack_base = allocate(heap_page_backed(get_kernel_heaps()), stack_size);
+    void *stack_base = allocate((heap)heap_page_backed(get_kernel_heaps()), stack_size);
     assert(stack_base != INVALID_ADDRESS);
     init_debug("stack base at ");
     init_debug_u64(u64_from_pointer(stack_base));

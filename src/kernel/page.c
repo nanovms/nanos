@@ -15,6 +15,7 @@ static struct spinlock pt_lock;
 //#define PAGE_DEBUG
 //#define PAGE_UPDATE_DEBUG
 //#define PAGE_TRAVERSE_DEBUG
+//#define PAGE_DUMP_ALL
 
 #if defined(PAGE_DEBUG) && !defined(BOOT)
 #define page_debug(x, ...) do {log_printf("PAGE", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -155,6 +156,34 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
     return result;
 }
 
+closure_function(0, 3, boolean, dump_entry,
+                 int, level, u64, vaddr, pteptr, entry)
+{
+    for (int i = 0; i < (level - PT_FIRST_LEVEL); i++)
+        early_debug("   ");
+    early_debug("v 0x");
+    early_debug_u64(vaddr);
+    early_debug(" (pte @ 0x");
+    early_debug_u64(u64_from_pointer(entry));
+    early_debug(") = 0x");
+    early_debug_u64(*entry);
+    early_debug("\n");
+    return true;
+}
+
+void dump_page_tables(u64 addr, u64 length)
+{
+    early_debug("page table dump for address range [");
+    early_debug_u64(addr);
+    early_debug(", ");
+    early_debug_u64(addr + length);
+    early_debug(") (length ");
+    early_debug_u64(length);
+    early_debug(")\n");
+    traverse_ptes(addr, length, stack_closure(dump_entry));
+    early_debug("\n");
+}
+
 /* called with lock held */
 closure_function(0, 3, boolean, validate_entry,
                  int, level, u64, vaddr, pteptr, entry)
@@ -199,6 +228,10 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
     page_invalidate_sync(fe, ignore);
+#ifdef PAGE_DUMP_ALL
+    early_debug("update_map_flags ");
+    dump_page_tables(vaddr, length);
+#endif
 }
 
 static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe);
@@ -254,6 +287,10 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, fe));
     page_invalidate_sync(fe, ignore);
+#ifdef PAGE_DUMP_ALL
+    early_debug("remap ");
+    dump_page_tables(vaddr_new, length);
+#endif
 }
 
 /* called with lock held */
@@ -306,6 +343,10 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(virtual, length, stack_closure(unmap_page, rh, fe));
     page_invalidate_sync(fe, ignore);
+#ifdef PAGE_DUMP_ALL
+    early_debug("unmap ");
+    dump_page_tables(virtual, length);
+#endif
 }
 
 #define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
@@ -439,6 +480,10 @@ void map(u64 v, physical p, u64 length, pageflags flags)
     page_invalidate_sync(fe, 0);
     page_init_debug("invalidate sync done\n");
     pagetable_unlock();
+#ifdef PAGE_DUMP_ALL
+    early_debug("map ");
+    dump_page_tables(v, length);
+#endif
 }
 
 void unmap(u64 virtual, u64 length)
