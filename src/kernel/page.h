@@ -37,7 +37,7 @@ static inline void unmap_pages(u64 virtual, u64 length)
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,
                      u64 /* vaddr */, pteptr /* entry */);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
-void dump_ptes(void *x);
+void dump_page_tables(u64 vaddr, u64 length);
 
 /* internal use */
 void *allocate_table_page(u64 *phys);

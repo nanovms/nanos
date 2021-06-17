@@ -348,7 +348,7 @@ extern void lwip_init();
 void init_net(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    heap backed = heap_huge_backed(kh);
+    heap backed = (heap)heap_huge_backed(kh);
     lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, PAGESIZE_2M);
     lwip_init();
     NETIF_DECLARE_EXT_CALLBACK(netif_callback);

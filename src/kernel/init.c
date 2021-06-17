@@ -267,7 +267,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("kernel_runtime_init");
     init_runtime(misc, locked);
     init_sg(locked);
-    init_pagecache(locked, heap_huge_backed(kh), (heap)heap_physical(kh), PAGESIZE);
+    init_pagecache(locked, (heap)heap_huge_backed(kh), (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     init_extra_prints();
     init_pci(kh);
@@ -281,7 +281,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("clock");
     init_clock();
     init_debug("init_kernel_contexts");
-    init_kernel_contexts(heap_page_backed(kh));
+    init_kernel_contexts((heap)heap_page_backed(kh));
 
     /* interrupts */
     init_debug("init_interrupts");

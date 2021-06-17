@@ -996,7 +996,7 @@ void register_poll_syscalls(struct syscall *map)
 boolean poll_init(unix_heaps uh)
 {
     heap general = heap_general((kernel_heaps)uh);
-    heap backed = heap_huge_backed((kernel_heaps)uh);
+    heap backed = (heap)heap_huge_backed((kernel_heaps)uh);
 
     if ((uh->epoll_cache = allocate_objcache(general, backed, sizeof(struct epoll), PAGESIZE))
 	== INVALID_ADDRESS)
