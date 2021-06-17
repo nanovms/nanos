@@ -28,8 +28,9 @@ static void (*start_callback)();
 #define XCR0_SSE (1<<1)
 #define XCR0_AVX (1<<2)
 u8 use_xsave;
+u64 extended_frame_size = 512;
 
-void cpu_init(int cpu)
+void init_cpu_features()
 {
     u64 cr;
     u32 v[4];
@@ -46,16 +47,25 @@ void cpu_init(int cpu)
     cr |= C0_MP | C0_WP;
     cr &= ~C0_EM;
     mov_to_cr("cr0", cr);
+    if (use_xsave) {
+        if (v[2] & CPUID_AVX) {
+            xgetbv(0, &v[0], &v[1]);
+            v[0] |= XCR0_SSE | XCR0_AVX;
+            xsetbv(0, v[0], v[1]);
+        }
+        cpuid(0xd, 0, v);
+        extended_frame_size = v[1];
+    }
+}
+
+void cpu_init(int cpu)
+{
+    init_cpu_features();
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
     write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
     write_msr(GS_MSR, addr);
     if (VVAR_REF(vdso_dat).platform_has_rdtscp)
         write_msr(TSC_AUX_MSR, cpu);    /* used by vdso_getcpu() */
-    if (use_xsave && (v[2] & CPUID_AVX)) {
-        xgetbv(0, &v[0], &v[1]);
-        v[0] |= XCR0_SSE | XCR0_AVX;
-        xsetbv(0, v[0], v[1]);
-    }
     init_syscall_handler();
 }
 

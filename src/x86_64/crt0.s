@@ -47,8 +47,6 @@ extern  init_service
 
 extern use_xsave
 
-;; XXX - stick with fx until we can choose according to capabilities -
-;; otherwise existing stuff breaks with ops, etc.
 %macro load_extended_registers 1
         mov al, [use_xsave]
         test al, al

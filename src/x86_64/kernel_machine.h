@@ -110,6 +110,7 @@ void start_cpu(int index);
 void allocate_apboot(heap stackheap, void (*ap_entry)());
 void deallocate_apboot(heap stackheap);
 void install_idt(void);
+void init_cpu_features();
 
 #define IST_EXCEPTION 1
 #define IST_INTERRUPT 2
@@ -249,21 +250,10 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(addr);
 }
 
-extern u8 use_xsave;
-
-static inline u64 extended_frame_size(void)
-{
-    if (use_xsave) {
-        u32 v[4];
-        cpuid(0xd, 0, v);
-        return v[1];
-    }
-    return 512;
-}
-
+extern u64 extended_frame_size;
 static inline u64 total_frame_size(void)
 {
-    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size();
+    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size;
 }
 
 static inline void frame_enable_interrupts(context f)
