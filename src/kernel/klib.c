@@ -143,7 +143,7 @@ void load_klib(const char *name, klib_handler complete)
     if (!md) {
         apply(complete, INVALID_ADDRESS, timm("result", "unable to resolve module name \"%s\"", name));
     } else {
-        filesystem_read_entire(klib_fs, md, heap_page_backed(klib_kh),
+        filesystem_read_entire(klib_fs, md, (heap)heap_page_backed(klib_kh),
                                closure(h, load_klib_complete, name, complete),
                                closure(h, load_klib_failed, complete));
     }

@@ -12,7 +12,6 @@
 #define page_init_dump(p, len)
 #endif
 
-// XXX struct
 u64 kernel_tablebase;
 u64 user_tablebase;
 

@@ -33,35 +33,6 @@ flush_entry get_page_flush_entry()
 }
 #endif
 
-#ifndef BOOT
-void dump_ptes(void *x)
-{
-    // XXX TODO
-#if 0
-    pagetable_lock();
-    u64 xt = u64_from_pointer(x);
-
-    rprintf("dump_ptes 0x%lx\n", x);
-    u64 l1 = *pte_lookup_ptr(pagebase, xt, PT_SHIFT_L1);
-    rprintf("  l1: 0x%lx\n", l1);
-    if (l1 & 1) {
-        u64 l2 = *pte_lookup_ptr(l1, xt, PT_SHIFT_L2);
-        rprintf("  l2: 0x%lx\n", l2);
-        if (l2 & 1) {
-            u64 l3 = *pte_lookup_ptr(l2, xt, PT_SHIFT_L3);
-            rprintf("  l3: 0x%lx\n", l3);
-            if ((l3 & 1) && (l3 & PAGE_2M_SIZE) == 0) {
-                u64 l4 = *pte_lookup_ptr(l3, xt, PT_SHIFT_L4);
-                rprintf("  l4: 0x%lx\n", l4);
-            }
-        }
-    }
-    pagetable_unlock();
-#endif
-}
-#endif
-//#define TRAVERSE_PTES_DEBUG
-
 /* Bootloader page tables come from a small, identity-mapped area. */
 void *bootstrap_page_tables(heap initial)
 {

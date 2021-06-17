@@ -21,7 +21,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \
 	$(SRCDIR)/http/http.c \
-	$(SRCDIR)/kernel/backed_heap.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/clock.c \
 	$(SRCDIR)/kernel/huge_backed_heap.c \
@@ -32,6 +31,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/log.c \
 	$(SRCDIR)/kernel/page.c \
+	$(SRCDIR)/kernel/page_backed_heap.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/kernel/pci.c \
 	$(SRCDIR)/kernel/pvclock.c \

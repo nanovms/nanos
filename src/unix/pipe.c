@@ -46,7 +46,7 @@ struct pipe {
 boolean pipe_init(unix_heaps uh)
 {
     heap general = heap_general((kernel_heaps)uh);
-    heap backed = heap_huge_backed((kernel_heaps)uh);
+    heap backed = (heap)heap_huge_backed((kernel_heaps)uh);
 
     uh->pipe_cache = allocate_objcache(general, backed, sizeof(struct pipe), PAGESIZE);
     return (uh->pipe_cache == INVALID_ADDRESS ? false : true);

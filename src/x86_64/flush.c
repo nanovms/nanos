@@ -114,11 +114,13 @@ static void service_list(boolean trydefer)
             continue;
         list_delete(&f->l);
         entries_count--;
-        if (trydefer) {
-            if (!enqueue(flush_completion_queue, f->completion))
+        if (f->completion && f->completion != ignore) {
+            if (trydefer) {
+                if (!enqueue(flush_completion_queue, f->completion))
+                    apply(f->completion);
+            } else
                 apply(f->completion);
-        } else
-            apply(f->completion);
+        }
         assert(enqueue(free_flush_entries, f));
     }
 }

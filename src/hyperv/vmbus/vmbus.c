@@ -533,7 +533,7 @@ vmbus_attach(kernel_heaps kh, vmbus_dev *result)
     assert(dev != INVALID_ADDRESS);
 
     dev->general = h;
-    dev->contiguous = heap_huge_backed(kh);
+    dev->contiguous = (heap)heap_huge_backed(kh);
 
     dev->vmbus_gpadl = VMBUS_GPADL_START;
     spin_lock_init(&dev->vmbus_prichan_lock); //"vmbus prichan"
