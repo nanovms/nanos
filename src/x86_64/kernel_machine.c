@@ -36,7 +36,7 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
 void clone_frame_pstate(context dest, context src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * (FRAME_N_PSTATE + 1));
-    runtime_memcpy(dest + FRAME_EXTENDED_SAVE, src + FRAME_EXTENDED_SAVE, extended_frame_size());
+    runtime_memcpy(dest + FRAME_EXTENDED_SAVE, src + FRAME_EXTENDED_SAVE, extended_frame_size);
 }
 
 void init_cpuinfo_machine(cpuinfo ci, heap backed)

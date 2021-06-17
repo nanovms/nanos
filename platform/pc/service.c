@@ -260,6 +260,9 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("init_hwrand");
     init_hwrand();
 
+    init_debug("init cpu features");
+    init_cpu_features();
+
     init_debug("calling kernel_runtime_init");
     kernel_runtime_init(kh);
     while(1);

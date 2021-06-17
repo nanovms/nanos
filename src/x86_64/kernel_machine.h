@@ -110,6 +110,7 @@ void start_cpu(int index);
 void allocate_apboot(heap stackheap, void (*ap_entry)());
 void deallocate_apboot(heap stackheap);
 void install_idt(void);
+void init_cpu_features();
 
 #define IST_EXCEPTION 1
 #define IST_INTERRUPT 2
@@ -163,6 +164,16 @@ extern void write_xmsr(u64, u64);
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
     asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
+}
+
+static inline void xsetbv(u32 ecx, u32 eax, u32 edx)
+{
+    asm volatile("xsetbv" : : "a" (eax), "d" (edx), "c" (ecx));
+}
+
+static inline void xgetbv(u32 ecx, u32 *eax, u32 *edx)
+{
+    asm volatile("xgetbv" : "=a" (*eax), "=d" (*edx) : "c" (ecx));
 }
 
 /* syscall entry */
@@ -239,20 +250,10 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(addr);
 }
 
-static inline u64 extended_frame_size(void)
-{
-#if 0
-    u32 v[4];
-    cpuid(0xd, 0, v);
-    return v[1];
-#else
-    return 512;                 /* XXX fx only right now */
-#endif
-}
-
+extern u64 extended_frame_size;
 static inline u64 total_frame_size(void)
 {
-    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size();
+    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size;
 }
 
 static inline void frame_enable_interrupts(context f)
