@@ -1461,20 +1461,35 @@ sysreturn lseek(int fd, s64 offset, int whence)
 sysreturn uname(struct utsname *v)
 {
     char sysname[] = "Nanos";
-    char release[]= "4.4.0-87";   // TODO: should be obtained from build injection
     char nodename[] = "nanovms"; // TODO: later we probably would want to get this from /etc/hostname
-    char version[] = "Nanos unikernel";
-    char machine[] = "x86_64";
+    char machine[] =
+#ifdef __x86_64__
+        "x86_64";
+#endif
+#ifdef __aarch64__
+        "aarch64";
+#endif
 
     if (!validate_user_memory(v, sizeof(struct utsname), true))
         return -EFAULT;
 
     runtime_memcpy(v->sysname, sysname, sizeof(sysname));
-    runtime_memcpy(v->release, release, sizeof(release));
     runtime_memcpy(v->nodename, nodename, sizeof(nodename));
-    runtime_memcpy(v->version, version, sizeof(version));
     runtime_memcpy(v->machine, machine, sizeof(machine));
 
+    /* gitversion shouldn't exceed the field, but just in case... */
+    bytes len = MIN(runtime_strlen(gitversion), sizeof(v->version) - 1);
+    runtime_memcpy(v->version, gitversion, len);
+    v->version[len] = '\0';     /* TODO: append build seq / time */
+
+    /* The "5.0-" dummy prefix placates the glibc dynamic loader. */
+    tuple env = get_environment();
+    string release = aprintf(heap_general(get_kernel_heaps()), "5.0-%v",
+                             get_string(env, sym(NANOS_VERSION)));
+    len = MIN(buffer_length(release), sizeof(v->release) - 1);
+    runtime_memcpy(v->release, buffer_ref(release, 0), len);
+    v->release[len] = '\0';
+    deallocate_buffer(release);
     return 0;
 }
 
