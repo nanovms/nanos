@@ -29,4 +29,4 @@ void load_klib(const char *name, klib_handler complete);
 /* The caller must assure no references to klib remain before unloading. */
 void unload_klib(klib kl);
 
-void init_klib(kernel_heaps kh, void *fs, tuple root, tuple klib_md);
+void init_klib(kernel_heaps kh, void *fs, tuple root, tuple klib_md, status_handler complete);

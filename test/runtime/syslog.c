@@ -44,10 +44,6 @@ static void syslog_test_basic(void)
 
 int main(int argc, char **argv)
 {
-    /* Wait for syslog klib to be loaded. */
-    while (access(SYSLOG_FILE_PATH, O_RDONLY) == -1)
-        test_assert(errno == ENOENT);
-
     syslog_test_basic();
     return EXIT_SUCCESS;
 }

@@ -49,9 +49,9 @@ closure_function(2, 3, void, offset_block_io,
 }
 
 /* stage3 */
-extern thunk create_init(kernel_heaps kh, tuple root, filesystem fs);
+extern thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m);
 extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
-                                          boolean klibs_in_bootfs,
+                                          status_handler klibs_complete,
                                           boolean ingest_kernel_syms);
 
 static tuple_notifier wrapped_root;
@@ -87,6 +87,8 @@ closure_function(3, 2, void, fsstarted,
     value klibs = get_string(root, sym(klibs));
     boolean klibs_in_bootfs = klibs && buffer_compare_with_cstring(klibs, "bootfs");
 
+    merge m;
+    enqueue(runqueue, create_init(init_heaps, root, fs, &m));
     if (mbr) {
         boolean ingest_kernel_syms = get(root, sym(ingest_kernel_symbols)) != 0;
         struct partition_entry *bootfs_part;
@@ -97,16 +99,15 @@ closure_function(3, 2, void, fsstarted,
                               closure(h, offset_block_io,
                                       bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
                               0, 0, 0, /* no write, flush or label */
-                              bootfs_handler(init_heaps, root, klibs_in_bootfs,
+                              bootfs_handler(init_heaps, root, klibs_in_bootfs ? apply_merge(m) : 0,
                                              ingest_kernel_syms));
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
 
     if (klibs && !klibs_in_bootfs)
-        init_klib(init_heaps, fs, root, root);
+        init_klib(init_heaps, fs, root, root, apply_merge(m));
 
-    enqueue(runqueue, create_init(init_heaps, root, fs));
     closure_finish();
     symbol booted = sym(booted);
     if (!get(root, booted))

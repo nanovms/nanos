@@ -21,7 +21,7 @@ static struct {
     filesystem root_fs;
     struct list volumes;
     tuple mounts;
-    thunk mount_complete;
+    status_handler mount_complete;
     struct spinlock lock;
 } storage;
 
@@ -53,7 +53,7 @@ static volume storage_get_volume(tuple root)
 static void storage_check_if_ready(void)
 {
     boolean mounting = false;
-    thunk complete = 0;
+    status_handler complete = 0;
     storage_lock();
     list_foreach(&storage.volumes, e) {
         volume v = struct_from_list(e, volume, l);
@@ -68,7 +68,7 @@ static void storage_check_if_ready(void)
     }
     storage_unlock();
     if (complete)
-        apply(complete);
+        apply(complete, STATUS_OK);
 }
 
 static boolean volume_match(symbol s, volume v)
@@ -208,7 +208,7 @@ boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, block_flush fl
     return true;
 }
 
-void storage_when_ready(thunk complete)
+void storage_when_ready(status_handler complete)
 {
     storage.mount_complete = complete;
     storage_check_if_ready();

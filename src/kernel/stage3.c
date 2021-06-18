@@ -9,15 +9,18 @@
 #include <symtab.h>
 #include <virtio/virtio.h>
 
-closure_function(2, 0, void, program_start,
-                 buffer, elf, process, kp)
+closure_function(2, 1, void, program_start,
+                 buffer, elf, process, kp,
+                 status, s)
 {
+    if (!is_ok(s))
+        halt("%s: aborting %v\n", __func__, s);
     exec_elf(bound(elf), bound(kp));
     closure_finish();
 }
 
-closure_function(3, 1, status, read_program_complete,
-                 heap, h, process, kp, tuple, root,
+closure_function(5, 1, status, read_program_complete,
+                 heap, h, tuple, root, merge, m, status_handler, start, status_handler, completion,
                  buffer, b)
 {
     tuple root = bound(root);
@@ -36,7 +39,9 @@ closure_function(3, 1, status, read_program_complete,
 #endif
        
     }
-    storage_when_ready(closure(bound(h), program_start, b, bound(kp)));
+    closure_member(program_start, bound(start), elf) = b;
+    storage_when_ready(apply_merge(bound(m)));
+    apply(bound(completion), STATUS_OK);
     closure_finish();
     return STATUS_OK;
 }
@@ -107,8 +112,8 @@ static void init_kernel_heaps_management(tuple root)
     set(root, sym(heaps), heaps);
 }
 
-closure_function(3, 0, void, startup,
-                 kernel_heaps, kh, tuple, root, filesystem, fs)
+closure_function(6, 0, void, startup,
+                 kernel_heaps, kh, tuple, root, filesystem, fs, merge, m, status_handler, start, status_handler, completion)
 {
     kernel_heaps kh = bound(kh);
     tuple root = bound(root);
@@ -119,8 +124,11 @@ closure_function(3, 0, void, startup,
     if (kp == INVALID_ADDRESS) {
 	halt("unable to initialize unix instance; halt\n");
     }
+    status_handler start = bound(start);
+    closure_member(program_start, start, kp) = kp;
     heap general = heap_general(kh);
-    buffer_handler pg = closure(general, read_program_complete, general, kp, root);
+    buffer_handler pg = closure(general, read_program_complete, general, root,
+        bound(m), start, bound(completion));
 
     /* register root tuple with management and kick off interfaces, if any */
     init_management_root(root);
@@ -147,9 +155,12 @@ closure_function(3, 0, void, startup,
     closure_finish();
 }
 
-thunk create_init(kernel_heaps kh, tuple root, filesystem fs)
+thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m)
 {
-    return closure(heap_general(kh), startup, kh, root, fs);
+    heap h = heap_general(kh);
+    status_handler start = closure(h, program_start, 0, 0);
+    *m = allocate_merge(h, start);
+    return closure(h, startup, kh, root, fs, *m, start, apply_merge(*m));
 }
 
 closure_function(2, 1, status, kernel_read_complete,
@@ -165,14 +176,15 @@ closure_function(2, 1, status, kernel_read_complete,
 }
 
 closure_function(4, 2, void, bootfs_complete,
-                 kernel_heaps, kh, tuple, root, boolean, klibs_in_bootfs, boolean, ingest_kernel_syms,
+                 kernel_heaps, kh, tuple, root, status_handler, klibs_complete, boolean, ingest_kernel_syms,
                  filesystem, fs, status, s)
 {
     tuple boot_root = filesystem_getroot(fs);
     tuple c = children(boot_root);
     assert(c);
-    if (bound(klibs_in_bootfs))
-        init_klib(bound(kh), fs, bound(root), boot_root);
+    status_handler klibs_complete = bound(klibs_complete);
+    if (klibs_complete)
+        init_klib(bound(kh), fs, bound(root), boot_root, klibs_complete);
 
     if (bound(ingest_kernel_syms)) {
         tuple v = get_tuple(c, sym(kernel));
@@ -180,7 +192,7 @@ closure_function(4, 2, void, bootfs_complete,
             kernel_heaps kh = bound(kh);
             filesystem_read_entire(fs, v, heap_backed(kh),
                                    closure(heap_general(kh),
-                                           kernel_read_complete, fs, !bound(klibs_in_bootfs)),
+                                           kernel_read_complete, fs, !klibs_complete),
                                    ignore_status);
         }
     }
@@ -188,9 +200,9 @@ closure_function(4, 2, void, bootfs_complete,
 }
 
 filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
-                                   boolean klibs_in_bootfs,
+                                   status_handler klibs_complete,
                                    boolean ingest_kernel_syms)
 {
     return closure(heap_general(kh), bootfs_complete,
-                   kh, root, klibs_in_bootfs, ingest_kernel_syms);
+                   kh, root, klibs_complete, ingest_kernel_syms);
 }

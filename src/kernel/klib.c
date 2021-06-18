@@ -224,14 +224,15 @@ closure_function(0, 2, void, klib_test_loaded,
     return;
 }
 
-closure_function(2, 1, void, klibs_complete,
-                 u64, pending, queue, retry_klibs,
+closure_function(3, 1, void, klibs_complete,
+                 u64, pending, queue, retry_klibs, status_handler, complete,
                  status, s)
 {
     queue retry_klibs = bound(retry_klibs);
     if (!queue_empty(retry_klibs))
         halt("missing klib dependencies\n");
     deallocate_queue(retry_klibs);
+    apply(bound(complete), s);
     closure_finish();
 }
 
@@ -287,7 +288,7 @@ closure_function(3, 2, boolean, autoload_klib_each,
     return true;
 }
 
-void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
+void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md, status_handler complete)
 {
     klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
                __func__, fs, config_root, klib_md);
@@ -317,10 +318,10 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     assert(klib_heap != INVALID_ADDRESS);
     tuple c = get_tuple(klib_md, sym(children));
     if (!c)
-        return;
+        goto done;
     klib_root = get_tuple(c, sym(klib));
     if (!klib_root)
-        return;
+        goto done;
     if (get(config_root, sym(klib_test))) {
         klib_debug("   loading klib test\n");
         load_klib("test/test", closure(h, klib_test_loaded));
@@ -329,12 +330,13 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md)
     if (c) {
         queue retry_klibs = allocate_queue(h, tuple_count(c));
         assert(retry_klibs != INVALID_ADDRESS);
-        status_handler kl_complete = closure(h, klibs_complete, 0, retry_klibs);
+        status_handler kl_complete = closure(h, klibs_complete, 0, retry_klibs, complete);
         assert(kl_complete != INVALID_ADDRESS);
         merge m = allocate_merge(h, kl_complete);
-        status_handler sh = apply_merge(m);
+        complete = apply_merge(m);
         iterate(c, stack_closure(autoload_klib_each,
             &closure_member(klibs_complete, kl_complete, pending), retry_klibs, m));
-        apply(sh, STATUS_OK);
     }
+  done:
+    apply(complete, STATUS_OK);
 }

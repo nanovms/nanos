@@ -225,10 +225,6 @@ static void tun_test_pi(void)
 
 int main(int argc, char **argv)
 {
-    /* Wait for tun klib to be loaded. */
-    while (access("/dev/net/tun", O_RDWR) == -1)
-        test_assert(errno == ENOENT);
-
     tun_test_basic();
     tun_test_pi();
     printf("Tun interface tests OK\n");
