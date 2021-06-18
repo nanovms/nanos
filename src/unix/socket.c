@@ -290,8 +290,10 @@ closure_function(8, 1, sysreturn, unixsock_write_bh,
                 rv = -EINVAL;
                 goto out;
             }
-            addr->sun_path[sizeof(addr->sun_path)-1] = 0;
-            rv = lookup_socket(&dest, addr->sun_path);
+            struct sockaddr_un daddr;
+            runtime_memcpy(&daddr, addr, sizeof(daddr));
+            daddr.sun_path[sizeof(daddr.sun_path)-1] = 0;
+            rv = lookup_socket(&dest, daddr.sun_path);
             if (rv != 0)
                 goto out;
         } else if (!dest) {
@@ -645,8 +647,6 @@ sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
             return -EFAULT;
         if (addrlen < sizeof(struct sockaddr_un))
             return -EINVAL;
-        if (dest_addr && !validate_user_memory(dest_addr, addrlen, true))
-            return -EFAULT;
     }
     return unixsock_write_with_addr(s, buf, len, 0, current, false, syscall_io_complete, (struct sockaddr_un *)dest_addr, addrlen);
 }
