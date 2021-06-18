@@ -46,6 +46,14 @@ static inline char peek_char(buffer b)
 
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
 
+#define buffer_to_cstring(__b) ({                           \
+            bytes len = buffer_length(__b);                 \
+            char *str = stack_allocate(len + 1);            \
+            runtime_memcpy(str, buffer_ref(__b, 0), len);   \
+            str[len] = '\0';                                \
+            str;                                            \
+        })
+
 static inline void buffer_clear(buffer b)
 {
     b->start = b->end = 0;

@@ -1460,21 +1460,36 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
 sysreturn uname(struct utsname *v)
 {
-    char sysname[] = "pugnix";
-    char release[]= "4.4.0-87";
+    char sysname[] = "Nanos";
     char nodename[] = "nanovms"; // TODO: later we probably would want to get this from /etc/hostname
-    char version[] = "Nanos unikernel";
-    char machine[] = "x86_64";
+    char machine[] =
+#ifdef __x86_64__
+        "x86_64";
+#endif
+#ifdef __aarch64__
+        "aarch64";
+#endif
 
     if (!validate_user_memory(v, sizeof(struct utsname), true))
         return -EFAULT;
 
     runtime_memcpy(v->sysname, sysname, sizeof(sysname));
-    runtime_memcpy(v->release, release, sizeof(release));
     runtime_memcpy(v->nodename, nodename, sizeof(nodename));
-    runtime_memcpy(v->version, version, sizeof(version));
     runtime_memcpy(v->machine, machine, sizeof(machine));
 
+    /* gitversion shouldn't exceed the field, but just in case... */
+    bytes len = MIN(runtime_strlen(gitversion), sizeof(v->version) - 1);
+    runtime_memcpy(v->version, gitversion, len);
+    v->version[len] = '\0';     /* TODO: append build seq / time */
+
+    /* The "5.0-" dummy prefix placates the glibc dynamic loader. */
+    tuple env = get_environment();
+    string release = aprintf(heap_general(get_kernel_heaps()), "5.0-%v",
+                             get_string(env, sym(NANOS_VERSION)));
+    len = MIN(buffer_length(release), sizeof(v->release) - 1);
+    runtime_memcpy(v->release, buffer_ref(release, 0), len);
+    v->release[len] = '\0';
+    deallocate_buffer(release);
     return 0;
 }
 
@@ -1738,40 +1753,40 @@ static sysreturn rename_internal(filesystem oldfs, tuple oldwd,
                                  tuple newwd, const char *newpath)
 {
     if (!oldpath[0] || !newpath[0]) {
-        return set_syscall_error(current, ENOENT);
+        return -ENOENT;
     }
     int ret;
     tuple old;
     tuple oldparent;
     ret = resolve_cstring(&oldfs, oldwd, oldpath, &old, &oldparent);
     if (ret) {
-        return set_syscall_return(current, ret);
+        return ret;
     }
     tuple new, newparent;
     ret = resolve_cstring(&newfs, newwd, newpath, &new, &newparent);
     if (ret && (ret != -ENOENT)) {
-        return set_syscall_return(current, ret);
+        return ret;
     }
     if (!newparent) {
-        return set_syscall_error(current, ENOENT);
+        return -ENOENT;
     }
     if (oldfs != newfs)
         return -EXDEV;
     if (!ret && is_dir(new)) {
         if (!is_dir(old)) {
-            return set_syscall_error(current, EISDIR);
+            return -EISDIR;
         }
         tuple c = children(new);
         boolean notempty = false;
         iterate(c, stack_closure(check_notempty_each, &notempty));
         if (notempty)
-            return set_syscall_error(current, ENOTEMPTY);
+            return -ENOTEMPTY;
     }
     if (new && !is_dir(new) && is_dir(old)) {
-        return set_syscall_error(current, ENOTDIR);
+        return -ENOTDIR;
     }
     if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath)) {
-        return set_syscall_error(current, EINVAL);
+        return -EINVAL;
     }
     if ((newparent == oldparent) && (new == old))
         return 0;
@@ -1856,6 +1871,16 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         return rename_internal(oldfs, oldwd, oldpath, newfs, newwd, newpath);
     }
 }
+
+/* File paths are treated as absolute paths. */
+sysreturn fs_rename(buffer oldpath, buffer newpath)
+{
+    filesystem fs = get_root_fs();
+    tuple root = filesystem_getroot(fs);
+    return rename_internal(fs, root, buffer_to_cstring(oldpath),
+        fs, root, buffer_to_cstring(newpath));
+}
+KLIB_EXPORT(fs_rename);
 
 sysreturn close(int fd)
 {

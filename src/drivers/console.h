@@ -1,4 +1,5 @@
 struct console_driver {
+    struct list l;
     void (*write)(void *d, const char *s, bytes count);
     void (*config)(void *d, tuple r);
     char *name;

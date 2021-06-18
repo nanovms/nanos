@@ -33,6 +33,7 @@ PROGRAMS= \
 	signal \
 	socketpair \
 	symlink \
+	syslog \
 	thread_test \
 	time \
 	tlbshootdown \
@@ -197,6 +198,11 @@ SRCS-symlink= \
 	$(CURDIR)/symlink.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-symlink=	-static
+
+SRCS-syslog= \
+	$(CURDIR)/syslog.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-syslog=	-static
 
 SRCS-thread_test= \
 	$(SRCDIR)/unix_process/ssp.c\
