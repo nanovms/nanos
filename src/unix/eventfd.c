@@ -15,10 +15,8 @@ closure_function(0, 2, u64, efd_edge_handler,
                 u64, events, u64, lastevents)
 {
     /* A read or a write acts as an edge */
-    if (events & EPOLLIN)
-        lastevents &= ~EPOLLIN;
-    if (events & EPOLLOUT)
-        lastevents &= ~EPOLLOUT;
+    if (events & (EPOLLIN|EPOLLOUT))
+        lastevents &= ~(EPOLLIN|EPOLLOUT);
     return lastevents;
 }
 

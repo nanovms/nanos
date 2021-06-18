@@ -170,6 +170,8 @@ closure_function(1, 1, u32, socket_events,
                 (s->info.tcp.lw->state == ESTABLISHED ?
                 (tcp_sndbuf(s->info.tcp.lw) ? EPOLLOUT | EPOLLWRNORM : 0) :
                 EPOLLIN | EPOLLHUP);
+        } else if (s->info.tcp.state == TCP_SOCK_UNDEFINED || s->info.tcp.state == TCP_SOCK_CREATED) {
+            return EPOLLHUP;
         } else {
             return 0;
         }

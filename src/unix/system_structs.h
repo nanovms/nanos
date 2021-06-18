@@ -630,7 +630,7 @@ struct tms {
 #define EPOLLWRBAND	0x00000200
 #define EPOLLMSG	0x00000400
 #define EPOLLRDHUP	0x00002000
-#define EPOLLEXCLUSIVE	(1u << 29)
+#define EPOLLEXCLUSIVE	(1u << 28)
 #define EPOLLWAKEUP	(1u << 29)
 #define EPOLLONESHOT	(1u << 30)
 #define EPOLLET		(1u << 31)
