@@ -78,8 +78,8 @@ closure_function(1, 4, u64, klib_elf_map,
     return vaddr;
 }
 
-closure_function(2, 1, status, load_klib_complete,
-                 const char *, name, klib_handler, complete,
+closure_function(3, 1, status, load_klib_complete,
+                 const char *, name, klib_handler, complete, status_handler, sh,
                  buffer, b)
 {
     heap h = heap_general(klib_kh);
@@ -116,7 +116,7 @@ closure_function(2, 1, status, load_klib_complete,
 
     klib_debug("   init entry @ %p, first word 0x%lx\n", entry, *(u64*)entry);
     kl->ki = (klib_init)entry;
-    int rv = kl->ki(kl->syms, get_sym, add_sym);
+    int rv = kl->ki(kl->syms, get_sym, add_sym, bound(sh));
     klib_debug("   init return value %d, applying completion\n", rv);
     apply(complete, kl, rv);
     closure_finish();
@@ -134,7 +134,7 @@ closure_function(1, 1, void, load_klib_failed,
     closure_finish();
 }
 
-void load_klib(const char *name, klib_handler complete)
+void load_klib(const char *name, klib_handler complete, status_handler sh)
 {
     klib_debug("%s: \"%s\", complete %p (%F)\n", __func__, name, complete, complete);
     assert(klib_root && klib_fs);
@@ -144,7 +144,7 @@ void load_klib(const char *name, klib_handler complete)
         apply(complete, INVALID_ADDRESS, KLIB_LOAD_FAILED);
     } else {
         filesystem_read_entire(klib_fs, md, heap_backed(klib_kh),
-                               closure(h, load_klib_complete, name, complete),
+                               closure(h, load_klib_complete, name, complete, sh),
                                closure(h, load_klib_failed, complete));
     }
 }
@@ -243,6 +243,7 @@ closure_function(4, 2, void, autoload_klib_complete,
     u64 pending = fetch_and_add(bound(pending), -1);
     queue retry_klibs = bound(retry_klibs);
     switch (rv) {
+    case KLIB_INIT_IN_PROGRESS:
     case KLIB_INIT_OK: {
         /* Retry initialization of klibs with missing dependencies. */
         u64 qlen = queue_length(retry_klibs);
@@ -252,7 +253,7 @@ closure_function(4, 2, void, autoload_klib_complete,
                 break;
             fetch_and_add(bound(pending), 1);
             kl =  closure_member(autoload_klib_complete, retry, kl);
-            apply(retry, kl, kl->ki(kl->syms, get_sym, add_sym));
+            apply(retry, kl, kl->ki(kl->syms, get_sym, add_sym, bound(sh)));
         }
         break;
     }
@@ -266,7 +267,8 @@ closure_function(4, 2, void, autoload_klib_complete,
     default:
         halt("klib automatic load failed (%d)\n", rv);
     }
-    apply(bound(sh), STATUS_OK);
+    if (rv != KLIB_INIT_IN_PROGRESS)
+        apply(bound(sh), STATUS_OK);
     closure_finish();
 }
 
@@ -282,7 +284,7 @@ closure_function(3, 2, boolean, autoload_klib_each,
             bound(retry_klibs), sh, 0);
         assert(kl_complete != INVALID_ADDRESS);
         filesystem_read_entire(klib_fs, v, heap_backed(klib_kh),
-                               closure(h, load_klib_complete, "auto", kl_complete),
+                               closure(h, load_klib_complete, "auto", kl_complete, sh),
                                closure(h, load_klib_failed, kl_complete));
     }
     return true;
@@ -324,7 +326,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md, stat
         goto done;
     if (get(config_root, sym(klib_test))) {
         klib_debug("   loading klib test\n");
-        load_klib("test/test", closure(h, klib_test_loaded));
+        load_klib("test/test", closure(h, klib_test_loaded), 0);
     }
     c = get_tuple(klib_root, sym(children));
     if (c) {
