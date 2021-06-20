@@ -51,11 +51,13 @@ static struct {
 static void tls_close(tls_conn conn)
 {
     if (conn->app_in) {
-        apply(conn->app_in, 0); /* notify connection shutdown to application layer */
+        buffer_handler app_in = conn->app_in;
         conn->app_in = 0;
+        apply(app_in, 0);   /* notify connection shutdown to application layer */
     } else if (conn->app_ch) {
-        apply(conn->app_ch, 0); /* notify connection failure to application layer */
+        connection_handler app_ch = conn->app_ch;
         conn->app_ch = 0;
+        apply(app_ch, 0);   /* notify connection failure to application layer */
     }
     if (conn->out) {
         buffer_handler out = conn->out;
