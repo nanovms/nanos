@@ -162,20 +162,23 @@ define_closure_function(1, 1, status, tls_in_handler,
         break;
     case tls_open:
         b = little_stack_buffer(512);
-        ret = mbedtls_ssl_read(&conn->ssl, buffer_ref(b, 0), b->length);
-        if (ret > 0) {
-            buffer_produce(b, ret);
-            if (conn->app_in) {
-                status s = apply(conn->app_in, b);
-                if (!is_ok(s))
-                    return s;
+        do {
+            ret = mbedtls_ssl_read(&conn->ssl, buffer_ref(b, 0), b->length);
+            if (ret > 0) {
+                buffer_produce(b, ret);
+                if (conn->app_in) {
+                    status s = apply(conn->app_in, b);
+                    if (!is_ok(s))
+                        return s;
+                }
+                buffer_clear(b);
+            } else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
+                goto conn_close;
             }
-        } else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
-            goto conn_close;
-        }
-        if (conn->outgoing && (tls_out_internal(conn, 0) < 0))
-            /* An error happened and the connection has been closed. */
-            return tls.timm_alloc("result", "failed to send outgoing data");
+            if (conn->outgoing && (tls_out_internal(conn, 0) < 0))
+                /* An error happened and the connection has been closed. */
+                return tls.timm_alloc("result", "failed to send outgoing data");
+        } while ((ret > 0) && conn->app_in);
         break;
     case tls_closing:
         ret = mbedtls_ssl_close_notify(&conn->ssl);
