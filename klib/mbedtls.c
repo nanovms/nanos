@@ -161,7 +161,7 @@ define_closure_function(1, 1, status, tls_in_handler,
         }
         break;
     case tls_open:
-        b = little_stack_buffer(512);
+        b = little_stack_buffer(2 * KB);
         do {
             ret = mbedtls_ssl_read(&conn->ssl, buffer_ref(b, 0), b->length);
             if (ret > 0) {
