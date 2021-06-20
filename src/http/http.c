@@ -224,6 +224,9 @@ closure_function(1, 1, status, http_recv,
                 if (p->s == sym(Content-Length)) {
                     if (!parse_int(p->word, 10, &p->content_length))
                         msg_err("failed to parse content length\n");
+
+                    /* unconsume the bytes consumed by parse_int() */
+                    p->word->start = 0;
                 }
                 set(p->header, p->s, p->word);
                 p->word = allocate_buffer(p->h, 0);                
