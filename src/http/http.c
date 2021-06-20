@@ -188,8 +188,10 @@ closure_function(1, 1, status, http_recv,
             p->state = STATE_START_LINE;
         case STATE_START_LINE:
             switch (x){
-            case '\r':
+            case '\n':
                 p->state = STATE_HEADER;
+                break;
+            case '\r':
             case ' ':
                 vector_push(p->start_line, p->word);
                 p->word = allocate_buffer(p->h, 0);
@@ -206,10 +208,10 @@ closure_function(1, 1, status, http_recv,
                 p->s = intern(p->word);
                 buffer_clear(p->word);
                 break;
-            case '\r':
+            case '\n':
                 p->state = STATE_BODY;
                 break;
-            case '\n':
+            case '\r':
             case ':':
                 break;
             default:
@@ -225,6 +227,7 @@ closure_function(1, 1, status, http_recv,
                 }
                 set(p->header, p->s, p->word);
                 p->word = allocate_buffer(p->h, 0);                
+            } else if (x == '\n') {
                 p->state = STATE_HEADER;
             } else {
                 push_u8(p->word, x);
