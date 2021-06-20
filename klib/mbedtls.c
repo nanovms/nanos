@@ -173,6 +173,8 @@ define_closure_function(1, 1, status, tls_in_handler,
                 }
                 buffer_clear(b);
             } else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
+                if (MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY)
+                    break;
                 goto conn_close;
             }
             if (conn->outgoing && (tls_out_internal(conn, 0) < 0))
@@ -190,7 +192,10 @@ define_closure_function(1, 1, status, tls_in_handler,
     return STATUS_OK;
   conn_close:
     tls_close(conn);
-    return tls.timm_alloc("result", "connection closed");
+    if (b)  /* connection closed by us */
+        return tls.timm_alloc("result", "connection closed");
+    else    /* connection closed by the peer */
+        return STATUS_OK;
 }
 
 define_closure_function(1, 1, buffer_handler, tls_conn_handler,
