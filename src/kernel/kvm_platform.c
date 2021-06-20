@@ -22,13 +22,9 @@ void halt(char *format, ...)
 {
     vlist a;
     buffer b = little_stack_buffer(512);
-    struct buffer f;
-    f.start = 0;
-    f.contents = format;
-    f.end = runtime_strlen(format);
 
     vstart(a, format);
-    vbprintf(b, &f, &a);
+    vbprintf(b, alloca_wrap_cstring(format), &a);
     buffer_print(b);
     kernel_shutdown(VM_EXIT_HALT);
 }
