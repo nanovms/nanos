@@ -798,6 +798,7 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
     filesystem_write_sg(f, sg, q, closure(f->fs->h, filesystem_write_complete,
                                           sg, length, io_complete));
 }
+KLIB_EXPORT(filesystem_write_linear);
 
 fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {

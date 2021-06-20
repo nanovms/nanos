@@ -45,8 +45,10 @@ merge allocate_merge(heap h, status_handler completion)
     m->last_status = STATUS_OK;
     return m;
 }
+KLIB_EXPORT(allocate_merge);
 
 status_handler apply_merge(merge m)
 {
     return apply(m->apply);
 }
+KLIB_EXPORT(apply_merge);
