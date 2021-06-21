@@ -16,6 +16,8 @@
 
 #define NETSOCK_TEST_FIO_COUNT  8
 
+#define NETSOCK_TEST_PEEK_COUNT 8
+
 #define test_assert(expr) do { \
     if (!(expr)) { \
         printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
@@ -321,6 +323,64 @@ static void netsock_test_nonblocking_connect(void)
     test_assert(close(fd) == 0);
 }
 
+static void *netsock_test_peek_thread(void *arg)
+{
+    int port = (long)arg;
+    int fd;
+    struct sockaddr_in addr;
+    uint8_t buf[NETSOCK_TEST_PEEK_COUNT];
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    for (int i = 0; i < sizeof(buf); i++)
+        buf[i] = i;
+    test_assert(write(fd, buf, sizeof(buf)) == sizeof(buf));
+    return (void *)(long)fd;
+}
+
+static void netsock_test_peek(void)
+{
+    int fd, conn_fd;
+    struct sockaddr_in addr;
+    const int port = 1236;
+    pthread_t pt;
+    void *thread_ret;
+    uint8_t buf[NETSOCK_TEST_PEEK_COUNT];
+
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(listen(fd, 1) == 0);
+    test_assert(pthread_create(&pt, NULL, netsock_test_peek_thread, (void *)(long)port) == 0);
+
+    /* Wait for client to connect. */
+    conn_fd = accept(fd, NULL, NULL);
+    test_assert(conn_fd > 0);
+
+    /* Wait for client to send data. */
+    test_assert(pthread_join(pt, &thread_ret) == 0);
+
+    /* Read client data twice, the first time without removing it from the socket incoming data. */
+    test_assert(recv(conn_fd, buf, sizeof(buf), MSG_PEEK) == sizeof(buf));
+    for (int i = 0; i < sizeof(buf); i++)
+        test_assert(buf[i] == i);
+    memset(buf, 0, sizeof(buf));
+    test_assert(read(conn_fd, buf, sizeof(buf)) == sizeof(buf));
+    for (int i = 0; i < sizeof(buf); i++)
+        test_assert(buf[i] == i);
+
+    test_assert(close((long)thread_ret) == 0);  /* TCP client socket */
+    test_assert(close(conn_fd) == 0);
+    test_assert(close(fd) == 0);
+}
+
 int main(int argc, char **argv)
 {
     setbuf(stdout, NULL);
@@ -330,6 +390,7 @@ int main(int argc, char **argv)
     netsock_test_fionread();
     netsock_test_connclosed();
     netsock_test_nonblocking_connect();
+    netsock_test_peek();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }

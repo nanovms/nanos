@@ -136,10 +136,18 @@ static inline boolean queue_full(queue q)
     return q->prod_tail - q->cons_head == _queue_size(q);
 }
 
+static inline void *queue_peek_at(queue q, u32 idx)
+{
+    if (q->prod_tail > q->cons_head + idx)
+        return q->d[_queue_idx(q, q->cons_head + idx)];
+    else
+        return INVALID_ADDRESS;
+}
+
 /* only safe with lock - can we dispose of this? */
 static inline void *queue_peek(queue q)
 {
-    return q->prod_tail > q->cons_head ? q->d[_queue_idx(q, q->cons_head)] : INVALID_ADDRESS;
+    return queue_peek_at(q, 0);
 }
 
 #define queue_data_size(order) ((1ull << (order)) * sizeof(void *))

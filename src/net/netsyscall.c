@@ -394,6 +394,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
     }
 
     u64 xfer_total = 0;
+    u32 pbuf_idx = 0;
 
     /* TCP: consume multiple buffers to fill request, if available. */
     do {
@@ -405,18 +406,22 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             if (cur_buf->len > 0) {
                 u64 xfer = MIN(length, cur_buf->len);
                 runtime_memcpy(dest, cur_buf->payload, xfer);
-                pbuf_consume(cur_buf, xfer);
+                if (!(flags & MSG_PEEK))
+                    pbuf_consume(cur_buf, xfer);
                 length -= xfer;
                 xfer_total += xfer;
                 dest = (char *) dest + xfer;
-                if (s->sock.type == SOCK_STREAM)
+                if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK))
                     tcp_recved(s->info.tcp.lw, xfer);
             }
-            if (cur_buf->len == 0)
+            if ((cur_buf->len == 0) || (flags & MSG_PEEK))
                 cur_buf = cur_buf->next;
         } while ((length > 0) && cur_buf);
 
-        if (!cur_buf || (s->sock.type == SOCK_DGRAM)) {
+        if (flags & MSG_PEEK) {
+            if (!cur_buf)
+                p = queue_peek_at(s->incoming, ++pbuf_idx);
+        } else if (!cur_buf || (s->sock.type == SOCK_DGRAM)) {
             assert(dequeue(s->incoming) == p);
             if (s->sock.type == SOCK_DGRAM)
                 deallocate(s->sock.h, p, sizeof(struct udp_entry));

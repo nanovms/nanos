@@ -37,6 +37,7 @@ enum protocol_type {
 #define ARPHRD_LOOPBACK 772
 
 #define MSG_OOB         0x00000001
+#define MSG_PEEK        0x00000002
 #define MSG_DONTROUTE   0x00000004
 #define MSG_PROBE       0x00000010
 #define MSG_TRUNC       0x00000020
