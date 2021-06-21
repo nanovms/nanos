@@ -1,0 +1,1 @@
+- .gitcurrents.c
