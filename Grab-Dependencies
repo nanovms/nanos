@@ -1,0 +1,5 @@
+brew update && brew install nasm go wget ent
+brew tap nanovms/homebrew-x86_64-elf
+brew install x86_64-elf-binutils
+brew tap nanovms/homebrew-qemu
+brew install nanovms/homebrew-qemu/qemu
