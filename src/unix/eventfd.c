@@ -15,8 +15,10 @@ closure_function(0, 2, u64, efd_edge_handler,
                 u64, events, u64, lastevents)
 {
     /* A read or a write acts as an edge */
-    if (events & (EPOLLIN|EPOLLOUT))
-        lastevents &= ~(EPOLLIN|EPOLLOUT);
+    if (events & EPOLLIN)
+        lastevents &= ~EPOLLIN;
+    if (events & EPOLLOUT)
+        lastevents &= ~EPOLLOUT;
     return lastevents;
 }
 
@@ -50,7 +52,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
         efd->counter = 0;
     }
     blockq_wake_one(efd->write_bq);
-    notify_dispatch(efd->f.ns, EPOLLOUT);
+    fdesc_notify_events(&efd->f);
 out:
     blockq_handle_completion(efd->read_bq, flags, bound(completion), bound(t), rv);
     closure_finish();
@@ -93,7 +95,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
     }
     efd->counter += counter;
     blockq_wake_one(efd->read_bq);
-    notify_dispatch(efd->f.ns, EPOLLIN);
+    fdesc_notify_events(&efd->f);
 out:
     blockq_handle_completion(efd->write_bq, flags, bound(completion), bound(t), rv);
     closure_finish();

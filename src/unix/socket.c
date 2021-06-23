@@ -97,13 +97,13 @@ static void unixsock_dealloc(unixsock s)
 static inline void unixsock_notify_reader(unixsock s)
 {
     blockq_wake_one(s->sock.rxbq);
-    notify_dispatch(s->sock.f.ns, EPOLLIN);
+    fdesc_notify_events(&s->sock.f);
 }
 
 static inline void unixsock_notify_writer(unixsock s)
 {
     blockq_wake_one(s->sock.txbq);
-    notify_dispatch(s->sock.f.ns, EPOLLOUT);
+    fdesc_notify_events(&s->sock.f);
 }
 
 closure_function(8, 1, sysreturn, unixsock_read_bh,
@@ -406,7 +406,7 @@ closure_function(1, 2, sysreturn, unixsock_close,
     if (s->peer) {
         s->peer->peer = 0;
         socket_flush_q(&s->peer->sock);
-        notify_dispatch(s->peer->sock.f.ns, EPOLLHUP);
+        fdesc_notify_events(&s->peer->sock.f);
     }
     if (s->conn_q) {
         /* Notify any connecting sockets that connection is being refused. */
