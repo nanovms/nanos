@@ -6,6 +6,9 @@
 declare_closure_struct(1, 0, void, sharedbuf_free,
     struct sharedbuf *, shb);
 
+declare_closure_struct(1, 0, void, unixsock_free,
+    struct unixsock *, s);
+
 struct sockaddr_un {
     u16 sun_family;
     char sun_path[108];
@@ -29,6 +32,8 @@ typedef struct unixsock {
     queue conn_q;
     boolean connecting;
     struct unixsock *peer;
+    closure_struct(unixsock_free, free);
+    struct refcount refcount;
 } *unixsock;
 
 static inline void sharedbuf_deallocate(sharedbuf shb)
@@ -42,6 +47,13 @@ define_closure_function(1, 0, void, sharedbuf_free,
                         sharedbuf, shb)
 {
     sharedbuf_deallocate(bound(shb));
+}
+
+define_closure_function(1, 0, void, unixsock_free,
+                        unixsock, s)
+{
+    unixsock s = bound(s);
+    deallocate(s->sock.h, s, sizeof(*s));
 }
 
 static inline sharedbuf sharedbuf_allocate(heap h, u64 len)
@@ -85,13 +97,16 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags);
 
 static void unixsock_dealloc(unixsock s)
 {
+    if (s->sock.type == SOCK_DGRAM && s->peer)
+        refcount_release(&s->peer->refcount);
     deallocate_queue(s->data);
+    s->data = 0;
     deallocate_closure(s->sock.f.read);
     deallocate_closure(s->sock.f.write);
     deallocate_closure(s->sock.f.events);
     deallocate_closure(s->sock.f.close);
     socket_deinit(&s->sock);
-    deallocate(s->sock.h, s, sizeof(*s));
+    refcount_release(&s->refcount);
 }
 
 static inline void unixsock_notify_reader(unixsock s)
@@ -296,7 +311,7 @@ closure_function(8, 1, sysreturn, unixsock_write_bh,
             rv = lookup_socket(&dest, daddr.sun_path);
             if (rv != 0)
                 goto out;
-        } else if (!dest) {
+        } else if (!dest || !dest->data) {
             rv = -ENOTCONN;
             goto out;
         }
@@ -405,8 +420,10 @@ closure_function(1, 2, sysreturn, unixsock_close,
     unixsock s = bound(s);
     if (s->peer) {
         s->peer->peer = 0;
-        socket_flush_q(&s->peer->sock);
-        fdesc_notify_events(&s->peer->sock.f);
+        if (s->peer->data) {
+            socket_flush_q(&s->peer->sock);
+            fdesc_notify_events(&s->peer->sock.f);
+        }
     }
     if (s->conn_q) {
         /* Notify any connecting sockets that connection is being refused. */
@@ -551,6 +568,7 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
             if (!(listener->sock.type == SOCK_DGRAM))
                 return -ECONNREFUSED;
             s->peer = listener;
+            refcount_reserve(&listener->refcount);
             return 0;
         }
         if (!listener->conn_q || queue_full(listener->conn_q)) {
@@ -759,6 +777,8 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->conn_q = 0;
     s->connecting = false;
     s->peer = 0;
+    init_closure(&s->free, unixsock_free, s);
+    init_refcount(&s->refcount, 1, (thunk)&s->free);
     return s;
 err_socket:
     deallocate_queue(s->data);
@@ -809,6 +829,10 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
     }
     s1->peer = s2;
     s2->peer = s1;
+    if (((type & SOCK_TYPE_MASK) == SOCK_DGRAM)) {
+        refcount_reserve(&s1->refcount);
+        refcount_reserve(&s2->refcount);
+    }
     sv[0] = s1->sock.fd;
     sv[1] = s2->sock.fd;
     return 0;
