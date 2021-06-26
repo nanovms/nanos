@@ -208,7 +208,7 @@ static void nl_enqueue(nlsock s, void *msg, u64 msg_len)
 {
     if (enqueue(s->data, msg)) {
         blockq_wake_one(s->sock.rxbq);
-        notify_dispatch(s->sock.f.ns, EPOLLIN);
+        fdesc_notify_events(&s->sock.f);
     } else {
         msg_err("failed to enqueue message\n");
         deallocate(s->sock.h, msg, msg_len);
