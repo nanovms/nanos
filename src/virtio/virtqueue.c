@@ -100,7 +100,6 @@ typedef struct virtqueue {
     u64 free_cnt;               /* atomic */
     u16 desc_idx;               /* head of descriptor free list */
     u16 last_used_idx;          /* irq only */
-    int max_queued;
     struct list msg_queue;
     queue service_queue;
     thunk service;
@@ -262,7 +261,6 @@ status virtqueue_alloc(vtdev dev,
     vq->notify_offset = notify_offset;
     vq->entries = size;
     vq->free_cnt = size;
-    vq->max_queued = 0;
     list_init(&vq->msg_queue);
     vq->service_queue = allocate_queue(dev->general, 512);
     assert(vq->service_queue != INVALID_ADDRESS);
@@ -289,12 +287,6 @@ status virtqueue_alloc(vtdev dev,
     *t = closure(dev->general, vq_interrupt, vq);
     *vqp = vq;
     return STATUS_OK;
-}
-
-void virtqueue_set_max_queued(virtqueue vq, int max_queued)
-{
-    vq->max_queued = max_queued;
-    virtqueue_debug("%s: vq %s: max_queued = %d\n", __func__, vq->name, vq->max_queued);
 }
 
 physical virtqueue_desc_paddr(virtqueue vq)
@@ -345,11 +337,6 @@ static void virtqueue_fill(virtqueue vq)
             break;
         }
         assert(vq->free_cnt <= vq->entries);
-        if (vq->max_queued > 0 && vq->entries - vq->free_cnt >= vq->max_queued) {
-            virtqueue_debug_verbose("      vq %s: max queued reached (vq->max_queued %d, vq->free_cnt %ld)\n",
-                vq->name, vq->max_queued, vq->free_cnt);
-            break;
-        }
 
         assert(m->completion);
         u16 head = vq->desc_idx;

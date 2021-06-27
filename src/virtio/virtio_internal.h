@@ -109,8 +109,6 @@ status virtqueue_alloc(vtdev dev,
                        thunk *t,
                        queue sched_queue);
 
-void virtqueue_set_max_queued(virtqueue, int);
-
 /* The Host uses this in used->flags to advise the Guest: don't kick me
  * when you add a buffer.  It's unreliable, so it's simply an
  * optimization.  Guest will still kick if it's out of buffers. */

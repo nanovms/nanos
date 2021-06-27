@@ -177,6 +177,7 @@ static virtio_scsi_request virtio_scsi_alloc_request(virtio_scsi s, u16 target, 
     r->req.lun[1] = target;
     r->req.lun[2] = ((lun >> 8) & 0x3f) | 0x40;
     r->req.lun[3] = (lun & 0xff);
+    r->req.id = u64_from_pointer(r);
     r->alloc_len = alloc_len;
 
     return r;
@@ -390,19 +391,14 @@ closure_function(3, 2, void, virtio_scsi_inquiry_done,
         return;
     }
 
-    struct scsi_res_inquiry *res = (struct scsi_res_inquiry *) r->data;
 #ifdef VIRTIO_SCSI_DEBUG
+    struct scsi_res_inquiry *res = (struct scsi_res_inquiry *) r->data;
     virtio_scsi_debug("%s: vendor %b, product %b, revision %b\n",
         __func__,
         alloca_wrap_buffer(res->vendor, sizeof(res->vendor)),
         alloca_wrap_buffer(res->product, sizeof(res->product)),
         alloca_wrap_buffer(res->revision, sizeof(res->revision)));
 #endif
-    static const char vendor_google[] = "Google";
-    if (runtime_memcmp(res->vendor, vendor_google, sizeof(vendor_google) - 1) == 0) {
-        virtio_scsi_debug("%s: limiting max queued\n", __func__);
-        virtqueue_set_max_queued(s->requestq, 1);
-    }
 
     // test unit ready
     u64 r_phys;
