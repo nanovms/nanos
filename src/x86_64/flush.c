@@ -31,7 +31,7 @@ struct flush_entry {
     boolean flush;
     u64 pages[FLUSH_THRESHOLD];
     int npages;
-    thunk completion;
+    status_handler completion;
     closure_struct(flush_complete, finish);
 };
 
@@ -114,12 +114,12 @@ static void service_list(boolean trydefer)
             continue;
         list_delete(&f->l);
         entries_count--;
-        if (f->completion && f->completion != ignore) {
+        if (f->completion) {
             if (trydefer) {
                 if (!enqueue(flush_completion_queue, f->completion))
-                    apply(f->completion);
+                    apply(f->completion, STATUS_OK);
             } else
-                apply(f->completion);
+                apply(f->completion, STATUS_OK);
         }
         assert(enqueue(free_flush_entries, f));
     }
@@ -152,12 +152,12 @@ static void queue_flush_service()
  * low flush resource situations, so it must not invoke operations that
  * could call page_invalidate_sync again or else face deadlock.
  */
-void page_invalidate_sync(flush_entry f, thunk completion)
+void page_invalidate_sync(flush_entry f, status_handler completion)
 {
     if (initialized) {
         if (f->npages == 0) {
             assert(enqueue(free_flush_entries, f));
-            if (completion && completion != ignore) {
+            if (completion) {
                 assert(enqueue(flush_completion_queue, completion));
                 queue_flush_service();
             }
@@ -194,7 +194,7 @@ void page_invalidate_sync(flush_entry f, thunk completion)
         irq_restore(flags);
     } else {
         if (completion)
-            apply(completion);
+            apply(completion, STATUS_OK);
     }
 }
 

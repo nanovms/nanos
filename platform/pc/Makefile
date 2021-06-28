@@ -388,7 +388,7 @@ QEMU_QMP=	-qmp unix:$(ROOTDIR)/qmp-sock,server,nowait
 endif
 #QEMU_USERNET+=	-object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
 QEMU_FLAGS=
-#QEMU_FLAGS+=	-smp 4
+QEMU_FLAGS+=	-smp 4
 #QEMU_FLAGS+=	-d int -D int.log
 #QEMU_FLAGS+=	-s -S
 

@@ -218,7 +218,7 @@ closure_function(2, 3, boolean, update_pte_flags,
 }
 
 /* Update access protection flags for any pages mapped within a given area */
-void update_map_flags(u64 vaddr, u64 length, pageflags flags)
+void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete)
 {
     flags = pageflags_no_minpage(flags);
     page_debug("%s: vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", __func__, vaddr, length, flags.w);
@@ -227,7 +227,7 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
     assert(!intersects_huge_backed(irangel(vaddr, length)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, complete);
 #ifdef PAGE_DUMP_ALL
     early_debug("update_map_flags ");
     dump_page_tables(vaddr, length);
@@ -286,7 +286,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
                                           irange(vaddr_old, vaddr_old + length))));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, fe));
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 #ifdef PAGE_DUMP_ALL
     early_debug("remap ");
     dump_page_tables(vaddr_new, length);
@@ -342,7 +342,7 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(virtual, length, stack_closure(unmap_page, rh, fe));
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 #ifdef PAGE_DUMP_ALL
     early_debug("unmap ");
     dump_page_tables(virtual, length);
@@ -449,7 +449,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
     return true;
 }
 
-void map(u64 v, physical p, u64 length, pageflags flags)
+void map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     page_init_debug("map: v ");
     page_init_debug_u64(v);
@@ -477,7 +477,7 @@ void map(u64 v, physical p, u64 length, pageflags flags)
              v, p, length, flags.w);
     }
     page_init_debug("map_level done\n");
-    page_invalidate_sync(fe, 0);
+    page_invalidate_sync(fe, complete);
     page_init_debug("invalidate sync done\n");
     pagetable_unlock();
 #ifdef PAGE_DUMP_ALL
