@@ -16,11 +16,6 @@ typedef struct huge_backed_heap {
 
 #define HUGE_BACKED_IDX_LIMIT ((HUGE_BACKED_LIMIT - HUGE_BACKED_BASE) >> HUGE_BACKED_PAGELOG)
 
-static inline int huge_backed_get_index(huge_backed_heap hb, u64 paddr)
-{
-    return (paddr >> HUGE_BACKED_PAGELOG);
-}
-
 static inline u64 huge_backed_base_from_index(huge_backed_heap hb, int index)
 {
     return HUGE_BACKED_BASE + ((u64)index << HUGE_BACKED_PAGELOG);

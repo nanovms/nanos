@@ -281,6 +281,7 @@ boolean thread_attempt_interrupt(thread t)
 define_closure_function(1, 0, void, free_thread,
                         thread, t)
 {
+    rprintf("XXXXX FREE tid %d\n", bound(t)->tid);
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
@@ -346,6 +347,8 @@ thread create_thread(process p)
     t->utime = t->stime = 0;
     t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
     t->last_syscall = -1;
+
+    list_init(&t->l_faultwait);
 
     // XXX sigframe
     spin_lock(&p->threads_lock);

@@ -184,8 +184,8 @@ SRCS-kernel.elf+= \
 	$(SRCDIR)/kernel/management_telnet.c
 endif
 
-CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
-#CFLAGS+=	-DSMP_ENABLE
+#CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
+CFLAGS+=	-DSMP_ENABLE
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script
@@ -388,7 +388,7 @@ QEMU_QMP=	-qmp unix:$(ROOTDIR)/qmp-sock,server,nowait
 endif
 #QEMU_USERNET+=	-object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
 QEMU_FLAGS=
-#QEMU_FLAGS+=	-smp 4
+QEMU_FLAGS+=	-smp 4
 #QEMU_FLAGS+=	-d int -D int.log
 #QEMU_FLAGS+=	-s -S
 

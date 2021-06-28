@@ -268,7 +268,7 @@ physical physical_from_virtual(void *x);
 
 typedef struct flush_entry *flush_entry;
 
-static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
+static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     assert((v & MASK(PAGELOG)) == 0);
     assert((p & MASK(PAGELOG)) == 0);
@@ -277,7 +277,7 @@ static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
         zero(pointer_from_u64(v), length);
         update_map_flags(v, length, flags);
     } else {
-        map(v, p, length, flags);
+        map_with_complete(v, p, length, flags, complete);
         zero(pointer_from_u64(v), length);
     }
 }

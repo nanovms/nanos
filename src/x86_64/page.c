@@ -16,10 +16,10 @@ void page_invalidate(flush_entry f, u64 address)
     flush_tlb();
 }
 
-void page_invalidate_sync(flush_entry f, thunk completion)
+void page_invalidate_sync(flush_entry f, status_handler completion)
 {
     if (completion)
-        apply(completion);
+        apply(completion, STATUS_OK);
 }
 
 void page_invalidate_flush()
