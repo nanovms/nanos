@@ -1160,13 +1160,13 @@ void test_restart(void)
     rv = syscall(SYS_tgkill, __getpid(), child_tid, SIGUSR1);
     if (rv < 0)
         fail_perror("test_restart tgkill");
+    child_tid = 0;
     rv = write(fds[1], buf, sizeof(buf));
     if (rv < 0)
         fail_perror("test_restart: write");
     assert(rv == sizeof(buf));
 
     /* Wait for child thread to call read() again. */
-    child_tid = 0;
     yield_for(&child_tid);
 
     sa.sa_flags &= ~SA_RESTART;

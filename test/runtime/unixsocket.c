@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <semaphore.h>
 
 #define CLIENT_SOCKET_PATH "client_socket"
 #define SERVER_SOCKET_PATH "server_socket"
@@ -235,6 +236,8 @@ static void uds_dgram_test(void)
     test_assert(unlink(CLIENT_SOCKET_PATH) == 0);
 }
 
+static sem_t sem;
+
 static void *uds_nonblocking_server(void *arg)
 {
     int fd = (long) arg;
@@ -254,6 +257,7 @@ static void *uds_nonblocking_server(void *arg)
     }
     test_assert(addr_len == sizeof(addr.sun_family));
     test_assert(addr.sun_family == AF_UNIX);
+    sem_wait(&sem);
     test_assert(close(client_fd) == 0);
     return NULL;
 }
@@ -285,6 +289,7 @@ static void uds_nonblocking_test(void)
     fds.fd = s2;
     fds.events = POLLIN | POLLOUT | POLLHUP;
     test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == POLLOUT));
+    sem_post(&sem);
     test_assert(pthread_join(pt, NULL) == 0);
     test_assert(close(s2) == 0);
 
@@ -294,6 +299,7 @@ static void uds_nonblocking_test(void)
             (void *)(long) s1) == 0);
     usleep(100 * 1000);
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == 0);
+    sem_post(&sem);
     test_assert(pthread_join(pt, NULL) == 0);
 
     test_assert(close(s1) == 0);

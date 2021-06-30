@@ -262,7 +262,7 @@ status virtqueue_alloc(vtdev dev,
     vq->entries = size;
     vq->free_cnt = size;
     list_init(&vq->msg_queue);
-    vq->service_queue = allocate_queue(dev->general, 512);
+    vq->service_queue = allocate_queue(dev->general, 1024);
     assert(vq->service_queue != INVALID_ADDRESS);
     vq->service = closure(dev->general, virtqueue_service_vqmsgs, vq);
     vq->sched_queue = sched_queue;
