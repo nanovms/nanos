@@ -6,6 +6,7 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
+	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/extra_prints.c \
@@ -59,6 +60,7 @@ SRCS-uefi= \
 	$(SRCDIR)/boot/uefi.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/kvm_platform.c \
+	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/format.c \

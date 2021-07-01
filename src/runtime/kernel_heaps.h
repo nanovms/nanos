@@ -8,20 +8,6 @@
    log or other debuging code, install wrapper heaps, etc.
 */
 
-typedef struct backed_heap {
-    struct heap h;
-    heap physical;
-    heap virtual;
-    void *(*alloc_map)(struct backed_heap *bh, bytes len, u64 *phys);
-    void (*dealloc_unmap)(struct backed_heap *bh, void *virt, u64 phys, bytes len);
-#ifdef KERNEL
-    struct spinlock lock;
-#endif
-} *backed_heap;
-
-#define alloc_map(__bh, __l, __p) ((__bh)->alloc_map(__bh, __l, __p))
-#define dealloc_unmap(__bh, __v, __p, __l) ((__bh)->dealloc_unmap(__bh, __v, __p, __l))
-
 typedef struct kernel_heaps {
     /* Allocations of physical address space outside of pages are made
        from the physical id heap. Accesses are protected by spinlock. */
@@ -40,7 +26,8 @@ typedef struct kernel_heaps {
        the spaces to their respective heaps. This is presently the
        go-to source for ready-to-use, mapped pages. Accesses are
        protected by spinlock. */
-    backed_heap backed;
+    backed_heap page_backed;
+    backed_heap huge_backed;    /* TODO update desc */
 
     /* The general heap is an mcache used for allocations of arbitrary
        sizes from 32B to 1MB. It is the heap that is closest to being
@@ -72,9 +59,14 @@ static inline id_heap heap_virtual_page(kernel_heaps heaps)
     return heaps->virtual_page;
 }
 
-static inline heap heap_backed(kernel_heaps heaps)
+static inline backed_heap heap_page_backed(kernel_heaps heaps)
 {
-    return (heap)heaps->backed;
+    return heaps->page_backed;
+}
+
+static inline backed_heap heap_huge_backed(kernel_heaps heaps)
+{
+    return heaps->huge_backed;
 }
 
 static inline heap heap_general(kernel_heaps heaps)

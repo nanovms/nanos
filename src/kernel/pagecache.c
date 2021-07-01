@@ -875,7 +875,7 @@ static void pagecache_scan_shared_mappings(pagecache pc)
         pagecache_debug("   shared map va %R, node_offset 0x%lx\n", sm->n.r, sm->node_offset);
         pagecache_scan_shared_map(pc, sm, fe);
     }
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 static void pagecache_scan_node(pagecache_node pn)
@@ -887,7 +887,7 @@ static void pagecache_scan_node(pagecache_node pn)
         pagecache_debug("   shared map va %R, node_offset 0x%lx\n", n->r, sm->node_offset);
         pagecache_scan_shared_map(pn->pv->pc, sm, fe);
     }
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 closure_function(2, 1, void, pagecache_commit_complete,
@@ -1045,7 +1045,7 @@ void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* b
     rangemap_range_lookup(pn->shared_maps, q,
                           stack_closure(scan_shared_pages_intersection, pn->pv->pc, fe));
     pagecache_commit_dirty_pages(pn->pv->pc);
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags)
@@ -1196,7 +1196,7 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
     traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page_nodelocked, pn,
                                                         v.start, node_offset, fe));
     pagecache_unlock_node(pn);
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 #endif
 

@@ -1591,24 +1591,29 @@ static sysreturn brk(void *x)
     kernel_heaps kh = get_kernel_heaps();
 
     if (x) {
+        u64 old_end = pad(u64_from_pointer(p->brk), PAGESIZE);
+        u64 new_end = pad(u64_from_pointer(x), PAGESIZE);
         if (p->brk > x) {
             /* on failure, return the current break */
             if (u64_from_pointer(x) < p->heap_base)
                 goto fail;
             p->brk = x;
             assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(x))));
-            // free
+            if (old_end > new_end) {
+                u64 len = old_end - new_end;
+                u64 phys = physical_from_virtual(pointer_from_u64(new_end));
+                write_barrier();
+                unmap(new_end, len);
+                id_heap_set_area(heap_physical(kh), phys, len, true, false);
+            }
         } else if (p->brk < x) {
-            // I guess assuming we're aligned
-            u64 alloc = pad(u64_from_pointer(x), PAGESIZE) - pad(u64_from_pointer(p->brk), PAGESIZE);
+            u64 alloc = new_end - old_end;
+            assert(alloc > 0);
             assert(adjust_process_heap(p, irange(p->heap_base, u64_from_pointer(p->brk) + alloc)));
             u64 phys = allocate_u64((heap)heap_physical(kh), alloc);
             if (phys == INVALID_PHYSICAL)
                 goto fail;
-            /* XXX no exec configurable? */
-            pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
-            map(u64_from_pointer(p->brk), phys, alloc, flags);
-            // people shouldn't depend on this
+            map(u64_from_pointer(p->brk), phys, alloc, pageflags_writable(pageflags_default_user()));
             zero(p->brk, alloc);
             p->brk += alloc;         
         }

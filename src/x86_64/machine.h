@@ -16,7 +16,7 @@
 #if defined(KERNEL) || defined(KLIB)
 
 #define VA_TAG_BASE   KMEM_BASE
-#define VA_TAG_OFFSET 39
+#define VA_TAG_OFFSET 38
 #define VA_TAG_WIDTH  8
 
 static inline __attribute__((always_inline)) void *tag(void* v, value_tag t) {

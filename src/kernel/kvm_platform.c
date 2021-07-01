@@ -32,7 +32,7 @@ void halt(char *format, ...)
 static boolean probe_kvm_pvclock(kernel_heaps kh)
 {
     kvm_debug("probing for KVM pvclock...");
-    heap backed = heap_backed(kh);
+    heap backed = (heap)heap_page_backed(kh);
     u32 v[4];
     cpuid(KVM_CPUID_FEATURES, 0, v);
     if ((v[0] & (1 << 3)) == 0) {

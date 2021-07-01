@@ -10,6 +10,15 @@ struct heap {
     bytes pagesize;
 };
 
+typedef struct backed_heap {
+    struct heap h;
+    void *(*alloc_map)(struct backed_heap *bh, bytes len, u64 *phys);
+    void (*dealloc_unmap)(struct backed_heap *bh, void *virt, u64 phys, bytes len);
+} *backed_heap;
+
+#define alloc_map(__bh, __l, __p) ((__bh)->alloc_map(__bh, __l, __p))
+#define dealloc_unmap(__bh, __v, __p, __l) ((__bh)->dealloc_unmap(__bh, __v, __p, __l))
+
 heap debug_heap(heap m, heap p);
 heap mem_debug(heap m, heap p, u64 padsize);
 heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize);

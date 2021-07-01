@@ -411,6 +411,19 @@ static value id_management(heap h)
 
 #endif /* KERNEL */
 
+closure_function(2, 1, void, node_foreach_handler,
+                 range_handler, rh, int, order,
+                 rmnode, n)
+{
+    apply(bound(rh), range_lshift(n->r, bound(order)));
+}
+
+boolean id_heap_range_foreach(id_heap i, range_handler rh)
+{
+    return rangemap_range_lookup(i->ranges, (range){0, infinity},
+                                 stack_closure(node_foreach_handler, rh, page_order(i)));
+}
+
 id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
