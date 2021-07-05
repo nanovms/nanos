@@ -13,10 +13,10 @@ void init_page_tables(heap pageheap);
 
 /* tlb shootdown */
 void init_flush(heap);
-flush_entry get_page_flush_entry();
+flush_entry get_page_flush_entry(void);
 void page_invalidate(flush_entry f, u64 address);
 void page_invalidate_sync(flush_entry f, status_handler completion);
-void page_invalidate_flush();
+void page_invalidate_flush(void);
 
 /* mapping and flag update */
 void map_with_complete(u64 virtual, physical p, u64 length, pageflags flags, status_handler complete);

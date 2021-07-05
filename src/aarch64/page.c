@@ -24,19 +24,19 @@ void page_invalidate(flush_entry f, u64 address)
                  "tlbi vale1is, %0" :: "r"(a) : "memory");
 }
 
-void page_invalidate_sync(flush_entry f, thunk completion)
+void page_invalidate_sync(flush_entry f, status_handler completion)
 {
     asm volatile("dsb ish" ::: "memory");
     if (completion)
-        apply(completion);
+        apply(completion, STATUS_OK);
 }
 
-void page_invalidate_flush()
+void page_invalidate_flush(void)
 {
 
 }
 
-flush_entry get_page_flush_entry()
+flush_entry get_page_flush_entry(void)
 {
     return 0;
 }

@@ -88,7 +88,7 @@ closure_function(0, 0, void, flush_handler)
     _flush_handler();
 }
 
-void page_invalidate_flush()
+void page_invalidate_flush(void)
 {
     _flush_handler();
 }
@@ -140,7 +140,7 @@ closure_function(0, 0, void, do_flush_service)
     }
 }
 
-static void queue_flush_service()
+static void queue_flush_service(void)
 {
     if (!service_scheduled) {
         service_scheduled = true;
@@ -198,7 +198,7 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
     }
 }
 
-flush_entry get_page_flush_entry()
+flush_entry get_page_flush_entry(void)
 {
     flush_entry fe;
 

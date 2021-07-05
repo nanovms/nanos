@@ -414,7 +414,7 @@ static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags, 
     if (pageflags_is_readonly(flags)) {
         map(v, p, length, pageflags_writable(flags));
         zero(pointer_from_u64(v), length);
-        update_map_flags(v, length, flags);
+        update_map_flags_with_complete(v, length, flags, complete);
     } else {
         map_with_complete(v, p, length, flags, complete);
         zero(pointer_from_u64(v), length);
