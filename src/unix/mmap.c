@@ -61,8 +61,8 @@ define_closure_function(1, 0, void, kernel_frame_return,
     resume_kernel_context(bound(kc));
 }
 
-define_closure_function(5, 0, void, thread_demand_file_page,
-                        pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
+define_closure_function(6, 0, void, thread_demand_file_page,
+                        pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags, boolean, bh)
 {
     pending_fault pf = bound(pf);
     vmap vm = bound(vm);
@@ -70,12 +70,13 @@ define_closure_function(5, 0, void, thread_demand_file_page,
     pf_debug("%s: pending_fault %p, node_offset 0x%lx, page_addr 0x%lx\n",
              __func__, pf, bound(node_offset), pf->addr);
     pagecache_map_page(pn, bound(node_offset), pf->addr, bound(flags),
-                       (status_handler)&pf->complete, false /* complete on runqueue */);
+                       (status_handler)&pf->complete, bound(bh));
     range ra = irange(bound(node_offset) + PAGESIZE,
         vm->node_offset + range_span(vm->node.r));
     if (range_valid(ra)) {
         if (range_span(ra) > FILE_READAHEAD_DEFAULT)
             ra.end = ra.start + FILE_READAHEAD_DEFAULT;
+        // XXX validate safe outside kern lock
         pagecache_node_fetch_pages(pn, ra);
     }
 }
@@ -95,8 +96,6 @@ define_closure_function(1, 1, void, pending_fault_complete,
         list_delete(l);
         if (!is_ok(s))
             deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR); // XXX get vaddr from frame rip
-        // XXX might have to check flag to see if we need to schedule frame or
-        // kernel context
         schedule_frame(thread_frame(t));
         refcount_release(&t->refcount);
     }
@@ -107,7 +106,6 @@ define_closure_function(1, 1, void, pending_fault_complete,
             mmap_info.faulting_kernel_context = 0;
             enqueue_irqsafe(bhqueue, (thunk)&mmap_info.do_kernel_frame_return);
         }
-        mmap_info.kernel_demand_page_completed = true;
     }
 
     process p = pf->p;
@@ -120,14 +118,21 @@ define_closure_function(1, 1, void, pending_fault_complete,
 
 static pending_fault new_pending_fault_locked(process p, u64 addr)
 {
-    pending_fault pf = allocate(mmap_info.h, sizeof(struct pending_fault));
-    assert (pf != INVALID_ADDRESS);
+    pending_fault pf;
+    list l;
+    if ((l = list_get_next(&mmap_info.pf_freelist))) {
+        pf = struct_from_list(l, pending_fault, l_free);
+        list_delete(l);
+    } else {
+        pf = allocate(mmap_info.h, sizeof(struct pending_fault));
+        assert(pf != INVALID_ADDRESS);
+    }
     init_rbnode(&pf->n);
     pf->addr = addr;
     pf->p = p;
     list_init(&pf->dependents);
-    pf->kern = false;
     init_closure(&pf->complete, pending_fault_complete, pf);
+    pf->kern = false;
     assert(rbtree_insert_node(&p->pending_faults, &pf->n));
     return pf;
 }
@@ -142,7 +147,76 @@ static pending_fault find_pending_fault_locked(process p, u64 addr)
     return (pending_fault)n;
 }
 
-// XXX can we nuke references to current?
+static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
+{
+    u64 paddr = allocate_u64((heap)mmap_info.physical, PAGESIZE);
+    if (paddr == INVALID_PHYSICAL) {
+        msg_err("cannot get physical page; OOM\n");
+        return false;
+    }
+    pf->kern = false;       /* direct return if kernel fault; no resume */
+    map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, pageflags_from_vmflags(vm->flags),
+                 (status_handler)&pf->complete);
+    count_minor_fault();
+    return true;
+}
+
+static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 vaddr, boolean in_kernel)
+{
+    pageflags flags = pageflags_from_vmflags(vm->flags);
+    u64 page_addr = vaddr & ~PAGEMASK;
+    u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
+    boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
+    if (!shared)
+        flags = pageflags_readonly(flags); /* cow */
+
+    pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
+             vm->cache_node, vm->node.r.start, node_offset);
+
+    u64 padlen = pad(pagecache_get_node_length(vm->cache_node), PAGESIZE);
+    pf_debug("   map length 0x%lx\n", padlen);
+    if (node_offset >= padlen) {
+        pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", padlen);
+        if (in_kernel) {
+            /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
+               or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
+               assume this is an unrecoverable error and exit here. */
+            halt("%s: file-backed access in kernel mode outside of map range, "
+                 "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
+                 vm->node.r.start, node_offset);
+        }
+        deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
+        return true;
+    }
+
+    pf->kern = false;       /* user, or no kernel context resume if direct return */
+    if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags,
+                                     (status_handler)&pf->complete)) {
+        pf_debug("   immediate completion\n");
+        count_minor_fault();
+        return true;
+    }
+
+    /* page not filled - schedule a page fill for this thread */
+    refcount_reserve(&t->refcount);
+    init_closure(&t->demand_file_page, thread_demand_file_page,
+                 pf, vm, node_offset, page_addr, flags, in_kernel /* bhqueue */);
+    u64 saved_flags = spin_lock_irq(&t->p->faulting_lock);
+    if (in_kernel) {
+        assert(!mmap_info.faulting_kernel_context);
+        assert(this_cpu_has_kernel_lock());
+        mmap_info.faulting_kernel_context = suspend_kernel_context();
+        pf->kern = true;
+        this_cpu_release_kernel_lock();
+    } else {
+        list_insert_before(&pf->dependents, &t->l_faultwait);
+    }
+    spin_unlock_irq(&t->p->faulting_lock, saved_flags);
+    enqueue(bhqueue, &t->demand_file_page);
+    count_major_fault();
+    return false;
+}
+
 boolean do_demand_page(u64 vaddr, vmap vm, context frame)
 {
     cpuinfo ci = current_cpu();
@@ -166,109 +240,32 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
     u64 flags = spin_lock_irq(&p->faulting_lock);
     pending_fault pf = find_pending_fault_locked(p, page_addr);
     if (pf) {
-        if (!in_kernel) {
+        pf_debug("   found pf %p\n", pf);
+        if (in_kernel) {
+            pf->kern = true;
+        } else {
             refcount_reserve(&t->refcount); /* for fault */
             list_insert_before(&pf->dependents, &t->l_faultwait);
-            spin_unlock_irq(&p->faulting_lock, flags);
-            count_minor_fault(); /* XXX not precise...stash pt type in faulting thread? */
-            goto suspend;
         }
-        // XXX kern block
-        rprintf("TODO: dependent kernel fault\n");
-        assert(0);
-    }
-    pf = new_pending_fault_locked(p, page_addr);
-    spin_unlock_irq(&p->faulting_lock, flags);
-
-// XXX if we take a fault in the kernel for a user page, it's the same deal as far as
-// adding to wait list, etc - just that the final completion is a kernel resume and not user schedule
-// keep in mind that completions for kernel fault will occur off of bh
-
-    int mmap_type = vm->flags & VMAP_MMAP_TYPE_MASK;
-    if (mmap_type == VMAP_MMAP_TYPE_ANONYMOUS) {
-        u64 paddr = allocate_u64((heap)mmap_info.physical, PAGESIZE);
-        if (paddr == INVALID_PHYSICAL) {
-            msg_err("cannot get physical page; OOM\n");
-            return false;
-        }
-
-        pf->kern = false;       /* direct return if kernel fault; no resume */
-        map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, pageflags_from_vmflags(vm->flags),
-                     (status_handler)&pf->complete);
-        count_minor_fault();
-        return true;
-    } else if (mmap_type == VMAP_MMAP_TYPE_FILEBACKED) {
-        u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
-        boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
-        pageflags flags = pageflags_from_vmflags(vm->flags);
-        if (!shared)
-            flags = pageflags_readonly(flags); /* cow */
-
-        pf_debug("   node %p (start 0x%lx), offset 0x%lx\n",
-                 vm->cache_node, vm->node.r.start, node_offset);
-
-        u64 padlen = pad(pagecache_get_node_length(vm->cache_node), PAGESIZE);
-        pf_debug("   map length 0x%lx\n", padlen);
-        if (node_offset >= padlen) {
-            pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", padlen);
-            if (in_kernel) {
-                /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
-                   or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
-                   assume this is an unrecoverable error and exit here. */
-                halt("%s: file-backed access in kernel mode outside of map range, "
-                     "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
-                     vm->node.r.start, node_offset);
-            }
-            deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
-            return true;
-        }
-
-        if (in_kernel) {
-            /* Kernel-mode page faults are exclusively for faulting-in user pages within the confines
-               of a syscall (under the kernel lock). As such, we are free to set up an asynchronous page
-               fill, allocate memory, etc. */
-            assert(!mmap_info.faulting_kernel_context);
-            assert(this_cpu_has_kernel_lock());
-            mmap_info.kernel_demand_page_completed = false;
-            pf->kern = true;
-            mmap_info.faulting_kernel_context = suspend_kernel_context();
-            ci->have_kernel_lock = false;
-            pagecache_map_page(vm->cache_node, node_offset, page_addr, flags,
-                               (status_handler)&pf->complete, true /* complete on bhqueue */);
-#if 0
-            if (mmap_info.kernel_demand_page_completed) {
-                pf_debug("   immediate completion\n");
-                count_minor_fault();
-                return true;
-            }
-            pf->kern = true; // XXX better name?
-#endif
-        } else {
-            pf->kern = false;
-            assert(frame == t->active_frame); // XXX temp
-
-            /* A user fault can happen outside of the kernel lock. We can try to touch an existing
-               page, but we can't allocate anything, fill a page or start a storage operation. */
-            if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags,
-                                             (status_handler)&pf->complete)) {
-                pf_debug("   immediate completion\n");
-                count_minor_fault();
-                return true;
-            }
-            /* schedule a page fill for this thread */
-            refcount_reserve(&t->refcount);
-            init_closure(&t->demand_file_page, thread_demand_file_page, pf, vm,
-                         node_offset, page_addr, flags);
-            u64 flags = spin_lock_irq(&p->faulting_lock);
-            list_insert_before(&pf->dependents, &t->l_faultwait);
-            spin_unlock_irq(&p->faulting_lock, flags);
-            enqueue(runqueue, &t->demand_file_page);
-        }
-        count_major_fault();
+        spin_unlock_irq(&p->faulting_lock, flags);
+        count_minor_fault(); /* XXX not precise...stash pt type in faulting thread? */
     } else {
-        halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
+        pf = new_pending_fault_locked(p, page_addr);
+        spin_unlock_irq(&p->faulting_lock, flags);
+
+        int mmap_type = vm->flags & VMAP_MMAP_TYPE_MASK;
+        switch (mmap_type) {
+        case VMAP_MMAP_TYPE_ANONYMOUS:
+            return demand_anonymous_page(pf, vm, vaddr);
+        case VMAP_MMAP_TYPE_FILEBACKED:
+            if (demand_filebacked_page(t, pf, vm, vaddr, in_kernel))
+                return true;
+            break;
+        default:
+            halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
+        }
     }
-  suspend:
+    /* suspend thread or kernel context */
     frame_from_kernel_context(get_kernel_context(ci))[FRAME_FULL] = false;
     runloop();
 }
