@@ -153,7 +153,20 @@ physical physical_from_virtual(void *x);
 #endif
 typedef struct flush_entry *flush_entry;
 
-void map(u64 virtual, physical p, u64 length, pageflags flags);
+void map_with_complete(u64 virtual, physical p, u64 length, pageflags flags, status_handler complete);
+
+static inline void map(u64 v, physical p, u64 length, pageflags flags)
+{
+    map_with_complete(v, p, length, flags, 0);
+}
+
+void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete);
+
+static inline void update_map_flags(u64 vaddr, u64 length, pageflags flags)
+{
+    update_map_flags_with_complete(vaddr, length, flags, 0);
+}
+
 void unmap(u64 virtual, u64 length);
 void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 void unmap_and_free_phys(u64 virtual, u64 length);
@@ -163,21 +176,20 @@ static inline void unmap_pages(u64 virtual, u64 length)
     unmap_pages_with_handler(virtual, length, 0);
 }
 
-void update_map_flags(u64 vaddr, u64 length, pageflags flags);
 void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 void dump_ptes(void *x);
 
-static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
+static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     assert((v & MASK(PAGELOG)) == 0);
     assert((p & MASK(PAGELOG)) == 0);
     if (pageflags_is_readonly(flags)) {
         map(v, p, length, pageflags_writable(flags));
         zero(pointer_from_u64(v), length);
-        update_map_flags(v, length, flags);
+        update_map_flags_with_complete(v, length, flags, complete);
     } else {
-        map(v, p, length, flags);
+        map_with_complete(v, p, length, flags, complete);
         zero(pointer_from_u64(v), length);
     }
 }
@@ -186,9 +198,9 @@ typedef closure_type(entry_handler, boolean /* success */, int /* level */,
         u64 /* vaddr */, pteptr /* entry */);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
 void page_invalidate(flush_entry f, u64 p);
-void page_invalidate_sync(flush_entry f, thunk completion);
-flush_entry get_page_flush_entry();
-void page_invalidate_flush();
+void page_invalidate_sync(flush_entry f, status_handler completion);
+flush_entry get_page_flush_entry(void);
+void page_invalidate_flush(void);
 void flush_tlb();
 void init_flush(heap);
 void *bootstrap_page_tables(heap initial);

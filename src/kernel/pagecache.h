@@ -44,7 +44,8 @@ void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */);
 void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
                         status_handler complete, boolean bh);
 
-boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags);
+boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
+                                     status_handler complete);
 
 void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset);
 #endif

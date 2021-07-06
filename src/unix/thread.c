@@ -347,6 +347,8 @@ thread create_thread(process p)
     t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
     t->last_syscall = -1;
 
+    list_init(&t->l_faultwait);
+
     // XXX sigframe
     spin_lock(&p->threads_lock);
     rbtree_insert_node(p->threads, &t->n);

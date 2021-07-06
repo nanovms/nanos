@@ -31,7 +31,7 @@ struct flush_entry {
     boolean flush;
     u64 pages[FLUSH_THRESHOLD];
     int npages;
-    thunk completion;
+    status_handler completion;
     closure_struct(flush_complete, finish);
 };
 
@@ -88,7 +88,7 @@ closure_function(0, 0, void, flush_handler)
     _flush_handler();
 }
 
-void page_invalidate_flush()
+void page_invalidate_flush(void)
 {
     _flush_handler();
 }
@@ -114,11 +114,14 @@ static void service_list(boolean trydefer)
             continue;
         list_delete(&f->l);
         entries_count--;
-        if (trydefer) {
-            if (!enqueue(flush_completion_queue, f->completion))
-                apply(f->completion);
-        } else
-            apply(f->completion);
+        if (f->completion) {
+            if (trydefer) {
+                if (!enqueue(flush_completion_queue, f->completion))
+                    apply(f->completion, STATUS_OK);
+            } else {
+                apply(f->completion, STATUS_OK);
+            }
+        }
         assert(enqueue(free_flush_entries, f));
     }
 }
@@ -138,7 +141,7 @@ closure_function(0, 0, void, do_flush_service)
     }
 }
 
-static void queue_flush_service()
+static void queue_flush_service(void)
 {
     if (!service_scheduled) {
         service_scheduled = true;
@@ -150,12 +153,12 @@ static void queue_flush_service()
  * low flush resource situations, so it must not invoke operations that
  * could call page_invalidate_sync again or else face deadlock.
  */
-void page_invalidate_sync(flush_entry f, thunk completion)
+void page_invalidate_sync(flush_entry f, status_handler completion)
 {
     if (initialized) {
         if (f->npages == 0) {
             assert(enqueue(free_flush_entries, f));
-            if (completion && completion != ignore) {
+            if (completion) {
                 assert(enqueue(flush_completion_queue, completion));
                 queue_flush_service();
             }
@@ -192,11 +195,11 @@ void page_invalidate_sync(flush_entry f, thunk completion)
         irq_restore(flags);
     } else {
         if (completion)
-            apply(completion);
+            apply(completion, STATUS_OK);
     }
 }
 
-flush_entry get_page_flush_entry()
+flush_entry get_page_flush_entry(void)
 {
     flush_entry fe;
 
