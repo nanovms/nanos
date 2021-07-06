@@ -187,7 +187,7 @@ void page_invalidate_sync(flush_entry f, thunk completion)
         f->gen = fetch_and_add((word *)&inval_gen, 1) + 1;
         spin_wunlock(&flush_lock);
 
-        apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, flush_ipi);
+        apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, flush_ipi);
         _flush_handler();
         irq_restore(flags);
     } else {

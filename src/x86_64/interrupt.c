@@ -289,7 +289,7 @@ void common_handler()
     console("\n");
     print_frame(f);
     print_stack(f);
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, 0, shutdown_vector);
+    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
 

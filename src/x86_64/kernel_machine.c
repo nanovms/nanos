@@ -4,7 +4,7 @@
 /* stub placeholder, short of a real generic interface */
 void send_ipi(u64 cpu, u8 vector)
 {
-    apic_ipi(cpu, 0, vector);
+    apic_ipi(cpu, ICR_ASSERT, vector);
 }
 
 void interrupt_exit(void)

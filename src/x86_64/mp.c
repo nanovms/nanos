@@ -128,11 +128,11 @@ void start_cpu(int index) {
     u8 vector = (((u64)apboot) >> 12) & 0xff;
 
     int nproc = total_processors;
-    apic_ipi(index, ICR_TYPE_INIT, 0);
+    apic_ipi(index, ICR_TYPE_INIT | ICR_ASSERT, 0);
     kernel_delay(milliseconds(10));
-    apic_ipi(index, ICR_TYPE_STARTUP, vector);
+    apic_ipi(index, ICR_TYPE_STARTUP | ICR_ASSERT, vector);
     kernel_delay(microseconds(200));
-    apic_ipi(index, ICR_TYPE_STARTUP, vector);
+    apic_ipi(index, ICR_TYPE_STARTUP | ICR_ASSERT, vector);
     for (u64 to = 0; total_processors != nproc + 1 && to < AP_START_TIMEOUT_MS; to++)
         kernel_delay(milliseconds(1));
 }
