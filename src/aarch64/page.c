@@ -352,7 +352,7 @@ static boolean map_area(range v, u64 p, u64 flags)
     return r;
 }
 
-void map(u64 v, physical p, u64 length, pageflags flags)
+void map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     page_init_debug("map: v ");
     page_init_debug_u64(v);
@@ -372,6 +372,8 @@ void map(u64 v, physical p, u64 length, pageflags flags)
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
              v, p, length, flags.w);
     }
+    if (complete)
+        apply(complete, STATUS_OK);
 }
 
 flush_entry get_page_flush_entry(void)
@@ -383,11 +385,11 @@ void page_invalidate_flush(void)
 {
 }
 
-void page_invalidate_sync(flush_entry f, thunk completion)
+void page_invalidate_sync(flush_entry f, status_handler completion)
 {
     post_sync();
     if (completion)
-        apply(completion);
+        apply(completion, STATUS_OK);
 }
 
 void page_invalidate(flush_entry f, u64 address)
@@ -530,7 +532,7 @@ closure_function(2, 3, boolean, update_pte_flags,
 }
 
 /* Update access protection flags for any pages mapped within a given area */
-void update_map_flags(u64 vaddr, u64 length, pageflags flags)
+void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete)
 {
     page_init_debug("update_map_flags: vaddr ");
     page_init_debug_u64(vaddr);
@@ -542,7 +544,7 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, complete);
 }
 
 /* called with lock held */

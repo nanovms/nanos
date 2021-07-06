@@ -113,6 +113,11 @@ static inline boolean this_cpu_has_kernel_lock(void)
     return current_cpu()->have_kernel_lock;
 }
 
+static inline void this_cpu_release_kernel_lock(void)
+{
+    current_cpu()->have_kernel_lock = false;
+}
+
 NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
     cpuinfo ci = current_cpu();
