@@ -48,11 +48,11 @@ void init_cpu_features()
     cr &= ~C0_EM;
     mov_to_cr("cr0", cr);
     if (use_xsave) {
-        if (v[2] & CPUID_AVX) {
-            xgetbv(0, &v[0], &v[1]);
-            v[0] |= XCR0_SSE | XCR0_AVX;
-            xsetbv(0, v[0], v[1]);
-        }
+        xgetbv(0, &v[0], &v[1]);
+        v[0] |= XCR0_SSE;
+        if (v[2] & CPUID_AVX)
+            v[0] |= XCR0_AVX;
+        xsetbv(0, v[0], v[1]);
         cpuid(0xd, 0, v);
         extended_frame_size = v[1];
     }
