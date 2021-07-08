@@ -128,7 +128,7 @@ static void service_list(boolean trydefer)
 
 closure_function(0, 0, void, do_flush_service)
 {
-    thunk c;
+    status_handler c;
 
     while (service_scheduled) {
         service_scheduled = false;
@@ -136,7 +136,7 @@ closure_function(0, 0, void, do_flush_service)
         service_list(false);
         spin_wunlock_irq(&flush_lock, flags);
         while ((c = dequeue(flush_completion_queue)) != INVALID_ADDRESS) {
-            apply(c);
+            apply(c, STATUS_OK);
         }
     }
 }

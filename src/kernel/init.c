@@ -374,7 +374,8 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
                     closure(locked, storage_shutdown));
 
     if (vector_length(shutdown_completions) > 0) {
-        if (this_cpu_has_kernel_lock()) {
+        cpuinfo ci = current_cpu();
+        if (ci->have_kernel_lock) {
             vector_foreach(shutdown_completions, h)
                 apply(h, status, m);
             apply(sh, STATUS_OK);
@@ -385,7 +386,6 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
             vector_foreach(shutdown_completions, h)
                 enqueue_irqsafe(runqueue,
                                 closure(locked, do_shutdown_handler, h, status, m));
-            cpuinfo ci = current_cpu();
             if (ci->state == cpu_interrupt) {
                 interrupt_exit();
                 get_running_frame(ci)[FRAME_FULL] = false;

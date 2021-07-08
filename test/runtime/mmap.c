@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -19,6 +20,9 @@
 
 /* for sha */
 #include <runtime.h>
+
+/* number of threads for multithreaded file-backed fault test */
+#define MT_N_THREADS 4
 
 #define handle_err(s) do { perror(s); exit(EXIT_FAILURE);} while(0)
 
@@ -1012,6 +1016,104 @@ static void filebacked_test(heap h)
     printf("** all file-backed tests passed\n");
 }
 
+struct {
+    void *p;
+    pthread_mutex_t mutex;
+    pthread_cond_t running_cond;
+    pthread_cond_t enable_cond;
+    int running;
+    int enable;
+    int fd;
+    int out_fd;
+    int kern_thread;
+} mt;
+
+static void *mt_worker(void *z)
+{
+    int n = (int)(long)z;
+    /* bump count and signal ready */
+    pthread_mutex_lock(&mt.mutex);
+    mt.running++;
+    pthread_cond_signal(&mt.running_cond);
+    pthread_mutex_unlock(&mt.mutex);
+
+    /* wait for run condition */
+    pthread_mutex_lock(&mt.mutex);
+    while (!mt.enable) {
+        pthread_cond_wait(&mt.enable_cond, &mt.mutex);
+    }
+    pthread_mutex_unlock(&mt.mutex);
+
+    /* access page */
+    if (n == mt.kern_thread) {
+        /* induce kernel pagefault by writing from fault page */
+        if (write(mt.out_fd, mt.p, PAGESIZE) < 0)
+            handle_err("mt write");
+        close(mt.out_fd);
+        mt.out_fd = 0;
+    } else {
+        (void)*((volatile unsigned long *)mt.p);
+    }
+    pthread_exit(0);
+}
+
+/* This is designed to induce multiple concurrent faults for a common
+   page. Without in-kernel diagnostics, this behavior will just need to be
+   validated by manually running test with multiple cores and with debugs
+   enabled that report such concurrency (basically anything being added to a
+   pending_fault dependency list or the kern flag being set on an existing
+   entry). It may also help to pick a storage driver and device that are
+   particularly slow. At worst, this test will just induce no concurrency and
+   pass without validating anything. */
+void multithread_filebacked_test(heap h, int n_threads)
+{
+    printf("** starting multi-thread file-backed test\n");
+    pthread_t *threads = malloc(sizeof(pthread_t) * n_threads);
+    mt.fd = open("mapfile2", O_RDONLY);
+    if (mt.fd < 0)
+        handle_err("mt open");
+    mt.out_fd = open("outfile", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (mt.out_fd < 0)
+        handle_err("mt create");
+    if (ftruncate(mt.out_fd, PAGESIZE) < 0)
+        handle_err("mt ftruncate");
+    mt.p = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE, mt.fd, 0);
+    if (mt.p == (void *)-1ull)
+        handle_err("mmap mapfile, first page");
+
+    mt.enable = 0;
+    mt.running = 0;
+    mt.kern_thread = 0;
+    pthread_mutex_init(&mt.mutex, 0);
+    pthread_cond_init(&mt.running_cond, 0);
+    pthread_cond_init(&mt.enable_cond, 0);
+
+    /* create worker threads that each hit the same page */
+    for (int i = 0; i < n_threads; i++) {
+        int r = pthread_create(threads + i, 0, mt_worker, (void*)(long)i);
+        if (r != 0)
+            handle_err("pthread_create");
+    }
+
+    /* wait for threads to start */
+    pthread_mutex_lock(&mt.mutex);
+    while (mt.running < n_threads)
+        pthread_cond_wait(&mt.running_cond, &mt.mutex);
+    pthread_mutex_unlock(&mt.mutex);
+
+    /* start threads */
+    pthread_mutex_lock(&mt.mutex);
+    mt.enable = 1;
+    pthread_cond_broadcast(&mt.enable_cond);
+    pthread_mutex_unlock(&mt.mutex);
+    for (int i = 0; i < n_threads; i++) {
+        if (pthread_join(threads[i], NULL) != 0)
+            handle_err("pthread_join");
+    }
+    munmap(mt.p, PAGESIZE);
+    close(mt.fd);
+}
+
 static volatile int expect_sigbus = 0;
 static sigjmp_buf sjb;
 
@@ -1095,11 +1197,13 @@ int main(int argc, char * argv[])
     /* flush printfs immediately */
     setbuf(stdout, NULL);
 
+    heap h = init_process_runtime();
     mmap_test();
     mincore_test();
     mremap_test();
     mprotect_test();
-    filebacked_test(init_process_runtime());
+    filebacked_test(h);
+    multithread_filebacked_test(h, MT_N_THREADS);
     filebacked_sigbus_test();
 
     printf("\n**** all tests passed ****\n");
