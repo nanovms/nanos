@@ -60,8 +60,8 @@ define_closure_function(1, 0, void, kernel_frame_return,
     resume_kernel_context(bound(kc));
 }
 
-define_closure_function(6, 0, void, thread_demand_file_page,
-                        pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags, boolean, bh)
+define_closure_function(5, 0, void, thread_demand_file_page,
+                        pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
 {
     pending_fault pf = bound(pf);
     vmap vm = bound(vm);
@@ -69,7 +69,7 @@ define_closure_function(6, 0, void, thread_demand_file_page,
     pf_debug("%s: pending_fault %p, node_offset 0x%lx, page_addr 0x%lx\n",
              __func__, pf, bound(node_offset), pf->addr);
     pagecache_map_page(pn, bound(node_offset), pf->addr, bound(flags),
-                       (status_handler)&pf->complete, bound(bh));
+                       (status_handler)&pf->complete, true /* bhqueue */);
     range ra = irange(bound(node_offset) + PAGESIZE,
         vm->node_offset + range_span(vm->node.r));
     if (range_valid(ra)) {
@@ -79,7 +79,7 @@ define_closure_function(6, 0, void, thread_demand_file_page,
     }
 }
 
-/* This could be called from either the bh or run queues. */
+/* serviced from bhqueue */
 define_closure_function(1, 1, void, pending_fault_complete,
                         pending_fault, pf,
                         status, s)
@@ -93,7 +93,7 @@ define_closure_function(1, 1, void, pending_fault_complete,
         pf_debug("   wake tid %d\n", t->tid);
         list_delete(l);
         if (!is_ok(s))
-            deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
+            deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR); /* XXX move to runqueue, or lock up */
         schedule_frame(thread_frame(t));
         refcount_release(&t->refcount);
     }
@@ -159,6 +159,16 @@ static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
     return true;
 }
 
+static void suspend_kernel(pending_fault pf)
+{
+    pf_debug("%s\n", __func__);
+    assert(!mmap_info.faulting_kernel_context);
+    assert(current_cpu()->have_kernel_lock);
+    mmap_info.faulting_kernel_context = suspend_kernel_context();
+    pf->kern = true;
+    current_cpu()->have_kernel_lock = false;
+}
+
 static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 vaddr, boolean in_kernel)
 {
     pageflags flags = pageflags_from_vmflags(vm->flags);
@@ -198,14 +208,10 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
     /* page not filled - schedule a page fill for this thread */
     refcount_reserve(&t->refcount);
     init_closure(&t->demand_file_page, thread_demand_file_page,
-                 pf, vm, node_offset, page_addr, flags, in_kernel /* bhqueue */);
+                 pf, vm, node_offset, page_addr, flags);
     u64 saved_flags = spin_lock_irq(&t->p->faulting_lock);
     if (in_kernel) {
-        assert(!mmap_info.faulting_kernel_context);
-        assert(this_cpu_has_kernel_lock());
-        mmap_info.faulting_kernel_context = suspend_kernel_context();
-        pf->kern = true;
-        this_cpu_release_kernel_lock();
+        suspend_kernel(pf);
     } else {
         list_insert_before(&pf->dependents, &t->l_faultwait);
     }
@@ -238,9 +244,9 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
     u64 flags = spin_lock_irq(&p->faulting_lock);
     pending_fault pf = find_pending_fault_locked(p, page_addr);
     if (pf) {
-        pf_debug("   found pf %p\n", pf);
+        pf_debug("   found pending_fault %p\n", pf);
         if (in_kernel) {
-            pf->kern = true;
+            suspend_kernel(pf);
         } else {
             refcount_reserve(&t->refcount); /* for fault */
             list_insert_before(&pf->dependents, &t->l_faultwait);
@@ -250,7 +256,7 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
     } else {
         pf = new_pending_fault_locked(p, page_addr);
         spin_unlock_irq(&p->faulting_lock, flags);
-
+        pf_debug("   new pending_fault %p\n", pf);
         int mmap_type = vm->flags & VMAP_MMAP_TYPE_MASK;
         switch (mmap_type) {
         case VMAP_MMAP_TYPE_ANONYMOUS:

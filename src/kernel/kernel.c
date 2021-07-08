@@ -58,6 +58,11 @@ void deallocate_kernel_context(kernel_context c)
     deallocate((heap)pointer_from_u64(c->frame[FRAME_HEAP]), c, KERNEL_STACK_SIZE + total_frame_size());
 }
 
+boolean kernel_suspended(void)
+{
+    return spare_kernel_context == 0;
+}
+
 kernel_context suspend_kernel_context(void)
 {
     cpuinfo ci = current_cpu();

@@ -240,8 +240,8 @@ declare_closure_struct(1, 0, void, run_sighandler,
 declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
-declare_closure_struct(6, 0, void, thread_demand_file_page,
-                       pending_fault, pf, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags, boolean, bh);
+declare_closure_struct(5, 0, void, thread_demand_file_page,
+                       pending_fault, pf, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
 declare_closure_struct(2, 1, void, thread_demand_page_complete,
                        thread, t, u64, vaddr,
                        status, s);

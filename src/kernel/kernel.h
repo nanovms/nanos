@@ -108,16 +108,6 @@ static inline void count_major_fault(void)
 
 void runloop_internal() __attribute__((noreturn));
 
-static inline boolean this_cpu_has_kernel_lock(void)
-{
-    return current_cpu()->have_kernel_lock;
-}
-
-static inline void this_cpu_release_kernel_lock(void)
-{
-    current_cpu()->have_kernel_lock = false;
-}
-
 NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
     cpuinfo ci = current_cpu();
@@ -147,6 +137,7 @@ void deallocate_stack(heap h, u64 size, void *stack);
 kernel_context allocate_kernel_context(heap h);
 void deallocate_kernel_context(kernel_context c);
 void init_kernel_contexts(heap backed);
+boolean kernel_suspended(void);
 kernel_context suspend_kernel_context(void);
 void resume_kernel_context(kernel_context c);
 void frame_return(context frame) __attribute__((noreturn));

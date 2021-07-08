@@ -2454,7 +2454,7 @@ static boolean syscall_defer;
 static void syscall_schedule(context f)
 {
     /* kernel context set on syscall entry */
-    if (!syscall_defer)
+    if (!syscall_defer && !kernel_suspended())
         kern_lock();
     else if (!kern_try_lock()) {
         enqueue_irqsafe(runqueue, &current->deferred_syscall);
