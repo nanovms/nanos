@@ -606,6 +606,12 @@ int main(int argc, char **argv)
     if (uefi_loader && !bootimg_path)
         halt("UEFI loader can only be supplied together with boot image\n");
     argc -= optind;
+
+    if (argc == 0) {
+        usage(argv[0]);
+        exit(1);
+    }
+
     argv += optind;
     const char *image_path = argv[0];
 
