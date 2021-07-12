@@ -38,7 +38,7 @@
 #define FRAME_FAULT_HANDLER 26
 #define FRAME_STACK_TOP 27
 #define FRAME_STACK_BOTTOM 28 /* ??*/
-#define FRAME_SAVED_FRAME 29
+#define FRAME_CPU 29
 
 #define FRAME_CR2 30
 #define FRAME_RUN 31 /*dont like this construction */

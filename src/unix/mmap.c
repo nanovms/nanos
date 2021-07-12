@@ -53,7 +53,7 @@ define_closure_function(3, 1, void, thread_demand_file_page_complete,
         rprintf("%s: page fill failed with %v\n", __func__, s);
         deliver_fault_signal(SIGBUS, bound(t), bound(vaddr), BUS_ADRERR);
     }
-    schedule_frame(bound(frame));
+    schedule_thread_frame(bound(frame), true);
     refcount_release(&bound(t)->refcount);
 }
 

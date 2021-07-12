@@ -20,11 +20,14 @@ static inline void spin_unlock(spinlock l) {
 
 static inline void spin_rlock(rw_spinlock l) {
     while (1) {
+        if (l->l.w) {
+            kern_pause();
+            continue;
+        }
         fetch_and_add(&l->readers, 1);
         if (!l->l.w)
             return;
         fetch_and_add(&l->readers, -1);
-        kern_pause();
     }
 }
 

@@ -39,7 +39,7 @@ static u64 xapic_read(apic_iface i, int reg)
     return d;
 }
 
-static u8 xapic_legacy_id(apic_iface i)
+static u32 xapic_get_id(apic_iface i)
 {
     return xapic_read(i, APIC_APICID) >> 24;
 }
@@ -81,7 +81,7 @@ static boolean detect(apic_iface i, kernel_heaps kh)
 
 struct apic_iface xapic_if = {
     "xapic",
-    xapic_legacy_id,
+    xapic_get_id,
     xapic_write,
     xapic_read,
     xapic_ipi,

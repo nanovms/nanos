@@ -26,7 +26,7 @@ boolean shutting_down;
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
 timerheap runloop_timers;
-u64 idle_cpu_mask;              /* xxx - limited to 64 aps. consider merging with bitmask */
+bitmap idle_cpu_mask;
 timestamp last_timer_update;
 
 static timestamp runloop_timer_min;
@@ -101,14 +101,48 @@ static inline void sched_thread_pause(void)
     }
 }
 
+void schedule_thread_frame(context frame, boolean prefer_current)
+{
+    if (total_processors == 1) {
+        schedule_frame(frame);
+        return;
+    }
+    cpuinfo target;
+    cpuinfo ci = current_cpu();
+    if (prefer_current && queue_empty(ci->thread_queue)) {
+        target = ci;
+        goto schedule;
+    }
+    cpuinfo prev = pointer_from_u64(frame[FRAME_CPU]);
+    target = prev;
+    u64 cpu = bitmap_range_get_first(idle_cpu_mask, prev->id, total_processors - prev->id);
+    if (cpu != INVALID_PHYSICAL) {
+        target = cpuinfo_from_id(cpu);
+        goto schedule;
+    }
+    cpu = bitmap_range_get_first(idle_cpu_mask, 0, prev->id);
+    if (cpu != INVALID_PHYSICAL)
+        target = cpuinfo_from_id(cpu);
+  schedule:
+    frame[FRAME_CPU] = u64_from_pointer(target);
+    frame[FRAME_QUEUE] = u64_from_pointer(target->thread_queue);
+    schedule_frame(frame);
+    if ((target != ci) && (bitmap_get(idle_cpu_mask, target->id)))
+        send_ipi(target->id, wakeup_vector);
+}
+
 NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 {
-    // we're going to cover up this race by checking the state in the interrupt
-    // handler...we shouldn't return here if we do get interrupted
     cpuinfo ci = current_cpu();
     sched_debug("sleep\n");
     ci->state = cpu_idle;
-    atomic_set_bit(&idle_cpu_mask, ci->id);
+    if (idle_cpu_mask) {
+        bitmap_set_atomic(idle_cpu_mask, ci->id, 1);
+        if (!shutting_down && !queue_empty(ci->thread_queue)) {
+            bitmap_set_atomic(idle_cpu_mask, ci->id, 0);
+            runloop();
+        }
+    }
 
     while (1) {
         wait_for_interrupt();
@@ -120,51 +154,9 @@ void wakeup_or_interrupt_cpu_all()
     cpuinfo ci = current_cpu();
     for (int i = 0; i < total_processors; i++) {
         if (i != ci->id) {
-            atomic_clear_bit(&idle_cpu_mask, i);
+            bitmap_set_atomic(idle_cpu_mask, i, 0);
             send_ipi(i, wakeup_vector);
         }
-    }
-}
-
-static void wakeup_cpu(u64 cpu)
-{
-    if (atomic_test_and_clear_bit(&idle_cpu_mask, cpu)) {
-        sched_debug("waking up CPU %d\n", cpu);
-        send_ipi(cpu, wakeup_vector);
-    }
-}
-
-static thunk migrate_to_self(thunk t, u64 cpu_mask)
-{
-    while (cpu_mask) {
-        u64 cpu = lsb(cpu_mask);
-        cpuinfo cpui = cpuinfo_from_id(cpu);
-        if (t == INVALID_ADDRESS) {
-            t = dequeue(cpui->thread_queue);
-            if (t != INVALID_ADDRESS)
-                sched_debug("migrating thread from idle CPU %d to self\n", cpu);
-        }
-        if ((t != INVALID_ADDRESS) && !queue_empty(cpui->thread_queue))
-            wakeup_cpu(cpu);
-        cpu_mask &= ~U64_FROM_BIT(cpu);
-    }
-    return t;
-}
-
-static void migrate_from_self(cpuinfo ci, u64 cpu_mask)
-{
-    while (cpu_mask) {
-        u64 cpu = lsb(cpu_mask);
-        cpuinfo cpui = cpuinfo_from_id(cpu);
-        thunk t;
-        if (!queue_empty(cpui->thread_queue)) {
-            wakeup_cpu(cpu);
-        } else if ((t = dequeue(ci->thread_queue)) != INVALID_ADDRESS) {
-            sched_debug("migrating thread from self to idle CPU %d\n", cpu);
-            enqueue(cpui->thread_queue, t);
-            wakeup_cpu(cpu);
-        }
-        cpu_mask &= ~U64_FROM_BIT(cpu);
     }
 }
 
@@ -177,9 +169,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     sched_thread_pause();
     disable_interrupts();
-    sched_debug("runloop from %s b:%d r:%d t:%d i:%x%s\n", state_strings[ci->state],
+    sched_debug("runloop from %s b:%d r:%d t:%d%s\n", state_strings[ci->state],
                 queue_length(bhqueue), queue_length(runqueue), queue_length(ci->thread_queue),
-                idle_cpu_mask, ci->have_kernel_lock ? " locked" : "");
+                ci->have_kernel_lock ? " locked" : "");
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();
@@ -206,36 +198,21 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     if (!shutting_down) {
         t = dequeue(ci->thread_queue);
         if (t == INVALID_ADDRESS) {
-            if (idle_cpu_mask) {
-                /* Try to steal a thread from an idle CPU (so that it doesn't
-                 * have to be woken up), and wake up CPUs that have a non-empty
-                 * thread queue). */
-                t = migrate_to_self(t, idle_cpu_mask & ~MASK(ci->id + 1));
-                t = migrate_to_self(t, idle_cpu_mask & MASK(ci->id));
-            }
-            if (t == INVALID_ADDRESS) {
-                /* No threads found in idle CPUs: try to steal a thread from a
-                 * CPU that is currently running another thread. */
-                for (u64 cpu = ci->id + 1; ; cpu++) {
-                    if (cpu == total_processors)
-                        cpu = 0;
-                    if (cpu == ci->id)
+            /* Try to steal a thread from a CPU that is currently running another thread. */
+            for (u64 cpu = ci->id + 1; ; cpu++) {
+                if (cpu == total_processors)
+                    cpu = 0;
+                if (cpu == ci->id)
+                    break;
+                cpuinfo cpui = cpuinfo_from_id(cpu);
+                if (cpui->state == cpu_user) {
+                    t = dequeue(cpui->thread_queue);
+                    if (t != INVALID_ADDRESS) {
+                        sched_debug("migrating thread from CPU %d to self\n", cpu);
                         break;
-                    cpuinfo cpui = cpuinfo_from_id(cpu);
-                    if (cpui->state == cpu_user) {
-                        t = dequeue(cpui->thread_queue);
-                        if (t != INVALID_ADDRESS) {
-                            sched_debug("migrating thread from CPU %d to self\n", cpu);
-                            break;
-                        }
                     }
                 }
             }
-        } else if (idle_cpu_mask) {
-            /* Wake up idle CPUs that have a non-empty thread queue, and if our
-             * thread queue is non-empty, migrate our threads to idle CPUs. */
-            migrate_from_self(ci, idle_cpu_mask & ~MASK(ci->id + 1));
-            migrate_from_self(ci, idle_cpu_mask & MASK(ci->id));
         }
         if (t != INVALID_ADDRESS) {
             if (!timer_updated && (total_processors > 1)) {
@@ -277,4 +254,11 @@ void init_scheduler(heap h)
     runloop_timers = allocate_timerheap(h, "runloop");
     assert(runloop_timers != INVALID_ADDRESS);
     shutting_down = false;
+}
+
+void init_scheduler_cpus(heap h)
+{
+    idle_cpu_mask = allocate_bitmap(h, h, total_processors);
+    assert(idle_cpu_mask != INVALID_ADDRESS);
+    bitmap_alloc(idle_cpu_mask, total_processors);
 }

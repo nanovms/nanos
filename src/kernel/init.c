@@ -318,6 +318,7 @@ void kernel_runtime_init(kernel_heaps kh)
 
     init_debug("start_secondary_cores");
     start_secondary_cores(kh);
+    init_scheduler_cpus(misc);
 
     init_debug("starting runloop");
     runloop();

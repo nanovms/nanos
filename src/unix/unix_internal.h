@@ -106,11 +106,6 @@ struct sysinfo {
                         /* Padding to 64 bytes */
 };
 
-#define CPU_SET_WORDS   (pad(MAX_CPUS, 64) >> 6)
-typedef struct {
-    u64 mask[CPU_SET_WORDS];
-} cpu_set_t;
-
 typedef struct user_cap_header {
     u32 version;
     int pid;
@@ -295,7 +290,7 @@ typedef struct thread {
     u64 signal_stack_length;
 
     closure_struct(resume_syscall, deferred_syscall);
-    cpu_set_t affinity;    
+    bitmap affinity;
 } *thread;
 
 typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, thread t,

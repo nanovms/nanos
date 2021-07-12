@@ -90,7 +90,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
         t->clear_tid = ctid;
     t->blocked_on = 0;
     t->syscall = -1;
-    schedule_frame(t->default_frame);
+    schedule_thread_frame(t->default_frame, false);
     return t->tid;
 }
 
@@ -171,7 +171,6 @@ static inline void run_thread_frame(thread t)
     thread_frame_restore_tls(f);
     thread_frame_restore_fpsimd(f);
     frame_enable_interrupts(f);
-    f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 
     thread_log(t, "run %s, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
                f == t->sighandler_frame ? "sig handler" : "thread",
@@ -206,7 +205,9 @@ define_closure_function(1, 0, void, run_sighandler,
 static void setup_thread_frame(heap h, context frame, thread t)
 {
     frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
-    frame[FRAME_QUEUE] = u64_from_pointer(current_cpu()->thread_queue);
+    cpuinfo ci = current_cpu();
+    frame[FRAME_CPU] = u64_from_pointer(ci);
+    frame[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 #ifdef __x86_64__
     frame[FRAME_IS_SYSCALL] = 1;
     frame[FRAME_CS] = 0x2b; // where is this defined?
@@ -260,7 +261,7 @@ void thread_wakeup(thread t)
     assert(t->blocked_on);
     t->blocked_on = 0;
     t->syscall = -1;
-    schedule_frame(thread_frame(t));
+    schedule_thread_frame(thread_frame(t), true);
 }
 
 boolean thread_attempt_interrupt(thread t)
@@ -335,8 +336,10 @@ thread create_thread(process p)
     t->sighandler_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_sighandler, run_sighandler, t));
 
     t->thrd.pause = init_closure(&t->pause_thread, pause_thread, t);
-    // xxx another max 64
-    t->affinity.mask[0] = MASK(total_processors);
+    t->affinity = allocate_bitmap(h, h, total_processors);
+    if (t->affinity == INVALID_ADDRESS)
+        goto fail_affinity;
+    bitmap_range_check_and_set(t->affinity, 0, total_processors, false, true);
     t->blocked_on = 0;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
@@ -352,6 +355,10 @@ thread create_thread(process p)
     rbtree_insert_node(p->threads, &t->n);
     spin_unlock(&p->threads_lock);
     return t;
+  fail_affinity:
+    deallocate_frame(t->sighandler_frame);
+    deallocate_frame(t->default_frame);
+    deallocate_notify_set(t->signalfds);
   fail_sfds:
     deallocate_blockq(t->thread_bq);
   fail_bq:
