@@ -28,6 +28,7 @@ struct stat {
 } __attribute__((packed));
 
 #define O_DIRECT        00040000
+#define O_DIRECTORY     00200000
 #define O_NOFOLLOW      00400000
 
 #define MAP_32BIT           0x40

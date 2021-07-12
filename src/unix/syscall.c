@@ -276,6 +276,8 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
+    if (fdesc_type(f) == FDESC_TYPE_DIRECTORY)
+        return -EISDIR;
     iov_op(f, false, iov, iovcnt, infinity, true, syscall_io_complete);
     return thread_maybe_sleep_uninterruptible(current);
 }
@@ -458,7 +460,8 @@ closure_function(2, 6, sysreturn, file_read,
                  void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
     file f = bound(f);
-
+    if (fdesc_type(&f->f) == FDESC_TYPE_DIRECTORY)
+        return -EISDIR;
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
@@ -764,9 +767,16 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
     case O_RDWR:
         if (!(file_meta_perms(current->p, n) & ACCESS_PERM_WRITE))
             return -EACCES;
+        if (is_dir(n))
+            return -EISDIR;
         break;
     default:
         return -EINVAL;
+    }
+
+    if ((flags & (O_CREAT|O_DIRECTORY)) == O_DIRECTORY && !is_dir(n)) {
+        thread_log(current, "\"%s\" opened with O_DIRECTORY but is not a directory", name);
+        return -ENOTDIR;
     }
 
     u64 length = 0;

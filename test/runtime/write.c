@@ -50,7 +50,43 @@ void basic_write_test()
 {
     char buf[BUFLEN];
     ssize_t rv;
-    int fd = open("hello", O_RDWR);
+    int fd = open("/", O_RDWR);
+    if (fd != -1 || errno != EISDIR) {
+        perror("open directory rdwr");
+        exit(EXIT_FAILURE);
+    }
+    fd = open("/", O_WRONLY);
+    if (fd != -1 || errno != EISDIR) {
+        perror("open directory wr");
+        exit(EXIT_FAILURE);
+    }
+    fd = open("/", O_RDONLY | O_DIRECTORY);
+    if (fd < 0) {
+        perror("open directory");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+    fd = open("/", O_RDONLY);
+    if (fd < 0) {
+        perror("open directory rd");
+        exit(EXIT_FAILURE);
+    }
+    if (read(fd, buf, BUFLEN) != -1 || errno != EISDIR) {
+        perror("read directory");
+        exit(EXIT_FAILURE);
+    }
+    if (write(fd, buf, BUFLEN) != -1 || errno != EBADF) {
+        perror("write directory");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
+    fd = open("hello", O_RDWR | O_DIRECTORY);
+    if (fd != -1 || errno != ENOTDIR) {
+        perror("open file as directory");
+        exit(EXIT_FAILURE);
+    }
+    fd = open("hello", O_RDWR);
     if (fd < 0) {
         perror("open");
         exit(EXIT_FAILURE);
