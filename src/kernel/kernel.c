@@ -122,8 +122,7 @@ void init_kernel_contexts(heap backed)
 
 void install_fallback_fault_handler(fault_handler h)
 {
-    for (int i = 0; i < MAX_CPUS; i++) {
-        context f = frame_from_kernel_context(get_kernel_context(cpuinfo_from_id(i)));
-        f[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-    }
+    for (int i = 0; i < MAX_CPUS; i++)
+        set_fault_handler(get_kernel_context(cpuinfo_from_id(i)), h);
+    set_fault_handler(spare_kernel_context, h);
 }

@@ -199,7 +199,6 @@ static void write_pte(u64 target, physical to, u64 flags, boolean * invalidate)
 #endif
 	return;
     }
-    assert(!pte_is_present(*pteptr));
     /* Unconditionally invalidate in case this cpu's TLB is not up-to-date. The
      * TLB can be outdated in SMP situations where another cpu has marked the
      * PTE as not present but this cpu hasn't processed the shootdown yet. */

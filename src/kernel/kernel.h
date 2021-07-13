@@ -33,6 +33,8 @@ typedef struct cpuinfo {
 #endif
 } *cpuinfo;
 
+typedef closure_type(fault_handler, context, context);
+
 extern struct cpuinfo cpuinfos[];
 
 /* subsume with introspection */
@@ -94,6 +96,12 @@ static inline __attribute__((always_inline)) context frame_from_kernel_context(k
 static inline __attribute__((always_inline)) void *stack_from_kernel_context(kernel_context c)
 {
     return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
+}
+
+static inline __attribute__((always_inline)) void set_fault_handler(kernel_context kc, fault_handler h)
+{
+    context f = frame_from_kernel_context(kc);
+    f[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
 }
 
 static inline void count_minor_fault(void)
@@ -209,8 +217,6 @@ heap locking_heap_wrapper(heap meta, heap parent);
 
 void print_stack(context c);
 void print_frame(context f);
-
-typedef closure_type(fault_handler, context, context);
 
 void configure_timer(timestamp rate, thunk t);
 

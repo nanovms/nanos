@@ -33,7 +33,6 @@ static struct {
     struct list pf_freelist;
 
     kernel_context faulting_kernel_context;
-    boolean kernel_demand_page_completed;
 } mmap_info;
 
 define_closure_function(0, 2, int, pending_fault_compare,
@@ -1261,7 +1260,6 @@ void mmap_process_init(process p, boolean aslr)
                          ivmap(VMAP_FLAG_EXEC, 0, 0, 0)) != INVALID_ADDRESS);
 #endif
 
-    mmap_info.kernel_demand_page_completed = false;
     mmap_info.faulting_kernel_context = 0;
     spin_lock_init(&p->faulting_lock);
     init_rbtree(&p->pending_faults,
