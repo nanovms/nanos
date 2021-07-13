@@ -1107,20 +1107,12 @@ static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, pageflags flags
     map_with_complete(vaddr, pp->phys, cache_pagesize(pc), flags, complete);
 }
 
-closure_function(6, 1, void, map_page_finish,
-                 pagecache, pc, pagecache_page, pp, u64, vaddr, pageflags, flags, boolean, bh, status_handler, complete,
+closure_function(5, 1, void, map_page_finish,
+                 pagecache, pc, pagecache_page, pp, u64, vaddr, pageflags, flags, status_handler, complete,
                  status, s)
 {
     if (is_ok(s)) {
-        status_handler complete;
-        if (bound(bh)) {
-            /* Don't wait for flush on a kernel page fault. */
-            complete = 0;
-            apply(bound(complete), s);
-        } else {
-            complete = bound(complete);
-        }
-        map_page(bound(pc), bound(pp), bound(vaddr), bound(flags), complete);
+        map_page(bound(pc), bound(pp), bound(vaddr), bound(flags), bound(complete));
     } else {
         apply(bound(complete), s);
     }
@@ -1128,7 +1120,7 @@ closure_function(6, 1, void, map_page_finish,
 }
 
 void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
-                        status_handler complete, boolean bh)
+                        status_handler complete)
 {
     pagecache pc = pn->pv->pc;
     pagecache_lock_node(pn);
@@ -1142,9 +1134,9 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
         return;
     }
     merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,
-                                            pc, pp, vaddr, flags, bh, complete));
+                                            pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
-    touch_or_fill_page_nodelocked(pn, pp, m, bh);
+    touch_or_fill_page_nodelocked(pn, pp, m, true /* bh */);
     refcount_reserve(&pp->refcount);
     pagecache_unlock_node(pn);
     apply(k, STATUS_OK);

@@ -135,9 +135,8 @@ closure_function(0, 0, void, do_flush_service)
         u64 flags = spin_wlock_irq(&flush_lock);
         service_list(false);
         spin_wunlock_irq(&flush_lock, flags);
-        while ((c = dequeue(flush_completion_queue)) != INVALID_ADDRESS) {
+        while ((c = dequeue(flush_completion_queue)) != INVALID_ADDRESS)
             apply(c, STATUS_OK);
-        }
     }
 }
 
@@ -145,7 +144,7 @@ static void queue_flush_service(void)
 {
     if (!service_scheduled) {
         service_scheduled = true;
-        assert(enqueue(runqueue, flush_service));
+        assert(enqueue_irqsafe(bhqueue, flush_service));
     }
 }
 

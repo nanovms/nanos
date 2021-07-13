@@ -69,7 +69,7 @@ define_closure_function(5, 0, void, thread_demand_file_page,
     pf_debug("%s: pending_fault %p, node_offset 0x%lx, page_addr 0x%lx\n",
              __func__, pf, bound(node_offset), pf->addr);
     pagecache_map_page(pn, bound(node_offset), pf->addr, bound(flags),
-                       (status_handler)&pf->complete, true /* bhqueue */);
+                       (status_handler)&pf->complete);
     range ra = irange(bound(node_offset) + PAGESIZE,
         vm->node_offset + range_span(vm->node.r));
     if (range_valid(ra)) {
@@ -99,11 +99,10 @@ define_closure_function(1, 1, void, pending_fault_complete,
     }
 
     if (pf->kern) {
-        if (mmap_info.faulting_kernel_context) {
-            init_closure(&mmap_info.do_kernel_frame_return, kernel_frame_return, mmap_info.faulting_kernel_context);
-            mmap_info.faulting_kernel_context = 0;
-            enqueue_irqsafe(bhqueue, (thunk)&mmap_info.do_kernel_frame_return);
-        }
+        assert(mmap_info.faulting_kernel_context);
+        init_closure(&mmap_info.do_kernel_frame_return, kernel_frame_return, mmap_info.faulting_kernel_context);
+        mmap_info.faulting_kernel_context = 0;
+        enqueue_irqsafe(bhqueue, (thunk)&mmap_info.do_kernel_frame_return);
     }
 
     process p = pf->p;
@@ -165,6 +164,7 @@ static void suspend_kernel(pending_fault pf)
     assert(!mmap_info.faulting_kernel_context);
     assert(current_cpu()->have_kernel_lock);
     mmap_info.faulting_kernel_context = suspend_kernel_context();
+    frame_from_kernel_context(mmap_info.faulting_kernel_context)[FRAME_FULL] = false;
     pf->kern = true;
     current_cpu()->have_kernel_lock = false;
 }
@@ -223,7 +223,6 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
 
 boolean do_demand_page(u64 vaddr, vmap vm, context frame)
 {
-    cpuinfo ci = current_cpu();
     u64 page_addr = vaddr & ~PAGEMASK;
     boolean in_kernel = is_current_kernel_context(frame);
 
@@ -270,7 +269,6 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         }
     }
     /* suspend thread or kernel context */
-    frame_from_kernel_context(get_kernel_context(ci))[FRAME_FULL] = false;
     runloop();
 }
 

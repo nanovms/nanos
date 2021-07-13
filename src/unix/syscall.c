@@ -2454,14 +2454,18 @@ static boolean syscall_defer;
 static void syscall_schedule(context f)
 {
     /* kernel context set on syscall entry */
+    current_cpu()->state = cpu_kernel;
+#if 0
+    // XXX temp disable until workaround found for spinlock / flush issue
     if (!syscall_defer && !kernel_suspended())
         kern_lock();
-    else if (!kern_try_lock()) {
+    else
+#endif
+    if (!kern_try_lock()) {
         enqueue_irqsafe(runqueue, &current->deferred_syscall);
         thread_pause(current);
         runloop();
     }
-    current_cpu()->state = cpu_kernel;
     syscall_debug(f);
 }
 
