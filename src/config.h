@@ -1,5 +1,5 @@
 /* identity-mapped space for initial page tables */
-#define INITIAL_PAGES_SIZE (64 * KB)
+#define INITIAL_PAGES_SIZE (1 * MB)
 
 /* The stage2 working heap needs to be large enough to accomodate all tfs
    allocations when loading the kernel. It gets recycled on stage3 entry. */

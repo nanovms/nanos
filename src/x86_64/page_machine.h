@@ -133,21 +133,6 @@ static inline boolean pte_is_block_mapping(pte entry)
     return (entry & PAGE_PS) != 0;
 }
 
-static inline int pt_level_shift(int level)
-{
-    switch (level) {
-    case 1:
-        return PT_SHIFT_L1;
-    case 2:
-        return PT_SHIFT_L2;
-    case 3:
-        return PT_SHIFT_L3;
-    case 4:
-        return PT_SHIFT_L4;
-    }
-    return 0;
-}
-
 static inline u64 flags_from_pte(u64 pte)
 {
     return pte & PAGE_FLAGS_MASK;
@@ -188,6 +173,21 @@ static inline u64 get_pagetable_base(u64 vaddr)
 
 u64 *pointer_from_pteaddr(u64 pa);
 
+static inline int pt_level_shift(int level)
+{
+    switch (level) {
+    case 1:
+        return PT_SHIFT_L1;
+    case 2:
+        return PT_SHIFT_L2;
+    case 3:
+        return PT_SHIFT_L3;
+    case 4:
+        return PT_SHIFT_L4;
+    }
+    return 0;
+}
+
 /* log of mapping size (block or page) if valid leaf, else 0 */
 static inline int pte_order(int level, pte entry)
 {
@@ -200,14 +200,8 @@ static inline int pte_order(int level, pte entry)
 
 static inline u64 pte_map_size(int level, pte entry)
 {
-    if (pte_is_present(entry)) {
-        // XXX take from arm
-        if (level == 4)
-            return PAGESIZE;
-        if ((entry & PAGE_PS) && level != 1)
-            return level == 2 ? HUGE_PAGESIZE : PAGESIZE_2M;
-    }
-    return INVALID_PHYSICAL;
+    int order = pte_order(level, entry);
+    return order ? U64_FROM_BIT(order) : INVALID_PHYSICAL;
 }
 
 static inline boolean pte_is_mapping(int level, pte entry)
@@ -268,7 +262,7 @@ physical physical_from_virtual(void *x);
 
 typedef struct flush_entry *flush_entry;
 
-static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
+static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     assert((v & MASK(PAGELOG)) == 0);
     assert((p & MASK(PAGELOG)) == 0);

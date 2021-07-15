@@ -257,7 +257,7 @@ void init_virtio_blk(kernel_heaps kh, storage_attach a)
 {
     virtio_blk_debug("%s\n", __func__);
     heap h = heap_locked(kh);
-    backed_heap page_allocator = (backed_heap)heap_huge_backed(kh);
+    backed_heap page_allocator = heap_huge_backed(kh);
     register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator));
     vtmmio_probe_devs(stack_closure(vtmmio_blk_probe, h, a, page_allocator));
 }

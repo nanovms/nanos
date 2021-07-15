@@ -333,11 +333,8 @@ static inline int pte_order(int level, pte entry)
 
 static inline u64 pte_map_size(int level, pte entry)
 {
-    if (pte_is_present(entry)) {
-        int order = pte_order(level, entry);
-        return order ? U64_FROM_BIT(order) : INVALID_PHYSICAL;
-    }
-    return INVALID_PHYSICAL;
+    int order = pte_order(level, entry);
+    return order ? U64_FROM_BIT(order) : INVALID_PHYSICAL;
 }
 
 static inline boolean pte_is_mapping(int level, pte entry)
@@ -407,7 +404,7 @@ static inline pageflags pageflags_from_pteptr(pteptr pp)
     return (pageflags){.w = PAGE_FLAGS_MASK & *pp};
 }
 
-static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags)
+static inline void map_and_zero(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     assert((v & MASK(PAGELOG)) == 0);
     assert((p & MASK(PAGELOG)) == 0);

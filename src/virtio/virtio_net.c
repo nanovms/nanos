@@ -339,7 +339,7 @@ closure_function(2, 1, void, vtmmio_net_probe,
 void init_virtio_network(kernel_heaps kh)
 {
     heap h = heap_locked(kh);
-    backed_heap page_allocator = (backed_heap)heap_huge_backed(kh);
+    backed_heap page_allocator = heap_huge_backed(kh);
     register_pci_driver(closure(h, vtpci_net_probe, h, page_allocator));
     vtmmio_probe_devs(stack_closure(vtmmio_net_probe, h, page_allocator));
 }
