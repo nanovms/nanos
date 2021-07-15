@@ -273,6 +273,7 @@ void irq_handler(void)
         schedule_frame(f);
     }
 
+    boolean kern_return = ci->state == cpu_kernel;
     while ((i = gic_dispatch_int()) != INTID_NO_PENDING) {
         int_debug("[%2d] # %d, state %s, EL%d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
                   ci->id, i, state_strings[ci->state], f[FRAME_EL],
@@ -295,8 +296,13 @@ void irq_handler(void)
         gic_eoi(i);
     }
 
-    if (is_current_kernel_context(f))
-        f[FRAME_FULL] = false;
+    if (is_current_kernel_context(f)) {
+        if (kern_return) {
+            ci->state = cpu_kernel;
+            frame_return(f);
+        }
+        f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+    }
     int_debug("   calling runloop\n");
     runloop();
 }

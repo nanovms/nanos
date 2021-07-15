@@ -37,9 +37,16 @@ static struct spinlock kernel_lock;
 void kern_lock()
 {
     cpuinfo ci = current_cpu();
-    assert(ci->state != cpu_interrupt);
+    context f = get_running_frame(ci);
+    assert(ci->state == cpu_kernel);
+
+    /* allow interrupt handling to occur while spinning */
+    u64 flags = irq_enable_save();
+    frame_enable_interrupts(f);
     spin_lock(&kernel_lock);
     ci->have_kernel_lock = true;
+    irq_restore(flags);
+    frame_disable_interrupts(f);
 }
 
 boolean kern_try_lock()

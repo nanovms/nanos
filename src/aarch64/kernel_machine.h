@@ -160,6 +160,13 @@ static inline void disable_interrupts(void)
     asm volatile("msr daifset, #2");
 }
 
+static inline u64 irq_enable_save(void)
+{
+    register u32 daif;
+    asm volatile("mrs %0, daif; msr daifclr, #2" : "=r"(daif));
+    return daif;
+}
+
 static inline u64 irq_disable_save(void)
 {
     register u32 daif;
@@ -334,6 +341,11 @@ static inline boolean is_div_by_zero(context f)
 static inline void frame_enable_interrupts(context f)
 {
     f[FRAME_ESR_SPSR] &= ~SPSR_I; /* EL0 */
+}
+
+static inline void frame_disable_interrupts(context f)
+{
+    f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
 }
 
 static inline void frame_set_sp(context f, u64 sp)
