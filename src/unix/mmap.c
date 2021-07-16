@@ -46,7 +46,7 @@ define_closure_function(0, 2, int, pending_fault_compare,
 define_closure_function(0, 1, boolean, pending_fault_print,
                         rbnode, n)
 {
-    rprintf(" 0x%lx", ((pending_fault)n)->p);
+    rprintf(" 0x%lx", ((pending_fault)n)->addr);
     return true;
 }
 
@@ -108,7 +108,7 @@ define_closure_function(1, 1, void, pending_fault_complete,
     u64 flags = spin_lock_irq(&p->faulting_lock);
     assert(list_empty(&pf->dependents));
     rbtree_remove_node(&pf->p->pending_faults, &pf->n);
-    list_insert_before(&mmap_info.pf_freelist, &pf->l_free);
+    list_insert_after(&mmap_info.pf_freelist, &pf->l_free);
     spin_unlock_irq(&p->faulting_lock, flags);
 }
 
