@@ -23,9 +23,9 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/clock.c \
 	$(SRCDIR)/kernel/init.c \
-	$(SRCDIR)/kernel/huge_backed_heap.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
+	$(SRCDIR)/kernel/linear_backed_heap.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/log.c \
 	$(SRCDIR)/kernel/page.c \

@@ -424,5 +424,5 @@ void init_virtio_balloon(kernel_heaps kh)
 {
     virtio_balloon_debug("%s\n", __func__);
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, vtpci_balloon_probe, h, heap_huge_backed(kh), heap_physical(kh)));
+    register_pci_driver(closure(h, vtpci_balloon_probe, h, heap_linear_backed(kh), heap_physical(kh)));
 }

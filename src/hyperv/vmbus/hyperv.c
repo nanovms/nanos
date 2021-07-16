@@ -215,7 +215,7 @@ hyperv_detect(kernel_heaps kh) {
     u32 v[4];
     hyperv_info.initialized = false;
     hyperv_info.general = heap_general(kh);
-    hyperv_info.contiguous = (heap)heap_huge_backed(kh);
+    hyperv_info.contiguous = (heap)heap_linear_backed(kh);
 
     cpuid(CPUID_LEAF_HV_MAXLEAF, 0, v);
     u32 maxleaf = v[0];

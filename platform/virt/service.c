@@ -207,15 +207,15 @@ static void init_kernel_heaps(void)
                                                 (heap)kh->physical, PAGESIZE, true);
     assert(kh->page_backed != INVALID_ADDRESS);
 
-    kh->huge_backed = allocate_huge_backed_heap(&bootstrap, kh->physical);
-    assert(kh->huge_backed != INVALID_ADDRESS);
+    kh->linear_backed = allocate_linear_backed_heap(&bootstrap, kh->physical);
+    assert(kh->linear_backed != INVALID_ADDRESS);
 
-    kh->general = allocate_mcache(&bootstrap, (heap)kh->huge_backed,
+    kh->general = allocate_mcache(&bootstrap, (heap)kh->linear_backed,
                                   5, 20, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
     kh->locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)kh->huge_backed, 5, 20, PAGESIZE_2M));
+        allocate_mcache(&bootstrap, (heap)kh->linear_backed, 5, 20, PAGESIZE_2M));
     assert(kh->locked != INVALID_ADDRESS);
 }
 
@@ -223,7 +223,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    init_page_tables((heap)heap_huge_backed(kh));
+    init_page_tables((heap)heap_linear_backed(kh));
     /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));

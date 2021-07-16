@@ -1995,7 +1995,7 @@ void register_net_syscalls(struct syscall *map)
 boolean netsyscall_init(unix_heaps uh)
 {
     kernel_heaps kh = (kernel_heaps)uh;
-    heap socket_cache = allocate_objcache(heap_general(kh), (heap)heap_huge_backed(kh),
+    heap socket_cache = allocate_objcache(heap_general(kh), (heap)heap_linear_backed(kh),
 					  sizeof(struct netsock), PAGESIZE);
     if (socket_cache == INVALID_ADDRESS)
 	return false;

@@ -474,7 +474,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     u_heap = uh;
     uh->kh = *kh;
     uh->processes = create_id_heap(h, h, 1, 65535, 1, false);
-    uh->file_cache = allocate_objcache(h, (heap)heap_huge_backed(kh), sizeof(struct file), PAGESIZE);
+    uh->file_cache = allocate_objcache(h, (heap)heap_linear_backed(kh), sizeof(struct file), PAGESIZE);
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
     if (!poll_init(uh))

@@ -45,8 +45,8 @@ static struct {
 physical physical_from_virtual(void *x)
 {
     u64 a = u64_from_pointer(x);
-    if (is_huge_backed_address(a))
-        return phys_from_huge_backed_virt(a);
+    if (is_linear_backed_address(a))
+        return phys_from_linear_backed_virt(a);
     u64 p;
     pagetable_lock();
     p = __physical_from_virtual_locked(x);
@@ -64,7 +64,7 @@ u64 *pointer_from_pteaddr(u64 pa)
         assert(pa >= pagemem.initial_physbase); /* may legitimately extend past end */
         return pagemem.initial_map + offset;
     }
-    return pointer_from_u64(virt_from_huge_backed_phys(pa));
+    return pointer_from_u64(virt_from_linear_backed_phys(pa));
 #else
     return pointer_from_u64(pa);
 #endif
@@ -84,8 +84,8 @@ void *allocate_table_page(u64 *phys)
         }
         page_init_debug_u64(va);
         page_init_debug("] ");
-        assert(is_huge_backed_address(va));
-        pagemem.current_phys = irangel(phys_from_huge_backed_virt(va), PAGEMEM_ALLOC_SIZE);
+        assert(is_linear_backed_address(va));
+        pagemem.current_phys = irangel(phys_from_linear_backed_virt(va), PAGEMEM_ALLOC_SIZE);
     }
 
     *phys = pagemem.current_phys.start;
@@ -223,8 +223,8 @@ void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, stat
     flags = pageflags_no_minpage(flags);
     page_debug("%s: vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", __func__, vaddr, length, flags.w);
 
-    /* Catch any attempt to change page flags in a huge_backed mapping */
-    assert(!intersects_huge_backed(irangel(vaddr, length)));
+    /* Catch any attempt to change page flags in a linear_backed mapping */
+    assert(!intersects_linear_backed(irangel(vaddr, length)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
     page_invalidate_sync(fe, complete);

@@ -696,5 +696,5 @@ static void pvscsi_process_cmp_ring(pvscsi dev)
 void init_pvscsi(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, pvscsi_probe, h, a, (heap)heap_huge_backed(kh)));
+    register_pci_driver(closure(h, pvscsi_probe, h, a, (heap)heap_linear_backed(kh)));
 }

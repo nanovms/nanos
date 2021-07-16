@@ -200,27 +200,27 @@ backed_heap allocate_page_backed_heap(heap meta, heap virtual, heap physical,
                                       u64 pagesize, boolean locking);
 void page_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
 
-backed_heap allocate_huge_backed_heap(heap meta, id_heap physical);
+backed_heap allocate_linear_backed_heap(heap meta, id_heap physical);
 
-static inline boolean is_huge_backed_address(u64 address)
+static inline boolean is_linear_backed_address(u64 address)
 {
-    return address >= HUGE_BACKED_BASE && address < HUGE_BACKED_LIMIT;
+    return address >= LINEAR_BACKED_BASE && address < LINEAR_BACKED_LIMIT;
 }
 
-static inline boolean intersects_huge_backed(range r)
+static inline boolean intersects_linear_backed(range r)
 {
-    return ranges_intersect(r, irange(HUGE_BACKED_BASE, HUGE_BACKED_LIMIT));
+    return ranges_intersect(r, irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT));
 }
 
-static inline u64 virt_from_huge_backed_phys(u64 address)
+static inline u64 virt_from_linear_backed_phys(u64 address)
 {
-    assert(address < HUGE_BACKED_BASE);
-    return address | HUGE_BACKED_BASE;
+    assert(address < LINEAR_BACKED_BASE);
+    return address | LINEAR_BACKED_BASE;
 }
 
-static inline u64 phys_from_huge_backed_virt(u64 virt)
+static inline u64 phys_from_linear_backed_virt(u64 virt)
 {
-    return virt & ~HUGE_BACKED_BASE;
+    return virt & ~LINEAR_BACKED_BASE;
 }
 
 static inline void bhqueue_enqueue_irqsafe(thunk t)
