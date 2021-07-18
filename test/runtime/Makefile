@@ -140,6 +140,7 @@ SRCS-mmap= \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(RUNTIME)
 LDFLAGS-mmap=		-static
+LIBS-mmap=		-lpthread
 
 SRCS-mkdir= \
 	$(CURDIR)/mkdir.c \

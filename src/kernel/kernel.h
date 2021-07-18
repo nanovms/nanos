@@ -33,6 +33,8 @@ typedef struct cpuinfo {
 #endif
 } *cpuinfo;
 
+typedef closure_type(fault_handler, context, context);
+
 extern struct cpuinfo cpuinfos[];
 
 /* subsume with introspection */
@@ -96,6 +98,12 @@ static inline __attribute__((always_inline)) void *stack_from_kernel_context(ker
     return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
 }
 
+static inline __attribute__((always_inline)) void set_fault_handler(kernel_context kc, fault_handler h)
+{
+    context f = frame_from_kernel_context(kc);
+    f[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+}
+
 static inline void count_minor_fault(void)
 {
     fetch_and_add(&mm_stats.minor_faults, 1);
@@ -107,11 +115,6 @@ static inline void count_major_fault(void)
 }
 
 void runloop_internal() __attribute__((noreturn));
-
-static inline boolean this_cpu_has_kernel_lock(void)
-{
-    return current_cpu()->have_kernel_lock;
-}
 
 NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
@@ -142,6 +145,7 @@ void deallocate_stack(heap h, u64 size, void *stack);
 kernel_context allocate_kernel_context(heap h);
 void deallocate_kernel_context(kernel_context c);
 void init_kernel_contexts(heap backed);
+boolean kernel_suspended(void);
 kernel_context suspend_kernel_context(void);
 void resume_kernel_context(kernel_context c);
 void frame_return(context frame) __attribute__((noreturn));
@@ -213,8 +217,6 @@ heap locking_heap_wrapper(heap meta, heap parent);
 
 void print_stack(context c);
 void print_frame(context f);
-
-typedef closure_type(fault_handler, context, context);
 
 void configure_timer(timestamp rate, thunk t);
 

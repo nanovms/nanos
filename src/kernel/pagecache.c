@@ -875,7 +875,7 @@ static void pagecache_scan_shared_mappings(pagecache pc)
         pagecache_debug("   shared map va %R, node_offset 0x%lx\n", sm->n.r, sm->node_offset);
         pagecache_scan_shared_map(pc, sm, fe);
     }
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 static void pagecache_scan_node(pagecache_node pn)
@@ -887,7 +887,7 @@ static void pagecache_scan_node(pagecache_node pn)
         pagecache_debug("   shared map va %R, node_offset 0x%lx\n", n->r, sm->node_offset);
         pagecache_scan_shared_map(pn->pv->pc, sm, fe);
     }
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 closure_function(2, 1, void, pagecache_commit_complete,
@@ -1045,7 +1045,7 @@ void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* b
     rangemap_range_lookup(pn->shared_maps, q,
                           stack_closure(scan_shared_pages_intersection, pn->pv->pc, fe));
     pagecache_commit_dirty_pages(pn->pv->pc);
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags)
@@ -1100,25 +1100,27 @@ void pagecache_node_fetch_pages(pagecache_node pn, range r)
     apply(sh, STATUS_OK);
 }
 
-static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, pageflags flags)
+static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, pageflags flags, status_handler complete)
 {
     assert(pp->refcount.c != 0);
     assert(pp->kvirt != INVALID_ADDRESS);
-    map(vaddr, pp->phys, cache_pagesize(pc), flags);
+    map_with_complete(vaddr, pp->phys, cache_pagesize(pc), flags, complete);
 }
 
 closure_function(5, 1, void, map_page_finish,
                  pagecache, pc, pagecache_page, pp, u64, vaddr, pageflags, flags, status_handler, complete,
                  status, s)
 {
-    if (is_ok(s))
-        map_page(bound(pc), bound(pp), bound(vaddr), bound(flags));
-    apply(bound(complete), s);
+    if (is_ok(s)) {
+        map_page(bound(pc), bound(pp), bound(vaddr), bound(flags), bound(complete));
+    } else {
+        apply(bound(complete), s);
+    }
     closure_finish();
 }
 
 void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
-                        status_handler complete, boolean bh)
+                        status_handler complete)
 {
     pagecache pc = pn->pv->pc;
     pagecache_lock_node(pn);
@@ -1134,14 +1136,15 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
     merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,
                                             pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
-    touch_or_fill_page_nodelocked(pn, pp, m, bh);
+    touch_or_fill_page_nodelocked(pn, pp, m, true /* bh */);
     refcount_reserve(&pp->refcount);
     pagecache_unlock_node(pn);
     apply(k, STATUS_OK);
 }
 
 /* no-alloc / no-fill path, meant to be safe outside of kernel lock */
-boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags)
+boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
+                                     status_handler complete)
 {
     boolean mapped = false;
     pagecache_lock_node(pn);
@@ -1152,7 +1155,7 @@ boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vad
         goto out;
     if (touch_or_fill_page_nodelocked(pn, pp, 0, false /* N/A */)) {
         mapped = true;
-        map_page(pn->pv->pc, pp, vaddr, flags);
+        map_page(pn->pv->pc, pp, vaddr, flags, complete);
     }
     refcount_reserve(&pp->refcount);
   out:
@@ -1196,7 +1199,7 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
     traverse_ptes(v.start, range_span(v), stack_closure(pagecache_unmap_page_nodelocked, pn,
                                                         v.start, node_offset, fe));
     pagecache_unlock_node(pn);
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 #endif
 

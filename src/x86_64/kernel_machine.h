@@ -74,16 +74,14 @@ static inline void disable_interrupts()
 static inline u32 read_eflags(void)
 {
     u32 out;
-    asm volatile("pushfd");
-    asm volatile("popl %0":"=g"(out));
+    asm volatile("pushfd; popl %0" : "=r"(out) :: "memory");
     return out;
 }
 
 static inline u64 read_flags(void)
 {
     u64 out;
-    asm volatile("pushfq");
-    asm volatile("popq %0":"=g"(out));
+    asm volatile("pushfq; popq %0" : "=r"(out) :: "memory");
     return out;
 }
 
@@ -94,10 +92,16 @@ static inline u64 irq_disable_save(void)
     return flags;
 }
 
+static inline u64 irq_enable_save(void)
+{
+    u64 flags = read_flags();
+    enable_interrupts();
+    return flags;
+}
+
 static inline void irq_restore(u64 flags)
 {
-    if ((flags & U64_FROM_BIT(FLAG_INTERRUPT)))
-        enable_interrupts();
+    asm volatile("push %0; popf" :: "g"(flags) : "memory", "cc");
 }
 
 static inline void wait_for_interrupt(void)
@@ -259,6 +263,11 @@ static inline u64 total_frame_size(void)
 static inline void frame_enable_interrupts(context f)
 {
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+}
+
+static inline void frame_disable_interrupts(context f)
+{
+    f[FRAME_FLAGS] &= ~U64_FROM_BIT(FLAG_INTERRUPT);
 }
 
 extern void xsave(context f);

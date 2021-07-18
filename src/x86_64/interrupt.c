@@ -252,6 +252,8 @@ void common_handler()
     }
     f[FRAME_FULL] = true;
 
+    boolean kern_return = ci->state == cpu_kernel;
+
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
         ci->state = cpu_interrupt;
@@ -276,8 +278,13 @@ void common_handler()
             goto exit_fault;
         }
     }
-    if (is_current_kernel_context(f))
+    if (is_current_kernel_context(f)) {
+        if (kern_return) {
+            ci->state = cpu_kernel;
+            frame_return(f);
+        }
         f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+    }
     runloop();
   exit_fault:
     console("cpu ");

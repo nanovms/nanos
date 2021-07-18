@@ -1626,7 +1626,7 @@ static sysreturn brk(void *addr)
             goto out;
         }
         pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
-        map_and_zero(old_end, phys, alloc, flags);
+        map_and_zero(old_end, phys, alloc, flags, 0);
     }
     p->brk = addr;
   out:
@@ -2454,14 +2454,14 @@ static boolean syscall_defer;
 static void syscall_schedule(context f)
 {
     /* kernel context set on syscall entry */
-    if (!syscall_defer)
+    current_cpu()->state = cpu_kernel;
+    if (!syscall_defer && !kernel_suspended())
         kern_lock();
     else if (!kern_try_lock()) {
         enqueue_irqsafe(runqueue, &current->deferred_syscall);
         thread_pause(current);
         runloop();
     }
-    current_cpu()->state = cpu_kernel;
     syscall_debug(f);
 }
 

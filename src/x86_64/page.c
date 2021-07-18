@@ -140,17 +140,18 @@ void page_invalidate(flush_entry f, u64 address)
     flush_tlb();
 }
 
-void page_invalidate_sync(flush_entry f, thunk completion)
+void page_invalidate_sync(flush_entry f, status_handler completion)
 {
-    apply(completion);
+    if (completion)
+        apply(completion, STATUS_OK);
 }
 
-void page_invalidate_flush()
+void page_invalidate_flush(void)
 {
 
 }
 
-flush_entry get_page_flush_entry()
+flush_entry get_page_flush_entry(void)
 {
     return 0;
 }
@@ -399,13 +400,13 @@ closure_function(2, 3, boolean, update_pte_flags,
 }
 
 /* Update access protection flags for any pages mapped within a given area */
-void update_map_flags(u64 vaddr, u64 length, pageflags flags)
+void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete)
 {
     flags.w &= ~_PAGE_NO_FAT;
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, complete);
 }
 
 /* called with lock held */
@@ -454,7 +455,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
                                           irange(vaddr_old, vaddr_old + length))));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, fe));
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 /* called with lock held */
@@ -507,11 +508,11 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(virtual, length, stack_closure(unmap_page, rh, fe));
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
 }
 
 // error processing
-static void map_range(u64 virtual, physical p, u64 length, u64 flags)
+static void map_range(u64 virtual, physical p, u64 length, u64 flags, status_handler complete)
 {
     u64 len = pad(length, PAGESIZE);
     u64 vo = virtual;
@@ -569,12 +570,12 @@ static void map_range(u64 virtual, physical p, u64 length, u64 flags)
 
     memory_barrier();
     pagetable_unlock();
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, complete);
 }
 
-void map(u64 virtual, physical p, u64 length, pageflags flags)
+void map_with_complete(u64 virtual, physical p, u64 length, pageflags flags, status_handler complete)
 {
-    map_range(virtual, p, length, flags.w | _PAGE_PRESENT);
+    map_range(virtual, p, length, flags.w | _PAGE_PRESENT, complete);
 }
 
 void unmap(u64 virtual, u64 length)
@@ -641,7 +642,7 @@ static u64 pt_2m_alloc(heap h, bytes size)
         map_page(pagebase, i, p, true, _PAGE_WRITABLE | _PAGE_PRESENT, 0, fe);
         table_set(pt_p2v, (void *)p, (void *)i);
     }
-    page_invalidate_sync(fe, ignore);
+    page_invalidate_sync(fe, 0);
     return v;
 }
 
