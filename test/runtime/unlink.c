@@ -1,9 +1,12 @@
+#define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <string.h>
+#include <sys/vfs.h>
 
 static void test_unlink(const char *path)
 {
@@ -41,6 +44,53 @@ static void test_unlinkat(int dirfd)
     }
     if ((fstatat(dirfd, "file", &s, 0) == 0) || (errno != ENOENT)) {
         printf("file not deleted\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+static void test_tmpfile()
+{
+    int fd;
+    struct statfs statbuf;
+    char buf[8192];
+    char vbuf[8192];
+
+    if (mkdir("/tmp", 0777) != 0 && errno != EEXIST) {
+        perror("mkdir /tmp");
+        exit(EXIT_FAILURE);
+    }
+    statfs("/", &statbuf);
+    unsigned long fsfree = statbuf.f_bfree;
+    fd = open("/tmp", O_RDONLY|O_TMPFILE, 0666);
+    if (fd != -1) {
+        perror("tmpfile rdonly open");
+        exit(EXIT_FAILURE);
+    }
+    fd = open("/tmp", O_RDWR|O_TMPFILE, 0666);
+    if (fd < 0) {
+        perror("tmpfile open");
+        exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < sizeof(buf); i++)
+        buf[i] = i;
+    if (pwrite(fd, buf, sizeof(buf), 0) != sizeof(buf)) {
+        perror("tmpfile write");
+        exit(EXIT_FAILURE);
+    }
+    statfs("/", &statbuf);
+    if (statbuf.f_bfree >= fsfree) {
+        perror("bfree check shrink");
+        exit(EXIT_FAILURE);
+    }
+    fsfree = statbuf.f_bfree;
+    if (pread(fd, vbuf, sizeof(vbuf), 0) != sizeof(vbuf) || memcmp(buf, vbuf, sizeof(buf)) != 0) {
+        perror("tmpfile read/verify");
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+    statfs("/", &statbuf);
+    if (statbuf.f_bfree <= fsfree) {
+        printf("bfree check grow\n");
         exit(EXIT_FAILURE);
     }
 }
@@ -124,6 +174,8 @@ int main(int argc, char **argv)
         printf("directory not deleted\n");
         exit(EXIT_FAILURE);
     }
+
+    test_tmpfile();
 
     printf("test passed\n");
     return EXIT_SUCCESS;

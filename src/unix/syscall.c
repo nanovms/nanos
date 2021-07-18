@@ -638,7 +638,7 @@ closure_function(2, 2, sysreturn, file_close,
 {
     file f = bound(f);
     fsfile fsf = bound(fsf);
-    if (fsf && f->f.type == FDESC_TYPE_REGULAR)
+    if (fsf)
         fsfile_release(fsf);
     deallocate_closure(f->f.read);
     deallocate_closure(f->f.write);
@@ -763,14 +763,19 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         return set_syscall_return(current, ret);
     }
 
+    if (flags & O_TMPFILE)
+        flags |= O_DIRECTORY;
+
     switch (flags & O_ACCMODE) {
     case O_RDONLY:
+        if ((flags & O_TMPFILE))
+            return -EINVAL;
         break;
     case O_WRONLY:
     case O_RDWR:
         if (!(file_meta_perms(current->p, n) & ACCESS_PERM_WRITE))
             return -EACCES;
-        if (is_dir(n))
+        if (is_dir(n) && !(flags & O_TMPFILE))
             return -EISDIR;
         break;
     default:
@@ -781,6 +786,9 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         thread_log(current, "\"%s\" opened with O_DIRECTORY but is not a directory", name);
         return -ENOTDIR;
     }
+
+    if (flags & O_TMPFILE)
+        n = filesystem_creat_unnamed(fs);
 
     u64 length = 0;
     fsfile fsf = 0;
@@ -816,6 +824,8 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         assert(f->fs_write);
         f->fadv = POSIX_FADV_NORMAL;
         fsfile_reserve(fsf);
+        if (flags & O_TMPFILE)
+            fsfile_release(fsf);
     } else {
         f->meta = n;
     }

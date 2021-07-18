@@ -1132,6 +1132,17 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
     return dir;
 }
 
+tuple filesystem_creat_unnamed(filesystem fs)
+{
+    tuple n = fs_new_entry(fs);
+    tfs_debug("%s: create unnamed file %p\n", __func__, n);
+    /* 'make it a file' by adding an empty extents list */
+    set(n, sym(extents), allocate_tuple());
+    fsfile f = allocate_fsfile(fs, n);
+    fsfile_set_length(f, 0);
+    return n;
+}
+
 tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
                          const char *target)
 {
@@ -1204,8 +1215,6 @@ void filesystem_log_rebuild_done(filesystem fs, log new_tl)
     fs->tl = new_tl;
     fs->temp_log = 0;
 }
-
-void file_extents_dealloc(filesystem fs, tuple t);
 
 closure_function(2, 0, void, free_extents,
                 filesystem, fs, tuple, t)

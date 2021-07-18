@@ -100,6 +100,7 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
         boolean persistent);
 tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name);
 tuple filesystem_creat(filesystem fs, tuple parent, const char *name);
+tuple filesystem_creat_unnamed(filesystem fs);
 tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
                          const char *target);
 fs_status filesystem_delete(filesystem fs, tuple parent, symbol sym);
