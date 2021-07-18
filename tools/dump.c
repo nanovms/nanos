@@ -18,6 +18,7 @@
 #define TERM_COLOR_BLUE     94
 #define TERM_COLOR_CYAN     96
 #define TERM_COLOR_WHITE    97
+#define TERM_COLOR_DEFAULT  0
 
 closure_function(2, 3, void, bread,
                  descriptor, d, u64, fs_offset,
@@ -96,7 +97,7 @@ static void print_colored(int indent, int color, symbol s, boolean newline)
         console("|   ");
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     printf("\e[%dm%s\e[%dm%s", color, cstring(symbol_string(s), tmpbuf),
-           TERM_COLOR_WHITE, newline ? "\n" : "");
+           TERM_COLOR_DEFAULT, newline ? "\n" : "");
 }
 
 static void dump_fsentry(int indent, symbol name, tuple t);
