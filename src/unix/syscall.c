@@ -2086,28 +2086,31 @@ static thread lookup_thread(int pid)
     return t;
 }
 
-sysreturn sched_setaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
+sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
 {
-    if (!validate_user_memory(mask, sizeof(mask->mask[0]), false))
+    if (!validate_user_memory(mask, cpusetsize, false))
         return set_syscall_error(current, EFAULT);
     thread t;
-    if (!(t = lookup_thread(pid)) ||
-        (!mask || cpusetsize < sizeof(mask->mask[0])))
+    if (!(t = lookup_thread(pid)))
             return set_syscall_error(current, EINVAL);                
-    runtime_memcpy(&t->affinity, mask, sizeof(mask->mask[0]));
+    u64 cpus = pad(MIN(total_processors, 64 * (cpusetsize / sizeof(u64))), 64);
+    runtime_memcpy(bitmap_base(t->affinity), mask, cpus / 8);
+    if (cpus < total_processors)
+        bitmap_range_check_and_set(t->affinity, cpus, total_processors - cpus, false, false);
     return 0;
 }
 
-sysreturn sched_getaffinity(int pid, u64 cpusetsize, cpu_set_t *mask)
+sysreturn sched_getaffinity(int pid, u64 cpusetsize, u64 *mask)
 {
-    if (!validate_user_memory(mask, sizeof(mask->mask[0]), true))
+    if (!validate_user_memory(mask, cpusetsize, true))
         return set_syscall_error(current, EFAULT);
     thread t;
     if (!(t = lookup_thread(pid)) ||
-        (!mask || cpusetsize < sizeof(mask->mask[0])))
+        (64 * (cpusetsize / sizeof(u64)) < total_processors))
             return set_syscall_error(current, EINVAL);                    
-    runtime_memcpy(mask, &t->affinity, sizeof(mask->mask[0]));        
-    return sizeof(mask->mask[0]);
+    cpusetsize = pad(total_processors, 64) / 8;
+    runtime_memcpy(mask, bitmap_base(t->affinity), cpusetsize);
+    return cpusetsize;
 }
 
 sysreturn capget(cap_user_header_t hdrp, cap_user_data_t datap)

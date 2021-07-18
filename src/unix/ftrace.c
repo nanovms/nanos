@@ -1836,8 +1836,8 @@ ftrace_init(unix_heaps uh, filesystem fs)
 
     /* nop tracer */
     current_tracer = &(tracer_list[0]);
-   for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo ci = cpuinfo_from_id(i);
+    cpuinfo ci;
+    vector_foreach(cpuinfos, ci) {
         if (ftrace_cpu_init(ci) != 0)
             return -1;
     }
@@ -1847,8 +1847,8 @@ ftrace_init(unix_heaps uh, filesystem fs)
 void
 ftrace_deinit(void)
 {
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo ci = cpuinfo_from_id(i);
+    cpuinfo ci;
+    vector_foreach(cpuinfos, ci) {
         ftrace_cpu_deinit(ci);
     }
     deallocate_http_listener(ftrace_heap, ftrace_hl);

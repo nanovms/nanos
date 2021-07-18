@@ -138,8 +138,8 @@ void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
     rprintf("cpu\tframe returns\n");
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo ci = cpuinfo_from_id(i);
+    cpuinfo ci;
+    vector_foreach(cpuinfos, ci) {
         if (ci->frcount)
             rprintf("%d\t%ld\n", i, ci->frcount);
     }
@@ -216,8 +216,6 @@ static void count_processors()
         present_processors = 1;
         rprintf("warning: ACPI MADT not found, default to 1 processor");
     }
-    /* config override */
-    present_processors = MIN(present_processors, MAX_CPUS);
 }
 
 void start_secondary_cores(kernel_heaps kh)

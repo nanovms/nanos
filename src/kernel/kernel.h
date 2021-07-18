@@ -35,7 +35,7 @@ typedef struct cpuinfo {
 
 typedef closure_type(fault_handler, context, context);
 
-extern struct cpuinfo cpuinfos[];
+extern vector cpuinfos;
 
 /* subsume with introspection */
 struct mm_stats {
@@ -47,8 +47,7 @@ extern struct mm_stats mm_stats;
 
 static inline cpuinfo cpuinfo_from_id(int cpu)
 {
-    assert(cpu >= 0 && cpu < MAX_CPUS);
-    return &cpuinfos[cpu];
+    return vector_get(cpuinfos, cpu);
 }
 
 static inline boolean is_current_kernel_context(context f)
@@ -142,6 +141,7 @@ context allocate_frame(heap h);
 void deallocate_frame(context);
 void *allocate_stack(heap h, u64 size);
 void deallocate_stack(heap h, u64 size, void *stack);
+cpuinfo init_cpuinfo(heap backed, int cpu);
 kernel_context allocate_kernel_context(heap h);
 void deallocate_kernel_context(kernel_context c);
 void init_kernel_contexts(heap backed);
@@ -266,6 +266,7 @@ void kern_lock(void);
 boolean kern_try_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
+void init_scheduler_cpus(heap h);
 void mm_service(void);
 
 typedef closure_type(balloon_deflater, u64, u64);
@@ -288,7 +289,7 @@ extern char **state_strings;
 
 void kernel_unlock();
 
-extern u64 idle_cpu_mask;
+extern bitmap idle_cpu_mask;
 extern u64 total_processors;
 extern u64 present_processors;
 extern void xsave(context f);

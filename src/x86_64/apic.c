@@ -27,7 +27,7 @@
 static heap apic_heap;
 static u64 ioapic_membase;
 apic_iface apic_if;
-int apic_id_map[MAX_CPUS];
+buffer apic_id_map;
 
 static inline void apic_write(int reg, u32 val)
 {
@@ -39,6 +39,13 @@ static inline u32 apic_read(int reg)
     return apic_if->read(apic_if, reg);
 }
 
+static inline u32 apicid_from_cpuid(u32 idx)
+{
+    if (!apic_id_map)
+        return idx;
+    return *(u32 *)buffer_ref(apic_id_map, idx * sizeof(u32));
+}
+
 void apic_ipi(u32 target, u64 flags, u8 vector)
 {
     /* Do not use native "all but self" destination as it is very slow
@@ -47,11 +54,11 @@ void apic_ipi(u32 target, u64 flags, u8 vector)
         for (int i = 0; i < total_processors; i++) {
             if (current_cpu()->id == i)
                 continue;
-            apic_if->ipi(apic_if, apic_id_map[i], flags, vector);
+            apic_if->ipi(apic_if, apicid_from_cpuid(i), flags, vector);
         }
         return;
     }
-    apic_if->ipi(apic_if, apic_id_map[target], flags, vector);
+    apic_if->ipi(apic_if, apicid_from_cpuid(target), flags, vector);
 }
 
 static inline void apic_set(int reg, u32 v)
@@ -231,17 +238,17 @@ void ioapic_register_int(unsigned int gsi, thunk h, const char *name)
 int cpuid_from_apicid(u32 aid)
 {
     for (int i = 0; i < present_processors; i++) {
-        if (aid == apic_id_map[i])
+        if (aid == apicid_from_cpuid(i))
             return i;
     }
     assert(0);
 }
 
-closure_function(2, 2, void, apic_madt_handler,
-                 kernel_heaps, kh, u8 *, pcnt,
+closure_function(1, 2, void, apic_madt_handler,
+                 kernel_heaps, kh,
                  u8, type, void *, p)
 {
-    u8 *pcnt = bound(pcnt);
+    u32 apic_id;
 
     switch (type) {
     case ACPI_MADT_LAPIC:
@@ -250,7 +257,8 @@ closure_function(2, 2, void, apic_madt_handler,
         /* XXX should eventually deal with online capable */
         if (!(l->flags & MADT_LAPIC_ENABLED))
             break;
-        apic_id_map[(*pcnt)++] = l->id;
+        apic_id = l->id;
+        assert(buffer_write(apic_id_map, &apic_id, sizeof(apic_id)));
         if (apic_if)
             break;
         apic_debug("using xAPIC interface\n");
@@ -264,7 +272,8 @@ closure_function(2, 2, void, apic_madt_handler,
         /* XXX should eventually deal with online capable */
         if (!(lx2->flags & MADT_LAPIC_ENABLED))
             break;
-        apic_id_map[(*pcnt)++] = lx2->id;
+        apic_id = lx2->id;
+        assert(buffer_write(apic_id_map, &apic_id, sizeof(apic_id)));
         if (apic_if)
             break;
         apic_debug("using x2APIC interface\n");
@@ -287,8 +296,9 @@ void init_apic(kernel_heaps kh)
     acpi_madt  madt = acpi_get_table(ACPI_SIG_MADT);
     if (madt) {
         apic_debug("walking MADT table...\n");
-        u8 pcnt = 0;
-        acpi_walk_madt(madt, stack_closure(apic_madt_handler, kh, &pcnt));
+        apic_id_map = allocate_buffer(apic_heap, 8);
+        assert(apic_id_map != INVALID_ADDRESS);
+        acpi_walk_madt(madt, stack_closure(apic_madt_handler, kh));
     } else {
         apic_debug("MADT not found, detecting apic interface...\n");
         if (x2apic_if.detect(&x2apic_if, kh)) {

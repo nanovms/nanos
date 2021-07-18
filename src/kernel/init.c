@@ -303,6 +303,10 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("LWIP init");
     init_net(kh);
 
+    init_debug("start_secondary_cores");
+    start_secondary_cores(kh);
+    init_scheduler_cpus(misc);
+
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);
 
@@ -314,9 +318,6 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("pci_discover (for other devices)");
     pci_discover();
     init_debug("discover done");
-
-    init_debug("start_secondary_cores");
-    start_secondary_cores(kh);
 
     init_debug("starting runloop");
     runloop();

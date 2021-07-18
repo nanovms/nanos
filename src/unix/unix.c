@@ -495,8 +495,9 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
 
-    for (int i = 0; i < MAX_CPUS; i++) {
-        context f = frame_from_kernel_context(get_kernel_context(cpuinfo_from_id(i)));
+    cpuinfo ci;
+    vector_foreach(cpuinfos, ci) {
+        context f = frame_from_kernel_context(get_kernel_context(ci));
         f[FRAME_THREAD] = u64_from_pointer(dummy_thread);
     }
 
