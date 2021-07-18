@@ -17,11 +17,12 @@ Read more about the Nanos Charter [here](CHARTER.md).
 ### Getting Started
 
 Please use the [ops](https://ops.city) orchestrator to run your applications with Nanos unless you plan on hacking on Nanos itself.
+Many ready-to-use examples for running applications on Nanos using ops are available [here](https://github.com/nanovms/ops-examples).
 
 ### Building/Running
 
 It is highly encouraged to use [ops](https://github.com/nanovms/ops) to build and run your applications using Nanos unless you are planning
-on modifying Nanos. [OPS](https://ops.city) provides sensible defaults for most users and
+on modifying Nanos. [ops](https://ops.city) provides sensible defaults for most users and
 incorporates our understanding of how to appropriately best use Nanos.
 It is also currently highly coupled to Nanos.
 
@@ -30,8 +31,7 @@ that you don't want hardware acceleration. For instance you can run
 Nanos in virtualbox on a mac but it will be slow and hard to configure.
 
 You can build and run on mac and linux. Nanos supports KVM on linux and
-HVF on osx currently for acceleration. [OPS](https://ops.city) has facilities to deploy to
-the public clouds (AWS/GCE).
+HVF on osx currently for acceleration. [ops](https://ops.city) has facilities to deploy to public clouds (AWS, GCE, Azure, and many others).
 
 #### Building From Source on a Mac
 
@@ -70,7 +70,7 @@ make run-noaccel
 
 ### Documentation
 
-You can find more documentation on the OPS [docs site](https://nanovms.gitbook.io/ops/)
+You can find more documentation on the ops [docs site](https://nanovms.gitbook.io/ops/)
 
 ### Benchmarks
 
@@ -100,16 +100,16 @@ For Nanos try running the first example first:
 make run
 ```
 
-To try a different target currently found in examples/ you can:
+To try a different target currently found in test/runtime/ you can:
 
 1) cp the manifest file to target.manifest
-2) add your code and set a target in examples/Makefile
+2) add your code and set a target in test/runtime/Makefile
 
 ```
 make TARGET=mynewtarget run
 ```
 
-You may also wish to use [https://github.com/nanovms/ops](ops) to
+You may also wish to use [ops](https://github.com/nanovms/ops) to
 develop locally. If that's the case a commonly used idiom is to simply
 copy the 3 required files to an appropriate release:
 
@@ -139,7 +139,7 @@ wise to check in with us first before grabbing a tkt. Tickets tagged
 Please scan the issue list first to see if we are already tracking the
 bug.
 
-Please attach debugging output ('-d' in ops). Please provide the
+Please attach debugging output (`--trace` in ops). Please provide the
 config.json and anything else that allows us to reproduce the issue.
 
 ### TFS
@@ -158,12 +158,6 @@ syscall tracing:
 
 ```
 debugsyscalls: t
-```
-
-stackdump:
-
-```
-fault: t
 ```
 
 Read more about Security [here](SECURITY.md).
