@@ -26,7 +26,6 @@ declare_closure_struct(1, 0, void, flush_complete,
 struct flush_entry {
     struct list l;
     u64 gen;
-    u64 cpu_mask;
     struct refcount ref;
     boolean flush;
     u64 pages[FLUSH_THRESHOLD];
@@ -42,8 +41,6 @@ static void invalidate (u64 page)
 
 define_closure_function(1, 0, void, flush_complete, flush_entry, f)
 {
-    flush_entry f = bound(f);
-    assert(f->cpu_mask == 0);
     queue_flush_service();
 }
 
@@ -73,7 +70,6 @@ static void _flush_handler(void)
                         invalidate(f->pages[i]);
                 }
             }
-            atomic_clear_bit(&f->cpu_mask, ci->id);
             refcount_release(&f->ref);
         }
     }
@@ -163,7 +159,6 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
             }
             return;
         }
-        f->cpu_mask = MASK(total_processors);
         init_refcount(&f->ref, total_processors, init_closure(&f->finish, flush_complete, f));
         f->completion = completion;
 
