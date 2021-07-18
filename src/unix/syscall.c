@@ -637,6 +637,9 @@ closure_function(2, 2, sysreturn, file_close,
                  thread, t, io_completion, completion)
 {
     file f = bound(f);
+    fsfile fsf = bound(fsf);
+    if (fsf && f->f.type == FDESC_TYPE_REGULAR)
+        fsfile_release(fsf);
     deallocate_closure(f->f.read);
     deallocate_closure(f->f.write);
     deallocate_closure(f->f.sg_read);
@@ -812,6 +815,7 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         f->fs_write = fsfile_get_writer(fsf);
         assert(f->fs_write);
         f->fadv = POSIX_FADV_NORMAL;
+        fsfile_reserve(fsf);
     } else {
         f->meta = n;
     }

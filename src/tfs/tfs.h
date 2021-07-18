@@ -63,6 +63,8 @@ fsfile fsfile_from_node(filesystem fs, tuple n);
 fsfile file_lookup(filesystem fs, vector v);
 void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler s);
 fsfile allocate_fsfile(filesystem fs, tuple md);
+void fsfile_reserve(fsfile f);
+void fsfile_release(fsfile f);
 // XXX per-file flush
 
 typedef enum {
