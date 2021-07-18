@@ -228,7 +228,7 @@ void ioapic_register_int(unsigned int gsi, thunk h, const char *name)
         ioapic_set_int(gsi, v);
 }
 
-int cpuid_from_apicid(u8 aid)
+int cpuid_from_apicid(u32 aid)
 {
     for (int i = 0; i < present_processors; i++) {
         if (aid == apic_id_map[i])
@@ -264,7 +264,7 @@ closure_function(2, 2, void, apic_madt_handler,
         /* XXX should eventually deal with online capable */
         if (!(lx2->flags & MADT_LAPIC_ENABLED))
             break;
-        apic_id_map[(*pcnt)++] = lx2->id & 0xff;
+        apic_id_map[(*pcnt)++] = lx2->id;
         if (apic_if)
             break;
         apic_debug("using x2APIC interface\n");
