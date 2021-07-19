@@ -196,9 +196,33 @@ extern timerheap runloop_timers;
 
 backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize);
 
-backed_heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize,
-                              boolean locking);
-void physically_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
+backed_heap allocate_page_backed_heap(heap meta, heap virtual, heap physical,
+                                      u64 pagesize, boolean locking);
+void page_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
+
+backed_heap allocate_linear_backed_heap(heap meta, id_heap physical);
+
+static inline boolean is_linear_backed_address(u64 address)
+{
+    return address >= LINEAR_BACKED_BASE && address < LINEAR_BACKED_LIMIT;
+}
+
+static inline boolean intersects_linear_backed(range r)
+{
+    return ranges_intersect(r, irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT));
+}
+
+static inline u64 virt_from_linear_backed_phys(u64 address)
+{
+    assert(address < LINEAR_BACKED_BASE);
+    return address | LINEAR_BACKED_BASE;
+}
+
+static inline u64 phys_from_linear_backed_virt(u64 virt)
+{
+    return virt & ~LINEAR_BACKED_BASE;
+}
+
 static inline void bhqueue_enqueue_irqsafe(thunk t)
 {
     /* an interrupted enqueue and competing enqueue from int handler could cause a

@@ -227,10 +227,10 @@ void start_secondary_cores(kernel_heaps kh)
     init_debug("init_mxcsr");
     init_mxcsr();
     init_debug("starting APs");
-    allocate_apboot(heap_backed(kh), new_cpu);
+    allocate_apboot((heap)heap_page_backed(kh), new_cpu);
     for (int i = 1; i < present_processors; i++)
         start_cpu(i);
-    deallocate_apboot(heap_backed(kh));
+    deallocate_apboot((heap)heap_page_backed(kh));
     init_flush(heap_locked(kh));
     init_debug("started %d total processors", total_processors);
 }
@@ -242,10 +242,13 @@ void start_secondary_cores(kernel_heaps kh)
 
 u64 xsave_features();
 
+static range initial_pages;
+
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = get_kernel_heaps();
     init_debug("in init_service_new_stack");
+    init_page_tables((heap)heap_linear_backed(kh));
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
 
@@ -268,13 +271,14 @@ static void __attribute__((noinline)) init_service_new_stack()
     while(1);
 }
 
-static range find_initial_pages(void)
+static void find_initial_pages(void)
 {
     for_regions(e) {
 	if (e->type == REGION_INITIAL_PAGES) {
 	    u64 base = e->base;
 	    u64 length = e->length;
-            return irange(base, base + length);
+            initial_pages = irangel(base, length);
+            return;
         }
     }
     halt("no initial pages region found; halt\n");
@@ -332,17 +336,23 @@ static void init_kernel_heaps(void)
     kh->physical = init_physical_id_heap(&bootstrap);
     assert(kh->physical != INVALID_ADDRESS);
 
-    init_page_tables(&bootstrap, kh->physical, find_initial_pages());
+    /* Must occur after physical memory setup but before backed heap init. */
+    find_initial_pages();
+    init_mmu();
+    init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
 
-    kh->backed = physically_backed(&bootstrap, (heap)kh->virtual_page,
-                                   (heap)kh->physical, PAGESIZE, true);
-    assert(kh->backed != INVALID_ADDRESS);
+    kh->page_backed = allocate_page_backed_heap(&bootstrap, (heap)kh->virtual_page,
+                                                (heap)kh->physical, PAGESIZE, true);
+    assert(kh->page_backed != INVALID_ADDRESS);
 
-    kh->general = allocate_mcache(&bootstrap, (heap)kh->backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
+    kh->linear_backed = allocate_linear_backed_heap(&bootstrap, kh->physical);
+    assert(kh->linear_backed != INVALID_ADDRESS);
+
+    kh->general = allocate_mcache(&bootstrap, (heap)kh->linear_backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
     kh->locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)kh->backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
+        allocate_mcache(&bootstrap, (heap)kh->linear_backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
     assert(kh->locked != INVALID_ADDRESS);
 }
 
@@ -468,7 +478,7 @@ void init_service(u64 rdi, u64 rsi)
     if (cmdline)
         cmdline_parse(cmdline);
     u64 stack_size = 32*PAGESIZE;
-    u64 stack_location = allocate_u64(heap_backed(get_kernel_heaps()), stack_size);
+    u64 stack_location = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
     switch_stack(stack_location, init_service_new_stack);

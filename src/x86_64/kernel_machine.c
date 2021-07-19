@@ -19,9 +19,9 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag)
     assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
     u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
     u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
-    heap v = (heap)create_id_heap(h, heap_backed(kh), tag_base, tag_length, p->pagesize, false);
+    heap v = (heap)create_id_heap(h, (heap)heap_linear_backed(kh), tag_base, tag_length, p->pagesize, false);
     assert(v != INVALID_ADDRESS);
-    heap backed = (heap)physically_backed(h, v, p, p->pagesize, false);
+    heap backed = (heap)allocate_page_backed_heap(h, v, p, p->pagesize, false);
     if (backed == INVALID_ADDRESS)
         return backed;
 
