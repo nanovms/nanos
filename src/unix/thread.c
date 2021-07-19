@@ -184,6 +184,7 @@ static void thread_resume(context ctx)
     t->start_time = here == 0 ? 1 : here;
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
+    disable_interrupts(); // XXX defend location
     context_frame f = thread_frame(t);
     thread_frame_restore_tls(f);
     thread_frame_restore_fpsimd(f);

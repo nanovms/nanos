@@ -167,6 +167,7 @@ interrupt_entry:
 
 global frame_return
 frame_return:
+        cli                     ; XXX check
         mov qword [rdi+FRAME_FULL*8], 0
         ; check for syscall (CS CPL==2)
         mov al, [rdi+FRAME_CS*8]

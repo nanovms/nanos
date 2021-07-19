@@ -155,7 +155,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
 {
     cpuinfo ci = current_cpu();
 
-    disable_interrupts();
+    enable_interrupts();
     sched_debug("runloop from %s c: %d  a1: %d b:%d  r:%d  t:%d\n",
                 state_strings[ci->state], queue_length(ci->cpu_queue),
                 queue_length(async_queue_1), queue_length(bhqueue),
@@ -170,6 +170,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
 
     /* bhqueue is for deferred operations, enqueued by interrupt handlers */
     service_thunk_queue(bhqueue);
+    enable_interrupts();
 
     /* serve deferred status_handlers, some of which may not return */
     service_async_1(async_queue_1);

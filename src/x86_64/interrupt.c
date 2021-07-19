@@ -185,7 +185,7 @@ extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
 
 NOTRACE
-void common_handler()
+void common_handler(void)
 {
     /* XXX yes, this will be a problem on a machine check or other
        fault while in an int handler...need to fix in interrupt_common */
@@ -417,6 +417,7 @@ void init_interrupts(kernel_heaps kh)
 
     /* APIC initialization */
     init_apic(kh);
+    enable_interrupts();
 }
 
 void triple_fault(void)
