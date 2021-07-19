@@ -18,6 +18,7 @@
 #define TERM_COLOR_BLUE     94
 #define TERM_COLOR_CYAN     96
 #define TERM_COLOR_WHITE    97
+#define TERM_COLOR_DEFAULT  0
 
 closure_function(2, 3, void, bread,
                  descriptor, d, u64, fs_offset,
@@ -96,7 +97,7 @@ static void print_colored(int indent, int color, symbol s, boolean newline)
         console("|   ");
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     printf("\e[%dm%s\e[%dm%s", color, cstring(symbol_string(s), tmpbuf),
-           TERM_COLOR_WHITE, newline ? "\n" : "");
+           TERM_COLOR_DEFAULT, newline ? "\n" : "");
 }
 
 static void dump_fsentry(int indent, symbol name, tuple t);
@@ -139,6 +140,7 @@ closure_function(3, 2, void, fsc,
         exit(EXIT_FAILURE);
     }
 
+    unsigned int options = bound(options);
     u8 uuid[UUID_LEN];
     filesystem_get_uuid(fs, uuid);
     tuple root = filesystem_getroot(fs);
@@ -146,8 +148,10 @@ closure_function(3, 2, void, fsc,
     bprintf(rb, "Label: %s\n", filesystem_get_label(fs));
     bprintf(rb, "UUID: ");
     print_uuid(rb, uuid);
-    bprintf(rb, "\nmetadata\n");
-    print_value(rb, root, timm("indent", "0"));
+    if (!(options & DUMP_OPT_TREE)) {
+        bprintf(rb, "\nmetadata\n");
+        print_value(rb, root, timm("indent", "0"));
+    }
     buffer_print(rb);
     rprintf("\n");
     deallocate_buffer(rb);
@@ -156,7 +160,6 @@ closure_function(3, 2, void, fsc,
     if (b)
         readdir(fs, h, root, b);
 
-    unsigned int options = bound(options);
     if (options & DUMP_OPT_TREE)
         dump_fsentry(0, sym_this("/"), root);
 
