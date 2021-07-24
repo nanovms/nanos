@@ -891,7 +891,7 @@ static status storvsc_attach(kernel_heaps kh, hv_device* device, storage_attach 
     assert(sc != INVALID_ADDRESS);
 
     sc->general = h;
-    sc->contiguous = heap_backed(kh);
+    sc->contiguous = (heap)heap_linear_backed(kh);
     sc->hs_dev = device;
 
     enum hv_storage_type stor_type = storvsc_get_storage_type(device);

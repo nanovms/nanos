@@ -37,9 +37,9 @@ static u64 x2apic_read(apic_iface i, int reg)
     return d;
 }
 
-static u8 x2apic_legacy_id(apic_iface i)
+static u32 x2apic_get_id(apic_iface i)
 {
-    return x2apic_read(i, APIC_APICID) & 0xff;
+    return x2apic_read(i, APIC_APICID) & 0xffffffff;
 }
 
 #define XAPIC_READ_TIMEOUT_ITERS 512 /* arbitrary */
@@ -80,7 +80,7 @@ static void per_cpu_init(apic_iface i)
 
 struct apic_iface x2apic_if = {
     "x2apic",
-    x2apic_legacy_id,
+    x2apic_get_id,
     x2apic_write,
     x2apic_read,
     x2apic_ipi,

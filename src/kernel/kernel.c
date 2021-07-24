@@ -58,6 +58,11 @@ void deallocate_kernel_context(kernel_context c)
     deallocate((heap)pointer_from_u64(c->frame[FRAME_HEAP]), c, KERNEL_STACK_SIZE + total_frame_size());
 }
 
+boolean kernel_suspended(void)
+{
+    return spare_kernel_context == 0;
+}
+
 kernel_context suspend_kernel_context(void)
 {
     cpuinfo ci = current_cpu();
@@ -76,49 +81,53 @@ void resume_kernel_context(kernel_context c)
     frame_return(c->frame);
 }
 
-struct cpuinfo cpuinfos[MAX_CPUS];
+vector cpuinfos;
 
-static void init_cpuinfos(heap backed)
+cpuinfo init_cpuinfo(heap backed, int cpu)
 {
-    /* We're stuck with a hard limit of 64 for now due to bitmask... */
-    build_assert(MAX_CPUS <= 64);
-
-    /* We'd like the aps to allocate for themselves, but we don't have
-       per-cpu heaps just yet. */
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo ci = cpuinfo_from_id(i);
-        /* state */
-        set_running_frame(ci, 0);
-        ci->id = i;
-        ci->state = cpu_not_present;
-        ci->have_kernel_lock = false;
-        ci->thread_queue = allocate_queue(backed, MAX_THREADS);
-        ci->last_timer_update = 0;
-        ci->frcount = 0;
-
-        init_cpuinfo_machine(ci, backed);
-
-        /* frame and stacks */
-        set_kernel_context(ci, allocate_kernel_context(backed));
+    cpuinfo ci = allocate(backed, sizeof(struct cpuinfo));
+    if (ci == INVALID_ADDRESS)
+        return ci;
+    if (!vector_set(cpuinfos, cpu, ci)) {
+        deallocate(backed, ci, sizeof(struct cpuinfo));
+        return INVALID_ADDRESS;
     }
 
-    cpuinfo ci = cpuinfo_from_id(0);
-    set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
-    cpu_init(0);
+    /* state */
+    set_running_frame(ci, 0);
+    ci->id = cpu;
+    ci->state = cpu_not_present;
+    ci->have_kernel_lock = false;
+    ci->thread_queue = allocate_queue(backed, MAX_THREADS);
+    assert(ci->thread_queue != INVALID_ADDRESS);
+    ci->last_timer_update = 0;
+    ci->frcount = 0;
+
+    init_cpuinfo_machine(ci, backed);
+
+    /* frame and stacks */
+    set_kernel_context(ci, allocate_kernel_context(backed));
+
+    return ci;
 }
 
 void init_kernel_contexts(heap backed)
 {
     spare_kernel_context = allocate_kernel_context(backed);
     assert(spare_kernel_context != INVALID_ADDRESS);
-    init_cpuinfos(backed);
+    cpuinfos = allocate_vector(backed, 1);
+    assert(cpuinfos != INVALID_ADDRESS);
+    cpuinfo ci = init_cpuinfo(backed, 0);
+    assert(ci != INVALID_ADDRESS);
+    set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
+    cpu_init(0);
     current_cpu()->state = cpu_kernel;
 }
 
 void install_fallback_fault_handler(fault_handler h)
 {
-    for (int i = 0; i < MAX_CPUS; i++) {
-        context f = frame_from_kernel_context(get_kernel_context(cpuinfo_from_id(i)));
-        f[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-    }
+    cpuinfo ci;
+    vector_foreach(cpuinfos, ci)
+        set_fault_handler(get_kernel_context(ci), h);
+    set_fault_handler(spare_kernel_context, h);
 }

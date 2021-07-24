@@ -214,7 +214,7 @@ void common_handler()
     }
 
     // if we were idle, we are no longer
-    atomic_clear_bit(&idle_cpu_mask, ci->id);
+    bitmap_set_atomic(idle_cpu_mask, ci->id, 0);
 
     int_debug("[%02d] # %d (%s), state %s, frame %p, rip 0x%lx, cr2 0x%lx\n",
               ci->id, i, interrupt_names[i], state_strings[ci->state],
@@ -252,6 +252,8 @@ void common_handler()
     }
     f[FRAME_FULL] = true;
 
+    boolean kern_return = ci->state == cpu_kernel;
+
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
         ci->state = cpu_interrupt;
@@ -276,8 +278,13 @@ void common_handler()
             goto exit_fault;
         }
     }
-    if (is_current_kernel_context(f))
+    if (is_current_kernel_context(f)) {
+        if (kern_return) {
+            ci->state = cpu_kernel;
+            frame_return(f);
+        }
         f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+    }
     runloop();
   exit_fault:
     console("cpu ");
@@ -364,16 +371,13 @@ void register_shirq(int v, thunk t, const char *name)
     list_push_back(shirq_handlers, &handler->l);
 }
 
-#define TSS_SIZE                0x68
-
-extern volatile void * TSS;
-static inline void write_tss_u64(int cpu, int offset, u64 val)
+static inline void write_tss_u64(struct cpuinfo_machine *cpu, int offset, u64 val)
 {
-    u64 * vec = (u64 *)(u64_from_pointer(&TSS) + (TSS_SIZE * cpu) + offset);
+    u64 *vec = (u64 *)(u64_from_pointer(&cpu->tss) + offset);
     *vec = val;
 }
 
-void set_ist(int cpu, int i, u64 sp)
+void set_ist(struct cpuinfo_machine *cpu, int i, u64 sp)
 {
     assert(i > 0 && i <= 7);
     write_tss_u64(cpu, 0x24 + (i - 1) * 8, sp);
@@ -382,7 +386,6 @@ void set_ist(int cpu, int i, u64 sp)
 void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
-    cpuinfo ci = current_cpu();
 
     /* Read ACPI tables for MADT access */
     init_acpi_tables(kh);
@@ -396,15 +399,9 @@ void init_interrupts(kernel_heaps kh)
 
     int_general = general;
 
-    /* Separate stack to keep exceptions in interrupt handlers from
-       trashing the interrupt stack */
-    set_ist(0, IST_EXCEPTION, u64_from_pointer(ci->m.exception_stack));
-
-    /* External interrupts (> 31) */
-    set_ist(0, IST_INTERRUPT, u64_from_pointer(ci->m.int_stack));
-
     /* IDT setup */
-    idt = allocate(heap_backed(kh), heap_backed(kh)->pagesize);
+    heap backed = (heap)heap_page_backed(kh);
+    idt = allocate(backed, backed->pagesize);
     assert(idt != INVALID_ADDRESS);
 
     /* Rely on ISTs in lieu of TSS stack switch. */
@@ -426,9 +423,6 @@ void init_interrupts(kernel_heaps kh)
 
     /* APIC initialization */
     init_apic(kh);
-
-    /* GDT64 and TSS for boot cpu */
-    install_gdt64_and_tss(0);
 }
 
 void triple_fault(void)

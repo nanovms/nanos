@@ -8,6 +8,7 @@ extern u8 apinit, apinit_end;
 extern void *ap_pagetable, *ap_idt_pointer, *ap_stack;
 void *ap_stack;
 u64 ap_lock;
+heap ap_heap;
 
 #define ICR_TYPE_INIT         0x00000500
 #define ICR_TYPE_STARTUP      0x00000600
@@ -60,7 +61,6 @@ void init_cpu_features()
 
 void cpu_init(int cpu)
 {
-    init_cpu_features();
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
     write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
     write_msr(GS_MSR, addr);
@@ -80,11 +80,7 @@ static void __attribute__((noinline)) ap_new_stack()
     cpu_init(cid);
     cpuinfo ci = current_cpu();
 
-    set_ist(id, IST_EXCEPTION, u64_from_pointer(ci->m.exception_stack));
-    set_ist(id, IST_INTERRUPT, u64_from_pointer(ci->m.int_stack));
     set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
-    mp_debug(", install gdt");
-    install_gdt64_and_tss(id);
     mp_debug(", enable apic");
     apic_enable();
     mp_debug(", clear ap lock, enable ints, start_callback\n");
@@ -96,8 +92,12 @@ static void __attribute__((noinline)) ap_new_stack()
 void ap_start()
 {
     apic_per_cpu_init();
+    init_cpu_features();
     int id = cpuid_from_apicid(apic_id());
-    switch_stack(stack_from_kernel_context(get_kernel_context(cpuinfo_from_id(id))), ap_new_stack);
+    cpuinfo ci = init_cpuinfo(ap_heap, id);
+    if (ci == INVALID_ADDRESS)
+        return;
+    switch_stack(stack_from_kernel_context(get_kernel_context(ci)), ap_new_stack);
 }
 
 void allocate_apboot(heap stackheap, void (*ap_entry)())
@@ -115,6 +115,7 @@ void allocate_apboot(heap stackheap, void (*ap_entry)())
     ap_stack = rsp;
 
     runtime_memcpy(apboot, &apinit, &apinit_end - &apinit);
+    ap_heap = stackheap;
 }
 
 void deallocate_apboot(heap stackheap)

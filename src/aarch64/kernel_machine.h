@@ -7,17 +7,17 @@
 #define KERNEL_LIMIT     0x00fffffffffff000ull
 #define KERNEL_BASE      0x00ffffff80000000ull
 #define DEVICE_BASE      0x00ffffff00000000ull
-#define DIRECT_MAP_LIMIT DEVICE_BASE
-#define DIRECT_MAP_BASE  0x00ffff0000000000ull
-#define KMEM_LIMIT       DIRECT_MAP_BASE
-
-#define DIRECT_MAP_PAGELOG 32
 
 #define KERNEL_PHYS 0x0000000040400000ull /* must match linker script - XXX extern? */
 
 #include <kernel_platform.h>
 
-#define HUGE_PAGESIZE 0x100000000ull
+#define LINEAR_BACKED_LIMIT     0x00ffff0000000000ull
+#define LINEAR_BACKED_BASE      0x00ff800000000000ull
+#define LINEAR_BACKED_PHYSLIMIT 0x00007f0000000000ull
+#define LINEAR_BACKED_PAGELOG   30
+#define HUGE_PAGESIZE           0x100000000ull
+#define KMEM_LIMIT              LINEAR_BACKED_BASE
 
 #define STACK_ALIGNMENT     16
 
@@ -158,6 +158,13 @@ static inline void enable_interrupts(void)
 static inline void disable_interrupts(void)
 {
     asm volatile("msr daifset, #2");
+}
+
+static inline u64 irq_enable_save(void)
+{
+    register u32 daif;
+    asm volatile("mrs %0, daif; msr daifclr, #2" : "=r"(daif));
+    return daif;
 }
 
 static inline u64 irq_disable_save(void)
@@ -334,6 +341,11 @@ static inline boolean is_div_by_zero(context f)
 static inline void frame_enable_interrupts(context f)
 {
     f[FRAME_ESR_SPSR] &= ~SPSR_I; /* EL0 */
+}
+
+static inline void frame_disable_interrupts(context f)
+{
+    f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
 }
 
 static inline void frame_set_sp(context f, u64 sp)

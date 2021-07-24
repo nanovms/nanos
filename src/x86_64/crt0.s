@@ -208,9 +208,6 @@ frame_return:
 
         interrupts equ 0x30
 
-        ;; until we can build gdt dynamically...
-        cpus equ 0x10
-
 global_data n_interrupt_vectors
 n_interrupt_vectors:
         dd interrupts
@@ -346,105 +343,19 @@ _start:
 %define TSS_SIZE 0x68
 global_func install_gdt64_and_tss
 install_gdt64_and_tss:
-        lgdt [GDT64.Pointer]
-        mov rax, TSS
-        imul rsi, rdi, TSS_SIZE
-        add rax, rsi
-        imul rdi, rdi, 0x10
-        add rdi, GDT64.TSS
-        mov [GDT64 + rdi], word TSS_SIZE ; limit
-        mov [GDT64 + rdi + 2], ax   ; base [15:0]
+        lgdt [rcx]
+        mov rax, rsi
+        mov [rdi], word TSS_SIZE ; limit
+        mov [rdi + 2], ax   ; base [15:0]
         shr rax, 0x10
-        mov [GDT64 + rdi + 4], al ; base [23:16]
-        mov [GDT64 + rdi + 5], byte 10001001b ; present, 64-bit TSS available
-        mov [GDT64 + rdi + 7], ah ; base [31:24]
+        mov [rdi + 4], al ; base [23:16]
+        mov [rdi + 5], byte 10001001b ; present, 64-bit TSS available
+        mov [rdi + 7], ah ; base [31:24]
         shr rax, 0x10
-        mov [GDT64 + rdi + 8], eax ; base [63:32]
+        mov [rdi + 8], eax ; base [63:32]
+        sub rdi, rdx	; calculate offset of TSS descriptor in GDT
         ltr di
         ret
-.end:
-
-%include "segment.inc"
-
-        ;; Global Descriptor Table (64-bit).
-align 16
-GDT64:
-        ;; 0x00: null descriptor - unused
-        .Null: equ $ - GDT64
-        dd 0
-        dd 0
-
-        ;; 0x08: kernel code descriptor
-        .Code: equ $ - GDT64
-        dd 0                       ; limit / base, unused in long mode
-        dd KERN_CODE_SEG_DESC
-
-        ;; 0x10: kernel data descriptor
-        .Data: equ $ - GDT64
-        dd 0
-        dd KERN_DATA_SEG_DESC
-
-        ;; 0x18: 32-bit user code descriptor
-        ;;       unused, but set as sysret base in STAR_MSR
-        .UserCode: equ $ - GDT64
-        dd 0
-        dd 0
-
-        ;; 0x20: user data descriptor
-        .UserData: equ $ - GDT64
-        dd 0
-        dd USER_DATA_SEG_DESC
-
-        ;; 0x28: 64-bit user code descriptor
-        .UserCode64: equ $ - GDT64
-        dd 0
-        dd USER_CODE_SEG_DESC
-
-        ;; TSS - per-cpu 64-bit system segment descriptors
-        ;; Filled in at runtime by install_gdt64_and_tss
-        .TSS: equ $ - GDT64
-%rep cpus
-        dd 0
-        dd 0
-        dd 0
-        dd 0
-%endrep
-        .Pointer:    ; The GDT-pointer.
-        dw $ - GDT64 - 1    ; Limit.
-        dq GDT64            ; 64 bit Base.
-
-        align 16                ; XXX ??
-global_data TSS
-TSS:                            ; 64 bit TSS
-%rep cpus
-        dd 0                    ; reserved      0x00
-        dd 0                    ; RSP0 (low)    0x04
-        dd 0                    ; RSP0 (high)   0x08
-        dd 0                    ; RSP1 (low)    0x0c
-        dd 0                    ; RSP1 (high)   0x10
-        dd 0                    ; RSP2 (low)    0x14
-        dd 0                    ; RSP2 (high)   0x18
-        dd 0                    ; reserved      0x1c
-        dd 0                    ; reserved      0x20
-        dd 0                    ; IST1 (low)    0x24
-        dd 0                    ; IST1 (high)   0x28
-        dd 0                    ; IST2 (low)    0x2c
-        dd 0                    ; IST2 (high)   0x30
-        dd 0                    ; IST3 (low)    0x34
-        dd 0                    ; IST3 (high)   0x38
-        dd 0                    ; IST4 (low)    0x3c
-        dd 0                    ; IST4 (high)   0x40
-        dd 0                    ; IST5 (low)    0x44
-        dd 0                    ; IST5 (high)   0x48
-        dd 0                    ; IST6 (low)    0x4c
-        dd 0                    ; IST6 (high)   0x50
-        dd 0                    ; IST7 (low)    0x54
-        dd 0                    ; IST7 (high)   0x58
-        dd 0                    ; reserved      0x5c
-        dd 0                    ; reserved      0x60
-        dw 0                    ; IOPB offset   0x64
-        dw 0                    ; reserved      0x66
-%endrep
 .end:
 
 ;; hypercall page used by xen and hyper-v

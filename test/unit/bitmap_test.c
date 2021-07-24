@@ -196,6 +196,38 @@ boolean test_range_check_set(bitmap b) {
     return true;
 }
 
+boolean test_range_get_first(bitmap b) {
+    for (u64 start = 0, nbits = 0; start + nbits <= b->maxbits; ) {
+        u64 first = bitmap_range_get_first(b, start, nbits);
+        if (first != INVALID_PHYSICAL) {
+            if (!point_in_range(irangel(start, nbits), first)) {
+                msg_err("range_get_first() returned %ld, expected range %R\n", first,
+                    irangel(start, nbits));
+                return false;
+            }
+            if (!bitmap_get(b, first)) {
+                msg_err("range_get_first() failed at bit %ld, expected 1 (start %ld, nbits %ld)\n",
+                    first, start, nbits);
+                return false;
+            }
+        } else {
+            first = start + nbits;
+        }
+        for (u64 i = start; i < first; i++) {
+            if (bitmap_get(b, i)) {
+                msg_err("range_get_first() failed at bit %ld, expected 0 "
+                    "(start %ld, nbits %ld, first %ld)\n", i, start, nbits, first);
+                return false;
+            }
+        }
+        if (first < start + nbits)
+            start++;
+        else
+            nbits++;
+    }
+    return true;
+}
+
 boolean basic_test()
 {
     heap h = init_process_runtime();
@@ -224,6 +256,8 @@ boolean basic_test()
 
     // tests bitmap range check and set
     if(!test_range_check_set(b)) return false;
+
+    if(!test_range_get_first(b)) return false;
 
     // deallocate bitmap
     deallocate_bitmap(b);

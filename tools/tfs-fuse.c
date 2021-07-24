@@ -1003,7 +1003,7 @@ int main(int argc, char **argv)
                       length,
                       closure(h, bread, fd, offset),
                       closure(h, bwrite, fd, offset),
-                      false,
+                      0, 0,
                       closure(h, fsc));
     fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
     files = allocate_vector(h, 64);

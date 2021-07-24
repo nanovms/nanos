@@ -143,7 +143,7 @@ void load_klib(const char *name, klib_handler complete, status_handler sh)
     if (!md) {
         apply(complete, INVALID_ADDRESS, KLIB_LOAD_FAILED);
     } else {
-        filesystem_read_entire(klib_fs, md, heap_backed(klib_kh),
+        filesystem_read_entire(klib_fs, md, (heap)heap_page_backed(klib_kh),
                                closure(h, load_klib_complete, name, complete, sh),
                                closure(h, load_klib_failed, complete));
     }
@@ -283,7 +283,7 @@ closure_function(3, 2, boolean, autoload_klib_each,
         klib_handler kl_complete = closure(h, autoload_klib_complete, bound(pending),
             bound(retry_klibs), sh, 0);
         assert(kl_complete != INVALID_ADDRESS);
-        filesystem_read_entire(klib_fs, v, heap_backed(klib_kh),
+        filesystem_read_entire(klib_fs, v, (heap)heap_linear_backed(klib_kh),
                                closure(h, load_klib_complete, "auto", kl_complete, sh),
                                closure(h, load_klib_failed, kl_complete));
     }

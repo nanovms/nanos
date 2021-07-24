@@ -139,8 +139,8 @@ void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
     rprintf("cpu\tframe returns\n");
-    for (int i = 0; i < MAX_CPUS; i++) {
-        cpuinfo ci = cpuinfo_from_id(i);
+    cpuinfo ci;
+    vector_foreach(cpuinfos, ci) {
         if (ci->frcount)
             rprintf("%d\t%ld\n", i, ci->frcount);
     }
@@ -196,20 +196,26 @@ static void init_kernel_heaps(void)
                                       KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
     assert(kh->virtual_huge != INVALID_ADDRESS);
 
-    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap, (heap)kh->virtual_huge, PAGESIZE, true);
+    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap,
+                                             (heap)kh->virtual_huge, PAGESIZE, true);
     assert(kh->virtual_page != INVALID_ADDRESS);
 
     kh->physical = init_physical_id_heap(&bootstrap);
     assert(kh->physical != INVALID_ADDRESS);
 
-    kh->backed = physically_backed(&bootstrap, (heap)kh->virtual_page, (heap)kh->physical, PAGESIZE, true);
-    assert(kh->backed != INVALID_ADDRESS);
+    kh->page_backed = allocate_page_backed_heap(&bootstrap, (heap)kh->virtual_page,
+                                                (heap)kh->physical, PAGESIZE, true);
+    assert(kh->page_backed != INVALID_ADDRESS);
 
-    kh->general = allocate_mcache(&bootstrap, (heap)kh->backed, 5, 20, PAGESIZE_2M);
+    kh->linear_backed = allocate_linear_backed_heap(&bootstrap, kh->physical);
+    assert(kh->linear_backed != INVALID_ADDRESS);
+
+    kh->general = allocate_mcache(&bootstrap, (heap)kh->linear_backed,
+                                  5, 20, PAGESIZE_2M);
     assert(kh->general != INVALID_ADDRESS);
 
     kh->locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)kh->backed, 5, 20, PAGESIZE_2M));
+        allocate_mcache(&bootstrap, (heap)kh->linear_backed, 5, 20, PAGESIZE_2M));
     assert(kh->locked != INVALID_ADDRESS);
 }
 
@@ -217,7 +223,9 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    page_heap_init(heap_locked(kh), heap_physical(kh));
+    init_page_tables((heap)heap_linear_backed(kh));
+    /* mmu init complete; unmap temporary identity map */
+    unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
     init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
     init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
@@ -233,7 +241,7 @@ void init_setup_stack(void)
     init_kernel_heaps();
     init_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
-    void *stack_base = allocate(heap_backed(get_kernel_heaps()), stack_size);
+    void *stack_base = allocate((heap)heap_page_backed(get_kernel_heaps()), stack_size);
     assert(stack_base != INVALID_ADDRESS);
     init_debug("stack base at ");
     init_debug_u64(u64_from_pointer(stack_base));
@@ -273,10 +281,10 @@ void __attribute__((noreturn)) start(void)
     init_dump(pointer_from_u64(0x40000000), 0x100);
 #endif
 
-    init_debug("calling page_init_mmu with target ");
+    init_debug("calling init_mmu with target ");
     init_debug_u64(u64_from_pointer(init_mmu_target));
     init_debug("\n");
-    page_init_mmu(irangel(0x40200000, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
+    init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
 
     while (1);
 }

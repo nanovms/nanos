@@ -281,6 +281,7 @@ boolean thread_attempt_interrupt(thread t)
 define_closure_function(1, 0, void, free_thread,
                         thread, t)
 {
+    deallocate_bitmap(bound(t)->affinity);
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
@@ -335,8 +336,10 @@ thread create_thread(process p)
     t->sighandler_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_sighandler, run_sighandler, t));
 
     t->thrd.pause = init_closure(&t->pause_thread, pause_thread, t);
-    // xxx another max 64
-    t->affinity.mask[0] = MASK(total_processors);
+    t->affinity = allocate_bitmap(h, h, total_processors);
+    if (t->affinity == INVALID_ADDRESS)
+        goto fail_affinity;
+    bitmap_range_check_and_set(t->affinity, 0, total_processors, false, true);
     t->blocked_on = 0;
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
@@ -347,11 +350,17 @@ thread create_thread(process p)
     t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
     t->last_syscall = -1;
 
+    list_init(&t->l_faultwait);
+
     // XXX sigframe
     spin_lock(&p->threads_lock);
     rbtree_insert_node(p->threads, &t->n);
     spin_unlock(&p->threads_lock);
     return t;
+  fail_affinity:
+    deallocate_frame(t->sighandler_frame);
+    deallocate_frame(t->default_frame);
+    deallocate_notify_set(t->signalfds);
   fail_sfds:
     deallocate_blockq(t->thread_bq);
   fail_bq:

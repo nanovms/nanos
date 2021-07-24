@@ -250,7 +250,7 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
     assert(hn != INVALID_ADDRESS);
 
     hn->general = heap_general(kh);
-    hn->contiguous = heap_backed(kh);
+    hn->contiguous = (heap)heap_linear_backed(kh);
 
     hn->hn_dev_obj = device;
     device->device = hn;

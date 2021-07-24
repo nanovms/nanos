@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <errno.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -106,10 +108,35 @@ void *terminus(void *k)
 
 }
 
+static void test_affinity(void)
+{
+    cpu_set_t set;
+
+    if ((sched_setaffinity(0, sizeof(set), NULL) == 0) || (errno != EFAULT))
+        halt("sched_setaffinity() missing EFAULT\n");
+    if ((sched_getaffinity(0, sizeof(set), NULL) == 0) || (errno != EFAULT))
+        halt("sched_getaffinity() missing EFAULT\n");
+    if ((sched_getaffinity(0, sizeof(unsigned long) - 1, &set) == 0) || (errno != EINVAL))
+        halt("sched_getaffinity() missing EINVAL\n");
+    CPU_ZERO(&set);
+    CPU_SET(0, &set);
+    if (sched_setaffinity(0, sizeof(set), &set) < 0)
+        halt("sched_setaffinity() failed\n");
+    CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) < 0)
+        halt("sched_getaffinity() failed\n");
+    if (!CPU_ISSET(0, &set))
+        halt("test_affinity: CPU 0 not set\n");
+    for (int i = 1; i < sizeof(set) * 8; i++)
+        if (CPU_ISSET(i, &set))
+            halt("test_affinity: CPU set\n");
+}
+
 // parse threads from command line
 // reader and shutdown
 int main(int argc, char **argv)
 {
+    test_affinity();
     if (argc >= 2 && atoi(argv[1]) > 0)
         nthreads = atoi(argv[1]);
     printf("nthreads=%d\n", nthreads);

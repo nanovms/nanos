@@ -92,6 +92,29 @@ boolean bitmap_range_check_and_set(bitmap b, u64 start, u64 nbits, boolean valid
         for_range_in_map(mapbase, start, nbits, true, set);
 }
 
+/* Returns the first bit set in a given range, or INVALID_PHYSICAL if no bits are set. */
+u64 bitmap_range_get_first(bitmap b, u64 start, u64 nbits)
+{
+    u64 word_offset = start >> 6;
+    u64 bit_offset = start & MASK(6);
+    for (; nbits > 0; word_offset++, bit_offset = 0) {
+        u64 *p = bitmap_base(b) + word_offset;
+        u64 w = *p;
+        if (bit_offset > 0)
+            w &= ~MASK(bit_offset);
+        if (nbits < 64 - bit_offset)
+            w &= MASK(bit_offset + nbits);
+        u64 bit = lsb(w);
+        if (bit != INVALID_PHYSICAL)
+            return (word_offset << 6) + bit;
+        if (nbits >= 64 - bit_offset)
+            nbits -= 64 - bit_offset;
+        else
+            nbits = 0;
+    }
+    return INVALID_PHYSICAL;
+}
+
 static inline u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 endbit)
 {
     int order = find_order(nbits);

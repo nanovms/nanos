@@ -260,7 +260,6 @@ closure_function(0, 4, void, attach_storage,
 void kernel_runtime_init(kernel_heaps kh)
 {
     heap misc = heap_general(kh);
-    heap backed = heap_backed(kh);
     heap locked = heap_locked(kh);
     init_heaps = kh;
 
@@ -268,7 +267,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("kernel_runtime_init");
     init_runtime(misc, locked);
     init_sg(locked);
-    init_pagecache(locked, backed, (heap)heap_physical(kh), PAGESIZE);
+    init_pagecache(locked, (heap)heap_linear_backed(kh), (heap)heap_physical(kh), PAGESIZE);
     unmap(0, PAGESIZE);         /* unmap zero page */
     init_extra_prints();
     init_pci(kh);
@@ -282,7 +281,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("clock");
     init_clock();
     init_debug("init_kernel_contexts");
-    init_kernel_contexts(backed);
+    init_kernel_contexts((heap)heap_page_backed(kh));
 
     /* interrupts */
     init_debug("init_interrupts");
@@ -304,6 +303,10 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("LWIP init");
     init_net(kh);
 
+    init_debug("start_secondary_cores");
+    start_secondary_cores(kh);
+    init_scheduler_cpus(misc);
+
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);
 
@@ -315,9 +318,6 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("pci_discover (for other devices)");
     pci_discover();
     init_debug("discover done");
-
-    init_debug("start_secondary_cores");
-    start_secondary_cores(kh);
 
     init_debug("starting runloop");
     runloop();
@@ -374,7 +374,8 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
                     closure(locked, storage_shutdown));
 
     if (vector_length(shutdown_completions) > 0) {
-        if (this_cpu_has_kernel_lock()) {
+        cpuinfo ci = current_cpu();
+        if (ci->have_kernel_lock) {
             vector_foreach(shutdown_completions, h)
                 apply(h, status, m);
             apply(sh, STATUS_OK);
@@ -385,7 +386,6 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
             vector_foreach(shutdown_completions, h)
                 enqueue_irqsafe(runqueue,
                                 closure(locked, do_shutdown_handler, h, status, m));
-            cpuinfo ci = current_cpu();
             if (ci->state == cpu_interrupt) {
                 interrupt_exit();
                 get_running_frame(ci)[FRAME_FULL] = false;

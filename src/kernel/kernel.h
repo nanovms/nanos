@@ -33,7 +33,9 @@ typedef struct cpuinfo {
 #endif
 } *cpuinfo;
 
-extern struct cpuinfo cpuinfos[];
+typedef closure_type(fault_handler, context, context);
+
+extern vector cpuinfos;
 
 /* subsume with introspection */
 struct mm_stats {
@@ -45,8 +47,7 @@ extern struct mm_stats mm_stats;
 
 static inline cpuinfo cpuinfo_from_id(int cpu)
 {
-    assert(cpu >= 0 && cpu < MAX_CPUS);
-    return &cpuinfos[cpu];
+    return vector_get(cpuinfos, cpu);
 }
 
 static inline boolean is_current_kernel_context(context f)
@@ -96,6 +97,12 @@ static inline __attribute__((always_inline)) void *stack_from_kernel_context(ker
     return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
 }
 
+static inline __attribute__((always_inline)) void set_fault_handler(kernel_context kc, fault_handler h)
+{
+    context f = frame_from_kernel_context(kc);
+    f[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
+}
+
 static inline void count_minor_fault(void)
 {
     fetch_and_add(&mm_stats.minor_faults, 1);
@@ -107,11 +114,6 @@ static inline void count_major_fault(void)
 }
 
 void runloop_internal() __attribute__((noreturn));
-
-static inline boolean this_cpu_has_kernel_lock(void)
-{
-    return current_cpu()->have_kernel_lock;
-}
 
 NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
@@ -139,9 +141,11 @@ context allocate_frame(heap h);
 void deallocate_frame(context);
 void *allocate_stack(heap h, u64 size);
 void deallocate_stack(heap h, u64 size, void *stack);
+cpuinfo init_cpuinfo(heap backed, int cpu);
 kernel_context allocate_kernel_context(heap h);
 void deallocate_kernel_context(kernel_context c);
 void init_kernel_contexts(heap backed);
+boolean kernel_suspended(void);
 kernel_context suspend_kernel_context(void);
 void resume_kernel_context(kernel_context c);
 void frame_return(context frame) __attribute__((noreturn));
@@ -192,9 +196,33 @@ extern timerheap runloop_timers;
 
 backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize);
 
-backed_heap physically_backed(heap meta, heap virtual, heap physical, u64 pagesize,
-                              boolean locking);
-void physically_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
+backed_heap allocate_page_backed_heap(heap meta, heap virtual, heap physical,
+                                      u64 pagesize, boolean locking);
+void page_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
+
+backed_heap allocate_linear_backed_heap(heap meta, id_heap physical);
+
+static inline boolean is_linear_backed_address(u64 address)
+{
+    return address >= LINEAR_BACKED_BASE && address < LINEAR_BACKED_LIMIT;
+}
+
+static inline boolean intersects_linear_backed(range r)
+{
+    return ranges_intersect(r, irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT));
+}
+
+static inline u64 virt_from_linear_backed_phys(u64 address)
+{
+    assert(address < LINEAR_BACKED_BASE);
+    return address | LINEAR_BACKED_BASE;
+}
+
+static inline u64 phys_from_linear_backed_virt(u64 virt)
+{
+    return virt & ~LINEAR_BACKED_BASE;
+}
+
 static inline void bhqueue_enqueue_irqsafe(thunk t)
 {
     /* an interrupted enqueue and competing enqueue from int handler could cause a
@@ -213,8 +241,6 @@ heap locking_heap_wrapper(heap meta, heap parent);
 
 void print_stack(context c);
 void print_frame(context f);
-
-typedef closure_type(fault_handler, context, context);
 
 void configure_timer(timestamp rate, thunk t);
 
@@ -240,6 +266,7 @@ void kern_lock(void);
 boolean kern_try_lock(void);
 void kern_unlock(void);
 void init_scheduler(heap);
+void init_scheduler_cpus(heap h);
 void mm_service(void);
 
 typedef closure_type(balloon_deflater, u64, u64);
@@ -262,7 +289,7 @@ extern char **state_strings;
 
 void kernel_unlock();
 
-extern u64 idle_cpu_mask;
+extern bitmap idle_cpu_mask;
 extern u64 total_processors;
 extern u64 present_processors;
 extern void xsave(context f);

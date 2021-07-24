@@ -358,6 +358,7 @@ closure_function(4, 1, void, filesystem_read_complete,
                  void *, dest, u64, limit, io_status_handler, io_complete, sg_list, sg,
                  status, s)
 {
+    tfs_debug("%s: dest %p, status %v\n", __func__, bound(dest), s);
     u64 count = 0;
     if (is_ok(s)) {
         count = sg_copy_to_buf_and_release(bound(dest), bound(sg), bound(limit));

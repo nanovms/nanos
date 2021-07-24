@@ -11,6 +11,7 @@ typedef struct bitmap {
 } *bitmap;
 
 boolean bitmap_range_check_and_set(bitmap b, u64 start, u64 nbits, boolean validate, boolean set);
+u64 bitmap_range_get_first(bitmap b, u64 start, u64 nbits);
 u64 bitmap_alloc(bitmap b, u64 size);
 u64 bitmap_alloc_within_range(bitmap b, u64 nbits, u64 start, u64 end);
 boolean bitmap_dealloc(bitmap b, u64 bit, u64 size);
@@ -67,4 +68,24 @@ static inline void bitmap_set(bitmap b, u64 i, int val)
 	*p |= mask;
     else
 	*p &= ~mask;
+}
+
+static inline void bitmap_set_atomic(bitmap b, u64 i, int val)
+{
+    u64 *p = bitmap_base(b) + (i >> 6);
+    i &= MASK(6);
+    if (val)
+        atomic_set_bit(p, i);
+    else
+        atomic_clear_bit(p, i);
+}
+
+static inline int bitmap_test_and_set_atomic(bitmap b, u64 i, int val)
+{
+    u64 *p = bitmap_base(b) + (i >> 6);
+    i &= MASK(6);
+    if (val)
+        return atomic_test_and_set_bit(p, i);
+    else
+        return atomic_test_and_clear_bit(p, i);
 }

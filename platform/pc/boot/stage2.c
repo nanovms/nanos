@@ -191,7 +191,7 @@ static void setup_page_tables()
     stage2_debug("initial page tables at [0x%lx,  0x%lx)\n", initial_pages_base,
                  initial_pages_base + INITIAL_PAGES_SIZE);
     initial_pages_region = create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
-    init_page_tables(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
+    init_mmu(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
 
     /* initial map, page tables and stack */
     pageflags flags = pageflags_writable(pageflags_exec(pageflags_memory()));
@@ -238,8 +238,6 @@ closure_function(0, 1, status, kernel_read_complete,
     assert(working_saved_base);
     create_region(working_saved_base, STAGE2_WORKING_HEAP_SIZE, REGION_PHYSICAL);
 
-    /* reset initial pages length */
-    initial_pages_region->length = INITIAL_PAGES_SIZE;
     stage2_debug("%s: run64, start address 0xffffffff%08lx\n", __func__, u64_from_pointer(k));
     run64(u64_from_pointer(k));
     halt("failed to start long mode\n");

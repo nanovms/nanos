@@ -8,20 +8,6 @@
    log or other debuging code, install wrapper heaps, etc.
 */
 
-typedef struct backed_heap {
-    struct heap h;
-    heap physical;
-    heap virtual;
-    void *(*alloc_map)(struct backed_heap *bh, bytes len, u64 *phys);
-    void (*dealloc_unmap)(struct backed_heap *bh, void *virt, u64 phys, bytes len);
-#ifdef KERNEL
-    struct spinlock lock;
-#endif
-} *backed_heap;
-
-#define alloc_map(__bh, __l, __p) ((__bh)->alloc_map(__bh, __l, __p))
-#define dealloc_unmap(__bh, __v, __p, __l) ((__bh)->dealloc_unmap(__bh, __v, __p, __l))
-
 typedef struct kernel_heaps {
     /* Allocations of physical address space outside of pages are made
        from the physical id heap. Accesses are protected by spinlock. */
@@ -34,13 +20,22 @@ typedef struct kernel_heaps {
     id_heap virtual_huge;
     id_heap virtual_page;
 
-    /* Backed heap allocations in turn allocate from both virtual_page
-       and physical, mapping the results together and returning the
-       virtual address. Deallocations remove the mapping and return
-       the spaces to their respective heaps. This is presently the
-       go-to source for ready-to-use, mapped pages. Accesses are
-       protected by spinlock. */
-    backed_heap backed;
+    /* page_backed heap allocations allocate from both virtual_page and
+       physical, mapping the results together and returning the virtual
+       address. Deallocations remove the mapping and return the spaces to
+       their respective heaps. Accesses are protected by spinlock. */
+    backed_heap page_backed;
+
+    /* The linear_backed heap serves physical allocations via a large, linear
+       mapping of the entire physical memory (up to LINEAR_BACKED_PHYSLIMIT)
+       that is made on initialization. As such, it avoids both allocations
+       from a virtual heap and the need to (un)map pages on (de)allocation. It
+       uses the largest page mappings provided by the architecture, minimizing
+       TLB use. This heap should be the preferred heap for physically-backed,
+       contiguous allocations, except where per-page allocations, special page
+       protections (as opposed to the default of writable and no-exec) or a
+       dedicated virtual allocation are necessary. */
+    backed_heap linear_backed;
 
     /* The general heap is an mcache used for allocations of arbitrary
        sizes from 32B to 1MB. It is the heap that is closest to being
@@ -72,9 +67,14 @@ static inline id_heap heap_virtual_page(kernel_heaps heaps)
     return heaps->virtual_page;
 }
 
-static inline heap heap_backed(kernel_heaps heaps)
+static inline backed_heap heap_page_backed(kernel_heaps heaps)
 {
-    return (heap)heaps->backed;
+    return heaps->page_backed;
+}
+
+static inline backed_heap heap_linear_backed(kernel_heaps heaps)
+{
+    return heaps->linear_backed;
 }
 
 static inline heap heap_general(kernel_heaps heaps)

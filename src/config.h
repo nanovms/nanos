@@ -1,5 +1,5 @@
 /* identity-mapped space for initial page tables */
-#define INITIAL_PAGES_SIZE (64 * KB)
+#define INITIAL_PAGES_SIZE (1 * MB)
 
 /* The stage2 working heap needs to be large enough to accomodate all tfs
    allocations when loading the kernel. It gets recycled on stage3 entry. */
@@ -20,9 +20,6 @@
 /* runloop timer minimum and maximum */
 #define RUNLOOP_TIMER_MAX_PERIOD_US     100000
 #define RUNLOOP_TIMER_MIN_PERIOD_US     1000
-
-/* XXX just for initial mp bringup... */
-#define MAX_CPUS 16
 
 /* length of thread scheduling queue */
 #define MAX_THREADS 8192

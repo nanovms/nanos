@@ -6,14 +6,23 @@
 
 #include "frame.h"
 
-#define KERNEL_BASE  0xffffffff80000000ull
-#define KERNEL_LIMIT 0xfffffffffffff000ull
-#define KMEM_LIMIT   0xffffffff00000000ull
-#define PAGES_BASE   0xffffffffc0000000ull
+/*
+  bit  47    - kern / user, extended for canonical
+  bit  46    - set if directly-mapped (tag area must be zero)
+  bits 45:38 - tag
+ */
 
-#define HUGE_PAGESIZE 0x100000000ull
+#define KERNEL_BASE             0xffffffff80000000ull
+#define KERNEL_LIMIT            0xfffffffffffff000ull // XXX ? klibs
+#define KMEM_LIMIT              0xffffbfff00000000ull
+#define PAGES_BASE              0xffffffffc0000000ull
+#define LINEAR_BACKED_LIMIT     0xffffffff00000000ull
+#define LINEAR_BACKED_BASE      0xffffc00000000000ull
+#define LINEAR_BACKED_PHYSLIMIT 0x00003fff00000000ull
+#define LINEAR_BACKED_PAGELOG   30
+#define HUGE_PAGESIZE           0x100000000ull
 
-#define KERNEL_BASE_PHYS 0x00200000ul
+#define KERNEL_BASE_PHYS    0x00200000ul
 #define STACK_ALIGNMENT     16
 
 #define VIRTUAL_ADDRESS_BITS 48
@@ -55,6 +64,8 @@
 
 #define TSS_SIZE 0x68
 
+struct cpuinfo_machine;
+
 /* AP boot page */
 extern void * AP_BOOT_PAGE;
 #define AP_BOOT_START u64_from_pointer(&AP_BOOT_PAGE)
@@ -74,16 +85,14 @@ static inline void disable_interrupts()
 static inline u32 read_eflags(void)
 {
     u32 out;
-    asm volatile("pushfd");
-    asm volatile("popl %0":"=g"(out));
+    asm volatile("pushfd; popl %0" : "=r"(out) :: "memory");
     return out;
 }
 
 static inline u64 read_flags(void)
 {
     u64 out;
-    asm volatile("pushfq");
-    asm volatile("popq %0":"=g"(out));
+    asm volatile("pushfq; popq %0" : "=r"(out) :: "memory");
     return out;
 }
 
@@ -94,10 +103,16 @@ static inline u64 irq_disable_save(void)
     return flags;
 }
 
+static inline u64 irq_enable_save(void)
+{
+    u64 flags = read_flags();
+    enable_interrupts();
+    return flags;
+}
+
 static inline void irq_restore(u64 flags)
 {
-    if ((flags & U64_FROM_BIT(FLAG_INTERRUPT)))
-        enable_interrupts();
+    asm volatile("push %0; popf" :: "g"(flags) : "memory", "cc");
 }
 
 static inline void wait_for_interrupt(void)
@@ -115,8 +130,8 @@ void init_cpu_features();
 #define IST_EXCEPTION 1
 #define IST_INTERRUPT 2
 
-void set_ist(int cpu, int i, u64 sp);
-void install_gdt64_and_tss(u64 cpu);
+void set_ist(struct cpuinfo_machine *cpu, int i, u64 sp);
+void install_gdt64_and_tss(void *tss_desc, void *tss, void *gdt, void *gdt_pointer);
 
 #if defined(KERNEL) || defined(KLIB)
 /* locking constructs */
@@ -211,6 +226,10 @@ typedef struct kernel_context {
     u64 frame[0];
 } *kernel_context;
 
+typedef struct {
+    u8 data[8];
+} seg_desc_t;
+
 struct cpuinfo_machine {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating gs-relative accesses in crt0.s ***/
@@ -236,6 +255,21 @@ struct cpuinfo_machine {
     /* Stack for interrupts */
     void *int_stack;
 
+    struct gdt {
+        seg_desc_t null;
+        seg_desc_t code;
+        seg_desc_t data;
+        seg_desc_t user_code;
+        seg_desc_t user_data;
+        seg_desc_t user_code_64;
+        u8 tss_desc[0x10];
+    } gdt;
+    struct gdt_pointer {
+        u16 limit;
+        u64 base;
+    } __attribute__((packed)) gdt_pointer;
+    u64 tss[TSS_SIZE / sizeof(u64)];
+
     /* Monotonic clock timestamp when the lapic timer is supposed to fire; used to re-arm the timer
      * when it fires too early (based on what the monotonic clock source says). */
     timestamp lapic_timer_expiry;
@@ -259,6 +293,11 @@ static inline u64 total_frame_size(void)
 static inline void frame_enable_interrupts(context f)
 {
     f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+}
+
+static inline void frame_disable_interrupts(context f)
+{
+    f[FRAME_FLAGS] &= ~U64_FROM_BIT(FLAG_INTERRUPT);
 }
 
 extern void xsave(context f);

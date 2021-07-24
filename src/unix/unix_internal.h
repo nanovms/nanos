@@ -106,11 +106,6 @@ struct sysinfo {
                         /* Padding to 64 bytes */
 };
 
-#define CPU_SET_WORDS   (pad(MAX_CPUS, 64) >> 6)
-typedef struct {
-    u64 mask[CPU_SET_WORDS];
-} cpu_set_t;
-
 typedef struct user_cap_header {
     u32 version;
     int pid;
@@ -210,6 +205,23 @@ struct ftrace_graph_entry;
 
 #include <notify.h>
 
+struct pending_fault;
+declare_closure_struct(1, 1, void, pending_fault_complete,
+                       struct pending_fault *, pf,
+                       status, s);
+
+typedef struct pending_fault {
+    struct rbnode n;            /* must be first */
+    u64 addr;
+    process p;
+    union {
+        struct list dependents;
+        struct list l_free;
+    };
+    closure_struct(pending_fault_complete, complete);
+    boolean kern;
+} *pending_fault;
+
 declare_closure_struct(1, 0, void, free_thread,
                        thread, t);
 declare_closure_struct(1, 0, void, resume_syscall,
@@ -224,9 +236,9 @@ declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
 declare_closure_struct(5, 0, void, thread_demand_file_page,
-                       thread, t, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
-declare_closure_struct(3, 1, void, thread_demand_file_page_complete,
-                       thread, t, context, frame, u64, vaddr,
+                       pending_fault, pf, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
+declare_closure_struct(2, 1, void, thread_demand_page_complete,
+                       thread, t, u64, vaddr,
                        status, s);
 
 /* XXX probably should bite bullet and allocate these... */
@@ -260,7 +272,7 @@ typedef struct thread {
     closure_struct(run_sighandler, run_sighandler);
     closure_struct(default_fault_handler, fault_handler);
     closure_struct(thread_demand_file_page, demand_file_page);
-    closure_struct(thread_demand_file_page_complete, demand_file_page_complete);
+    closure_struct(thread_demand_page_complete, demand_page_complete);
 
     epoll select_epoll;
     int *clear_tid;
@@ -295,7 +307,8 @@ typedef struct thread {
     u64 signal_stack_length;
 
     closure_struct(resume_syscall, deferred_syscall);
-    cpu_set_t affinity;    
+    bitmap affinity;
+    struct list l_faultwait;
 } *thread;
 
 typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, thread t,
@@ -429,6 +442,8 @@ typedef struct process {
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;
+    struct rbtree     pending_faults; /* pending_faults in progress */
+    struct spinlock   faulting_lock;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
     id_heap           posix_timer_ids;

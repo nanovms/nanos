@@ -2187,5 +2187,5 @@ static struct ena_aenq_handlers aenq_handlers = {
 void init_aws_ena(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, ena_probe, h, heap_backed (kh)));
+    register_pci_driver(closure(h, ena_probe, h, (heap)heap_linear_backed(kh)));
 }
