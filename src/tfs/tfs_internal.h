@@ -43,6 +43,7 @@ typedef struct fsfile {
     tuple md;
     sg_io read;
     sg_io write;
+    struct refcount refcount;
 } *fsfile;
 
 typedef struct extent {

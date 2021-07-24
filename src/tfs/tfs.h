@@ -63,6 +63,8 @@ fsfile fsfile_from_node(filesystem fs, tuple n);
 fsfile file_lookup(filesystem fs, vector v);
 void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler s);
 fsfile allocate_fsfile(filesystem fs, tuple md);
+void fsfile_reserve(fsfile f);
+void fsfile_release(fsfile f);
 // XXX per-file flush
 
 typedef enum {
@@ -98,6 +100,7 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
         boolean persistent);
 tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name);
 tuple filesystem_creat(filesystem fs, tuple parent, const char *name);
+tuple filesystem_creat_unnamed(filesystem fs);
 tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
                          const char *target);
 fs_status filesystem_delete(filesystem fs, tuple parent, symbol sym);

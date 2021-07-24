@@ -93,7 +93,7 @@ typedef struct iovec {
 #define O_NOATIME       01000000
 #define O_CLOEXEC       02000000
 #define O_PATH         010000000
-#define O_TMPFILE     (020000000 | O_DIRECTORY)
+#define O_TMPFILE     020000000
 
 #define F_LINUX_SPECIFIC_BASE   0x400
 

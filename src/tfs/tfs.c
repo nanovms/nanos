@@ -96,6 +96,16 @@ pagecache_node fsfile_get_cachenode(fsfile f)
     return f->cache_node;
 }
 
+void fsfile_reserve(fsfile f)
+{
+    refcount_reserve(&f->refcount);
+}
+
+void fsfile_release(fsfile f)
+{
+    refcount_release(&f->refcount);
+}
+
 void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion)
 {
     apply(f->read, sg, q, completion);
@@ -1123,6 +1133,17 @@ tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
     return dir;
 }
 
+tuple filesystem_creat_unnamed(filesystem fs)
+{
+    tuple n = fs_new_entry(fs);
+    tfs_debug("%s: create unnamed file %p\n", __func__, n);
+    /* 'make it a file' by adding an empty extents list */
+    set(n, sym(extents), allocate_tuple());
+    fsfile f = allocate_fsfile(fs, n);
+    fsfile_set_length(f, 0);
+    return n;
+}
+
 tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
                          const char *target)
 {
@@ -1140,7 +1161,9 @@ fs_status filesystem_delete(filesystem fs, tuple parent, symbol sym)
 {
     tuple t = lookup(parent, sym);
     assert(t);
-    file_extents_dealloc(fs, t);
+    fsfile f = fsfile_from_node(fs, t);
+    if (f)
+        refcount_release(&f->refcount);
     return fs_set_dir_entry(fs, parent, sym, 0);
 }
 
@@ -1194,6 +1217,12 @@ void filesystem_log_rebuild_done(filesystem fs, log new_tl)
     fs->temp_log = 0;
 }
 
+closure_function(2, 0, void, free_extents,
+                filesystem, fs, tuple, t)
+{
+    file_extents_dealloc(bound(fs), bound(t));
+}
+
 #endif /* !TFS_READ_ONLY */
 
 fsfile allocate_fsfile(filesystem fs, tuple md)
@@ -1227,6 +1256,12 @@ fsfile allocate_fsfile(filesystem fs, tuple md)
     f->cache_node = pn;
     f->read = pagecache_node_get_reader(pn);
     f->write = pagecache_node_get_writer(pn);
+#ifndef TFS_READ_ONLY
+    init_refcount(&f->refcount, 1, closure(fs->h, free_extents, fs, f->md));
+#else
+    init_refcount(&f->refcount, 1, 0);
+#endif
+
     return f;
 }
 
