@@ -773,6 +773,7 @@ boolean unix_timers_init(unix_heaps uh);
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
 extern sysreturn syscall_ignore();
+u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete);
 boolean do_demand_page(u64 vaddr, vmap vm, context frame);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);

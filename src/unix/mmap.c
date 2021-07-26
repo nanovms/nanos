@@ -25,6 +25,7 @@ declare_closure_function(0, 1, boolean, pending_fault_print,
 static struct {
     heap h;
     id_heap physical;
+    backed_heap linear_backed;
 
     closure_struct(kernel_frame_return, do_kernel_frame_return);
     closure_struct(pending_fault_compare, pf_compare);
@@ -143,16 +144,28 @@ static pending_fault find_pending_fault_locked(process p, u64 addr)
     return (pending_fault)n;
 }
 
+/* returns physical address */
+u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete)
+{
+    assert((v & MASK(PAGELOG)) == 0);
+    void *m = allocate((heap)mmap_info.linear_backed, length);
+    if (m == INVALID_ADDRESS) {
+        msg_err("cannot get physical page; OOM\n");
+        return INVALID_PHYSICAL;
+    }
+    zero(m, length);
+    write_barrier();
+    u64 p = phys_from_linear_backed_virt(u64_from_pointer(m));
+    map_with_complete(v, p, length, flags, complete);
+    return p;
+}
+
 static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
 {
-    u64 paddr = allocate_u64((heap)mmap_info.physical, PAGESIZE);
-    if (paddr == INVALID_PHYSICAL) {
-        msg_err("cannot get physical page; OOM\n");
-        return false;
-    }
     pf->kern = false;       /* direct return if kernel fault; no resume */
-    map_and_zero(vaddr & ~MASK(PAGELOG), paddr, PAGESIZE, pageflags_from_vmflags(vm->flags),
-                 (status_handler)&pf->complete);
+    if (new_zeroed_pages(vaddr & ~MASK(PAGELOG), PAGESIZE, pageflags_from_vmflags(vm->flags),
+                         (status_handler)&pf->complete) == INVALID_PHYSICAL)
+        return false;
     count_minor_fault();
     return true;
 }
@@ -1222,6 +1235,7 @@ void mmap_process_init(process p, boolean aslr)
     heap h = heap_locked(kh);
     mmap_info.h = h;
     mmap_info.physical = heap_physical(kh);
+    mmap_info.linear_backed = heap_linear_backed(kh);
     spin_lock_init(&p->vmap_lock);
     p->vareas = allocate_rangemap(h);
     p->vmaps = allocate_rangemap(h);
