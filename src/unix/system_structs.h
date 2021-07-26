@@ -727,14 +727,15 @@ struct io_uring_params {
 #define IPPROTO_IPV6    41
 
 /* set/getsockopt optnames */
-#define SO_DEBUG     1
-#define SO_REUSEADDR 2
-#define SO_TYPE      3
-#define SO_ERROR     4
-#define SO_SNDBUF    7
-#define SO_RCVBUF    8
-#define SO_PRIORITY  12
-#define SO_LINGER    13
+#define SO_DEBUG        1
+#define SO_REUSEADDR    2
+#define SO_TYPE         3
+#define SO_ERROR        4
+#define SO_SNDBUF       7
+#define SO_RCVBUF       8
+#define SO_PRIORITY     12
+#define SO_LINGER       13
+#define SO_ACCEPTCONN   30
 
 #define IPV6_V6ONLY     26
 
