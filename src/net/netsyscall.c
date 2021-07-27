@@ -1942,6 +1942,10 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
             ret_optval.linger.l_linger = 0;
             ret_optlen = sizeof(ret_optval.linger);
             break;
+        case SO_ACCEPTCONN:
+            ret_optval.val = (s->sock.type == SOCK_STREAM) && (s->info.tcp.state == TCP_SOCK_LISTENING);
+            ret_optlen = sizeof(ret_optval.val);
+            break;
         default:
             goto unimplemented;
         }

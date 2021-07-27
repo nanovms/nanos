@@ -76,11 +76,16 @@ static void netsock_test_basic(int sock_type)
     addr.sin_port = htons(NETSOCK_TEST_BASIC_PORT);
     test_assert(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
     if (sock_type == SOCK_STREAM) {
+        int val;
+        socklen_t len = sizeof(val);
+        test_assert(getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
         test_assert(listen(fd, 1) == 0);
+        test_assert(getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 1);
         ret = pthread_create(&pt, NULL, netsock_test_basic_thread, (void *)(long)sock_type);
         test_assert(ret == 0);
         tx_fd = accept(fd, NULL, NULL);
         test_assert(tx_fd > 0);
+        test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
         test_assert(close(fd) == 0);
     } else {
         tx_fd = fd;
