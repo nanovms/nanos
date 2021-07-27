@@ -435,9 +435,9 @@ void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");
 
-    spin_lock(&t->p->threads_lock);
+    u64 flags = spin_lock_irq(&t->p->threads_lock);
     rbtree_remove_by_key(t->p->threads, &t->n);
-    spin_unlock(&t->p->threads_lock);
+    spin_unlock_irq(&t->p->threads_lock, flags);
 
     /* dequeue signals for thread */
     sigstate_flush_queue(&t->signals);

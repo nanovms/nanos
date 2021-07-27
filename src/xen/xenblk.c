@@ -88,7 +88,7 @@ typedef struct xenblk_ring_req {
 static xenblk_req xenblk_get_req(xenblk_dev xbd)
 {
     xenblk_req req;
-    spin_lock(&xbd->lock);
+    u64 flags = spin_lock_irq(&xbd->lock);
     list l = list_get_next(&xbd->free);
     if (l) {
         list_delete(l);
@@ -99,7 +99,7 @@ static xenblk_req xenblk_get_req(xenblk_dev xbd)
         if (req == INVALID_ADDRESS)
             req = 0;
     }
-    spin_unlock(&xbd->lock);
+    spin_unlock_irq(&xbd->lock, flags);
     return req;
 }
 

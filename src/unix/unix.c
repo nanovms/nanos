@@ -447,18 +447,18 @@ closure_function(2, 1, boolean, count_thread_time,
 timestamp proc_utime(process p)
 {
     timestamp utime = 0;
-    spin_lock(&p->threads_lock);
+    u64 flags = spin_lock_irq(&p->threads_lock);
     rbtree_traverse(p->threads, RB_INORDER, stack_closure(count_thread_time, &utime, true));
-    spin_unlock(&p->threads_lock);
+    spin_unlock_irq(&p->threads_lock, flags);
     return utime;
 }
 
 timestamp proc_stime(process p)
 {
     timestamp stime = 0;
-    spin_lock(&p->threads_lock);
+    u64 flags = spin_lock_irq(&p->threads_lock);
     rbtree_traverse(p->threads, RB_INORDER, stack_closure(count_thread_time, &stime, false));
-    spin_unlock(&p->threads_lock);
+    spin_unlock_irq(&p->threads_lock, flags);
     return stime;
 }
 

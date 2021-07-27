@@ -87,19 +87,19 @@ static void pvscsi_write_cmd(pvscsi dev, u32 cmd, void *data, u32 len)
 
 static void pvscsi_hcb_dealloc(pvscsi dev, struct pvscsi_hcb *hcb)
 {
-    spin_lock(&dev->mem_lock);
+    u64 flags = spin_lock_irq(&dev->mem_lock);
     if (hcb->alloc_len) {
         deallocate(dev->contiguous, hcb->data, pad(hcb->alloc_len, dev->contiguous->pagesize));
     }
     deallocate(dev->hcb_objcache, hcb, sizeof(struct pvscsi_hcb));
-    spin_unlock(&dev->mem_lock);
+    spin_unlock_irq(&dev->mem_lock, flags);
 }
 
 static struct pvscsi_hcb *pvscsi_hcb_alloc(pvscsi dev, u16 target, u16 lun, u8 cmd)
 {
     int alloc_len = scsi_data_len(cmd);
     pvscsi_debug("%s: cmd %d, alloc_len %d\n", __func__, cmd, alloc_len);
-    spin_lock(&dev->mem_lock);
+    u64 flags = spin_lock_irq(&dev->mem_lock);
     struct pvscsi_hcb *hcb = allocate(dev->hcb_objcache, sizeof(struct pvscsi_hcb));
     assert(hcb != INVALID_ADDRESS);
     if (alloc_len) {
@@ -110,7 +110,7 @@ static struct pvscsi_hcb *pvscsi_hcb_alloc(pvscsi dev, u16 target, u16 lun, u8 c
         hcb->data = 0;
         hcb->alloc_len = 0;
     }
-    spin_unlock(&dev->mem_lock);
+    spin_unlock_irq(&dev->mem_lock, flags);
     zero(hcb->cdb, sizeof(hcb->cdb));
     hcb->cdb[0] = cmd;
     pvscsi_debug("   hcb %p, cmd 0x%02x\n", hcb, hcb->cdb[0]);
@@ -133,17 +133,17 @@ static void pvscsi_action_io_queued(pvscsi dev, struct pvscsi_hcb *hcb, u16 targ
     hcb->lun = lun;
 
     // order: put into hcb queue if not empty
-    spin_lock(&dev->queue_lock);
+    u64 flags = spin_lock_irq(&dev->queue_lock);
     if (!list_empty(&dev->hcb_queue)) {
         list_push_back(&dev->hcb_queue, &hcb->links);
-        spin_unlock(&dev->queue_lock);
+        spin_unlock_irq(&dev->queue_lock, flags);
         return;
     }
 
     if (!pvscsi_action_io(dev, hcb)) {
         list_push_back(&dev->hcb_queue, &hcb->links);
     }
-    spin_unlock(&dev->queue_lock);
+    spin_unlock_irq(&dev->queue_lock, flags);
 }
 
 static inline void pvscsi_action(pvscsi dev, struct pvscsi_hcb *hcb, u16 target, u16 lun)
@@ -462,7 +462,7 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
         }
     }
 
-    spin_lock(&dev->queue_lock);
+    u64 flags = spin_lock_irq(&dev->queue_lock);
     list_foreach(&dev->hcb_queue, i) {
         assert(i);
         struct pvscsi_hcb *hcb = struct_from_list(i, struct pvscsi_hcb *, links);
@@ -470,7 +470,7 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
             break;
         list_delete(i);
     }
-    spin_unlock(&dev->queue_lock);
+    spin_unlock_irq(&dev->queue_lock, flags);
 }
 
 static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, pci_dev d)

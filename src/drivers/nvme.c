@@ -297,7 +297,7 @@ static inline void nvme_cq_doorbell(nvme n, int q_idx, nvme_cq q)
 static nvme_ioreq nvme_get_ioreq(nvme n)
 {
     nvme_ioreq req;
-    spin_lock(&n->lock);
+    u64 flags = spin_lock_irq(&n->lock);
     list l = list_get_next(&n->free_reqs);
     if (l) {
         list_delete(l);
@@ -306,7 +306,7 @@ static nvme_ioreq nvme_get_ioreq(nvme n)
         nvme_debug("new request allocation");
         req = allocate(n->general, sizeof(*req));
     }
-    spin_unlock(&n->lock);
+    spin_unlock_irq(&n->lock, flags);
     return req;
 }
 

@@ -155,8 +155,7 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
         init_refcount(&f->ref, total_processors, init_closure(&f->finish, flush_complete, f));
         f->completion = completion;
 
-        u64 flags = irq_disable_save();
-        spin_wlock(&flush_lock);
+        u64 flags = spin_wlock_irq(&flush_lock);
 
         /* The service thunk doesn't always get a chance to run before
          * running out of flush resources, so proactively service the list */
@@ -175,7 +174,7 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
         list_push_back(&entries, &f->l);
         entries_count++;
         f->gen = fetch_and_add((word *)&inval_gen, 1) + 1;
-        spin_wunlock(&flush_lock);
+        spin_wunlock_irq(&flush_lock, flags);
 
         send_ipi(TARGET_EXCLUSIVE_BROADCAST, flush_ipi);
         _flush_handler();

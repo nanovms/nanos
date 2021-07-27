@@ -23,15 +23,8 @@ static inline void sg_lock_init(void)
     spin_lock_init(&sg_spinlock);
 }
 
-static inline void sg_lock(void)
-{
-    spin_lock(&sg_spinlock);
-}
-
-static inline void sg_unlock(void)
-{
-    spin_unlock(&sg_spinlock);
-}
+#define sg_lock() u64 _flags = spin_lock_irq(&sg_spinlock)
+#define sg_unlock() spin_unlock_irq(&sg_spinlock, _flags)
 #else
 #define sg_lock_init()
 #define sg_lock()

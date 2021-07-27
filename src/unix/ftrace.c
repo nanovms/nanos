@@ -414,14 +414,8 @@ printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
 #define rbuf_next_write_idx(r)  rbuf_next_idx(r, r->write_idx)
 #define rbuf_next_read_idx(r)   rbuf_next_idx(r, r->read_idx)
 
-static inline __attribute__((always_inline)) void
-rbuf_lock(struct rbuf * rbuf) {
-    spin_lock(&rbuf->rb_lock);
-}
-static inline __attribute__((always_inline)) void
-rbuf_unlock(struct rbuf * rbuf) {
-    spin_unlock(&rbuf->rb_lock);
-}
+#define rbuf_lock(rbuf) u64 _flags = spin_lock_irq(&rbuf->rb_lock)
+#define rbuf_unlock(rbuf) spin_unlock_irq(&rbuf->rb_lock, _flags)
 
 static void
 rbuf_reset(struct rbuf * rbuf)

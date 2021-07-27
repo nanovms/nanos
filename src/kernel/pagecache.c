@@ -116,6 +116,14 @@ static inline void pagecache_unlock_node(pagecache_node pn)
     spin_unlock(&pn->pages_lock);
 }
 
+// vestige?
+#if 0
+#define pagecache_lock_state(pc) u64 _flags = spin_lock_irq(&pc->state_lock)
+#define pagecache_unlock_state(pc) spin_unlock_irq(&pc->state_lock, _flags)
+#define pagecache_lock_node(pn) u64 _flags = spin_lock_irq(&pn->pages_lock)
+#define pagecache_unlock_node(pn) spin_unlock_irq(&pn->pages_lock, _flags)
+#endif
+
 #else
 #define pagecache_lock_state(pc)
 #define pagecache_unlock_state(pc)
