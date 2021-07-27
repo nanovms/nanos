@@ -209,6 +209,10 @@ void netif_name_cpy(char *dest, struct netif *netif)
 
 #define MAX_IP6_ADDR_LEN    39
 
+static struct netif *default_iface = 0;
+static boolean net_trace = false;
+static tuple net_root = 0;
+
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
 {
     string v = get_string(root, s);
@@ -223,7 +227,7 @@ static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
     return false;
 }
 
-static boolean get_static_config(tuple t, struct netif *n, const char *ifname, boolean trace) {
+static boolean get_static_config(tuple t, struct netif *n, const char *ifname) {
     ip4_addr_t ip;
     ip4_addr_t netmask;
     ip4_addr_t gw;
@@ -244,7 +248,7 @@ static boolean get_static_config(tuple t, struct netif *n, const char *ifname, b
             ip4_addr_set_u32(&gw, ip_after_network);
     }
 
-    if (trace) {
+    if (net_trace) {
         rprintf("NET: static IP config for interface %s:\n", ifname);
         rprintf(" address\t%s\n", ip4addr_ntoa(&ip));
         rprintf(" netmask\t%s\n", ip4addr_ntoa(&netmask));
@@ -256,7 +260,7 @@ static boolean get_static_config(tuple t, struct netif *n, const char *ifname, b
     return true;
 }
 
-static boolean get_static_ip6_config(tuple t, struct netif *n, const char *ifname, boolean trace)
+static boolean get_static_ip6_config(tuple t, struct netif *n, const char *ifname)
 {
     string b = get_string(t, sym(ip6addr));
     if (b && (buffer_length(b) <= MAX_IP6_ADDR_LEN)) {
@@ -266,7 +270,7 @@ static boolean get_static_ip6_config(tuple t, struct netif *n, const char *ifnam
         str[len] = '\0';
         ip6_addr_t ip6;
         if (ip6addr_aton(str, &ip6)) {
-            if (trace)
+            if (net_trace)
                 rprintf("NET: static IPv6 address for interface %s: %s\n", ifname, str);
             netif_add_ip6_address(n, &ip6, 0);
             return true;
@@ -322,12 +326,12 @@ void init_network_iface(tuple root) {
         if (!default_iface)
             default_iface = n;
 
-        if (!t || !get_static_config(t, n, ifname, trace)) {
+        if (!t || !get_static_config(t, n, ifname)) {
             if (trace)
                 rprintf("NET: starting DHCP for interface %s\n", ifname);
             dhcp_start(n);
         }
-        if (!t || !get_static_ip6_config(t, n, ifname, trace)) {
+        if (!t || !get_static_ip6_config(t, n, ifname)) {
             if (trace)
                 rprintf("NET: starting DHCPv6 for interface %s\n", ifname);
             dhcp6_enable_stateful(n);
