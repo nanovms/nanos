@@ -76,6 +76,7 @@ closure_function(0, 0, void, flush_handler)
     _flush_handler();
 }
 
+/* must be called with interrupts off */
 void page_invalidate_flush(void)
 {
     if (initialized)
