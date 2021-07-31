@@ -135,7 +135,7 @@ void deallocate_vqmsg(virtqueue vq, vqmsg m)
 
 void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
 {
-    assert(buffer_extend(m->descv, (m->count + 1) * sizeof(struct vring_desc)));
+    assert(buffer_extend(m->descv, sizeof(struct vring_desc)));
     struct vring_desc * d = buffer_ref(m->descv, m->count * sizeof(struct vring_desc));
     d->busaddr = phys_addr;
     d->len = len;
