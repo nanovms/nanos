@@ -853,9 +853,7 @@ static void vmap_unmap_page_range(process p, vmap k)
     u64 len = range_span(r);
     switch (type) {
     case VMAP_MMAP_TYPE_ANONYMOUS:
-        unmap_pages_with_handler(r.start, len,
-                                 stack_closure(dealloc_phys_page,
-                                               heap_physical(get_kernel_heaps())));
+        unmap_and_free_phys(r.start, len);
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
         pagecache_node_unmap_pages(k->cache_node, r, k->node_offset);
@@ -883,6 +881,12 @@ static void process_unmap_range(process p, range q)
     rangemap_range_lookup(p->vmaps, q, stack_closure(vmap_remove_intersection,
                                                      p->vmaps, q, vh, false));
     vmap_unlock(p);
+}
+
+void unmap_and_free_phys(u64 virtual, u64 length)
+{
+    unmap_pages_with_handler(virtual, length,
+        stack_closure(dealloc_phys_page, heap_physical(get_kernel_heaps())));
 }
 
 /* don't truncate vmap; just unmap truncated pages */

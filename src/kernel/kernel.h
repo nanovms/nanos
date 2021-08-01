@@ -223,6 +223,8 @@ static inline u64 phys_from_linear_backed_virt(u64 virt)
     return virt & ~LINEAR_BACKED_BASE;
 }
 
+void unmap_and_free_phys(u64 virtual, u64 length);
+
 static inline void bhqueue_enqueue_irqsafe(thunk t)
 {
     /* an interrupted enqueue and competing enqueue from int handler could cause a

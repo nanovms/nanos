@@ -1612,7 +1612,6 @@ static sysreturn getcwd(char *buf, u64 length)
 static sysreturn brk(void *addr)
 {
     process p = current->p;
-    id_heap physical = heap_physical(get_kernel_heaps());
 
     /* on failure, return the current break */
     if (!addr || p->brk == addr)
@@ -1624,11 +1623,8 @@ static sysreturn brk(void *addr)
         if (u64_from_pointer(addr) < p->heap_base ||
             !adjust_process_heap(p, irange(p->heap_base, new_end)))
             goto out;
-        u64 len = old_end - new_end;
-        u64 phys = physical_from_virtual(pointer_from_u64(new_end));
         write_barrier();
-        unmap(new_end, len);
-        id_heap_set_area(physical, phys, len, true, false);
+        unmap_and_free_phys(new_end, old_end - new_end);
     } else if (new_end > old_end) {
         u64 alloc = new_end - old_end;
         if (!validate_user_memory(pointer_from_u64(old_end), alloc, true) ||
