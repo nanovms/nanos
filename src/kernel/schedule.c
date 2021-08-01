@@ -276,9 +276,7 @@ void init_scheduler(heap h)
     shutdown_vector = allocate_ipi_interrupt();
     register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
     assert(wakeup_vector != INVALID_PHYSICAL);
-
     /* scheduling queues init */
-    // XXX configs
     bhqueue = allocate_queue(h, 2048);
     runqueue = allocate_queue(h, 2048);
     async_queue_1 = allocate_queue(h, 8192);

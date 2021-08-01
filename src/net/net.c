@@ -209,9 +209,7 @@ void netif_name_cpy(char *dest, struct netif *netif)
 
 #define MAX_IP6_ADDR_LEN    39
 
-static struct netif *default_iface = 0;
 static boolean net_trace = false;
-static tuple net_root = 0;
 
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
 {

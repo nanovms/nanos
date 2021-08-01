@@ -276,7 +276,6 @@ void common_handler(void)
         context_release_refcount(ctx);
         if (saved_state != cpu_idle) {
             ci->state = cpu_kernel;
-            sched_service_bhqueue();
             frame_return(f);
         }
         f[FRAME_FULL] = false;      /* no longer saving frame for anything */
