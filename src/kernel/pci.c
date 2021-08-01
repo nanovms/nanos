@@ -371,6 +371,7 @@ pci_probe_bus(int bus)
     for (int i = 0; i <= PCI_SLOTMAX; i++) {
         struct pci_dev _dev = { .bus = bus, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
+        u64 flags = irq_disable_save();
         pci_probe_device(dev);
 
         // check multifunction devices
@@ -380,6 +381,7 @@ pci_probe_bus(int bus)
                 pci_probe_device(dev);
             }
         }
+        irq_restore(flags);
     }
 }
 

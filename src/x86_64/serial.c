@@ -22,7 +22,13 @@ static boolean is_transmit_empty() {
 NOTRACE
 void serial_putchar(char c)
 {
+#ifdef KERNEL
+    u64 flags = irq_disable_save();
+#endif
     while (!is_transmit_empty())
         ;
     out8(BASE, c);
+#ifdef KERNEL
+    irq_restore(flags);
+#endif
 }
