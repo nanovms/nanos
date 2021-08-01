@@ -107,7 +107,14 @@ static inline boolean buffer_extend(buffer b, bytes len)
     // xxx - pad to pagesize
     if (b->length < (b->end + len)) {
         bytes new_len = 2 * (b->end - b->start + len);
-        return (buffer_set_capacity(b, new_len) == new_len);
+        if (new_len > b->length) {
+            return (buffer_set_capacity(b, new_len) == new_len);
+        } else {
+            /* no need to resize, move current contents to the beginning of the allocated memory */
+            runtime_memcpy(b->contents, b->contents + b->start, b->end - b->start);
+            b->end -= b->start;
+            b->start = 0;
+        }
     }
     return true;
 }
