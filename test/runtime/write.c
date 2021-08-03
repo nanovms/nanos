@@ -148,7 +148,7 @@ void basic_write_test()
 #define min(x, y) ((x) < (y) ? (x) : (y))
 #define _random() (labs(random()))
 
-void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
+static void scatter_write_test_fd(int fd, ssize_t buflen, int iterations, int max_writesize)
 {
     ssize_t rv;
     unsigned char tmp[BUFLEN];
@@ -159,11 +159,6 @@ void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
     }
     bzero(buf, buflen);
 
-    int fd = open("scatter", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-    if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
-    }
     _READ(buf, buflen);
 
     int rmost = 0;
@@ -207,12 +202,31 @@ void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
             n += rv;
         } while (n < rmost);
     }
-    writetest_debug("scatter write test passed\n");
-    close(fd);
+    free(buf);
     return;
   out_fail:
-    close(fd);
     exit(EXIT_FAILURE);
+}
+
+void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
+{
+    int fd = open("scatter", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+    scatter_write_test_fd(fd, buflen, iterations, max_writesize);
+    close(fd);
+
+    fd = open(".", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("open tmpfile");
+        exit(EXIT_FAILURE);
+    }
+    scatter_write_test_fd(fd, buflen, iterations, max_writesize);
+    close(fd);
+
+    writetest_debug("scatter write test passed\n");
 }
 
 void append_write_test()
