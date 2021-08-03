@@ -15,6 +15,24 @@
     } \
 } while (0)
 
+static void test_tmpfile(void)
+{
+    int fd;
+    uint8_t buf[8192];
+
+    fd = open(".", O_RDWR | O_TMPFILE, S_IRWXU);
+    test_assert(fd > 0);
+    test_assert(fallocate(fd, 0, 0, sizeof(buf)) == 0);
+    memset(buf, 0xff, sizeof(buf));
+    test_assert(write(fd, buf, 1) == 1);
+    test_assert(lseek(fd, 0, SEEK_SET) == 0);
+    test_assert(read(fd, buf, sizeof(buf)) == sizeof(buf));
+    test_assert(buf[0] == 0xff);
+    for (int i = 1; i < sizeof(buf); i++)
+        test_assert(buf[i] == 0);
+    test_assert(close(fd) == 0);
+}
+
 int main(int argc, char **argv)
 {
     int fd;
@@ -91,6 +109,8 @@ int main(int argc, char **argv)
     test_assert(lseek(fd, 0, SEEK_END) == file_size);
 
     test_assert(close(fd) == 0);
+
+    test_tmpfile();
 
     printf("fallocate test OK\n");
     return EXIT_SUCCESS;

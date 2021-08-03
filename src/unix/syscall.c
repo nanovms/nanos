@@ -430,7 +430,9 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 static void begin_file_read(thread t, file f)
 {
     if ((f->length > 0) && !(f->f.flags & O_NOATIME)) {
-        filesystem_update_atime(f->fs, fsfile_get_meta(f->fsf));
+        tuple md = fsfile_get_meta(f->fsf);
+        if (md)
+            filesystem_update_atime(f->fs, md);
     }
 }
 
@@ -527,8 +529,11 @@ closure_function(2, 6, sysreturn, file_sg_read,
 
 static void begin_file_write(thread t, file f, u64 len)
 {
-    if (len > 0)
-        filesystem_update_mtime(f->fs, fsfile_get_meta(f->fsf));
+    if (len > 0) {
+        tuple md = fsfile_get_meta(f->fsf);
+        if (md)
+            filesystem_update_mtime(f->fs, md);
+    }
 }
 
 static void file_write_complete_internal(thread t, file f, u64 len,
@@ -787,17 +792,20 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         return -ENOTDIR;
     }
 
-    if (flags & O_TMPFILE)
-        n = filesystem_creat_unnamed(fs);
-
     u64 length = 0;
     fsfile fsf = 0;
+    int type;
 
-    int type = file_type_from_tuple(n);
-    if (type == FDESC_TYPE_REGULAR) {
-        fsf = fsfile_from_node(fs, n);
-        assert(fsf);
-        length = fsfile_get_length(fsf);
+    if (flags & O_TMPFILE) {
+        fsf = filesystem_creat_unnamed(fs);
+        type = FDESC_TYPE_REGULAR;
+    } else {
+        type = file_type_from_tuple(n);
+        if (type == FDESC_TYPE_REGULAR) {
+            fsf = fsfile_from_node(fs, n);
+            assert(fsf);
+            length = fsfile_get_length(fsf);
+        }
     }
 
     file f = unix_cache_alloc(uh, file);
@@ -1056,14 +1064,15 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     if (!validate_user_memory(dirp, count, true))
         return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
-    tuple c = children(file_get_meta(f));
-    if (!c)
+    tuple md = file_get_meta(f);
+    tuple c;
+    if (!md || !(c = children(md)))
         return -ENOTDIR;
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
     iterate(c, stack_closure(getdents_each, f, &dirp, &read_sofar, &written_sofar, &count, &r));
-    filesystem_update_atime(f->fs, file_get_meta(f));
+    filesystem_update_atime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
         return -EINVAL;
@@ -1127,14 +1136,15 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
     if (!validate_user_memory(dirp, count, true))
         return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
-    tuple c = children(file_get_meta(f));
-    if (!c)
+    tuple md = file_get_meta(f);
+    tuple c;
+    if (!md || !(c = children(md)))
         return -ENOTDIR;
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
     iterate(c, stack_closure(getdents64_each, f, &dirp, &read_sofar, &written_sofar, &count, &r));
-    filesystem_update_atime(f->fs, file_get_meta(f));
+    filesystem_update_atime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
         return -EINVAL;
@@ -1152,24 +1162,23 @@ sysreturn chdir(const char *path)
 sysreturn fchdir(int dirfd)
 {
     file f = resolve_fd(current->p, dirfd);
-    tuple children = get_tuple(file_get_meta(f), sym(children));
-    if (!children)
+    tuple cwd = file_get_meta(f);
+    if (!cwd || !is_dir(cwd))
         return set_syscall_error(current, -ENOTDIR);
 
     current->p->cwd_fs = f->fs;
-    current->p->cwd = file_get_meta(f);
+    current->p->cwd = cwd;
     return set_syscall_return(current, 0);
 }
 
-static sysreturn truncate_internal(filesystem fs, file f, tuple t, long length)
+static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, tuple t, long length)
 {
-    if (is_dir(t)) {
+    if (t && is_dir(t)) {
         return set_syscall_error(current, EISDIR);
     }
     if (length < 0) {
         return set_syscall_error(current, EINVAL);
     }
-    fsfile fsf = fsfile_from_node(fs, t);
     if (!fsf) {
         return set_syscall_error(current, ENOENT);
     }
@@ -1180,7 +1189,8 @@ static sysreturn truncate_internal(filesystem fs, file f, tuple t, long length)
         truncate_file_maps(current->p, fsf, length);
         if (f)
             f->length = length;
-        filesystem_update_mtime(fs, t);
+        if (t)
+            filesystem_update_mtime(fs, t);
     }
     return sysreturn_from_fs_status(s);
 }
@@ -1198,7 +1208,7 @@ sysreturn truncate(const char *path, long length)
     }
     if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE))
         return -EACCES;
-    return truncate_internal(fs, 0, t, length);
+    return truncate_internal(fs, fsfile_from_node(fs, t), 0, t, length);
 }
 
 sysreturn ftruncate(int fd, long length)
@@ -1209,7 +1219,7 @@ sysreturn ftruncate(int fd, long length)
             (f->f.type != FDESC_TYPE_REGULAR)) {
         return set_syscall_error(current, EINVAL);
     }
-    return truncate_internal(f->fs, f, file_get_meta(f), length);
+    return truncate_internal(f->fs, f->fsf, f, file_get_meta(f), length);
 }
 
 closure_function(1, 1, void, sync_complete,
@@ -1322,7 +1332,7 @@ sysreturn openat(int dirfd, const char *name, int flags, int mode)
     return open_internal(fs, cwd, name, flags, mode);
 }
 
-static void fill_stat(int type, filesystem fs, tuple n, struct stat *s)
+static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s)
 {
     zero(s, sizeof(struct stat));
     switch (type) {
@@ -1351,7 +1361,6 @@ static void fill_stat(int type, filesystem fs, tuple n, struct stat *s)
     }
     s->st_ino = u64_from_pointer(n);
     if (type == FDESC_TYPE_REGULAR) {
-        fsfile f = fsfile_from_node(fs, n);
         if (f) {
             s->st_size = fsfile_get_length(f);
             s->st_blocks = fsfile_get_blocks(f);
@@ -1379,8 +1388,11 @@ static sysreturn fstat(int fd, struct stat *s)
     fdesc f = resolve_fd(current->p, fd);
     filesystem fs;
     tuple n;
+    fsfile fsf = 0;
     switch (f->type) {
     case FDESC_TYPE_REGULAR:
+        fsf = ((file)f)->fsf;
+        /* no break */
     case FDESC_TYPE_DIRECTORY:
     case FDESC_TYPE_SPECIAL:
     case FDESC_TYPE_SYMLINK:
@@ -1392,7 +1404,7 @@ static sysreturn fstat(int fd, struct stat *s)
         n = 0;
         break;
     }
-    fill_stat(f->type, fs, n, s);
+    fill_stat(f->type, fs, fsf, n, s);
     return 0;
 }
 
@@ -1415,7 +1427,7 @@ static sysreturn stat_internal(filesystem fs, tuple cwd, const char *name, boole
         return set_syscall_return(current, ret);
     }
 
-    fill_stat(file_type_from_tuple(n), fs, n, buf);
+    fill_stat(file_type_from_tuple(n), fs, fsfile_from_node(fs, n), n, buf);
     return 0;
 }
 

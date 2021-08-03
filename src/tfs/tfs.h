@@ -85,9 +85,9 @@ fs_status filesystem_write_eav(filesystem fs, tuple t, symbol a, value v);
 
 typedef closure_type(fs_status_handler, void, fsfile, fs_status);
 
-void filesystem_alloc(filesystem fs, tuple t, long offset, long len,
+void filesystem_alloc(fsfile f, long offset, long len,
         boolean keep_size, fs_status_handler completion);
-void filesystem_dealloc(filesystem fs, tuple t, long offset, long len,
+void filesystem_dealloc(fsfile f, long offset, long len,
         fs_status_handler completion);
 fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len);
 
@@ -100,7 +100,7 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
         boolean persistent);
 tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name);
 tuple filesystem_creat(filesystem fs, tuple parent, const char *name);
-tuple filesystem_creat_unnamed(filesystem fs);
+fsfile filesystem_creat_unnamed(filesystem fs);
 tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
                          const char *target);
 fs_status filesystem_delete(filesystem fs, tuple parent, symbol sym);

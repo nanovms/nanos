@@ -408,6 +408,29 @@ void truncate_test(const char *prog)
         exit(EXIT_FAILURE);
     }
 
+    /* Test truncation of a file not linked to the filesystem. */
+    fd = open(".", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("open tmpfile");
+        exit(EXIT_FAILURE);
+    }
+    _WRITE(tmp, BUFLEN);
+    _LSEEK(0, SEEK_CUR);
+    if (rv != BUFLEN) {
+        printf("tmpfile lseek returned %ld\n", rv);
+        exit(EXIT_FAILURE);
+    }
+    if (ftruncate(fd, BUFLEN / 2) < 0) {
+        perror("tmpfile truncate failed");
+        exit(EXIT_FAILURE);
+    }
+    _LSEEK(0, SEEK_END);
+    if (rv != BUFLEN / 2) {
+        printf("tmpfile lseek after truncate returned %ld\n", rv);
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
     return;
   out_fail:
     close(fd);
