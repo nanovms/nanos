@@ -724,6 +724,7 @@ struct io_uring_params {
 
 /* Socket option levels */
 #define SOL_SOCKET      1
+#define SOL_TCP         6
 #define IPPROTO_IPV6    41
 
 /* set/getsockopt optnames */

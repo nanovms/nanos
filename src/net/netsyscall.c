@@ -1888,6 +1888,44 @@ sysreturn setsockopt(int sockfd,
             goto unimplemented;
         }
         break;
+    case SOL_SOCKET:
+        switch (optname) {
+        case SO_REUSEADDR:
+            if (optlen != sizeof(int))
+                return -EINVAL;
+            if (s->sock.type == SOCK_STREAM) {
+                if (*((int *)optval))
+                    ip_set_option(s->info.tcp.lw, SOF_REUSEADDR);
+                else
+                    ip_reset_option(s->info.tcp.lw, SOF_REUSEADDR);
+            } else if (s->sock.type == SOCK_DGRAM){
+                if (*((int *)optval))
+                    ip_set_option(s->info.udp.lw, SOF_REUSEADDR);
+                else
+                    ip_reset_option(s->info.udp.lw, SOF_REUSEADDR);
+            } else
+                return -EINVAL;
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
+    case SOL_TCP:
+        switch (optname) {
+        case TCP_NODELAY:
+            if (optlen != sizeof(int))
+                return -EINVAL;
+            if (s->sock.type != SOCK_STREAM)
+                return -EINVAL;
+            if (*((int *)optval))
+                tcp_nagle_enable(s->info.tcp.lw);
+            else
+                tcp_nagle_disable(s->info.tcp.lw);
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
     default:
         goto unimplemented;
     }
