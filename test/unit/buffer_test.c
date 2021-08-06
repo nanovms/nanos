@@ -193,6 +193,14 @@ boolean concat_tests(heap h)
   // end result in a round about way, all of source-buffer has been written to test-buffer
   // validate they match
   test_assert(buffer_compare(b, seed_buffer) == true);
+
+  /* test extension of a consumed buffer */
+  buffer_consume(b, buffer_length(b));
+  size = b->length / 2;
+  test_assert(buffer_extend(b, size) == true);
+  test_assert(buffer_length(b) == 0);
+  buffer_produce(b, size);
+
   failure = false;
   fail:
     if (wb) unwrap_buffer(h, wb);
