@@ -223,10 +223,68 @@ static void tun_test_pi(void)
     test_assert(close(tun_fd) == 0);
 }
 
+static int tun_set_queue(int fd, int enable)
+{
+    struct ifreq ifr;
+
+    memset(&ifr, 0, sizeof(ifr));
+
+    if (enable > 0)
+        ifr.ifr_flags = IFF_ATTACH_QUEUE;
+    else if (enable == 0)
+        ifr.ifr_flags = IFF_DETACH_QUEUE;
+    else
+        ifr.ifr_flags = IFF_ATTACH_QUEUE|IFF_DETACH_QUEUE;
+
+    return ioctl(fd, TUNSETQUEUE, (void *)&ifr);
+}
+
+#define MQ_COUNT 4
+/* Test the multi-queue option when creating an interface */
+static void tun_test_multiqueue(void)
+{
+    int fds[MQ_COUNT], sock_fd;
+    struct ifreq ifr;
+    struct sockaddr_in addr;
+
+    memset(&ifr, 0, sizeof(ifr));
+    ifr.ifr_name[0] = 'm';
+    ifr.ifr_name[1] = 'q';
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI | IFF_MULTI_QUEUE;
+    for (int i = 0; i < MQ_COUNT; i++) {
+        fds[i] = open("/dev/net/tun", O_RDWR);
+        test_assert(fds[i] > 0);
+        test_assert(ioctl(fds[i], TUNSETIFF, &ifr) == 0);
+    }
+
+    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(sock_fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(TUN_ADDR);
+    memcpy(&ifr.ifr_addr, &addr, sizeof(addr));
+    test_assert(ioctl(sock_fd, SIOCSIFADDR, &ifr) == 0);
+    addr.sin_addr.s_addr = htonl(0xffffff00);
+    memcpy(&ifr.ifr_addr, &addr, sizeof(addr));
+    test_assert(ioctl(sock_fd, SIOCSIFNETMASK, &ifr) == 0);
+    test_assert((ioctl(sock_fd, SIOCGIFFLAGS, &ifr) == 0) && !(ifr.ifr_flags & IFF_UP));
+    ifr.ifr_flags |= IFF_UP;
+    test_assert(ioctl(sock_fd, SIOCSIFFLAGS, &ifr) == 0);
+    test_assert(close(sock_fd) == 0);
+
+    test_assert(tun_set_queue(fds[0], -1) == -1);
+    for (int i = 0; i < MQ_COUNT; i++)
+        test_assert(tun_set_queue(fds[i], 0) == 0);
+    for (int i = 0; i < MQ_COUNT; i++)
+        test_assert(tun_set_queue(fds[i], 1) == 0);
+    for (int i = 0; i < MQ_COUNT; i++)
+        test_assert(close(fds[i]) == 0);
+}
+
 int main(int argc, char **argv)
 {
     tun_test_basic();
     tun_test_pi();
+    tun_test_multiqueue();
     printf("Tun interface tests OK\n");
     return EXIT_SUCCESS;
 }

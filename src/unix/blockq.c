@@ -198,6 +198,7 @@ thread blockq_wake_one(blockq bq)
 
     return t;
 }
+KLIB_EXPORT(blockq_wake_one);
 
 boolean blockq_wake_one_for_thread(blockq bq, thread t)
 {

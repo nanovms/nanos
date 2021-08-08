@@ -16,8 +16,9 @@ static inline void list_init(struct list * head)
 
 static inline boolean list_empty(struct list * head)
 {
+#ifndef KLIB
     assert(((head->next == head) ^ (head->prev == head)) == 0);
-
+#endif
     return (head->next == head);
 }
 
@@ -29,7 +30,9 @@ static inline struct list * list_get_next(struct list * head)
 
 static inline void list_delete(struct list * p)
 {
+#ifndef KLIB
     assert(p->prev && p->next);
+#endif
     p->prev->next = p->next;
     p->next->prev = p->prev;
     p->prev = p->next = 0;
