@@ -267,13 +267,8 @@ void irq_handler(void)
 
     int_debug("%s: enter\n", __func__);
 
-    /* re-enqueue interrupted user thread */
-    if (ci->state == cpu_user && !shutting_down) {
-        int_debug("int sched %F\n", f[FRAME_RUN]);
-        schedule_frame(f);
-    }
+    int saved_state = ci->state;
 
-    boolean kern_return = ci->state == cpu_kernel;
     while ((i = gic_dispatch_int()) != INTID_NO_PENDING) {
         int_debug("[%2d] # %d, state %s, EL%d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
                   ci->id, i, state_strings[ci->state], f[FRAME_EL],
@@ -296,8 +291,14 @@ void irq_handler(void)
         gic_eoi(i);
     }
 
+    /* enqueue interrupted user thread */
+    if (saved_state == cpu_user && !shutting_down) {
+        int_debug("int sched %F\n", f[FRAME_RUN]);
+        schedule_frame(f);
+    }
+
     if (is_current_kernel_context(f)) {
-        if (kern_return) {
+        if (saved_state == cpu_kernel) {
             ci->state = cpu_kernel;
             frame_return(f);
         }
