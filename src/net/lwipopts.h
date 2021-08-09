@@ -76,6 +76,7 @@ typedef unsigned long size_t;
 #define LWIP_DHCP_BOOTP_FILE 1
 #define LWIP_DNS 1
 
+#define SO_REUSE 1
 #define LWIP_IPV6   1
 #define LWIP_IPV6_DHCP6 1
 #define IPV6_FRAG_COPYHEADER    1
