@@ -325,11 +325,16 @@ closure_function(1, 2, void, epoll_wait_notify,
         epoll_debug("   user_events null or full\n");
         return;
     }
-
+    thread old = current;
+    thread_resume(w->t);
     struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
     e->data = efd->data;
     e->events = report;
     w->user_events->end += sizeof(struct epoll_event);
+    if (old)
+        thread_resume(old);
+    else
+        thread_pause(current);
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
 
     /* XXX check this */
