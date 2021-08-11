@@ -193,6 +193,7 @@ void netif_name_cpy(char *dest, struct netif *netif)
 }
 KLIB_EXPORT(netif_name_cpy);
 
+KLIB_EXPORT(ip4addr_aton);
 KLIB_EXPORT(ipaddr_ntoa);
 KLIB_EXPORT(ipaddr_ntoa_r);
 KLIB_EXPORT(dns_gethostbyname);
@@ -207,6 +208,8 @@ KLIB_EXPORT(netif_add);
 KLIB_EXPORT(netif_find);
 KLIB_EXPORT(netif_input);
 KLIB_EXPORT(netif_remove);
+KLIB_EXPORT(netif_set_up);
+KLIB_EXPORT(ip4_addr_netmask_valid);
 
 #define MAX_ADDR_LEN 20
 
