@@ -17,8 +17,8 @@
 
 #define FRAME_RIP 16
 #define FRAME_FLAGS 17
-#define FRAME_SS 18
-#define FRAME_CS 19
+#define FRAME_CS 18
+#define FRAME_SS 19
 #define FRAME_DS 20
 #define FRAME_ES 21
 #define FRAME_FSBASE 22

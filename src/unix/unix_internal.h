@@ -452,6 +452,7 @@ typedef struct process {
     id_heap           aio_ids;
     vector            aio;
     boolean           trace;
+    boolean           trap;         /* do not run threads when set */
 } *process;
 
 typedef struct sigaction *sigaction;

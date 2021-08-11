@@ -1,14 +1,13 @@
 #include <gdb_internal.h>
 #include <kvm_platform.h>
+#include <gdb_machine.h>
 
-int signalmap[]={8, 5, 0, 5, 16, 16, 4, 8, 7, 11, 11, 11, 11, 11, 11, 0, 7};
-
-int computeSignal (int exceptionVector)
-{
-    if (exceptionVector > (sizeof(signalmap)/sizeof(int))) 
-        return(7);
-    return(signalmap[exceptionVector]);
-}
+// #define GDB_DEBUG
+#ifdef GDB_DEBUG
+#define gdb_debug(...) rprintf(__VA_ARGS__)
+#else
+#define gdb_debug(...)
+#endif
 
 static int sigval;
 
@@ -21,26 +20,43 @@ static void reset_parser(gdb g)
     g->sent_checksum = -1;
 }
 
+static boolean read_thread_id(buffer b, int *tid)
+{
+    s64 id;
+    if (peek_char(b) == 'p') {
+        pop_u8(b);
+        if (!parse_signed_int(b, 16, &id))
+            return false;
+        if (peek_char(b) != '.')
+            return false;
+        pop_u8(b);
+    }
+    if (!parse_signed_int(b, 16, &id))
+        return false;
+    *tid = (int)id;
+    return true;
+}
+
 closure_function(1, 1, context, gdb_handle_exception,
                  gdb, g,
                  context, frame)
 {
     gdb g = bound(g);
-    u64 exceptionVector = frame[FRAME_VECTOR];
-    //     rprintf ("gdb exception: %ld %p [%p %p] %p %p\n", exceptionVector, g, frame, thread_frame(g->t), frame[FRAME_RIP], *(u64 *)frame[FRAME_RIP]);
-    sigval = computeSignal(exceptionVector);
-    reset_buffer(g->output);
-    /*
-      byte swap
-      bprintf (output, "T%02x%x:%08x;%x:%08x;%x:%08x;",
-      sigval,
-      ESP, c->esp,
-      EBP, c->ebp,
-      PC, c->eip);
-    */
+    g->t = current;
+    assert(g->t && g->t == pointer_from_u64(frame[FRAME_THREAD]));
+    sigval = computeSignal(frame);
+    if (sigval == 0) {
+        // XXX this always uses the first thread's fault handler, should be specific to the thread
+        fault_handler fh = pointer_from_u64(g->fault_handler);
+        return apply(fh, frame);
+    }
+    g->p->trap = true;
+    wakeup_or_interrupt_cpu_all();
+    gdb_debug("gdb exception: %ld %p [%p %p]\n", sigval, g, frame, thread_frame(g->t));
     reset_buffer(g->output);
     bprintf (g->output, "T");
     print_number(g->output, (u64)sigval, 16, 2);
+    bprintf(g->output, "thread:p1.%x;", g->t->tid);
     putpacket (g, g->output);
     runloop();
 }
@@ -52,12 +68,16 @@ static boolean return_offsets(gdb g, buffer in, string out)
 
 static boolean return_supported(gdb g, buffer in, string out)
 {
+    if (buffer_strstr(in, "multiprocess+")) {
+        g->multiprocess = true;
+        bprintf(out, "multiprocess+");
+    }
     return true;
 }
 
 static boolean current_thread(gdb g, buffer in, string out)
 {
-    bprintf(out, "0");
+    bprintf(out, "QCp1.%x", g->t->tid);
     return true;
 }
 
@@ -67,8 +87,57 @@ static boolean attached(gdb g, buffer in, string out)
     return true;
 }
 
+closure_function(1, 1, boolean, dump_threads,
+                 string, out,
+                 rbnode, n)
+{
+    thread th = struct_from_field(n, thread, n);
+    bprintf(bound(out), "p1.%x,", th->tid);
+    return true;
+}
 
+static boolean start_thread_dump(gdb g, buffer in, string out)
+{
+    process p = g->p;
+    bprintf(out, "m");
+    spin_lock(&p->threads_lock);
+    rbtree_traverse(p->threads, RB_INORDER, stack_closure(dump_threads, g->output));
+    spin_unlock(&p->threads_lock);
+    out->end--;
+    return true;
+}
 
+static boolean continue_thread_dump(gdb g, buffer in, string out)
+{
+    bprintf(out, "l");
+    return true;
+}
+
+static boolean extra_info(gdb g, buffer in, string out)
+{
+    thread t;
+    int tid;
+
+    if (peek_char(in) != ',') {
+        bprintf(out, "E01");
+        return true;
+    }
+    pop_u8(in);
+    if (!read_thread_id(in, &tid)) {
+        bprintf(out, "E02");
+        return true;
+    }
+    if ((t = thread_from_tid(g->p, tid)) == INVALID_ADDRESS) {
+        bprintf(out, "E03");
+        return true;
+    }
+    // XXX is there a better way to communicate status?
+    if (t->blocked_on)
+        mem2hex(out, "Blocked", strlen("Blocked"));
+    else
+        mem2hex(out, "Runnable", strlen("Runnable"));
+    return true;
+}
 static struct handler query_handler[] = {
     {"Offset", return_offsets},
     {"Supported", return_supported},
@@ -77,35 +146,57 @@ static struct handler query_handler[] = {
     //  {"TStatus", 0}, // say T0
     //  {"Symbol", 0}, //OK
     //  {"J", get_debugger_current_thread},
-    //  {"fThreadInfo", start_thread_dump},
-    //  {"sThreadInfo", continue_thread_dump},
-    //  {"ThreadExtraInfo", extra},
+    {"fThreadInfo", start_thread_dump},
+    {"sThreadInfo", continue_thread_dump},
+    {"ThreadExtraInfo", extra_info},
     {0,0}
 };
 
-#define TRAP_FLAG 0x100
-#define RESUME_FLAG U64_FROM_BIT(16)
-static void start_slave(gdb g, boolean stepping)
+closure_function(0, 1, boolean, reset_stepping,
+                rbnode, n)
 {
-    // a little more symbolic here please
-    if (stepping) {
-        thread_frame(g->t)[FRAME_FLAGS] |= TRAP_FLAG;
+    thread t = struct_from_field(n, thread, n);
+    clear_thread_stepping(t);
+    return true;
+}
+
+closure_function(0, 1, boolean, sched_thread,
+                rbnode, n)
+{
+    /* XXX this assumes the thread isn't currently running or already scheduled
+       and is kind of racey with unblocking */
+    thread t = struct_from_field(n, thread, n);
+    if (!t->blocked_on)
+        schedule_frame(t->active_frame);
+    return true;
+}
+
+static void start_slave(gdb g, boolean stepping, thread t)
+{
+    if (t == INVALID_ADDRESS && thread_from_tid(g->p, g->ctid) != INVALID_ADDRESS) {
+        t = thread_from_tid(g->p, g->ctid);
     } else {
-        thread_frame(g->t)[FRAME_FLAGS] &= ~TRAP_FLAG;
-        thread_frame(g->t)[FRAME_FLAGS] |= RESUME_FLAG;
+        t = g->t;
     }
 
-    rprintf ("slave run %p %p %p %p %d\n", g, g->t, thread_frame(g->t), thread_frame(g->t)[FRAME_RIP], stepping);
-    // XXX revisit
-    // enqueue(runqueue, g->t->run);
+    gdb_debug("slave run %p %p %p %d\n", g, t, thread_frame(t), stepping);
+    g->p->trap = false;
+    spin_lock(&g->p->threads_lock);
+    rbtree_traverse(g->p->threads, RB_INORDER, stack_closure(reset_stepping));
+    if (stepping)
+        set_thread_stepping(t);
+    rbtree_traverse(g->p->threads, RB_INORDER, stack_closure(sched_thread));
+    spin_unlock(&g->p->threads_lock);
 }
 
 
 static boolean apply_vcont(gdb g, buffer in, buffer out)
 {
     u64 trash;
+    thread t = INVALID_ADDRESS;
 
-    rprintf ("vcont %b\n", in);
+    gdb_debug("vcont %b\n", in);
+    // XXX using only first thread arg
     if (check(in, ';')) {
         char kind = get_char(in);
         switch(kind) {
@@ -113,19 +204,16 @@ static boolean apply_vcont(gdb g, buffer in, buffer out)
             // step with signal?
             parse_int(in, 16, &trash);
         case 's':
-            start_slave(g, true);
-            // thread may be specific
-            /*
-              if (check(in,':')){
-              u64 t;
-              parse_int(in, 16, &t);
-              
-              } else {
-              start_slave(g, false);
-              }
-            */
-            // dont reply
-            return false;
+            if (check(in, ':')) {
+                int tid;
+                if (!read_thread_id(in, &tid)) {
+                    bprintf(out, "E01");
+                    return true;
+                }
+                t = thread_from_tid(g->p, tid);
+            }
+            start_slave(g, true, t);
+            break;
         case 't':
             break;
         case 'T':
@@ -134,21 +222,31 @@ static boolean apply_vcont(gdb g, buffer in, buffer out)
             u64 sig;
             parse_int(in, 16, &sig);
             // what am i supposed to do with sig?
-            start_slave(g, false);
+            start_slave(g, false, t);
+            break;
         }
         case 'c':
-            if (check(in,':')) {
-                u64 t;
-                parse_int(in, 16, &t);
-                start_slave(g, false);
-            } else {
-                start_slave(g, false);
+            if (check(in, ':')) {
+                int tid;
+                if (!read_thread_id(in, &tid)) {
+                    bprintf(out, "E01");
+                    return true;
+                }
+                t = thread_from_tid(g->p, tid);
+                // XXX ignore other thread specifications, assume they will continue
             }
+            start_slave(g, false, t);
+            break;
         }
     }
-    return true;
+    return false;
 }
 
+static boolean apply_kill(gdb g, buffer in, buffer out)
+{
+    vm_exit(VM_EXIT_GDB);
+    return false;
+}
 
 boolean return_support_conts(gdb g, buffer in, string out)
 {
@@ -159,10 +257,18 @@ boolean return_support_conts(gdb g, buffer in, string out)
 static struct handler v_handler[] = {
     {"Cont?", return_support_conts},
     {"Cont", apply_vcont},
+    {"Kill", apply_kill},
     {0,0}
 };
 
-
+closure_function(1, 0, void, send_ok,
+                gdb, g)
+{
+    gdb g = bound(g);
+    bprintf(g->output, "OK");
+    putpacket(g, g->output);
+    closure_finish();
+}
 
 static boolean handle_request(gdb g, buffer b, buffer output)
 {
@@ -177,76 +283,135 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         print_number(output, (u64)sigval, 16, 2);
         break;
     case 'd':
-        //remote_debug = !(remote_debug);	/* toggle debug flag */
         break;
-        
+    case 'D':
+        bprintf(output, "OK");
+        start_slave(g, false, INVALID_ADDRESS);
+        break;
     case 'g':		/* return the value of the CPU registers */
-        mem2hex (output, thread_frame(g->t), 8*24);
+        read_registers(output, g->t);
         break;
 
     case 'G':		/* set the value of the CPU registers - return OK */
         // manifest constant
-        hex2mem (b, (char *) thread_frame(g->t), 8*24);
+        write_registers(b, g->t);
         bprintf (output, "OK");
         break;
 
-    case 'H': /* set thread */
+    case 'H': /* set thread */ {
+        int tid;
+        char cmd = get_char(b);
+        if (cmd < 0) {
+            bprintf(output, "E01");
+            break;
+        }
+        if (!read_thread_id(b, &tid)) {
+            bprintf(output, "E01");
+            break;
+        }
+        thread t = thread_from_tid(g->p, tid);
+        if (t == INVALID_ADDRESS && tid > 0) {
+            bprintf(output, "E01");
+            break;
+        }
+        if (cmd == 'g' && tid > 0) {
+            g->t = t;
+        } else if (cmd == 'c')
+            g->ctid = tid;
         bprintf (output, "OK");
         break;
-        
+    }
     case 'q':
         handle_query(g, b, output, query_handler);
         break;
-        
+
     case 'v':
         return handle_query(g, b, output, v_handler);
-        break;
 
-    case 'p':
-        bprintf(output, "00000000");
+    case 'p': {
+        u64 regno;
+        u8 buf[64];  // 512-bit maximum register size
+        if (parse_int(b, 16, &regno)) {
+            int cnt = get_register(regno, buf, thread_frame(g->t));
+            if (cnt > 0) {
+                mem2hex(output, buf, cnt);
+                break;
+            }
+        }
+        bprintf (output, "E01");
         break;
-
+    }
     case 'P':		/* set the value of a single CPU register - return OK */
         {
-            u64 regno;
-            if (parse_int (b, 16, &regno) && (get_char(b) == '='))                
-                if (regno < FRAME_MAX) {
-                    hex2mem (b, thread_frame(g->t) + regno, 8);
-                    bprintf (output, "OK");
+            u64 regno, val;
+            if (parse_int (b, 16, &regno) && (get_char(b) == '=')) {
+                // XXX this currently assumes 64-bit registers always
+                hex2mem(b, &val, sizeof(val));
+                if (set_thread_register(g->t, regno, val))
                     break;
-                }
-            
+            }
             bprintf (output, "E01");
             break;
         }
-        
+
         /* mAA..AA,LLLL  Read LLLL bytes at address AA..AA */
     case 'm':
         if (parse_hex_pair(b, &addr, &length)) {
+            set_current_thread(&g->t->thrd);
             if (!mem2hex (output, pointer_from_u64(addr), length)) {
-                rprintf ("memory error\n");
+                rprintf ("gdb: memory error\n");
                 bprintf(output, "E03");
             }
+            set_current_thread(0);
             break;
         }
         bprintf(output, "E01");
         break;
-        
+
         /* MAA..AA,LLLL: Write LLLL bytes at address AA.AA return OK */
     case 'M':
         /* TRY TO READ '%x,%x:'.  IF SUCCEED, SET PTR = 0 */
         if (parse_hex_pair(b, &addr, &length))
             if (get_char(b) == ':') {
+                set_current_thread(&g->t->thrd);
                 if (!hex2mem (b, (char *) addr, length)) {
                     bprintf(output, "E03");
                 } else {
                     bprintf(output, "OK");
-                    break;
                 }
+                set_current_thread(0);
+                break;
             }
         bprintf(output, "E02");
         break;
-
+    case 'X':
+        if (parse_hex_pair(b, &addr, &length)) {
+            if (get_char(b) == ':' && buffer_length(b) >= length) {
+                set_current_thread(&g->t->thrd);
+                /* XXX this is a horrible temporary hack to make software breakpoints work.
+                 * It assumes gdb will use 'X' with binary data of length 1 to set
+                 * software breakpoints only and thus will only be used for executable pages.
+                 * It also assumes user memory with no unusual flags set */
+                if (length == 1)
+                    update_map_flags(addr, length, pageflags_from_vmflags(VMAP_FLAG_EXEC | VMAP_FLAG_WRITABLE));
+                if (length > 0)
+                    runtime_memcpy((char *)addr, buffer_ref(b, 0), length);
+                set_current_thread(0);
+                bprintf(output, "OK");
+                break;
+            }
+        }
+        bprintf(output, "E02");
+        break;
+    case 'T':  {
+        int tid;
+        if (read_thread_id(b, &tid) && thread_from_tid(g->p, tid) != INVALID_ADDRESS) {
+             bprintf(output, "OK");
+            break;
+        } else
+            bprintf(output, "E01");
+        break;
+    }
         /* cAA..AA    Continue at address AA..AA(optional) */
         /* sAA..AA   Step one instruction from AA..AA(optional) */
     case 's':
@@ -254,26 +419,26 @@ static boolean handle_request(gdb g, buffer b, buffer output)
     case 'c':
         /* try to read optional parameter, pc unchanged if no parm */
         if (parse_int (b, 16, &addr))
-            thread_frame(g->t)[FRAME_RIP] = addr;
-        start_slave(g, stepping);
+            set_thread_pc(g->t, addr);
+        start_slave(g, stepping, INVALID_ADDRESS);
         break;
-        
+
         /* kill the program */
-    case 'k':		
+    case 'k':
         vm_exit(VM_EXIT_GDB);
         break;
-        
+
     case 'z':
         {
             char type = get_char(b);
             check(b, ',');
             parse_hex_pair(b, &addr, &length);
-            
+
             switch(type) {
-            case '0': 
+            case '1':
                 {
-                    if (breakpoint_remove(addr))
-                        bprintf(output, "OK");
+                    if (breakpoint_remove(g->h, addr, closure(g->h, send_ok, g)))
+                        return false;
                     else
                         bprintf(output, "E08");
                 }
@@ -281,25 +446,30 @@ static boolean handle_request(gdb g, buffer b, buffer output)
             break;
         }
 
-        
+
     case 'Z':
         {
             char type = get_char(b);
             check(b, ',');
             parse_hex_pair(b, &addr, &length);
+            if (addr >= USER_LIMIT) {
+                rprintf("kernel breakpoints not currently allowed\n");
+                bprintf(output, "E08");
+                break;
+            }
             switch(type) {
-            case '0': 
+            case '1':
                 {
-                    if (breakpoint_insert(addr, 0, 8))
-                        bprintf(output, "OK");
+                    if (breakpoint_insert(g->h, addr, 0, 8, closure(g->h, send_ok, g)))
+                        return false;
                     else
                         bprintf(output, "E08");
                 }
             }
             break;
         }
-            
-            
+
+
     default:
         bprintf(output, "E06");
     }			/* switch */
@@ -317,15 +487,20 @@ closure_function(1, 1, status, gdbserver_input,
     char ch = '0';
     /* wait around for the start character, ignore all other characters */
     while (buffer_length(b) && ((ch = get_char(b)) != '$')) {
-        if (ch == ASCII_CONTROL_C) { //wth?
-        //        gdb_handle_exception(g, 1, g->registers);
-            rprintf ("control-c\n");
+        if (ch == ASCII_CONTROL_C) {
+            g->p->trap = true;
+            wakeup_or_interrupt_cpu_all();
+            gdb_debug("gdb: control-c\n");
+            reset_buffer(g->output);
+            bprintf(g->output, "T02");
+            putpacket(g, g->output);
             return STATUS_OK;
         }
     }
  retry:
     g->sent_checksum = -1;
-  
+
+    boolean esc = false;
     /* now, read until a # or end of buffer is found */
     while (buffer_length(b)) {
         ch = get_char(b);
@@ -335,7 +510,15 @@ closure_function(1, 1, status, gdbserver_input,
         if (ch == '#')
             break;
         g->checksum = g->checksum + ch;
-        push_character(g->in, ch);
+        /* handle binary data */
+        if (esc) {
+            ch ^= 0x20;
+            esc = false;
+        } else if (ch == '}')
+            esc = true;
+        if (!esc) {
+            push_u8(g->in, ch);
+        }
     }
 
     if (ch == '#') {
@@ -344,7 +527,7 @@ closure_function(1, 1, status, gdbserver_input,
         g->sent_checksum = digit_of(ch) << 4;
         ch = get_char(b);
         g->sent_checksum += digit_of(ch);
-    
+
         if (g->checksum != g->sent_checksum){
             push_character(g->out, '-');	/* failed checksum */
             g->sent_checksum = -1;
@@ -357,28 +540,42 @@ closure_function(1, 1, status, gdbserver_input,
             }
 
         }
-        reset_parser(g);            
+        reset_parser(g);
         return STATUS_OK;
     }
     return STATUS_OK;
+}
+
+static fault_handler gdb_fh;
+
+void gdb_install_fault_handler(thread t)
+{
+    if (gdb_fh) {
+        t->default_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(gdb_fh);
+        t->sighandler_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(gdb_fh);
+    }
 }
 
 buffer_handler init_gdb(heap h,
                         process p,
                         buffer_handler outh)
 {
-    gdb g = allocate(h, sizeof(struct gdb));
+    gdb g = allocate_zero(h, sizeof(struct gdb));
     g->output_handler = outh;
     // why do I need three here?
-    g->output = allocate_buffer(h, 256); 
-    g->send_buffer = allocate_buffer(h, 256); 
-    g->out = allocate_buffer(h, 256); 
+    g->output = allocate_buffer(h, 256);
+    g->send_buffer = allocate_buffer(h, 256);
+    g->out = allocate_buffer(h, 256);
     g->in = allocate_buffer(h, 256);
     g->h = h;
+    g->p = p;
     spin_lock(&p->threads_lock);
     g->t = struct_from_field(rbtree_find_first(p->threads), thread, n);
     spin_unlock(&p->threads_lock);
-    thread_frame(g->t)[FRAME_FAULT_HANDLER] = u64_from_pointer(closure(h, gdb_handle_exception, g));
+    // XXX assumes both frames of all threads share same fault handler 
+    g->fault_handler = thread_frame(g->t)[FRAME_FAULT_HANDLER];
+    gdb_fh = closure(h, gdb_handle_exception, g);
+    gdb_install_fault_handler(g->t);
     reset_parser(g);
     return closure(h, gdbserver_input, g);
 }

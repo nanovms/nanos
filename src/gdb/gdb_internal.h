@@ -11,6 +11,9 @@ typedef struct gdb {
     buffer_handler output_handler;
     thread t; // we can really get several 
     process p;
+    u64 fault_handler;
+    boolean multiprocess;
+    int ctid; // thread id for vcont/continues
 } *gdb;
 
 typedef struct handler {

@@ -17,55 +17,78 @@ struct breakpoint breakpoints[4] = {{0, 0, _b0}, {0, 0, _b1}, {0, 0, _b2}, {0, 0
 #define mutate(__x, __offset, __len, __v)                           \
     (((__x) & ~ (((1ull<<__len) - 1) << (__offset))) | ((__v)<<(__offset)))
 
-static boolean enabled;
 
+// XXX move to gdb init?
 #define DEBUG_BIT 3
 void enable_debug_registers()
 {
     u64 cr4;
     mov_from_cr("cr4", cr4);
-    cr4 |= U64_FROM_BIT(DEBUG_BIT);
-    mov_to_cr("cr4", cr4);    
+    if (!(cr4 & U64_FROM_BIT(DEBUG_BIT))) {
+        cr4 |= U64_FROM_BIT(DEBUG_BIT);
+        mov_to_cr("cr4", cr4);
+    }
 }
 
+closure_function(6, 0, void, set_breakpoint,
+                 boolean, set, u64, a, u8, type, int, reg, word, cnt, thunk, completion)
+{
+    register u64 dr7;
+    int i = bound(reg);
+    if (bound(set)) {
+        mov_from_cr("dr7", dr7);
+        // r/w bits
+        dr7 = mutate(dr7, 4 * i + 16, 2, bound(type));
+        // len
+        dr7 = mutate(dr7, 4 * i + 18, 2, 0);
+        // both global and local
+        dr7 = mutate(dr7, 2 * i, 2, 3);
+        mov_to_cr("dr7", dr7);
+        breakpoints[i].set(bound(a));
+    } else {
+        mov_from_cr("dr7", dr7);
+        dr7 = mutate(dr7, 2 * i, 2, 0);
+        mov_to_cr("dr7", dr7);
+    }
+    if (fetch_and_add(&bound(cnt), (word)-1) == 1) {
+        if (bound(completion))
+            apply(bound(completion));
+        closure_finish();
+    }
+}
 
 // address type
-boolean breakpoint_insert(u64 a, u8 type, u8 log_length)
+boolean breakpoint_insert(heap h, u64 a, u8 type, u8 log_length, thunk completion)
 {
-    if (!enabled) enable_debug_registers();
-    
+    enable_debug_registers();
+
     for (int i = 0; i< 4; i++) {
         if (!breakpoints[i].assigned) {
-            register u64 dr7;
-
             breakpoints[i].assigned = true;
             breakpoints[i].address = a;
-            breakpoints[i].set(a);
-            
-            mov_from_cr("dr7", dr7);
-            // r/w bits
-            dr7 = mutate(dr7, 4 * i + 16, 2, type); 
-            // len
-            dr7 = mutate(dr7, 4 * i + 18, 2, 0);
-            // both global and local
-            dr7 = mutate(dr7, 2 * i, 2, 3);
-            mov_to_cr("dr7", dr7);
+            thunk t = closure(h, set_breakpoint, true, a, type, i, total_processors, completion);
+            cpuinfo ci;
+            vector_foreach(cpuinfos, ci) {
+                enqueue_irqsafe(ci->cpu_queue, t);
+            }
+            wakeup_or_interrupt_cpu_all();
             return(true);
         }
-    } 
+    }
     return(false);
 }
 
-boolean breakpoint_remove(u32 a)
+boolean breakpoint_remove(heap h, u32 a, thunk completion)
 {
     for (int i = 0; i< 4; i++) {
         if (breakpoints[i].address == a) {
-            register u64 dr7;
-
             breakpoints[i].assigned = false;
-            mov_from_cr("dr7", dr7);
-            dr7 = mutate(dr7, 2 * i, 2, 0);
-            mov_to_cr("dr7", dr7);
+            thunk t = closure(h, set_breakpoint, false, 0, 0, i, total_processors, completion);
+            cpuinfo ci;
+            vector_foreach(cpuinfos, ci) {
+                enqueue_irqsafe(ci->cpu_queue, t);
+            }
+            wakeup_or_interrupt_cpu_all();
             return(true);
         }
     }

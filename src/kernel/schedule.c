@@ -196,6 +196,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();
 
+    /* queue for cpu specific operations */
+    while ((t = dequeue(ci->cpu_queue)) != INVALID_ADDRESS)
+        run_thunk(t);
     /* bhqueue is for operations outside the realm of the kernel lock,
        e.g. storage I/O completions */
     while ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
