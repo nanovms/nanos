@@ -220,11 +220,7 @@ void common_handler()
               ci->id, i, interrupt_names[i], state_strings[ci->state],
               f, f[FRAME_RIP], f[FRAME_CR2]);
 
-    /* enqueue an interrupted user thread, unless the page fault handler should take care of it */
-    if (ci->state == cpu_user && i >= INTERRUPT_VECTOR_START && !shutting_down) {
-        int_debug("int sched %F\n", f[FRAME_RUN]);
-        schedule_frame(f);
-    }
+    int saved_state = ci->state;
 
     if (i == spurious_int_vector)
         frame_return(f);        /* direct return, no EOI */
@@ -252,14 +248,18 @@ void common_handler()
     }
     f[FRAME_FULL] = true;
 
-    boolean kern_return = ci->state == cpu_kernel;
-
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
         ci->state = cpu_interrupt;
         apply(handlers[i]);
         if (i >= INTERRUPT_VECTOR_START)
             lapic_eoi();
+
+        /* enqueue interrupted user thread */
+        if (saved_state == cpu_user && !shutting_down) {
+            int_debug("int sched %F\n", f[FRAME_RUN]);
+            schedule_frame(f);
+        }
     } else {
         /* fault handlers likely act on cpu state, so don't change it */
         fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
@@ -279,7 +279,7 @@ void common_handler()
         }
     }
     if (is_current_kernel_context(f)) {
-        if (kern_return) {
+        if (saved_state == cpu_kernel) {
             ci->state = cpu_kernel;
             frame_return(f);
         }

@@ -664,14 +664,13 @@ closure_function(1, 3, void, pagecache_write_sg,
                 return;
             }
 
-            /* When writing a new page at the end of a node whose length is not block-aligned, zero
-               the remaining portion of the last block. The filesystem will depend on this to properly
+            /* When writing a new page at the end of a node whose length is not page-aligned, zero
+               the remaining portion of the page. The filesystem will depend on this to properly
                implement file holes. */
             range i = range_intersection(byte_range_from_page(pc, pp), q);
-            u64 tail_offset = i.end & MASK(pv->block_order);
-            if (tail_offset) {
-                u64 page_offset = i.end & MASK(pc->page_order);
-                u64 len = U64_FROM_BIT(pv->block_order) - tail_offset;
+            u64 page_offset = i.end & MASK(pc->page_order);
+            if (page_offset) {
+                u64 len = U64_FROM_BIT(pc->page_order) - page_offset;
                 pagecache_debug("   zero unaligned end, i %R, page offset 0x%lx, len 0x%lx\n",
                                 i, page_offset, len);
                 assert(i.end == pn->length);

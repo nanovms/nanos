@@ -590,7 +590,8 @@ static int tfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_
     int rv = 0;
     pthread_rwlock_rdlock(&rwlock);
     file f = resolve_fd(fi->fh);
-    tuple c = children(file_get_meta(f));
+    tuple md = file_get_meta(f);
+    tuple c = md ? children(md) : 0;
     if (c) {
         iterate(c, stack_closure(tfs_readdir_each, buf, f, filler));
     } else {
