@@ -3,6 +3,7 @@ GOBUILD=	$(GO) build
 GOCLEAN=	$(GO) clean
 GOTEST=		$(GO) test
 GOGET=		$(GO) get
+GOMOD=		$(GO) mod
 BINARY_NAME=	ops
 
 all: build
@@ -25,6 +26,7 @@ post-clean:
 
 deps:
 	GO111MODULE=on $(GOGET) github.com/nanovms/ops/lepton
+	$(GOMOD) tidy
 
 .PHONY: build test clean deps
 

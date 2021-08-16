@@ -3,7 +3,7 @@ jobs:
   build-pc:
     docker:
       # specify the version
-      - image: circleci/golang:1.14
+      - image: cimg/go:1.16
     steps:
       - checkout
       - run: sudo apt-get update
@@ -20,7 +20,7 @@ jobs:
 
   nightly-build:
     docker:
-      - image: circleci/golang:1.14
+      - image: cimg/go:1.16
     steps:
       - checkout
       - run: sudo apt-get update
@@ -33,7 +33,7 @@ jobs:
             PATH=$HOME/.ops/bin:$PATH
             make test-noaccel
 
-      - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk-jessie main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+      - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
       - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
 
@@ -103,7 +103,7 @@ jobs:
 
   build-virt:
     docker:
-      - image: circleci/golang:1.14
+      - image: cimg/go:1.16
     steps:
       - checkout
       - run: sudo apt-get update
@@ -119,7 +119,7 @@ jobs:
 
   nightly-build-virt:
     docker:
-      - image: circleci/golang:1.14
+      - image: cimg/go:1.16
     steps:
       - checkout
       - run: sudo apt-get update
@@ -133,7 +133,7 @@ jobs:
           command: |
             make PLATFORM=virt runtime-tests-noaccel
 
-      - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk-jessie main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+      - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
       - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
 
