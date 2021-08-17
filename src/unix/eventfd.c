@@ -9,16 +9,20 @@ struct efd {
     int flags;
     blockq read_bq, write_bq;
     u64 counter;
+    boolean io_event;
 };
 
-closure_function(0, 2, u64, efd_edge_handler,
+closure_function(1, 2, u64, efd_edge_handler,
+                 struct efd *, efd,
                 u64, events, u64, lastevents)
 {
+    struct efd *efd = bound(efd);
+
     /* A read or a write acts as an edge */
-    if (events & EPOLLIN)
-        lastevents &= ~EPOLLIN;
-    if (events & EPOLLOUT)
-        lastevents &= ~EPOLLOUT;
+    if (efd->io_event) {
+        lastevents &= ~(EPOLLIN | EPOLLOUT);
+        efd->io_event = false;
+    }
     return lastevents;
 }
 
@@ -51,6 +55,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
         runtime_memcpy(bound(buf), &efd->counter, sizeof(efd->counter));
         efd->counter = 0;
     }
+    efd->io_event = true;
     blockq_wake_one(efd->write_bq);
     fdesc_notify_events(&efd->f);
 out:
@@ -94,6 +99,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
         return BLOCKQ_BLOCK_REQUIRED;
     }
     efd->counter += counter;
+    efd->io_event = true;
     blockq_wake_one(efd->read_bq);
     fdesc_notify_events(&efd->f);
 out:
@@ -172,7 +178,7 @@ int do_eventfd2(unsigned int count, int flags)
     efd->f.write = closure(h, efd_write, efd);
     efd->f.events = closure(h, efd_events, efd);
     efd->f.close = closure(h, efd_close, efd);
-    efd->f.edge_trigger_handler = closure(h, efd_edge_handler);
+    efd->f.edge_trigger_handler = closure(h, efd_edge_handler, efd);
     efd->h = h;
     efd->flags = flags;
 
@@ -189,6 +195,7 @@ int do_eventfd2(unsigned int count, int flags)
     }
 
     efd->counter = count;
+    efd->io_event = false;
     return efd->fd;
 
 err_write_bq:

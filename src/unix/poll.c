@@ -365,10 +365,7 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
 
 static void check_fdesc(epollfd efd, fdesc f, thread t)
 {
-    /* if edge-triggered, only notify the changes to events */
     u32 events = apply(f->events, t);
-    if (efd->eventmask & EPOLLET)
-        events &= ~efd->lastevents;
     notify_dispatch_for_thread(f->ns, events, t);
 }
 
