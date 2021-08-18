@@ -1168,8 +1168,8 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
         IP_SET_TYPE(&ipaddr, IPADDR_TYPE_ANY);
     err_t err;
     if (sock->type == SOCK_STREAM) {
-	if (s->info.tcp.lw->local_port != 0)
-	    return -EINVAL;	/* already bound */
+	if (!s->info.tcp.lw || (s->info.tcp.lw->local_port != 0))
+	    return -EINVAL;	/* shut down or already bound */
 	net_debug("calling tcp_bind, pcb %p, port %d\n", s->info.tcp.lw, port);
 	err = tcp_bind(s->info.tcp.lw, &ipaddr, port);
     } else if (sock->type == SOCK_DGRAM) {
@@ -1706,6 +1706,8 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     netsock s = (netsock) sock;
     if (s->sock.type != SOCK_STREAM)
 	return -EOPNOTSUPP;
+    if (s->info.tcp.state != TCP_SOCK_CREATED)
+        return -EINVAL;
     backlog = MAX(backlog, SOCK_QUEUE_LEN);
     struct tcp_pcb * lw = tcp_listen_with_backlog(s->info.tcp.lw, backlog);
     s->info.tcp.lw = lw;
@@ -1827,8 +1829,15 @@ static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, s
     ip_addr_t *ip_addr;
     u16_t port;
     if (s->sock.type == SOCK_STREAM) {
-        port = s->info.tcp.lw->local_port;
-        ip_addr = &s->info.tcp.lw->local_ip;
+        if (s->info.tcp.lw) {
+            port = s->info.tcp.lw->local_port;
+            ip_addr = &s->info.tcp.lw->local_ip;
+        } else {
+            /* The socket has been shut down; since we can't retrieve its local address, pretend
+             * it's not bound to any address. */
+            port = 0;
+            ip_addr = (ip_addr_t *)IP_ADDR_ANY;
+        }
     } else if (s->sock.type == SOCK_DGRAM) {
         port = s->info.udp.lw->local_port;
         ip_addr = &s->info.udp.lw->local_ip;
@@ -1861,6 +1870,8 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     netsock s = get_netsock(sock);
     if (!s)
         return -EOPNOTSUPP;
+    if ((s->sock.type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN))
+        return -ENOTCONN;
     remote_sockaddr(s, addr, addrlen);
     return 0;
 }
@@ -1894,7 +1905,7 @@ sysreturn setsockopt(int sockfd,
         case SO_REUSEADDR:
             if (optlen != sizeof(int))
                 return -EINVAL;
-            if (s->sock.type == SOCK_STREAM) {
+            if ((s->sock.type == SOCK_STREAM) && s->info.tcp.lw) {
                 if (*((int *)optval))
                     ip_set_option(s->info.tcp.lw, SOF_REUSEADDR);
                 else
@@ -1916,7 +1927,7 @@ sysreturn setsockopt(int sockfd,
         case TCP_NODELAY:
             if (optlen != sizeof(int))
                 return -EINVAL;
-            if (s->sock.type != SOCK_STREAM)
+            if ((s->sock.type != SOCK_STREAM) || !s->info.tcp.lw)
                 return -EINVAL;
             if (*((int *)optval))
                 tcp_nagle_enable(s->info.tcp.lw);

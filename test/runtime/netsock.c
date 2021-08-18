@@ -212,6 +212,7 @@ static void netsock_test_connclosed(void)
 {
     int fd, conn_fd;
     struct sockaddr_in addr;
+    socklen_t addr_len;
     const int port = 1234;
     pthread_t pt;
     uint8_t buf[8];
@@ -260,6 +261,12 @@ static void netsock_test_connclosed(void)
     msg.msg_iovlen = 1;
     test_assert(recvmsg(conn_fd, &msg, 0) == 0);
     test_assert(pthread_join(pt, NULL) == 0);
+    test_assert((listen(conn_fd, 1) == -1) && (errno == EINVAL));
+    addr_len = sizeof(addr);
+    test_assert(getsockname(conn_fd, (struct sockaddr *)&addr, &addr_len) == 0);
+    test_assert(addr_len == sizeof(addr));
+    test_assert(getpeername(conn_fd, (struct sockaddr *)&addr, &addr_len) == -1);
+    test_assert(errno == ENOTCONN);
     test_assert(close(conn_fd) == 0);
 
     test_assert(close(fd) == 0);
