@@ -1759,22 +1759,24 @@ closure_function(5, 1, sysreturn, accept_bh,
         return BLOCKQ_BLOCK_REQUIRED;               /* block */
     }
 
-    err_t child_err = get_lwip_error(child);
-    if (child_err != ERR_OK) {
-        rv = lwip_to_errno(child_err);
-        goto out;
-    }
-
     child->sock.f.flags |= bound(flags);
-    if (bound(addr))
-        remote_sockaddr(child, bound(addr), bound(addrlen));
+    if (bound(addr)) {
+        if (child->info.tcp.state == TCP_SOCK_OPEN)
+            remote_sockaddr(child, bound(addr), bound(addrlen));
+        else
+            /* The new socket is disconnected already, we can't retrieve the address of the remote
+             * peer. */
+            addrport_to_sockaddr(child->sock.domain, (ip_addr_t *)IP_ADDR_ANY, 0,
+                bound(addr), bound(addrlen));
+    }
 
     /* report falling edge in case of edge trigger */
     if (queue_length(s->incoming) == 0)
         fdesc_notify_events(&s->sock.f);
 
     /* release slot in lwIP listen backlog */
-    tcp_backlog_accepted(child->info.tcp.lw);
+    if (child->info.tcp.lw)
+        tcp_backlog_accepted(child->info.tcp.lw);
 
     rv = child->sock.fd;
   out:
