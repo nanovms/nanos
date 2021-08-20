@@ -1,5 +1,4 @@
 #include <gdb_internal.h>
-#include <kvm_platform.h>
 #include <gdb_machine.h>
 
 // #define GDB_DEBUG

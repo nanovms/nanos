@@ -33,3 +33,13 @@ static inline void read_registers(buffer b, thread t)
 static inline void write_registers(buffer b, thread t)
 {
 }
+
+boolean breakpoint_insert(heap h, u64 a, u8 type, u8 log_length, thunk completion)
+{
+    return false;
+}
+
+boolean breakpoint_remove(heap h, u32 a, thunk completion)
+{
+    return false;
+}
