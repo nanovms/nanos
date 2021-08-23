@@ -401,8 +401,7 @@ static void check_syscall_restart(thread t, sigaction sa)
             sig_debug("restarting syscall\n");
             syscall_restart_arch_fixup(t);
             enqueue_irqsafe(runqueue, &t->deferred_syscall);
-            kern_unlock();
-            runloop();
+            kern_yield();
         } else {
             sig_debug("interrupted syscall\n");
             syscall_return(t, -EINTR);
@@ -447,8 +446,7 @@ sysreturn rt_sigreturn(void)
               f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_RETVAL1]);
 
     schedule_frame(f);
-    kern_unlock();
-    runloop();
+    kern_yield();
 }
 
 sysreturn rt_sigaction(int signum,

@@ -228,8 +228,7 @@ void thread_sleep_interruptible(void)
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
     ftrace_thread_switch(current, 0);
     count_syscall_save(current);
-    kern_unlock();
-    runloop();
+    kern_yield();
 }
 
 void thread_sleep_uninterruptible(thread t)
@@ -238,11 +237,10 @@ void thread_sleep_uninterruptible(thread t)
     assert(!t->blocked_on);
     t->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
-    ftrace_thread_switch(t, 0);
-    count_syscall_save(t);
-    thread_unlock(t);
-    kern_unlock();
-    runloop();
+    ftrace_thread_switch(current, 0);
+    count_syscall_save(current);
+    thread_unlock();
+    kern_yield();
 }
 
 void thread_yield(void)
@@ -253,8 +251,7 @@ void thread_yield(void)
     current->syscall = -1;
     set_syscall_return(current, 0);
     schedule_frame(thread_frame(current));
-    kern_unlock();
-    runloop();
+    kern_yield();
 }
 
 void thread_wakeup(thread t)

@@ -259,6 +259,11 @@ static inline void schedule_timer_service(void)
         enqueue(bhqueue, kernel_timers->service);
 }
 
+static inline void __attribute__((noreturn)) kern_yield(void)
+{
+    runloop();
+}
+
 #if !defined(BOOT)
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag);

@@ -2092,8 +2092,7 @@ sysreturn sched_yield()
 void exit(int code)
 {
     exit_thread(current);
-    kern_unlock();
-    runloop();
+    kern_yield();
 }
 
 sysreturn exit_group(int status)
@@ -2423,8 +2422,7 @@ void syscall_debug(context f)
     // to the general model and make exceptions later
     schedule_frame(f);
   out:
-    kern_unlock();
-    runloop();
+    kern_yield();
 }
 
 boolean syscall_notrace(process p, int syscall)
@@ -2517,6 +2515,7 @@ closure_function(0, 2, void, print_syscall_stats_cfn,
 
 static boolean syscall_defer;
 
+#if 0
 // some validation can be moved up here
 static void syscall_schedule(context f)
 {
@@ -2531,6 +2530,7 @@ static void syscall_schedule(context f)
     }
     syscall_debug(f);
 }
+#endif
 
 static char *missing_files_exclude[] = {
     "ld.so.cache",
@@ -2558,7 +2558,7 @@ void init_syscalls(tuple root)
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
     heap h = heap_general(get_kernel_heaps());
-    syscall = syscall_schedule;
+    syscall = syscall_debug;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
     do_syscall_stats = get(root, sym(syscall_summary)) != 0;
