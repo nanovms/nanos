@@ -415,7 +415,7 @@ void exit_thread(thread t)
 
     wake_robust_list(t->p, t->robust_list);
     t->robust_list = 0;
-
+    blockq_init_thread(&t->bq_thread);
     blockq_flush(t->thread_bq);
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;

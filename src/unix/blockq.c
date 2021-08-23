@@ -91,6 +91,8 @@ define_closure_function(2, 2, void, blockq_thread_timeout,
                         blockq, bq, thread, t,
                         u64, expiry, u64, overruns)
 {
+    // XXX problem - now that this is part of thread and not allocated, is it possible
+    // to collide with a later waiting event...
     blockq bq = bound(bq);
     thread t = bound(t);
     blockq_debug("bq %p (\"%s\") tid %d\n", bq, blockq_name(bq), t->tid);
@@ -316,6 +318,12 @@ define_closure_function(1, 0, void, free_blockq,
     blockq_debug("for \"%s\"\n", blockq_name(bq));
     assert(list_empty(&bq->waiters_head));
     deallocate(bq->h, bq, sizeof(struct blockq));
+}
+
+void blockq_init_thread(blockq_thread bt)
+{
+    bt->timeout = 0;
+    bt->a = 0;
 }
 
 blockq allocate_blockq(heap h, char * name)
