@@ -373,11 +373,13 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         if (parse_hex_pair(b, &addr, &length))
             if (get_char(b) == ':') {
                 set_current_thread(&g->t->thrd);
+                set_write_protect(false);
                 if (!hex2mem (b, (char *) addr, length)) {
                     bprintf(output, "E03");
                 } else {
                     bprintf(output, "OK");
                 }
+                set_write_protect(true);
                 set_current_thread(0);
                 break;
             }
@@ -387,14 +389,11 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         if (parse_hex_pair(b, &addr, &length)) {
             if (get_char(b) == ':' && buffer_length(b) >= length) {
                 set_current_thread(&g->t->thrd);
-                /* XXX this is a horrible temporary hack to make software breakpoints work.
-                 * It assumes gdb will use 'X' with binary data of length 1 to set
-                 * software breakpoints only and thus will only be used for executable pages.
-                 * It also assumes user memory with no unusual flags set */
-                if (length == 1)
-                    update_map_flags(addr, length, pageflags_from_vmflags(VMAP_FLAG_EXEC | VMAP_FLAG_WRITABLE));
-                if (length > 0)
+                if (length > 0) {
+                    set_write_protect(false);
                     runtime_memcpy((char *)addr, buffer_ref(b, 0), length);
+                    set_write_protect(true);
+                }
                 set_current_thread(0);
                 bprintf(output, "OK");
                 break;

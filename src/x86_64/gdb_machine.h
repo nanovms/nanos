@@ -65,3 +65,8 @@ static inline void write_registers(buffer b, thread t)
 {
     hex2mem (b, thread_frame(t), sizeof(u64)*17);
 }
+
+static inline void set_write_protect(boolean enable)
+{
+    set_page_write_protect(enable);
+}

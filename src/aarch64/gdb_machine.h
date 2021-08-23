@@ -34,6 +34,10 @@ static inline void write_registers(buffer b, thread t)
 {
 }
 
+static inline void set_write_protect(boolean enable)
+{
+}
+
 boolean breakpoint_insert(heap h, u64 a, u8 type, u8 log_length, thunk completion)
 {
     return false;
