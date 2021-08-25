@@ -85,7 +85,7 @@ vector cpuinfos;
 
 cpuinfo init_cpuinfo(heap backed, int cpu)
 {
-    cpuinfo ci = allocate(backed, sizeof(struct cpuinfo));
+    cpuinfo ci = allocate_zero(backed, sizeof(struct cpuinfo));
     if (ci == INVALID_ADDRESS)
         return ci;
     if (!vector_set(cpuinfos, cpu, ci)) {
