@@ -46,15 +46,7 @@ static struct futex * soft_create_futex(process p, u64 key)
 
 static thread futex_wake_one(struct futex * f)
 {
-    thread w;
-
-    w = blockq_wake_one(f->bq);
-    if (w == INVALID_ADDRESS)
-        return w;
-
-    /* w must be awake */
-    assert(w->blocked_on != f->bq);
-    return w;
+    return blockq_wake_one(f->bq);
 }
 
 /*
