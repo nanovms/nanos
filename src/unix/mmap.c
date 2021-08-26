@@ -999,10 +999,13 @@ static sysreturn msync(void *addr, u64 length, int flags)
 
     boolean have_gap = false;
     if (flags & MS_SYNC) {
+        process p = current->p;
         range q = irangel(u64_from_pointer(addr), pad(length, PAGESIZE));
-        rangemap_range_lookup_with_gaps(current->p->vmaps, q,
+        vmap_lock(p);
+        rangemap_range_lookup_with_gaps(p->vmaps, q,
                                         stack_closure(msync_vmap),
                                         stack_closure(msync_gap, &have_gap));
+        vmap_unlock(p);
     }
 
     /* TODO: Linux appears to only use MS_INVALIDATE to test whether a
