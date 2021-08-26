@@ -191,6 +191,7 @@ static boolean register_epollfd(epollfd efd, event_handler eh)
     epoll_debug("fd %d, eventmask 0x%x, handler %p\n", efd->fd, efd->eventmask, eh);
     efd->notify_handle = notify_add(f->ns, efd->eventmask | (EPOLLERR | EPOLLHUP), eh);
     assert(efd->notify_handle != INVALID_ADDRESS);
+    fdesc_put(f);   /* if the file descriptor is deallocated, we will be notified via f->ns */
     return true;
 }
 
@@ -399,6 +400,7 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
   out_wakeup:
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
+    fdesc_put(&w->e->f);
     epoll_debug("   pre refcnt %ld, returning %ld\n", w->refcount.c, rv);
     epoll_blocked_release(w);
     closure_finish();
@@ -423,8 +425,10 @@ sysreturn epoll_wait(int epfd,
 
     epoll e = resolve_fd(current->p, epfd);
     epoll_blocked w = alloc_epoll_blocked(e);
-    if (w == INVALID_ADDRESS)
-	return -ENOMEM;
+    if (w == INVALID_ADDRESS) {
+        fdesc_put(&e->f);
+        return -ENOMEM;
+    }
 
     epoll_debug("tid %d, epoll fd %d, new blocked %p, timeout %d\n", current->tid, epfd, w, timeout);
     w->epoll_type = EPOLL_TYPE_EPOLL;
@@ -515,9 +519,7 @@ static sysreturn remove_fd(epoll e, int fd)
 
 sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
-    epoll e = resolve_fd(current->p, epfd);    
     epoll_debug("epoll fd %d, op %d, fd %d\n", epfd, op, fd);
-    fdesc f = resolve_fd(current->p, fd);
 
     /* A valid event pointer is required for all operations but EPOLL_CTL_DEL */
     if ((op != EPOLL_CTL_DEL) && !validate_user_memory(event, sizeof(struct epoll_event), false)) {
@@ -530,29 +532,38 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
         return set_syscall_error(current, EINVAL);
     }
 
-    if ((f->type == FDESC_TYPE_REGULAR) || (f->type == FDESC_TYPE_DIRECTORY)) {
-	return set_syscall_error(current, EPERM);
-    }
+    sysreturn rv;
+    fdesc f = resolve_fd(current->p, fd);
+    if ((f->type == FDESC_TYPE_REGULAR) || (f->type == FDESC_TYPE_DIRECTORY))
+        rv = -EPERM;
+    else
+        rv = 0;
+    fdesc_put(f);
+    if (rv)
+        return rv;
 
     /* XXX verify that fd is not an epoll instance*/
+    epoll e = resolve_fd(current->p, epfd);
     switch(op) {
     case EPOLL_CTL_ADD:
-        return set_syscall_return(current, epoll_add_fd(e, fd, event->events, event->data));
+        rv = epoll_add_fd(e, fd, event->events, event->data);
+        break;
     case EPOLL_CTL_DEL:
-        return set_syscall_return(current, remove_fd(e, fd));
+        rv = remove_fd(e, fd);
+        break;
     case EPOLL_CTL_MOD:
 	epoll_debug("   modifying %d, events 0x%x, data 0x%lx\n", fd, event->events, event->data);
-        sysreturn rv = remove_fd(e, fd);
-        if (rv != 0)
-            return set_syscall_return(current, rv);
-
-        return set_syscall_return(current, epoll_add_fd(e, fd, event->events, event->data));
+        rv = remove_fd(e, fd);
+        if (rv == 0)
+            rv = epoll_add_fd(e, fd, event->events, event->data);
+        break;
     default:
 	msg_err("unknown op %d\n", op);
-	return set_syscall_error(current, EINVAL);
+	rv = -EINVAL;
     }
 
-    return 0;
+    fdesc_put(&e->f);
+    return rv;
 }
 
 /* XXX build these out */

@@ -943,6 +943,18 @@ static void * test_signalfd_child(void *arg)
     if (nfds != 0)
         fail_error("epoll_wait test with no signal events failed (rv = %d)\n", nfds);
 
+    rv = close(fd2);
+    if (rv < 0)
+        fail_perror("close fd2");
+    rv = close(fd);
+    if (rv < 0)
+        fail_perror("close fd");
+
+    rv = signalfd(0, &ss, 0);
+    if ((rv != -1) || (errno != EINVAL))
+        fail_error("signalfd() with invalid fd returned %d, errno %d (%s)\n", rv, errno,
+            strerror(errno));
+
     sigtest_debug("success; child exiting\n");
     return (void *)EXIT_SUCCESS;
 }

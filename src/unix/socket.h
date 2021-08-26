@@ -76,6 +76,8 @@ struct sock {
     sysreturn (*shutdown)(struct sock *sock, int how);
 };
 
+#define socket_release(s) fdesc_put(&(s)->f)
+
 static inline int socket_init(process p, heap h, int domain, int type, u32 flags,
         struct sock *s)
 {

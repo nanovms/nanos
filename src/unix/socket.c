@@ -440,14 +440,20 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
 {
     unixsock s = (unixsock) sock;
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
-    if (s->fs_entry)
-        return -EADDRINUSE;
+    sysreturn ret;
+    if (s->fs_entry) {
+        ret = -EADDRINUSE;
+        goto out;
+    }
 
-    if (addrlen < sizeof(unixaddr->sun_family))
-        return -EINVAL;
+    if (addrlen < sizeof(unixaddr->sun_family)) {
+        ret = -EINVAL;
+        goto out;
+    }
 
     if (addrlen > sizeof(*unixaddr)) {
-        return -ENAMETOOLONG;
+        ret = -ENAMETOOLONG;
+        goto out;
     }
 
     /* Ensure that the NULL-terminated path string fits in unixaddr->sun_path
@@ -461,7 +467,8 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
     if (term == addrlen - sizeof(unixaddr->sun_family)) {
         /* Terminator character not found: add it if possible. */
         if (addrlen == sizeof(*unixaddr)) {
-            return -ENAMETOOLONG;
+            ret = -ENAMETOOLONG;
+            goto out;
         }
         /* TODO: is this string not const? */
         unixaddr->sun_path[term] = '\0';
@@ -470,26 +477,37 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
     process p = current->p;
     s->fs = p->cwd_fs;
     fs_status fss = filesystem_mk_socket(&s->fs, p->cwd, unixaddr->sun_path, s, &s->fs_entry);
-    if (fss != FS_STATUS_OK)
-        return (fss == FS_STATUS_EXIST) ? -EADDRINUSE : sysreturn_from_fs_status(fss);
+    if (fss != FS_STATUS_OK) {
+        ret = (fss == FS_STATUS_EXIST) ? -EADDRINUSE : sysreturn_from_fs_status(fss);
+        goto out;
+    }
     runtime_memcpy(&s->local_addr, addr, addrlen);
-    return 0;
+    ret = 0;
+out:
+    socket_release(sock);
+    return ret;
 }
 
 static sysreturn unixsock_listen(struct sock *sock, int backlog)
 {
-    if (sock->type & SOCK_DGRAM)
-        return -EOPNOTSUPP;
     unixsock s = (unixsock) sock;
-    if (!s->conn_q) {
-        s->conn_q = allocate_queue(sock->h, backlog);
-        if (s->conn_q == INVALID_ADDRESS) {
-            msg_err("failed to allocate connection queue\n");
-            s->conn_q = 0;
-            return -ENOMEM;
+    sysreturn ret = 0;
+    switch (sock->type) {
+    case SOCK_STREAM:
+        if (!s->conn_q) {
+            s->conn_q = allocate_queue(sock->h, backlog);
+            if (s->conn_q == INVALID_ADDRESS) {
+                msg_err("failed to allocate connection queue\n");
+                s->conn_q = 0;
+                ret = -ENOMEM;
+            }
         }
+        break;
+    default:
+        ret = -EOPNOTSUPP;
     }
-    return 0;
+    socket_release(sock);
+    return ret;
 }
 
 closure_function(2, 1, sysreturn, connect_bh,
@@ -517,6 +535,7 @@ closure_function(2, 1, sysreturn, connect_bh,
     }
     rv = 0;
 out:
+    socket_release(&s->sock);
     syscall_return(t, rv);
     closure_finish();
     return rv;
@@ -526,31 +545,39 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
     unixsock s = (unixsock) sock;
+    sysreturn rv;
     if (unixsock_is_connecting(s)) {
-        return -EALREADY;
+        rv = -EALREADY;
+        goto out;
     } else if (unixsock_is_connected(s)) {
-        return -EISCONN;
+        rv = -EISCONN;
+        goto out;
     }
 
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
     unixsock listener, peer;
-    int rv = lookup_socket(&listener, unixaddr->sun_path);
+    rv = lookup_socket(&listener, unixaddr->sun_path);
     if (rv != 0)
-        return rv;
+        goto out;
     if (!s->connecting) {
         if (s->sock.type & SOCK_DGRAM) {
-            if (!(listener->sock.type == SOCK_DGRAM))
-                return -ECONNREFUSED;
+            if (!(listener->sock.type == SOCK_DGRAM)) {
+                rv = -ECONNREFUSED;
+                goto out;
+            }
             s->peer = listener;
             refcount_reserve(&listener->refcount);
-            return 0;
+            rv = 0;
+            goto out;
         }
         if (!listener->conn_q || queue_full(listener->conn_q)) {
-            return -ECONNREFUSED;
+            rv = -ECONNREFUSED;
+            goto out;
         }
         peer = unixsock_alloc(sock->h, sock->type, 0);
         if (!peer) {
-            return -ENOMEM;
+            rv = -ENOMEM;
+            goto out;
         }
 
         peer->peer = s;
@@ -560,6 +587,9 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
     }
     blockq_action ba = closure(sock->h, connect_bh, s, current);
     return blockq_check(sock->txbq, current, ba, false);
+out:
+    socket_release(sock);
+    return rv;
 }
 
 closure_function(5, 1, sysreturn, accept_bh,
@@ -603,6 +633,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     child->peer->connecting = false;
     unixsock_notify_writer(child->peer);
 out:
+    socket_release(&s->sock);
     syscall_return(t, rv);
     closure_finish();
     return rv;
@@ -612,54 +643,72 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
         socklen_t *addrlen, int flags)
 {
     unixsock s = (unixsock) sock;
-    if (s->sock.type != SOCK_STREAM)
-        return -EOPNOTSUPP;
-    if (!s->conn_q) {
-        return -EINVAL;
+    sysreturn rv;
+    if (s->sock.type != SOCK_STREAM) {
+        rv = -EOPNOTSUPP;
+        goto out;
     }
-    if (flags & ~(SOCK_NONBLOCK|SOCK_CLOEXEC))
-        return -EINVAL;
+    if (!s->conn_q || (flags & ~(SOCK_NONBLOCK|SOCK_CLOEXEC))) {
+        rv = -EINVAL;
+        goto out;
+    }
     blockq_action ba = closure(sock->h, accept_bh, s, current, addr, addrlen,
             flags);
     return blockq_check(sock->rxbq, current, ba, false);
+out:
+    socket_release(sock);
+    return rv;
 }
 
 sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
         struct sockaddr *dest_addr, socklen_t addrlen)
 {
     unixsock s = (unixsock) sock;
+    sysreturn rv;
     if (dest_addr || addrlen) {
         if (sock->type == SOCK_STREAM) {
             if (s->peer)
-                return -EISCONN;
+                rv = -EISCONN;
             else
-                return -ENOTCONN;
+                rv = -EOPNOTSUPP;
+            goto out;
         }
-        if (!(dest_addr && addrlen))
-            return -EFAULT;
-        if (addrlen < sizeof(struct sockaddr_un))
-            return -EINVAL;
+        if (!(dest_addr && addrlen)) {
+            rv = -EFAULT;
+            goto out;
+        }
+        if (addrlen < sizeof(struct sockaddr_un)) {
+            rv = -EINVAL;
+            goto out;
+        }
     }
-    return unixsock_write_with_addr(s, buf, len, 0, current, false, syscall_io_complete, (struct sockaddr_un *)dest_addr, addrlen);
+    return unixsock_write_with_addr(s, buf, len, 0, current, false,
+        (io_completion)&sock->f.io_complete, (struct sockaddr_un *)dest_addr, addrlen);
+out:
+    socket_release(sock);
+    return rv;
 }
 
 sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
         struct sockaddr *src_addr, socklen_t *addrlen)
 {
     if (src_addr || addrlen) {
-        if (!(src_addr && addrlen))
+        if (!(src_addr && addrlen)) {
+            socket_release(sock);
             return -EFAULT;
+        }
     }
     return unixsock_read_with_addr((unixsock)sock, buf, len, 0, current, false,
-        syscall_io_complete, src_addr, addrlen);
+        (io_completion)&sock->f.io_complete, src_addr, addrlen);
 }
 
-closure_function(1, 2, void, sendmsg_complete,
-                 sg_list, sg,
+closure_function(2, 2, void, sendmsg_complete,
+                 struct sock *, sock, sg_list, sg,
                  thread, t, sysreturn, rv)
 {
     sg_list sg = bound(sg);
     deallocate_sg_list(sg);
+    socket_release(bound(sock));
     apply(syscall_io_complete, t, rv);
     closure_finish();
 }
@@ -668,27 +717,34 @@ sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,
         int flags)
 {
     sg_list sg = allocate_sg_list();
-    if (sg == INVALID_ADDRESS)
-        return -ENOMEM;
+    sysreturn rv;
+    if (sg == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
     if (!iov_to_sg(sg, msg->msg_iov, msg->msg_iovlen))
         goto err_dealloc_sg;
-    io_completion complete = closure(sock->h, sendmsg_complete, sg);
+    io_completion complete = closure(sock->h, sendmsg_complete, sock, sg);
     if (complete == INVALID_ADDRESS)
         goto err_dealloc_sg;
     return apply(sock->f.sg_write, sg, sg->count, 0, current, false, complete);
   err_dealloc_sg:
     deallocate_sg_list(sg);
-    return -ENOMEM;
+    rv = -ENOMEM;
+  out:
+    socket_release(sock);
+    return rv;
 }
 
-closure_function(3, 2, void, recvmsg_complete,
-                 sg_list, sg, struct iovec *, iov, int, iovlen,
+closure_function(4, 2, void, recvmsg_complete,
+                 struct sock *, sock, sg_list, sg, struct iovec *, iov, int, iovlen,
                  thread, t, sysreturn, rv)
 {
     thread_resume(t);
     sg_list sg = bound(sg);
     sg_to_iov(sg, bound(iov), bound(iovlen));
     deallocate_sg_list(sg);
+    socket_release(bound(sock));
     apply(syscall_io_complete, t, rv);
     closure_finish();
 }
@@ -696,9 +752,12 @@ closure_function(3, 2, void, recvmsg_complete,
 sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
 {
     sg_list sg = allocate_sg_list();
-    if (sg == INVALID_ADDRESS)
-        return -ENOMEM;
-    io_completion complete = closure(sock->h, recvmsg_complete, sg,
+    sysreturn rv;
+    if (sg == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
+    io_completion complete = closure(sock->h, recvmsg_complete, sock, sg,
         msg->msg_iov, msg->msg_iovlen);
     if (complete == INVALID_ADDRESS)
         goto err_dealloc_sg;
@@ -711,7 +770,10 @@ sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
         complete);
   err_dealloc_sg:
     deallocate_sg_list(sg);
-    return -ENOMEM;
+    rv = -ENOMEM;
+  out:
+    socket_release(sock);
+    return rv;
 }
 
 static unixsock unixsock_alloc(heap h, int type, u32 flags)

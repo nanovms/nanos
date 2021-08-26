@@ -81,10 +81,7 @@ static void pipe_file_release(pipe_file pf)
     release_fdesc(&(pf->f));
 
     if (pf->fd > 0) {
-        /* sys_close could have deallocated fds already */
-        if (resolve_fd_noret(pf->pipe->proc, pf->fd))
-            deallocate_fd(pf->pipe->proc, pf->fd);
-
+        deallocate_fd(pf->pipe->proc, pf->fd);
         pf->fd = -1;
     }
 
@@ -111,6 +108,7 @@ static void pipe_release(pipe p)
 static inline void pipe_dealloc_end(pipe p, pipe_file pf)
 {
     if (pf->fd != -1) {
+        pf->fd = -1;    /* fd has already been deallocated by the close() syscall */
         if (&p->files[PIPE_READ] == pf) {
             pipe_notify_writer(pf, EPOLLHUP);
             pipe_debug("%s(%p): writer notified\n", __func__, p);

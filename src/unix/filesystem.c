@@ -173,6 +173,7 @@ closure_function(2, 2, void, fs_op_complete,
     thread_log(current, "%s: %d", __func__, ret);
 
     bound(f)->length = fsfile_get_length(fsf);
+    fdesc_put(&bound(f)->f);
     syscall_return(t, ret);
     closure_finish();
 }
@@ -296,22 +297,28 @@ sysreturn fstatfs(int fd, struct statfs *buf)
         f = 0;
         break;
     }
-    return statfs_internal(f ? f->fs : 0, f ? file_get_meta(f) : 0, buf);
+    sysreturn rv = statfs_internal(f ? f->fs : 0, f ? file_get_meta(f) : 0, buf);
+    fdesc_put(desc);
+    return rv;
 }
 
 sysreturn fallocate(int fd, int mode, long offset, long len)
 {
     fdesc desc = resolve_fd(current->p, fd);
+    sysreturn rv;
     if (desc->type != FDESC_TYPE_REGULAR) {
         switch (desc->type) {
         case FDESC_TYPE_PIPE:
         case FDESC_TYPE_STDIO:
-            return -ESPIPE;
+            rv = -ESPIPE;
+            break;
         default:
-            return -ENODEV;
+            rv = -ENODEV;
         }
+        goto out;
     } else if (!fdesc_is_writable(desc)) {
-        return -EBADF;
+        rv = -EBADF;
+        goto out;
     }
 
     heap h = heap_general(get_kernel_heaps());
@@ -328,22 +335,29 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
                 closure(h, fs_op_complete, current, f));
         break;
     default:
-        set_syscall_error(current, EINVAL);
+        rv = -EINVAL;
+        goto out;
     }
     return thread_maybe_sleep_uninterruptible(current);
+  out:
+    fdesc_put(desc);
+    return rv;
 }
 
 sysreturn fadvise64(int fd, s64 off, u64 len, int advice)
 {
     fdesc desc = resolve_fd(current->p, fd);
+    sysreturn rv;
     if (desc->type != FDESC_TYPE_REGULAR) {
         switch (desc->type) {
         case FDESC_TYPE_PIPE:
         case FDESC_TYPE_STDIO:
-            return -ESPIPE;
+            rv = -ESPIPE;
+            break;
         default:
-            return -EBADF;
+            rv = -EBADF;
         }
+        goto out;
     }
     file f = (file)desc;
     switch (advice) {
@@ -363,9 +377,13 @@ sysreturn fadvise64(int fd, s64 off, u64 len, int advice)
     case POSIX_FADV_NOREUSE:
         break;
     default:
-        return -EINVAL;
+        rv = -EINVAL;
+        goto out;
     }
-    return 0;
+    rv = 0;
+  out:
+    fdesc_put(desc);
+    return rv;
 }
 
 void file_release(file f)

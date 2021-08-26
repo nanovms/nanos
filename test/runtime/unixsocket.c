@@ -130,8 +130,16 @@ static void uds_stream_test(void)
     test_assert(pthread_create(&pt, NULL, uds_stream_server, (void *)(long) s1)
             == 0);
 
+    test_assert(sendto(s2, writeBuf, sizeof(writeBuf), 0, (struct sockaddr *)&addr,
+        addr_len) == -1);
+    test_assert(errno == EOPNOTSUPP);
+
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == 0);
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == -1);
+    test_assert(errno == EISCONN);
+
+    test_assert(sendto(s2, writeBuf, sizeof(writeBuf), 0, (struct sockaddr *)&addr,
+        addr_len) == -1);
     test_assert(errno == EISCONN);
 
     for (int i = 0; i < LARGEBUF_SIZE; i++) {
@@ -212,6 +220,8 @@ static void uds_dgram_test(void)
     strcpy(server_addr.sun_path, SERVER_SOCKET_PATH);
     test_assert(bind(s1, (struct sockaddr *) &server_addr, addr_len) == 0);
     test_assert(listen(s1, 1) == -1 && errno == EOPNOTSUPP);
+    test_assert(accept(s1, (struct sockaddr *) &server_addr, &addr_len) == -1);
+    test_assert(errno == EOPNOTSUPP);
 
     s2 = socket(AF_UNIX, SOCK_DGRAM, 0);
     test_assert(s2 >= 0);

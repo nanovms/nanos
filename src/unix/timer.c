@@ -139,16 +139,18 @@ sysreturn timerfd_settime(int fd, int flags,
     if (flags & ~(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET))
         return -EINVAL;
 
-    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false))
+    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false) ||
+            (old_value && !validate_user_memory(old_value, sizeof(struct itimerspec), true)))
         return -EFAULT;
 
     unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
-    if (ut->f.type != FDESC_TYPE_TIMERFD)
-        return -EINVAL;
+    sysreturn rv = 0;
+    if (ut->f.type != FDESC_TYPE_TIMERFD) {
+        rv = -EINVAL;
+        goto out;
+    }
 
     if (old_value) {
-        if (!validate_user_memory(old_value, sizeof(struct itimerspec), true))
-            return -EFAULT;
         itimerspec_from_timer(ut, old_value);
     }
 
@@ -161,7 +163,7 @@ sysreturn timerfd_settime(int fd, int flags,
     ut->overruns = 0;
 
     if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_nsec == 0)
-        return 0;
+        goto out;
 
     timestamp tinit = time_from_timespec(&new_value->it_value);
     timestamp interval = time_from_timespec(&new_value->it_interval);
@@ -171,23 +173,27 @@ sysreturn timerfd_settime(int fd, int flags,
     timer t = register_timer(runloop_timers, ut->cid, tinit, absolute, interval,
                              closure(unix_timer_heap, timerfd_timer_expire, ut));
     if (t == INVALID_ADDRESS)
-        return -ENOMEM;
-
-    ut->t = t;
-    return 0;
+        rv = -ENOMEM;
+    else
+        ut->t = t;
+  out:
+    fdesc_put(&ut->f);
+    return rv;
 }
 
 sysreturn timerfd_gettime(int fd, struct itimerspec *curr_value)
 {
-    unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
-    if (ut->f.type != FDESC_TYPE_TIMERFD)
-        return -EINVAL;
-
     if (!validate_user_memory(curr_value, sizeof(struct itimerspec), true))
         return -EFAULT;
 
-    itimerspec_from_timer(ut, curr_value);
-    return 0;
+    sysreturn rv = 0;
+    unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
+    if (ut->f.type != FDESC_TYPE_TIMERFD)
+        rv = -EINVAL;
+    else
+        itimerspec_from_timer(ut, curr_value);
+    fdesc_put(&ut->f);
+    return rv;
 }
 
 closure_function(5, 1, sysreturn, timerfd_read_bh,

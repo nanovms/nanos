@@ -329,6 +329,10 @@ typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, 
 #define FDESC_TYPE_SYMLINK     11
 #define FDESC_TYPE_IORING      12
 
+declare_closure_struct(1, 2, void, fdesc_io_complete,
+                       struct fdesc *, f,
+                       thread, t, sysreturn, rv);
+
 typedef struct fdesc {
     file_io read, write;
     sg_file_io sg_read, sg_write;
@@ -336,6 +340,7 @@ typedef struct fdesc {
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
     closure_type(close, sysreturn, thread t, io_completion completion);
     closure_type(edge_trigger_handler, u64, u64 events, u64 lastevents);
+    closure_struct(fdesc_io_complete, io_complete);
 
     u64 refcnt;
     int type;
@@ -558,6 +563,20 @@ unix_heaps get_unix_heaps();
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
+static inline void fdesc_put(fdesc f)
+{
+    if (fetch_and_add(&f->refcnt, -1) == 1)
+        apply(f->close, 0, io_completion_ignore);
+}
+
+define_closure_function(1, 2, void, fdesc_io_complete,
+                        struct fdesc *, f,
+                        thread, t, sysreturn, rv)
+{
+    fdesc_put(bound(f));
+    apply(syscall_io_complete, t, rv);
+}
+
 static inline void init_fdesc(heap h, fdesc f, int type)
 {
     f->read = 0;
@@ -567,6 +586,7 @@ static inline void init_fdesc(heap h, fdesc f, int type)
     f->close = 0;
     f->events = 0;
     f->edge_trigger_handler = 0;
+    init_closure(&f->io_complete, fdesc_io_complete, f);
     f->ioctl = 0;
     f->refcnt = 1;
     f->type = type;
@@ -593,12 +613,6 @@ static inline fdesc fdesc_get(process p, int fd)
     if (f)
         fetch_and_add(&f->refcnt, 1);
     return f;
-}
-
-static inline void fdesc_put(fdesc f)
-{
-    if (fetch_and_add(&f->refcnt, -1) == 1)
-        apply(f->close, 0, io_completion_ignore);
 }
 
 static inline void fdesc_notify_events(fdesc f)
@@ -848,8 +862,7 @@ static inline u64 iov_total_len(struct iovec *iov, int iovcnt)
     return len;
 }
 
-#define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
-#define resolve_fd(__p, __fd) ({void *f ; if (!(f = resolve_fd_noret(__p, __fd))) return set_syscall_error(current, EBADF); f;})
+#define resolve_fd(__p, __fd) ({void *f ; if (!(f = fdesc_get(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
 void init_syscalls(tuple root);
 void init_threads(process p);

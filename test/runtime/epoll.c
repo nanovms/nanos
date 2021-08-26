@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -25,6 +26,14 @@ void test_ctl()
         printf("Cannot create epoll\n");
         goto fail;
     }
+
+    event.events = 0;
+    test_assert((epoll_ctl(efd, EPOLL_CTL_ADD, -1, &event) == -1) && (errno == EBADF));
+
+    int dirfd = open(".", O_RDONLY);
+    test_assert(dirfd >= 0);
+    test_assert((epoll_ctl(efd, EPOLL_CTL_ADD, dirfd, &event) == -1) && (errno == EPERM));
+    close(dirfd);
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     event.data.fd = fd;

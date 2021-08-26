@@ -1010,13 +1010,16 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
         return allocate_signalfd(mask, flags);
 
     signal_fd sfd = resolve_fd(current->p, fd); /* macro, may return EBADF */
-    if (fdesc_type(&sfd->f) != FDESC_TYPE_SIGNALFD)
+    if (fdesc_type(&sfd->f) != FDESC_TYPE_SIGNALFD) {
+        fdesc_put(&sfd->f);
         return -EINVAL;
+    }
 
     /* update mask */
     sfd->mask = *mask;
     notify_entry_update_eventmask(sfd->n, sfd->mask);
     signalfd_update_siginterest(current);
+    fdesc_put(&sfd->f);
     return fd;
 }
 

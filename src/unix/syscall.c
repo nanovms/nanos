@@ -248,13 +248,22 @@ sysreturn read(int fd, u8 *dest, bytes length)
     if (!validate_user_memory(dest, length, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    if (!fdesc_is_readable(f))
-        return -EBADF;
-    if (!f->read)
-        return set_syscall_error(current, EINVAL);
+    sysreturn rv;
+    if (!fdesc_is_readable(f)) {
+        rv = -EBADF;
+        goto out;
+    }
+    if (!f->read) {
+        rv = -EINVAL;
+        goto out;
+    }
 
     /* use (and update) file offset */
-    return apply(f->read, dest, length, infinity, current, false, syscall_io_complete);
+    return apply(f->read, dest, length, infinity, current, false, (io_completion)&f->io_complete);
+
+  out:
+    fdesc_put(f);
+    return rv;
 }
 
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
@@ -262,13 +271,22 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
     if (!validate_user_memory(dest, length, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    if (!fdesc_is_readable(f))
-        return -EBADF;
-    if (!f->read || offset < 0)
-        return set_syscall_error(current, EINVAL);
+    sysreturn rv;
+    if (!fdesc_is_readable(f)) {
+        rv = -EBADF;
+        goto out;
+    }
+    if (!f->read || offset < 0) {
+        rv = -EINVAL;
+        goto out;
+    }
 
     /* use given offset with no file offset update */
-    return apply(f->read, dest, length, offset, current, false, syscall_io_complete);
+    return apply(f->read, dest, length, offset, current, false, (io_completion)&f->io_complete);
+
+  out:
+    fdesc_put(f);
+    return rv;
 }
 
 sysreturn readv(int fd, struct iovec *iov, int iovcnt)
@@ -276,9 +294,11 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, true))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    if (fdesc_type(f) == FDESC_TYPE_DIRECTORY)
+    if (fdesc_type(f) == FDESC_TYPE_DIRECTORY) {
+        fdesc_put(f);
         return -EISDIR;
-    iov_op(f, false, iov, iovcnt, infinity, true, syscall_io_complete);
+    }
+    iov_op(f, false, iov, iovcnt, infinity, true, (io_completion)&f->io_complete);
     return thread_maybe_sleep_uninterruptible(current);
 }
 
@@ -287,13 +307,22 @@ sysreturn write(int fd, u8 *body, bytes length)
     if (!validate_user_memory(body, length, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    if (!fdesc_is_writable(f))
-        return -EBADF;
-    if (!f->write)
-        return set_syscall_error(current, EINVAL);
+    sysreturn rv;
+    if (!fdesc_is_writable(f)) {
+        rv = -EBADF;
+        goto out;
+    }
+    if (!f->write) {
+        rv = -EINVAL;
+        goto out;
+    }
 
     /* use (and update) file offset */
-    return apply(f->write, body, length, infinity, current, false, syscall_io_complete);
+    return apply(f->write, body, length, infinity, current, false, (io_completion)&f->io_complete);
+
+  out:
+    fdesc_put(f);
+    return rv;
 }
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
@@ -301,12 +330,20 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
     if (!validate_user_memory(body, length, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    if (!fdesc_is_writable(f))
-        return -EBADF;
-    if (!f->write || offset < 0)
-        return set_syscall_error(current, EINVAL);
+    sysreturn rv;
+    if (!fdesc_is_writable(f)) {
+        rv = -EBADF;
+        goto out;
+    }
+    if (!f->write || offset < 0) {
+        rv = -EINVAL;
+        goto out;
+    }
 
-    return apply(f->write, body, length, offset, current, false, syscall_io_complete);
+    return apply(f->write, body, length, offset, current, false, (io_completion)&f->io_complete);
+  out:
+    fdesc_put(f);
+    return rv;
 }
 
 sysreturn writev(int fd, struct iovec *iov, int iovcnt)
@@ -314,7 +351,7 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    iov_op(f, true, iov, iovcnt, infinity, true, syscall_io_complete);
+    iov_op(f, true, iov, iovcnt, infinity, true, (io_completion)&f->io_complete);
     return thread_maybe_sleep_uninterruptible(current);
 }
 
@@ -391,6 +428,8 @@ closure_function(9, 2, void, sendfile_bh,
 out_complete:
     sg_list_release(bound(sg));
     deallocate_sg_list(bound(sg));
+    fdesc_put(bound(in));
+    fdesc_put(bound(out));
     syscall_return(t, rv);
     closure_finish();
 }
@@ -410,21 +449,36 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     if (offset && !validate_user_memory(offset, sizeof(int), true))
         return -EFAULT;
     fdesc infile = resolve_fd(current->p, in_fd);
-    fdesc outfile = resolve_fd(current->p, out_fd);
-    if (!fdesc_is_readable(infile) || !fdesc_is_writable(outfile))
+    fdesc outfile = fdesc_get(current->p, out_fd);
+    if (!outfile) {
+        fdesc_put(infile);
         return -EBADF;
-    if (!infile->sg_read || !outfile->write)
-        return set_syscall_error(current, EINVAL);
+    }
+    sysreturn rv;
+    if (!fdesc_is_readable(infile) || !fdesc_is_writable(outfile)) {
+        rv = -EBADF;
+        goto out;
+    }
+    if (!infile->sg_read || !outfile->write) {
+        rv = -EINVAL;
+        goto out;
+    }
 
     sg_list sg = allocate_sg_list();
-    if (sg == INVALID_ADDRESS)
-        return set_syscall_error(current, ENOMEM);
+    if (sg == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
 
     u64 n = MIN(count, SENDFILE_READ_MAX);
     io_completion read_complete = closure(heap_general(get_kernel_heaps()), sendfile_bh, infile, outfile,
                                           offset, sg, 0, n, 0, 0, false);
     apply(infile->sg_read, sg, n, offset ? *offset : infinity, current, false, read_complete);
     return get_syscall_return(current);
+  out:
+    fdesc_put(infile);
+    fdesc_put(outfile);
+    return rv;
 }
 
 static void begin_file_read(thread t, file f)
@@ -890,10 +944,10 @@ sysreturn dup(int fd)
     int newfd = allocate_fd(current->p, f);
     if (newfd == INVALID_PHYSICAL) {
         thread_log(current, "failed to allocate fd");
+        fdesc_put(f);
         return set_syscall_error(current, EMFILE);
     }
 
-    fetch_and_add(&f->refcnt, 1);
     return newfd;
 }
 
@@ -911,10 +965,10 @@ sysreturn dup2(int oldfd, int newfd)
             newfd = allocate_fd_gte(current->p, newfd, f);
             if (newfd == INVALID_PHYSICAL) {
                 thread_log(current, "  failed to use newfd");
+                fdesc_put(f);
                 return -EMFILE;
             }
         }
-        fetch_and_add(&f->refcnt, 1);
     }
     return newfd;
 }
@@ -1066,8 +1120,11 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     file f = resolve_fd(current->p, fd);
     tuple md = file_get_meta(f);
     tuple c;
-    if (!md || !(c = children(md)))
-        return -ENOTDIR;
+    sysreturn rv;
+    if (!md || !(c = children(md))) {
+        rv = -ENOTDIR;
+        goto out;
+    }
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
@@ -1075,9 +1132,12 @@ sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
     filesystem_update_atime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
-        return -EINVAL;
-
-    return written_sofar;
+        rv = -EINVAL;
+    else
+        rv = written_sofar;
+  out:
+    fdesc_put(&f->f);
+    return rv;
 }
 
 static int try_write_dirent64(tuple root, struct linux_dirent64 *dirp, char *p,
@@ -1138,8 +1198,11 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
     file f = resolve_fd(current->p, fd);
     tuple md = file_get_meta(f);
     tuple c;
-    if (!md || !(c = children(md)))
-        return -ENOTDIR;
+    sysreturn rv;
+    if (!md || !(c = children(md))) {
+        rv = -ENOTDIR;
+        goto out;
+    }
 
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
@@ -1147,9 +1210,12 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
     filesystem_update_atime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
-        return -EINVAL;
-
-    return written_sofar;
+        rv = -EINVAL;
+    else
+        rv = written_sofar;
+  out:
+    fdesc_put(&f->f);
+    return rv;
 }
 
 sysreturn chdir(const char *path)
@@ -1163,12 +1229,18 @@ sysreturn fchdir(int dirfd)
 {
     file f = resolve_fd(current->p, dirfd);
     tuple cwd = file_get_meta(f);
-    if (!cwd || !is_dir(cwd))
-        return set_syscall_error(current, -ENOTDIR);
+    sysreturn rv;
+    if (!cwd || !is_dir(cwd)) {
+        rv = -ENOTDIR;
+        goto out;
+    }
 
     current->p->cwd_fs = f->fs;
     current->p->cwd = cwd;
-    return set_syscall_return(current, 0);
+    rv = 0;
+  out:
+    fdesc_put(&f->f);
+    return rv;
 }
 
 static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, tuple t, long length)
@@ -1215,19 +1287,26 @@ sysreturn ftruncate(int fd, long length)
 {
     thread_log(current, "%s %d %d", __func__, fd, length);
     file f = resolve_fd(current->p, fd);
+    sysreturn rv;
     if (!(f->f.flags & (O_RDWR | O_WRONLY)) ||
             (f->f.type != FDESC_TYPE_REGULAR)) {
-        return set_syscall_error(current, EINVAL);
+        rv = -EINVAL;
+    } else {
+        rv = truncate_internal(f->fs, f->fsf, f, file_get_meta(f), length);
     }
-    return truncate_internal(f->fs, f->fsf, f, file_get_meta(f), length);
+    fdesc_put(&f->f);
+    return rv;
 }
 
-closure_function(1, 1, void, sync_complete,
-                 thread, t,
+closure_function(2, 1, void, sync_complete,
+                 thread, t, fdesc, f,
                  status, s)
 {
     thread t = bound(t);
     thread_log(current, "%s: status %v", __func__, s);
+    fdesc f = bound(f);
+    if (f)
+        fdesc_put(f);
     syscall_return(t, is_ok(s) ? 0 : -EIO);
     closure_finish();
 }
@@ -1235,7 +1314,7 @@ closure_function(1, 1, void, sync_complete,
 sysreturn sync(void)
 {
     status_handler sh = closure(heap_general(get_kernel_heaps()), sync_complete,
-        current);
+        current, 0);
     if (sh == INVALID_ADDRESS)
         return -ENOMEM;
     storage_sync(sh);
@@ -1246,27 +1325,31 @@ sysreturn syncfs(int fd)
 {
     /* Resolve to check validity of fd.
        When multiple volume support is added, we could grab the fs from the fsfile... */
-    resolve_fd(current->p, fd);
+    fdesc_put(resolve_fd(current->p, fd));
     return sync();
 }
 
 sysreturn fsync(int fd)
 {
     fdesc f = resolve_fd(current->p, fd);
+    sysreturn rv;
     switch (f->type) {
     case FDESC_TYPE_REGULAR:
         assert(((file)f)->fsf);
         filesystem_sync_node(((file)f)->fs,
                              fsfile_get_cachenode(((file)f)->fsf),
                              closure(heap_general(get_kernel_heaps()),
-                                 sync_complete, current));
+                                 sync_complete, current, f));
         return thread_maybe_sleep_uninterruptible(current);
     case FDESC_TYPE_DIRECTORY:
     case FDESC_TYPE_SYMLINK:
-        return 0;
+        rv = 0;
+        break;
     default:
-        return -EINVAL;
+        rv = -EINVAL;
     }
+    fdesc_put(f);
+    return rv;
 }
 
 sysreturn fdatasync(int fd)
@@ -1405,6 +1488,7 @@ static sysreturn fstat(int fd, struct stat *s)
         break;
     }
     fill_stat(f->type, fs, fsf, n, s);
+    fdesc_put(f);
     return 0;
 }
 
@@ -1471,6 +1555,7 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
     file f = resolve_fd(current->p, fd);
     s64 new;
+    sysreturn rv;
 
     switch (whence) {
         case SEEK_SET:
@@ -1483,14 +1568,15 @@ sysreturn lseek(int fd, s64 offset, int whence)
             new = f->length + offset;
             break;
         default:
-            return set_syscall_error(current, EINVAL);
+            new = -1;
     }
 
     if (new < 0)
-        return set_syscall_error(current, EINVAL);
-
-    f->offset = new;
-    return f->offset;
+        rv = -EINVAL;
+    else
+        rv = f->offset = new;
+    fdesc_put(&f->f);
+    return rv;
 }
 
 
@@ -1924,7 +2010,7 @@ sysreturn close(int fd)
     fdesc f = resolve_fd(current->p, fd);
     deallocate_fd(current->p, fd);
 
-    if (fetch_and_add(&f->refcnt, -1) == 1) {
+    if (fetch_and_add(&f->refcnt, -2) == 2) {
         if (f->close)
             return apply(f->close, current, syscall_io_complete);
         msg_err("no close handler for fd %d\n", fd);
@@ -1936,17 +2022,20 @@ sysreturn close(int fd)
 sysreturn fcntl(int fd, int cmd, s64 arg)
 {
     fdesc f = resolve_fd(current->p, fd);
+    sysreturn rv = 0;
 
     thread_log(current, "fcntl: fd %d, cmd %d, arg %d", fd, cmd, arg);
 
     switch (cmd) {
     case F_GETFD:
-        return set_syscall_return(current, f->flags & O_CLOEXEC);
+        rv = f->flags & O_CLOEXEC;
+        break;
     case F_SETFD:
         f->flags = (f->flags & ~O_CLOEXEC) | (arg & O_CLOEXEC);
-        return set_syscall_return(current, 0);
+        break;
     case F_GETFL:
-        return set_syscall_return(current, f->flags & ~O_CLOEXEC);
+        rv = f->flags & ~O_CLOEXEC;
+        break;
     case F_SETFL:
         thread_log(current, "fcntl: fd %d, F_SETFL, %x", fd, arg);
 
@@ -1954,45 +2043,51 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
         arg &= ~(O_ACCMODE | O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
 
         f->flags = (f->flags & O_ACCMODE) | (arg & ~O_CLOEXEC);
-        return set_syscall_return(current, 0);
+        break;
     case F_GETLK:
         if (arg) {
             if (!validate_user_memory(pointer_from_u64(arg), sizeof(struct flock), true))
-                return -EFAULT;
-            ((struct flock *)arg)->l_type = F_UNLCK;
+                rv = -EFAULT;
+            else
+                ((struct flock *)arg)->l_type = F_UNLCK;
         }
-        return set_syscall_return(current, 0);
+        break;
     case F_SETLK:
     case F_SETLKW:
-        return set_syscall_return(current, 0);
+        break;
     case F_DUPFD:
     case F_DUPFD_CLOEXEC: {
         if (arg < 0) {
-            return set_syscall_error(current, EINVAL);
+            rv = -EINVAL;
         }
         int newfd = allocate_fd_gte(current->p, arg, f);
         if (newfd == INVALID_PHYSICAL) {
             thread_log(current, "failed to allocate fd");
-            return set_syscall_error(current, EMFILE);
+            rv = -EMFILE;
+        } else {
+            return newfd;
         }
-        fetch_and_add(&f->refcnt, 1);
-        return set_syscall_return(current, newfd);
+        break;
     }
     case F_SETPIPE_SZ:
         if (f->type == FDESC_TYPE_PIPE) {
-            return pipe_set_capacity(f, (int)arg);
+            rv = pipe_set_capacity(f, (int)arg);
         } else {
-            return -EINVAL;
+            rv = -EINVAL;
         }
+        break;
     case F_GETPIPE_SZ:
         if (f->type == FDESC_TYPE_PIPE) {
-            return pipe_get_capacity(f);
+            rv = pipe_get_capacity(f);
         } else {
-            return -EINVAL;
+            rv = -EINVAL;
         }
+        break;
     default:
-        return set_syscall_error(current, ENOSYS);
+        rv = -ENOSYS;
     }
+    fdesc_put(f);
+    return rv;
 }
 
 sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap)
@@ -2034,6 +2129,7 @@ sysreturn ioctl(int fd, unsigned long request, ...)
     else
         rv = ioctl_generic(f, request, args);
     vend(args);
+    fdesc_put(f);
     return rv;
 }
 
