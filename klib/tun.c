@@ -246,7 +246,7 @@ closure_function(1, 6, sysreturn, tun_write,
     tun->netif.input(p, &tun->netif);
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
-    return len;
+    return io_complete(completion, t, len);
 }
 
 closure_function(1, 1, u32, tun_events,
