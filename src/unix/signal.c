@@ -319,7 +319,10 @@ closure_function(2, 1, boolean, deliver_signal_handler,
             /* thread scheduled to run or running; no explicit wakeup */
             sig_debug("thread %d running and sig unmasked; return\n",
                       t->tid);
-            *can_wake = 0;
+            if (*can_wake) {
+                thread_release(*can_wake);
+                *can_wake = 0;
+            }
             return false;
         }
     } else if (thread_in_interruptible_sleep(t) &&
@@ -329,6 +332,7 @@ closure_function(2, 1, boolean, deliver_signal_handler,
            That is because our task is to wake up a thread
            on behalf of this signal delivery, not just
            wake up a thread that has any pending signals. */
+        thread_reserve(t);
         *can_wake = t;
     }
     return true;
@@ -360,11 +364,12 @@ void deliver_signal_to_process(process p, struct siginfo *info)
         /*  Attempt to deliver via signalfd notify. If the
             thread becomes runnable, we're done.  */
         signalfd_dispatch(can_wake, sigword);
-        if (thread_is_runnable(can_wake))
-            return;
-        sig_debug("attempting to interrupt thread %d\n", can_wake->tid);
-        if (!thread_attempt_interrupt(can_wake))
-            sig_debug("failed to interrupt\n");
+        if (!thread_is_runnable(can_wake)) {
+            sig_debug("attempting to interrupt thread %d\n", can_wake->tid);
+            if (!thread_attempt_interrupt(can_wake))
+                sig_debug("failed to interrupt\n");
+        }
+        thread_release(can_wake);
     }
 }
 
@@ -642,6 +647,7 @@ sysreturn tgkill(int tgid, int tid, int sig)
     si.sifields.rt.uid = 0;
     sig_debug("-> delivering to thread\n");
     deliver_signal_to_thread(t, &si);
+    thread_release(t);
     return 0;
 }
 
@@ -713,6 +719,7 @@ sysreturn rt_tgsigqueueinfo(int tgid, int tid, int sig, siginfo_t *uinfo)
 
     uinfo->si_signo = sig;
     deliver_signal_to_thread(t, uinfo);
+    thread_release(t);
     return 0;
 }
 

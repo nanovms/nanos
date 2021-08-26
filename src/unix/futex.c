@@ -355,6 +355,7 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
     if (t == INVALID_ADDRESS)
         return -ESRCH;
     *hp = t->robust_list;
+    thread_release(t);
     *len = sizeof(**hp);
     return 0;
 }

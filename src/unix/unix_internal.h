@@ -351,7 +351,11 @@ typedef struct thread {
     closure_struct(resume_syscall, deferred_syscall);
     bitmap affinity;
     struct list l_faultwait;
+    struct spinlock lock;   /* generic lock for struct members without a specific lock */
 } *thread;
+
+#define thread_lock(t)      spin_lock(&(t)->lock)
+#define thread_unlock(t)    spin_unlock(&(t)->lock)
 
 typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, thread t,
         boolean bh, io_completion completion);
@@ -579,18 +583,6 @@ static inline u32 file_perms(process p, file f)
     return perms;
 }
 
-static inline thread thread_from_tid(process p, int tid)
-{
-    struct thread tk;
-    tk.tid = tid;
-    spin_lock(&p->threads_lock);
-    rbnode n = rbtree_lookup(p->threads, &tk.n);
-    spin_unlock(&p->threads_lock);
-    if (n == INVALID_ADDRESS)
-        return INVALID_ADDRESS;
-    return struct_from_field(n, thread, n);
-}
-
 static inline void thread_reserve(thread t)
 {
     refcount_reserve(&t->refcount);
@@ -599,6 +591,23 @@ static inline void thread_reserve(thread t)
 static inline void thread_release(thread t)
 {
     refcount_release(&t->refcount);
+}
+
+static inline thread thread_from_tid(process p, int tid)
+{
+    struct thread tk;
+    tk.tid = tid;
+    thread t;
+    spin_lock(&p->threads_lock);
+    rbnode n = rbtree_lookup(p->threads, &tk.n);
+    if (n != INVALID_ADDRESS) {
+        t = struct_from_field(n, thread, n);
+        thread_reserve(t);
+    }
+    spin_unlock(&p->threads_lock);
+    if (n == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    return t;
 }
 
 unix_heaps get_unix_heaps();
@@ -842,7 +851,7 @@ void thread_log_internal(thread t, const char *desc, ...);
 #define thread_log(__t, __desc, ...) do {if (!__t || !__t->p->trace) break; thread_log_internal(__t, __desc, ##__VA_ARGS__);} while (0)
 
 void thread_sleep_interruptible(void) __attribute__((noreturn));
-void thread_sleep_uninterruptible(void) __attribute__((noreturn));
+void thread_sleep_uninterruptible(thread t) __attribute__((noreturn));
 void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
 boolean thread_attempt_interrupt(thread t);
@@ -872,25 +881,24 @@ static inline boolean thread_is_runnable(thread t)
 
 static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
 {
-    u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
+    thread_lock(t);
     if (!t->syscall_complete) {
-        /* leave ints disabled... */
-        thread_sleep_uninterruptible();
+        thread_sleep_uninterruptible(t);
     }
-    irq_restore(flags);
+    thread_unlock(t);
     return get_syscall_return(t);
 }
 
 static inline sysreturn syscall_return(thread t, sysreturn val)
 {
+    thread_lock(t);
     set_syscall_return(t, val);
-    u64 flags = irq_disable_save(); /* XXX mutex / spinlock */
     t->syscall_complete = true;
     if (do_syscall_stats)
         count_syscall(t, val);
     if (t->blocked_on)
         thread_wakeup(t);
-    irq_restore(flags);
+    thread_unlock(t);
     return val;
 }
 

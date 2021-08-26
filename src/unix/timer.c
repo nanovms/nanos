@@ -492,7 +492,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
 
     u64 id = allocate_u64((heap)p->posix_timer_ids, 1);
     if (id == INVALID_PHYSICAL)
-        return -ENOMEM;
+        goto err_nomem;
 
     struct sigevent default_sevp;
     if (!sevp) {
@@ -506,7 +506,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, clockid);
     if (ut == INVALID_ADDRESS) {
         deallocate_u64((heap)p->posix_timer_ids, id, 1);
-        return -ENOMEM;
+        goto err_nomem;
     }
 
     ut->info.posix.id = id;
@@ -514,8 +514,6 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     assert(vector_set(p->posix_timers, id, ut));
     ut->info.posix.sevp = *sevp;
     ut->info.posix.recipient = recipient;
-    if (recipient != INVALID_ADDRESS)
-        thread_reserve(recipient);
 
     struct siginfo *si = &ut->info.posix.si;
     zero(si, sizeof(struct siginfo));
@@ -524,6 +522,10 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     si->sifields.timer.tid = ut->info.posix.id;
     si->sifields.timer.sigval = ut->info.posix.sevp.sigev_value;
     return 0;
+  err_nomem:
+    if (recipient != INVALID_ADDRESS)
+        thread_release(recipient);
+    return -ENOMEM;
 }
 
 sysreturn getitimer(int which, struct itimerval *curr_value)

@@ -2195,6 +2195,7 @@ static thread lookup_thread(int pid)
     thread t;
     if (pid== 0) {
         t = current;
+        thread_reserve(t);
     } else {
         if ((t = thread_from_tid(current->p, pid)) == INVALID_ADDRESS)
             return 0;
@@ -2210,9 +2211,12 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
     if (!(t = lookup_thread(pid)))
             return set_syscall_error(current, EINVAL);                
     u64 cpus = pad(MIN(total_processors, 64 * (cpusetsize / sizeof(u64))), 64);
+    thread_lock(t);
     runtime_memcpy(bitmap_base(t->affinity), mask, cpus / 8);
     if (cpus < total_processors)
         bitmap_range_check_and_set(t->affinity, cpus, total_processors - cpus, false, false);
+    thread_unlock(t);
+    thread_release(t);
     return 0;
 }
 
@@ -2225,7 +2229,10 @@ sysreturn sched_getaffinity(int pid, u64 cpusetsize, u64 *mask)
         (64 * (cpusetsize / sizeof(u64)) < total_processors))
             return set_syscall_error(current, EINVAL);                    
     cpusetsize = pad(total_processors, 64) / 8;
+    thread_lock(t);
     runtime_memcpy(mask, bitmap_base(t->affinity), cpusetsize);
+    thread_unlock(t);
+    thread_release(t);
     return cpusetsize;
 }
 

@@ -658,12 +658,15 @@ closure_function(3, 1, sysreturn, select_bh,
 
 static inline epoll select_get_epoll(void)
 {
-    epoll e = current->select_epoll;
+    thread t = current;
+    thread_lock(t);
+    epoll e = t->select_epoll;
     if (!e) {
         e = epoll_alloc_internal();
         if (e != INVALID_ADDRESS)
-            current->select_epoll = e;
+            t->select_epoll = e;
     }
+    thread_unlock(t);
     return e;
 }
 

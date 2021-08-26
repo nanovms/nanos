@@ -254,8 +254,10 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
                                             dest, t));
         }
         list_delete(&t->bq_l);
+        thread_lock(t);
         assert(t->blocked_on == src);
         t->blocked_on = dest;
+        thread_unlock(t);
         list_insert_before(&dest->waiters_head, &t->bq_l);
         transferred++;
     }

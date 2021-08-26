@@ -162,8 +162,10 @@ static inline void run_thread_frame(thread t)
     ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
+    thread_lock(t);
     t->blocked_on = 0;
     t->syscall = -1;
+    thread_unlock(t);
 
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
@@ -231,14 +233,15 @@ void thread_sleep_interruptible(void)
     runloop();
 }
 
-void thread_sleep_uninterruptible(void)
+void thread_sleep_uninterruptible(thread t)
 {
     disable_interrupts();
-    assert(!current->blocked_on);
-    current->blocked_on = INVALID_ADDRESS;
+    assert(!t->blocked_on);
+    t->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
-    ftrace_thread_switch(current, 0);
-    count_syscall_save(current);
+    ftrace_thread_switch(t, 0);
+    count_syscall_save(t);
+    thread_unlock(t);
     kern_unlock();
     runloop();
 }
@@ -269,16 +272,24 @@ void thread_wakeup(thread t)
 boolean thread_attempt_interrupt(thread t)
 {
     thread_log(current, "%s: tid %d", __func__, t->tid);
+    blockq bq;
+    thread_lock(t);
     if (!thread_in_interruptible_sleep(t)) {
         thread_log(current, "uninterruptible or already running");
-        return false;
+        bq = 0;
+    } else {
+        bq = t->blocked_on;
+        blockq_reserve(bq);
     }
+    thread_unlock(t);
 
     /* flush pending blockq */
-    thread_log(current, "... interrupting blocked thread %d", t->tid);
-    assert(blockq_flush_thread(t->blocked_on, t));
-    assert(thread_is_runnable(t));
-    return true;
+    if (bq) {
+        thread_log(current, "... interrupting blocked thread %d", t->tid);
+        blockq_flush_thread(bq, t);
+        blockq_release(bq);
+    }
+    return (bq != 0);
 }
 
 define_closure_function(1, 0, void, free_thread,
@@ -356,6 +367,7 @@ thread create_thread(process p)
     t->last_syscall = -1;
 
     list_init(&t->l_faultwait);
+    spin_lock_init(&t->lock);
 
     /* install gdb fault handler if gdb is inited */
     gdb_check_fault_handler(t);
