@@ -394,12 +394,8 @@ void exit_thread(thread t)
     /* dequeue signals for thread */
     sigstate_flush_queue(&t->signals);
 
-    /* We don't yet support forcible removal while in an uninterruptible wait. */
-    assert(t->blocked_on != INVALID_ADDRESS);
-
-    /* Kill received during interruptible wait. */
-    if (t->blocked_on)
-        blockq_flush_thread(t->blocked_on, t);
+    /* A thread can only be terminated by itself. */
+    assert(t->blocked_on == 0);
 
     if (t->clear_tid) {
         *t->clear_tid = 0;
