@@ -931,8 +931,10 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
 sysreturn open(const char *name, int flags, int mode)
 {
     thread_log(current, "open: \"%s\", flags %x, mode %x", name, flags, mode);
-    return open_internal(current->p->cwd_fs, current->p->cwd, name, flags,
-        mode);
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return open_internal(cwd_fs, cwd, name, flags, mode);
 }
 #endif
 
@@ -954,15 +956,18 @@ sysreturn dup(int fd)
 sysreturn dup2(int oldfd, int newfd)
 {
     thread_log(current, "%s: oldfd %d, newfd %d", __func__, oldfd, newfd);
-    fdesc f = resolve_fd(current->p, oldfd);
+    process p = current->p;
+    fdesc f = resolve_fd(p, oldfd);
     if (newfd != oldfd) {
-        fdesc newf = fdesc_get(current->p, newfd);
+        fdesc newf = fdesc_get(p, newfd);
         if (newf) {
-            assert(vector_set(current->p->files, newfd, f));
+            process_lock(p);
+            assert(vector_set(p->files, newfd, f));
+            process_unlock(p);
             if (fetch_and_add(&newf->refcnt, -2) == 2)
                 apply(newf->close, current, io_completion_ignore);
         } else {
-            newfd = allocate_fd_gte(current->p, newfd, f);
+            newfd = allocate_fd_gte(p, newfd, f);
             if (newfd == INVALID_PHYSICAL) {
                 thread_log(current, "  failed to use newfd");
                 fdesc_put(f);
@@ -1010,7 +1015,10 @@ sysreturn mkdir(const char *pathname, int mode)
     if (!validate_user_string(pathname))
         return -EFAULT;
     thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname, mode);
-    return mkdir_internal(current->p->cwd_fs, current->p->cwd, pathname, mode);
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return mkdir_internal(cwd_fs, cwd, pathname, mode);
 }
 
 /*
@@ -1040,7 +1048,10 @@ sysreturn mkdirat(int dirfd, char *pathname, int mode)
 sysreturn creat(const char *pathname, int mode)
 {
     thread_log(current, "creat: \"%s\", mode 0x%x", pathname, mode);
-    return open_internal(current->p->cwd_fs, current->p->cwd, pathname,
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return open_internal(cwd_fs, cwd, pathname,
         O_CREAT|O_WRONLY|O_TRUNC, mode);
 }
 
@@ -1227,7 +1238,8 @@ sysreturn chdir(const char *path)
 
 sysreturn fchdir(int dirfd)
 {
-    file f = resolve_fd(current->p, dirfd);
+    process p = current->p;
+    file f = resolve_fd(p, dirfd);
     tuple cwd = file_get_meta(f);
     sysreturn rv;
     if (!cwd || !is_dir(cwd)) {
@@ -1235,8 +1247,10 @@ sysreturn fchdir(int dirfd)
         goto out;
     }
 
-    current->p->cwd_fs = f->fs;
-    current->p->cwd = cwd;
+    process_lock(p);
+    p->cwd_fs = f->fs;
+    p->cwd = cwd;
+    process_unlock(p);
     rv = 0;
   out:
     fdesc_put(&f->f);
@@ -1273,8 +1287,10 @@ sysreturn truncate(const char *path, long length)
         return -EFAULT;
     thread_log(current, "%s \"%s\" %d", __func__, path, length);
     tuple t;
-    filesystem fs = current->p->cwd_fs;
-    int ret = resolve_cstring_follow(&fs, current->p->cwd, path, &t, 0);
+    filesystem fs;
+    tuple cwd;
+    process_get_cwd(current->p, &fs, &cwd);
+    int ret = resolve_cstring_follow(&fs, cwd, path, &t, 0);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -1710,6 +1726,7 @@ static sysreturn getcwd(char *buf, u64 length)
 static sysreturn brk(void *addr)
 {
     process p = current->p;
+    process_lock(p);
 
     /* on failure, return the current break */
     if (!addr || p->brk == addr)
@@ -1736,7 +1753,9 @@ static sysreturn brk(void *addr)
     }
     p->brk = addr;
   out:
-    return sysreturn_from_pointer(p->brk);
+    addr = p->brk;
+    process_unlock(p);
+    return sysreturn_from_pointer(addr);
 }
 
 static sysreturn readlink_internal(filesystem fs, tuple cwd, const char *pathname, char *buf,
@@ -1766,8 +1785,10 @@ static sysreturn readlink_internal(filesystem fs, tuple cwd, const char *pathnam
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 {
     thread_log(current, "readlink: \"%s\"", pathname);
-    return readlink_internal(current->p->cwd_fs, current->p->cwd, pathname, buf,
-        bufsiz);
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return readlink_internal(cwd_fs, cwd, pathname, buf, bufsiz);
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
@@ -1841,7 +1862,10 @@ sysreturn unlink(const char *pathname)
     if (!validate_user_string(pathname))
         return -EFAULT;
     thread_log(current, "unlink %s", pathname);
-    return unlink_internal(current->p->cwd_fs, current->p->cwd, pathname);
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return unlink_internal(cwd_fs, cwd, pathname);
 }
 
 sysreturn unlinkat(int dirfd, const char *pathname, int flags)
@@ -1867,7 +1891,10 @@ sysreturn rmdir(const char *pathname)
     if (!validate_user_string(pathname))
         return -EFAULT;
     thread_log(current, "rmdir %s", pathname);
-    return rmdir_internal(current->p->cwd_fs, current->p->cwd, pathname);
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return rmdir_internal(cwd_fs, cwd, pathname);
 }
 
 static sysreturn rename_internal(filesystem oldfs, tuple oldwd,
@@ -1926,8 +1953,10 @@ sysreturn rename(const char *oldpath, const char *newpath)
     if (!validate_user_string(oldpath) || !validate_user_string(newpath))
         return -EFAULT;
     thread_log(current, "rename \"%s\" \"%s\"", oldpath, newpath);
-    return rename_internal(current->p->cwd_fs, current->p->cwd, oldpath,
-        current->p->cwd_fs, current->p->cwd, newpath);
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return rename_internal(cwd_fs, cwd, oldpath, cwd_fs, cwd, newpath);
 }
 
 sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,

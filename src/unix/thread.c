@@ -329,13 +329,6 @@ thread create_thread(process p)
     init_refcount(&t->refcount, 1, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
     runtime_memset((void *)&t->n, 0, sizeof(struct rbnode));
-    spin_lock(&p->threads_lock);
-    do {
-        if (tidcount < 0)
-            tidcount = 1;
-        t->tid = tidcount++;
-    } while (rbtree_lookup(p->threads, &t->n) != INVALID_ADDRESS);
-    spin_unlock(&p->threads_lock);
     t->clear_tid = 0;
     t->name[0] = '\0';
 
@@ -373,6 +366,11 @@ thread create_thread(process p)
     gdb_check_fault_handler(t);
     // XXX sigframe
     spin_lock(&p->threads_lock);
+    do {
+        if (tidcount < 0)
+            tidcount = 1;
+        t->tid = tidcount++;
+    } while (rbtree_lookup(p->threads, &t->n) != INVALID_ADDRESS);
     rbtree_insert_node(p->threads, &t->n);
     spin_unlock(&p->threads_lock);
     return t;

@@ -21,20 +21,24 @@ unix_heaps get_unix_heaps()
 
 u64 allocate_fd(process p, void *f)
 {
+    process_lock(p);
     u64 fd = allocate_u64((heap)p->fdallocator, 1);
     if (fd == INVALID_PHYSICAL) {
-	msg_err("fail; maxed out\n");
-	return fd;
+        msg_err("fail; maxed out\n");
+        goto out;
     }
     if (!vector_set(p->files, fd, f)) {
         deallocate_u64((heap)p->fdallocator, fd, 1);
         fd = INVALID_PHYSICAL;
     }
+  out:
+    process_unlock(p);
     return fd;
 }
 
 u64 allocate_fd_gte(process p, u64 min, void *f)
 {
+    process_lock(p);
     u64 fd = id_heap_alloc_gte(p->fdallocator, 1, min);
     if (fd == INVALID_PHYSICAL) {
         msg_err("failed\n");
@@ -45,13 +49,16 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
             fd = INVALID_PHYSICAL;
         }
     }
+    process_unlock(p);
     return fd;
 }
 
 void deallocate_fd(process p, int fd)
 {
+    process_lock(p);
     assert(vector_set(p->files, fd, 0)); 
     deallocate_u64((heap)p->fdallocator, fd, 1);
+    process_unlock(p);
 }
 
 void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
@@ -328,7 +335,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         /* This heap is used to track the lowest 32 bits of process
            address space. Allocations are presently only made from the
            top half for MAP_32BIT mappings. */
-        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE, false);
+        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE, true);
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
@@ -359,7 +366,16 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(h, 8);
     p->trace = 0;
+    spin_lock_init(&p->lock);
     return p;
+}
+
+void process_get_cwd(process p, filesystem *cwd_fs, tuple *cwd)
+{
+    process_lock(p);
+    *cwd_fs = p->cwd_fs;
+    *cwd = p->cwd;
+    process_unlock(p);
 }
 
 void thread_enter_user(thread in)

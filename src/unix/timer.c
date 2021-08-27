@@ -315,9 +315,10 @@ sysreturn timerfd_create(int clockid, int flags)
 
 static unix_timer posix_timer_from_timerid(u32 timerid)
 {
-    unix_timer ut = vector_get(current->p->posix_timers, timerid);
-    if (!ut)
-        return INVALID_ADDRESS;
+    process p = current->p;
+    process_lock(p);
+    unix_timer ut = vector_get(p->posix_timers, timerid);
+    process_unlock(p);
     return ut ? ut : INVALID_ADDRESS;
 }
 
@@ -440,8 +441,10 @@ sysreturn timer_delete(u32 timerid) {
         thread_release(ut->info.posix.recipient);
     process p = current->p;
     remove_unix_timer(ut);
+    process_lock(p);
     deallocate_u64((heap)p->posix_timer_ids, ut->info.posix.id, 1);
     assert(vector_set(p->posix_timers, ut->info.posix.id, 0));
+    process_unlock(p);
     deallocate_unix_timer(ut);
     return 0;
 }
@@ -490,9 +493,21 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
         }
     }
 
-    u64 id = allocate_u64((heap)p->posix_timer_ids, 1);
-    if (id == INVALID_PHYSICAL)
+    unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, clockid);
+    if (ut == INVALID_ADDRESS)
         goto err_nomem;
+
+    process_lock(p);
+    u64 id = allocate_u64((heap)p->posix_timer_ids, 1);
+    if ((id != INVALID_PHYSICAL) && (!vector_set(p->posix_timers, id, ut))) {
+        deallocate_u64((heap)p->posix_timer_ids, id, 1);
+        id = INVALID_PHYSICAL;
+    }
+    process_unlock(p);
+    if (id == INVALID_PHYSICAL) {
+        deallocate_unix_timer(ut);
+        goto err_nomem;
+    }
 
     struct sigevent default_sevp;
     if (!sevp) {
@@ -503,15 +518,8 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
         sevp = &default_sevp;
     }
 
-    unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, clockid);
-    if (ut == INVALID_ADDRESS) {
-        deallocate_u64((heap)p->posix_timer_ids, id, 1);
-        goto err_nomem;
-    }
-
     ut->info.posix.id = id;
     *timerid = id;
-    assert(vector_set(p->posix_timers, id, ut));
     ut->info.posix.sevp = *sevp;
     ut->info.posix.recipient = recipient;
 
@@ -659,11 +667,16 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
     if (old_value && !validate_user_memory(old_value, sizeof(struct itimerval), true))
         return -EFAULT;
 
-    unix_timer ut = unix_timer_from_itimer_index(current->p, which, clockid);
+    process p = current->p;
+    sysreturn ret;
+    process_lock(p);
+    unix_timer ut = unix_timer_from_itimer_index(p, which, clockid);
     if (ut == INVALID_ADDRESS)
-        return -ENOMEM;
-
-    return setitimer_internal(ut, clockid, new_value, old_value);
+        ret = -ENOMEM;
+    else
+        ret = setitimer_internal(ut, clockid, new_value, old_value);
+    process_unlock(p);
+    return ret;
 }
 
 #ifdef __x86_64__
@@ -675,10 +688,14 @@ sysreturn alarm(unsigned int seconds)
     new.it_interval.tv_sec = 0;
     new.it_interval.tv_usec = 0;
 
-    unix_timer ut = unix_timer_from_itimer_index(current->p, ITIMER_REAL, CLOCK_ID_MONOTONIC);
-    if (ut == INVALID_ADDRESS)
-        return 0;               /* TODO: no error return from alarm... */
-    if (setitimer_internal(ut, CLOCK_ID_REALTIME, &new, &old) < 0)
+    process p = current->p;
+    boolean error = false;
+    process_lock(p);
+    unix_timer ut = unix_timer_from_itimer_index(p, ITIMER_REAL, CLOCK_ID_MONOTONIC);
+    if ((ut == INVALID_ADDRESS) || (setitimer_internal(ut, CLOCK_ID_REALTIME, &new, &old) < 0))
+        error = true;
+    process_unlock(p);
+    if (error)
         return 0;               /* no errno here (uint retval), so default to 0? */
     if (old.it_value.tv_sec == 0 && old.it_value.tv_usec != 0)
         return 1;               /* 0 for disarmed timer only, so round up */

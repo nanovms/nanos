@@ -20,16 +20,16 @@ static struct futex * soft_create_futex(process p, u64 key)
     heap h = heap_general(get_kernel_heaps());
     struct futex * f;
 
-    // XXX make this all atomic wrt p->futices
+    process_lock(p);
 
     f = table_find(p->futices, pointer_from_u64(key));
     if (f)
-        return f;
+        goto out;
 
     f = allocate(h, sizeof(struct futex));
     if (f == INVALID_ADDRESS) {
         msg_err("failed to allocate futex\n");
-        return f;
+        goto out;
     }
 
     f->h = h;
@@ -37,10 +37,13 @@ static struct futex * soft_create_futex(process p, u64 key)
     if (f->bq == INVALID_ADDRESS) {
         msg_err("failed to allocate futex blockq\n");
         deallocate(f->h, f, sizeof(struct futex));
-        return INVALID_ADDRESS;
+        f = INVALID_ADDRESS;
+        goto out;
     }
 
     table_set(p->futices, pointer_from_u64(key), f);
+  out:
+    process_unlock(p);
     return f;
 }
 

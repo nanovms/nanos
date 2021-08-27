@@ -504,7 +504,11 @@ typedef struct process {
     vector            aio;
     boolean           trace;
     boolean           trap;         /* do not run threads when set */
+    struct spinlock   lock; /* generic lock for struct members without a specific lock */
 } *process;
+
+#define process_lock(p)     spin_lock(&(p)->lock)
+#define process_unlock(p)   spin_unlock(&(p)->lock)
 
 typedef struct sigaction *sigaction;
 
@@ -658,12 +662,11 @@ static inline int fdesc_type(fdesc f)
 
 static inline fdesc fdesc_get(process p, int fd)
 {
-    /* XXX To ensure atomicity, we need a mutex that protects against concurrent
-     * access to fdesc vector; the same mutex will have to be taken at every fd
-     * number allocation/deallocation. */
+    process_lock(p);
     fdesc f = vector_get(p->files, fd);
     if (f)
         fetch_and_add(&f->refcnt, 1);
+    process_unlock(p);
     return f;
 }
 

@@ -112,17 +112,22 @@ void file_readahead(file f, u64 offset, u64 len)
 
 fs_status filesystem_chdir(process p, const char *path)
 {
+    process_lock(p);
     filesystem fs = p->cwd_fs;
     fs_status fss;
     tuple n;
     fss = filesystem_resolve_cstring_follow(&fs, p->cwd, path, &n, 0);
     if (fss != FS_STATUS_OK)
-        return fss;
-    if (!is_dir(n))
-        return FS_STATUS_NOENT;
+        goto out;
+    if (!is_dir(n)) {
+        fss = FS_STATUS_NOENT;
+        goto out;
+    }
     p->cwd_fs = fs;
     p->cwd = n;
-    return FS_STATUS_OK;
+  out:
+    process_unlock(p);
+    return fss;
 }
 
 closure_function(4, 1, void, fs_sync_complete,
@@ -199,8 +204,10 @@ static sysreturn symlink_internal(filesystem fs, tuple cwd, const char *path,
 sysreturn symlink(const char *target, const char *linkpath)
 {
     thread_log(current, "symlink %s -> %s", linkpath, target);
-    return symlink_internal(current->p->cwd_fs, current->p->cwd, linkpath,
-        target);
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    return symlink_internal(cwd_fs, cwd, linkpath, target);
 }
 
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath)
@@ -215,8 +222,10 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
         timestamp modtime)
 {
     tuple t;
-    filesystem fs = current->p->cwd_fs;
-    int ret = resolve_cstring(&fs, current->p->cwd, filename, &t, 0);
+    filesystem fs;
+    tuple cwd;
+    process_get_cwd(current->p, &fs, &cwd);
+    int ret = resolve_cstring(&fs, cwd, filename, &t, 0);
     if (ret) {
         return set_syscall_return(current, ret);
     }
@@ -274,9 +283,11 @@ sysreturn statfs(const char *path, struct statfs *buf)
     if (!validate_user_string(path) ||
         !validate_user_memory(buf, sizeof(struct statfs), true))
         return set_syscall_error(current, EFAULT);
-    filesystem fs = current->p->cwd_fs;
+    filesystem fs;
+    tuple cwd;
+    process_get_cwd(current->p, &fs, &cwd);
     tuple t;
-    int ret = resolve_cstring(&fs, current->p->cwd, path, &t, 0);
+    int ret = resolve_cstring(&fs, cwd, path, &t, 0);
     if (ret) {
         return set_syscall_return(current, ret);
     }

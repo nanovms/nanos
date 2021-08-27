@@ -410,7 +410,7 @@ static void check_syscall_restart(thread t, sigaction sa)
 sysreturn rt_sigreturn(void)
 {
     struct rt_sigframe *frame;
-    sigaction sa;
+    struct sigaction sa;
     thread t = current;
 
     assert(t->dispatch_sigstate);
@@ -419,12 +419,14 @@ sysreturn rt_sigreturn(void)
     sig_debug("rt_sigreturn: frame:0x%lx\n", (unsigned long)frame);
 
     /* safer to query via thread variable */
-    sa = sigaction_from_sig(t, t->active_signo);
+    process_lock(t->p);
+    runtime_memcpy(&sa, sigaction_from_sig(t, t->active_signo), sizeof(sa));
+    process_unlock(t->p);
     t->active_signo = 0;
 
     /* restore signal mask and saved context, if applicable */
     sigstate_thread_restore(t);
-    if (sa->sa_flags & SA_SIGINFO) {
+    if (sa.sa_flags & SA_SIGINFO) {
         sig_debug("-> restore ucontext\n");
         restore_ucontext(&(frame->uc), t->default_frame);
     }
@@ -436,7 +438,7 @@ sysreturn rt_sigreturn(void)
     if (!dispatch_signals(t))
         set_thread_frame(t, t->default_frame);
 
-    check_syscall_restart(t, sa);
+    check_syscall_restart(t, &sa);
     context f = thread_frame(t);
     sig_debug("switching to thread frame %p, rip 0x%lx, rax 0x%lx\n",
               f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_RETVAL1]);
@@ -459,12 +461,15 @@ sysreturn rt_sigaction(int signum,
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    sigaction sa = sigaction_from_sig(current, signum);
+    thread t = current;
+    sigaction sa = sigaction_from_sig(t, signum);
 
     if (oldact) {
-        if (validate_user_memory(oldact, sizeof(struct sigaction), true))
+        if (validate_user_memory(oldact, sizeof(struct sigaction), true)) {
+            process_lock(t->p);
             runtime_memcpy(oldact, sa, sizeof(struct sigaction));
-        else
+            process_unlock(t->p);
+        } else
             return -EFAULT;
     }
 
@@ -503,7 +508,9 @@ sysreturn rt_sigaction(int signum,
 
     sig_debug("installing sigaction: handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",
               act->sa_handler, act->sa_mask.sig[0], act->sa_flags);
+    process_lock(t->p);
     runtime_memcpy(sa, act, sizeof(struct sigaction));
+    process_unlock(t->p);
     return 0;
 }
 

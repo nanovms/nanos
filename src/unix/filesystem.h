@@ -1,13 +1,16 @@
 #define resolve_dir(__fs, __dirfd, __path) ({ \
     tuple cwd; \
+    process p = current->p; \
     if (*(__path) == '/') { \
-        __fs = current->p->root_fs; \
+        __fs = p->root_fs;              \
         cwd = filesystem_getroot(__fs); \
     } else if (__dirfd == AT_FDCWD) { \
-        __fs = current->p->cwd_fs; \
-        cwd = current->p->cwd; \
+        process_lock(p);              \
+        __fs = p->cwd_fs;             \
+        cwd = p->cwd;                 \
+        process_unlock(p);            \
     } else { \
-        file f = resolve_fd(current->p, __dirfd); \
+        file f = resolve_fd(p, __dirfd);    \
         __fs = f->fs;               \
         tuple t = file_get_meta(f); \
         fdesc_put(&f->f);           \
