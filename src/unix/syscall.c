@@ -2339,6 +2339,7 @@ void register_file_syscalls(struct syscall *map)
 }
 
 #define SYSCALL_F_NOTRACE 0x1
+#define SYSCALL_F_NOLOCK  0x2
 
 struct syscall {
     void *handler;
@@ -2515,22 +2516,21 @@ closure_function(0, 2, void, print_syscall_stats_cfn,
 
 static boolean syscall_defer;
 
-#if 0
 // some validation can be moved up here
 static void syscall_schedule(context f)
 {
     /* kernel context set on syscall entry */
+    u64 call = f[FRAME_VECTOR];
     current_cpu()->state = cpu_kernel;
-    if (!syscall_defer && !kernel_suspended())
-        kern_lock();
-    else if (!kern_try_lock()) {
+    thread t = pointer_from_u64(f[FRAME_THREAD]);
+    struct syscall *s = t->p->syscalls + call;
+    if (!(s->flags & SYSCALL_F_NOLOCK) && !kern_try_lock()) {
         enqueue_irqsafe(runqueue, &current->deferred_syscall);
         thread_pause(current);
-        runloop();
+        kern_yield();
     }
     syscall_debug(f);
 }
-#endif
 
 static char *missing_files_exclude[] = {
     "ld.so.cache",
@@ -2558,7 +2558,7 @@ void init_syscalls(tuple root)
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
     heap h = heap_general(get_kernel_heaps());
-    syscall = syscall_debug;
+    syscall = syscall_schedule;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
     do_syscall_stats = get(root, sym(syscall_summary)) != 0;

@@ -81,9 +81,6 @@ static boolean blockq_apply(blockq bq, thread t, u64 bq_flags)
         blockq_unlock(bq);
         terminal = false;
     }
-    u64 saved_flags = spin_lock_irq(&bq->lock);
-    list_insert_before(&bq->waiters_head, &t->bq_l);
-    spin_unlock_irq(&bq->lock, saved_flags);
     if (ot)
         thread_resume(ot);
     return terminal;

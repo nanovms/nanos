@@ -51,6 +51,8 @@ boolean kern_try_lock()
 {
     cpuinfo ci = current_cpu();
     assert(ci->state != cpu_interrupt);
+    if (ci->have_kernel_lock)
+        return true;
     if (!spin_try(&kernel_lock))
         return false;
     ci->have_kernel_lock = true;
