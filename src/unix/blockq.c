@@ -81,6 +81,9 @@ static boolean blockq_apply(blockq bq, thread t, u64 bq_flags)
         blockq_unlock(bq);
         terminal = false;
     }
+    u64 saved_flags = spin_lock_irq(&bq->lock);
+    list_insert_before(&bq->waiters_head, &t->bq_l);
+    spin_unlock_irq(&bq->lock, saved_flags);
     if (ot)
         thread_resume(ot);
     return terminal;
@@ -320,10 +323,20 @@ define_closure_function(1, 0, void, free_blockq,
     deallocate(bq->h, bq, sizeof(struct blockq));
 }
 
-void blockq_init_thread(blockq_thread bt)
+void blockq_thread_init(thread t)
 {
-    bt->timeout = 0;
-    bt->a = 0;
+    t->bq_timeout = 0;
+    t->bq_action = 0;
+    t->bq_l.prev = t->bq_l.next = 0;
+}
+
+define_closure_function(1, 0, void, free_blockq,
+                        blockq, bq)
+{
+    blockq bq = bound(bq);
+    blockq_debug("for \"%s\"\n", blockq_name(bq));
+    assert(list_empty(&bq->waiters_head));
+    deallocate(bq->h, bq, sizeof(struct blockq));
 }
 
 blockq allocate_blockq(heap h, char * name)
