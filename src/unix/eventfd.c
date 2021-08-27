@@ -166,12 +166,6 @@ int do_eventfd2(unsigned int count, int flags)
         goto err_efd;
     }
 
-    efd->fd = allocate_fd(current->p, efd);
-    if (efd->fd == INVALID_PHYSICAL) {
-        msg_err("failed to allocate fd\n");
-        goto err_fd;
-    }
-
     init_fdesc(h, &efd->f, FDESC_TYPE_EVENTFD);
     efd->f.flags = O_RDWR;
     efd->f.read = closure(h, efd_read, efd);
@@ -196,13 +190,17 @@ int do_eventfd2(unsigned int count, int flags)
 
     efd->counter = count;
     efd->io_event = false;
+    efd->fd = allocate_fd(current->p, efd);
+    if (efd->fd == INVALID_PHYSICAL) {
+        msg_err("failed to allocate fd\n");
+        apply(efd->f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
     return efd->fd;
 
 err_write_bq:
     deallocate_blockq(efd->read_bq);
 err_read_bq:
-    deallocate_fd(current->p, efd->fd);
-err_fd:
     deallocate(h, efd, sizeof(*efd));
 err_efd:
     return set_syscall_error(current, ENOMEM);

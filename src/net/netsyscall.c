@@ -1086,10 +1086,8 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     }
 
     heap h = heap_locked((kernel_heaps)p->uh);
-    fd = socket_init(p, h, af, type, flags, &s->sock);
-    if (fd < 0) {
-        goto err_fd;
-    }
+    if (socket_init(p, h, af, type, flags, &s->sock) < 0)
+        goto err_sock_init;
     s->sock.f.read = closure(h, socket_read, s);
     s->sock.f.write = closure(h, socket_write, s);
     s->sock.f.close = closure(h, socket_close, s);
@@ -1115,12 +1113,17 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     s->sock.shutdown = netsock_shutdown;
     s->ipv6only = 0;
     set_lwip_error(s, ERR_OK);
+    fd = s->sock.fd = allocate_fd(p, s);
+    if (fd == INVALID_PHYSICAL) {
+        apply(s->sock.f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
     *rs = s;
     return fd;
 
 err_queue:
     socket_deinit(&s->sock);
-err_fd:
+err_sock_init:
     unix_cache_free(p->uh, socket, s);
 err_sock:
     return -ENOMEM;

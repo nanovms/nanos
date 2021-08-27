@@ -406,14 +406,18 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     iour->noncancelable_ops = 0;
     iour->shutdown = false;
     iour->shutdown_completion = 0;
-    ret = allocate_fd(current->p, iour);
-    if (ret == INVALID_PHYSICAL) {
-        ret = -EMFILE;
-        goto err3;
-    }
-    iour_debug("fd %d", ret);
     init_fdesc(h, &iour->f, FDESC_TYPE_IORING);
     iour->f.close = init_closure(&iour->close, iour_close, iour);
+    if (iour->f.close == INVALID_ADDRESS) {
+        ret = -ENOMEM;
+        goto err3;
+    }
+    ret = allocate_fd(current->p, iour);
+    if (ret == INVALID_PHYSICAL) {
+        apply(iour->f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
+    iour_debug("fd %d", ret);
     params->features = IORING_FEAT_SINGLE_MMAP | IORING_FEAT_RW_CUR_POS;
     params->sq_off.head = offsetof(io_rings, sq_head);
     params->sq_off.tail = offsetof(io_rings, sq_tail);

@@ -815,6 +815,11 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->peer = 0;
     init_closure(&s->free, unixsock_free, s);
     init_refcount(&s->refcount, 1, (thunk)&s->free);
+    s->sock.fd = allocate_fd(current->p, s);
+    if (s->sock.fd == INVALID_PHYSICAL) {
+        apply(s->sock.f.close, 0, io_completion_ignore);
+        return 0;
+    }
     return s;
 err_socket:
     deallocate_queue(s->data);

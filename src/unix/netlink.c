@@ -763,6 +763,11 @@ sysreturn netlink_open(int type, int family)
     s->sock.recvfrom = nl_recvfrom;
     s->sock.sendmsg = nl_sendmsg;
     s->sock.recvmsg = nl_recvmsg;
+    s->sock.fd = allocate_fd(current->p, s);
+    if (s->sock.fd == INVALID_PHYSICAL) {
+        apply(s->sock.f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
     return s->sock.fd;
   err_queue:
     socket_deinit(&s->sock);

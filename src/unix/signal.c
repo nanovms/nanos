@@ -978,14 +978,6 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     if (sfd == INVALID_ADDRESS)
         goto err_mem;
 
-    u64 fd = allocate_fd(current->p, sfd);
-    if (fd == INVALID_PHYSICAL) {
-        deallocate(h, sfd, sizeof(struct signal_fd));
-        return -EMFILE;
-    }
-    sig_debug("allocate_signalfd: %d\n", fd);
-
-    sfd->fd = fd;
     sfd->h = h;
     init_fdesc(h, &sfd->f, FDESC_TYPE_SIGNALFD);
 
@@ -1002,12 +994,19 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     sfd->f.read = closure(h, signalfd_read, sfd);
     sfd->f.events = closure(h, signalfd_events, sfd);
     sfd->f.close = closure(h, signalfd_close, sfd);
+
+    u64 fd = allocate_fd(current->p, sfd);
+    if (fd == INVALID_PHYSICAL) {
+        apply(sfd->f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
+    sig_debug("allocate_signalfd: %d\n", fd);
+    sfd->fd = fd;
     signalfd_update_siginterest(current);
     return sfd->fd;
   err_mem_notify:
     deallocate_blockq(sfd->bq);
   err_mem_bq:
-    deallocate_fd(current->p, sfd->fd);
     deallocate(h, sfd, sizeof(*sfd));
   err_mem:
     msg_err("%s: failed to allocate\n", __func__);

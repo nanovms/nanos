@@ -228,21 +228,19 @@ sysreturn epoll_create(int flags)
     epoll e = epoll_alloc_internal();
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
-    u64 fd = allocate_fd(current->p, e);
-    if (fd == INVALID_PHYSICAL) {
-	rv = -EMFILE;
-	goto out_dealloc_epoll;
-    }
     init_fdesc(e->h, &e->f, FDESC_TYPE_EPOLL);
     e->f.close = closure(e->h, epoll_close, e);
     if (e->f.close == INVALID_ADDRESS) {
         rv = -ENOMEM;
-        goto out_dealloc_fd;
+        goto out_dealloc_epoll;
+    }
+    u64 fd = allocate_fd(current->p, e);
+    if (fd == INVALID_PHYSICAL) {
+        apply(e->f.close, 0, io_completion_ignore);
+        return -EMFILE;
     }
     epoll_debug("   got fd %d\n", fd);
     return fd;
-  out_dealloc_fd:
-    deallocate_fd(current->p, fd);
   out_dealloc_epoll:
     refcount_release(&e->refcount);
     return rv;

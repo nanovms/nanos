@@ -41,7 +41,6 @@ typedef struct unix_timer {
         } itimer;
 
         struct {
-            int fd;
             blockq bq;
             boolean cancel_on_set;
             boolean canceled;   /* by time set */
@@ -288,15 +287,8 @@ sysreturn timerfd_create(int clockid, int flags)
     if (ut == INVALID_ADDRESS)
         return -ENOMEM;
 
-    u64 fd = allocate_fd(current->p, ut);
-    if (fd == INVALID_PHYSICAL) {
-        deallocate_unix_timer(ut);
-        return -EMFILE;
-    }
-
     timer_debug("unix_timer %p, fd %d\n", ut, fd);
     init_fdesc(unix_timer_heap, &ut->f, FDESC_TYPE_TIMERFD);
-    ut->info.timerfd.fd = fd;
     ut->info.timerfd.bq = allocate_blockq(unix_timer_heap, "timerfd");
     if (ut->info.timerfd.bq == INVALID_ADDRESS)
         goto err_mem_bq;
@@ -306,9 +298,14 @@ sysreturn timerfd_create(int clockid, int flags)
     ut->f.read = closure(unix_timer_heap, timerfd_read, ut);
     ut->f.events = closure(unix_timer_heap, timerfd_events, ut);
     ut->f.close = closure(unix_timer_heap, timerfd_close, ut);
+
+    u64 fd = allocate_fd(current->p, ut);
+    if (fd == INVALID_PHYSICAL) {
+        apply(ut->f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
     return fd;
   err_mem_bq:
-    deallocate_fd(current->p, fd);
     deallocate_unix_timer(ut);
     return -ENOMEM;
 }

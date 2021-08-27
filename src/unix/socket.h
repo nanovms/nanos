@@ -82,11 +82,6 @@ static inline int socket_init(process p, heap h, int domain, int type, u32 flags
         struct sock *s)
 {
     runtime_memset((u8 *) s, 0, sizeof(*s));
-    s->fd = allocate_fd(p, s);
-    if (s->fd == INVALID_PHYSICAL) {
-        msg_err("failed to allocate fd\n");
-        goto err_fd;
-    }
     s->rxbq = allocate_blockq(h, "sock receive");
     if (s->rxbq == INVALID_ADDRESS) {
         msg_err("failed to allocate blockq\n");
@@ -102,13 +97,11 @@ static inline int socket_init(process p, heap h, int domain, int type, u32 flags
     s->domain = domain;
     s->type = type;
     s->h = h;
-    return s->fd;
+    return 0;
 
 err_tx:
     deallocate_blockq(s->rxbq);
 err_rx:
-    deallocate_fd(p, s->fd);
-err_fd:
     return -ENOMEM;
 }
 

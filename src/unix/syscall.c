@@ -868,13 +868,6 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         return set_syscall_error(current, ENOMEM);
     }
 
-    int fd = allocate_fd(current->p, f);
-    if (fd == INVALID_PHYSICAL) {
-        thread_log(current, "failed to allocate fd");
-        unix_cache_free(uh, file, f);
-        return set_syscall_error(current, EMFILE);
-    }
-
     init_fdesc(h, &f->f, type);
     f->f.flags = flags;
     f->fs = fs;
@@ -899,7 +892,6 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         if (spec_ret != 0) {
             assert(spec_ret < 0);
             thread_log(current, "spec_open failed (%d)\n", spec_ret);
-            deallocate_fd(current->p, fd);
             unix_cache_free(uh, file, f);
             return set_syscall_return(current, spec_ret);
         }
@@ -910,6 +902,13 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         f->f.sg_write = closure(h, file_sg_write, f, fsf);
         f->f.close = closure(h, file_close, f, fsf);
         f->f.events = closure(h, file_events, f);
+    }
+
+    int fd = allocate_fd(current->p, f);
+    if (fd == INVALID_PHYSICAL) {
+        thread_log(current, "failed to allocate fd");
+        apply(f->f.close, 0, io_completion_ignore);
+        return -EMFILE;
     }
 
     if (do_missing_files) {

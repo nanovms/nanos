@@ -80,11 +80,6 @@ static void pipe_file_release(pipe_file pf)
 {
     release_fdesc(&(pf->f));
 
-    if (pf->fd > 0) {
-        deallocate_fd(pf->pipe->proc, pf->fd);
-        pf->fd = -1;
-    }
-
     if (pf->bq != INVALID_ADDRESS) {
         deallocate_blockq(pf->bq);
         pf->bq = INVALID_ADDRESS;
@@ -98,34 +93,29 @@ static void pipe_release(pipe p)
         if (p->data != INVALID_ADDRESS)
             deallocate_buffer(p->data);
 
-        pipe_file_release(&(p->files[PIPE_READ]));
-        pipe_file_release(&(p->files[PIPE_WRITE]));
-
         unix_cache_free(get_unix_heaps(), pipe, p);
     }
 }
 
 static inline void pipe_dealloc_end(pipe p, pipe_file pf)
 {
-    if (pf->fd != -1) {
-        pf->fd = -1;    /* fd has already been deallocated by the close() syscall */
-        if (&p->files[PIPE_READ] == pf) {
-            pipe_notify_writer(pf, EPOLLHUP);
-            pipe_debug("%s(%p): writer notified\n", __func__, p);
-            deallocate_closure(pf->f.read);
-            deallocate_closure(pf->f.close);
-            deallocate_closure(pf->f.events);
-        }
-        if (&p->files[PIPE_WRITE] == pf) {
-            pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
-            pipe_debug("%s(%p): reader notified\n", __func__, p);
-            deallocate_closure(pf->f.write);
-            deallocate_closure(pf->f.close);
-            deallocate_closure(pf->f.events);
-        }
-
-        pipe_release(p);
+    pf->fd = -1;    /* fd has already been deallocated by the close() syscall */
+    if (&p->files[PIPE_READ] == pf) {
+        pipe_notify_writer(pf, EPOLLHUP);
+        pipe_debug("%s(%p): writer notified\n", __func__, p);
+        deallocate_closure(pf->f.read);
+        deallocate_closure(pf->f.close);
+        deallocate_closure(pf->f.events);
     }
+    if (&p->files[PIPE_WRITE] == pf) {
+        pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
+        pipe_debug("%s(%p): reader notified\n", __func__, p);
+        deallocate_closure(pf->f.write);
+        deallocate_closure(pf->f.close);
+        deallocate_closure(pf->f.events);
+    }
+    pipe_file_release(pf);
+    pipe_release(p);
 }
 
 closure_function(1, 2, sysreturn, pipe_close,
@@ -312,12 +302,7 @@ int do_pipe2(int fds[2], int flags)
     {
         pipe_file reader = &pipe->files[PIPE_READ];
         init_fdesc(pipe->h, &reader->f, FDESC_TYPE_PIPE);
-
-        reader->fd = fds[PIPE_READ] = allocate_fd(pipe->proc, reader);
-        if (reader->fd == INVALID_PHYSICAL) {
-            msg_err("failed to allocate fd\n");
-            goto err;
-        }
+        pipe->ref_cnt = 1;
 
         reader->f.read = closure(pipe->h, pipe_read, reader);
         reader->f.close = closure(pipe->h, pipe_close, reader);
@@ -327,7 +312,14 @@ int do_pipe2(int fds[2], int flags)
         reader->bq = allocate_blockq(pipe->h, "pipe read");
         if (reader->bq == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq\n");
-            goto err;
+            apply(reader->f.close, 0, io_completion_ignore);
+            return -ENOMEM;
+        }
+        reader->fd = fds[PIPE_READ] = allocate_fd(pipe->proc, reader);
+        if (reader->fd == INVALID_PHYSICAL) {
+            msg_err("failed to allocate fd\n");
+            apply(reader->f.close, 0, io_completion_ignore);
+            return -EMFILE;
         }
     }
 
@@ -335,12 +327,7 @@ int do_pipe2(int fds[2], int flags)
     {
         pipe_file writer = &pipe->files[PIPE_WRITE];
         init_fdesc(pipe->h, &writer->f, FDESC_TYPE_PIPE);
-
-        writer->fd = fds[PIPE_WRITE] = allocate_fd(pipe->proc, writer);
-        if (writer->fd == INVALID_PHYSICAL) {
-            msg_err("failed to allocate fd\n");
-            goto err;
-        }
+        fetch_and_add(&pipe->ref_cnt, 1);
 
         writer->f.write = closure(pipe->h, pipe_write, writer);
         writer->f.close = closure(pipe->h, pipe_close, writer);
@@ -350,11 +337,21 @@ int do_pipe2(int fds[2], int flags)
         writer->bq = allocate_blockq(pipe->h, "pipe write");
         if (writer->bq == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq\n");
-            goto err;
+            apply(writer->f.close, 0, io_completion_ignore);
+            deallocate_fd(pipe->proc, fds[PIPE_READ]);
+            fdesc_put(&pipe->files[PIPE_READ].f);
+            return -ENOMEM;
+        }
+        writer->fd = fds[PIPE_WRITE] = allocate_fd(pipe->proc, writer);
+        if (writer->fd == INVALID_PHYSICAL) {
+            msg_err("failed to allocate fd\n");
+            apply(writer->f.close, 0, io_completion_ignore);
+            deallocate_fd(pipe->proc, fds[PIPE_READ]);
+            fdesc_put(&pipe->files[PIPE_READ].f);
+            return -EMFILE;
         }
     }
 
-    pipe->ref_cnt = 2;
     return 0;
 
 err:
