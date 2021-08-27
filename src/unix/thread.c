@@ -282,6 +282,7 @@ define_closure_function(1, 0, void, free_thread,
                         thread, t)
 {
     deallocate_bitmap(bound(t)->affinity);
+    deallocate_notify_set(bound(t)->signalfds);
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
