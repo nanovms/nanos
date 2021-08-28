@@ -508,7 +508,7 @@ closure_function(1, 6, sysreturn, nl_read,
     nl_debug("read len %ld", length);
     nlsock s = bound(s);
     blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, dest, length, 0, 0,
-        syscall_io_complete);
+        completion);
     if (ba == INVALID_ADDRESS)
         return -ENOMEM;
     return blockq_check(s->sock.rxbq, current, ba, false);
