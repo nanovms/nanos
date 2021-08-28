@@ -3,7 +3,11 @@
 struct futex {
     heap h;
     blockq bq;
+    struct spinlock lock;
 };
+
+#define futex_lock(f)   spin_lock(&(f)->lock)
+#define futex_unlock(f) spin_unlock(&(f)->lock)
 
 static u64 futex_key_function(void *x)
 {
@@ -17,7 +21,7 @@ static boolean futex_key_equal(void *a, void *b)
 
 static struct futex * soft_create_futex(process p, u64 key)
 {
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     struct futex * f;
 
     process_lock(p);
@@ -41,6 +45,7 @@ static struct futex * soft_create_futex(process p, u64 key)
         goto out;
     }
 
+    spin_lock_init(&f->lock);
     table_set(p->futices, pointer_from_u64(key), f);
   out:
     process_unlock(p);
@@ -73,11 +78,15 @@ boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val)
 {
     struct futex * f;
 
+    process_lock(p);
     f = table_find(p->futices, (void *)uaddr);
+    process_unlock(p);
     if (!f)
         return false;
 
+    futex_lock(f);
     futex_wake_many(f, val);
+    futex_unlock(f);
     return true;
 }
 
@@ -103,6 +112,7 @@ closure_function(3, 1, sysreturn, futex_bh,
     else if (flags & BLOCKQ_ACTION_TIMEDOUT)
         rv = -ETIMEDOUT;
     else if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
+        futex_unlock(bound(f));
         thread_log(t, "%s: struct futex: %p, blocking", __func__, bound(f));
         return BLOCKQ_BLOCK_REQUIRED;
     } else
@@ -153,22 +163,26 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             thread_log(current, "futex_wait [%ld %p %d] %d 0x%ld",
                 current->tid, uaddr, *uaddr, val, val2);
 
+        sysreturn rv;
+        futex_lock(f);
         if (*uaddr != val)
-            return set_syscall_error(current, EAGAIN);
-
-        // if we resume we are woken up
-        set_syscall_return(current, 0);
-
-        return blockq_check_timeout(f->bq, current, 
-                                    closure(f->h, futex_bh, f, current, ts),
-                                    false, clkid, ts, false);
+            rv = -EAGAIN;
+        else
+            rv = blockq_check_timeout(f->bq, current,
+                                      closure(f->h, futex_bh, f, current, ts),
+                                      false, clkid, ts, false);
+        futex_unlock(f);
+        return rv;
     }
 
     case FUTEX_WAKE: {
         if (futex_verbose)
             thread_log(current, "futex_wake [%ld %p %d] %d",
                 current->tid, uaddr, *uaddr, val);
-        return set_syscall_return(current, futex_wake_many(f, val));
+        futex_lock(f);
+        int nr_woken = futex_wake_many(f, val);
+        futex_unlock(f);
+        return nr_woken;
     }
 
     case FUTEX_CMP_REQUEUE: {
@@ -181,22 +195,30 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             thread_log(current, "futex_cmp_requeue [%ld %p %d] val: %d val2: %d uaddr2: %p %d val3: %d",
                        current->tid, uaddr, *uaddr, val, val2, uaddr2, *uaddr2, val3);
 
-        if (*uaddr != val3)
-            return set_syscall_error(current, EAGAIN);
+        sysreturn rv;
+        futex_lock(f);
+        if (*uaddr != val3) {
+            rv = -EAGAIN;
+            goto cmp_requeue_done;
+        }
 
         woken = futex_wake_many(f, val);
 
         requeued = 0;
         if (val2 > 0) {
             struct futex * new = soft_create_futex(current->p, u64_from_pointer(uaddr2));
-            if (new == INVALID_ADDRESS)
-                return set_syscall_error(current, ENOMEM);
+            if (new == INVALID_ADDRESS) {
+                rv = -ENOMEM;
+                goto cmp_requeue_done;
+            }
             requeued = blockq_transfer_waiters(new->bq, f->bq, val2);
             if (futex_verbose)
                 thread_log(current, " awoken: %d, re-queued %d", woken, requeued);
         }
-
-        return set_syscall_return(current, woken + requeued);
+        rv = woken + requeued;
+      cmp_requeue_done:
+        futex_unlock(f);
+        return rv;
     }
 
     case FUTEX_WAKE_OP: {
@@ -214,6 +236,10 @@ sysreturn futex(int *uaddr, int futex_op, int val,
                 current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
         }
 
+        struct futex *f2 = soft_create_futex(current->p, u64_from_pointer(uaddr2));
+        if (f2 == INVALID_ADDRESS)
+            return -ENOMEM;
+        spin_lock_2(&f->lock, &f2->lock);
         oldval = *(int *) uaddr2;
         
         switch (op) {
@@ -238,14 +264,11 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         
         wake2 = 0;
         if (c) {
-            struct futex * f2 = 
-                soft_create_futex(current->p, u64_from_pointer(uaddr2));
-            if (f2 == INVALID_ADDRESS)
-                return set_syscall_error(current, ENOMEM);
-
             wake2 = futex_wake_many(f2, val2);
         }
 
+        futex_unlock(f2);
+        futex_unlock(f);
         return set_syscall_return(current, wake1 + wake2);
     }
 
@@ -254,13 +277,16 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             thread_log(current, "futex_wait_bitset [%ld %p %d] %d 0x%ld %d",
                 current->tid, uaddr, *uaddr, val, val2, val3);
 
+        sysreturn rv;
+        futex_lock(f);
         if (*uaddr != val)
-            return set_syscall_error(current, EAGAIN);
-
-        set_syscall_return(current, 0);
-        return blockq_check_timeout(f->bq, current, 
-                                    closure(f->h, futex_bh, f, current, ts),
-                                    false, clkid, ts, true);
+            rv = -EAGAIN;
+        else
+            rv = blockq_check_timeout(f->bq, current,
+                                      closure(f->h, futex_bh, f, current, ts),
+                                      false, clkid, ts, true);
+        futex_unlock(f);
+        return rv;
     }
 
     case FUTEX_REQUEUE: rprintf("futex_requeue not implemented\n"); break;
@@ -286,7 +312,7 @@ closure_function(0, 1, boolean, futex_trace_notify,
 void
 init_futices(process p)
 {
-    heap h = heap_general(&p->uh->kh);
+    heap h = heap_locked(&p->uh->kh);
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     if (p->futices == INVALID_ADDRESS)
         halt("failed to allocate futex table\n");

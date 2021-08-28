@@ -192,6 +192,19 @@ _IRQSAFE_1(boolean, queue_full, queue);
 _IRQSAFE_1(void *, queue_peek, queue);
 #undef _IRQSAFE_1
 #undef _IRQSAFE_2
+
+/* Acquires 2 locks, guarding against potential deadlock resulting from a concurrent thread trying
+ * to acquire the same locks. */
+static inline void spin_lock_2(spinlock l1, spinlock l2)
+{
+    spin_lock(l1);
+    while (!spin_try(l2)) {
+        spin_unlock(l1);
+        kern_pause();
+        spin_lock(l1);
+    }
+}
+
 #endif
 
 typedef struct queue *queue;
