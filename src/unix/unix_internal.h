@@ -319,6 +319,8 @@ typedef struct thread {
     closure_struct(blockq_thread_timeout, bq_timeout_func);
     blockq_action bq_action;  /* action to check for wake, timeout or abort */
     struct list bq_l;         /* embedding on blockq->waiters_head */
+    io_completion bq_completion;
+    sysreturn bq_completion_rv;
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
