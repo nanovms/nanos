@@ -1,8 +1,28 @@
+#ifdef KERNEL
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
 
 static table symbols;
 static heap sheap;
 static heap iheap;
+
+#ifdef KERNEL
+
+static struct spinlock slock;
+
+#define sym_lock_init() spin_lock_init(&slock)
+#define sym_lock()      spin_lock(&slock)
+#define sym_unlock()    spin_unlock(&slock)
+
+#else
+
+#define sym_lock_init()
+#define sym_lock()
+#define sym_unlock()
+
+#endif
 
 struct symbol {
     string s;
@@ -20,6 +40,7 @@ KLIB_EXPORT(intern_u64);
 symbol intern(string name)
 {
     symbol s;
+    sym_lock();
     if (!(s = table_find(symbols, name))) {
         // shouldnt really be on transient
         buffer b = allocate_buffer(iheap, buffer_length(name));
@@ -33,6 +54,7 @@ symbol intern(string name)
         s->s = b;
         table_set(symbols, b, s);
     }
+    sym_unlock();
     return s;
   alloc_fail:
     halt("intern: alloc fail\n");
@@ -55,5 +77,6 @@ void init_symbols(heap h, heap init)
     sheap = h;
     iheap = init;    
     symbols = allocate_table(iheap, fnv64, buffer_compare);
+    sym_lock_init();
 }
 

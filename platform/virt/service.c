@@ -227,7 +227,7 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
-    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
+    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_locked(kh));
     init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
     init_debug("calling runtime init\n");
     kernel_runtime_init(kh);

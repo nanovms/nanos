@@ -248,7 +248,7 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_debug("in init_service_new_stack");
     init_page_tables((heap)heap_linear_backed(kh));
     init_tuples(allocate_tagged_region(kh, tag_table_tuple));
-    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_general(kh));
+    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_locked(kh));
 
     for_regions(e) {
         if (e->type == REGION_SMBIOS) {
