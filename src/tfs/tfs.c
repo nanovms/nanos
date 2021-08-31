@@ -1001,6 +1001,17 @@ static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
     return s;
 }
 
+closure_function(1, 2, boolean, file_unlink_each,
+                 tuple, t,
+                 value, k, value, v)
+{
+    if (is_tuple(v) && get(v, sym(no_encode))) {
+        destruct_tuple(v, true);
+        set(bound(t), k, 0);
+    }
+    return true;
+}
+
 static void file_unlink(filesystem fs, tuple t)
 {
     fsfile f = fsfile_from_node(fs, t);
@@ -1009,6 +1020,13 @@ static void file_unlink(filesystem fs, tuple t)
         f->md = 0;
         refcount_release(&f->refcount);
     }
+
+    /* If a tuple is not present in the filesystem log dictionary, it can (and should) be destroyed
+     * now (it won't be destroyed when the filesystem log is rebuilt). */
+    if (get(t, sym(no_encode)))
+        destruct_tuple(t, true);
+    else
+        iterate(t, stack_closure(file_unlink_each, t));
 }
 
 fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
