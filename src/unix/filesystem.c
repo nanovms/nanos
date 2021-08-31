@@ -13,8 +13,12 @@ sysreturn sysreturn_from_fs_status(fs_status s)
         return -ENOENT;
     case FS_STATUS_EXIST:
         return -EEXIST;
+    case FS_STATUS_INVAL:
+        return -EINVAL;
     case FS_STATUS_NOTDIR:
         return -ENOTDIR;
+    case FS_STATUS_NOMEM:
+        return -ENOMEM;
     case FS_STATUS_LINKLOOP:
         return -ELOOP;
     default:
@@ -86,21 +90,6 @@ int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entr
     if (!f)
         return -EFAULT;
     return sysreturn_from_fs_status(filesystem_resolve_cstring_follow(fs, cwd, f, entry, parent));
-}
-
-int filesystem_add_tuple(const char *path, tuple t)
-{
-    filesystem fs = current->p->cwd_fs;
-    tuple parent;
-    int ret = resolve_cstring(&fs, current->p->cwd, path, 0, &parent);
-    if (ret == 0) {
-        return -EEXIST;
-    }
-    if ((ret != -ENOENT) || !parent) {
-        return ret;
-    }
-    return sysreturn_from_fs_status(do_mkentry(fs, parent,
-        filename_from_path(path), t, true));
 }
 
 void file_readahead(file f, u64 offset, u64 len)

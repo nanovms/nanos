@@ -1618,6 +1618,66 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
     }
 }
 
+fs_status filesystem_mk_socket(filesystem *fs, tuple cwd, const char *path, void *s, tuple *t)
+{
+    tuple sock, parent;
+    fs_status fss = filesystem_resolve_cstring(fs, cwd, path, &sock, &parent);
+    if (fss == FS_STATUS_OK)
+        return FS_STATUS_EXIST;
+    if ((fss != FS_STATUS_NOENT) || !parent)
+        return fss;
+    sock = allocate_tuple();
+    if (sock == INVALID_ADDRESS)
+        return FS_STATUS_NOMEM;
+    tuple sock_handle = allocate_tuple();
+    if (sock_handle == INVALID_ADDRESS) {
+        fss = FS_STATUS_NOMEM;
+        goto err;
+    }
+    set(sock, sym(handle), sock_handle);
+    buffer b = allocate_buffer((*fs)->h, sizeof(u64));
+    if (b == INVALID_ADDRESS) {
+        fss = FS_STATUS_NOMEM;
+        goto err;
+    }
+    buffer_write_le64(b, u64_from_pointer(s));
+    set(sock_handle, sym(value), b);
+    set(sock_handle, sym(no_encode), null_value);
+    set(sock, sym(socket), null_value);
+    fss = do_mkentry(*fs, parent, filename_from_path(path), sock, true);
+    if (fss == FS_STATUS_OK) {
+        *t = sock;
+        return fss;
+    }
+  err:
+    destruct_tuple(sock, true);
+    return fss;
+}
+
+fs_status filesystem_get_socket(filesystem fs, tuple cwd, const char *path, void **s)
+{
+    tuple t, sock_handle;
+    fs_status fss = filesystem_resolve_cstring(0, cwd, path, &t, 0);
+    if (fss != FS_STATUS_OK)
+        return fss;
+    if (!get(t, sym(socket)) || !(sock_handle = get(t, sym(handle))))
+        return FS_STATUS_INVAL;
+    buffer b = get(sock_handle, sym(value));    // XXX untyped binary
+    if (!b || (buffer_length(b) != sizeof(*s))) {
+        return FS_STATUS_INVAL;
+    }
+    *s = pointer_from_u64(*((u64 *)buffer_ref(b, 0)));
+    return FS_STATUS_OK;
+}
+
+fs_status filesystem_clear_socket(filesystem fs, tuple t)
+{
+    tuple sock_handle = get_tuple(t, sym(handle));
+    buffer b = get(sock_handle, sym(value));    // XXX untyped binary
+    buffer_clear(b);
+    return FS_STATUS_OK;
+}
+
 boolean dirname_from_path(buffer dest, const char *path)
 {
     int pathlen = runtime_strlen(path);

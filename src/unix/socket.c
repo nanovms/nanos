@@ -27,6 +27,7 @@ typedef struct sharedbuf {
 typedef struct unixsock {
     struct sock sock; /* must be first */
     queue data;
+    filesystem fs;
     tuple fs_entry;
     struct sockaddr_un local_addr;
     queue conn_q;
@@ -260,19 +261,11 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
 
 static int lookup_socket(unixsock *s, char *path)
 {
-    tuple t;
-    buffer b;
-
-    if (filesystem_get_tuple(path, &t) < 0) {
-        return -ENOENT;
-    }
-    b = get(t, sym(socket)); // XXX untyped binary
-    if (!b || (buffer_length(b) != sizeof(u64))) {
+    process p = current->p;
+    fs_status fss = filesystem_get_socket(p->cwd_fs, p->cwd, path, (void **)s);
+    if (fss == FS_STATUS_INVAL)
         return -ECONNREFUSED;
-    }
-    *s = pointer_from_u64(*((u64 *) buffer_ref(b, 0)));
-    assert(*s);
-    return 0;
+    return sysreturn_from_fs_status(fss);
 }
 
 closure_function(8, 1, sysreturn, unixsock_write_bh,
@@ -436,9 +429,7 @@ closure_function(1, 2, sysreturn, unixsock_close,
         deallocate_queue(s->conn_q);
     }
     if (s->fs_entry) {
-        // XXX type
-        buffer b = get(s->fs_entry, sym(socket));
-        buffer_clear(b);
+        filesystem_clear_socket(s->fs, s->fs_entry);
     }
     unixsock_dealloc(s);
     return io_complete(completion, t, 0);
@@ -476,30 +467,13 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         unixaddr->sun_path[term] = '\0';
     }
 
-    s->fs_entry = allocate_tuple();
-
-    /* The "socket" symbol value associated to the filesystem tuple is a buffer
-     * containing a pointer to the socket. Since we don't want this pointer to
-     * be persisted in the filesystem, the buffer must be empty when
-     * filesystem_add_tuple() is called, and must be filled afterwards. */
-    buffer b = allocate_buffer(sock->h, sizeof(u64));
-    set(s->fs_entry, sym(socket), b);
-    sysreturn ret = filesystem_add_tuple(unixaddr->sun_path, s->fs_entry);
-    if (ret) {
-        deallocate_buffer(b);
-        deallocate_value(s->fs_entry);
-        s->fs_entry = 0;
-        if (ret == -EEXIST) {
-            return -EADDRINUSE;
-        }
-        else {
-            return ret;
-        }
-    }
-    assert(buffer_write_le64(b, u64_from_pointer(s)));
-
+    process p = current->p;
+    s->fs = p->cwd_fs;
+    fs_status fss = filesystem_mk_socket(&s->fs, p->cwd, unixaddr->sun_path, s, &s->fs_entry);
+    if (fss != FS_STATUS_OK)
+        return (fss == FS_STATUS_EXIST) ? -EADDRINUSE : sysreturn_from_fs_status(fss);
     runtime_memcpy(&s->local_addr, addr, addrlen);
-    return ret;
+    return 0;
 }
 
 static sysreturn unixsock_listen(struct sock *sock, int backlog)
