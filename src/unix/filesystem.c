@@ -41,34 +41,6 @@ sysreturn sysreturn_from_fs_status_value(status s)
     return rv;
 }
 
-static tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
-{
-    tuple m = get_tuple(t, sym(mount));
-
-    if (m) {
-        t = get_tuple(m, sym(root));
-        if (fs)
-            *fs = storage_get_fs(t);
-    } else if ((t == *p) && (a == sym_this("..")) && (t != filesystem_getroot(get_root_fs()))) {
-        /* t is the root of its filesystem: look for a mount point for this
-         * filesystem, and if found look up the parent of the mount directory.
-         */
-        tuple mp = storage_get_mountpoint(t);
-        if (mp) {
-            *p = mp;
-            t = lookup(mp, a);
-            if (fs)
-                *fs = current->p->root_fs;
-        }
-    }
-    return t;
-}
-
-void init_fs_path_helper()
-{
-    fs_set_path_helper(get_root_fs, lookup_follow_mounts);
-}
-
 /* If the file path being resolved crosses a filesystem boundary (i.e. a mount
  * point), the 'fs' argument (if non-null) is updated to point to the new
  * filesystem. */

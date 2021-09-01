@@ -114,6 +114,8 @@ fs_status filesystem_mk_socket(filesystem *fs, tuple cwd, const char *path, void
 fs_status filesystem_get_socket(filesystem fs, tuple cwd, const char *path, void **s);
 fs_status filesystem_clear_socket(filesystem fs, tuple t);
 
+fs_status filesystem_mount(filesystem parent, tuple mount_dir, filesystem child);
+
 tuple filesystem_getroot(filesystem fs);
 
 u64 fs_blocksize(filesystem fs);
@@ -167,7 +169,7 @@ symbol lookup_sym(tuple parent, tuple t);
 /* Expects an empty buffer, and never resizes the buffer. */
 boolean dirname_from_path(buffer dest, const char *path);
 
-void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*lookup_follow)(filesystem *, tuple, symbol, tuple *));
+void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*get_mountpoint)(tuple, filesystem *));
 
 int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
                     tuple *parent);

@@ -23,8 +23,6 @@
 sysreturn sysreturn_from_fs_status(fs_status s);
 sysreturn sysreturn_from_fs_status_value(status s);
 
-void init_fs_path_helper();
-
 int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
                     tuple *parent);
 

@@ -94,15 +94,14 @@ closure_function(2, 2, void, volume_link,
     volume v = bound(v);
     if (is_ok(s)) {
         tuple mount_dir = bound(mount_dir);
-        tuple volume_root = filesystem_getroot(fs);
-        tuple mount = allocate_tuple();
-        set(mount, sym(root), volume_root);
-        set(mount, sym(no_encode), null_value); /* non-persistent entry */
-        set(mount_dir, sym(mount), mount);
-        v->fs = fs;
-        v->mount_dir = mount_dir;
-        storage_debug("volume mounted, mount directory %p, root %p", mount_dir,
-                      volume_root);
+        fs_status fss = filesystem_mount(storage.root_fs, mount_dir, fs);
+        if (fss != FS_STATUS_OK) {
+            msg_err("cannot mount filesystem: %s\n", string_from_fs_status(fss));
+        } else {
+            v->fs = fs;
+            v->mount_dir = mount_dir;
+            storage_debug("volume mounted, mount directory %p, filesystem %p", mount_dir, fs);
+        }
     } else {
         msg_err("cannot mount filesystem: %v\n", s);
     }
@@ -147,6 +146,7 @@ void init_volumes(heap h)
 void storage_set_root_fs(filesystem root_fs)
 {
     storage.root_fs = root_fs;
+    fs_set_path_helper(get_root_fs, storage_get_mountpoint);
 }
 
 closure_function(0, 2, boolean, storage_set_mountpoints_each,
@@ -245,15 +245,17 @@ filesystem storage_get_fs(tuple root)
     return fs;
 }
 
-tuple storage_get_mountpoint(tuple root)
+tuple storage_get_mountpoint(tuple root, filesystem *fs)
 {
     tuple mount_dir;
     storage_lock();
     volume v = storage_get_volume(root);
-    if (v)
+    if (v) {
         mount_dir = v->mount_dir;
-    else
+        *fs = storage.root_fs;
+    } else {
         mount_dir = 0;
+    }
     storage_unlock();
     return mount_dir;
 }

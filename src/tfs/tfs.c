@@ -1584,14 +1584,14 @@ u64 fs_freeblocks(filesystem fs)
 
 static struct {
     filesystem (*get_root_fs)();    /* return filesystem at "/" */
-    tuple (*lookup_follow)(filesystem *, tuple, symbol, tuple *); /* find symbol across mounts */
+    tuple (*get_mountpoint)(tuple, filesystem *);   /* find mount point and parent filesystem */
 } fs_path_helper;
 
-void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*lookup_follow)(filesystem *, tuple, symbol, tuple *))
+void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*get_mountpoint)(tuple, filesystem *))
 {
     assert(get_root_fs);
     fs_path_helper.get_root_fs = get_root_fs;
-    fs_path_helper.lookup_follow = lookup_follow;
+    fs_path_helper.get_mountpoint = get_mountpoint;
 }
 
 closure_function(2, 2, boolean, lookup_sym_each,
@@ -1621,8 +1621,31 @@ static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
     t = lookup(t, a);
     if (!t)
         return t;
-    if (fs_path_helper.lookup_follow)
-        t = fs_path_helper.lookup_follow(fs, t, a, p);
+    if (fs_path_helper.get_mountpoint) {
+        tuple m = get_tuple(t, sym(mount));
+        if (m) {
+            buffer b = get(m, sym(fs));
+            if (b && (buffer_length(b) == sizeof(u64))) {
+                filesystem child_fs = pointer_from_u64(*((u64 *)buffer_ref(b, 0)));
+                t = child_fs->root;
+                if (fs)
+                    *fs = child_fs;
+            }
+        } else if ((t == *p) && (a == sym_this("..")) &&
+                   (t != filesystem_getroot(fs_path_helper.get_root_fs()))) {
+            /* t is the root of its filesystem: look for a mount point for this
+             * filesystem, and if found look up the parent of the mount directory.
+             */
+            filesystem parent_fs;
+            tuple mp = fs_path_helper.get_mountpoint(t, &parent_fs);
+            if (mp) {
+                *p = mp;
+                t = lookup(mp, a);
+                if (fs)
+                    *fs = parent_fs;
+            }
+        }
+    }
     return t;
 }
 
@@ -1800,6 +1823,23 @@ fs_status filesystem_clear_socket(filesystem fs, tuple t)
     tuple sock_handle = get_tuple(t, sym(handle));
     buffer b = get(sock_handle, sym(value));    // XXX untyped binary
     buffer_clear(b);
+    return FS_STATUS_OK;
+}
+
+fs_status filesystem_mount(filesystem parent, tuple mount_dir, filesystem child)
+{
+    tuple mount = allocate_tuple();
+    if (mount == INVALID_ADDRESS)
+        return FS_STATUS_NOMEM;
+    buffer b = allocate_buffer(parent->h, sizeof(u64));
+    if (b == INVALID_ADDRESS) {
+        deallocate_value(mount);
+        return FS_STATUS_NOMEM;
+    }
+    buffer_write_le64(b, u64_from_pointer(child));
+    set(mount, sym(fs), b);
+    set(mount, sym(no_encode), null_value); /* non-persistent entry */
+    set(mount_dir, sym(mount), mount);
     return FS_STATUS_OK;
 }
 
