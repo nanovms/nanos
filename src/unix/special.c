@@ -281,14 +281,8 @@ void register_special_files(process p)
 {
     heap h = heap_general((kernel_heaps)p->uh);
 
-    tuple proc_self;
-    int ret = resolve_cstring(0, p->cwd, "/proc/self/exe", 0, &proc_self);
-    if (ret == -ENOENT) {
-        if (!proc_self) {
-            filesystem_mkdirpath(p->root_fs, 0, "/proc/self", true);
-            assert(resolve_cstring(0, p->cwd, "/proc/self", &proc_self, 0) == 0);
-        }
-        assert(proc_self);
+    fs_status fss = filesystem_mkdirpath(p->root_fs, 0, "/proc/self", true);
+    if (fss == FS_STATUS_OK) {
         value program = get(p->process_root, sym(program));
         assert(program);
         buffer b = allocate_buffer(h, buffer_length(program) + 2);
@@ -298,7 +292,7 @@ void register_special_files(process p)
             assert(buffer_write_byte(b, '/'));
         assert(push_buffer(b, program));
         assert(buffer_write_byte(b, '\0')); /* append string terminator character */
-        filesystem_symlink(p->root_fs, proc_self, "exe", buffer_ref(b, 0));
+        filesystem_symlink(p->root_fs, 0, "/proc/self/exe", buffer_ref(b, 0));
         deallocate_buffer(b);
     }
 

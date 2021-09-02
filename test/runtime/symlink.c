@@ -28,6 +28,7 @@ int main(int argc, char **argv)
     test_assert(errno == ENOENT);
 
     test_assert(symlink("target", "link") == 0);
+    test_assert((symlink("target", "link") == -1) && (errno == EEXIST));
     memset(buf, 0, sizeof(buf));
     test_assert((readlink("link", buf, 1) == 1) && (buf[0] == 't'));
     test_assert((readlinkat(AT_FDCWD, "link", buf, 1) == 1) && (buf[0] == 't'));

@@ -48,6 +48,11 @@ void check(const char *path, int expect)
             printf("found file.\n");
             if (expect != 0)
                 exit(EXIT_FAILURE);
+            rc = open(path, O_CREAT | O_EXCL, 0660);
+            if ((rc != -1) || (errno != EEXIST)) {
+                printf("unexpected result from open(): rc %d, errno %d\n", rc, errno);
+                goto fail;
+            }
         }
     }
     return;

@@ -961,6 +961,7 @@ fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
         if (s != FS_STATUS_OK)
             return s;
         set(f->md, l, v);
+        filesystem_update_mtime(fs, f->md);
     }
     fsfile_set_length(f, len);
     return FS_STATUS_OK;
@@ -1254,7 +1255,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
         }
 
         if (final) {
-            msg_err("final path component (\"%s\") already exists\n", token);
+            msg_debug("final path component (\"%s\") already exists\n", token);
             status = FS_STATUS_EXIST;
             break;
         }
@@ -1282,37 +1283,97 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
     return filesystem_mkentry(fs, cwd, fp, dir, persistent, true);
 }
 
-tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name)
+fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *path)
 {
+    tuple parent;
+    fs_status fss = filesystem_resolve_cstring(&fs, cwd, path, 0, &parent);
+    if ((fss != FS_STATUS_NOENT) || !parent) {
+        return fss;
+    }
+    buffer name = little_stack_buffer(NAME_MAX + 1);
+    if (!dirname_from_path(name, path))
+        return FS_STATUS_NAMETOOLONG;
     tuple dir = fs_new_entry(fs);
     set(dir, sym(children), allocate_tuple());
-    if (fs_set_dir_entry(fs, parent, sym_this(name), dir) == FS_STATUS_OK) {
-        return dir;
+    fss = fs_set_dir_entry(fs, parent, intern(name), dir);
+    if (fss == FS_STATUS_OK) {
+        filesystem_update_mtime(fs, parent);
     } else {
         cleanup_directory(dir);
         destruct_tuple(dir, true);
-        return 0;
     }
+    return fss;
 }
 
 fsfile allocate_fsfile(filesystem fs, tuple md);
 
-tuple filesystem_creat(filesystem fs, tuple parent, const char *name)
+static void deallocate_fsfile(filesystem fs, fsfile f, rmnode_handler extent_destructor)
 {
-    tuple dir = fs_new_entry(fs);
+    deallocate_rangemap(f->extentmap, extent_destructor);
+    pagecache_deallocate_node(f->cache_node);
+    deallocate(fs->h, f, sizeof(*f));
+}
 
-    /* 'make it a file' by adding an empty extents list */
-    set(dir, sym(extents), allocate_tuple());
+closure_function(1, 1, void, free_extent,
+                 filesystem, fs,
+                 rmnode, n)
+{
+    destroy_extent(bound(fs), (extent)n);
+}
 
-    if (fs_set_dir_entry(fs, parent, sym_this(name), dir) == FS_STATUS_OK) {
-        fsfile f = allocate_fsfile(fs, dir);
-        fsfile_set_length(f, 0);
+fs_status filesystem_get_node(filesystem *fs, tuple cwd, const char *path, boolean nofollow,
+                              boolean create, boolean exclusive, tuple *n, fsfile *f)
+{
+    tuple parent, t;
+    fsfile fsf = 0;
+    fs_status fss;
+    if (nofollow)
+        fss = filesystem_resolve_cstring(fs, cwd, path, &t, &parent);
+    else
+        fss = filesystem_resolve_cstring_follow(fs, cwd, path, &t, &parent);
+    if (fss != FS_STATUS_OK) {
+        if (create) {
+            if (!parent)
+                return FS_STATUS_NOENT;
+            t = fs_new_entry(*fs);
+
+            /* 'make it a file' by adding an empty extents list */
+            set(t, sym(extents), allocate_tuple());
+
+            fsf = allocate_fsfile(*fs, t);
+            if (fsf != INVALID_ADDRESS) {
+                fsfile_set_length(fsf, 0);
+                fss = fs_set_dir_entry(*fs, parent, sym_this(filename_from_path(path)), t);
+                if (fss != FS_STATUS_OK) {
+                    table_set((*fs)->files, t, 0);
+                    deallocate_fsfile(*fs, fsf, stack_closure(free_extent, *fs));
+                }
+            } else {
+                fss = FS_STATUS_NOMEM;
+            }
+            if (fss == FS_STATUS_OK)
+                filesystem_update_mtime(*fs, parent);
+            else
+                destruct_tuple(t, true);
+
+        }
     } else {
-        destruct_tuple(dir, true);
-        return 0;
+        if (exclusive)
+            return FS_STATUS_EXIST;
+        fsf = fsfile_from_node(*fs, t);
+    }
+    if (fss == FS_STATUS_OK) {
+        filesystem_update_atime(*fs, t);
+        *n = t;
+        if (f)
+            *f = fsf;
     }
 
-    return dir;
+    return fss;
+}
+
+void filesystem_put_node(filesystem fs, tuple n)
+{
 }
 
 fsfile filesystem_creat_unnamed(filesystem fs)
@@ -1323,54 +1384,136 @@ fsfile filesystem_creat_unnamed(filesystem fs)
     return f;
 }
 
-tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
-                         const char *target)
+fs_status filesystem_symlink(filesystem fs, tuple cwd, const char *path, const char *target)
 {
+    tuple parent;
+    fs_status fss = filesystem_resolve_cstring(&fs, cwd, path, 0, &parent);
+    if (fss == FS_STATUS_OK)
+        return FS_STATUS_EXIST;
+    if ((fss != FS_STATUS_NOENT) || !parent)
+        return fss;
     tuple link = fs_new_entry(fs);
     set(link, sym(linktarget), buffer_cstring(fs->h, target));
-    if (fs_set_dir_entry(fs, parent, sym_this(name), link) == FS_STATUS_OK) {
-        return link;
-    } else {
+    fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), link);
+    if (fss != FS_STATUS_OK)
         destruct_tuple(link, true);
-        return 0;
+    return fss;
+}
+
+closure_function(1, 2, boolean, check_notempty_each,
+                 boolean *, notempty,
+                 value, k, value, v)
+{
+    assert(is_symbol(k));
+    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
+    char *p = cstring(symbol_string(k), tmpbuf);
+
+    if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
+        tfs_debug(current, "%s: found entry '%s'\n", __func__, p);
+        *bound(notempty) = true;
+        return false;
     }
+    return true;
 }
 
-fs_status filesystem_delete(filesystem fs, tuple parent, symbol sym)
+fs_status filesystem_delete(filesystem fs, tuple cwd, const char *path, boolean directory)
 {
-    tuple t = lookup(parent, sym);
-    assert(t);
+    tuple parent, t;
+    fs_status fss = filesystem_resolve_cstring(&fs, cwd, path, &t, &parent);
+    if (fss != FS_STATUS_OK)
+        return fss;
+    tuple c = children(t);
+    if (directory) {
+        if (!c)
+            return FS_STATUS_NOTDIR;
+        boolean notempty = false;
+        iterate(c, stack_closure(check_notempty_each, &notempty));
+        if (notempty)
+            return FS_STATUS_NOTEMPTY;
+    } else {
+        if (c)
+            return FS_STATUS_ISDIR;
+    }
     file_unlink(fs, t);
-    return fs_set_dir_entry(fs, parent, sym, 0);
+    fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), 0);
+    if (fss == FS_STATUS_OK)
+        filesystem_update_mtime(fs, parent);
+    return fss;
 }
 
-fs_status filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,
-                       tuple newparent, const char *newname)
+fs_status filesystem_rename(filesystem oldfs, tuple oldwd, const char *oldpath,
+                            filesystem newfs, tuple newwd, const char *newpath,
+                            boolean noreplace)
 {
-    tuple t = lookup(oldparent, oldsym);
-    assert(t);
-    symbol newchild_sym = sym_this(newname);
-    tuple to_be_deleted = lookup(newparent, newchild_sym);
-    if (to_be_deleted)
-        file_unlink(fs, to_be_deleted);
-    fs_status s = fs_set_dir_entry(fs, newparent, newchild_sym, t);
+    if (!oldpath[0] || !newpath[0])
+        return FS_STATUS_NOENT;
+    tuple old, oldparent;
+    fs_status s = filesystem_resolve_cstring(&oldfs, oldwd, oldpath, &old, &oldparent);
+    if (s != FS_STATUS_OK)
+        return s;
+    tuple new, newparent;
+    s = filesystem_resolve_cstring(&newfs, newwd, newpath, &new, &newparent);
+    if ((s != FS_STATUS_OK) && (s != FS_STATUS_NOENT))
+        return s;
+    if (!newparent)
+        return FS_STATUS_NOENT;
+    if (oldfs != newfs)
+        return FS_STATUS_XDEV;
+    if (s == FS_STATUS_OK) {
+        if (noreplace)
+            return FS_STATUS_EXIST;
+        tuple c = children(new);
+        if (c) {
+            if (!is_dir(old))
+                return FS_STATUS_ISDIR;
+            boolean notempty = false;
+            iterate(c, stack_closure(check_notempty_each, &notempty));
+            if (notempty)
+                return FS_STATUS_NOTEMPTY;
+        } else if (is_dir(old))
+            return FS_STATUS_NOTDIR;
+    }
+    if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath))
+        return FS_STATUS_INVAL;
+    if ((newparent == oldparent) && (new == old))
+        return FS_STATUS_OK;
+    if (new)
+        file_unlink(newfs, new);
+    s = fs_set_dir_entry(newfs, newparent, sym_this(filename_from_path(newpath)), old);
     if (s == FS_STATUS_OK)
-        s = fs_set_dir_entry(fs, oldparent, oldsym, 0);
+        s = fs_set_dir_entry(oldfs, oldparent, sym_this(filename_from_path(oldpath)), 0);
+    if (s == FS_STATUS_OK) {
+        filesystem_update_mtime(oldfs, oldparent);
+        filesystem_update_mtime(newfs, newparent);
+    }
     return s;
 }
 
-fs_status filesystem_exchange(filesystem fs, tuple parent1, symbol sym1,
-                         tuple parent2, symbol sym2)
+fs_status filesystem_exchange(filesystem fs1, tuple wd1, const char *path1,
+                              filesystem fs2, tuple wd2, const char *path2)
 {
-    tuple child1;
-    child1 = lookup(parent1, sym1);
-    assert(child1);
-    tuple child2;
-    child2 = lookup(parent2, sym2);
-    assert(child2);
-    fs_status s = fs_set_dir_entry(fs, parent1, sym1, child2);
+    if (filepath_is_ancestor(wd1, path1, wd2, path2) ||
+            filepath_is_ancestor(wd2, path2, wd1, path1))
+        return FS_STATUS_INVAL;
+    tuple n1, n2;
+    tuple parent1, parent2;
+    fs_status s = filesystem_resolve_cstring(&fs1, wd1, path1, &n1, &parent1);
+    if (s != FS_STATUS_OK)
+        return s;
+    s = filesystem_resolve_cstring(&fs2, wd2, path2, &n2, &parent2);
+    if (s != FS_STATUS_OK)
+        return s;
+    if (fs1 != fs2)
+        return FS_STATUS_XDEV;
+    if ((parent1 == parent2) && (n1 == n2))
+        return FS_STATUS_OK;
+    s = fs_set_dir_entry(fs1, parent1, sym_this(filename_from_path(path1)), n2);
     if (s == FS_STATUS_OK)
-        s = fs_set_dir_entry(fs, parent2, sym2, child1);
+        s = fs_set_dir_entry(fs2, parent2, sym_this(filename_from_path(path2)), n1);
+    if (s == FS_STATUS_OK) {
+        filesystem_update_mtime(fs1, parent1);
+        filesystem_update_mtime(fs2, parent2);
+    }
     return s;
 }
 
@@ -1392,20 +1535,6 @@ void filesystem_log_rebuild_done(filesystem fs, log new_tl)
     tfs_debug("%s\n", __func__);
     fs->tl = new_tl;
     fs->temp_log = 0;
-}
-
-static void deallocate_fsfile(filesystem fs, fsfile f, rmnode_handler extent_destructor)
-{
-    deallocate_rangemap(f->extentmap, extent_destructor);
-    pagecache_deallocate_node(f->cache_node);
-    deallocate(fs->h, f, sizeof(*f));
-}
-
-closure_function(1, 1, void, free_extent,
-                 filesystem, fs,
-                 rmnode, n)
-{
-    destroy_extent(bound(fs), (extent)n);
 }
 
 define_closure_function(1, 1, void, fsf_sync_complete,
@@ -1642,27 +1771,6 @@ void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*get_mountpoint)(tup
     assert(get_root_fs);
     fs_path_helper.get_root_fs = get_root_fs;
     fs_path_helper.get_mountpoint = get_mountpoint;
-}
-
-closure_function(2, 2, boolean, lookup_sym_each,
-                 tuple, t, symbol *, s,
-                 value, k, value, v)
-{
-    assert(is_symbol(k));
-    if (v == bound(t)) {
-        *bound(s) = k;
-        return false;
-    }
-    return true;
-}
-
-symbol lookup_sym(tuple parent, tuple t)
-{
-    tuple c = children(parent);
-    symbol s = 0;
-    if (c)
-        iterate(c, stack_closure(lookup_sym_each, t, &s));
-    return s;
 }
 
 static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
@@ -1930,7 +2038,6 @@ boolean dirname_from_path(buffer dest, const char *path)
         return false;
     if (!buffer_write(dest, dirname, len))
         return false;
-    push_u8(dest, '\0');
     return true;
 }
 

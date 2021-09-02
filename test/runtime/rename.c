@@ -72,6 +72,7 @@ static void test_renameat2(int olddirfd, int newdirfd)
     int fd = openat(olddirfd, "file", O_CREAT, S_IRWXU);
     test_assert(fd >= 0);
     close(fd);
+    test_assert(syscall(SYS_renameat2, olddirfd, "file", olddirfd, "file", RENAME_EXCHANGE) == 0);
     test_assert((syscall(SYS_renameat2, olddirfd, "file", newdirfd, "dir",
             RENAME_EXCHANGE) < 0) && (errno == ENOENT));
     test_assert(mkdirat(newdirfd, "dir", 0) == 0);
@@ -124,6 +125,8 @@ int main(int argc, char **argv)
     test_assert(fd1 >= 0);
     close(fd1);
     test_assert(mkdir("/my_dir", 0) == 0);
+    test_assert(rename("/my_file", "/my_file") == 0);
+    test_assert(rename("/my_dir", "/my_dir") == 0);
     test_assert((rename("/my_file", "/my_dir") < 0) && (errno == EISDIR));
     test_assert((rename("/my_dir", "/my_file") < 0) && (errno == ENOTDIR));
 

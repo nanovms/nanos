@@ -124,10 +124,20 @@ int rv_from_fs_status(fs_status s)
         return -ENOENT;
     case FS_STATUS_EXIST:
         return -EEXIST;
+    case FS_STATUS_INVAL:
+        return -EINVAL;
     case FS_STATUS_NOTDIR:
         return -ENOTDIR;
+    case FS_STATUS_ISDIR:
+        return -EISDIR;
+    case FS_STATUS_NOTEMPTY:
+        return -ENOTEMPTY;
+    case FS_STATUS_NOMEM:
+        return -ENOMEM;
     case FS_STATUS_LINKLOOP:
         return -ELOOP;
+    case FS_STATUS_NAMETOOLONG:
+        return -ENAMETOOLONG;
     default:
         return 0;
     }
@@ -400,52 +410,37 @@ closure_function(2, 0, void, file_close,
 static int open_internal(const char *name, int flags, int mode)
 {
     tuple n;
-    tuple parent;
     int ret;
 
-    if (flags & O_NOFOLLOW) {
-        ret = resolve_cstring(0, cwd, name, &n, &parent);
-        if (!ret && is_symlink(n) && !(flags & O_PATH)) {
-            ret = -ELOOP;
-        }
-    } else {
-        ret = resolve_cstring_follow(0, cwd, name, &n, &parent);
-    }
-
-    if ((flags & O_CREAT)) {
-        if (!ret && (flags & O_EXCL)) {
-            return -EEXIST;
-        } else if ((ret == -ENOENT) && parent) {
-            n = filesystem_creat(rootfs, parent, filename_from_path(name));
-            if (n) {
-                filesystem_update_mtime(rootfs, parent);
-                ret = 0;
-            } else {
-                ret = -ENOMEM;
-            }
-        }
+    fsfile fsf;
+    fs_status fss = filesystem_get_node(&rootfs, cwd, name, !!(flags & O_NOFOLLOW),
+        !!(flags & O_CREAT), !!(flags & O_EXCL), &n, &fsf);
+    ret = rv_from_fs_status(fss);
+    if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
+        filesystem_put_node(rootfs, n);
+        ret = -ELOOP;
     }
 
     if (ret)
         return ret;
 
     u64 length = 0;
-    fsfile fsf = 0;
     int type = file_type_from_tuple(n);
     if (type == FDESC_TYPE_REGULAR) {
-        fsf = fsfile_from_node(rootfs, n);
         assert(fsf);
         length = fsfile_get_length(fsf);
     }
     file f = allocate(h, sizeof(struct file));
     if (f == INVALID_ADDRESS) {
         fprintf(stderr, "failed to allocate file\n");
-        return -ENOMEM;
+        ret = -ENOMEM;
+        goto out;
     }
     int fd = allocate_fd(f);
     if (fd == INVALID_PHYSICAL) {
         fprintf(stderr, "failed to allocate fd");
-        return -ENOMEM;
+        ret = -ENOMEM;
+        goto out;
     }
     init_fdesc(h, &f->f, type);
     f->f.flags = flags;
@@ -464,6 +459,8 @@ static int open_internal(const char *name, int flags, int mode)
     }
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
+out:
+    filesystem_put_node(rootfs, n);
     if (ret)
         return ret;
     return fd;
@@ -637,115 +634,25 @@ static void tfs_destroy(void *v)
 static int tfs_mkdir(const char *pathname, mode_t mode)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
-    tuple parent;
     int rv;
     pthread_rwlock_wrlock(&rwlock);
-    int ret = resolve_cstring(0, cwd, pathname, 0, &parent);
-    if ((ret != -ENOENT) || !parent) {
-        rv = ret;
-        goto out;
-    }
-    buffer b = little_stack_buffer(NAME_MAX + 1);
-    if (!dirname_from_path(b, pathname)) {
-        rv = -ENAMETOOLONG;
-        goto out;
-    }
-    if (filesystem_mkdir(rootfs, parent, (char *)buffer_ref(b, 0))) {
-        filesystem_update_mtime(rootfs, parent);
-        rv = 0;
+    rv = rv_from_fs_status(filesystem_mkdir(rootfs, cwd, pathname));
+    if (rv == 0)
         set_flush_timeout();
-    } else {
-        rv = -ENOSPC;
-    }
-out:
     pthread_rwlock_unlock(&rwlock);
     return rv;
-}
-
-closure_function(0, 2, boolean, dir_checkempty,
-                 value, s, value, v)
-{
-    assert(is_symbol(s));
-    string ss = symbol_string(s);
-    return buffer_compare_with_cstring(ss, ".") || buffer_compare_with_cstring(ss, "..");
-}
-
-static int rename_internal(const char *oldpath, const char *newpath)
-{
-    if (!oldpath[0] || !newpath[0]) {
-        return -ENOENT;
-    }
-    int ret;
-    tuple old;
-    tuple oldparent;
-    ret = resolve_cstring(0, cwd, oldpath, &old, &oldparent);
-    if (ret) {
-        return ret;
-    }
-    tuple new, newparent;
-    ret = resolve_cstring(0, cwd, newpath, &new, &newparent);
-    if (ret && (ret != -ENOENT)) {
-        return ret;
-    }
-    if (!newparent) {
-        return -ENOENT;
-    }
-    if (!ret && is_dir(new)) {
-        if (!is_dir(old)) {
-            return -EISDIR;
-        }
-        tuple c = children(new);
-        if (!iterate(c, stack_closure(dir_checkempty)))
-            return -ENOTEMPTY;
-    }
-    if (new && !is_dir(new) && is_dir(old)) {
-        return -ENOTDIR;
-    }
-    if (filepath_is_ancestor(cwd, oldpath, cwd, newpath)) {
-        return -EINVAL;
-    }
-    if ((newparent == oldparent) && (new == old))
-        return 0;
-    fs_status s = filesystem_rename(rootfs, oldparent,
-        lookup_sym(oldparent, old), newparent, filename_from_path(newpath));
-    if (s == FS_STATUS_OK) {
-        filesystem_update_mtime(rootfs, oldparent);
-        filesystem_update_mtime(rootfs, newparent);
-        set_flush_timeout();
-    }
-    return rv_from_fs_status(s);
 }
 
 static int tfs_rename(const char *oldpath, const char *newpath)
 {
     tfs_fuse_debug("%s: oldpath %s newpath %s\n", __func__, oldpath, newpath);
     pthread_rwlock_wrlock(&rwlock);
-    int rv = rename_internal(oldpath, newpath);
+    int rv = rv_from_fs_status(filesystem_rename(rootfs, cwd, oldpath, rootfs, cwd, newpath,
+        false));
+    if (rv == 0)
+        set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
     return rv;
-}
-
-static int rmdir_internal(filesystem fs, tuple cwd, const char *pathname)
-{
-    tuple n;
-    tuple parent;
-    int ret = resolve_cstring(&fs, cwd, pathname, &n, &parent);
-    if (ret) {
-        return ret;
-    }
-    if (!is_dir(n)) {
-        return -ENOTDIR;
-    }
-    tuple c = children(n);
-    if (!iterate(c, stack_closure(dir_checkempty)))
-        return -ENOTEMPTY;
-    fs_status s = filesystem_delete(fs, parent,
-        lookup_sym(parent, n));
-    if (s == FS_STATUS_OK) {
-        filesystem_update_mtime(fs, parent);
-        set_flush_timeout();
-    }
-    return rv_from_fs_status(s);
 }
 
 static int tfs_rmdir(const char *pathname)
@@ -753,36 +660,20 @@ static int tfs_rmdir(const char *pathname)
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
     int rv;
     pthread_rwlock_wrlock(&rwlock);
-    rv = rmdir_internal(rootfs, cwd, pathname);
+    rv = rv_from_fs_status(filesystem_delete(rootfs, cwd, pathname, true));
+    if (rv == 0)
+        set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
     return rv;
-}
-
-static int unlink_internal(filesystem fs, tuple cwd, const char *pathname)
-{
-    tuple n;
-    tuple parent;
-    int ret = resolve_cstring(&fs, cwd, pathname, &n, &parent);
-    if (ret) {
-        return ret;
-    }
-    if (is_dir(n)) {
-        return -EISDIR;
-    }
-    fs_status s = filesystem_delete(fs, parent,
-        lookup_sym(parent, n));
-    if (s == FS_STATUS_OK) {
-        filesystem_update_mtime(fs, parent);
-        set_flush_timeout();
-    }
-    return rv_from_fs_status(s);
 }
 
 static int tfs_unlink(const char *pathname)
 {
     tfs_fuse_debug("%s: unlink %s\n", __func__, pathname);
     pthread_rwlock_wrlock(&rwlock);
-    int rv = unlink_internal(rootfs, cwd, pathname);
+    int rv = rv_from_fs_status(filesystem_delete(rootfs, cwd, pathname, false));
+    if (rv == 0)
+        set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
     return rv;
 }
@@ -809,7 +700,6 @@ static int truncate_internal(const char *path, off_t length)
         return 0;
     fs_status s = filesystem_truncate(fs, fsf, length);
     if (s == FS_STATUS_OK) {
-        filesystem_update_mtime(fs, t);
         set_flush_timeout();
     }
     return rv_from_fs_status(s);

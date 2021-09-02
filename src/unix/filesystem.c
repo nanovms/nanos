@@ -17,10 +17,18 @@ sysreturn sysreturn_from_fs_status(fs_status s)
         return -EINVAL;
     case FS_STATUS_NOTDIR:
         return -ENOTDIR;
+    case FS_STATUS_ISDIR:
+        return -EISDIR;
+    case FS_STATUS_NOTEMPTY:
+        return -ENOTEMPTY;
     case FS_STATUS_NOMEM:
         return -ENOMEM;
     case FS_STATUS_LINKLOOP:
         return -ELOOP;
+    case FS_STATUS_NAMETOOLONG:
+        return -ENAMETOOLONG;
+    case FS_STATUS_XDEV:
+        return -EXDEV;
     default:
         return 0;
     }
@@ -39,29 +47,6 @@ sysreturn sysreturn_from_fs_status_value(status s)
     else
         rv = -EIO;
     return rv;
-}
-
-/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
- * point), the 'fs' argument (if non-null) is updated to point to the new
- * filesystem. */
-// fused buffer wrap, split, and resolve
-int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-                    tuple *parent)
-{
-    if (!f)
-        return -EFAULT;
-    return sysreturn_from_fs_status(filesystem_resolve_cstring(fs, cwd, f, entry, parent));
-}
-
-/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
- * point), the 'fs' argument (if non-null) is updated to point to the new
- * filesystem. */
-int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-        tuple *parent)
-{
-    if (!f)
-        return -EFAULT;
-    return sysreturn_from_fs_status(filesystem_resolve_cstring_follow(fs, cwd, f, entry, parent));
 }
 
 void file_readahead(file f, u64 offset, u64 len)
@@ -88,19 +73,21 @@ fs_status filesystem_chdir(process p, const char *path)
     filesystem fs = p->cwd_fs;
     fs_status fss;
     tuple n;
-    fss = filesystem_resolve_cstring_follow(&fs, p->cwd, path, &n, 0);
+    fss = filesystem_get_node(&fs, p->cwd, path, false, false, false, &n, 0);
     if (fss != FS_STATUS_OK)
         goto out;
     if (!is_dir(n)) {
         fss = FS_STATUS_NOENT;
-        goto out;
+    } else {
+        if (fs != p->cwd_fs) {
+            filesystem_release(p->cwd_fs);
+            filesystem_reserve(fs);
+            p->cwd_fs = fs;
+        }
+        p->cwd = n;
+        fss = FS_STATUS_OK;
     }
-    if (fs != p->cwd_fs) {
-        filesystem_release(p->cwd_fs);
-        filesystem_reserve(fs);
-        p->cwd_fs = fs;
-    }
-    p->cwd = n;
+    filesystem_put_node(fs, n);
   out:
     process_unlock(p);
     return fss;
@@ -165,16 +152,7 @@ static sysreturn symlink_internal(filesystem fs, tuple cwd, const char *path,
     if (!validate_user_string(path) || !validate_user_string(target)) {
         return set_syscall_error(current, EFAULT);
     }
-    tuple parent;
-    int ret = resolve_cstring(&fs, cwd, path, 0, &parent);
-    if ((ret != -ENOENT) || !parent) {
-        return set_syscall_return(current, ret);
-    }
-    if (filesystem_symlink(fs, parent, filename_from_path(path),
-        target))
-        return 0;
-    else
-        return -ENOSPC;
+    return sysreturn_from_fs_status(filesystem_symlink(fs, cwd, path, target));
 }
 
 sysreturn symlink(const char *target, const char *linkpath)
@@ -206,15 +184,16 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
     tuple cwd;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
-    int ret = resolve_cstring(&fs, cwd, filename, &t, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, filename, false, false, false, &t, 0);
     sysreturn rv;
-    if (ret) {
-        rv = ret;
+    if (fss != FS_STATUS_OK) {
+        rv = sysreturn_from_fs_status(fss);
     } else {
         filesystem_set_atime(fs, t, actime);
         filesystem_set_mtime(fs, t, modtime);
         rv = 0;
     }
+    filesystem_put_node(fs, t);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -273,13 +252,14 @@ sysreturn statfs(const char *path, struct statfs *buf)
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     tuple t;
-    int ret = resolve_cstring(&fs, cwd, path, &t, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, path, true, false, false, &t, 0);
     sysreturn rv;
-    if (ret) {
-        rv = ret;
+    if (fss != FS_STATUS_OK) {
+        rv = sysreturn_from_fs_status(fss);
     } else {
         rv = statfs_internal(fs, t, buf);
     }
+    filesystem_put_node(fs, t);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -398,24 +378,23 @@ KLIB_EXPORT(file_release);
 /* file_path is treated as an absolute path. */
 fsfile fsfile_open_or_create(buffer file_path)
 {
-    tuple file, parent;
+    tuple file;
+    fsfile fsf;
     filesystem fs = get_root_fs();
     tuple root = filesystem_getroot(fs);
     char *file_str = buffer_to_cstring(file_path);
-    int ret = resolve_cstring(0, root, file_str, &file, &parent);
-    if (ret == -ENOENT) {
-        if (!parent) {
-            int separator = buffer_strrchr(file_path, '/');
-            file_str[separator] = '\0';
-            fs_status s = filesystem_mkdirpath(fs, 0, file_str, true);
-            if (s != FS_STATUS_OK)
-                return 0;
-            file_str[separator] = '/';
-            resolve_cstring(0, root, file_str, 0, &parent);
-        }
-        file = filesystem_creat(fs, parent, filename_from_path(file_str));
+    int separator = buffer_strrchr(file_path, '/');
+    file_str[separator] = '\0';
+    fs_status s = filesystem_mkdirpath(fs, 0, file_str, true);
+    if ((s != FS_STATUS_OK) && (s != FS_STATUS_EXIST))
+        return 0;
+    file_str[separator] = '/';
+    s = filesystem_get_node(&fs, root, file_str, true, true, false, &file, &fsf);
+    if (s == FS_STATUS_OK) {
+        filesystem_put_node(fs, file);
+        return fsf;
     }
-    return file ? fsfile_from_node(fs, file) : 0;
+    return 0;
 }
 KLIB_EXPORT(fsfile_open_or_create);
 

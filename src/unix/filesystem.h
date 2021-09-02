@@ -22,17 +22,6 @@
 sysreturn sysreturn_from_fs_status(fs_status s);
 sysreturn sysreturn_from_fs_status_value(status s);
 
-int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-                    tuple *parent);
-
-/* Same as resolve_cstring(), except that if the entry is a symbolic link this
- * function follows the link (recursively). */
-int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
-        tuple *parent);
-
-int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
-                            tuple *target);
-
 /* Perform read-ahead following a userspace read request.
  * offset and len arguments refer to the byte range being read from userspace,
  * not to the range to be read ahead. */

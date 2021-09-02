@@ -389,6 +389,11 @@ void truncate_test(const char *prog)
         exit(EXIT_FAILURE);
     }
 
+    if ((truncate("/dev/null", 0) == 0) || (errno != EINVAL)) {
+        printf("non-regular file truncate test failed\n");
+        exit(EXIT_FAILURE);
+    }
+
     if (mkdir("my_dir", S_IRUSR | S_IWUSR) < 0) {
         perror("mkdir");
         exit(EXIT_FAILURE);

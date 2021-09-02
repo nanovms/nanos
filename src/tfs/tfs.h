@@ -79,8 +79,12 @@ typedef enum {
     FS_STATUS_EXIST,
     FS_STATUS_INVAL,
     FS_STATUS_NOTDIR,
+    FS_STATUS_ISDIR,
+    FS_STATUS_NOTEMPTY,
     FS_STATUS_NOMEM,
     FS_STATUS_LINKLOOP,
+    FS_STATUS_NAMETOOLONG,
+    FS_STATUS_XDEV,
 } fs_status;
 
 const char *string_from_fs_status(fs_status s);
@@ -103,16 +107,18 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
     boolean persistent, boolean recursive);
 fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
         boolean persistent);
-tuple filesystem_mkdir(filesystem fs, tuple parent, const char *name);
-tuple filesystem_creat(filesystem fs, tuple parent, const char *name);
+fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *path);
+fs_status filesystem_get_node(filesystem *fs, tuple cwd, const char *path, boolean nofollow,
+                              boolean create, boolean exclusive, tuple *n, fsfile *f);
+void filesystem_put_node(filesystem fs, tuple n);
 fsfile filesystem_creat_unnamed(filesystem fs);
-tuple filesystem_symlink(filesystem fs, tuple parent, const char *name,
-                         const char *target);
-fs_status filesystem_delete(filesystem fs, tuple parent, symbol sym);
-fs_status filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,
-                       tuple newparent, const char *newname);
-fs_status filesystem_exchange(filesystem fs, tuple parent1, symbol sym1,
-                         tuple parent2, symbol sym2);
+fs_status filesystem_symlink(filesystem fs, tuple cwd, const char *path, const char *target);
+fs_status filesystem_delete(filesystem fs, tuple cwd, const char *path, boolean directory);
+fs_status filesystem_rename(filesystem oldfs, tuple oldwd, const char *oldpath,
+                            filesystem newfs, tuple newwd, const char *newpath,
+                            boolean noreplace);
+fs_status filesystem_exchange(filesystem fs1, tuple wd1, const char *path1,
+                              filesystem fs2, tuple wd2, const char *path2);
 
 fs_status filesystem_mk_socket(filesystem *fs, tuple cwd, const char *path, void *s, tuple *t);
 fs_status filesystem_get_socket(filesystem fs, tuple cwd, const char *path, void **s);
@@ -168,8 +174,6 @@ static inline const char *filename_from_path(const char *path)
     }
     return filename;
 }
-
-symbol lookup_sym(tuple parent, tuple t);
 
 /* Expects an empty buffer, and never resizes the buffer. */
 boolean dirname_from_path(buffer dest, const char *path);
