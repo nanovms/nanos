@@ -1857,6 +1857,8 @@ int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *
     }
 
     if (buffer_length(a)) {
+        if (!children(t))
+            return FS_STATUS_NOTDIR;
         t = lookup_follow(fs, t, intern(a), &p);
     }
     err = FS_STATUS_NOENT;

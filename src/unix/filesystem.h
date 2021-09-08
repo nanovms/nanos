@@ -13,7 +13,6 @@
         filesystem_reserve(__fs);   \
         tuple t = file_get_meta(f); \
         fdesc_put(&f->f);           \
-        if (!t || !is_dir(t)) return set_syscall_error(current, ENOTDIR); \
         cwd = t; \
     } \
     cwd; \
