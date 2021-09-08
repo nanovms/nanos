@@ -42,6 +42,8 @@ static id_heap fdallocator;
 static vector files;
 static pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
+#define cwd_inode   u64_from_pointer(cwd)
+
 /* unix internal */
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
@@ -64,15 +66,13 @@ typedef struct fdesc {
 typedef struct file {
     struct fdesc f;             /* must be first */
     filesystem fs;
-    union {
-        struct {
-            fsfile fsf;         /* fsfile for regular files */
-            sg_io fs_read;
-            sg_io fs_write;
-            int fadv;           /* posix_fadvise advice */
-        };
-        tuple meta;             /* meta tuple for others */
+    struct {
+        fsfile fsf;         /* fsfile for regular files */
+        sg_io fs_read;
+        sg_io fs_write;
+        int fadv;           /* posix_fadvise advice */
     };
+    inode n;                /* filesystem inode number */
     u64 offset;
     u64 length;
 } *file;
@@ -185,7 +185,7 @@ static int file_type_from_tuple(tuple n)
 
 static inline tuple file_get_meta(file f)
 {
-    return f->f.type == FDESC_TYPE_REGULAR ? fsfile_get_meta(f->fsf) : f->meta;
+    return pointer_from_u64(f->n);
 }
 
 closure_function(2, 3, void, bread,
@@ -413,7 +413,7 @@ static int open_internal(const char *name, int flags, int mode)
     int ret;
 
     fsfile fsf;
-    fs_status fss = filesystem_get_node(&rootfs, cwd, name, !!(flags & O_NOFOLLOW),
+    fs_status fss = filesystem_get_node(&rootfs, cwd_inode, name, !!(flags & O_NOFOLLOW),
         !!(flags & O_CREAT), !!(flags & O_EXCL), &n, &fsf);
     ret = rv_from_fs_status(fss);
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
@@ -454,9 +454,8 @@ static int open_internal(const char *name, int flags, int mode)
         assert(f->fs_read);
         f->fs_write = fsfile_get_writer(fsf);
         assert(f->fs_write);
-    } else {
-        f->meta = n;
     }
+    f->n = inode_from_tuple(n);
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
 out:
@@ -636,7 +635,7 @@ static int tfs_mkdir(const char *pathname, mode_t mode)
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
     int rv;
     pthread_rwlock_wrlock(&rwlock);
-    rv = rv_from_fs_status(filesystem_mkdir(rootfs, cwd, pathname));
+    rv = rv_from_fs_status(filesystem_mkdir(rootfs, cwd_inode, pathname));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
@@ -647,8 +646,8 @@ static int tfs_rename(const char *oldpath, const char *newpath)
 {
     tfs_fuse_debug("%s: oldpath %s newpath %s\n", __func__, oldpath, newpath);
     pthread_rwlock_wrlock(&rwlock);
-    int rv = rv_from_fs_status(filesystem_rename(rootfs, cwd, oldpath, rootfs, cwd, newpath,
-        false));
+    int rv = rv_from_fs_status(filesystem_rename(rootfs, cwd_inode, oldpath, rootfs,
+        cwd_inode, newpath, false));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
@@ -660,7 +659,7 @@ static int tfs_rmdir(const char *pathname)
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
     int rv;
     pthread_rwlock_wrlock(&rwlock);
-    rv = rv_from_fs_status(filesystem_delete(rootfs, cwd, pathname, true));
+    rv = rv_from_fs_status(filesystem_delete(rootfs, cwd_inode, pathname, true));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
@@ -671,7 +670,7 @@ static int tfs_unlink(const char *pathname)
 {
     tfs_fuse_debug("%s: unlink %s\n", __func__, pathname);
     pthread_rwlock_wrlock(&rwlock);
-    int rv = rv_from_fs_status(filesystem_delete(rootfs, cwd, pathname, false));
+    int rv = rv_from_fs_status(filesystem_delete(rootfs, cwd_inode, pathname, false));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);

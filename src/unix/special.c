@@ -41,7 +41,7 @@ static u32 null_events(file f)
 
 closure_function(1, 4, void, mounts_handler,
                  buffer, b,
-                 u8 *, uuid, const char *, label, filesystem, fs, tuple, mount_point)
+                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
 {
     buffer b = bound(b);
     bytes saved_end = b->end;
@@ -52,7 +52,7 @@ closure_function(1, 4, void, mounts_handler,
     push_u8(b, ' ');
     if (mount_point) {
         while (true) {
-            int rv = file_get_path(mount_point, buffer_end(b), buffer_space(b));
+            int rv = file_get_path(fs, mount_point, buffer_end(b), buffer_space(b));
             if (rv > 0) {
                 buffer_produce(b, rv - 1);  /* drop the string terminator character */
                 break;
@@ -309,8 +309,8 @@ void register_special_files(process p)
 }
 
 sysreturn
-spec_open(file f)
+spec_open(file f, tuple t)
 {
-    spec_file_open open = get(file_get_meta(f), sym(special));
+    spec_file_open open = get(t, sym(special));
     return apply(open, f);
 }

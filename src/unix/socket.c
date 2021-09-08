@@ -28,7 +28,7 @@ typedef struct unixsock {
     struct sock sock; /* must be first */
     queue data;
     filesystem fs;
-    tuple fs_entry;
+    inode fs_entry;
     struct sockaddr_un local_addr;
     queue conn_q;
     boolean connecting;
@@ -262,9 +262,12 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
 static int lookup_socket(unixsock *s, char *path)
 {
     process p = current->p;
-    fs_status fss = filesystem_get_socket(p->cwd_fs, p->cwd, path, (void **)s);
+    filesystem fs = p->cwd_fs;
+    tuple n;
+    fs_status fss = filesystem_get_socket(&fs, p->cwd, path, &n, (void **)s);
     if (fss == FS_STATUS_INVAL)
         return -ECONNREFUSED;
+    filesystem_put_node(fs, n);
     return sysreturn_from_fs_status(fss);
 }
 

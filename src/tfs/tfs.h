@@ -1,5 +1,7 @@
 typedef struct filesystem *filesystem;
 
+typedef u64 inode;
+
 typedef closure_type(filesystem_complete, void, filesystem, status);
 
 typedef struct fsfile *fsfile;
@@ -9,7 +11,6 @@ pagecache_volume filesystem_get_pagecache_volume(filesystem fs);
 
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64 length);
-tuple fsfile_get_meta(fsfile f);
 sg_io fsfile_get_reader(fsfile f);
 sg_io fsfile_get_writer(fsfile f);
 pagecache_node fsfile_get_cachenode(fsfile f);
@@ -32,9 +33,6 @@ void create_filesystem(heap h,
                        const char *label,
                        filesystem_complete complete);
 void destroy_filesystem(filesystem fs);
-
-// there is a question as to whether tuple->fs file should be mapped inside out outside the filesystem
-// status
 
 // turn these into method gets rather than call
 void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion);
@@ -107,25 +105,27 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
     boolean persistent, boolean recursive);
 fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
         boolean persistent);
-fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *path);
-fs_status filesystem_get_node(filesystem *fs, tuple cwd, const char *path, boolean nofollow,
+fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path);
+fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boolean nofollow,
                               boolean create, boolean exclusive, tuple *n, fsfile *f);
 void filesystem_put_node(filesystem fs, tuple n);
+tuple filesystem_get_meta(filesystem fs, inode n);
+void filesystem_put_meta(filesystem fs, tuple n);
 fsfile filesystem_creat_unnamed(filesystem fs);
-fs_status filesystem_symlink(filesystem fs, tuple cwd, const char *path, const char *target);
-fs_status filesystem_delete(filesystem fs, tuple cwd, const char *path, boolean directory);
-fs_status filesystem_rename(filesystem oldfs, tuple oldwd, const char *oldpath,
-                            filesystem newfs, tuple newwd, const char *newpath,
+fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const char *target);
+fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean directory);
+fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
+                            filesystem newfs, inode newwd, const char *newpath,
                             boolean noreplace);
-fs_status filesystem_exchange(filesystem fs1, tuple wd1, const char *path1,
-                              filesystem fs2, tuple wd2, const char *path2);
+fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
+                              filesystem fs2, inode wd2, const char *path2);
 
-fs_status filesystem_mk_socket(filesystem *fs, tuple cwd, const char *path, void *s, tuple *t);
-fs_status filesystem_get_socket(filesystem fs, tuple cwd, const char *path, void **s);
-fs_status filesystem_clear_socket(filesystem fs, tuple t);
+fs_status filesystem_mk_socket(filesystem *fs, inode cwd, const char *path, void *s, inode *n);
+fs_status filesystem_get_socket(filesystem *fs, inode cwd, const char *path, tuple *n, void **s);
+fs_status filesystem_clear_socket(filesystem fs, inode n);
 
-fs_status filesystem_mount(filesystem parent, tuple mount_dir, filesystem child);
-void filesystem_unmount(filesystem parent, tuple mount_dir, filesystem child, thunk complete);
+fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child);
+void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, thunk complete);
 
 tuple filesystem_getroot(filesystem fs);
 
@@ -138,6 +138,10 @@ extern const char *gitversion;
 
 #define NAME_MAX 255
 #define PATH_MAX 4096
+
+static inline inode inode_from_tuple(tuple t) {
+    return u64_from_pointer(t);
+}
 
 static inline buffer linktarget(tuple x)
 {
@@ -178,7 +182,7 @@ static inline const char *filename_from_path(const char *path)
 /* Expects an empty buffer, and never resizes the buffer. */
 boolean dirname_from_path(buffer dest, const char *path);
 
-void fs_set_path_helper(filesystem (*get_root_fs)(), tuple (*get_mountpoint)(tuple, filesystem *));
+void fs_set_path_helper(filesystem (*get_root_fs)(), inode (*get_mountpoint)(tuple, filesystem *));
 
 int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
                     tuple *parent);
@@ -193,4 +197,4 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
 
 boolean filepath_is_ancestor(tuple wd1, const char *fp1, tuple wd2, const char *fp2);
 
-int file_get_path(tuple n, char *buf, u64 len);
+int file_get_path(filesystem fs, inode ino, char *buf, u64 len);

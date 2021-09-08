@@ -13,7 +13,7 @@ typedef struct volume {
     u64 size;
     boolean mounting;
     filesystem fs;
-    tuple mount_dir;
+    inode mount_dir;
 } *volume;
 
 static struct {
@@ -88,12 +88,12 @@ static boolean volume_match(symbol s, volume v)
 }
 
 closure_function(2, 2, void, volume_link,
-                 volume, v, tuple, mount_dir,
+                 volume, v, inode, mount_dir,
                  filesystem, fs, status, s)
 {
     volume v = bound(v);
     if (is_ok(s)) {
-        tuple mount_dir = bound(mount_dir);
+        inode mount_dir = bound(mount_dir);
         fs_status fss = filesystem_mount(storage.root_fs, mount_dir, fs);
         if (fss != FS_STATUS_OK) {
             msg_err("cannot mount filesystem: %s\n", string_from_fs_status(fss));
@@ -113,11 +113,19 @@ closure_function(2, 2, void, volume_link,
 
 static void volume_mount(volume v, buffer mount_point)
 {
+    filesystem fs = storage.root_fs;
     tuple root = filesystem_getroot(storage.root_fs);
-    vector path = split(storage.h, mount_point, '/');
-    tuple mount_dir = resolve_path(root, path);
-    deallocate_vector(path);
-    if (!mount_dir || (mount_dir == root) || !children(mount_dir)) {
+    tuple mount_dir_t;
+    fs_status fss = filesystem_get_node(&fs, inode_from_tuple(root), buffer_to_cstring(mount_point),
+        false, false, false, &mount_dir_t, 0);
+    if (fss != FS_STATUS_OK) {
+        msg_err("mount point %b not found\n", mount_point);
+        return;
+    }
+    inode mount_dir = inode_from_tuple(mount_dir_t);
+    boolean ok = (fs == storage.root_fs) && (mount_dir_t != root) && children(mount_dir_t);
+    filesystem_put_node(fs, mount_dir_t);
+    if (!ok) {
         msg_err("invalid mount point %b\n", mount_point);
         return;
     }
@@ -245,9 +253,9 @@ filesystem storage_get_fs(tuple root)
     return fs;
 }
 
-tuple storage_get_mountpoint(tuple root, filesystem *fs)
+inode storage_get_mountpoint(tuple root, filesystem *fs)
 {
-    tuple mount_dir;
+    inode mount_dir;
     storage_lock();
     volume v = storage_get_volume(root);
     if (v) {

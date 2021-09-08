@@ -401,15 +401,13 @@ typedef struct fdesc {
 struct file {
     struct fdesc f;             /* must be first */
     filesystem fs;
-    union {
-        struct {
-            fsfile fsf;         /* fsfile for regular files */
-            sg_io fs_read;
-            sg_io fs_write;
-            int fadv;           /* posix_fadvise advice */
-        };
-        tuple meta;             /* meta tuple for others */
+    struct {
+        fsfile fsf;         /* fsfile for regular files */
+        sg_io fs_read;
+        sg_io fs_write;
+        int fadv;           /* posix_fadvise advice */
     };
+    inode n;                /* filesystem inode number */
     u64 offset;
     u64 length;
 };
@@ -483,7 +481,7 @@ typedef struct process {
     filesystem        root_fs;
     filesystem        cwd_fs;
     tuple             process_root;
-    tuple             cwd;
+    inode             cwd;
     table             futices;
     fault_handler     handler;
     rbtree            threads;
@@ -546,11 +544,6 @@ static inline fsfile file_get_fsfile(file f)
     return f->fsf;
 }
 
-static inline tuple file_get_meta(file f)
-{
-    return f->f.type == FDESC_TYPE_REGULAR ? fsfile_get_meta(f->fsf) : f->meta;
-}
-
 static inline boolean fdesc_is_readable(fdesc f)
 {
     return ((f->flags & O_ACCMODE) != O_WRONLY);
@@ -581,7 +574,10 @@ static inline u32 file_meta_perms(process p, tuple m)
 
 static inline u32 file_perms(process p, file f)
 {
-    u32 perms = file_meta_perms(p, file_get_meta(f));
+    tuple n = filesystem_get_meta(f->fs, f->n);
+    u32 perms = file_meta_perms(p, n);
+    if (n)
+        filesystem_put_meta(f->fs, n);
     if (!fdesc_is_readable(&f->f))
         perms &= ~ACCESS_PERM_READ;
     if (!fdesc_is_writable(&f->f))
@@ -962,7 +958,7 @@ int do_eventfd2(unsigned int count, int flags);
 typedef closure_type(spec_file_open, sysreturn, file f);
 
 void register_special_files(process p);
-sysreturn spec_open(file f);
+sysreturn spec_open(file f, tuple t);
 
 /* Values to pass as first argument to prctl() */
 #define PR_SET_NAME    15               /* Set process name */

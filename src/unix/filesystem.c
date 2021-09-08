@@ -84,7 +84,7 @@ fs_status filesystem_chdir(process p, const char *path)
             filesystem_reserve(fs);
             p->cwd_fs = fs;
         }
-        p->cwd = n;
+        p->cwd = inode_from_tuple(n);
         fss = FS_STATUS_OK;
     }
     filesystem_put_node(fs, n);
@@ -146,7 +146,7 @@ closure_function(2, 2, void, fs_op_complete,
     closure_finish();
 }
 
-static sysreturn symlink_internal(filesystem fs, tuple cwd, const char *path,
+static sysreturn symlink_internal(filesystem fs, inode cwd, const char *path,
         const char *target)
 {
     if (!validate_user_string(path) || !validate_user_string(target)) {
@@ -159,7 +159,7 @@ sysreturn symlink(const char *target, const char *linkpath)
 {
     thread_log(current, "symlink %s -> %s", linkpath, target);
     filesystem cwd_fs;
-    tuple cwd;
+    inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
     sysreturn rv = symlink_internal(cwd_fs, cwd, linkpath, target);
     filesystem_release(cwd_fs);
@@ -170,7 +170,7 @@ sysreturn symlinkat(const char *target, int dirfd, const char *linkpath)
 {
     thread_log(current, "symlinkat %d %s -> %s", dirfd, linkpath, target);
     filesystem fs;
-    tuple cwd = resolve_dir(fs, dirfd, linkpath);
+    inode cwd = resolve_dir(fs, dirfd, linkpath);
     sysreturn rv = symlink_internal(fs, cwd, linkpath, target);
     filesystem_release(fs);
     return rv;
@@ -181,7 +181,7 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
 {
     tuple t;
     filesystem fs;
-    tuple cwd;
+    inode cwd;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fs_status fss = filesystem_get_node(&fs, cwd, filename, false, false, false, &t, 0);
@@ -248,7 +248,7 @@ sysreturn statfs(const char *path, struct statfs *buf)
         !validate_user_memory(buf, sizeof(struct statfs), true))
         return set_syscall_error(current, EFAULT);
     filesystem fs;
-    tuple cwd;
+    inode cwd;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     tuple t;
@@ -278,8 +278,15 @@ sysreturn fstatfs(int fd, struct statfs *buf)
         f = 0;
         break;
     }
-    sysreturn rv = statfs_internal(f ? f->fs : 0, f ? file_get_meta(f) : 0, buf);
+    tuple t;
+    if (f)
+        t = filesystem_get_meta(f->fs, f->n);
+    else
+        t = 0;
+    sysreturn rv = statfs_internal(f ? f->fs : 0, t, buf);
     fdesc_put(desc);
+    if (t)
+        filesystem_put_meta(f->fs, t);
     return rv;
 }
 
@@ -389,7 +396,7 @@ fsfile fsfile_open_or_create(buffer file_path)
     if ((s != FS_STATUS_OK) && (s != FS_STATUS_EXIST))
         return 0;
     file_str[separator] = '/';
-    s = filesystem_get_node(&fs, root, file_str, true, true, false, &file, &fsf);
+    s = filesystem_get_node(&fs, inode_from_tuple(root), file_str, true, true, false, &file, &fsf);
     if (s == FS_STATUS_OK) {
         filesystem_put_node(fs, file);
         return fsf;

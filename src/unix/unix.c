@@ -353,7 +353,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     }
     filesystem_reserve(fs); /* because it hosts the current working directory */
     p->root_fs = p->cwd_fs = fs;
-    p->cwd = root;
+    p->cwd = inode_from_tuple(root);
     p->process_root = root;
     p->fdallocator = create_id_heap(h, locked, 0, infinity, 1, false);
     p->files = allocate_vector(locked, 64);
@@ -372,7 +372,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     return p;
 }
 
-void process_get_cwd(process p, filesystem *cwd_fs, tuple *cwd)
+void process_get_cwd(process p, filesystem *cwd_fs, inode *cwd)
 {
     process_lock(p);
     *cwd_fs = p->cwd_fs;
