@@ -159,9 +159,39 @@ static inline sysreturn io_complete(io_completion completion, thread t,
     return rv;
 }
 
+declare_closure_struct(1, 0, void, free_blockq,
+                       blockq, bq)
+
+/* queue of threads waiting for a resource */
+#define BLOCKQ_NAME_MAX 20
+struct blockq {
+    heap h;
+    char name[BLOCKQ_NAME_MAX]; /* for debug */
+    struct spinlock lock;
+    struct list waiters_head;   /* of threads and associated timers+actions */
+    struct refcount refcount;
+    closure_struct(free_blockq, free);
+};
+
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
-const char * blockq_name(blockq bq);
+void blockq_thread_init(thread t);
+
+static inline void blockq_reserve(blockq bq)
+{
+    refcount_reserve(&bq->refcount);
+}
+
+static inline void blockq_release(blockq bq)
+{
+    refcount_release(&bq->refcount);
+}
+
+static inline const char * blockq_name(blockq bq)
+{
+    return bq->name;
+}
+
 thread blockq_wake_one(blockq bq);
 boolean blockq_wake_one_for_thread(blockq bq, thread t);
 void blockq_flush(blockq bq);
@@ -247,6 +277,10 @@ declare_closure_struct(2, 1, void, thread_demand_page_complete,
 #define thread_frame(t) ((t)->active_frame)
 #define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
 
+declare_closure_struct(2, 1, void, blockq_thread_timeout,
+                       blockq, bq, struct thread *, t,
+                       u64, overruns);
+
 typedef struct thread {
     struct nanos_thread thrd;
     context default_frame;
@@ -281,6 +315,14 @@ typedef struct thread {
 
     /* set by set_robust_list syscall */
     void *robust_list;
+
+    /* blockq data */
+    timer bq_timeout;         /* timer for this item (could be zero) */
+    closure_struct(blockq_thread_timeout, bq_timeout_func);
+    blockq_action bq_action;  /* action to check for wake, timeout or abort */
+    struct list bq_l;         /* embedding on blockq->waiters_head */
+    io_completion bq_completion;
+    sysreturn bq_completion_rv;
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;

@@ -342,6 +342,7 @@ thread create_thread(process p)
         goto fail_affinity;
     bitmap_range_check_and_set(t->affinity, 0, total_processors, false, true);
     t->blocked_on = 0;
+    blockq_thread_init(t);
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;
