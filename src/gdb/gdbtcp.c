@@ -12,7 +12,10 @@ closure_function(1, 1, status, gdb_send,
     //    u64 len = tcp_sndbuf(g->pcb);
     // flags can force a stack copy or toggle push
     // pool?
+    // XXX this is a problem; we can't enter lwIP at interrupt/exception level ... spool up?
+    lwip_lock();
     err_t err = tcp_write(bound(g)->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
+    lwip_unlock();
     if (err != ERR_OK)
         return timm("result", "%s: tcp_write returned with error %d", __func__, err);
     return STATUS_OK;
@@ -44,10 +47,13 @@ void init_tcp_gdb(heap h, process p, u16 port)
 {
     tcpgdb g = (tcpgdb) allocate(h, sizeof(struct tcpgdb));
     assert(g != INVALID_ADDRESS);
-    g->p = tcp_new_ip_type(IPADDR_TYPE_ANY); 
+    lwip_lock();
+    g->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
+    // XXX threads lock taken here...shouldn't be issue but validate
     g->input = init_gdb(h, p, closure(h, gdb_send, g));
     tcp_bind(g->p, IP_ANY_TYPE, port);
     g->p = tcp_listen(g->p);
-    tcp_arg(g->p, g);    
-    tcp_accept(g->p, gdb_accept);    
+    tcp_arg(g->p, g);
+    tcp_accept(g->p, gdb_accept);
+    lwip_unlock();
 }

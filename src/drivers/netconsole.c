@@ -22,24 +22,32 @@ static void netconsole_write(void *_d, const char *s, bytes count)
     if (!nd->setup)
         return;
     bytes off = 0;
+    /* XXX It may not be safe to assume we cannot be in an interrupt handler.
+       If so, the pbuf_alloc should be happening elsewhere (e.g. background
+       task and queued to free list) */
+    assert(!in_interrupt());
+    lwip_lock();
     while (count > 0) {
         bytes len = MIN(count, MAX_PAYLOAD);
         struct pbuf *pb = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
         if (pb == 0)
-            return;
+            break;
         runtime_memcpy(pb->payload, s + off, len);
         udp_sendto(nd->pcb, pb, &nd->dst_ip, nd->port);
         pbuf_free(pb);
         count -= len;
         off += len;
     }
+    lwip_unlock();
 }
 
 static void netconsole_config(void *_d, tuple r)
 {
     netconsole_driver nd = _d;
-
-    if ((nd->pcb = udp_new()) == 0) {
+    lwip_lock();
+    nd->pcb = udp_new();
+    lwip_unlock();
+    if (!nd->pcb) {
         msg_err("failed to allocate pcb\n");
         return;
     }

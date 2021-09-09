@@ -96,10 +96,11 @@ enum udp_socket_state {
 };
 
 typedef struct netsock {
-    struct sock sock;            /* must be first */
+    struct sock sock;             /* must be first */
     process p;
+    struct spinlock consume_lock; /* lock accesses to incoming (consumer only) */
     queue incoming;
-    err_t lwip_error;           /* lwIP error code; ERR_OK if normal */
+    err_t lwip_error;             /* lwIP error code; ERR_OK if normal */
     u8 ipv6only:1;
     union {
 	struct {
@@ -135,7 +136,9 @@ static boolean net_loop_poll_queued;
 
 closure_function(0, 0, void, netsock_poll) {
     net_loop_poll_queued = false;
+    lwip_lock();
     netif_poll_all();
+    lwip_unlock();
 }
 
 static void netsock_check_loop(void)
@@ -161,37 +164,39 @@ closure_function(1, 1, u32, socket_events,
 {
     netsock s = bound(s);
     boolean in = !queue_empty(s->incoming);
-
-    /* XXX socket state isn't giving a complete picture; needs to specify
-       which transport ends are shut down */
+    sysreturn rv;
     if (s->sock.type == SOCK_STREAM) {
         if (s->info.tcp.state == TCP_SOCK_LISTENING) {
-            return in ? EPOLLIN : 0;
+            rv = in ? EPOLLIN : 0;
         } else if (s->info.tcp.state == TCP_SOCK_OPEN) {
-            return (in ? EPOLLIN | EPOLLRDNORM : 0) |
+            /* We can't take the lwIP lock here given that notifies are
+               triggered by lwIP callbackes, but the lwIP state read is atomic
+               as is the TCP sendbuf size read. */
+            rv = (in ? EPOLLIN | EPOLLRDNORM : 0) |
                 (s->info.tcp.lw->state == ESTABLISHED ?
-                (tcp_sndbuf(s->info.tcp.lw) ? EPOLLOUT | EPOLLWRNORM : 0) :
-                EPOLLIN | EPOLLHUP);
-        } else if (s->info.tcp.state == TCP_SOCK_UNDEFINED || s->info.tcp.state == TCP_SOCK_CREATED) {
-            return EPOLLHUP;
+                 (tcp_sndbuf(s->info.tcp.lw) ? EPOLLOUT | EPOLLWRNORM : 0) :
+                 EPOLLIN | EPOLLHUP);
+        } else if (s->info.tcp.state == TCP_SOCK_UNDEFINED ||
+                   s->info.tcp.state == TCP_SOCK_CREATED) {
+            rv = EPOLLHUP;
         } else {
-            return 0;
+            rv = 0;
         }
+    } else {
+        assert(s->sock.type == SOCK_DGRAM);
+        rv = (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
     }
-    assert(s->sock.type == SOCK_DGRAM);
-    return (in ? EPOLLIN | EPOLLRDNORM : 0) | EPOLLOUT | EPOLLWRNORM;
+    return rv;
 }
 
-/* May be called from irq/softirq */
+/* called on sock init or call from lwIP, thus locked */
 static void set_lwip_error(netsock s, err_t err)
 {
-    /* XXX lock / atomic / barrier */
     s->lwip_error = err;
 }
 
 static err_t get_lwip_error(netsock s)
 {
-    /* XXX lock / atomic / barrier */
     return s->lwip_error;
 }
 
@@ -301,6 +306,7 @@ static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len)
 {
     ip_addr_t *ip_addr;
     u16_t port;
+    lwip_lock();
     if (s->sock.type == SOCK_STREAM) {
         struct tcp_pcb *lw = s->info.tcp.lw;
         assert(lw);
@@ -313,6 +319,7 @@ static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len)
         port = lw->remote_port;
         ip_addr = &lw->remote_ip;
     }
+    lwip_unlock();
     addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, len);
 }
 
@@ -380,11 +387,13 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
     }
 
     /* check if we actually have data */
+    spin_lock(&s->consume_lock);
     void * p = queue_peek(s->incoming);
     if (p == INVALID_ADDRESS) {
+        spin_unlock(&s->consume_lock);
         assert(p);
         if (s->sock.type == SOCK_STREAM &&
-                s->info.tcp.lw->state != ESTABLISHED) {
+            s->info.tcp.lw->state != ESTABLISHED) {
             rv = 0;
             goto out;
         }
@@ -405,6 +414,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         }
     }
 
+    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
     u64 xfer_total = 0;
     u32 pbuf_idx = 0;
 
@@ -423,8 +433,13 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
                 length -= xfer;
                 xfer_total += xfer;
                 dest = (char *) dest + xfer;
-                if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK))
+                if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK)) {
+                    if (!blocked)
+                        lwip_lock();
                     tcp_recved(s->info.tcp.lw, xfer);
+                    if (!blocked)
+                        lwip_unlock();
+                }
             }
             if ((cur_buf->len == 0) || (flags & MSG_PEEK))
                 cur_buf = cur_buf->next;
@@ -437,12 +452,23 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             assert(dequeue(s->incoming) == p);
             if (s->sock.type == SOCK_DGRAM)
                 deallocate(s->sock.h, p, sizeof(struct udp_entry));
+            /* XXX TODO validate that we can't have a deadlock here...
+               - can take consume_lock and then lwip_lock (here)
+               - no way for pbuf_free to somehow cause a consume_lock take
+            */
+            if (!blocked)
+                lwip_lock();
             pbuf_free(pbuf);
+            if (!blocked)
+                lwip_unlock();
             p = queue_peek(s->incoming);
+
+            // XXX not clear if safe to hold lock here for notify ... can we release / retake?
             if (p == INVALID_ADDRESS)
                 fdesc_notify_events(&s->sock.f); /* reset a triggered EPOLLIN condition */
         }
     } while(s->sock.type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
+    spin_unlock(&s->consume_lock);
     if (s->sock.type == SOCK_STREAM)
         /* Calls to tcp_recved() may have enqueued new packets in the loopback interface. */
         netsock_check_loop();
@@ -550,13 +576,18 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         goto out;
     }
 
+    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
     /* Note that the actual transmit window size is truncated to 16
        bits here (and tcp_write() doesn't accept more than 2^16
        anyway), so even if we have a large transmit window due to
        LWIP_WND_SCALE, we still can't write more than 2^16. Sigh... */
+    if (!blocked)
+        lwip_lock();
     u64 avail = tcp_sndbuf(s->info.tcp.lw);
     if (avail == 0) {
       full:
+        if (!blocked)
+            lwip_unlock();
         if ((bqflags & BLOCKQ_ACTION_BLOCKED) == 0 &&
                 ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT))) {
             net_debug(" send buf full and non-blocking, return EAGAIN\n");
@@ -578,12 +609,13 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         n = remain;
     }
 
-    /* XXX need to pore over lwIP error conditions here */
     err = tcp_write(s->info.tcp.lw, buf, n, apiflags);
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
            post data, e.g. if used by send/sendto... */
         err = tcp_output(s->info.tcp.lw);
+        if (!blocked)
+            lwip_unlock();
         if (err == ERR_OK) {
             net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
             netsock_check_loop();
@@ -601,6 +633,8 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         net_debug(" tcp_write() returned ERR_MEM\n");
         goto full;
     } else {
+        if (!blocked)
+            lwip_unlock();
         net_debug(" tcp_write() lwip error: %d\n", err);
         rv = lwip_to_errno(err);
     }
@@ -636,9 +670,10 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
 
     /* XXX check how much we can queue, maybe make udp bh */
     /* XXX check if remote endpoint set? let LWIP check? */
+    lwip_lock();
     struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
-
     if (!pbuf) {
+        lwip_unlock();
         msg_err("failed to allocate pbuf for udp_send()\n");
         return -ENOBUFS;
     }
@@ -648,6 +683,7 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
     else
         err = udp_send(s->info.udp.lw, pbuf);
     pbuf_free(pbuf);
+    lwip_unlock();
     if (err != ERR_OK) {
         net_debug("lwip error %d\n", err);
         return lwip_to_errno(err);
@@ -712,6 +748,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
             return -EFAULT;
         if (ifconf->ifc.ifc_req == NULL) {
             ifconf->ifc_len = 0;
+            lwip_lock();
             for (struct netif *netif = netif_list; netif != NULL;
                     netif = netif->next) {
                 if (netif_is_up(netif) && netif_is_link_up(netif) &&
@@ -719,10 +756,12 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
                     ifconf->ifc_len += sizeof(struct ifreq);
                 }
             }
+            lwip_unlock();
         }
         else {
             int len = 0;
             int iface = 0;
+            lwip_lock();
             for (struct netif *netif = netif_list; (netif != NULL) &&
                     (len + sizeof(ifconf->ifc) <= ifconf->ifc_len);
                     netif = netif->next) {
@@ -738,6 +777,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
                     iface++;
                 }
             }
+            lwip_unlock();
             ifconf->ifc_len = len;
         }
         return 0;
@@ -746,7 +786,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif) {
             return -ENODEV;
         }
@@ -757,7 +799,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif)
             return -ENODEV;
         return (ifflags_to_netif(netif, ifreq->ifr.ifr_flags) ? 0 : -EINVAL);
@@ -766,7 +810,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif) {
             return -ENODEV;
         }
@@ -780,7 +826,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif)
             return -ENODEV;
         struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_addr;
@@ -789,14 +837,18 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         ip4_addr_t lwip_addr = {
                 .addr = addr->address,
         };
+        lwip_lock();
         netif_set_ipaddr(netif, &lwip_addr);
+        lwip_unlock();
         return 0;
     }
     case SIOCGIFNETMASK: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif) {
             return -ENODEV;
         }
@@ -811,7 +863,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif)
             return -ENODEV;
         struct sockaddr_in *addr =
@@ -821,14 +875,18 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         ip4_addr_t lwip_addr = {
                 .addr = addr->address,
         };
+        lwip_lock();
         netif_set_netmask(netif, &lwip_addr);
+        lwip_unlock();
         return 0;
     }
     case SIOCGIFMTU: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif)
             return -ENODEV;
         ifreq->ifr.ifr_mtu = netif->mtu;
@@ -840,7 +898,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
             return -EFAULT;
         if ((ifreq->ifr.ifr_mtu <= 0) || (ifreq->ifr.ifr_mtu > MTU_MAX))
             return -EINVAL;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif)
             return -ENODEV;
         netif->mtu = ifreq->ifr.ifr_mtu;
@@ -850,7 +910,9 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
             return -EFAULT;
+        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (!netif)
             return -ENODEV;
         ifreq->ifr.ifr_ivalue = netif->num;
@@ -901,14 +963,18 @@ closure_function(1, 2, sysreturn, socket_close,
          * prevent any lwIP callback that might be called after tcp_close() from
          * using a stale reference to the socket structure, set the callback
          * argument to NULL. */
+        lwip_lock();
         if (s->info.tcp.lw) {
             tcp_close(s->info.tcp.lw);
             tcp_arg(s->info.tcp.lw, 0);
             netsock_check_loop();
         }
+        lwip_unlock();
         break;
     case SOCK_DGRAM:
+        lwip_lock();
         udp_remove(s->info.udp.lw);
+        lwip_unlock();
         break;
     }
     deallocate_queue(s->incoming);
@@ -950,6 +1016,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
             rv = -ENOTCONN;
             goto out;
         }
+        lwip_lock();
         if (shut_rx && shut_tx) {
             tcp_arg(s->info.tcp.lw, 0);
         }
@@ -960,6 +1027,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
             s->info.tcp.lw = 0;
             s->info.tcp.state = TCP_SOCK_UNDEFINED;
         }
+        lwip_unlock();
         netsock_check_loop();
         break;
     case SOCK_DGRAM:
@@ -1033,6 +1101,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     s->sock.f.ioctl = closure(h, netsock_ioctl, s);
     s->p = p;
 
+    spin_lock_init(&s->consume_lock);
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     if (s->incoming == INVALID_ADDRESS) {
         msg_err("failed to allocate queue\n");
@@ -1080,7 +1149,9 @@ static int allocate_udp_sock(process p, int af, struct udp_pcb *pcb, u32 flags)
     if (fd >= 0) {
 	s->info.udp.lw = pcb;
 	s->info.udp.state = UDP_SOCK_CREATED;
+        lwip_lock();
 	udp_recv(pcb, udp_input_lower, s);
+        lwip_unlock();
     }
     return fd;
 }
@@ -1114,11 +1185,13 @@ sysreturn socket(int domain, int type, int protocol)
 
     type &= SOCK_TYPE_MASK;
     if (type == SOCK_STREAM) {
-        struct tcp_pcb *p;
         /* In case of AF_INET6, listen to IPv4 and IPv6 (dual-stack)
          * connections. */
-        if (!(p = tcp_new_ip_type((domain == AF_INET) ?
-                IPADDR_TYPE_V4: IPADDR_TYPE_ANY)))
+        lwip_lock();
+        struct tcp_pcb *p = tcp_new_ip_type((domain == AF_INET) ?
+                                            IPADDR_TYPE_V4: IPADDR_TYPE_ANY);
+        lwip_unlock();
+        if (!p)
             return -ENOMEM;
 
         int fd = allocate_tcp_sock(current->p, domain, p,
@@ -1126,8 +1199,10 @@ sysreturn socket(int domain, int type, int protocol)
         net_debug("new tcp fd %d, pcb %p\n", fd, p);
         return fd;
     } else if (type == SOCK_DGRAM) {
-        struct udp_pcb *p;
-        if (!(p = udp_new()))
+        lwip_lock();
+        struct udp_pcb *p = udp_new();
+        lwip_unlock();
+        if (!p)
             return -ENOMEM;
 
         int fd = allocate_udp_sock(current->p, domain, p,
@@ -1185,14 +1260,18 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
 	    goto out;
 	}
 	net_debug("calling tcp_bind, pcb %p, port %d\n", s->info.tcp.lw, port);
+        lwip_lock();
 	err = tcp_bind(s->info.tcp.lw, &ipaddr, port);
+        lwip_unlock();
     } else if (sock->type == SOCK_DGRAM) {
         if (s->info.udp.lw->local_port != 0) {
             ret = -EINVAL; /* already bound */
             goto out;
         }
         net_debug("calling udp_bind, pcb %p, port %d\n", s->info.udp.lw, port);
+        lwip_lock();
         err = udp_bind(s->info.udp.lw, &ipaddr, port);
+        lwip_unlock();
     } else {
         msg_warn("unsupported socket type %d\n", s->sock.type);
         ret = -EINVAL;
@@ -1258,7 +1337,19 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
     rv = lwip_to_errno(err);
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         if (rv == 0) {
-            s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
+            /* We can assume a nullify will not happen on an lwIP callback. */
+            lwip_lock();
+            if (s->info.tcp.state == TCP_SOCK_OPEN) {
+                /* The connection opened before we could abort; close it. */
+                tcp_arg(s->info.tcp.lw, 0);
+                tcp_shutdown(s->info.tcp.lw, 1, 1);
+                s->info.tcp.lw = 0;
+                s->info.tcp.state = TCP_SOCK_CREATED;
+            } else {
+                assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
+                s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
+            }
+            lwip_unlock();
             rv = -ERESTARTSYS;
         }
         goto out;
@@ -1291,7 +1382,7 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
        return ERR_ABRT;
    }
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
-   s->info.tcp.state = TCP_SOCK_OPEN; /* XXX state handling needs fixing; this could indicate an error as well */
+   s->info.tcp.state = TCP_SOCK_OPEN;
    set_lwip_error(s, err);
    wakeup_sock(s, WAKEUP_SOCK_TX);
    return ERR_OK;
@@ -1300,20 +1391,27 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
 static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
                                     unsigned short port)
 {
+    sysreturn rv;
     net_debug("sock %d, tcp state %d, port %d\n", s->sock.fd,
             s->info.tcp.state, port);
+    /* Force exclusion in case - for whatever odd reason - there's a race with
+       another thread trying to connect on the same socket. */
+    lwip_lock();
+    struct tcp_pcb * lw = s->info.tcp.lw;
     switch (s->info.tcp.state) {
     case TCP_SOCK_IN_CONNECTION:
     case TCP_SOCK_ABORTING_CONNECTION:
-        return -EALREADY;
+        rv = -EALREADY;
+        goto unlock_out;
     case TCP_SOCK_OPEN:
-        return -EISCONN;
+        rv = -EISCONN;
+        goto unlock_out;
     case TCP_SOCK_CREATED:
         break;
     default:
-        return -EINVAL;
+        rv = -EINVAL;
+        goto unlock_out;
     }
-    struct tcp_pcb * lw = s->info.tcp.lw;
     tcp_arg(lw, s);
     tcp_recv(lw, tcp_input_lower);
     tcp_err(lw, lwip_tcp_conn_err);
@@ -1321,12 +1419,16 @@ static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
     s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
     set_lwip_error(s, ERR_OK);
     err_t err = tcp_connect(lw, address, port, connect_tcp_complete);
+    lwip_unlock();
     if (err != ERR_OK)
         return lwip_to_errno(err);
     netsock_check_loop();
 
     return blockq_check(s->sock.txbq, current,
                         closure(s->sock.h, connect_tcp_bh, s, current), false);
+  unlock_out:
+    lwip_unlock();
+    return rv;
 }
 
 static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
@@ -1352,7 +1454,9 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
         }
     } else if (s->sock.type == SOCK_DGRAM) {
         /* Set remote endpoint */
+        lwip_lock();
         ret = lwip_to_errno(udp_connect(s->info.udp.lw, &ipaddr, port));
+        lwip_unlock();
     } else {
         msg_err("can't connect on socket type %d\n", s->sock.type);
         ret = -EINVAL;
@@ -1755,15 +1859,16 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
 {
     netsock s = (netsock) sock;
     sysreturn rv;
+    lwip_lock();
+    backlog = MAX(backlog, SOCK_QUEUE_LEN);
     if (s->sock.type != SOCK_STREAM) {
         rv = -EOPNOTSUPP;
-        goto out;
+        goto unlock_out;
     }
     if (s->info.tcp.state != TCP_SOCK_CREATED) {
         rv = -EINVAL;
-        goto out;
+        goto unlock_out;
     }
-    backlog = MAX(backlog, SOCK_QUEUE_LEN);
     struct tcp_pcb * lw = tcp_listen_with_backlog(s->info.tcp.lw, backlog);
     s->info.tcp.lw = lw;
     s->info.tcp.state = TCP_SOCK_LISTENING;
@@ -1771,7 +1876,8 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     tcp_arg(lw, s);
     tcp_accept(lw, accept_tcp_from_lwip);
     rv = 0;
-  out:
+  unlock_out:
+    lwip_unlock();
     socket_release(sock);
     return rv;
 }
@@ -1834,8 +1940,14 @@ closure_function(5, 1, sysreturn, accept_bh,
         fdesc_notify_events(&s->sock.f);
 
     /* release slot in lwIP listen backlog */
-    if (child->info.tcp.lw)
+    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED);
+    if (child->info.tcp.lw) {
+        if (!blocked)
+            lwip_lock();
         tcp_backlog_accepted(child->info.tcp.lw);
+        if (!blocked)
+            lwip_unlock();
+    }
 
     rv = child->sock.fd;
     fdesc_put(&child->sock.f);
@@ -1898,6 +2010,7 @@ static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, s
     ip_addr_t *ip_addr;
     u16_t port;
     sysreturn rv;
+    lwip_lock();
     if (s->sock.type == SOCK_STREAM) {
         if (s->info.tcp.lw) {
             port = s->info.tcp.lw->local_port;
@@ -1914,11 +2027,12 @@ static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, s
     } else {
         msg_warn("not supported for socket type %d\n", s->sock.type);
         rv = -EINVAL;
-        goto out;
+        goto unlock_out;
     }
     addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, addrlen);
     rv = 0;
-  out:
+  unlock_out:
+    lwip_unlock();
     socket_release(sock);
     return rv;
 }
@@ -1991,6 +2105,7 @@ sysreturn setsockopt(int sockfd,
                 rv = -EINVAL;
                 goto out;
             }
+            lwip_lock();
             if ((s->sock.type == SOCK_STREAM) && s->info.tcp.lw) {
                 if (*((int *)optval))
                     ip_set_option(s->info.tcp.lw, SOF_REUSEADDR);
@@ -2002,9 +2117,11 @@ sysreturn setsockopt(int sockfd,
                 else
                     ip_reset_option(s->info.udp.lw, SOF_REUSEADDR);
             } else {
+                lwip_unlock();
                 rv = -EINVAL;
                 goto out;
             }
+            lwip_unlock();
             break;
         default:
             goto unimplemented;
@@ -2017,10 +2134,12 @@ sysreturn setsockopt(int sockfd,
                 rv = -EINVAL;
                 goto out;
             }
+            lwip_lock();
             if (*((int *)optval))
                 tcp_nagle_enable(s->info.tcp.lw);
             else
                 tcp_nagle_disable(s->info.tcp.lw);
+            lwip_unlock();
             break;
         default:
             goto unimplemented;

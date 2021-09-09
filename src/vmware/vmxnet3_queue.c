@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <pci.h>
+#include "lwip.h"
 #include "lwip/opt.h"
 #include "lwip/def.h"
 #include "lwip/mem.h"
@@ -269,7 +270,9 @@ vmxnet3_isc_txd_encap(vmxnet3_pci dev, struct pbuf *p)
 
     unsigned pidx = txr->vxtxr_head;
     dev->tx_pbuf[txr->vxtxr_head] = p;
+    lwip_lock();
     pbuf_ref(p);
+    lwip_unlock();
 
     assert(nsegs <= VMXNET3_TX_MAXSEGS);
 

@@ -128,7 +128,9 @@ err_t ena_linkoutput(struct netif *netif, struct pbuf *p)
         enqueue(runqueue, &tx_ring->enqueue_task);
         return ERR_MEM;
     }
+    lwip_lock();
     pbuf_ref(p);
+    lwip_unlock();
     if (is_drbr_empty && (ENA_RING_MTX_TRYLOCK(tx_ring) != 0)) {
         ena_start_xmit(tx_ring);
         ENA_RING_MTX_UNLOCK(tx_ring);
@@ -215,7 +217,9 @@ static int ena_tx_cleanup(struct ena_ring *tx_ring)
 
         ena_trace(NULL, ENA_DBG | ENA_TXPTH, "tx: q %d mbuf %p completed\n", tx_ring->qid, mbuf);
 
+        lwip_lock();
         pbuf_free(mbuf);
+        lwip_unlock();
 
         total_done += tx_info->tx_descs;
 
@@ -312,6 +316,7 @@ static struct pbuf *ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_
      * While we have more than 1 descriptors for one rcvd packet, append
      * other mbufs to the main one
      */
+    lwip_lock();
     while (--descs) {
         ++buf;
         len = ena_bufs[buf].len;
@@ -331,6 +336,7 @@ static struct pbuf *ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_
              * with hw ring.
              */
             pbuf_free(mbuf);
+            lwip_unlock();
             return (NULL);
         }
 
@@ -342,6 +348,7 @@ static struct pbuf *ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_
         rx_ring->free_rx_ids[ntc] = req_id;
         ntc = ENA_RX_RING_IDX_NEXT(ntc, rx_ring->ring_size);
     }
+    lwip_unlock();
 
     *next_to_clean = ntc;
 
@@ -596,7 +603,9 @@ static void ena_start_xmit(struct ena_ring *tx_ring)
             } else if (ret == ENA_COM_NO_SPACE) {
                 enqueue(tx_ring->br, mbuf);
             } else {
+                lwip_lock();
                 pbuf_free(mbuf);
+                lwip_unlock();
             }
 
             break;

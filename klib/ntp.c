@@ -61,6 +61,8 @@ static struct {
     void (*rprintf)(const char *format, ...);
     timer (*register_timer)(clock_id id, timestamp val, boolean absolute, timestamp interval,
             timer_handler n);
+    void (*lwip_lock)(void);
+    void (*lwip_unlock)(void);
     err_t (*dns_gethostbyname)(const char *hostname, ip_addr_t *addr,
             dns_found_callback found, void *callback_arg);
     struct pbuf *(*pbuf_alloc)(pbuf_layer layer, u16_t length, pbuf_type type);
@@ -131,7 +133,9 @@ static void ntp_query_complete(boolean success)
 
 static void ntp_query(const ip_addr_t *server_addr)
 {
+    ntp.lwip_lock();
     struct pbuf *p = ntp.pbuf_alloc(PBUF_TRANSPORT, sizeof(struct ntp_packet), PBUF_RAM);
+    ntp.lwip_unlock();
     if (p == 0)
         return;
     struct ntp_packet *pkt = p->payload;
@@ -141,16 +145,19 @@ static void ntp_query(const ip_addr_t *server_addr)
     struct ntp_ts t;
     timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), &t);
     ntp.runtime_memcpy(&pkt->transmit_ts, &t, sizeof(t));
+    ntp.lwip_lock();
     err_t err = ntp.udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
     if (err != ERR_OK) {
         ntp.rprintf("%s: failed to send request: %d\n", __func__, err);
         ntp_query_complete(false);
     }
     ntp.pbuf_free(p);
+    ntp.lwip_unlock();
     ntp.query_ongoing = true;
     ntp_schedule_query();
 }
 
+/* called with lwIP lock held */
 static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
                       const ip_addr_t *addr, u16 port)
 {
@@ -257,7 +264,9 @@ define_closure_function(0, 1, void, ntp_query_func,
         ntp_query_complete(false);
     }
     ip_addr_t server_addr;
+    ntp.lwip_lock();
     err_t err = ntp.dns_gethostbyname(ntp.server_addr, &server_addr, ntp_dns_cb, 0);
+    ntp.lwip_unlock();
     if (err == ERR_OK)
         ntp_query(&server_addr);
     else if (err != ERR_INPROGRESS) {
@@ -279,6 +288,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     void (*udp_recv)(struct udp_pcb *pcb, udp_recv_fn recv, void *recv_arg) = get_sym("udp_recv");
     if (!get_root_tuple || !intern || !get || !memcopy || !udp_new || !udp_recv ||
             !(ntp.register_timer = get_sym("kern_register_timer")) ||
+            !(ntp.lwip_lock = get_sym("lwip_lock")) ||
+            !(ntp.lwip_unlock = get_sym("lwip_unlock")) ||
             !(ntp.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
             !(ntp.pbuf_alloc = get_sym("pbuf_alloc")) || !(ntp.pbuf_free = get_sym("pbuf_free")) ||
             !(ntp.udp_sendto = get_sym("udp_sendto")) ||
@@ -358,12 +369,15 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         }
         ntp.reset_threshold = thresh;
     }
+    ntp.lwip_lock();
     ntp.pcb = udp_new();
     if (!ntp.pcb) {
+        ntp.lwip_unlock();
         ntp.rprintf("NTP: failed to create PCB\n");
         return KLIB_INIT_FAILED;
     }
     udp_recv(ntp.pcb, ntp_input, 0);
+    ntp.lwip_unlock();
     init_closure(&ntp.query_func, ntp_query_func);
     ntp.query_interval = ntp.pollmin;
     ntp.jiggle_counter = 0;

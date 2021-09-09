@@ -114,6 +114,9 @@ struct tcpip_api_call_data
 {
 };
 
+/* Implementing these could mean the following could be called without lwip lock:
+   pbuf_ref
+*/
 static inline sys_prot_t sys_arch_protect(void)
 {
     return 0;

@@ -55,6 +55,11 @@ static inline boolean is_current_kernel_context(context f)
     return f == current_cpu()->m.kernel_context->frame;
 }
 
+static inline boolean in_interrupt(void)
+{
+    return current_cpu()->state == cpu_interrupt;
+}
+
 static inline __attribute__((always_inline)) context get_running_frame(cpuinfo ci)
 {
     return ci->m.running_frame;
