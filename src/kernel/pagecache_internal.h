@@ -12,6 +12,12 @@ struct pagecache_completion_queue;
 declare_closure_struct(2, 0, void, pagecache_service_completions,
                        struct pagecache *, pc, struct pagecache_completion_queue *, cq);
 
+declare_closure_struct(0, 2, int, pagecache_page_compare,
+                       rbnode, a, rbnode, b);
+declare_closure_struct(1, 1, boolean, pagecache_page_print_key,
+                       struct pagecache *, pc,
+                       rbnode, n);
+
 typedef struct page_completion {
     struct list l;
     union {
@@ -55,6 +61,8 @@ typedef struct pagecache {
     boolean scan_in_progress;
     timer scan_timer;
     closure_struct(pagecache_scan_timer, do_scan_timer);
+    closure_struct(pagecache_page_compare, page_compare);
+    closure_struct(pagecache_page_print_key, page_print_key);
 } *pagecache;
 
 typedef struct pagecache_volume {

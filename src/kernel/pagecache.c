@@ -1202,7 +1202,7 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
 }
 #endif
 
-closure_function(1, 1, boolean, pagecache_page_print_key,
+define_closure_function(1, 1, boolean, pagecache_page_print_key,
                  pagecache, pc,
                  rbnode, n)
 {
@@ -1210,7 +1210,7 @@ closure_function(1, 1, boolean, pagecache_page_print_key,
     return true;
 }
 
-closure_function(0, 2, int, pagecache_page_compare,
+define_closure_function(0, 2, int, pagecache_page_compare,
                  rbnode, a, rbnode, b)
 {
     u64 oa = page_offset((pagecache_page)a);
@@ -1269,8 +1269,8 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
     spin_lock_init(&pn->pages_lock);
 #endif
     list_insert_before(&pv->nodes, &pn->l);
-    init_rbtree(&pn->pages, closure(h, pagecache_page_compare),
-                closure(h, pagecache_page_print_key, pv->pc));
+    init_rbtree(&pn->pages, (rb_key_compare)&pv->pc->page_compare,
+                (rbnode_handler)&pv->pc->page_print_key);
     pn->length = 0;
     pn->cache_read = closure(h, pagecache_read_sg, pn);
 #ifndef PAGECACHE_READ_ONLY
@@ -1367,6 +1367,8 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     page_list_init(&pc->dirty);
     list_init(&pc->volumes);
     list_init(&pc->shared_maps);
+    init_closure(&pc->page_compare, pagecache_page_compare);
+    init_closure(&pc->page_print_key, pagecache_page_print_key, pc);
 
 #ifdef KERNEL
     init_pagecache_completion_queue(pc, &pc->bh_completions);
