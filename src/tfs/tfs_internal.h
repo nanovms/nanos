@@ -35,6 +35,10 @@ typedef struct filesystem {
     tuple root;
 } *filesystem;
 
+declare_closure_struct(1, 1, void, fsf_sync_complete,
+                       struct fsfile *, f,
+                       status, s);
+
 typedef struct fsfile {
     rangemap extentmap;
     filesystem fs;
@@ -44,6 +48,7 @@ typedef struct fsfile {
     sg_io read;
     sg_io write;
     struct refcount refcount;
+    closure_struct(fsf_sync_complete, sync_complete);
 } *fsfile;
 
 typedef struct uninited_queued_op {

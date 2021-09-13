@@ -1228,19 +1228,38 @@ u64 pagecache_get_node_length(pagecache_node pn)
     return pn->length;
 }
 
+closure_function(0, 1, boolean, pagecache_page_release,
+                 rbnode, n)
+{
+    pagecache_page pp = struct_from_list(n, pagecache_page, rbnode);
+    refcount_release(&pp->refcount);
+    return true;
+}
+
+closure_function(0, 1, void, pagecache_node_assert,
+                 rmnode, n)
+{
+    /* A pagecache node being deallocated must not have any shared maps. */
+    assert(0);
+}
+
+/* This function can only be called when no I/O operations are pending. */
 void pagecache_deallocate_node(pagecache_node pn)
 {
-    /* TODO: We probably need to add a refcount to the node with a
-       reference for every page in the cache. This would need to:
-
-       - prevent issuing of new operations
-       - flush for node
-       - drain all pages of this node from the cache
-       - finally delete after the last refcount release
-
-       For now, we're leaking nodes for files that get deleted and log
-       extensions that get retired.
-    */
+    if (pn->fs_read)
+        deallocate_closure(pn->fs_read);
+    deallocate_closure(pn->cache_read);
+#ifndef PAGECACHE_READ_ONLY
+    if (pn->fs_write)
+        deallocate_closure(pn->fs_write);
+    if (pn->fs_reserve)
+        deallocate_closure(pn->fs_reserve);
+    deallocate_closure(pn->cache_write);
+#endif
+    destruct_rbtree(&pn->pages, stack_closure(pagecache_page_release));
+    list_delete(&pn->l);
+    deallocate_rangemap(pn->shared_maps, stack_closure(pagecache_node_assert));
+    deallocate(pn->pv->pc->h, pn, sizeof(*pn));
 }
 
 sg_io pagecache_node_get_reader(pagecache_node pn)

@@ -88,6 +88,7 @@ static void test_tmpfile()
         exit(EXIT_FAILURE);
     }
     close(fd);
+    usleep(8);  /* Give some time to the kernel to deallocate storage space asynchronously. */
     statfs("/", &statbuf);
     if (statbuf.f_bfree <= fsfree) {
         printf("bfree check grow\n");

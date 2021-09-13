@@ -33,6 +33,9 @@ static const char *tfs_magic = "NVMTFS";
 typedef struct log *log;
 typedef struct log_ext *log_ext;
 
+declare_closure_struct(1, 1, void, log_ext_sync_complete,
+                       log_ext, ext,
+                       status, s);
 declare_closure_struct(1, 0, void, log_ext_free,
                        log_ext, ext);
 
@@ -46,6 +49,7 @@ struct log_ext {
     sg_io read;
     sg_io write;
     struct refcount refcount;
+    closure_struct(log_ext_sync_complete, sync_complete);
     closure_struct(log_ext_free, free);
 };
 
@@ -98,9 +102,14 @@ closure_function(3, 3, void, log_storage_op,
     apply(k, STATUS_OK);
 }
 
-define_closure_function(1, 0, void, log_ext_free,
-                        log_ext, ext)
+define_closure_function(1, 1, void, log_ext_sync_complete,
+                        log_ext, ext,
+                        status, s)
 {
+    if (!is_ok(s)) {
+        msg_err("failed to sync page cache node: %v\n", s);
+        timm_dealloc(s);
+    }
     log_ext ext = bound(ext);
     if (ext->staging)
         deallocate_buffer(ext->staging);
@@ -108,6 +117,18 @@ define_closure_function(1, 0, void, log_ext_free,
     heap h = ext->tl->h;
     refcount_release(&ext->tl->refcount);
     deallocate(h, ext, sizeof(struct log_ext));
+}
+
+define_closure_function(1, 0, void, log_ext_free,
+                        log_ext, ext)
+{
+    log_ext ext = bound(ext);
+    status_handler completion = init_closure(&ext->sync_complete, log_ext_sync_complete, ext);
+#ifndef TLOG_READ_ONLY
+    pagecache_sync_node(ext->cache_node, completion);
+#else
+    apply(completion, STATUS_OK);
+#endif
 }
 
 static log_ext open_log_extension(log tl, range sectors)

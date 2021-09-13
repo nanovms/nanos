@@ -1372,11 +1372,23 @@ closure_function(1, 1, void, free_extent,
     destroy_extent(bound(fs), (extent)n);
 }
 
-closure_function(2, 0, void, free_extents,
-                filesystem, fs, fsfile, f)
+define_closure_function(1, 1, void, fsf_sync_complete,
+                        fsfile, f,
+                        status, s)
 {
-    filesystem fs = bound(fs);
-    deallocate_fsfile(fs, bound(f), stack_closure(free_extent, fs));
+    if (!is_ok(s)) {
+        msg_err("failed to sync page cache node: %v\n", s);
+        timm_dealloc(s);
+    }
+    fsfile f = bound(f);
+    deallocate_fsfile(f->fs, f, stack_closure(free_extent, f->fs));
+}
+
+closure_function(1, 0, void, free_extents,
+                 fsfile, f)
+{
+    fsfile f = bound(f);
+    pagecache_sync_node(f->cache_node, init_closure(&f->sync_complete, fsf_sync_complete, f));
 }
 
 #endif /* !TFS_READ_ONLY */
@@ -1414,7 +1426,7 @@ fsfile allocate_fsfile(filesystem fs, tuple md)
     f->read = pagecache_node_get_reader(pn);
     f->write = pagecache_node_get_writer(pn);
 #ifndef TFS_READ_ONLY
-    init_refcount(&f->refcount, 1, closure(fs->h, free_extents, fs, f));
+    init_refcount(&f->refcount, 1, closure(fs->h, free_extents, f));
 #else
     init_refcount(&f->refcount, 1, 0);
 #endif
@@ -1533,7 +1545,6 @@ void destroy_filesystem(filesystem fs)
 {
     tfs_debug("%s %p\n", __func__, fs);
     log_destroy(fs->tl);
-    pagecache_dealloc_volume(fs->pv);
     if (fs->root) {
         cleanup_directory(fs->root);
         destruct_tuple(fs->root, true);
@@ -1542,6 +1553,7 @@ void destroy_filesystem(filesystem fs)
         (void)k;
         deallocate_fsfile(fs, v, stack_closure(dealloc_extent_node, fs));
     }
+    pagecache_dealloc_volume(fs->pv);
     deallocate_table(fs->files);
     destroy_id_heap(fs->storage);
     deallocate(fs->h, fs, sizeof(*fs));
