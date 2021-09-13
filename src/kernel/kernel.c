@@ -99,6 +99,7 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
     ci->state = cpu_not_present;
     ci->have_kernel_lock = false;
     ci->thread_queue = allocate_queue(backed, MAX_THREADS);
+    ci->cpu_queue = allocate_queue(backed, 8); // XXX This is an arbitrary size
     assert(ci->thread_queue != INVALID_ADDRESS);
     ci->last_timer_update = 0;
     ci->frcount = 0;

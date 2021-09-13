@@ -60,7 +60,9 @@
 #define CR4_OSXMMEXCPT  (1 << 10)
 #define CR4_OSXSAVE     (1 << 18)
 
+#define FLAG_TRAP 8
 #define FLAG_INTERRUPT 9
+#define FLAG_RESUME 16
 
 #define TSS_SIZE 0x68
 
@@ -198,7 +200,7 @@ static inline void set_syscall_handler(void *syscall_entry)
     write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
     u32 selectors = ((USER_CODE32_SELECTOR | 0x3) << 16) | KERNEL_CODE_SELECTOR;
     write_msr(STAR_MSR, (u64)selectors << 32);
-    write_msr(SFMASK_MSR, U64_FROM_BIT(FLAG_INTERRUPT));
+    write_msr(SFMASK_MSR, U64_FROM_BIT(FLAG_INTERRUPT) | U64_FROM_BIT(FLAG_TRAP));
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 

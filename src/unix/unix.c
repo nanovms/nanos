@@ -224,7 +224,7 @@ define_closure_function(1, 1, context, default_fault_handler,
 
     if (p && get(p->process_root, sym(fault))) {
         rputs("TODO: in-kernel gdb needs revisiting\n");
-//        init_tcp_gdb(heap_general(get_kernel_heaps()), p, 9090);
+//        init_tcp_gdb(heap_locked(get_kernel_heaps()), p, 9090);
 //        thread_sleep_uninterruptible();
     }
     /* XXX need a safe, polling storage driver to try to save crash dump here */

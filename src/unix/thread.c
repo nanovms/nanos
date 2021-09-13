@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <ftrace.h>
+#include <gdb.h>
 
 thread dummy_thread;
 
@@ -185,6 +186,8 @@ define_closure_function(1, 0, void, run_thread,
                         thread, t)
 {
     thread t = bound(t);
+    if (t->p->trap)
+        runloop();
     dispatch_signals(t);
     current_cpu()->state = cpu_user;
     run_thread_frame(t);
@@ -354,6 +357,8 @@ thread create_thread(process p)
 
     list_init(&t->l_faultwait);
 
+    /* install gdb fault handler if gdb is inited */
+    gdb_check_fault_handler(t);
     // XXX sigframe
     spin_lock(&p->threads_lock);
     rbtree_insert_node(p->threads, &t->n);

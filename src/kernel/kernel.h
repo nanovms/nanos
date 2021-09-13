@@ -26,7 +26,7 @@ typedef struct cpuinfo {
     timestamp last_timer_update;
     u64 frcount;
     u64 inval_gen; /* Generation number for invalidates */
-
+    queue cpu_queue;
 #ifdef CONFIG_FTRACE
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
@@ -134,8 +134,8 @@ void kernel_runtime_init(kernel_heaps kh);
 void read_kernel_syms(void);
 void reclaim_regions(void);
 
-boolean breakpoint_insert(u64 a, u8 type, u8 length);
-boolean breakpoint_remove(u32 a);
+boolean breakpoint_insert(heap h, u64 a, u8 type, u8 length, thunk completion);
+boolean breakpoint_remove(heap h, u32 a, thunk completion);
 
 context allocate_frame(heap h);
 void deallocate_frame(context);

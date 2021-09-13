@@ -2,6 +2,7 @@
 #include <lwip.h>
 
 typedef struct gdb {
+    struct spinlock send_lock;
     string output;
     string send_buffer;
     string out;
@@ -11,6 +12,10 @@ typedef struct gdb {
     buffer_handler output_handler;
     thread t; // we can really get several 
     process p;
+    u64 fault_handler;
+    boolean multiprocess;
+    boolean sending;
+    int ctid; // thread id for vcont/continues
 } *gdb;
 
 typedef struct handler {
@@ -48,6 +53,7 @@ boolean parse_hex_pair(buffer in, u64 *first, u64 *second);
 boolean mem2hex (string b, void *mem, int count);
 boolean hex2mem (buffer b, void *mem, int count);
 void putpacket(gdb, string b);
+void putpacket_deferred(gdb, string b);
 boolean handle_query(gdb g, buffer b, string out, handler h);
 
 buffer_handler init_gdb(heap h,

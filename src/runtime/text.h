@@ -169,6 +169,21 @@ static inline boolean parse_int(buffer b, u32 base, u64 *result)
   return st;
 }
 
+static inline boolean parse_signed_int(buffer b, u32 base, s64 *result)
+{
+  int sign = 1;
+
+  if (buffer_length(b) > 0 && *(u8 *)buffer_ref(b, 0) == '-') {
+    sign = -1;
+    pop_u8(b);
+  }
+
+  if (!parse_int(b, base, (u64 *)result) || *result < 0)
+    return false;
+  *result *= sign;
+  return true;
+}
+
 static inline const u8 *utf8_find(const u8 *x, character c)
 {
     int nbytes;

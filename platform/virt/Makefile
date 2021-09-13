@@ -20,6 +20,9 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/aarch64/unix_machine.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/netconsole.c \
+	$(SRCDIR)/gdb/gdbstub.c \
+	$(SRCDIR)/gdb/gdbtcp.c \
+	$(SRCDIR)/gdb/gdbutil.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/clock.c \
 	$(SRCDIR)/kernel/init.c \
