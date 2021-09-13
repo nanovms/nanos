@@ -9,13 +9,20 @@
 #define direct_debug(x, ...)
 #endif
 
+declare_closure_struct(1, 0, void, direct_receive_service,
+                       struct direct *, d);
+
 typedef struct direct {
     connection_handler new;
     struct tcp_pcb *p;
     heap h;
+    struct spinlock conn_lock;
     struct list conn_head;
-    // XXX add rx service task etc.
+    closure_struct(direct_receive_service, receive_service);
+    u32 receive_service_scheduled;
 } *direct;
+
+#define DIRECT_CONN_RECEIVE_QUEUE_SIZE 1024
 
 declare_closure_struct(1, 1, status, direct_conn_send,
                        struct direct_conn *, dc,
@@ -29,6 +36,7 @@ typedef struct direct_conn {
     struct list sendq_head;
     closure_struct(direct_conn_send, send_bh);
     buffer_handler receive_bh;
+    queue receive_queue;
     err_t pending_err;          /* lwIP */
 } *direct_conn;
 
@@ -37,6 +45,36 @@ typedef struct qbuf {
     struct list l;
     buffer b;
 } *qbuf;
+
+define_closure_function(1, 0, void, direct_receive_service,
+                        direct, d)
+{
+    direct d = bound(d);
+    d->receive_service_scheduled = 0;
+    write_barrier();
+    spin_lock(&d->conn_lock);
+    list_foreach(&d->conn_head, l) {
+        direct_conn dc = struct_from_list(l, direct_conn, l);
+        struct pbuf *p = dequeue(dc->receive_queue);
+        if (p == INVALID_ADDRESS)
+            continue;
+        status s;
+        if (p) {
+            s = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
+            lwip_lock();
+            tcp_recved(dc->p, p->len);
+            lwip_unlock();
+        } else {
+            s = apply(dc->receive_bh, 0);
+        }
+        if (!is_ok(s)) {
+            /* report here? */
+            msg_err("handler failed with status %v; aborting connection\n", s);
+            // XXX close
+        }
+    }
+    spin_unlock(&d->conn_lock);
+}
 
 static direct direct_alloc(heap h, connection_handler ch)
 {
@@ -52,6 +90,10 @@ static direct direct_alloc(heap h, connection_handler ch)
         return INVALID_ADDRESS;
     }
     d->h = h;
+    spin_lock_init(&d->conn_lock);
+    list_init(&d->conn_head);
+    init_closure(&d->receive_service, direct_receive_service, d);
+    d->receive_service_scheduled = 0;
     d->new = ch;
     tcp_arg(d->p, d);
     lwip_unlock();
@@ -177,22 +219,9 @@ err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     direct_debug("dc %p, pcb %p, pbuf %p, err %d\n", z, pcb, p, err);
     direct_conn dc = z;
-    status s;
-    /* XXX err */
-    if (p) {
-        /* handler must consume entire buffer */
-        s = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
-        tcp_recved(pcb, p->len);
-    } else {
-        /* connection closed */
-        s = direct_conn_closed(dc);
-    }
-
-    if (!is_ok(s)) {
-        /* report here? handler should be able to dispatch error... */
-        msg_err("handler failed with status %v; aborting connection\n", s);
-        return ERR_ABRT;
-    }
+    enqueue(dc->receive_queue, p);
+    if (compare_and_swap_32(&dc->d->receive_service_scheduled, 0, 1))
+        enqueue(runqueue, &dc->d->receive_service);
     return ERR_OK;
 }
 
@@ -229,12 +258,17 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     if (bh == INVALID_ADDRESS)
         goto fail_dealloc;
     dc->receive_bh = bh;
+    dc->receive_queue = allocate_queue(d->h, DIRECT_CONN_RECEIVE_QUEUE_SIZE);
+    if (dc->receive_queue == INVALID_ADDRESS)
+        goto fail_close_dealloc;
     dc->pending_err = ERR_OK;
     tcp_arg(pcb, dc);
     tcp_err(pcb, direct_conn_err);
     tcp_recv(pcb, direct_conn_input);
     tcp_sent(pcb, direct_conn_sent);
     return dc;
+  fail_close_dealloc:
+    apply(bh, 0);
   fail_dealloc:
     deallocate(d->h, dc, sizeof(struct direct_conn));
   fail:
@@ -255,7 +289,9 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
     direct d = z;
     direct_conn dc = direct_conn_alloc(d, pcb);
     if (dc != INVALID_ADDRESS) {
+        spin_lock(&d->conn_lock);
         list_insert_before(&d->conn_head, &dc->l);
+        spin_unlock(&d->conn_lock);
         return ERR_OK;
     } else {
         return ERR_ABRT;
@@ -273,8 +309,6 @@ status listen_port(heap h, u16 port, connection_handler c)
         op = "allocate";
         goto fail;
     }
-    list_init(&d->conn_head);
-
     lwip_lock();
     err = tcp_bind(d->p, IP_ANY_TYPE, port);
     if (err != ERR_OK) {

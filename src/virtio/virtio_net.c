@@ -197,8 +197,11 @@ closure_function(1, 1, void, input,
             } else
                 err = true;
         }
-        if (!err)
+        if (!err) {
+            lwip_lock();
             err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
+            lwip_unlock();
+        }
         if (err) {
             receive_buffer_release(&x->p.pbuf);
         }
