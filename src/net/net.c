@@ -45,7 +45,9 @@ closure_function(2, 1, void, dispatch_lwip_timer,
 #ifdef LWIP_DEBUG
     lwip_debug("dispatching timer for %s\n", bound(name));
 #endif
+    lwip_lock();
     bound(handler)();
+    lwip_unlock();
 }
 
 void sys_timeouts_init(void)

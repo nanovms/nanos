@@ -639,7 +639,9 @@ closure_function(1, 0, void, xennet_rx_service_bh,
             assert(i);
             xennet_rx_buf rxb = struct_from_list(i, xennet_rx_buf, l);
             list_delete(i);
+            lwip_lock();
             err_enum_t err = xd->netif->input((struct pbuf *)&rxb->p, xd->netif);
+            lwip_unlock();
             if (err != ERR_OK) {
                 msg_err("xennet: rx drop by stack, err %d\n", err);
                 xennet_return_rxbuf((struct pbuf *)&rxb->p);

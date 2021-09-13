@@ -409,7 +409,9 @@ netvsc_recv(struct hv_device *device_ctx, netvsc_packet *packet)
             vaddr + packet->page_buffers[i].gpa_ofs);
     }
 
+    lwip_lock();
     err_enum_t err = hn->netif->input((struct pbuf *)x, hn->netif);
+    lwip_unlock();
     if (err != ERR_OK) {
         msg_err("netvsc: rx drop by stack, err %d\n", err);
         receive_buffer_release((struct pbuf *)x);

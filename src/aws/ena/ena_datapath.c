@@ -428,7 +428,9 @@ static int ena_rx_cleanup(struct ena_ring *rx_ring)
         adapter->hw_stats.rx_bytes += mbuf->tot_len;
 
         ena_trace(NULL, ENA_DBG | ENA_RXPTH, "calling if_input() with mbuf %p\n", mbuf);
+        lwip_lock();
         (*ifp->input)(mbuf, ifp);
+        lwip_unlock();
 
         rx_ring->rx_stats.cnt++;
         adapter->hw_stats.rx_packets++;

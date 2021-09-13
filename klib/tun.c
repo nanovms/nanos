@@ -253,7 +253,9 @@ closure_function(1, 6, sysreturn, tun_write,
         copied += q->len;
         q = q->next;
     } while (q);
+    kfuncs.lwip_lock();
     tun->netif.input(p, &tun->netif);
+    kfuncs.lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
     return io_complete(completion, t, len);

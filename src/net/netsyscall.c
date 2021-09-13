@@ -302,11 +302,12 @@ static void addrport_to_sockaddr(int af, ip_addr_t *ip_addr, u16 port,
     *len = addr_len;
 }
 
-static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len)
+static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len, boolean lwip_locked)
 {
     ip_addr_t *ip_addr;
     u16_t port;
-    lwip_lock();
+    if (!lwip_locked)
+        lwip_lock();
     if (s->sock.type == SOCK_STREAM) {
         struct tcp_pcb *lw = s->info.tcp.lw;
         assert(lw);
@@ -319,7 +320,8 @@ static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len)
         port = lw->remote_port;
         ip_addr = &lw->remote_ip;
     }
-    lwip_unlock();
+    if (!lwip_locked)
+        lwip_unlock();
     addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, len);
 }
 
@@ -404,9 +406,11 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         return BLOCKQ_BLOCK_REQUIRED;               /* back to chewing more cud */
     }
 
+    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
+
     if (src_addr) {
         if (s->sock.type == SOCK_STREAM) {
-            remote_sockaddr(s, src_addr, addrlen);
+            remote_sockaddr(s, src_addr, addrlen, blocked);
         } else {
             struct udp_entry * e = p;
             addrport_to_sockaddr(s->sock.domain, &e->raddr, e->rport, src_addr,
@@ -414,7 +418,6 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         }
     }
 
-    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
     u64 xfer_total = 0;
     u32 pbuf_idx = 0;
 
@@ -1924,10 +1927,11 @@ closure_function(5, 1, sysreturn, accept_bh,
         return BLOCKQ_BLOCK_REQUIRED;               /* block */
     }
 
+    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED);
     child->sock.f.flags |= bound(flags);
     if (bound(addr)) {
         if (child->info.tcp.state == TCP_SOCK_OPEN)
-            remote_sockaddr(child, bound(addr), bound(addrlen));
+            remote_sockaddr(child, bound(addr), bound(addrlen), blocked);
         else
             /* The new socket is disconnected already, we can't retrieve the address of the remote
              * peer. */
@@ -1940,7 +1944,6 @@ closure_function(5, 1, sysreturn, accept_bh,
         fdesc_notify_events(&s->sock.f);
 
     /* release slot in lwIP listen backlog */
-    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED);
     if (child->info.tcp.lw) {
         if (!blocked)
             lwip_lock();
@@ -2064,7 +2067,7 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     else if ((s->sock.type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN))
         rv = -ENOTCONN;
     else
-        remote_sockaddr(s, addr, addrlen);
+        remote_sockaddr(s, addr, addrlen, false);
     socket_release(sock);
     return rv;
 }

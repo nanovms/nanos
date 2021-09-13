@@ -254,7 +254,9 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
             assert(i);
             xpbuf rxb = struct_from_list(i, xpbuf, l);
             list_delete(i);
+            lwip_lock();
             err_enum_t err = vn->n->input((struct pbuf *)rxb, vn->n);
+            lwip_unlock();
             if (err != ERR_OK) {
                 msg_err("vmxnet3: rx drop by stack, err %d\n", err);
                 receive_buffer_release((struct pbuf *)rxb);
