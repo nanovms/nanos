@@ -143,7 +143,7 @@ void start_process(thread t, void *start)
     t->default_frame[SYSCALL_FRAME_PC] = u64_from_pointer(start);
     if (get(t->p->process_root, sym(gdb))) {
         rputs("NOTE: in-kernel gdb is a work in progress\n");
-        init_tcp_gdb(heap_general(get_kernel_heaps()), t->p, 9090);
+        init_tcp_gdb(heap_locked(get_kernel_heaps()), t->p, 9090);
     } else {
         schedule_frame(t->default_frame);
     }

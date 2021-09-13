@@ -52,11 +52,12 @@ closure_function(1, 1, context, gdb_handle_exception,
     g->p->trap = true;
     wakeup_or_interrupt_cpu_all();
     gdb_debug("gdb exception: %ld %p [%p %p]\n", sigval, g, frame, thread_frame(g->t));
-    reset_buffer(g->output);
-    bprintf (g->output, "T");
-    print_number(g->output, (u64)sigval, 16, 2);
-    bprintf(g->output, "thread:p1.%x;", g->t->tid);
-    putpacket (g, g->output);
+    string output = little_stack_buffer(32);
+    reset_buffer(output);
+    bprintf (output, "T");
+    print_number(output, (u64)sigval, 16, 2);
+    bprintf(output, "thread:p1.%x;", g->t->tid);
+    putpacket_deferred (g, output);
     runloop();
 }
 
@@ -100,7 +101,7 @@ static boolean start_thread_dump(gdb g, buffer in, string out)
     process p = g->p;
     bprintf(out, "m");
     spin_lock(&p->threads_lock);
-    rbtree_traverse(p->threads, RB_INORDER, stack_closure(dump_threads, g->output));
+    rbtree_traverse(p->threads, RB_INORDER, stack_closure(dump_threads, out));
     spin_unlock(&p->threads_lock);
     out->end--;
     return true;
@@ -172,10 +173,10 @@ closure_function(0, 1, boolean, sched_thread,
 
 static void start_slave(gdb g, boolean stepping, thread t)
 {
-    if (t == INVALID_ADDRESS && thread_from_tid(g->p, g->ctid) != INVALID_ADDRESS) {
+    if (t == INVALID_ADDRESS) {
         t = thread_from_tid(g->p, g->ctid);
-    } else {
-        t = g->t;
+        if (t == INVALID_ADDRESS)
+            t = g->t;
     }
 
     gdb_debug("slave run %p %p %p %d\n", g, t, thread_frame(t), stepping);
@@ -437,8 +438,10 @@ static boolean handle_request(gdb g, buffer b, buffer output)
                 {
                     if (breakpoint_remove(g->h, addr, closure(g->h, send_ok, g)))
                         return false;
-                    else
+                    else {
+                        rprintf("hardware breakpoint could not be found\n");
                         bprintf(output, "E08");
+                    }
                 }
             }
             break;
@@ -460,8 +463,10 @@ static boolean handle_request(gdb g, buffer b, buffer output)
                 {
                     if (breakpoint_insert(g->h, addr, 0, 8, closure(g->h, send_ok, g)))
                         return false;
-                    else
+                    else {
+                        rprintf("maximum number of hardware breakpoints reached\n");
                         bprintf(output, "E08");
+                    }
                 }
             }
             break;
@@ -546,7 +551,7 @@ closure_function(1, 1, status, gdbserver_input,
 
 static fault_handler gdb_fh;
 
-void gdb_install_fault_handler(thread t)
+void gdb_check_fault_handler(thread t)
 {
     if (gdb_fh) {
         t->default_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(gdb_fh);
@@ -573,7 +578,7 @@ buffer_handler init_gdb(heap h,
     // XXX assumes both frames of all threads share same fault handler 
     g->fault_handler = thread_frame(g->t)[FRAME_FAULT_HANDLER];
     gdb_fh = closure(h, gdb_handle_exception, g);
-    gdb_install_fault_handler(g->t);
+    gdb_check_fault_handler(g->t);
     reset_parser(g);
     return closure(h, gdbserver_input, g);
 }

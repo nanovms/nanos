@@ -173,7 +173,7 @@ static inline boolean parse_signed_int(buffer b, u32 base, s64 *result)
 {
   int sign = 1;
 
-  if (*(u8 *)buffer_ref(b, 0) == '-') {
+  if (buffer_length(b) > 0 && *(u8 *)buffer_ref(b, 0) == '-') {
     sign = -1;
     pop_u8(b);
   }

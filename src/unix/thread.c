@@ -355,7 +355,8 @@ thread create_thread(process p)
 
     list_init(&t->l_faultwait);
 
-    gdb_install_fault_handler(t);
+    /* install gdb fault handler if gdb is inited */
+    gdb_check_fault_handler(t);
     // XXX sigframe
     spin_lock(&p->threads_lock);
     rbtree_insert_node(p->threads, &t->n);

@@ -43,12 +43,22 @@ boolean hex2mem (buffer b, void *mem, int count)
     return (true);
 }
 
-void putpacket(gdb g, string b)
+closure_function(1, 0, void, gdb_deferred_tx,
+                 gdb, g)
+{
+    gdb g = bound(g);
+    u64 flags = spin_lock_irq(&g->send_lock);
+    apply(g->output_handler, g->send_buffer);
+    g->sending = false;
+    spin_unlock_irq(&g->send_lock, flags);
+    closure_finish();
+}
+
+static void put_sendstring(gdb g, string b)
 {
     unsigned char checksum;
     char ch;
 
-    
     reset_buffer(g->send_buffer);
     /*  $<packet info>#<checksum>. */
 
@@ -60,10 +70,36 @@ void putpacket(gdb g, string b)
         push_character (g->send_buffer, ch);
         checksum += ch;
     }
-    
+
     bprintf (g->send_buffer, "#");
     print_number(g->send_buffer, (u64)checksum, 16, 2);
+}
+
+void putpacket_deferred(gdb g, string b)
+{
+    u64 flags = spin_lock_irq(&g->send_lock);
+    if (g->sending) {
+        spin_unlock_irq(&g->send_lock, flags);
+        rprintf("putpacket_deferred dropped, already sending\n");
+        return;
+    }
+    g->sending = true;
+    put_sendstring(g, b);
+    assert(enqueue(runqueue, closure(g->h, gdb_deferred_tx, g)));
+    spin_unlock_irq(&g->send_lock, flags);
+}
+
+void putpacket(gdb g, string b)
+{
+    u64 flags = spin_lock_irq(&g->send_lock);
+    if (g->sending) {
+        spin_unlock_irq(&g->send_lock, flags);
+        rprintf("putpacket dropped, already sending\n");
+        return;
+    }
+    put_sendstring(g, b);
     apply(g->output_handler, g->send_buffer);
+    spin_unlock_irq(&g->send_lock, flags);
 }
 
 
