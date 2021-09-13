@@ -8,9 +8,10 @@
         cwd = current->p->cwd; \
     } else { \
         file f = resolve_fd(current->p, __dirfd); \
+        __fs = f->fs;               \
         tuple t = file_get_meta(f); \
+        fdesc_put(&f->f);           \
         if (!t || !is_dir(t)) return set_syscall_error(current, ENOTDIR); \
-        __fs = f->fs; \
         cwd = t; \
     } \
     cwd; \
@@ -31,13 +32,6 @@ int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entr
 
 int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
                             tuple *target);
-
-int filesystem_add_tuple(const char *path, tuple t);
-
-static inline int filesystem_get_tuple(const char *path, tuple *t)
-{
-    return resolve_cstring(0, current->p->cwd, path, t, 0);
-}
 
 /* Perform read-ahead following a userspace read request.
  * offset and len arguments refer to the byte range being read from userspace,

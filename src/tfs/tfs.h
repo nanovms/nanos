@@ -73,6 +73,7 @@ typedef enum {
     FS_STATUS_IOERR,
     FS_STATUS_NOENT,
     FS_STATUS_EXIST,
+    FS_STATUS_INVAL,
     FS_STATUS_NOTDIR,
     FS_STATUS_NOMEM,
     FS_STATUS_LINKLOOP,
@@ -108,6 +109,10 @@ fs_status filesystem_rename(filesystem fs, tuple oldparent, symbol oldsym,
                        tuple newparent, const char *newname);
 fs_status filesystem_exchange(filesystem fs, tuple parent1, symbol sym1,
                          tuple parent2, symbol sym2);
+
+fs_status filesystem_mk_socket(filesystem *fs, tuple cwd, const char *path, void *s, tuple *t);
+fs_status filesystem_get_socket(filesystem fs, tuple cwd, const char *path, void **s);
+fs_status filesystem_clear_socket(filesystem fs, tuple t);
 
 tuple filesystem_getroot(filesystem fs);
 

@@ -79,6 +79,11 @@ int main(int argc, char *argv[])
     if (fd_out == -1) 
         sf_err_goto(err_fdout, "error %d opeing sendfile_test_out\n", errno);
 
+    ret = sendfile(-1, fd_in, NULL, BUF_LEN);
+    if ((ret != -1) || (errno != EBADF))
+        sf_err_goto(err_fop, "sendfile returned %d (errno %d) with invalid output fd\n",
+            ret, errno);
+
     sf_dbg("IN fd %d OUT fd %d\n", fd_in, fd_out);
     memset(buf, 0, sizeof(buf));
     lseek(fd_out, 0, SEEK_SET);

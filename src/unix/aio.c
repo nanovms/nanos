@@ -108,17 +108,18 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
     return 0;
 }
 
-closure_function(2, 2, void, aio_eventfd_complete,
-                 heap, h, u64 *, efd_val,
+closure_function(3, 2, void, aio_eventfd_complete,
+                 heap, h, fdesc, f, u64 *, efd_val,
                  thread, t, sysreturn, rv)
 {
     u64 *efd_val = bound(efd_val);
     deallocate(bound(h), efd_val, sizeof(*efd_val));
+    fdesc_put(bound(f));
     closure_finish();
 }
 
-closure_function(4, 2, void, aio_complete,
-                 struct aio *, aio, u64, data, u64, obj, int, res_fd,
+closure_function(5, 2, void, aio_complete,
+                 struct aio *, aio, fdesc, f, u64, data, u64, obj, int, res_fd,
                  thread, t, sysreturn, rv)
 {
     struct aio *aio = bound(aio);
@@ -138,17 +139,20 @@ closure_function(4, 2, void, aio_complete,
     }
     ring->tail = tail;
     aio_unlock(aio);
+    fdesc_put(bound(f));
     if (res_fd != AIO_RESFD_INVALID) {
-        fdesc res = resolve_fd_noret(t->p, res_fd);
-        if (res && res->write && fdesc_is_writable(res)) {
-            heap h = heap_general(aio->kh);
-            u64 *efd_val = allocate(h, sizeof(*efd_val));
-            assert(efd_val != INVALID_ADDRESS); 
-            *efd_val = 1;
-            io_completion completion = closure(h, aio_eventfd_complete, h,
-                    efd_val);
-            apply(res->write, efd_val, sizeof(*efd_val), 0, t, true,
-                completion);
+        fdesc res = fdesc_get(t->p, res_fd);
+        if (res) {
+            if (res->write && fdesc_is_writable(res)) {
+                heap h = heap_general(aio->kh);
+                u64 *efd_val = allocate(h, sizeof(*efd_val));
+                assert(efd_val != INVALID_ADDRESS);
+                *efd_val = 1;
+                io_completion completion = closure(h, aio_eventfd_complete, h, res, efd_val);
+                apply(res->write, efd_val, sizeof(*efd_val), 0, t, true, completion);
+            } else {
+                fdesc_put(res);
+            }
         }
     }
     if (aio->bq) {
@@ -176,7 +180,6 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
     thread_log(current, "%s: fd %d, op %d", __func__, iocb->aio_fildes,
             iocb->aio_lio_opcode);
 
-    fdesc f = resolve_fd(current->p, iocb->aio_fildes);
     if (aio->ongoing_ops >= aio_avail_events(aio) - 1) {
         return -EAGAIN;
     }
@@ -185,13 +188,14 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
         return -EINVAL;
     }
 
+    fdesc f = resolve_fd(current->p, iocb->aio_fildes);
     int res_fd;
     if (iocb->aio_flags & IOCB_FLAG_RESFD) {
         res_fd = iocb->aio_resfd;
     } else {
         res_fd = AIO_RESFD_INVALID;
     }
-    io_completion completion = closure(heap_general(aio->kh), aio_complete, aio,
+    io_completion completion = closure(heap_general(aio->kh), aio_complete, aio, f,
             iocb->aio_data, (u64) iocb, res_fd);
     sysreturn rv;
     switch (iocb->aio_lio_opcode) {
@@ -227,6 +231,7 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
     return 0;
 error:
     deallocate_closure(completion);
+    fdesc_put(f);
     return rv;
 }
 

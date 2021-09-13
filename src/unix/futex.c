@@ -197,7 +197,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             struct futex * new = soft_create_futex(current->p, u64_from_pointer(uaddr2));
             if (new == INVALID_ADDRESS)
                 return set_syscall_error(current, ENOMEM);
-            int requeued = blockq_transfer_waiters(new->bq, f->bq, val2);
+            requeued = blockq_transfer_waiters(new->bq, f->bq, val2);
             if (futex_verbose)
                 thread_log(current, " awoken: %d, re-queued %d", woken, requeued);
         }

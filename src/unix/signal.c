@@ -944,7 +944,10 @@ closure_function(1, 2, void, signalfd_notify,
         sig_debug("%d spurious notify\n", sfd->fd);
         return;
     }
-    blockq_wake_one_for_thread(sfd->bq, t);
+
+    /* null thread on notify set release (thread dealloc) */
+    if (t)
+        blockq_wake_one_for_thread(sfd->bq, t);
     notify_dispatch_for_thread(sfd->f.ns, EPOLLIN, t);
 }
 
@@ -1010,13 +1013,16 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
         return allocate_signalfd(mask, flags);
 
     signal_fd sfd = resolve_fd(current->p, fd); /* macro, may return EBADF */
-    if (fdesc_type(&sfd->f) != FDESC_TYPE_SIGNALFD)
+    if (fdesc_type(&sfd->f) != FDESC_TYPE_SIGNALFD) {
+        fdesc_put(&sfd->f);
         return -EINVAL;
+    }
 
     /* update mask */
     sfd->mask = *mask;
     notify_entry_update_eventmask(sfd->n, sfd->mask);
     signalfd_update_siginterest(current);
+    fdesc_put(&sfd->f);
     return fd;
 }
 

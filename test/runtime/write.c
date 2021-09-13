@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #define _GNU_SOURCE
 #define __USE_GNU
 #include <fcntl.h>
@@ -12,6 +11,7 @@
 #include <sys/time.h>
 #include <sys/eventfd.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 //#define WRITETEST_DEBUG
 #ifdef WRITETEST_DEBUG
@@ -137,7 +137,18 @@ void basic_write_test()
         goto out_fail;
     }
 
+    rv = syncfs(fd);
+    if (rv < 0) {
+        perror("syncfs");
+        goto out_fail;
+    }
     close(fd);
+    rv = syncfs(fd);
+    if ((rv != -1) || (errno != EBADF)) {
+        printf("syncfs(): expected rv -1 (errno %d), found rv %ld (errno %d)\n", EBADF, rv, errno);
+        goto out_fail;
+    }
+
     writetest_debug("basic write test passed\n");
     return;
   out_fail:

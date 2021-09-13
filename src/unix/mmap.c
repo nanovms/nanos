@@ -1079,6 +1079,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     u64 vmap_mmap_type;
     u32 allowed_flags;
     fdesc desc = 0;
+    sysreturn ret;
     if (flags & MAP_ANONYMOUS) {
         vmap_mmap_type = VMAP_MMAP_TYPE_ANONYMOUS;
         allowed_flags = anon_perms(p);
@@ -1097,13 +1098,15 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             break;
         default:
             thread_log(current, "   fail: attempt to mmap file of invalid type %d", desc->type);
-            return -EINVAL;
+            ret = -EINVAL;
+            goto out;
         }
     }
     if ((vmflags & VMAP_FLAG_PROT_MASK) & ~allowed_flags) {
         thread_log(current, "   fail: forbidden access type 0x%x (allowed 0x%x)",
             vmflags & VMAP_FLAG_PROT_MASK, allowed_flags);
-        return -EACCES;
+        ret = -EACCES;
+        goto out;
     }
     vmflags |= vmap_mmap_type;
 
@@ -1119,12 +1122,13 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         if (where == (u64)INVALID_ADDRESS) {
             /* We'll always want to know about low memory conditions, so just bark. */
             msg_err("failed to allocate virtual memory, flags 0x%x, size 0x%lx\n", flags, len);
-            return -ENOMEM;
+            ret = -ENOMEM;
+            goto out;
         }
         thread_log(current, "   alloc: 0x%lx", where);
     }
 
-    sysreturn ret = where;
+    ret = where;
     switch (vmap_mmap_type) {
     case VMAP_MMAP_TYPE_ANONYMOUS:
         thread_log(current, "   anonymous, specified target 0x%lx", where);
@@ -1159,7 +1163,10 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     default:
         assert(0);
     }
+  out:
     thread_log(current, "   returning 0x%lx", ret);
+    if (desc)
+        fdesc_put(desc);
     return ret;
 }
 

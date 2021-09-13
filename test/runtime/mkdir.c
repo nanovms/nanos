@@ -366,5 +366,14 @@ int main(int argc, char **argv)
     _fchdir(fd);
     close(fd);
     listdir("test", ".");
+
+    fd = OPEN("subdir/test_newfile", O_RDONLY, 0);
+    _fchdir(fd);
+    if (errno != ENOTDIR) {
+        printf("fchdir(): expecting errno %d, found %d (%s)\n", ENOTDIR, errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
     exit(EXIT_SUCCESS);
 }

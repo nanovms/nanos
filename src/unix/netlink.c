@@ -508,7 +508,7 @@ closure_function(1, 6, sysreturn, nl_read,
     nl_debug("read len %ld", length);
     nlsock s = bound(s);
     blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, dest, length, 0, 0,
-        syscall_io_complete);
+        completion);
     if (ba == INVALID_ADDRESS)
         return -ENOMEM;
     return blockq_check(s->sock.rxbq, current, ba, false);
@@ -567,21 +567,27 @@ closure_function(1, 2, sysreturn, nl_close,
 static sysreturn nl_bind(struct sock *sock, struct sockaddr *addr, socklen_t addrlen)
 {
     nlsock s = (nlsock)sock;
+    sysreturn rv;
     struct sockaddr_nl *nl_addr = (struct sockaddr_nl *)addr;
-    if ((addrlen != sizeof(*nl_addr)) || (nl_addr->nl_family != AF_NETLINK))
-        return -EINVAL;
+    if ((addrlen != sizeof(*nl_addr)) || (nl_addr->nl_family != AF_NETLINK)) {
+        rv = -EINVAL;
+        goto out;
+    }
     nl_debug("bind to pid %d, multicast 0x%x", nl_addr->nl_pid, nl_addr->nl_groups);
     if (s->addr.nl_pid != 0) {  /* already bound */
         if (nl_addr->nl_pid == s->addr.nl_pid)
-            return 0;
+            rv = 0;
         else
-            return -EINVAL;
+            rv = -EINVAL;
+        goto out;
     }
     runtime_memcpy(&s->addr, nl_addr, addrlen);
     if (nl_addr->nl_pid == 0) {
         u64 pid = allocate_u64((heap)netlink.pids, 1);
-        if (pid == INVALID_PHYSICAL)
-            return -ENOMEM;
+        if (pid == INVALID_PHYSICAL) {
+            rv = -ENOMEM;
+            goto out;
+        }
         nl_debug(" allocated pid %d", pid);
         s->addr.nl_pid = pid;
     } else {
@@ -589,10 +595,14 @@ static sysreturn nl_bind(struct sock *sock, struct sockaddr *addr, socklen_t add
         if (pid != nl_addr->nl_pid) {
             deallocate_u64((heap)netlink.pids, pid, 1);
             s->addr.nl_pid = 0;
-            return -EADDRINUSE;
+            rv = -EADDRINUSE;
+            goto out;
         }
     }
-    return 0;
+    rv = 0;
+  out:
+    socket_release(sock);
+    return rv;
 }
 
 static sysreturn nl_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen)
@@ -600,6 +610,7 @@ static sysreturn nl_getsockname(struct sock *sock, struct sockaddr *addr, sockle
     nlsock s = (nlsock)sock;
     runtime_memcpy(addr, &s->addr, MIN(sizeof(s->addr), *addrlen));
     *addrlen = sizeof(s->addr);
+    socket_release(sock);
     return 0;
 }
 
@@ -608,9 +619,11 @@ static sysreturn nl_sendto(struct sock *sock, void *buf, u64 len, int flags,
 {
     nl_debug("sendto: len %ld, flags 0x%x", len, flags);
     sysreturn rv = nl_check_dest(dest_addr, addrlen);
-    if (rv)
+    if (rv) {
+        socket_release(sock);
         return rv;
-    return apply(sock->f.write, buf, len, 0, current, false, syscall_io_complete);
+    }
+    return apply(sock->f.write, buf, len, 0, current, false, (io_completion)&sock->f.io_complete);
 }
 
 static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
@@ -619,9 +632,11 @@ static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
     nl_debug("recvfrom: len %ld, flags 0x%x", len, flags);
     nlsock s = (nlsock)sock;
     blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, buf, len, 0, flags,
-        syscall_io_complete);
-    if (ba == INVALID_ADDRESS)
+        (io_completion)&sock->f.io_complete);
+    if (ba == INVALID_ADDRESS) {
+        socket_release(sock);
         return -ENOMEM;
+    }
     if (addrlen) {
         if (src_addr && (*addrlen >= sizeof(struct sockaddr_nl))) {
             struct sockaddr_nl *addr = (struct sockaddr_nl *)src_addr;
@@ -641,7 +656,7 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
     nlsock s = (nlsock)sock;
     sysreturn rv = nl_check_dest(msg->msg_name, msg->msg_namelen);
     if (rv)
-        return rv;
+        goto out;
     u64 written = 0;
     for (u64 i = 0; i < msg->msg_iovlen; i++) {
         rv = nl_write_internal(s, msg->msg_iov[i].iov_base, msg->msg_iov[i].iov_len);
@@ -650,7 +665,10 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
         else
             break;
     }
-    return (written > 0) ? written : rv;
+    rv = (written > 0) ? written : rv;
+  out:
+    socket_release(sock);
+    return rv;
 }
 
 static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
@@ -658,9 +676,11 @@ static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
     nl_debug("recvmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
     nlsock s = (nlsock)sock;
     blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, 0, 0, msg, flags,
-        syscall_io_complete);
-    if (ba == INVALID_ADDRESS)
+        (io_completion)&sock->f.io_complete);
+    if (ba == INVALID_ADDRESS) {
+        socket_release(sock);
         return -ENOMEM;
+    }
     if (msg->msg_name && (msg->msg_namelen >= sizeof(struct sockaddr_nl))) {
         struct sockaddr_nl *addr = msg->msg_name;
         addr->nl_family = AF_NETLINK;

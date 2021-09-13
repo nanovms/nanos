@@ -159,9 +159,39 @@ static inline sysreturn io_complete(io_completion completion, thread t,
     return rv;
 }
 
+declare_closure_struct(1, 0, void, free_blockq,
+                       blockq, bq)
+
+/* queue of threads waiting for a resource */
+#define BLOCKQ_NAME_MAX 20
+struct blockq {
+    heap h;
+    char name[BLOCKQ_NAME_MAX]; /* for debug */
+    struct spinlock lock;
+    struct list waiters_head;   /* of threads and associated timers+actions */
+    struct refcount refcount;
+    closure_struct(free_blockq, free);
+};
+
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
-const char * blockq_name(blockq bq);
+void blockq_thread_init(thread t);
+
+static inline void blockq_reserve(blockq bq)
+{
+    refcount_reserve(&bq->refcount);
+}
+
+static inline void blockq_release(blockq bq)
+{
+    refcount_release(&bq->refcount);
+}
+
+static inline const char * blockq_name(blockq bq)
+{
+    return bq->name;
+}
+
 thread blockq_wake_one(blockq bq);
 boolean blockq_wake_one_for_thread(blockq bq, thread t);
 void blockq_flush(blockq bq);
@@ -247,6 +277,10 @@ declare_closure_struct(2, 1, void, thread_demand_page_complete,
 #define thread_frame(t) ((t)->active_frame)
 #define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
 
+declare_closure_struct(2, 1, void, blockq_thread_timeout,
+                       blockq, bq, struct thread *, t,
+                       u64, overruns);
+
 typedef struct thread {
     struct nanos_thread thrd;
     context default_frame;
@@ -281,6 +315,14 @@ typedef struct thread {
 
     /* set by set_robust_list syscall */
     void *robust_list;
+
+    /* blockq data */
+    timer bq_timeout;         /* timer for this item (could be zero) */
+    closure_struct(blockq_thread_timeout, bq_timeout_func);
+    blockq_action bq_action;  /* action to check for wake, timeout or abort */
+    struct list bq_l;         /* embedding on blockq->waiters_head */
+    io_completion bq_completion;
+    sysreturn bq_completion_rv;
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;
@@ -329,6 +371,10 @@ typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, 
 #define FDESC_TYPE_SYMLINK     11
 #define FDESC_TYPE_IORING      12
 
+declare_closure_struct(1, 2, void, fdesc_io_complete,
+                       struct fdesc *, f,
+                       thread, t, sysreturn, rv);
+
 typedef struct fdesc {
     file_io read, write;
     sg_file_io sg_read, sg_write;
@@ -336,6 +382,7 @@ typedef struct fdesc {
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
     closure_type(close, sysreturn, thread t, io_completion completion);
     closure_type(edge_trigger_handler, u64, u64 events, u64 lastevents);
+    closure_struct(fdesc_io_complete, io_complete);
 
     u64 refcnt;
     int type;
@@ -559,6 +606,20 @@ unix_heaps get_unix_heaps();
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
+static inline void fdesc_put(fdesc f)
+{
+    if (fetch_and_add(&f->refcnt, -1) == 1)
+        apply(f->close, 0, io_completion_ignore);
+}
+
+define_closure_function(1, 2, void, fdesc_io_complete,
+                        struct fdesc *, f,
+                        thread, t, sysreturn, rv)
+{
+    fdesc_put(bound(f));
+    apply(syscall_io_complete, t, rv);
+}
+
 static inline void init_fdesc(heap h, fdesc f, int type)
 {
     f->read = 0;
@@ -568,6 +629,7 @@ static inline void init_fdesc(heap h, fdesc f, int type)
     f->close = 0;
     f->events = 0;
     f->edge_trigger_handler = 0;
+    init_closure(&f->io_complete, fdesc_io_complete, f);
     f->ioctl = 0;
     f->refcnt = 1;
     f->type = type;
@@ -594,12 +656,6 @@ static inline fdesc fdesc_get(process p, int fd)
     if (f)
         fetch_and_add(&f->refcnt, 1);
     return f;
-}
-
-static inline void fdesc_put(fdesc f)
-{
-    if (fetch_and_add(&f->refcnt, -1) == 1)
-        apply(f->close, 0, io_completion_ignore);
 }
 
 static inline void fdesc_notify_events(fdesc f)
@@ -849,8 +905,7 @@ static inline u64 iov_total_len(struct iovec *iov, int iovcnt)
     return len;
 }
 
-#define resolve_fd_noret(__p, __fd) vector_get(__p->files, __fd)
-#define resolve_fd(__p, __fd) ({void *f ; if (!(f = resolve_fd_noret(__p, __fd))) return set_syscall_error(current, EBADF); f;})
+#define resolve_fd(__p, __fd) ({void *f ; if (!(f = fdesc_get(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
 void init_syscalls(tuple root);
 void init_threads(process p);

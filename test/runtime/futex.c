@@ -215,7 +215,11 @@ static boolean futex_cmp_requeue_test_2()
 
     /* Wake up val threads that are waiting on uaddr and requeue the
     remaining threads to wait on uaddr2 */
-    syscall(SYS_futex, uaddr, FUTEX_CMP_REQUEUE, val, val2, uaddr2, val3);
+    int changed = syscall(SYS_futex, uaddr, FUTEX_CMP_REQUEUE, val, val2, uaddr2, val3);
+    if (changed != num_threads) {
+        printf("Incorrect number of woken up or requeued threads. cmp_requeue test 2: failed.\n");
+        return false;
+    }
 
     /* Wake up remaining threads waiting on uaddr2 
     that haven't been woken up by FUTEX_CMP_REQUEUE */

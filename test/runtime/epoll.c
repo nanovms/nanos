@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -25,6 +26,14 @@ void test_ctl()
         printf("Cannot create epoll\n");
         goto fail;
     }
+
+    event.events = 0;
+    test_assert((epoll_ctl(efd, EPOLL_CTL_ADD, -1, &event) == -1) && (errno == EBADF));
+
+    int dirfd = open(".", O_RDONLY);
+    test_assert(dirfd >= 0);
+    test_assert((epoll_ctl(efd, EPOLL_CTL_ADD, dirfd, &event) == -1) && (errno == EPERM));
+    close(dirfd);
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     event.data.fd = fd;
@@ -73,6 +82,28 @@ void test_ctl()
   fail:
     printf("test failed\n");
     exit(EXIT_FAILURE);
+}
+
+static void test_wait()
+{
+    int efd;
+    int fd;
+    struct epoll_event event;
+
+    efd = epoll_create1(0);
+    test_assert(efd >= 0);
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    event.data.fd = fd;
+    event.events = EPOLLOUT;
+    test_assert(epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event) == 0);
+    test_assert(epoll_wait(efd, &event, 1, -1) == 1);
+    test_assert((event.data.fd == fd) && (event.events == EPOLLOUT));
+
+    /* Close the writable file descriptor and verify that no more EPOLLOUT events are reported. */
+    close(fd);
+    test_assert(epoll_wait(efd, &event, 1, 0) == 0);
+
+    close(efd);
 }
 
 static void test_edgetrigger()
@@ -199,6 +230,7 @@ void test_eventfd_et()
 int main(int argc, char **argv)
 {
     test_ctl();
+    test_wait();
     test_edgetrigger();
     test_eventfd_et();
 

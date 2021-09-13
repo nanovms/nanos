@@ -285,6 +285,7 @@ define_closure_function(1, 0, void, free_thread,
                         thread, t)
 {
     deallocate_bitmap(bound(t)->affinity);
+    deallocate_notify_set(bound(t)->signalfds);
     deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
@@ -344,6 +345,7 @@ thread create_thread(process p)
         goto fail_affinity;
     bitmap_range_check_and_set(t->affinity, 0, total_processors, false, true);
     t->blocked_on = 0;
+    blockq_thread_init(t);
     init_sigstate(&t->signals);
     t->dispatch_sigstate = 0;
     t->active_signo = 0;

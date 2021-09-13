@@ -1001,6 +1001,17 @@ static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
     return s;
 }
 
+closure_function(1, 2, boolean, file_unlink_each,
+                 tuple, t,
+                 value, k, value, v)
+{
+    if (is_tuple(v) && get(v, sym(no_encode))) {
+        destruct_tuple(v, true);
+        set(bound(t), k, 0);
+    }
+    return true;
+}
+
 static void file_unlink(filesystem fs, tuple t)
 {
     fsfile f = fsfile_from_node(fs, t);
@@ -1009,6 +1020,13 @@ static void file_unlink(filesystem fs, tuple t)
         f->md = 0;
         refcount_release(&f->refcount);
     }
+
+    /* If a tuple is not present in the filesystem log dictionary, it can (and should) be destroyed
+     * now (it won't be destroyed when the filesystem log is rebuilt). */
+    if (get(t, sym(no_encode)))
+        destruct_tuple(t, true);
+    else
+        iterate(t, stack_closure(file_unlink_each, t));
 }
 
 fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
@@ -1598,6 +1616,66 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
         }
         link = target_t;
     }
+}
+
+fs_status filesystem_mk_socket(filesystem *fs, tuple cwd, const char *path, void *s, tuple *t)
+{
+    tuple sock, parent;
+    fs_status fss = filesystem_resolve_cstring(fs, cwd, path, &sock, &parent);
+    if (fss == FS_STATUS_OK)
+        return FS_STATUS_EXIST;
+    if ((fss != FS_STATUS_NOENT) || !parent)
+        return fss;
+    sock = allocate_tuple();
+    if (sock == INVALID_ADDRESS)
+        return FS_STATUS_NOMEM;
+    tuple sock_handle = allocate_tuple();
+    if (sock_handle == INVALID_ADDRESS) {
+        fss = FS_STATUS_NOMEM;
+        goto err;
+    }
+    set(sock, sym(handle), sock_handle);
+    buffer b = allocate_buffer((*fs)->h, sizeof(u64));
+    if (b == INVALID_ADDRESS) {
+        fss = FS_STATUS_NOMEM;
+        goto err;
+    }
+    buffer_write_le64(b, u64_from_pointer(s));
+    set(sock_handle, sym(value), b);
+    set(sock_handle, sym(no_encode), null_value);
+    set(sock, sym(socket), null_value);
+    fss = do_mkentry(*fs, parent, filename_from_path(path), sock, true);
+    if (fss == FS_STATUS_OK) {
+        *t = sock;
+        return fss;
+    }
+  err:
+    destruct_tuple(sock, true);
+    return fss;
+}
+
+fs_status filesystem_get_socket(filesystem fs, tuple cwd, const char *path, void **s)
+{
+    tuple t, sock_handle;
+    fs_status fss = filesystem_resolve_cstring(0, cwd, path, &t, 0);
+    if (fss != FS_STATUS_OK)
+        return fss;
+    if (!get(t, sym(socket)) || !(sock_handle = get(t, sym(handle))))
+        return FS_STATUS_INVAL;
+    buffer b = get(sock_handle, sym(value));    // XXX untyped binary
+    if (!b || (buffer_length(b) != sizeof(*s))) {
+        return FS_STATUS_INVAL;
+    }
+    *s = pointer_from_u64(*((u64 *)buffer_ref(b, 0)));
+    return FS_STATUS_OK;
+}
+
+fs_status filesystem_clear_socket(filesystem fs, tuple t)
+{
+    tuple sock_handle = get_tuple(t, sym(handle));
+    buffer b = get(sock_handle, sym(value));    // XXX untyped binary
+    buffer_clear(b);
+    return FS_STATUS_OK;
 }
 
 boolean dirname_from_path(buffer dest, const char *path)
