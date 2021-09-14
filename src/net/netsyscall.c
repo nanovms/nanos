@@ -662,7 +662,7 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
                                   struct sockaddr *dest_addr, socklen_t addrlen)
 {
     ip_addr_t ipaddr;
-    u16 port;
+    u16 port = 0;
     if (dest_addr) {
         sysreturn ret = sockaddr_to_addrport(s, dest_addr, addrlen,
             &ipaddr, &port);

@@ -250,6 +250,7 @@ void vmxnet3_init_shared_data(vmxnet3_pci dev)
 
 }
 
+/* called with lwIP lock held */
 int
 vmxnet3_isc_txd_encap(vmxnet3_pci dev, struct pbuf *p)
 {
@@ -270,9 +271,7 @@ vmxnet3_isc_txd_encap(vmxnet3_pci dev, struct pbuf *p)
 
     unsigned pidx = txr->vxtxr_head;
     dev->tx_pbuf[txr->vxtxr_head] = p;
-    lwip_lock();
     pbuf_ref(p);
-    lwip_unlock();
 
     assert(nsegs <= VMXNET3_TX_MAXSEGS);
 
@@ -345,6 +344,7 @@ vmxnet3_isc_txd_encap(vmxnet3_pci dev, struct pbuf *p)
     return ERR_OK;
 }
 
+/* called with lwIP lock held */
 void
 vmxnet3_isc_txd_credits_update(vmxnet3_pci dev)
 {

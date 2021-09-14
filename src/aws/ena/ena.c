@@ -1979,6 +1979,30 @@ define_closure_function(1, 0, void, ena_reset_task,
     ENA_LOCK_UNLOCK(adapter);
 }
 
+define_closure_function(1, 0, void, ena_link_up_task,
+                        struct ena_adapter *, adapter)
+{
+    struct netif *ifp = &bound(adapter)->ifp;
+    ena_trace(NULL, ENA_INFO, "link UP task\n");
+    ENA_FLAG_SET_ATOMIC(ENA_FLAG_LINK_UP, bound(adapter));
+    if (!ENA_FLAG_ISSET(ENA_FLAG_ONGOING_RESET, bound(adapter))) {
+        lwip_lock();
+        netif_set_link_up(ifp);
+        lwip_unlock();
+    }
+}
+
+define_closure_function(1, 0, void, ena_link_down_task,
+                        struct ena_adapter *, adapter)
+{
+    struct netif *ifp = &bound(adapter)->ifp;
+    ena_trace(NULL, ENA_INFO, "link DOWN task\n");
+    lwip_lock();
+    netif_set_link_down(ifp);
+    lwip_unlock();
+    ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_LINK_UP, bound(adapter));
+}
+
 /**
  * ena_attach - Device Initialization Routine
  *
@@ -2115,6 +2139,9 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
     zero(&adapter->dev_stats, sizeof(struct ena_stats_dev));
     zero(&adapter->hw_stats, sizeof(struct ena_hw_stats));
 
+    init_closure(&adapter->link_up_task, ena_link_up_task, adapter);
+    init_closure(&adapter->link_down_task, ena_link_down_task, adapter);
+
     ENA_FLAG_SET_ATOMIC(ENA_FLAG_DEVICE_RUNNING, adapter);
     ena_up(adapter);
 
@@ -2151,26 +2178,16 @@ static void ena_update_on_link_change(void *adapter_data, struct ena_admin_aenq_
     struct ena_adapter *adapter = (struct ena_adapter *)adapter_data;
     struct ena_admin_aenq_link_change_desc *aenq_desc;
     int status;
-    struct netif *ifp;
 
     aenq_desc = (struct ena_admin_aenq_link_change_desc *)aenq_e;
-    ifp = &adapter->ifp;
     status = aenq_desc->flags & ENA_ADMIN_AENQ_LINK_CHANGE_DESC_LINK_STATUS_MASK;
 
     if (status != 0) {
-        ena_trace(NULL, ENA_INFO, "link is UP\n");
-        ENA_FLAG_SET_ATOMIC(ENA_FLAG_LINK_UP, adapter);
-        if (!ENA_FLAG_ISSET(ENA_FLAG_ONGOING_RESET, adapter)) {
-            lwip_lock();
-            netif_set_link_up(ifp);
-            lwip_unlock();
-        }
+        ena_trace(NULL, ENA_INFO, "link UP interrupt\n");
+        enqueue(runqueue, &adapter->link_up_task);
     } else {
-        ena_trace(NULL, ENA_INFO, "link is DOWN\n");
-        lwip_lock();
-        netif_set_link_down(ifp);
-        lwip_unlock();
-        ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_LINK_UP, adapter);
+        ena_trace(NULL, ENA_INFO, "link DOWN interrupt\n");
+        enqueue(runqueue, &adapter->link_down_task);
     }
 }
 

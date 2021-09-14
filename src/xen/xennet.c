@@ -419,9 +419,7 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
     xennet_tx_buf txb = xennet_get_txbuf(xd);
     if (txb == INVALID_ADDRESS)
         return ERR_MEM;
-    lwip_lock();
     pbuf_ref(p);
-    lwip_unlock();
     txb->p = p;
     xennet_tx_buf_add_pages(xd, txb, p);
 
@@ -630,6 +628,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
     xennet_dev xd = bound(xd);
     xennet_debug("%s: dev id %d", __func__, xd->dev.if_id);
     list l;
+    lwip_lock();
     while ((l = (list)dequeue(xd->rx_servicequeue)) != INVALID_ADDRESS) {
         struct list q;
         assert(l);
@@ -639,15 +638,14 @@ closure_function(1, 0, void, xennet_rx_service_bh,
             assert(i);
             xennet_rx_buf rxb = struct_from_list(i, xennet_rx_buf, l);
             list_delete(i);
-            lwip_lock();
             err_enum_t err = xd->netif->input((struct pbuf *)&rxb->p, xd->netif);
-            lwip_unlock();
             if (err != ERR_OK) {
                 msg_err("xennet: rx drop by stack, err %d\n", err);
                 xennet_return_rxbuf((struct pbuf *)&rxb->p);
             }
         }
     }
+    lwip_unlock();
     xennet_debug("%s: exit", __func__);
 }
 

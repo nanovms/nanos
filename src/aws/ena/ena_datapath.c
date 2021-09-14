@@ -101,11 +101,13 @@ void ena_deferred_mq_start(void *arg, int pending)
     struct ena_ring *tx_ring = (struct ena_ring*) arg;
     struct netif *netif = &tx_ring->adapter->ifp;
 
+    lwip_lock();
     while (!queue_empty(tx_ring->br) && tx_ring->running && netif_is_flag_set(netif, NETIF_FLAG_UP)) {
         ENA_RING_MTX_LOCK(tx_ring);
         ena_start_xmit(tx_ring);
         ENA_RING_MTX_UNLOCK(tx_ring);
     }
+    lwip_unlock();
 }
 
 err_t ena_linkoutput(struct netif *netif, struct pbuf *p)
@@ -128,9 +130,7 @@ err_t ena_linkoutput(struct netif *netif, struct pbuf *p)
         enqueue(runqueue, &tx_ring->enqueue_task);
         return ERR_MEM;
     }
-    lwip_lock();
     pbuf_ref(p);
-    lwip_unlock();
     if (is_drbr_empty && (ENA_RING_MTX_TRYLOCK(tx_ring) != 0)) {
         ena_start_xmit(tx_ring);
         ENA_RING_MTX_UNLOCK(tx_ring);
@@ -196,6 +196,7 @@ static int ena_tx_cleanup(struct ena_ring *tx_ring)
     io_cq = &adapter->ena_dev->io_cq_queues[ena_qid];
     next_to_clean = tx_ring->next_to_clean;
 
+    lwip_lock();
     do {
         struct ena_tx_buffer *tx_info;
         struct pbuf *mbuf;
@@ -217,9 +218,7 @@ static int ena_tx_cleanup(struct ena_ring *tx_ring)
 
         ena_trace(NULL, ENA_DBG | ENA_TXPTH, "tx: q %d mbuf %p completed\n", tx_ring->qid, mbuf);
 
-        lwip_lock();
         pbuf_free(mbuf);
-        lwip_unlock();
 
         total_done += tx_info->tx_descs;
 
@@ -235,6 +234,7 @@ static int ena_tx_cleanup(struct ena_ring *tx_ring)
             total_done = 0;
         }
     } while (likely(--budget));
+    lwip_unlock();
 
     work_done = TX_BUDGET - budget;
 
@@ -278,6 +278,7 @@ static int ena_tx_cleanup(struct ena_ring *tx_ring)
  * @ena_rx_ctx: metadata for this packet(s)
  * @next_to_clean: ring pointer, will be updated only upon success
  *
+ * called with lwIP lock held
  **/
 static struct pbuf *ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_info *ena_bufs,
                                 struct ena_com_rx_ctx *ena_rx_ctx, uint16_t *next_to_clean)
@@ -316,7 +317,6 @@ static struct pbuf *ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_
      * While we have more than 1 descriptors for one rcvd packet, append
      * other mbufs to the main one
      */
-    lwip_lock();
     while (--descs) {
         ++buf;
         len = ena_bufs[buf].len;
@@ -336,7 +336,6 @@ static struct pbuf *ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_
              * with hw ring.
              */
             pbuf_free(mbuf);
-            lwip_unlock();
             return (NULL);
         }
 
@@ -348,7 +347,6 @@ static struct pbuf *ena_rx_mbuf(struct ena_ring *rx_ring, struct ena_com_rx_buf_
         rx_ring->free_rx_ids[ntc] = req_id;
         ntc = ENA_RX_RING_IDX_NEXT(ntc, rx_ring->ring_size);
     }
-    lwip_unlock();
 
     *next_to_clean = ntc;
 
@@ -386,6 +384,7 @@ static int ena_rx_cleanup(struct ena_ring *rx_ring)
 
     ena_trace(NULL, ENA_DBG, "rx: qid %d\n", qid);
 
+    lwip_lock();
     do {
         ena_rx_ctx.ena_bufs = rx_ring->ena_bufs;
         ena_rx_ctx.max_bufs = adapter->max_rx_sgl_size;
@@ -402,6 +401,7 @@ static int ena_rx_cleanup(struct ena_ring *rx_ring)
                 reset_reason = ENA_REGS_RESET_INV_RX_REQ_ID;
             }
             ena_trigger_reset(adapter, reset_reason);
+            lwip_unlock();
             return (0);
         }
 
@@ -428,13 +428,12 @@ static int ena_rx_cleanup(struct ena_ring *rx_ring)
         adapter->hw_stats.rx_bytes += mbuf->tot_len;
 
         ena_trace(NULL, ENA_DBG | ENA_RXPTH, "calling if_input() with mbuf %p\n", mbuf);
-        lwip_lock();
         (*ifp->input)(mbuf, ifp);
-        lwip_unlock();
 
         rx_ring->rx_stats.cnt++;
         adapter->hw_stats.rx_packets++;
     } while (--budget);
+    lwip_unlock();
 
     rx_ring->next_to_clean = next_to_clean;
 
@@ -578,6 +577,7 @@ dma_error:
     return (rc);
 }
 
+/* called with lwIP lock held */
 static void ena_start_xmit(struct ena_ring *tx_ring)
 {
     struct pbuf *mbuf;
@@ -605,9 +605,7 @@ static void ena_start_xmit(struct ena_ring *tx_ring)
             } else if (ret == ENA_COM_NO_SPACE) {
                 enqueue(tx_ring->br, mbuf);
             } else {
-                lwip_lock();
                 pbuf_free(mbuf);
-                lwip_unlock();
             }
 
             break;

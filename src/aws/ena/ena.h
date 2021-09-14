@@ -337,11 +337,17 @@ struct ena_hw_stats {
 };
 
 declare_closure_struct(1, 1, void, ena_timer_task,
-        struct ena_adapter *, adapter,
-        u64, overruns);
+                       struct ena_adapter *, adapter,
+                       u64, overruns);
 
 declare_closure_struct(1, 0, void, ena_reset_task,
-        struct ena_adapter *, adapter);
+                       struct ena_adapter *, adapter);
+
+declare_closure_struct(1, 0, void, ena_link_up_task,
+                       struct ena_adapter *, adapter);
+
+declare_closure_struct(1, 0, void, ena_link_down_task,
+                       struct ena_adapter *, adapter);
 
 /* Board specific private data structure */
 struct ena_adapter {
@@ -404,6 +410,12 @@ struct ena_adapter {
     struct ena_hw_stats hw_stats;
 
     enum ena_regs_reset_reason_types reset_reason;
+
+    /* Deferred link change tasks: Note that these are not folded into one
+       closure, as doing so (with a closed-over link status variable common to
+       all task enqueues) could lead to missed transient state transitions. */
+    closure_struct(ena_link_up_task, link_up_task);
+    closure_struct(ena_link_down_task, link_down_task);
 };
 
 #define	ENA_RING_MTX_LOCK(_ring)    spin_lock(&(_ring)->ring_mtx)
