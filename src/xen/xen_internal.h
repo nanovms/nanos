@@ -43,6 +43,8 @@ int xen_unmask_evtchn(evtchn_port_t evtchn);
 grant_ref_t xen_grant_page_access(u16 domid, u64 phys, boolean readonly);
 void xen_revoke_page_access(grant_ref_t ref);
 
+typedef closure_type(xenstore_watch_handler, void, const char *);
+
 status xenbus_get_state(buffer path, XenbusState *state);
 status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate);
 

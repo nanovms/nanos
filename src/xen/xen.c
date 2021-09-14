@@ -41,6 +41,7 @@ typedef struct xen_platform_info {
     volatile struct xenstore_domain_interface *xenstore_interface;
     u64           xenstore_paddr;
     evtchn_port_t xenstore_evtchn;
+    struct spinlock xenstore_lock;
     vector        evtchn_handlers;
 
     /* grant table */
@@ -72,6 +73,9 @@ typedef struct xen_driver {
 } *xen_driver;
 
 struct xen_platform_info xen_info;
+
+#define xenstore_lock()     u64 _irqflags = spin_lock_irq(&xen_info.xenstore_lock)
+#define xenstore_unlock()   spin_unlock_irq(&xen_info.xenstore_lock, _irqflags)
 
 boolean xen_feature_supported(int feature)
 {
@@ -246,6 +250,65 @@ closure_function(0, 1, void, xen_runloop_timer,
 closure_function(0, 0, void, xen_runloop_timer_handler)
 {
     xen_debug("%s: now %T", __func__, nanoseconds(pvclock_now_ns()));
+}
+
+static s64 xenstore_read_internal(buffer b, s64 length);
+
+static void xenstore_watch_event(struct xsd_sockmsg *msg)
+{
+    /* read message data (xenstore path followed by watch token) */
+    u64 length = msg->len;
+    buffer b = little_stack_buffer(length);
+    do {
+        s64 r = xenstore_read_internal(b, length);
+        if (r < 0) {
+            msg_err("failed to read\n");
+            return;
+        }
+        length -= r;
+        kern_pause();
+    } while (length > 0);
+    u64 path_len = 0;
+    while ((path_len < msg->len) && (*(char *)buffer_ref(b, path_len) != '\0'))
+        path_len++;
+    if (path_len == msg->len) {
+        msg_err("no string terminator for xenstore path\n");
+        return;
+    }
+    const char *path = buffer_ref(b, 0);
+    buffer_consume(b, path_len + 1);
+    u64 token;
+    if (!parse_int(b, 16, &token)) {
+        msg_err("failed to parse token\n");
+        return;
+    }
+
+    xenstore_watch_handler handler = pointer_from_u64(token);
+    xenstore_debug("%s: path %s, handler %F", __func__, path, handler);
+    apply(handler, path);
+}
+
+closure_function(0, 0, void, xenstore_evtchn_handler)
+{
+    xenstore_debug("%s", __func__);
+    xenstore_lock();
+    struct xsd_sockmsg *msg;
+    buffer msgbuf = little_stack_buffer(sizeof(*msg));
+    if (xenstore_read_internal(msgbuf, sizeof(*msg)) != sizeof(*msg))
+        goto out;
+    msg = buffer_ref(msgbuf, 0);
+    xenstore_debug("  msg type %d, msg len %d", msg->type, msg->len);
+    if (msg->type == XS_WATCH_EVENT) {
+        xenstore_watch_event(msg);
+    } else {
+        /* unexpected message type: discard message data */
+        volatile struct xenstore_domain_interface *xsdi = xen_info.xenstore_interface;
+        xsdi->rsp_cons += msg->len;
+        write_barrier();
+        xen_notify_evtchn(xen_info.xenstore_evtchn);
+    }
+  out:
+    xenstore_unlock();
 }
 
 boolean xen_detect(kernel_heaps kh)
@@ -423,6 +486,9 @@ boolean xen_detect(kernel_heaps kh)
     init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
 
     xen_debug("unmasking xenstore event channel");
+    spin_lock_init(&xen_info.xenstore_lock);
+    xen_register_evtchn_handler(xen_info.xenstore_evtchn,
+                                closure(xen_info.h, xenstore_evtchn_handler));
     assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
 
     if (!xen_grant_init(kh)) {
@@ -475,7 +541,6 @@ static s64 xenstore_write_internal(const void * data, s64 length)
     assert(length > 0);
 
     s64 result = 0;
-    u64 flags = irq_disable_save();
 
     do {
         u64 produced = xsdi->req_prod - xsdi->req_cons;
@@ -483,7 +548,7 @@ static s64 xenstore_write_internal(const void * data, s64 length)
         u64 offset = MASK_XENSTORE_IDX(xsdi->req_prod);
         u64 navail = XENSTORE_RING_SIZE - MAX(produced, offset);
         if (navail == 0)        /* XXX actually should loop around if truncated at end of ring... */
-            goto out;
+            break;
         u64 nwrite = MIN(navail, length);
         if (nwrite == 0)
             continue;
@@ -496,13 +561,11 @@ static s64 xenstore_write_internal(const void * data, s64 length)
         int rv = xen_notify_evtchn(xen_info.xenstore_evtchn);
         if (rv < 0) {
             result = rv;
-            goto out;
+            break;
         }
         result += nwrite;
     } while (length > 0);
 
-  out:
-    irq_restore(flags);
     return result;
 }
 
@@ -514,7 +577,6 @@ static s64 xenstore_read_internal(buffer b, s64 length)
     assert(length > 0);
 
     s64 result = 0;
-    u64 flags = irq_disable_save();
 
     do {
         u64 produced = xsdi->rsp_prod - xsdi->rsp_cons;
@@ -522,7 +584,7 @@ static s64 xenstore_read_internal(buffer b, s64 length)
         u64 offset = MASK_XENSTORE_IDX(xsdi->rsp_cons);
         u64 navail = MIN(produced, XENSTORE_RING_SIZE - offset);
         if (navail == 0) /* XXX actually should loop around if truncated at end of ring... */
-            goto out;
+            break;
         u64 nread = MIN(navail, length);
         if (nread == 0)
             continue;
@@ -535,13 +597,11 @@ static s64 xenstore_read_internal(buffer b, s64 length)
         int rv = xen_notify_evtchn(xen_info.xenstore_evtchn);
         if (rv < 0) {
             result = rv;
-            goto out;
+            break;
         }
         result += nread;
     } while (length > 0);
 
-  out:
-    irq_restore(flags);
     return result;
 }
 
@@ -591,6 +651,7 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
     msg.req_id = 0;
     msg.type = type;
     msg.len = len;
+    xenstore_lock();
 
     /* send request */
     s = xenstore_sync_write(&msg, sizeof(msg));
@@ -601,11 +662,18 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
         goto out_dealloc;
 
     /* receive response */
-    s = xenstore_sync_read(rbuf, sizeof(msg));
-    if (!is_ok(s))
-        goto out_dealloc;
-
     struct xsd_sockmsg *rmsg = (struct xsd_sockmsg *)buffer_ref(rbuf, 0);
+    while (true) {
+        s = xenstore_sync_read(rbuf, sizeof(msg));
+        if (!is_ok(s))
+            goto out_dealloc;
+        if (rmsg->type == XS_WATCH_EVENT) {
+            xenstore_watch_event(rmsg);
+            buffer_clear(rbuf);
+        } else {
+            break;
+        }
+    }
     xenstore_debug("  response header: type %d, req_id %d, tx_id %d, len %d",
                    rmsg->type, rmsg->req_id, rmsg->tx_id, rmsg->len);
 
@@ -621,6 +689,7 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
         goto out_dealloc;
     }
   out_dealloc:
+    xenstore_unlock();
     deallocate_buffer(rbuf);
     return s;
 }
@@ -691,6 +760,22 @@ status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
     *result = val;
   out:
     deallocate_buffer(request);
+    deallocate_buffer(response);
+    return s;
+}
+
+status xenstore_watch(buffer path, xenstore_watch_handler handler, boolean watch)
+{
+    buffer request = little_stack_buffer(buffer_length(path) + 18);
+    buffer response = allocate_buffer(xen_info.h, 8);
+    if (response == INVALID_ADDRESS)
+        return timm("result", "failed to allocate memory");
+    push_buffer(request, path);
+    push_u8(request, 0);
+    xenstore_debug("%swatching %s", watch ? "" : "un", buffer_ref(request, 0));
+    bprintf(request, "%lx", handler);   /* the handler address is used as watch token */
+    push_u8(request, 0);
+    status s = xenstore_sync_request(0, watch ? XS_WATCH : XS_UNWATCH, request, response);
     deallocate_buffer(response);
     return s;
 }
