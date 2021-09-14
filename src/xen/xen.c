@@ -702,7 +702,8 @@ status xenbus_get_state(buffer path, XenbusState *state)
     status s = xenstore_read_u64(0, path, "state", &val);
     if (!is_ok(s))
         *state = XenbusStateUnknown;
-    *state = val;
+    else
+        *state = val;
     return s;
 }
 
