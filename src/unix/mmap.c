@@ -352,9 +352,13 @@ vmap allocate_vmap(rangemap rm, range q, struct vmap k)
     vm->allowed_flags = k.allowed_flags;
     vm->node_offset = k.node_offset;
     vm->cache_node = k.cache_node;
+    vm->fsf = k.fsf;
     if (!rangemap_insert(rm, &vm->node)) {
         deallocate(rm->h, vm, sizeof(struct vmap));
         return INVALID_ADDRESS;
+    }
+    if (vm->fsf) {
+        fsfile_reserve(vm->fsf);
     }
     return vm;
 }
@@ -362,6 +366,9 @@ vmap allocate_vmap(rangemap rm, range q, struct vmap k)
 /* TODO maybe refcount makes more sense now that we have asynchronous faults */
 void deallocate_vmap(rangemap rm, vmap vm)
 {
+    if (vm->fsf) {
+        fsfile_release(vm->fsf);
+    }
     deallocate(rm->h, vm, sizeof(struct vmap));
 }
 
@@ -673,7 +680,7 @@ closure_function(4, 1, void, vmap_update_protections_intersection,
         assert(allocate_vmap(pvmap, ri, ivmap(newflags,
                                               match->allowed_flags,
                                               node_offset + (ri.start - rn.start),
-                                              match->cache_node)) != INVALID_ADDRESS);
+                                              match->fsf)) != INVALID_ADDRESS);
 
         if (tail) {
             /* create node at tail end */
@@ -681,7 +688,7 @@ closure_function(4, 1, void, vmap_update_protections_intersection,
                                 ivmap(match->flags,
                                       match->allowed_flags,
                                       node_offset + (ri.end - rn.start),
-                                      match->cache_node)) != INVALID_ADDRESS);
+                                      match->fsf)) != INVALID_ADDRESS);
         }
     } else if (tail) {
         /* move node start back */
@@ -693,7 +700,7 @@ closure_function(4, 1, void, vmap_update_protections_intersection,
                              ivmap(newflags,
                                    match->allowed_flags,
                                    node_offset + (ri.start - rn.start),
-                                   match->cache_node)) != INVALID_ADDRESS);
+                                   match->fsf)) != INVALID_ADDRESS);
     }
 }
 
@@ -766,7 +773,7 @@ closure_function(4, 1, void, vmap_remove_intersection,
     range rn = node->r;
     range ri = range_intersection(bound(q), rn);
     boolean dealloc = bound(dealloc) || !(match->flags & VMAP_FLAG_PREALLOC);
-    struct vmap nonmapped = ivmap(0, 0, 0, match->cache_node);
+    struct vmap nonmapped = ivmap(0, 0, 0, match->fsf);
 
     /* trim match at both head and tail ends */
     boolean head = ri.start > rn.start;
@@ -793,7 +800,7 @@ closure_function(4, 1, void, vmap_remove_intersection,
                                  ivmap(match->flags,
                                        match->allowed_flags,
                                        node_offset + (ri.end - rn.start),
-                                       match->cache_node)) != INVALID_ADDRESS);
+                                       match->fsf)) != INVALID_ADDRESS);
         }
     } else {
         /* tail only: move node start back */
@@ -810,7 +817,7 @@ closure_function(4, 1, void, vmap_remove_intersection,
         struct vmap k = ivmap(match->flags,
                               0,
                               node_offset + (ri.start - rn.start),
-                              match->cache_node);
+                              match->fsf);
         k.node.r = ri;
         apply(bound(unmap), &k);
     }
@@ -827,7 +834,7 @@ closure_function(4, 1, void, vmap_paint_gap,
                          ivmap(k->flags,
                                k->allowed_flags,
                                k->node_offset + (r.start - bound(q).start),
-                               k->cache_node)) != INVALID_ADDRESS);
+                               k->fsf)) != INVALID_ADDRESS);
 }
 
 static void vmap_return_virtual(process p, vmap k)
@@ -917,7 +924,7 @@ void truncate_file_maps(process p, fsfile f, u64 new_length)
 /* Paint into process vmap */
 static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
                        u32 allowed_flags,
-                       pagecache_node cache_node, u32 node_offset)
+                       fsfile fsf, u32 node_offset)
 {
     range q = irangel(where, len);
     assert((q.start & MASK(PAGELOG)) == 0);
@@ -930,7 +937,7 @@ static void vmap_paint(heap h, process p, u64 where, u64 len, u32 vmflags,
     rangemap_range_lookup(pvmap, q, stack_closure(vmap_remove_intersection, pvmap, q, vh, true));
     rangemap_range_find_gaps(pvmap, q, stack_closure(vmap_paint_gap, h, pvmap, q,
                                                      ivmap(vmflags, allowed_flags,
-                                                           node_offset, cache_node)));
+                                                           node_offset, fsf)));
 
     update_map_flags(q.start, range_span(q), pageflags_from_vmflags(vmflags));
     vmap_unlock(p);
@@ -1160,7 +1167,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             thread_log(current, "   associated with cache node %p @ offset 0x%lx", node, offset);
             if (vmflags & VMAP_FLAG_SHARED)
                 pagecache_node_add_shared_map(node, irangel(where, len), offset);
-            vmap_paint(mmap_info.h, p, where, len, vmflags, allowed_flags, node, offset);
+            vmap_paint(mmap_info.h, p, where, len, vmflags, allowed_flags, f->fsf, offset);
         }
         break;
     default:

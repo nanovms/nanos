@@ -1013,6 +1013,20 @@ static void filebacked_test(heap h)
     if (close(fd) < 0)
         handle_err("close read-only file");
 
+    printf("** testing mmap with closed file descriptor\n");
+    fd = open(".", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        handle_err("open tmpfile");
+    rv = ftruncate(fd, PAGESIZE);
+    if (rv < 0)
+        handle_err("ftruncate for tmpfile");
+    p = mmap(NULL, PAGESIZE, PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap tmpfile");
+    close(fd);
+    *(uint64_t *)p = 0; /* random access to file-backed memory */
+    __munmap(p, PAGESIZE);
+
     printf("** all file-backed tests passed\n");
 }
 

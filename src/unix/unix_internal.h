@@ -424,6 +424,7 @@ typedef struct vmap {
     u32 allowed_flags;
     pagecache_node cache_node;
     u64 node_offset;
+    fsfile fsf;
 } *vmap;
 
 typedef struct varea {
@@ -432,11 +433,12 @@ typedef struct varea {
     boolean allow_fixed;
 } *varea;
 
-#define ivmap(__f, __af, __o, __c) (struct vmap) {  \
+#define ivmap(__f, __af, __o, __fsf) (struct vmap) {        \
     .flags = __f,                                   \
     .allowed_flags = __f | __af,                    \
     .node_offset = __o,                             \
-    .cache_node = __c,                              \
+    .cache_node = __fsf ? fsfile_get_cachenode(__fsf) : 0,  \
+    .fsf = __fsf,                                   \
 }
 typedef closure_type(vmap_handler, void, vmap);
 
