@@ -272,3 +272,27 @@ void storage_iterate(volume_handler vh)
     storage_unlock();
 }
 KLIB_EXPORT(storage_iterate);
+
+void storage_detach(block_io r, block_io w, thunk complete)
+{
+    storage_debug("%s", __func__);
+    volume vol = 0;
+    storage_lock();
+    list_foreach(&storage.volumes, e) {
+        volume v = struct_from_list(e, volume, l);
+        if ((v->r == r) && (v->w == w)) {
+            list_delete(&v->l);
+            vol = v;
+            break;
+        }
+    }
+    storage_unlock();
+    if (vol) {
+        storage_debug("  detaching volume %p, filesystem %p", vol, vol->fs);
+        if (vol->fs)
+            filesystem_unmount(storage.root_fs, vol->mount_dir, vol->fs, complete);
+        else
+            apply(complete);
+        deallocate(storage.h, vol, sizeof(*vol));
+    }
+}

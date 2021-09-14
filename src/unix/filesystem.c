@@ -95,7 +95,11 @@ fs_status filesystem_chdir(process p, const char *path)
         fss = FS_STATUS_NOENT;
         goto out;
     }
-    p->cwd_fs = fs;
+    if (fs != p->cwd_fs) {
+        filesystem_release(p->cwd_fs);
+        filesystem_reserve(fs);
+        p->cwd_fs = fs;
+    }
     p->cwd = n;
   out:
     process_unlock(p);
@@ -179,7 +183,9 @@ sysreturn symlink(const char *target, const char *linkpath)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return symlink_internal(cwd_fs, cwd, linkpath, target);
+    sysreturn rv = symlink_internal(cwd_fs, cwd, linkpath, target);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath)
@@ -187,7 +193,9 @@ sysreturn symlinkat(const char *target, int dirfd, const char *linkpath)
     thread_log(current, "symlinkat %d %s -> %s", dirfd, linkpath, target);
     filesystem fs;
     tuple cwd = resolve_dir(fs, dirfd, linkpath);
-    return symlink_internal(fs, cwd, linkpath, target);
+    sysreturn rv = symlink_internal(fs, cwd, linkpath, target);
+    filesystem_release(fs);
+    return rv;
 }
 
 static sysreturn utime_internal(const char *filename, timestamp actime,
@@ -197,13 +205,18 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
     filesystem fs;
     tuple cwd;
     process_get_cwd(current->p, &fs, &cwd);
+    filesystem cwd_fs = fs;
     int ret = resolve_cstring(&fs, cwd, filename, &t, 0);
+    sysreturn rv;
     if (ret) {
-        return set_syscall_return(current, ret);
+        rv = ret;
+    } else {
+        filesystem_set_atime(fs, t, actime);
+        filesystem_set_mtime(fs, t, modtime);
+        rv = 0;
     }
-    filesystem_set_atime(fs, t, actime);
-    filesystem_set_mtime(fs, t, modtime);
-    return set_syscall_return(current, 0);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn utime(const char *filename, const struct utimbuf *times)
@@ -258,12 +271,17 @@ sysreturn statfs(const char *path, struct statfs *buf)
     filesystem fs;
     tuple cwd;
     process_get_cwd(current->p, &fs, &cwd);
+    filesystem cwd_fs = fs;
     tuple t;
     int ret = resolve_cstring(&fs, cwd, path, &t, 0);
+    sysreturn rv;
     if (ret) {
-        return set_syscall_return(current, ret);
+        rv = ret;
+    } else {
+        rv = statfs_internal(fs, t, buf);
     }
-    return statfs_internal(fs, t, buf);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn fstatfs(int fd, struct statfs *buf)
@@ -372,6 +390,7 @@ sysreturn fadvise64(int fd, s64 off, u64 len, int advice)
 void file_release(file f)
 {
     release_fdesc(&f->f);
+    filesystem_release(f->fs);
     unix_cache_free(get_unix_heaps(), file, f);
 }
 KLIB_EXPORT(file_release);

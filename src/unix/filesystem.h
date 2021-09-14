@@ -3,15 +3,14 @@
     process p = current->p; \
     if (*(__path) == '/') { \
         __fs = p->root_fs;              \
+        filesystem_reserve(__fs);       \
         cwd = filesystem_getroot(__fs); \
     } else if (__dirfd == AT_FDCWD) { \
-        process_lock(p);              \
-        __fs = p->cwd_fs;             \
-        cwd = p->cwd;                 \
-        process_unlock(p);            \
+        process_get_cwd(p, &__fs, &cwd);    \
     } else { \
         file f = resolve_fd(p, __dirfd);    \
         __fs = f->fs;               \
+        filesystem_reserve(__fs);   \
         tuple t = file_get_meta(f); \
         fdesc_put(&f->f);           \
         if (!t || !is_dir(t)) return set_syscall_error(current, ENOTDIR); \

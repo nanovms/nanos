@@ -4,6 +4,7 @@ typedef closure_type(filesystem_complete, void, filesystem, status);
 
 typedef struct fsfile *fsfile;
 
+filesystem fsfile_get_fs(fsfile f);
 pagecache_volume filesystem_get_pagecache_volume(filesystem fs);
 
 u64 fsfile_get_length(fsfile f);
@@ -45,6 +46,9 @@ void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler com
 void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler completion);
 
 void filesystem_flush(filesystem fs, status_handler completion);
+
+void filesystem_reserve(filesystem fs);
+void filesystem_release(filesystem fs);
 
 timestamp filesystem_get_atime(filesystem fs, tuple t);
 timestamp filesystem_get_mtime(filesystem fs, tuple t);
@@ -115,6 +119,7 @@ fs_status filesystem_get_socket(filesystem fs, tuple cwd, const char *path, void
 fs_status filesystem_clear_socket(filesystem fs, tuple t);
 
 fs_status filesystem_mount(filesystem parent, tuple mount_dir, filesystem child);
+void filesystem_unmount(filesystem parent, tuple mount_dir, filesystem child, thunk complete);
 
 tuple filesystem_getroot(filesystem fs);
 

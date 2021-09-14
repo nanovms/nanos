@@ -924,6 +924,7 @@ sysreturn open_internal(filesystem fs, tuple cwd, const char *name, int flags,
         deallocate_buffer(b);
     }
     thread_log(current, "   fd %d, length %ld, offset %ld", fd, f->length, f->offset);
+    filesystem_reserve(fs);
     return fd;
 }
 
@@ -934,7 +935,9 @@ sysreturn open(const char *name, int flags, int mode)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return open_internal(cwd_fs, cwd, name, flags, mode);
+    sysreturn rv = open_internal(cwd_fs, cwd, name, flags, mode);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 #endif
 
@@ -1018,7 +1021,9 @@ sysreturn mkdir(const char *pathname, int mode)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return mkdir_internal(cwd_fs, cwd, pathname, mode);
+    sysreturn rv = mkdir_internal(cwd_fs, cwd, pathname, mode);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 /*
@@ -1042,7 +1047,9 @@ sysreturn mkdirat(int dirfd, char *pathname, int mode)
     tuple cwd;
     cwd = resolve_dir(fs, dirfd, pathname);
 
-    return mkdir_internal(fs, cwd, pathname, mode);
+    sysreturn rv = mkdir_internal(fs, cwd, pathname, mode);
+    filesystem_release(fs);
+    return rv;
 }
 
 sysreturn creat(const char *pathname, int mode)
@@ -1051,8 +1058,10 @@ sysreturn creat(const char *pathname, int mode)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return open_internal(cwd_fs, cwd, pathname,
+    sysreturn rv = open_internal(cwd_fs, cwd, pathname,
         O_CREAT|O_WRONLY|O_TRUNC, mode);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
@@ -1248,7 +1257,11 @@ sysreturn fchdir(int dirfd)
     }
 
     process_lock(p);
-    p->cwd_fs = f->fs;
+    if (f->fs != p->cwd_fs) {
+        filesystem_release(p->cwd_fs);
+        filesystem_reserve(f->fs);
+        p->cwd_fs = f->fs;
+    }
     p->cwd = cwd;
     process_unlock(p);
     rv = 0;
@@ -1290,13 +1303,18 @@ sysreturn truncate(const char *path, long length)
     filesystem fs;
     tuple cwd;
     process_get_cwd(current->p, &fs, &cwd);
+    filesystem cwd_fs = fs;
     int ret = resolve_cstring_follow(&fs, cwd, path, &t, 0);
+    sysreturn rv;
     if (ret) {
-        return set_syscall_return(current, ret);
+        rv = ret;
+    } else if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE)) {
+        rv = -EACCES;
+    } else {
+        rv = truncate_internal(fs, fsfile_from_node(fs, t), 0, t, length);
     }
-    if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE))
-        return -EACCES;
-    return truncate_internal(fs, fsfile_from_node(fs, t), 0, t, length);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn ftruncate(int fd, long length)
@@ -1402,9 +1420,11 @@ sysreturn faccessat(int dirfd, const char *pathname, int mode)
     thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname, mode);
     if (!validate_user_string(pathname))
         return -EFAULT;
-    filesystem fs;              /* dummy */
+    filesystem fs;
     tuple cwd = resolve_dir(fs, dirfd, pathname);
-    return access_internal(cwd, pathname, mode);
+    sysreturn rv = access_internal(cwd, pathname, mode);
+    filesystem_release(fs);
+    return rv;
 }
 
 /*
@@ -1428,7 +1448,9 @@ sysreturn openat(int dirfd, const char *name, int flags, int mode)
     tuple cwd;
     cwd = resolve_dir(fs, dirfd, name);
 
-    return open_internal(fs, cwd, name, flags, mode);
+    sysreturn rv = open_internal(fs, cwd, name, flags, mode);
+    filesystem_release(fs);
+    return rv;
 }
 
 static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s)
@@ -1532,16 +1554,27 @@ static sysreturn stat_internal(filesystem fs, tuple cwd, const char *name, boole
 }
 
 #ifdef __x86_64__
+
+static sysreturn stat_cwd(const char *name, boolean follow, struct stat *buf)
+{
+    filesystem cwd_fs;
+    tuple cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    sysreturn rv = stat_internal(cwd_fs, cwd, name, follow, buf);
+    filesystem_release(cwd_fs);
+    return rv;
+}
+
 static sysreturn stat(const char *name, struct stat *buf)
 {
     thread_log(current, "stat: \"%s\", buf %p", name, buf);
-    return stat_internal(current->p->cwd_fs, current->p->cwd, name, true, buf);
+    return stat_cwd(name, true, buf);
 }
 
 static sysreturn lstat(const char *name, struct stat *buf)
 {
     thread_log(current, "lstat: \"%s\", buf %p", name, buf);
-    return stat_internal(current->p->cwd_fs, current->p->cwd, name, false, buf);
+    return stat_cwd(name, false, buf);
 }
 #endif
 
@@ -1558,7 +1591,9 @@ static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags
     // Else, if we have a fd of a directory, resolve name to it.
     filesystem fs;
     tuple n = resolve_dir(fs, dfd, name);
-    return stat_internal(fs, n, name, !(flags & AT_SYMLINK_NOFOLLOW), s);
+    sysreturn rv = stat_internal(fs, n, name, !(flags & AT_SYMLINK_NOFOLLOW), s);
+    filesystem_release(fs);
+    return rv;
 }
 
 sysreturn lseek(int fd, s64 offset, int whence)
@@ -1788,7 +1823,9 @@ sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return readlink_internal(cwd_fs, cwd, pathname, buf, bufsiz);
+    sysreturn rv = readlink_internal(cwd_fs, cwd, pathname, buf, bufsiz);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
@@ -1796,7 +1833,9 @@ sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
     thread_log(current, "readlinkat: \"%s\", dirfd %d", pathname, dirfd);
     filesystem fs;
     tuple cwd = resolve_dir(fs, dirfd, pathname);
-    return readlink_internal(fs, cwd, pathname, buf, bufsiz);
+    sysreturn rv = readlink_internal(fs, cwd, pathname, buf, bufsiz);
+    filesystem_release(fs);
+    return rv;
 }
 
 static sysreturn unlink_internal(filesystem fs, tuple cwd, const char *pathname)
@@ -1865,7 +1904,9 @@ sysreturn unlink(const char *pathname)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return unlink_internal(cwd_fs, cwd, pathname);
+    sysreturn rv = unlink_internal(cwd_fs, cwd, pathname);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn unlinkat(int dirfd, const char *pathname, int flags)
@@ -1878,12 +1919,15 @@ sysreturn unlinkat(int dirfd, const char *pathname, int flags)
     }
     filesystem fs;
     tuple cwd = resolve_dir(fs, dirfd, pathname);
+    sysreturn rv;
     if (flags & AT_REMOVEDIR) {
-        return rmdir_internal(fs, cwd, pathname);
+        rv = rmdir_internal(fs, cwd, pathname);
     }
     else {
-        return unlink_internal(fs, cwd, pathname);
+        rv = unlink_internal(fs, cwd, pathname);
     }
+    filesystem_release(fs);
+    return rv;
 }
 
 sysreturn rmdir(const char *pathname)
@@ -1894,7 +1938,9 @@ sysreturn rmdir(const char *pathname)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return rmdir_internal(cwd_fs, cwd, pathname);
+    sysreturn rv = rmdir_internal(cwd_fs, cwd, pathname);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 static sysreturn rename_internal(filesystem oldfs, tuple oldwd,
@@ -1956,7 +2002,9 @@ sysreturn rename(const char *oldpath, const char *newpath)
     filesystem cwd_fs;
     tuple cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    return rename_internal(cwd_fs, cwd, oldpath, cwd_fs, cwd, newpath);
+    sysreturn rv = rename_internal(cwd_fs, cwd, oldpath, cwd_fs, cwd, newpath);
+    filesystem_release(cwd_fs);
+    return rv;
 }
 
 sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
@@ -1969,7 +2017,10 @@ sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
     filesystem oldfs, newfs;
     tuple oldwd = resolve_dir(oldfs, olddirfd, oldpath);
     tuple newwd = resolve_dir(newfs, newdirfd, newpath);
-    return rename_internal(oldfs, oldwd, oldpath, newfs, newwd, newpath);
+    sysreturn rv = rename_internal(oldfs, oldwd, oldpath, newfs, newwd, newpath);
+    filesystem_release(oldfs);
+    filesystem_release(newfs);
+    return rv;
 }
 
 sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
@@ -1986,41 +2037,54 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
     filesystem oldfs, newfs;
     tuple oldwd = resolve_dir(oldfs, olddirfd, oldpath);
     tuple newwd = resolve_dir(newfs, newdirfd, newpath);
+    sysreturn rv;
     if (flags & RENAME_EXCHANGE) {
         if (filepath_is_ancestor(oldwd, oldpath, newwd, newpath) ||
                 filepath_is_ancestor(newwd, newpath, oldwd, oldpath)) {
-            return set_syscall_error(current, EINVAL);
+            rv = -EINVAL;
+            goto out;
         }
         int ret;
         tuple old, new;
         tuple oldparent, newparent;
         ret = resolve_cstring(&oldfs, oldwd, oldpath, &old, &oldparent);
         if (ret) {
-            return set_syscall_return(current, ret);
+            rv = ret;
+            goto out;
         }
         ret = resolve_cstring(&newfs, newwd, newpath, &new, &newparent);
         if (ret) {
-            return set_syscall_return(current, ret);
+            rv = ret;
+            goto out;
         }
-        if (oldfs != newfs)
-            return -EXDEV;
-        if ((newparent == oldparent) && (new == old))
-            return 0;
+        if (oldfs != newfs) {
+            rv = -EXDEV;
+            goto out;
+        }
+        if ((newparent == oldparent) && (new == old)) {
+            rv = 0;
+            goto out;
+        }
         fs_status s = filesystem_exchange(oldfs, oldparent,
             lookup_sym(oldparent, old), newparent, lookup_sym(newparent, new));
         if (s == FS_STATUS_OK) {
             filesystem_update_mtime(oldfs, oldparent);
             filesystem_update_mtime(newfs, newparent);
         }
-        return sysreturn_from_fs_status(s);
+        rv = sysreturn_from_fs_status(s);
     }
     else {
         if ((flags & RENAME_NOREPLACE) &&
                 !resolve_cstring(0, newwd, newpath, 0, 0)) {
-            return set_syscall_error(current, EEXIST);
+            rv = -EEXIST;
+        } else {
+            rv = rename_internal(oldfs, oldwd, oldpath, newfs, newwd, newpath);
         }
-        return rename_internal(oldfs, oldwd, oldpath, newfs, newwd, newpath);
     }
+  out:
+    filesystem_release(oldfs);
+    filesystem_release(newfs);
+    return rv;
 }
 
 /* File paths are treated as absolute paths. */

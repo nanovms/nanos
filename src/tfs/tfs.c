@@ -49,6 +49,11 @@ const char *string_from_fs_status(fs_status s)
     }
 }
 
+filesystem fsfile_get_fs(fsfile f)
+{
+    return f->fs;
+}
+
 pagecache_volume filesystem_get_pagecache_volume(filesystem fs)
 {
     return fs->pv;
@@ -982,6 +987,37 @@ void filesystem_flush(filesystem fs, status_handler completion)
     log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion, false));
 }
 
+void filesystem_reserve(filesystem fs)
+{
+    refcount_reserve(&fs->refcount);
+}
+
+void filesystem_release(filesystem fs)
+{
+    refcount_release(&fs->refcount);
+}
+
+define_closure_function(1, 1, void, fs_free,
+                        filesystem, fs,
+                        status, s)
+{
+    if (!is_ok(s)) {
+        msg_warn("failed to flush filesystem: %v\n", s);
+        timm_dealloc(s);
+    }
+    filesystem fs = bound(fs);
+    if (fs->sync_complete)
+        apply(fs->sync_complete);
+    destroy_filesystem(fs);
+}
+
+define_closure_function(1, 0, void, fs_sync,
+                        filesystem, fs)
+{
+    filesystem fs = bound(fs);
+    filesystem_flush(fs, init_closure(&fs->free, fs_free, fs));
+}
+
 closure_function(2, 1, void, filesystem_op_complete,
                  fsfile, f, fs_status_handler, sh,
                  status, s)
@@ -1514,6 +1550,8 @@ void create_filesystem(heap h,
     fs->storage = create_id_heap(h, h, 0, size >> fs->blocksize_order, 1, false);
     assert(fs->storage != INVALID_ADDRESS);
     fs->temp_log = 0;
+    init_refcount(&fs->refcount, 1, init_closure(&fs->sync, fs_sync, fs));
+    fs->sync_complete = 0;
 #else
     fs->w = 0;
     fs->storage = 0;
@@ -1539,8 +1577,8 @@ closure_function(1, 1, void, dealloc_extent_node,
     deallocate(bound(fs)->h, n, sizeof(struct extent));
 }
 
-/* This is only for freeing up a filesystem that is only read; any pending
- * writes are not flushed). */
+/* If the filesystem is not read-only, this function can only be called after flushing any pending
+ * writes. */
 void destroy_filesystem(filesystem fs)
 {
     tfs_debug("%s %p\n", __func__, fs);
@@ -1807,6 +1845,7 @@ fs_status filesystem_mk_socket(filesystem *fs, tuple cwd, const char *path, void
     fss = do_mkentry(*fs, parent, filename_from_path(path), sock, true);
     if (fss == FS_STATUS_OK) {
         *t = sock;
+        filesystem_reserve(*fs);
         return fss;
     }
   err:
@@ -1835,6 +1874,7 @@ fs_status filesystem_clear_socket(filesystem fs, tuple t)
     tuple sock_handle = get_tuple(t, sym(handle));
     buffer b = get(sock_handle, sym(value));    // XXX untyped binary
     buffer_clear(b);
+    filesystem_release(fs);
     return FS_STATUS_OK;
 }
 
@@ -1853,6 +1893,15 @@ fs_status filesystem_mount(filesystem parent, tuple mount_dir, filesystem child)
     set(mount, sym(no_encode), null_value); /* non-persistent entry */
     set(mount_dir, sym(mount), mount);
     return FS_STATUS_OK;
+}
+
+void filesystem_unmount(filesystem parent, tuple mount_dir, filesystem child, thunk complete)
+{
+    tuple mount = get_tuple(mount_dir, sym(mount));
+    set(mount_dir, sym(mount), 0);
+    destruct_tuple(mount, true);
+    child->sync_complete = complete;
+    filesystem_release(child);
 }
 
 boolean dirname_from_path(buffer dest, const char *path)

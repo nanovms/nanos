@@ -149,6 +149,15 @@ int xen_unmask_evtchn(evtchn_port_t evtchn)
     return HYPERVISOR_event_channel_op(&eop);
 }
 
+int xen_close_evtchn(evtchn_port_t evtchn)
+{
+    vector_set(xen_info.evtchn_handlers, evtchn, 0);
+    evtchn_op_t eop;
+    eop.cmd = EVTCHNOP_close;
+    eop.u.close.port = evtchn;
+    return HYPERVISOR_event_channel_op(&eop);
+}
+
 #define GTAB_RESERVED_ENTRIES 8
 
 static boolean xen_grant_init(kernel_heaps kh)
@@ -812,6 +821,14 @@ status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate)
     return xenstore_sync_printf(tx_id, path, "state", "%d", newstate);
 }
 
+status xenbus_watch_state(buffer path, xenstore_watch_handler handler, boolean watch)
+{
+    buffer state_path = little_stack_buffer(buffer_length(path) + 6);
+    push_buffer(state_path, path);
+    buffer_write_cstring(state_path, "/state");
+    return xenstore_watch(state_path, handler, watch);
+}
+
 status xendev_attach(xen_dev xd, int id, buffer frontend, tuple meta)
 {
     xd->if_id = id;
@@ -908,6 +925,11 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
 static inline status traverse_directory(heap h, const char * path, tuple *node)
 {
     return traverse_directory_internal(h, alloca_wrap_buffer(path, runtime_strlen(path) + 1), node);
+}
+
+void xen_driver_unbind(tuple meta)
+{
+    set(meta, sym(bound), 0);
 }
 
 closure_function(4, 2, boolean, xen_probe_id_each,

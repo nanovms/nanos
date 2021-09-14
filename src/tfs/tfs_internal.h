@@ -11,6 +11,12 @@
 
 typedef struct log *log;
 
+declare_closure_struct(1, 0, void, fs_sync,
+                       struct filesystem *, fs);
+declare_closure_struct(1, 1, void, fs_free,
+                       struct filesystem *, fs,
+                       status, s);
+
 typedef struct filesystem {
     id_heap storage;
     u64 size;
@@ -33,6 +39,10 @@ typedef struct filesystem {
     u64 next_extend_log_offset;
     u64 next_new_log_offset;
     tuple root;
+    struct refcount refcount;
+    closure_struct(fs_sync, sync);
+    thunk sync_complete;
+    closure_struct(fs_free, free);
 } *filesystem;
 
 declare_closure_struct(1, 1, void, fsf_sync_complete,

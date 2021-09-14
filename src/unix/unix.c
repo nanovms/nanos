@@ -350,6 +350,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         p->virtual = 0;
         p->vareas = p->vmaps = INVALID_ADDRESS;
     }
+    filesystem_reserve(fs); /* because it hosts the current working directory */
     p->root_fs = p->cwd_fs = fs;
     p->cwd = root;
     p->process_root = root;
@@ -374,6 +375,7 @@ void process_get_cwd(process p, filesystem *cwd_fs, tuple *cwd)
 {
     process_lock(p);
     *cwd_fs = p->cwd_fs;
+    filesystem_reserve(*cwd_fs);
     *cwd = p->cwd;
     process_unlock(p);
 }

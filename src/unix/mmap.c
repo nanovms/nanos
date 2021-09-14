@@ -358,6 +358,7 @@ vmap allocate_vmap(rangemap rm, range q, struct vmap k)
         return INVALID_ADDRESS;
     }
     if (vm->fsf) {
+        filesystem_reserve(fsfile_get_fs(vm->fsf));
         fsfile_reserve(vm->fsf);
     }
     return vm;
@@ -368,6 +369,7 @@ void deallocate_vmap(rangemap rm, vmap vm)
 {
     if (vm->fsf) {
         fsfile_release(vm->fsf);
+        filesystem_release(fsfile_get_fs(vm->fsf));
     }
     deallocate(rm->h, vm, sizeof(struct vmap));
 }

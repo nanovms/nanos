@@ -30,10 +30,20 @@ declare_closure_struct(1, 0, void, xenblk_event_handler,
 declare_closure_struct(1, 0, void, xenblk_bh_service,
                        xenblk_dev, xbd);
 
+declare_closure_struct(1, 1, void, xenblk_watch_handler,
+                       xenblk_dev, xbd,
+                       const char *, path);
+declare_closure_struct(1, 0, void, xenblk_watch_service,
+                       xenblk_dev, xbd);
+declare_closure_struct(1, 0, void, xenblk_detach_complete,
+                       xenblk_dev, xbd)
+
 struct xenblk_dev {
     struct xen_dev dev;
     heap h;
     heap contiguous;
+    storage_attach sa;
+    tuple meta;
     u64 capacity;
     blkif_front_ring_t ring;
     grant_ref_t ring_gntref;
@@ -42,6 +52,9 @@ struct xenblk_dev {
     closure_struct(xenblk_io, write);
     closure_struct(xenblk_event_handler, event_handler);
     closure_struct(xenblk_bh_service, bh_service);
+    closure_struct(xenblk_watch_handler, watch_handler);
+    closure_struct(xenblk_watch_service, watch_service);
+    closure_struct(xenblk_detach_complete, detach_complete);
     vector rreqs;   /* xenblk_ring_req */
     struct list pending, done, free;    /* xenblk_req */
     struct list free_rreqs; /* xenblk_ring_req */
@@ -259,6 +272,113 @@ define_closure_function(1, 0, void, xenblk_bh_service,
     spin_unlock(&xbd->lock);
 }
 
+static void xenblk_remove(xenblk_dev xbd)
+{
+    xenblk_debug("removing device %p", xbd);
+    status s = xenbus_watch_state(xbd->dev.backend, (xenstore_watch_handler)&xbd->watch_handler,
+                                  false);
+    if (!is_ok(s)) {
+        msg_err("failed to unwatch backend state: %v\n", s);
+        timm_dealloc(s);
+        return;
+    }
+    xen_driver_unbind(xbd->meta);
+    xenbus_set_state(0, xbd->dev.frontend, XenbusStateClosed);
+    xen_close_evtchn(xbd->evtchn);
+    xen_revoke_page_access(xbd->ring_gntref);
+    deallocate(xbd->contiguous, xbd->ring.sring, PAGESIZE);
+    deallocate_vector(xbd->rreqs);
+    deallocate(xbd->h, xbd, sizeof(*xbd));
+}
+
+define_closure_function(1, 0, void, xenblk_detach_complete,
+                 xenblk_dev, xbd)
+{
+    xenblk_remove(bound(xbd));
+}
+
+define_closure_function(1, 0, void, xenblk_watch_service,
+                        xenblk_dev, xbd)
+{
+    xenblk_dev xbd = bound(xbd);
+    xen_dev xd = &xbd->dev;
+    XenbusState backend_state;
+    status s = xenbus_get_state(xbd->dev.backend, &backend_state);
+    if (!is_ok(s)) {
+        msg_err("failed to get backend state: %v\n", s);
+        timm_dealloc(s);
+        return;
+    }
+    xenblk_debug("%s(%p): backend state %d", __func__, xbd, backend_state);
+    switch (backend_state) {
+    case XenbusStateConnected: {
+        if (xbd->capacity != 0) /* disk already attached */
+            break;
+        u64 sector_size;
+        s = xenstore_read_u64(0, xd->backend, "sector-size", &sector_size);
+        if (!is_ok(s)) {
+            msg_err("cannot read sector size: %v\n", s);
+            timm_dealloc(s);
+            goto remove;
+        } else if (sector_size != SECTOR_SIZE) {
+            msg_err("unsupported sector size %ld\n", sector_size);
+            goto remove;
+        }
+        s = xenstore_read_u64(0, xd->backend, "physical-sector-size",
+            &sector_size);
+        if (!is_ok(s)) {
+            /* physical sector size is the same as logical sector size */
+            timm_dealloc(s);
+        } else if (sector_size != SECTOR_SIZE) {
+            msg_err("unsupported physical sector size %ld\n", sector_size);
+            goto remove;
+        }
+        u64 sectors;
+        s = xenstore_read_u64(0, xd->backend, "sectors", &sectors);
+        if (!is_ok(s)) {
+            msg_err("cannot read number of sectors: %v\n", s);
+            timm_dealloc(s);
+            goto remove;
+        }
+        xbd->capacity = sector_size * sectors;
+        s = xenbus_set_state(0, xd->frontend, XenbusStateConnected);
+        if (!is_ok(s)) {
+            msg_err("cannot set frontend state to connected: %v\n", s);
+            timm_dealloc(s);
+            goto remove;
+        }
+        int rv = xen_unmask_evtchn(xbd->evtchn);
+        if (rv < 0) {
+            msg_err("failed to unmask event channel %d: rv %d\n", xbd->evtchn, rv);
+            goto remove;
+        }
+        xenblk_debug("attaching disk, capacity %ld bytes", xbd->capacity);
+        apply(xbd->sa, init_closure(&xbd->read, xenblk_io, xbd, false),
+              init_closure(&xbd->write, xenblk_io, xbd, true),
+              0 /* TODO: flush */, xbd->capacity);
+        break;
+  remove:
+        xenblk_remove(xbd);
+        break;
+    }
+    case XenbusStateClosing:
+        storage_detach((block_io)&xbd->read, (block_io)&xbd->write,
+                       init_closure(&xbd->detach_complete, xenblk_detach_complete, xbd));
+        break;
+    default:
+        break;
+    }
+}
+
+define_closure_function(1, 1, void, xenblk_watch_handler,
+                        xenblk_dev, xbd,
+                        const char *, path)
+{
+    xenblk_dev xbd = bound(xbd);
+    xenblk_debug("%s: path %s", __func__, path);
+    enqueue(runqueue, &xbd->watch_service);
+}
+
 #define XENBLK_INFORM_BACKEND_RETRIES   64
 
 static status xenblk_inform_backend(xenblk_dev xbd)
@@ -331,59 +451,19 @@ static status xenblk_enable(xenblk_dev xbd)
         xenblk_event_handler, xbd));
     s = xenblk_inform_backend(xbd);
     if (!is_ok(s))
-        goto out_revoke;
-    XenbusState backend_state = XenbusStateUnknown;
-    for (int retries = 0; retries < 8; retries++) {
-        s = xenbus_get_state(xd->backend, &backend_state);
-        if (!is_ok(s)) {
-            s = timm_up(s, "result", "cannot read backend state");
-            goto out_revoke;
-        }
-        if (backend_state == XenbusStateConnected)
-            break;
-        kernel_delay(milliseconds(1 << retries));
-    }
-    if (backend_state != XenbusStateConnected) {
-        s = timm("result", "backend not connected");
-        goto out_revoke;
-    }
-    u64 sector_size;
-    s = xenstore_read_u64(0, xd->backend, "sector-size", &sector_size);
+        goto out_evtchn;
+    xbd->capacity = 0;
+    init_closure(&xbd->watch_service, xenblk_watch_service, xbd);
+    s = xenbus_watch_state(xd->backend,
+                           init_closure(&xbd->watch_handler, xenblk_watch_handler, xbd), true);
     if (!is_ok(s)) {
-        s = timm_up(s, "result", "cannot read sector size");
-        goto out_revoke;
-    } else if (sector_size != SECTOR_SIZE) {
-        s = timm("result", "unsupported sector size %ld", sector_size);
-        goto out_revoke;
-    }
-    s = xenstore_read_u64(0, xd->backend, "physical-sector-size",
-        &sector_size);
-    if (!is_ok(s)) {
-        /* physical sector size is the same as logical sector size */
-        timm_dealloc(s);
-    } else if (sector_size != SECTOR_SIZE) {
-        s = timm("result", "unsupported physical sector size %ld", sector_size);
-        goto out_revoke;
-    }
-    u64 sectors;
-    s = xenstore_read_u64(0, xd->backend, "sectors", &sectors);
-    if (!is_ok(s)) {
-        s = timm_up(s, "result", "cannot read number of sectors");
-        goto out_revoke;
-    }
-    xbd->capacity = sector_size * sectors;
-    s = xenbus_set_state(0, xd->frontend, XenbusStateConnected);
-    if (!is_ok(s)) {
-        s = timm_up(s, "result", "cannot set frontend state to connected");
-        goto out_revoke;
-    }
-    int rv = xen_unmask_evtchn(xbd->evtchn);
-    if (rv < 0) {
-        s = timm("result", "failed to unmask event channel %d: rv %d",
-            xbd->evtchn, rv);
-        goto out_revoke;
+        s = timm_up(s, "result", "failed to watch backend state");
+        xenbus_set_state(0, xbd->dev.frontend, XenbusStateClosed);
+        goto out_evtchn;
     }
     return STATUS_OK;
+  out_evtchn:
+    xen_close_evtchn(xbd->evtchn);
   out_revoke:
     xen_revoke_page_access(xbd->ring_gntref);
   out_dealloc:
@@ -422,16 +502,14 @@ closure_function(2, 3, boolean, xenblk_probe,
     list_init(&xbd->free);
     list_init(&xbd->free_rreqs);
     spin_lock_init(&xbd->lock);
+    xbd->sa = bound(sa);
+    xbd->meta = meta;
     s = xenblk_enable(xbd);
     if (!is_ok(s)) {
         msg_err("%s: cannot enable device: %v\n", __func__, s);
         timm_dealloc(s);
         goto dealloc_reqs;
     }
-    xenblk_debug("attaching disk, capacity %ld bytes", xbd->capacity);
-    apply(bound(sa), init_closure(&xbd->read, xenblk_io, xbd, false),
-          init_closure(&xbd->write, xenblk_io, xbd, true),
-          0 /* TODO: flush */, xbd->capacity);
     return true;
   dealloc_reqs:
     deallocate_vector(xbd->rreqs);
