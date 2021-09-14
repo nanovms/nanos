@@ -24,6 +24,10 @@
 
 #include "xen_internal.h"
 
+declare_closure_struct(0, 1, void, xen_watch_handler,
+                       const char *, path);
+declare_closure_struct(0, 0, void, xen_scan_service);
+
 typedef struct xen_platform_info {
     heap    h;                  /* general heap for internal use */
 
@@ -43,6 +47,10 @@ typedef struct xen_platform_info {
     evtchn_port_t xenstore_evtchn;
     struct spinlock xenstore_lock;
     vector        evtchn_handlers;
+
+    closure_struct(xen_watch_handler, watch_handler);
+    closure_struct(xen_scan_service, scan_service);
+    u64 scanning;
 
     /* grant table */
     struct gtab {
@@ -844,7 +852,8 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
         goto out;
     }
 
-    *parent = allocate_tuple();
+    if (!*parent)
+        *parent = allocate_tuple();
 
     buffer splice = allocate_buffer(h, buffer_length(path) + 16);
     assert(buffer_write(splice, buffer_ref(path, 0), buffer_length(path) - 1));
@@ -856,21 +865,34 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
         int child_len = runtime_strlen(child) + 1;
         assert(buffer_write(splice, child, child_len));
 
-        value child_node = 0;
-        s = traverse_directory_internal(h, splice, (tuple *)&child_node);
+        value child_node = get(*parent, sym_this(child));
+        tuple t = child_node;
+        s = traverse_directory_internal(h, splice, &t);
         if (!is_ok(s))
             goto out;
 
-        if (!child_node) {
+        if (!t) {
             /* leaf node, read content */
-            buffer leaf_value = allocate_buffer(h, 8);
-            assert(leaf_value != INVALID_ADDRESS); /* XXX iron out inconsistencies */
+            buffer leaf_value;
+            if (!child_node) {
+                leaf_value = allocate_buffer(h, 8);
+                if (leaf_value == INVALID_ADDRESS) {
+                    s = timm("result", "failed to allocate memory");
+                    goto out_slice;
+                }
+            } else {
+                buffer_clear(child_node);
+                leaf_value = child_node;
+            }
             s = xenstore_sync_request(0, XS_READ, splice, leaf_value);
             if (!is_ok(s)) {
-                deallocate_buffer(leaf_value);
+                if (!child_node)
+                    deallocate_buffer(leaf_value);
                 goto out_slice;
             }
             child_node = (value)leaf_value;
+        } else {
+            child_node = t;
         }
         set(*parent, sym_this(child), child_node);
         buffer_consume(response, child_len);
@@ -888,21 +910,39 @@ static inline status traverse_directory(heap h, const char * path, tuple *node)
     return traverse_directory_internal(h, alloca_wrap_buffer(path, runtime_strlen(path) + 1), node);
 }
 
-closure_function(3, 2, boolean, xen_probe_id_each,
-                 xen_driver, xd, string, name, status *, s,
+closure_function(4, 2, boolean, xen_probe_id_each,
+                 xen_driver, xd, string, name, tuple, parent, status *, s,
                  value, k, value, v)
 {
     assert(is_symbol(k));
+    if (get(v, sym(bound)))
+        return true;
+    string backend = get_string(v, sym(backend));
+    XenbusState state = XenbusStateUnknown;
+    if (backend) {
+        status s = xenbus_get_state(backend, &state);
+        if (!is_ok(s))
+            timm_dealloc(s);
+    }
+    if ((state == XenbusStateUnknown) || (state == XenbusStateClosed)) {
+        xen_debug("removing device/%b/%b", bound(name), symbol_string(k));
+        set(bound(parent), k, 0);
+        destruct_tuple(v, true);
+        return true;
+    }
     u64 id;
     if (!u64_from_value(symbol_string(k), &id)) {
         *bound(s) = timm("result", "failed to parse device id \"%v\"", symbol_string(k));
         return false;
     }
     xen_debug("driver match, id %d, value %v", id, v);
-    /* XXX check result, dealloc on fail */
     buffer frontend = allocate_buffer(xen_info.h, buffer_length(bound(name)) + 10);
     bprintf(frontend, "device/%b/%d", bound(name), id);
-    apply(bound(xd)->probe, (int)id, frontend, v);
+    boolean bound = apply(bound(xd)->probe, (int)id, frontend, v);
+    if (bound)
+        set(v, sym(bound), null_value);
+    else
+        deallocate_buffer(frontend);
     return true;
 }
 
@@ -919,28 +959,78 @@ closure_function(1, 2, boolean, xen_probe_devices_each,
         string name = symbol_string(k);
         if (runtime_memcmp(buffer_ref(name, 0), xd->name, MIN(buffer_length(name), XEN_DRIVER_NAME_MAX)))
             continue;
-        iterate(v, stack_closure(xen_probe_id_each, xd, name, bound(s)));
+        iterate(v, stack_closure(xen_probe_id_each, xd, name, v, bound(s)));
         if (*bound(s) != STATUS_OK)
             return false;
     }
     return true;
 }
 
+static status xen_scan(void)
+{
+    status s = traverse_directory(xen_info.h, "device", &xen_info.device_tree);
+    if (!is_ok(s))
+        return s;
+    if (!xen_info.device_tree)
+        return timm("result", "failed to parse directory");
+    xen_debug("scan result: %v", xen_info.device_tree);
+    iterate(xen_info.device_tree, stack_closure(xen_probe_devices_each, &s));
+    return s;
+}
+
+define_closure_function(0, 1, void, xen_watch_handler,
+                        const char *, path)
+{
+    xenstore_debug("%s: path %s", __func__, path);
+
+    /* Trigger a rescan if the path has format 'device/<type>/<node>'. */
+    if (runtime_strlen(path) < sizeof("device/"))
+        return;
+    path += sizeof("device/");
+    int depth = 0;
+    while (*path) {
+        if ((*path == '/') && (++depth > 1))
+            return;
+        path++;
+    }
+    if (depth == 0)
+        return;
+    enqueue(runqueue, &xen_info.scan_service);
+}
+
+define_closure_function(0, 0, void, xen_scan_service)
+{
+    xenstore_debug("%s", __func__);
+
+    /* Avoid concurrent scans. */
+    if (atomic_test_and_set_bit(&xen_info.scanning, 0)) {
+        enqueue(runqueue, &xen_info.scan_service);
+        return;
+    }
+
+    status s = xen_scan();
+    atomic_clear_bit(&xen_info.scanning, 0);
+    if (!is_ok(s)) {
+        msg_warn("cannot scan devices: %v\n", s);
+        timm_dealloc(s);
+    }
+}
+
 status xen_probe_devices(void)
 {
     xen_debug("probing xen device tree from xenstored");
     assert(xen_info.device_tree == 0);
-    tuple node = 0;
-    status s = traverse_directory(xen_info.h, "device", &node);
-    if (!is_ok(s))
-        return s;
-    if (!node)
-        return timm("result", "failed to parse directory");
-
-    xen_info.device_tree = node;
-    xen_debug("success; result: %v", node);
-
-    iterate(node, stack_closure(xen_probe_devices_each, &s));
+    status s = xen_scan();
+    if (is_ok(s)) {
+        init_closure(&xen_info.scan_service, xen_scan_service);
+        s = xenstore_watch(alloca_wrap_cstring("device"),
+                           init_closure(&xen_info.watch_handler, xen_watch_handler), true);
+        if (!is_ok(s)) {
+            msg_warn("cannot watch devices: %v\n", s);
+            timm_dealloc(s);
+            s = STATUS_OK;
+        }
+    }
     return s;
 }
 
