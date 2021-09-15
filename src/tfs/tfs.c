@@ -442,7 +442,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
     tfs_debug("filesystem_read_entire: t %v, bufheap %p, buffer_handler %p, status_handler %p\n",
               t, bufheap, c, sh);
     fsfile f;
-    if (!(f = table_find(fs->files, t))) {
+    if (!(f = table_find(fs->files, t)) || (f == INVALID_ADDRESS)) {
         apply(sh, timm("result", "no such file %v", t,
                        "fsstatus", "%d", FS_STATUS_NOENT));
         return;
@@ -1177,8 +1177,8 @@ closure_function(1, 2, boolean, file_unlink_each,
 static void file_unlink(filesystem fs, tuple t)
 {
     fsfile f = fsfile_from_node(fs, t);
+    table_set(fs->files, t, 0);
     if (f) {
-        table_set(fs->files, t, 0);
         f->md = 0;
         refcount_release(&f->refcount);
     }
@@ -1206,8 +1206,10 @@ fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
         s = FS_STATUS_OK;
     }
 
-    if (s == FS_STATUS_OK)
+    if (s == FS_STATUS_OK) {
         set(c, name_sym, entry);
+        table_set(fs->files, entry, INVALID_ADDRESS);
+    }
     fixup_directory(parent, entry);
     return s;
 }
@@ -1297,6 +1299,7 @@ fs_status filesystem_mkdir(filesystem fs, tuple cwd, const char *path)
     set(dir, sym(children), allocate_tuple());
     fss = fs_set_dir_entry(fs, parent, intern(name), dir);
     if (fss == FS_STATUS_OK) {
+        table_set(fs->files, dir, INVALID_ADDRESS);
         filesystem_update_mtime(fs, parent);
     } else {
         cleanup_directory(dir);
@@ -1397,6 +1400,8 @@ fs_status filesystem_symlink(filesystem fs, tuple cwd, const char *path, const c
     fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), link);
     if (fss != FS_STATUS_OK)
         destruct_tuple(link, true);
+    else
+        table_set(fs->files, link, INVALID_ADDRESS);
     return fss;
 }
 
@@ -1517,6 +1522,26 @@ fs_status filesystem_exchange(filesystem fs1, tuple wd1, const char *path1,
     return s;
 }
 
+static void enumerate_dir_entries(filesystem fs, tuple t);
+
+closure_function(1, 2, boolean, enumerate_dir_entries_each,
+                 filesystem, fs,
+                 value, s, value, v)
+{
+    filesystem fs = bound(fs);
+    if (is_tuple(v) && !table_find(fs->files, v))
+        enumerate_dir_entries(fs, v);
+    return true;
+}
+
+static void enumerate_dir_entries(filesystem fs, tuple t)
+{
+    table_set(fs->files, t, INVALID_ADDRESS);
+    tuple c = children(t);
+    if (c)
+        iterate(c, stack_closure(enumerate_dir_entries_each, fs));
+}
+
 void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh)
 {
     tfs_debug("%s(%F)\n", __func__, sh);
@@ -1601,7 +1626,8 @@ fsfile allocate_fsfile(filesystem fs, tuple md)
 
 fsfile fsfile_from_node(filesystem fs, tuple n)
 {
-    return table_find(fs->files, n);
+    fsfile fsf = table_find(fs->files, n);
+    return (fsf != INVALID_ADDRESS) ? fsf : 0;
 }
 
 closure_function(2, 1, void, log_complete,
@@ -1611,8 +1637,10 @@ closure_function(2, 1, void, log_complete,
     tfs_debug("%s: complete %p, fs %p, status %v\n", __func__, bound(fc), bound(fs), s);
     filesystem fs = bound(fs);
 #ifndef TFS_READ_ONLY
-    if (is_ok(s))
+    if (is_ok(s)) {
+        enumerate_dir_entries(fs, fs->root);
         fixup_directory(fs->root, fs->root);
+    }
 #endif
     apply(bound(fc), fs, s);
     closure_finish();
@@ -1718,7 +1746,8 @@ void destroy_filesystem(filesystem fs)
     }
     table_foreach(fs->files, k, v) {
         (void)k;
-        deallocate_fsfile(fs, v, stack_closure(dealloc_extent_node, fs));
+        if (v != INVALID_ADDRESS)
+            deallocate_fsfile(fs, v, stack_closure(dealloc_extent_node, fs));
     }
     pagecache_dealloc_volume(fs->pv);
     deallocate_table(fs->files);
