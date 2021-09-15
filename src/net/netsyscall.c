@@ -98,7 +98,6 @@ enum udp_socket_state {
 typedef struct netsock {
     struct sock sock;             /* must be first */
     process p;
-    struct spinlock consume_lock; /* lock accesses to incoming (consumer only) */
     queue incoming;
     err_t lwip_error;             /* lwIP error code; ERR_OK if normal */
     u8 ipv6only:1;
@@ -388,12 +387,18 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         goto out;
     }
 
+    /* If we're blocked and not a nullify, we know that we were woken up from
+       an lwIP callback, and thus the lwIP lock is held. Otherwise we are in a
+       syscall top half or continuation, and must grab the lwIP lock here. */
+    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
+    if (!blocked)
+        lwip_lock();
+
     /* check if we actually have data */
-    spin_lock(&s->consume_lock);
     void * p = queue_peek(s->incoming);
     if (p == INVALID_ADDRESS) {
-        spin_unlock(&s->consume_lock);
-        assert(p);
+        if (!blocked)
+            lwip_unlock();
         if (s->sock.type == SOCK_STREAM &&
             s->info.tcp.lw->state != ESTABLISHED) {
             rv = 0;
@@ -405,8 +410,6 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         }
         return BLOCKQ_BLOCK_REQUIRED;               /* back to chewing more cud */
     }
-
-    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
 
     if (src_addr) {
         if (s->sock.type == SOCK_STREAM) {
@@ -436,13 +439,8 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
                 length -= xfer;
                 xfer_total += xfer;
                 dest = (char *) dest + xfer;
-                if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK)) {
-                    if (!blocked)
-                        lwip_lock();
+                if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK))
                     tcp_recved(s->info.tcp.lw, xfer);
-                    if (!blocked)
-                        lwip_unlock();
-                }
             }
             if ((cur_buf->len == 0) || (flags & MSG_PEEK))
                 cur_buf = cur_buf->next;
@@ -455,23 +453,16 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             assert(dequeue(s->incoming) == p);
             if (s->sock.type == SOCK_DGRAM)
                 deallocate(s->sock.h, p, sizeof(struct udp_entry));
-            /* XXX TODO validate that we can't have a deadlock here...
-               - can take consume_lock and then lwip_lock (here)
-               - no way for pbuf_free to somehow cause a consume_lock take
-            */
-            if (!blocked)
-                lwip_lock();
             pbuf_free(pbuf);
-            if (!blocked)
-                lwip_unlock();
             p = queue_peek(s->incoming);
-
-            // XXX not clear if safe to hold lock here for notify ... can we release / retake?
             if (p == INVALID_ADDRESS)
                 fdesc_notify_events(&s->sock.f); /* reset a triggered EPOLLIN condition */
         }
     } while(s->sock.type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
-    spin_unlock(&s->consume_lock);
+
+    if (!blocked)
+        lwip_unlock();
+
     if (s->sock.type == SOCK_STREAM)
         /* Calls to tcp_recved() may have enqueued new packets in the loopback interface. */
         netsock_check_loop();
@@ -924,6 +915,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
     case FIONREAD: {
         int *nbytes = varg(ap, int *);
         *nbytes = 0;
+        lwip_lock();
         void *p = queue_peek(s->incoming);
         if (p != INVALID_ADDRESS) {
             struct pbuf *buf = 0;
@@ -945,6 +937,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
                 buf = buf->next;
             }
         }
+        lwip_unlock();
         return 0;
     }
     default:
@@ -1104,7 +1097,6 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     s->sock.f.ioctl = closure(h, netsock_ioctl, s);
     s->p = p;
 
-    spin_lock_init(&s->consume_lock);
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     if (s->incoming == INVALID_ADDRESS) {
         msg_err("failed to allocate queue\n");
@@ -1150,10 +1142,10 @@ static int allocate_udp_sock(process p, int af, struct udp_pcb *pcb, u32 flags)
     netsock s;
     int fd = allocate_sock(p, af, SOCK_DGRAM, flags, &s);
     if (fd >= 0) {
-	s->info.udp.lw = pcb;
-	s->info.udp.state = UDP_SOCK_CREATED;
+        s->info.udp.lw = pcb;
+        s->info.udp.state = UDP_SOCK_CREATED;
         lwip_lock();
-	udp_recv(pcb, udp_input_lower, s);
+        udp_recv(pcb, udp_input_lower, s);
         lwip_unlock();
     }
     return fd;

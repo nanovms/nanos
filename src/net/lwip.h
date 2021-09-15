@@ -33,7 +33,7 @@ extern struct spinlock lwip_spinlock;
 static inline void lwip_lock(void)
 {
 #ifdef KERNEL
-    assert(!in_interrupt());    /* XXX remove before merge */
+    assert(!in_interrupt());    /* XXX remove me after no-kernel-lock transition complete */
 #endif
     spin_lock(&lwip_spinlock);
 }

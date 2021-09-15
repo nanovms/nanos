@@ -128,9 +128,7 @@ static err_t tun_if_output(struct netif *netif, struct pbuf *p, const ip4_addr_t
         f = struct_from_list(next, tun_file, l);
     } while (f != t->next_tx);
     if (selected && kfuncs.enqueue(selected->pq, p)) {
-        lwip_lock();
         kfuncs.pbuf_ref(p);
-        lwip_unlock();
         if (kfuncs.blockq_wake_one(selected->bq) == INVALID_ADDRESS)
             notify_events(&selected->f->f);
         t->next_tx = selected;
@@ -155,6 +153,10 @@ closure_function(5, 1, sysreturn, tun_read_bh,
     tun_file tf = bound(tf);
     tun tun = tf->tun;
     sysreturn ret;
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+        ret = -ERESTARTSYS;
+        goto out;
+    }
     struct pbuf *p = kfuncs.dequeue(tf->pq);
     if (p == INVALID_ADDRESS) {
         if (tf->f->f.flags & O_NONBLOCK) {
@@ -165,13 +167,16 @@ closure_function(5, 1, sysreturn, tun_read_bh,
     }
     void * dest = bound(dest);
     u64 len = bound(len);
+    boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
     if (!(tun->flags & IFF_NO_PI)) {
         struct tun_pi pi;
         if (len < sizeof(pi)) {
             ret = -EINVAL;
-            kfuncs.lwip_lock();
+            if (!blocked)
+                kfuncs.lwip_lock();
             kfuncs.pbuf_free(p);
-            kfuncs.lwip_unlock();
+            if (!blocked)
+                kfuncs.lwip_unlock();
             goto out;
         }
         if (len < p->tot_len + sizeof(pi))
@@ -192,10 +197,12 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         len -= sizeof(pi);
     }
     ret = MIN(len, p->tot_len);
-    kfuncs.lwip_lock();
+    if (!blocked)
+        kfuncs.lwip_lock();
     kfuncs.pbuf_copy_partial(p, dest, ret, 0);
     kfuncs.pbuf_free(p);
-    kfuncs.lwip_unlock();
+    if (!blocked)
+        kfuncs.lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:

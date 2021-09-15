@@ -18,6 +18,13 @@
 #define USER_CODE_SEG_DESC  (SEG_DESC_L | SEG_DESC_P | (3 << SEG_DESC_DPL_SHIFT) | SEG_DESC_S | SEG_DESC_CODE | SEG_DESC_RW)
 #define USER_DATA_SEG_DESC  (SEG_DESC_S | (3 << SEG_DESC_DPL_SHIFT) | SEG_DESC_P | SEG_DESC_RW)
 
+#ifdef SPIN_LOCK_DEBUG_NOSMP
+u64 get_program_counter(void)
+{
+    return u64_from_pointer(__builtin_return_address(0));
+}
+#endif
+
 /* stub placeholder, short of a real generic interface */
 void send_ipi(u64 cpu, u8 vector)
 {

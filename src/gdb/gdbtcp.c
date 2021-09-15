@@ -12,7 +12,6 @@ closure_function(1, 1, status, gdb_send,
     //    u64 len = tcp_sndbuf(g->pcb);
     // flags can force a stack copy or toggle push
     // pool?
-    // XXX this is a problem; we can't enter lwIP at interrupt/exception level ... spool up?
     lwip_lock();
     err_t err = tcp_write(bound(g)->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
     lwip_unlock();

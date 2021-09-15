@@ -68,9 +68,8 @@ define_closure_function(1, 0, void, direct_receive_service,
             s = apply(dc->receive_bh, 0);
         }
         if (!is_ok(s)) {
-            /* report here? */
+            /* semantics of error status here undefined; report to console for now */
             msg_err("handler failed with status %v; aborting connection\n", s);
-            // XXX close
         }
     }
     spin_unlock(&d->conn_lock);
@@ -214,7 +213,6 @@ define_closure_function(1, 1, status, direct_conn_send,
     return s;
 }
 
-/* XXX need to make an incoming queue / deferred service to avoid lwIP deadlocks... */
 err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     direct_debug("dc %p, pcb %p, pbuf %p, err %d\n", z, pcb, p, err);
@@ -351,10 +349,8 @@ status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch)
     status s = STATUS_OK;
     direct_debug("addr %s, port %d, ch %F\n", ipaddr_ntoa(addr), port, ch);
     direct d = direct_alloc(h, ch);
-    if (d == INVALID_ADDRESS) {
-        s = timm("result", "%s: alloc failed", __func__);
-        goto out;
-    }
+    if (d == INVALID_ADDRESS)
+        return timm("result", "%s: alloc failed", __func__);
     lwip_lock();
     tcp_err(d->p, direct_connect_err);
     err_t err = tcp_connect(d->p, addr, port, direct_connect_complete);
@@ -362,7 +358,6 @@ status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch)
         direct_dealloc(d);
         s = timm("result", "connect failed (%d)", err);
     }
-  out:
     lwip_unlock();
     return s;
 }
