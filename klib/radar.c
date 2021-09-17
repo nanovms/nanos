@@ -388,9 +388,9 @@ static void telemetry_boot(void)
     telemetry_retry();
 }
 
-closure_function(2, 3, void, telemetry_vh,
+closure_function(2, 4, void, telemetry_vh,
                  buffer, b, int, count,
-                 u8 *, uuid, const char *, label, filesystem, fs)
+                 u8 *, uuid, const char *, label, filesystem, fs, tuple, mount_point)
 {
     u64 block_size = kfunc(fs_blocksize)(fs);
     buffer b = bound(b);

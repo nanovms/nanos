@@ -81,5 +81,5 @@ void storage_sync(status_handler sh);
 struct filesystem *storage_get_fs(tuple root);
 tuple storage_get_mountpoint(tuple root);
 
-typedef closure_type(volume_handler, void, u8 *, const char *, struct filesystem *);
+typedef closure_type(volume_handler, void, u8 *, const char *, struct filesystem *, tuple);
 void storage_iterate(volume_handler vh);

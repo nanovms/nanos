@@ -260,12 +260,12 @@ tuple storage_get_mountpoint(tuple root)
 
 void storage_iterate(volume_handler vh)
 {
-    apply(vh, 0, "root", storage.root_fs);
+    apply(vh, 0, "root", storage.root_fs, 0);
     storage_lock();
     list_foreach(&storage.volumes, e) {
         volume v = struct_from_list(e, volume, l);
         if (v->fs)
-            apply(vh, v->uuid, v->label, v->fs);
+            apply(vh, v->uuid, v->label, v->fs, v->mount_dir);
     }
     storage_unlock();
 }
