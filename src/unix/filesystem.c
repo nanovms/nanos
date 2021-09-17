@@ -49,7 +49,7 @@ static tuple lookup_follow_mounts(filesystem *fs, tuple t, symbol a, tuple *p)
         t = get_tuple(m, sym(root));
         if (fs)
             *fs = storage_get_fs(t);
-    } else if ((t == *p) && (a == sym_this(".."))) {
+    } else if ((t == *p) && (a == sym_this("..")) && (t != filesystem_getroot(get_root_fs()))) {
         /* t is the root of its filesystem: look for a mount point for this
          * filesystem, and if found look up the parent of the mount directory.
          */

@@ -1,6 +1,7 @@
 #include <unix_internal.h>
 #include <filesystem.h>
 #include <ftrace.h>
+#include <storage.h>
 
 typedef struct special_file {
     const char *path;
@@ -36,6 +37,52 @@ static sysreturn null_write(file f, void *dest, u64 length, u64 offset)
 static u32 null_events(file f)
 {
     return EPOLLOUT;
+}
+
+closure_function(1, 4, void, mounts_handler,
+                 buffer, b,
+                 u8 *, uuid, const char *, label, filesystem, fs, tuple, mount_point)
+{
+    buffer b = bound(b);
+    bytes saved_end = b->end;
+    if (label[0])
+        buffer_write_cstring(b, label);
+    else
+        print_uuid(b, uuid);
+    push_u8(b, ' ');
+    if (mount_point) {
+        while (true) {
+            int rv = file_get_path(mount_point, buffer_end(b), buffer_space(b));
+            if (rv > 0) {
+                buffer_produce(b, rv - 1);  /* drop the string terminator character */
+                break;
+            } else if (!buffer_extend(b, 2 * buffer_space(b))) {
+                /* Couldn't write the mount point into the buffer: drop this filesystem */
+                b->end = saved_end;
+                return;
+            }
+        }
+    } else {    /* root filesystem */
+        push_u8(b, '/');
+    }
+    buffer_write_cstring(b, " tfs rw 0 0\n");
+}
+
+static sysreturn mounts_read(file f, void *dest, u64 length, u64 offset)
+{
+    heap h = heap_locked(get_kernel_heaps());
+    buffer b = allocate_buffer(h, 64);
+    if (b == INVALID_ADDRESS) {
+        return -ENOMEM;
+    }
+    storage_iterate(stack_closure(mounts_handler, b));
+    if (offset >= buffer_length(b)) {
+        return 0;
+    }
+    length = MIN(length, buffer_length(b) - offset);
+    runtime_memcpy(dest, buffer_ref(b, offset), length);
+    deallocate_buffer(b);
+    return length;
 }
 
 closure_function(1, 1, void, maps_handler,
@@ -99,6 +146,7 @@ static u32 cpu_online_events(file f)
 static special_file special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
+    { "/proc/mounts", .read = mounts_read },
     { "/proc/self/maps", .read = maps_read, .events = maps_events, },
     { "/sys/devices/system/cpu/online", .read = cpu_online_read, .write = null_write, .events = cpu_online_events },
     FTRACE_SPECIAL_FILES

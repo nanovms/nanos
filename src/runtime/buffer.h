@@ -24,6 +24,11 @@ static inline void *buffer_ref(buffer b, bytes offset)
     return((void *)b->contents + (b->start + offset));
 }
 
+static inline void *buffer_end(buffer b)
+{
+    return b->contents + b->end;
+}
+
 // out of bounds
 static inline char peek_char(buffer b)
 {
@@ -76,6 +81,11 @@ static inline void buffer_produce(buffer b, bytes s)
 static inline bytes buffer_length(buffer b)
 {
     return b->end - b->start;
+}
+
+static inline bytes buffer_space(buffer b)
+{
+    return b->length - b->end;
 }
 
 static inline boolean buffer_is_wrapped(buffer b)
