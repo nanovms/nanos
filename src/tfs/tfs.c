@@ -1507,7 +1507,7 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
         } else if (is_dir(old))
             return FS_STATUS_NOTDIR;
     }
-    if (filepath_is_ancestor(oldwd_t, oldpath, newwd_t, newpath))
+    if (file_tuple_is_ancestor(old, new, newparent))
         return FS_STATUS_INVAL;
     if ((newparent == oldparent) && (new == old))
         return FS_STATUS_OK;
@@ -1544,8 +1544,7 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
         return FS_STATUS_XDEV;
     if ((parent1 == parent2) && (n1 == n2))
         return FS_STATUS_OK;
-    if (filepath_is_ancestor(wd1_t, path1, wd2_t, path2) ||
-            filepath_is_ancestor(wd2_t, path2, wd1_t, path1))
+    if (file_tuple_is_ancestor(n1, n2, parent2) || file_tuple_is_ancestor(n2, n1, parent1))
         return FS_STATUS_INVAL;
     s = fs_set_dir_entry(fs1, parent1, sym_this(filename_from_path(path1)), n2);
     if (s == FS_STATUS_OK)
@@ -2186,20 +2185,9 @@ int file_get_path(filesystem fs, inode ino, char *buf, u64 len)
     return -1;
 }
 
-/* Check if fp1 is a (direct or indirect) ancestor if fp2. */
-boolean filepath_is_ancestor(tuple wd1, const char *fp1,
-        tuple wd2, const char *fp2)
+/* Check if t1 is a (direct or indirect) ancestor of t2 (whose parent is p2). */
+boolean file_tuple_is_ancestor(tuple t1, tuple t2, tuple p2)
 {
-    tuple t1;
-    int ret = filesystem_resolve_cstring(0, wd1, fp1, &t1, 0);
-    if (ret) {
-        return false;
-    }
-    tuple p2;
-    ret = filesystem_resolve_cstring(0, wd2, fp2, 0, &p2);
-    if ((ret && (ret != FS_STATUS_NOENT)) || !p2) {
-        return false;
-    }
     while (p2 != t1) {
         tuple p = lookup(p2, sym_this(".."));
         if (p == p2)

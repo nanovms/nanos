@@ -195,6 +195,4 @@ int filesystem_resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, 
 int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
                             tuple *target);
 
-boolean filepath_is_ancestor(tuple wd1, const char *fp1, tuple wd2, const char *fp2);
-
 int file_get_path(filesystem fs, inode ino, char *buf, u64 len);
