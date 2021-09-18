@@ -517,7 +517,7 @@ closure_function(2, 6, sysreturn, file_read,
 {
     file f = bound(f);
     if (fdesc_type(&f->f) == FDESC_TYPE_DIRECTORY)
-        return -EISDIR;
+        return io_complete(completion, t, -EISDIR);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
@@ -531,7 +531,7 @@ closure_function(2, 6, sysreturn, file_read,
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
-        return -ENOMEM;
+        return io_complete(completion, t, -ENOMEM);
     }
     begin_file_read(t, f);
     apply(f->fs_read, sg, irangel(offset, length), closure(h, file_read_complete, t, sg, dest, length,
@@ -636,7 +636,7 @@ closure_function(2, 6, sysreturn, file_write,
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
-        return -ENOMEM;
+        return io_complete(completion, t, -ENOMEM);
     }
     sg_buf sgb = sg_list_tail_add(sg, length);
     sgb->buf = src;

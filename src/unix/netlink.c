@@ -514,7 +514,7 @@ closure_function(1, 6, sysreturn, nl_read,
     blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, dest, length, 0, 0,
         completion);
     if (ba == INVALID_ADDRESS)
-        return -ENOMEM;
+        return io_complete(completion, t, -ENOMEM);
     return blockq_check(s->sock.rxbq, current, ba, false);
 }
 
