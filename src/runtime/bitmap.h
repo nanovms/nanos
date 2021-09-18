@@ -31,7 +31,7 @@ void bitmap_copy(bitmap dest, bitmap src);
          __w &= ~(1ull << (bit)), bit = lsb(__w), i = (offset) + (bit))
 
 #define bitmap_foreach_set(b, i)					\
-    bitmap_foreach_word((b), w, s) bitmap_word_foreach_set(w, __bit, (i), s)
+    bitmap_foreach_word((b), _w, s) bitmap_word_foreach_set(_w, __bit, (i), s)
 
 static inline u64 *bitmap_base(bitmap b)
 {
