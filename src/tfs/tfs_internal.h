@@ -46,13 +46,39 @@ typedef struct fsfile {
     struct refcount refcount;
 } *fsfile;
 
+typedef struct uninited_queued_op {
+    sg_list sg;
+    merge m;
+    range blocks;
+    block_io op;
+} *uninited_queued_op;
+
+declare_closure_struct(2, 0, void, free_uninited,
+                       heap, h, struct uninited *, u);
+
+declare_closure_struct(2, 1, void, uninited_complete,
+                       struct uninited *, u, status_handler, complete,
+                       status, s);
+
+typedef struct uninited {
+    filesystem fs;
+#ifdef KERNEL
+    struct spinlock lock;
+#endif
+    struct refcount refcount;
+    buffer op_queue;
+    boolean initialized;
+    closure_struct(uninited_complete, complete);
+    closure_struct(free_uninited, free);
+} *uninited;
+
 typedef struct extent {
     /* these are in block units */
     struct rmnode node;         /* must be first */
     u64 start_block;
     u64 allocated;
     tuple md;                   /* shortcut to extent meta */
-    boolean uninited;
+    uninited uninited;
 } *extent;
 
 void ingest_extent(fsfile f, symbol foff, tuple value);

@@ -208,9 +208,17 @@ static inline extent allocate_extent(heap h, range file_blocks, range storage_bl
     rmnode_init(&e->node, file_blocks);
     e->start_block = storage_blocks.start;
     e->allocated = range_span(storage_blocks);
-    e->uninited = false;
+    e->uninited = 0;
     return e;
 }
+
+#ifdef KERNEL
+#define uninited_lock(u) spin_lock(&(u)->lock);
+#define uninited_unlock(u) spin_unlock(&(u)->lock);
+#else
+#define uninited_lock(u)
+#define uninited_unlock(u)
+#endif
 
 u64 filesystem_allocate_storage(filesystem fs, u64 nblocks)
 {
@@ -256,7 +264,7 @@ void ingest_extent(fsfile f, symbol off, tuple value)
         halt("out of memory\n");
     ex->md = value;
     if (get(value, sym(uninited)))
-        ex->uninited = true;
+        ex->uninited = INVALID_ADDRESS;
     assert(rangemap_insert(f->extentmap, &ex->node));
 }
 
@@ -302,6 +310,26 @@ void zero_blocks(filesystem fs, range blocks, merge m)
     }
 }
 
+/* called with uninited lock held */
+static void queue_uninited_op(filesystem fs, uninited u, sg_list sg, range blocks,
+                              status_handler complete, block_io op)
+{
+    struct uninited_queued_op uqo;
+    uqo.sg = sg;
+    uqo.m = allocate_merge(fs->h, complete);
+    if (uqo.m == INVALID_ADDRESS)
+        goto alloc_fail;
+    uqo.blocks = blocks;
+    uqo.op = op;
+    if (!buffer_append(u->op_queue, &uqo, sizeof(uqo))) {
+        complete = apply_merge(uqo.m);
+        goto alloc_fail;
+    }
+    return;
+  alloc_fail:
+    apply(complete, timm("result", "failed to allocate and enqueue uninited op"));
+}
+
 closure_function(4, 1, void, read_extent,
                  filesystem, fs, sg_list, sg, merge, m, range, blocks,
                  rmnode, node)
@@ -313,12 +341,19 @@ closure_function(4, 1, void, read_extent,
     u64 e_offset = i.start - node->r.start;
     u64 len = range_span(i);
     range blocks = irangel(e->start_block + e_offset, len);
-    tfs_debug("%s: e %p, uninited %d, sg %p m %p blocks %R, i %R, len %ld, blocks %R\n",
+    tfs_debug("%s: e %p, uninited %p, sg %p m %p blocks %R, i %R, len %ld, blocks %R\n",
               __func__, e, e->uninited, bound(sg), bound(m), bound(blocks), i, len, blocks);
     if (!e->uninited) {
         filesystem_storage_op(fs, sg, bound(m), blocks, fs->r);
-    } else {
+    } else if (e->uninited == INVALID_ADDRESS) {
         sg_zero_fill(sg, range_span(blocks) << fs->blocksize_order);
+    } else {
+        uninited_lock(e->uninited);
+        if (e->uninited->initialized)
+            filesystem_storage_op(fs, sg, bound(m), blocks, fs->r);
+        else
+            queue_uninited_op(fs, e->uninited, sg, blocks, apply_merge(bound(m)), fs->r);
+        uninited_unlock(e->uninited);
     }
 }
 
@@ -461,7 +496,7 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
     heap h = fs->h;
     u64 nblocks = MAX(range_span(blocks), MIN_EXTENT_SIZE >> fs->blocksize_order);
 
-    tfs_debug("create_extent: blocks %R, uninited %d, nblocks %ld\n", blocks, uninited, nblocks);
+    tfs_debug("create_extent: blocks %R, uninited %p, nblocks %ld\n", blocks, uninited, nblocks);
     if (!filesystem_reserve_log_space(fs, &fs->next_extend_log_offset, 0, 0) ||
         !filesystem_reserve_log_space(fs, &fs->next_new_log_offset, 0, 0))
         return FS_STATUS_NOSPACE;
@@ -476,8 +511,8 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
     if (*ex == INVALID_ADDRESS)
         return FS_STATUS_NOMEM;
     (*ex)->md = 0;
-    (*ex)->uninited = uninited;
-
+    if (uninited)
+        (*ex)->uninited = INVALID_ADDRESS;
     return FS_STATUS_OK;
 }
 
@@ -486,6 +521,8 @@ static void destroy_extent(filesystem fs, extent ex)
     range q = irangel(ex->start_block, ex->allocated);
     if (!filesystem_free_storage(fs, q))
         msg_err("failed to mark extent at %R as free", q);
+    if (ex->uninited && ex->uninited != INVALID_ADDRESS)
+        refcount_release(&ex->uninited->refcount);
     deallocate(fs->h, ex, sizeof(*ex));
 }
 
@@ -511,7 +548,7 @@ static fs_status add_extent_to_file(fsfile f, extent ex)
         set(e, sym(offset), value_from_u64(h, ex->start_block));
         set(e, sym(length), value_from_u64(h, range_span(ex->node.r)));
         set(e, sym(allocated), value_from_u64(h, ex->allocated));
-        if (ex->uninited)
+        if (ex->uninited == INVALID_ADDRESS)
             set(e, sym(uninited), null_value);
         symbol offs = intern_u64(ex->node.r.start);
         fs_status s = filesystem_write_eav(f->fs, extents, offs, e);
@@ -565,6 +602,69 @@ static fs_status add_extents(filesystem fs, range i, rangemap rm)
     return FS_STATUS_OK;
 }
 
+define_closure_function(2, 1, void, uninited_complete,
+                        uninited, u, status_handler, complete,
+                        status, s)
+{
+    uninited u = bound(u);
+    uninited_lock(u);
+    if (!is_ok(s))
+        s = timm_up(s, "result", "failed to convert uninited extent");
+    apply(bound(complete), s);
+
+    /* Issue dependent storage operations. Note that we issue these all at
+       once, without waiting for completions, rather than in a sequential
+       fashion. This mirrors the normal behavior of storage operations, and
+       works thanks to the property of the pagecache issuing multiple
+       operations (writes, really) using the same buffer. So, unlike with the
+       contention between the zeroing of uninited sectors and subsequent r/w
+       operations, out-of-order completion of requests is not an issue
+       here. */
+    while (buffer_length(u->op_queue) > 0) {
+        assert(buffer_length(u->op_queue) % sizeof(uninited_queued_op) == 0);
+        uninited_queued_op uqo = buffer_ref(u->op_queue, 0);
+        tfs_debug("%s: issuing op, fs %p, sg %p, m %p, blocks %R, op %F\n",
+                  __func__, u->fs, uqo->sg, uqo->m, uqo->blocks, uqo->op);
+        if (uqo->sg)
+            filesystem_storage_op(u->fs, uqo->sg, uqo->m, uqo->blocks, uqo->op);
+        else
+            zero_blocks(u->fs, uqo->blocks, uqo->m);
+        buffer_consume(u->op_queue, sizeof(struct uninited_queued_op));
+    }
+    deallocate_buffer(u->op_queue);
+    u->op_queue = 0;
+    u->initialized = true;
+    uninited_unlock(u);
+    refcount_release(&u->refcount);
+}
+
+define_closure_function(2, 0, void, free_uninited,
+                        heap, h, uninited, u)
+{
+    tfs_debug("%s: %p\n", __func__, bound(u));
+    deallocate(bound(h), bound(u), sizeof(struct uninited));
+}
+
+static uninited allocate_uninited(filesystem fs, status_handler sh)
+{
+    uninited u = allocate(fs->h, sizeof(struct uninited));
+    if (u == INVALID_ADDRESS)
+        return u;
+    u->fs = fs;
+#ifdef KERNEL
+    spin_lock_init(&u->lock);
+#endif
+    init_refcount(&u->refcount, 2, init_closure(&u->free, free_uninited, fs->h, u));
+    u->op_queue = allocate_buffer(fs->h, sizeof(struct uninited_queued_op));
+    if (u->op_queue == INVALID_ADDRESS) {
+        deallocate(fs->h, u, sizeof(struct uninited));
+        return INVALID_ADDRESS;
+    }
+    u->initialized = false;
+    init_closure(&u->complete, uninited_complete, u, sh);
+    return u;
+}
+
 static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
 {
     filesystem fs = f->fs;
@@ -572,36 +672,62 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
     u64 data_offset = i.start - ex->node.r.start;
     range r = irangel(ex->start_block + data_offset, range_span(i));
 
-    tfs_debug("   %s: ex %p, uninited %d, sg %p, m %p, blocks %R, write %R\n",
+    tfs_debug("   %s: ex %p, uninited %p, sg %p, m %p, blocks %R, write %R\n",
               __func__, ex, ex->uninited, sg, m, blocks, r);
 
-    if (sg) {
-        if (ex->uninited) {
-            if (f->md) {
-                assert(ex->md);
-                symbol a = sym(uninited);
-                fs_status fss = filesystem_write_eav(fs, ex->md, a, 0);
-                if (fss != FS_STATUS_OK) {
-                    apply(apply_merge(m), timm("result", "failed to write log",
-                        "fsstatus", "%d", fss));
-                    goto out;
-                }
-                set(ex->md, a, 0);
+    if (ex->uninited == INVALID_ADDRESS) {
+        /* Begin process of normalizing uninited extent */
+        if (f->md) {
+            assert(ex->md);
+            symbol a = sym(uninited);
+            tfs_debug("%s: log write %p, %p\n", __func__, ex->md, a);
+            fs_status fss = filesystem_write_eav(fs, ex->md, a, 0);
+            if (fss != FS_STATUS_OK) {
+                apply(apply_merge(m), timm("result", "failed to write log",
+                                           "fsstatus", "%d", fss));
+                return i.end;
             }
+            set(ex->md, a, 0);
+        }
+        ex->uninited = allocate_uninited(fs, apply_merge(m));
+        tfs_debug("%s: new uninited %p\n", __func__, ex->uninited);
+        if (ex->uninited == INVALID_ADDRESS)
+            goto alloc_fail;
+        m = allocate_merge(fs->h, (status_handler)&ex->uninited->complete);
+        if (m == INVALID_ADDRESS)
+            goto alloc_fail;
+        status_handler k = apply_merge(m);
+        if (sg) {
             u64 data_end = i.end - ex->node.r.start;
             u64 extent_end = range_span(ex->node.r);
             if (data_offset > 0)
                 zero_blocks(fs, range_add(irange(0, data_offset), ex->start_block), m);
             if (data_end < extent_end)
                 zero_blocks(fs, range_add(irange(data_end, extent_end), ex->start_block), m);
-            ex->uninited = false;
-        }
-        filesystem_storage_op(fs, sg, m, r, fs->w);
-    } else {
-        if (!ex->uninited)
+            filesystem_storage_op(fs, sg, m, r, fs->w);
+        } else {
             zero_blocks(fs, r, m);
+        }
+        apply(k, STATUS_OK);
+        return i.end;
+    } else if (ex->uninited != 0) {
+        uninited_lock(ex->uninited);
+        if (ex->uninited->initialized) {
+            uninited_unlock(ex->uninited);
+            goto write;
+        }
+        queue_uninited_op(fs, ex->uninited, sg, r, apply_merge(m), fs->w);
+        uninited_unlock(ex->uninited);
+        return i.end;
     }
-  out:
+  write:
+    if (sg)
+        filesystem_storage_op(fs, sg, m, r, fs->w);
+    else
+        zero_blocks(fs, r, m);
+    return i.end;
+  alloc_fail:
+    apply(apply_merge(m), timm("result", "unable to allocate memory for uninited write"));
     return i.end;
 }
 
@@ -898,8 +1024,7 @@ void filesystem_alloc(fsfile f, long offset, long len,
     filesystem fs = f->fs;
 
     range blocks = range_rshift_pad(irangel(offset, len), fs->blocksize_order);
-    tfs_debug("%s: t %v, blocks %R%s\n", __func__, t, blocks,
-              keep_size ? " (keep size)" : "");
+    tfs_debug("%s: blocks %R%s\n", __func__, blocks, keep_size ? " (keep size)" : "");
 
     rangemap new_rm = allocate_rangemap(fs->h);
     assert(new_rm != INVALID_ADDRESS);
