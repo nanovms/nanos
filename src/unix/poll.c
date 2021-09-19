@@ -292,7 +292,7 @@ void poll_notify(epollfd efd, epoll_blocked w, u64 events);
 void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report);
 void select_notify(epollfd efd, epoll_blocked w, u64 report);
 
-closure_function(1, 2, void, wait_notify,
+closure_function(1, 2, boolean, wait_notify,
                  epollfd, efd,
                  u64, notify_events, thread, t)
 {
@@ -303,7 +303,7 @@ closure_function(1, 2, void, wait_notify,
         epoll_debug("efd->fd %d unregistered\n", efd->fd);
         efd->registered = false;
         closure_finish();
-        return;
+        return false;
     }
 
     list l = list_get_next(&efd->e->blocked_head);
@@ -317,10 +317,10 @@ closure_function(1, 2, void, wait_notify,
 
     /* XXX need to do some work to properly dole out to multiple epoll_waits (threads)... */
     if (!w || efd->zombie)
-        return;
+        return false;
 
     if (t && t != w->t)
-        return;
+        return false;
 
     switch (efd->e->epoll_type) {
     case EPOLL_TYPE_POLL:
@@ -335,6 +335,7 @@ closure_function(1, 2, void, wait_notify,
     default:
         assert(0);
     }
+    return false;
 }
 
 void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
