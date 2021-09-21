@@ -33,6 +33,23 @@ static const char *tfs_magic = "NVMTFS";
 typedef struct log *log;
 typedef struct log_ext *log_ext;
 
+#define tlog_lock(tl)       filesystem_lock((tl)->fs)
+#define tlog_unlock(tl)     filesystem_unlock((tl)->fs)
+
+#ifdef KERNEL
+
+#define tlog_ext_lock_init(ext)    spin_lock_init(&(ext)->lock)
+#define tlog_ext_lock(ext)         spin_lock(&(ext)->lock)
+#define tlog_ext_unlock(ext)       spin_unlock(&(ext)->lock)
+
+#else
+
+#define tlog_ext_lock_init(ext)
+#define tlog_ext_lock(ext)
+#define tlog_ext_unlock(ext)
+
+#endif
+
 declare_closure_struct(1, 1, void, log_ext_sync_complete,
                        log_ext, ext,
                        status, s);
@@ -48,6 +65,9 @@ struct log_ext {
     range sectors;
     sg_io read;
     sg_io write;
+#ifdef KERNEL
+    struct spinlock lock;
+#endif
     struct refcount refcount;
     closure_struct(log_ext_sync_complete, sync_complete);
     closure_struct(log_ext_free, free);
@@ -155,6 +175,7 @@ static log_ext open_log_extension(log tl, range sectors)
     ext->write = pagecache_node_get_writer(ext->cache_node);
     init_refcount(&ext->refcount, 1, init_closure(&ext->free, log_ext_free, ext));
 #ifndef TLOG_READ_ONLY
+    tlog_ext_lock_init(ext);
     if (sectors.start != 0) {
         rmnode n = allocate(tl->h, sizeof(*n));
         if (n == INVALID_ADDRESS) {
@@ -290,6 +311,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
     refcount_reserve(&ext->refcount);
     filesystem fs = ext->tl->fs;
     buffer b = ext->staging;
+    tlog_ext_lock(ext);
     dump_staging(ext);
     push_u8(b, END_OF_LOG);
     assert(buffer_length(b) > 0); /* END_OF_LOG, at least */
@@ -316,6 +338,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
         tlog_debug("log ext offset now %d\n", b->start);
         assert(b->end >= b->start);
     }
+    tlog_ext_unlock(ext);
 }
 
 static log_ext log_ext_new(log tl)
@@ -408,6 +431,7 @@ static inline boolean log_write_internal(log tl, merge m)
     assert(ext);
 
     int n = vector_length(tl->encoding_lengths);
+    tlog_ext_lock(ext);
     for (int i = 0; i < n; i++) {
         u64 size;
         u64 written = 0;
@@ -418,11 +442,13 @@ static inline boolean log_write_internal(log tl, merge m)
             size = log_size(ext);
             u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
             if (ext->staging->end + min >= size) {
+                tlog_ext_unlock(ext);
                 status_handler sh = apply_merge(m);
                 ext = log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE, sh);
                 if (ext == INVALID_ADDRESS)
                     return false;
                 size = log_size(ext);
+                tlog_ext_lock(ext);
             }
             assert(ext->staging->end + min < size);
             u64 avail = size - (ext->staging->end + TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_HEADER_SIZE);
@@ -443,6 +469,7 @@ static inline boolean log_write_internal(log tl, merge m)
             written += length;
         } while (remaining > 0);
     }
+    tlog_ext_unlock(ext);
     vector_clear(tl->encoding_lengths);
     return true;
 }
@@ -462,9 +489,11 @@ closure_function(1, 1, void, log_flush_complete,
                  status, s)
 {
     /* would need to move these to runqueue if a flush is ever invoked from a tfs op */
+    tlog_lock(bound(tl));
     bound(tl)->dirty = false;
     run_flush_completions(bound(tl), s);
     bound(tl)->flushing = false;
+    tlog_unlock(bound(tl));
     closure_finish();
 }
 
@@ -476,6 +505,7 @@ closure_function(2, 1, void, log_switch_complete,
     log old_tl = bound(old_tl);
     log new_tl = bound(new_tl);
     filesystem fs = old_tl->fs;
+    filesystem_lock(fs);
     log to_be_used, to_be_destroyed;
     if (is_ok(s)) {
         to_be_used = new_tl;
@@ -501,6 +531,7 @@ closure_function(2, 1, void, log_switch_complete,
     }
 
     run_flush_completions(old_tl, s);
+    filesystem_unlock(fs);
 
     refcount_release(&to_be_destroyed->refcount);
     timm_dealloc(s);
@@ -533,7 +564,9 @@ void log_flush(log tl, status_handler completion)
         tl->failed = true;
 
     /* completion merge will close out with the flush; compaction is independent */
+    tlog_unlock(tl);    /* to allow flush completion to run synchronously */
     flush_log_extension(tl->current, false, sh);
+    tlog_lock(tl);
 
     if (!tl->failed && !tl->compacting && (tl->obsolete_entries >= TFS_LOG_COMPACT_OBSOLETE) &&
         (tl->total_entries <= TFS_LOG_COMPACT_RATIO * tl->obsolete_entries)) {
@@ -577,7 +610,9 @@ closure_function(1, 1, void, log_flush_timer_expired,
                  u64, overruns /* ignored */)
 {
     bound(tl)->flush_timer = 0;
+    tlog_lock(bound(tl));
     log_flush(bound(tl), 0);
+    tlog_unlock(bound(tl));
     closure_finish();
 }
 

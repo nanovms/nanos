@@ -197,7 +197,7 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
         goto out;
     }
 
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     if (write ? (f->sg_write != 0) : (f->sg_read != 0)) {
         sg_list sg = allocate_sg_list();
         if (sg == INVALID_ADDRESS) {
@@ -471,7 +471,7 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     }
 
     u64 n = MIN(count, SENDFILE_READ_MAX);
-    io_completion read_complete = closure(heap_general(get_kernel_heaps()), sendfile_bh, infile, outfile,
+    io_completion read_complete = closure(heap_locked(get_kernel_heaps()), sendfile_bh, infile, outfile,
                                           offset, sg, 0, n, 0, 0, false);
     apply(infile->sg_read, sg, n, offset ? *offset : infinity, current, false, read_complete);
     return get_syscall_return(current);
@@ -525,7 +525,7 @@ closure_function(2, 6, sysreturn, file_read,
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
 
     if (offset >= f->length) {
         return io_complete(completion, t, 0);
@@ -572,7 +572,7 @@ closure_function(2, 6, sysreturn, file_sg_read,
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                length, f->length);
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
 
     begin_file_read(t, f);
     apply(f->fs_read, sg, irangel(offset, length), closure(h, file_sg_read_complete,
@@ -635,7 +635,7 @@ closure_function(2, 6, sysreturn, file_write,
     thread_log(t, "%s: f %p, src %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, src, offset, is_file_offset ? "file" : "specified",
                length, f->length);
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
 
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
@@ -682,7 +682,7 @@ closure_function(2, 6, sysreturn, file_sg_write,
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                len, f->length);
-    status_handler sg_complete = closure(heap_general(get_kernel_heaps()),
+    status_handler sg_complete = closure(heap_locked(get_kernel_heaps()),
         file_sg_write_complete, t, f, len, is_file_offset, completion);
     if (sg_complete == INVALID_ADDRESS) {
         rv = -ENOMEM;
@@ -769,7 +769,7 @@ boolean validate_user_string(const char *name)
 sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
                         int mode)
 {
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     unix_heaps uh = get_unix_heaps();
     tuple n;
     int ret;
@@ -1332,7 +1332,7 @@ closure_function(2, 1, void, sync_complete,
 
 sysreturn sync(void)
 {
-    status_handler sh = closure(heap_general(get_kernel_heaps()), sync_complete,
+    status_handler sh = closure(heap_locked(get_kernel_heaps()), sync_complete,
         current, 0);
     if (sh == INVALID_ADDRESS)
         return -ENOMEM;
@@ -1357,7 +1357,7 @@ sysreturn fsync(int fd)
         assert(((file)f)->fsf);
         filesystem_sync_node(((file)f)->fs,
                              fsfile_get_cachenode(((file)f)->fsf),
-                             closure(heap_general(get_kernel_heaps()),
+                             closure(heap_locked(get_kernel_heaps()),
                                  sync_complete, current, f));
         return thread_maybe_sleep_uninterruptible(current);
     case FDESC_TYPE_DIRECTORY:
@@ -1488,8 +1488,6 @@ static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s
         s->st_mtime = ts.tv_sec;
         s->st_mtime_nsec = ts.tv_nsec;
     }
-    thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx",
-            s->st_ino, s->st_mode, s->st_size);
 }
 
 static sysreturn fstat(int fd, struct stat *s)
@@ -1519,6 +1517,7 @@ static sysreturn fstat(int fd, struct stat *s)
     fill_stat(f->type, fs, fsf, n, s);
     if (n)
         filesystem_put_meta(fs, n);
+    thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx", s->st_ino, s->st_mode, s->st_size);
     fdesc_put(f);
     return 0;
 }
@@ -1539,6 +1538,8 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
 
     fill_stat(file_type_from_tuple(n), fs, fsf, n, buf);
     filesystem_put_node(fs, n);
+    thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx",
+               buf->st_ino, buf->st_mode, buf->st_size);
     return 0;
 }
 

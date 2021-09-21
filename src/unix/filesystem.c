@@ -113,7 +113,7 @@ closure_function(4, 1, void, fs_sync_complete,
 static void filesystem_sync_internal(filesystem fs, pagecache_node pn,
                                      status_handler sh)
 {
-    status_handler sync_complete = closure(heap_general(get_kernel_heaps()),
+    status_handler sync_complete = closure(heap_locked(get_kernel_heaps()),
         fs_sync_complete, fs, pn, sh, false);
     if (sync_complete == INVALID_ADDRESS) {
         apply(sh, timm("result", "cannot allocate closure"));
@@ -309,7 +309,7 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
         goto out;
     }
 
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     file f = (file) desc;
     switch (mode) {
     case 0:

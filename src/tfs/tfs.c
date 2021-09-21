@@ -49,6 +49,7 @@ const char *string_from_fs_status(fs_status s)
     }
 }
 
+/* Called with fs locked */
 static tuple fs_tuple_from_inode(filesystem fs, inode n)
 {
     tuple t = pointer_from_u64(n);
@@ -388,9 +389,11 @@ closure_function(2, 3, void, filesystem_storage_read,
 
     /* read extent data and zero gaps */
     range blocks = range_rshift_pad(q, fs->blocksize_order);
+    filesystem_lock(fs);
     rangemap_range_lookup_with_gaps(f->extentmap, blocks,
                                     stack_closure(read_extent, fs, sg, m, blocks),
                                     stack_closure(zero_hole, fs, sg, blocks));
+    filesystem_unlock(fs);
     apply(k, STATUS_OK);
 }
 
@@ -484,6 +487,23 @@ fs_status filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
         return FS_STATUS_OK;
     else
         return FS_STATUS_NOSPACE;
+}
+
+static fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
+{
+    if (f->md) {
+        value v = value_from_u64(fs->h, len);
+        if (v == INVALID_ADDRESS)
+            return FS_STATUS_NOMEM;
+        symbol l = sym(filelength);
+        fs_status s = filesystem_write_eav(fs, f->md, l, v);
+        if (s != FS_STATUS_OK)
+            return s;
+        set(f->md, l, v);
+        filesystem_update_mtime(fs, f->md);
+    }
+    fsfile_set_length(f, len);
+    return FS_STATUS_OK;
 }
 
 /* create a new extent in the filesystem
@@ -888,7 +908,10 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
     range blocks = range_rshift_pad(q, fs->blocksize_order);
     tfs_debug("%s: file %p range %R blocks %R\n", __func__, f, q, blocks);
 
-    return extents_range_handler(fs, f, blocks, 0, 0);
+    filesystem_lock(fs);
+    status s = extents_range_handler(fs, f, blocks, 0, 0);
+    filesystem_unlock(fs);
+    return s;
 }
 
 closure_function(2, 3, void, filesystem_storage_write,
@@ -907,12 +930,13 @@ closure_function(2, 3, void, filesystem_storage_write,
     merge m = allocate_merge(fs->h, complete);
     status_handler sh = apply_merge(m);
 
+    filesystem_lock(fs);
     status s = extents_range_handler(fs, f, blocks, sg, m);
     if (s != STATUS_OK)
         goto out;
     if (fsfile_get_length(f) < q.end) {
         tfs_debug("   append; update length to %ld\n", q.end);
-        fs_status fss = filesystem_truncate(fs, f, q.end);
+        fs_status fss = filesystem_truncate_locked(fs, f, q.end);
         if (fss != FS_STATUS_OK) {
             s = timm("result", "unable to set file length", "fsstatus", "%d",
                 fss);
@@ -920,6 +944,7 @@ closure_function(2, 3, void, filesystem_storage_write,
         }
     }
   out:
+    filesystem_unlock(fs);
     apply(sh, s);
 }
 
@@ -953,19 +978,10 @@ KLIB_EXPORT(filesystem_write_linear);
 
 fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {
-    if (f->md) {
-        value v = value_from_u64(fs->h, len);
-        if (v == INVALID_ADDRESS)
-            return FS_STATUS_NOMEM;
-        symbol l = sym(filelength);
-        fs_status s = filesystem_write_eav(fs, f->md, l, v);
-        if (s != FS_STATUS_OK)
-            return s;
-        set(f->md, l, v);
-        filesystem_update_mtime(fs, f->md);
-    }
-    fsfile_set_length(f, len);
-    return FS_STATUS_OK;
+    filesystem_lock(fs);
+    fs_status fss = filesystem_truncate_locked(fs, f, len);
+    filesystem_unlock(fs);
+    return fss;
 }
 
 closure_function(3, 1, void, log_flush_completed,
@@ -986,7 +1002,9 @@ closure_function(3, 1, void, log_flush_completed,
 
 void filesystem_flush(filesystem fs, status_handler completion)
 {
+    filesystem_lock(fs);
     log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion, false));
+    filesystem_unlock(fs);
 }
 
 void filesystem_reserve(filesystem fs)
@@ -1068,6 +1086,7 @@ void filesystem_alloc(fsfile f, long offset, long len,
     assert(new_rm != INVALID_ADDRESS);
     fs_status status = FS_STATUS_OK;
 
+    filesystem_lock(fs);
     u64 lastedge = blocks.start;
     rmnode curr = rangemap_first_node(f->extentmap);
     while (curr != INVALID_ADDRESS) {
@@ -1095,11 +1114,12 @@ void filesystem_alloc(fsfile f, long offset, long len,
         goto done;
     u64 end = offset + len;
     if (!keep_size && (end > fsfile_get_length(f))) {
-        status = filesystem_truncate(fs, f, end);
+        status = filesystem_truncate_locked(fs, f, end);
     }
 done:
     deallocate_rangemap(new_rm, status == FS_STATUS_OK ? stack_closure(assert_no_node) :
                         stack_closure(destroy_extent_node, fs));
+    filesystem_unlock(fs);
     apply(completion, f, status);
 }
 
@@ -1175,13 +1195,13 @@ closure_function(1, 2, boolean, file_unlink_each,
     return true;
 }
 
+/* Called with fs locked, returns with fs unlocked. */
 static void file_unlink(filesystem fs, tuple t)
 {
     fsfile f = fsfile_from_node(fs, t);
     table_set(fs->files, t, 0);
     if (f) {
         f->md = 0;
-        refcount_release(&f->refcount);
     }
 
     /* If a tuple is not present in the filesystem log dictionary, it can (and should) be destroyed
@@ -1190,6 +1210,10 @@ static void file_unlink(filesystem fs, tuple t)
         destruct_tuple(t, true);
     else
         iterate(t, stack_closure(file_unlink_each, t));
+
+    filesystem_unlock(fs);  /* the fsfile deallocator needs to acquire the lock */
+    if (f)
+        refcount_release(&f->refcount);
 }
 
 fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
@@ -1217,6 +1241,7 @@ fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
 
 fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry, boolean persistent, boolean recursive)
 {
+    filesystem_lock(fs);
     tuple parent = cwd ? cwd : fs->root;
     assert(children(parent));
 
@@ -1272,6 +1297,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple ent
         parent = t;
     }
 
+    filesystem_unlock(fs);
     deallocate(fs->h, fp_copy, fp_len + 1);
     return status;
 }
@@ -1294,11 +1320,13 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
     tuple parent;
     fs_status fss = filesystem_resolve_cstring(&fs, cwd_t, path, 0, &parent);
     if ((fss != FS_STATUS_NOENT) || !parent) {
-        return fss;
+        goto out;
     }
     buffer name = little_stack_buffer(NAME_MAX + 1);
-    if (!dirname_from_path(name, path))
-        return FS_STATUS_NAMETOOLONG;
+    if (!dirname_from_path(name, path)) {
+        fss = FS_STATUS_NAMETOOLONG;
+        goto out;
+    }
     tuple dir = fs_new_entry(fs);
     set(dir, sym(children), allocate_tuple());
     fss = fs_set_dir_entry(fs, parent, intern(name), dir);
@@ -1309,6 +1337,9 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
         cleanup_directory(dir);
         destruct_tuple(dir, true);
     }
+  out:
+    filesystem_unlock(fs);
+    filesystem_release(fs);
     return fss;
 }
 
@@ -1343,8 +1374,10 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
         fss = filesystem_resolve_cstring_follow(fs, cwd_t, path, &t, &parent);
     if (fss != FS_STATUS_OK) {
         if (create) {
-            if (!parent)
-                return FS_STATUS_NOENT;
+            if (!parent) {
+                fss = FS_STATUS_NOENT;
+                goto out;
+            }
             t = fs_new_entry(*fs);
 
             /* 'make it a file' by adding an empty extents list */
@@ -1369,14 +1402,19 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
         }
     } else {
         if (exclusive)
-            return FS_STATUS_EXIST;
-        fsf = fsfile_from_node(*fs, t);
+            fss = FS_STATUS_EXIST;
+        else
+            fsf = fsfile_from_node(*fs, t);
     }
+  out:
     if (fss == FS_STATUS_OK) {
         filesystem_update_atime(*fs, t);
         *n = t;
         if (f)
             *f = fsf;
+    } else {
+        filesystem_unlock(*fs);
+        filesystem_release(*fs);
     }
 
     return fss;
@@ -1384,18 +1422,26 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
 
 void filesystem_put_node(filesystem fs, tuple n)
 {
+    filesystem_unlock(fs);
+    filesystem_release(fs);
 }
 
+/* Called with fs unlocked; if inode number can be resolved, returns with fs locked. */
 tuple filesystem_get_meta(filesystem fs, inode n)
 {
+    filesystem_lock(fs);
     tuple t = fs_tuple_from_inode(fs, n);
+    if (!t)
+        filesystem_unlock(fs);
     return t;
 }
 
 void filesystem_put_meta(filesystem fs, tuple n)
 {
+    filesystem_unlock(fs);
 }
 
+/* Called with fs locked. */
 fsfile filesystem_creat_unnamed(filesystem fs)
 {
     fsfile f = allocate_fsfile(fs, 0);
@@ -1411,10 +1457,12 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
         return FS_STATUS_NOENT;
     tuple parent;
     fs_status fss = filesystem_resolve_cstring(&fs, cwd_t, path, 0, &parent);
-    if (fss == FS_STATUS_OK)
-        return FS_STATUS_EXIST;
+    if (fss == FS_STATUS_OK) {
+        fss = FS_STATUS_EXIST;
+        goto out;
+    }
     if ((fss != FS_STATUS_NOENT) || !parent)
-        return fss;
+        goto out;
     tuple link = fs_new_entry(fs);
     set(link, sym(linktarget), buffer_cstring(fs->h, target));
     fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), link);
@@ -1422,6 +1470,9 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
         destruct_tuple(link, true);
     else
         table_set(fs->files, link, INVALID_ADDRESS);
+  out:
+    filesystem_unlock(fs);
+    filesystem_release(fs);
     return fss;
 }
 
@@ -1449,23 +1500,35 @@ fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean 
     tuple parent, t;
     fs_status fss = filesystem_resolve_cstring(&fs, cwd_t, path, &t, &parent);
     if (fss != FS_STATUS_OK)
-        return fss;
+        goto out;
     tuple c = children(t);
     if (directory) {
-        if (!c)
-            return FS_STATUS_NOTDIR;
+        if (!c) {
+            fss = FS_STATUS_NOTDIR;
+            goto out;
+        }
         boolean notempty = false;
         iterate(c, stack_closure(check_notempty_each, &notempty));
-        if (notempty)
-            return FS_STATUS_NOTEMPTY;
+        if (notempty) {
+            fss = FS_STATUS_NOTEMPTY;
+            goto out;
+        }
     } else {
-        if (c)
-            return FS_STATUS_ISDIR;
+        if (c) {
+            fss = FS_STATUS_ISDIR;
+            goto out;
+        }
     }
-    file_unlink(fs, t);
     fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), 0);
-    if (fss == FS_STATUS_OK)
+    if (fss == FS_STATUS_OK) {
         filesystem_update_mtime(fs, parent);
+        file_unlink(fs, t);
+        goto release;
+    }
+  out:
+    filesystem_unlock(fs);
+  release:
+    filesystem_release(fs);
     return fss;
 }
 
@@ -1479,47 +1542,92 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
     if (!oldwd_t)
         return FS_STATUS_NOENT;
     tuple old, oldparent;
+    filesystem fs_to_unlock;
     fs_status s = filesystem_resolve_cstring(&oldfs, oldwd_t, oldpath, &old, &oldparent);
-    if (s != FS_STATUS_OK)
-        return s;
+    if (s != FS_STATUS_OK) {
+        fs_to_unlock = oldfs;
+        newfs = 0;
+        goto out;
+    }
+    if (newfs != oldfs) {
+        filesystem_unlock(oldfs);
+        filesystem_lock(newfs);
+    }
     tuple newwd_t = fs_tuple_from_inode(newfs, newwd);
-    if (!newwd_t)
-        return FS_STATUS_NOENT;
+    if (!newwd_t) {
+        s = FS_STATUS_NOENT;
+        fs_to_unlock = newfs;
+        newfs = 0;
+        goto out;
+    }
     tuple new, newparent;
     s = filesystem_resolve_cstring(&newfs, newwd_t, newpath, &new, &newparent);
+    fs_to_unlock = newfs;
     if ((s != FS_STATUS_OK) && (s != FS_STATUS_NOENT))
-        return s;
-    if (!newparent)
-        return FS_STATUS_NOENT;
-    if (oldfs != newfs)
-        return FS_STATUS_XDEV;
+        goto out;
+    if (!newparent) {
+        s = FS_STATUS_NOENT;
+        goto out;
+    }
+    if (oldfs != newfs) {
+        s = FS_STATUS_XDEV;
+        goto out;
+    }
+
+    /* oldfs may have been unlocked in the process of resolving newpath, so check (now that the
+     * filesystem is locked again) whether previously found tuples are still valid. */
+    if (!table_find(oldfs->files, old) || !table_find(oldfs->files, oldparent)) {
+        s = FS_STATUS_NOENT;
+        goto out;
+    }
+
     if (s == FS_STATUS_OK) {
-        if (noreplace)
-            return FS_STATUS_EXIST;
+        if (noreplace) {
+            s = FS_STATUS_EXIST;
+            goto out;
+        }
         tuple c = children(new);
         if (c) {
-            if (!is_dir(old))
-                return FS_STATUS_ISDIR;
+            if (!is_dir(old)) {
+                s = FS_STATUS_ISDIR;
+                goto out;
+            }
             boolean notempty = false;
             iterate(c, stack_closure(check_notempty_each, &notempty));
-            if (notempty)
-                return FS_STATUS_NOTEMPTY;
-        } else if (is_dir(old))
-            return FS_STATUS_NOTDIR;
+            if (notempty) {
+                s = FS_STATUS_NOTEMPTY;
+                goto out;
+            }
+        } else if (is_dir(old)) {
+            s = FS_STATUS_NOTDIR;
+            goto out;
+        }
     }
-    if (file_tuple_is_ancestor(old, new, newparent))
-        return FS_STATUS_INVAL;
-    if ((newparent == oldparent) && (new == old))
-        return FS_STATUS_OK;
-    if (new)
-        file_unlink(newfs, new);
+    if (file_tuple_is_ancestor(old, new, newparent)) {
+        s = FS_STATUS_INVAL;
+        goto out;
+    }
+    if ((newparent == oldparent) && (new == old)) {
+        s = FS_STATUS_OK;
+        goto out;
+    }
     s = fs_set_dir_entry(newfs, newparent, sym_this(filename_from_path(newpath)), old);
     if (s == FS_STATUS_OK)
         s = fs_set_dir_entry(oldfs, oldparent, sym_this(filename_from_path(oldpath)), 0);
     if (s == FS_STATUS_OK) {
         filesystem_update_mtime(oldfs, oldparent);
         filesystem_update_mtime(newfs, newparent);
+        if (new) {
+            file_unlink(newfs, new);
+            goto release;
+        }
     }
+  out:
+    filesystem_unlock(fs_to_unlock);
+  release:
+    filesystem_release(oldfs);
+    if (newfs)
+        filesystem_release(newfs);
     return s;
 }
 
@@ -1531,21 +1639,46 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
         return FS_STATUS_NOENT;
     tuple n1, n2;
     tuple parent1, parent2;
+    filesystem fs_to_unlock;
     fs_status s = filesystem_resolve_cstring(&fs1, wd1_t, path1, &n1, &parent1);
-    if (s != FS_STATUS_OK)
-        return s;
+    if (s != FS_STATUS_OK) {
+        fs_to_unlock = fs1;
+        fs2 = 0;
+        goto out;
+    }
+    if (fs2 != fs1) {
+        filesystem_unlock(fs1);
+        filesystem_lock(fs2);
+    }
     tuple wd2_t = fs_tuple_from_inode(fs2, wd2);
-    if (!wd2_t)
-        return FS_STATUS_NOENT;
+    if (!wd2_t) {
+        s = FS_STATUS_NOENT;
+        fs_to_unlock = fs2;
+        fs2 = 0;
+        goto out;
+    }
     s = filesystem_resolve_cstring(&fs2, wd2_t, path2, &n2, &parent2);
+    fs_to_unlock = fs2;
     if (s != FS_STATUS_OK)
-        return s;
-    if (fs1 != fs2)
-        return FS_STATUS_XDEV;
+        goto out;
+    if (fs1 != fs2) {
+        s = FS_STATUS_XDEV;
+        goto out;
+    }
+
+    /* fs1 may have been unlocked in the process of resolving path2, so check (now that the
+     * filesystem is locked again) whether previously found tuples are still valid. */
+    if (!table_find(fs1->files, n1) || !table_find(fs1->files, parent1)) {
+        s = FS_STATUS_NOENT;
+        goto out;
+    }
+
     if ((parent1 == parent2) && (n1 == n2))
-        return FS_STATUS_OK;
-    if (file_tuple_is_ancestor(n1, n2, parent2) || file_tuple_is_ancestor(n2, n1, parent1))
-        return FS_STATUS_INVAL;
+        goto out;
+    if (file_tuple_is_ancestor(n1, n2, parent2) || file_tuple_is_ancestor(n2, n1, parent1)) {
+        s = FS_STATUS_INVAL;
+        goto out;
+    }
     s = fs_set_dir_entry(fs1, parent1, sym_this(filename_from_path(path1)), n2);
     if (s == FS_STATUS_OK)
         s = fs_set_dir_entry(fs2, parent2, sym_this(filename_from_path(path2)), n1);
@@ -1553,6 +1686,11 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
         filesystem_update_mtime(fs1, parent1);
         filesystem_update_mtime(fs2, parent2);
     }
+  out:
+    filesystem_unlock(fs_to_unlock);
+    filesystem_release(fs1);
+    if (fs2)
+        filesystem_release(fs2);
     return s;
 }
 
@@ -1580,13 +1718,16 @@ void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh)
 {
     tfs_debug("%s(%F)\n", __func__, sh);
     cleanup_directory(fs->root);
-    if (log_write(new_tl, fs->root)) {
+    boolean ok = log_write(new_tl, fs->root);
+    fixup_directory(fs->root, fs->root);
+    if (ok) {
         fs->temp_log = new_tl;
         log_flush(new_tl, sh);
     } else {
+        filesystem_unlock(fs);
         apply(sh, timm("result", "failed to write log"));
+        filesystem_lock(fs);
     }
-    fixup_directory(fs->root, fs->root);
 }
 
 void filesystem_log_rebuild_done(filesystem fs, log new_tl)
@@ -1605,7 +1746,10 @@ define_closure_function(1, 1, void, fsf_sync_complete,
         timm_dealloc(s);
     }
     fsfile f = bound(f);
+    filesystem fs = f->fs;
+    filesystem_lock(fs);
     deallocate_fsfile(f->fs, f, stack_closure(free_extent, f->fs));
+    filesystem_unlock(fs);
 }
 
 closure_function(1, 0, void, free_extents,
@@ -1743,6 +1887,7 @@ void create_filesystem(heap h,
     fs->temp_log = 0;
     init_refcount(&fs->refcount, 1, init_closure(&fs->sync, fs_sync, fs));
     fs->sync_complete = 0;
+    filesystem_lock_init(fs);
 #else
     fs->w = 0;
     fs->storage = 0;
@@ -1836,6 +1981,8 @@ void fs_set_path_helper(filesystem (*get_root_fs)(), inode (*get_mountpoint)(tup
     fs_path_helper.get_mountpoint = get_mountpoint;
 }
 
+/* Requires that a mount point does not change while at least one of its two filesystems (parent and
+ * child) is locked. */
 static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
 {
     *p = t;
@@ -1848,9 +1995,12 @@ static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
             buffer b = get(m, sym(fs));
             if (b && (buffer_length(b) == sizeof(u64))) {
                 filesystem child_fs = pointer_from_u64(*((u64 *)buffer_ref(b, 0)));
+                filesystem_reserve(child_fs);
+                filesystem_unlock(*fs);
+                filesystem_release(*fs);
+                filesystem_lock(child_fs);
                 t = child_fs->root;
-                if (fs)
-                    *fs = child_fs;
+                *fs = child_fs;
             }
         } else if ((t == *p) && (a == sym_this("..")) &&
                    (t != filesystem_getroot(fs_path_helper.get_root_fs()))) {
@@ -1859,21 +2009,32 @@ static tuple lookup_follow(filesystem *fs, tuple t, symbol a, tuple *p)
              */
             filesystem parent_fs;
             inode n = fs_path_helper.get_mountpoint(t, &parent_fs);
-            tuple mp = n ? fs_tuple_from_inode(parent_fs, n) : 0;
+            if (!n)
+                return t;
+            filesystem_reserve(parent_fs);
+            filesystem_unlock(*fs);
+            filesystem_release(*fs);
+            filesystem_lock(parent_fs);
+            tuple mp = fs_tuple_from_inode(parent_fs, n);
+            *fs = parent_fs;
             if (mp) {
                 *p = mp;
                 t = lookup(mp, a);
-                if (fs)
-                    *fs = parent_fs;
+            } else {
+                /* The mount directory in the parent filesystem has disappeared before the
+                 * filesystem could be locked. */
+                t = 0;
             }
         }
     }
     return t;
 }
 
-/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
- * point), the 'fs' argument (if non-null) is updated to point to the new
- * filesystem. */
+/* Called with the filesystem pointed to by 'fs' locked.
+ * If the file path being resolved crosses a filesystem boundary (i.e. a mount
+ * point), the current filesystem is unlocked, the new filesystem is locked, and the 'fs' argument
+ * is updated to point to the new filesystem.
+ * The refcount of the filesystem returned via the 'fs' pointer is incremented. */
 // fused buffer wrap, split, and resolve
 int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
                     tuple *parent)
@@ -1881,9 +2042,20 @@ int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *
     assert(fs_path_helper.get_root_fs);
     assert(f);
 
-    tuple t = *f == '/' ? filesystem_getroot(fs_path_helper.get_root_fs()) : cwd;
-    if (fs && (*f == '/'))
-        *fs = fs_path_helper.get_root_fs();
+    tuple t;
+    if (*f == '/') {
+        filesystem root_fs = fs_path_helper.get_root_fs();
+        filesystem_reserve(root_fs);
+        if (root_fs != *fs) {
+            filesystem_unlock(*fs);
+            *fs = root_fs;
+            filesystem_lock(*fs);
+        }
+        t = filesystem_getroot(root_fs);
+    } else {
+        filesystem_reserve(*fs);
+        t = cwd;
+    }
     tuple p = t;
     buffer a = little_stack_buffer(NAME_MAX);
     char y;
@@ -1938,9 +2110,8 @@ done:
     return (t ? 0 : err);
 }
 
-/* If the file path being resolved crosses a filesystem boundary (i.e. a mount
- * point), the 'fs' argument (if non-null) is updated to point to the new
- * filesystem. */
+/* Same as filesystem_resolve_cstring(), but if the path resolves to a symbolic link, the link is
+ * followed. */
 int filesystem_resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
         tuple *parent)
 {
@@ -1976,8 +2147,10 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
             *target = link;
             return 0;
         }
+        filesystem prev = *fs;
         int ret = filesystem_resolve_cstring(fs, parent, cstring(target_b, buf), &target_t,
                 &parent);
+        filesystem_release(prev);
         if (ret) {
             return ret;
         }
@@ -1990,6 +2163,8 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
     }
 }
 
+#ifdef KERNEL
+
 fs_status filesystem_mk_socket(filesystem *fs, inode cwd, const char *path, void *s, inode *n)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
@@ -1997,13 +2172,17 @@ fs_status filesystem_mk_socket(filesystem *fs, inode cwd, const char *path, void
         return FS_STATUS_NOENT;
     tuple sock, parent;
     fs_status fss = filesystem_resolve_cstring(fs, cwd_t, path, &sock, &parent);
-    if (fss == FS_STATUS_OK)
-        return FS_STATUS_EXIST;
+    if (fss == FS_STATUS_OK) {
+        fss = FS_STATUS_EXIST;
+        goto out;
+    }
     if ((fss != FS_STATUS_NOENT) || !parent)
-        return fss;
+        goto out;
     sock = allocate_tuple();
-    if (sock == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+    if (sock == INVALID_ADDRESS) {
+        fss = FS_STATUS_NOMEM;
+        goto out;
+    }
     tuple sock_handle = allocate_tuple();
     if (sock_handle == INVALID_ADDRESS) {
         fss = FS_STATUS_NOMEM;
@@ -2023,10 +2202,13 @@ fs_status filesystem_mk_socket(filesystem *fs, inode cwd, const char *path, void
     if (fss == FS_STATUS_OK) {
         *n = inode_from_tuple(sock);
         filesystem_reserve(*fs);
-        return fss;
+        goto out;
     }
   err:
     destruct_tuple(sock, true);
+  out:
+    filesystem_unlock(*fs);
+    filesystem_release(*fs);
     return fss;
 }
 
@@ -2038,16 +2220,23 @@ fs_status filesystem_get_socket(filesystem *fs, inode cwd, const char *path, tup
     tuple t, sock_handle;
     fs_status fss = filesystem_resolve_cstring(fs, cwd_t, path, &t, 0);
     if (fss != FS_STATUS_OK)
-        return fss;
-    if (!get(t, sym(socket)) || !(sock_handle = get(t, sym(handle))))
-        return FS_STATUS_INVAL;
+        goto out;
+    if (!get(t, sym(socket)) || !(sock_handle = get(t, sym(handle)))) {
+        fss = FS_STATUS_INVAL;
+        goto out;
+    }
     buffer b = get(sock_handle, sym(value));    // XXX untyped binary
     if (!b || (buffer_length(b) != sizeof(*s))) {
-        return FS_STATUS_INVAL;
+        fss = FS_STATUS_INVAL;
+        goto out;
     }
     *n = t;
     *s = pointer_from_u64(*((u64 *)buffer_ref(b, 0)));
     return FS_STATUS_OK;
+  out:
+    filesystem_unlock(*fs);
+    filesystem_release(*fs);
+    return fss;
 }
 
 fs_status filesystem_clear_socket(filesystem fs, inode n)
@@ -2059,6 +2248,7 @@ fs_status filesystem_clear_socket(filesystem fs, inode n)
         buffer b = get(sock_handle, sym(value));    // XXX untyped binary
         buffer_clear(b);
         fss = FS_STATUS_OK;
+        filesystem_unlock(fs);
     } else {
         fss = FS_STATUS_NOENT;
     }
@@ -2068,26 +2258,38 @@ fs_status filesystem_clear_socket(filesystem fs, inode n)
 
 fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child)
 {
+    spin_lock_2(&parent->lock, &child->lock);
     tuple mount_dir_t = fs_tuple_from_inode(parent, mount_dir);
-    if (!mount_dir_t)
-        return FS_STATUS_NOENT;
+    fs_status fss;
+    if (!mount_dir_t) {
+        fss = FS_STATUS_NOENT;
+        goto out;
+    }
     tuple mount = allocate_tuple();
-    if (mount == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+    if (mount == INVALID_ADDRESS) {
+        fss = FS_STATUS_NOMEM;
+        goto out;
+    }
     buffer b = allocate_buffer(parent->h, sizeof(u64));
     if (b == INVALID_ADDRESS) {
         deallocate_value(mount);
-        return FS_STATUS_NOMEM;
+        fss = FS_STATUS_NOMEM;
+        goto out;
     }
     buffer_write_le64(b, u64_from_pointer(child));
     set(mount, sym(fs), b);
     set(mount, sym(no_encode), null_value); /* non-persistent entry */
     set(mount_dir_t, sym(mount), mount);
-    return FS_STATUS_OK;
+    fss = FS_STATUS_OK;
+  out:
+    filesystem_unlock(child);
+    filesystem_unlock(parent);
+    return fss;
 }
 
 void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, thunk complete)
 {
+    spin_lock_2(&parent->lock, &child->lock);
     tuple mount_dir_t = fs_tuple_from_inode(parent, mount_dir);
     if (mount_dir_t) {
         tuple mount = get_tuple(mount_dir_t, sym(mount));
@@ -2095,8 +2297,12 @@ void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, th
         destruct_tuple(mount, true);
     }
     child->sync_complete = complete;
+    filesystem_unlock(child);
+    filesystem_unlock(parent);
     filesystem_release(child);
 }
+
+#endif
 
 boolean dirname_from_path(buffer dest, const char *path)
 {
@@ -2157,15 +2363,18 @@ int file_get_path(filesystem fs, inode ino, char *buf, u64 len)
     tuple n = filesystem_get_meta(fs, ino);
     if (!n)
         return -1;
+    filesystem_reserve(fs);
+    int rv;
     tuple c = children(n);
     if (!c) {   /* Retrieving path of non-directory tuples is not supported. */
-        return -1;
+        rv = -1;
+        goto out;
     }
     buf[0] = '\0';
     int cur_len = 1;
     tuple p;
     do {
-        n = lookup_follow(0, n, sym_this(".."), &p);
+        n = lookup_follow(&fs, n, sym_this(".."), &p);
         assert(n);
         if (n == p) {   /* this is the root directory */
             if (cur_len == 1) {
@@ -2177,12 +2386,18 @@ int file_get_path(filesystem fs, inode ino, char *buf, u64 len)
         } else {
             c = children(n);
         }
-        if (!c)
-            return cur_len;
+        if (!c) {
+            rv = cur_len;
+            goto out;
+        }
 
         iterate(c, stack_closure(file_get_path_each, p, buf, len, &cur_len));
     } while (cur_len > 0);
-    return -1;
+    rv = -1;
+  out:
+    filesystem_unlock(fs);
+    filesystem_release(fs);
+    return rv;
 }
 
 /* Check if t1 is a (direct or indirect) ancestor of t2 (whose parent is p2). */

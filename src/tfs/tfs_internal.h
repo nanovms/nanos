@@ -9,6 +9,20 @@
 
 #define TFS_VERSION 0x00000004
 
+#ifdef KERNEL
+
+#define filesystem_lock_init(fs)    spin_lock_init(&(fs)->lock)
+#define filesystem_lock(fs)         spin_lock(&(fs)->lock)
+#define filesystem_unlock(fs)       spin_unlock(&(fs)->lock)
+
+#else
+
+#define filesystem_lock_init(fs)
+#define filesystem_lock(fs)         ((void)fs)
+#define filesystem_unlock(fs)       ((void)fs)
+
+#endif
+
 typedef struct log *log;
 
 declare_closure_struct(1, 0, void, fs_sync,
@@ -39,6 +53,9 @@ typedef struct filesystem {
     u64 next_extend_log_offset;
     u64 next_new_log_offset;
     tuple root;
+#ifdef KERNEL
+    struct spinlock lock;
+#endif
     struct refcount refcount;
     closure_struct(fs_sync, sync);
     thunk sync_complete;
