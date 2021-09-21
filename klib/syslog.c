@@ -70,6 +70,8 @@ static struct {
             timer_handler n);
     void (*timm_dealloc)(tuple t);
     sysreturn (*fs_rename)(buffer oldpath, buffer newpath);
+    void (*lwip_lock)(void);
+    void (*lwip_unlock)(void);
     err_t (*dns_gethostbyname)(const char *hostname, ip_addr_t *addr,
             dns_found_callback found, void *callback_arg);
     struct netif *(*netif_get_default)(void);
@@ -230,7 +232,9 @@ static void syslog_server_resolve(void)
 {
     if (syslog.dns_in_progress || (kfuncs.now(CLOCK_ID_MONOTONIC) < syslog.dns_req_next))
         return;
+    kfuncs.lwip_lock();
     err_t err = kfuncs.dns_gethostbyname(syslog.server, &syslog.server_ip, syslog_dns_cb, 0);
+    kfuncs.lwip_unlock();
     switch (err) {
     case ERR_OK:
         break;
@@ -265,7 +269,9 @@ static void syslog_udp_write(const char *s, bytes count)
         if (!syslog.hdr_len)
             return;
     }
+    kfuncs.lwip_lock();
     struct pbuf *pb = kfuncs.pbuf_alloc(PBUF_TRANSPORT, syslog.hdr_len + count, PBUF_RAM);
+    kfuncs.lwip_unlock();
     if (!pb)
         return;
     timestamp t = kfuncs.now(CLOCK_ID_REALTIME);
@@ -277,8 +283,10 @@ static void syslog_udp_write(const char *s, bytes count)
         1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
         usec_from_timestamp(t) - seconds * MILLION, syslog.local_ip, syslog.program);
     kfuncs.runtime_memcpy(pb->payload + syslog.hdr_len, s, count);
+    kfuncs.lwip_lock();
     kfuncs.udp_sendto(syslog.udp_pcb, pb, &syslog.server_ip, syslog.server_port);
     kfuncs.pbuf_free(pb);
+    kfuncs.lwip_unlock();
 }
 
 static void syslog_write(void *d, const char *s, bytes count)
@@ -403,6 +411,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(kfuncs.register_timer = get_sym("kern_register_timer")) ||
             !(kfuncs.timm_dealloc = get_sym("timm_dealloc")) ||
             !(kfuncs.fs_rename = get_sym("fs_rename")) ||
+            !(kfuncs.lwip_lock = get_sym("lwip_lock")) ||
+            !(kfuncs.lwip_unlock = get_sym("lwip_unlock")) ||
             !(kfuncs.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
             !(kfuncs.netif_get_default = get_sym("netif_get_default")) ||
             !(kfuncs.ipaddr_ntoa_r = get_sym("ipaddr_ntoa_r")) ||
@@ -446,7 +456,9 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     if (syslog.server) {
         syslog_server_resolve();
         syslog.program = get(root, sym(program));
+        kfuncs.lwip_lock();
         syslog.udp_pcb = udp_new();
+        kfuncs.lwip_unlock();
         if (!syslog.udp_pcb) {
             rprintf("syslog: unable to create UDP PCB\n");
             return KLIB_INIT_FAILED;

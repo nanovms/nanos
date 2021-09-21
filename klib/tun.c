@@ -72,6 +72,8 @@ static struct {
     void (*blockq_handle_completion)(blockq bq, u64 bq_flags, io_completion completion, thread t,
             sysreturn rv);
     void (*deallocate_blockq)(blockq bq);
+    void (*lwip_lock)(void);
+    void (*lwip_unlock)(void);
     struct netif *(*netif_add)(struct netif *netif,
             const ip4_addr_t *ipaddr, const ip4_addr_t *netmask, const ip4_addr_t *gw,
             void *state, netif_init_fn init, netif_input_fn input);
@@ -151,6 +153,10 @@ closure_function(5, 1, sysreturn, tun_read_bh,
     tun_file tf = bound(tf);
     tun tun = tf->tun;
     sysreturn ret;
+    if (flags & BLOCKQ_ACTION_NULLIFY) {
+        ret = -ERESTARTSYS;
+        goto out;
+    }
     struct pbuf *p = kfuncs.dequeue(tf->pq);
     if (p == INVALID_ADDRESS) {
         if (tf->f->f.flags & O_NONBLOCK) {
@@ -161,11 +167,16 @@ closure_function(5, 1, sysreturn, tun_read_bh,
     }
     void * dest = bound(dest);
     u64 len = bound(len);
+    boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
     if (!(tun->flags & IFF_NO_PI)) {
         struct tun_pi pi;
         if (len < sizeof(pi)) {
             ret = -EINVAL;
+            if (!blocked)
+                kfuncs.lwip_lock();
             kfuncs.pbuf_free(p);
+            if (!blocked)
+                kfuncs.lwip_unlock();
             goto out;
         }
         if (len < p->tot_len + sizeof(pi))
@@ -186,8 +197,12 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         len -= sizeof(pi);
     }
     ret = MIN(len, p->tot_len);
+    if (!blocked)
+        kfuncs.lwip_lock();
     kfuncs.pbuf_copy_partial(p, dest, ret, 0);
     kfuncs.pbuf_free(p);
+    if (!blocked)
+        kfuncs.lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:
@@ -233,7 +248,9 @@ closure_function(1, 6, sysreturn, tun_write,
         src += sizeof(struct tun_pi);
         len -= sizeof(struct tun_pi);
     }
+    kfuncs.lwip_lock();
     struct pbuf *p = kfuncs.pbuf_alloc(PBUF_LINK, len, PBUF_POOL);
+    kfuncs.lwip_unlock();
     if (!p)
         return io_complete(completion, t, -ENOMEM);
     u64 copied = 0;
@@ -243,7 +260,9 @@ closure_function(1, 6, sysreturn, tun_write,
         copied += q->len;
         q = q->next;
     } while (q);
+    kfuncs.lwip_lock();
     tun->netif.input(p, &tun->netif);
+    kfuncs.lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
     return io_complete(completion, t, len);
@@ -308,7 +327,9 @@ closure_function(1, 2, sysreturn, tun_ioctl,
         }
         if ((ifreq->ifr.ifr_flags & ~TUN_TYPE_MASK) & ~(IFF_NO_PI | IFF_MULTI_QUEUE))
             return -EINVAL;
+        kfuncs.lwip_lock();
         struct netif *netif = kfuncs.netif_find(ifreq->ifr_name);
+        kfuncs.lwip_unlock();
         if (netif) {
             if (netif->output != tun_if_output)
                 return -EINVAL;
@@ -330,12 +351,14 @@ closure_function(1, 2, sysreturn, tun_ioctl,
             ip4_addr_t netmask = (ip4_addr_t){0};
             boolean bringup = false;
             get_tun_config(tun->netif.name, &ipaddr, &netmask, &bringup);
+            kfuncs.lwip_lock();
             kfuncs.netif_add(&tun->netif, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, kfuncs.netif_input);
             kfuncs.netif_name_cpy(ifreq->ifr_name, &tun->netif);
             list_init(&tun->files);
             tun->next_tx = tf;
             if (bringup)
                 kfuncs.netif_set_up(&tun->netif);
+            kfuncs.lwip_unlock();
         }
         spin_lock(&tun->lock);
         list_push_back(&tun->files, &tf->l);
@@ -385,7 +408,9 @@ closure_function(1, 2, sysreturn, tun_close,
         list_delete(&tf->l);
         if (list_empty(&tun->files)) {
             spin_unlock(&tun->lock);
+            kfuncs.lwip_lock();
             kfuncs.netif_remove(&tun->netif);
+            kfuncs.lwip_unlock();
             deallocate(tun_heap, tun, sizeof(struct tun_file));
             tun = 0;
         } else if (tun->next_tx == tf) {
@@ -473,6 +498,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(kfuncs.blockq_wake_one = get_sym("blockq_wake_one")) ||
             !(kfuncs.blockq_handle_completion = get_sym("blockq_handle_completion")) ||
             !(kfuncs.deallocate_blockq = get_sym("deallocate_blockq")) ||
+            !(kfuncs.lwip_lock = get_sym("lwip_lock")) ||
+            !(kfuncs.lwip_unlock = get_sym("lwip_unlock")) ||
             !(kfuncs.netif_add = get_sym("netif_add")) ||
             !(kfuncs.netif_find = get_sym("netif_find")) ||
             !(kfuncs.netif_name_cpy = get_sym("netif_name_cpy")) ||

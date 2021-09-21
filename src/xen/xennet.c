@@ -9,6 +9,7 @@
 #endif
 
 /* for ring init in ring.h */
+#include "lwip.h"
 #include "lwip/opt.h"
 #include "lwip/def.h"
 #include "lwip/mem.h"
@@ -301,6 +302,7 @@ closure_function(1, 0, void, xennet_tx_service_bh,
     xennet_dev xd = bound(xd);
     xennet_debug("%s: dev id %d", __func__, xd->dev.if_id);
     list l;
+    lwip_lock();
     while ((l = (list)dequeue(xd->tx_servicequeue)) != INVALID_ADDRESS) {
         struct list q;
         list_insert_before(l, &q); /* restore list head */
@@ -315,6 +317,7 @@ closure_function(1, 0, void, xennet_tx_service_bh,
             xennet_return_txbuf(xd, txb);
         }
     }
+    lwip_unlock();
     xennet_debug("%s: exit", __func__);
 }
 
@@ -519,6 +522,7 @@ static void xennet_return_rxbuf(struct pbuf *p)
 {
     xennet_rx_buf rxb = (xennet_rx_buf)p;
     xennet_dev xd = rxb->xd;
+    /* no lwip lock necessary */
     pbuf_alloced_custom(PBUF_RAW,
                         xd->rxbuflen,
                         PBUF_REF,
@@ -624,6 +628,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
     xennet_dev xd = bound(xd);
     xennet_debug("%s: dev id %d", __func__, xd->dev.if_id);
     list l;
+    lwip_lock();
     while ((l = (list)dequeue(xd->rx_servicequeue)) != INVALID_ADDRESS) {
         struct list q;
         assert(l);
@@ -640,6 +645,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
             }
         }
     }
+    lwip_unlock();
     xennet_debug("%s: exit", __func__);
 }
 
@@ -713,13 +719,13 @@ static status xennet_enable(xennet_dev xd)
     s = xenbus_set_state(0, xdev->frontend, XenbusStateConnected);
     if (!is_ok(s))
         goto out_dealloc_rx_buffers;
-
+    lwip_lock();
     netif_add(xd->netif,
               0, 0, 0,
               xd,
               xennet_netif_init,
               ethernet_input);
-
+    lwip_unlock();
     /* we're kind of always up ... start rx now */
     xd->rx_ring.sring->rsp_event = xd->rx_ring.rsp_cons + 1;
     write_barrier();

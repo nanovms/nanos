@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>
+#include <lwip.h>
 #include <lwip/opt.h>
 #include <lwip/def.h>
 #include <lwip/mem.h>
@@ -67,6 +68,7 @@ receive_buffer_alloc(hn_softc_t *hn)
     assert(x != INVALID_ADDRESS);
     x->hn = hn;
     x->p.custom_free_function = receive_buffer_release;
+    /* no lwip lock necessary */
     pbuf_alloced_custom(PBUF_RAW,
                         hn->rxbuflen,
                         PBUF_REF,
@@ -272,11 +274,13 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
     if (ret != 0)
         return timm("err", "err");
 
+    lwip_lock();
     netif_add(hn->netif,
               0, 0, 0,
               hn,
               vmxif_init,
               ethernet_input);
+    lwip_unlock();
 
     netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x", __func__,
                  netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
@@ -405,7 +409,9 @@ netvsc_recv(struct hv_device *device_ctx, netvsc_packet *packet)
             vaddr + packet->page_buffers[i].gpa_ofs);
     }
 
+    lwip_lock();
     err_enum_t err = hn->netif->input((struct pbuf *)x, hn->netif);
+    lwip_unlock();
     if (err != ERR_OK) {
         msg_err("netvsc: rx drop by stack, err %d\n", err);
         receive_buffer_release((struct pbuf *)x);

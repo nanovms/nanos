@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <pci.h>
+#include "lwip.h"
 #include "lwip/opt.h"
 #include "lwip/def.h"
 #include "lwip/mem.h"
@@ -249,6 +250,7 @@ void vmxnet3_init_shared_data(vmxnet3_pci dev)
 
 }
 
+/* called with lwIP lock held */
 int
 vmxnet3_isc_txd_encap(vmxnet3_pci dev, struct pbuf *p)
 {
@@ -342,6 +344,7 @@ vmxnet3_isc_txd_encap(vmxnet3_pci dev, struct pbuf *p)
     return ERR_OK;
 }
 
+/* called with lwIP lock held */
 void
 vmxnet3_isc_txd_credits_update(vmxnet3_pci dev)
 {

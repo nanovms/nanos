@@ -23,7 +23,22 @@ status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
 struct netif *netif_get_default(void);
 
 u16 ifflags_from_netif(struct netif *netif);
-boolean ifflags_to_netif(struct netif *netif, u16 flags);
+boolean ifflags_to_netif(struct netif *netif, u16 flags); /* do not call with lwIP lock held */
 void netif_name_cpy(char *dest, struct netif *netif);
 
 #define netif_is_loopback(netif)    (((netif)->name[0] == 'l') && ((netif)->name[1] == 'o'))
+
+extern struct spinlock lwip_spinlock;
+
+static inline void lwip_lock(void)
+{
+#ifdef KERNEL
+    assert(!in_interrupt());    /* XXX remove me after no-kernel-lock transition complete */
+#endif
+    spin_lock(&lwip_spinlock);
+}
+
+static inline void lwip_unlock(void)
+{
+    spin_unlock(&lwip_spinlock);
+}

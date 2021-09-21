@@ -83,6 +83,8 @@ static struct telemetry {
     u64 (*fs_usedblocks)(filesystem fs);
     timer (*register_timer)(clock_id id, timestamp val, boolean absolute,
             timestamp interval, timer_handler n);
+    void (*lwip_lock)(void);
+    void (*lwip_unlock)(void);
     struct netif *(*netif_get_default)(void);
     char *(*ipaddr_ntoa)(const ip_addr_t *addr);
     err_t (*dns_gethostbyname)(const char *hostname, ip_addr_t *addr,
@@ -234,7 +236,9 @@ boolean telemetry_send(const char *url, buffer data, value_handler vh)
     if (ch == INVALID_ADDRESS)
         return false;
     ip_addr_t radar_addr;
+    telemetry.lwip_lock();
     err_t err = kfunc(dns_gethostbyname)(RADAR_HOSTNAME, &radar_addr, telemetry_dns_cb, ch);
+    telemetry.lwip_unlock();
     switch (err) {
     case ERR_OK:
         if (telemetry.tls_connect(&radar_addr, RADAR_PORT, ch) == 0)
@@ -374,7 +378,9 @@ static void telemetry_boot(void)
     if (vh == INVALID_ADDRESS) {
         goto err_free_buf;
     }
+    telemetry.lwip_lock();      /* ipaddr_ntoa is not reentrant */
     kfunc(bprintf)(b, "{\"privateIP\":\"%s\"", kfunc(ipaddr_ntoa)(&netif->ip_addr));
+    telemetry.lwip_unlock();
     telemetry_print_env(b);
     buffer_write_cstring(b, "}\r\n");
     if (!telemetry_send("/api/v1/boots", b, vh)) {
@@ -487,6 +493,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(telemetry.fs_totalblocks = get_sym("fs_totalblocks")) ||
             !(telemetry.fs_usedblocks = get_sym("fs_usedblocks")) ||
             !(telemetry.register_timer = get_sym("kern_register_timer")) ||
+            !(telemetry.lwip_lock = get_sym("lwip_lock")) ||
+            !(telemetry.lwip_unlock = get_sym("lwip_unlock")) ||
             !(telemetry.netif_get_default = get_sym("netif_get_default")) ||
             !(telemetry.ipaddr_ntoa = get_sym("ipaddr_ntoa")) ||
             !(telemetry.dns_gethostbyname = get_sym("dns_gethostbyname")) ||

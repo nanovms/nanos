@@ -47,23 +47,28 @@ static inline void spin_wunlock(rw_spinlock l) {
 
 #else
 #ifdef SPIN_LOCK_DEBUG_NOSMP
+u64 get_program_counter(void);
+
 static inline boolean spin_try(spinlock l)
 {
     if (l->w)
         return false;
-    l->w = 1;
+    l->w = get_program_counter();
     return true;
 }
 
 static inline void spin_lock(spinlock l)
 {
-    assert(l->w == 0);
-    l->w = 1;
+    if (l->w != 0) {
+        print_frame_trace_from_here();
+        halt("spin_lock: lock %p already locked by 0x%lx\n", l, l->w);
+    }
+    l->w = get_program_counter();
 }
 
 static inline void spin_unlock(spinlock l)
 {
-    assert(l->w == 1);
+    assert(l->w != 0);
     l->w = 0;
 }
 

@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include "lwip.h"
 #include "lwip/opt.h"
 #include "lwip/def.h"
 #include "lwip/mem.h"
@@ -253,7 +254,9 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
             assert(i);
             xpbuf rxb = struct_from_list(i, xpbuf, l);
             list_delete(i);
+            lwip_lock();
             err_enum_t err = vn->n->input((struct pbuf *)rxb, vn->n);
+            lwip_unlock();
             if (err != ERR_OK) {
                 msg_err("vmxnet3: rx drop by stack, err %d\n", err);
                 receive_buffer_release((struct pbuf *)rxb);
@@ -406,13 +409,13 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     vmxnet3_read_cmd(dev, VMXNET3_CMD_ENABLE);
     pci_bar_write_4(&dev->bar0, VMXNET3_BAR0_RXH1(0), 0);
     pci_bar_write_4(&dev->bar0, VMXNET3_BAR0_RXH2(0), 0);
-
+    lwip_lock();
     netif_add(vn->n,
               0, 0, 0,
               vn,
               vmxif_init,
               ethernet_input);
-
+    lwip_unlock();
     vmxnet3_interrupts_enable(dev);
 }
 
@@ -460,6 +463,7 @@ void vmxnet3_newbuf(vmxnet3 vdev, int rid)
     assert(x != INVALID_ADDRESS);
     x->vn = vdev;
     x->p.custom_free_function = receive_buffer_release;
+    /* no lwip lock necessary */
     pbuf_alloced_custom(PBUF_RAW,
                         vdev->rxbuflen,
                         PBUF_REF,

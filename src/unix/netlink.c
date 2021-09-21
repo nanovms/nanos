@@ -331,9 +331,11 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
             break;
         }
         if (hdr->nlmsg_flags & NLM_F_DUMP) {
+            lwip_lock();
             for (struct netif *netif = netif_list; netif; netif = netif->next)
                 nl_enqueue_ifinfo(s, RTM_NEWLINK, NLM_F_MULTI, hdr->nlmsg_seq, s->addr.nl_pid,
                     netif);
+            lwip_unlock();
             nl_enqueue_done(s, hdr);
         } else {    /* Return a single entry. */
             struct ifinfomsg *ifi = (struct ifinfomsg *)NLMSG_DATA(hdr);
@@ -342,12 +344,14 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
                 break;
             }
             struct netif *netif = 0;
+            lwip_lock();
             for (netif = netif_list; netif; netif = netif->next) {
                 if (netif->num + 1 == ifi->ifi_index) {
                     nl_enqueue_ifinfo(s, RTM_NEWLINK, 0, hdr->nlmsg_seq, s->addr.nl_pid, netif);
                     break;
                 }
             }
+            lwip_unlock();
             if (!netif)
                 errno = EINVAL;
         }
@@ -774,6 +778,8 @@ void netlink_init(void)
     assert(netlink.pids != INVALID_ADDRESS);
     netlink.sockets = allocate_vector(h, 8);
     assert(netlink.sockets != INVALID_ADDRESS);
+    lwip_lock();
     NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, nl_lwip_ext_callback);
+    lwip_unlock();
 }

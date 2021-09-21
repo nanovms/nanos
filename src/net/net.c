@@ -11,6 +11,7 @@
 #define IFF_MULTICAST   (1 << 12)
 
 static heap lwip_heap;
+struct spinlock lwip_spinlock;
 
 /* Pretty silly. LWIP offers lwip_cyclic_timers for use elsewhere, but
    says to use LWIP_ARRAYSIZE(), which isn't possible with an
@@ -44,7 +45,9 @@ closure_function(2, 1, void, dispatch_lwip_timer,
 #ifdef LWIP_DEBUG
     lwip_debug("dispatching timer for %s\n", bound(name));
 #endif
+    lwip_lock();
     bound(handler)();
+    lwip_unlock();
 }
 
 void sys_timeouts_init(void)
@@ -151,6 +154,18 @@ struct netif *netif_get_default(void)
 }
 KLIB_EXPORT(netif_get_default);
 
+void kern_lwip_lock(void)
+{
+    lwip_lock();
+}
+KLIB_EXPORT_RENAME(kern_lwip_lock, lwip_lock);
+
+void kern_lwip_unlock(void)
+{
+    lwip_unlock();
+}
+KLIB_EXPORT_RENAME(kern_lwip_unlock, lwip_unlock);
+
 u16 ifflags_from_netif(struct netif *netif)
 {
     u16 flags = 0;
@@ -169,11 +184,15 @@ u16 ifflags_from_netif(struct netif *netif)
     return flags;
 }
 
+/* do not call with lwIP lock held */
 boolean ifflags_to_netif(struct netif *netif, u16 flags)
 {
+    lwip_lock();
     u16 diff = ifflags_from_netif(netif) ^ flags;
-    if (diff & ~(IFF_UP | IFF_RUNNING)) /* attempt to modify read-only flags */
+    if (diff & ~(IFF_UP | IFF_RUNNING)) { /* attempt to modify read-only flags */
+        lwip_unlock();
         return false;
+    }
     if (flags & IFF_UP)
         netif_set_up(netif);
     else
@@ -182,6 +201,7 @@ boolean ifflags_to_netif(struct netif *netif, u16 flags)
         netif_set_link_up(netif);
     else
         netif_set_link_down(netif);
+    lwip_unlock();
     return true;
 }
 
@@ -286,6 +306,7 @@ void init_network_iface(tuple root) {
     struct netif *default_iface = 0;
     boolean trace = get(root, sym(trace)) != 0;
 
+    lwip_lock();
     /* NETIF_FOREACH traverses interfaces in reverse order...so go by index */
     for (int i = 1; (n = netif_get_by_index(i)); i++) {
         if (netif_is_loopback(n))
@@ -344,6 +365,7 @@ void init_network_iface(tuple root) {
     } else {
         rprintf("NET: no network interface found\n");
     }
+    lwip_unlock();
 }
 
 extern void lwip_init();
@@ -353,7 +375,10 @@ void init_net(kernel_heaps kh)
     heap h = heap_general(kh);
     heap backed = (heap)heap_linear_backed(kh);
     lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, PAGESIZE_2M);
+    spin_lock_init(&lwip_spinlock);
+    lwip_lock();
     lwip_init();
     NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, lwip_ext_callback);
+    lwip_unlock();
 }

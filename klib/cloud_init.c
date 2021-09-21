@@ -41,6 +41,8 @@ static struct {
     fs_status (*fsfile_truncate)(fsfile f, u64 len);
     fsfile (*fsfile_open_or_create)(buffer file_path);
     void (*filesystem_write_linear)(fsfile f, void *src, range q, io_status_handler io_complete);
+    void (*lwip_lock)(void);
+    void (*lwip_unlock)(void);
     err_t (*dns_gethostbyname)(const char *hostname, ip_addr_t *addr,
             dns_found_callback found, void *callback_arg);
     status (*direct_connect)(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
@@ -402,7 +404,9 @@ static void cloud_download(connection_handler ch)
     kfuncs.runtime_memcpy(host, buffer_ref(&cfg->server_host, 0), host_len);
     host[host_len] = '\0';                                \
     ip_addr_t addr;
+    kfuncs.lwip_lock();
     err_t err = kfuncs.dns_gethostbyname(host, &addr, cloud_download_dns_cb, ch);
+    kfuncs.lwip_unlock();
     switch (err) {
     case ERR_OK:
         s = cloud_download_connect(&addr, ch);
@@ -486,6 +490,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym, status_handler co
             !(kfuncs.fsfile_truncate = get_sym("fsfile_truncate")) ||
             !(kfuncs.fsfile_open_or_create = get_sym("fsfile_open_or_create")) ||
             !(kfuncs.filesystem_write_linear = get_sym("filesystem_write_linear")) ||
+            !(kfuncs.lwip_lock = get_sym("lwip_lock")) ||
+            !(kfuncs.lwip_unlock = get_sym("lwip_unlock")) ||
             !(kfuncs.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
             !(kfuncs.direct_connect = get_sym("direct_connect")) ||
             !(kfuncs.http_request = get_sym("http_request")) ||
