@@ -104,7 +104,7 @@ __bswap64(u64 _x)
 #define le64toh(x) (x)
 #endif
 
-#if !defined(KERNEL) && !defined(KLIB)
+#ifndef KERNEL
 #define VA_TAG_BASE      0
 #define VA_TAG_OFFSET    USER_VA_TAG_OFFSET
 #define VA_TAG_WIDTH     USER_VA_TAG_WIDTH

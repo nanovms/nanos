@@ -1,6 +1,6 @@
 /* struct spinlock defined in machine.h */
 
-#if (defined(KERNEL) || defined(KLIB)) && defined(SMP_ENABLE)
+#if defined(KERNEL) && defined(SMP_ENABLE)
 static inline boolean spin_try(spinlock l) {
     u64 tmp = 1;
     /* Is it worth the compare and branch to skip a pause? */
@@ -49,48 +49,63 @@ static inline void spin_wunlock(rw_spinlock l) {
 #ifdef SPIN_LOCK_DEBUG_NOSMP
 u64 get_program_counter(void);
 
+/* TODO undo this if/when we add klib relocations */
+#ifdef KLIB
+#define lock_assert(x) ((void)(x))
+#else
+#define lock_assert(x) assert(x)
+#endif
+
 static inline boolean spin_try(spinlock l)
 {
     if (l->w)
         return false;
+#ifndef KLIB
     l->w = get_program_counter();
+#else
+    l->w = 1;
+#endif
     return true;
 }
 
 static inline void spin_lock(spinlock l)
 {
+#ifndef KLIB
     if (l->w != 0) {
         print_frame_trace_from_here();
         halt("spin_lock: lock %p already locked by 0x%lx\n", l, l->w);
     }
     l->w = get_program_counter();
+#else
+    l->w = 1;
+#endif
 }
 
 static inline void spin_unlock(spinlock l)
 {
-    assert(l->w != 0);
+    lock_assert(l->w != 1);
     l->w = 0;
 }
 
 static inline void spin_rlock(rw_spinlock l) {
-    assert(l->l.w == 0);
-    assert(l->readers == 0);
+    lock_assert(l->l.w == 0);
+    lock_assert(l->readers == 0);
     l->readers++;
 }
 
 static inline void spin_runlock(rw_spinlock l) {
-    assert(l->readers == 1);
-    assert(l->l.w == 0);
+    lock_assert(l->readers == 1);
+    lock_assert(l->l.w == 0);
     l->readers--;
 }
 
 static inline void spin_wlock(rw_spinlock l) {
-    assert(l->readers == 0);
+    lock_assert(l->readers == 0);
     spin_lock(&l->l);
 }
 
 static inline void spin_wunlock(rw_spinlock l) {
-    assert(l->readers == 0);
+    lock_assert(l->readers == 0);
     spin_unlock(&l->l);
 }
 #else

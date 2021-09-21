@@ -2,7 +2,7 @@
 #include <config.h>
 #include <machine.h>
 #include <attributes.h>
-#if !defined(BOOT) && !defined(KERNEL) && !defined(KLIB)
+#if !defined(BOOT) && !defined(KERNEL)
 #include <unix_process_runtime.h>
 #endif
 
