@@ -323,6 +323,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     assert(p != INVALID_ADDRESS); 
     boolean aslr = get(root, sym(noaslr)) == 0;
 
+    spin_lock_init(&p->lock);
     p->uh = uh;
     p->brk = 0;
     p->pid = allocate_u64((heap)uh->processes, 1);
@@ -366,7 +367,6 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->aio_ids = create_id_heap(h, h, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(h, 8);
     p->trace = 0;
-    spin_lock_init(&p->lock);
     return p;
 }
 
