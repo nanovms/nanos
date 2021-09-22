@@ -752,8 +752,10 @@ static inline void sigstate_thread_restore(thread t)
     sigstate ss = t->dispatch_sigstate;
     if (ss) {
         t->dispatch_sigstate = 0;
+        spin_lock(&ss->ss_lock);
         ss->mask = ss->saved;
         ss->saved = 0;
+        spin_unlock(&ss->ss_lock);
     }
 }
 

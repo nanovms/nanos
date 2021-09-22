@@ -136,21 +136,25 @@ static queued_signal sigstate_dequeue_signal(sigstate ss, int signum)
 /* select and dequeue a pending signal not masked by sigmask */
 static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask)
 {
-    u64 masked = get_all_pending_signals(t) & ~sigmask;
-    sig_debug("tid %d, sigmask 0x%lx, save %d, masked 0x%lx\n", t->tid, sigmask, save_and_mask, masked);
-    if (masked == 0)
-        return INVALID_ADDRESS;
+    int signum;
+    sigstate ss;
+    queued_signal qs;
+    while (true) {
+        u64 masked = get_all_pending_signals(t) & ~sigmask;
+        sig_debug("tid %d, sigmask 0x%lx, save %d, masked 0x%lx\n", t->tid,
+                  sigmask, save_and_mask, masked);
+        if (masked == 0)
+            return INVALID_ADDRESS;
 
-    int signum = select_signal_from_masked(masked);
-    if (!signum)
-        return INVALID_ADDRESS;
-
-    u64 mask = mask_from_sig(signum);
-    sigstate ss = (sigstate_get_pending(&t->signals) & mask) ? &t->signals : &t->p->signals;
-    spin_lock(&ss->ss_lock);
-    queued_signal qs = sigstate_dequeue_signal(ss, signum);
-    spin_unlock(&ss->ss_lock);
-    assert(qs != INVALID_ADDRESS);
+        signum = select_signal_from_masked(masked);
+        u64 mask = mask_from_sig(signum);
+        ss = (sigstate_get_pending(&t->signals) & mask) ? &t->signals : &t->p->signals;
+        spin_lock(&ss->ss_lock);
+        qs = sigstate_dequeue_signal(ss, signum);
+        if (qs != INVALID_ADDRESS)
+            break;
+        spin_unlock(&ss->ss_lock);
+    }
 
     sig_debug("-> selected sig %d, dequeued from %s\n",
               signum, ss == &t->signals ? "thread" : "process");
@@ -164,6 +168,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask, boolean save_and_mask
         sig_debug("-> saved 0x%lx, mask 0x%lx\n", ss->saved, ss->mask);
         t->dispatch_sigstate = ss;
     }
+    spin_unlock(&ss->ss_lock);
 
     return qs;
 }
@@ -249,12 +254,10 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
             return;
         }
     }
-    spin_unlock(&ss->ss_lock);
 
     queued_signal qs = allocate(h, sizeof(struct queued_signal));
     assert(qs != INVALID_ADDRESS);
     runtime_memcpy(&qs->si, info, sizeof(struct siginfo));
-    spin_lock(&ss->ss_lock);
     sigstate_set_pending(ss, sig);
     list_insert_before(sigstate_get_sighead(ss, info->si_signo), &qs->l);
     spin_unlock(&ss->ss_lock);
@@ -573,7 +576,7 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
 
     thread t = current;
     sig_debug("tid %d, *mask 0x%lx\n", t->tid, *mask);
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     u64 orig_mask = sigstate_get_mask(&t->signals);
     blockq_action ba = closure(h, rt_sigsuspend_bh, t, orig_mask);
     t->signals.saved = orig_mask;
@@ -755,7 +758,7 @@ closure_function(1, 1, sysreturn, pause_bh,
 sysreturn pause(void)
 {
     sig_debug("tid %d\n", current->tid);
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     blockq_action ba = closure(h, pause_bh, current);
     return blockq_check(current->thread_bq, current, ba, false);
 }
@@ -811,7 +814,7 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
         (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false)))
         return -EFAULT;
     sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, *set, info, timeout);
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     blockq_action ba = closure(h, rt_sigtimedwait_bh, current, *set, info, timeout);
     timestamp t = timeout ? time_from_timespec(timeout) : 0;
     return blockq_check_timeout(current->thread_bq, current, ba, false, CLOCK_ID_MONOTONIC, t, false);
@@ -972,7 +975,7 @@ static void signalfd_update_siginterest(thread t)
 
 static sysreturn allocate_signalfd(const u64 *mask, int flags)
 {
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
 
     signal_fd sfd = allocate(h, sizeof(struct signal_fd));
     if (sfd == INVALID_ADDRESS)
