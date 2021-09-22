@@ -184,8 +184,11 @@ SRCS-kernel.elf+= \
 	$(SRCDIR)/kernel/management_telnet.c
 endif
 
-#CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
+ifneq ($(NOSMP),)
+CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
+else
 CFLAGS+=	-DSMP_ENABLE
+endif
 #CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
 LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script

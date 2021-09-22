@@ -1,4 +1,4 @@
-#if !(defined(KERNEL) || defined(BOOT) || defined(KLIB))
+#if !(defined(KERNEL) || defined(BOOT))
 #error must be in kernel or bootloader build
 #endif
 
@@ -135,7 +135,7 @@ void init_cpu_features();
 void set_ist(struct cpuinfo_machine *cpu, int i, u64 sp);
 void install_gdt64_and_tss(void *tss_desc, void *tss, void *gdt, void *gdt_pointer);
 
-#if defined(KERNEL) || defined(KLIB)
+#ifdef KERNEL
 /* locking constructs */
 #include <lock.h>
 #endif

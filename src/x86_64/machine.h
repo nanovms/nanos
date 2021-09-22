@@ -13,7 +13,7 @@
 #define KMEM_BASE   0xffff800000000000ull
 #define USER_LIMIT  0x0000800000000000ull
 
-#if defined(KERNEL) || defined(KLIB)
+#ifdef KERNEL
 
 #define VA_TAG_BASE   KMEM_BASE
 #define VA_TAG_OFFSET 38
