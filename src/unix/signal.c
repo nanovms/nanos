@@ -902,6 +902,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
         }
         sig_debug("   sig %d, errno %d, code %d\n", qs->si.si_signo, qs->si.si_errno, qs->si.si_code);
         signalfd_siginfo_fill(info, qs);
+        free_queued_signal(qs);
         info++;
         ninfos++;
     }
