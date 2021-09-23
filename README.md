@@ -63,6 +63,16 @@ https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-roo
 You should also set the environment variable NANOS_TARGET_ROOT to the path of 
 target-root created above in order to create the example and test images.
 
+#### Building From Source on Linux
+
+Nanos doesn't need too many dependencies on Linux.
+
+Install nasm && qemu:
+
+```
+sudo apt-get install qemu-system-x86 nasm
+```
+
 #### To build:
 ```
 make run-noaccel
