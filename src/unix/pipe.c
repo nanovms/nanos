@@ -31,7 +31,11 @@ struct pipe {
     u64 ref_cnt;
     u64 max_size;
     buffer data;
+    struct spinlock lock;
 };
+
+#define pipe_lock(p)    spin_lock(&(p)->lock)
+#define pipe_unlock(p)  spin_unlock(&(p)->lock)
 
 #define BUFFER_DEBUG(BUF,LENGTH) do { \
     pipe_debug("%s:%d - requested %d -- contents %p start/end %d/%d  -- len %d %d\n", \
@@ -45,10 +49,11 @@ struct pipe {
 
 boolean pipe_init(unix_heaps uh)
 {
-    heap general = heap_general((kernel_heaps)uh);
+    heap h = heap_locked((kernel_heaps)uh);
     heap backed = (heap)heap_linear_backed((kernel_heaps)uh);
 
-    uh->pipe_cache = allocate_objcache(general, backed, sizeof(struct pipe), PAGESIZE);
+    uh->pipe_cache = locking_heap_wrapper(h, allocate_objcache(h, backed,
+        sizeof(struct pipe), PAGESIZE));
     return (uh->pipe_cache == INVALID_ADDRESS ? false : true);
 }
 
@@ -139,19 +144,20 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
     }
 
     buffer b = pf->pipe->data;
+    pipe_lock(pf->pipe);
     rv = MIN(buffer_length(b), bound(length));
     if (rv == 0) {
         if (pf->pipe->files[PIPE_WRITE].fd == -1)
-            goto out;
+            goto unlock;
         if (pf->f.flags & O_NONBLOCK) {
             rv = -EAGAIN;
-            goto out;
+            goto unlock;
         }
+        pipe_unlock(pf->pipe);
         return BLOCKQ_BLOCK_REQUIRED;
     }
 
     buffer_read(b, bound(dest), rv);
-    pipe_notify_writer(pf, EPOLLOUT);
 
     // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
     // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available
@@ -159,6 +165,10 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
         buffer_clear(b);
         notify_dispatch(pf->f.ns, 0); /* for edge trigger */
     }
+  unlock:
+    pipe_unlock(pf->pipe);
+    if (rv > 0)
+        pipe_notify_writer(pf, EPOLLOUT);
   out:
     blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
     closure_finish();
@@ -194,17 +204,19 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     u64 length = bound(length);
     pipe p = pf->pipe;
     buffer b = p->data;
+    pipe_lock(p);
     u64 avail = p->max_size - buffer_length(b);
 
     if (avail == 0) {
         if (pf->pipe->files[PIPE_READ].fd == -1) {
             rv = -EPIPE;
-            goto out;
+            goto unlock;
         }
         if (pf->f.flags & O_NONBLOCK) {
             rv = -EAGAIN;
-            goto out;
+            goto unlock;
         }
+        pipe_unlock(p);
         return BLOCKQ_BLOCK_REQUIRED;
     }
 
@@ -213,9 +225,11 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     if (avail == length)
         notify_dispatch(pf->f.ns, 0); /* for edge trigger */
 
-    pipe_notify_reader(pf, EPOLLIN);
-
     rv = real_length;
+  unlock:
+    pipe_unlock(p);
+    if (rv > 0)
+        pipe_notify_reader(pf, EPOLLIN);
   out:
     blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
     closure_finish();
@@ -241,9 +255,11 @@ closure_function(1, 1, u32, pipe_read_events,
 {
     pipe_file pf = bound(pf);
     assert(pf->f.read);
+    pipe_lock(pf->pipe);
     u32 events = buffer_length(pf->pipe->data) ? EPOLLIN : 0;
     if (pf->pipe->files[PIPE_WRITE].fd == -1)
         events |= EPOLLIN | EPOLLHUP;
+    pipe_unlock(pf->pipe);
     return events;
 }
 
@@ -253,9 +269,11 @@ closure_function(1, 1, u32, pipe_write_events,
 {
     pipe_file pf = bound(pf);
     assert(pf->f.write);
+    pipe_lock(pf->pipe);
     u32 events = buffer_length(pf->pipe->data) < pf->pipe->max_size ? EPOLLOUT : 0;
     if (pf->pipe->files[PIPE_READ].fd == -1)
         events |= EPOLLHUP;
+    pipe_unlock(pf->pipe);
     return events;
 }
 
@@ -277,7 +295,7 @@ int do_pipe2(int fds[2], int flags)
         return -EOPNOTSUPP;
     }
 
-    pipe->h = heap_general((kernel_heaps)uh);
+    pipe->h = heap_locked((kernel_heaps)uh);
     pipe->data = INVALID_ADDRESS;
     pipe->proc = current->p;
 
@@ -297,6 +315,7 @@ int do_pipe2(int fds[2], int flags)
         msg_err("failed to allocate pipe's data buffer\n");
         goto err;
     }
+    spin_lock_init(&pipe->lock);
 
     /* init reader */
     {
@@ -365,10 +384,16 @@ int pipe_set_capacity(fdesc f, int capacity)
     pipe p = pf->pipe;
     if (capacity < PIPE_MIN_CAPACITY)
         capacity = PIPE_MIN_CAPACITY;
-    if (capacity < buffer_length(p->data))
-        return -EBUSY;
-    p->max_size = buffer_set_capacity(p->data, (bytes)capacity);
-    return (int)p->max_size;
+    int rv;
+    pipe_lock(p);
+    if (capacity < buffer_length(p->data)) {
+        rv = -EBUSY;
+    } else {
+        p->max_size = buffer_set_capacity(p->data, (bytes)capacity);
+        rv = (int)p->max_size;
+    }
+    pipe_unlock(p);
+    return rv;
 }
 
 int pipe_get_capacity(fdesc f)
