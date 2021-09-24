@@ -41,6 +41,9 @@ typedef struct unixsock {
     struct refcount refcount;
 } *unixsock;
 
+#define unixsock_lock(s)    spin_lock(&(s)->sock.f.lock)
+#define unixsock_unlock(s)  spin_unlock(&(s)->sock.f.lock)
+
 static inline void sharedbuf_deallocate(sharedbuf shb)
 {
     heap h = shb->b->h;
@@ -118,15 +121,19 @@ static void unixsock_disconnect(unixsock s)
 
 static unixsock unixsock_alloc(heap h, int type, u32 flags);
 
+/* Called with lock acquired, returns with lock released. */
 static void unixsock_dealloc(unixsock s)
 {
     deallocate_queue(s->data);
     s->data = 0;
+    unixsock_unlock(s);
     unixsock peer = (s->sock.type == SOCK_STREAM) ? s->peer : 0;
     if (peer) {
+        unixsock_lock(peer);
         blockq bq = peer->data ? peer->sock.rxbq : 0;
         if (bq)
             blockq_reserve(bq);
+        unixsock_unlock(peer);
         if (bq) {
             blockq_flush(bq);
             blockq_release(bq);
@@ -168,7 +175,9 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
     sharedbuf shb;
     sysreturn rv;
 
+    unixsock_lock(s);
     boolean disconnected = (s->sock.type == SOCK_STREAM) && !(s->peer && s->peer->data);
+    boolean read_done = false;
     if ((flags & BLOCKQ_ACTION_NULLIFY) && !disconnected) {
         rv = -ERESTARTSYS;
         goto out;
@@ -182,6 +191,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
             rv = -EAGAIN;
             goto out;
         }
+        unixsock_unlock(s);
         return BLOCKQ_BLOCK_REQUIRED;
     }
     rv = 0;
@@ -221,8 +231,11 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
             }
         }
     } while ((s->sock.type == SOCK_STREAM) && (length > 0));
-    unixsock_notify_writer(s);
+    read_done = true;
 out:
+    unixsock_unlock(s);
+    if (read_done)
+        unixsock_notify_writer(s);
     blockq_handle_completion(s->sock.rxbq, flags, bound(completion), bound(t),
             rv);
     closure_finish();
@@ -286,9 +299,6 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
         rv += xfer;
         length -= xfer;
     } while ((length > 0) && !queue_full(dest->data));
-    if ((rv > 0) || ((rv == 0) && (dest->sock.type == SOCK_DGRAM))) {
-        unixsock_notify_reader(dest);
-    }
     return rv;
 }
 
@@ -315,10 +325,12 @@ closure_function(7, 1, sysreturn, unixsock_write_bh,
     void *src = bound(src);
     u64 length = bound(length);
     unixsock dest;
+    boolean full = false;
 
     sysreturn rv;
 
     dest = bound(dest);
+    unixsock_lock(dest);
     if ((flags & BLOCKQ_ACTION_NULLIFY) && dest->data) {
         rv = -ERESTARTSYS;
         goto out;
@@ -330,12 +342,16 @@ closure_function(7, 1, sysreturn, unixsock_write_bh,
 
     rv = unixsock_write_to(src, bound(sg), length, dest, s);
     if ((rv == -EAGAIN) && !(s->sock.f.flags & SOCK_NONBLOCK)) {
+        unixsock_unlock(dest);
         return BLOCKQ_BLOCK_REQUIRED;
     }
-    if (queue_full(dest->data)) { /* no more space available to write */
-        fdesc_notify_events(&s->sock.f);
-    }
+    full = queue_full(dest->data);
 out:
+    unixsock_unlock(dest);
+    if ((rv > 0) || ((rv == 0) && (dest->sock.type != SOCK_STREAM)))
+        unixsock_notify_reader(dest);
+    if (full)   /* no more space available to write */
+        fdesc_notify_events(&s->sock.f);
     blockq_handle_completion(dest->sock.txbq, flags, bound(completion), bound(t),
             rv);
     refcount_release(&dest->refcount);
@@ -361,10 +377,12 @@ closure_function(1, 6, sysreturn, unixsock_write,
                  unixsock, s,
                  void *, src, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
+    unixsock_lock(bound(s));
     unixsock dest = bound(s)->peer;
     if (dest)
         refcount_reserve(&dest->refcount);
-    else
+    unixsock_unlock(bound(s));
+    if (!dest)
         return io_complete(completion, t, -ENOTCONN);
     return unixsock_write_with_addr(bound(s), src, length, offset, t, bh, completion, dest);
 }
@@ -389,10 +407,12 @@ closure_function(1, 6, sysreturn, unixsock_sg_write,
     sysreturn rv = unixsock_write_check(s, length);
     if (rv <= 0)
         return io_complete(completion, t, rv);
+    unixsock_lock(bound(s));
     unixsock dest = bound(s)->peer;
     if (dest)
         refcount_reserve(&dest->refcount);
-    else
+    unixsock_unlock(bound(s));
+    if (!dest)
         return io_complete(completion, t, -ENOTCONN);
     blockq_action ba = closure(s->sock.h, unixsock_write_bh, s, t, 0, sg, length,
                                completion, dest);
@@ -409,6 +429,7 @@ closure_function(1, 1, u32, unixsock_events,
 {
     unixsock s = bound(s);
     u32 events = 0;
+    unixsock_lock(s);
     if (s->conn_q) {    /* listening state */
         if (!queue_empty(s->conn_q)) {
             events |= EPOLLIN;
@@ -419,17 +440,24 @@ closure_function(1, 1, u32, unixsock_events,
         }
         unixsock peer = s->peer;
         if (peer) {
+            refcount_reserve(&peer->refcount);
+            unixsock_unlock(s);
+            unixsock_lock(peer);
             if (!peer->data)
                 events |= (s->sock.type == SOCK_STREAM) ?
                           (EPOLLIN | EPOLLOUT | EPOLLHUP) : EPOLLOUT;
             else if (!queue_full(peer->data))
                 events |= EPOLLOUT;
+            unixsock_unlock(peer);
+            refcount_release(&peer->refcount);
+            return events;
         } else {
             events |= EPOLLOUT;
             if (s->sock.type == SOCK_STREAM)
                 events |= EPOLLHUP;
         }
     }
+    unixsock_unlock(s);
     return events;
 }
 
@@ -446,10 +474,12 @@ closure_function(1, 2, sysreturn, unixsock_close,
                  thread, t, io_completion, completion)
 {
     unixsock s = bound(s);
+    unixsock_lock(s);
     if (s->conn_q) {
         /* Deallocate any sockets in the connection queue. */
         unixsock child;
         while ((child = dequeue(s->conn_q)) != INVALID_ADDRESS) {
+            unixsock_lock(child);
             unixsock_dealloc(child);
         }
 
@@ -468,6 +498,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
 {
     unixsock s = (unixsock) sock;
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
+    unixsock_lock(s);
     sysreturn ret;
     if (s->fs_entry) {
         ret = -EADDRINUSE;
@@ -512,6 +543,7 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
     runtime_memcpy(&s->local_addr, addr, addrlen);
     ret = 0;
 out:
+    unixsock_unlock(s);
     socket_release(sock);
     return ret;
 }
@@ -520,6 +552,7 @@ static sysreturn unixsock_listen(struct sock *sock, int backlog)
 {
     unixsock s = (unixsock) sock;
     sysreturn ret = 0;
+    unixsock_lock(s);
     switch (sock->type) {
     case SOCK_STREAM:
         if (!s->conn_q) {
@@ -534,6 +567,7 @@ static sysreturn unixsock_listen(struct sock *sock, int backlog)
     default:
         ret = -EOPNOTSUPP;
     }
+    unixsock_unlock(s);
     socket_release(sock);
     return ret;
 }
@@ -547,6 +581,7 @@ closure_function(3, 1, sysreturn, connect_bh,
     unixsock listener = bound(listener);
     sysreturn rv;
 
+    unixsock_lock(s);
     if (unixsock_is_connected(s)) {
         rv = -EISCONN;
         goto out;
@@ -564,6 +599,7 @@ closure_function(3, 1, sysreturn, connect_bh,
             rv = -EAGAIN;
             goto out;
         }
+        unixsock_unlock(s);
         return BLOCKQ_BLOCK_REQUIRED;
     }
     unixsock peer = unixsock_alloc(s->sock.h, s->sock.type, 0);
@@ -577,6 +613,7 @@ closure_function(3, 1, sysreturn, connect_bh,
     unixsock_notify_reader(listener);
     rv = 0;
 out:
+    unixsock_unlock(s);
     socket_release(&s->sock);
     syscall_return(t, rv);
     closure_finish();
@@ -605,6 +642,7 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
     }
     default:
         if (listener->sock.type == s->sock.type) {
+            unixsock_lock(s);
             if (s->notify_handle != INVALID_ADDRESS)
                 notify_remove(s->peer->sock.f.ns, s->notify_handle, false);
             unixsock_disconnect(s);
@@ -614,6 +652,7 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
                 rv = -ENOMEM;
             else
                 unixsock_conn_internal(s, listener);
+            unixsock_unlock(s);
         } else {
             rv = -EPROTOTYPE;
         }
@@ -638,7 +677,10 @@ closure_function(5, 1, sysreturn, accept_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
+    unixsock_lock(s);
     unixsock child = dequeue(s->conn_q);
+    boolean empty = queue_empty(s->conn_q);
+    unixsock_unlock(s);
     if (child == INVALID_ADDRESS) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
@@ -646,7 +688,7 @@ closure_function(5, 1, sysreturn, accept_bh,
         }
         return BLOCKQ_BLOCK_REQUIRED;
     }
-    if (queue_length(s->conn_q) == 0) {
+    if (empty) {
         fdesc_notify_events(&s->sock.f);
     }
     child->sock.f.flags |= bound(flags);
@@ -723,9 +765,11 @@ sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
         if (rv != 0)
             goto out;
     } else {
+        unixsock_lock(s);
         dest = s->peer;
         if (dest)
             refcount_reserve(&dest->refcount);
+        unixsock_unlock(s);
     }
     if (!dest) {
         rv = -ENOTCONN;
@@ -879,7 +923,7 @@ err_queue:
 
 sysreturn unixsock_open(int type, int protocol) {
     unix_heaps uh = get_unix_heaps();
-    heap h = heap_general((kernel_heaps)uh);
+    heap h = heap_locked((kernel_heaps)uh);
     unixsock s;
 
     if (((type & SOCK_TYPE_MASK) != SOCK_STREAM) &&
@@ -895,7 +939,7 @@ sysreturn unixsock_open(int type, int protocol) {
 
 sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
     unix_heaps uh = get_unix_heaps();
-    heap h = heap_general((kernel_heaps)uh);
+    heap h = heap_locked((kernel_heaps)uh);
     unixsock s1, s2;
 
     if (domain != AF_UNIX) {
