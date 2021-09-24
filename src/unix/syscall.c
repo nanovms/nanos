@@ -1962,6 +1962,7 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
 
     thread_log(current, "fcntl: fd %d, cmd %d, arg %d", fd, cmd, arg);
 
+    fdesc_lock(f);
     switch (cmd) {
     case F_GETFD:
         rv = f->flags & O_CLOEXEC;
@@ -2001,6 +2002,7 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
             thread_log(current, "failed to allocate fd");
             rv = -EMFILE;
         } else {
+            fdesc_unlock(f);
             return newfd;
         }
         break;
@@ -2022,6 +2024,7 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
     default:
         rv = -ENOSYS;
     }
+    fdesc_unlock(f);
     fdesc_put(f);
     return rv;
 }
@@ -2033,12 +2036,14 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap)
         int *opt = varg(ap, int *);
         if (!validate_user_memory(opt, sizeof(int), false))
             return -EFAULT;
+        fdesc_lock(f);
         if (*opt) {
             f->flags |= O_NONBLOCK;
         }
         else {
             f->flags &= ~O_NONBLOCK;
         }
+        fdesc_unlock(f);
         return 0;
     }
     case FIONCLEX:

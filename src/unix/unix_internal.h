@@ -390,6 +390,7 @@ typedef struct fdesc {
     int type;
     int flags;                  /* F_GETFD/F_SETFD flags */
     notify_set ns;
+    struct spinlock lock;
 } *fdesc;
 
 #define IOV_MAX 1024
@@ -615,6 +616,9 @@ unix_heaps get_unix_heaps();
 #define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
 #define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
+#define fdesc_lock(f)   spin_lock(&(f)->lock)
+#define fdesc_unlock(f) spin_unlock(&(f)->lock)
+
 static inline void fdesc_put(fdesc f)
 {
     if (fetch_and_add(&f->refcnt, -1) == 1)
@@ -644,6 +648,7 @@ static inline void init_fdesc(heap h, fdesc f, int type)
     f->type = type;
     f->flags = 0;
     f->ns = allocate_notify_set(h);
+    spin_lock_init(&f->lock);
 }
 
 static inline void release_fdesc(fdesc f)
