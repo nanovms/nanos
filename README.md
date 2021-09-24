@@ -63,6 +63,33 @@ https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-roo
 You should also set the environment variable NANOS_TARGET_ROOT to the path of 
 target-root created above in order to create the example and test images.
 
+#### Building From Source on Linux
+
+Nanos doesn't need too many dependencies on Linux.
+
+To build you need to install nasm && qemu:
+
+```
+sudo apt-get install qemu-system-x86 nasm
+```
+
+For tests you'll also need the following installed:
+
+```
+sudo apt-get install ent ruby
+```
+
+Rust:
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+If you wish to use FUSE you'll also want to install
+
+```
+sudo apt-get install libfuse-dev fuse
+```
+
 #### To build:
 ```
 make run-noaccel
