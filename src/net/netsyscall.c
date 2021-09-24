@@ -1085,7 +1085,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
         goto err_sock;
     }
 
-    heap h = heap_general((kernel_heaps)p->uh);
+    heap h = heap_locked((kernel_heaps)p->uh);
     fd = socket_init(p, h, af, type, flags, &s->sock);
     if (fd < 0) {
         goto err_fd;
@@ -2263,8 +2263,8 @@ void register_net_syscalls(struct syscall *map)
 boolean netsyscall_init(unix_heaps uh)
 {
     kernel_heaps kh = (kernel_heaps)uh;
-    heap socket_cache = allocate_objcache(heap_general(kh), (heap)heap_linear_backed(kh),
-					  sizeof(struct netsock), PAGESIZE);
+    heap socket_cache = locking_heap_wrapper(heap_general(kh), allocate_objcache(heap_general(kh),
+        (heap)heap_linear_backed(kh), sizeof(struct netsock), PAGESIZE));
     if (socket_cache == INVALID_ADDRESS)
 	return false;
     uh->socket_cache = socket_cache;
