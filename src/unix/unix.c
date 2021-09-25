@@ -319,6 +319,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
     kernel_heaps kh = (kernel_heaps)uh;
     heap h = heap_general(kh);
+    heap locked = heap_locked(kh);
     process p = allocate(h, sizeof(struct process));
     assert(p != INVALID_ADDRESS); 
     boolean aslr = get(root, sym(noaslr)) == 0;
@@ -354,8 +355,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->root_fs = p->cwd_fs = fs;
     p->cwd = root;
     p->process_root = root;
-    p->fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
-    p->files = allocate_vector(h, 64);
+    p->fdallocator = create_id_heap(h, locked, 0, infinity, 1, false);
+    p->files = allocate_vector(locked, 64);
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
     init_threads(p);
