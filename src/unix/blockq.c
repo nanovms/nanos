@@ -318,24 +318,6 @@ define_closure_function(1, 0, void, free_blockq,
     deallocate(bq->h, bq, sizeof(struct blockq));
 }
 
-void blockq_thread_init(thread t)
-{
-    t->bq_timeout = 0;
-    t->bq_action = 0;
-    t->bq_l.prev = t->bq_l.next = 0;
-    t->bq_completion = 0;
-    t->bq_completion_rv = 0;
-}
-
-define_closure_function(1, 0, void, free_blockq,
-                        blockq, bq)
-{
-    blockq bq = bound(bq);
-    blockq_debug("for \"%s\"\n", blockq_name(bq));
-    assert(list_empty(&bq->waiters_head));
-    deallocate(bq->h, bq, sizeof(struct blockq));
-}
-
 blockq allocate_blockq(heap h, char * name)
 {
     blockq_debug("name \"%s\"\n", name);

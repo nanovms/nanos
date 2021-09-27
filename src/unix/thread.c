@@ -239,7 +239,7 @@ void thread_sleep_uninterruptible(thread t)
     thread_log(current, "sleep uninterruptible");
     ftrace_thread_switch(current, 0);
     count_syscall_save(current);
-    thread_unlock();
+    thread_unlock(t);
     kern_yield();
 }
 
