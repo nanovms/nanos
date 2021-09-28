@@ -218,6 +218,26 @@ static void format_csum_buffer(buffer dest, struct formatter_state *s, vlist *a)
     print_csum_buffer(dest, b);
 }
 
+static void print_timestamp(string b, timestamp t)
+{
+    u32 s= t>>32;
+    u64 f= t&MASK(32);
+
+    bprintf(b, "%d", s);
+    if (f) {
+        int count=0;
+
+        bprintf(b,".");
+
+        /* should round or something */
+        while ((f *= 10) && (count++ < 6)) {
+            u32 d = (f>>32);
+            bprintf (b, "%d", d);
+            f -= ((u64)d)<<32;
+        }
+    }
+}
+
 static void format_timestamp(buffer dest, struct formatter_state *s, vlist *a)
 {
     timestamp t = varg(*a, timestamp);

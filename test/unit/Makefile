@@ -147,7 +147,7 @@ test: all
 	$(foreach p,$(filter-out $(SKIP_TEST),$(PROGRAMS)),$(call execute_command,$(PROG-$p)))
 
 gcov: test
-	$(foreach p,$(PROGRAMS),$(call execute_command,$(GCOV) -o $(OBJDIR) $(PROG-$p)))
+	$(foreach p,$(PROGRAMS),$(call execute_command,$(GCOV) -o $(OBJDIR)/test/unit $(PROG-$p)))
 	$(LCOV) --capture --directory $(ROOTDIR) --output-file $(OBJDIR)/gcov-tests.info
 	$(MKDIR) $(OBJDIR)/gcov
 	$(GENHTML) $(OBJDIR)/gcov-tests.info --output-directory $(OBJDIR)/gcov

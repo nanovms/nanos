@@ -26,8 +26,8 @@
 
 #define SYSLOG_UDP_PORT_DEFAULT 514
 
-declare_closure_struct(0, 1, void, syslog_timer_func,
-    u64, overruns);
+declare_closure_struct(0, 2, void, syslog_timer_func,
+                       u64, expiry, u64, overruns);
 
 #define syslog_lock()   u64 _irqflags = spin_lock_irq(&syslog.lock)
 #define syslog_unlock() spin_unlock_irq(&syslog.lock, _irqflags)
@@ -43,7 +43,7 @@ static struct {
     u64 file_offset;
     sg_list file_sg;
     sg_buf file_sgb;
-    timer file_flush_timer;
+    struct timer file_flush_timer;
     closure_struct(syslog_timer_func, file_flush);
     buffer program;
     char *server;
@@ -66,7 +66,7 @@ static struct {
     sg_buf (*sg_list_tail_add)(sg_list sg, word length);
     void (*deallocate_sg_list)(sg_list sg);
     void (*runtime_memcpy)(void *a, const void *b, bytes len);
-    timer (*register_timer)(clock_id id, timestamp val, boolean absolute, timestamp interval,
+    void (*register_timer)(timer t, clock_id id, timestamp val, boolean absolute, timestamp interval,
             timer_handler n);
     void (*timm_dealloc)(tuple t);
     sysreturn (*fs_rename)(buffer oldpath, buffer newpath);
@@ -166,11 +166,11 @@ static void syslog_file_flush(void)
     syslog_unlock();
 }
 
-define_closure_function(0, 1, void, syslog_timer_func,
-                        u64, overruns)
+define_closure_function(0, 2, void, syslog_timer_func,
+                        u64, expiry, u64, overruns)
 {
-    syslog.file_flush_timer = INVALID_ADDRESS;
-    syslog_file_flush();
+    if (overruns != timer_disabled)
+        syslog_file_flush();
 }
 
 static void syslog_file_write(const char *s, bytes count)
@@ -200,9 +200,10 @@ static void syslog_file_write(const char *s, bytes count)
     if (syslog.file_sgb->offset + count <= SYSLOG_BUF_LEN) {
         kfuncs.runtime_memcpy(syslog.file_sgb->buf + syslog.file_sgb->offset, s, count);
         syslog.file_sgb->offset += count;
-        if (syslog.file_flush_timer == INVALID_ADDRESS) {
-            syslog.file_flush_timer = kfuncs.register_timer(CLOCK_ID_MONOTONIC,
-                SYSLOG_FLUSH_INTERVAL, false, 0, (timer_handler)&syslog.file_flush.__apply);
+        if (!timer_is_active(&syslog.file_flush_timer)) {
+            kfuncs.register_timer(&syslog.file_flush_timer, CLOCK_ID_MONOTONIC,
+                                  SYSLOG_FLUSH_INTERVAL, false, 0,
+                                  (timer_handler)&syslog.file_flush.__apply);
         }
     } else {
         syslog_file_flush();
@@ -450,7 +451,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         }
         syslog.fs_write = kfuncs.fsfile_get_writer(syslog.fsf);
         syslog.file_offset = fsfile_get_length(syslog.fsf); /* append to existing contents */
-        syslog.file_flush_timer = INVALID_ADDRESS;
+        init_timer(&syslog.file_flush_timer);
         init_closure(&syslog.file_flush, syslog_timer_func);
     }
     if (syslog.server) {

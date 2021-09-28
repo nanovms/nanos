@@ -336,9 +336,9 @@ struct ena_hw_stats {
     uint64_t tx_drops;
 };
 
-declare_closure_struct(1, 1, void, ena_timer_task,
+declare_closure_struct(1, 2, void, ena_timer_task,
                        struct ena_adapter *, adapter,
-                       u64, overruns);
+                       u64, expiry, u64, overruns);
 
 declare_closure_struct(1, 0, void, ena_reset_task,
                        struct ena_adapter *, adapter);
@@ -394,7 +394,7 @@ struct ena_adapter {
     struct ena_irq irq_tbl[ENA_MAX_MSIX_VEC(ENA_MAX_NUM_IO_QUEUES)];
 
     /* Timer service */
-    timer timer_service;
+    struct timer timer_service;
     closure_struct(ena_timer_task, timer_task);
     timestamp keep_alive_timestamp;
     uint32_t next_monitored_tx_qid;

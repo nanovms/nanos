@@ -941,11 +941,12 @@ static void pagecache_scan(pagecache pc)
     pagecache_commit_dirty_pages(pc);
 }
 
-define_closure_function(1, 1, void, pagecache_scan_timer,
+define_closure_function(1, 2, void, pagecache_scan_timer,
                         pagecache, pc,
-                        u64, overruns /* ignored */)
+                        u64, expiry, u64, overruns)
 {
-    pagecache_scan(bound(pc));
+    if (overruns != timer_disabled)
+        pagecache_scan(bound(pc));
 }
 
 void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 node_offset)
@@ -960,10 +961,10 @@ void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 n
     pagecache_lock_state(pc);
     list_insert_before(&pc->shared_maps, &sm->l);
     assert(rangemap_insert(pn->shared_maps, &sm->n));
-    if (!pc->scan_timer) {
+    if (!timer_is_active(&pc->scan_timer)) {
         timestamp t = seconds(PAGECACHE_SCAN_PERIOD_SECONDS);
-        pc->scan_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC, t, false, t,
-                                        (timer_handler)&pc->do_scan_timer);
+        register_timer(runloop_timers, &pc->scan_timer, CLOCK_ID_MONOTONIC, t, false, t,
+                       (timer_handler)&pc->do_scan_timer);
     }
     pagecache_unlock_state(pc);
 }
@@ -991,8 +992,7 @@ closure_function(3, 1, void, close_shared_pages_intersection,
         deallocate(pc->h, sm, sizeof(struct pagecache_shared_map));
         if (list_empty(&pc->shared_maps)) {
             pagecache_debug("   disable scan timer\n");
-            remove_timer(pc->scan_timer, 0);
-            pc->scan_timer = 0;
+            remove_timer(runloop_timers, &pc->scan_timer, 0);
         }
     } else if (head) {
         /* truncate map at start */
@@ -1384,7 +1384,7 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     init_pagecache_completion_queue(pc, &pc->bh_completions);
 
     pc->scan_in_progress = false;
-    pc->scan_timer = 0;
+    init_timer(&pc->scan_timer);
     init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);
 #endif
     global_pagecache = pc;

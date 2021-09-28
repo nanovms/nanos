@@ -41,10 +41,10 @@ LXY2JtwE65/3YR8V3Idv7kaWKK2hJn0KCacuBKONvPi8BDAB\
 #define RADAR_STATS_INTERVAL    seconds(60)
 #define RADAR_STATS_BATCH_SIZE  5
 
-declare_closure_struct(0, 1, void, retry_timer_func,
-    u64, overruns);
-declare_closure_struct(0, 1, void, telemetry_stats,
-    u64, overruns);
+declare_closure_struct(0, 2, void, retry_timer_func,
+    u64, expiry, u64, overruns);
+declare_closure_struct(0, 2, void, telemetry_stats,
+    u64, expiry, u64, overruns);
 
 static struct telemetry {
     heap h;
@@ -56,7 +56,9 @@ static struct telemetry {
     u64 boot_id;
     boolean running;
     timestamp retry_backoff;
+    struct timer retry_timer;
     closure_struct(retry_timer_func, retry_func);
+    struct timer stats_timer;
     closure_struct(telemetry_stats, stats_func);
     u64 stats_mem_used[RADAR_STATS_BATCH_SIZE];
     int stats_count;
@@ -81,7 +83,7 @@ static struct telemetry {
     u64 (*fs_blocksize)(filesystem fs);
     u64 (*fs_totalblocks)(filesystem fs);
     u64 (*fs_usedblocks)(filesystem fs);
-    timer (*register_timer)(clock_id id, timestamp val, boolean absolute,
+    void (*register_timer)(timer t, clock_id id, timestamp val, boolean absolute,
             timestamp interval, timer_handler n);
     void (*lwip_lock)(void);
     void (*lwip_unlock)(void);
@@ -113,9 +115,11 @@ static void telemetry_dns_cb(const char *name, const ip_addr_t *ipaddr, void *ca
         kfunc(rprintf)("Radar: failed to look up server hostname\n");
 }
 
-define_closure_function(0, 1, void, retry_timer_func,
-                        u64, overruns)
+define_closure_function(0, 2, void, retry_timer_func,
+                        u64, expiry, u64, overruns)
 {
+    if (overruns == timer_disabled)
+        return;
     if (telemetry.dump)
         telemetry_crash_report();
     else
@@ -124,7 +128,7 @@ define_closure_function(0, 1, void, retry_timer_func,
 
 static void telemetry_retry(void)
 {
-    kfunc(register_timer)(CLOCK_ID_MONOTONIC, telemetry.retry_backoff, false, 0,
+    kfunc(register_timer)(&telemetry.retry_timer, CLOCK_ID_MONOTONIC, telemetry.retry_backoff, false, 0,
             init_closure(&telemetry.retry_func, retry_timer_func));
     if (telemetry.retry_backoff < seconds(600))
         telemetry.retry_backoff <<= 1;
@@ -189,7 +193,7 @@ closure_function(2, 1, status, telemetry_recv,
                     telemetry.stats_mem_used[count] = heap_allocated(telemetry.phys);
                 telemetry_stats_send();
                 telemetry.stats_count = 0;
-                kfunc(register_timer)(CLOCK_ID_MONOTONIC, RADAR_STATS_INTERVAL, false,
+                kfunc(register_timer)(&telemetry.stats_timer, CLOCK_ID_MONOTONIC, RADAR_STATS_INTERVAL, false,
                         RADAR_STATS_INTERVAL, (timer_handler)&telemetry.stats_func);
                 telemetry.running = true;
             } else {
@@ -421,9 +425,11 @@ static void telemetry_stats_send(void)
     }
 }
 
-define_closure_function(0, 1, void, telemetry_stats,
-                        u64, overruns)
+define_closure_function(0, 2, void, telemetry_stats,
+                        u64, expiry, u64, overruns)
 {
+    if (overruns == timer_disabled)
+        return;
     telemetry.stats_mem_used[telemetry.stats_count++] = heap_allocated(telemetry.phys);
     if (telemetry.stats_count == RADAR_STATS_BATCH_SIZE) {
         telemetry.stats_count = 0;
@@ -504,7 +510,9 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     telemetry.env = get_environment();
     telemetry.auth_header = kfunc(get)(telemetry.env, sym(RADAR_KEY));
     telemetry.retry_backoff = seconds(1);
+    init_timer(&telemetry.retry_timer);
     telemetry.running = false;
+    init_timer(&telemetry.stats_timer);
     init_closure(&telemetry.stats_func, telemetry_stats);
     telemetry.dump = allocate(telemetry.h, sizeof(*telemetry.dump));
     if (telemetry.dump == INVALID_ADDRESS) {

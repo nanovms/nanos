@@ -25,7 +25,7 @@ boolean shutting_down;
 
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
-timerheap runloop_timers;
+timerqueue runloop_timers;
 bitmap idle_cpu_mask;
 timestamp last_timer_update;
 
@@ -67,10 +67,10 @@ void kern_unlock()
     spin_unlock(&kernel_lock);
 }
 
-timer kern_register_timer(clock_id id, timestamp val, boolean absolute,
-            timestamp interval, timer_handler n)
+void kern_register_timer(timer t, clock_id id, timestamp val, boolean absolute,
+                         timestamp interval, timer_handler n)
 {
-    return register_timer(runloop_timers, id, val, absolute, interval, n);
+    return register_timer(runloop_timers, t, id, val, absolute, interval, n);
 }
 KLIB_EXPORT(kern_register_timer);
 
@@ -86,13 +86,19 @@ static void run_thunk(thunk t)
 /* called with kernel lock held */
 static inline boolean update_timer(void)
 {
-    timestamp next = timer_check(runloop_timers);
+    timestamp next;
+    if (!timer_check(runloop_timers, &next)) {
+        last_timer_update = 0;
+        return false;
+    }
+
     if (last_timer_update && next == last_timer_update)
         return false;
     s64 delta = next - now(CLOCK_ID_MONOTONIC_RAW);
     timestamp timeout = delta > (s64)runloop_timer_min ? MIN(delta, runloop_timer_max) : runloop_timer_min;
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
-    last_timer_update = current_cpu()->last_timer_update = next + timeout - delta;
+    timestamp last = current_cpu()->last_timer_update = next + timeout - delta;
+    last_timer_update = last != 0 ? last : 1;
     runloop_timer(timeout);
     return true;
 }
@@ -291,7 +297,7 @@ void init_scheduler(heap h)
     /* scheduling queues init */
     runqueue = allocate_queue(h, 2048);
     bhqueue = allocate_queue(h, 2048);
-    runloop_timers = allocate_timerheap(h, "runloop");
+    runloop_timers = allocate_timerqueue(h, "runloop");
     assert(runloop_timers != INVALID_ADDRESS);
     shutting_down = false;
 }

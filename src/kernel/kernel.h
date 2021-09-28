@@ -210,7 +210,7 @@ static inline void spin_lock_2(spinlock l1, spinlock l2)
 typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
-extern timerheap runloop_timers;
+extern timerqueue runloop_timers;
 
 backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize);
 

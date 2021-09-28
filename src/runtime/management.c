@@ -5,15 +5,15 @@
 #endif
 #include <management.h>
 
-declare_closure_struct(2, 1, void, mgmt_timer_expiry,
+declare_closure_struct(2, 2, void, mgmt_timer_expiry,
                        tuple, req, buffer_handler, out,
-                       u64, overruns);
+                       u64, expiry, u64, overruns);
 
 static struct management {
     heap h;
     heap fth;                   /* function_tuples */
     tuple root;
-    timer t;
+    struct timer t;
     tuple timer_req;
     closure_struct(mgmt_timer_expiry, timer_expiry);
 } management;
@@ -57,11 +57,12 @@ static void handle_request(tuple req, buffer_handler out)
 }
 
 #ifdef KERNEL
-define_closure_function(1, 1, void, mgmt_timer_expiry,
+define_closure_function(1, 2, void, mgmt_timer_expiry,
                         buffer_handler, out,
-                        u64, overruns)
+                        u64, expiry, u64, overruns)
 {
-    handle_request(management.timer_req, bound(out));
+    if (overruns != timer_disabled)
+        handle_request(management.timer_req, bound(out));
 }
 #endif
 
@@ -122,35 +123,32 @@ define_closure_function(1, 2, boolean, each_request,
 #ifdef KERNEL
     } else if (k == sym(timer)) {
         if (is_null_string(args)) {
-            if (management.t) {
-                remove_timer(management.t, 0);
-                management.t = 0;
-            }
+            remove_timer(runloop_timers, &management.t, 0);
         } else if (is_tuple(args)) {
             tuple req = get_tuple(args, sym(request));
             if (!req) {
                 resultstr = "could not parse request";
                 goto out;
             }
-            /* prune the request; timer will hold onto it */
-            set(args, sym(request), 0);
 
             u64 period;
             if (!get_u64(args, sym(period), &period)) {
                 resultstr = "could not parse period";
                 goto out;
             }
+
+            /* prune the request; timer will hold onto it */
+            set(args, sym(request), 0);
+
+            /* disable any existing timer */
+            remove_timer(runloop_timers, &management.t, 0);
+
             handle_request(req, bound(out));
             timestamp t = seconds(period);
             management.timer_req = req;
-            management.t = register_timer(runloop_timers, CLOCK_ID_MONOTONIC, t, false, t,
-                                          init_closure(&management.timer_expiry, mgmt_timer_expiry,
-                                                       bound(out)));
-            if (management.t == INVALID_ADDRESS) {
-                management.t = 0;
-                resultstr = "failed to allocate timer";
-                goto out;
-            }
+            register_timer(runloop_timers, &management.t, CLOCK_ID_MONOTONIC, t, false, t,
+                           init_closure(&management.timer_expiry, mgmt_timer_expiry,
+                                        bound(out)));
         } else {
             resultstr = "could not parse timer tuple";
             goto out;
@@ -188,14 +186,13 @@ closure_function(1, 1, void, mgmt_tuple_parse_error,
 /* icky; only one interface supported */
 void management_reset(void)
 {
-    if (management.t) {
-        remove_timer(management.t, 0);
-        management.t = 0;
-        if (management.timer_req) {
-            destruct_tuple(management.timer_req, true);
-            management.timer_req = 0;
-        }
+#ifdef KERNEL
+    remove_timer(runloop_timers, &management.t, 0);
+    if (management.timer_req) {
+        destruct_tuple(management.timer_req, true);
+        management.timer_req = 0;
     }
+#endif
 }
 KLIB_EXPORT(management_reset);
 
@@ -364,5 +361,4 @@ void init_management(heap function_tuple_heap, heap general)
     management.h = general;
     management.fth = function_tuple_heap;
     management.root = 0;
-    management.t = 0;
 }

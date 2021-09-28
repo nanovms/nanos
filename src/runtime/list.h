@@ -38,6 +38,11 @@ static inline void list_delete(struct list * p)
     p->prev = p->next = 0;
 }
 
+static inline boolean list_inserted(struct list * p)
+{
+    return p->next != 0;
+}
+
 static inline void list_insert_after(struct list * pos,
                      struct list * new)
 {

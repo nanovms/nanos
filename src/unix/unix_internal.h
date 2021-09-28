@@ -274,9 +274,9 @@ declare_closure_struct(2, 1, void, thread_demand_page_complete,
 #define thread_frame(t) ((t)->active_frame)
 #define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
 
-declare_closure_struct(2, 1, void, blockq_thread_timeout,
+declare_closure_struct(2, 2, void, blockq_thread_timeout,
                        blockq, bq, struct thread *, t,
-                       u64, overruns);
+                       u64, expiry, u64, overruns);
 
 typedef struct thread {
     struct nanos_thread thrd;
@@ -314,7 +314,8 @@ typedef struct thread {
     void *robust_list;
 
     /* blockq data */
-    timer bq_timeout;         /* timer for this item (could be zero) */
+    boolean bq_timer_pending;
+    struct timer bq_timer;         /* timer for this item (could be zero) */
     closure_struct(blockq_thread_timeout, bq_timeout_func);
     blockq_action bq_action;  /* action to check for wake, timeout or abort */
     struct list bq_l;         /* embedding on blockq->waiters_head */

@@ -289,7 +289,8 @@ static void timerfd_test_finish(struct timer_test *test)
         pertest_fail_perror("clock_gettime");
     if (test->overruns > 1)
         timerfd_set(test->clock, test->fd, 0, 0, 0);
-    timerfd_check_disarmed(test->fd);
+    if (test->overruns == 1)
+        timerfd_check_disarmed(test->fd);
     long long delta = validate_interval(&test->start, &test->finish,
                                         test->total_overruns, test->nsec);
     if (delta < 0)
@@ -477,11 +478,14 @@ static void posix_test_finish(struct timer_test *test)
         posix_timer_cancel(test);
     if (clock_gettime(test->clock, &test->finish) < 0)
         pertest_fail_perror("clock_gettime");
-    posix_timer_check_disarmed(test);
+    if (test->overruns == 1)
+        posix_timer_check_disarmed(test);
     long long delta = validate_interval(&test->start, &test->finish,
                                         test->total_overruns, test->nsec);
     if (delta < 0)
         pertest_fail_error("interval validation failed\n");
+    if (syscall(SYS_timer_delete, test->timerid) < 0)
+        pertest_fail_perror("timer_delete");
     pertest_msg("%s clock id %d, nsec %lld, overruns %lld passed "
                 "with delta %lld nsec\n", test->absolute ? "absolute" : "relative",
                 test->clock, test->nsec, test->overruns, delta);
@@ -504,9 +508,9 @@ static void posix_timers_sighandler(int sig, siginfo_t *si, void *ucontext)
     pertest_debug("read %d overruns, total %lld\n", si->si_overrun, test->total_overruns);
     if (test->total_overruns >= test->overruns) {
         posix_test_finish(test);
-        pertest_debug("finished (total finished %d)\n", posix_timers_finished);
         test->total_overruns = -1;
         posix_timers_finished++;
+        pertest_debug("finished (total finished %d)\n", posix_timers_finished);
     }
 }
 
@@ -534,6 +538,9 @@ void test_posix_timers(void)
     if (rv >= 0 || errno != EINVAL)
         fail_error("timer_settime with null new_value should have failed with "
                    "EINVAL (rv %d, errno %d)\n", rv, errno);
+
+    if (syscall(SYS_timer_delete, dummy_id) < 0)
+        fail_perror("timer_delete");
 
     posix_timers_finished = 0;
 
@@ -726,6 +733,7 @@ void test_alarm(void)
 
     alarm_received = 0;
     unsigned int old = alarm(3);
+    timetest_debug("...old %d\n", old);
     if (old != 0)
         fail_error("alarm timer should have been disarmed\n");
 
