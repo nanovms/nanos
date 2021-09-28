@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -18,6 +19,7 @@
 #define LARGEBUF_SIZE    8192
 #define IOV_LEN          8
 #define CLIENT_COUNT     8
+#define DGRAM_COUNT      128
 
 #define test_assert(expr) do { \
     if (!(expr)) { \
@@ -74,6 +76,7 @@ static void *uds_stream_server(void *arg)
         for (int j = 0; j < iov[i].iov_len; j++)
             test_assert(*((uint8_t *)(iov[i].iov_base) + j) == (i & 0xFF));
 
+    usleep(100 * 1000); /* to make the sender block */
     test_assert(close(client_fd) == 0);
     return NULL;
 }
@@ -84,6 +87,19 @@ static void *uds_stream_dummy_server(void *arg)
     int fd = (long) arg;
 
     usleep(100 * 1000); /* to make the client thread block */
+    test_assert(close(fd) == 0);
+    return NULL;
+}
+
+/* Closes server socket after accepting a connection. */
+static void *uds_stream_closing_server(void *arg)
+{
+    int fd = (long) arg;
+    int client_fd = accept(fd, NULL, 0);
+
+    test_assert(client_fd >= 0);
+    usleep(100 * 1000); /* to make the client thread block */
+    test_assert(close(client_fd) == 0);
     test_assert(close(fd) == 0);
     return NULL;
 }
@@ -100,6 +116,7 @@ static void uds_stream_test(void)
     struct iovec iov[IOV_LEN];
     struct msghdr msg;
     ssize_t nbytes, total;
+    struct pollfd fds;
 
     s1 = socket(AF_UNIX, SOCK_STREAM, 0);
     test_assert(s1 >= 0);
@@ -145,14 +162,20 @@ static void uds_stream_test(void)
     test_assert(sendto(s2, writeBuf, sizeof(writeBuf), 0, (struct sockaddr *)&addr,
         addr_len) == -1);
     test_assert(errno == EOPNOTSUPP);
+    test_assert((send(s2, writeBuf, sizeof(writeBuf), 0) == -1) && (errno == ENOTCONN));
 
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == 0);
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == -1);
     test_assert(errno == EISCONN);
 
+    fds.fd = s2;
+    fds.events = POLLIN | POLLOUT | POLLHUP;
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == POLLOUT));
+
     test_assert(sendto(s2, writeBuf, sizeof(writeBuf), 0, (struct sockaddr *)&addr,
         addr_len) == -1);
     test_assert(errno == EISCONN);
+    test_assert(send(s2, writeBuf, 0, 0) == 0);
 
     for (int i = 0; i < LARGEBUF_SIZE; i++) {
         writeBuf[i] = i;
@@ -177,8 +200,18 @@ static void uds_stream_test(void)
     msg.msg_iovlen = IOV_LEN;
     test_assert(sendmsg(s2, &msg, 0) == LARGEBUF_SIZE);
 
+    /* Close receiving socket (in the server thread) during blocking send. */
+    while (1) {
+        nbytes = send(s2, writeBuf, 1, 0);
+        if (nbytes != 1) {
+            test_assert(nbytes == -1);
+            break;
+        }
+    }
+
     test_assert(pthread_join(pt, NULL) == 0);
 
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents & POLLHUP));
     test_assert(recv(s2, writeBuf, 1, 0) == 0);
     /* on linux, this generates SIGPIPE instead of returning */
     test_assert((send(s2, writeBuf, 1, 0) == -1) && (errno == EPIPE));
@@ -213,7 +246,20 @@ static void uds_stream_test(void)
     for (int i = 0; i < CLIENT_COUNT; i++)
         test_assert(close(s3[i]) == 0);
     test_assert(pthread_join(pt, NULL) == 0);
+    test_assert(unlink(SERVER_SOCKET_PATH) == 0);
 
+    /* Close peer socket (in the server thread) during blocking read. */
+    s1 = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(s1 >= 0);
+    test_assert(bind(s1, (struct sockaddr *)&addr, addr_len) == 0);
+    test_assert(listen(s1, 1) == 0);
+    s2 = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(s2 >= 0);
+    test_assert(pthread_create(&pt, NULL, uds_stream_closing_server, (void *)(long)s1) == 0);
+    test_assert(connect(s2, (struct sockaddr *)&addr, addr_len) == 0);
+    test_assert(read(s2, writeBuf, 1) == 0);
+    test_assert(pthread_join(pt, NULL) == 0);
+    close(s2);
     test_assert(unlink(SERVER_SOCKET_PATH) == 0);
 }
 
@@ -223,6 +269,8 @@ static void *uds_dgram_server(void *arg)
     struct sockaddr_un addr;
     socklen_t addr_len = sizeof(addr);
     uint8_t readBuf[SMALLBUF_SIZE];
+
+    test_assert(recv(fd, readBuf, SMALLBUF_SIZE, 0) == 1);
 
     test_assert(recvfrom(fd, readBuf, SMALLBUF_SIZE / 2, 0, (struct sockaddr *)&addr, &addr_len) ==
             SMALLBUF_SIZE / 2);
@@ -240,6 +288,12 @@ static void *uds_dgram_server(void *arg)
     /* zero-length datagram */
     test_assert(recv(fd, readBuf, SMALLBUF_SIZE, 0) == 0);
 
+    for (int i = 0; i < 2; i++) {
+        usleep(100 * 1000); /* to make the sender block */
+        for (int j = 0; j < DGRAM_COUNT; j++)
+            test_assert(recv(fd, readBuf, SMALLBUF_SIZE, 0) == SMALLBUF_SIZE);
+    }
+
     return NULL;
 }
 
@@ -250,6 +304,8 @@ static void uds_dgram_test(void)
     socklen_t addr_len = sizeof(struct sockaddr_un);
     pthread_t pt;
     uint8_t writeBuf[SMALLBUF_SIZE];
+    int i;
+    struct pollfd fds;
 
     s1 = socket(AF_UNIX, SOCK_DGRAM, 0);
     test_assert(s1 >= 0);
@@ -267,6 +323,11 @@ static void uds_dgram_test(void)
 
     test_assert(pthread_create(&pt, NULL, uds_dgram_server, (void *)(long) s1)
             == 0);
+    fds.fd = s2;
+    fds.events = POLLIN | POLLOUT | POLLHUP;
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == POLLOUT));
+    test_assert((send(s2, writeBuf, sizeof(writeBuf), 0) == -1) && (errno == ENOTCONN));
+    test_assert(sendto(s2, writeBuf, 1, 0, (struct sockaddr *)&server_addr, addr_len) == 1);
     test_assert(connect(s2, (struct sockaddr *) &server_addr, addr_len) == 0);
     for (int i = 0; i < SMALLBUF_SIZE; i++) {
         writeBuf[i] = i;
@@ -277,8 +338,27 @@ static void uds_dgram_test(void)
     /* zero-length datagram */
     test_assert(send(s2, writeBuf, 0, 0) == 0);
 
+    /* wakeup after blocking send */
+    for (i = 0; i < DGRAM_COUNT; i++)
+        test_assert(send(s2, writeBuf, SMALLBUF_SIZE, 0) == SMALLBUF_SIZE);
+
+    /* poll after non-blocking send */
+    test_assert(fcntl(s2, F_SETFL, fcntl(s2, F_GETFL) | O_NONBLOCK) == 0);
+    for (i = 0; i < DGRAM_COUNT; i++) {
+        if (send(s2, writeBuf, SMALLBUF_SIZE, 0) != SMALLBUF_SIZE) {
+            test_assert(errno == EAGAIN);
+            test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == POLLOUT));
+            test_assert(send(s2, writeBuf, SMALLBUF_SIZE, 0) == SMALLBUF_SIZE);
+        }
+    }
+
+    /* Connect to the same address as already connected (should be a no-op). */
+    test_assert(connect(s2, (struct sockaddr *)&server_addr, addr_len) == 0);
+
     test_assert(pthread_join(pt, NULL) == 0);
     test_assert(close(s1) == 0);
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == POLLOUT));
+    test_assert((send(s2, writeBuf, 1, 0) == -1) && (errno == ECONNREFUSED));
     test_assert(close(s2) == 0);
     test_assert(unlink(SERVER_SOCKET_PATH) == 0);
     test_assert(unlink(CLIENT_SOCKET_PATH) == 0);
@@ -328,6 +408,9 @@ static void uds_nonblocking_test(void)
 
     s2 = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     test_assert(s2 >= 0);
+    fds.fd = s2;
+    fds.events = POLLIN | POLLOUT | POLLHUP;
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == (POLLOUT | POLLHUP)));
     int rv = connect(s2, (struct sockaddr *) &addr, addr_len);
     test_assert(rv == 0);
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == -1);
@@ -335,11 +418,10 @@ static void uds_nonblocking_test(void)
 
     test_assert(pthread_create(&pt, NULL, uds_nonblocking_server,
             (void *)(long) s1) == 0);
-    fds.fd = s2;
-    fds.events = POLLIN | POLLOUT | POLLHUP;
     test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == POLLOUT));
     sem_post(&sem);
     test_assert(pthread_join(pt, NULL) == 0);
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == (POLLIN | POLLOUT | POLLHUP)));
     test_assert(close(s2) == 0);
 
     s2 = socket(AF_UNIX, SOCK_STREAM, 0);
