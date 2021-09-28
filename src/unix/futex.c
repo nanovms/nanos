@@ -91,8 +91,8 @@ boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val)
  *  -EINTR: if we're being nullified
  *  0: thread woken up
  */
-closure_function(4, 1, sysreturn, futex_bh,
-                 struct futex *, f, thread, t, boolean, blocked, timestamp, timeout,
+closure_function(3, 1, sysreturn, futex_bh,
+                 struct futex *, f, thread, t, timestamp, timeout,
                  u64, flags)
 {
     thread t = bound(t);
@@ -102,9 +102,8 @@ closure_function(4, 1, sysreturn, futex_bh,
         rv = bound(timeout) ? -EINTR : -ERESTARTSYS;
     else if (flags & BLOCKQ_ACTION_TIMEDOUT)
         rv = -ETIMEDOUT;
-    else if (!bound(blocked)) {
+    else if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
         thread_log(t, "%s: struct futex: %p, blocking", __func__, bound(f));
-        bound(blocked) = true;
         return BLOCKQ_BLOCK_REQUIRED;
     } else
         rv = 0; /* no timer expire + not us --> actual wakeup */
@@ -161,7 +160,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         set_syscall_return(current, 0);
 
         return blockq_check_timeout(f->bq, current, 
-                                    closure(f->h, futex_bh, f, current, false, ts),
+                                    closure(f->h, futex_bh, f, current, ts),
                                     false, clkid, ts, false);
     }
 
@@ -260,7 +259,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
 
         set_syscall_return(current, 0);
         return blockq_check_timeout(f->bq, current, 
-                                    closure(f->h, futex_bh, f, current, false, ts),
+                                    closure(f->h, futex_bh, f, current, ts),
                                     false, clkid, ts, true);
     }
 
