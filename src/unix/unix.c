@@ -579,9 +579,6 @@ void dump_mem_stats(buffer b)
     dump_heap_stats(b, "virtual page", (heap)heap_virtual_page(kh));
     bprintf(b, "Unix heaps:\n");
     dump_heap_stats(b, "file cache", uh->file_cache);
-    dump_heap_stats(b, "epoll cache", uh->epoll_cache);
-    dump_heap_stats(b, "epollfd cache", uh->epollfd_cache);
-    dump_heap_stats(b, "epoll_blocked cache", uh->epoll_blocked_cache);
     dump_heap_stats(b, "pipe cache", uh->pipe_cache);
     dump_heap_stats(b, "socket cache", uh->socket_cache);
 }
