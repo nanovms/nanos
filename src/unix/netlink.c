@@ -194,6 +194,7 @@ enum {
 static struct {
     id_heap pids;
     vector sockets;
+    struct spinlock lock;
 } netlink;
 
 typedef struct nlsock {
@@ -203,6 +204,8 @@ typedef struct nlsock {
     queue data;
 } *nlsock;
 
+#define nl_lock(s)      spin_lock(&(s)->sock.f.lock)
+#define nl_unlock(s)    spin_unlock(&(s)->sock.f.lock)
 
 static void nl_enqueue(nlsock s, void *msg, u64 msg_len)
 {
@@ -363,10 +366,13 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
             break;
         if (hdr->nlmsg_flags & NLM_F_DUMP) {
             u8 af = msg->rtgen_family;
-            if (af != AF_INET6) /* retrieve IPv4 addresses */
+            if (af != AF_INET6) {   /* retrieve IPv4 addresses */
+                lwip_lock();
                 for (struct netif *netif = netif_list; netif; netif = netif->next)
                     nl_enqueue_ifaddr(s, RTM_NEWADDR, NLM_F_MULTI, hdr->nlmsg_seq, s->addr.nl_pid,
                         netif, *netif_ip4_addr(netif), *netif_ip4_netmask(netif));
+                lwip_unlock();
+            }
             nl_enqueue_done(s, hdr);
         } else {
             errno = EOPNOTSUPP;
@@ -436,12 +442,17 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
+    boolean lock = !(bqflags & BLOCKQ_ACTION_BLOCKED);
+    if (lock)
+        nl_lock(s);
     struct nlmsghdr *hdr = dequeue(s->data);
     if (hdr == INVALID_ADDRESS) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
-            goto out;
+            goto unlock;
         }
+        if (lock)
+            nl_unlock(s);
         return BLOCKQ_BLOCK_REQUIRED;
     }
     rv = 0;
@@ -499,6 +510,9 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         if (hdr->nlmsg_len > dest_len)
             break;
     } while (dest_len > 0);
+unlock:
+    if (lock)
+        nl_unlock(s);
 out:
     blockq_handle_completion(s->sock.rxbq, bqflags, bound(completion), bound(t), rv);
     closure_finish();
@@ -523,7 +537,11 @@ closure_function(1, 6, sysreturn, nl_write,
                  void *, src, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     nl_debug("write len %ld", length);
-    return io_complete(completion, t, nl_write_internal(bound(s), src, length));
+    nlsock s = bound(s);
+    nl_lock(s);
+    sysreturn rv = nl_write_internal(s, src, length);
+    nl_unlock(s);
+    return io_complete(completion, t, rv);
 }
 
 closure_function(1, 1, u32, nl_events,
@@ -550,6 +568,7 @@ closure_function(1, 2, sysreturn, nl_close,
         hdr = dequeue(s->data);
     }
     deallocate_queue(s->data);
+    spin_lock(&netlink.lock);
     nlsock sock;
     vector_foreach(netlink.sockets, sock) {
         if (sock == s) {
@@ -564,6 +583,7 @@ closure_function(1, 2, sysreturn, nl_close,
     socket_deinit(&s->sock);
     if (s->addr.nl_pid != 0)
         deallocate_u64((heap)netlink.pids, s->addr.nl_pid, 1);
+    spin_unlock(&netlink.lock);
     deallocate(s->sock.h, s, sizeof(*s));
     return io_complete(completion, t, 0);
 }
@@ -578,19 +598,21 @@ static sysreturn nl_bind(struct sock *sock, struct sockaddr *addr, socklen_t add
         goto out;
     }
     nl_debug("bind to pid %d, multicast 0x%x", nl_addr->nl_pid, nl_addr->nl_groups);
+    spin_lock(&netlink.lock);
+    nl_lock(s);
     if (s->addr.nl_pid != 0) {  /* already bound */
         if (nl_addr->nl_pid == s->addr.nl_pid)
             rv = 0;
         else
             rv = -EINVAL;
-        goto out;
+        goto unlock;
     }
     runtime_memcpy(&s->addr, nl_addr, addrlen);
     if (nl_addr->nl_pid == 0) {
         u64 pid = allocate_u64((heap)netlink.pids, 1);
         if (pid == INVALID_PHYSICAL) {
             rv = -ENOMEM;
-            goto out;
+            goto unlock;
         }
         nl_debug(" allocated pid %d", pid);
         s->addr.nl_pid = pid;
@@ -600,10 +622,13 @@ static sysreturn nl_bind(struct sock *sock, struct sockaddr *addr, socklen_t add
             deallocate_u64((heap)netlink.pids, pid, 1);
             s->addr.nl_pid = 0;
             rv = -EADDRINUSE;
-            goto out;
+            goto unlock;
         }
     }
     rv = 0;
+  unlock:
+    nl_unlock(s);
+    spin_unlock(&netlink.lock);
   out:
     socket_release(sock);
     return rv;
@@ -612,7 +637,9 @@ static sysreturn nl_bind(struct sock *sock, struct sockaddr *addr, socklen_t add
 static sysreturn nl_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen)
 {
     nlsock s = (nlsock)sock;
+    nl_lock(s);
     runtime_memcpy(addr, &s->addr, MIN(sizeof(s->addr), *addrlen));
+    nl_unlock(s);
     *addrlen = sizeof(s->addr);
     socket_release(sock);
     return 0;
@@ -662,6 +689,7 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
     if (rv)
         goto out;
     u64 written = 0;
+    nl_lock(s);
     for (u64 i = 0; i < msg->msg_iovlen; i++) {
         rv = nl_write_internal(s, msg->msg_iov[i].iov_base, msg->msg_iov[i].iov_len);
         if (rv > 0)
@@ -669,6 +697,7 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
         else
             break;
     }
+    nl_unlock(s);
     rv = (written > 0) ? written : rv;
   out:
     socket_release(sock);
@@ -703,27 +732,42 @@ static void nl_lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
 {
     nl_debug("lwIP callback, reason 0x%x", reason);
     nlsock s;
-    if (reason & (LWIP_NSC_NETIF_ADDED | LWIP_NSC_NETIF_REMOVED | LWIP_NSC_LINK_CHANGED))
+    if (reason & (LWIP_NSC_NETIF_ADDED | LWIP_NSC_NETIF_REMOVED | LWIP_NSC_LINK_CHANGED)) {
+        spin_lock(&netlink.lock);
         vector_foreach(netlink.sockets, s) {
-            if (s->addr.nl_groups & RTMGRP_LINK)
+            if (s->addr.nl_groups & RTMGRP_LINK) {
+                nl_lock(s);
                 nl_enqueue_ifinfo(s, (reason == LWIP_NSC_NETIF_REMOVED) ? RTM_DELLINK : RTM_NEWLINK,
                         0, 0, NL_PID_KERNEL, netif);
+                nl_unlock(s);
+            }
         }
-    if (reason & LWIP_NSC_IPV4_SETTINGS_CHANGED)
+        spin_unlock(&netlink.lock);
+    }
+    if (reason & LWIP_NSC_IPV4_SETTINGS_CHANGED) {
+        spin_lock(&netlink.lock);
         vector_foreach(netlink.sockets, s) {
             if (s->addr.nl_groups & RTMGRP_IPV4_IFADDR) {
                 if ((reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) &&
-                        !ip4_addr_isany(ip_2_ip4(args->ipv4_changed.old_address)))
+                        !ip4_addr_isany(ip_2_ip4(args->ipv4_changed.old_address))) {
+                    nl_lock(s);
                     nl_enqueue_ifaddr(s, RTM_DELADDR, 0, 0, NL_PID_KERNEL, netif,
                         args->ipv4_changed.old_address->u_addr.ip4,
                         (reason & LWIP_NSC_IPV4_NETMASK_CHANGED) ?
                                 *ip_2_ip4(args->ipv4_changed.old_netmask) :
                                 *ip_2_ip4(&netif->netmask));
-                if (!ip4_addr_isany(netif_ip4_addr(netif)))
+                    nl_unlock(s);
+                }
+                if (!ip4_addr_isany(netif_ip4_addr(netif))) {
+                    nl_lock(s);
                     nl_enqueue_ifaddr(s, RTM_NEWADDR, 0, 0, NL_PID_KERNEL, netif,
                         *netif_ip4_addr(netif), *netif_ip4_netmask(netif));
+                    nl_unlock(s);
+                }
             }
         }
+        spin_unlock(&netlink.lock);
+    }
 }
 
 sysreturn netlink_open(int type, int family)
@@ -741,7 +785,7 @@ sysreturn netlink_open(int type, int family)
     default:
         return -EPROTONOSUPPORT;
     }
-    heap h = heap_general(&get_unix_heaps()->kh);
+    heap h = heap_locked(&get_unix_heaps()->kh);
     nlsock s = allocate(h, sizeof(*s));
     if (s == INVALID_ADDRESS)
         return -ENOMEM;
@@ -750,7 +794,9 @@ sysreturn netlink_open(int type, int family)
     s->data = allocate_queue(h, NL_QUEUE_MAX_LEN);
     if (s->data == INVALID_ADDRESS)
         goto err_queue;
+    spin_lock(&netlink.lock);
     vector_push(netlink.sockets, s);
+    spin_unlock(&netlink.lock);
     s->family = family;
     zero(&s->addr, sizeof(s->addr));
     s->sock.f.read = closure(h, nl_read, s);
@@ -778,11 +824,12 @@ sysreturn netlink_open(int type, int family)
 
 void netlink_init(void)
 {
-    heap h = heap_general(&get_unix_heaps()->kh);
+    heap h = heap_locked(&get_unix_heaps()->kh);
     netlink.pids = create_id_heap(h, h, 1, U32_MAX, 1, false);
     assert(netlink.pids != INVALID_ADDRESS);
     netlink.sockets = allocate_vector(h, 8);
     assert(netlink.sockets != INVALID_ADDRESS);
+    spin_lock_init(&netlink.lock);
     lwip_lock();
     NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, nl_lwip_ext_callback);
