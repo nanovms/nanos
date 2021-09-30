@@ -1014,7 +1014,10 @@ simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
     blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -ERESTARTSYS;
+        if (bound(submitted))
+            rv = bound(submitted);
+        else
+            rv = -ERESTARTSYS;
         goto out;
     }
     iour_lock(iour);
