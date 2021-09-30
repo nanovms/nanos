@@ -6,8 +6,8 @@
 
 #define AIO_RESFD_INVALID   -1U
 
-#define aio_lock(aio)   u64 _irqflags = spin_lock_irq(&(aio)->lock)
-#define aio_unlock(aio) spin_unlock_irq(&(aio)->lock, _irqflags)
+#define aio_lock(aio)   spin_lock(&(aio)->lock)
+#define aio_unlock(aio) spin_unlock(&(aio)->lock)
 
 typedef struct aio_ring {
     unsigned int id;
@@ -65,6 +65,7 @@ static inline struct aio *aio_from_ring(process p, aio_ring ring)
 {
     process_lock(p);
     struct aio *aio = vector_get(p->aio, ring->id);
+    refcount_reserve(&aio->refcount);
     process_unlock(p);
     return aio;
 }
@@ -158,6 +159,9 @@ closure_function(5, 2, void, aio_complete,
         tail = 0;
     }
     ring->tail = tail;
+    blockq bq = aio->bq;
+    if (bq)
+        blockq_reserve(bq);
     aio_unlock(aio);
     fdesc_put(bound(f));
     if (res_fd != AIO_RESFD_INVALID) {
@@ -175,17 +179,17 @@ closure_function(5, 2, void, aio_complete,
             }
         }
     }
-    if (aio->bq) {
-        blockq_wake_one(aio->bq);
+    if (bq) {
+        blockq_wake_one(bq);
+        blockq_release(bq);
     }
     closure_finish();
+    refcount_release(&aio->refcount);
 }
 
 static unsigned int aio_avail_events(struct aio *aio)
 {
-    aio_lock(aio);
     int avail = aio->ring->head - aio->ring->tail;
-    aio_unlock(aio);
     if (avail <= 0) {
         avail += aio->nr;
     }
@@ -200,15 +204,20 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
     thread_log(current, "%s: fd %d, op %d", __func__, iocb->aio_fildes,
             iocb->aio_lio_opcode);
 
-    if (aio->ongoing_ops >= aio_avail_events(aio) - 1) {
-        return -EAGAIN;
-    }
     if (iocb->aio_reserved1 || iocb->aio_reserved2 || !iocb->aio_buf ||
             (iocb->aio_flags & ~AIO_KNOWN_FLAGS)) {
         return -EINVAL;
     }
 
     fdesc f = resolve_fd(current->p, iocb->aio_fildes);
+    aio_lock(aio);
+    if (aio->ongoing_ops >= aio_avail_events(aio) - 1) {
+        aio_unlock(aio);
+        fdesc_put(f);
+        return -EAGAIN;
+    }
+    aio->ongoing_ops++;
+    aio_unlock(aio);
     int res_fd;
     if (iocb->aio_flags & IOCB_FLAG_RESFD) {
         res_fd = iocb->aio_resfd;
@@ -217,6 +226,7 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
     }
     io_completion completion = closure(heap_locked(aio->kh), aio_complete, aio, f,
             iocb->aio_data, (u64) iocb, res_fd);
+    refcount_reserve(&aio->refcount);
     sysreturn rv;
     switch (iocb->aio_lio_opcode) {
     case IOCB_CMD_PREAD:
@@ -245,11 +255,12 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
         rv = -EINVAL;
         goto error;
     }
-    aio_lock(aio);
-    aio->ongoing_ops++;
-    aio_unlock(aio);
     return 0;
 error:
+    aio_lock(aio);
+    aio->ongoing_ops--;
+    aio_unlock(aio);
+    refcount_release(&aio->refcount);
     deallocate_closure(completion);
     fdesc_put(f);
     return rv;
@@ -270,15 +281,17 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
         sysreturn rv = iocb_enqueue(aio, iocbpp[io_ops]);
         if (rv) {
             if (io_ops == 0) {
-                return rv;
-            } else {
-                break;
+                io_ops = rv;
             }
+            break;
         }
     }
+    refcount_release(&aio->refcount);
     return io_ops;
 }
 
+/* Called with aio lock held (unless BLOCKQ_ACTION_BLOCKED is set in flags);
+ * returns with aio lock released. */
 closure_function(7, 1, sysreturn, io_getevents_bh,
                  struct aio *, aio, long, min_nr, long, nr, struct io_event *, events, thread, t, timestamp, timeout, io_completion, completion,
                  u64, flags)
@@ -289,12 +302,14 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
     timestamp timeout = bound(timeout);
     aio_ring ring = aio->ring;
     sysreturn rv;
+    if (flags & BLOCKQ_ACTION_BLOCKED)
+        aio_lock(aio);
+    blockq bq = aio->bq;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out;
     }
 
-    aio_lock(aio);
     unsigned int head = ring->head;
     unsigned int tail = ring->tail;
     if (head >= aio->nr) {
@@ -317,16 +332,18 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
     }
     ring->head = head;
     ring->tail = tail;
-    aio_unlock(aio);
     if ((aio->copied_evts < bound(min_nr)) && (timeout != 0) &&
             !(flags & BLOCKQ_ACTION_TIMEDOUT)) {
+        aio_unlock(aio);
         return BLOCKQ_BLOCK_REQUIRED;
     }
     rv = aio->copied_evts;
 out:
-    blockq_handle_completion(aio->bq, flags, bound(completion), t, rv);
     aio->bq = 0;
+    aio_unlock(aio);
+    blockq_handle_completion(bq, flags, bound(completion), t, rv);
     closure_finish();
+    refcount_release(&aio->refcount);
     return rv;
 }
 
@@ -344,6 +361,7 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
         return -EINVAL;
     }
     timestamp ts = timeout ? time_from_timespec(timeout) : infinity;
+    aio_lock(aio);
     aio->copied_evts = 0;
     aio->bq = current->thread_bq;
     return blockq_check_timeout(aio->bq, current,
@@ -375,14 +393,17 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
     io_completion completion = closure(heap_locked(aio->kh),
             io_destroy_complete, aio);
     assert(completion != INVALID_ADDRESS);
+    aio_lock(aio);
     unsigned int ongoing_ops = aio->ongoing_ops;
     if (ongoing_ops) {
         aio->copied_evts = 0;
         aio->bq = t->thread_bq;
+        refcount_reserve(&aio->refcount);
         return blockq_check(aio->bq, t,
                 closure(heap_locked(aio->kh), io_getevents_bh, aio,
                         ongoing_ops, ongoing_ops, 0, t, infinity, completion), in_bh);
     } else {
+        aio_unlock(aio);
         apply(completion, t, 0);
         return 0;
     }
