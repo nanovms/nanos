@@ -140,7 +140,6 @@ typedef struct io_uring {
     struct fdesc f;    /* must be first */
     heap h;
     heap vh;
-    struct spinlock lock;
     u32 sq_mask, sq_entries;
     u32 cq_mask, cq_entries;
     io_rings rings;
@@ -183,6 +182,7 @@ typedef struct iour_poll {
     fdesc f;
     notify_entry ne;
     closure_struct(iour_poll_notify, handler);
+    u64 events;
 } *iour_poll;
 
 declare_closure_struct(2, 2, void, iour_timeout,
@@ -218,8 +218,8 @@ typedef struct iour_timer {
     if (f->type != FDESC_TYPE_IORING) {fdesc_put(f); return -EOPNOTSUPP;} \
     (io_uring)f;})
 
-#define iour_lock(iour)     u64 _irqflags = spin_lock_irq(&(iour)->lock)
-#define iour_unlock(iour)   spin_unlock_irq(&(iour)->lock, _irqflags)
+#define iour_lock(iour)     spin_lock(&(iour)->f.lock)
+#define iour_unlock(iour)   spin_unlock(&(iour)->f.lock)
 
 static void iour_release(io_uring iour)
 {
@@ -243,6 +243,14 @@ static void iour_release(io_uring iour)
         apply(completion, 0, 0);
 }
 
+static void iour_timer_remove(io_uring iour, iour_timer t)
+{
+    if (remove_timer(kernel_timers, &t->t, 0)) {
+        deallocate(iour->h, t, sizeof(*t));
+        fetch_and_add(&iour->noncancelable_ops, -1);
+    }
+}
+
 closure_function(3, 1, sysreturn, iour_close_bh,
                  io_uring, iour, thread, t, io_completion, completion,
                  u64, flags)
@@ -252,10 +260,14 @@ closure_function(3, 1, sysreturn, iour_close_bh,
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -ERESTARTSYS;
+        iour->bq = 0;
         goto out;
     }
+    if (flags & BLOCKQ_ACTION_BLOCKED)
+        iour_lock(iour);
     if (iour->noncancelable_ops != 0) {
         iour_debug("blocking");
+        iour_unlock(iour);
         return BLOCKQ_BLOCK_REQUIRED;
     }
     iour_release(iour);
@@ -274,22 +286,17 @@ define_closure_function(1, 2, sysreturn, iour_close,
     io_uring iour = bound(iour);
     iour_debug("iour %p", iour);
 
-    /* Timers and pollers should be unregistered without the lock, to avoid
-     * deadlocks in implementations where the unregister functions ensure the
-     * corresponding handler function is not executing (even in SMP platforms)
-     * after the unregister function returns. */
-    struct list deleted_items;
-    u64 irqflags = spin_lock_irq(&iour->lock);
-    list_move(&deleted_items, &iour->timers);
-    spin_unlock_irq(&iour->lock, irqflags);
-    list_foreach(&deleted_items, l) {
+    iour_lock(iour);
+    list_foreach(&iour->timers, l) {
         iour_timer iour_tim = struct_from_list(l, iour_timer, l);
-        remove_timer(kernel_timers, &iour_tim->t, 0);
-        deallocate(iour->h, iour_tim, sizeof(*iour_tim));
+        iour_timer_remove(iour, iour_tim);
     }
-    irqflags = spin_lock_irq(&iour->lock);
+
+    /* Pollers should be unregistered without the lock, to avoid deadlock if a notify handler is
+     * executing when notify_remove() is called. */
+    struct list deleted_items;
     list_move(&deleted_items, &iour->pollers);
-    spin_unlock_irq(&iour->lock, irqflags);
+    iour_unlock(iour);
     list_foreach(&deleted_items, l) {
         iour_poll poller = struct_from_list(l, iour_poll, l);
         notify_remove(poller->f->ns, poller->ne, false);
@@ -297,13 +304,12 @@ define_closure_function(1, 2, sysreturn, iour_close,
         deallocate(iour->h, poller, sizeof(*poller));
     }
 
-    irqflags = spin_lock_irq(&iour->lock);
+    iour_lock(iour);
     if (iour->eventfd) {
         fdesc_put(iour->eventfd);
         iour->eventfd = 0;
     }
     if (t) {
-        spin_unlock_irq(&iour->lock, irqflags);
         if (iour->noncancelable_ops) {
             blockq_action ba = closure(iour->h, iour_close_bh, iour, t,
                 completion);
@@ -312,6 +318,7 @@ define_closure_function(1, 2, sysreturn, iour_close,
                 return blockq_check(iour->bq, t, ba, false);
             } else {
                 iour->shutdown = true;
+                iour_unlock(iour);
                 return io_complete(completion, t, -ENOMEM);
             }
         } else {
@@ -322,7 +329,7 @@ define_closure_function(1, 2, sysreturn, iour_close,
     iour->shutdown_completion = completion;
     if (iour->noncancelable_ops) {
         iour->shutdown = true;
-        spin_unlock_irq(&iour->lock, irqflags);
+        iour_unlock(iour);
     } else
         iour_release(iour);
     return 0;
@@ -363,7 +370,7 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
 
     sysreturn ret;
     kernel_heaps kh = get_kernel_heaps();
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     io_uring iour = allocate(h, sizeof(*iour));
     if (iour == INVALID_ADDRESS) {
         return -ENOMEM;
@@ -396,7 +403,6 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
                iour->sq_array, iour->cqes, iour->sqes);
 
     iour_rings_init(iour);
-    spin_lock_init(&iour->lock);
     iour->buf_count = iour->file_count = 0;
     iour->bq = 0;
     iour->eventfd = 0;
@@ -539,14 +545,17 @@ check_timers:
         }
     }
     blockq bq = iour->bq;
+    if (bq)
+        blockq_reserve(bq);
     iour_unlock(iour);
     list_foreach(&deleted_timers, l) {
         iour_timer iour_tim = struct_from_list(l, iour_timer, l);
-        remove_timer(kernel_timers, &iour_tim->t, 0);
-        deallocate(iour->h, iour_tim, sizeof(*iour_tim));
+        iour_timer_remove(iour, iour_tim);
     }
-    if (bq)
+    if (bq) {
         blockq_wake_one(bq);
+        blockq_release(bq);
+    }
 }
 
 static void iour_complete_timeout(io_uring iour, u64 user_data)
@@ -555,9 +564,13 @@ static void iour_complete_timeout(io_uring iour, u64 user_data)
     iour->cq_timeouts++;
     iour_complete_locked(iour, user_data, -ETIME, true);
     blockq bq = iour->bq;
-    iour_unlock(iour);
     if (bq)
+        blockq_reserve(bq);
+    iour_unlock(iour);
+    if (bq) {
         blockq_wake_one(bq);
+        blockq_release(bq);
+    }
 }
 
 closure_function(3, 2, void, iour_rw_complete,
@@ -623,6 +636,8 @@ define_closure_function(2, 2, boolean, iour_poll_notify,
     boolean found = list_find(&iour->pollers, &p->l);
     if (found) {
         list_delete(&p->l);
+    } else {
+        p->events = events;
     }
     iour_unlock(iour);
     if (found) {
@@ -645,14 +660,24 @@ static void iour_poll_add(io_uring iour, fdesc f, u16 events, u64 user_data)
     }
     p->user_data = user_data;
     p->f = f;
-    iour_lock(iour);
-    list_push_back(&iour->pollers, &p->l);
+    p->events = 0;
     p->ne = notify_add(f->ns, events | EPOLLERR | EPOLLHUP,
         init_closure(&p->handler, iour_poll_notify, iour, p));
     if (p->ne == INVALID_ADDRESS) {
         err = -ENOMEM;
-        list_delete(&p->l);
         deallocate(iour->h, p, sizeof(*p));
+    }
+    iour_lock(iour);
+    if (!p->events)
+        list_push_back(&iour->pollers, &p->l);
+    else {
+        /* Poll events have been notified already. */
+        iour_unlock(iour);
+        iour_complete(iour, p->user_data, p->events, false, false);
+        notify_remove(p->f->ns, p->ne, false);
+        fdesc_put(p->f);
+        deallocate(iour->h, p, sizeof(*p));
+        return;
     }
     iour_unlock(iour);
 done:
@@ -707,8 +732,10 @@ define_closure_function(2, 2, void, iour_timeout,
     if (found) {
         iour_debug("user_data %ld", t->user_data);
         iour_complete_timeout(iour, t->user_data);
-        deallocate(iour->h, t, sizeof(*t));
     }
+    deallocate(iour->h, t, sizeof(*t));
+    if ((fetch_and_add(&iour->noncancelable_ops, -1) == 1) && iour->shutdown)
+        iour_release(iour);
 }
 
 static void iour_timeout_add(io_uring iour, struct timespec *ts, u32 flags,
@@ -737,6 +764,10 @@ static void iour_timeout_add(io_uring iour, struct timespec *ts, u32 flags,
     iour_tim->target = iour->rings->cq_tail + off;
     iour_debug("target %ld", iour_tim->target);
 
+    /* Timeouts are counted as non-cancelable_operations because the ability to remove a kernel
+     * timer synchronously is not guaranteed in SMP machines. */
+    fetch_and_add(&iour->noncancelable_ops, 1);
+
     list_push_back(&iour->timers, &iour_tim->l);
     register_timer(kernel_timers, &iour_tim->t, CLOCK_ID_MONOTONIC,
         time_from_timespec(ts), flags & IORING_TIMEOUT_ABS, 0,
@@ -762,10 +793,9 @@ static void iour_timeout_remove(io_uring iour, u64 addr, u64 user_data)
     }
     iour_unlock(iour);
     if (t) {
-        remove_timer(kernel_timers, &t->t, 0);
+        iour_timer_remove(iour, t);
         iour_complete(iour, addr, -ECANCELED, false, false);
         res = 0;
-        deallocate(iour->h, t, sizeof(*t));
     } else
         res = -ENOENT;
     iour_complete(iour, user_data, res, false, false);
@@ -1011,6 +1041,8 @@ simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
                         u64, flags)
 {
     io_uring iour = bound(iour);
+    if (flags & BLOCKQ_ACTION_BLOCKED)
+        iour_lock(iour);
     blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
@@ -1018,9 +1050,9 @@ simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
             rv = bound(submitted);
         else
             rv = -ERESTARTSYS;
+        iour->bq = 0;
         goto out;
     }
-    iour_lock(iour);
     iour_debug("CQ head %d, CQ tail %d",iour->rings->cq_head,
                iour->rings->cq_tail);
     if ((iour->rings->cq_tail - iour->rings->cq_head < bound(min_complete)) &&
@@ -1030,8 +1062,8 @@ simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
         rv = bound(submitted);
         iour->bq = 0;
     }
-    iour_unlock(iour);
 out:
+    iour_unlock(iour);
     if (rv == BLOCKQ_BLOCK_REQUIRED) {
         iour_debug("blocking");
         return rv;
@@ -1075,10 +1107,14 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
     iour_debug("SQ head %d, SQ tail %d", rings->sq_head, rings->sq_tail);
     unsigned int submitted;
     for (submitted = 0; submitted < to_submit;) {
-        if (rings->sq_head >= rings->sq_tail)
+        iour_lock(iour);
+        if (rings->sq_head >= rings->sq_tail) {
+            iour_unlock(iour);
             break;
+        }
         u32 sqe_index = iour->sq_array[rings->sq_head & iour->sq_mask];
         rings->sq_head++;
+        iour_unlock(iour);
         if (sqe_index < iour->sq_entries) {
             submitted++;
             if (!iour_submit(iour, &iour->sqes[sqe_index]))
@@ -1086,12 +1122,21 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         } else {
             iour_debug("sqe dropped: index %d, entries %d", sqe_index,
                 iour->sq_entries);
+            iour_lock(iour);
             iour->rings->sq_dropped++;
+            iour_unlock(iour);
             break;
         }
     }
     rv = submitted;
     if (flags & IORING_ENTER_GETEVENTS) {
+        iour_lock(iour);
+        if (iour->bq) {
+            /* Another thread is waiting on this instance, and waiting in parallel from multiple
+             * threads is not supported. */
+            iour_unlock(iour);
+            goto out;
+        }
         if (sig) {
             iour->sigmask = current->signals.mask;
             current->signals.mask = (*(u64 *)sig);
@@ -1192,9 +1237,11 @@ static sysreturn iour_register_files(io_uring iour, s32 *fds,
 
 static sysreturn iour_unregister_files(io_uring iour)
 {
-    if (iour->file_count == 0)
-        return -ENXIO;
     iour_lock(iour);
+    if (iour->file_count == 0) {
+        iour_unlock(iour);
+        return -ENXIO;
+    }
     for (unsigned int i = 0; i < iour->file_count; i++)
         if (iour->files[i])
             fdesc_put(iour->files[i]);
