@@ -21,6 +21,9 @@ typedef struct aio_ring {
     struct io_event events[0];
 } *aio_ring;
 
+declare_closure_struct(1, 0, void, aio_free,
+                       struct aio *, aio);
+
 struct aio {
     struct list elem;  /* must be first */
     heap vh;
@@ -31,11 +34,13 @@ struct aio {
     unsigned int nr;
     unsigned int ongoing_ops;
     unsigned int copied_evts;
+    struct refcount refcount;
+    closure_struct(aio_free, free);
 };
 
 static struct aio *aio_alloc(process p, kernel_heaps kh, unsigned int *id)
 {
-    struct aio *aio = allocate(heap_general(get_kernel_heaps()),
+    struct aio *aio = allocate(heap_locked(get_kernel_heaps()),
             sizeof(*aio));
     if (aio == INVALID_ADDRESS) {
         return 0;
@@ -48,7 +53,7 @@ static struct aio *aio_alloc(process p, kernel_heaps kh, unsigned int *id)
     }
     process_unlock(p);
     if (aio_id == INVALID_PHYSICAL) {
-        deallocate(heap_general(kh), aio, sizeof(*aio));
+        deallocate(heap_locked(kh), aio, sizeof(*aio));
         return 0;
     }
     *id = (unsigned int) aio_id;
@@ -56,18 +61,25 @@ static struct aio *aio_alloc(process p, kernel_heaps kh, unsigned int *id)
     return aio;
 }
 
-static void aio_dealloc(process p, struct aio *aio, unsigned int id)
-{
-    process_lock(p);
-    assert(vector_set(p->aio, id, 0));
-    deallocate_u64((heap) p->aio_ids, id, 1);
-    process_unlock(p);
-    deallocate(heap_general(aio->kh), aio, sizeof(*aio));
-}
-
 static inline struct aio *aio_from_ring(process p, aio_ring ring)
 {
-    return (struct aio *) vector_get(p->aio, ring->id);
+    process_lock(p);
+    struct aio *aio = vector_get(p->aio, ring->id);
+    process_unlock(p);
+    return aio;
+}
+
+define_closure_function(1, 0, void, aio_free,
+                        struct aio *, aio)
+{
+    struct aio *aio = bound(aio);
+    aio_ring ring = aio->ring;
+    u64 phys = physical_from_virtual(ring);
+    u64 alloc_size = pad(sizeof(*ring) + aio->nr * sizeof(struct io_event), PAGESIZE);
+    unmap(u64_from_pointer(ring), alloc_size);
+    deallocate_u64((heap) heap_physical(aio->kh), phys, alloc_size);
+    deallocate(aio->vh, ring, alloc_size);
+    deallocate(heap_locked(aio->kh), aio, sizeof(*aio));
 }
 
 sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
@@ -104,6 +116,7 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
     aio->bq = 0;
     aio->nr = nr_events;
     aio->ongoing_ops = 0;
+    init_refcount(&aio->refcount, 1, init_closure(&aio->free, aio_free, aio));
 
     ctx->nr = nr_events;
     ctx->head = ctx->tail = 0;
@@ -151,7 +164,7 @@ closure_function(5, 2, void, aio_complete,
         fdesc res = fdesc_get(t->p, res_fd);
         if (res) {
             if (res->write && fdesc_is_writable(res)) {
-                heap h = heap_general(aio->kh);
+                heap h = heap_locked(aio->kh);
                 u64 *efd_val = allocate(h, sizeof(*efd_val));
                 assert(efd_val != INVALID_ADDRESS);
                 *efd_val = 1;
@@ -202,7 +215,7 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
     } else {
         res_fd = AIO_RESFD_INVALID;
     }
-    io_completion completion = closure(heap_general(aio->kh), aio_complete, aio, f,
+    io_completion completion = closure(heap_locked(aio->kh), aio_complete, aio, f,
             iocb->aio_data, (u64) iocb, res_fd);
     sysreturn rv;
     switch (iocb->aio_lio_opcode) {
@@ -334,7 +347,7 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
     aio->copied_evts = 0;
     aio->bq = current->thread_bq;
     return blockq_check_timeout(aio->bq, current,
-            closure(heap_general(aio->kh), io_getevents_bh, aio, min_nr, nr,
+            closure(heap_locked(aio->kh), io_getevents_bh, aio, min_nr, nr,
                     events, current, ts, syscall_io_complete), false,
             CLOCK_ID_MONOTONIC, (ts == infinity) ? 0 : ts, false);
 }
@@ -351,15 +364,7 @@ closure_function(1, 2, void, io_destroy_complete,
          * again. */
         io_destroy_internal(aio, t, true);
     } else {
-        aio_ring ring = aio->ring;
-        unsigned int aio_id = ring->id;
-        u64 phys = physical_from_virtual(ring);
-        u64 alloc_size = pad(sizeof(*ring) + aio->nr * sizeof(struct io_event),
-                PAGESIZE);
-        unmap(u64_from_pointer(ring), alloc_size);
-        deallocate_u64((heap) heap_physical(aio->kh), phys, alloc_size);
-        deallocate(aio->vh, ring, alloc_size);
-        aio_dealloc(current->p, aio, aio_id);
+        refcount_release(&aio->refcount);
         apply(syscall_io_complete, t, 0);
     }
     closure_finish();
@@ -367,7 +372,7 @@ closure_function(1, 2, void, io_destroy_complete,
 
 static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
 {
-    io_completion completion = closure(heap_general(aio->kh),
+    io_completion completion = closure(heap_locked(aio->kh),
             io_destroy_complete, aio);
     assert(completion != INVALID_ADDRESS);
     unsigned int ongoing_ops = aio->ongoing_ops;
@@ -375,7 +380,7 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
         aio->copied_evts = 0;
         aio->bq = t->thread_bq;
         return blockq_check(aio->bq, t,
-                closure(heap_general(aio->kh), io_getevents_bh, aio,
+                closure(heap_locked(aio->kh), io_getevents_bh, aio,
                         ongoing_ops, ongoing_ops, 0, t, infinity, completion), in_bh);
     } else {
         apply(completion, t, 0);
@@ -388,9 +393,16 @@ sysreturn io_destroy(aio_context_t ctx_id)
     if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false)) {
         return -EFAULT;
     }
-    struct aio *aio;
-    if (!(aio = aio_from_ring(current->p, ctx_id))) {
-        return -EINVAL;
+    unsigned int id = ctx_id->id;
+    process p = current->p;
+    process_lock(p);
+    struct aio *aio = vector_get(p->aio, id);
+    if (aio) {
+        assert(vector_set(p->aio, id, 0));
+        deallocate_u64((heap) p->aio_ids, id, 1);
     }
+    process_unlock(p);
+    if (!aio)
+        return -EINVAL;
     return io_destroy_internal(aio, current, false);
 }

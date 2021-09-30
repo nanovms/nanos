@@ -228,6 +228,10 @@ int main(int argc, char **argv)
 
     test_assert((syscall(SYS_io_setup, 1, NULL) == -1) && (errno == EFAULT));
     test_assert((syscall(SYS_io_setup, 0, &ioc) == -1) && (errno == EINVAL));
+
+    /* Call io_destroy() with an invalid AIO context. */
+    test_assert((syscall(SYS_io_destroy, main) == -1) && (errno == EINVAL));
+
     aio_test_readwrite();
     aio_test_eventfd();
     aio_test_multiple();
