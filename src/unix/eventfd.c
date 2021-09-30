@@ -12,17 +12,22 @@ struct efd {
     boolean io_event;
 };
 
+#define efd_lock(efd)   spin_lock(&(efd)->f.lock)
+#define efd_unlock(efd) spin_unlock(&(efd)->f.lock)
+
 closure_function(1, 2, u64, efd_edge_handler,
                  struct efd *, efd,
                 u64, events, u64, lastevents)
 {
     struct efd *efd = bound(efd);
+    efd_lock(efd);
 
     /* A read or a write acts as an edge */
     if (efd->io_event) {
         lastevents &= ~(EPOLLIN | EPOLLOUT);
         efd->io_event = false;
     }
+    efd_unlock(efd);
     return lastevents;
 }
 
@@ -38,7 +43,9 @@ closure_function(5, 1, sysreturn, efd_read_bh,
         goto out;
     }
 
+    efd_lock(efd);
     if (efd->counter == 0) {
+        efd_unlock(efd);
         if (efd->flags & EFD_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
@@ -56,6 +63,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
         efd->counter = 0;
     }
     efd->io_event = true;
+    efd_unlock(efd);
     blockq_wake_one(efd->write_bq);
     fdesc_notify_events(&efd->f);
 out:
@@ -91,7 +99,9 @@ closure_function(5, 1, sysreturn, efd_write_bh,
     }
 
     runtime_memcpy(&counter, bound(buf), sizeof(counter));
+    efd_lock(efd);
     if (counter > (EFD_COUNTER_MAX - efd->counter)) {
+        efd_unlock(efd);
         if (efd->flags & EFD_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
@@ -100,6 +110,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
     }
     efd->counter += counter;
     efd->io_event = true;
+    efd_unlock(efd);
     blockq_wake_one(efd->read_bq);
     fdesc_notify_events(&efd->f);
 out:
@@ -125,11 +136,12 @@ closure_function(1, 1, u32, efd_events,
                  struct efd *, efd,
                  thread, t /* ignore */)
 {
+    u64 counter = bound(efd)->counter;
     u32 events = 0;
-    if (bound(efd)->counter != 0) {
+    if (counter != 0) {
         events |= EPOLLIN;
     }
-    if (bound(efd)->counter != EFD_COUNTER_MAX) {
+    if (counter != EFD_COUNTER_MAX) {
         events |= EPOLLOUT;
     }
     return events;
@@ -154,7 +166,7 @@ closure_function(1, 2, sysreturn, efd_close,
 int do_eventfd2(unsigned int count, int flags)
 {
     unix_heaps uh = get_unix_heaps();
-    heap h = heap_general((kernel_heaps)uh);
+    heap h = heap_locked((kernel_heaps)uh);
     struct efd *efd;
 
     if (flags & ~(EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE)) {
