@@ -56,7 +56,6 @@ typedef struct pagecache {
     struct list shared_maps;
 
     struct pagecache_completion_queue bh_completions;
-    struct pagecache_completion_queue rq_completions;
 
     boolean scan_in_progress;
     timer scan_timer;
@@ -130,7 +129,6 @@ struct pagecache_page {
     struct list l;
     u64 phys;                   /* physical address */
     struct list bh_completions; /* default for non-kernel use */
-    struct list rq_completions; /* kernel only */
 
     closure_struct(pagecache_page_free, free);
     boolean evicted;
