@@ -111,6 +111,8 @@ closure_function(2, 2, void, volume_link,
         msg_err("cannot mount filesystem: %v\n", s);
     }
     v->mounting = false;
+    if (!v->fs)
+        filesystem_release(fs);
     closure_finish();
     timm_dealloc(s);
     if (!storage.mounting)
