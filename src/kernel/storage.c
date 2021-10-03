@@ -21,6 +21,7 @@ static struct {
     filesystem root_fs;
     struct list volumes;
     tuple mounts;
+    boolean mounting;
     status_handler mount_complete;
     struct spinlock lock;
 } storage;
@@ -55,6 +56,10 @@ static void storage_check_if_ready(void)
     boolean mounting = false;
     status_handler complete = 0;
     storage_lock();
+    if (!storage.mount_complete) {
+        storage_unlock();
+        return;
+    }
     list_foreach(&storage.volumes, e) {
         volume v = struct_from_list(e, volume, l);
         if (v->mounting) {
@@ -108,7 +113,8 @@ closure_function(2, 2, void, volume_link,
     v->mounting = false;
     closure_finish();
     timm_dealloc(s);
-    storage_check_if_ready();
+    if (!storage.mounting)
+        storage_check_if_ready();
 }
 
 static void volume_mount(volume v, buffer mount_point)
@@ -176,8 +182,11 @@ void storage_set_mountpoints(tuple mounts)
 {
     storage_lock();
     storage.mounts = mounts;
+    storage.mounting = true;
     iterate(mounts, stack_closure(storage_set_mountpoints_each));
+    storage.mounting = false;
     storage_unlock();
+    storage_check_if_ready();
 }
 
 closure_function(1, 2, boolean, volume_add_mount_each,
@@ -210,9 +219,14 @@ boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, block_flush fl
     v->mount_dir = 0;
     storage_lock();
     list_push_back(&storage.volumes, &v->l);
-    if (storage.mounts)
+    if (storage.mounts) {
+        storage.mounting = true;
         iterate(storage.mounts, stack_closure(volume_add_mount_each, v));
+        storage.mounting = false;
+    }
     storage_unlock();
+    if (storage.mounts)
+        storage_check_if_ready();
     return true;
 }
 
