@@ -46,6 +46,8 @@ typedef struct qbuf {
     buffer b;
 } *qbuf;
 
+static status direct_conn_closed(direct_conn dc);
+
 define_closure_function(1, 0, void, direct_receive_service,
                         direct, d)
 {
@@ -55,21 +57,27 @@ define_closure_function(1, 0, void, direct_receive_service,
     spin_lock(&d->conn_lock);
     list_foreach(&d->conn_head, l) {
         direct_conn dc = struct_from_list(l, direct_conn, l);
-        struct pbuf *p = dequeue(dc->receive_queue);
-        if (p == INVALID_ADDRESS)
-            continue;
-        status s;
-        if (p) {
-            s = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
-            lwip_lock();
-            tcp_recved(dc->p, p->len);
-            lwip_unlock();
-        } else {
-            s = apply(dc->receive_bh, 0);
-        }
-        if (!is_ok(s)) {
-            /* semantics of error status here undefined; report to console for now */
-            msg_err("handler failed with status %v; aborting connection\n", s);
+        while (true) {
+            struct pbuf *p = dequeue(dc->receive_queue);
+            if (p == INVALID_ADDRESS)
+                break;
+            status s;
+            if (p) {
+                s = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
+                lwip_lock();
+                tcp_recved(dc->p, p->len);
+                lwip_unlock();
+            } else {
+                lwip_lock();
+                s = direct_conn_closed(dc);
+                lwip_unlock();
+            }
+            if (!is_ok(s)) {
+                /* semantics of error status here undefined; report to console for now */
+                msg_err("handler failed with status %v; aborting connection\n", s);
+            }
+            if (!p)
+                break;
         }
     }
     spin_unlock(&d->conn_lock);
@@ -213,29 +221,31 @@ define_closure_function(1, 1, status, direct_conn_send,
     return s;
 }
 
-err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+static void direct_conn_enqueue(direct_conn dc, struct pbuf *p)
 {
-    direct_debug("dc %p, pcb %p, pbuf %p, err %d\n", z, pcb, p, err);
-    direct_conn dc = z;
     enqueue(dc->receive_queue, p);
     if (compare_and_swap_32(&dc->d->receive_service_scheduled, 0, 1))
         enqueue(runqueue, &dc->d->receive_service);
+}
+
+err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+{
+    direct_debug("dc %p, pcb %p, pbuf %p, err %d\n", z, pcb, p, err);
+    if (p)
+        direct_conn_enqueue(z, p);
     return ERR_OK;
 }
 
 static void direct_conn_err(void *z, err_t err)
 {
     direct_debug("dc %p, err %d\n", z, err);
-    status s;
     direct_conn dc = z;
     switch (err) {
     case ERR_ABRT:
     case ERR_RST:
     case ERR_CLSD:
         /* connection closed */
-        s = direct_conn_closed(dc);
-        if (!is_ok(s))
-            rprintf("%s: failed to close: %v\n", __func__, s);
+        direct_conn_enqueue(dc, 0);
         return;
     }
     rprintf("%s: dc %p, err %d\n", __func__, dc, err);
