@@ -391,11 +391,14 @@ fsfile fsfile_open_or_create(buffer file_path)
     tuple root = filesystem_getroot(fs);
     char *file_str = buffer_to_cstring(file_path);
     int separator = buffer_strrchr(file_path, '/');
-    file_str[separator] = '\0';
-    fs_status s = filesystem_mkdirpath(fs, 0, file_str, true);
-    if ((s != FS_STATUS_OK) && (s != FS_STATUS_EXIST))
-        return 0;
-    file_str[separator] = '/';
+    fs_status s;
+    if (separator > 0) {
+        file_str[separator] = '\0';
+        s = filesystem_mkdirpath(fs, 0, file_str, true);
+        if ((s != FS_STATUS_OK) && (s != FS_STATUS_EXIST))
+            return 0;
+        file_str[separator] = '/';
+    }
     s = filesystem_get_node(&fs, inode_from_tuple(root), file_str, true, true, false, &file, &fsf);
     if (s == FS_STATUS_OK) {
         filesystem_put_node(fs, file);
