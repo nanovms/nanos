@@ -131,11 +131,13 @@ static void ntp_query_complete(boolean success)
     ntp_schedule_query();
 }
 
-static void ntp_query(const ip_addr_t *server_addr)
+static void ntp_query(const ip_addr_t *server_addr, boolean lwip_locked)
 {
-    ntp.lwip_lock();
+    if (!lwip_locked)
+        ntp.lwip_lock();
     struct pbuf *p = ntp.pbuf_alloc(PBUF_TRANSPORT, sizeof(struct ntp_packet), PBUF_RAM);
-    ntp.lwip_unlock();
+    if (!lwip_locked)
+        ntp.lwip_unlock();
     if (p == 0)
         return;
     struct ntp_packet *pkt = p->payload;
@@ -145,14 +147,16 @@ static void ntp_query(const ip_addr_t *server_addr)
     struct ntp_ts t;
     timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), &t);
     ntp.runtime_memcpy(&pkt->transmit_ts, &t, sizeof(t));
-    ntp.lwip_lock();
+    if (!lwip_locked)
+        ntp.lwip_lock();
     err_t err = ntp.udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
     if (err != ERR_OK) {
         ntp.rprintf("%s: failed to send request: %d\n", __func__, err);
         ntp_query_complete(false);
     }
     ntp.pbuf_free(p);
-    ntp.lwip_unlock();
+    if (!lwip_locked)
+        ntp.lwip_unlock();
     ntp.query_ongoing = true;
     ntp_schedule_query();
 }
@@ -248,7 +252,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
 static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     if (ipaddr) {
-        ntp_query(ipaddr);
+        ntp_query(ipaddr, true);
     } else {
         ntp.rprintf("%s: failed to resolve hostname %s\n", __func__, name);
         ntp_query_complete(false);
@@ -268,7 +272,7 @@ define_closure_function(0, 1, void, ntp_query_func,
     err_t err = ntp.dns_gethostbyname(ntp.server_addr, &server_addr, ntp_dns_cb, 0);
     ntp.lwip_unlock();
     if (err == ERR_OK)
-        ntp_query(&server_addr);
+        ntp_query(&server_addr, false);
     else if (err != ERR_INPROGRESS) {
         ntp.rprintf("%s: failed to resolve hostname: %d\n", __func__, err);
         ntp_query_complete(false);

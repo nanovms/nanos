@@ -379,15 +379,11 @@ static status cloud_download_connect(ip_addr_t *addr, connection_handler ch)
 
 static void cloud_download_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
+    if (ipaddr)
+        return;
     connection_handler ch = (connection_handler)callback_arg;
-    status s;
-    if (ipaddr) {
-        s = cloud_download_connect((ip_addr_t *)ipaddr, ch);
-        if (is_ok(s))
-            return;
-    } else {
-        s = kfuncs.timm_alloc("result", "cloud_init: failed to resolve server hostname '%s'", name);
-    }
+    status s = kfuncs.timm_alloc("result", "cloud_init: failed to resolve server hostname '%s'",
+                                 name);
     cloud_download_cfg cfg = closure_member(cloud_download_ch, ch, cfg);
     status_handler sh = (status_handler)&cfg->complete;
     apply(sh, s);
@@ -414,7 +410,6 @@ static void cloud_download(connection_handler ch)
             goto error;
         break;
     case ERR_INPROGRESS:
-        break;
     case ERR_VAL:
         if (!cloud_download_retry(ch)) {
             s = kfuncs.timm_alloc("result", "cloud_init: failed to schedule download retry");
