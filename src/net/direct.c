@@ -123,8 +123,7 @@ static status direct_conn_closed(direct_conn dc)
     status s = apply(dc->receive_bh, 0);
     direct d = dc->d;
     boolean client = (dc->p == d->p);
-    if (!client)
-        list_delete(&dc->l);
+    list_delete(&dc->l);
     deallocate(dc->d->h, dc, sizeof(struct direct_conn));
     if (client) {
         d->p = 0;
@@ -274,6 +273,9 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     tcp_err(pcb, direct_conn_err);
     tcp_recv(pcb, direct_conn_input);
     tcp_sent(pcb, direct_conn_sent);
+    spin_lock(&d->conn_lock);
+    list_insert_before(&d->conn_head, &dc->l);
+    spin_unlock(&d->conn_lock);
     return dc;
   fail_close_dealloc:
     apply(bh, 0);
@@ -297,9 +299,6 @@ static err_t direct_accept(void *z, struct tcp_pcb *pcb, err_t b)
     direct d = z;
     direct_conn dc = direct_conn_alloc(d, pcb);
     if (dc != INVALID_ADDRESS) {
-        spin_lock(&d->conn_lock);
-        list_insert_before(&d->conn_head, &dc->l);
-        spin_unlock(&d->conn_lock);
         return ERR_OK;
     } else {
         return ERR_ABRT;
