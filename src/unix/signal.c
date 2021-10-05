@@ -947,7 +947,7 @@ closure_function(1, 2, sysreturn, signalfd_close,
     return io_complete(completion, t, 0);
 }
 
-closure_function(1, 2, void, signalfd_notify,
+closure_function(1, 2, boolean, signalfd_notify,
                  signal_fd, sfd,
                  u64, events,
                  thread, t)
@@ -960,13 +960,14 @@ closure_function(1, 2, void, signalfd_notify,
 
     if ((events & sfd->mask) == 0) {
         sig_debug("%d spurious notify\n", sfd->fd);
-        return;
+        return false;
     }
 
     /* null thread on notify set release (thread dealloc) */
     if (t)
         blockq_wake_one_for_thread(sfd->bq, t);
     notify_dispatch_for_thread(sfd->f.ns, EPOLLIN, t);
+    return false;
 }
 
 static void signalfd_update_siginterest(thread t)

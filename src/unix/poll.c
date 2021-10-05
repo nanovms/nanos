@@ -15,14 +15,15 @@ declare_closure_struct(1, 0, void, epollfd_free,
 typedef struct epollfd {
     int fd;
     fdesc f;
-    u32 eventmask;  /* epoll events registered - XXX need lock */
+    struct spinlock lock;   /* protects zombie/registered/eventmask/lastevents */
+    u32 eventmask;  /* epoll events registered  */
     u32 lastevents; /* retain last received events; for edge trigger */
-    u64 data;	    /* may be multiple versions of data? */
+    u64 data;       /* may be multiple versions of data? */
     struct refcount refcount;
     closure_struct(epollfd_free, free);
     epoll e;
     boolean registered;
-    boolean zombie;		/* freed or masked by oneshot */
+    boolean zombie; /* freed or masked by oneshot */
     notify_entry notify_handle;
 } *epollfd;
 
@@ -37,25 +38,27 @@ enum epoll_type {
     EPOLL_TYPE_EPOLL,
 };
 
+static heap epoll_heap;
+
 struct epoll_blocked {
     epoll e;
     thread t;
-    enum epoll_type epoll_type;
     struct refcount refcount;
+    struct spinlock lock;   /* protects the data in the union */
     closure_struct(epoll_blocked_free, free);
     union {
-	buffer user_events;
+        buffer user_events;
         struct {
             buffer poll_fds;
             u64 poll_retcount;
         };
-	struct {
+        struct {
             int nfds;
             bitmap rset;
             bitmap wset;
             bitmap eset;
             u64 retcount;
-	};
+        };
     };
     struct list blocked_list;
 };
@@ -66,15 +69,18 @@ declare_closure_struct(1, 0, void, epoll_free,
 /* we call it an epoll, but these structs are used for select and poll too */
 struct epoll {
     struct fdesc f;             /* must be first */
+    struct spinlock blocked_lock;
     struct list blocked_head;   /* an epoll_blocked per thread (in epoll_wait)  */
     struct refcount refcount;
+    enum epoll_type epoll_type;
     closure_struct(epoll_free, free);
     heap h;
-    vector events;		/* epollfds indexed by fd */
+    struct spinlock fds_lock;
+    vector events;              /* epollfds indexed by fd */
     int nfds;
-    bitmap fds;			/* fds being watched / epollfd registered */
+    bitmap fds;                 /* fds being watched / epollfd registered */
 };
-    
+
 define_closure_function(1, 0, void, epoll_free,
                         epoll, e)
 {
@@ -84,32 +90,35 @@ define_closure_function(1, 0, void, epoll_free,
     deallocate_vector(e->events);
     if (e->f.close && e->f.close != INVALID_ADDRESS)
         deallocate_closure(e->f.close);
-    unix_cache_free(get_unix_heaps(), epoll, e);
+    deallocate(epoll_heap, e, sizeof(*e));
 }
 
-static epoll epoll_alloc_internal(void)
+static epoll epoll_alloc_internal(int epoll_type)
 {
-    epoll e = unix_cache_alloc(get_unix_heaps(), epoll);
+    epoll e = allocate_zero(epoll_heap, sizeof(struct epoll));
     if (e == INVALID_ADDRESS)
-	return e;
+        return e;
 
+    e->epoll_type = epoll_type;
     list_init(&e->blocked_head);
     init_refcount(&e->refcount, 1, init_closure(&e->free, epoll_free, e));
-    e->h = heap_general(get_kernel_heaps());
+    spin_lock_init(&e->blocked_lock);
+    spin_lock_init(&e->fds_lock);
+    e->h = epoll_heap;
     e->events = allocate_vector(e->h, 8);
     if (e->events == INVALID_ADDRESS)
-	goto out_free_epoll;
+        goto out_free_epoll;
 
     e->nfds = 0;
     e->fds = allocate_bitmap(e->h, e->h, infinity);
     if (e->fds == INVALID_ADDRESS)
-	goto out_free_events;
+        goto out_free_events;
     epoll_debug("allocated epoll %p\n", e);
     return e;
   out_free_events:
     deallocate_vector(e->events);
   out_free_epoll:
-    unix_cache_free(get_unix_heaps(), epoll, e);
+    deallocate(epoll_heap, e, sizeof(*e));
     return INVALID_ADDRESS;
 }
 
@@ -119,11 +128,12 @@ define_closure_function(1, 0, void, epollfd_free,
     epollfd efd = bound(efd);
     epoll_debug("fd %d\n", efd->fd);
     refcount_release(&efd->e->refcount); /* release epoll */
-    unix_cache_free(get_unix_heaps(), epollfd, efd);
+    deallocate(epoll_heap, efd, sizeof(*efd));
 }
 
 static void reset_epollfd(epollfd efd, u32 eventmask, u64 data)
 {
+    assert(!efd->registered && efd->notify_handle == 0);
     efd->eventmask = eventmask;
     efd->lastevents = 0;
     efd->zombie = false;
@@ -133,13 +143,14 @@ static void reset_epollfd(epollfd efd, u32 eventmask, u64 data)
 static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
 {
     epoll_debug("e %p, fd %d, eventmask 0x%x, data 0x%lx\n", e, fd, eventmask, data);
-    epollfd efd = unix_cache_alloc(get_unix_heaps(), epollfd);
+    epollfd efd = allocate_zero(epoll_heap, sizeof(struct epollfd));
     if (efd == INVALID_ADDRESS)
         return efd;
     efd->fd = fd;
     efd->e = e;
     reset_epollfd(efd, eventmask, data);
     init_refcount(&efd->refcount, 1, init_closure(&efd->free, epollfd_free, efd));
+    spin_lock_init(&efd->lock);
     efd->registered = false;
     assert(vector_set(e->events, fd, efd));
     bitmap_set(e->fds, fd, 1);
@@ -154,7 +165,6 @@ static void unregister_epollfd(epollfd efd)
     fdesc f = efd->f;
     assert(f);
     epoll_debug("efd %d, pre refcount %ld, f->ns %p\n", efd->fd, efd->refcount.c, f->ns);
-    notify_remove(f->ns, efd->notify_handle, true);
     efd->registered = false;
     efd->notify_handle = 0;
     refcount_release(&efd->refcount); /* registration */
@@ -168,14 +178,79 @@ static void release_epollfd(epollfd efd)
     assert(vector_get(e->events, fd) == efd);
     assert(vector_set(e->events, fd, 0));
     bitmap_set(e->fds, fd, 0);
+    spin_lock(&efd->lock);
     efd->zombie = true;
+    spin_unlock(&efd->lock);
     if (efd->registered)
-        unregister_epollfd(efd);
+        notify_remove(efd->f->ns, efd->notify_handle, true); /* eh calls unregister */
     refcount_release(&efd->refcount); /* alloc */
 }
 
+static inline void poll_notify(epollfd efd, epoll_blocked w, u64 events);
+static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report);
+static inline void select_notify(epollfd efd, epoll_blocked w, u64 report);
+static inline u32 report_from_notify_events(epollfd efd, u64 notify_events);
+
+closure_function(1, 2, boolean, wait_notify,
+                 epollfd, efd,
+                 u64, notify_events, thread, t)
+{
+    epollfd efd = bound(efd);
+
+    spin_lock(&efd->lock);
+    /* only path to freedom - even fd removals trigger release */
+    if (notify_events == NOTIFY_EVENTS_RELEASE) {
+        /* Unregistration/events are synchronized by notify set lock */
+        epoll_debug("efd->fd %d unregistered\n", efd->fd);
+        unregister_epollfd(efd);
+        spin_unlock(&efd->lock);
+        closure_finish();
+        return false;
+    }
+
+    if (efd->zombie || !efd->registered) {
+        spin_unlock(&efd->lock);
+        return false;
+    }
+
+    spin_lock(&efd->e->blocked_lock);
+    list l = list_get_next(&efd->e->blocked_head);
+    epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
+    u32 events = (u32)notify_events;
+    if (efd->e->epoll_type == EPOLL_TYPE_EPOLL)
+        events = report_from_notify_events(efd, events);
+    epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
+                efd->fd, events, w, efd->zombie);
+
+    /* XXX need to do some work to properly dole out to multiple epoll_waits (threads)... */
+    if (!w)
+        goto out;
+
+    if (t && t != w->t)
+        goto out;
+
+    switch (efd->e->epoll_type) {
+    case EPOLL_TYPE_POLL:
+        poll_notify(efd, w, events);
+        break;
+    case EPOLL_TYPE_EPOLL:
+        epoll_wait_notify(efd, w, events);
+        break;
+    case EPOLL_TYPE_SELECT:
+        select_notify(efd, w, events);
+        break;
+    default:
+        assert(0);
+    }
+out:
+    spin_unlock(&efd->e->blocked_lock);
+    spin_unlock(&efd->lock);
+    return false;
+}
+
+
 /* XXX maybe merge alloc and registration */
-static boolean register_epollfd(epollfd efd, event_handler eh)
+static boolean register_epollfd(epollfd efd)
 {
     if (efd->registered)
         return false;
@@ -188,6 +263,7 @@ static boolean register_epollfd(epollfd efd, event_handler eh)
     efd->f = f;
     efd->registered = true;
     refcount_reserve(&efd->refcount); /* registration */
+    event_handler eh = closure(efd->e->h, wait_notify, efd);
     epoll_debug("fd %d, eventmask 0x%x, handler %p\n", efd->fd, efd->eventmask, eh);
     efd->notify_handle = notify_add(f->ns, efd->eventmask | (EPOLLERR | EPOLLHUP), eh);
     assert(efd->notify_handle != INVALID_ADDRESS);
@@ -197,11 +273,13 @@ static boolean register_epollfd(epollfd efd, event_handler eh)
 
 static void epoll_release_epollfds(epoll e)
 {
+    spin_lock(&e->fds_lock);
     bitmap_foreach_set(e->fds, fd) {
-	epollfd efd = vector_get(e->events, fd);
-	assert(efd != 0 && efd != INVALID_ADDRESS);
-	release_epollfd(efd);
+        epollfd efd = vector_get(e->events, fd);
+        assert(efd != 0 && efd != INVALID_ADDRESS);
+        release_epollfd(efd);
     }
+    spin_unlock(&e->fds_lock);
 }
 
 void epoll_finish(epoll e)
@@ -225,7 +303,7 @@ sysreturn epoll_create(int flags)
 {
     sysreturn rv;
     epoll_debug("flags 0x%x\n", flags);
-    epoll e = epoll_alloc_internal();
+    epoll e = epoll_alloc_internal(EPOLL_TYPE_EPOLL);
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
     init_fdesc(e->h, &e->f, FDESC_TYPE_EPOLL);
@@ -255,14 +333,18 @@ define_closure_function(1, 0, void, epoll_blocked_free,
     epoll_debug("w %p\n", w);
     thread_release(w->t);
     refcount_release(&w->e->refcount);
-    unix_cache_free(get_unix_heaps(), epoll_blocked, w);
+    deallocate(epoll_heap, w, sizeof(*w));
 }
 
-static void epoll_blocked_release(epoll_blocked w)
+static void epoll_blocked_release(epoll_blocked w, boolean locked)
 {
     epoll_debug("w %p\n", w);
+    if (locked)
+        spin_lock(&w->e->blocked_lock);
     assert(!list_empty(&w->blocked_list));
     list_delete(&w->blocked_list);
+    if (locked)
+        spin_unlock(&w->e->blocked_lock);
     list_init(&w->blocked_list);
     refcount_release(&w->refcount);
 }
@@ -287,37 +369,14 @@ static inline u32 report_from_notify_events(epollfd efd, u64 notify_events)
     return edge_detect ? ~efd->lastevents & events : events;
 }
 
-closure_function(1, 2, void, epoll_wait_notify,
-                 epollfd, efd,
-                 u64, notify_events,
-                 thread, t)
+static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
 {
-    epollfd efd = bound(efd);
-    list l = list_get_next(&efd->e->blocked_head);
-
-    /* only path to freedom - even fd removals trigger release */
-    if (notify_events == NOTIFY_EVENTS_RELEASE) {
-        epoll_debug("efd->fd %d unregistered\n", efd->fd);
-        efd->registered = false;
-        closure_finish();
-        return;
-    }
-
-    epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
-    u32 events = (u32)notify_events;
-    u32 report = report_from_notify_events(efd, events);
-    assert(efd->registered);
-    epoll_debug("efd->fd %d, events 0x%x, report 0x%x, blocked %p, zombie %d\n",
-                efd->fd, events, report, w, efd->zombie);
-
-    /* XXX need to do some work to properly dole out to multiple epoll_waits (threads)... */
-    if (report == 0 || !w || efd->zombie)
+    if (report == 0)
         return;
 
-    if (t && t != w->t)
-        return;
-
+    spin_lock(&w->lock);
     if (!w->user_events || (w->user_events->length - w->user_events->end) <= 0) {
+        spin_unlock(&w->lock);
         /* XXX here we should advance to the next blocked head, probably */
         epoll_debug("   user_events null or full\n");
         return;
@@ -328,6 +387,7 @@ closure_function(1, 2, void, epoll_wait_notify,
     e->data = efd->data;
     e->events = report;
     w->user_events->end += sizeof(struct epoll_event);
+    spin_unlock(&w->lock);
     if (old)
         thread_resume(old);
     else
@@ -345,26 +405,45 @@ closure_function(1, 2, void, epoll_wait_notify,
 
 static epoll_blocked alloc_epoll_blocked(epoll e)
 {
-    epoll_blocked w = unix_cache_alloc(get_unix_heaps(), epoll_blocked);
+    epoll_blocked w = allocate_zero(epoll_heap, sizeof(struct epoll_blocked));
     if (w == INVALID_ADDRESS)
-	return w;
+        return w;
     epoll_debug("w %p\n", w);
 
     /* initial reservation released on thread wakeup (or direct return) */
     init_refcount(&w->refcount, 1, init_closure(&w->free, epoll_blocked_free, w));
+    spin_lock_init(&w->lock);
     w->t = current;
     thread_reserve(w->t);
     w->e = e;
     refcount_reserve(&e->refcount);
+    spin_lock(&e->blocked_lock);
     list_insert_after(&e->blocked_head, &w->blocked_list); /* push */
+    spin_unlock(&e->blocked_lock);
     return w;
 }
 
-static void check_fdesc(epollfd efd, thread t)
+/* This bypasses the notify system but gets and handles events in the same fashion */
+static void check_fdesc(epollfd efd, epoll_blocked w)
 {
+    if (efd->zombie)
+        return;
     fdesc f = efd->f;
-    u32 events = apply(f->events, t);
-    notify_dispatch_for_thread(f->ns, events, t);
+    u32 events = apply(f->events, w->t) & (efd->eventmask | (EPOLLERR | EPOLLHUP));
+
+    switch (efd->e->epoll_type) {
+    case EPOLL_TYPE_POLL:
+        poll_notify(efd, w, events);
+        break;
+    case EPOLL_TYPE_EPOLL:
+        epoll_wait_notify(efd, w, report_from_notify_events(efd, events));
+        break;
+    case EPOLL_TYPE_SELECT:
+        select_notify(efd, w, events);
+        break;
+    default:
+        assert(0);
+    }
 }
 
 /* It would be nice to devise a way to allow a poll waiter to continue
@@ -378,6 +457,7 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
     thread t = bound(t);
     epoll_blocked w = bound(w);
     timestamp timeout = bound(timeout);
+    spin_lock(&w->lock);
     int eventcount = user_event_count(w);
 
     epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, event count %d\n",
@@ -392,15 +472,17 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
         rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out_wakeup;
     }
+    spin_unlock(&w->lock);
 
     epoll_debug("  continue blocking\n");
     return BLOCKQ_BLOCK_REQUIRED;
   out_wakeup:
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
+    spin_unlock(&w->lock);
     fdesc_put(&w->e->f);
     epoll_debug("   pre refcnt %ld, returning %ld\n", w->refcount.c, rv);
-    epoll_blocked_release(w);
+    epoll_blocked_release(w, (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) != 0);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -429,13 +511,15 @@ sysreturn epoll_wait(int epfd,
     }
 
     epoll_debug("tid %d, epoll fd %d, new blocked %p, timeout %d\n", current->tid, epfd, w, timeout);
-    w->epoll_type = EPOLL_TYPE_EPOLL;
+    spin_lock(&w->lock);
     w->user_events = wrap_buffer(e->h, events, maxevents * sizeof(struct epoll_event));
     w->user_events->end = 0;
+    spin_unlock(&w->lock);
 
+    spin_lock(&e->fds_lock);
     bitmap_foreach_set(e->fds, fd) {
-	epollfd efd = vector_get(e->events, fd);
-	assert(efd);
+        epollfd efd = vector_get(e->events, fd);
+        assert(efd);
         assert(efd->fd == fd);
 
         if (efd->zombie)
@@ -443,9 +527,12 @@ sysreturn epoll_wait(int epfd,
 
         /* event transitions may in some cases need to be polled for
            (e.g. due to change in lwIP internal state), so request a check */
+        spin_lock(&efd->lock);
         if (efd->registered)
-            check_fdesc(efd, current);
+            check_fdesc(efd, w);
+        spin_unlock(&efd->lock);
     }
+    spin_unlock(&e->fds_lock);
 
     timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
     return blockq_check_timeout(w->t->thread_bq, current,
@@ -457,7 +544,7 @@ sysreturn epoll_wait(int epfd,
 static epollfd epollfd_from_fd(epoll e, int fd)
 {
     if (!bitmap_get(e->fds, fd))
-	return INVALID_ADDRESS;
+        return INVALID_ADDRESS;
     epollfd efd = vector_get(e->events, fd);
     assert(efd);
     return efd;
@@ -470,21 +557,25 @@ static void epollfd_update(epollfd efd)
        in turn to signalfd), we could have independent events for
        multiple threads that require waking - even on the same fd. */
 
-    /* XXX take lock */
+    spin_lock(&efd->e->blocked_lock);
     list_foreach(&efd->e->blocked_head, l) {
         epoll_blocked w = struct_from_list(l, epoll_blocked, blocked_list);
         epoll_debug("   posting check for blocked waiter (tid %d)\n", w->t->tid);
-        check_fdesc(efd, w->t);
+        check_fdesc(efd, w);
     }
-    /* XXX release lock */
+    spin_unlock(&efd->e->blocked_lock);
 }
 
 static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
 {
     epollfd efd = epollfd_from_fd(e, fd);
-    if ((efd != INVALID_ADDRESS) && efd->registered) {
-        epoll_debug("   can't add fd %d to epoll %p; already exists\n", fd, e);
-        return -EEXIST;
+    if (efd != INVALID_ADDRESS) {
+        spin_lock(&efd->lock);
+        if (efd->registered) {
+            spin_unlock(&efd->lock);
+            epoll_debug("   can't add fd %d to epoll %p; already exists\n", fd, e);
+            return -EEXIST;
+        }
     }
 
     epoll_debug("   adding %d, events 0x%x, data 0x%lx\n", fd, events, data);
@@ -494,13 +585,15 @@ static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
             return -ENOMEM;
         efd = epollfd_from_fd(e, fd);
         assert(efd != INVALID_ADDRESS);
+        spin_lock(&efd->lock);
     } else {
         reset_epollfd(efd, events, data);
     }
-    register_epollfd(efd, closure(e->h, epoll_wait_notify, efd));
+    register_epollfd(efd);
 
     /* apply check(s) for any current waiters */
     epollfd_update(efd);
+    spin_unlock(&efd->lock);
     return 0;
 }
 
@@ -542,6 +635,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
     /* XXX verify that fd is not an epoll instance*/
     epoll e = resolve_fd(current->p, epfd);
+    spin_lock(&e->fds_lock);
     switch(op) {
     case EPOLL_CTL_ADD:
         rv = epoll_add_fd(e, fd, event->events, event->data);
@@ -550,54 +644,32 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
         rv = remove_fd(e, fd);
         break;
     case EPOLL_CTL_MOD:
-	epoll_debug("   modifying %d, events 0x%x, data 0x%lx\n", fd, event->events, event->data);
+        epoll_debug("   modifying %d, events 0x%x, data 0x%lx\n", fd, event->events, event->data);
         rv = remove_fd(e, fd);
         if (rv == 0)
             rv = epoll_add_fd(e, fd, event->events, event->data);
         break;
     default:
-	msg_err("unknown op %d\n", op);
-	rv = -EINVAL;
+        msg_err("unknown op %d\n", op);
+        rv = -EINVAL;
     }
+    spin_unlock(&e->fds_lock);
 
     fdesc_put(&e->f);
     return rv;
 }
 
 /* XXX build these out */
-#define POLLFDMASK_READ		(EPOLLIN | EPOLLHUP | EPOLLERR)
-#define POLLFDMASK_WRITE	(EPOLLOUT | EPOLLHUP | EPOLLERR)
-#define POLLFDMASK_EXCEPT	(EPOLLPRI)
+#define POLLFDMASK_READ     (EPOLLIN | EPOLLHUP | EPOLLERR)
+#define POLLFDMASK_WRITE    (EPOLLOUT | EPOLLHUP | EPOLLERR)
+#define POLLFDMASK_EXCEPT   (EPOLLPRI)
 
-closure_function(1, 2, void, select_notify,
-                 epollfd, efd,
-                 u64, notify_events,
-                 thread, t)
+static inline void select_notify(epollfd efd, epoll_blocked w, u64 events)
 {
-    epollfd efd = bound(efd);
-    list l = list_get_next(&efd->e->blocked_head);
-
-    if (notify_events == NOTIFY_EVENTS_RELEASE) {
-        epoll_debug("efd->fd %d unregistered\n", efd->fd);
-        efd->registered = false;
-        closure_finish();
+    if (efd->fd >= w->nfds)
         return;
-    }
-
-    epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
-    u32 events = (u32)notify_events;
-    epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
-	    efd->fd, events, w, efd->zombie);
-
-    if (efd->zombie || !w || efd->fd >= w->nfds)
-        return;
-
-    if (t && t != w->t)
-        return;
-
-    assert(w->epoll_type == EPOLL_TYPE_SELECT);
     int count = 0;
-    /* XXX need thread safe / cas bitmap ops */
+    spin_lock(&w->lock);
     if (w->rset && (events & POLLFDMASK_READ)) {
         bitmap_set(w->rset, efd->fd, 1);
         count++;
@@ -610,6 +682,7 @@ closure_function(1, 2, void, select_notify,
         bitmap_set(w->eset, efd->fd, 1);
         count++;
     }
+    spin_unlock(&w->lock);
     if (count > 0) {
         fetch_and_add(&w->retcount, count);
         epoll_debug("   event on %d, events 0x%x\n", efd->fd, events);
@@ -628,6 +701,7 @@ closure_function(3, 1, sysreturn, select_bh,
     epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, retcount %ld\n",
                 w, t->tid, timeout, flags, w->retcount);
 
+    spin_lock(&w->lock);
     if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->retcount) {
         /* XXX error checking? */
         rv = w->retcount;
@@ -638,6 +712,7 @@ closure_function(3, 1, sysreturn, select_bh,
         rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out_wakeup;
     }
+    spin_unlock(&w->lock);
 
     return BLOCKQ_BLOCK_REQUIRED;
   out_wakeup:
@@ -649,7 +724,8 @@ closure_function(3, 1, sysreturn, select_bh,
         bitmap_unwrap(w->eset);
     w->nfds = 0;
     w->rset = w->wset = w->eset = 0;
-    epoll_blocked_release(w);
+    spin_unlock(&w->lock);
+    epoll_blocked_release(w, (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) != 0);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -660,7 +736,7 @@ static inline epoll select_get_epoll(void)
     thread_lock(t);
     epoll e = t->select_epoll;
     if (!e) {
-        e = epoll_alloc_internal();
+        e = epoll_alloc_internal(EPOLL_TYPE_SELECT);
         if (e != INVALID_ADDRESS)
             t->select_epoll = e;
     }
@@ -669,9 +745,9 @@ static inline epoll select_get_epoll(void)
 }
 
 static sysreturn select_internal(int nfds,
-				 fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-				 timestamp timeout,
-				 const sigset_t * sigmask)
+                                 fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+                                 timestamp timeout,
+                                 const sigset_t * sigmask)
 {
     if (nfds == 0 && timeout == infinity)
         return 0;
@@ -684,25 +760,25 @@ static sysreturn select_internal(int nfds,
 
     epoll e = select_get_epoll();
     if (e == INVALID_ADDRESS)
-	return -ENOMEM;
-    epoll_blocked w = alloc_epoll_blocked(e);
-    if (w == INVALID_ADDRESS)
-	return -ENOMEM;
-    w->epoll_type = EPOLL_TYPE_SELECT;
-    w->nfds = nfds;
-    w->rset = w->wset = w->eset = 0;
-    w->retcount = 0;
+        return -ENOMEM;
+    epoll_blocked wt = alloc_epoll_blocked(e);
+    if (wt == INVALID_ADDRESS)
+        return -ENOMEM;
+    wt->nfds = nfds;
+    wt->rset = wt->wset = wt->eset = 0;
+    wt->retcount = 0;
 
     epoll_debug("nfds %d, readfds %p, writefds %p, exceptfds %p\n"
                 "   epoll_blocked %p, timeout %d\n", nfds, readfds, writefds, exceptfds,
-                w, timeout);
+                wt, timeout);
     if (nfds == 0)            /* timeout != infinity */
         goto check_timeout;
 
-    w->rset = readfds ? bitmap_wrap(e->h, readfds, nfds) : 0;
-    w->wset = writefds ? bitmap_wrap(e->h, writefds, nfds) : 0;
-    w->eset = exceptfds ? bitmap_wrap(e->h, exceptfds, nfds) : 0;
+    wt->rset = readfds ? bitmap_wrap(e->h, readfds, nfds) : 0;
+    wt->wset = writefds ? bitmap_wrap(e->h, writefds, nfds) : 0;
+    wt->eset = exceptfds ? bitmap_wrap(e->h, exceptfds, nfds) : 0;
 
+    spin_lock(&e->fds_lock);
     bitmap_extend(e->fds, nfds - 1);
     u64 dummy = 0;
     u64 * rp = readfds ? readfds : &dummy;
@@ -719,127 +795,111 @@ static sysreturn select_internal(int nfds,
             continue;
         }
 
-	/* update epollfds based on delta between registered fds and
- 	   union of select fds */
-	u64 u = *rp | *wp | *ep;
-	u64 d = u ^ w;
+        /* update epollfds based on delta between registered fds and
+        union of select fds */
+        u64 u = *rp | *wp | *ep;
+        u64 d = u ^ w;
 
-	/* get alloc/free out of the way */
-	bitmap_word_foreach_set(d, bit, fd, offset) {
-	    /* either add or remove epollfd */
-	    if (w & (1ull << bit)) {
-		epoll_debug("   - fd %d\n", fd);
+        /* get alloc/free out of the way */
+        bitmap_word_foreach_set(d, bit, fd, offset) {
+            /* either add or remove epollfd */
+            if (w & (1ull << bit)) {
+                epoll_debug("   - fd %d\n", fd);
                 remove_fd(e, fd);
-	    } else {
-		epoll_debug("   + fd %d\n", fd);
-		assert(alloc_epollfd(e, fd, 0, 0) != INVALID_ADDRESS);
-	    }
-	}
+            } else {
+                epoll_debug("   + fd %d\n", fd);
+                assert(alloc_epollfd(e, fd, 0, 0) != INVALID_ADDRESS);
+            }
+        }
 
-	/* now process all events */
-	bitmap_word_foreach_set(u, bit, fd, offset) {
-	    u32 eventmask = 0;
-	    u64 mask = 1ull << bit;
-	    epollfd efd = vector_get(e->events, fd);
-	    assert(efd);
+        /* now process all events */
+        bitmap_word_foreach_set(u, bit, fd, offset) {
+            u32 eventmask = 0;
+            u64 mask = 1ull << bit;
+            epollfd efd = vector_get(e->events, fd);
+            assert(efd);
             assert(efd->fd == fd);
 
-	    /* XXX again these need to be thread/int-safe / cas access */
-	    if (*rp & mask) {
-		eventmask |= POLLFDMASK_READ;
-		*rp &= ~mask;
-	    }
-	    if (*wp & mask) {
-		eventmask |= POLLFDMASK_WRITE;
-		*wp &= ~mask;
-	    }
-	    if (*ep & mask) {
-		eventmask |= POLLFDMASK_EXCEPT;
-		*ep &= ~mask;
-	    }
-	    epoll_debug("   fd %d eventmask (prev 0x%x, now 0x%x)\n", fd, efd->eventmask, eventmask);
+            if (*rp & mask) {
+                eventmask |= POLLFDMASK_READ;
+                *rp &= ~mask;
+            }
+            if (*wp & mask) {
+                eventmask |= POLLFDMASK_WRITE;
+                *wp &= ~mask;
+            }
+            if (*ep & mask) {
+                eventmask |= POLLFDMASK_EXCEPT;
+                *ep &= ~mask;
+            }
+            epoll_debug("   fd %d eventmask (prev 0x%x, now 0x%x)\n", fd, efd->eventmask, eventmask);
+            spin_lock(&efd->lock);
             if (eventmask != efd->eventmask) {
                 if (efd->registered) {
                     epoll_debug("   replacing\n");
                     /* make into zombie; kind of brutal...need removal */
+                    efd->zombie = true;
+                    spin_unlock(&efd->lock);
                     release_epollfd(efd);
                     efd = alloc_epollfd(e, fd, eventmask, 0);
                     assert(efd != INVALID_ADDRESS);
-		} else {
-		    epoll_debug("   updating\n");
-		    efd->eventmask = eventmask;
-		}
-	    }
+                    spin_lock(&efd->lock);
+                } else {
+                    epoll_debug("   updating\n");
+                    efd->eventmask = eventmask;
+                }
+            }
 
-	    if (!efd->registered)
-                register_epollfd(efd, closure(e->h, select_notify, efd));
+            if (!efd->registered)
+                register_epollfd(efd);
 
-	    if (efd->registered)
-	        check_fdesc(efd, current);
-	}
+            check_fdesc(efd, wt);
+            spin_unlock(&efd->lock);
+        }
 
-	if (readfds)
-	    rp++;
-	if (writefds)
-	    wp++;
-	if (exceptfds)
-	    ep++;
+        if (readfds)
+            rp++;
+        if (writefds)
+            wp++;
+        if (exceptfds)
+            ep++;
     }
+    spin_unlock(&e->fds_lock);
   check_timeout:
-    return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, select_bh, w, current, timeout), false,
+    return blockq_check_timeout(wt->t->thread_bq, current,
+                                closure(e->h, select_bh, wt, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
 
 sysreturn pselect(int nfds,
-		  fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-		  struct timespec *timeout,
-		  const sigset_t * sigmask)
+                  fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+                  struct timespec *timeout,
+                  const sigset_t * sigmask)
 {
     return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timespec(timeout) : infinity, sigmask);
 }
 
 #ifdef __x86_64__
 sysreturn select(int nfds,
-		 u64 *readfds, u64 *writefds, u64 *exceptfds,
-		 struct timeval *timeout)
+                 u64 *readfds, u64 *writefds, u64 *exceptfds,
+                 struct timeval *timeout)
 {
     return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timeval(timeout) : infinity, 0);
 }
 #endif
 
-closure_function(1, 2, void, poll_notify,
-                 epollfd, efd,
-                 u64, notify_events,
-                 thread, t)
+static inline void poll_notify(epollfd efd, epoll_blocked w, u64 events)
 {
-    epollfd efd = bound(efd);
-    list l = list_get_next(&efd->e->blocked_head);
-
-    if (notify_events == NOTIFY_EVENTS_RELEASE) {
-        epoll_debug("efd->fd %d unregistered\n", efd->fd);
-        efd->registered = false;
-        closure_finish();
-        return;
-    }
-
-    epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
-    u32 events = (u32)notify_events;
-    epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
-            efd->fd, events, w, efd->zombie);
-    assert(efd->registered);
-
-    if (events == 0 || !w || efd->zombie)
+    if (events == 0)
         return;
 
-    if (t && t != w->t)
-        return;
-
+    spin_lock(&w->lock);
     struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
     fetch_and_add(&w->poll_retcount, 1);
     pfd->revents = events;
     epoll_debug("   event on %d (%d), events 0x%x\n", efd->fd, pfd->fd, pfd->revents);
+    spin_unlock(&w->lock);
     blockq_wake_one(w->t->thread_bq);
 }
 
@@ -854,6 +914,7 @@ closure_function(3, 1, sysreturn, poll_bh,
     epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, poll_retcount %d\n",
                 w, t->tid, timeout, flags, w->poll_retcount);
 
+    spin_lock(&w->lock);
     if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->poll_retcount) {
         /* XXX error checking? */
         rv = w->poll_retcount;
@@ -864,12 +925,14 @@ closure_function(3, 1, sysreturn, poll_bh,
         rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out_wakeup;
     }
+    spin_unlock(&w->lock);
 
     return BLOCKQ_BLOCK_REQUIRED;
   out_wakeup:
     unwrap_buffer(w->e->h, w->poll_fds);
     w->poll_fds = 0;
-    epoll_blocked_release(w);
+    spin_unlock(&w->lock);
+    epoll_blocked_release(w, (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) != 0);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -887,10 +950,11 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     if (w == INVALID_ADDRESS)
         return -ENOMEM;
     epoll_debug("epoll nfds %ld, new blocked %p, timeout %d\n", nfds, w, timeout);
-    w->epoll_type = EPOLL_TYPE_POLL;
+    e->epoll_type = EPOLL_TYPE_POLL;
     w->poll_fds = wrap_buffer(e->h, fds, nfds * sizeof(struct pollfd));
     w->poll_retcount = 0;
 
+    spin_lock(&e->fds_lock);
     bitmap remove_efds = bitmap_clone(e->fds); /* efds to remove */
     for (int i = 0; i < nfds; i++) {
         struct pollfd *pfd = fds + i;
@@ -906,17 +970,21 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         bitmap_extend(e->fds, pfd->fd);
         efd = epollfd_from_fd(e, pfd->fd);
         if (efd != INVALID_ADDRESS) {
+            spin_lock(&efd->lock);
             if (!efd->registered) {
                 epoll_debug("   = fd %d (registering)\n", pfd->fd);
                 reset_epollfd(efd, pfd->events, i);
-                register_epollfd(efd, closure(e->h, poll_notify, efd));
+                register_epollfd(efd);
             } else {
                 if (efd->eventmask != pfd->events || efd->data != i) {
                     epoll_debug("   = fd %d (replacing)\n", pfd->fd);
+                    efd->zombie = true;
+                    spin_unlock(&efd->lock);
                     release_epollfd(efd);
                     efd = alloc_epollfd(e, pfd->fd, pfd->events, i);
                     assert(efd != INVALID_ADDRESS);
-                    register_epollfd(efd, closure(e->h, poll_notify, efd));
+                    spin_lock(&efd->lock);
+                    register_epollfd(efd);
                 } else {
                     epoll_debug("   = fd %d (unchanged)\n", pfd->fd);
                 }
@@ -929,13 +997,15 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
             epoll_debug("   + fd %d\n", pfd->fd);
             efd = alloc_epollfd(e, pfd->fd, pfd->events, i);
             assert(efd != INVALID_ADDRESS);
-            register_epollfd(efd, closure(e->h, poll_notify, efd));
+            spin_lock(&efd->lock);
+            register_epollfd(efd);
         }
 
         epoll_debug("   register fd %d, eventmask 0x%x, applying check\n",
             efd->fd, efd->eventmask);
         if (efd->registered)
-            check_fdesc(efd, current);
+            check_fdesc(efd, w);
+        spin_unlock(&efd->lock);
     }
 
     /* clean efds */
@@ -945,6 +1015,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         assert(efd != INVALID_ADDRESS);
         release_epollfd(efd);
     }
+    spin_unlock(&e->fds_lock);
     deallocate_bitmap(remove_efds);
 
     return blockq_check_timeout(w->t->thread_bq, current,
@@ -986,18 +1057,5 @@ void register_poll_syscalls(struct syscall *map)
 
 boolean poll_init(unix_heaps uh)
 {
-    heap general = heap_general((kernel_heaps)uh);
-    heap backed = (heap)heap_linear_backed((kernel_heaps)uh);
-
-    if ((uh->epoll_cache = allocate_objcache(general, backed, sizeof(struct epoll), PAGESIZE))
-	== INVALID_ADDRESS)
-	return false;
-    if ((uh->epollfd_cache = allocate_objcache(general, backed, sizeof(struct epollfd), PAGESIZE))
-	== INVALID_ADDRESS)
-	return false;
-    if ((uh->epoll_blocked_cache = allocate_objcache(general, backed, sizeof(struct epoll_blocked), PAGESIZE))
-	== INVALID_ADDRESS)
-	return false;
-
-    return true;
+    return ((epoll_heap = heap_locked((kernel_heaps)uh)) != INVALID_ADDRESS);
 }

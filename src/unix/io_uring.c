@@ -173,7 +173,7 @@ typedef struct io_uring {
     io_completion shutdown_completion;
 } *io_uring;
 
-declare_closure_struct(2, 2, void, iour_poll_notify,
+declare_closure_struct(2, 2, boolean, iour_poll_notify,
                        io_uring, iour, struct iour_poll *, p,
                        u64, events, thread, t);
 
@@ -610,12 +610,13 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
     }
 }
 
-define_closure_function(2, 2, void, iour_poll_notify,
+define_closure_function(2, 2, boolean, iour_poll_notify,
                         io_uring, iour, iour_poll, p,
                         u64, events, thread, t)
 {
     if (!events)
-        return;
+        return false;
+    boolean remove = false;
     io_uring iour = bound(iour);
     iour_poll p = bound(p);
     iour_lock(iour);
@@ -627,10 +628,11 @@ define_closure_function(2, 2, void, iour_poll_notify,
     if (found) {
         iour_debug("user_data %ld, events %ld", p->user_data, events);
         iour_complete(iour, p->user_data, events, true, false);
-        notify_remove(p->f->ns, p->ne, false);
+        remove = true;
         fdesc_put(p->f);
         deallocate(iour->h, p, sizeof(*p));
     }
+    return remove;
 }
 
 static void iour_poll_add(io_uring iour, fdesc f, u16 events, u64 user_data)

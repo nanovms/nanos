@@ -123,9 +123,6 @@ typedef struct unix_heaps {
 
     /* object caches */
     heap file_cache;
-    heap epoll_cache;
-    heap epollfd_cache;
-    heap epoll_blocked_cache;
     heap pipe_cache;
 #ifdef NET
     heap socket_cache;
