@@ -57,6 +57,18 @@ define_closure_function(1, 0, void, direct_receive_service,
     spin_lock(&d->conn_lock);
     list_foreach(&d->conn_head, l) {
         direct_conn dc = struct_from_list(l, direct_conn, l);
+        if (!dc->receive_bh) {
+            buffer_handler bh = apply(d->new, (buffer_handler)&dc->send_bh);
+            if (bh == INVALID_ADDRESS) {
+                lwip_lock();
+                tcp_arg(dc->p, 0);
+                tcp_close(dc->p);
+                direct_conn_closed(dc);
+                lwip_unlock();
+                continue;
+            }
+            dc->receive_bh = bh;
+        }
         while (true) {
             struct pbuf *p = dequeue(dc->receive_queue);
             if (p == INVALID_ADDRESS)
@@ -121,7 +133,11 @@ static void direct_dealloc(direct d)
 /* lwIP locked on entry */
 static status direct_conn_closed(direct_conn dc)
 {
-    status s = apply(dc->receive_bh, 0);
+    status s;
+    if (dc->receive_bh)
+        s = apply(dc->receive_bh, 0);
+    else
+        s = STATUS_OK;
     direct d = dc->d;
     boolean client = (dc->p == d->p);
     list_delete(&dc->l);
@@ -262,13 +278,11 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     dc->d = d;
     dc->p = pcb;
     list_init(&dc->sendq_head);
-    buffer_handler bh = apply(d->new, init_closure(&dc->send_bh, direct_conn_send, dc));
-    if (bh == INVALID_ADDRESS)
-        goto fail_dealloc;
-    dc->receive_bh = bh;
+    init_closure(&dc->send_bh, direct_conn_send, dc);
+    dc->receive_bh = 0;
     dc->receive_queue = allocate_queue(d->h, DIRECT_CONN_RECEIVE_QUEUE_SIZE);
     if (dc->receive_queue == INVALID_ADDRESS)
-        goto fail_close_dealloc;
+        goto fail_dealloc;
     dc->pending_err = ERR_OK;
     tcp_arg(pcb, dc);
     tcp_err(pcb, direct_conn_err);
@@ -277,9 +291,9 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     spin_lock(&d->conn_lock);
     list_insert_before(&d->conn_head, &dc->l);
     spin_unlock(&d->conn_lock);
+    if (compare_and_swap_32(&d->receive_service_scheduled, 0, 1))
+        enqueue(runqueue, &d->receive_service);
     return dc;
-  fail_close_dealloc:
-    apply(bh, 0);
   fail_dealloc:
     deallocate(d->h, dc, sizeof(struct direct_conn));
   fail:
