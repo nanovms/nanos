@@ -66,6 +66,7 @@ define_closure_function(1, 0, void, direct_receive_service,
                 s = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
                 lwip_lock();
                 tcp_recved(dc->p, p->len);
+                pbuf_free(p);
                 lwip_unlock();
             } else {
                 lwip_lock();
