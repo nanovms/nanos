@@ -206,7 +206,7 @@ frame_return:
         mov rdi, [rdi+FRAME_RDI*8]
         iretq
 
-        interrupts equ 0x30
+        interrupts equ 0x100
 
 global_data n_interrupt_vectors
 n_interrupt_vectors:

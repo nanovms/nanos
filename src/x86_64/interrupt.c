@@ -412,7 +412,7 @@ void init_interrupts(kernel_heaps kh)
     for (int i = INTERRUPT_VECTOR_START; i < n_interrupt_vectors; i++)
         write_idt(i, vector_base + i * interrupt_vector_size, IST_INTERRUPT);
 
-    void *idt_desc = idt_from_interrupt(n_interrupt_vectors); /* placed after last entry */
+    u8 idt_desc[10] = {0};
     *(u16*)idt_desc = 2 * sizeof(u64) * n_interrupt_vectors - 1;
     *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
     asm volatile("lidt %0": : "m"(*(u64*)idt_desc));
@@ -429,8 +429,8 @@ void triple_fault(void)
 {
     disable_interrupts();
     /* zero table limit to induce triple fault */
-    void *idt_desc = idt_from_interrupt(n_interrupt_vectors);
-    *(u16*)idt_desc = 0;
+    u8 idt_desc[10] = {0};
+    *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
     asm volatile("lidt %0; int3": : "m"(*(u64*)idt_desc));
     while (1);
 }
