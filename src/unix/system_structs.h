@@ -70,6 +70,7 @@ typedef struct iovec {
 #define EBADFD          77		/* File descriptor in bad state */
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EMSGSIZE        90		/* Message too long */
+#define EPROTOTYPE      91		/* Wrong protocol type for socket */
 #define EOPNOTSUPP      95		/* Operation not supported */
 #define EISCONN         106
 #define ENOTCONN        107

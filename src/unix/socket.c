@@ -31,7 +31,6 @@ typedef struct unixsock {
     inode fs_entry;
     struct sockaddr_un local_addr;
     queue conn_q;
-    boolean connecting;
     struct unixsock *peer;
     closure_struct(unixsock_free, free);
     struct refcount refcount;
@@ -82,16 +81,9 @@ static inline void sharedbuf_release(sharedbuf shb)
     refcount_release(&shb->refcount);
 }
 
-/* A socket is in connecting state when connect() has been called but the
- * connection has not yet been accepted by the peer. */
-static inline boolean unixsock_is_connecting(unixsock s)
-{
-    return (s->connecting && !s->peer);
-}
-
 static inline boolean unixsock_is_connected(unixsock s)
 {
-    return (!s->connecting && s->peer);
+    return (s->peer != 0);
 }
 
 static unixsock unixsock_alloc(heap h, int type, u32 flags);
@@ -102,6 +94,7 @@ static void unixsock_dealloc(unixsock s)
         refcount_release(&s->peer->refcount);
     deallocate_queue(s->data);
     s->data = 0;
+    blockq_flush(s->sock.txbq); /* unblock any sockets connecting or writing to this socket */
     deallocate_closure(s->sock.f.read);
     deallocate_closure(s->sock.f.write);
     deallocate_closure(s->sock.f.events);
@@ -382,11 +375,6 @@ closure_function(1, 1, u32, unixsock_events,
         if (!queue_empty(s->conn_q)) {
             events |= EPOLLIN;
         }
-    } else if (s->connecting) {
-        if (s->peer) {
-            /* An ongoing connection attempt has been accepted by the peer. */
-            events |= EPOLLOUT;
-        }
     } else {
         if (!queue_empty(s->data)) {
             events |= EPOLLIN;
@@ -422,14 +410,14 @@ closure_function(1, 2, sysreturn, unixsock_close,
         }
     }
     if (s->conn_q) {
-        /* Notify any connecting sockets that connection is being refused. */
+        /* Deallocate any sockets in the connection queue. */
         unixsock child;
         while ((child = dequeue(s->conn_q)) != INVALID_ADDRESS) {
-            child->connecting = false;
-            socket_flush_q(&child->sock);
+            unixsock_dealloc(child);
         }
 
         deallocate_queue(s->conn_q);
+        s->conn_q = 0;
     }
     if (s->fs_entry) {
         filesystem_clear_socket(s->fs, s->fs_entry);
@@ -513,29 +501,43 @@ static sysreturn unixsock_listen(struct sock *sock, int backlog)
     return ret;
 }
 
-closure_function(2, 1, sysreturn, connect_bh,
-                 unixsock, s, thread, t,
+closure_function(3, 1, sysreturn, connect_bh,
+                 unixsock, s, thread, t, unixsock, listener,
                  u64, bqflags)
 {
     unixsock s = bound(s);
     thread t = bound(t);
+    unixsock listener = bound(listener);
     sysreturn rv;
 
-    if ((bqflags & BLOCKQ_ACTION_NULLIFY) && s->connecting) {
+    if (unixsock_is_connected(s)) {
+        rv = -EISCONN;
+        goto out;
+    }
+    if ((bqflags & BLOCKQ_ACTION_NULLIFY) && listener->conn_q) {
         rv = -ERESTARTSYS;
         goto out;
     }
-    if (!s->connecting && !s->peer) {   /* the listening socket has been shut down */
+    if (!listener->conn_q) {    /* the listening socket has been shut down */
         rv = -ECONNREFUSED;
         goto out;
     }
-    if (!s->peer) {
+    if (queue_full(listener->conn_q)) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
-            rv = -EINPROGRESS;
+            rv = -EAGAIN;
             goto out;
         }
         return BLOCKQ_BLOCK_REQUIRED;
     }
+    unixsock peer = unixsock_alloc(s->sock.h, s->sock.type, 0);
+    if (!peer) {
+        rv = -ENOMEM;
+        goto out;
+    }
+    s->peer = peer;
+    peer->peer = s;
+    assert(enqueue(listener->conn_q, peer));
+    unixsock_notify_reader(listener);
     rv = 0;
 out:
     socket_release(&s->sock);
@@ -549,47 +551,29 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
 {
     unixsock s = (unixsock) sock;
     sysreturn rv;
-    if (unixsock_is_connecting(s)) {
-        rv = -EALREADY;
-        goto out;
-    } else if (unixsock_is_connected(s)) {
-        rv = -EISCONN;
-        goto out;
-    }
 
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
-    unixsock listener, peer;
+    unixsock listener;
     rv = lookup_socket(&listener, unixaddr->sun_path);
     if (rv != 0)
         goto out;
-    if (!s->connecting) {
-        if (s->sock.type & SOCK_DGRAM) {
-            if (!(listener->sock.type == SOCK_DGRAM)) {
-                rv = -ECONNREFUSED;
-                goto out;
-            }
+    switch (s->sock.type) {
+    case SOCK_STREAM: {
+        blockq_action ba = closure(sock->h, connect_bh, s, current, listener);
+        if (ba == INVALID_ADDRESS) {
+            rv = -ENOMEM;
+            break;
+        }
+        return blockq_check(listener->sock.txbq, current, ba, false);
+    }
+    default:
+        if (listener->sock.type == s->sock.type) {
             s->peer = listener;
             refcount_reserve(&listener->refcount);
-            rv = 0;
-            goto out;
+        } else {
+            rv = -EPROTOTYPE;
         }
-        if (!listener->conn_q || queue_full(listener->conn_q)) {
-            rv = -ECONNREFUSED;
-            goto out;
-        }
-        peer = unixsock_alloc(sock->h, sock->type, 0);
-        if (!peer) {
-            rv = -ENOMEM;
-            goto out;
-        }
-
-        peer->peer = s;
-        assert(enqueue(listener->conn_q, peer));
-        s->connecting = true;
-        unixsock_notify_reader(listener);
     }
-    blockq_action ba = closure(sock->h, connect_bh, s, current);
-    return blockq_check(sock->txbq, current, ba, false);
 out:
     socket_release(sock);
     return rv;
@@ -631,10 +615,7 @@ closure_function(5, 1, sysreturn, accept_bh,
                 MIN(*addrlen, actual_len));
         *addrlen = actual_len;
     }
-    child->peer->peer = child;
-    child->connecting = false;
-    child->peer->connecting = false;
-    unixsock_notify_writer(child->peer);
+    unixsock_notify_writer(s);
 out:
     socket_release(&s->sock);
     syscall_return(t, rv);
@@ -814,7 +795,6 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->local_addr.sun_family = AF_UNIX;
     s->local_addr.sun_path[0] = '\0';
     s->conn_q = 0;
-    s->connecting = false;
     s->peer = 0;
     init_closure(&s->free, unixsock_free, s);
     init_refcount(&s->refcount, 1, (thunk)&s->free);

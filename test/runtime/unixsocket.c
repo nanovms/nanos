@@ -17,6 +17,7 @@
 #define SMALLBUF_SIZE    8
 #define LARGEBUF_SIZE    8192
 #define IOV_LEN          8
+#define CLIENT_COUNT     8
 
 #define test_assert(expr) do { \
     if (!(expr)) { \
@@ -77,9 +78,20 @@ static void *uds_stream_server(void *arg)
     return NULL;
 }
 
+/* Closes server socket after a delay. */
+static void *uds_stream_dummy_server(void *arg)
+{
+    int fd = (long) arg;
+
+    usleep(100 * 1000); /* to make the client thread block */
+    test_assert(close(fd) == 0);
+    return NULL;
+}
+
 static void uds_stream_test(void)
 {
     int s1, s2;
+    int s3[CLIENT_COUNT];
     struct sockaddr_un addr;
     socklen_t addr_len = sizeof(addr);
     struct stat s;
@@ -176,6 +188,32 @@ static void uds_stream_test(void)
     test_assert(errno == ECONNREFUSED);
 
     test_assert(close(s2) == 0);
+    test_assert(unlink(SERVER_SOCKET_PATH) == 0);
+
+    s1 = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(s1 >= 0);
+    test_assert(bind(s1, (struct sockaddr *) &addr, addr_len) == 0);
+    test_assert(listen(s1, 1) == 0);
+
+    /* Try to connect a datagram socket to a stream socket. */
+    s2 = socket(AF_UNIX, SOCK_DGRAM, 0);
+    test_assert(s2 >= 0);
+    test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == -1);
+    test_assert(errno == EPROTOTYPE);
+    test_assert(close(s2) == 0);
+
+    /* Close listening socket while client sockets are connecting. */
+    test_assert(pthread_create(&pt, NULL, uds_stream_dummy_server, (void *)(long) s1) == 0);
+    for (int i = 0; i < CLIENT_COUNT; i++) {
+        s3[i] = socket(AF_UNIX, SOCK_STREAM, 0);
+        test_assert(s3[i] >= 0);
+        if (connect(s3[i], (struct sockaddr *) &addr, addr_len) < 0)
+            test_assert(errno == ECONNREFUSED);
+    }
+    for (int i = 0; i < CLIENT_COUNT; i++)
+        test_assert(close(s3[i]) == 0);
+    test_assert(pthread_join(pt, NULL) == 0);
+
     test_assert(unlink(SERVER_SOCKET_PATH) == 0);
 }
 
@@ -275,6 +313,7 @@ static void *uds_nonblocking_server(void *arg)
 static void uds_nonblocking_test(void)
 {
     int s1, s2;
+    int s3[CLIENT_COUNT];
     struct sockaddr_un addr;
     socklen_t addr_len = sizeof(addr);
     pthread_t pt;
@@ -290,9 +329,9 @@ static void uds_nonblocking_test(void)
     s2 = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
     test_assert(s2 >= 0);
     int rv = connect(s2, (struct sockaddr *) &addr, addr_len);
-    test_assert(rv == 0 || (rv == -1 && errno == EINPROGRESS));
+    test_assert(rv == 0);
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == -1);
-    test_assert(errno == EALREADY || errno == EISCONN);
+    test_assert(errno == EISCONN);
 
     test_assert(pthread_create(&pt, NULL, uds_nonblocking_server,
             (void *)(long) s1) == 0);
@@ -311,6 +350,16 @@ static void uds_nonblocking_test(void)
     test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == 0);
     sem_post(&sem);
     test_assert(pthread_join(pt, NULL) == 0);
+
+    /* Try to connect more sockets than the server backlog allows. */
+    for (int i = 0; i < CLIENT_COUNT; i++) {
+        s3[i] = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0);
+        test_assert(s3[i] >= 0);
+        if (connect(s3[i], (struct sockaddr *) &addr, addr_len) < 0)
+            test_assert(errno == EAGAIN);
+    }
+    for (int i = 0; i < CLIENT_COUNT; i++)
+        test_assert(close(s3[i]) == 0);
 
     test_assert(close(s1) == 0);
     fds.fd = s2;
