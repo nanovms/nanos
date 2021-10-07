@@ -958,11 +958,11 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     bitmap remove_efds = bitmap_clone(e->fds); /* efds to remove */
     for (int i = 0; i < nfds; i++) {
         struct pollfd *pfd = fds + i;
+        pfd->revents = 0;
         epollfd efd;
 
         /* skip ignored events */
         if (pfd->fd < 0) {
-            pfd->revents = 0;
             continue;
         }
 

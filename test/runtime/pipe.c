@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <errno.h>
+#include <poll.h>
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -27,6 +28,8 @@ void basic_test(heap h, int * fds)
     int test_val = 0x12345678;
     const int BSIZE = 1000;
     ssize_t nbytes;
+    struct pollfd pfd[2];
+    int ret;
 
     if (write(fds[1], &test_val, sizeof(test_val)) < 0)
         handle_error("pipe write");
@@ -71,6 +74,16 @@ void basic_test(heap h, int * fds)
         exit(EXIT_FAILURE);
     }
 
+    pfd[0].fd = fds[0];
+    pfd[1].fd = fds[1];
+    pfd[0].events = pfd[1].events = POLLIN | POLLOUT;
+    ret = poll(pfd, 2, -1);
+    if ((ret != 2) || (pfd[0].revents != POLLIN) || (pfd[1].revents != POLLOUT)) {
+        printf("pipe before read: poll returned %d, pfd[0].revents 0x%x, pfd[1].revents 0x%x\n",
+               ret, pfd[0].revents, pfd[1].revents);
+        exit(EXIT_FAILURE);
+    }
+
     int nread = 0;
     char * ibuf = buffer_ref(in, 0);
     do {
@@ -79,6 +92,13 @@ void basic_test(heap h, int * fds)
             handle_error("basic test read");
         nread += nbytes;
     } while (nread < test_len);
+
+    ret = poll(pfd, 2, -1);
+    if ((ret != 1) || (pfd[0].revents != 0) || (pfd[1].revents != POLLOUT)) {
+        printf("pipe after read: poll returned %d, pfd[0].revents 0x%x, pfd[1].revents 0x%x\n",
+               ret, pfd[0].revents, pfd[1].revents);
+        exit(EXIT_FAILURE);
+    }
 
     buffer_produce(in, test_len);
     buffer_write_byte(in, (u8)'\0');
