@@ -62,7 +62,7 @@ void sys_timeouts_init(void)
         struct net_lwip_timer * t = (struct net_lwip_timer *)&net_lwip_timers[i];
         init_timer(&t->t);
         timestamp interval = milliseconds(t->interval_ms);
-        register_timer(runloop_timers, &t->t, CLOCK_ID_MONOTONIC_RAW, interval, false, interval,
+        register_timer(kernel_timers, &t->t, CLOCK_ID_MONOTONIC_RAW, interval, false, interval,
                        closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
 #ifdef LWIP_DEBUG
         lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);

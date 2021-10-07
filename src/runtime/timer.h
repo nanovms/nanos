@@ -32,6 +32,12 @@ typedef struct timerqueue {
 #endif
     heap h;
     pqueue pq;
+    timestamp next_expiry;      /* adjusted */
+    thunk service;
+    timestamp min;
+    timestamp max;
+    boolean service_scheduled;  /* CAS */
+    boolean update;             /* CAS; timer re-programming needed */
     const char *name;
 } *timerqueue;
 
@@ -55,7 +61,7 @@ static inline void register_platform_clock_timer(clock_timer ct, thunk percpu_in
     platform_timer_percpu_init = percpu_init;
 }
 
-static inline void runloop_timer(timestamp duration)
+static inline void set_platform_timer(timestamp duration)
 {
     apply(platform_timer, duration);
 }
@@ -129,6 +135,14 @@ static inline void timer_get_remaining(timer t, timestamp *remain, timestamp *in
     *interval = t->interval;
 }
 
+static inline void refresh_timer_update_locked(timerqueue tq, timer next)
+{
+    timestamp n = timer_expiry(next);
+    if (n != tq->next_expiry)
+        tq->next_expiry = n;
+    tq->update = true;
+}
+
 /* Returns true if timer was successfully removed from the timer queue. A
    return value of false means that the timer was not found in the queue.
    This could mean that the timer already fired or was previously
@@ -143,8 +157,7 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain);
 typedef closure_type(timer_select, boolean, timer);
 
 timerqueue allocate_timerqueue(heap h, const char *name);
-void timer_service(timerqueue tq, timestamp here);
+boolean timer_service(timerqueue tq, timestamp here);
 void timer_reorder(timerqueue tq);
-boolean timer_check(timerqueue tq, timestamp *next);
 
 s64 rtime(s64 *result);

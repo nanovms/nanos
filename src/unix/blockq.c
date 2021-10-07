@@ -109,7 +109,7 @@ static inline boolean blockq_wake_internal_locked(blockq bq, thread t,
     timestamp remain;
     boolean timer_pending = t->bq_timer_pending;
     if (timer_pending) {
-        if (remove_timer(runloop_timers, &t->bq_timer, &remain)) {
+        if (remove_timer(kernel_timers, &t->bq_timer, &remain)) {
             t->bq_timer_pending = false;
         } else {
             /* The timeout already fired, so let it proceed and skip the wakeup. */
@@ -120,7 +120,7 @@ static inline boolean blockq_wake_internal_locked(blockq bq, thread t,
     spin_unlock_irq(&bq->lock, saved_flags);
     boolean terminal = blockq_apply(bq, t, bq_flags);
     if (!terminal && timer_pending) {
-        register_timer(runloop_timers, &t->bq_timer, t->bq_timer.id,
+        register_timer(kernel_timers, &t->bq_timer, t->bq_timer.id,
                        remain, false, 0, (timer_handler)&t->bq_timeout_func);
     }
     return terminal;
@@ -195,7 +195,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
 
     if (timeout > 0) {
         t->bq_timer_pending = true;
-        register_timer(runloop_timers, &t->bq_timer, clkid, timeout, absolute, 0,
+        register_timer(kernel_timers, &t->bq_timer, clkid, timeout, absolute, 0,
                        init_closure(&t->bq_timeout_func, blockq_thread_timeout, bq, t));
     } else {
         t->bq_timer_pending = false;
@@ -258,8 +258,8 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
         if (t->bq_timer_pending) {
             timestamp remain;
             clock_id id = t->bq_timer.id;
-            if (remove_timer(runloop_timers, &t->bq_timer, &remain)) {
-                register_timer(runloop_timers, &t->bq_timer, id, remain, false, 0,
+            if (remove_timer(kernel_timers, &t->bq_timer, &remain)) {
+                register_timer(kernel_timers, &t->bq_timer, id, remain, false, 0,
                                init_closure(&t->bq_timeout_func, blockq_thread_timeout,
                                             dest, t));
             } else {

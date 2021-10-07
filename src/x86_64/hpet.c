@@ -176,7 +176,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
 closure_function(0, 1, void, hpet_runloop_timer,
                  timestamp, duration)
 {
-    timer_config(0, duration, ignore, false);
+    timer_config(0, duration, timer_interrupt_handler, false);
 }
 
 closure_function(0, 0, timestamp, hpet_now)

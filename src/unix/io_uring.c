@@ -284,7 +284,7 @@ define_closure_function(1, 2, sysreturn, iour_close,
     spin_unlock_irq(&iour->lock, irqflags);
     list_foreach(&deleted_items, l) {
         iour_timer iour_tim = struct_from_list(l, iour_timer, l);
-        remove_timer(runloop_timers, &iour_tim->t, 0);
+        remove_timer(kernel_timers, &iour_tim->t, 0);
         deallocate(iour->h, iour_tim, sizeof(*iour_tim));
     }
     irqflags = spin_lock_irq(&iour->lock);
@@ -542,7 +542,7 @@ check_timers:
     iour_unlock(iour);
     list_foreach(&deleted_timers, l) {
         iour_timer iour_tim = struct_from_list(l, iour_timer, l);
-        remove_timer(runloop_timers, &iour_tim->t, 0);
+        remove_timer(kernel_timers, &iour_tim->t, 0);
         deallocate(iour->h, iour_tim, sizeof(*iour_tim));
     }
     if (bq)
@@ -738,7 +738,7 @@ static void iour_timeout_add(io_uring iour, struct timespec *ts, u32 flags,
     iour_debug("target %ld", iour_tim->target);
 
     list_push_back(&iour->timers, &iour_tim->l);
-    register_timer(runloop_timers, &iour_tim->t, CLOCK_ID_MONOTONIC,
+    register_timer(kernel_timers, &iour_tim->t, CLOCK_ID_MONOTONIC,
         time_from_timespec(ts), flags & IORING_TIMEOUT_ABS, 0,
         init_closure(&iour_tim->handler, iour_timeout, iour, iour_tim));
     iour_unlock(iour);
@@ -762,7 +762,7 @@ static void iour_timeout_remove(io_uring iour, u64 addr, u64 user_data)
     }
     iour_unlock(iour);
     if (t) {
-        remove_timer(runloop_timers, &t->t, 0);
+        remove_timer(kernel_timers, &t->t, 0);
         iour_complete(iour, addr, -ECANCELED, false, false);
         res = 0;
         deallocate(iour->h, t, sizeof(*t));

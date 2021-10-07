@@ -388,6 +388,7 @@ closure_function(0, 0, void, arm_timer)
     // This assert failed once under KVM...not clear if it's a valid assumption...
     // assert(read_psr(CNTV_CTL_EL0) & CNTV_CTL_EL0_ISTATUS);
     write_psr(CNTV_CTL_EL0, 0);
+    schedule_timer_service();
 }
 
 closure_struct(arm_timer, _timer);

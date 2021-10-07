@@ -124,7 +124,7 @@ static void itimerval_from_timer(unix_timer ut, struct itimerval *i)
 
 static inline void remove_unix_timer(unix_timer ut)
 {
-    remove_timer(runloop_timers, &ut->t, 0);
+    remove_timer(kernel_timers, &ut->t, 0);
 }
 
 define_closure_function(1, 2, void, timerfd_timer_expire,
@@ -201,7 +201,7 @@ sysreturn timerfd_settime(int fd, int flags,
     if (interval != 0)
         ut->interval = true;
     reserve_unix_timer(ut);
-    register_timer(runloop_timers, &ut->t, ut->cid, tinit, absolute, interval,
+    register_timer(kernel_timers, &ut->t, ut->cid, tinit, absolute, interval,
                    init_closure(&ut->info.timerfd.timer_expire, timerfd_timer_expire, ut));
   out:
     fdesc_put(&ut->f);
@@ -433,7 +433,7 @@ sysreturn timer_settime(u32 timerid, int flags,
     if (interval != 0)
         ut->interval = true;
     reserve_unix_timer(ut);
-    register_timer(runloop_timers, &ut->t, ut->cid, tinit, absolute, interval,
+    register_timer(kernel_timers, &ut->t, ut->cid, tinit, absolute, interval,
                    init_closure(&ut->info.posix.timer_expire, posix_timer_expire, ut));
     return 0;
 }
@@ -626,7 +626,7 @@ static sysreturn setitimer_internal(unix_timer ut, int clockid,
     if (interval != 0)
         ut->interval = true;
     reserve_unix_timer(ut);
-    register_timer(runloop_timers, &ut->t, clockid, tinit, false, interval,
+    register_timer(kernel_timers, &ut->t, clockid, tinit, false, interval,
                    init_closure(&ut->info.itimer.timer_expire, itimer_expire, ut));
     return 0;
 }

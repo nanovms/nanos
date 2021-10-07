@@ -18,18 +18,11 @@
 /* The lower time expiry is the higher priority. */
 static boolean timer_compare(void *za, void *zb)
 {
+    /* XXX FIXME This will fail if monotonic now ever wraps. From the
+       clock_gettime(2) manpage, the clock starts at some "unspecified
+       starting point." This could be resolved by comparing deltas to some
+       reference point, perhaps even set once on boot (good for ~68 years). */
     return timer_expiry((timer)za) > timer_expiry((timer)zb);
-}
-
-/* returns absolute expiry of root timer */
-boolean timer_check(timerqueue tq, timestamp *next)
-{
-    timer_lock(tq);
-    timer t = pqueue_peek(tq->pq);
-    if (t)
-        *next = timer_expiry(t);
-    timer_unlock(tq);
-    return t != 0;
 }
 
 void register_timer(timerqueue tq, timer t, clock_id id,
@@ -45,6 +38,9 @@ void register_timer(timerqueue tq, timer t, clock_id id,
 
     timer_lock(tq);
     pqueue_insert(tq->pq, t);
+    timer next = pqueue_peek(tq->pq);
+    if (next)
+        refresh_timer_update_locked(tq, next);
     timer_unlock(tq);
     timer_debug("register timer: %p, expiry %T, interval %T, handler %p\n", t, t->expiry, interval, n);
 }
@@ -86,7 +82,7 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain)
     return true;
 }
 
-void timer_service(timerqueue tq, timestamp here)
+boolean timer_service(timerqueue tq, timestamp here)
 {
     timer t;
     s64 delta;
@@ -127,7 +123,10 @@ void timer_service(timerqueue tq, timestamp here)
             }
         }
     }
+    if (t)
+        refresh_timer_update_locked(tq, t);
     timer_unlock(tq);
+    return t != 0;
 }
 
 void timer_reorder(timerqueue tq)
@@ -149,6 +148,10 @@ timerqueue allocate_timerqueue(heap h, const char *name)
     tq->name = name;
 #ifdef KERNEL
     spin_lock_init(&tq->lock);
+    tq->service_scheduled = tq->update = false;
+    tq->next_expiry = 0;
+    tq->service = 0;
+    tq->min = tq->max = 0;
 #endif
     return tq;
 }

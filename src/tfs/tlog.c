@@ -551,7 +551,7 @@ void log_flush(log tl, status_handler completion)
     if (tl->flushing || tl->compacting)
         return;
 #ifdef KERNEL
-    remove_timer(runloop_timers, &tl->flush_timer, 0);
+    remove_timer(kernel_timers, &tl->flush_timer, 0);
 #endif
     tl->flushing = true;
     merge m = allocate_merge(tl->h, closure(tl->h, log_flush_complete, tl));
@@ -625,7 +625,7 @@ static void log_set_dirty(log tl)
         return;
     }
     tl->dirty = true;
-    register_timer(runloop_timers, &tl->flush_timer, CLOCK_ID_MONOTONIC_RAW,
+    register_timer(kernel_timers, &tl->flush_timer, CLOCK_ID_MONOTONIC_RAW,
                    seconds(TFS_LOG_FLUSH_DELAY_SECONDS), false, 0,
                    closure(tl->h, log_flush_timer_expired, tl));
 }
@@ -1007,7 +1007,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 void log_destroy(log tl)
 {
 #ifdef KERNEL
-    remove_timer(runloop_timers, &tl->flush_timer, 0);
+    remove_timer(kernel_timers, &tl->flush_timer, 0);
 #endif
     if (tl->extents)
         deallocate_table(tl->extents);

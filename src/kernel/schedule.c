@@ -25,12 +25,10 @@ boolean shutting_down;
 
 queue runqueue;                 /* kernel space from ?*/
 queue bhqueue;                  /* kernel from interrupt */
-timerqueue runloop_timers;
 bitmap idle_cpu_mask;
-timestamp last_timer_update;
 
-static timestamp runloop_timer_min;
-static timestamp runloop_timer_max;
+timerqueue kernel_timers;
+thunk timer_interrupt_handler;
 
 static struct spinlock kernel_lock;
 
@@ -70,7 +68,7 @@ void kern_unlock()
 void kern_register_timer(timer t, clock_id id, timestamp val, boolean absolute,
                          timestamp interval, timer_handler n)
 {
-    return register_timer(runloop_timers, t, id, val, absolute, interval, n);
+    return register_timer(kernel_timers, t, id, val, absolute, interval, n);
 }
 KLIB_EXPORT(kern_register_timer);
 
@@ -81,26 +79,6 @@ static void run_thunk(thunk t)
     // do we want to enforce this? i kinda just want to collapse
     // the stack and ensure that the thunk actually wanted to come back here
     //    halt("handler returned %d", cpustate);
-}
-
-/* called with kernel lock held */
-static inline boolean update_timer(void)
-{
-    timestamp next;
-    if (!timer_check(runloop_timers, &next)) {
-        last_timer_update = 0;
-        return false;
-    }
-
-    if (last_timer_update && next == last_timer_update)
-        return false;
-    s64 delta = next - now(CLOCK_ID_MONOTONIC_RAW);
-    timestamp timeout = delta > (s64)runloop_timer_min ? MIN(delta, runloop_timer_max) : runloop_timer_min;
-    sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
-    timestamp last = current_cpu()->last_timer_update = next + timeout - delta;
-    last_timer_update = last != 0 ? last : 1;
-    runloop_timer(timeout);
-    return true;
 }
 
 static inline void sched_thread_pause(void)
@@ -186,12 +164,36 @@ static void migrate_from_self(cpuinfo ci, u64 first_cpu, u64 ncpus)
     }
 }
 
+static inline boolean update_timer(void)
+{
+    timestamp next = kernel_timers->next_expiry;
+    if (!compare_and_swap_boolean(&kernel_timers->update, true, false))
+        return false;
+    s64 delta = next - now(CLOCK_ID_MONOTONIC_RAW);
+    timestamp timeout = delta > (s64)kernel_timers->min ? MIN(delta, kernel_timers->max) : kernel_timers->min;
+    sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
+    current_cpu()->last_timer_update = next + timeout - delta;
+    set_platform_timer(timeout);
+    return true;
+}
+
+closure_function(0, 0, void, kernel_timers_service)
+{
+    /* timer_service() should be reentrant, so we don't take a lock here */
+    kernel_timers->service_scheduled = false;
+    timer_service(kernel_timers, now(CLOCK_ID_MONOTONIC_RAW));
+}
+
+closure_function(0, 0, void, timer_interrupt_handler_fn)
+{
+    schedule_timer_service();
+}
+
 // should we ever be in the user frame here? i .. guess so?
 NOTRACE void __attribute__((noreturn)) runloop_internal()
 {
     cpuinfo ci = current_cpu();
     thunk t;
-    boolean timer_updated = false;
 
     sched_thread_pause();
     disable_interrupts();
@@ -213,16 +215,16 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     if (kern_try_lock()) {
         /* invoke expired timer callbacks */
         ci->state = cpu_kernel;
-        timer_service(runloop_timers, now(CLOCK_ID_MONOTONIC_RAW));
 
         while ((t = dequeue(runqueue)) != INVALID_ADDRESS)
             run_thunk(t);
 
         /* should be a list of per-runloop checks - also low-pri background */
         mm_service();
-        timer_updated = update_timer();
         kern_unlock();
     }
+
+    boolean timer_updated = update_timer();
 
     if (!shutting_down) {
         t = dequeue(ci->thread_queue);
@@ -261,13 +263,18 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                 migrate_from_self(ci, 0, ci->id);
         }
         if (t != INVALID_ADDRESS) {
-            if (!timer_updated && (total_processors > 1)) {
+            if (!timer_updated) {
+                /* Before we schedule a thread on this CPU, we want to be sure
+                   that a timer will fire on this core within the interval
+                   kernel_timers->max into the future. Taking the place of a
+                   true time quantum per thread, this acts to prevent a thread
+                   from running for too long and starving out other threads. */
                 timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
                 s64 timeout = ci->last_timer_update - here;
-                if ((timeout < 0) || (timeout > runloop_timer_max)) {
+                if ((timeout < 0) || (timeout > kernel_timers->max)) {
                     sched_debug("setting CPU scheduler timer\n");
-                    runloop_timer(runloop_timer_max);
-                    ci->last_timer_update = here + runloop_timer_max;
+                    set_platform_timer(kernel_timers->max);
+                    ci->last_timer_update = here + kernel_timers->max;
                 }
             }
             run_thunk(t);
@@ -286,19 +293,25 @@ closure_function(0, 0, void, global_shutdown)
 void init_scheduler(heap h)
 {
     spin_lock_init(&kernel_lock);
-    runloop_timer_min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
-    runloop_timer_max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
-    wakeup_vector = allocate_ipi_interrupt();
 
+    /* timer init */
+    kernel_timers = allocate_timerqueue(h, "runloop");
+    assert(kernel_timers != INVALID_ADDRESS);
+    kernel_timers->min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
+    kernel_timers->max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
+    kernel_timers->service = closure(h, kernel_timers_service);
+    timer_interrupt_handler = closure(h, timer_interrupt_handler_fn);
+
+    /* IPI init */
+    wakeup_vector = allocate_ipi_interrupt();
     register_interrupt(wakeup_vector, ignore, "wakeup ipi");
     shutdown_vector = allocate_ipi_interrupt();
     register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
     assert(wakeup_vector != INVALID_PHYSICAL);
+
     /* scheduling queues init */
     runqueue = allocate_queue(h, 2048);
     bhqueue = allocate_queue(h, 2048);
-    runloop_timers = allocate_timerqueue(h, "runloop");
-    assert(runloop_timers != INVALID_ADDRESS);
     shutting_down = false;
 }
 

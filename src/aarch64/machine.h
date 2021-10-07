@@ -216,6 +216,12 @@ static inline __attribute__((always_inline)) u8 compare_and_swap_32(u32 *p, u32 
     return __sync_bool_compare_and_swap(p, old, new);
 }
 
+static inline __attribute__((always_inline)) u8 compare_and_swap_8(u8 *p, u8 old, u8 new)
+{
+    asm volatile("prfm pstl1strm, %0" :: "Q" (*p));
+    return __sync_bool_compare_and_swap(p, old, new);
+}
+
 static inline __attribute__((always_inline)) void kern_pause(void)
 {
     asm volatile("dsb sy; wfe" ::: "memory");

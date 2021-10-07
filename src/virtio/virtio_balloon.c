@@ -224,7 +224,7 @@ static u64 virtio_balloon_deflate(u64 n_balloon_pages)
 
 void virtio_balloon_update(void)
 {
-    remove_timer(runloop_timers, &virtio_balloon.retry_timer, 0);
+    remove_timer(kernel_timers, &virtio_balloon.retry_timer, 0);
 
     u32 num_pages = le32toh(vtdev_cfg_read_4(virtio_balloon.dev, VIRTIO_BALLOON_R_NUM_PAGES));
     virtio_balloon_debug("%s: num_pages %d, actual %d\n", __func__, num_pages,
@@ -240,7 +240,7 @@ void virtio_balloon_update(void)
         if (inflated < inflate) {
             virtio_balloon_debug("   %ld balloon pages left to inflate\n", inflate - inflated);
             virtio_balloon_debug("   starting timer\n");
-            register_timer(runloop_timers, &virtio_balloon.retry_timer, CLOCK_ID_MONOTONIC,
+            register_timer(kernel_timers, &virtio_balloon.retry_timer, CLOCK_ID_MONOTONIC,
                            seconds(VIRTIO_BALLOON_RETRY_INTERVAL_SEC),
                            false, 0, (timer_handler)&virtio_balloon.timer_task);
         }

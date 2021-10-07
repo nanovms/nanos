@@ -123,7 +123,7 @@ define_closure_function(1, 2, boolean, each_request,
 #ifdef KERNEL
     } else if (k == sym(timer)) {
         if (is_null_string(args)) {
-            remove_timer(runloop_timers, &management.t, 0);
+            remove_timer(kernel_timers, &management.t, 0);
         } else if (is_tuple(args)) {
             tuple req = get_tuple(args, sym(request));
             if (!req) {
@@ -141,12 +141,12 @@ define_closure_function(1, 2, boolean, each_request,
             set(args, sym(request), 0);
 
             /* disable any existing timer */
-            remove_timer(runloop_timers, &management.t, 0);
+            remove_timer(kernel_timers, &management.t, 0);
 
             handle_request(req, bound(out));
             timestamp t = seconds(period);
             management.timer_req = req;
-            register_timer(runloop_timers, &management.t, CLOCK_ID_MONOTONIC, t, false, t,
+            register_timer(kernel_timers, &management.t, CLOCK_ID_MONOTONIC, t, false, t,
                            init_closure(&management.timer_expiry, mgmt_timer_expiry,
                                         bound(out)));
         } else {
@@ -187,7 +187,7 @@ closure_function(1, 1, void, mgmt_tuple_parse_error,
 void management_reset(void)
 {
 #ifdef KERNEL
-    remove_timer(runloop_timers, &management.t, 0);
+    remove_timer(kernel_timers, &management.t, 0);
     if (management.timer_req) {
         destruct_tuple(management.timer_req, true);
         management.timer_req = 0;

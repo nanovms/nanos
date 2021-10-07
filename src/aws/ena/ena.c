@@ -1397,7 +1397,7 @@ int ena_up(struct ena_adapter *adapter)
      * reset and timer service will be activated afterwards.
      */
     if (ENA_FLAG_ISSET (ENA_FLAG_DEVICE_RUNNING, adapter))
-        register_timer(runloop_timers, &adapter->timer_service,
+        register_timer(kernel_timers, &adapter->timer_service,
             CLOCK_ID_MONOTONIC, seconds(1), false, seconds(1),
             init_closure(&adapter->timer_task, ena_timer_task, adapter));
 
@@ -1453,7 +1453,7 @@ void ena_down(struct ena_adapter *adapter)
 
     ena_trace(NULL, ENA_INFO, "device is going DOWN\n");
 
-    remove_timer(runloop_timers, &adapter->timer_service, 0);
+    remove_timer(kernel_timers, &adapter->timer_service, 0);
 
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_DEV_UP, adapter);
     netif_clear_flags(&adapter->ifp, NETIF_FLAG_UP);
@@ -1939,7 +1939,7 @@ int ena_restore_device(struct ena_adapter *adapter)
          * caused by missing keep alive.
          */
         adapter->keep_alive_timestamp = uptime();
-        register_timer(runloop_timers, &adapter->timer_service, CLOCK_ID_MONOTONIC,
+        register_timer(kernel_timers, &adapter->timer_service, CLOCK_ID_MONOTONIC,
             seconds(1), false, seconds(1), (timer_handler)&adapter->timer_task);
     }
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_DEV_UP_BEFORE_RESET, adapter);

@@ -31,7 +31,7 @@ void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete
     __vdso_dat->sync_complete = sync_complete;
     __vdso_dat->cal = cal;
     clock_update_drift(here);
-    timer_reorder(runloop_timers);
+    timer_reorder(kernel_timers);
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
 }
 KLIB_EXPORT(clock_adjust);
@@ -59,8 +59,8 @@ void clock_reset_rtc(timestamp wallclock_now)
                 __func__, now(CLOCK_ID_REALTIME), wallclock_now);
     timestamp n = now(CLOCK_ID_REALTIME);
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
-    pqueue_walk(runloop_timers->pq, stack_closure(timer_adjust_handler, wallclock_now - n));
-    timer_reorder(runloop_timers);
+    pqueue_walk(kernel_timers->pq, stack_closure(timer_adjust_handler, wallclock_now - n));
+    timer_reorder(kernel_timers);
     reset_clock_vdso_dat();
 }
 KLIB_EXPORT(clock_reset_rtc);
