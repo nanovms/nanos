@@ -168,7 +168,7 @@ filesystem get_root_fs(void)
 
 tuple get_root_tuple(void)
 {
-    return filesystem_getroot(root_fs);
+    return root_fs ? filesystem_getroot(root_fs) : 0;
 }
 KLIB_EXPORT(get_root_tuple);
 
