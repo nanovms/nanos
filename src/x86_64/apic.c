@@ -134,8 +134,9 @@ closure_function(0, 0, void, lapic_timer_int)
     if (here < ci->m.lapic_timer_expiry) {
         apic_debug("timer fired %T seconds too early\n", ci->m.lapic_timer_expiry - here);
         lapic_set_timer(ci->m.lapic_timer_expiry - here);
+    } else {
+        schedule_timer_service();
     }
-    schedule_timer_service();
 }
 
 closure_function(1, 0, void, lapic_timer_percpu_init,

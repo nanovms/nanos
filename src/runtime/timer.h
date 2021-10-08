@@ -157,7 +157,7 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain);
 typedef closure_type(timer_select, boolean, timer);
 
 timerqueue allocate_timerqueue(heap h, const char *name);
-boolean timer_service(timerqueue tq, timestamp here);
+void timer_service(timerqueue tq, timestamp here);
 void timer_reorder(timerqueue tq);
 
 s64 rtime(s64 *result);

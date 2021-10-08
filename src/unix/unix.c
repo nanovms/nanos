@@ -363,8 +363,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->syscalls = linux_syscalls;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
-    p->posix_timer_ids = create_id_heap(h, h, 0, U32_MAX, 1, false);
-    p->posix_timers = allocate_vector(h, 8);
+    p->posix_timer_ids = create_id_heap(h, locked, 0, U32_MAX, 1, false);
+    p->posix_timers = allocate_vector(locked, 8);
     p->itimers = allocate_vector(h, 3);
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);

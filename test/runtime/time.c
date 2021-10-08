@@ -289,8 +289,7 @@ static void timerfd_test_finish(struct timer_test *test)
         pertest_fail_perror("clock_gettime");
     if (test->overruns > 1)
         timerfd_set(test->clock, test->fd, 0, 0, 0);
-    if (test->overruns == 1)
-        timerfd_check_disarmed(test->fd);
+    timerfd_check_disarmed(test->fd);
     long long delta = validate_interval(&test->start, &test->finish,
                                         test->total_overruns, test->nsec);
     if (delta < 0)
@@ -478,8 +477,7 @@ static void posix_test_finish(struct timer_test *test)
         posix_timer_cancel(test);
     if (clock_gettime(test->clock, &test->finish) < 0)
         pertest_fail_perror("clock_gettime");
-    if (test->overruns == 1)
-        posix_timer_check_disarmed(test);
+    posix_timer_check_disarmed(test);
     long long delta = validate_interval(&test->start, &test->finish,
                                         test->total_overruns, test->nsec);
     if (delta < 0)

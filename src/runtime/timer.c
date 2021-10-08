@@ -62,7 +62,6 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain)
            invoke the timer handler here. */
         t->queued = false;
         assert(pqueue_remove(tq->pq, t));
-        t->expiry = 0;
         timer_unlock(tq);
         apply(t->handler, 0, timer_disabled);
     } else {
@@ -82,7 +81,7 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain)
     return true;
 }
 
-boolean timer_service(timerqueue tq, timestamp here)
+void timer_service(timerqueue tq, timestamp here)
 {
     timer t;
     s64 delta;
@@ -118,7 +117,6 @@ boolean timer_service(timerqueue tq, timestamp here)
                    the final handler callback. */
                 timer_unlock(tq);
                 apply(t->handler, 0, timer_disabled);
-                t->expiry = 0;
                 timer_lock(tq);
             }
         }
@@ -126,7 +124,6 @@ boolean timer_service(timerqueue tq, timestamp here)
     if (t)
         refresh_timer_update_locked(tq, t);
     timer_unlock(tq);
-    return t != 0;
 }
 
 void timer_reorder(timerqueue tq)

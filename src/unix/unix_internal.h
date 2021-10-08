@@ -315,7 +315,7 @@ typedef struct thread {
 
     /* blockq data */
     boolean bq_timer_pending;
-    struct timer bq_timer;         /* timer for this item (could be zero) */
+    struct timer bq_timer;         /* timer for this item */
     closure_struct(blockq_thread_timeout, bq_timeout_func);
     blockq_action bq_action;  /* action to check for wake, timeout or abort */
     struct list bq_l;         /* embedding on blockq->waiters_head */
