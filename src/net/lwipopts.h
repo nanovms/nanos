@@ -75,6 +75,7 @@ typedef unsigned long size_t;
 #define LWIP_TIMERS_CUSTOM 1
 #define LWIP_DHCP_BOOTP_FILE 1
 #define LWIP_DNS 1
+#define LWIP_INCLUDED_POLARSSL_MD5  1
 
 #define SO_REUSE 1
 #define LWIP_IPV6   1

@@ -147,7 +147,8 @@ SRCS-lwip= \
 	$(LWIPDIR)/src/core/timeouts.c \
 	$(LWIPDIR)/src/core/udp.c \
 	$(LWIPDIR)/src/api/err.c \
-	$(LWIPDIR)/src/netif/ethernet.c
+	$(LWIPDIR)/src/netif/ethernet.c \
+	$(LWIPDIR)/src/netif/ppp/polarssl/md5.c \
 
 INCLUDES=\
 	-I$(SRCDIR) \
