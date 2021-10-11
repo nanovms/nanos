@@ -249,6 +249,10 @@ struct cpuinfo_machine {
     /* One temporary for syscall enter to use so that we don't need to touch the user stack. +24 */
     u64 tmp;
 
+#ifdef CONFIG_FTRACE
+    /* Used by mcount to determine if to enter ftrace code. Should be the last to not mess with crt0.s +32 */
+    u64 ftrace_disable_cnt;
+#endif
     /*** End of fields touched by kernel entries ***/
 
     /* Stack for exceptions (which may occur in interrupt handlers) */
