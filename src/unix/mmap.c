@@ -368,8 +368,9 @@ vmap allocate_vmap(rangemap rm, range q, struct vmap k)
 void deallocate_vmap(rangemap rm, vmap vm)
 {
     if (vm->fsf) {
+        filesystem fs = fsfile_get_fs(vm->fsf);
         fsfile_release(vm->fsf);
-        filesystem_release(fsfile_get_fs(vm->fsf));
+        filesystem_release(fs);
     }
     deallocate(rm->h, vm, sizeof(struct vmap));
 }
