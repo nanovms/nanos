@@ -369,6 +369,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);
     p->trace = 0;
+    p->trap = 0;
     return p;
 }
 
