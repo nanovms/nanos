@@ -336,9 +336,19 @@ define_closure_function(1, 0, void, epoll_blocked_free,
     deallocate(epoll_heap, w, sizeof(*w));
 }
 
-static void epoll_blocked_release(epoll_blocked w, boolean locked)
+static void epoll_blocked_release(epoll_blocked w, u64 bq_flags)
 {
     epoll_debug("w %p\n", w);
+
+    /* The lock protecting the list of blocked threads must be acquired if this function call comes
+     * from either the top half of a syscall (in which case BLOCKQ_ACTION_BLOCKED is not set), or a
+     * timeout or signal that interrupts an ongoing syscall (in which case, either
+     * BLOCKQ_ACTION_NULLIFY or BLOCKQ_ACTION_TIMEDOUT is set). */
+    boolean locked = ((bq_flags & (BLOCKQ_ACTION_BLOCKED |
+                                  BLOCKQ_ACTION_NULLIFY |
+                                  BLOCKQ_ACTION_TIMEDOUT))
+                      ^ BLOCKQ_ACTION_BLOCKED) != 0;
+
     if (locked)
         spin_lock(&w->e->blocked_lock);
     assert(!list_empty(&w->blocked_list));
@@ -482,7 +492,7 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
     spin_unlock(&w->lock);
     fdesc_put(&w->e->f);
     epoll_debug("   pre refcnt %ld, returning %ld\n", w->refcount.c, rv);
-    epoll_blocked_release(w, (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) != 0);
+    epoll_blocked_release(w, flags);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -725,7 +735,7 @@ closure_function(3, 1, sysreturn, select_bh,
     w->nfds = 0;
     w->rset = w->wset = w->eset = 0;
     spin_unlock(&w->lock);
-    epoll_blocked_release(w, (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) != 0);
+    epoll_blocked_release(w, flags);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -932,7 +942,7 @@ closure_function(3, 1, sysreturn, poll_bh,
     unwrap_buffer(w->e->h, w->poll_fds);
     w->poll_fds = 0;
     spin_unlock(&w->lock);
-    epoll_blocked_release(w, (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) != 0);
+    epoll_blocked_release(w, flags);
     closure_finish();
     return syscall_return(t, rv);
 }
