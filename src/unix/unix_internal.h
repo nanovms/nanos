@@ -143,6 +143,7 @@ typedef struct unix_heaps {
 
 typedef closure_type(io_completion, void, thread t, sysreturn rv);
 typedef closure_type(blockq_action, sysreturn, u64 flags);
+typedef closure_type(blockq_action_handler, void, blockq_action action);
 
 struct blockq;
 typedef struct blockq * blockq;
@@ -196,7 +197,7 @@ void blockq_set_completion(blockq bq, io_completion completion, thread t,
                            sysreturn rv);
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
                                clock_id id, timestamp timeout, boolean absolute);
-int blockq_transfer_waiters(blockq dest, blockq src, int n);
+int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handler handler);
 
 static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {

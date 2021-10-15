@@ -225,7 +225,6 @@ static void setup_thread_frame(heap h, context frame, thread t)
 void thread_sleep_interruptible(void)
 {
     disable_interrupts();
-    assert(current->blocked_on);
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
     ftrace_thread_switch(current, 0);
     count_syscall_save(current);

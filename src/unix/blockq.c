@@ -249,7 +249,7 @@ void blockq_flush(blockq bq)
     } while (1);
 }
 
-int blockq_transfer_waiters(blockq dest, blockq src, int n)
+int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handler handler)
 {
     int transferred = 0;
     spin_lock_2(&src->lock, &dest->lock);
@@ -273,6 +273,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n)
             }
         }
         list_delete(&t->bq_l);
+        apply(handler, t->bq_action);
         list_insert_before(&dest->waiters_head, &t->bq_l);
         t->blocked_on = dest;
         if (timer_pending && remain > 0) {
