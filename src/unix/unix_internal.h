@@ -190,9 +190,8 @@ static inline const char * blockq_name(blockq bq)
 }
 
 thread blockq_wake_one(blockq bq);
-boolean blockq_wake_one_for_thread(blockq bq, thread t);
+boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify);
 void blockq_flush(blockq bq);
-boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
                            sysreturn rv);
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
