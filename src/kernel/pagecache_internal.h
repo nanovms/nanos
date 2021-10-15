@@ -3,9 +3,9 @@ typedef struct pagelist {
     u64 pages;
 } *pagelist;
 
-declare_closure_struct(1, 1, void, pagecache_scan_timer,
+declare_closure_struct(1, 2, void, pagecache_scan_timer,
                        struct pagecache *, pc,
-                       u64, overruns /* ignored */);
+                       u64, expiry, u64, overruns);
 
 struct pagecache_completion_queue;
 
@@ -58,7 +58,7 @@ typedef struct pagecache {
     struct pagecache_completion_queue bh_completions;
 
     boolean scan_in_progress;
-    timer scan_timer;
+    struct timer scan_timer;
     closure_struct(pagecache_scan_timer, do_scan_timer);
     closure_struct(pagecache_page_compare, page_compare);
     closure_struct(pagecache_page_print_key, page_print_key);

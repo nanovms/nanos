@@ -24,6 +24,7 @@ struct net_lwip_timer {
     u64 interval_ms;
     lwip_cyclic_timer_handler handler;
     char * name;
+    struct timer t;
 };
 
 static struct net_lwip_timer net_lwip_timers[] = {
@@ -38,16 +39,20 @@ static struct net_lwip_timer net_lwip_timers[] = {
     {DHCP6_TIMER_MSECS, dhcp6_tmr, "dhcp6"},
 };
 
-closure_function(2, 1, void, dispatch_lwip_timer,
+closure_function(2, 2, void, dispatch_lwip_timer,
                  lwip_cyclic_timer_handler, handler, const char *, name,
-                 u64, overruns /* ignored */)
+                 u64, expiry, u64, overruns)
 {
 #ifdef LWIP_DEBUG
     lwip_debug("dispatching timer for %s\n", bound(name));
 #endif
-    lwip_lock();
-    bound(handler)();
-    lwip_unlock();
+    if (overruns == timer_disabled) {
+        closure_finish();
+    } else {
+        lwip_lock();
+        bound(handler)();
+        lwip_unlock();
+    }
 }
 
 void sys_timeouts_init(void)
@@ -55,8 +60,9 @@ void sys_timeouts_init(void)
     int n = sizeof(net_lwip_timers) / sizeof(struct net_lwip_timer);
     for (int i = 0; i < n; i++) {
         struct net_lwip_timer * t = (struct net_lwip_timer *)&net_lwip_timers[i];
+        init_timer(&t->t);
         timestamp interval = milliseconds(t->interval_ms);
-        register_timer(runloop_timers, CLOCK_ID_MONOTONIC_RAW, interval, false, interval,
+        register_timer(kernel_timers, &t->t, CLOCK_ID_MONOTONIC_RAW, interval, false, interval,
                        closure(lwip_heap, dispatch_lwip_timer, t->handler, t->name));
 #ifdef LWIP_DEBUG
         lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);

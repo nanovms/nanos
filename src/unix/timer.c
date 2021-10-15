@@ -19,13 +19,30 @@ enum unix_timer_type {
     UNIX_TIMER_TYPE_ITIMER
 };
 
+declare_closure_struct(1, 2, void, posix_timer_expire,
+                       struct unix_timer *, ut,
+                       u64, expiry, u64, overruns);
+
+declare_closure_struct(1, 2, void, itimer_expire,
+                       struct unix_timer *, ut,
+                       u64, expiry, u64, overruns);
+
+declare_closure_struct(1, 2, void, timerfd_timer_expire,
+                       struct unix_timer *, ut,
+                       u64, expiry, u64, overruns);
+
+declare_closure_struct(1, 0, void, unix_timer_free,
+                       struct unix_timer *, ut);
+
 typedef struct unix_timer {
     struct fdesc f;             /* used for timerfd only; must be first */
     process p;
     int type;
+    boolean interval;
     clock_id cid;
-    timer t;                    /* zero if disarmed */
+    struct timer t;
     u64 overruns;
+    struct spinlock lock;
 
     union {
         struct {
@@ -33,22 +50,34 @@ typedef struct unix_timer {
             int id;
             thread recipient;   /* INVALID_ADDRESS means deliver to process */
             struct sigevent sevp;
+            closure_struct(posix_timer_expire, timer_expire);
         } posix;
 
         struct {
             struct siginfo si;
             int which;
+            closure_struct(itimer_expire, timer_expire);
         } itimer;
 
         struct {
             blockq bq;
             boolean cancel_on_set;
             boolean canceled;   /* by time set */
+            closure_struct(timerfd_timer_expire, timer_expire);
         } timerfd;
     } info;
+    struct refcount refcount;
+    closure_struct(unix_timer_free, free);
 } *unix_timer;
 
 static heap unix_timer_heap;
+
+define_closure_function(1, 0, void, unix_timer_free,
+                        unix_timer, ut)
+{
+    timer_debug("ut %p\n", bound(ut));
+    deallocate(unix_timer_heap, bound(ut), sizeof(struct unix_timer));
+}
 
 static unix_timer allocate_unix_timer(int type, clock_id cid)
 {
@@ -57,22 +86,33 @@ static unix_timer allocate_unix_timer(int type, clock_id cid)
         return ut;
     ut->p = current->p;
     ut->type = type;
+    ut->interval = false;
     ut->cid = cid;
-    ut->t = 0;
+    init_timer(&ut->t);
     ut->overruns = 0;
+    spin_lock_init(&ut->lock);
+    init_refcount(&ut->refcount, 1, init_closure(&ut->free, unix_timer_free, ut));
+    timer_debug("type %d, cid %d, ut %p\n", type, cid, ut);
     return ut;
 }
 
-static void deallocate_unix_timer(unix_timer t)
+static inline void reserve_unix_timer(unix_timer ut)
 {
-    deallocate(unix_timer_heap, t, sizeof(struct unix_timer));
+    timer_debug("ut %p\n", ut);
+    refcount_reserve(&ut->refcount);
+}
+
+static inline void release_unix_timer(unix_timer ut)
+{
+    timer_debug("ut %p\n", ut);
+    refcount_release(&ut->refcount);
 }
 
 static void itimerspec_from_timer(unix_timer ut, struct itimerspec *i)
 {
     timestamp remain = 0, interval = 0;
-    if (ut->t)
-        timer_get_remaining(ut->t, &remain, &interval);
+    if (timer_is_active(&ut->t))
+        timer_get_remaining(&ut->t, &remain, &interval);
     timespec_from_time(&i->it_value, remain);
     timespec_from_time(&i->it_interval, interval);
 }
@@ -80,42 +120,37 @@ static void itimerspec_from_timer(unix_timer ut, struct itimerspec *i)
 static void itimerval_from_timer(unix_timer ut, struct itimerval *i)
 {
     timestamp remain = 0, interval = 0;
-    if (ut->t)
-        timer_get_remaining(ut->t, &remain, &interval);
+    if (timer_is_active(&ut->t))
+        timer_get_remaining(&ut->t, &remain, &interval);
     timeval_from_time(&i->it_value, remain);
     timeval_from_time(&i->it_interval, interval);
 }
 
-/* note that all of this assumes that the various timer operations are
-   performed in the syscall top half, i.e. with interrupts disabled... */
-
 static inline void remove_unix_timer(unix_timer ut)
 {
-    if (!ut->t)
-        return;
-    timer_handler t = ut->t->t;
-    remove_timer(ut->t, 0);
-    ut->t = 0;
-    deallocate_closure(t);
+    remove_timer(kernel_timers, &ut->t, 0);
 }
 
-closure_function(1, 1, void, timerfd_timer_expire,
-                 unix_timer, ut,
-                 u64, overruns)
+define_closure_function(1, 2, void, timerfd_timer_expire,
+                        unix_timer, ut,
+                        u64, expiry, u64, overruns)
 {
     unix_timer ut = bound(ut);
-    assert(ut->t);
-    assert(!ut->t->disabled);
+    if (overruns != timer_disabled) {
+        spin_lock(&ut->lock);
+        ut->overruns += overruns;
+        timer_debug("ut %p, interval %ld, %d overruns -> %ld\n",
+                    ut, ut->t.interval, overruns, ut->overruns);
 
-    ut->overruns += overruns;
-    timer_debug("interval %ld, fd %d, %d overruns -> %ld\n", ut->t->interval,
-                ut->info.timerfd.fd, overruns, ut->overruns);
+        blockq_wake_one(ut->info.timerfd.bq);
+        notify_dispatch(ut->f.ns, EPOLLIN);
 
-    blockq_wake_one(ut->info.timerfd.bq);
-    notify_dispatch(ut->f.ns, EPOLLIN);
-
-    if (ut->t->interval == 0)
-        remove_unix_timer(ut);     /* deallocs closure for us */
+        boolean interval = ut->interval;
+        spin_unlock(&ut->lock);
+        if (interval)
+            return;
+    }
+    release_unix_timer(ut);
 }
 
 void notify_unix_timers_of_rtc_change(void)
@@ -143,6 +178,7 @@ sysreturn timerfd_settime(int fd, int flags,
         return -EFAULT;
 
     unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
+    spin_lock(&ut->lock);
     sysreturn rv = 0;
     if (ut->f.type != FDESC_TYPE_TIMERFD) {
         rv = -EINVAL;
@@ -157,7 +193,6 @@ sysreturn timerfd_settime(int fd, int flags,
         (ut->cid == CLOCK_REALTIME || ut->cid == CLOCK_REALTIME_ALARM) &&
         (flags ^ (TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET)) == 0;
 
-    /* runtime timers are partly immutable; so cancel and re-create on set */
     remove_unix_timer(ut);
     ut->overruns = 0;
 
@@ -169,13 +204,13 @@ sysreturn timerfd_settime(int fd, int flags,
     boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
     timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
                 ut->cid, tinit, absolute, interval);
-    timer t = register_timer(runloop_timers, ut->cid, tinit, absolute, interval,
-                             closure(unix_timer_heap, timerfd_timer_expire, ut));
-    if (t == INVALID_ADDRESS)
-        rv = -ENOMEM;
-    else
-        ut->t = t;
+    if (interval != 0)
+        ut->interval = true;
+    reserve_unix_timer(ut);
+    register_timer(kernel_timers, &ut->t, ut->cid, tinit, absolute, interval,
+                   init_closure(&ut->info.timerfd.timer_expire, timerfd_timer_expire, ut));
   out:
+    spin_unlock(&ut->lock);
     fdesc_put(&ut->f);
     return rv;
 }
@@ -187,10 +222,12 @@ sysreturn timerfd_gettime(int fd, struct itimerspec *curr_value)
 
     sysreturn rv = 0;
     unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
+    spin_lock(&ut->lock);
     if (ut->f.type != FDESC_TYPE_TIMERFD)
         rv = -EINVAL;
     else
         itimerspec_from_timer(ut, curr_value);
+    spin_unlock(&ut->lock);
     fdesc_put(&ut->f);
     return rv;
 }
@@ -204,14 +241,17 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
     boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
     sysreturn rv = sizeof(u64);
 
-    timer_debug("fd %d, dest %p, length %ld, tid %d, flags 0x%lx\n",
-                ut->info.timerfd.fd, bound(dest), bound(length), t->tid, flags);
+    timer_debug("ut %p, dest %p, length %ld, tid %d, flags 0x%lx\n",
+                ut, bound(dest), bound(length), t->tid, flags);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         assert(blocked);
         rv = -ERESTARTSYS;
         goto out;
     }
+
+    if (!blocked)
+        spin_lock(&ut->lock);
 
     if (ut->info.timerfd.canceled) {
         rv = -ECANCELED;
@@ -225,11 +265,15 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
             goto out;
         }
         timer_debug("   -> block\n");
+        if (!blocked)
+            spin_unlock(&ut->lock);
         return BLOCKQ_BLOCK_REQUIRED;
     }
     *(u64*)bound(dest) = overruns;
     ut->overruns = 0;
   out:
+    if (!blocked)
+        spin_unlock(&ut->lock);
     timer_debug("   -> returning %ld\n", rv);
     blockq_handle_completion(ut->info.timerfd.bq, flags, bound(completion), t, rv);
     closure_finish();
@@ -243,8 +287,8 @@ closure_function(1, 6, sysreturn, timerfd_read,
     if (length < sizeof(u64))
         return io_complete(completion, t, -EINVAL);
     unix_timer ut = bound(ut);
-    timer_debug("fd %d, dest %p, length %ld, tid %d, bh %d, completion %p\n", ut->info.timerfd.fd,
-                dest, length, t->tid, bh, completion);
+    timer_debug("ut %p, dest %p, length %ld, tid %d, bh %d, completion %p\n",
+                ut, dest, length, t->tid, bh, completion);
     blockq_action ba = closure(unix_timer_heap, timerfd_read_bh, ut, dest, length, t, completion);
     return blockq_check(ut->info.timerfd.bq, t, ba, bh);
 }
@@ -261,13 +305,15 @@ closure_function(1, 2, sysreturn, timerfd_close,
                  thread, t, io_completion, completion)
 {
     unix_timer ut = bound(ut);
+    spin_lock(&ut->lock);
     remove_unix_timer(ut);
     deallocate_blockq(ut->info.timerfd.bq);
     deallocate_closure(ut->f.read);
     deallocate_closure(ut->f.events);
     deallocate_closure(ut->f.close);
     release_fdesc(&ut->f);
-    deallocate_unix_timer(ut);
+    spin_unlock(&ut->lock);
+    release_unix_timer(ut);
     return io_complete(completion, t, 0);
 }
 
@@ -287,7 +333,6 @@ sysreturn timerfd_create(int clockid, int flags)
     if (ut == INVALID_ADDRESS)
         return -ENOMEM;
 
-    timer_debug("unix_timer %p, fd %d\n", ut, fd);
     init_fdesc(unix_timer_heap, &ut->f, FDESC_TYPE_TIMERFD);
     ut->info.timerfd.bq = allocate_blockq(unix_timer_heap, "timerfd");
     if (ut->info.timerfd.bq == INVALID_ADDRESS)
@@ -304,9 +349,10 @@ sysreturn timerfd_create(int clockid, int flags)
         apply(ut->f.close, 0, io_completion_ignore);
         return -EMFILE;
     }
+    timer_debug("unix_timer %p, fd %d\n", ut, fd);
     return fd;
   err_mem_bq:
-    deallocate_unix_timer(ut);
+    release_unix_timer(ut);
     return -ENOMEM;
 }
 
@@ -352,23 +398,26 @@ static void sigev_deliver(unix_timer ut)
     }
 }
 
-closure_function(1, 1, void, posix_timer_expire,
-                 unix_timer, ut,
-                 u64, overruns)
+define_closure_function(1, 2, void, posix_timer_expire,
+                        unix_timer, ut,
+                        u64, expiry, u64, overruns)
 {
     unix_timer ut = bound(ut);
-    assert(ut->t);
-    assert(!ut->t->disabled);
-    assert(overruns > 0);
+    if (overruns != timer_disabled) {
+        assert(overruns > 0);
 
-    ut->overruns += overruns - 1;
-    timer_debug("id %d, interval %ld, +%d -> %d\n",
-                ut->info.posix.id, ut->t->interval, overruns, ut->overruns);
+        spin_lock(&ut->lock);
+        ut->overruns += overruns - 1;
+        timer_debug("id %d, interval %ld, +%d -> %d\n",
+                    ut->info.posix.id, ut->t.interval, overruns, ut->overruns);
 
-    sigev_deliver(ut);
-
-    if (ut->t->interval == 0)
-        remove_unix_timer(ut);     /* deallocs closure for us */
+        sigev_deliver(ut);
+        boolean interval = ut->interval;
+        spin_unlock(&ut->lock);
+        if (interval)
+            return;
+    }
+    release_unix_timer(ut);
 }
 
 sysreturn timer_settime(u32 timerid, int flags,
@@ -377,22 +426,26 @@ sysreturn timer_settime(u32 timerid, int flags,
     /* Linux doesn't validate flags? */
     if (!validate_user_memory(new_value, sizeof(struct itimerspec), false))
         return -EINVAL;         /* usually EFAULT, but linux gives EINVAL */
+    if (old_value && !validate_user_memory(old_value, sizeof(struct itimerspec), true))
+        return -EFAULT;
 
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
+    spin_lock(&ut->lock);
+    sysreturn rv;
 
     if (old_value) {
-        if (!validate_user_memory(old_value, sizeof(struct itimerspec), true))
-            return -EFAULT;
         itimerspec_from_timer(ut, old_value);
     }
 
     remove_unix_timer(ut);
     ut->overruns = 0;
 
-    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_nsec == 0)
-        return 0;
+    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_nsec == 0) {
+        rv = 0;
+        goto out;
+    }
 
     timestamp tinit = time_from_timespec(&new_value->it_value);
     timestamp interval = time_from_timespec(&new_value->it_interval);
@@ -400,13 +453,15 @@ sysreturn timer_settime(u32 timerid, int flags,
     boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
     timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
                 ut->cid, tinit, absolute, interval);
-    timer t = register_timer(runloop_timers, ut->cid, tinit, absolute, interval,
-                             closure(unix_timer_heap, posix_timer_expire, ut));
-    if (t == INVALID_ADDRESS)
-        return -ENOMEM;
-
-    ut->t = t;
-    return 0;
+    if (interval != 0)
+        ut->interval = true;
+    reserve_unix_timer(ut);
+    register_timer(kernel_timers, &ut->t, ut->cid, tinit, absolute, interval,
+                   init_closure(&ut->info.posix.timer_expire, posix_timer_expire, ut));
+    rv = 0;
+  out:
+    spin_unlock(&ut->lock);
+    return rv;
 }
 
 sysreturn timer_gettime(u32 timerid, struct itimerspec *curr_value) {
@@ -417,7 +472,9 @@ sysreturn timer_gettime(u32 timerid, struct itimerspec *curr_value) {
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
 
+    spin_lock(&ut->lock);
     itimerspec_from_timer(ut, curr_value);
+    spin_unlock(&ut->lock);
     return 0;
 }
 
@@ -425,8 +482,10 @@ sysreturn timer_getoverrun(u32 timerid) {
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
+    spin_lock(&ut->lock);
     sysreturn rv = timer_overruns_s32(ut);
     ut->overruns = 0;
+    spin_unlock(&ut->lock);
     return rv;
 }
 
@@ -434,15 +493,18 @@ sysreturn timer_delete(u32 timerid) {
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
+    spin_lock(&ut->lock);
     if (ut->info.posix.recipient != INVALID_ADDRESS)
         thread_release(ut->info.posix.recipient);
     process p = current->p;
     remove_unix_timer(ut);
+    int id = ut->info.posix.id;
+    spin_unlock(&ut->lock);
     process_lock(p);
-    deallocate_u64((heap)p->posix_timer_ids, ut->info.posix.id, 1);
-    assert(vector_set(p->posix_timers, ut->info.posix.id, 0));
+    deallocate_u64((heap)p->posix_timer_ids, id, 1);
+    assert(vector_set(p->posix_timers, id, 0));
     process_unlock(p);
-    deallocate_unix_timer(ut);
+    release_unix_timer(ut);
     return 0;
 }
 
@@ -493,6 +555,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, clockid);
     if (ut == INVALID_ADDRESS)
         goto err_nomem;
+    spin_lock(&ut->lock);
 
     process_lock(p);
     u64 id = allocate_u64((heap)p->posix_timer_ids, 1);
@@ -502,7 +565,8 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     }
     process_unlock(p);
     if (id == INVALID_PHYSICAL) {
-        deallocate_unix_timer(ut);
+        spin_unlock(&ut->lock);
+        release_unix_timer(ut);
         goto err_nomem;
     }
 
@@ -526,6 +590,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     si->si_code = SI_TIMER;
     si->sifields.timer.tid = ut->info.posix.id;
     si->sifields.timer.sigval = ut->info.posix.sevp.sigev_value;
+    spin_unlock(&ut->lock);
     return 0;
   err_nomem:
     if (recipient != INVALID_ADDRESS)
@@ -547,7 +612,9 @@ sysreturn getitimer(int which, struct itimerval *curr_value)
 
     unix_timer ut = vector_get(current->p->itimers, which);
     if (ut) {
+        spin_lock(&ut->lock);
         itimerval_from_timer(ut, curr_value);
+        spin_unlock(&ut->lock);
     } else {
         curr_value->it_value.tv_sec = curr_value->it_interval.tv_sec = 0;
         curr_value->it_value.tv_usec = curr_value->it_interval.tv_usec = 0;
@@ -555,22 +622,25 @@ sysreturn getitimer(int which, struct itimerval *curr_value)
     return 0;
 }
 
-closure_function(1, 1, void, itimer_expire,
-                 unix_timer, ut,
-                 u64, overruns)
+define_closure_function(1, 2, void, itimer_expire,
+                        unix_timer, ut,
+                        u64, expiry, u64, overruns)
 {
     unix_timer ut = bound(ut);
-    assert(ut->t);
-    assert(!ut->t->disabled);
+    if (overruns != timer_disabled) {
+        spin_lock(&ut->lock);
+        /* Ignore overruns. Only one itimer signal may be queued. */
+        timer_debug("which %d, interval %ld, overruns (ignored) %d\n",
+                    ut->info.itimer.which, ut->t.interval, overruns);
 
-    /* Ignore overruns. Only one itimer signal may be queued. */
-    timer_debug("which %d, interval %ld, overruns (ignored) %d\n",
-                ut->info.itimer.which, ut->t->interval, overruns);
+        deliver_signal_to_process(ut->p, &ut->info.itimer.si);
 
-    deliver_signal_to_process(ut->p, &ut->info.itimer.si);
-
-    if (ut->t->interval == 0)
-        remove_unix_timer(ut);     /* deallocs closure for us */
+        boolean interval = ut->interval;
+        spin_unlock(&ut->lock);
+        if (interval)
+            return;
+    }
+    release_unix_timer(ut);
 }
 
 #define USEC_LIMIT 999999
@@ -579,26 +649,32 @@ static sysreturn setitimer_internal(unix_timer ut, int clockid,
                                     const struct itimerval *new_value,
                                     struct itimerval *old_value)
 {
+    spin_lock(&ut->lock);
     if (old_value)
         itimerval_from_timer(ut, old_value);
 
     remove_unix_timer(ut);
 
-    if (!new_value || (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_usec == 0))
-        return 0;
+    sysreturn rv;
+    if (!new_value || (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_usec == 0)) {
+        rv = 0;
+        goto out;
+    }
 
     timestamp tinit = time_from_timeval(&new_value->it_value);
     timestamp interval = time_from_timeval(&new_value->it_interval);
 
     timer_debug("register timer: clockid %d, init value %T, interval %T\n",
                 clockid, tinit, interval);
-    timer t = register_timer(runloop_timers, clockid, tinit, false, interval,
-                             closure(unix_timer_heap, itimer_expire, ut));
-    if (t == INVALID_ADDRESS)
-        return -ENOMEM;
-
-    ut->t = t;
-    return 0;
+    if (interval != 0)
+        ut->interval = true;
+    reserve_unix_timer(ut);
+    register_timer(kernel_timers, &ut->t, clockid, tinit, false, interval,
+                   init_closure(&ut->info.itimer.timer_expire, itimer_expire, ut));
+    rv = 0;
+  out:
+    spin_unlock(&ut->lock);
+    return rv;
 }
 
 static unix_timer unix_timer_from_itimer_index(process p, int which, clock_id clockid)
@@ -719,6 +795,6 @@ void register_timer_syscalls(struct syscall *map)
 
 boolean unix_timers_init(unix_heaps uh)
 {
-    unix_timer_heap = heap_general((kernel_heaps)uh);
+    unix_timer_heap = heap_locked((kernel_heaps)uh);
     return true;
 }

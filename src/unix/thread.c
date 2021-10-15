@@ -163,7 +163,7 @@ static inline void run_thread_frame(thread t)
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     thread_lock(t);
-    t->blocked_on = 0;
+    assert(t->blocked_on == 0);
     t->syscall = -1;
     thread_unlock(t);
 
@@ -273,9 +273,10 @@ boolean thread_attempt_interrupt(thread t)
 {
     thread_log(current, "%s: tid %d", __func__, t->tid);
     blockq bq;
+    boolean success = false;
     thread_lock(t);
     if (!thread_in_interruptible_sleep(t)) {
-        thread_log(current, "uninterruptible or already running");
+        thread_log(current, "   uninterruptible or already running");
         bq = 0;
     } else {
         bq = t->blocked_on;
@@ -285,11 +286,12 @@ boolean thread_attempt_interrupt(thread t)
 
     /* flush pending blockq */
     if (bq) {
-        thread_log(current, "... interrupting blocked thread %d", t->tid);
-        blockq_flush_thread(bq, t);
+        thread_log(current, "   attempting to interrupt blocked thread %d", t->tid);
+        if (blockq_wake_one_for_thread(bq, t, true))
+            success = true;
         blockq_release(bq);
     }
-    return (bq != 0);
+    return success;
 }
 
 define_closure_function(1, 0, void, free_thread,

@@ -1,23 +1,53 @@
 typedef struct timer *timer;
-typedef closure_type(timer_handler, void, u64);
+
+/* On timer expiration, the registered timer handler will be invoked with the
+   associated timer expiry and a count of timer overruns (or a value of
+   timer_disabled (-1ull) if the timer was canceled; see below). The expiry
+   value may be used by the handler to track a number of events without the
+   need to allocate a separate handler for each event.
+
+   An overruns value of timer_disabled indicates that a timer has been
+   canceled. Every timer registration must result in at least one callback:
+   for one-shot timers, there is a terminal callback for either timer
+   expiration or cancellation. Periodic timers will run indefinitely until
+   canceled, with the last callback signalling timer_disabled. Therefore, a
+   timer handler may be deallocated only on one of these terminal conditions,
+   and not simply after a call to remove_timer(). Naturally, if multiple
+   timers are registered for the same handler, even if for the same expiry
+   (which is valid and will be treated as multiple expiration events), the
+   handler must keep track of these registrations and only deallocate the
+   handler and associated resources after the last terminal callback.
+*/
+
+#define timer_disabled (-1ull)
+
+typedef closure_type(timer_handler, void, u64 /* expiry */, u64 /* overruns */);
 
 declare_closure_struct(2, 0, void, timer_free,
                        timer, t, heap, h);
 
-typedef struct timerheap {
+typedef struct timerqueue {
+#ifdef KERNEL
+    struct spinlock lock;
+#endif
     heap h;
     pqueue pq;
+    timestamp next_expiry;      /* adjusted */
+    thunk service;
+    timestamp min;
+    timestamp max;
+    boolean service_scheduled;  /* CAS */
+    boolean update;             /* CAS; timer re-programming needed */
     const char *name;
-} *timerheap;
+} *timerqueue;
 
 struct timer {
     clock_id id;
     timestamp expiry;
     timestamp interval;
-    boolean disabled;
-    timer_handler t;
-    struct refcount refcount;
-    closure_struct(timer_free, free);
+    boolean active;
+    boolean queued;
+    timer_handler handler;
 };
 
 typedef closure_type(clock_timer, void, timestamp);
@@ -31,13 +61,37 @@ static inline void register_platform_clock_timer(clock_timer ct, thunk percpu_in
     platform_timer_percpu_init = percpu_init;
 }
 
-static inline void runloop_timer(timestamp duration)
+static inline void set_platform_timer(timestamp duration)
 {
     apply(platform_timer, duration);
 }
 
-// XXX - maybe timerheap per clocktype, or separate for proc/thread timers
-timer register_timer(timerheap th, clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n);
+static inline void init_timer(timer t)
+{
+    t->active = false;
+    t->queued = false;
+}
+
+static inline boolean timer_is_active(timer t)
+{
+    return t->active;
+}
+
+static inline timer allocate_timer(heap h)
+{
+    timer t = allocate(h, sizeof(struct timer));
+    if (t != INVALID_ADDRESS)
+        init_timer(t);
+    return t;
+}
+
+static inline void deallocate_timer(heap h, timer t)
+{
+    deallocate(h, t, sizeof(struct timer));
+}
+
+void register_timer(timerqueue tq, timer t, clock_id id,
+                    timestamp val, boolean absolute, timestamp interval, timer_handler n);
 
 #if defined(KERNEL) || defined(BUILD_VDSO)
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
@@ -81,97 +135,29 @@ static inline void timer_get_remaining(timer t, timestamp *remain, timestamp *in
     *interval = t->interval;
 }
 
-/* returns time remaining or 0 if elapsed */
-static inline void remove_timer(timer t, timestamp *remain)
+static inline void refresh_timer_update_locked(timerqueue tq, timer next)
 {
-    assert(!t->disabled);
-    t->disabled = true;
-    if (remain) {
-        timestamp x = t->expiry;
-        timestamp n = now(t->id);
-        *remain = x > n ? x - n : 0;
-    }
+    timestamp n = timer_expiry(next);
+    if (n != tq->next_expiry)
+        tq->next_expiry = n;
+    tq->update = true;
 }
 
-/* returns absolute expiry of root timer */
-static inline timestamp timer_check(timerheap th)
-{
-    timer t;
-    if ((t = pqueue_peek(th->pq))) {
-        timestamp e = timer_expiry(t);
-        /* -1ull is a valid timestamp but reserved value here */
-    	return e == infinity ? e - 1 : e;
-    }
-    return infinity;
-}
+/* Returns true if timer was successfully removed from the timer queue. A
+   return value of false means that the timer was not found in the queue.
+   This could mean that the timer already fired or was previously
+   canceled. Callers should not assume that the timer's handler was invoked
+   synchronously in such a case; it could be waiting in a queue, pending
+   execution.
+
+   If remain is nonzero and removal was successful, *remain is set to the time
+   remaining until timer elapse. */
+boolean remove_timer(timerqueue tq, timer t, timestamp *remain);
 
 typedef closure_type(timer_select, boolean, timer);
 
-timerheap allocate_timerheap(heap h, const char *name);
-void timer_service(timerheap th, timestamp here);
-void timer_reorder(timerheap th);
-void print_timestamp(buffer, timestamp);
-
-#define THOUSAND         (1000ull)
-#define MILLION          (1000000ull)
-#define BILLION          (1000000000ull)
-#define TRILLION         (1000000000000ull)
-#define QUADRILLION      (1000000000000000ull)
-#define TIMESTAMP_SECOND (1ull << 32)
-
-// danger - truncation, should always be subsec
-
-static inline timestamp seconds(u64 n)
-{
-    return n * TIMESTAMP_SECOND;
-}
-
-#define TIMESTAMP_CONV_FN(name, factor)                         \
-    static inline timestamp name(u64 n)                         \
-    {                                                           \
-        if (n == 0)                                             \
-            return 0;                                           \
-        u64 sec = n / factor;                                   \
-        n -= sec * factor;                                      \
-        return seconds(sec) + (seconds(n) / factor) + 1;        \
-    }
-
-#define TIMESTAMP_CONV_FN_2(name, factor)       \
-    static inline timestamp name(u64 n)         \
-    {                                           \
-        if (n == 0)                             \
-            return 0;                           \
-        return n / (factor >> 32) + 1;          \
-    }
-
-TIMESTAMP_CONV_FN(milliseconds, THOUSAND)
-TIMESTAMP_CONV_FN(microseconds, MILLION)
-TIMESTAMP_CONV_FN(nanoseconds, BILLION)
-TIMESTAMP_CONV_FN_2(picoseconds, TRILLION)
-TIMESTAMP_CONV_FN_2(femtoseconds, QUADRILLION)
-
-static inline timestamp truncate_seconds(timestamp t)
-{
-    return t & MASK(32);
-}
-
-static inline u64 sec_from_timestamp(timestamp t)
-{
-    return t / TIMESTAMP_SECOND;
-}
-
-static inline u64 nsec_from_timestamp(timestamp t)
-{
-    u64 sec = sec_from_timestamp(t);
-    return (sec * BILLION) +
-        ((truncate_seconds(t) * BILLION) / TIMESTAMP_SECOND);
-}
-
-static inline u64 usec_from_timestamp(timestamp t)
-{
-    u64 sec = sec_from_timestamp(t);
-    return (sec * MILLION) +
-        ((truncate_seconds(t) * MILLION) / TIMESTAMP_SECOND);
-}
+timerqueue allocate_timerqueue(heap h, const char *name);
+void timer_service(timerqueue tq, timestamp here);
+void timer_reorder(timerqueue tq);
 
 s64 rtime(s64 *result);

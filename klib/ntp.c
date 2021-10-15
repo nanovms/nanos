@@ -38,14 +38,14 @@ struct ntp_packet {
     struct ntp_ts transmit_ts;
 } __attribute((packed));
 
-declare_closure_struct(0, 1, void, ntp_query_func,
-    u64, overruns);
+declare_closure_struct(0, 2, void, ntp_query_func,
+                       u64, expiry, u64, overruns);
 
 static struct {
     char server_addr[256];
     u16 server_port;
     struct udp_pcb *pcb;
-    timer query_timer;
+    struct timer query_timer;
     closure_struct(ntp_query_func, query_func);
     boolean query_ongoing;
     u64 reset_threshold;
@@ -59,7 +59,7 @@ static struct {
     u64 last_offset;
     int jiggle_counter;
     void (*rprintf)(const char *format, ...);
-    timer (*register_timer)(clock_id id, timestamp val, boolean absolute, timestamp interval,
+    void (*register_timer)(timer t, clock_id id, timestamp val, boolean absolute, timestamp interval,
             timer_handler n);
     void (*lwip_lock)(void);
     void (*lwip_unlock)(void);
@@ -98,8 +98,8 @@ static u64 div128_64(u128 dividend, u64 divisor)
 
 static void ntp_schedule_query(void)
 {
-    if (ntp.query_timer == INVALID_ADDRESS)
-        ntp.query_timer = ntp.register_timer(CLOCK_ID_MONOTONIC_RAW,
+    if (!timer_is_active(&ntp.query_timer))
+        ntp.register_timer(&ntp.query_timer, CLOCK_ID_MONOTONIC_RAW,
             seconds(U64_FROM_BIT(ntp.query_interval)), false, 0, (timer_handler)&ntp.query_func);
 }
 
@@ -259,10 +259,11 @@ static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback
     }
 }
 
-define_closure_function(0, 1, void, ntp_query_func,
-                        u64, overruns)
+define_closure_function(0, 2, void, ntp_query_func,
+                        u64, expiry, u64, overruns)
 {
-    ntp.query_timer = INVALID_ADDRESS;
+    if (overruns == timer_disabled)
+        return;
     if (ntp.query_ongoing) {
         ntp.rprintf("NTP: failed to receive server response\n", __func__);
         ntp_query_complete(false);
@@ -385,7 +386,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     init_closure(&ntp.query_func, ntp_query_func);
     ntp.query_interval = ntp.pollmin;
     ntp.jiggle_counter = 0;
-    ntp.query_timer = ntp.register_timer(CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
+    init_timer(&ntp.query_timer);
+    ntp.register_timer(&ntp.query_timer, CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
         (timer_handler)&ntp.query_func);
     return KLIB_INIT_OK;
 }

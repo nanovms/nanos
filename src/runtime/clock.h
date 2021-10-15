@@ -130,3 +130,65 @@ void clock_reset_rtc(timestamp wallclock_now);
 #if defined(KERNEL) || defined(BUILD_VDSO)
 #undef __vdso_dat
 #endif
+
+#define THOUSAND         (1000ull)
+#define MILLION          (1000000ull)
+#define BILLION          (1000000000ull)
+#define TRILLION         (1000000000000ull)
+#define QUADRILLION      (1000000000000000ull)
+#define TIMESTAMP_SECOND (1ull << 32)
+
+// danger - truncation, should always be subsec
+
+static inline timestamp seconds(u64 n)
+{
+    return n * TIMESTAMP_SECOND;
+}
+
+#define TIMESTAMP_CONV_FN(name, factor)                         \
+    static inline timestamp name(u64 n)                         \
+    {                                                           \
+        if (n == 0)                                             \
+            return 0;                                           \
+        u64 sec = n / factor;                                   \
+        n -= sec * factor;                                      \
+        return seconds(sec) + (seconds(n) / factor) + 1;        \
+    }
+
+#define TIMESTAMP_CONV_FN_2(name, factor)       \
+    static inline timestamp name(u64 n)         \
+    {                                           \
+        if (n == 0)                             \
+            return 0;                           \
+        return n / (factor >> 32) + 1;          \
+    }
+
+TIMESTAMP_CONV_FN(milliseconds, THOUSAND)
+TIMESTAMP_CONV_FN(microseconds, MILLION)
+TIMESTAMP_CONV_FN(nanoseconds, BILLION)
+TIMESTAMP_CONV_FN_2(picoseconds, TRILLION)
+TIMESTAMP_CONV_FN_2(femtoseconds, QUADRILLION)
+
+static inline timestamp truncate_seconds(timestamp t)
+{
+    return t & MASK(32);
+}
+
+static inline u64 sec_from_timestamp(timestamp t)
+{
+    return t / TIMESTAMP_SECOND;
+}
+
+static inline u64 nsec_from_timestamp(timestamp t)
+{
+    u64 sec = sec_from_timestamp(t);
+    return (sec * BILLION) +
+        ((truncate_seconds(t) * BILLION) / TIMESTAMP_SECOND);
+}
+
+static inline u64 usec_from_timestamp(timestamp t)
+{
+    u64 sec = sec_from_timestamp(t);
+    return (sec * MILLION) +
+        ((truncate_seconds(t) * MILLION) / TIMESTAMP_SECOND);
+}

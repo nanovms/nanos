@@ -1320,10 +1320,13 @@ static void check_for_empty_rx_ring(struct ena_adapter *adapter)
     }
 }
 
-define_closure_function(1, 1, void, ena_timer_task,
-                       struct ena_adapter *, adapter,
-                       u64, overruns)
+define_closure_function(1, 2, void, ena_timer_task,
+                        struct ena_adapter *, adapter,
+                        u64, expiry, u64, overruns)
 {
+    if (overruns == timer_disabled)
+        return;
+
     struct ena_adapter *adapter = bound(adapter);
 
     check_for_missing_keep_alive(adapter);
@@ -1394,7 +1397,7 @@ int ena_up(struct ena_adapter *adapter)
      * reset and timer service will be activated afterwards.
      */
     if (ENA_FLAG_ISSET (ENA_FLAG_DEVICE_RUNNING, adapter))
-        adapter->timer_service = register_timer(runloop_timers,
+        register_timer(kernel_timers, &adapter->timer_service,
             CLOCK_ID_MONOTONIC, seconds(1), false, seconds(1),
             init_closure(&adapter->timer_task, ena_timer_task, adapter));
 
@@ -1450,7 +1453,7 @@ void ena_down(struct ena_adapter *adapter)
 
     ena_trace(NULL, ENA_INFO, "device is going DOWN\n");
 
-    remove_timer(adapter->timer_service, 0);
+    remove_timer(kernel_timers, &adapter->timer_service, 0);
 
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_DEV_UP, adapter);
     netif_clear_flags(&adapter->ifp, NETIF_FLAG_UP);
@@ -1936,7 +1939,7 @@ int ena_restore_device(struct ena_adapter *adapter)
          * caused by missing keep alive.
          */
         adapter->keep_alive_timestamp = uptime();
-        adapter->timer_service = register_timer(runloop_timers, CLOCK_ID_MONOTONIC,
+        register_timer(kernel_timers, &adapter->timer_service, CLOCK_ID_MONOTONIC,
             seconds(1), false, seconds(1), (timer_handler)&adapter->timer_task);
     }
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_DEV_UP_BEFORE_RESET, adapter);
@@ -2034,6 +2037,7 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
      * Set up the timer service - driver is responsible for avoiding
      * concurrency, as the callout won't be using any locking inside.
      */
+    init_timer(&adapter->timer_service);
     adapter->keep_alive_timeout = DEFAULT_KEEP_ALIVE_TO;
     adapter->missing_tx_timeout = DEFAULT_TX_CMP_TO;
     adapter->missing_tx_max_queues = DEFAULT_TX_MONITORED_QUEUES;

@@ -10,6 +10,8 @@ typedef u8 boolean;
 typedef u32 character;
 typedef u64 timestamp;
 
+#define compare_and_swap_boolean compare_and_swap_8
+
 #define true 1
 #define false 0
 #define infinity (-1ull)

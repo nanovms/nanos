@@ -4,15 +4,16 @@
 
 #define AZURE_MS_VERSION    "2012-11-30"
 
-declare_closure_struct(1, 1, void, report_ready_func,
+declare_closure_struct(1, 2, void, report_ready_func,
     struct azure *, az,
-    u64, overruns);
+    u64, expiry, u64, overruns);
 
 typedef struct azure {
     heap h;
     char container_id[64];
     char instance_id[64];
     timestamp report_backoff;
+    struct timer report_timer;
     closure_struct(report_ready_func, report_ready);
     tuple (*allocate_tuple)(void);
     void (*set)(value z, void *c, void *v);
@@ -25,7 +26,7 @@ typedef struct azure {
     boolean (*buffer_read)(buffer b, void *dest, bytes length);
     int (*buffer_strstr)(buffer b, const char *str);
     void (*bprintf)(buffer b, const char *fmt, ...);
-    timer (*register_timer)(clock_id id, timestamp val, boolean absolute,
+    void (*register_timer)(timer t, clock_id id, timestamp val, boolean absolute,
             timestamp interval, timer_handler n);
     status (*direct_connect)(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
     status (*http_request)(heap h, buffer_handler bh, http_method method,
@@ -38,16 +39,17 @@ typedef struct azure {
 
 static void azure_report_ready(azure az);
 
-define_closure_function(1, 1, void, report_ready_func,
+define_closure_function(1, 2, void, report_ready_func,
                         azure, az,
-                        u64, overruns)
+                        u64, expiry, u64, overruns)
 {
-    azure_report_ready(bound(az));
+    if (overruns != timer_disabled)
+        azure_report_ready(bound(az));
 }
 
 static void azure_report_retry(azure az)
 {
-    az->register_timer(CLOCK_ID_MONOTONIC, az->report_backoff, false, 0,
+    az->register_timer(&az->report_timer, CLOCK_ID_MONOTONIC, az->report_backoff, false, 0,
         init_closure(&az->report_ready, report_ready_func, az));
     if (az->report_backoff < seconds(600))
         az->report_backoff <<= 1;
@@ -247,6 +249,7 @@ boolean azure_cloud_init(heap h, klib_get_sym get_sym)
     az->h = h;
     az->container_id[0] = az->instance_id[0] = '\0';
     az->report_backoff = seconds(1);
+    init_timer(&az->report_timer);
     azure_report_ready(az);
     return true;
 }

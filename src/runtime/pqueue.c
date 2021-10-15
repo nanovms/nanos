@@ -1,5 +1,7 @@
 #include <runtime.h>
 
+//#define PQUEUE_PARANOIA
+
 typedef u32 index; //indices are off by 1 from vector references
 
 struct pqueue {
@@ -16,10 +18,10 @@ static inline void swap(pqueue q, index x, index y)
 }
 
 #define qcompare(__q, __x, __y)\
-  (q->sort(vector_get((__q)->body, (__x-1)), \
-                vector_get((__q)->body, (__y-1))))
+    (q->sort(vector_get((__q)->body, ((__x)-1)),        \
+             vector_get((__q)->body, ((__y)-1))))
 
-static void heal(pqueue q, index where)
+static void heal_down(pqueue q, index where)
 {
     index last = vector_length(q->body);
     index i;
@@ -32,6 +34,28 @@ static void heal(pqueue q, index where)
         where = i;
     }
 }
+
+static void heal_up(pqueue q, index where)
+{
+    while (where > 1 && qcompare(q, where >> 1, where)) {
+        swap(q, where >> 1, where);
+        where >>= 1;
+    }
+}
+
+#ifdef PQUEUE_PARANOIA
+boolean pqueue_validate(pqueue q, index x)
+{
+    index last = vector_length(q->body);
+    index i = x << 1;
+    if (i > last)
+        return true;
+    if ((i < last && qcompare(q, x, i + 1)) ||
+        qcompare(q, x, i))
+        return false;
+    return pqueue_validate(q, i) && (i == last || pqueue_validate(q, i + 1));
+}
+#endif
 
 static void add_pqueue(pqueue q, index i)
 {
@@ -48,6 +72,33 @@ void pqueue_insert(pqueue q, void *v)
 {
     vector_push(q->body, v);
     add_pqueue(q, vector_length(q->body));
+#ifdef PQUEUE_PARANOIA
+    assert(pqueue_validate(q, 1));
+#endif
+}
+
+boolean pqueue_remove(pqueue q, void *v)
+{
+    index i;
+    for (i = 0; i < vector_length(q->body); i++) {
+        void *e = vector_get(q->body, i);
+        if (e == v) {
+            void *n = vector_pop(q->body);
+            if (n != v) {
+                index idx = i + 1;
+                assert(vector_set(q->body, i, n));
+                if (idx > 1 && qcompare(q, idx >> 1, idx))
+                    heal_up(q, i + 1);
+                else
+                    heal_down(q, i + 1);
+            }
+#ifdef PQUEUE_PARANOIA
+            assert(pqueue_validate(q, 1));
+#endif
+            return true;
+        }
+    }
+    return false;
 }
 
 void *pqueue_pop(pqueue q)
@@ -59,9 +110,12 @@ void *pqueue_pop(pqueue q)
         void *n = vector_pop(q->body);
         if (vector_peek(q->body)){
             assert(vector_set(q->body, 0, n));
-            heal(q, 1);
+            heal_down(q, 1);
         }
     }
+#ifdef PQUEUE_PARANOIA
+    assert(pqueue_validate(q, 1));
+#endif
     return result;
 }
 
@@ -75,7 +129,10 @@ void pqueue_reorder(pqueue q)
 {
     /* Floyd's heap construction algorithm */
     for (index i = vector_length(q->body) / 2; i > 0; i--)
-        heal(q, i);
+        heal_down(q, i);
+#ifdef PQUEUE_PARANOIA
+    assert(pqueue_validate(q, 1));
+#endif
 }
 
 boolean pqueue_walk(pqueue q, pqueue_element_handler h)

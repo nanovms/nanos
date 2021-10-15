@@ -210,7 +210,8 @@ static inline void spin_lock_2(spinlock l1, spinlock l2)
 typedef struct queue *queue;
 extern queue bhqueue;
 extern queue runqueue;
-extern timerheap runloop_timers;
+extern timerqueue kernel_timers;
+extern thunk timer_interrupt_handler;
 
 backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize);
 
@@ -250,6 +251,12 @@ static inline void bhqueue_enqueue_irqsafe(thunk t)
     u64 flags = irq_disable_save();
     enqueue(bhqueue, t);
     irq_restore(flags);
+}
+
+static inline void schedule_timer_service(void)
+{
+    if (compare_and_swap_boolean(&kernel_timers->service_scheduled, false, true))
+        enqueue(bhqueue, kernel_timers->service);
 }
 
 #if !defined(BOOT)

@@ -53,8 +53,8 @@ struct virtio_balloon_stat {
     u64 val;
 } __attribute__((packed));
 
-declare_closure_struct(0, 1, void, virtio_balloon_timer_task,
-                       u64, overruns);
+declare_closure_struct(0, 2, void, virtio_balloon_timer_task,
+                       u64, expiry, u64, overruns);
 struct virtio_balloon {
     heap general;
     backed_heap backed;
@@ -63,7 +63,7 @@ struct virtio_balloon {
     virtqueue inflateq;
     virtqueue deflateq;
     virtqueue statsq;
-    timer retry_timer;
+    struct timer retry_timer;
     closure_struct(virtio_balloon_timer_task, timer_task);
     struct virtio_balloon_stat *stats;
     u64 stats_phys;
@@ -224,10 +224,7 @@ static u64 virtio_balloon_deflate(u64 n_balloon_pages)
 
 void virtio_balloon_update(void)
 {
-    if (virtio_balloon.retry_timer) {
-        remove_timer(virtio_balloon.retry_timer, 0);
-        virtio_balloon.retry_timer = 0;
-    }
+    remove_timer(kernel_timers, &virtio_balloon.retry_timer, 0);
 
     u32 num_pages = le32toh(vtdev_cfg_read_4(virtio_balloon.dev, VIRTIO_BALLOON_R_NUM_PAGES));
     virtio_balloon_debug("%s: num_pages %d, actual %d\n", __func__, num_pages,
@@ -242,13 +239,10 @@ void virtio_balloon_update(void)
                              inflated << (VIRTIO_BALLOON_ALLOC_ORDER - 20));
         if (inflated < inflate) {
             virtio_balloon_debug("   %ld balloon pages left to inflate\n", inflate - inflated);
-            if (!virtio_balloon.retry_timer) {
-                virtio_balloon_debug("   starting timer\n");
-                virtio_balloon.retry_timer =
-                    register_timer(runloop_timers, CLOCK_ID_MONOTONIC,
-                                   seconds(VIRTIO_BALLOON_RETRY_INTERVAL_SEC),
-                                   false, 0, (timer_handler)&virtio_balloon.timer_task);
-            }
+            virtio_balloon_debug("   starting timer\n");
+            register_timer(kernel_timers, &virtio_balloon.retry_timer, CLOCK_ID_MONOTONIC,
+                           seconds(VIRTIO_BALLOON_RETRY_INTERVAL_SEC),
+                           false, 0, (timer_handler)&virtio_balloon.timer_task);
         }
     } else if (delta < 0) {
         u64 deflate = (-delta) >> (VIRTIO_BALLOON_ALLOC_ORDER - VIRTIO_BALLOON_PAGE_ORDER);
@@ -344,12 +338,13 @@ static void virtio_balloon_init_statsq(void)
     vqmsg_commit(vq, m, c);
 }
 
-define_closure_function(0, 1, void, virtio_balloon_timer_task,
-                        u64, overruns)
+define_closure_function(0, 2, void, virtio_balloon_timer_task,
+                        u64, expiry, u64, overruns)
 {
-    virtio_balloon_debug("%s\n", __func__);
-    virtio_balloon_update();
-    closure_finish();
+    if (overruns != timer_disabled) {
+        virtio_balloon_debug("%s\n", __func__);
+        virtio_balloon_update();
+    }
 }
 
 static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap physical, vtdev v)
@@ -363,7 +358,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
     virtio_balloon.actual_pages = 0;
     list_init(&virtio_balloon.in_balloon);
     list_init(&virtio_balloon.free);
-    virtio_balloon.retry_timer = 0;
+    init_timer(&virtio_balloon.retry_timer);
     init_closure(&virtio_balloon.timer_task, virtio_balloon_timer_task);
 
     thunk t = closure(general, virtio_balloon_config_change, v);

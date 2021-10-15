@@ -32,6 +32,14 @@ boolean peek_pop_check(pqueue q, u64 v)
     return peek_check(q, v) && pop_check(q, v) ? true : false;
 }
 
+closure_function(1, 1, boolean, walk_test_handler,
+                 int *, visited,
+                 void *, v)
+{
+    (*bound(visited))++;
+    return v != (void *)500;
+}
+
 boolean basic_test(heap h)
 {
     char * msg = "";
@@ -122,7 +130,105 @@ boolean basic_test(heap h)
         msg = "three ascending";
         goto fail;
     }
+
+    /* pqueue_walk with abort */
+    int visited = 0;
+    pqueue_insert(q, (void *)500);
+    pqueue_insert(q, (void *)400);
+    if (pqueue_walk(q, stack_closure(walk_test_handler, &visited)) ||
+        visited != 1) {
+        msg = "pqueue_walk with abort";
+        goto fail;
+    }
+    if (!peek_pop_check(q, 500) ||
+        !peek_pop_check(q, 400)) {
+        msg = "pqueue_walk with abort teardown";
+        goto fail;
+    }
+
+    /* pqueue_walk complete */
+    visited = 0;
+    pqueue_insert(q, (void *)400);
+    pqueue_insert(q, (void *)300);
+    if (!pqueue_walk(q, stack_closure(walk_test_handler, &visited)) ||
+        visited != 2) {
+        msg = "pqueue_walk complete";
+        goto fail;
+    }
+
+    if (!peek_pop_check(q, 400) ||
+        !peek_pop_check(q, 300)) {
+        msg = "pqueue_walk complete teardown";
+        goto fail;
+    }
+
+    /* Removal on empty */
+    if (pqueue_remove(q, (void *)1)) {
+        msg = "removal on empty";
+        goto fail;
+    }
+
+    /* Removal of single */
+    pqueue_insert(q, (void *)1);
+    if (!pqueue_remove(q, (void *)1) ||
+        !peek_pop_check(q, INVALID_PHYSICAL)) {
+        msg = "removal of single";
+        goto fail;
+    }
+
+    /* Removal of root with children */
+    pqueue_insert(q, (void *)1);
+    pqueue_insert(q, (void *)2);
+    pqueue_insert(q, (void *)3);
+    if (!pqueue_remove(q, (void *)3) ||
+        !peek_pop_check(q, 2) ||
+        !peek_pop_check(q, 1) ||
+        !peek_pop_check(q, INVALID_PHYSICAL)) {
+        msg = "removal of root with children";
+        goto fail;
+    }
     
+    /* Removal of last even */
+    pqueue_insert(q, (void *)1);
+    pqueue_insert(q, (void *)2);
+    pqueue_insert(q, (void *)3);
+    if (!pqueue_remove(q, (void *)2) ||
+        !peek_pop_check(q, 3) ||
+        !peek_pop_check(q, 1) ||
+        !peek_pop_check(q, INVALID_PHYSICAL)) {
+        msg = "removal of last even";
+        goto fail;
+    }
+
+    /* Removal of last odd */
+    pqueue_insert(q, (void *)1);
+    pqueue_insert(q, (void *)2);
+    if (!pqueue_remove(q, (void *)1) ||
+        !peek_pop_check(q, 2) ||
+        !peek_pop_check(q, INVALID_PHYSICAL)) {
+        msg = "removal of last odd";
+        goto fail;
+    }
+
+    /* Removal triggering heal_up */
+    pqueue_insert(q, (void *)8);
+    pqueue_insert(q, (void *)3);
+    pqueue_insert(q, (void *)7);
+    pqueue_insert(q, (void *)1);
+    pqueue_insert(q, (void *)2);
+    pqueue_insert(q, (void *)5);
+    pqueue_insert(q, (void *)6);
+    if (!pqueue_remove(q, (void *)1) ||
+        !peek_pop_check(q, 8) ||
+        !peek_pop_check(q, 7) ||
+        !peek_pop_check(q, 6) ||
+        !peek_pop_check(q, 5) ||
+        !peek_pop_check(q, 3) ||
+        !peek_pop_check(q, 2) ||
+        !peek_pop_check(q, INVALID_PHYSICAL)) {
+        msg = "removal triggering heal_up";
+        goto fail;
+    }
     return true;
   fail:
     deallocate_pqueue(q);
@@ -174,6 +280,52 @@ static boolean reorder_sort(void *a, void *b)
     return (((struct pqueue_test_elem *)a)->val < ((struct pqueue_test_elem *)b)->val);
 }
 
+static boolean remove_test(heap h, int passes)
+{
+    const int max_elems = 512;
+    struct pqueue_test_elem elems[max_elems];
+    int num_elems;
+    int val;
+    char *err_msg = NULL;
+
+    pqueue q = allocate_pqueue(h, reorder_sort);
+    for (int pass = 0; pass < passes; pass++) {
+        num_elems = (rand() % max_elems) + 1;
+        for (int i = 0; i < num_elems; i++) {
+            elems[i].val = rand();
+            pqueue_insert(q, &elems[i]);
+        }
+        int n_remove = rand() % num_elems;
+        for (int i = 0; i < n_remove; i++) {
+            if (!pqueue_remove(q, &elems[i])) {
+                err_msg = "pqueue_remove returned false";
+                goto done;
+            }
+        }
+        num_elems -= n_remove;
+        val = RAND_MAX;
+        for (int i = 0; i < num_elems; i++) {
+            struct pqueue_test_elem *elem = pqueue_pop(q);
+            if (elem->val > val) {
+                err_msg = "pop out of order";
+                goto done;
+            }
+            val = elem->val;
+        }
+        void *z = pqueue_pop(q);
+        if (z != INVALID_ADDRESS) {
+            err_msg = "popped one too many elements";
+            break;
+        }
+    }
+  done:
+    deallocate_pqueue(q);
+    if (!err_msg)
+        return true;
+    msg_err("%s\n", err_msg);
+    return false;
+}
+
 static boolean reorder_test(heap h, int passes)
 {
     const int max_elems = 512;
@@ -221,6 +373,9 @@ int main(int argc, char **argv)
 	goto fail;
 
     if (!random_test(h, 100, 1000))
+        goto fail;
+
+    if (!remove_test(h, 100))
         goto fail;
 
     if (!reorder_test(h, 1000))

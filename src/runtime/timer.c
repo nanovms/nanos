@@ -1,4 +1,12 @@
+#ifdef KERNEL
+#include <kernel.h>
+#define timer_lock(tq) spin_lock(&(tq)->lock)
+#define timer_unlock(tq) spin_unlock(&(tq)->lock)
+#else
 #include <runtime.h>
+#define timer_lock(tq)
+#define timer_unlock(tq)
+#endif
 
 //#define TIMER_DEBUG
 #ifdef TIMER_DEBUG
@@ -10,102 +18,139 @@
 /* The lower time expiry is the higher priority. */
 static boolean timer_compare(void *za, void *zb)
 {
+    /* XXX FIXME This will fail if monotonic now ever wraps. From the
+       clock_gettime(2) manpage, the clock starts at some "unspecified
+       starting point." This could be resolved by comparing deltas to some
+       reference point, perhaps even set once on boot (good for ~68 years). */
     return timer_expiry((timer)za) > timer_expiry((timer)zb);
 }
 
-define_closure_function(2, 0, void, timer_free,
-                        timer, t, heap, h)
+void register_timer(timerqueue tq, timer t, clock_id id,
+                    timestamp val, boolean absolute, timestamp interval, timer_handler n)
 {
-    deallocate(bound(h), bound(t), sizeof(struct timer));
-}
-
-timer register_timer(timerheap th, clock_id id, timestamp val, boolean absolute, timestamp interval, timer_handler n)
-{
-    timer t = allocate(th->h, sizeof(struct timer));
-    if (t == INVALID_ADDRESS) {
-        msg_err("failed to allocate timer\n");
-        return INVALID_ADDRESS;
-    }
-
     t->id = id;
     t->expiry = absolute ? val : now(id) + val;
     t->interval = interval;
-    t->disabled = false;
-    t->t = n;
+    assert(!t->queued);
+    t->active = true;
+    t->queued = true;
+    t->handler = n;
 
-    init_refcount(&t->refcount, 1, init_closure(&t->free, timer_free, t, th->h));
-    pqueue_insert(th->pq, t);
+    timer_lock(tq);
+    pqueue_insert(tq->pq, t);
+    timer next = pqueue_peek(tq->pq);
+    if (next)
+        refresh_timer_update_locked(tq, next);
+    timer_unlock(tq);
     timer_debug("register timer: %p, expiry %T, interval %T, handler %p\n", t, t->expiry, interval, n);
-    return t;
 }
 
-// XXX change to support multiple timer heaps - might help us clean up
-// clocksource interface later
+boolean remove_timer(timerqueue tq, timer t, timestamp *remain)
+{
+    timer_lock(tq);
+    timestamp x = t->expiry;
 
-void timer_service(timerheap th, timestamp here)
+    if (!t->active) {
+        assert(!t->queued);
+        timer_unlock(tq);
+        return false;
+    }
+
+    t->active = false;
+    if (t->queued) {
+        /* We are able to remove the timer from the queue, so we can safely
+           invoke the timer handler here. */
+        t->queued = false;
+        assert(pqueue_remove(tq->pq, t));
+        timer_unlock(tq);
+        apply(t->handler, 0, timer_disabled);
+    } else {
+        /* This is an interval timer that was removed from tq and is amidst
+           handler servicing. Calling the handler here would risk the two
+           invocations happening out-of-sequence, with the actual timer expiry
+           occurring after the call with timer_disabled. This is dangerous, so
+           let timer_service() to do the terminal invocation for us. */
+        assert(t->interval != 0);
+        timer_unlock(tq);
+    }
+
+    if (remain) {
+        timestamp n = now(t->id);
+        *remain = x > n ? x - n : 0;
+    }
+    return true;
+}
+
+void timer_service(timerqueue tq, timestamp here)
 {
     timer t;
     s64 delta;
+    u64 overruns;
 
-    timer_debug("timer_service enter for heap \"%s\" at %T\n", th->name, here);
-    while ((t = pqueue_peek(th->pq)) && (delta = here - timer_expiry(t), delta >= 0)) {
-        pqueue_pop(th->pq);
-        if (!t->disabled) {
-            if (t->interval) {
-                u64 overruns = delta > t->interval ? delta / t->interval + 1 : 1;
-                timer_debug("apply %p (%F), overruns %ld\n", t, t->t, overruns);
-                apply(t->t, overruns);
-                if (!t->disabled) {
-                    t->expiry += t->interval * overruns;
-                    pqueue_insert(th->pq, t);
-                    continue;
-                }
+    timer_debug("timer_service enter for heap \"%s\" at %T\n", tq->name, here);
+    timer_lock(tq);
+    while ((t = pqueue_peek(tq->pq)) && (delta = here - timer_expiry(t), delta >= 0)) {
+        pqueue_pop(tq->pq);
+        assert(t->active && t->queued);
+        boolean interval = t->interval != 0;
+        if (interval) {
+            overruns = delta > t->interval ? delta / t->interval + 1 : 1;
+            t->expiry += t->interval * overruns;
+        } else {
+            overruns = 1;
+            t->active = false;
+        }
+        t->queued = false;
+        timer_unlock(tq);
+        timer_debug("timer %p: expiry %T, overruns %ld, delta %T, apply handler %p (%F)\n",
+                    t, timer_expiry(t), overruns, delta, t->handler, t->handler);
+        apply(t->handler, t->expiry, overruns);
+        timer_lock(tq);
+        if (interval) {
+            if (t->active) {
+                t->queued = true;
+                pqueue_insert(tq->pq, t);
             } else {
-                timer_debug("timer expiry %T, delta %T, apply %p (%F)\n",
-                            timer_expiry(t), delta, t, t->t);
-                apply(t->t, 1);
+                /* The timer was removed while this routine was in the process
+                   of invoking the handler on expiry. The handler invocation
+                   with timer_disabled should happen here to insure that it is
+                   the final handler callback. */
+                timer_unlock(tq);
+                apply(t->handler, 0, timer_disabled);
+                timer_lock(tq);
             }
         }
-        refcount_release(&t->refcount);
     }
+    if (t)
+        refresh_timer_update_locked(tq, t);
+    timer_unlock(tq);
 }
 
-void timer_reorder(timerheap th)
+void timer_reorder(timerqueue tq)
 {
-    pqueue_reorder(th->pq);
+    timer_lock(tq);
+    pqueue_reorder(tq->pq);
+    timer_unlock(tq);
 }
 
-void print_timestamp(string b, timestamp t)
+timerqueue allocate_timerqueue(heap h, const char *name)
 {
-    u32 s= t>>32;
-    u64 f= t&MASK(32);
-
-    bprintf(b, "%d", s);
-    if (f) {
-        int count=0;
-
-        bprintf(b,".");
-
-        /* should round or something */
-        while ((f *= 10) && (count++ < 6)) {
-            u32 d = (f>>32);
-            bprintf (b, "%d", d);
-            f -= ((u64)d)<<32;
-        }
-    }
-}
-
-timerheap allocate_timerheap(heap h, const char *name)
-{
-    timerheap th = allocate(h, sizeof(struct timerheap));
-    th->pq = allocate_pqueue(h, timer_compare);
-    if (th->pq == INVALID_ADDRESS) {
-        deallocate(h, th, sizeof(struct timerheap));
+    timerqueue tq = allocate(h, sizeof(struct timerqueue));
+    tq->pq = allocate_pqueue(h, timer_compare);
+    if (tq->pq == INVALID_ADDRESS) {
+        deallocate(h, tq, sizeof(struct timerqueue));
         return INVALID_ADDRESS;
     }
-    th->h = h;
-    th->name = name;
-    return th;
+    tq->h = h;
+    tq->name = name;
+#ifdef KERNEL
+    spin_lock_init(&tq->lock);
+    tq->service_scheduled = tq->update = false;
+    tq->next_expiry = 0;
+    tq->service = 0;
+    tq->min = tq->max = 0;
+#endif
+    return tq;
 }
 
 s64 rtime(s64 *result)

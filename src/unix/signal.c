@@ -965,7 +965,7 @@ closure_function(1, 2, boolean, signalfd_notify,
 
     /* null thread on notify set release (thread dealloc) */
     if (t)
-        blockq_wake_one_for_thread(sfd->bq, t);
+        blockq_wake_one_for_thread(sfd->bq, t, false);
     notify_dispatch_for_thread(sfd->f.ns, EPOLLIN, t);
     return false;
 }

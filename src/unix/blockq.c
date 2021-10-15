@@ -42,6 +42,9 @@
 #define blockq_debug(x, ...)
 #endif
 
+#define blockq_lock(bq) spin_lock(&bq->lock)
+#define blockq_unlock(bq) spin_unlock(&bq->lock)
+
 /* This applies a blockq action after it has been removed from the
    waiters list. If the action indicates that waiting should continue,
    it re-adds the thread to the waiter list and returns false. If the
@@ -49,7 +52,7 @@
 static boolean blockq_apply(blockq bq, thread t, u64 bq_flags)
 {
     sysreturn rv;
-    boolean terminal = false;
+    boolean terminal;
     blockq_debug("bq %p (\"%s\") tid:%ld %s %s %s\n",
                  bq, blockq_name(bq), t->tid,
                  (bq_flags & BLOCKQ_ACTION_BLOCKED) ? "blocked " : "",
@@ -58,20 +61,12 @@ static boolean blockq_apply(blockq bq, thread t, u64 bq_flags)
 
     thread ot = current;
     thread_resume(t);
+    assert(t->blocked_on == bq);
     rv = apply(t->bq_action, bq_flags);
     blockq_debug("   - returned %ld\n", rv);
-
-    /* If the blockq_action returns BLOCKQ_BLOCK_REQUIRED and neither
-       nullify or timeout are set in bq_flags, continue blocking. */
     if ((bq_flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) ||
         (rv != BLOCKQ_BLOCK_REQUIRED)) {
         blockq_debug("   completed\n");
-        u64 saved_flags = spin_lock_irq(&bq->lock);
-        if (t->bq_timeout) {
-            remove_timer(t->bq_timeout, 0);
-            t->bq_timeout = 0;
-        }
-        spin_unlock_irq(&bq->lock, saved_flags);
 
         io_completion completion = t->bq_completion;
         if (completion) {
@@ -81,9 +76,10 @@ static boolean blockq_apply(blockq bq, thread t, u64 bq_flags)
         thread_release(t);
         terminal = true;
     } else {
-        u64 saved_flags = spin_lock_irq(&bq->lock);
+        blockq_lock(bq);
         list_insert_before(&bq->waiters_head, &t->bq_l);
-        spin_unlock_irq(&bq->lock, saved_flags);
+        blockq_unlock(bq);
+        terminal = false;
     }
     if (ot)
         thread_resume(ot);
@@ -91,25 +87,57 @@ static boolean blockq_apply(blockq bq, thread t, u64 bq_flags)
 }
 
 /* A blockq_thread timed out. */
-define_closure_function(2, 1, void, blockq_thread_timeout,
+define_closure_function(2, 2, void, blockq_thread_timeout,
                         blockq, bq, thread, t,
-                        u64, overruns /* ignored */)
+                        u64, expiry, u64, overruns)
 {
     blockq bq = bound(bq);
     thread t = bound(t);
     blockq_debug("bq %p (\"%s\") tid %d\n", bq, blockq_name(bq), t->tid);
-
-    /* Take the bq lock here to insure an atomic rmw of t->bq_timeout. */
-    u64 saved_flags = spin_lock_irq(&bq->lock);
-    if (t->bq_timeout) {
-        t->bq_timeout = 0;
-        assert(t->bq_l.next && t->bq_l.prev);
+    if (overruns != timer_disabled) {
+        /* Use bq->lock to protect t->bq_timer_pending. */
+        blockq_lock(bq);
+        assert(t->bq_timer_pending);
+        t->bq_timer_pending = false;
         list_delete(&t->bq_l);
-        spin_unlock_irq(&bq->lock, saved_flags);
+        blockq_unlock(bq);
         blockq_apply(bq, t, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_TIMEDOUT);
-    } else {
-        spin_unlock_irq(&bq->lock, saved_flags);
     }
+}
+
+/* Called with bq and thread locks taken, returns with them released. */
+static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_flags)
+{
+    timestamp remain;
+    boolean timer_pending = t->bq_timer_pending;
+    if (timer_pending) {
+        if (remove_timer(kernel_timers, &t->bq_timer, &remain)) {
+            t->bq_timer_pending = false;
+        } else {
+            /* The timeout already fired, so let it proceed and skip the wakeup. */
+            goto unlock_fail;
+        }
+    }
+
+    if (!list_inserted(&t->bq_l)) {
+        /* If this thread is not on a waiting list, another wakeup beat us to it */
+        assert(!timer_pending);
+        goto unlock_fail;
+    }
+    list_delete(&t->bq_l);
+    thread_unlock(t);
+    blockq_unlock(bq);
+    boolean terminal = blockq_apply(bq, t, bq_flags);
+    if (!terminal && timer_pending) {
+        t->bq_timer_pending = true;
+        register_timer(kernel_timers, &t->bq_timer, t->bq_timer.id,
+                       remain, false, 0, (timer_handler)&t->bq_timeout_func);
+    }
+    return terminal;
+  unlock_fail:
+    thread_unlock(t);
+    blockq_unlock(bq);
+    return false;
 }
 
 /* Wake a single waiter, returning the thread whose action was applied
@@ -119,39 +147,31 @@ define_closure_function(2, 1, void, blockq_thread_timeout,
 thread blockq_wake_one(blockq bq)
 {
     blockq_debug("%p (\"%s\") \n", bq, blockq_name(bq));
-
-    u64 saved_flags = spin_lock_irq(&bq->lock);
+    blockq_lock(bq);
     list l = list_get_next(&bq->waiters_head);
     if (l) {
         thread t = struct_from_list(l, thread, bq_l);
-        list_delete(l);
-        spin_unlock_irq(&bq->lock, saved_flags);
-        return blockq_apply(bq, t, BLOCKQ_ACTION_BLOCKED) ? t : INVALID_ADDRESS;
+        thread_lock(t);
+        return blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED) ?
+            t : INVALID_ADDRESS;
     }
-    spin_unlock_irq(&bq->lock, saved_flags);
+    blockq_unlock(bq);
     return INVALID_ADDRESS;
 }
 KLIB_EXPORT(blockq_wake_one);
 
-
-static inline boolean blockq_wake_thread_internal(blockq bq, thread t, u64 bq_flags)
+boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify)
 {
-    blockq_debug("%p (\"%s\"), tid %d\n", bq, blockq_name(bq), t->tid);
-    assert(t->bq_l.next && t->bq_l.prev);
-    u64 saved_flags = spin_lock_irq(&bq->lock);
-    list_delete(&t->bq_l);
-    spin_unlock_irq(&bq->lock, saved_flags);
-    return blockq_apply(bq, t, bq_flags);
-}
-
-boolean blockq_wake_one_for_thread(blockq bq, thread t)
-{
-    return blockq_wake_thread_internal(bq, t, BLOCKQ_ACTION_BLOCKED);
-}
-
-boolean blockq_flush_thread(blockq bq, thread t)
-{
-    return blockq_wake_thread_internal(bq, t, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_NULLIFY);
+    thread_log(current, "%s: tid %d", __func__, t->tid);
+    blockq_lock(bq);
+    thread_lock(t);
+    if (t->blocked_on != bq) {
+        thread_unlock(t);
+        blockq_unlock(bq);
+        return false;
+    }
+    return blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED |
+                                       (nullify ? BLOCKQ_ACTION_NULLIFY : 0));
 }
 
 sysreturn kern_blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
@@ -176,27 +196,22 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
         return rv;
     }
 
-    t->bq_action = a;
+    blockq_lock(bq);
+    thread_lock(t);
     thread_reserve(t);
-
-    if (timeout > 0) {
-        assert(!t->bq_timeout);
-        t->bq_timeout = register_timer(runloop_timers, clkid, timeout, absolute, 0,
-                                       init_closure(&t->bq_timeout_func, blockq_thread_timeout, bq, t));
-        if (t->bq_timeout == INVALID_ADDRESS) {
-            msg_err("failed to allocate blockq timer\n");
-            return -EAGAIN;
-        }
-    } else {
-        t->bq_timeout = 0;
-    }
-
-    blockq_debug("queuing action %p, tid %d\n", t->bq_action, t->tid);
-    u64 saved_flags = spin_lock_irq(&bq->lock);
-    list_insert_before(&bq->waiters_head, &t->bq_l);
-    spin_unlock_irq(&bq->lock, saved_flags);
+    t->bq_action = a;
     if (!in_bh)
         t->blocked_on = bq;
+    if (timeout > 0) {
+        t->bq_timer_pending = true;
+        register_timer(kernel_timers, &t->bq_timer, clkid, timeout, absolute, 0,
+                       init_closure(&t->bq_timeout_func, blockq_thread_timeout, bq, t));
+    } else {
+        t->bq_timer_pending = false;
+    }
+    list_insert_before(&bq->waiters_head, &t->bq_l);
+    thread_unlock(t);
+    blockq_unlock(bq);
 
     /* if we're either in bh or a non-current thread is invoking this, return now */
     if (in_bh || (current != t))
@@ -222,47 +237,56 @@ void blockq_flush(blockq bq)
 {
     blockq_debug("bq %p - \"%s\"\n", bq, blockq_name(bq));
     do {
-        u64 saved_flags = spin_lock_irq(&bq->lock);
+        blockq_lock(bq);
         list l = list_get_next(&bq->waiters_head);
         if (!l) {
-            spin_unlock_irq(&bq->lock, saved_flags);
+            blockq_unlock(bq);
             return;
         }
-        list_delete(l);
-        spin_unlock_irq(&bq->lock, saved_flags);
-        blockq_apply(bq, struct_from_list(l, thread, bq_l),
-                     BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_NULLIFY);
+        thread t = struct_from_list(l, thread, bq_l);
+        thread_lock(t);
+        blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_NULLIFY);
     } while (1);
 }
 
 int blockq_transfer_waiters(blockq dest, blockq src, int n)
 {
     int transferred = 0;
-    u64 saved_flags = spin_lock_irq(&src->lock);
-    spin_lock(&dest->lock);
+    spin_lock_2(&src->lock, &dest->lock);
     list_foreach(&src->waiters_head, l) {
         if (transferred >= n)
             break;
         thread t = struct_from_list(l, thread, bq_l);
-        if (t->bq_timeout) {
-            timestamp remain;
-            clock_id id = t->bq_timeout->id;
-            remove_timer(t->bq_timeout, &remain);
-            t->bq_timeout = remain == 0 ? 0 :
-                register_timer(runloop_timers, id, remain, false, 0,
-                               init_closure(&t->bq_timeout_func, blockq_thread_timeout,
-                                            dest, t));
-        }
-        list_delete(&t->bq_l);
         thread_lock(t);
         assert(t->blocked_on == src);
-        t->blocked_on = dest;
-        thread_unlock(t);
+        boolean timer_pending = t->bq_timer_pending;
+        timestamp remain;
+        clock_id id;
+        if (timer_pending) {
+            id = t->bq_timer.id;
+            if (!remove_timer(kernel_timers, &t->bq_timer, &remain)) {
+                /* This waiter timed out, but the timeout has yet to be
+                   serviced. Instead of moving this waiter to the new queue,
+                   leave it to finish timing out. */
+                thread_unlock(t);
+                continue;
+            }
+        }
+        list_delete(&t->bq_l);
         list_insert_before(&dest->waiters_head, &t->bq_l);
+        t->blocked_on = dest;
+        if (timer_pending && remain > 0) {
+            register_timer(kernel_timers, &t->bq_timer, id, remain, false, 0,
+                           init_closure(&t->bq_timeout_func, blockq_thread_timeout,
+                                        dest, t));
+        } else {
+            t->bq_timer_pending = false;
+        }
+        thread_unlock(t);
         transferred++;
     }
-    spin_unlock(&dest->lock);
-    spin_unlock_irq(&src->lock, saved_flags);
+    blockq_unlock(dest);
+    blockq_unlock(src);
     return transferred;
 }
 
@@ -276,7 +300,8 @@ void blockq_set_completion(blockq bq, io_completion completion, thread t, sysret
 
 void blockq_thread_init(thread t)
 {
-    t->bq_timeout = 0;
+    t->bq_timer_pending = false;
+    init_timer(&t->bq_timer);
     t->bq_action = 0;
     t->bq_l.prev = t->bq_l.next = 0;
     t->bq_completion = 0;

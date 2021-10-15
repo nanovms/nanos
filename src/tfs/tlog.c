@@ -88,7 +88,7 @@ struct log {
     vector encoding_lengths;
     u64 tuple_bytes_remain;
 
-    timer flush_timer;
+    struct timer flush_timer;
     vector flush_completions;
     boolean dirty;
     boolean flushing;
@@ -238,7 +238,7 @@ static log log_new(heap h, filesystem fs)
     tl->tuple_bytes_remain = 0;
     tl->dirty = false;
     tl->flushing = false;
-    tl->flush_timer = 0;
+    init_timer(&tl->flush_timer);
     tl->flush_completions = allocate_vector(tl->h, COMPLETION_QUEUE_SIZE);
     if (tl->flush_completions == INVALID_ADDRESS)
         goto fail_dealloc_encoding_lengths;
@@ -550,10 +550,9 @@ void log_flush(log tl, status_handler completion)
         vector_push(tl->flush_completions, completion);
     if (tl->flushing || tl->compacting)
         return;
-    if (tl->flush_timer) {
-        remove_timer(tl->flush_timer, 0);
-        tl->flush_timer = 0;
-    }
+#ifdef KERNEL
+    remove_timer(kernel_timers, &tl->flush_timer, 0);
+#endif
     tl->flushing = true;
     merge m = allocate_merge(tl->h, closure(tl->h, log_flush_complete, tl));
     status_handler sh = apply_merge(m);
@@ -605,14 +604,15 @@ void log_flush(log tl, status_handler completion)
 }
 
 #ifdef KERNEL
-closure_function(1, 1, void, log_flush_timer_expired,
+closure_function(1, 2, void, log_flush_timer_expired,
                  log, tl,
-                 u64, overruns /* ignored */)
+                 u64, expiry, u64, overruns)
 {
-    bound(tl)->flush_timer = 0;
-    tlog_lock(bound(tl));
-    log_flush(bound(tl), 0);
-    tlog_unlock(bound(tl));
+    if (overruns != timer_disabled) {
+        tlog_lock(bound(tl));
+        log_flush(bound(tl), 0);
+        tlog_unlock(bound(tl));
+    }
     closure_finish();
 }
 
@@ -625,10 +625,9 @@ static void log_set_dirty(log tl)
         return;
     }
     tl->dirty = true;
-    assert(!tl->flush_timer);
-    tl->flush_timer = register_timer(runloop_timers, CLOCK_ID_MONOTONIC_RAW,
-                                     seconds(TFS_LOG_FLUSH_DELAY_SECONDS), false, 0,
-                                     closure(tl->h, log_flush_timer_expired, tl));
+    register_timer(kernel_timers, &tl->flush_timer, CLOCK_ID_MONOTONIC_RAW,
+                   seconds(TFS_LOG_FLUSH_DELAY_SECONDS), false, 0,
+                   closure(tl->h, log_flush_timer_expired, tl));
 }
 #else
 /* mkfs: flush on close */
@@ -1007,8 +1006,9 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 
 void log_destroy(log tl)
 {
-    if (tl->flush_timer)
-        remove_timer(tl->flush_timer, 0);
+#ifdef KERNEL
+    remove_timer(kernel_timers, &tl->flush_timer, 0);
+#endif
     if (tl->extents)
         deallocate_table(tl->extents);
     deallocate_vector(tl->flush_completions);

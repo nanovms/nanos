@@ -190,9 +190,8 @@ static inline const char * blockq_name(blockq bq)
 }
 
 thread blockq_wake_one(blockq bq);
-boolean blockq_wake_one_for_thread(blockq bq, thread t);
+boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify);
 void blockq_flush(blockq bq);
-boolean blockq_flush_thread(blockq bq, thread t);
 void blockq_set_completion(blockq bq, io_completion completion, thread t,
                            sysreturn rv);
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
@@ -274,9 +273,9 @@ declare_closure_struct(2, 1, void, thread_demand_page_complete,
 #define thread_frame(t) ((t)->active_frame)
 #define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
 
-declare_closure_struct(2, 1, void, blockq_thread_timeout,
+declare_closure_struct(2, 2, void, blockq_thread_timeout,
                        blockq, bq, struct thread *, t,
-                       u64, overruns);
+                       u64, expiry, u64, overruns);
 
 typedef struct thread {
     struct nanos_thread thrd;
@@ -314,7 +313,8 @@ typedef struct thread {
     void *robust_list;
 
     /* blockq data */
-    timer bq_timeout;         /* timer for this item (could be zero) */
+    boolean bq_timer_pending;
+    struct timer bq_timer;         /* timer for this item */
     closure_struct(blockq_thread_timeout, bq_timeout_func);
     blockq_action bq_action;  /* action to check for wake, timeout or abort */
     struct list bq_l;         /* embedding on blockq->waiters_head */

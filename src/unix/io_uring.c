@@ -185,15 +185,15 @@ typedef struct iour_poll {
     closure_struct(iour_poll_notify, handler);
 } *iour_poll;
 
-declare_closure_struct(2, 1, void, iour_timeout,
+declare_closure_struct(2, 2, void, iour_timeout,
                        io_uring, iour, struct iour_timer *, t,
-                       u64, overruns);
+                       u64, expiry, u64, overruns);
 
 typedef struct iour_timer {
     struct list l;
     unsigned int target;
     u64 user_data;
-    timer t;
+    struct timer t;
     closure_struct(iour_timeout, handler);
 } *iour_timer;
 
@@ -284,7 +284,7 @@ define_closure_function(1, 2, sysreturn, iour_close,
     spin_unlock_irq(&iour->lock, irqflags);
     list_foreach(&deleted_items, l) {
         iour_timer iour_tim = struct_from_list(l, iour_timer, l);
-        remove_timer(iour_tim->t, 0);
+        remove_timer(kernel_timers, &iour_tim->t, 0);
         deallocate(iour->h, iour_tim, sizeof(*iour_tim));
     }
     irqflags = spin_lock_irq(&iour->lock);
@@ -542,7 +542,7 @@ check_timers:
     iour_unlock(iour);
     list_foreach(&deleted_timers, l) {
         iour_timer iour_tim = struct_from_list(l, iour_timer, l);
-        remove_timer(iour_tim->t, 0);
+        remove_timer(kernel_timers, &iour_tim->t, 0);
         deallocate(iour->h, iour_tim, sizeof(*iour_tim));
     }
     if (bq)
@@ -690,10 +690,13 @@ static void iour_poll_remove(io_uring iour, u64 addr, u64 user_data)
     iour_complete(iour, user_data, res, false, false);
 }
 
-define_closure_function(2, 1, void, iour_timeout,
+define_closure_function(2, 2, void, iour_timeout,
                         io_uring, iour, iour_timer, t,
-                        u64, overruns)
+                        u64, expiry, u64, overruns)
 {
+    if (overruns == timer_disabled)
+        return;
+
     io_uring iour = bound(iour);
     iour_timer t = bound(t);
     iour_lock(iour);
@@ -723,6 +726,7 @@ static void iour_timeout_add(io_uring iour, struct timespec *ts, u32 flags,
         goto done;
     }
     iour_tim->user_data = user_data;
+    init_timer(&iour_tim->t);
     iour_lock(iour);
 
     /* off == 0 indicates a pure timeout request, i.e. one not linked to
@@ -734,14 +738,9 @@ static void iour_timeout_add(io_uring iour, struct timespec *ts, u32 flags,
     iour_debug("target %ld", iour_tim->target);
 
     list_push_back(&iour->timers, &iour_tim->l);
-    iour_tim->t = register_timer(runloop_timers, CLOCK_ID_MONOTONIC,
+    register_timer(kernel_timers, &iour_tim->t, CLOCK_ID_MONOTONIC,
         time_from_timespec(ts), flags & IORING_TIMEOUT_ABS, 0,
         init_closure(&iour_tim->handler, iour_timeout, iour, iour_tim));
-    if (iour_tim->t == INVALID_ADDRESS) {
-        err = -ENOMEM;
-        list_delete(&iour_tim->l);
-        deallocate(iour->h, iour_tim, sizeof(*iour_tim));
-    }
     iour_unlock(iour);
 done:
     if (err)
@@ -763,7 +762,7 @@ static void iour_timeout_remove(io_uring iour, u64 addr, u64 user_data)
     }
     iour_unlock(iour);
     if (t) {
-        remove_timer(t->t, 0);
+        remove_timer(kernel_timers, &t->t, 0);
         iour_complete(iour, addr, -ECANCELED, false, false);
         res = 0;
         deallocate(iour->h, t, sizeof(*t));
