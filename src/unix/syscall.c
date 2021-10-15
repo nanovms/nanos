@@ -2245,9 +2245,9 @@ sysreturn getcpu(unsigned int *cpu, unsigned int *node, void *tcache)
 
 void register_file_syscalls(struct syscall *map)
 {
-    register_syscall(map, read, read);
+    register_syscall_nolock(map, read, read);
     register_syscall(map, pread64, pread);
-    register_syscall(map, write, write);
+    register_syscall_nolock(map, write, write);
     register_syscall(map, pwrite64, pwrite);
 #ifdef __x86_64__
     register_syscall(map, open, open);
@@ -2299,7 +2299,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, unlinkat, unlinkat);
     register_syscall(map, renameat, renameat);
     register_syscall(map, renameat2, renameat2);
-    register_syscall(map, close, close);
+    register_syscall_nolock(map, close, close);
     register_syscall(map, sched_yield, sched_yield);
     register_syscall(map, brk, brk);
     register_syscall(map, uname, uname);
@@ -2337,15 +2337,6 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, io_uring_register, io_uring_register);
     register_syscall(map, getcpu, getcpu);
 }
-
-#define SYSCALL_F_NOTRACE 0x1
-#define SYSCALL_F_NOLOCK  0x2
-
-struct syscall {
-    void *handler;
-    const char *name;
-    int flags;
-};
 
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall *linux_syscalls = _linux_syscalls;
@@ -2520,10 +2511,9 @@ static boolean syscall_defer;
 static void syscall_schedule(context f)
 {
     /* kernel context set on syscall entry */
-    u64 call = f[FRAME_VECTOR];
     current_cpu()->state = cpu_kernel;
     thread t = pointer_from_u64(f[FRAME_THREAD]);
-    struct syscall *s = t->p->syscalls + call;
+    struct syscall *s = t->p->syscalls + f[FRAME_VECTOR];
     if (!(s->flags & SYSCALL_F_NOLOCK) && !kern_try_lock()) {
         enqueue_irqsafe(runqueue, &current->deferred_syscall);
         thread_pause(current);

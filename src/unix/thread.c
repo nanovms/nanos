@@ -98,7 +98,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
 
 void register_thread_syscalls(struct syscall *map)
 {
-    register_syscall(map, futex, futex);
+    register_syscall_nolock(map, futex, futex);
     register_syscall(map, set_robust_list, set_robust_list);
     register_syscall(map, get_robust_list, get_robust_list);
     register_syscall(map, clone, clone);

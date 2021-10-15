@@ -140,8 +140,8 @@ void register_clock_syscalls(struct syscall *map)
 #endif
     register_syscall(map, clock_gettime, clock_gettime);
     register_syscall(map, clock_getres, syscall_ignore);
-    register_syscall(map, clock_nanosleep, clock_nanosleep);
-    register_syscall(map, gettimeofday, gettimeofday);
-    register_syscall(map, nanosleep, nanosleep);
+    register_syscall_nolock(map, clock_nanosleep, clock_nanosleep);
+    register_syscall_nolock(map, gettimeofday, gettimeofday);
+    register_syscall_nolock(map, nanosleep, nanosleep);
     register_syscall(map, times, times);
 }

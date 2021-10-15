@@ -1053,16 +1053,16 @@ sysreturn poll(struct pollfd *fds, nfds_t nfds, int timeout)
 void register_poll_syscalls(struct syscall *map)
 {
 #ifdef __x86_64__
-    register_syscall(map, epoll_create, epoll_create);
-    register_syscall(map, epoll_wait, epoll_wait);
-    register_syscall(map, poll, poll);
-    register_syscall(map, select, select);
+    register_syscall_nolock(map, epoll_create, epoll_create);
+    register_syscall_nolock(map, epoll_wait, epoll_wait);
+    register_syscall_nolock(map, poll, poll);
+    register_syscall_nolock(map, select, select);
 #endif
-    register_syscall(map, epoll_create1, epoll_create);
-    register_syscall(map, epoll_ctl, epoll_ctl);
-    register_syscall(map, ppoll, ppoll);
-    register_syscall(map, pselect6, pselect);
-    register_syscall(map, epoll_pwait, epoll_wait); /* sigmask unused right now */
+    register_syscall_nolock(map, epoll_create1, epoll_create);
+    register_syscall_nolock(map, epoll_ctl, epoll_ctl);
+    register_syscall_nolock(map, ppoll, ppoll);
+    register_syscall_nolock(map, pselect6, pselect);
+    register_syscall_nolock(map, epoll_pwait, epoll_wait); /* sigmask unused right now */
 }
 
 boolean poll_init(unix_heaps uh)

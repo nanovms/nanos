@@ -464,7 +464,14 @@ void *process_map_physical(process p, u64 phys_addr, u64 size, u64 vmflags);
 
 typedef struct file *file;
 
-struct syscall;
+#define SYSCALL_F_NOTRACE 0x1
+#define SYSCALL_F_NOLOCK  0x2
+
+struct syscall {
+    void *handler;
+    const char *name;
+    int flags;
+};
 
 typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
@@ -796,6 +803,8 @@ void restore_ucontext(struct ucontext * uctx, context f);
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 
 #define register_syscall(m, n, f) _register_syscall(m, SYS_##n, f, #n)
+
+#define register_syscall_nolock(m, n, f) do { _register_syscall(m, SYS_##n, f, #n); (m)[SYS_##n].flags |= SYSCALL_F_NOLOCK; } while(0)
 
 void configure_syscalls(process p);
 boolean syscall_notrace(process p, int syscall);
