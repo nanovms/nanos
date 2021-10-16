@@ -426,7 +426,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         rprintf("syslog: kernel symbols not found\n");
         return KLIB_INIT_FAILED;
     }
-    syslog.h = heap_general(get_kernel_heaps());
+    syslog.h = heap_locked(get_kernel_heaps());
     tuple root = get_root_tuple();
     tuple cfg = get(root, sym(syslog));
     if (!cfg) {

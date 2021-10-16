@@ -62,7 +62,7 @@ closure_function(1, 4, u64, klib_elf_map,
         assert(paddr != INVALID_PHYSICAL);
     }
 
-    klib_mapping km = allocate(heap_general(klib_kh), sizeof(struct klib_mapping));
+    klib_mapping km = allocate(heap_locked(klib_kh), sizeof(struct klib_mapping));
     assert(km != INVALID_ADDRESS);
     km->n.r = irangel(vaddr, size);
     km->phys = paddr;
@@ -82,7 +82,7 @@ closure_function(3, 1, status, load_klib_complete,
                  const char *, name, klib_handler, complete, status_handler, sh,
                  buffer, b)
 {
-    heap h = heap_general(klib_kh);
+    heap h = heap_locked(klib_kh);
     klib_handler complete = bound(complete);
     klib kl = allocate(h, sizeof(struct klib));
     assert(kl != INVALID_ADDRESS);
@@ -138,7 +138,7 @@ void load_klib(const char *name, klib_handler complete, status_handler sh)
 {
     klib_debug("%s: \"%s\", complete %p (%F)\n", __func__, name, complete, complete);
     assert(klib_root && klib_fs);
-    heap h = heap_general(klib_kh);
+    heap h = heap_locked(klib_kh);
     tuple md = resolve_path(klib_root, split(h, alloca_wrap_buffer(name, runtime_strlen(name)), '/'));
     if (!md) {
         apply(complete, INVALID_ADDRESS, KLIB_LOAD_FAILED);
@@ -180,13 +180,13 @@ closure_function(1, 1, void, destruct_mapping,
     klib_mapping km = (klib_mapping)n;
     klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags.w);
     unmap(km->n.r.start, range_span(km->n.r));
-    deallocate(heap_general(klib_kh), km, sizeof(struct klib_mapping));
+    deallocate(heap_locked(klib_kh), km, sizeof(struct klib_mapping));
 }
 
 void unload_klib(klib kl)
 {
     klib_debug("%s: kl %s\n", __func__, kl->name);
-    heap h = heap_general(klib_kh);
+    heap h = heap_locked(klib_kh);
     deallocate_rangemap(kl->mappings, stack_closure(destruct_mapping, kl));
     deallocate_u64((heap)klib_heap, kl->load_range.start, range_span(kl->load_range));
     deallocate_buffer(kl->elf);
@@ -279,7 +279,7 @@ closure_function(3, 2, boolean, autoload_klib_each,
     if (!is_dir(v)) {
         fetch_and_add(bound(pending), 1);
         status_handler sh = apply_merge(bound(m));
-        heap h = heap_general(klib_kh);
+        heap h = heap_locked(klib_kh);
         klib_handler kl_complete = closure(h, autoload_klib_complete, bound(pending),
             bound(retry_klibs), sh, 0);
         assert(kl_complete != INVALID_ADDRESS);
@@ -297,7 +297,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md, stat
     assert(fs);
     assert(config_root);
     assert(klib_md);
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     klib_kh = kh;
     klib_fs = (filesystem)fs;
     export_syms = allocate_table(h, key_from_symbol, pointer_equal);
@@ -316,7 +316,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, tuple klib_md, stat
     u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
     klib_debug("%s: creating klib heap @ 0x%lx, size 0x%lx\n", __func__,
                klib_heap_start, klib_heap_size);
-    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE, false);
+    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE, true);
     assert(klib_heap != INVALID_ADDRESS);
     tuple c = get_tuple(klib_md, sym(children));
     if (!c)

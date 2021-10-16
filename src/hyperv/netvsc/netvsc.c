@@ -251,7 +251,7 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
     hn_softc_t *hn = allocate(h, sizeof(hn_softc_t));
     assert(hn != INVALID_ADDRESS);
 
-    hn->general = heap_general(kh);
+    hn->general = heap_locked(kh);
     hn->contiguous = (heap)heap_linear_backed(kh);
 
     hn->hn_dev_obj = device;

@@ -281,7 +281,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         tls.rprintf("TLS init: kernel symbols not found\n");
         return KLIB_INIT_FAILED;
     }
-    tls.h = heap_general(get_kernel_heaps());
+    tls.h = heap_locked(get_kernel_heaps());
     mbedtls_ssl_config_init(&tls.conf);
     mbedtls_ctr_drbg_init(&tls.ctr_drbg);
     mbedtls_entropy_init(&tls.entropy);

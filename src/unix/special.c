@@ -109,7 +109,7 @@ closure_function(1, 1, void, maps_handler,
 
 static sysreturn maps_read(file f, void *dest, u64 length, u64 offset)
 {
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     buffer b = allocate_buffer(h, 512);
     if (b == INVALID_ADDRESS) {
         return -ENOMEM;
@@ -226,7 +226,7 @@ closure_function(1, 1, sysreturn, special_open,
                  file, f)
 {
     special_file *sf = bound(sf);
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     sysreturn ret;
 
     thread_log(current, "spec_open: %s", sf->path);
@@ -279,7 +279,7 @@ KLIB_EXPORT(create_special_file);
 
 void register_special_files(process p)
 {
-    heap h = heap_general((kernel_heaps)p->uh);
+    heap h = heap_locked((kernel_heaps)p->uh);
 
     fs_status fss = filesystem_mkdirpath(p->root_fs, 0, "/proc/self", true);
     if (fss == FS_STATUS_OK) {

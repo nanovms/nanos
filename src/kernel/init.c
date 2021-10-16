@@ -275,7 +275,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_symtab(kh);
     read_kernel_syms();
     reclaim_regions();          /* for pc: no accessing regions after this point */
-    shutdown_completions = allocate_vector(misc, SHUTDOWN_COMPLETIONS_SIZE);
+    shutdown_completions = allocate_vector(locked, SHUTDOWN_COMPLETIONS_SIZE);
     init_debug("pci_discover (for VGA)");
     pci_discover(); // early PCI discover to configure VGA console
     init_debug("clock");

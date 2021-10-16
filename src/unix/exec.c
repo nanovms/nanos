@@ -231,7 +231,7 @@ process exec_elf(buffer ex, process kp)
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;
-            interp = resolve_path(root, split(heap_general(kh), alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
+            interp = resolve_path(root, split(heap_locked(kh), alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
             if (!interp) 
                 halt("couldn't find program interpreter %s\n", n);
         } else if (p->p_type == PT_LOAD) {
@@ -290,13 +290,13 @@ process exec_elf(buffer ex, process kp)
         exec_debug("...done\n");
     }
 
-    register_root_notify(sym(trace), closure(heap_general(kh), trace_notify, proc));
+    register_root_notify(sym(trace), closure(heap_locked(kh), trace_notify, proc));
 
     if (interp) {
         exec_debug("reading interp...\n");
         filesystem_read_entire(fs, interp, (heap)heap_page_backed(kh),
-                               closure(heap_general(kh), load_interp_complete, t, kh),
-                               closure(heap_general(kh), load_interp_fail));
+                               closure(heap_locked(kh), load_interp_complete, t, kh),
+                               closure(heap_locked(kh), load_interp_fail));
         return proc;
     }
 

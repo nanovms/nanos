@@ -1046,7 +1046,6 @@ sysreturn creat(const char *pathname, int mode)
 
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
 {
-    heap h = heap_general(get_kernel_heaps());
     buffer b;
 
     if (!buflen)
@@ -1058,7 +1057,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
         return set_syscall_error(current, EINVAL);
 
-    b = wrap_buffer(h, buf, buflen);
+    b = alloca_wrap_buffer(buf, buflen);
     return random_buffer(b);
 }
 
@@ -1647,7 +1646,7 @@ sysreturn uname(struct utsname *v)
 
     /* The "5.0-" dummy prefix placates the glibc dynamic loader. */
     tuple env = get_environment();
-    string release = aprintf(heap_general(get_kernel_heaps()), "5.0-%v",
+    string release = aprintf(heap_locked(get_kernel_heaps()), "5.0-%v",
                              get_string(env, sym(NANOS_VERSION)));
     len = MIN(buffer_length(release), sizeof(v->release) - 1);
     runtime_memcpy(v->release, buffer_ref(release, 0), len);
@@ -2492,7 +2491,7 @@ closure_function(0, 2, void, print_syscall_stats_cfn,
     u64 tot_errs = 0;
     buffer tbuf = little_stack_buffer(24);
     buffer pbuf = little_stack_buffer(24);
-    pqueue pq = allocate_pqueue(heap_general(get_kernel_heaps()), stat_compare);
+    pqueue pq = allocate_pqueue(heap_locked(get_kernel_heaps()), stat_compare);
     syscall_stat ss;
 
     if (status != 0)
@@ -2557,7 +2556,7 @@ void init_syscalls(tuple root)
 {
     //syscall = b->contents;
     // debug the synthesized version later, at least we have the table dispatch
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     syscall = syscall_schedule;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
@@ -2635,7 +2634,7 @@ closure_function(1, 1, boolean, notrace_notify,
 
 void configure_syscalls(process p)
 {
-    heap h = heap_general(&p->uh->kh);
+    heap h = heap_locked(&p->uh->kh);
     register_root_notify(sym(debugsyscalls), closure(h, debugsyscalls_notify));
     register_root_notify(sym(syscall_defer), closure(h, syscall_defer_notify));
     register_root_notify(sym(notrace), closure(h, notrace_notify, p));

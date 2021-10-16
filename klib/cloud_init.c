@@ -503,7 +503,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym, status_handler co
         return KLIB_INIT_FAILED;
     }
     init_timer(&retry_timer);
-    cloud_heap = heap_general(get_kernel_heaps());
+    cloud_heap = heap_locked(get_kernel_heaps());
     if (first_boot()) {
         enum cloud c = cloud_detect(get_sym);
         switch (c) {

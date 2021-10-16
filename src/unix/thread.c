@@ -298,7 +298,7 @@ define_closure_function(1, 0, void, free_thread,
 {
     deallocate_bitmap(bound(t)->affinity);
     deallocate_notify_set(bound(t)->signalfds);
-    deallocate(heap_general(get_kernel_heaps()), bound(t), sizeof(struct thread));
+    deallocate(heap_locked(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
 define_closure_function(1, 0, void, resume_syscall, thread, t)
@@ -310,7 +310,7 @@ define_closure_function(1, 0, void, resume_syscall, thread, t)
 thread create_thread(process p)
 {
     static int tidcount = 0;
-    heap h = heap_general((kernel_heaps)p->uh);
+    heap h = heap_locked((kernel_heaps)p->uh);
 
     thread t = allocate(h, sizeof(struct thread));
     if (t == INVALID_ADDRESS)
@@ -468,7 +468,7 @@ void threads_to_vector(process p, vector v)
 
 void init_threads(process p)
 {
-    heap h = heap_general((kernel_heaps)p->uh);
+    heap h = heap_locked((kernel_heaps)p->uh);
     p->threads = allocate_rbtree(h, closure(h, thread_tid_compare), closure(h, tid_print_key));
     spin_lock_init(&p->threads_lock);
     init_futices(p);

@@ -287,7 +287,7 @@ extern struct syscall *linux_syscalls;
 
 static boolean create_stdfiles(unix_heaps uh, process p)
 {
-    heap h = heap_general((kernel_heaps)uh);
+    heap h = heap_locked((kernel_heaps)uh);
     file in = unix_cache_alloc(uh, file);
     file out = unix_cache_alloc(uh, file);
     file err = unix_cache_alloc(uh, file);
@@ -318,9 +318,8 @@ static boolean create_stdfiles(unix_heaps uh, process p)
 process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
     kernel_heaps kh = (kernel_heaps)uh;
-    heap h = heap_general(kh);
     heap locked = heap_locked(kh);
-    process p = allocate(h, sizeof(struct process));
+    process p = allocate(locked, sizeof(struct process));
     assert(p != INVALID_ADDRESS); 
     boolean aslr = get(root, sym(noaslr)) == 0;
 
@@ -337,7 +336,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
         /* This heap is used to track the lowest 32 bits of process
            address space. Allocations are presently only made from the
            top half for MAP_32BIT mappings. */
-        p->virtual32 = create_id_heap(h, h, 0, 0x100000000, PAGESIZE, true);
+        p->virtual32 = create_id_heap(locked, locked, 0, 0x100000000, PAGESIZE, true);
         assert(p->virtual32 != INVALID_ADDRESS);
         if (aslr)
             id_heap_set_randomize(p->virtual32, true);
@@ -355,7 +354,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->root_fs = p->cwd_fs = fs;
     p->cwd = inode_from_tuple(root);
     p->process_root = root;
-    p->fdallocator = create_id_heap(h, locked, 0, infinity, 1, false);
+    p->fdallocator = create_id_heap(locked, locked, 0, infinity, 1, false);
     p->files = allocate_vector(locked, 64);
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
@@ -363,9 +362,9 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->syscalls = linux_syscalls;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
-    p->posix_timer_ids = create_id_heap(h, locked, 0, U32_MAX, 1, false);
+    p->posix_timer_ids = create_id_heap(locked, locked, 0, U32_MAX, 1, false);
     p->posix_timers = allocate_vector(locked, 8);
-    p->itimers = allocate_vector(h, 3);
+    p->itimers = allocate_vector(locked, 3);
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);
     p->trace = 0;
@@ -484,7 +483,7 @@ timestamp thread_stime(thread t)
 
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     unix_heaps uh = allocate(h, sizeof(struct unix_heaps));
 
     /* a failure here means termination; just leak */

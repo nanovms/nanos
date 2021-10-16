@@ -146,7 +146,7 @@ void vm_exit(u8 code)
 #endif
 
 #ifdef DUMP_MEM_STATS
-    buffer b = allocate_buffer(heap_general(get_kernel_heaps()), 512);
+    buffer b = allocate_buffer(heap_locked(get_kernel_heaps()), 512);
     if (b != INVALID_ADDRESS) {
         dump_mem_stats(b);
         buffer_print(b);

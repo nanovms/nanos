@@ -100,6 +100,6 @@ void print_u64_with_sym(u64 a)
 
 void init_symtab(kernel_heaps kh)
 {
-    general = heap_general(kh);
-    elf_symtable = allocate_rangemap(general);
+    general = heap_locked(kh);
+    elf_symtable = allocate_rangemap(heap_general(kh));
 }

@@ -518,7 +518,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(kfuncs.ip4_addr_netmask_valid = get_sym("ip4_addr_netmask_valid")) ||
             !(kfuncs.intern = get_sym("intern")))
         return KLIB_INIT_FAILED;
-    tun_heap = heap_general(get_kernel_heaps());
+    tun_heap = heap_locked(get_kernel_heaps());
     tuple root = get_root_tuple();
     if (!root)
         return KLIB_INIT_FAILED;

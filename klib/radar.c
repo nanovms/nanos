@@ -501,7 +501,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         return KLIB_INIT_FAILED;
     }
     kernel_heaps kh = get_kernel_heaps();
-    telemetry.h = heap_general(kh);
+    telemetry.h = heap_locked(kh);
     telemetry.phys = (heap)heap_physical(kh);
     if (tls_set_cacert(RADAR_CA_CERT, sizeof(RADAR_CA_CERT)) != 0) {
         kfunc(rprintf)("Radar: failed to set CA certificate\n");

@@ -119,7 +119,7 @@ heap transient;
 void init_runtime(heap general, heap safe)
 {
     // environment specific
-    transient = general;
+    transient = safe;
     register_format('p', format_pointer, 0);
     register_format('x', format_number, 1);
     register_format('d', format_number, 1);

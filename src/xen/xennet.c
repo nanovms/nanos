@@ -759,7 +759,7 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     xd = allocate(h, sizeof(struct xennet_dev));
     assert(xd != INVALID_ADDRESS);
 
-    xd->h = heap_general(kh);
+    xd->h = heap_locked(kh);
     xd->contiguous = (heap)heap_linear_backed(kh);
 
     xd->netif = allocate(h, sizeof(struct netif));

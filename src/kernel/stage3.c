@@ -126,7 +126,7 @@ closure_function(6, 0, void, startup,
     }
     status_handler start = bound(start);
     closure_member(program_start, start, kp) = kp;
-    heap general = heap_general(kh);
+    heap general = heap_locked(kh);
     buffer_handler pg = closure(general, read_program_complete, general, root,
         bound(m), start, bound(completion));
 
@@ -157,7 +157,7 @@ closure_function(6, 0, void, startup,
 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     status_handler start = closure(h, program_start, 0, 0);
     *m = allocate_merge(h, start);
     return closure(h, startup, kh, root, fs, *m, start, apply_merge(*m));
@@ -191,7 +191,7 @@ closure_function(4, 2, void, bootfs_complete,
         if (v) {
             kernel_heaps kh = bound(kh);
             filesystem_read_entire(fs, v, (heap)heap_page_backed(kh),
-                                   closure(heap_general(kh),
+                                   closure(heap_locked(kh),
                                            kernel_read_complete, fs, !klibs_complete),
                                    ignore_status);
         }
@@ -203,6 +203,6 @@ filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                    status_handler klibs_complete,
                                    boolean ingest_kernel_syms)
 {
-    return closure(heap_general(kh), bootfs_complete,
+    return closure(heap_locked(kh), bootfs_complete,
                    kh, root, klibs_complete, ingest_kernel_syms);
 }

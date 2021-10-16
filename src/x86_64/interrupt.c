@@ -393,8 +393,8 @@ void init_interrupts(kernel_heaps kh)
     /* Exception handlers */
     handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
     assert(handlers != INVALID_ADDRESS);
-    interrupt_vector_heap = create_id_heap(general, general, INTERRUPT_VECTOR_START,
-                                           n_interrupt_vectors - INTERRUPT_VECTOR_START, 1, false);
+    interrupt_vector_heap = create_id_heap(general, heap_locked(kh), INTERRUPT_VECTOR_START,
+                                           n_interrupt_vectors - INTERRUPT_VECTOR_START, 1, true);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
 
     int_general = general;
