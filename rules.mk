@@ -108,6 +108,10 @@ endif
 KERNCFLAGS+=	-fno-omit-frame-pointer
 KERNLDFLAGS=	--gc-sections -n
 
+ifeq ($(MEMDEBUG),mcache)
+CFLAGS+= -DMEMDEBUG_MCACHE
+endif
+
 TARGET_ROOT=	$(NANOS_TARGET_ROOT)
 GCC_VER=	6
 # crtbegin/crtend for dynamically linked executables

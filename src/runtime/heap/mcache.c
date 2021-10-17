@@ -294,7 +294,11 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 
     for(int i = 0, order = min_order; order <= max_order; i++, order++) {
 	u64 obj_size = U64_FROM_BIT(order);
+#if MEMDEBUG_MCACHE
+	heap h = mem_debug_objcache(meta, parent, obj_size, pagesize);
+#else
 	heap h = allocate_objcache(meta, parent, obj_size, pagesize);
+#endif
 #ifdef MCACHE_DEBUG
 	rputs(" - cache size ");
 	print_u64(obj_size);

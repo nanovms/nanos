@@ -18,6 +18,23 @@ jobs:
             PATH=$HOME/.ops/bin:$PATH
             make test-noaccel
 
+  build-pc-memdebug:
+    docker:
+      # specify the version
+      - image: cimg/go:1.16
+    steps:
+      - checkout
+      - run: sudo apt-get update
+      - run: sudo apt-get install nasm qemu-system-x86 ent ruby rustc
+      - run: cd .. && git clone git@github.com:nanovms/ops.git
+      - run: make
+      - run: curl https://ops.city/get.sh -sSfL | sh
+      - run:
+          command: |
+            OPS_DIR=$HOME/.ops
+            PATH=$HOME/.ops/bin:$PATH
+            make MEMDEBUG=mcache test-noaccel
+
   nightly-build:
     docker:
       - image: cimg/go:1.16
