@@ -1858,7 +1858,7 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     netsock s = (netsock) sock;
     sysreturn rv;
     lwip_lock();
-    backlog = MAX(backlog, SOCK_QUEUE_LEN);
+    backlog = MIN(backlog, SOCK_QUEUE_LEN);
     if (s->sock.type != SOCK_STREAM) {
         rv = -EOPNOTSUPP;
         goto unlock_out;
