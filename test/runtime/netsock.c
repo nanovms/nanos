@@ -80,6 +80,7 @@ static void netsock_test_basic(int sock_type)
         socklen_t len = sizeof(val);
         test_assert(getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
         test_assert(listen(fd, 1) == 0);
+        test_assert(listen(fd, 1) == 0);    /* test listen() call on already listening socket */
         test_assert(getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 1);
         ret = pthread_create(&pt, NULL, netsock_test_basic_thread, (void *)(long)sock_type);
         test_assert(ret == 0);

@@ -1864,7 +1864,12 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
         goto unlock_out;
     }
     if (s->info.tcp.state != TCP_SOCK_CREATED) {
-        rv = -EINVAL;
+        if (s->info.tcp.state == TCP_SOCK_LISTENING) {
+            tcp_backlog_set(s->info.tcp.lw, backlog);
+            rv = 0;
+        } else {
+            rv = -EINVAL;
+        }
         goto unlock_out;
     }
     struct tcp_pcb * lw = tcp_listen_with_backlog(s->info.tcp.lw, backlog);
