@@ -26,6 +26,16 @@
 
 #define SYSLOG_UDP_PORT_DEFAULT 514
 
+#define SYSLOG_UDP_MSG_MAX  8192
+
+typedef struct syslog_udp_msg {
+    struct list l;
+    bytes len;
+    timestamp t;
+    struct pbuf_custom p;
+    u8 buf[PBUF_TRANSPORT];
+} *syslog_udp_msg;
+
 declare_closure_struct(0, 2, void, syslog_timer_func,
                        u64, expiry, u64, overruns);
 
@@ -43,8 +53,8 @@ static struct {
     u64 file_offset;
     sg_list file_sg;
     sg_buf file_sgb;
-    struct timer file_flush_timer;
-    closure_struct(syslog_timer_func, file_flush);
+    struct timer flush_timer;
+    closure_struct(syslog_timer_func, flush);
     buffer program;
     char *server;
     boolean dns_in_progress;
@@ -54,7 +64,10 @@ static struct {
     u16 server_port;
     struct udp_pcb *udp_pcb;
     char local_ip[40];
+    bytes max_hdr_len;
     bytes hdr_len;
+    struct list udp_msgs;
+    u64 udp_msg_count;
     struct spinlock lock;
 } syslog;
 
@@ -76,7 +89,9 @@ static struct {
             dns_found_callback found, void *callback_arg);
     struct netif *(*netif_get_default)(void);
     char *(*ipaddr_ntoa_r)(const ip_addr_t *addr, char *buf, int buflen);
-    struct pbuf *(*pbuf_alloc)(pbuf_layer layer, u16_t length, pbuf_type type);
+    struct pbuf *(*pbuf_alloced_custom)(pbuf_layer l, u16_t length, pbuf_type type,
+            struct pbuf_custom *p, void *payload_mem, u16_t payload_mem_len);
+    u8_t (*pbuf_remove_header)(struct pbuf *p, size_t header_size);
     u8 (*pbuf_free)(struct pbuf *p);
     timestamp (*now)(clock_id id);
     struct tm *(*gmtime_r)(u64 *timep, struct tm *result);
@@ -166,13 +181,6 @@ static void syslog_file_flush(void)
     syslog_unlock();
 }
 
-define_closure_function(0, 2, void, syslog_timer_func,
-                        u64, expiry, u64, overruns)
-{
-    if (overruns != timer_disabled)
-        syslog_file_flush();
-}
-
 static void syslog_file_write(const char *s, bytes count)
 {
     if (!syslog.fs_write || (count > SYSLOG_BUF_LEN))
@@ -200,10 +208,10 @@ static void syslog_file_write(const char *s, bytes count)
     if (syslog.file_sgb->offset + count <= SYSLOG_BUF_LEN) {
         kfuncs.runtime_memcpy(syslog.file_sgb->buf + syslog.file_sgb->offset, s, count);
         syslog.file_sgb->offset += count;
-        if (!timer_is_active(&syslog.file_flush_timer)) {
-            kfuncs.register_timer(&syslog.file_flush_timer, CLOCK_ID_MONOTONIC,
+        if (!timer_is_active(&syslog.flush_timer)) {
+            kfuncs.register_timer(&syslog.flush_timer, CLOCK_ID_MONOTONIC,
                                   SYSLOG_FLUSH_INTERVAL, false, 0,
-                                  (timer_handler)&syslog.file_flush.__apply);
+                                  (timer_handler)&syslog.flush);
         }
     } else {
         syslog_file_flush();
@@ -254,12 +262,11 @@ static void syslog_set_hdr_len(void)
     if (!n)
         return;
     kfuncs.ipaddr_ntoa_r(&n->ip_addr, syslog.local_ip, sizeof(syslog.local_ip));
-    syslog.hdr_len = 1 + sizeof(__XSTRING(SYSLOG_PRIORITY)) + sizeof(SYSLOG_VERSION) +
-            sizeof("YYYY-MM-ddThh:mm:ss.uuuuuuZ") + runtime_strlen(syslog.local_ip) + 1 +
-            buffer_length(syslog.program) + 7;
+    syslog.hdr_len = syslog.max_hdr_len - sizeof(syslog.local_ip) +
+            runtime_strlen(syslog.local_ip) + 1;
 }
 
-static void syslog_udp_write(const char *s, bytes count)
+static void syslog_udp_flush(void)
 {
     if (ip_addr_isany_val(syslog.server_ip)) {
         syslog_server_resolve();
@@ -270,24 +277,61 @@ static void syslog_udp_write(const char *s, bytes count)
         if (!syslog.hdr_len)
             return;
     }
-    kfuncs.lwip_lock();
-    struct pbuf *pb = kfuncs.pbuf_alloc(PBUF_TRANSPORT, syslog.hdr_len + count, PBUF_RAM);
-    kfuncs.lwip_unlock();
-    if (!pb)
+    syslog_lock();
+    list_foreach(&syslog.udp_msgs, e) {
+        syslog_udp_msg msg = struct_from_list(e, syslog_udp_msg, l);
+        list_delete(e);
+        syslog.udp_msg_count--;
+        u64 seconds = sec_from_timestamp(msg->t);
+        struct tm tm;
+        kfuncs.gmtime_r(&seconds, &tm);
+        struct pbuf *pbuf = &msg->p.pbuf;
+        kfuncs.pbuf_remove_header(pbuf, syslog.max_hdr_len - syslog.hdr_len);
+        kfuncs.rsnprintf(pbuf->payload, syslog.hdr_len,
+            "<" __XSTRING(SYSLOG_PRIORITY) ">" SYSLOG_VERSION
+            " %d-%02d-%02dT%02d:%02d:%02d.%06dZ %s %b - - -",
+            1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+            usec_from_timestamp(msg->t) - seconds * MILLION, syslog.local_ip, syslog.program);
+
+        /* Replace the string terminator inserted by rsnprintf() with the last character of the
+         * header. */
+        *(char *)(pbuf->payload + syslog.hdr_len - 1) = ' ';
+
+        kfuncs.lwip_lock();
+        kfuncs.udp_sendto(syslog.udp_pcb, pbuf, &syslog.server_ip, syslog.server_port);
+        kfuncs.pbuf_free(pbuf);
+        kfuncs.lwip_unlock();
+    }
+    syslog_unlock();
+}
+
+static void syslog_udp_free(struct pbuf *p)
+{
+    syslog_udp_msg msg = struct_from_field(p, syslog_udp_msg, p);
+    deallocate(syslog.h, msg, sizeof(*msg) + msg->len);
+}
+
+static void syslog_udp_write(const char *s, bytes count)
+{
+    if (syslog.udp_msg_count >= SYSLOG_UDP_MSG_MAX) /* too many buffered messages */
         return;
-    timestamp t = kfuncs.now(CLOCK_ID_REALTIME);
-    u64 seconds = sec_from_timestamp(t);
-    struct tm tm;
-    kfuncs.gmtime_r(&seconds, &tm);
-    kfuncs.rsnprintf(pb->payload, syslog.hdr_len + 1, "<" __XSTRING(SYSLOG_PRIORITY) ">"
-        SYSLOG_VERSION " %d-%02d-%02dT%02d:%02d:%02d.%06dZ %s %b - - - ",
-        1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
-        usec_from_timestamp(t) - seconds * MILLION, syslog.local_ip, syslog.program);
-    kfuncs.runtime_memcpy(pb->payload + syslog.hdr_len, s, count);
-    kfuncs.lwip_lock();
-    kfuncs.udp_sendto(syslog.udp_pcb, pb, &syslog.server_ip, syslog.server_port);
-    kfuncs.pbuf_free(pb);
-    kfuncs.lwip_unlock();
+    syslog_udp_msg msg = allocate(syslog.h, sizeof(*msg) + syslog.max_hdr_len + count);
+    if (msg == INVALID_ADDRESS)
+        return;
+    msg->len = syslog.max_hdr_len + count;
+    msg->t = kfuncs.now(CLOCK_ID_REALTIME);
+    msg->p.custom_free_function = syslog_udp_free;
+    kfuncs.pbuf_alloced_custom(PBUF_TRANSPORT, msg->len, PBUF_RAM, &msg->p, msg->buf,
+                               PBUF_TRANSPORT + msg->len);
+    kfuncs.runtime_memcpy(msg->buf + PBUF_TRANSPORT + syslog.max_hdr_len, s, count);
+    syslog_lock();
+    list_push_back(&syslog.udp_msgs, &msg->l);
+    syslog.udp_msg_count++;
+    if (!timer_is_active(&syslog.flush_timer)) {
+        kfuncs.register_timer(&syslog.flush_timer, CLOCK_ID_MONOTONIC, SYSLOG_FLUSH_INTERVAL, false,
+                              0, (timer_handler)&syslog.flush);
+    }
+    syslog_unlock();
 }
 
 static void syslog_write(void *d, const char *s, bytes count)
@@ -296,6 +340,15 @@ static void syslog_write(void *d, const char *s, bytes count)
         syslog_file_write(s, count);
     if (syslog.server)
         syslog_udp_write(s, count);
+}
+
+define_closure_function(0, 2, void, syslog_timer_func,
+                        u64, expiry, u64, overruns)
+{
+    if (overruns != timer_disabled) {
+        syslog_file_flush();
+        syslog_udp_flush();
+    }
 }
 
 closure_function(2, 2, boolean, syslog_cfg,
@@ -417,7 +470,8 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             !(kfuncs.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
             !(kfuncs.netif_get_default = get_sym("netif_get_default")) ||
             !(kfuncs.ipaddr_ntoa_r = get_sym("ipaddr_ntoa_r")) ||
-            !(kfuncs.pbuf_alloc = get_sym("pbuf_alloc")) ||
+            !(kfuncs.pbuf_alloced_custom = get_sym("pbuf_alloced_custom")) ||
+            !(kfuncs.pbuf_remove_header = get_sym("pbuf_remove_header")) ||
             !(kfuncs.pbuf_free = get_sym("pbuf_free")) ||
             !(kfuncs.now = get_sym("now")) ||
             !(kfuncs.gmtime_r = get_sym("gmtime_r")) ||
@@ -451,12 +505,13 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         }
         syslog.fs_write = kfuncs.fsfile_get_writer(syslog.fsf);
         syslog.file_offset = fsfile_get_length(syslog.fsf); /* append to existing contents */
-        init_timer(&syslog.file_flush_timer);
-        init_closure(&syslog.file_flush, syslog_timer_func);
     }
     if (syslog.server) {
         syslog_server_resolve();
         syslog.program = get(root, sym(program));
+        syslog.max_hdr_len = 1 + sizeof(__XSTRING(SYSLOG_PRIORITY)) + sizeof(SYSLOG_VERSION) +
+                sizeof("YYYY-MM-ddThh:mm:ss.uuuuuuZ") + sizeof(syslog.local_ip) +
+                buffer_length(syslog.program) + 7;
         kfuncs.lwip_lock();
         syslog.udp_pcb = udp_new();
         kfuncs.lwip_unlock();
@@ -464,7 +519,10 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
             rprintf("syslog: unable to create UDP PCB\n");
             return KLIB_INIT_FAILED;
         }
+        list_init(&syslog.udp_msgs);
     }
+    init_timer(&syslog.flush_timer);
+    init_closure(&syslog.flush, syslog_timer_func);
     syslog.driver.write = syslog_write;
     syslog.driver.name = "syslog";
     syslog.driver.disabled = false;

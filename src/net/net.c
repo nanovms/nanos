@@ -224,6 +224,8 @@ KLIB_EXPORT(ipaddr_ntoa);
 KLIB_EXPORT(ipaddr_ntoa_r);
 KLIB_EXPORT(dns_gethostbyname);
 KLIB_EXPORT(pbuf_alloc);
+KLIB_EXPORT(pbuf_alloced_custom);
+KLIB_EXPORT(pbuf_remove_header);
 KLIB_EXPORT(pbuf_ref);
 KLIB_EXPORT(pbuf_copy_partial);
 KLIB_EXPORT(pbuf_free);
