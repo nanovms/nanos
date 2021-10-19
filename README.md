@@ -19,6 +19,16 @@ Read more about the Nanos Charter [here](CHARTER.md).
 Please use the [ops](https://ops.city) orchestrator to run your applications with Nanos unless you plan on hacking on Nanos itself.
 Many ready-to-use examples for running applications on Nanos using ops are available [here](https://github.com/nanovms/ops-examples).
 
+#### Quick Start
+
+Install ops && nanos:
+
+```
+curl https://ops.city/get.sh -sSfL | sh
+```
+
+![Demo](doc/demo.gif)
+
 ### Building/Running
 
 It is highly encouraged to use [ops](https://github.com/nanovms/ops) to build and run your applications using Nanos unless you are planning
