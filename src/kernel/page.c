@@ -41,6 +41,8 @@ static struct {
     u64 levelmask;              /* bitmap of levels allowed to map */
 } pagemem;
 
+boolean bootstrapping;
+
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
 {
@@ -57,7 +59,8 @@ physical physical_from_virtual(void *x)
 
 u64 *pointer_from_pteaddr(u64 pa)
 {
-#ifdef KERNEL
+    if (bootstrapping)
+        return pointer_from_u64(pa);
     if (!pagemem.pageheap) {
         u64 offset = pa - pagemem.initial_physbase;
         assert(pagemem.initial_map);
@@ -65,14 +68,16 @@ u64 *pointer_from_pteaddr(u64 pa)
         return pagemem.initial_map + offset;
     }
     return pointer_from_u64(virt_from_linear_backed_phys(pa));
-#else
-    return pointer_from_u64(pa);
-#endif
 }
 
-#ifdef KERNEL
 void *allocate_table_page(u64 *phys)
 {
+    if (bootstrapping) {
+        /* Bootloader use: single, identity-mapped pages */
+        void *p = allocate_zero(pagemem.pageheap, PAGESIZE);
+        *phys = u64_from_pointer(p);
+        return p;
+    }
     page_init_debug("allocate_table_page:");
     if (range_span(pagemem.current_phys) == 0) {
         assert(pagemem.pageheap);
@@ -96,15 +101,6 @@ void *allocate_table_page(u64 *phys)
     zero(p, PAGESIZE);
     return p;
 }
-#else
-/* Bootloader use: single, identity-mapped pages */
-void *allocate_table_page(u64 *phys)
-{
-    void *p = allocate_zero(pagemem.pageheap, PAGESIZE);
-    *phys = u64_from_pointer(p);
-    return p;
-}
-#endif
 
 #define PTE_ENTRIES U64_FROM_BIT(9)
 static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr, entry_handler ph)

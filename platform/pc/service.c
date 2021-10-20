@@ -468,10 +468,10 @@ void init_service(u64 rdi, u64 rsi)
         pageflags flags = pageflags_exec(pageflags_writable(pageflags_memory()));
         map(0, 0, INITIAL_MAP_SIZE, flags);
         map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
-        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE),
-            pageflags_exec(pageflags_readonly(pageflags_memory())));
+        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE), flags);
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
+        bootstrapping = false;
     }
     init_kernel_heaps();
     if (cmdline)

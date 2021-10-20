@@ -54,3 +54,6 @@ void dump_page_tables(u64 vaddr, u64 length);
 /* internal use */
 void *allocate_table_page(u64 *phys);
 void page_set_allowed_levels(u64 levelmask);
+
+/* if using bootstrapped page tables */
+extern boolean bootstrapping;
