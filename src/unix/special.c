@@ -292,7 +292,7 @@ void register_special_files(process p)
             assert(buffer_write_byte(b, '/'));
         assert(push_buffer(b, program));
         assert(buffer_write_byte(b, '\0')); /* append string terminator character */
-        filesystem_symlink(p->root_fs, 0, "/proc/self/exe", buffer_ref(b, 0));
+        filesystem_symlink(p->cwd_fs, p->cwd, "/proc/self/exe", buffer_ref(b, 0));
         deallocate_buffer(b);
     }
 

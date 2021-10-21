@@ -24,6 +24,8 @@ int main(int argc, char **argv)
 
     setbuf(stdout, NULL);
 
+    test_assert(readlink("/proc/self/exe", buf, sizeof(buf)) > 0);
+
     test_assert(readlink("link", buf, sizeof(buf)) == -1);
     test_assert(errno == ENOENT);
 
