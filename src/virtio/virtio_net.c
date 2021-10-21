@@ -293,8 +293,8 @@ static void virtio_net_attach(vtdev dev)
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
     vn->rxbuflen = vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
     virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
-    vn->rxbuffers = allocate_objcache(h, (heap)contiguous,
-				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
+    vn->rxbuffers = locking_heap_wrapper(h, allocate_objcache(h, (heap)contiguous,
+				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
