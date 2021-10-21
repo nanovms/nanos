@@ -272,6 +272,3 @@ void init_mmu(void);
 void init_mmu(heap initial);
 #endif
 
-/* for debug in early setup */
-#define early_debug rputs
-#define early_debug_u64 print_u64

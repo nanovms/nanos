@@ -334,3 +334,7 @@ void wakeup_or_interrupt_cpu_all();
 
 typedef closure_type(halt_handler, void, int);
 extern halt_handler vm_halt;
+
+void early_debug(const char *s);
+void early_debug_u64(u64 n);
+void early_dump(void *p, unsigned long length);

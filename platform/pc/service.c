@@ -31,8 +31,12 @@
 //#define MM_DEBUG
 #ifdef INIT_DEBUG
 #define init_debug(x, ...) do {rprintf("INIT: " x "\n", ##__VA_ARGS__);} while(0)
+#define early_init_debug(x) early_debug("INIT: " x "\n")
+#define early_init_debug_u64(x) early_debug_u64(x)
 #else
 #define init_debug(x, ...)
+#define early_init_debug(x)
+#define early_init_debug_u64(x)
 #endif
 
 extern filesystem root_fs;
@@ -214,7 +218,7 @@ static void count_processors()
         init_debug("ACPI reports %d processors", present_processors);
     } else {
         present_processors = 1;
-        rprintf("warning: ACPI MADT not found, default to 1 processor");
+        rprintf("warning: ACPI MADT not found, default to 1 processor\n");
     }
 }
 
@@ -245,7 +249,7 @@ static range initial_pages;
 static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = get_kernel_heaps();
-    init_debug("in init_service_new_stack");
+    early_init_debug("in init_service_new_stack");
     init_page_tables((heap)heap_linear_backed(kh));
     init_tuples(locking_heap_wrapper(heap_general(kh),
                 allocate_tagged_region(kh, tag_table_tuple)));
@@ -259,13 +263,13 @@ static void __attribute__((noinline)) init_service_new_stack()
     }
 
     init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
-    init_debug("init_hwrand");
+    early_init_debug("init_hwrand");
     init_hwrand();
 
-    init_debug("init cpu features");
+    early_init_debug("init cpu features");
     init_cpu_features();
 
-    init_debug("calling kernel_runtime_init");
+    early_init_debug("calling kernel_runtime_init");
     kernel_runtime_init(kh);
     while(1);
 }
@@ -287,7 +291,7 @@ static id_heap init_physical_id_heap(heap h)
 {
     id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     boolean found = false;
-    init_debug("physical memory:");
+    early_init_debug("physical memory:");
     for_regions(e) {
 	if (e->type == REGION_PHYSICAL) {
 	    /* Align for 2M pages */
@@ -300,11 +304,11 @@ static id_heap init_physical_id_heap(heap h)
 		continue;
 	    u64 length = end - base;
 #ifdef INIT_DEBUG
-	    rputs("INIT:  [");
-	    print_u64(base);
-	    rputs(", ");
-	    print_u64(base + length);
-	    rputs(")\n");
+	    early_debug("INIT:  [");
+	    early_debug_u64(base);
+	    early_debug(", ");
+	    early_debug_u64(base + length);
+	    early_debug(")\n");
 #endif
 	    if (!id_heap_add_range(physical, base, length))
 		halt("    - id_heap_add_range failed\n");
@@ -374,7 +378,7 @@ static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {
 
 static void cmdline_parse(const char *cmdline)
 {
-    init_debug("parsing cmdline");
+    early_init_debug("parsing cmdline");
     const char *opt_end, *prefix_end;
     while (*cmdline) {
         opt_end = runtime_strchr(cmdline, ' ');
@@ -395,13 +399,13 @@ static void cmdline_parse(const char *cmdline)
 // init linker set
 void init_service(u64 rdi, u64 rsi)
 {
-    init_debug("init_service");
     u8 *params = pointer_from_u64(rsi);
     const char *cmdline = 0;
     u32 cmdline_size;
 
-    serial_init();
-
+    /* NOTE: Do not call any non-inlined functions before this if-block because
+     * direct load boot methods (firecracker) do not have virtual address space
+     * set up for the kernel before this point! */
     if (params && (*(u16 *)(params + BOOT_PARAM_OFFSET_BOOT_FLAG) == 0xAA55) &&
             (*(u32 *)(params + BOOT_PARAM_OFFSET_HEADER) == 0x53726448)) {
         /* The kernel has been loaded directly by the hypervisor, without going
@@ -473,6 +477,10 @@ void init_service(u64 rdi, u64 rsi)
         mov_to_cr("cr3", pgdir);
         bootstrapping = false;
     }
+
+    serial_init();
+    early_init_debug("init_service");
+
     init_kernel_heaps();
     if (cmdline)
         cmdline_parse(cmdline);
