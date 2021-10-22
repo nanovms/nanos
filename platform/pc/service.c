@@ -396,6 +396,8 @@ static void cmdline_parse(const char *cmdline)
     }
 }
 
+extern void *READONLY_END;
+
 // init linker set
 void init_service(u64 rdi, u64 rsi)
 {
@@ -469,10 +471,17 @@ void init_service(u64 rdi, u64 rsi)
             INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
         heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
         void *pgdir = bootstrap_page_tables(pageheap);
-        pageflags flags = pageflags_exec(pageflags_writable(pageflags_memory()));
+
+        /* Enable NXE bit now to avoid page faults when mapping a noexec page */
+        write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
+        pageflags flags = pageflags_writable(pageflags_memory());
+        pageflags roflags = pageflags_exec(pageflags_readonly(pageflags_memory()));
         map(0, 0, INITIAL_MAP_SIZE, flags);
         map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
-        map(KERNEL_BASE, KERNEL_BASE_PHYS, pad(kernel_size, PAGESIZE), flags);
+        u64 roend_offset = pad(u64_from_pointer(&READONLY_END) - KERNEL_BASE, PAGESIZE);
+        map(KERNEL_BASE, KERNEL_BASE_PHYS, roend_offset, roflags);
+        map(KERNEL_BASE + roend_offset, KERNEL_BASE_PHYS + roend_offset,
+               pad(kernel_size - roend_offset, PAGESIZE), flags);
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
         bootstrapping = false;

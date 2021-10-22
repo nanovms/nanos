@@ -2,6 +2,17 @@ OUTPUT_FORMAT("elf64-x86-64")
 
 ENTRY(_phys_start)
 
+
+PHDRS
+{
+    text PT_LOAD FLAGS(5);          /* R E */
+    rodata PT_LOAD FLAGS(4);        /* R */
+    data PT_LOAD FLAGS(6);          /* RW */
+    stack PT_GNU_STACK FLAGS(7);    /* RWE */
+}
+
+/* Note these are ordered such that sections are grouped together by write
+ * permission, delimited by the READONLY_END symbol */
 SECTIONS
 {
     . = 0;
@@ -30,8 +41,40 @@ SECTIONS
         vsyscall_start = .;
         *(.vsyscall)        /* must be at end of section; we use text_end to determine its extent */
         vsyscall_end = .;
-    }
+        . = ALIGN(4096);    /* pad out the page so that rodata will be aligned */
+    } :text
     text_end = .;
+
+    .rodata ALIGN(4096): AT(ADDR(.rodata) - LOAD_OFFSET)
+    {
+        *(.rodata)
+        *(.rodata.*)
+    } :rodata
+
+    .klib_symtab ALIGN(16): AT(ADDR(.klib_symtab) - LOAD_OFFSET)
+    {
+        klib_syms_start = .;
+        KEEP(*(.klib_symtab.syms))
+        klib_syms_end = .;
+        KEEP(*(.klib_symtab.strs))
+    } :rodata
+
+    READONLY_END = .;
+
+    .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
+    {
+        *(.data)
+        *(.data.*)
+    } :data
+
+    PROVIDE(bss_start = .);
+    .bss  ALIGN(32): AT(ADDR(.bss) - LOAD_OFFSET)
+    {
+        *(.bss)
+        *(.bss.*)
+        *(COMMON)
+    } :data
+    PROVIDE(bss_end = .);
 
     /* All kernel variables accessible to userspace
      * Offsets from vvar_page must match the corresponding offsets specified
@@ -42,38 +85,10 @@ SECTIONS
      */
     .vvar ALIGN(4096): AT(ADDR(.vvar) - LOAD_OFFSET)
     {
-        vvar_page = .; 
+        vvar_page = .;
         __vdso_vdso_dat = vvar_page + 128;
         . += 4096; /* reserve a page since the linker seems to discard this section */
-    }
+    } :data
 
-    .rodata ALIGN(4096): AT(ADDR(.rodata) - LOAD_OFFSET)
-    {
-        *(.rodata)
-        *(.rodata.*)
-    }
-
-    .klib_symtab ALIGN(16): AT(ADDR(.klib_symtab) - LOAD_OFFSET)
-    {
-        klib_syms_start = .;
-        KEEP(*(.klib_symtab.syms))
-        klib_syms_end = .;
-        KEEP(*(.klib_symtab.strs))
-    }
-
-    .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
-    {
-        *(.data)
-        *(.data.*)
-    }
-
-    PROVIDE(bss_start = .);
-    .bss  ALIGN(32): AT(ADDR(.bss) - LOAD_OFFSET)
-    {
-        *(.bss)
-        *(.bss.*)
-        *(COMMON)
-    }
-    PROVIDE(bss_end = .);
     END = .;
 }

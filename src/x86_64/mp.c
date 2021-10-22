@@ -107,8 +107,10 @@ void allocate_apboot(heap stackheap, void (*ap_entry)())
     map((u64)apboot, (u64)apboot, PAGESIZE,
         pageflags_writable(pageflags_exec(pageflags_memory())));
 
+    set_page_write_protect(false);
     asm("sidt %0": "=m"(ap_idt_pointer));
     mov_from_cr("cr3", ap_pagetable);
+    set_page_write_protect(true);
     // just one function call
 
     void *rsp = allocate_stack(stackheap, 4 * PAGESIZE);
