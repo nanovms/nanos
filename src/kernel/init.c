@@ -297,7 +297,7 @@ void kernel_runtime_init(kernel_heaps kh)
     /* RNG, stack canaries */
     init_debug("RNG");
     init_random();
-    __stack_chk_guard_init();
+    stack_chk_guard_init(current_cpu());
 
     /* networking */
     init_debug("LWIP init");

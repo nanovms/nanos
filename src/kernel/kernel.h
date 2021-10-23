@@ -135,6 +135,7 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
 #define BREAKPOINT_READ_WRITE 11
 
 void init_cpuinfo_machine(cpuinfo ci, heap backed);
+void stack_chk_guard_init(cpuinfo ci);
 void kernel_runtime_init(kernel_heaps kh);
 void read_kernel_syms(void);
 void reclaim_regions(void);

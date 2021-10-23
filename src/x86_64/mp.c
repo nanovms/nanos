@@ -97,6 +97,7 @@ void ap_start()
     cpuinfo ci = init_cpuinfo(ap_heap, id);
     if (ci == INVALID_ADDRESS)
         return;
+    stack_chk_guard_init(ci);
     switch_stack(stack_from_kernel_context(get_kernel_context(ci)), ap_new_stack);
 }
 

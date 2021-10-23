@@ -273,15 +273,11 @@ endif
 # Stack Smashing Protection
 ifeq ($(WITHOUT_SSP),)
 CFLAGS+=	-fstack-protector-strong
-ifneq ($(CC),clang)
-ifneq ($(UNAME_s),Darwin)
 ifeq ($(ARCH),aarch64)
 # XXX SSP on arm not working yet; check flags
 KERNCFLAGS+=	-fstack-protector-all
 else
-KERNCFLAGS+=	-mstack-protector-guard=global \
+KERNCFLAGS+=	-mstack-protector-guard=tls \
 		-fno-pic
-endif
-endif
 endif
 endif

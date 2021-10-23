@@ -254,6 +254,8 @@ struct cpuinfo_machine {
     /* Stack for exceptions (which may occur in interrupt handlers) */
     void *exception_stack;
 
+    u64 stack_canary;   /* stack protector canary value. +40 */
+
     /* Stack for interrupts */
     void *int_stack;
 

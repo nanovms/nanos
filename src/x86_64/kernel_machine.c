@@ -101,6 +101,12 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
     install_gdt64_and_tss(&ci->m.gdt.tss_desc, &ci->m.tss, gdt, &ci->m.gdt_pointer);
 }
 
+void stack_chk_guard_init(cpuinfo ci)
+{
+    build_assert(offsetof(struct cpuinfo_machine *, stack_canary) == 0x28); /* as per x86_64 ABI */
+    ci->m.stack_canary = random_u64();
+}
+
 void init_frame(context f)
 {
     assert((u64_from_pointer(f) & 63) == 0);

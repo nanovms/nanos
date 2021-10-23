@@ -66,6 +66,13 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
     /* nop */
 }
 
+u64 __stack_chk_guard;
+
+void stack_chk_guard_init(cpuinfo ci)
+{
+    __stack_chk_guard = random_u64();
+}
+
 void clone_frame_pstate(context dest, context src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * FRAME_N_PSTATE);

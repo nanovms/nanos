@@ -473,6 +473,11 @@ void init_service(u64 rdi, u64 rsi)
         initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
     }
+
+    /* Set GS base address to a dummy value corresponding to a mapped (read-only) page, so that the
+     * stack protector won't crash when reading the canary value before cpu_init() is called. */
+    write_msr(GS_MSR, KERNEL_BASE);
+
     init_kernel_heaps();
     if (cmdline)
         cmdline_parse(cmdline);

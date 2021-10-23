@@ -250,8 +250,6 @@ typedef struct merge *merge;
 merge allocate_merge(heap h, status_handler completion);
 status_handler apply_merge(merge m);
 
-void __stack_chk_guard_init();
-
 #define _countof(a) (sizeof(a) / sizeof(*(a)))
 
 #define struct_from_field(l, s, f) ((s)pointer_from_u64(u64_from_pointer(l) - offsetof(s, f)))
