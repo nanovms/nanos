@@ -275,6 +275,48 @@ void ingest_extent(fsfile f, symbol off, tuple value)
     assert(rangemap_insert(f->extentmap, &ex->node));
 }
 
+closure_function(1, 2, boolean, tfs_ingest_extent,
+                 fsfile, f,
+                 value, s, value, v)
+{
+    assert(is_symbol(s));
+    ingest_extent(bound(f), s, v);
+    return true;
+}
+
+static boolean enumerate_dir_entries(filesystem fs, tuple t);
+
+closure_function(1, 2, boolean, enumerate_dir_entries_each,
+                 filesystem, fs,
+                 value, s, value, v)
+{
+    filesystem fs = bound(fs);
+    if (is_tuple(v))
+        return enumerate_dir_entries(fs, v);
+    return true;
+}
+
+static boolean enumerate_dir_entries(filesystem fs, tuple t)
+{
+    tuple extents = get_tuple(t, sym(extents));
+    if (extents) {
+        fsfile f = allocate_fsfile(fs, t);
+        if (f == INVALID_ADDRESS)
+            return false;
+        table_set(fs->files, t, f);
+        string filelength = get(t, sym(filelength));
+        u64 len;
+        if (filelength && u64_from_value(filelength, &len))
+            fsfile_set_length(f, len);
+        return iterate(extents, stack_closure(tfs_ingest_extent, f));
+    }
+    table_set(fs->files, t, INVALID_ADDRESS);
+    tuple c = children(t);
+    if (c)
+        return iterate(c, stack_closure(enumerate_dir_entries_each, fs));
+    return true;
+}
+
 void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op)
 {
     tfs_debug("%s: fs %p, sg %p, sg size %ld, blocks %R, op %F\n", __func__,
@@ -1694,26 +1736,6 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
     return s;
 }
 
-static void enumerate_dir_entries(filesystem fs, tuple t);
-
-closure_function(1, 2, boolean, enumerate_dir_entries_each,
-                 filesystem, fs,
-                 value, s, value, v)
-{
-    filesystem fs = bound(fs);
-    if (is_tuple(v) && !table_find(fs->files, v))
-        enumerate_dir_entries(fs, v);
-    return true;
-}
-
-static void enumerate_dir_entries(filesystem fs, tuple t)
-{
-    table_set(fs->files, t, INVALID_ADDRESS);
-    tuple c = children(t);
-    if (c)
-        iterate(c, stack_closure(enumerate_dir_entries_each, fs));
-}
-
 void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh)
 {
     tfs_debug("%s(%F)\n", __func__, sh);
@@ -1814,12 +1836,15 @@ closure_function(2, 1, void, log_complete,
 {
     tfs_debug("%s: complete %p, fs %p, status %v\n", __func__, bound(fc), bound(fs), s);
     filesystem fs = bound(fs);
-#ifndef TFS_READ_ONLY
     if (is_ok(s)) {
-        enumerate_dir_entries(fs, fs->root);
-        fixup_directory(fs->root, fs->root);
-    }
+        if (enumerate_dir_entries(fs, fs->root)) {
+#ifndef TFS_READ_ONLY
+            fixup_directory(fs->root, fs->root);
 #endif
+        } else {
+            s = timm("result", "failed to enumerate directory entries");
+        }
+    }
     apply(bound(fc), fs, s);
     closure_finish();
 }

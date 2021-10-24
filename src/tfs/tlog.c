@@ -79,7 +79,6 @@ declare_closure_struct(1, 0, void, log_free,
 struct log {
     heap h;
     filesystem fs;
-    table extents; // maps extent tuples to files
     table dictionary;
     u64 total_entries, obsolete_entries;
     rangemap extensions;
@@ -243,7 +242,6 @@ static log log_new(heap h, filesystem fs)
     if (tl->flush_completions == INVALID_ADDRESS)
         goto fail_dealloc_encoding_lengths;
     tl->total_entries = tl->obsolete_entries = 0;
-    tl->extents = 0;
 #ifndef TLOG_READ_ONLY
     tl->extensions = allocate_rangemap(h);
     if (tl->extensions == INVALID_ADDRESS) {
@@ -670,47 +668,6 @@ boolean log_write(log tl, tuple t)
 
 #endif /* !TLOG_READ_ONLY */
 
-static void log_process_tuple(log tl, tuple t);
-
-closure_function(4, 2, boolean, log_process_tuple_each,
-                 log, tl, tuple, t, fsfile *, f, u64 *, filelength,
-                 value, k, value, v)
-{
-    log tl = bound(tl);
-    assert(is_symbol(k));
-    if (k == sym(extents)) {
-        tlog_debug("extents: %p\n", v);
-        /* don't know why this needs to be in fs, it's really tlog-specific */
-        fsfile f;
-        if (!(f = table_find(tl->extents, v))) {
-            f = allocate_fsfile(tl->fs, bound(t));
-            table_set(tl->extents, v, f);
-            tlog_debug("   created fsfile %p\n", f);
-        } else {
-            tlog_debug("   found fsfile %p\n", f);
-        }
-        *bound(f) = f;
-    } else if (k == sym(filelength)) {
-        assert(u64_from_value(v, bound(filelength)));
-    } else if (is_tuple(v)) {
-        log_process_tuple(tl, v);
-    }
-    return true;
-}
-
-static void log_process_tuple(log tl, tuple t)
-{
-    fsfile f = 0;
-    u64 filelength = infinity;
-
-    iterate(t, stack_closure(log_process_tuple_each, tl, t, &f, &filelength));
-        
-    if (f && filelength != infinity) {
-        tlog_debug("   update fsfile length to %ld\n", filelength);
-        fsfile_set_length(f, filelength);
-    }
-}
-
 static boolean log_parse_tuple(log tl, buffer b)
 {
     tuple dv = decode_value(tl->h, tl->dictionary, b, &tl->total_entries,
@@ -718,8 +675,6 @@ static boolean log_parse_tuple(log tl, buffer b)
     tlog_debug("   decoded %v\n", dv);
     if (!is_tuple(dv))
         return false;
-
-    log_process_tuple(tl, (tuple)dv);
     return true;
 }
 
@@ -747,16 +702,6 @@ static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid,
             return timm("result", "invalid label");
     }
     return STATUS_OK;
-}
-
-closure_function(1, 2, boolean, log_read_ingest_extent,
-                 fsfile, f,
-                 value, s, value, v)
-{
-    assert(is_symbol(s));
-    tlog_debug("   tlog ingesting sym %p, val %p\n", symbol_string(off), e);
-    ingest_extent(bound(f), s, v);
-    return true;
 }
 
 static void log_read(log tl, status_handler sh);
@@ -888,15 +833,6 @@ closure_function(4, 1, void, log_read_complete,
     b->start = 0;
     tlog_debug("   log parse finished, end now at %d\n", b->end);
 
-    binding_handler bh = stack_closure(log_read_ingest_extent, 0);
-    table_foreach(tl->extents, t, f) {
-        assert(is_tuple(t));
-        closure_member(log_read_ingest_extent, bh, f) = (fsfile)f;
-        iterate((tuple)t, bh);
-    }
-    deallocate_table(tl->extents);  /* not needed anymore */
-    tl->extents = 0;
-
     tl->fs->root = (tuple)table_find(tl->dictionary, pointer_from_u64(1));
 
     if (tl->fs->w) {
@@ -922,14 +858,6 @@ closure_function(4, 1, void, log_read_complete,
 
 static void log_read(log tl, status_handler sh)
 {
-    if (!tl->extents) {
-        tl->extents = allocate_table(tl->h, identity_key, pointer_equal);
-        if (tl->extents == INVALID_ADDRESS) {
-            tl->extents = 0;
-            apply(sh, timm("result", "failed to allocate extents table"));
-            return;
-        }
-    }
     log_ext ext = tl->current;
     assert(ext);
     assert(!ext->open);
@@ -1009,8 +937,6 @@ void log_destroy(log tl)
 #ifdef KERNEL
     remove_timer(kernel_timers, &tl->flush_timer, 0);
 #endif
-    if (tl->extents)
-        deallocate_table(tl->extents);
     deallocate_vector(tl->flush_completions);
 #ifndef TLOG_READ_ONLY
     deallocate_rangemap(tl->extensions, stack_closure(log_dealloc_ext_node,
