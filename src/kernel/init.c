@@ -7,6 +7,7 @@
 #include <net.h>
 #include <symtab.h>
 #include <drivers/console.h>
+#include <serial.h>
 
 //#define INIT_DEBUG
 #ifdef INIT_DEBUG
@@ -395,4 +396,43 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
     }
     apply(sh, STATUS_OK);
     while(1);
+}
+
+static char *hex_digits="0123456789abcdef";
+
+void early_debug(const char *s)
+{
+    while (*s != '\0')
+        serial_putchar(*s++);
+}
+
+void early_debug_u64(u64 n)
+{
+    for (int x = 60; x >= 0; x -= 4)
+        serial_putchar(hex_digits[(n >> x) & 0xf]);
+}
+
+void early_dump(void *p, unsigned long length)
+{
+    void *end = p + length;
+    for (; p < end; p += 16) {
+        early_debug_u64((unsigned long)p);
+        early_debug(": ");
+
+        for (int j = 0; j < 16; j++) {
+            u8 b = *((u8 *)p + j);
+            serial_putchar(hex_digits[(b >> 4) & 0xf]);
+            serial_putchar(hex_digits[b & 0xf]);
+            serial_putchar(b);
+            serial_putchar(' ');
+        }
+
+        early_debug("| ");
+        for (int j = 0; j < 16; j++) {
+            char c = *((u8 *)p + j);
+            serial_putchar((c >= ' ' && c < '~') ? c : '.');
+        }
+        early_debug(" |\n");
+    }
+    early_debug("\n");
 }
