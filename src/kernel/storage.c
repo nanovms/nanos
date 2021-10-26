@@ -24,6 +24,8 @@ static struct {
     boolean mounting;
     status_handler mount_complete;
     struct spinlock lock;
+    u64 mount_generation;
+    vector mounts_watchers;
 } storage;
 
 //#define STORAGE_DEBUG
@@ -37,6 +39,8 @@ static struct {
 
 #define storage_lock()      u64 _irqflags = spin_lock_irq(&storage.lock)
 #define storage_unlock()    spin_unlock_irq(&storage.lock, _irqflags)
+
+static void notify_mount_change_locked(void);
 
 /* Called with mutex locked. */
 // XXX this won't work with wrapped root...
@@ -106,6 +110,7 @@ closure_function(2, 2, void, volume_link,
             v->fs = fs;
             v->mount_dir = mount_dir;
             storage_debug("volume mounted, mount directory %p, filesystem %p", mount_dir, fs);
+            notify_mount_change_locked();
         }
     } else {
         msg_err("cannot mount filesystem: %v\n", s);
@@ -157,6 +162,9 @@ void init_volumes(heap h)
     storage.mounts = 0;
     storage.mount_complete = 0;
     spin_lock_init(&storage.lock);
+    storage.mount_generation = 0;
+    storage.mounts_watchers = allocate_vector(h, 1);
+    assert(storage.mounts_watchers != INVALID_ADDRESS);
 }
 
 void storage_set_root_fs(filesystem root_fs)
@@ -307,6 +315,7 @@ void storage_detach(block_io r, block_io w, thunk complete)
         if ((v->r == r) && (v->w == w)) {
             list_delete(&v->l);
             vol = v;
+            notify_mount_change_locked();
             break;
         }
     }
@@ -319,4 +328,32 @@ void storage_detach(block_io r, block_io w, thunk complete)
             apply(complete);
         deallocate(storage.h, vol, sizeof(*vol));
     }
+}
+
+void storage_register_mount_notify(mount_notification_handler nh)
+{
+    storage_lock();
+    vector_push(storage.mounts_watchers, nh);
+    storage_unlock();
+}
+
+void storage_unregister_mount_notify(mount_notification_handler nh)
+{
+    storage_lock();
+    for (int i = 0; i < vector_length(storage.mounts_watchers); i++) {
+        if (vector_get(storage.mounts_watchers, i) == nh) {
+            vector_delete(storage.mounts_watchers, i);
+            break;
+        }
+    }
+    storage_unlock();
+}
+
+static void notify_mount_change_locked(void)
+{
+    mount_notification_handler nh;
+
+    storage.mount_generation++;
+    vector_foreach(storage.mounts_watchers, nh)
+        apply(nh, storage.mount_generation);
 }

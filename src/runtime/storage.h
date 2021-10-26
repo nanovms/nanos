@@ -85,3 +85,6 @@ typedef closure_type(volume_handler, void, u8 *, const char *, struct filesystem
 void storage_iterate(volume_handler vh);
 
 void storage_detach(block_io r, block_io w, thunk complete);
+typedef closure_type(mount_notification_handler, void, u64);
+void storage_register_mount_notify(mount_notification_handler nh);
+void storage_unregister_mount_notify(mount_notification_handler nh);

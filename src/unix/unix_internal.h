@@ -962,6 +962,8 @@ typedef closure_type(spec_file_open, sysreturn, file f);
 
 void register_special_files(process p);
 sysreturn spec_open(file f, tuple t);
+file spec_allocate(tuple t);
+void spec_deallocate(file f);
 
 /* Values to pass as first argument to prctl() */
 #define PR_SET_NAME    15               /* Set process name */

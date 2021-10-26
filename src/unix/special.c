@@ -10,7 +10,13 @@ typedef struct special_file {
     sysreturn (*read)(file f, void *dest, u64 length, u64 offset);
     sysreturn (*write)(file f, void *dest, u64 length, u64 offset);
     u32 (*events)(file f);
+    u64 alloc_size;
 } special_file;
+
+typedef struct special_file_wrapper {
+    struct file f;
+    u64 alloc_size;
+} *special_file_wrapper;
 
 static sysreturn urandom_read(file f, void *dest, u64 length, u64 offset)
 {
@@ -37,6 +43,51 @@ static sysreturn null_write(file f, void *dest, u64 length, u64 offset)
 static u32 null_events(file f)
 {
     return EPOLLOUT;
+}
+
+typedef struct mounts_notify_data *mounts_notify_data;
+declare_closure_struct(1, 1, void, mounts_notify,
+                       mounts_notify_data, d,
+                       u64, generation);
+
+struct mounts_notify_data {
+    struct special_file_wrapper w;
+    closure_struct(mounts_notify, notify_handler);
+    u64 last_generation;
+};
+
+static u32 mounts_events(file f)
+{
+    return EPOLLIN | EPOLLRDNORM;
+}
+
+define_closure_function(1, 1, void, mounts_notify,
+                 mounts_notify_data, d,
+                 u64, generation)
+{
+    mounts_notify_data d = bound(d);
+
+    u32 events = mounts_events(&d->w.f);
+    if (d->last_generation != generation) {
+        d->last_generation = generation;
+        events |= EPOLLERR | EPOLLPRI;
+    }
+    notify_dispatch(d->w.f.f.ns, events);
+}
+
+sysreturn mounts_open(file f)
+{
+    mounts_notify_data d = (mounts_notify_data)f;
+    d->last_generation = 0;
+    storage_register_mount_notify(init_closure(&d->notify_handler, mounts_notify, d));
+    return 0;
+}
+
+sysreturn mounts_close(file f)
+{
+    mounts_notify_data d = (mounts_notify_data)f;
+    storage_unregister_mount_notify((mount_notification_handler)&d->notify_handler);
+    return 0;
 }
 
 closure_function(1, 4, void, mounts_handler,
@@ -146,7 +197,7 @@ static u32 cpu_online_events(file f)
 static special_file special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
-    { "/proc/mounts", .read = mounts_read },
+    { "/proc/mounts", .open = mounts_open, .close = mounts_close, .read = mounts_read, .events = mounts_events, .alloc_size = sizeof(struct mounts_notify_data)},
     { "/proc/self/maps", .read = maps_read, .events = maps_events, },
     { "/sys/devices/system/cpu/online", .read = cpu_online_read, .write = null_write, .events = cpu_online_events },
     FTRACE_SPECIAL_FILES
@@ -263,12 +314,13 @@ closure_function(1, 1, sysreturn, special_open,
     return ret;
 }
 
-boolean create_special_file(const char *path, spec_file_open open)
+boolean create_special_file(const char *path, spec_file_open open, u64 size)
 {
     tuple entry = allocate_tuple();
     if (entry == INVALID_ADDRESS)
         return false;
     set(entry, sym(special), open);
+    set(entry, sym(special_alloc_size), pointer_from_u64(size));
     fs_status s = filesystem_mkentry(get_root_fs(), 0, path, entry, false, true);
     if (s == FS_STATUS_OK)
         return true;
@@ -302,7 +354,7 @@ void register_special_files(process p)
         /* create special file */
         spec_file_open open = closure(h, special_open, sf);
         assert(open != INVALID_ADDRESS);
-        assert(create_special_file(sf->path, open));
+        assert(create_special_file(sf->path, open, sf->alloc_size));
     }
 
     filesystem_mkdirpath(p->root_fs, 0, "/sys/devices/system/cpu/cpu0", false);
@@ -313,4 +365,24 @@ spec_open(file f, tuple t)
 {
     spec_file_open open = get(t, sym(special));
     return apply(open, f);
+}
+
+file
+spec_allocate(tuple t)
+{
+    u64 size = u64_from_pointer(get(t, sym(special_alloc_size)));
+    if (size == 0)
+        size = sizeof(struct special_file_wrapper);
+    special_file_wrapper w = allocate(heap_locked(get_kernel_heaps()), size);
+    if (w == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    w->alloc_size = size;
+    return &w->f;
+}
+
+void
+spec_deallocate(file f)
+{
+    special_file_wrapper w = (special_file_wrapper)f;
+    deallocate(heap_locked(get_kernel_heaps()), w, w->alloc_size);
 }

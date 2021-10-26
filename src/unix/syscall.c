@@ -857,7 +857,7 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
         }
     }
 
-    file f = unix_cache_alloc(uh, file);
+    file f = type == FDESC_TYPE_SPECIAL ? spec_allocate(n) : unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
         thread_log(current, "failed to allocate struct file");
         ret = -ENOMEM;
@@ -887,7 +887,7 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
         if (spec_ret != 0) {
             assert(spec_ret < 0);
             thread_log(current, "spec_open failed (%d)\n", spec_ret);
-            unix_cache_free(uh, file, f);
+            spec_deallocate(f);
             ret = spec_ret;
             goto out;
         }
