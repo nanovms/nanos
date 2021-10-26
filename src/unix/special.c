@@ -102,20 +102,24 @@ closure_function(1, 4, void, mounts_handler,
         print_uuid(b, uuid);
     push_u8(b, ' ');
     if (mount_point) {
-        while (true) {
-            int rv = file_get_path(fs, mount_point, buffer_end(b), buffer_space(b));
+        for (int count = 2; count > 0; count--) {
+            int rv = file_get_path(get_root_fs(), mount_point, buffer_end(b), buffer_space(b));
             if (rv > 0) {
                 buffer_produce(b, rv - 1);  /* drop the string terminator character */
-                break;
-            } else if (!buffer_extend(b, 2 * buffer_space(b))) {
+                goto out;
+            } else if (!buffer_extend(b, PATH_MAX)) {
                 /* Couldn't write the mount point into the buffer: drop this filesystem */
-                b->end = saved_end;
-                return;
+                break;
             }
         }
+        /* something has gone wrong looking up mount point */
+        msg_err("error looking up mount point for volume '%s'\n", label);
+        b->end = saved_end;
+        return;
     } else {    /* root filesystem */
         push_u8(b, '/');
     }
+out:
     buffer_write_cstring(b, " tfs rw 0 0\n");
 }
 
