@@ -20,6 +20,7 @@ extern __ftrace_graph_entry_fn
 extern __ftrace_graph_return_fn
 extern prepare_ftrace_return
 extern ftrace_return_to_handler
+extern tracing_on
 
 ;; After this is called, the following registers contain:
 ;;  %rdi - holds IP of tracee (address of function being traced)
@@ -96,6 +97,14 @@ global mcount
 global return_to_handler
 
 mcount:
+    ;; check if globally enabled
+    test byte [tracing_on], 1
+    jz ftrace_stub
+
+    ;; check if enabled on this cpu
+    test qword [gs:32], 1
+    jnz ftrace_stub
+
     cmp qword [__ftrace_function_fn], ftrace_stub
     jnz do_trace
 
