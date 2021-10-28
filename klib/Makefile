@@ -155,8 +155,6 @@ endif
 
 CFLAGS+=	$(KERNCFLAGS) -O3 $(INCLUDES) -fPIC $(DEFINES)
 
-# TODO should add stack protection to klibs...
-CFLAGS+=	-fno-stack-protector
 LDFLAGS+=	-shared -Bsymbolic -nostdlib -T$(ARCHDIR)/klib.lds
 
 CLEANFILES+=	$(KLIB_SYMS)
