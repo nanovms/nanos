@@ -427,8 +427,8 @@ static void cloud_download(connection_handler ch)
     deallocate_closure(ch);
 }
 
-closure_function(1, 2, void, cloud_download_retry_func,
-                 connection_handler, ch,
+closure_function(2, 2, void, cloud_download_retry_func,
+                 struct timer, timer, connection_handler, ch,
                  u64, expiry, u64, overruns)
 {
     if (overruns != timer_disabled)
@@ -436,14 +436,15 @@ closure_function(1, 2, void, cloud_download_retry_func,
     closure_finish();
 }
 
-static struct timer retry_timer;
-
 static boolean cloud_download_retry(connection_handler ch)
 {
-    timer_handler th = closure(cloud_heap, cloud_download_retry_func, ch);
+    struct timer retry_timer = {0};
+    init_timer(&retry_timer);
+    timer_handler th = closure(cloud_heap, cloud_download_retry_func, retry_timer, ch);
     if (th == INVALID_ADDRESS)
         return false;
-    kfuncs.register_timer(&retry_timer, CLOCK_ID_MONOTONIC, seconds(1), false, 0, th);
+    kfuncs.register_timer(&closure_member(cloud_download_retry_func, th, timer),
+                   CLOCK_ID_MONOTONIC, seconds(1), false, 0, th);
     return true;
 }
 
@@ -502,7 +503,6 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym, status_handler co
         kfuncs.rprintf("cloud_init: kernel symbols not found\n");
         return KLIB_INIT_FAILED;
     }
-    init_timer(&retry_timer);
     cloud_heap = heap_locked(get_kernel_heaps());
     if (first_boot()) {
         enum cloud c = cloud_detect(get_sym);
