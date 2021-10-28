@@ -303,7 +303,6 @@ void storage_iterate(volume_handler vh)
     }
     storage_unlock();
 }
-KLIB_EXPORT(storage_iterate);
 
 void storage_detach(block_io r, block_io w, thunk complete)
 {

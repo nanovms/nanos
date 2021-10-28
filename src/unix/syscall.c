@@ -1937,7 +1937,6 @@ sysreturn fs_rename(buffer oldpath, buffer newpath)
     return sysreturn_from_fs_status(filesystem_rename(fs, root, buffer_to_cstring(oldpath),
         fs, root, buffer_to_cstring(newpath), false));
 }
-KLIB_EXPORT(fs_rename);
 
 sysreturn close(int fd)
 {
@@ -2052,7 +2051,6 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap)
         return -ENOSYS;
     }
 }
-KLIB_EXPORT(ioctl_generic);
 
 sysreturn ioctl(int fd, unsigned long request, ...)
 {

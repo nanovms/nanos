@@ -194,7 +194,6 @@ void management_reset(void)
     }
 #endif
 }
-KLIB_EXPORT(management_reset);
 
 parser management_parser(buffer_handler out)
 {
@@ -202,7 +201,6 @@ parser management_parser(buffer_handler out)
     return tuple_parser(h, closure(h, mgmt_tuple_parsed, out),
                         closure(h, mgmt_tuple_parse_error, out));
 }
-KLIB_EXPORT(management_parser);
 
 tuple allocate_function_tuple(tuple_get g, tuple_set s, tuple_iterate i)
 {
@@ -214,7 +212,6 @@ tuple allocate_function_tuple(tuple_get g, tuple_set s, tuple_iterate i)
     f->i = i;
     return (tuple)f;
 }
-KLIB_EXPORT(allocate_function_tuple);
 
 typedef struct tuple_notifier {
     struct function_tuple f;

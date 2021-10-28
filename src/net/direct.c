@@ -385,4 +385,3 @@ status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch)
     lwip_unlock();
     return s;
 }
-KLIB_EXPORT(direct_connect);

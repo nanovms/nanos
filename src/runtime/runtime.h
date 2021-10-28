@@ -255,20 +255,3 @@ void __stack_chk_guard_init();
 #define _countof(a) (sizeof(a) / sizeof(*(a)))
 
 #define struct_from_field(l, s, f) ((s)pointer_from_u64(u64_from_pointer(l) - offsetof(s, f)))
-
-#ifdef KERNEL
-typedef struct export_sym {
-    const char *name;
-    void *v;
-} *export_sym;
-
-#define KLIB_EXPORT_RENAME(sym, name)                                      \
-    static const char * __attribute__((section(".klib_symtab.strs")))      \
-        __attribute__((used)) _klib_sym_str_ ##sym = #name;                \
-    static struct export_sym __attribute__((section(".klib_symtab.syms"))) \
-        __attribute__((used)) _klib_export_sym_ ##sym = (struct export_sym){#name, (sym)};
-#define KLIB_EXPORT(sym)    KLIB_EXPORT_RENAME(sym, sym)
-#else
-#define KLIB_EXPORT(x)
-#define KLIB_EXPORT_RENAME(x, y)
-#endif

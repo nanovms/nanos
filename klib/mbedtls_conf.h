@@ -1,6 +1,7 @@
 #ifndef _RUNTIME_H_
 #include <runtime.h>
 #endif
+#include <mktime.h>
 
 #define NULL    ((void *)0)
 
@@ -22,52 +23,33 @@ typedef unsigned long uint64_t;
 typedef unsigned long size_t;
 typedef unsigned long uintptr_t;
 
-struct tm {
-    int tm_year;
-    uint8_t tm_mon;
-    uint8_t tm_mday;
-    uint8_t tm_hour;
-    uint8_t tm_min;
-    uint8_t tm_sec;
-};
-
-extern struct kern_funcs {
-    void (*memset)(void *a, unsigned char b, unsigned long len);
-    void (*memcopy)(void *a, const void *b, unsigned long len);
-    int (*memcmp)(const void *a, const void *b, unsigned long len);
-    int (*strcmp_f)(const char *string1, const char *string2);
-    char *(*strstr_f)(const char *haystack, const char *needle);
-    long (*time_f)(long *result);
-    int (*rsnprintf)(char *str, u64 size, const char *fmt, ...);
-} kern_funcs;
-
 #define MBEDTLS_PLATFORM_CALLOC_MACRO       mbedtls_calloc
 #define MBEDTLS_PLATFORM_FREE_MACRO         mbedtls_free
-#define MBEDTLS_PLATFORM_TIME_MACRO         kern_funcs.time_f
+#define MBEDTLS_PLATFORM_TIME_MACRO         rtime
 #define MBEDTLS_PLATFORM_TIME_TYPE_MACRO    long
-#define MBEDTLS_PLATFORM_SNPRINTF_MACRO     kern_funcs.rsnprintf
+#define MBEDTLS_PLATFORM_SNPRINTF_MACRO     rsnprintf
 
 void *mbedtls_calloc(size_t n, size_t s);
 void mbedtls_free(void *ptr);
 
 #ifndef memset
-#define memset  kern_funcs.memset
+#define memset(block, c, size)  runtime_memset((void *)(block), c, size)
 #endif
 #ifndef memcpy
-#define memcpy  kern_funcs.memcopy
+#define memcpy  runtime_memcpy
 #endif
 #ifndef memmove
-#define memmove kern_funcs.memcopy
+#define memmove runtime_memcpy
 #endif
 #ifndef memcmp
-#define memcmp  kern_funcs.memcmp
+#define memcmp  runtime_memcmp
 #endif
 #ifndef strlen
 #define strlen  runtime_strlen
 #endif
 #ifndef strcmp
-#define strcmp  kern_funcs.strcmp_f
+#define strcmp  runtime_strcmp
 #endif
 #ifndef strstr
-#define strstr  kern_funcs.strstr_f
+#define strstr  runtime_strstr
 #endif

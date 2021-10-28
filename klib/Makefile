@@ -116,6 +116,8 @@ SRCS-mbedtls-tls= \
 
 all: $(PROGRAMS)
 
+KLIB_SYMS= $(OBJDIR)/klib-syms.lds
+
 include ../rules.mk
 
 ifeq ($(UNAME_s),Darwin)
@@ -155,6 +157,7 @@ CFLAGS+=	$(KERNCFLAGS) -O3 $(INCLUDES) -fPIC $(DEFINES)
 
 # TODO should add stack protection to klibs...
 CFLAGS+=	-fno-stack-protector
-LDFLAGS+=	-pie -nostdlib -T$(ARCHDIR)/klib.lds
+LDFLAGS+=	-shared -Bsymbolic -nostdlib -T$(ARCHDIR)/klib.lds
 
+CLEANFILES+=	$(KLIB_SYMS)
 CLEANDIRS+=	$(OUTDIR)/klib/vendor $(OUTDIR)/klib/vendor/mbedtls

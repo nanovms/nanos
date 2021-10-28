@@ -40,6 +40,9 @@ sysreturn fallocate(int fd, int mode, long offset, long len);
 
 sysreturn fadvise64(int fd, s64 off, u64 len, int advice);
 
+sysreturn fs_rename(buffer oldpath, buffer newpath);
+
 void file_release(file f);
 
 fsfile fsfile_open_or_create(buffer file_path);
+fs_status fsfile_truncate(fsfile f, u64 len);

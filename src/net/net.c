@@ -158,19 +158,6 @@ struct netif *netif_get_default(void)
 {
     return netif_default;
 }
-KLIB_EXPORT(netif_get_default);
-
-void kern_lwip_lock(void)
-{
-    lwip_lock();
-}
-KLIB_EXPORT_RENAME(kern_lwip_lock, lwip_lock);
-
-void kern_lwip_unlock(void)
-{
-    lwip_unlock();
-}
-KLIB_EXPORT_RENAME(kern_lwip_unlock, lwip_unlock);
 
 u16 ifflags_from_netif(struct netif *netif)
 {
@@ -217,27 +204,6 @@ void netif_name_cpy(char *dest, struct netif *netif)
     dest[sizeof(netif->name)] = '0' + netif->num;
     dest[sizeof(netif->name) + 1] = '\0';
 }
-KLIB_EXPORT(netif_name_cpy);
-
-KLIB_EXPORT(ip4addr_aton);
-KLIB_EXPORT(ipaddr_ntoa);
-KLIB_EXPORT(ipaddr_ntoa_r);
-KLIB_EXPORT(dns_gethostbyname);
-KLIB_EXPORT(pbuf_alloc);
-KLIB_EXPORT(pbuf_alloced_custom);
-KLIB_EXPORT(pbuf_remove_header);
-KLIB_EXPORT(pbuf_ref);
-KLIB_EXPORT(pbuf_copy_partial);
-KLIB_EXPORT(pbuf_free);
-KLIB_EXPORT(udp_new);
-KLIB_EXPORT(udp_sendto);
-KLIB_EXPORT(udp_recv);
-KLIB_EXPORT(netif_add);
-KLIB_EXPORT(netif_find);
-KLIB_EXPORT(netif_input);
-KLIB_EXPORT(netif_remove);
-KLIB_EXPORT(netif_set_up);
-KLIB_EXPORT(ip4_addr_netmask_valid);
 
 #define MAX_ADDR_LEN 20
 

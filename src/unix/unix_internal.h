@@ -945,6 +945,7 @@ int do_eventfd2(unsigned int count, int flags);
 typedef closure_type(spec_file_open, sysreturn, file f);
 
 void register_special_files(process p);
+boolean create_special_file(const char *path, spec_file_open open, u64 size);
 sysreturn spec_open(file f, tuple t);
 file spec_allocate(tuple t);
 void spec_deallocate(file f);

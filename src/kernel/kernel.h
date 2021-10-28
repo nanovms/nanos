@@ -273,6 +273,7 @@ void configure_timer(timestamp rate, thunk t);
 
 void kernel_sleep();
 void kernel_delay(timestamp delta);
+timestamp kern_now(clock_id id);    /* klibs must use this instead of now() */
 
 void init_clock(void);
 

@@ -69,6 +69,99 @@ void elf_symbols(buffer elf, elf_sym_handler each)
     msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
 }
 
+closure_function(6, 1, boolean, elf_sym_relocate,
+                 buffer, elf, void *, load_addr, Elf64_Sym *, syms, u64, sym_count, Elf64_Shdr *, strtab, elf_sym_resolver, resolver,
+                 Elf64_Rela *, rel)
+{
+    u64 sym_index = ELF64_R_SYM(rel->r_info);
+    const char *sym_name;
+    if (sym_index < bound(sym_count))
+        sym_name = elf_string(bound(elf), bound(strtab), bound(syms)[sym_index].st_name);
+    else
+        sym_name = 0;
+    if (!sym_name)
+        return false;
+    void *sym_addr = apply(bound(resolver), sym_name);
+    if (sym_addr == INVALID_ADDRESS)
+        return false;
+    u64 *target = bound(load_addr) + rel->r_offset;
+    *target = u64_from_pointer(sym_addr);
+    return true;
+}
+
+boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
+{
+    Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(elf, 0);
+    void *elf_end = buffer_end(elf);
+
+    /* Look for the dynamic section */
+    Elf64_Dyn *dyn = 0;
+    foreach_shdr(e, s) {
+        ELF_CHECK_PTR(s, Elf64_Shdr);
+        if (s->sh_type == SHT_DYNAMIC) {
+            dyn = buffer_ref(elf, s->sh_offset);
+            break;
+        }
+    }
+    if (!dyn)
+        return true;
+
+    /* Get the offsets of the tables referenced in the dynamic section */
+    u64 symtab_offset = 0, strtab_offset = 0, reltab_offset = 0;
+    while (true) {
+        ELF_CHECK_PTR(dyn, Elf64_Dyn);
+        if (dyn->d_tag == DT_NULL)
+           break;
+        switch (dyn->d_tag) {
+        case DT_SYMTAB:
+            symtab_offset = dyn->d_un.d_ptr;
+            break;
+        case DT_STRTAB:
+            strtab_offset = dyn->d_un.d_ptr;
+            break;
+        case DT_RELA:
+            reltab_offset = dyn->d_un.d_ptr;
+            break;
+        }
+        dyn++;
+    }
+    if (!symtab_offset || !strtab_offset || !reltab_offset)
+        return true;
+
+    /* Look for the section headers of the tables referenced in the dynamic section */
+    Elf64_Shdr *symtab = 0, *strtab = 0, *reltab = 0;
+    foreach_shdr(e, s) {
+        switch (s->sh_type) {
+        case SHT_DYNSYM:
+            if (s->sh_offset == symtab_offset)
+                symtab = s;
+            break;
+        case SHT_STRTAB:
+            if (s->sh_offset == strtab_offset)
+                strtab = s;
+            break;
+        case SHT_RELA:
+            if (s->sh_offset == reltab_offset)
+                reltab = s;
+            break;
+        }
+    }
+    if (!symtab || !strtab || !reltab)
+        goto out_elf_fail;
+
+    ELF_CHECK_PTR(symtab, Elf64_Shdr);
+    ELF_CHECK_PTR(strtab, Elf64_Shdr);
+    ELF_CHECK_PTR(reltab, Elf64_Shdr);
+    return elf_apply_relocate_syms(elf, reltab,
+                                   stack_closure(elf_sym_relocate, elf, load_addr,
+                                                 buffer_ref(elf, symtab_offset),
+                                                 symtab->sh_size / symtab->sh_entsize, strtab,
+                                                 resolver));
+  out_elf_fail:
+    msg_err("failed to parse elf, len %d\n", buffer_length(elf));
+    return false;
+}
+
 void walk_elf(buffer elf, range_handler rh)
 {
     void *elf_end = buffer_ref(elf, buffer_length(elf));

@@ -29,7 +29,6 @@ value get(value e, symbol a)
         assert(0);
     }
 }
-KLIB_EXPORT(get);
 
 void set(value e, symbol a, value v)
 {
@@ -46,7 +45,6 @@ void set(value e, symbol a, value v)
         assert(0);
     }
 }
-KLIB_EXPORT(set);
 
 boolean iterate(value e, binding_handler h)
 {
@@ -65,7 +63,6 @@ boolean iterate(value e, binding_handler h)
         assert(0);
     }
 }
-KLIB_EXPORT(iterate);
 
 closure_function(1, 2, boolean, tuple_count_each,
                  int *, count,
@@ -111,7 +108,6 @@ tuple allocate_tuple(void)
 {
     return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_table_tuple);
 }
-KLIB_EXPORT(allocate_tuple);
 
 void destruct_tuple(tuple t, boolean recursive);
 
@@ -133,27 +129,12 @@ void destruct_tuple(tuple t, boolean recursive)
     iterate(t, stack_closure(destruct_tuple_each, t, recursive));
     deallocate_value(t);
 }
-KLIB_EXPORT(destruct_tuple);
-
-/* Compared to timm(), kern_timm() supports one key-value pair only. */
-tuple kern_timm(char *name, ...)
-{
-    tuple s = allocate_tuple();
-    assert(s != INVALID_ADDRESS);
-    vlist ap;
-    vstart(ap, name);
-    timm_term(s, name, &ap);
-    vend(ap);
-    return s;
-}
-KLIB_EXPORT_RENAME(kern_timm, timm);
 
 void timm_dealloc(tuple t)
 {
     if (t != STATUS_OK)
         destruct_tuple(t, true);
 }
-KLIB_EXPORT(timm_dealloc);
 
 // header: immediate(1)
 //         type(1)
@@ -401,7 +382,6 @@ void deallocate_value(tuple t)
         break;
     }
 }
-KLIB_EXPORT(deallocate_value);
 
 void init_tuples(heap h)
 {

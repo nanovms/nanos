@@ -52,7 +52,7 @@ closure_function(2, 3, void, offset_block_io,
 /* stage3 */
 extern thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m);
 extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
-                                          status_handler klibs_complete,
+                                          status_handler klibs_complete, boolean klibs_in_bootfs,
                                           boolean ingest_kernel_syms);
 
 static tuple_notifier wrapped_root;
@@ -90,8 +90,10 @@ closure_function(3, 2, void, fsstarted,
 
     merge m;
     enqueue(runqueue, create_init(init_heaps, root, fs, &m));
+    boolean opening_bootfs = false;
     if (mbr) {
-        boolean ingest_kernel_syms = get(root, sym(ingest_kernel_symbols)) != 0;
+        boolean ingest_kernel_syms = symtab_is_empty() &&
+                (klibs || get(root, sym(ingest_kernel_symbols)));
         struct partition_entry *bootfs_part;
         if ((ingest_kernel_syms || klibs_in_bootfs) &&
             (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
@@ -100,14 +102,15 @@ closure_function(3, 2, void, fsstarted,
                               closure(h, offset_block_io,
                                       bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
                               0, 0, 0, /* no write, flush or label */
-                              bootfs_handler(init_heaps, root, klibs_in_bootfs ? apply_merge(m) : 0,
-                                             ingest_kernel_syms));
+                              bootfs_handler(init_heaps, root, klibs ? apply_merge(m) : 0,
+                                             klibs_in_bootfs, ingest_kernel_syms));
+            opening_bootfs = true;
         }
         deallocate(h, mbr, SECTOR_SIZE);
     }
 
-    if (klibs && !klibs_in_bootfs)
-        init_klib(init_heaps, fs, root, root, apply_merge(m));
+    if (klibs && !opening_bootfs)
+        init_klib(init_heaps, fs, root, apply_merge(m));
 
     closure_finish();
     symbol booted = sym(booted);
@@ -160,7 +163,6 @@ kernel_heaps get_kernel_heaps(void)
 {
     return &heaps;
 }
-KLIB_EXPORT(get_kernel_heaps);
 
 filesystem get_root_fs(void)
 {
@@ -171,26 +173,22 @@ tuple get_root_tuple(void)
 {
     return root_fs ? filesystem_getroot(root_fs) : 0;
 }
-KLIB_EXPORT(get_root_tuple);
 
 void register_root_notify(symbol s, set_value_notify n)
 {
     // XXX to be restored when root fs tuple is separated from root tuple
     tuple_notifier_register_set_notify(wrapped_root, s, n);
 }
-KLIB_EXPORT(register_root_notify);
 
 tuple get_environment(void)
 {
     return get(get_root_tuple(), sym(environment));
 }
-KLIB_EXPORT(get_environment);
 
 boolean first_boot(void)
 {
     return !get(get_root_tuple(), sym(booted));
 }
-KLIB_EXPORT(first_boot);
 
 static void rootfs_init(u8 *mbr, u64 offset,
                         block_io r, block_io w, block_flush flush, u64 length)

@@ -90,7 +90,6 @@ void notify_dispatch(notify_set s, u64 events)
 {
     notify_dispatch_for_thread(s, events, 0);
 }
-KLIB_EXPORT(notify_dispatch);
 
 void notify_release(notify_set s)
 {

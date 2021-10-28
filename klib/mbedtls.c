@@ -32,19 +32,11 @@ typedef struct tls_conn {
     } state;
 } *tls_conn;
 
-struct kern_funcs kern_funcs;
-
 static struct {
     mbedtls_ssl_config conf;
     mbedtls_ctr_drbg_context ctr_drbg;
     mbedtls_entropy_context entropy;
     mbedtls_x509_crt cacert;
-    void (*rprintf)(const char *format, ...);
-    status (*direct_connect)(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
-    tuple (*timm_alloc)(char *name, ...);
-    void (*timm_dealloc)(tuple t);
-    u64 (*random_buffer)(buffer b);
-    struct tm *(*gmtime_r)(const long *timep, struct tm *result);
     heap h;
 } tls;
 
@@ -79,7 +71,7 @@ static int tls_send(void *ctx, const unsigned char *buf, size_t len)
         return MBEDTLS_ERR_SSL_ALLOC_FAILED;
     status s = apply(conn->out, b);
     if (!is_ok(s)) {
-        tls.timm_dealloc(s);
+        timm_dealloc(s);
         deallocate_buffer(b);
         return MBEDTLS_ERR_SSL_ALLOC_FAILED;
     }
@@ -92,7 +84,7 @@ static int tls_recv(void *ctx, unsigned char *buf, size_t len)
     if (!conn->incoming || (buffer_length(conn->incoming) == 0))
         return MBEDTLS_ERR_SSL_WANT_READ;
     len = MIN(buffer_length(conn->incoming), len);
-    kern_funcs.memcopy(buf, buffer_ref(conn->incoming, 0), len);
+    runtime_memcpy(buf, buffer_ref(conn->incoming, 0), len);
     buffer_consume(conn->incoming, len);
     return len;
 }
@@ -179,7 +171,7 @@ define_closure_function(1, 1, status, tls_in_handler,
             }
             if (conn->outgoing && (tls_out_internal(conn, 0) < 0))
                 /* An error happened and the connection has been closed. */
-                return tls.timm_alloc("result", "failed to send outgoing data");
+                return timm("result", "failed to send outgoing data");
         } while ((ret > 0) && conn->app_in);
         break;
     case tls_closing:
@@ -193,7 +185,7 @@ define_closure_function(1, 1, status, tls_in_handler,
   conn_close:
     tls_close(conn);
     if (b)  /* connection closed by us */
-        return tls.timm_alloc("result", "connection closed");
+        return timm("result", "connection closed");
     else    /* connection closed by the peer */
         return STATUS_OK;
 }
@@ -218,12 +210,12 @@ define_closure_function(1, 1, buffer_handler, tls_conn_handler,
     return 0;
 }
 
-static int tls_set_cacert(void *cert, u64 len)
+int tls_set_cacert(void *cert, u64 len)
 {
     mbedtls_x509_crt_init(&tls.cacert);
     int ret = mbedtls_x509_crt_parse(&tls.cacert, cert, len);
     if (ret < 0) {
-        tls.rprintf("%s: cannot parse certificate (%d)\n", __func__, ret);
+        rprintf("%s: cannot parse certificate (%d)\n", __func__, ret);
         return ret;
     }
     mbedtls_ssl_conf_ca_chain(&tls.conf, &tls.cacert, NULL);
@@ -231,7 +223,7 @@ static int tls_set_cacert(void *cert, u64 len)
     return ret;
 }
 
-static int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
+int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
 {
     tls_conn conn = allocate(tls.h, sizeof(*conn));
     if (conn == INVALID_ADDRESS)
@@ -239,16 +231,16 @@ static int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
     mbedtls_ssl_init(&conn->ssl);
     int ret = mbedtls_ssl_setup(&conn->ssl, &tls.conf);
     if (ret) {
-        tls.rprintf("%s: cannot set up SSL context\n", __func__);
+        rprintf("%s: cannot set up SSL context\n", __func__);
         goto err_ssl_setup;
     }
     conn->app_ch = ch;
     conn->app_in = 0;
     conn->incoming = conn->outgoing = 0;
-    status s = tls.direct_connect(tls.h, addr, port,
+    status s = direct_connect(tls.h, addr, port,
         init_closure(&conn->ch, tls_conn_handler, conn));
     if (!is_ok(s)) {
-        tls.timm_dealloc(s);
+        timm_dealloc(s);
         ret = -1;
         goto err_connect;
     }
@@ -260,48 +252,26 @@ static int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
     return ret;
 }
 
-int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
+int init(status_handler complete)
 {
-    tls.rprintf = get_sym("rprintf");
-    if (!tls.rprintf)
-        return KLIB_INIT_FAILED;
-    void *(*get_kernel_heaps)(void) = get_sym("get_kernel_heaps");
-    if (!get_kernel_heaps || !(kern_funcs.memset = get_sym("runtime_memset")) ||
-            !(kern_funcs.memcopy = get_sym("runtime_memcpy")) ||
-            !(kern_funcs.memcmp = get_sym("runtime_memcmp")) ||
-            !(kern_funcs.strcmp_f = get_sym("runtime_strcmp")) ||
-            !(kern_funcs.strstr_f = get_sym("runtime_strstr")) ||
-            !(kern_funcs.time_f = get_sym("rtime")) ||
-            !(kern_funcs.rsnprintf = get_sym("rsnprintf")) ||
-            !(tls.direct_connect = get_sym("direct_connect")) ||
-            !(tls.timm_alloc = get_sym("timm")) ||
-            !(tls.timm_dealloc = get_sym("timm_dealloc")) ||
-            !(tls.random_buffer = get_sym("random_buffer")) ||
-            !(tls.gmtime_r = get_sym("gmtime_r"))) {
-        tls.rprintf("TLS init: kernel symbols not found\n");
-        return KLIB_INIT_FAILED;
-    }
     tls.h = heap_locked(get_kernel_heaps());
     mbedtls_ssl_config_init(&tls.conf);
     mbedtls_ctr_drbg_init(&tls.ctr_drbg);
     mbedtls_entropy_init(&tls.entropy);
     if (mbedtls_ctr_drbg_seed(&tls.ctr_drbg, mbedtls_entropy_func, &tls.entropy, 0, 0)) {
-        tls.rprintf("TLS init: cannot seed entropy source\n");
+        rprintf("TLS init: cannot seed entropy source\n");
         return KLIB_INIT_FAILED;
     }
     mbedtls_ssl_config_defaults(&tls.conf, MBEDTLS_SSL_IS_CLIENT,
         MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
     mbedtls_ssl_conf_authmode(&tls.conf, MBEDTLS_SSL_VERIFY_NONE);
     mbedtls_ssl_conf_rng(&tls.conf, mbedtls_ctr_drbg_random, &tls.ctr_drbg);
-    add_sym(md, "tls_set_cacert", tls_set_cacert);
-    add_sym(md, "tls_connect", tls_connect);
     return KLIB_INIT_OK;
 }
 
 void mbedtls_platform_zeroize( void *buf, size_t len )
 {
-#undef memset   // due to lwip_memset()
-    kern_funcs.memset(buf, 0, len);
+    zero(buf, len);
 }
 
 void *mbedtls_calloc(size_t n, size_t s)
@@ -310,12 +280,12 @@ void *mbedtls_calloc(size_t n, size_t s)
        within the range of objcaches and not fall back to parent allocs. */
     size_t total = n * s;
     if (total > U64_FROM_BIT(MAX_MCACHE_ORDER)) {
-        tls.rprintf("%s: %ld bytes exceeds max alloc order\n", __func__, total);
+        rprintf("%s: %ld bytes exceeds max alloc order\n", __func__, total);
         return 0;
     }
     void *p = allocate(tls.h, total);
     if (p != INVALID_ADDRESS) {
-        kern_funcs.memset(p, 0, total);
+        runtime_memset(p, 0, total);
         return p;
     } else {
         return 0;
@@ -330,13 +300,13 @@ void mbedtls_free(void *x)
 
 int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen)
 {
-    *olen = tls.random_buffer(alloca_wrap_buffer(output, len));
+    *olen = random_buffer(alloca_wrap_buffer(output, len));
     return 0;
 }
 
 struct tm *mbedtls_platform_gmtime_r(const mbedtls_time_t *tt, struct tm *tm_buf)
 {
-    return tls.gmtime_r(tt, tm_buf);
+    return gmtime_r((u64 *)tt, tm_buf);
 }
 
 /* gcc will sometimes generate a call to mem* functions. On an aarch64
@@ -347,6 +317,6 @@ struct tm *mbedtls_platform_gmtime_r(const mbedtls_time_t *tt, struct tm *tm_buf
 #undef memcpy /* lwIP */
 void *memcpy(void *dst, const void *src, u64 n)
 {
-    kern_funcs.memcopy(dst, src, n);
+    runtime_memcpy(dst, src, n);
     return dst;
 }

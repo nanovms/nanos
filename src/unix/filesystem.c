@@ -383,7 +383,6 @@ void file_release(file f)
     else
         unix_cache_free(get_unix_heaps(), file, f);
 }
-KLIB_EXPORT(file_release);
 
 /* file_path is treated as an absolute path. */
 fsfile fsfile_open_or_create(buffer file_path)
@@ -409,11 +408,9 @@ fsfile fsfile_open_or_create(buffer file_path)
     }
     return 0;
 }
-KLIB_EXPORT(fsfile_open_or_create);
 
 /* Can be used for files in the root filesystem only. */
 fs_status fsfile_truncate(fsfile f, u64 len)
 {
     return (filesystem_truncate(get_root_fs(), f, len));
 }
-KLIB_EXPORT(fsfile_truncate);

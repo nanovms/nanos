@@ -18,7 +18,6 @@ timestamp kern_now(clock_id id)
 {
     return now(id);
 }
-KLIB_EXPORT_RENAME(kern_now, now);
 
 void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal)
 {
@@ -34,7 +33,6 @@ void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete
     timer_reorder(kernel_timers);
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
 }
-KLIB_EXPORT(clock_adjust);
 
 closure_function(1, 1, boolean, timer_adjust_handler,
                 s64, amt,
@@ -63,4 +61,3 @@ void clock_reset_rtc(timestamp wallclock_now)
     timer_reorder(kernel_timers);
     reset_clock_vdso_dat();
 }
-KLIB_EXPORT(clock_reset_rtc);

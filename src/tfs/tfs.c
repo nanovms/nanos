@@ -70,7 +70,6 @@ u64 fsfile_get_length(fsfile f)
 {
     return f->length;
 }
-KLIB_EXPORT(fsfile_get_length);
 
 void fsfile_set_length(fsfile f, u64 length)
 {
@@ -96,7 +95,6 @@ sg_io fsfile_get_writer(fsfile f)
 {
     return f->write;
 }
-KLIB_EXPORT(fsfile_get_writer);
 
 pagecache_node fsfile_get_cachenode(fsfile f)
 {
@@ -1016,7 +1014,6 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
     filesystem_write_sg(f, sg, q, closure(f->fs->h, filesystem_write_complete,
                                           sg, length, io_complete));
 }
-KLIB_EXPORT(filesystem_write_linear);
 
 fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {
@@ -1975,19 +1972,16 @@ u64 fs_blocksize(filesystem fs)
 {
     return U64_FROM_BIT(fs->blocksize_order);
 }
-KLIB_EXPORT(fs_blocksize);
 
 u64 fs_totalblocks(filesystem fs)
 {
     return fs->storage->total;
 }
-KLIB_EXPORT(fs_totalblocks);
 
 u64 fs_usedblocks(filesystem fs)
 {
     return fs->storage->allocated;
 }
-KLIB_EXPORT(fs_usedblocks);
 
 u64 fs_freeblocks(filesystem fs)
 {

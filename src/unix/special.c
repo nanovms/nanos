@@ -331,7 +331,6 @@ boolean create_special_file(const char *path, spec_file_open open, u64 size)
     deallocate_value(entry);
     return false;
 }
-KLIB_EXPORT(create_special_file);
 
 void register_special_files(process p)
 {

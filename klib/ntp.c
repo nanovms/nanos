@@ -58,22 +58,6 @@ static struct {
     timestamp last_raw;
     u64 last_offset;
     int jiggle_counter;
-    void (*rprintf)(const char *format, ...);
-    void (*register_timer)(timer t, clock_id id, timestamp val, boolean absolute, timestamp interval,
-            timer_handler n);
-    void (*lwip_lock)(void);
-    void (*lwip_unlock)(void);
-    err_t (*dns_gethostbyname)(const char *hostname, ip_addr_t *addr,
-            dns_found_callback found, void *callback_arg);
-    struct pbuf *(*pbuf_alloc)(pbuf_layer layer, u16_t length, pbuf_type type);
-    u8 (*pbuf_free)(struct pbuf *p);
-    err_t(*udp_sendto)(struct udp_pcb *pcb, struct pbuf *p,
-            const ip_addr_t *dst_ip, u16_t dst_port);
-    void (*runtime_memcpy)(void *a, const void *b, unsigned long len);
-    void (*runtime_memset)(u8 *a, u8 b, bytes len);
-    timestamp (*now)(clock_id id);
-    void (*clock_adjust)(timestamp now, s64 temp_cal, timestamp sync_complete, s64 cal);
-    void (*clock_reset_rtc)(timestamp now);
 } ntp;
 
 /* Calculates a division between a 128-bit value and a 64-bit value and returns a 64-bit quotient.
@@ -99,7 +83,7 @@ static u64 div128_64(u128 dividend, u64 divisor)
 static void ntp_schedule_query(void)
 {
     if (!timer_is_active(&ntp.query_timer))
-        ntp.register_timer(&ntp.query_timer, CLOCK_ID_MONOTONIC_RAW,
+        register_timer(kernel_timers, &ntp.query_timer, CLOCK_ID_MONOTONIC_RAW,
             seconds(U64_FROM_BIT(ntp.query_interval)), false, 0, (timer_handler)&ntp.query_func);
 }
 
@@ -134,29 +118,29 @@ static void ntp_query_complete(boolean success)
 static void ntp_query(const ip_addr_t *server_addr, boolean lwip_locked)
 {
     if (!lwip_locked)
-        ntp.lwip_lock();
-    struct pbuf *p = ntp.pbuf_alloc(PBUF_TRANSPORT, sizeof(struct ntp_packet), PBUF_RAM);
+        lwip_lock();
+    struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, sizeof(struct ntp_packet), PBUF_RAM);
     if (!lwip_locked)
-        ntp.lwip_unlock();
+        lwip_unlock();
     if (p == 0)
         return;
     struct ntp_packet *pkt = p->payload;
-    ntp.runtime_memset(p->payload, 0, sizeof(*pkt));
+    runtime_memset(p->payload, 0, sizeof(*pkt));
     pkt->vn = 3;    /* NTP version number */
     pkt->mode = 3;  /* client mode */
     struct ntp_ts t;
-    timestamp_to_ntptime(ntp.now(CLOCK_ID_REALTIME), &t);
-    ntp.runtime_memcpy(&pkt->transmit_ts, &t, sizeof(t));
+    timestamp_to_ntptime(kern_now(CLOCK_ID_REALTIME), &t);
+    runtime_memcpy(&pkt->transmit_ts, &t, sizeof(t));
     if (!lwip_locked)
-        ntp.lwip_lock();
-    err_t err = ntp.udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
+        lwip_lock();
+    err_t err = udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
     if (err != ERR_OK) {
-        ntp.rprintf("%s: failed to send request: %d\n", __func__, err);
+        rprintf("%s: failed to send request: %d\n", __func__, err);
         ntp_query_complete(false);
     }
-    ntp.pbuf_free(p);
+    pbuf_free(p);
     if (!lwip_locked)
-        ntp.lwip_unlock();
+        lwip_unlock();
     ntp.query_ongoing = true;
     ntp_schedule_query();
 }
@@ -169,22 +153,22 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     struct ntp_packet *pkt = p->payload;
     boolean success;
     if (p->len != sizeof(*pkt)) {
-        ntp.rprintf("%s: invalid response length %d\n", __func__, p->len);
+        rprintf("%s: invalid response length %d\n", __func__, p->len);
         success = false;
         goto done;
     }
-    timestamp wallclock_now = ntp.now(CLOCK_ID_REALTIME);
+    timestamp wallclock_now = kern_now(CLOCK_ID_REALTIME);
     struct ntp_ts t1, t2;
-    ntp.runtime_memcpy(&t1, &pkt->originate_ts, sizeof(t1));
+    runtime_memcpy(&t1, &pkt->originate_ts, sizeof(t1));
     timestamp origin = ntptime_to_timestamp(&t1);
     /* round trip delay */
-    ntp.runtime_memcpy(&t1, &pkt->transmit_ts, sizeof(t1));
-    ntp.runtime_memcpy(&t2, &pkt->receive_ts, sizeof(t2));
+    runtime_memcpy(&t1, &pkt->transmit_ts, sizeof(t1));
+    runtime_memcpy(&t2, &pkt->receive_ts, sizeof(t2));
     timestamp rtd = wallclock_now - origin - ntptime_diff(&t1, &t2);
     s64 offset = ntptime_to_timestamp(&t1) - wallclock_now + rtd / 2;
     if (ntp.reset_threshold > 0 &&
             sec_from_timestamp(offset < 0 ? -offset : offset) > ntp.reset_threshold) {
-        ntp.clock_reset_rtc(wallclock_now + offset);
+        clock_reset_rtc(wallclock_now + offset);
         ntp.last_offset = 0;
         ntp.last_raw = 0;
         success = true;
@@ -192,7 +176,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     }
     u128 offset_calibr = ((u128)ABS(offset)) << CLOCK_CALIBR_BITS;
     s64 temp_cal, cal;
-    timestamp raw = ntp.now(CLOCK_ID_MONOTONIC_RAW);
+    timestamp raw = kern_now(CLOCK_ID_MONOTONIC_RAW);
 
     /* Apply maximum slew rate until local time is synchronized with NTP time. */
     timestamp sync_complete;
@@ -202,7 +186,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     } else {
         timestamp sync_time = div128_64(offset_calibr, NTP_MAX_SLEW_RATE);
         if (sync_time == -1ull) {
-            ntp.rprintf("%s: time offset too large, ignoring\n", __func__);
+            rprintf("%s: time offset too large, ignoring\n", __func__);
             success = false;
             goto done;
         }
@@ -242,11 +226,11 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     ntp.last_raw = raw;
     ntp.last_offset = offset;
 
-    ntp.clock_adjust(wallclock_now + offset, temp_cal, sync_complete, cal);
+    clock_adjust(wallclock_now + offset, temp_cal, sync_complete, cal);
     success = true;
   done:
     ntp_query_complete(success);
-    ntp.pbuf_free(p);
+    pbuf_free(p);
 }
 
 static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
@@ -254,7 +238,7 @@ static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback
     if (ipaddr) {
         ntp_query(ipaddr, true);
     } else {
-        ntp.rprintf("%s: failed to resolve hostname %s\n", __func__, name);
+        rprintf("%s: failed to resolve hostname %s\n", __func__, name);
         ntp_query_complete(false);
     }
 }
@@ -265,68 +249,45 @@ define_closure_function(0, 2, void, ntp_query_func,
     if (overruns == timer_disabled)
         return;
     if (ntp.query_ongoing) {
-        ntp.rprintf("NTP: failed to receive server response\n", __func__);
+        rprintf("NTP: failed to receive server response\n", __func__);
         ntp_query_complete(false);
     }
     ip_addr_t server_addr;
-    ntp.lwip_lock();
-    err_t err = ntp.dns_gethostbyname(ntp.server_addr, &server_addr, ntp_dns_cb, 0);
-    ntp.lwip_unlock();
+    lwip_lock();
+    err_t err = dns_gethostbyname(ntp.server_addr, &server_addr, ntp_dns_cb, 0);
+    lwip_unlock();
     if (err == ERR_OK)
         ntp_query(&server_addr, false);
     else if (err != ERR_INPROGRESS) {
-        ntp.rprintf("%s: failed to resolve hostname: %d\n", __func__, err);
+        rprintf("%s: failed to resolve hostname: %d\n", __func__, err);
         ntp_query_complete(false);
     }
 }
 
-int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
+int init(status_handler complete)
 {
-    ntp.rprintf = get_sym("rprintf");
-    if (!ntp.rprintf)
-        return KLIB_INIT_FAILED;
-    tuple (*get_root_tuple)(void) = get_sym("get_root_tuple");
-    symbol (*intern)(string name) = get_sym("intern");
-    void *(*get)(value z, void *c) = get_sym("get");
-    void (*memcopy)(void *a, const void *b, unsigned long len) = get_sym("runtime_memcpy");
-    struct udp_pcb *(*udp_new)(void) = get_sym("udp_new");
-    void (*udp_recv)(struct udp_pcb *pcb, udp_recv_fn recv, void *recv_arg) = get_sym("udp_recv");
-    if (!get_root_tuple || !intern || !get || !memcopy || !udp_new || !udp_recv ||
-            !(ntp.register_timer = get_sym("kern_register_timer")) ||
-            !(ntp.lwip_lock = get_sym("lwip_lock")) ||
-            !(ntp.lwip_unlock = get_sym("lwip_unlock")) ||
-            !(ntp.dns_gethostbyname = get_sym("dns_gethostbyname")) ||
-            !(ntp.pbuf_alloc = get_sym("pbuf_alloc")) || !(ntp.pbuf_free = get_sym("pbuf_free")) ||
-            !(ntp.udp_sendto = get_sym("udp_sendto")) ||
-            !(ntp.runtime_memcpy = get_sym("runtime_memcpy")) ||
-            !(ntp.runtime_memset = get_sym("runtime_memset")) ||
-            !(ntp.now = get_sym("now")) || !(ntp.clock_adjust = get_sym("clock_adjust")) ||
-            !(ntp.clock_reset_rtc = get_sym("clock_reset_rtc"))) {
-        ntp.rprintf("NTP: kernel symbols not found\n");
-        return KLIB_INIT_FAILED;
-    }
     tuple root = get_root_tuple();
     if (!root) {
-        ntp.rprintf("NTP: failed to get root tuple\n");
+        rprintf("NTP: failed to get root tuple\n");
         return KLIB_INIT_FAILED;
     }
     buffer server_addr = get(root, sym_intern(ntp_address, intern));
     if (server_addr) {
         bytes len = buffer_length(server_addr);
         if (len >= sizeof(ntp.server_addr)) {
-            ntp.rprintf("NTP: invalid server address\n");
+            rprintf("NTP: invalid server address\n");
             return KLIB_INIT_FAILED;
         }
-        memcopy(ntp.server_addr, buffer_ref(server_addr, 0), len);
+        runtime_memcpy(ntp.server_addr, buffer_ref(server_addr, 0), len);
         ntp.server_addr[len] = '\0';
     } else {
-        memcopy(ntp.server_addr, NTP_SERVER_DEFAULT, sizeof(NTP_SERVER_DEFAULT));
+        runtime_memcpy(ntp.server_addr, NTP_SERVER_DEFAULT, sizeof(NTP_SERVER_DEFAULT));
     }
     value server_port = get(root, sym_intern(ntp_port, intern));
     if (server_port) {
         u64 port;
         if (!u64_from_value(server_port, &port) || (port > U16_MAX)) {
-            ntp.rprintf("NTP: invalid server port\n");
+            rprintf("NTP: invalid server port\n");
             return KLIB_INIT_FAILED;
         }
         ntp.server_port = port;
@@ -340,7 +301,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         u64 interval;
         if (!u64_from_value(pollmin, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
                 (interval > NTP_QUERY_INTERVAL_MAX)) {
-            ntp.rprintf("NTP: invalid minimum poll interval\n");
+            rprintf("NTP: invalid minimum poll interval\n");
             return KLIB_INIT_FAILED;
         }
         ntp.pollmin = interval;
@@ -352,13 +313,13 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
         u64 interval;
         if (!u64_from_value(pollmax, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
                 (interval > NTP_QUERY_INTERVAL_MAX)) {
-            ntp.rprintf("NTP: invalid maximum poll interval\n");
+            rprintf("NTP: invalid maximum poll interval\n");
             return KLIB_INIT_FAILED;
         }
         ntp.pollmax = interval;
         if (interval < ntp.pollmin) {
             if (pollmin) {
-                ntp.rprintf("NTP: maximum poll interval smaller than minimum poll interval\n");
+                rprintf("NTP: maximum poll interval smaller than minimum poll interval\n");
                 return KLIB_INIT_FAILED;
             }
             ntp.pollmin = interval;
@@ -369,25 +330,25 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     if (reset_thresh) {
         u64 thresh;
         if (!u64_from_value(reset_thresh, &thresh) || (thresh > 0 && thresh < NTP_RESET_THRESHOLD_MIN)) {
-            ntp.rprintf("NTP: invalid reset threshold\n");
+            rprintf("NTP: invalid reset threshold\n");
             return KLIB_INIT_FAILED;
         }
         ntp.reset_threshold = thresh;
     }
-    ntp.lwip_lock();
+    lwip_lock();
     ntp.pcb = udp_new();
     if (!ntp.pcb) {
-        ntp.lwip_unlock();
-        ntp.rprintf("NTP: failed to create PCB\n");
+        lwip_unlock();
+        rprintf("NTP: failed to create PCB\n");
         return KLIB_INIT_FAILED;
     }
     udp_recv(ntp.pcb, ntp_input, 0);
-    ntp.lwip_unlock();
+    lwip_unlock();
     init_closure(&ntp.query_func, ntp_query_func);
     ntp.query_interval = ntp.pollmin;
     ntp.jiggle_counter = 0;
     init_timer(&ntp.query_timer);
-    ntp.register_timer(&ntp.query_timer, CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
+    register_timer(kernel_timers, &ntp.query_timer, CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
         (timer_handler)&ntp.query_func);
     return KLIB_INIT_OK;
 }

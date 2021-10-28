@@ -297,7 +297,7 @@ $(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
 $(VDSO_OBJDIR)/vdso-image.c: $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
 	$(call cmd,vdsogen)
 
-$(PROG-kernel.elf): linker_script $(VDSO_OBJDIR)/vdso-image.c
+$(PROG-kernel.elf): linker_script $(OUTDIR)/klib/klib-syms.lds $(VDSO_OBJDIR)/vdso-image.c
 
 $(KERNEL): $(PROG-kernel.elf)
 	$(call cmd,strip)

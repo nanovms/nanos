@@ -128,4 +128,3 @@ const char *dmi_get_string(enum dmi_field field)
     }
     return 0;
 }
-KLIB_EXPORT(dmi_get_string);

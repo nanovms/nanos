@@ -202,6 +202,8 @@ typedef struct {
 #define SHT_SYMTAB 2/* symbol table section */
 #define SHT_STRTAB 3/* string table section */
 #define SHT_RELA   4
+#define SHT_DYNAMIC 6
+#define SHT_DYNSYM  11
 
 #define foreach_phdr(__e, __p)\
     for (int __i = 0; __i< __e->e_phnum; __i++)\
@@ -214,12 +216,16 @@ typedef struct {
 /* returns virtual address to access map (e.g. vaddr or identity in stage2) */
 typedef closure_type(elf_map_handler, u64, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, pageflags /* flags */);
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
+typedef closure_type(elf_sym_resolver, void *, const char *);
 void elf_symbols(buffer elf, elf_sym_handler each);
+boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver);
 void walk_elf(buffer elf, range_handler rh);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
 
 /* Architecture-specific */
+typedef closure_type(elf_sym_relocator, boolean, Elf64_Rela *);
 void elf_apply_relocate_add(buffer elf, Elf64_Shdr *s, u64 offset);
+boolean elf_apply_relocate_syms(buffer elf, Elf64_Shdr *s, elf_sym_relocator relocator);
 
 static inline void elf_apply_relocs(buffer elf, u64 offset)
 {

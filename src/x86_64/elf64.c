@@ -24,6 +24,21 @@ void elf_apply_relocate_add(buffer elf, Elf64_Shdr *s, u64 offset)
     }
 }
 
+boolean elf_apply_relocate_syms(buffer elf, Elf64_Shdr *s, elf_sym_relocator relocator)
+{
+    Elf64_Rela *rel = buffer_ref(elf, s->sh_addr);
+    for (int i = 0; i < s->sh_size / sizeof(*rel); i++) {
+        switch (ELF64_R_TYPE(rel[i].r_info)) {
+        case R_X86_64_GLOB_DAT:
+        case R_X86_64_JUMP_SLOT:
+            if (!apply(relocator, &rel[i]))
+                return false;
+            break;
+        }
+    }
+    return true;
+}
+
 void elf_dyn_relocate(u64 base, Elf64_Dyn *dyn)
 {
     Elf64_Rel *rel = 0;

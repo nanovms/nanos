@@ -27,7 +27,6 @@ void attach_console_driver(struct console_driver *driver)
             &driver->l);
     spin_unlock(&write_lock);
 }
-KLIB_EXPORT(attach_console_driver);
 
 void console_write(const char *s, bytes count)
 {

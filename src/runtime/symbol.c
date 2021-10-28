@@ -35,7 +35,6 @@ symbol intern_u64(u64 u)
     print_number(b, u, 10, 0);
     return intern(b);
 }
-KLIB_EXPORT(intern_u64);
 
 symbol intern(string name)
 {
@@ -59,7 +58,6 @@ symbol intern(string name)
   alloc_fail:
     halt("intern: alloc fail\n");
 }
-KLIB_EXPORT(intern);
 
 string symbol_string(symbol s)
 {

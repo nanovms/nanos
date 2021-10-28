@@ -65,13 +65,6 @@ void kern_unlock()
     spin_unlock(&kernel_lock);
 }
 
-void kern_register_timer(timer t, clock_id id, timestamp val, boolean absolute,
-                         timestamp interval, timer_handler n)
-{
-    return register_timer(kernel_timers, t, id, val, absolute, interval, n);
-}
-KLIB_EXPORT(kern_register_timer);
-
 static void run_thunk(thunk t)
 {
     sched_debug(" run: %F state: %s\n", t, state_strings[current_cpu()->state]);

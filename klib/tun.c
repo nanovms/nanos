@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <filesystem.h>
 #include <lwip.h>
 #include <socket.h>
 
@@ -22,19 +23,6 @@
 #define TUN_PKT_STRIP   0x0001
 
 #define TUN_QUEUE_LEN   512
-
-#undef sym_this
-#define sym_this(name)\
-    (kfuncs.intern(alloca_wrap_buffer(name, runtime_strlen(name))))
-
-#undef buffer_to_cstring
-#define buffer_to_cstring(__b) ({                           \
-            bytes len = buffer_length(__b);                 \
-            char *str = stack_allocate(len + 1);            \
-            kfuncs.runtime_memcpy(str, buffer_ref(__b, 0), len);   \
-            str[len] = '\0';                                \
-            str;                                            \
-        })
 
 typedef struct tun_pi { /* packet information */
     u16 flags;
@@ -60,46 +48,11 @@ typedef struct tun {
 
 static heap tun_heap;
 static tuple tun_cfg;
-static struct {
-    sysreturn (*ioctl_generic)(fdesc f, unsigned long request, vlist ap);
-    queue (*allocate_queue)(heap h, u64 size);
-    boolean (*enqueue)(queue q, void *p);
-    void *(*dequeue)(queue q);
-    void (*deallocate_queue)(queue q);
-    blockq (*allocate_blockq)(heap h, char *name);
-    sysreturn (*blockq_check)(blockq bq, thread t, blockq_action a, boolean in_bh);
-    thread (*blockq_wake_one)(blockq bq);
-    void (*blockq_handle_completion)(blockq bq, u64 bq_flags, io_completion completion, thread t,
-            sysreturn rv);
-    void (*deallocate_blockq)(blockq bq);
-    void (*lwip_lock)(void);
-    void (*lwip_unlock)(void);
-    struct netif *(*netif_add)(struct netif *netif,
-            const ip4_addr_t *ipaddr, const ip4_addr_t *netmask, const ip4_addr_t *gw,
-            void *state, netif_init_fn init, netif_input_fn input);
-    struct netif *(*netif_find)(const char *name);
-    void (*netif_name_cpy)(char *dest, struct netif *netif);
-    err_t (*netif_input)(struct pbuf *p, struct netif *inp);
-    void (*netif_remove)(struct netif *netif);
-    void (*netif_set_up)(struct netif *netif);
-    struct pbuf *(*pbuf_alloc)(pbuf_layer layer, u16_t length, pbuf_type type);
-    void (*pbuf_ref)(struct pbuf *p);
-    u16 (*pbuf_copy_partial)(const struct pbuf *buf, void *dataptr, u16 len, u16 offset);
-    u8 (*pbuf_free)(struct pbuf *p);
-    void (*runtime_memcpy)(void *a, const void *b, bytes len);
-    void (*file_release)(file f);
-    symbol (*intern)(string name);
-    int (*ip4addr_aton)(const char *cp, ip4_addr_t *addr);
-    void *(*get)(value z, void *c);
-    void (*rprintf)(const char *format, ...);
-    void (*notify_dispatch)(notify_set s, u64 events);
-    u8_t (*ip4_addr_netmask_valid)(u32_t netmask);
-} kfuncs;
 
 static void notify_events(fdesc f)
 {
     u32 events = apply(f->events, 0);
-    kfuncs.notify_dispatch(f->ns, events);
+    notify_dispatch(f->ns, events);
 }
 
 static err_t tun_if_output(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipaddr)
@@ -127,9 +80,9 @@ static err_t tun_if_output(struct netif *netif, struct pbuf *p, const ip4_addr_t
             next = next->next;
         f = struct_from_list(next, tun_file, l);
     } while (f != t->next_tx);
-    if (selected && kfuncs.enqueue(selected->pq, p)) {
-        kfuncs.pbuf_ref(p);
-        if (kfuncs.blockq_wake_one(selected->bq) == INVALID_ADDRESS)
+    if (selected && enqueue(selected->pq, p)) {
+        pbuf_ref(p);
+        if (blockq_wake_one(selected->bq) == INVALID_ADDRESS)
             notify_events(&selected->f->f);
         t->next_tx = selected;
         ret = ERR_OK;
@@ -157,7 +110,7 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         ret = -ERESTARTSYS;
         goto out;
     }
-    struct pbuf *p = kfuncs.dequeue(tf->pq);
+    struct pbuf *p = dequeue(tf->pq);
     if (p == INVALID_ADDRESS) {
         if (tf->f->f.flags & O_NONBLOCK) {
             ret = -EAGAIN;
@@ -173,10 +126,10 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         if (len < sizeof(pi)) {
             ret = -EINVAL;
             if (!blocked)
-                kfuncs.lwip_lock();
-            kfuncs.pbuf_free(p);
+                lwip_lock();
+            pbuf_free(p);
             if (!blocked)
-                kfuncs.lwip_unlock();
+                lwip_unlock();
             goto out;
         }
         if (len < p->tot_len + sizeof(pi))
@@ -192,21 +145,21 @@ closure_function(5, 1, sysreturn, tun_read_bh,
             pi.proto = htons(ETHTYPE_IPV6);
             break;
         }
-        kfuncs.runtime_memcpy(dest, &pi, sizeof(pi));
+        runtime_memcpy(dest, &pi, sizeof(pi));
         dest += sizeof(pi);
         len -= sizeof(pi);
     }
     ret = MIN(len, p->tot_len);
     if (!blocked)
-        kfuncs.lwip_lock();
-    kfuncs.pbuf_copy_partial(p, dest, ret, 0);
-    kfuncs.pbuf_free(p);
+        lwip_lock();
+    pbuf_copy_partial(p, dest, ret, 0);
+    pbuf_free(p);
     if (!blocked)
-        kfuncs.lwip_unlock();
+        lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:
-    kfuncs.blockq_handle_completion(tf->bq, flags, bound(completion), bound(t), ret);
+    blockq_handle_completion(tf->bq, flags, bound(completion), bound(t), ret);
     if (queue_empty(tf->pq))
         notify_events(&tf->f->f);
     closure_finish();
@@ -224,7 +177,7 @@ closure_function(1, 6, sysreturn, tun_read,
     blockq_action ba = closure(tun_heap, tun_read_bh, tf, dest, len, t, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
-    return kfuncs.blockq_check(tf->bq, t, ba, bh);
+    return blockq_check(tf->bq, t, ba, bh);
 }
 
 closure_function(1, 6, sysreturn, tun_write,
@@ -248,21 +201,21 @@ closure_function(1, 6, sysreturn, tun_write,
         src += sizeof(struct tun_pi);
         len -= sizeof(struct tun_pi);
     }
-    kfuncs.lwip_lock();
-    struct pbuf *p = kfuncs.pbuf_alloc(PBUF_LINK, len, PBUF_POOL);
-    kfuncs.lwip_unlock();
+    lwip_lock();
+    struct pbuf *p = pbuf_alloc(PBUF_LINK, len, PBUF_POOL);
+    lwip_unlock();
     if (!p)
         return io_complete(completion, t, -ENOMEM);
     u64 copied = 0;
     struct pbuf *q = p;
     do {
-        kfuncs.runtime_memcpy(q->payload, src + copied, q->len);
+        runtime_memcpy(q->payload, src + copied, q->len);
         copied += q->len;
         q = q->next;
     } while (q);
-    kfuncs.lwip_lock();
+    lwip_lock();
     tun->netif.input(p, &tun->netif);
-    kfuncs.lwip_unlock();
+    lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
     return io_complete(completion, t, len);
@@ -285,25 +238,25 @@ static void get_tun_config(char *name, ip4_addr_t *ipaddr, ip4_addr_t *netmask, 
 {
     if (!tun_cfg)
         return;
-    tuple cfg = kfuncs.get(tun_cfg, sym_this(name));
-    if (!cfg || !is_tuple(cfg))
+    tuple cfg = get_tuple(tun_cfg, sym_this(name));
+    if (!cfg)
         return;
-    buffer ipb = kfuncs.get(cfg, sym_intern(ipaddress, kfuncs.intern));
+    buffer ipb = get(cfg, sym(ipaddress));
     if (ipb) {
         char *ip = buffer_to_cstring(ipb);
-        if (!kfuncs.ip4addr_aton(ip, ipaddr)) {
-            kfuncs.rprintf("tun: invalid ipaddress %s\n", ip);
+        if (!ip4addr_aton(ip, ipaddr)) {
+            rprintf("tun: invalid ipaddress %s\n", ip);
         }
     }
-    buffer nmb = kfuncs.get(cfg, sym_intern(netmask, kfuncs.intern));
+    buffer nmb = get(cfg, sym(netmask));
     if (nmb) {
         char *nm = buffer_to_cstring(nmb);
-        if (!kfuncs.ip4addr_aton(nm, netmask) || !kfuncs.ip4_addr_netmask_valid(netmask->addr)) {
-            kfuncs.rprintf("tun: invalid netmask %s\n", nm);
+        if (!ip4addr_aton(nm, netmask) || !ip4_addr_netmask_valid(netmask->addr)) {
+            rprintf("tun: invalid netmask %s\n", nm);
         }
     }
 
-    *bringup = kfuncs.get(cfg, sym_intern(up, kfuncs.intern)) != 0;
+    *bringup = get(cfg, sym(up)) != 0;
 }
 
 closure_function(1, 2, sysreturn, tun_ioctl,
@@ -327,9 +280,9 @@ closure_function(1, 2, sysreturn, tun_ioctl,
         }
         if ((ifreq->ifr.ifr_flags & ~TUN_TYPE_MASK) & ~(IFF_NO_PI | IFF_MULTI_QUEUE))
             return -EINVAL;
-        kfuncs.lwip_lock();
-        struct netif *netif = kfuncs.netif_find(ifreq->ifr_name);
-        kfuncs.lwip_unlock();
+        lwip_lock();
+        struct netif *netif = netif_find(ifreq->ifr_name);
+        lwip_unlock();
         if (netif) {
             if (netif->output != tun_if_output)
                 return -EINVAL;
@@ -351,14 +304,14 @@ closure_function(1, 2, sysreturn, tun_ioctl,
             ip4_addr_t netmask = (ip4_addr_t){0};
             boolean bringup = false;
             get_tun_config(tun->netif.name, &ipaddr, &netmask, &bringup);
-            kfuncs.lwip_lock();
-            kfuncs.netif_add(&tun->netif, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, kfuncs.netif_input);
-            kfuncs.netif_name_cpy(ifreq->ifr_name, &tun->netif);
+            lwip_lock();
+            netif_add(&tun->netif, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, netif_input);
+            netif_name_cpy(ifreq->ifr_name, &tun->netif);
             list_init(&tun->files);
             tun->next_tx = tf;
             if (bringup)
-                kfuncs.netif_set_up(&tun->netif);
-            kfuncs.lwip_unlock();
+                netif_set_up(&tun->netif);
+            lwip_unlock();
         }
         spin_lock(&tun->lock);
         list_push_back(&tun->files, &tf->l);
@@ -373,7 +326,7 @@ closure_function(1, 2, sysreturn, tun_ioctl,
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
             return -EFAULT;
-        kfuncs.netif_name_cpy(ifreq->ifr_name, &tun->netif);
+        netif_name_cpy(ifreq->ifr_name, &tun->netif);
         ifreq->ifr.ifr_flags = tun->flags;
         break;
     }
@@ -391,7 +344,7 @@ closure_function(1, 2, sysreturn, tun_ioctl,
         break;
     }
     default:
-        return kfuncs.ioctl_generic(&tf->f->f, request, ap);
+        return ioctl_generic(&tf->f->f, request, ap);
     }
     return 0;
 }
@@ -408,9 +361,9 @@ closure_function(1, 2, sysreturn, tun_close,
         list_delete(&tf->l);
         if (list_empty(&tun->files)) {
             spin_unlock(&tun->lock);
-            kfuncs.lwip_lock();
-            kfuncs.netif_remove(&tun->netif);
-            kfuncs.lwip_unlock();
+            lwip_lock();
+            netif_remove(&tun->netif);
+            lwip_unlock();
             deallocate(tun_heap, tun, sizeof(struct tun_file));
             tun = 0;
         } else if (tun->next_tx == tf) {
@@ -419,14 +372,14 @@ closure_function(1, 2, sysreturn, tun_close,
         if (tun)
             spin_unlock(&tun->lock);
     }
-    kfuncs.deallocate_blockq(tf->bq);
-    kfuncs.deallocate_queue(tf->pq);
+    deallocate_blockq(tf->bq);
+    deallocate_queue(tf->pq);
     deallocate_closure(f->f.read);
     deallocate_closure(f->f.write);
     deallocate_closure(f->f.events);
     deallocate_closure(f->f.ioctl);
     deallocate_closure(f->f.close);
-    kfuncs.file_release(f);
+    file_release(f);
     deallocate(tun_heap, tf, sizeof(struct tun_file));
     return io_complete(completion, t, 0);
 }
@@ -453,12 +406,12 @@ closure_function(0, 1, sysreturn, tun_open,
     f->f.close = closure(tun_heap, tun_close, tf);
     if (f->f.close == INVALID_ADDRESS)
         goto no_mem;
-    tf->pq = kfuncs.allocate_queue(tun_heap, TUN_QUEUE_LEN);
+    tf->pq = allocate_queue(tun_heap, TUN_QUEUE_LEN);
     if (tf->pq == INVALID_ADDRESS)
         goto no_mem;
-    tf->bq = kfuncs.allocate_blockq(tun_heap, "tun");
+    tf->bq = allocate_blockq(tun_heap, "tun");
     if (tf->bq == INVALID_ADDRESS) {
-        kfuncs.deallocate_queue(tf->pq);
+        deallocate_queue(tf->pq);
         goto no_mem;
     }
     tf->f = f;
@@ -479,52 +432,15 @@ closure_function(0, 1, sysreturn, tun_open,
     return -ENOMEM;
 }
 
-int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
+int init(status_handler complete)
 {
-    void *(*get_kernel_heaps)(void);
-    boolean (*create_special_file)(const char *path, spec_file_open open, u64 size);
-    tuple (*get_root_tuple)(void);
-    if (!(get_kernel_heaps = get_sym("get_kernel_heaps")) ||
-            !(create_special_file = get_sym("create_special_file")) ||
-            !(get_root_tuple = get_sym("get_root_tuple")) ||
-            !(kfuncs.rprintf = get_sym("rprintf")) ||
-            !(kfuncs.ioctl_generic = get_sym("ioctl_generic")) ||
-            !(kfuncs.allocate_queue = get_sym("allocate_queue")) ||
-            !(kfuncs.enqueue = get_sym("enqueue")) ||
-            !(kfuncs.dequeue = get_sym("dequeue")) ||
-            !(kfuncs.deallocate_queue = get_sym("deallocate_queue")) ||
-            !(kfuncs.allocate_blockq = get_sym("allocate_blockq")) ||
-            !(kfuncs.blockq_check = get_sym("blockq_check")) ||
-            !(kfuncs.blockq_wake_one = get_sym("blockq_wake_one")) ||
-            !(kfuncs.blockq_handle_completion = get_sym("blockq_handle_completion")) ||
-            !(kfuncs.deallocate_blockq = get_sym("deallocate_blockq")) ||
-            !(kfuncs.lwip_lock = get_sym("lwip_lock")) ||
-            !(kfuncs.lwip_unlock = get_sym("lwip_unlock")) ||
-            !(kfuncs.netif_add = get_sym("netif_add")) ||
-            !(kfuncs.netif_find = get_sym("netif_find")) ||
-            !(kfuncs.netif_name_cpy = get_sym("netif_name_cpy")) ||
-            !(kfuncs.netif_input = get_sym("netif_input")) ||
-            !(kfuncs.netif_remove = get_sym("netif_remove")) ||
-            !(kfuncs.netif_set_up = get_sym("netif_set_up")) ||
-            !(kfuncs.pbuf_alloc = get_sym("pbuf_alloc")) ||
-            !(kfuncs.pbuf_ref = get_sym("pbuf_ref")) ||
-            !(kfuncs.pbuf_copy_partial = get_sym("pbuf_copy_partial")) ||
-            !(kfuncs.pbuf_free = get_sym("pbuf_free")) ||
-            !(kfuncs.runtime_memcpy = get_sym("runtime_memcpy")) ||
-            !(kfuncs.file_release = get_sym("file_release")) ||
-            !(kfuncs.ip4addr_aton = get_sym("ip4addr_aton")) ||
-            !(kfuncs.get = get_sym("get")) ||
-            !(kfuncs.notify_dispatch = get_sym("notify_dispatch")) ||
-            !(kfuncs.ip4_addr_netmask_valid = get_sym("ip4_addr_netmask_valid")) ||
-            !(kfuncs.intern = get_sym("intern")))
-        return KLIB_INIT_FAILED;
     tun_heap = heap_locked(get_kernel_heaps());
     tuple root = get_root_tuple();
     if (!root)
         return KLIB_INIT_FAILED;
-    tun_cfg = kfuncs.get(root, sym_intern(tun, kfuncs.intern));
+    tun_cfg = get(root, sym(tun));
     if (tun_cfg && !is_tuple(tun_cfg)) {
-        kfuncs.rprintf("invalid tun cfg\n");
+        rprintf("invalid tun cfg\n");
         return KLIB_INIT_FAILED;
     }
     spec_file_open open = closure(tun_heap, tun_open);

@@ -141,7 +141,6 @@ void bprintf(buffer b, const char *fmt, ...)
     vbprintf(b, f, &ap);
     vend(ap);
 }
-KLIB_EXPORT(bprintf);
 
 int rsnprintf(char *str, u64 size, const char *fmt, ...)
 {
@@ -167,7 +166,6 @@ int rsnprintf(char *str, u64 size, const char *fmt, ...)
     deallocate_buffer(b);
     return n;
 }
-KLIB_EXPORT(rsnprintf);
 
 void rprintf(const char *format, ...)
 {
@@ -179,4 +177,3 @@ void rprintf(const char *format, ...)
     vbprintf(b, f, &a);
     buffer_print(b);
 }
-KLIB_EXPORT(rprintf);

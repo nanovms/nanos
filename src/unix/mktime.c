@@ -76,4 +76,3 @@ struct tm *gmtime_r(u64 *timep, struct tm *result) {
     result->tm_sec = seconds - result->tm_min * 60;
     return result;
 }
-KLIB_EXPORT(gmtime_r);

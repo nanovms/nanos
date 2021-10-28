@@ -50,8 +50,8 @@ image: $(THIRD_PARTY) tools
 
 release: $(THIRD_PARTY) tools
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
-	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
 	$(Q) $(MAKE) -C klib
+	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
 	$(Q) $(RM) -r release
 	$(Q) $(MKDIR) release
 	$(CP) $(MKFS) release

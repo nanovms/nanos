@@ -150,7 +150,6 @@ sg_list allocate_sg_list(void)
     sg->count = 0;
     return sg;
 }
-KLIB_EXPORT(allocate_sg_list);
 
 void deallocate_sg_list(sg_list sg)
 {
@@ -160,13 +159,6 @@ void deallocate_sg_list(sg_list sg)
     list_insert_after(&free_sg_lists, &sg->l);
     sg_unlock();
 }
-KLIB_EXPORT(deallocate_sg_list);
-
-sg_buf kern_sg_list_tail_add(sg_list sg, word length)
-{
-    return sg_list_tail_add(sg, length);
-}
-KLIB_EXPORT_RENAME(kern_sg_list_tail_add, sg_list_tail_add);
 
 closure_function(4, 0, void, sg_wrapped_buf_release,
                  refcount, refcount, heap, backed, void *, buf, bytes, padlen)

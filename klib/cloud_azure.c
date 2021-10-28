@@ -15,27 +15,7 @@ typedef struct azure {
     timestamp report_backoff;
     struct timer report_timer;
     closure_struct(report_ready_func, report_ready);
-    tuple (*allocate_tuple)(void);
-    void (*set)(value z, void *c, void *v);
-    void *(*get)(value z, void *c);
-    void (*deallocate_value)(tuple t);
-    void (*destruct_tuple)(tuple t, boolean recursive);
-    void (*timm_dealloc)(tuple t);
-    symbol (*intern)(string name);
-    buffer (*allocate_buffer)(heap h, bytes s);
-    boolean (*buffer_read)(buffer b, void *dest, bytes length);
-    int (*buffer_strstr)(buffer b, const char *str);
-    void (*bprintf)(buffer b, const char *fmt, ...);
-    void (*register_timer)(timer t, clock_id id, timestamp val, boolean absolute,
-            timestamp interval, timer_handler n);
-    status (*direct_connect)(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
-    status (*http_request)(heap h, buffer_handler bh, http_method method,
-            tuple headers, buffer body);
-    buffer_handler (*allocate_http_parser)(heap h, value_handler each);
 } *azure;
-
-#undef sym
-#define sym(name)   sym_intern(name, az->intern)
 
 static void azure_report_ready(azure az);
 
@@ -49,7 +29,7 @@ define_closure_function(1, 2, void, report_ready_func,
 
 static void azure_report_retry(azure az)
 {
-    az->register_timer(&az->report_timer, CLOCK_ID_MONOTONIC, az->report_backoff, false, 0,
+    register_timer(kernel_timers, &az->report_timer, CLOCK_ID_MONOTONIC, az->report_backoff, false, 0,
         init_closure(&az->report_ready, report_ready_func, az));
     if (az->report_backoff < seconds(600))
         az->report_backoff <<= 1;
@@ -60,9 +40,9 @@ closure_function(1, 1, void, wireserver_parse_resp,
                  value, v)
 {
     azure az = bound(az);
-    buffer content = az->get(v, sym(content));
+    buffer content = get(v, sym(content));
     if (content) {
-        int index = az->buffer_strstr(content, "<ContainerId>");
+        int index = buffer_strstr(content, "<ContainerId>");
         if (index < 0)
             goto exit;
         buffer_consume(content, index);
@@ -72,9 +52,9 @@ closure_function(1, 1, void, wireserver_parse_resp,
             goto exit;
         if (index >= sizeof(az->container_id))
             goto exit;
-        az->buffer_read(content, az->container_id, index);
+        buffer_read(content, az->container_id, index);
         az->container_id[index] = '\0';
-        index = az->buffer_strstr(content, "<InstanceId>");
+        index = buffer_strstr(content, "<InstanceId>");
         if (index < 0)
             goto exit;
         buffer_consume(content, index);
@@ -84,12 +64,12 @@ closure_function(1, 1, void, wireserver_parse_resp,
             goto exit;
         if (index >= sizeof(az->instance_id))
             goto exit;
-        az->buffer_read(content, az->instance_id, index);
+        buffer_read(content, az->instance_id, index);
         az->instance_id[index] = '\0';
         azure_report_ready(az);
     }
   exit:
-    az->destruct_tuple(v, true);
+    destruct_tuple(v, true);
     closure_finish();
 }
 
@@ -103,7 +83,7 @@ closure_function(2, 1, status, wireserver_get_resp,
         boolean success = false;
         value_handler vh = closure(h, wireserver_parse_resp, az);
         if (vh != INVALID_ADDRESS) {
-            buffer_handler parser = az->allocate_http_parser(h, vh);
+            buffer_handler parser = allocate_http_parser(h, vh);
             if (parser != INVALID_ADDRESS) {
                 apply(parser, data);
                 success = true;
@@ -125,18 +105,18 @@ closure_function(1, 1, buffer_handler, wireserver_get_ch,
     azure az = bound(az);
     buffer_handler in = INVALID_ADDRESS;
     if (out) {    /* connection succeeded */
-        tuple req = az->allocate_tuple();
+        tuple req = allocate_tuple();
         if (req == INVALID_ADDRESS)
             goto exit;
-        az->set(req, sym(url), alloca_wrap_cstring("/machine?comp=goalstate"));
-        az->set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
-        az->set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
-        status s = az->http_request(az->h, out, HTTP_REQUEST_METHOD_GET, req, 0);
-        az->deallocate_value(req);
+        set(req, sym(url), alloca_wrap_cstring("/machine?comp=goalstate"));
+        set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
+        set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
+        status s = http_request(az->h, out, HTTP_REQUEST_METHOD_GET, req, 0);
+        deallocate_value(req);
         if (is_ok(s))
             in = closure(az->h, wireserver_get_resp, az, out);
         else
-            az->timm_dealloc(s);
+            timm_dealloc(s);
     }
   exit:
     closure_finish();
@@ -163,19 +143,19 @@ closure_function(1, 1, buffer_handler, wireserver_post_ch,
     azure az = bound(az);
     buffer_handler in = INVALID_ADDRESS;
     if (out) {    /* connection succeeded */
-        tuple req = az->allocate_tuple();
+        tuple req = allocate_tuple();
         if (req == INVALID_ADDRESS)
             goto exit;
-        buffer b = az->allocate_buffer(az->h, 512);
+        buffer b = allocate_buffer(az->h, 512);
         if (b == INVALID_ADDRESS) {
-            az->deallocate_value(req);
+            deallocate_value(req);
             goto exit;
         }
-        az->set(req, sym(url), alloca_wrap_cstring("/machine?comp=health"));
-        az->set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
-        az->set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
-        az->set(req, sym(Content-Type), alloca_wrap_cstring("text/xml;charset=utf-8"));
-        az->bprintf(b, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+        set(req, sym(url), alloca_wrap_cstring("/machine?comp=health"));
+        set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
+        set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
+        set(req, sym(Content-Type), alloca_wrap_cstring("text/xml;charset=utf-8"));
+        bprintf(b, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
                 <Health xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\
                 xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\n\
                   <GoalStateIncarnation>1</GoalStateIncarnation>\n\
@@ -191,12 +171,12 @@ closure_function(1, 1, buffer_handler, wireserver_post_ch,
                     </RoleInstanceList>\n\
                   </Container>\n\
                 </Health>\n", az->container_id, az->instance_id);
-        status s = az->http_request(az->h, out, HTTP_REQUEST_METHOD_POST, req, b);
-        az->deallocate_value(req);
+        status s = http_request(az->h, out, HTTP_REQUEST_METHOD_POST, req, b);
+        deallocate_value(req);
         if (is_ok(s))
             in = closure(az->h, wireserver_post_resp, out);
         else
-            az->timm_dealloc(s);
+            timm_dealloc(s);
     }
   exit:
     closure_finish();
@@ -216,36 +196,18 @@ static void azure_report_ready(azure az)
     if (ch == INVALID_ADDRESS)
         return;
     ip_addr_t wireserver_addr = IPADDR4_INIT_BYTES(168, 63, 129, 16);
-    status s = az->direct_connect(az->h, &wireserver_addr, 80, ch);
+    status s = direct_connect(az->h, &wireserver_addr, 80, ch);
     if (!is_ok(s)) {
-        az->timm_dealloc(s);
+        timm_dealloc(s);
         azure_report_retry(az);
     }
 }
 
-boolean azure_cloud_init(heap h, klib_get_sym get_sym)
+boolean azure_cloud_init(heap h)
 {
     azure az = allocate(h, sizeof(*az));
     if (az == INVALID_ADDRESS)
         return false;
-    if (!(az->allocate_tuple = get_sym("allocate_tuple")) ||
-            !(az->set = get_sym("set")) ||
-            !(az->get = get_sym("get")) ||
-            !(az->deallocate_value = get_sym("deallocate_value")) ||
-            !(az->destruct_tuple = get_sym("destruct_tuple")) ||
-            !(az->timm_dealloc = get_sym("timm_dealloc")) ||
-            !(az->intern = get_sym("intern")) ||
-            !(az->allocate_buffer = get_sym("allocate_buffer")) ||
-            !(az->buffer_read = get_sym("buffer_read")) ||
-            !(az->buffer_strstr = get_sym("buffer_strstr")) ||
-            !(az->bprintf = get_sym("bprintf")) ||
-            !(az->register_timer = get_sym("kern_register_timer")) ||
-            !(az->direct_connect = get_sym("direct_connect")) ||
-            !(az->http_request = get_sym("http_request")) ||
-            !(az->allocate_http_parser = get_sym("allocate_http_parser"))) {
-        deallocate(h, az, sizeof(*az));
-        return false;
-    }
     az->h = h;
     az->container_id[0] = az->instance_id[0] = '\0';
     az->report_backoff = seconds(1);

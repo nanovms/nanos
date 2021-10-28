@@ -114,11 +114,9 @@ u64 random_u64()
     arc4rand(&retval, sizeof(retval));
     return retval;
 }
-KLIB_EXPORT(random_u64);
 
 u64 random_buffer(buffer b)
 {
     arc4rand(buffer_ref(b, 0), buffer_length(b));
     return buffer_length(b);
 }
-KLIB_EXPORT(random_buffer);

@@ -18,19 +18,6 @@ buffer allocate_buffer(heap h, bytes s)
     }
     return b;
 }
-KLIB_EXPORT(allocate_buffer);
-
-boolean kern_buffer_write(buffer b, const void *source, bytes length)
-{
-    return buffer_write(b, source, length);
-}
-KLIB_EXPORT_RENAME(kern_buffer_write, buffer_write);
-
-boolean kern_buffer_read(buffer b, void *dest, bytes length)
-{
-    return buffer_read(b, dest, length);
-}
-KLIB_EXPORT_RENAME(kern_buffer_read, buffer_read);
 
 boolean buffer_append(buffer b,
                      const void *body,
@@ -49,7 +36,6 @@ int buffer_strstr(buffer b, const char *str) {
     }
     return -1;
 }
-KLIB_EXPORT(buffer_strstr);
 
 void buffer_print(buffer b)
 {

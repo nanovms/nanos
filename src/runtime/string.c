@@ -33,7 +33,6 @@ runtime_strstr(const char *haystack, const char *needle)
     else
         return 0;
 }
-KLIB_EXPORT(runtime_strstr);
 
 char *
 runtime_strtok_r (char *s, const char *delimiters, char **save_ptr)
@@ -75,4 +74,3 @@ runtime_strcmp (const char *string1, const char *string2)
 
     return *(const unsigned char *)string1 - *(const unsigned char *)string2;
 }
-KLIB_EXPORT(runtime_strcmp);

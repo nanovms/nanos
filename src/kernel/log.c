@@ -52,7 +52,6 @@ void klog_set_boot_id(u64 id)
 {
     klog.dump.boot_id = id;
 }
-KLIB_EXPORT(klog_set_boot_id);
 
 define_closure_function(2, 1, void, klog_load_sh,
                         klog_dump, dest, status_handler, sh,
@@ -74,7 +73,6 @@ void klog_load(klog_dump dest, status_handler sh)
               irangel(klog.disk_offset >> SECTOR_OFFSET, KLOG_DUMP_SIZE >> SECTOR_OFFSET),
               init_closure(&klog.load_sh, klog_load_sh, dest, sh));
 }
-KLIB_EXPORT(klog_load);
 
 void klog_save(int exit_code, status_handler sh)
 {
@@ -109,4 +107,3 @@ void klog_dump_clear(void)
     apply(klog.disk_write, &klog.dump,
         irangel(klog.disk_offset >> SECTOR_OFFSET, 1), ignore_status);
 }
-KLIB_EXPORT(klog_dump_clear);

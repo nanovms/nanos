@@ -43,7 +43,6 @@ void print_uuid(buffer b, u8 *uuid)
     for (int i = 10; i < 16; i++)
         bprintf(b, "%02x", uuid[i]);
 }
-KLIB_EXPORT(print_uuid);
 
 /* just a little tool for debugging */
 void print_csum_buffer(buffer s, buffer b)

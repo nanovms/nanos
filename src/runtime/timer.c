@@ -160,4 +160,3 @@ s64 rtime(s64 *result)
         *result = t;
     return t;
 }
-KLIB_EXPORT(rtime);

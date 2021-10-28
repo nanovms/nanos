@@ -160,7 +160,6 @@ thread blockq_wake_one(blockq bq)
     blockq_unlock(bq);
     return INVALID_ADDRESS;
 }
-KLIB_EXPORT(blockq_wake_one);
 
 boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify)
 {
@@ -175,12 +174,6 @@ boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify)
     return blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED |
                                        (nullify ? BLOCKQ_ACTION_NULLIFY : 0));
 }
-
-sysreturn kern_blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
-{
-    return blockq_check(bq, t, a, in_bh);
-}
-KLIB_EXPORT_RENAME(kern_blockq_check, blockq_check);
 
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh,
                                clock_id clkid, timestamp timeout, boolean absolute)
@@ -222,13 +215,6 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     thread_sleep_interruptible();  /* no return */
     assert(0);
 }
-
-void kern_blockq_handle_completion(blockq bq, u64 bq_flags, io_completion completion, thread t,
-                                   sysreturn rv)
-{
-    blockq_handle_completion(bq, bq_flags, completion, t, rv);
-}
-KLIB_EXPORT_RENAME(kern_blockq_handle_completion, blockq_handle_completion);
 
 /* Wake all waiters and empty queue, typically for error conditions,
    closed pipe/connections, etc. Actions are called with nullify set,
@@ -341,10 +327,8 @@ blockq allocate_blockq(heap h, char * name)
     init_refcount(&bq->refcount, 1, init_closure(&bq->free, free_blockq, bq));
     return bq;
 }
-KLIB_EXPORT(allocate_blockq);
 
 void deallocate_blockq(blockq bq)
 {
     blockq_release(bq);
 }
-KLIB_EXPORT(deallocate_blockq);

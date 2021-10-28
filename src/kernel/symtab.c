@@ -22,6 +22,12 @@ static inline elfsym allocate_elfsym(range r, char * name)
     return es;
 }
 
+static inline void deallocate_elfsym(elfsym es)
+{
+    deallocate(general, es->name, runtime_strlen(es->name) + 1);
+    deallocate(general, es, sizeof(struct elfsym));
+}
+
 closure_function(1, 4, void, elf_symtable_add,
                  u64, load_offset,
                  char *, name, u64, a, u64, len, u8, info)
@@ -50,6 +56,14 @@ closure_function(1, 4, void, elf_symtable_add,
         msg_err("unable to add symbol \"%s\" of range %R to map; skipping\n",
                 name, r);
     }
+}
+
+closure_function(0, 1, void, symtab_remove_sym,
+                 rmnode, n)
+{
+    elfsym sym = struct_from_field(n, elfsym, node);
+    rangemap_remove_node(elf_symtable, n);
+    deallocate_elfsym(sym);
 }
 
 char * find_elf_sym(u64 a, u64 *offset, u64 *len)
@@ -96,6 +110,26 @@ void print_u64_with_sym(u64 a)
         print_u64(len);
 	rputs(")");
     }
+}
+
+boolean symtab_is_empty(void)
+{
+    return (rangemap_first_node(elf_symtable) == INVALID_ADDRESS);
+}
+
+void *symtab_get_addr(const char *sym_name)
+{
+    rangemap_foreach(elf_symtable, n) {
+        elfsym sym = struct_from_field(n, elfsym, node);
+        if (!runtime_strcmp(sym->name, sym_name))
+            return pointer_from_u64(sym->node.r.start);
+    }
+    return INVALID_ADDRESS;
+}
+
+void symtab_remove_addrs(range r)
+{
+    rangemap_range_lookup(elf_symtable, r, stack_closure(symtab_remove_sym));
 }
 
 void init_symtab(kernel_heaps kh)
