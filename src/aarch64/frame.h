@@ -53,7 +53,7 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_FULL          41
 #define FRAME_THREAD        42
 #define FRAME_HEAP          43
-#define FRAME_SAVED_ARG0    44
+#define FRAME_SAVED_X0      44
 #define FRAME_TXCTX_FLAGS   45
 #define FRAME_TXCTX_TPIDR_EL0_SAVED 1
 #define FRAME_TXCTX_FPSIMD_SAVED    2

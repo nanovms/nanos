@@ -9,14 +9,14 @@ static inline int computeSignal (context frame)
 
 static inline void clear_thread_stepping(thread t)
 {
-    thread_frame(t)[FRAME_FLAGS] &= ~U64_FROM_BIT(FLAG_TRAP);
-    thread_frame(t)[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_RESUME);
+    thread_frame(t)[FRAME_FLAGS] &= ~U64_FROM_BIT(EFLAG_TRAP);
+    thread_frame(t)[FRAME_FLAGS] |= U64_FROM_BIT(EFLAG_RESUME);
 }
 
 static inline void set_thread_stepping(thread t)
 {
-    thread_frame(t)[FRAME_FLAGS] &= ~U64_FROM_BIT(FLAG_RESUME);
-    thread_frame(t)[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_TRAP);
+    thread_frame(t)[FRAME_FLAGS] &= ~U64_FROM_BIT(EFLAG_RESUME);
+    thread_frame(t)[FRAME_FLAGS] |= U64_FROM_BIT(EFLAG_TRAP);
 }
 
 /* XXX This is a hack. The numbering of the registers is based on

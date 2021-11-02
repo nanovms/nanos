@@ -219,8 +219,6 @@ static inline void blockq_handle_completion(blockq bq, u64 bq_flags, io_completi
 typedef struct sigstate {
     /* these should be bitmaps, but time is of the essence, and presently NSIG=64 */
     u64         pending;        /* pending and not yet dispatched */
-    u64         mask;           /* masked or "blocked" signals are set */
-    u64         saved;          /* original mask saved on rt_sigsuspend or handler dispatch */
     u64         ignored;        /* mask of signals set to SIG_IGN */
     u64         interest;       /* signals of interest, regardless of mask or ignored */
     struct spinlock   ss_lock;
@@ -257,8 +255,6 @@ declare_closure_struct(1, 0, void, run_thread,
                        thread, t);
 declare_closure_struct(1, 0, void, pause_thread,
                         thread, t);
-declare_closure_struct(1, 0, void, run_sighandler,
-                       thread, t);
 declare_closure_struct(1, 1, context, default_fault_handler,
                        thread, t,
                        context, frame);
@@ -271,8 +267,7 @@ declare_closure_struct(2, 1, void, thread_demand_page_complete,
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
 
-#define thread_frame(t) ((t)->active_frame)
-#define set_thread_frame(t, f) do { (t)->active_frame = (f); } while(0)
+#define thread_frame(t) ((t)->frame)
 
 declare_closure_struct(2, 2, void, blockq_thread_timeout,
                        blockq, bq, struct thread *, t,
@@ -280,9 +275,7 @@ declare_closure_struct(2, 2, void, blockq_thread_timeout,
 
 typedef struct thread {
     struct nanos_thread thrd;
-    context default_frame;
-    context sighandler_frame;
-    context active_frame;         /* mux between default and sighandler */
+    context frame;
 
     char name[16]; /* thread name */
     int syscall;
@@ -300,7 +293,6 @@ typedef struct thread {
     closure_struct(free_thread, free);
     closure_struct(run_thread, run_thread);
     closure_struct(pause_thread, pause_thread);
-    closure_struct(run_sighandler, run_sighandler);
     closure_struct(default_fault_handler, fault_handler);
     closure_struct(thread_demand_file_page, demand_file_page);
     closure_struct(thread_demand_page_complete, demand_page_complete);
@@ -340,9 +332,10 @@ typedef struct thread {
 
     /* signals pending and saved state */
     struct sigstate signals;
-    sigstate dispatch_sigstate; /* while signal handler in flight, save sigstate */
+    u64 signal_mask;
+    u64 saved_signal_mask;      /* for rt_sigsuspend */
     notify_set signalfds;
-    u16 active_signo;
+    boolean interrupting_syscall;
     void *signal_stack;
     u64 signal_stack_length;
 
@@ -746,22 +739,15 @@ void sigstate_flush_queue(sigstate ss);
 void sigstate_reset_thread(thread t);
 void thread_clone_sigmask(thread dest, thread src);
 
-static inline void sigstate_thread_restore(thread t)
-{
-    sigstate ss = t->dispatch_sigstate;
-    if (ss) {
-        t->dispatch_sigstate = 0;
-        spin_lock(&ss->ss_lock);
-        ss->mask = ss->saved;
-        ss->saved = 0;
-        spin_unlock(&ss->ss_lock);
-    }
-}
-
 static inline u64 mask_from_sig(int sig)
 {
     assert(sig > 0);
     return U64_FROM_BIT(sig - 1);
+}
+
+static inline u64 normalize_signal_mask(u64 mask)
+{
+    return mask & ~(mask_from_sig(SIGKILL) | mask_from_sig(SIGSTOP));
 }
 
 static inline u64 sigstate_get_pending(sigstate ss)
@@ -790,8 +776,8 @@ void threads_to_vector(process p, vector v);
 struct rt_sigframe *get_rt_sigframe(thread t);
 void setup_sigframe(thread t, int signum, struct siginfo *si);
 void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
-                    struct siginfo * si, context f);
-void restore_ucontext(struct ucontext * uctx, context f);
+                    struct siginfo * si, thread t);
+void restore_ucontext(struct ucontext * uctx, thread t);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);
 

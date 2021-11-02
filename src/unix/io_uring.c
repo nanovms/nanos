@@ -1070,7 +1070,7 @@ out:
     }
     thread t = bound(t);
     if (bound(sig_set))
-        t->signals.mask = iour->sigmask;
+        t->signal_mask = iour->sigmask;
     blockq_handle_completion(bq, flags, bound(completion), t, rv);
     closure_finish();
     iour_debug("returning %d", rv);
@@ -1138,8 +1138,8 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
             goto out;
         }
         if (sig) {
-            iour->sigmask = current->signals.mask;
-            current->signals.mask = (*(u64 *)sig);
+            iour->sigmask = current->signal_mask;
+            current->signal_mask = (*(u64 *)sig);
             bh->sig_set = true;
         } else
             bh->sig_set = false;

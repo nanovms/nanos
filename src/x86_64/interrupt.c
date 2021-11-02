@@ -153,7 +153,7 @@ void print_stack(context c)
              validate_virtual(x, sizeof(u64)); x++) {
         print_u64(u64_from_pointer(x));
         rputs(":   ");
-        print_u64_with_sym(*x++);
+        print_u64_with_sym(*x);
         rputs("\n");
     }
     rputs("\n");

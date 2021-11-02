@@ -45,16 +45,16 @@ struct epoll_event {
 
 /* kernel stuff */
 
-#define SYSCALL_FRAME_ARG0    FRAME_RDI
-#define SYSCALL_FRAME_ARG1    FRAME_RSI
-#define SYSCALL_FRAME_ARG2    FRAME_RDX
-#define SYSCALL_FRAME_ARG3    FRAME_R10
-#define SYSCALL_FRAME_ARG4    FRAME_R8
-#define SYSCALL_FRAME_ARG5    FRAME_R9
-#define SYSCALL_FRAME_RETVAL1 FRAME_RAX
-#define SYSCALL_FRAME_RETVAL2 FRAME_RDX
-#define SYSCALL_FRAME_SP      FRAME_RSP
-#define SYSCALL_FRAME_PC      FRAME_RIP
+#define SYSCALL_FRAME_ARG0       FRAME_RDI
+#define SYSCALL_FRAME_ARG1       FRAME_RSI
+#define SYSCALL_FRAME_ARG2       FRAME_RDX
+#define SYSCALL_FRAME_ARG3       FRAME_R10
+#define SYSCALL_FRAME_ARG4       FRAME_R8
+#define SYSCALL_FRAME_ARG5       FRAME_R9
+#define SYSCALL_FRAME_RETVAL1    FRAME_RAX
+#define SYSCALL_FRAME_RETVAL2    FRAME_RDX
+#define SYSCALL_FRAME_SP         FRAME_RSP
+#define SYSCALL_FRAME_PC         FRAME_RIP
 
 #define UC_FP_XSTATE            0x1
 #define UC_SIGCONTEXT_SS        0x2
@@ -207,8 +207,16 @@ static inline void set_tls(context f, u64 tls)
     f[FRAME_FSBASE] = tls;
 }
 
-#define syscall_entry_arch_fixup(t) ((void)t)
-#define syscall_restart_arch_fixup(t) ((void)t)
+static inline void syscall_restart_arch_setup(context f)
+{
+    f[FRAME_SAVED_RAX] = f[FRAME_VECTOR];
+}
+
+static inline void syscall_restart_arch_fixup(context f)
+{
+    f[FRAME_RAX] = f[FRAME_SAVED_RAX];
+    f[FRAME_RIP] -= 2; /* rewind to syscall */
+}
 
 /* stubs, for intel sdm recommends using xsave* over manual lazy save/restore */
 #define thread_frame_save_fpsimd(f) ((void)f)

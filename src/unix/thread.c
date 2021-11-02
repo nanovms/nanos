@@ -33,16 +33,16 @@ sysreturn arch_prctl(int code, unsigned long addr)
 
     switch (code) {
     case ARCH_SET_GS:
-        current->default_frame[FRAME_GSBASE] = addr;
+        current->frame[FRAME_GSBASE] = addr;
         break;
     case ARCH_SET_FS:
-        current->default_frame[FRAME_FSBASE] = addr;
+        current->frame[FRAME_FSBASE] = addr;
         return 0;
     case ARCH_GET_FS:
-	*(u64 *) addr = current->default_frame[FRAME_FSBASE];
+	*(u64 *) addr = current->frame[FRAME_FSBASE];
         break;
     case ARCH_GET_GS:
-	*(u64 *) addr = current->default_frame[FRAME_GSBASE];
+	*(u64 *) addr = current->frame[FRAME_GSBASE];
         break;
     default:
         return set_syscall_error(current, EINVAL);
@@ -77,21 +77,21 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
 
     thread t = create_thread(current->p);
     /* clone frame processor state */
-    clone_frame_pstate(t->default_frame, current->default_frame);
+    clone_frame_pstate(t->frame, current->frame);
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
-    t->default_frame[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
+    t->frame[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
     if (flags & CLONE_SETTLS)
-        set_tls(t->default_frame, newtls);
+        set_tls(t->frame, newtls);
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
     t->blocked_on = 0;
     t->syscall = -1;
-    schedule_frame(t->default_frame);
+    schedule_frame(t->frame);
     return t->tid;
 }
 
@@ -129,13 +129,13 @@ static inline void check_stop_conditions(thread t)
 {
     char *cause;
     u64 pending = sigstate_get_pending(&t->signals);
-    boolean in_sighandler = thread_frame(t) == t->sighandler_frame;
+
     /* rather abrupt to just halt...this should go do dump or recovery */
     if (pending & mask_from_sig(SIGSEGV)) {
         void * handler = sigaction_from_sig(t, SIGSEGV)->sa_handler;
 
         /* Terminate on uncaught SIGSEGV, or if triggered by signal handler. */
-        if (in_sighandler || (handler == SIG_IGN || handler == SIG_DFL)) {
+        if (handler == SIG_IGN || handler == SIG_DFL) {
             cause = "Unhandled SIGSEGV";
             goto terminate;
         }
@@ -154,8 +154,14 @@ static inline void check_stop_conditions(thread t)
     halt("Terminating.\n");
 }
 
-static inline void run_thread_frame(thread t)
+define_closure_function(1, 0, void, run_thread,
+                        thread, t)
 {
+    thread t = bound(t);
+    if (t->p->trap)
+        runloop();
+    dispatch_signals(t);
+    current_cpu()->state = cpu_user;
     check_stop_conditions(t);
     thread old = current;
     thread_enter_user(t);
@@ -176,36 +182,17 @@ static inline void run_thread_frame(thread t)
     frame_enable_interrupts(f);
     f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
 
-    thread_log(t, "run %s, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
-               f == t->sighandler_frame ? "sig handler" : "thread",
+    thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
                current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
     ci->frcount++;
     frame_return(f);
     halt("return from frame_return!\n");
 }
 
-define_closure_function(1, 0, void, run_thread,
-                        thread, t)
-{
-    thread t = bound(t);
-    if (t->p->trap)
-        runloop();
-    dispatch_signals(t);
-    current_cpu()->state = cpu_user;
-    run_thread_frame(t);
-}
-
 define_closure_function(1, 0, void, pause_thread,
                         thread, t)
 {
     thread_pause(bound(t));
-}
-
-define_closure_function(1, 0, void, run_sighandler,
-                        thread, t)
-{
-    current_cpu()->state = cpu_user;
-    run_thread_frame(bound(t));
 }
 
 static void setup_thread_frame(heap h, context frame, thread t)
@@ -333,17 +320,12 @@ thread create_thread(process p)
     t->clear_tid = 0;
     t->name[0] = '\0';
 
-    t->default_frame = allocate_frame(h);
+    t->frame = allocate_frame(h);
     init_thread_fault_handler(t);
-    setup_thread_frame(h, t->default_frame, t);
-    t->default_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_thread, run_thread, t));
-    set_thread_frame(t, t->default_frame);
+    setup_thread_frame(h, t->frame, t);
+    t->frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_thread, run_thread, t));
     
-    t->sighandler_frame = allocate_frame(h);
     t->signal_stack = 0;
-    setup_thread_frame(h, t->sighandler_frame, t);
-    t->sighandler_frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_sighandler, run_sighandler, t));
-
     t->thrd.pause = init_closure(&t->pause_thread, pause_thread, t);
     t->affinity = allocate_bitmap(h, h, total_processors);
     if (t->affinity == INVALID_ADDRESS)
@@ -352,8 +334,9 @@ thread create_thread(process p)
     t->blocked_on = 0;
     blockq_thread_init(t);
     init_sigstate(&t->signals);
-    t->dispatch_sigstate = 0;
-    t->active_signo = 0;
+    t->signal_mask = 0;
+    t->saved_signal_mask = -1ull;
+    t->interrupting_syscall = false;
     init_closure(&t->deferred_syscall, resume_syscall, t);
     t->sysctx = false;
     t->utime = t->stime = 0;
@@ -376,8 +359,7 @@ thread create_thread(process p)
     spin_unlock(&p->threads_lock);
     return t;
   fail_affinity:
-    deallocate_frame(t->sighandler_frame);
-    deallocate_frame(t->default_frame);
+    deallocate_frame(t->frame);
     deallocate_notify_set(t->signalfds);
   fail_sfds:
     deallocate_blockq(t->thread_bq);
@@ -396,11 +378,6 @@ void exit_thread(thread t)
     spin_lock(&t->p->threads_lock);
     rbtree_remove_by_key(t->p->threads, &t->n);
     spin_unlock(&t->p->threads_lock);
-
-    /* We might be exiting from the signal handler while dispatching a
-       signal on behalf of the process sigstate, so reset masks as if
-       we're returning from the signal handler. */
-    sigstate_thread_restore(t);
 
     /* dequeue signals for thread */
     sigstate_flush_queue(&t->signals);
@@ -423,17 +400,14 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
-    t->default_frame[FRAME_RUN] = INVALID_PHYSICAL;
-    t->default_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
-    t->sighandler_frame[FRAME_RUN] = INVALID_PHYSICAL;
-    t->sighandler_frame[FRAME_QUEUE] = INVALID_PHYSICAL;
-    t->default_frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
-    deallocate_frame(t->default_frame);
-    deallocate_frame(t->sighandler_frame);
+    t->frame[FRAME_RUN] = INVALID_PHYSICAL;
+    t->frame[FRAME_QUEUE] = INVALID_PHYSICAL;
+    t->frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
+    deallocate_frame(t->frame);
 
     /* replace references to thread with placeholder */
     set_current_thread((nanos_thread)dummy_thread);
-    set_running_frame(current_cpu(), dummy_thread->default_frame);
+    set_running_frame(current_cpu(), dummy_thread->frame);
     refcount_release(&t->refcount);
 }
 

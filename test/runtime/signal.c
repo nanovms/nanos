@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <assert.h>
 #include <errno.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1194,6 +1195,67 @@ void test_restart(void)
     assert((close(fds[0]) == 0) && (close(fds[1]) == 0));
 }
 
+sigset_t test_sigsetjmp_sigset;
+sigjmp_buf test_sigsetjmp_env;
+int test_sigsetjmp_var = 0;
+
+static void test_sigsetjmp_handler(int sig, siginfo_t *si, void *ucontext)
+{
+    assert(si);
+    sigtest_debug("sig %d, si->signo %d, si->errno %d, si->code %d\n",
+                  sig, si->si_signo, si->si_errno, si->si_code);
+    assert(sig == SIGRTMIN);
+    assert(sig == si->si_signo);
+    test_sigsetjmp_var++;
+    siglongjmp(test_sigsetjmp_env, 1);
+}
+
+void test_sigsetjmp(void)
+{
+    sigtest_debug("\n");
+
+    /* Mask only SIGUSR2 so we can later test that it will be restored after the siglongjmp. */
+    sigemptyset(&test_sigsetjmp_sigset);
+    sigaddset(&test_sigsetjmp_sigset, SIGUSR2);
+    sigprocmask(SIG_SETMASK, &test_sigsetjmp_sigset, NULL);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = test_sigsetjmp_handler;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGRTMIN, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_sigsetjmp: sigaction");
+
+    /* In the old signal delivery scheme in Nanos, this first siglongjmp would
+       succeed, but the thread would resume running on the dedicated
+       "sighandler_frame," bypassing the call to rt_sigreturn. With the thread
+       then running on the sighandler frame, the second signal delivery would
+       then fail. With everything running on a single frame for the thread,
+       this second signal and siglongjmp should work - as it does in Linux
+       (and now in Nanos). */
+    rv = sigsetjmp(test_sigsetjmp_env, 1);
+    if (rv > 0) {
+        sigtest_debug("siglongjmp target reached, var %d\n", test_sigsetjmp_var);
+        if (test_sigsetjmp_var == 2)
+            return;             /* success */
+    } else {
+        if (rv != 0)
+            fail_perror("test_sigsetjmp: sigsetjmp");
+    }
+
+    siginfo_t si;
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    rv = syscall(SYS_rt_sigqueueinfo, __getpid(), SIGRTMIN, &si);
+    if (rv < 0)
+        fail_perror("test_sigsetjmp: sigqueueinfo for SIGRTMIN");
+
+    fail_error("test_sigsetjmp: signal catch and siglongjmp did not occur\n");
+}
+
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
@@ -1221,6 +1283,8 @@ int main(int argc, char * argv[])
     test_sigaltstack();
 
     test_restart();
+
+    test_sigsetjmp();
 
     printf("signal test passed\n");
 }

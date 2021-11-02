@@ -147,6 +147,7 @@
 #define SCTLR_EL1_M       U64_FROM_BIT(0) /* MMU enable */
 
 #define SPSR_I U64_FROM_BIT(7)
+#define SPSR_TCO U64_FROM_BIT(25)
 
 #ifndef __ASSEMBLY__
 /* interrupt control */
