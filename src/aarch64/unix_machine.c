@@ -11,6 +11,34 @@ struct frame_record {
     u64 lr;
 };
 
+/*
+ * Copy the context in frame 'f' to the ucontext *uctx
+ */
+static void setup_ucontext(struct ucontext *uctx, thread t)
+{
+    context f = thread_frame(t);
+    struct sigcontext * mcontext = &(uctx->uc_mcontext);
+
+    mcontext->fault_address = f[FRAME_FAULT_ADDRESS];
+    runtime_memcpy(mcontext->regs, f, sizeof(u64) * 31);
+    mcontext->sp = f[FRAME_SP];
+    mcontext->pc = f[FRAME_ELR];
+    mcontext->pstate = f[FRAME_ESR_SPSR] & MASK(32);
+    uctx->uc_sigmask.sig[0] = t->signal_mask;
+}
+
+static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
+{
+    /* We're not building frames like Linux yet; just a fixed fpsimd_context for now... */
+    context f = thread_frame(t);
+    struct fpsimd_context *fpctx = (struct fpsimd_context *)uctx->uc_mcontext.reserved;
+    fpctx->head.magic = FPSIMD_MAGIC;
+    fpctx->head.size = sizeof(struct fpsimd_context);
+    fpctx->fpsr = f[FRAME_FPSR];
+    fpctx->fpcr = f[FRAME_FPCR];
+    runtime_memcpy(fpctx->vregs, &f[FRAME_Q0], sizeof(fpctx->vregs));
+}
+
 void setup_sigframe(thread t, int signum, struct siginfo *si)
 {
     sigaction sa = sigaction_from_sig(t, signum);
@@ -36,7 +64,12 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     /* setup sigframe for user sig trampoline */
     struct rt_sigframe *frame = (struct rt_sigframe *)sp;
 
-    setup_ucontext(&frame->uc, sa, si, t);
+    setup_ucontext(&frame->uc, t);
+    if (f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_FPSIMD_SAVED)
+        setup_ucontext_fpsimd(&frame->uc, t);
+    else
+        *(u64*)(frame->uc.uc_mcontext.reserved) = 0; /* magic terminate */
+
     if (sa->sa_flags & SA_SIGINFO) {
         runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
         f[FRAME_X1] = u64_from_pointer(&frame->info);
@@ -59,34 +92,19 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     /* TODO address BTI if supported */
 }
 
-/*
- * Copy the context in frame 'f' to the ucontext *uctx
- */
-void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
-                    struct siginfo * si, thread t)
+static void restore_ucontext_fpsimd(struct fpsimd_context *fpctx, thread t)
 {
+    /* We're not building frames like Linux yet; just a fixed fpsimd_context for now... */
     context f = thread_frame(t);
-    struct sigcontext * mcontext = &(uctx->uc_mcontext);
-
-    // XXX really need?
-    runtime_memset((void *)uctx, 0, sizeof(struct ucontext));
-
-    mcontext->fault_address = 0; /* XXX need to save to frame on entry */
-    runtime_memcpy(mcontext->regs, f, sizeof(u64) * 31);
-    mcontext->sp = f[FRAME_SP];
-    mcontext->pc = f[FRAME_ELR];
-    mcontext->pstate = f[FRAME_ESR_SPSR] & MASK(32); // XXX validate?
-    uctx->uc_sigmask.sig[0] = t->signal_mask;
-
-    /* XXX fpsimd */
-    /* XXX sve */
-    /* XXX magic? */
+    f[FRAME_FPSR] = fpctx->fpsr;
+    f[FRAME_FPCR] = fpctx->fpcr;
+    runtime_memcpy(&f[FRAME_Q0], fpctx->vregs, sizeof(fpctx->vregs));
 }
 
 /*
  * Copy the context from *uctx to the context in frame f
  */
-void restore_ucontext(struct ucontext * uctx, thread t)
+void restore_ucontext(struct ucontext *uctx, thread t)
 {
     context f = thread_frame(t);
     struct sigcontext * mcontext = &(uctx->uc_mcontext);
@@ -97,8 +115,9 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     f[FRAME_ESR_SPSR] = (f[FRAME_ESR_SPSR] & ~MASK(32)) | (mcontext->pstate & MASK(32));
     t->signal_mask = normalize_signal_mask(uctx->uc_sigmask.sig[0]);
 
-    /* XXX fpsimd */
-    /* XXX sve */
+    struct _aarch64_ctx *actx = (struct _aarch64_ctx *)uctx->uc_mcontext.reserved;
+    if (actx->magic == FPSIMD_MAGIC && actx->size == sizeof(struct fpsimd_context))
+        restore_ucontext_fpsimd((struct fpsimd_context *)uctx->uc_mcontext.reserved, t);
 }
 
 void register_other_syscalls(struct syscall *map)

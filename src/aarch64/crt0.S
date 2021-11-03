@@ -45,10 +45,12 @@
         mrs     x0, spsr_el1
         mrs     x1, esr_el1
         mrs     x2, elr_el1
+        mrs     x3, far_el1
 
         add     x17, x17, #256
         stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
         str     x2, [x17, #((FRAME_ELR - 32) * 8)]
+        str     x3, [x17, #((FRAME_FAULT_ADDRESS - 32) * 8)]
         .endm
 
         .text

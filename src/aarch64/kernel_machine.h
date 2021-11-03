@@ -274,10 +274,7 @@ static inline u64 frame_return_address(context f)
 
 static inline u64 fault_address(context f)
 {
-    // store in frame?
-    register u64 far;
-    asm("mrs %0, FAR_EL1" : "=r"(far));
-    return far;
+    return f[FRAME_FAULT_ADDRESS];
 }
 
 #define esr_from_frame(frame) (frame[FRAME_ESR_SPSR] >> 32)

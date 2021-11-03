@@ -775,8 +775,6 @@ void threads_to_vector(process p, vector v);
 /* machine-specific signal dispatch */
 struct rt_sigframe *get_rt_sigframe(thread t);
 void setup_sigframe(thread t, int signum, struct siginfo *si);
-void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
-                    struct siginfo * si, thread t);
 void restore_ucontext(struct ucontext * uctx, thread t);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);

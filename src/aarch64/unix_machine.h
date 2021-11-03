@@ -62,6 +62,20 @@ struct sigcontext {
     u8 reserved[4096] __attribute__((__aligned__(16)));
 };
 
+struct _aarch64_ctx {
+    u32 magic;
+    u32 size;
+};
+
+#define FPSIMD_MAGIC 0x46508001
+
+struct fpsimd_context {
+    struct _aarch64_ctx head;
+    u32 fpsr;
+    u32 fpcr;
+    u128 vregs[32];
+};
+
 struct ucontext {
     unsigned long uc_flags;
     struct ucontext * uc_link;

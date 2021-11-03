@@ -69,62 +69,14 @@ struct rt_sigframe *get_rt_sigframe(thread t)
     return (struct rt_sigframe *)(thread_frame(t)[FRAME_RSP] - sizeof(u64));
 }
 
-void setup_sigframe(thread t, int signum, struct siginfo *si)
-{
-    sigaction sa = sigaction_from_sig(t, signum);
-
-    assert(sizeof(struct siginfo) == 128);
-    thread_resume(t);
-
-    context f = thread_frame(t);
-    u64 rsp;
-
-    if ((sa->sa_flags & SA_ONSTACK) && t->signal_stack)
-        rsp = u64_from_pointer(t->signal_stack + t->signal_stack_length);
-    else
-        rsp = f[FRAME_RSP];
-
-    /* avoid redzone and align rsp
-
-       Note: We are actually aligning to 8 but not 16 bytes; the ABI
-       requires that stacks are aligned to 16 before a call, but the
-       sigframe return into the function takes the place of a call,
-       which would have pushed a return address. The function prologue
-       typically pushes the frame pointer on the stack, thus
-       re-aligning to 16 before executing the function body.
-    */
-    rsp = (rsp & ~15) - 128 /* redzone */ - 8 /* ra offset */;
-
-    /* create space for rt_sigframe */
-    rsp -= pad(sizeof(struct rt_sigframe), 16);
-
-    /* setup sigframe for user sig trampoline */
-    struct rt_sigframe *frame = (struct rt_sigframe *)rsp;
-    frame->pretcode = sa->sa_restorer;
-
-    if (sa->sa_flags & SA_SIGINFO)
-        runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
-    setup_ucontext(&frame->uc, sa, si, t);
-    f[FRAME_RSP] = rsp;
-    f[FRAME_RSI] = u64_from_pointer(&frame->info);
-    f[FRAME_RDX] = u64_from_pointer(&frame->uc);
-
-    /* setup regs for signal handler */
-    f[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
-    f[FRAME_RDI] = signum;
-    f[FRAME_IS_SYSCALL] = 1;
-}
-
 /*
  * Copy the context in frame 'f' to the ucontext *uctx
  */
-void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
-                    struct siginfo * si, thread t)
+static void setup_ucontext(struct ucontext *uctx, thread t, void *fpstate)
 {
     context f = thread_frame(t);
     struct sigcontext * mcontext = &(uctx->uc_mcontext);
 
-    runtime_memset((void *)uctx, 0, sizeof(struct ucontext));
     mcontext->r8 = f[FRAME_R8];
     mcontext->r9 = f[FRAME_R9];
     mcontext->r10 = f[FRAME_R10];
@@ -151,11 +103,62 @@ void setup_ucontext(struct ucontext * uctx, struct sigaction * sa,
     mcontext->trapno = f[FRAME_VECTOR];
     mcontext->oldmask = t->signal_mask;
     mcontext->cr2 = f[FRAME_CR2];
-
-    // XXX FP STATE
+    mcontext->fpstate = fpstate;
 }
 
+static u64 setup_ucontext_fpstate(void **fpstate, thread t, u64 rsp)
+{
+    rsp -= pad(extended_frame_size, 16);
+    *fpstate = pointer_from_u64(rsp);
+    runtime_memcpy(*fpstate, &thread_frame(t)[FRAME_EXTENDED_SAVE], extended_frame_size);
+    return rsp;
+}
 
+void setup_sigframe(thread t, int signum, struct siginfo *si)
+{
+    sigaction sa = sigaction_from_sig(t, signum);
+
+    assert(sizeof(struct siginfo) == 128);
+    thread_resume(t);
+
+    context f = thread_frame(t);
+    u64 rsp;
+
+    if ((sa->sa_flags & SA_ONSTACK) && t->signal_stack)
+        rsp = u64_from_pointer(t->signal_stack + t->signal_stack_length);
+    else
+        rsp = f[FRAME_RSP];
+
+    /* avoid redzone */
+    rsp = (rsp & ~15) - 128;
+
+    void *fpstate;
+    rsp = setup_ucontext_fpstate(&fpstate, t, rsp);
+
+    /* Create space for rt_sigframe. Note that we are actually aligning to 8
+       but not 16 bytes; the ABI requires that stacks are aligned to 16 before
+       a call, but the sigframe return into the function takes the place of a
+       call, which would have pushed a return address. The function prologue
+       typically pushes the frame pointer on the stack, thus re-aligning to 16
+       before executing the function body. */
+    rsp -= pad(sizeof(struct rt_sigframe), 16) + 8 /* ra offset */;
+
+    /* setup sigframe for user sig trampoline */
+    struct rt_sigframe *frame = (struct rt_sigframe *)rsp;
+    frame->pretcode = sa->sa_restorer;
+
+    if (sa->sa_flags & SA_SIGINFO)
+        runtime_memcpy(&frame->info, si, sizeof(struct siginfo));
+    setup_ucontext(&frame->uc, t, fpstate);
+    f[FRAME_RSP] = rsp;
+    f[FRAME_RSI] = u64_from_pointer(&frame->info);
+    f[FRAME_RDX] = u64_from_pointer(&frame->uc);
+
+    /* setup regs for signal handler */
+    f[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
+    f[FRAME_RDI] = signum;
+    f[FRAME_IS_SYSCALL] = 1;
+}
 
 /*
  * Copy the context from *uctx to the context in frame f
@@ -186,6 +189,8 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     f[FRAME_CS] = mcontext->cs | 0x3; /* force CPL3 */
     f[FRAME_SS] = mcontext->ss | 0x3;
     t->signal_mask = normalize_signal_mask(mcontext->oldmask);
+    if (mcontext->fpstate)
+        runtime_memcpy(&thread_frame(t)[FRAME_EXTENDED_SAVE], mcontext->fpstate, extended_frame_size);
 }
 
 void register_other_syscalls(struct syscall *map)
