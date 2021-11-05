@@ -482,7 +482,7 @@ closure_function(0, 1, sysreturn, tun_open,
 int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
 {
     void *(*get_kernel_heaps)(void);
-    boolean (*create_special_file)(const char *path, spec_file_open open);
+    boolean (*create_special_file)(const char *path, spec_file_open open, u64 size);
     tuple (*get_root_tuple)(void);
     if (!(get_kernel_heaps = get_sym("get_kernel_heaps")) ||
             !(create_special_file = get_sym("create_special_file")) ||
@@ -530,7 +530,7 @@ int init(void *md, klib_get_sym get_sym, klib_add_sym add_sym)
     spec_file_open open = closure(tun_heap, tun_open);
     if (open == INVALID_ADDRESS)
         return KLIB_INIT_FAILED;
-    if (create_special_file("/dev/net/tun", open)) {
+    if (create_special_file("/dev/net/tun", open, 0)) {
         return KLIB_INIT_OK;
     } else {
         deallocate_closure(open);
