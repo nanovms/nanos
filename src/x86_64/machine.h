@@ -97,9 +97,9 @@ static inline __attribute__((always_inline)) void atomic_clear_bit(u64 *target, 
     asm volatile("lock btrq %1, %0": "+m"(*target):"r"(bit) : "memory");
 }
 
-static inline __attribute__((always_inline)) int atomic_test_and_set_bit(u64 *target, u64 bit)
+static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *target, u64 bit)
 {
-    int oldbit;
+    u8 oldbit;
     #ifdef __GCC_ASM_FLAG_OUTPUTS__
     asm volatile("lock btsq %2, %0" : "+m"(*target), "=@ccc"(oldbit) : "r"(bit) : "memory");
     #else
@@ -108,9 +108,9 @@ static inline __attribute__((always_inline)) int atomic_test_and_set_bit(u64 *ta
     return oldbit;
 }
 
-static inline __attribute__((always_inline)) int atomic_test_and_clear_bit(u64 *target, u64 bit)
+static inline __attribute__((always_inline)) u8 atomic_test_and_clear_bit(u64 *target, u64 bit)
 {
-    int oldbit;
+    u8 oldbit;
     #ifdef __GCC_ASM_FLAG_OUTPUTS__
     asm volatile("lock btrq %2, %0" : "+m"(*target), "=@ccc"(oldbit) : "r"(bit) : "memory");
     #else

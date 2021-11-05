@@ -164,7 +164,7 @@ static inline __attribute__((always_inline)) void memory_barrier(void)
 }
 
 /* XXX something b0rked with ldset here...ordering, or asm constraints? */
-static inline __attribute__((always_inline)) int atomic_test_and_set_bit(u64 *target, u64 bit)
+static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *target, u64 bit)
 {
 #if 0
     register u64 a = u64_from_pointer(target);
@@ -179,7 +179,7 @@ static inline __attribute__((always_inline)) int atomic_test_and_set_bit(u64 *ta
 #endif
 }
 
-static inline __attribute__((always_inline)) int atomic_test_and_clear_bit(u64 *target, u64 bit)
+static inline __attribute__((always_inline)) u8 atomic_test_and_clear_bit(u64 *target, u64 bit)
 {
 #if 0
     register u64 a = u64_from_pointer(target);
