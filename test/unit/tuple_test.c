@@ -54,6 +54,16 @@ boolean all_tests(heap h)
         test_assert(j3 == j2);//rprintf("j3=%d,j2=%d\n",j3, j2);
     }
 
+    // get symbol associated to a value
+    symbol sym1 = sym(tuple_test1), sym2 = sym(tuple_test2);
+    test_assert(tuple_get_symbol(t1, t2) == 0);
+    set(t1, sym1, t2);
+    test_assert(tuple_get_symbol(t1, t2) == sym1);
+    set(t1, sym2, t2);
+    test_assert((tuple_get_symbol(t1, t2) == sym1) || (tuple_get_symbol(t1, t2) == sym2));
+    set(t1, sym1, 0);
+    set(t1, sym2, 0);
+
     failure = false;
 fail:
     destruct_tuple(t1, true);

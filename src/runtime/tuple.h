@@ -24,6 +24,7 @@ boolean iterate(value e, binding_handler h);
 
 void init_tuples(heap theap);
 int tuple_count(tuple t);
+symbol tuple_get_symbol(tuple t, value v);
 tuple allocate_tuple();
 void destruct_tuple(tuple t, boolean recursive);
 void deallocate_value(tuple t);

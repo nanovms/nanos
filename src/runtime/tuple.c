@@ -88,6 +88,23 @@ int tuple_count(tuple t)
     }
 }
 
+closure_function(2, 2, boolean, tuple_get_symbol_each,
+                 value, val, symbol *, sym,
+                 value, s, value, v)
+{
+    if (v != bound(val))
+        return true;
+    *bound(sym) = s;
+    return false;
+}
+
+symbol tuple_get_symbol(tuple t, value v)
+{
+    symbol sym = 0;
+    iterate(t, stack_closure(tuple_get_symbol_each, v, &sym));
+    return sym;
+}
+
 static inline void drecord(table dictionary, void *x)
 {
     u64 count = dictionary->count + 1;
