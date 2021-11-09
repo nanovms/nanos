@@ -15,6 +15,7 @@ RUNTIME=$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/random.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/rbtree.c \
+	$(SRCDIR)/runtime/ringbuf.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/sha256.c \

@@ -116,6 +116,7 @@ extern heap transient;
 #include <boot.h>
 #endif
 #include <buffer.h>
+#include <ringbuf.h>
 
 typedef u64 physical;
 

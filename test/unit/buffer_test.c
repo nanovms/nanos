@@ -260,6 +260,75 @@ fail:
     return failure;
 }
 
+boolean ringbuf_tests(heap h)
+{
+    u8 v3[3];
+    u32 v4;
+    u64 v8;
+    ringbuf b = allocate_ringbuf(h, 1);
+    boolean failure = true;
+
+    test_assert(b != INVALID_ADDRESS);
+
+    v4 = v8 = 0xdeadbeef;
+    test_assert(ringbuf_write(b, &v4, sizeof(v4)) == true);
+    test_assert(ringbuf_read(b, &v8, sizeof(v8)) == false);
+    v4 = 0;
+    test_assert((ringbuf_read(b, &v4, sizeof(v4)) == true) && (v4 == v8));
+    test_assert(ringbuf_length(b) == 0);
+
+    test_assert(ringbuf_extend(b, 8) == true);
+    v3[0] = 0x11;
+    v3[1] = 0x22;
+    v3[2] = 0x33;
+    ringbuf_write(b, &v3, sizeof(v3));
+    ringbuf_write(b, &v3, sizeof(v3));
+    test_assert(ringbuf_space(b) == 8 - 2 * sizeof(v3));
+
+    for (int i = 0; i < 10; i++) {
+        memset(&v3, 0, sizeof(v3));
+        test_assert(ringbuf_read(b, &v3, sizeof(v3)) == true);
+        test_assert((v3[0] == 0x11) && (v3[1] == 0x22) && (v3[2] == 0x33));
+        test_assert(ringbuf_write(b, &v3, sizeof(v3)) == true);
+    }
+    test_assert((ringbuf_length(b) == 2 * sizeof(v3)) && (b->length == 8));
+
+    ringbuf_read(b, &v3, sizeof(v3));
+    test_assert(ringbuf_memset(b, 0x44, sizeof(v3)) == true);
+    test_assert(ringbuf_read(b, &v3, sizeof(v3)) == true);
+    test_assert((v3[0] == 0x11) && (v3[1] == 0x22) && (v3[2] == 0x33));
+    test_assert(ringbuf_memset(b, 0x44, sizeof(v3)) == true);
+
+    for (int i = 0; i < 10; i++) {
+        memset(&v3, 0, sizeof(v3));
+        test_assert(ringbuf_read(b, &v3, sizeof(v3)) == true);
+        test_assert((v3[0] == 0x44) && (v3[1] == 0x44) && (v3[2] == 0x44));
+        test_assert(ringbuf_memset(b, 0x44, sizeof(v3)) == true);
+    }
+
+    /* Buffer size must be a power of 2. */
+    for (int i = 0; i < 10; i++) {
+        bytes new_size = random() & 0xFFFFFF;
+        test_assert(ringbuf_extend(b, new_size) == true);
+        test_assert((b->length >= new_size) && (b->length == U64_FROM_BIT(find_order(b->length))));
+    }
+
+    ringbuf_read(b, &v3, sizeof(v3));
+    test_assert(ringbuf_length(b) == sizeof(v3));
+
+    /* Cannot shrink the buffer size below the length of its contents. */
+    test_assert(ringbuf_set_capacity(b, 1) == U64_FROM_BIT(find_order(sizeof(v3))));
+
+    test_assert(ringbuf_read(b, &v3, sizeof(v3)) == true);
+    test_assert((v3[0] == 0x44) && (v3[1] == 0x44) && (v3[2] == 0x44));
+
+    failure = false;
+
+fail:
+    deallocate_ringbuf(b);
+    return failure;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -269,6 +338,7 @@ int main(int argc, char **argv)
     failure |= byteorder_tests(h);
     failure |= concat_tests(h);
     failure |= vbprintf_tests(h);
+    failure |= ringbuf_tests(h);
 
     if (failure) {
         msg_err("Test failed\n");
