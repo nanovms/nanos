@@ -548,9 +548,10 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
 
 static boolean thread_is_on_altsigstack(thread t)
 {
-    return point_in_range(irangel(u64_from_pointer(t->signal_stack),
-                                  t->signal_stack_length),
-                          t->frame[SYSCALL_FRAME_SP]);
+    return t->signal_stack != 0 &&
+        point_in_range(irangel(u64_from_pointer(t->signal_stack),
+                               t->signal_stack_length),
+                       t->frame[SYSCALL_FRAME_SP]);
 }
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)

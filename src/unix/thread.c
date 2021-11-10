@@ -326,6 +326,7 @@ thread create_thread(process p)
     t->frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_thread, run_thread, t));
     
     t->signal_stack = 0;
+    t->signal_stack_length = 0;
     t->thrd.pause = init_closure(&t->pause_thread, pause_thread, t);
     t->affinity = allocate_bitmap(h, h, total_processors);
     if (t->affinity == INVALID_ADDRESS)
