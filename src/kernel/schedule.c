@@ -99,8 +99,7 @@ NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
     cpuinfo ci = current_cpu();
     sched_debug("sleep\n");
     ci->state = cpu_idle;
-    if (idle_cpu_mask)
-        bitmap_set_atomic(idle_cpu_mask, ci->id, 1);
+    bitmap_set_atomic(idle_cpu_mask, ci->id, 1);
 
     while (1) {
         wait_for_interrupt();
@@ -317,7 +316,7 @@ void init_scheduler(heap h)
 
 void init_scheduler_cpus(heap h)
 {
-    idle_cpu_mask = allocate_bitmap(h, h, total_processors);
+    idle_cpu_mask = allocate_bitmap(h, h, present_processors);
     assert(idle_cpu_mask != INVALID_ADDRESS);
-    bitmap_alloc(idle_cpu_mask, total_processors);
+    bitmap_alloc(idle_cpu_mask, present_processors);
 }

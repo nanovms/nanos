@@ -222,10 +222,14 @@ static void count_processors()
     }
 }
 
+void count_cpus_present(void)
+{
+    count_processors();
+}
+
 void start_secondary_cores(kernel_heaps kh)
 {
     memory_barrier();
-    count_processors();
     init_debug("init_mxcsr");
     init_mxcsr();
     init_debug("starting APs");
@@ -238,6 +242,10 @@ void start_secondary_cores(kernel_heaps kh)
 }
 #else
 void start_secondary_cores(kernel_heaps kh)
+{
+}
+
+void count_cpus_present(void)
 {
 }
 #endif
