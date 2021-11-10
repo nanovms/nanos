@@ -135,17 +135,17 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     // stack should be 16-byte aligned
     assert(pad(u64_from_pointer(s), STACK_ALIGNMENT) == u64_from_pointer(s));
 
-    frame_set_sp(t->default_frame, u64_from_pointer(s));
+    frame_set_sp(t->frame, u64_from_pointer(s));
 }
 
 void start_process(thread t, void *start)
 {
-    t->default_frame[SYSCALL_FRAME_PC] = u64_from_pointer(start);
+    t->frame[SYSCALL_FRAME_PC] = u64_from_pointer(start);
     if (get(t->p->process_root, sym(gdb))) {
         rputs("NOTE: in-kernel gdb is a work in progress\n");
         init_tcp_gdb(heap_locked(get_kernel_heaps()), t->p, 9090);
     } else {
-        schedule_frame(t->default_frame);
+        schedule_frame(t->frame);
     }
 }
 

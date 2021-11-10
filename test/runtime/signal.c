@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <assert.h>
 #include <errno.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <string.h>
 #include <stdlib.h>
@@ -70,6 +71,7 @@ static void test_signal_catch_handler(int sig)
 
 void test_signal_catch(void)
 {
+    sigtest_debug("\n");
     pthread_t pt = 0;
     child_tid = 0;
     if (pthread_create(&pt, NULL, tgkill_test_pause, NULL))
@@ -176,6 +178,7 @@ static void * test_rt_signal_child(void * arg)
 /* test sigaction (siginfo) handler and queued signals */
 void test_rt_signal(void)
 {
+    sigtest_debug("\n");
     pthread_t pt = 0;
     child_tid = 0;
     test_rt_signal_enable = 0;
@@ -197,7 +200,7 @@ void test_rt_signal(void)
     sa.sa_flags |= SA_SIGINFO;
     rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        fail_perror("test_rt_signal: sigaction");
 
     for (int i = 0; i < TEST_RT_NQUEUE; i++) {
         union sigval sv;
@@ -240,7 +243,7 @@ void test_kill(void)
     sa.sa_flags |= SA_SIGINFO;
     int rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        fail_perror("test_kill: sigaction");
 
     sigset_t ss;
     sigemptyset(&ss);
@@ -257,6 +260,18 @@ void test_kill(void)
         fail_error("signal not caught");
 }
 
+static void queue_sig(int sig)
+{
+    siginfo_t si;
+    memset(&si, 0, sizeof(siginfo_t));
+    si.si_code = SI_MESGQ;
+    si.si_pid = __getpid();
+    si.si_uid = getuid();
+    int rv = syscall(SYS_rt_sigqueueinfo, __getpid(), sig, &si);
+    if (rv < 0)
+        fail_perror("test_nested_handler: sigqueueinfo for sig %d", sig);
+}
+
 void test_rt_sigqueueinfo(void)
 {
     sigtest_debug("\n");
@@ -268,7 +283,7 @@ void test_rt_sigqueueinfo(void)
     sa.sa_flags |= SA_SIGINFO;
     int rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        fail_perror("test_rt_sigqueueinfo: sigaction");
 
     sigset_t ss;
     sigemptyset(&ss);
@@ -277,14 +292,7 @@ void test_rt_sigqueueinfo(void)
     if (rv < 0)
         fail_perror("sigprocmask");
 
-    siginfo_t si;
-    memset(&si, 0, sizeof(siginfo_t));
-    si.si_code = SI_MESGQ;
-    si.si_pid = __getpid();
-    si.si_uid = getuid();
-    rv = syscall(SYS_rt_sigqueueinfo, __getpid(), SIGRTMIN, &si);
-    if (rv < 0)
-        fail_perror("sigqueueinfo for SIGRTMIN");
+    queue_sig(SIGRTMIN);
 
     if (!test_kill_caught)
         fail_error("signal not caught");
@@ -376,14 +384,14 @@ void test_rt_sigsuspend(void)
     sa.sa_flags |= SA_SIGINFO;
     int rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        fail_perror("test_rt_sigsuspend: sigaction");
 
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = test_rt_sigsuspend_handler_2;
     sa.sa_flags |= SA_SIGINFO;
     rv = sigaction(SIGRTMIN + 1, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        fail_perror("test_rt_sigsuspend: sigaction");
 
     /* queue signal to SIGRTMIN handler; should be caught */
     siginfo_t si;
@@ -589,6 +597,7 @@ sigsegv_thread(void * arg)
 static void
 test_sigsegv(void)
 {
+    sigtest_debug("\n");
     struct sigaction sa;
     pthread_t pt;
     void * retval;
@@ -811,7 +820,7 @@ void test_rt_sigtimedwait(void)
     sa.sa_flags |= SA_SIGINFO;
     int rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        fail_perror("test_rt_sigtimedwait: sigaction");
 
     /* queue signal to SIGRTMIN handler; should be caught */
     siginfo_t si;
@@ -977,7 +986,7 @@ void test_signalfd(void)
     sa.sa_flags |= SA_SIGINFO;
     int rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        fail_perror("test_signalfd: sigaction");
 
     /* queue signal to SIGRTMIN handler; should handled via read */
     siginfo_t si;
@@ -1053,6 +1062,7 @@ static void test_sigaltstack_handler(int sig)
 
 void test_sigaltstack(void)
 {
+    sigtest_debug("\n");
     stack_t ss, oss;
     struct sigaction sa;
 
@@ -1147,6 +1157,7 @@ static void *test_restart_child(void *arg)
 
 void test_restart(void)
 {
+    sigtest_debug("\n");
     int fds[2] = {0,0};
     int status;
     pthread_t pt;
@@ -1194,6 +1205,117 @@ void test_restart(void)
     assert((close(fds[0]) == 0) && (close(fds[1]) == 0));
 }
 
+sigjmp_buf test_sigsetjmp_env;
+int test_sigsetjmp_var = 0;
+
+static void test_sigsetjmp_handler(int sig, siginfo_t *si, void *ucontext)
+{
+    assert(si);
+    sigtest_debug("sig %d, si->signo %d, si->errno %d, si->code %d\n",
+                  sig, si->si_signo, si->si_errno, si->si_code);
+    assert(sig == SIGRTMIN);
+    assert(sig == si->si_signo);
+    test_sigsetjmp_var++;
+
+    sigset_t ss;
+    sigprocmask(SIG_SETMASK /* ignored */, NULL, &ss);
+
+    /* SIGUSR2 should be blocked for the first signal delivery. */
+    if (test_sigsetjmp_var == 1)
+        assert(!sigismember(&ss, SIGUSR2));
+    else
+        assert(sigismember(&ss, SIGUSR2));
+
+    siglongjmp(test_sigsetjmp_env, 1);
+}
+
+void test_sigsetjmp(void)
+{
+    sigset_t ss;
+    sigtest_debug("\n");
+
+    /* Mask only SIGUSR2 so we can later test that it will be restored after the siglongjmp. */
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGUSR2);
+    sigprocmask(SIG_SETMASK, &ss, NULL);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = test_sigsetjmp_handler;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv = sigaction(SIGRTMIN, &sa, 0);
+    if (rv < 0)
+        fail_perror("test_sigsetjmp: sigaction");
+
+    /* In the old signal delivery scheme in Nanos, this first siglongjmp would
+       succeed, but the thread would resume running on the dedicated
+       "sighandler_frame," bypassing the call to rt_sigreturn. With the thread
+       then running on the sighandler frame, the second signal delivery would
+       then fail. With everything running on a single frame for the thread,
+       this second signal and siglongjmp should work - as it does in Linux
+       (and now in Nanos). */
+    rv = sigsetjmp(test_sigsetjmp_env, 1);
+    if (rv > 0) {
+        sigtest_debug("siglongjmp target reached, var %d\n", test_sigsetjmp_var);
+
+        /* Validate that the saved mask has been restored. */
+        sigprocmask(SIG_SETMASK /* ignored */, NULL, &ss);
+        assert(sigismember(&ss, SIGUSR2));
+
+        if (test_sigsetjmp_var == 2)
+            return;             /* success */
+    } else {
+        if (rv != 0)
+            fail_perror("test_sigsetjmp: sigsetjmp");
+
+        /* Now unmask SIGUSR2 so we can later test that the saved mask was restored. */
+        sigemptyset(&ss);
+        sigaddset(&ss, SIGUSR2);
+        sigprocmask(SIG_UNBLOCK, &ss, NULL);
+    }
+
+    queue_sig(SIGRTMIN);
+    fail_error("test_sigsetjmp: signal catch and siglongjmp did not occur\n");
+}
+
+static volatile int test_nested_count;
+
+#define TEST_NESTED_LEVELS 10
+
+static void test_nested_handler(int sig, siginfo_t *si, void *ucontext)
+{
+    assert(si);
+    sigtest_debug("sig %d, si->signo %d, si->errno %d, si->code %d\n",
+                  sig, si->si_signo, si->si_errno, si->si_code);
+    if (test_nested_count < TEST_NESTED_LEVELS - 1) {
+        assert(sig == SIGRTMIN + test_nested_count);
+        test_nested_count++;
+        queue_sig(SIGRTMIN + test_nested_count);
+        assert(test_nested_count == TEST_NESTED_LEVELS);
+    } else {
+        assert(sig == SIGRTMIN + TEST_NESTED_LEVELS - 1);
+        test_nested_count++;
+    }
+    assert(sig == si->si_signo);
+}
+
+void test_nested_handling(void)
+{
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = test_nested_handler;
+    sa.sa_flags |= SA_SIGINFO;
+    int rv;
+    for (int i = 0; i < TEST_NESTED_LEVELS; i++) {
+        rv = sigaction(SIGRTMIN + i, &sa, 0);
+        if (rv < 0)
+            fail_perror("test_nested_handler: sigaction");
+    }
+    test_nested_count = 0;
+    queue_sig(SIGRTMIN);
+    assert(test_nested_count == TEST_NESTED_LEVELS);
+}
+
 int main(int argc, char * argv[])
 {
     setbuf(stdout, NULL);
@@ -1221,6 +1343,10 @@ int main(int argc, char * argv[])
     test_sigaltstack();
 
     test_restart();
+
+    test_sigsetjmp();
+
+    test_nested_handling();
 
     printf("signal test passed\n");
 }

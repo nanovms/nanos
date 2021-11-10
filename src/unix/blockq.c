@@ -125,6 +125,8 @@ static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_fl
         goto unlock_fail;
     }
     list_delete(&t->bq_l);
+    if (bq_flags & BLOCKQ_ACTION_NULLIFY)
+        t->interrupting_syscall = true;
     thread_unlock(t);
     blockq_unlock(bq);
     boolean terminal = blockq_apply(bq, t, bq_flags);

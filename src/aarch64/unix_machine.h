@@ -40,16 +40,16 @@ struct epoll_event {
 
 /* kernel stuff */
 
-#define SYSCALL_FRAME_ARG0    FRAME_X0
-#define SYSCALL_FRAME_ARG1    FRAME_X1
-#define SYSCALL_FRAME_ARG2    FRAME_X2
-#define SYSCALL_FRAME_ARG3    FRAME_X3
-#define SYSCALL_FRAME_ARG4    FRAME_X4
-#define SYSCALL_FRAME_ARG5    FRAME_X5
-#define SYSCALL_FRAME_RETVAL1 FRAME_X0
-#define SYSCALL_FRAME_RETVAL2 FRAME_X1
-#define SYSCALL_FRAME_SP      FRAME_SP
-#define SYSCALL_FRAME_PC      FRAME_ELR
+#define SYSCALL_FRAME_ARG0       FRAME_X0
+#define SYSCALL_FRAME_ARG1       FRAME_X1
+#define SYSCALL_FRAME_ARG2       FRAME_X2
+#define SYSCALL_FRAME_ARG3       FRAME_X3
+#define SYSCALL_FRAME_ARG4       FRAME_X4
+#define SYSCALL_FRAME_ARG5       FRAME_X5
+#define SYSCALL_FRAME_RETVAL1    FRAME_X0
+#define SYSCALL_FRAME_RETVAL2    FRAME_X1
+#define SYSCALL_FRAME_SP         FRAME_SP
+#define SYSCALL_FRAME_PC         FRAME_ELR
 
 #define MINSIGSTKSZ 5120
 
@@ -60,6 +60,20 @@ struct sigcontext {
     u64 pc;
     u64 pstate;
     u8 reserved[4096] __attribute__((__aligned__(16)));
+};
+
+struct _aarch64_ctx {
+    u32 magic;
+    u32 size;
+};
+
+#define FPSIMD_MAGIC 0x46508001
+
+struct fpsimd_context {
+    struct _aarch64_ctx head;
+    u32 fpsr;
+    u32 fpcr;
+    u128 vregs[32];
 };
 
 struct ucontext {
@@ -98,6 +112,18 @@ static inline void set_tls(context f, u64 tls)
     f[FRAME_TXCTX_FLAGS] |= FRAME_TXCTX_TPIDR_EL0_SAVED;
 }
 
+static inline void syscall_restart_arch_setup(context f)
+{
+    f[FRAME_SAVED_X0] = f[FRAME_X0];
+}
+
+static inline void syscall_restart_arch_fixup(context f)
+{
+    /* rewind to syscall */
+    f[FRAME_X0] = f[FRAME_SAVED_X0];
+    f[FRAME_ELR] -= 4; /* rewind to syscall; no thumb mode support */
+}
+
 void frame_save_fpsimd(context f);
 void frame_restore_fpsimd(context f);
 
@@ -132,6 +158,3 @@ static inline void thread_frame_restore_tls(context f)
         write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
     }
 }
-
-void syscall_entry_arch_fixup(thread t);
-void syscall_restart_arch_fixup(thread t);

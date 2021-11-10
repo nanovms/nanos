@@ -147,6 +147,7 @@
 #define SCTLR_EL1_M       U64_FROM_BIT(0) /* MMU enable */
 
 #define SPSR_I U64_FROM_BIT(7)
+#define SPSR_TCO U64_FROM_BIT(25)
 
 #ifndef __ASSEMBLY__
 /* interrupt control */
@@ -273,10 +274,7 @@ static inline u64 frame_return_address(context f)
 
 static inline u64 fault_address(context f)
 {
-    // store in frame?
-    register u64 far;
-    asm("mrs %0, FAR_EL1" : "=r"(far));
-    return far;
+    return f[FRAME_FAULT_ADDRESS];
 }
 
 #define esr_from_frame(frame) (frame[FRAME_ESR_SPSR] >> 32)

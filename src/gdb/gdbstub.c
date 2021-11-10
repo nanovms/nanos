@@ -167,7 +167,7 @@ closure_function(0, 1, boolean, sched_thread,
        and is kind of racey with unblocking */
     thread t = struct_from_field(n, thread, n);
     if (!t->blocked_on)
-        schedule_frame(t->active_frame);
+        schedule_frame(thread_frame(t));
     return true;
 }
 
@@ -553,10 +553,8 @@ static fault_handler gdb_fh;
 
 void gdb_check_fault_handler(thread t)
 {
-    if (gdb_fh) {
-        t->default_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(gdb_fh);
-        t->sighandler_frame[FRAME_FAULT_HANDLER] = u64_from_pointer(gdb_fh);
-    }
+    if (gdb_fh)
+        t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(gdb_fh);
 }
 
 buffer_handler init_gdb(heap h,

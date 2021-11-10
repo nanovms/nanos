@@ -60,9 +60,36 @@
 #define CR4_OSXMMEXCPT  (1 << 10)
 #define CR4_OSXSAVE     (1 << 18)
 
-#define FLAG_TRAP 8
-#define FLAG_INTERRUPT 9
-#define FLAG_RESUME 16
+#define EFLAG_CARRY                     0
+#define EFLAG_FIXED                     1
+#define EFLAG_PARITY                    2
+#define EFLAG_AUX_CARRY                 4
+#define EFLAG_ZERO                      6
+#define EFLAG_SIGN                      7
+#define EFLAG_TRAP                      8
+#define EFLAG_INTERRUPT                 9
+#define EFLAG_DIRECTION                 10
+#define EFLAG_OVERFLOW                  11
+#define EFLAG_IOPL                      12
+#define EFLAG_NESTED_TASK               14
+#define EFLAG_RESUME                    16
+#define EFLAG_VIRTUAL_MODE              17
+#define EFLAG_ALIGN_CHECK               18
+#define EFLAG_VIRTUAL_INTERRUPT         19
+#define EFLAG_VIRTUAL_INTERRUPT_PENDING 20
+#define EFLAG_CPUID_DETECT              21
+
+#define SAFE_EFLAGS \
+    (U64_FROM_BIT(EFLAG_ALIGN_CHECK) | \
+     U64_FROM_BIT(EFLAG_OVERFLOW) | \
+     U64_FROM_BIT(EFLAG_DIRECTION) | \
+     U64_FROM_BIT(EFLAG_TRAP) | \
+     U64_FROM_BIT(EFLAG_SIGN) | \
+     U64_FROM_BIT(EFLAG_ZERO) | \
+     U64_FROM_BIT(EFLAG_AUX_CARRY) | \
+     U64_FROM_BIT(EFLAG_PARITY) | \
+     U64_FROM_BIT(EFLAG_CARRY) | \
+     U64_FROM_BIT(EFLAG_RESUME))
 
 #define TSS_SIZE 0x68
 
@@ -200,7 +227,7 @@ static inline void set_syscall_handler(void *syscall_entry)
     write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
     u32 selectors = ((USER_CODE32_SELECTOR | 0x3) << 16) | KERNEL_CODE_SELECTOR;
     write_msr(STAR_MSR, (u64)selectors << 32);
-    write_msr(SFMASK_MSR, U64_FROM_BIT(FLAG_INTERRUPT) | U64_FROM_BIT(FLAG_TRAP));
+    write_msr(SFMASK_MSR, U64_FROM_BIT(EFLAG_INTERRUPT) | U64_FROM_BIT(EFLAG_TRAP));
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
@@ -298,12 +325,12 @@ static inline u64 total_frame_size(void)
 
 static inline void frame_enable_interrupts(context f)
 {
-    f[FRAME_FLAGS] |= U64_FROM_BIT(FLAG_INTERRUPT);
+    f[FRAME_FLAGS] |= U64_FROM_BIT(EFLAG_INTERRUPT);
 }
 
 static inline void frame_disable_interrupts(context f)
 {
-    f[FRAME_FLAGS] &= ~U64_FROM_BIT(FLAG_INTERRUPT);
+    f[FRAME_FLAGS] &= ~U64_FROM_BIT(EFLAG_INTERRUPT);
 }
 
 extern void xsave(context f);

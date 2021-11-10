@@ -45,19 +45,20 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_N_PSTATE      35
 
 #define FRAME_VECTOR        35
-#define FRAME_FAULT_HANDLER 36
-#define FRAME_STACK_TOP     37
-#define FRAME_RUN           38
-#define FRAME_EL            39
-#define FRAME_QUEUE         40
-#define FRAME_FULL          41
-#define FRAME_THREAD        42
-#define FRAME_HEAP          43
-#define FRAME_SAVED_ARG0    44
-#define FRAME_TXCTX_FLAGS   45
+#define FRAME_FAULT_ADDRESS 36
+#define FRAME_FAULT_HANDLER 37
+#define FRAME_STACK_TOP     38
+#define FRAME_RUN           39
+#define FRAME_EL            40
+#define FRAME_QUEUE         41
+#define FRAME_FULL          42
+#define FRAME_THREAD        43
+#define FRAME_HEAP          44
+#define FRAME_SAVED_X0      45
+#define FRAME_TXCTX_FLAGS   46
 #define FRAME_TXCTX_TPIDR_EL0_SAVED 1
 #define FRAME_TXCTX_FPSIMD_SAVED    2
-#define FRAME_MAX           46
+#define FRAME_MAX           47
 
 #define FRAME_EXTENDED_SAVE 64
 
