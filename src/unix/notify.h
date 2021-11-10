@@ -20,6 +20,7 @@ notify_entry notify_add(notify_set s, u64 eventmask, event_handler eh);
 
 void notify_remove(notify_set s, notify_entry e, boolean release);
 
+u64 notify_entry_get_eventmask(notify_entry n);
 void notify_entry_update_eventmask(notify_entry n, u64 eventmask);
 
 u64 notify_get_eventmask_union(notify_set s);

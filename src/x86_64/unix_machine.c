@@ -321,9 +321,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, keyctl, 0);
     register_syscall(map, ioprio_set, 0);
     register_syscall(map, ioprio_get, 0);
-    register_syscall(map, inotify_init, 0);
-    register_syscall(map, inotify_add_watch, 0);
-    register_syscall(map, inotify_rm_watch, 0);
     register_syscall(map, migrate_pages, 0);
     register_syscall(map, mknodat, 0);
     register_syscall(map, fchownat, syscall_ignore);
@@ -337,7 +334,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, vmsplice, 0);
     register_syscall(map, move_pages, 0);
     register_syscall(map, utimensat, 0);
-    register_syscall(map, inotify_init1, 0);
     register_syscall(map, preadv, 0);
     register_syscall(map, pwritev, 0);
     register_syscall(map, perf_event_open, 0);

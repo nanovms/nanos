@@ -483,12 +483,12 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
 
 static void begin_file_read(thread t, file f)
 {
-    if ((f->length > 0) && !(f->f.flags & O_NOATIME)) {
-        tuple md = filesystem_get_meta(f->fs, f->n);
-        if (md) {
+    tuple md = filesystem_get_meta(f->fs, f->n);
+    if (md) {
+        if ((f->length > 0) && !(f->f.flags & O_NOATIME))
             filesystem_update_atime(f->fs, md);
-            filesystem_put_meta(f->fs, md);
-        }
+        fs_notify_event(md, IN_ACCESS);
+        filesystem_put_meta(f->fs, md);
     }
 }
 
@@ -589,6 +589,7 @@ static void begin_file_write(thread t, file f, u64 len)
         tuple md = filesystem_get_meta(f->fs, f->n);
         if (md) {
             filesystem_update_mtime(f->fs, md);
+            fs_notify_event(md, IN_MODIFY);
             filesystem_put_meta(f->fs, md);
         }
     }
@@ -700,6 +701,12 @@ closure_function(2, 2, sysreturn, file_close,
                  thread, t, io_completion, completion)
 {
     file f = bound(f);
+    tuple md = filesystem_get_meta(f->fs, f->n);
+    if (md) {
+        fs_notify_event(md, ((f->f.flags & O_ACCMODE) == O_RDONLY) ?
+                        IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
+        filesystem_put_meta(f->fs, md);
+    }
     fsfile fsf = bound(fsf);
     if (fsf)
         fsfile_release(fsf);
@@ -921,6 +928,7 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     }
     thread_log(current, "   fd %d, length %ld, offset %ld", fd, f->length, f->offset);
     filesystem_reserve(fs);
+    fs_notify_event(n, IN_OPEN);
     ret = fd;
   out:
     filesystem_put_node(fs, n);
@@ -1141,6 +1149,7 @@ static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boole
     symbol parent_sym = sym_this("..");
     if (apply(h, sym_this("."), md) && apply(h, parent_sym, get_tuple(md, parent_sym)))
         iterate(c, h);
+    fs_notify_event(md, IN_ACCESS);
     filesystem_update_atime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
@@ -2213,7 +2222,11 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, utimes, utimes);
     register_syscall(map, chown, syscall_ignore);
     register_syscall(map, symlink, symlink);
+    register_syscall(map, inotify_init, inotify_init);
 #endif
+    register_syscall(map, inotify_init1, inotify_init1);
+    register_syscall(map, inotify_add_watch, inotify_add_watch);
+    register_syscall(map, inotify_rm_watch, inotify_rm_watch);
     register_syscall(map, openat, openat);
     register_syscall(map, dup, dup);
     register_syscall(map, dup3, dup3);

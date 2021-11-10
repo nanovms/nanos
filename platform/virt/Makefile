@@ -52,6 +52,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/unix/eventfd.c \
 	$(SRCDIR)/unix/filesystem.c \
 	$(SRCDIR)/unix/futex.c \
+	$(SRCDIR)/unix/inotify.c \
 	$(SRCDIR)/unix/io_uring.c \
 	$(SRCDIR)/unix/mktime.c \
 	$(SRCDIR)/unix/mmap.c \

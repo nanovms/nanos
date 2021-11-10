@@ -46,3 +46,6 @@ void file_release(file f);
 
 fsfile fsfile_open_or_create(buffer file_path);
 fs_status fsfile_truncate(fsfile f, u64 len);
+
+notify_entry fs_watch(heap h, tuple n, u64 eventmask, event_handler eh, notify_set *s);
+void fs_notify_event(tuple n, u64 event);

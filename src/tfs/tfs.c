@@ -1016,6 +1016,8 @@ fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {
     filesystem_lock(fs);
     fs_status fss = filesystem_truncate_locked(fs, f, len);
+    if (f->md)
+        fs_notify_modify(f->md);
     filesystem_unlock(fs);
     return fss;
 }
@@ -1243,6 +1245,7 @@ static void file_unlink(filesystem fs, tuple t)
     if (f) {
         f->md = 0;
     }
+    fs_notify_release(t, false);
 
     /* If a tuple is not present in the filesystem log dictionary, it can (and should) be destroyed
      * now (it won't be destroyed when the filesystem log is rebuilt). */
@@ -1274,6 +1277,7 @@ fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
     if (s == FS_STATUS_OK) {
         set(c, name_sym, entry);
         table_set(fs->files, entry, INVALID_ADDRESS);
+        fs_notify_create(entry, parent, name_sym);
     }
     fixup_directory(parent, entry);
     return s;
@@ -1369,9 +1373,11 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
     }
     tuple dir = fs_new_entry(fs);
     set(dir, sym(children), allocate_tuple());
-    fss = fs_set_dir_entry(fs, parent, intern(name), dir);
+    symbol name_sym = intern(name);
+    fss = fs_set_dir_entry(fs, parent, name_sym, dir);
     if (fss == FS_STATUS_OK) {
         table_set(fs->files, dir, INVALID_ADDRESS);
+        fs_notify_create(dir, parent, name_sym);
     } else {
         destruct_dir_entry(dir);
     }
@@ -1424,10 +1430,13 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
             fsf = allocate_fsfile(*fs, t);
             if (fsf != INVALID_ADDRESS) {
                 fsfile_set_length(fsf, 0);
-                fss = fs_set_dir_entry(*fs, parent, sym_this(filename_from_path(path)), t);
+                symbol name = sym_this(filename_from_path(path));
+                fss = fs_set_dir_entry(*fs, parent, name, t);
                 if (fss != FS_STATUS_OK) {
                     table_set((*fs)->files, t, 0);
                     deallocate_fsfile(*fs, fsf, stack_closure(free_extent, *fs));
+                } else {
+                    fs_notify_create(t, parent, name);
                 }
             } else {
                 fss = FS_STATUS_NOMEM;
@@ -1501,11 +1510,14 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
         goto out;
     tuple link = fs_new_entry(fs);
     set(link, sym(linktarget), buffer_cstring(fs->h, target));
-    fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), link);
-    if (fss != FS_STATUS_OK)
+    symbol name = sym_this(filename_from_path(path));
+    fss = fs_set_dir_entry(fs, parent, name, link);
+    if (fss != FS_STATUS_OK) {
         destruct_dir_entry(link);
-    else
+    } else {
         table_set(fs->files, link, INVALID_ADDRESS);
+        fs_notify_create(link, parent, name);
+    }
   out:
     filesystem_unlock(fs);
     filesystem_release(fs);
@@ -1538,8 +1550,10 @@ fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean 
             goto out;
         }
     }
-    fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), 0);
+    symbol name = sym_this(filename_from_path(path));
+    fss = fs_set_dir_entry(fs, parent, name, 0);
     if (fss == FS_STATUS_OK) {
+        fs_notify_delete(t, parent, name);
         file_unlink(fs, t);
         goto release;
     }
@@ -1628,10 +1642,13 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
         s = FS_STATUS_OK;
         goto out;
     }
-    s = fs_set_dir_entry(newfs, newparent, sym_this(filename_from_path(newpath)), old);
+    symbol old_s = sym_this(filename_from_path(oldpath));
+    symbol new_s = sym_this(filename_from_path(newpath));
+    s = fs_set_dir_entry(newfs, newparent, new_s, old);
     if (s == FS_STATUS_OK)
-        s = fs_set_dir_entry(oldfs, oldparent, sym_this(filename_from_path(oldpath)), 0);
+        s = fs_set_dir_entry(oldfs, oldparent, old_s, 0);
     if (s == FS_STATUS_OK) {
+        fs_notify_move(old, oldparent, old_s, newparent, new_s);
         if (new) {
             file_unlink(newfs, new);
             goto release;
@@ -1913,14 +1930,13 @@ void destroy_filesystem(filesystem fs)
 {
     tfs_debug("%s %p\n", __func__, fs);
     log_destroy(fs->tl);
-    if (fs->root) {
-        destruct_dir_entry(fs->root);
-    }
     table_foreach(fs->files, k, v) {
-        (void)k;
+        fs_notify_release(k, true);
         if (v != INVALID_ADDRESS)
             deallocate_fsfile(fs, v, stack_closure(dealloc_extent_node, fs));
     }
+    if (fs->root)
+        destruct_dir_entry(fs->root);
     pagecache_dealloc_volume(fs->pv);
     deallocate_table(fs->files);
     destroy_id_heap(fs->storage);

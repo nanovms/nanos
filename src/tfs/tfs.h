@@ -196,3 +196,22 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
                             tuple *target);
 
 int file_get_path(filesystem fs, inode ino, char *buf, u64 len);
+
+#ifdef KERNEL
+
+/* Functions called by TFS code to notify filesystem operations */
+void fs_notify_create(tuple t, tuple parent, symbol name);
+void fs_notify_move(tuple t, tuple old_parent, symbol old_name, tuple new_parent, symbol new_name);
+void fs_notify_delete(tuple t, tuple parent, symbol name);
+void fs_notify_modify(tuple t);
+void fs_notify_release(tuple t, boolean unmounted);
+
+#else
+
+#define fs_notify_create(t, p, n)
+#define fs_notify_move(t, op, on, np, nn)
+#define fs_notify_delete(t, p, n)
+#define fs_notify_modify(t)
+#define fs_notify_release(t, u)             (void)(t)
+
+#endif

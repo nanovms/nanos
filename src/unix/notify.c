@@ -52,6 +52,11 @@ void notify_remove(notify_set s, notify_entry e, boolean release)
     deallocate(s->h, e, sizeof(struct notify_entry));
 }
 
+u64 notify_entry_get_eventmask(notify_entry n)
+{
+    return n->eventmask;
+}
+
 // XXX poll waiters too
 void notify_entry_update_eventmask(notify_entry n, u64 eventmask)
 {

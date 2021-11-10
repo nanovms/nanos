@@ -365,6 +365,7 @@ typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, 
 #define FDESC_TYPE_TIMERFD     10
 #define FDESC_TYPE_SYMLINK     11
 #define FDESC_TYPE_IORING      12
+#define FDESC_TYPE_INOTIFY     13
 
 declare_closure_struct(1, 2, void, fdesc_io_complete,
                        struct fdesc *, f,
@@ -939,6 +940,16 @@ int pipe_set_capacity(fdesc f, int capacity);
 int pipe_get_capacity(fdesc f);
 
 sysreturn socketpair(int domain, int type, int protocol, int sv[2]);
+
+typedef struct inotify_evdata {
+    string name;
+    u32 cookie;
+} *inotify_evdata;
+
+sysreturn inotify_init(void);
+sysreturn inotify_init1(int flags);
+sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask);
+sysreturn inotify_rm_watch(int fd, int wd);
 
 int do_eventfd2(unsigned int count, int flags);
 

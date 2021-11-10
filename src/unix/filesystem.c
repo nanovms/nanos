@@ -414,3 +414,90 @@ fs_status fsfile_truncate(fsfile f, u64 len)
 {
     return (filesystem_truncate(get_root_fs(), f, len));
 }
+
+notify_entry fs_watch(heap h, tuple n, u64 eventmask, event_handler eh, notify_set *s)
+{
+    tuple watches = get_tuple(n, sym(watches));
+    notify_set ns;
+    if (!watches) {
+        ns = allocate_notify_set(h);
+        if (ns == INVALID_ADDRESS)
+            return 0;
+        watches = allocate_tuple();
+        set(watches, sym(no_encode), null_value);
+        set(watches, sym(ns), ns);
+        set(n, sym(watches), watches);
+    } else {
+        ns = get(watches, sym(ns));
+    }
+    notify_entry ne = notify_add(ns, eventmask, eh);
+    if (ne != INVALID_ADDRESS) {
+        *s = ns;
+        return ne;
+    }
+    return 0;
+}
+
+static void fs_notify_internal(tuple md, u64 event, symbol name, u32 cookie)
+{
+    tuple watches = get_tuple(md, sym(watches));
+    if (watches) {
+        struct inotify_evdata evdata = {
+            .name = name ? symbol_string(name) : 0,
+            .cookie = cookie,
+        };
+        notify_dispatch_with_arg(get(watches, sym(ns)), event, &evdata);
+    }
+}
+
+void fs_notify_event(tuple n, u64 event)
+{
+    if (is_dir(n))
+        event |= IN_ISDIR;
+    fs_notify_internal(n, event, 0, 0);
+    tuple parent = get_tuple(n, sym_this(".."));
+    if (parent != n)
+        fs_notify_internal(parent, event, tuple_get_symbol(children(parent), n), 0);
+}
+
+void fs_notify_create(tuple t, tuple parent, symbol name)
+{
+    u64 event = IN_CREATE;
+    if (is_dir(t))
+        event |= IN_ISDIR;
+    fs_notify_internal(parent, event, name, 0);
+}
+
+void fs_notify_move(tuple t, tuple old_parent, symbol old_name, tuple new_parent, symbol new_name)
+{
+    u64 flags = is_dir(t) ? IN_ISDIR : 0;
+    fs_notify_internal(t, IN_MOVE_SELF | flags, 0, 0);
+    u32 cookie = random_u64();
+    fs_notify_internal(old_parent, IN_MOVED_FROM | flags, old_name, cookie);
+    fs_notify_internal(new_parent, IN_MOVED_TO | flags, new_name, cookie);
+}
+
+void fs_notify_delete(tuple t, tuple parent, symbol name)
+{
+    u64 flags = is_dir(t) ? IN_ISDIR : 0;
+    fs_notify_internal(t, IN_DELETE_SELF | flags, 0, 0);
+    fs_notify_internal(parent, IN_DELETE | flags, name, 0);
+}
+
+void fs_notify_modify(tuple t)
+{
+    fs_notify_event(t, IN_MODIFY);
+}
+
+void fs_notify_release(tuple t, boolean unmounted)
+{
+    tuple watches = get_tuple(t, sym(watches));
+    if (watches) {
+        notify_set ns = get(watches, sym(ns));
+        if (unmounted)
+            notify_dispatch_with_arg(ns, IN_UNMOUNT, 0);
+        deallocate_notify_set(ns);
+        deallocate_value(watches);
+        set(t, sym(watches), 0);
+    }
+}

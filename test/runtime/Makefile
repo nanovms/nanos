@@ -19,6 +19,7 @@ PROGRAMS= \
 	hwg \
 	hws \
 	klibs \
+	inotify \
 	io_uring \
 	mkdir \
 	mmap \
@@ -126,6 +127,12 @@ SRCS-hw=		$(CURDIR)/hw.c
 
 SRCS-hws=		$(SRCS-hw)
 LDFLAGS-hws=		-static
+
+SRCS-inotify= \
+	$(CURDIR)/inotify.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-inotify=	-static
+LIBS-inotify=		-lpthread
 
 SRCS-io_uring= \
 	$(CURDIR)/io_uring.c \
