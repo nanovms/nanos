@@ -305,8 +305,9 @@ void kernel_runtime_init(kernel_heaps kh)
     init_net(kh);
 
     init_debug("start_secondary_cores");
-    start_secondary_cores(kh);
+    count_cpus_present();
     init_scheduler_cpus(misc);
+    start_secondary_cores(kh);
 
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);

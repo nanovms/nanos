@@ -145,6 +145,10 @@ void start_secondary_cores(kernel_heaps kh)
 {
 }
 
+void count_cpus_present(void)
+{
+}
+
 static void init_kernel_heaps(void)
 {
     static struct heap bootstrap;
