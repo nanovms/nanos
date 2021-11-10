@@ -66,9 +66,6 @@ typedef struct xen_platform_info {
     struct list xenbus_list;
     struct list driver_list;
 
-    /* timer */
-    evtchn_port_t timer_evtchn;
-
     /* XXX could make generalized status */
     boolean initialized;
 } *xen_platform_info;
@@ -99,10 +96,12 @@ extern u64 hypercall_page;
 
 closure_function(0, 0, void, xen_interrupt)
 {
+    int vcpu = current_cpu()->id;
     volatile struct shared_info *si = xen_info.shared_info;
-    volatile struct vcpu_info *vci = &xen_info.shared_info->vcpu_info[0]; /* hardwired at this point */
+    volatile struct vcpu_info *vci = &xen_info.shared_info->vcpu_info[vcpu];
 
     xenint_debug("xen_interrupt enter");
+    assert(vci->evtchn_upcall_pending);
     while (vci->evtchn_upcall_pending) {
         vci->evtchn_upcall_mask = 1;
         vci->evtchn_upcall_pending = 0;
@@ -256,17 +255,22 @@ closure_function(0, 1, void, xen_runloop_timer,
 {
     u64 n = pvclock_now_ns();
     u64 expiry = n + MAX(nsec_from_timestamp(duration), XEN_TIMER_SLOP_NS);
+    int vcpu = current_cpu()->id;
 
-    xen_debug("%s: now %T, expiry %T", __func__, nanoseconds(n), nanoseconds(expiry));
-    int rv = HYPERVISOR_set_timer_op(expiry);
+    xen_debug("%s: cpu %d now %T, expiry %T", __func__, vcpu, nanoseconds(n), nanoseconds(expiry));
+    struct vcpu_set_singleshot_timer sst;
+    sst.timeout_abs_ns = expiry;
+    sst.flags = 0;
+    int rv = HYPERVISOR_vcpu_op(VCPUOP_set_singleshot_timer, vcpu, &sst);
     if (rv != 0) {
-        msg_err("failed; rv %d\n", rv);
+        msg_err("failed on cpu %d; rv %d\n", vcpu, rv);
     }
 }
 
 closure_function(0, 0, void, xen_runloop_timer_handler)
 {
-    xen_debug("%s: now %T", __func__, nanoseconds(pvclock_now_ns()));
+    xen_debug("%s: cpu %d now %T", __func__, current_cpu()->id, nanoseconds(pvclock_now_ns()));
+    schedule_timer_service();
 }
 
 static s64 xenstore_read_internal(buffer b, s64 length);
@@ -326,6 +330,53 @@ closure_function(0, 0, void, xenstore_evtchn_handler)
     }
   out:
     xenstore_unlock();
+}
+
+static int xen_setup_vcpu(int vcpu, u64 shared_info_phys)
+{
+    assert(vcpu < XEN_LEGACY_MAX_VCPUS);
+    /* register VCPU info */
+    xen_debug("registering VCPU info for cpu %d", vcpu);
+    struct vcpu_register_vcpu_info vrvi;
+    u64 vci_pa = shared_info_phys + offsetof(struct shared_info *, vcpu_info) +
+        sizeof(struct vcpu_info) * vcpu;
+    vrvi.mfn = vci_pa >> PAGELOG;
+    vrvi.offset = vci_pa & (PAGESIZE - 1);
+    int rv = HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_info, vcpu, &vrvi);
+    if (rv < 0) {
+        msg_err("failed to register vcpu info for cpu %d (rv %d)\n", vcpu, rv);
+        return rv;
+    }
+
+    /* timer setup */
+    /* attempt to disable periodic (tick) timer; won't work in older Xens... */
+    xen_debug("stopping periodic tick timer on cpu %d...", vcpu);
+    rv = HYPERVISOR_vcpu_op(VCPUOP_stop_periodic_timer, vcpu, 0);
+    if (rv < 0) {
+        msg_err("unable to stop periodic timer on cpu %d (rv %d)\n", vcpu, rv);
+        return rv;
+    }
+
+    evtchn_op_t eop;
+    eop.cmd = EVTCHNOP_bind_virq;
+    eop.u.bind_virq.virq = VIRQ_TIMER;
+    eop.u.bind_virq.vcpu = vcpu;
+    rv = HYPERVISOR_event_channel_op(&eop);
+    if (rv < 0) {
+        msg_err("failed to bind virtual timer IRQ for cpu %d (rv %d)\n", vcpu, rv);
+        return rv;
+    }
+    evtchn_port_t timer_evtchn = eop.u.bind_virq.port;
+    xen_debug("cpu %d timer event channel %d", vcpu, timer_evtchn);
+    xen_register_evtchn_handler(timer_evtchn, closure(xen_info.h, xen_runloop_timer_handler));
+    assert(xen_unmask_evtchn(timer_evtchn) == 0);
+    return 0;
+}
+
+closure_function(1, 0, void, xen_per_cpu_init,
+                 u64, shared_info_phys)
+{
+    xen_setup_vcpu(current_cpu()->id, bound(shared_info_phys));
 }
 
 boolean xen_detect(kernel_heaps kh)
@@ -460,44 +511,13 @@ boolean xen_detect(kernel_heaps kh)
         goto out_unregister_irq;
     }
 
-    /* register VCPU info */
-    xen_debug("registering VCPU info");
-    struct vcpu_register_vcpu_info vrvi;
-    u64 vci_pa = shared_info_phys + offsetof(struct shared_info *, vcpu_info);
-    vrvi.mfn = vci_pa >> PAGELOG;
-    vrvi.offset = vci_pa & (PAGESIZE - 1);
-    rv = HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_info, 0 /* vcpu0 */, &vrvi);
-    if (rv < 0) {
-        msg_err("failed to register vcpu info (rv %d)\n", rv);
-        goto out_unregister_irq;
-    }
-
     xen_info.evtchn_handlers = allocate_vector(xen_info.h, 1);
     assert(xen_info.evtchn_handlers != INVALID_ADDRESS);
 
-    /* timer setup */
-    /* attempt to disable periodic (tick) timer; won't work in older Xens... */
-    xen_debug("stopping periodic tick timer...");
-    rv = HYPERVISOR_vcpu_op(VCPUOP_stop_periodic_timer, 0 /* vcpu0 */, 0);
-    if (rv < 0) {
-        msg_err("unable to stop periodic timer (rv %d)\n", rv);
+    if (xen_setup_vcpu(0, shared_info_phys) < 0)
         goto out_unregister_irq;
-    }
-    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer), 0);
 
-    evtchn_op_t eop;
-    eop.cmd = EVTCHNOP_bind_virq;
-    eop.u.bind_virq.virq = VIRQ_TIMER;
-    eop.u.bind_virq.vcpu = 0;
-    rv = HYPERVISOR_event_channel_op(&eop);
-    if (rv < 0) {
-        msg_err("failed to bind virtual timer IRQ (rv %d)\n", rv);
-        goto out_unregister_irq;
-    }
-    xen_info.timer_evtchn = eop.u.bind_virq.port;
-    xen_debug("timer event channel %d", xen_info.timer_evtchn);
-    xen_register_evtchn_handler(xen_info.timer_evtchn, closure(xen_info.h, xen_runloop_timer_handler));
-    assert(xen_unmask_evtchn(xen_info.timer_evtchn) == 0);
+    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer), closure(xen_info.h, xen_per_cpu_init, shared_info_phys));
 
     /* register pvclock (feature verified above) */
     init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
