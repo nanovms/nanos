@@ -8,7 +8,7 @@ declare_closure_struct(1, 0, void, sharedbuf_free,
 
 declare_closure_struct(1, 2, boolean, unixsock_event_handler,
                        struct unixsock *, s,
-                       u64, events, thread, t);
+                       u64, events, void *, arg);
 declare_closure_struct(1, 0, void, unixsock_free,
     struct unixsock *, s);
 
@@ -59,7 +59,7 @@ define_closure_function(1, 0, void, sharedbuf_free,
 
 define_closure_function(1, 2, boolean, unixsock_event_handler,
                         unixsock, s,
-                        u64, events, thread, t)
+                        u64, events, void *, arg)
 {
     unixsock s = bound(s);
     if (events == NOTIFY_EVENTS_RELEASE)    /* the peer socket is being closed */

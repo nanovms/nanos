@@ -174,7 +174,7 @@ typedef struct io_uring {
 
 declare_closure_struct(2, 2, boolean, iour_poll_notify,
                        io_uring, iour, struct iour_poll *, p,
-                       u64, events, thread, t);
+                       u64, events, void *, arg);
 
 typedef struct iour_poll {
     struct list l;
@@ -625,7 +625,7 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
 
 define_closure_function(2, 2, boolean, iour_poll_notify,
                         io_uring, iour, iour_poll, p,
-                        u64, events, thread, t)
+                        u64, events, void *, arg)
 {
     if (!events)
         return false;

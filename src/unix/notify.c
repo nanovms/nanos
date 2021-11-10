@@ -70,7 +70,7 @@ u64 notify_get_eventmask_union(notify_set s)
     return u;
 }
 
-void notify_dispatch_for_thread(notify_set s, u64 events, thread t)
+void notify_dispatch_with_arg(notify_set s, u64 events, void *arg)
 {
     spin_lock(&s->lock);
     list_foreach(&s->entries, l) {
@@ -78,7 +78,7 @@ void notify_dispatch_for_thread(notify_set s, u64 events, thread t)
         /* no guarantee that a transition is represented here; event
            handler needs to keep track itself if edge trigger is used */
         assert(n->eh);
-        if (apply(n->eh, events & n->eventmask, t)) {
+        if (apply(n->eh, events & n->eventmask, arg)) {
             list_delete(l);
             deallocate(s->h, n, sizeof(struct notify_entry));
         }

@@ -193,7 +193,7 @@ static inline u32 report_from_notify_events(epollfd efd, u64 notify_events);
 
 closure_function(1, 2, boolean, wait_notify,
                  epollfd, efd,
-                 u64, notify_events, thread, t)
+                 u64, notify_events, void *, t)
 {
     epollfd efd = bound(efd);
 

@@ -911,8 +911,7 @@ closure_function(1, 2, sysreturn, signalfd_close,
 
 closure_function(1, 2, boolean, signalfd_notify,
                  signal_fd, sfd,
-                 u64, events,
-                 thread, t)
+                 u64, events, void *, t)
 {
     signal_fd sfd = bound(sfd);
     if (events == NOTIFY_EVENTS_RELEASE) {
