@@ -1138,7 +1138,9 @@ static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boole
     int read_sofar = 0, written_sofar = 0;
     binding_handler h = stack_closure(getdents_each, f, &dirp, dirent64,
                                       &read_sofar, &written_sofar, &count, &r);
-    iterate(c, h);
+    symbol parent_sym = sym_this("..");
+    if (apply(h, sym_this("."), md) && apply(h, parent_sym, get_tuple(md, parent_sym)))
+        iterate(c, h);
     filesystem_update_atime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)

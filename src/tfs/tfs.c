@@ -177,15 +177,12 @@ closure_function(1, 2, boolean, fixup_directory_each,
     return true;
 }
 
-void fixup_directory(tuple parent, tuple dir)
+void fixup_directory(tuple parent, tuple n)
 {
-    tuple c = children(dir);
-    if (!c)
-        return;
-
-    iterate(c, stack_closure(fixup_directory_each, dir));
-    set(c, sym_this("."), dir);
-    set(c, sym_this(".."), parent);
+    tuple c = children(n);
+    if (c)
+        iterate(c, stack_closure(fixup_directory_each, n));
+    set(n, sym_this(".."), parent);
 }
 
 static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
@@ -1193,23 +1190,19 @@ closure_function(0, 2, boolean, cleanup_directory_each,
     return true;
 }
 
-static void cleanup_directory(tuple dir)
+static void cleanup_directory(tuple n)
 {
-    tuple c = children(dir);
-    if (!c) {
-        return;
-    }
-    set(c, sym_this("."), 0);
-    set(c, sym_this(".."), 0);
-    iterate(c, stack_closure(cleanup_directory_each));
+    set(n, sym_this(".."), 0);
+    tuple c = children(n);
+    if (c)
+        iterate(c, stack_closure(cleanup_directory_each));
 }
 
 static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
                                   tuple child)
 {
     if (child) {
-        /* If this is a directory, remove its . and .. directory entries, which
-         * must not be written in the log. */
+        /* Remove reference to parent, which must not be written in the log. */
         cleanup_directory(child);
     }
     tuple c = children(parent);
@@ -1219,10 +1212,16 @@ static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
         filesystem_update_mtime(fs, parent);
     }
     if (child) {
-        /* If this is a directory, re-add its . and .. directory entries. */
+        /* Re-add reference to parent. */
         fixup_directory(parent, child);
     }
     return s;
+}
+
+static void destruct_dir_entry(tuple n)
+{
+    cleanup_directory(n);
+    destruct_tuple(n, true);
 }
 
 closure_function(1, 2, boolean, file_unlink_each,
@@ -1248,7 +1247,7 @@ static void file_unlink(filesystem fs, tuple t)
     /* If a tuple is not present in the filesystem log dictionary, it can (and should) be destroyed
      * now (it won't be destroyed when the filesystem log is rebuilt). */
     if (get(t, sym(no_encode)))
-        destruct_tuple(t, true);
+        destruct_dir_entry(t);
     else
         iterate(t, stack_closure(file_unlink_each, t));
 
@@ -1374,8 +1373,7 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
     if (fss == FS_STATUS_OK) {
         table_set(fs->files, dir, INVALID_ADDRESS);
     } else {
-        cleanup_directory(dir);
-        destruct_tuple(dir, true);
+        destruct_dir_entry(dir);
     }
   out:
     filesystem_unlock(fs);
@@ -1435,7 +1433,7 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
                 fss = FS_STATUS_NOMEM;
             }
             if (fss != FS_STATUS_OK)
-                destruct_tuple(t, true);
+                destruct_dir_entry(t);
 
         }
     } else {
@@ -1505,29 +1503,13 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
     set(link, sym(linktarget), buffer_cstring(fs->h, target));
     fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), link);
     if (fss != FS_STATUS_OK)
-        destruct_tuple(link, true);
+        destruct_dir_entry(link);
     else
         table_set(fs->files, link, INVALID_ADDRESS);
   out:
     filesystem_unlock(fs);
     filesystem_release(fs);
     return fss;
-}
-
-closure_function(1, 2, boolean, check_notempty_each,
-                 boolean *, notempty,
-                 value, k, value, v)
-{
-    assert(is_symbol(k));
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    char *p = cstring(symbol_string(k), tmpbuf);
-
-    if (runtime_strcmp(p, ".") && runtime_strcmp(p, "..")) {
-        tfs_debug(current, "%s: found entry '%s'\n", __func__, p);
-        *bound(notempty) = true;
-        return false;
-    }
-    return true;
 }
 
 fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean directory)
@@ -1545,8 +1527,7 @@ fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean 
             fss = FS_STATUS_NOTDIR;
             goto out;
         }
-        boolean notempty = false;
-        iterate(c, stack_closure(check_notempty_each, &notempty));
+        boolean notempty = (tuple_count(c) != 0);
         if (notempty) {
             fss = FS_STATUS_NOTEMPTY;
             goto out;
@@ -1629,8 +1610,7 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
                 s = FS_STATUS_ISDIR;
                 goto out;
             }
-            boolean notempty = false;
-            iterate(c, stack_closure(check_notempty_each, &notempty));
+            boolean notempty = (tuple_count(c) != 0);
             if (notempty) {
                 s = FS_STATUS_NOTEMPTY;
                 goto out;
@@ -1934,8 +1914,7 @@ void destroy_filesystem(filesystem fs)
     tfs_debug("%s %p\n", __func__, fs);
     log_destroy(fs->tl);
     if (fs->root) {
-        cleanup_directory(fs->root);
-        destruct_tuple(fs->root, true);
+        destruct_dir_entry(fs->root);
     }
     table_foreach(fs->files, k, v) {
         (void)k;
@@ -2216,7 +2195,7 @@ fs_status filesystem_mk_socket(filesystem *fs, inode cwd, const char *path, void
         goto out;
     }
   err:
-    destruct_tuple(sock, true);
+    destruct_dir_entry(sock);
   out:
     filesystem_unlock(*fs);
     filesystem_release(*fs);
@@ -2376,11 +2355,7 @@ int file_get_path(filesystem fs, inode ino, char *buf, u64 len)
         return -1;
     filesystem_reserve(fs);
     int rv;
-    tuple c = children(n);
-    if (!c) {   /* Retrieving path of non-directory tuples is not supported. */
-        rv = -1;
-        goto out;
-    }
+    tuple c ;
     buf[0] = '\0';
     int cur_len = 1;
     tuple p;

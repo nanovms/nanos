@@ -61,6 +61,10 @@ static inline string contents(tuple x)
 
 static inline tuple lookup(tuple t, symbol a)
 {
+    if (a == sym_this(".."))
+        return get_tuple(t, a);
+    if (a == sym_this("."))
+        return t;
     tuple c = children(t);
     if (!c)
         return c;
