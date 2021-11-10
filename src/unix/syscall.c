@@ -1061,14 +1061,15 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     return random_buffer(b);
 }
 
-static int try_write_dirent(struct linux_dirent *dirp, char *p,
+static int try_write_dirent(void *dirp, boolean dirent64, char *p,
         int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, tuple n)
 {
     int len = runtime_strlen(p);
     *read_sofar += len;
     if (*read_sofar > *f_offset) {
-        int reclen = sizeof(struct linux_dirent) + len + 3;
+        int reclen = (dirent64 ? sizeof(struct linux_dirent64) : sizeof(struct linux_dirent)) +
+                     len + 3;
         // include this element in the getdents output
         if (reclen > *count) {
             // can't include, there's no space
@@ -1077,12 +1078,22 @@ static int try_write_dirent(struct linux_dirent *dirp, char *p,
         } else {
             // include the entry in the buffer
             runtime_memset((u8*)dirp, 0, reclen);
-            dirp->d_ino = u64_from_pointer(n);
-            dirp->d_reclen = reclen;
-            runtime_memcpy(dirp->d_name, p, len + 1);
-            dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
-            dirp->d_name[len + 2] = 0; /* some zero padding */
-            ((char *)dirp)[dirp->d_reclen - 1] = dt_from_tuple(n);
+            if (dirent64) {
+                struct linux_dirent64 *dp = dirp;
+                dp->d_ino = u64_from_pointer(n);
+                dp->d_reclen = reclen;
+                runtime_memcpy(dp->d_name, p, len + 1);
+                dp->d_off = dp->d_reclen;   // XXX: in the future, pad this.
+                dp->d_name[len + 2] = 0;    /* some zero padding */
+            } else {
+                struct linux_dirent *dp = dirp;
+                dp->d_ino = u64_from_pointer(n);
+                dp->d_reclen = reclen;
+                runtime_memcpy(dp->d_name, p, len + 1);
+                dp->d_off = dp->d_reclen;   // XXX: in the future, pad this.
+                dp->d_name[len + 2] = 0;    /* some zero padding */
+            }
+            ((char *)dirp)[reclen - 1] = dt_from_tuple(n);
 
             // advance dirp
             *written_sofar += reclen;
@@ -1093,128 +1104,62 @@ static int try_write_dirent(struct linux_dirent *dirp, char *p,
     return 0;
 }
 
-closure_function(6, 2, boolean, getdents_each,
-                 file, f, struct linux_dirent **, dirp, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
+closure_function(7, 2, boolean, getdents_each,
+                 file, f, void **, dirp, boolean, dirent64, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
                  value, k, value, v)
 {
     assert(is_symbol(k));
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     char *p = cstring(symbol_string(k), tmpbuf);
-    *bound(r) = try_write_dirent(*bound(dirp), p,
+    *bound(r) = try_write_dirent(*bound(dirp), bound(dirent64), p,
                                  bound(read_sofar), bound(written_sofar), &bound(f)->offset, bound(count),
                                  v);
     if (*bound(r) < 0)
         return false;
 
-    *bound(dirp) = (struct linux_dirent *)(((char *)*bound(dirp)) + *bound(r));
+    *bound(dirp) = *bound(dirp) + *bound(r);
     return true;
+}
+
+static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boolean dirent64)
+{
+    if (!validate_user_memory(dirp, count, true))
+        return set_syscall_error(current, EFAULT);
+    file f = resolve_fd(current->p, fd);
+    tuple md = filesystem_get_meta(f->fs, f->n);
+    tuple c;
+    sysreturn rv;
+    if (!md || !(c = children(md))) {
+        rv = -ENOTDIR;
+        goto out;
+    }
+
+    int r = 0;
+    int read_sofar = 0, written_sofar = 0;
+    binding_handler h = stack_closure(getdents_each, f, &dirp, dirent64,
+                                      &read_sofar, &written_sofar, &count, &r);
+    iterate(c, h);
+    filesystem_update_atime(f->fs, md);
+    f->offset = read_sofar;
+    if (r < 0 && written_sofar == 0)
+        rv = -EINVAL;
+    else
+        rv = written_sofar;
+  out:
+    if (md)
+        filesystem_put_meta(f->fs, md);
+    fdesc_put(&f->f);
+    return rv;
 }
 
 sysreturn getdents(int fd, struct linux_dirent *dirp, unsigned int count)
 {
-    if (!validate_user_memory(dirp, count, true))
-        return set_syscall_error(current, EFAULT);
-    file f = resolve_fd(current->p, fd);
-    tuple md = filesystem_get_meta(f->fs, f->n);
-    tuple c;
-    sysreturn rv;
-    if (!md || !(c = children(md))) {
-        rv = -ENOTDIR;
-        goto out;
-    }
-
-    int r = 0;
-    int read_sofar = 0, written_sofar = 0;
-    iterate(c, stack_closure(getdents_each, f, &dirp, &read_sofar, &written_sofar, &count, &r));
-    filesystem_update_atime(f->fs, md);
-    f->offset = read_sofar;
-    if (r < 0 && written_sofar == 0)
-        rv = -EINVAL;
-    else
-        rv = written_sofar;
-  out:
-    if (md)
-        filesystem_put_meta(f->fs, md);
-    fdesc_put(&f->f);
-    return rv;
-}
-
-static int try_write_dirent64(struct linux_dirent64 *dirp, char *p,
-        int *read_sofar, int *written_sofar, u64 *f_offset,
-        unsigned int *count, tuple n)
-{
-    int len = runtime_strlen(p);
-    *read_sofar += len;
-    if (*read_sofar > *f_offset) {
-        int reclen = sizeof(struct linux_dirent64) + len + 3;
-        // include this element in the getdents output
-        if (reclen > *count) {
-            // can't include, there's no space
-            *read_sofar -= len;
-            return -1;
-        } else {
-            // include the entry in the buffer
-            runtime_memset((u8*)dirp, 0, reclen);
-            dirp->d_ino = u64_from_pointer(n);
-            dirp->d_reclen = reclen;
-            runtime_memcpy(dirp->d_name, p, len + 1);
-            dirp->d_off = dirp->d_reclen; // XXX: in the future, pad this.
-            dirp->d_name[len + 2] = 0; /* some zero padding */
-            dirp->d_type = dt_from_tuple(n);
-
-            // advance dirp
-            *written_sofar += reclen;
-            *count -= reclen;
-            return reclen;
-        }
-    }
-    return 0;
-}
-
-closure_function(6, 2, boolean, getdents64_each,
-                 file, f, struct linux_dirent64 **, dirp, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
-                 value, k, value, v)
-{
-    assert(is_symbol(k));
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    char *p = cstring(symbol_string(k), tmpbuf);
-    *bound(r) = try_write_dirent64(*bound(dirp), p,
-                                   bound(read_sofar), bound(written_sofar), &bound(f)->offset, bound(count),
-                                   v);
-    if (*bound(r) < 0)
-        return false;
-
-    *bound(dirp) = (struct linux_dirent64 *)(((char *)*bound(dirp)) + *bound(r));
-    return true;
+    return getdents_internal(fd, dirp, count, false);
 }
 
 sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 {
-    if (!validate_user_memory(dirp, count, true))
-        return set_syscall_error(current, EFAULT);
-    file f = resolve_fd(current->p, fd);
-    tuple md = filesystem_get_meta(f->fs, f->n);
-    tuple c;
-    sysreturn rv;
-    if (!md || !(c = children(md))) {
-        rv = -ENOTDIR;
-        goto out;
-    }
-
-    int r = 0;
-    int read_sofar = 0, written_sofar = 0;
-    iterate(c, stack_closure(getdents64_each, f, &dirp, &read_sofar, &written_sofar, &count, &r));
-    filesystem_update_atime(f->fs, md);
-    f->offset = read_sofar;
-    if (r < 0 && written_sofar == 0)
-        rv = -EINVAL;
-    else
-        rv = written_sofar;
-  out:
-    if (md)
-        filesystem_put_meta(f->fs, md);
-    fdesc_put(&f->f);
-    return rv;
+    return getdents_internal(fd, dirp, count, true);
 }
 
 sysreturn chdir(const char *path)
