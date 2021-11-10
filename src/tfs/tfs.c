@@ -1214,8 +1214,10 @@ static fs_status fs_set_dir_entry(filesystem fs, tuple parent, symbol name_sym,
     }
     tuple c = children(parent);
     fs_status s = filesystem_write_eav(fs, c, name_sym, child);
-    if (s == FS_STATUS_OK)
+    if (s == FS_STATUS_OK) {
         set(c, name_sym, child);
+        filesystem_update_mtime(fs, parent);
+    }
     if (child) {
         /* If this is a directory, re-add its . and .. directory entries. */
         fixup_directory(parent, child);
@@ -1371,7 +1373,6 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
     fss = fs_set_dir_entry(fs, parent, intern(name), dir);
     if (fss == FS_STATUS_OK) {
         table_set(fs->files, dir, INVALID_ADDRESS);
-        filesystem_update_mtime(fs, parent);
     } else {
         cleanup_directory(dir);
         destruct_tuple(dir, true);
@@ -1433,9 +1434,7 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
             } else {
                 fss = FS_STATUS_NOMEM;
             }
-            if (fss == FS_STATUS_OK)
-                filesystem_update_mtime(*fs, parent);
-            else
+            if (fss != FS_STATUS_OK)
                 destruct_tuple(t, true);
 
         }
@@ -1560,7 +1559,6 @@ fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean 
     }
     fss = fs_set_dir_entry(fs, parent, sym_this(filename_from_path(path)), 0);
     if (fss == FS_STATUS_OK) {
-        filesystem_update_mtime(fs, parent);
         file_unlink(fs, t);
         goto release;
     }
@@ -1654,8 +1652,6 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
     if (s == FS_STATUS_OK)
         s = fs_set_dir_entry(oldfs, oldparent, sym_this(filename_from_path(oldpath)), 0);
     if (s == FS_STATUS_OK) {
-        filesystem_update_mtime(oldfs, oldparent);
-        filesystem_update_mtime(newfs, newparent);
         if (new) {
             file_unlink(newfs, new);
             goto release;
@@ -1721,10 +1717,6 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
     s = fs_set_dir_entry(fs1, parent1, sym_this(filename_from_path(path1)), n2);
     if (s == FS_STATUS_OK)
         s = fs_set_dir_entry(fs2, parent2, sym_this(filename_from_path(path2)), n1);
-    if (s == FS_STATUS_OK) {
-        filesystem_update_mtime(fs1, parent1);
-        filesystem_update_mtime(fs2, parent2);
-    }
   out:
     filesystem_unlock(fs_to_unlock);
     filesystem_release(fs1);
