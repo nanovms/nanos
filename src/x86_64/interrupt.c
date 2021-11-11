@@ -142,7 +142,7 @@ void print_frame_trace_from_here(void)
     frame_trace(pointer_from_u64(rbp));
 }
 
-void print_stack(context c)
+void print_stack(context_frame c)
 {
     rputs("\nframe trace:\n");
     frame_trace(pointer_from_u64(c[FRAME_RBP]));
@@ -159,7 +159,7 @@ void print_stack(context c)
     rputs("\n");
 }
 
-void print_frame(context f)
+void print_frame(context_frame f)
 {
     u64 v = f[FRAME_VECTOR];
     rputs(" interrupt: ");
@@ -199,13 +199,16 @@ extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
 
+void thread_reenqueue(void *t);  /* XXX move to direct return */
+
 NOTRACE
 void common_handler()
 {
     /* XXX yes, this will be a problem on a machine check or other
        fault while in an int handler...need to fix in interrupt_common */
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
+    context ctx = get_current_context(ci);
+    context_frame f = ctx->frame;
     int i = f[FRAME_VECTOR];
 
     if (i >= n_interrupt_vectors) {
@@ -225,16 +228,6 @@ void common_handler()
     if (i == spurious_int_vector)
         frame_return(f);        /* direct return, no EOI */
 
-    /* Unless there's some reason to handle a page fault in interrupt
-       mode, this should always be terminal.
-
-       This really should include kernel mode, too, but we're for the
-       time being allowing the kernel to take page faults...which
-       really isn't sustainable unless we want fine-grained locking
-       around the vmaps and page tables. Validating user buffers will
-       get rid of this requirement (and allow us to add the check for
-       cpu_kernel here too).
-    */
     if (ci->state == cpu_interrupt) {
         console("\nexception during interrupt handling\n");
         goto exit_fault;
@@ -256,29 +249,39 @@ void common_handler()
             lapic_eoi();
 
         /* enqueue interrupted user thread */
-        if (saved_state == cpu_user && !shutting_down) {
-            int_debug("int sched %F\n", f[FRAME_RUN]);
-            schedule_frame(f);
+        if (is_thread_context(ctx) && !shutting_down) {
+            int_debug("int sched thread %p\n", ctx);
+            thread_reenqueue(ctx);
         }
     } else {
         /* fault handlers likely act on cpu state, so don't change it */
-        fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
+//        fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
+        fault_handler fh = ctx->fault_handler;
         if (fh) {
-            context retframe = apply(fh, f);
+            context retframe = apply(fh, ctx);
             if (retframe)
-                frame_return(retframe);
+                frame_return(retframe->frame);
         } else {
-            console("\nno fault handler for frame ");
-            print_u64(u64_from_pointer(f));
+            console("\nno fault handler for frame type ");
+            print_u64(ctx->type);
             /* make a half attempt to identify it short of asking unix */
             /* we should just have a name here */
-            if (is_current_kernel_context(f))
-                console(" (kernel frame)");
             console("\n");
             goto exit_fault;
         }
     }
-    if (is_current_kernel_context(f)) {
+
+    /* For now we will frame return directly to syscall and kernel
+       contexts. We could explore inserting bh processing prior to the return
+       (the bh handlers are supposed to be reentrant - however I suspect some
+       non-irq-bh tasks migrated over from runqueue during the kernel lock
+       removal transition and need to be moved back), but without a full trip
+       through runloop it's not clear how beneficial this would be. Or the
+       context could be optionally scheduled if some condition is met,
+       e.g. some limit of consecutive frame returns without a call to runloop
+       is reached. */
+
+    if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
         if (saved_state == cpu_kernel) {
             ci->state = cpu_kernel;
             frame_return(f);

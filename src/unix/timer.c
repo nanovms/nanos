@@ -289,7 +289,7 @@ closure_function(1, 6, sysreturn, timerfd_read,
     unix_timer ut = bound(ut);
     timer_debug("ut %p, dest %p, length %ld, tid %d, bh %d, completion %p\n",
                 ut, dest, length, t->tid, bh, completion);
-    blockq_action ba = closure(unix_timer_heap, timerfd_read_bh, ut, dest, length, t, completion);
+    blockq_action ba = contextual_closure(timerfd_read_bh, ut, dest, length, t, completion);
     return blockq_check(ut->info.timerfd.bq, t, ba, bh);
 }
 

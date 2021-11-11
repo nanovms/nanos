@@ -48,28 +48,30 @@ extern  init_service
 extern use_xsave
 
 %macro load_extended_registers 1
+        mov rcx, [%1+FRAME_EXTENDED*8]
         mov al, [use_xsave]
         test al, al
         jnz %%xs
-        fxrstor [%1+FRAME_EXTENDED_SAVE*8]
+        fxrstor [rcx]
         jmp %%out
 %%xs:
         mov edx, 0xffffffff
         mov eax, edx
-        xrstor [%1+FRAME_EXTENDED_SAVE*8]
+        xrstor [rcx]
 %%out:
 %endmacro
-        
+
 %macro save_extended_registers 1
+        mov rcx, [%1+FRAME_EXTENDED*8]
         mov al, [use_xsave]
         test al, al
         jnz %%xs
-        fxsave [%1+FRAME_EXTENDED_SAVE*8]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
+        fxsave [rcx]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
         jmp %%out
 %%xs:
         mov edx, 0xffffffff
         mov eax, edx
-        xsave [%1+FRAME_EXTENDED_SAVE*8]
+        xsave [rcx]
 %%out:
 %endmacro
 
@@ -94,7 +96,7 @@ xsave:
 
 %macro interrupt_common_top 0
         push rbx
-        mov rbx, [gs:8]         ; running_frame
+        mov rbx, [gs:8]         ; current_context / frame start
         mov [rbx+FRAME_RAX*8], rax
         mov [rbx+FRAME_RCX*8], rcx
         mov [rbx+FRAME_RDX*8], rdx
@@ -126,7 +128,7 @@ extern common_handler
         pop rax            ; cs
         mov [rbx+FRAME_CS*8], rax
         pop rax            ; rflags
-        mov [rbx+FRAME_FLAGS*8], rax
+        mov [rbx+FRAME_EFLAGS*8], rax
         pop rax            ; rsp?
         mov [rbx+FRAME_RSP*8], rax
         pop rax            ; ss         
@@ -166,7 +168,6 @@ interrupt_entry:
 
 global frame_return
 frame_return:
-        mov [gs:8], rdi         ; save to ci->running_frame
         mov qword [rdi+FRAME_FULL*8], 0
         ; check for syscall (CS CPL==2)
         mov al, [rdi+FRAME_CS*8]
@@ -176,7 +177,7 @@ frame_return:
 
         push qword [rdi+FRAME_SS*8]    ; ss
         push qword [rdi+FRAME_RSP*8]   ; rsp
-        push qword [rdi+FRAME_FLAGS*8] ; rflags
+        push qword [rdi+FRAME_EFLAGS*8] ; rflags
         push qword [rdi+FRAME_CS*8]    ; cs
         push qword [rdi+FRAME_RIP*8]   ; rip
 
@@ -237,8 +238,8 @@ extern syscall
 global_func syscall_enter
 syscall_enter:
         swapgs
-        mov [gs:24], rdi        ; save rdi in tmp
-        mov rdi, [gs:8]         ; running_frame
+        mov [gs:32], rdi        ; save rdi in tmp
+        mov rdi, [gs:8]         ; current context
         mov [rdi+FRAME_VECTOR*8], rax
         mov [rdi+FRAME_RBX*8], rbx
         mov [rdi+FRAME_RDX*8], rdx
@@ -247,25 +248,23 @@ syscall_enter:
         mov [rdi+FRAME_R8*8], r8
         mov [rdi+FRAME_R9*8], r9
         mov [rdi+FRAME_R10*8], r10
-        mov [rdi+FRAME_FLAGS*8], r11
+        mov [rdi+FRAME_EFLAGS*8], r11
         mov [rdi+FRAME_R12*8], r12
         mov [rdi+FRAME_R13*8], r13
         mov [rdi+FRAME_R14*8], r14
         mov [rdi+FRAME_R15*8], r15
         mov [rdi+FRAME_RIP*8], rcx
-        mov rsi, rax
         mov [rdi+FRAME_RSP*8], rsp
-        mov rax, [gs:24]
+        mov rax, [gs:32]
         mov qword [rdi+FRAME_RDI*8], rax
         and byte [rdi+FRAME_CS*8], ~1     ; clear low bit of CS to indicate syscall (CPL==2)
         save_extended_registers rdi
-        mov rax, syscall        ; (running_frame, call)
+        mov rax, syscall
         mov rax, [rax]
-        mov rbx, [gs:16]
-        add rbx, KERNEL_STACK_SIZE
-        mov [gs:8], rbx         ; move to kernel frame
-        mov rsp, rbx            ; and stack
-        sub rsp, 0x10           ; align
+        mov rbx, [gs:24]        ; switch to syscall context
+        mov [gs:8], rbx
+        mov rsp, [rbx+FRAME_STACK_TOP*8]
+;;      sub rsp, 0x10           ; align
         cld
         jmp rax
 .end:
@@ -286,7 +285,7 @@ syscall_return:
         mov r8, [rdi+FRAME_R8*8]
         mov r9, [rdi+FRAME_R9*8]
         mov r10, [rdi+FRAME_R10*8]
-        mov r11, [rdi+FRAME_FLAGS*8] ; flags saved from r11 on syscall
+        mov r11, [rdi+FRAME_EFLAGS*8] ; flags saved from r11 on syscall
         mov r12, [rdi+FRAME_R12*8]
         mov r13, [rdi+FRAME_R13*8]
         mov r14, [rdi+FRAME_R14*8]

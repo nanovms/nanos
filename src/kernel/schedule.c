@@ -36,16 +36,16 @@ static struct spinlock kernel_lock;
 void kern_lock()
 {
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
+    context c = get_current_context(ci);
     assert(ci->state == cpu_kernel);
 
     /* allow interrupt handling to occur while spinning */
     u64 flags = irq_enable_save();
-    frame_enable_interrupts(f);
+    frame_enable_interrupts(c->frame);
     spin_lock(&kernel_lock);
     ci->have_kernel_lock = true;
     irq_restore(flags);
-    frame_disable_interrupts(f);
+    frame_disable_interrupts(c->frame);
 }
 
 boolean kern_try_lock()
@@ -64,23 +64,6 @@ void kern_unlock()
     assert(ci->state != cpu_interrupt);
     ci->have_kernel_lock = false;
     spin_unlock(&kernel_lock);
-}
-
-static void run_thunk(thunk t)
-{
-    sched_debug(" run: %F state: %s\n", t, state_strings[current_cpu()->state]);
-    apply(t);
-}
-
-static inline void sched_thread_pause(void)
-{
-    if (shutting_down)
-        return;
-    nanos_thread nt = get_current_thread();
-    if (nt) {
-        sched_debug("sched_thread_pause, nt %p\n", nt);
-        apply(nt->pause);
-    }
 }
 
 NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
@@ -179,13 +162,27 @@ closure_function(0, 0, void, timer_interrupt_handler_fn)
     schedule_timer_service();
 }
 
+static void run_thunk(thunk t)
+{
+    context c = context_from_closure(t);
+    sched_debug(" run: %F state: %s context: %p\n", t, state_strings[current_cpu()->state], c);
+    if (c)
+        context_apply(c, t);
+    else
+        apply(t);
+}
+
 static inline void service_async_1(queue q)
 {
     struct applied_async_1 aa;
     while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64))) {
         sched_debug(" run: %F state: %s arg0: 0x%lx\n",
                     aa.a, state_strings[current_cpu()->state], aa.arg0);
-        apply(aa.a, aa.arg0);
+        context c = context_from_closure(aa.a);
+        if (c)
+            context_apply_1(c, aa.a, aa.arg0);
+        else
+            apply(aa.a, aa.arg0);
     }
 }
 
@@ -195,7 +192,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     cpuinfo ci = current_cpu();
     thunk t;
 
-    sched_thread_pause();
     disable_interrupts();
     sched_debug("runloop from %s c: %d  ba1: %d  ra1: %d  \n"
                 "    b:%d  r:%d  t:%d%s\n", state_strings[ci->state],
@@ -300,7 +296,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
         queue_length(runqueue) || (!shutting_down && queue_length(ci->thread_queue)))
         goto retry;
 
-    sched_thread_pause();
     kernel_sleep();
 }    
 

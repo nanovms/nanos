@@ -45,8 +45,8 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
     timestamp tnow = now(CLOCK_ID_MONOTONIC);
     thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, tnow);
     return blockq_check_timeout(current->thread_bq, current,
-                                closure(heap_locked(get_kernel_heaps()), nanosleep_bh,
-                                        current, tnow, CLOCK_ID_MONOTONIC, interval, rem), false,
+                                contextual_closure(nanosleep_bh, current, tnow,
+                                                   CLOCK_ID_MONOTONIC, interval, rem), false,
                                 CLOCK_ID_MONOTONIC, interval, false);
 }
 
@@ -76,8 +76,7 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
                id, flags, req, treq, rem, tnow);
 
     return blockq_check_timeout(current->thread_bq, current,
-                                closure(heap_locked(get_kernel_heaps()), nanosleep_bh,
-                                        current, tnow, id, treq, rem), false,
+                                contextual_closure(nanosleep_bh, current, tnow, id, treq, rem), false,
                                 id, treq, (flags & TIMER_ABSTIME) != 0);
 }
 

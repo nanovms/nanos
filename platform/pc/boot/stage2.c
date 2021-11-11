@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <frame.h>
 #include <kernel_machine.h>
 #include <kernel_heaps.h>
 #include <pagecache.h>

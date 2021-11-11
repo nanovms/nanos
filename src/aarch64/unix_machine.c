@@ -44,7 +44,6 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     sigaction sa = sigaction_from_sig(t, signum);
 
     assert(sizeof(struct siginfo) == 128);
-    thread_resume(t);
 
     context f = thread_frame(t);
     u64 sp;

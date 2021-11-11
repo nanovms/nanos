@@ -77,10 +77,11 @@ static void iov_op_each(struct iov_progress *p, thread t)
     thread_log(t, "   op: curr %d, offset %ld, @ %p, len %ld, blocking %d",
                p->curr, p->curr_offset, iov[p->curr].iov_base + p->curr_offset,
                iov[p->curr].iov_len - p->curr_offset, blocking);
-    thread_resume(t);
+    context saved_context = context_switch_light(&t->context);
     apply(op, iov[p->curr].iov_base + p->curr_offset,
           iov[p->curr].iov_len - p->curr_offset, p->file_offset, t, !blocking,
           (io_completion)&p->each_complete);
+    context_switch_light(saved_context);
 }
 
 define_closure_function(2, 2, void, iov_op_each_complete,
@@ -104,13 +105,12 @@ define_closure_function(2, 2, void, iov_op_each_complete,
         goto out_complete;
     }
 
-    thread_resume(t);
-
     /* Increment offset and total by io op retval, advancing to next
        (non-zero-len) buffer if needed. */
     struct iovec *iov = p->iov;
     p->total_len += rv;
     p->curr_offset += rv;
+
     if (p->curr_offset == iov[p->curr].iov_len) {
         p->curr_offset = 0;
         do {
@@ -134,6 +134,7 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     } else {
         if (p->file_offset != infinity)
             p->file_offset += rv;
+        // XXX prob need init_contextual_closure or something...
         enqueue_irqsafe(runqueue, &p->bh);
     }
     return;
@@ -157,7 +158,6 @@ closure_function(4, 2, void, iov_read_complete,
     io_completion completion = bound(completion);
     thread_log(t, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
                rv);
-    thread_resume(t);
     if (rv > 0) {
         sg_to_iov(sg, bound(iov), bound(iovcnt));
     }
@@ -385,7 +385,6 @@ closure_function(9, 2, void, sendfile_bh,
         }
         goto out_complete;
     }
-    thread_resume(t);
 
     /* !bh means read complete (rv == bytes read) */
     if (!bound(bh)) {
@@ -497,7 +496,6 @@ closure_function(7, 1, void, file_read_complete,
                  status, s)
 {
     thread_log(bound(t), "%s: status %v", __func__, s);
-    thread_resume(bound(t));
     sysreturn rv;
     if (is_ok(s)) {
         file f = bound(f);
@@ -525,7 +523,6 @@ closure_function(2, 6, sysreturn, file_read,
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
-    heap h = heap_locked(get_kernel_heaps());
 
     if (offset >= f->length) {
         return io_complete(completion, t, 0);
@@ -536,8 +533,9 @@ closure_function(2, 6, sysreturn, file_read,
         return io_complete(completion, t, -ENOMEM);
     }
     begin_file_read(t, f);
-    apply(f->fs_read, sg, irangel(offset, length), closure(h, file_read_complete, t, sg, dest, length,
-                                                           f, is_file_offset, completion));
+    apply(f->fs_read, sg, irangel(offset, length),
+          contextual_closure(file_read_complete, t, sg, dest, length,
+                             f, is_file_offset, completion));
     file_readahead(f, offset, length);
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
@@ -559,6 +557,7 @@ closure_function(5, 1, void, file_sg_read_complete,
         rv = -EIO;
     }
     apply(bound(completion), bound(t), rv);
+    closure_finish();
 }
 
 closure_function(2, 6, sysreturn, file_sg_read,
@@ -572,11 +571,11 @@ closure_function(2, 6, sysreturn, file_sg_read,
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                length, f->length);
-    heap h = heap_locked(get_kernel_heaps());
 
     begin_file_read(t, f);
-    apply(f->fs_read, sg, irangel(offset, length), closure(h, file_sg_read_complete,
-                                                           t, f, sg, is_file_offset, completion));
+    // validate ctx save upstream
+    apply(f->fs_read, sg, irangel(offset, length),
+          contextual_closure(file_sg_read_complete, t, f, sg, is_file_offset, completion));
     file_readahead(f, offset, length);
 
     /* possible direct return in top half */
@@ -636,7 +635,6 @@ closure_function(2, 6, sysreturn, file_write,
     thread_log(t, "%s: f %p, src %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, src, offset, is_file_offset ? "file" : "specified",
                length, f->length);
-    heap h = heap_locked(get_kernel_heaps());
 
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
@@ -650,8 +648,9 @@ closure_function(2, 6, sysreturn, file_write,
     sgb->refcount = 0;
 
     begin_file_write(t, f, length);
-    apply(f->fs_write, sg, irangel(offset, length), closure(h, file_write_complete,
-                                                            t, f, sg, length, is_file_offset, completion));
+    // validate ctx save upstream
+    apply(f->fs_write, sg, irangel(offset, length),
+          contextual_closure(file_write_complete, t, f, sg, length, is_file_offset, completion));
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
@@ -683,8 +682,8 @@ closure_function(2, 6, sysreturn, file_sg_write,
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                len, f->length);
-    status_handler sg_complete = closure(heap_locked(get_kernel_heaps()),
-        file_sg_write_complete, t, f, len, is_file_offset, completion);
+    status_handler sg_complete = contextual_closure(file_sg_write_complete, t, f, len,
+                                                    is_file_offset, completion);
     if (sg_complete == INVALID_ADDRESS) {
         rv = -ENOMEM;
         goto out;
@@ -1289,8 +1288,8 @@ closure_function(2, 1, void, sync_complete,
 
 sysreturn sync(void)
 {
-    status_handler sh = closure(heap_locked(get_kernel_heaps()), sync_complete,
-        current, 0);
+    // XXX only if syscall_context?
+    status_handler sh = contextual_closure(sync_complete, current, 0);
     if (sh == INVALID_ADDRESS)
         return -ENOMEM;
     storage_sync(sh);
@@ -1314,8 +1313,7 @@ sysreturn fsync(int fd)
         assert(((file)f)->fsf);
         filesystem_sync_node(((file)f)->fs,
                              fsfile_get_cachenode(((file)f)->fsf),
-                             closure(heap_locked(get_kernel_heaps()),
-                                 sync_complete, current, f));
+                             contextual_closure(sync_complete, current, f));
         return thread_maybe_sleep_uninterruptible(current);
     case FDESC_TYPE_DIRECTORY:
     case FDESC_TYPE_SYMLINK:
@@ -2047,8 +2045,7 @@ sysreturn sched_yield()
 void exit(int code)
 {
     exit_thread(current);
-    kern_unlock();
-    runloop();
+    syscall_finish();
 }
 
 sysreturn exit_group(int status)
@@ -2329,22 +2326,95 @@ void count_syscall(thread t, sysreturn rv)
 
 static boolean debugsyscalls;
 
-void syscall_debug(context f)
+define_closure_function(1, 0, void, free_syscall_context,
+                        syscall_context, sc)
 {
-    if (shutting_down)
-        goto out;
+    /* TODO we can dealloc after some maximum... */
+    list_insert_before(&current_cpu()->free_syscall_contexts, &bound(sc)->l);
+}
+
+define_closure_function(1, 0, void, syscall_pause,
+                        syscall_context, sc)
+{
+    syscall_context sc = bound(sc);
+    syscall_accumulate_stime(sc);
+    count_syscall_save(sc->t);
+}
+
+define_closure_function(1, 0, void, syscall_resume,
+                        syscall_context, sc)
+{
+    thread t = bound(sc)->t;
+    syscall_context sc = bound(sc);
+    assert(sc->start_time == 0); // XXX tmp debug
+    timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
+    sc->start_time = here == 0 ? 1 : here;
+    count_syscall_resume(t);
+    context_frame f = sc->context.frame;
+    if (f[FRAME_FULL]) {
+        rprintf("sc resume frame return\n");
+        frame_return(f);
+    }
+}
+
+syscall_context allocate_syscall_context(void)
+{
+    heap h = heap_locked(get_kernel_heaps());
+    syscall_context sc = allocate(h, sizeof(struct syscall_context));
+    if (sc == INVALID_ADDRESS)
+        return sc;
+    context c = &sc->context;
+    init_context(c, CONTEXT_TYPE_SYSCALL);
+    sc->context.pause = init_closure(&sc->pause, syscall_pause, sc);
+    sc->context.resume = apply_context_to_closure(init_closure(&sc->resume, syscall_resume, sc), &sc->context);
+    sc->context.transient_heap = h;
+    init_refcount(&sc->refcount, 1,
+                  init_closure(&sc->free, free_syscall_context, sc));
+    void *stack = allocate_stack(h, SYSCALL_STACK_SIZE);
+    frame_set_stack_top(c->frame, stack);
+    install_runloop_trampoline(c, runloop);
+    rprintf("%s: ctx %p trampoline 0x%lx = 0x%lx\n",
+            __func__, c, c->frame[SYSCALL_FRAME_SP_TOP],
+            *(u64*)c->frame[SYSCALL_FRAME_SP_TOP]);
+    return sc;
+}
+
+void syscall_handler(thread t)
+{
+    /* The syscall_context stored in ci was set as current on syscall entry in
+       order to get a usable stack. We still need to finish initializing it
+       and complete the context switch. */
+    cpuinfo ci = current_cpu();
+    ci->state = cpu_kernel;
+    //rprintf("%s: type %d\n", __func__, t->context.type);
+    assert(is_thread_context(&t->context));
+    context_frame f = t->context.frame;
     u64 call = f[FRAME_VECTOR];
-    thread t = pointer_from_u64(f[FRAME_THREAD]);
     u64 arg0 = f[SYSCALL_FRAME_ARG0]; /* aliases retval on arm; cache arg */
     syscall_restart_arch_setup(f);
     set_syscall_return(t, -ENOSYS);
 
+    if (shutting_down)
+        goto out;
+
     if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
-        schedule_frame(f);
+        schedule_thread(t);
         thread_log(t, "invalid syscall %d", call);
         goto out;
     }
-    t->syscall = call;
+
+    syscall_context sc = (syscall_context)get_current_context(ci);
+    assert(is_syscall_context(&sc->context));
+    sc->t = t;
+    sc->context.fault_handler = t->context.fault_handler;
+    sc->start_time = 0;
+    sc->call = call;
+    assert(sc->refcount.c == 1);
+    t->syscall = sc;
+    context_pause(&t->context);
+    context_resume(&sc->context);
+
+    /* In the future, interrupt enable can go here. */
     if (do_syscall_stats) {
         assert(t->last_syscall == -1);
         t->last_syscall = call;
@@ -2357,13 +2427,15 @@ void syscall_debug(context f)
         else
             thread_log(t, "syscall %d", call);
     }
+
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     if (h) {
-        thread_enter_system(t);
-
         t->syscall_complete = false;
+        reserve_syscall_context(sc);
         sysreturn rv = h(arg0, f[SYSCALL_FRAME_ARG1], f[SYSCALL_FRAME_ARG2],
                          f[SYSCALL_FRAME_ARG3], f[SYSCALL_FRAME_ARG4], f[SYSCALL_FRAME_ARG5]);
+        assert(sc->refcount.c > 1); // XXX tmp
+        release_syscall_context(sc);
         set_syscall_return(t, rv);
         if (do_syscall_stats)
             count_syscall(t, rv);
@@ -2377,13 +2449,10 @@ void syscall_debug(context f)
     }
     if (do_syscall_stats)
         count_syscall(t, 0);
-    t->syscall = -1;
-    // i dont know that we actually want to defer the syscall return...its just easier for the moment to hew
-    // to the general model and make exceptions later
-    schedule_frame(f);
   out:
-    kern_unlock();
-    runloop();
+    t->syscall = 0;
+    schedule_thread(t);
+    kern_yield();
 }
 
 boolean syscall_notrace(process p, int syscall)
@@ -2396,7 +2465,7 @@ boolean syscall_notrace(process p, int syscall)
 
 // should hang off the thread context, but the assembly handler needs
 // to find it.
-BSS_RO_AFTER_INIT void (*syscall)(context f);
+BSS_RO_AFTER_INIT void (*syscall)(thread t);
 
 closure_function(0, 2, void, syscall_io_complete_cfn,
                  thread, t, sysreturn, rv)
@@ -2476,21 +2545,6 @@ closure_function(0, 2, void, print_syscall_stats_cfn,
 
 static boolean syscall_defer;
 
-// some validation can be moved up here
-static void syscall_schedule(context f)
-{
-    /* kernel context set on syscall entry */
-    current_cpu()->state = cpu_kernel;
-    if (!syscall_defer && !kernel_suspended())
-        kern_lock();
-    else if (!kern_try_lock()) {
-        enqueue_irqsafe(runqueue, &current->deferred_syscall);
-        thread_pause(current);
-        runloop();
-    }
-    syscall_debug(f);
-}
-
 static char *missing_files_exclude[] = {
     "ld.so.cache",
 };
@@ -2514,10 +2568,8 @@ next:
 
 void init_syscalls(tuple root)
 {
-    //syscall = b->contents;
-    // debug the synthesized version later, at least we have the table dispatch
     heap h = heap_locked(get_kernel_heaps());
-    syscall = syscall_schedule;
+    syscall = syscall_handler;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
     do_syscall_stats = get(root, sym(syscall_summary)) != 0;

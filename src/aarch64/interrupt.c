@@ -217,7 +217,8 @@ NOTRACE
 void synchronous_handler(void)
 {
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
+    context ctx = get_current_context(ci);
+    context_frame f = ctx->frame;
     u32 esr = esr_from_frame(f);
 
     int_debug("caught exception, EL%d, esr 0x%x\n", f[FRAME_EL], esr);
@@ -226,7 +227,7 @@ void synchronous_handler(void)
     if (ec == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
         field_from_u64(esr, ESR_ISS_IMM16) == 0) {
         f[FRAME_VECTOR] = f[FRAME_X8];
-        set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
+        set_current_context(ci, get_kernel_context());
         switch_stack_1(get_running_frame(ci), syscall, f); /* frame is top of stack */
         halt("%s: syscall returned\n", __func__);
     }
@@ -247,7 +248,7 @@ void synchronous_handler(void)
         context retframe = apply(fh, f);
         if (retframe)
             frame_return(retframe);
-        if (is_current_kernel_context(f))
+        if (is_kernel_context(ctx) || is_syscall_context(ctx))
             f[FRAME_FULL] = false;      /* no longer saving frame for anything */
         runloop();
     } else {
@@ -258,11 +259,15 @@ void synchronous_handler(void)
     }
 }
 
+/* XXX We don't have unix defines...this should change to direct return anyway */
+void schedule_thread(void *t);
+
 NOTRACE
 void irq_handler(void)
 {
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
+    context c = get_current_context(ci);
+    context_frame f = c->frame;
     u64 i;
 
     int_debug("%s: enter\n", __func__);
@@ -294,10 +299,10 @@ void irq_handler(void)
     /* enqueue interrupted user thread */
     if (saved_state == cpu_user && !shutting_down) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
-        schedule_frame(f);
+        schedule_thread(c);
     }
 
-    if (is_current_kernel_context(f)) {
+    if (is_current_kernel_context(c)) {
         if (saved_state == cpu_kernel) {
             ci->state = cpu_kernel;
             frame_return(f);

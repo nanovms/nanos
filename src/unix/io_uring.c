@@ -310,8 +310,7 @@ define_closure_function(1, 2, sysreturn, iour_close,
     }
     if (t) {
         if (iour->noncancelable_ops) {
-            blockq_action ba = closure(iour->h, iour_close_bh, iour, t,
-                completion);
+            blockq_action ba = contextual_closure(iour_close_bh, iour, t, completion);
             if (ba != INVALID_ADDRESS) {
                 iour->bq = t->thread_bq;
                 return blockq_check(iour->bq, t, ba, false);
@@ -1148,6 +1147,7 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         bh->timeouts = iour->cq_timeouts;
         bh->t = current;
         bh->completion = syscall_io_complete;
+        // XXX need to make contextual or stamp
         return blockq_check(iour->bq, current,
             closure_get(iour_getevents_bh, bh), false);
     }

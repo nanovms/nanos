@@ -55,10 +55,12 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize)
     return allocate_mcache(h, backed, 5, find_order(pagesize) - 1, pagesize);
 }
 
-void clone_frame_pstate(context dest, context src)
+void clone_frame_pstate(context_frame dest, context_frame src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * (FRAME_N_PSTATE + 1));
-    runtime_memcpy(dest + FRAME_EXTENDED_SAVE, src + FRAME_EXTENDED_SAVE, extended_frame_size);
+    runtime_memcpy(pointer_from_u64(dest[FRAME_EXTENDED]),
+                   pointer_from_u64(src[FRAME_EXTENDED]),
+                   extended_frame_size);
 }
 
 static void seg_desc_set(seg_desc_t *d, u32 base, u16 limit, u16 flags)
@@ -76,6 +78,9 @@ static void seg_desc_set(seg_desc_t *d, u32 base, u16 limit, u16 flags)
 void init_cpuinfo_machine(cpuinfo ci, heap backed)
 {
     ci->m.self = &ci->m;
+    kernel_context kc = allocate_kernel_context();
+    assert(kc != INVALID_ADDRESS);
+    ci->m.current_context = ci->m.kernel_context = &kc->context;
     ci->m.exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
     ci->m.int_stack = allocate_stack(backed, INT_STACK_SIZE);
 
@@ -99,8 +104,24 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
     install_gdt64_and_tss(&ci->m.gdt.tss_desc, &ci->m.tss, gdt, &ci->m.gdt_pointer);
 }
 
-void init_frame(context f)
+#ifdef KERNEL
+void init_context(context c, int type)
 {
-    assert((u64_from_pointer(f) & 63) == 0);
-    xsave(f);
+    c->type = type;
+    c->transient_heap = 0;
+    zero_context_frame(c->frame);
+    u64 e = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
+    assert(e != INVALID_PHYSICAL);
+    assert((e & 63) == 0); // XXX check me
+    c->frame[FRAME_EXTENDED] = e;
+    xsave(c->frame);
 }
+
+void destruct_context(context c)
+{
+    if (c->frame[FRAME_EXTENDED]) {
+        deallocate_u64((heap)heap_page_backed(get_kernel_heaps()), c->frame[FRAME_EXTENDED], extended_frame_size);
+        c->frame[FRAME_EXTENDED] = 0;
+    }
+}
+#endif

@@ -16,8 +16,8 @@ typedef struct vmap_heap {
     boolean randomize;
 } *vmap_heap;
 
-declare_closure_function(1, 0, void, kernel_frame_return,
-                         kernel_context, kc);
+/* declare_closure_function(1, 0, void, kernel_frame_return, */
+/*                          kernel_context, kc); */
 declare_closure_function(0, 2, int, pending_fault_compare,
                          rbnode, a, rbnode, b);
 declare_closure_function(0, 1, boolean, pending_fault_print,
@@ -27,7 +27,7 @@ static struct {
     id_heap physical;
     backed_heap linear_backed;
 
-    closure_struct(kernel_frame_return, do_kernel_frame_return);
+    /* closure_struct(kernel_frame_return, do_kernel_frame_return); */
     closure_struct(pending_fault_compare, pf_compare);
     closure_struct(pending_fault_print, pf_print);
 
@@ -51,35 +51,6 @@ define_closure_function(0, 1, boolean, pending_fault_print,
     return true;
 }
 
-/* kernel frame return must happen from runloop, not a bh completion service */
-define_closure_function(1, 0, void, kernel_frame_return,
-                        kernel_context, kc)
-{
-    /* kernel lock always held on a valid page fault */
-    current_cpu()->have_kernel_lock = true;
-    resume_kernel_context(bound(kc));
-}
-
-define_closure_function(5, 0, void, thread_demand_file_page,
-                        pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
-{
-    pending_fault pf = bound(pf);
-    vmap vm = bound(vm);
-    pagecache_node pn = vm->cache_node;
-    pf_debug("%s: pending_fault %p, node_offset 0x%lx, page_addr 0x%lx\n",
-             __func__, pf, bound(node_offset), pf->addr);
-    pagecache_map_page(pn, bound(node_offset), pf->addr, bound(flags),
-                       (status_handler)&pf->complete);
-    range ra = irange(bound(node_offset) + PAGESIZE,
-        vm->node_offset + range_span(vm->node.r));
-    if (range_valid(ra)) {
-        if (range_span(ra) > FILE_READAHEAD_DEFAULT)
-            ra.end = ra.start + FILE_READAHEAD_DEFAULT;
-        pagecache_node_fetch_pages(pn, ra);
-    }
-}
-
-/* serviced from bhqueue */
 define_closure_function(1, 1, void, pending_fault_complete,
                         pending_fault, pf,
                         status, s)
@@ -92,17 +63,17 @@ define_closure_function(1, 1, void, pending_fault_complete,
         thread t = struct_from_list(l, thread, l_faultwait);
         pf_debug("   wake tid %d\n", t->tid);
         list_delete(l);
-        if (!is_ok(s))
-            deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR); /* XXX move to runqueue, or lock up */
-        schedule_frame(thread_frame(t));
-        refcount_release(&t->refcount);
-    }
 
-    if (pf->kern) {
-        assert(mmap_info.faulting_kernel_context);
-        init_closure(&mmap_info.do_kernel_frame_return, kernel_frame_return, mmap_info.faulting_kernel_context);
-        mmap_info.faulting_kernel_context = 0;
-        enqueue_irqsafe(bhqueue, (thunk)&mmap_info.do_kernel_frame_return);
+        if (!is_ok(s))
+            deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
+
+        if (t->syscall) {
+            /* XXX not complete; need to cancel or restart syscall */
+            schedule_syscall_resume(t->syscall);
+        } else {
+            schedule_thread(t);
+        }
+        refcount_release(&t->refcount);
     }
 
     process p = pf->p;
@@ -170,6 +141,7 @@ static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
     return true;
 }
 
+#if 0
 static void suspend_kernel(pending_fault pf)
 {
     pf_debug("%s\n", __func__);
@@ -179,6 +151,26 @@ static void suspend_kernel(pending_fault pf)
     frame_from_kernel_context(mmap_info.faulting_kernel_context)[FRAME_FULL] = false;
     pf->kern = true;
     current_cpu()->have_kernel_lock = false;
+}
+#endif
+
+define_closure_function(5, 0, void, thread_demand_file_page,
+                        pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
+{
+    pending_fault pf = bound(pf);
+    vmap vm = bound(vm);
+    pagecache_node pn = vm->cache_node;
+    pf_debug("%s: pending_fault %p, node_offset 0x%lx, page_addr 0x%lx\n",
+             __func__, pf, bound(node_offset), pf->addr);
+    pagecache_map_page(pn, bound(node_offset), pf->addr, bound(flags),
+                       (status_handler)&pf->complete);
+    range ra = irange(bound(node_offset) + PAGESIZE,
+        vm->node_offset + range_span(vm->node.r));
+    if (range_valid(ra)) {
+        if (range_span(ra) > FILE_READAHEAD_DEFAULT)
+            ra.end = ra.start + FILE_READAHEAD_DEFAULT;
+        pagecache_node_fetch_pages(pn, ra);
+    }
 }
 
 static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 vaddr, boolean in_kernel)
@@ -222,21 +214,17 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
     init_closure(&t->demand_file_page, thread_demand_file_page,
                  pf, vm, node_offset, page_addr, flags);
     u64 saved_flags = spin_lock_irq(&t->p->faulting_lock);
-    if (in_kernel) {
-        suspend_kernel(pf);
-    } else {
-        list_insert_before(&pf->dependents, &t->l_faultwait);
-    }
+    list_insert_before(&pf->dependents, &t->l_faultwait);
     spin_unlock_irq(&t->p->faulting_lock, saved_flags);
     enqueue(bhqueue, &t->demand_file_page);
     count_major_fault();
     return false;
 }
 
-boolean do_demand_page(u64 vaddr, vmap vm, context frame)
+boolean do_demand_page(context ctx, u64 vaddr, vmap vm)
 {
     u64 page_addr = vaddr & ~PAGEMASK;
-    boolean in_kernel = is_current_kernel_context(frame);
+    boolean is_syscall = is_syscall_context(ctx);
 
     if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
@@ -245,23 +233,18 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
     }
 
     pf_debug("%s: %s, %s, vaddr %p, vm flags 0x%02lx,\n", __func__,
-             in_kernel ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
+             is_syscall ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
              vaddr, vm->flags);
     pf_debug("   vmap %p, frame %p\n", vm, frame);
 
-    assert(current != dummy_thread);
-    thread t = current;
+    thread t = is_syscall ? ((syscall_context)ctx)->t : (thread)ctx;
     process p = t->p;
     u64 flags = spin_lock_irq(&p->faulting_lock);
     pending_fault pf = find_pending_fault_locked(p, page_addr);
     if (pf) {
         pf_debug("   found pending_fault %p\n", pf);
-        if (in_kernel) {
-            suspend_kernel(pf);
-        } else {
-            refcount_reserve(&t->refcount); /* for fault */
-            list_insert_before(&pf->dependents, &t->l_faultwait);
-        }
+        refcount_reserve(&t->refcount); /* for fault */
+        list_insert_before(&pf->dependents, &t->l_faultwait);
         spin_unlock_irq(&p->faulting_lock, flags);
         count_minor_fault(); /* XXX not precise...stash pt type in faulting thread? */
     } else {
@@ -273,15 +256,15 @@ boolean do_demand_page(u64 vaddr, vmap vm, context frame)
         case VMAP_MMAP_TYPE_ANONYMOUS:
             return demand_anonymous_page(pf, vm, vaddr);
         case VMAP_MMAP_TYPE_FILEBACKED:
-            if (demand_filebacked_page(t, pf, vm, vaddr, in_kernel))
+            if (demand_filebacked_page(t, pf, vm, vaddr, is_syscall))
                 return true;
             break;
         default:
             halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
         }
     }
-    /* suspend thread or kernel context */
-    runloop();
+    /* context suspended in runloop */
+    kern_yield();
 }
 
 static inline vmap vmap_from_vaddr_locked(process p, u64 vaddr)

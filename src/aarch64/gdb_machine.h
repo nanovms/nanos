@@ -1,5 +1,5 @@
 
-static inline int computeSignal (context frame)
+static inline int computeSignal (context c)
 {
     return 0;
 }

@@ -429,8 +429,8 @@ static pagecache_page touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u6
     return pp;
 }
 
-closure_function(6, 1, void, pagecache_write_sg_finish,
-                 nanos_thread, t, pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, boolean, complete,
+closure_function(5, 1, void, pagecache_write_sg_finish,
+                 pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, boolean, complete,
                  status, s)
 {
     pagecache_node pn = bound(pn);
@@ -502,7 +502,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
     } else {
         write_sg = 0;
     }
-    set_current_thread(bound(t));
+
     do {
         assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
         u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - offset;
@@ -580,8 +580,13 @@ closure_function(1, 3, void, pagecache_write_sg,
     }
 
     /* prepare pages for writing */
-    merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish,
-        get_current_thread(), pn, q, sg, completion, false));
+    merge m = allocate_merge(pc->h,
+#ifdef KERNEL
+                             contextual_closure(pagecache_write_sg_finish, pn, q, sg, completion, false)
+#else
+                             closure(pc->h, pagecache_write_sg_finish, pn, q, sg, completion, false)
+#endif
+        );
     status_handler sh = apply_merge(m);
 
     /* initiate reads for rmw start and/or end */
@@ -1088,8 +1093,8 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
         apply(complete, timm("result", "%s: unable to allocate pagecache page", __func__));
         return;
     }
-    merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,
-                                            pc, pp, vaddr, flags, complete));
+    merge m = allocate_merge(pc->h, contextual_closure(map_page_finish,
+                                                       pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
     touch_or_fill_page_nodelocked(pn, pp, m);
     refcount_reserve(&pp->refcount);

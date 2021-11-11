@@ -33,16 +33,16 @@ sysreturn arch_prctl(int code, unsigned long addr)
 
     switch (code) {
     case ARCH_SET_GS:
-        current->frame[FRAME_GSBASE] = addr;
+        thread_frame(current)[FRAME_GSBASE] = addr;
         break;
     case ARCH_SET_FS:
-        current->frame[FRAME_FSBASE] = addr;
+        thread_frame(current)[FRAME_FSBASE] = addr;
         return 0;
     case ARCH_GET_FS:
-	*(u64 *) addr = current->frame[FRAME_FSBASE];
+	*(u64 *) addr = thread_frame(current)[FRAME_FSBASE];
         break;
     case ARCH_GET_GS:
-	*(u64 *) addr = current->frame[FRAME_GSBASE];
+	*(u64 *) addr = thread_frame(current)[FRAME_GSBASE];
         break;
     default:
         return set_syscall_error(current, EINVAL);
@@ -77,21 +77,21 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
 
     thread t = create_thread(current->p);
     /* clone frame processor state */
-    clone_frame_pstate(t->frame, current->frame);
+    clone_frame_pstate(thread_frame(t), thread_frame(current));
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
-    t->frame[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
+    thread_frame(t)[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
     if (flags & CLONE_SETTLS)
-        set_tls(t->frame, newtls);
+        set_tls(thread_frame(t), newtls);
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
     t->blocked_on = 0;
-    t->syscall = -1;
-    schedule_frame(t->frame);
+    t->syscall = 0;
+    schedule_thread(t);
     return t->tid;
 }
 
@@ -111,7 +111,7 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    if (syscall_notrace(t->p, t->syscall))
+    if (syscall_notrace(t->p, t->syscall->call))
         return;
     vlist ap;
     vstart (ap, desc);
@@ -154,33 +154,53 @@ static inline void check_stop_conditions(thread t)
     halt("Terminating.\n");
 }
 
-define_closure_function(1, 0, void, run_thread,
+define_closure_function(1, 0, void, thread_pause,
                         thread, t)
 {
     thread t = bound(t);
+    context_frame f = thread_frame(t);
+    assert(t->start_time != 0); // XXX tmp debug
+    timestamp diff = now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
+    t->utime += diff;
+    t->start_time = 0; // XXX tmp debug
+    thread_frame_save_fpsimd(f);
+    thread_frame_save_tls(f);
+}
+
+define_closure_function(1, 0, void, thread_resume,
+                        thread, t)
+{
+    //rprintf("%s, tid %d\n", __func__, bound(t)->tid);
+    thread t = bound(t);
     if (t->p->trap)
-        runloop();
+        runloop(); // XXX pause?
+    assert(t->start_time == 0); // XXX tmp debug
+    timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
+    t->start_time = here == 0 ? 1 : here;
     dispatch_signals(t);
     current_cpu()->state = cpu_user;
     check_stop_conditions(t);
-    thread old = current;
-    thread_enter_user(t);
-    ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
+//    thread old = current;       /* XXX this won't work now; switch out elsewhere */
+//    thread_enter_user(t);
+    // XXX fixme
+    //ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     thread_lock(t);
     assert(t->blocked_on == 0);
-    t->syscall = -1;
+    t->syscall = 0;
     thread_unlock(t);
 
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     cpuinfo ci = current_cpu();
     thread_frame_restore_tls(f);
     thread_frame_restore_fpsimd(f);
     frame_enable_interrupts(f);
-    f[FRAME_QUEUE] = u64_from_pointer(ci->thread_queue);
+
+    /* If we migrated to a new CPU, remain on its thread queue. */
+    t->scheduling_queue = ci->thread_queue;    
 
     thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
                current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
@@ -189,69 +209,61 @@ define_closure_function(1, 0, void, run_thread,
     halt("return from frame_return!\n");
 }
 
-define_closure_function(1, 0, void, pause_thread,
-                        thread, t)
-{
-    thread_pause(bound(t));
-}
-
-static void setup_thread_frame(heap h, context frame, thread t)
-{
-    frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
-    frame[FRAME_QUEUE] = u64_from_pointer(current_cpu()->thread_queue);
-#ifdef __x86_64__
-    frame[FRAME_CS] = 0x2b & ~1; // CS 0x28 + CPL 3 but clear bit 0 to indicate syscall
-#endif
-#ifdef __aarch64__
-    frame[FRAME_EL] = 0;
-#endif
-    frame[FRAME_THREAD] = u64_from_pointer(t);
-}
-
 void thread_sleep_interruptible(void)
 {
-    disable_interrupts();
     thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
     ftrace_thread_switch(current, 0);
     count_syscall_save(current);
-    kern_unlock();
-    runloop();
+    syscall_yield();
 }
 
 void thread_sleep_uninterruptible(thread t)
 {
-    disable_interrupts();
     assert(!t->blocked_on);
     t->blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
     ftrace_thread_switch(t, 0);
     count_syscall_save(t);
     thread_unlock(t);
-    kern_unlock();
-    runloop();
+    syscall_yield();
 }
 
 void thread_yield(void)
 {
-    disable_interrupts();
     thread_log(current, "yield %d, RIP=0x%lx", current->tid, thread_frame(current)[SYSCALL_FRAME_PC]);
     assert(!current->blocked_on);
-    current->syscall = -1;
+    current->syscall = 0;
     set_syscall_return(current, 0);
-    schedule_frame(thread_frame(current));
-    kern_unlock();
-    runloop();
+    schedule_thread(current);
+    syscall_finish();
 }
 
+/* enter on syscall context, returns on kernel context */
 void thread_wakeup(thread t)
 {
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
             t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
             "(null)", thread_frame(t)[SYSCALL_FRAME_PC]);
+    cpuinfo ci = current_cpu();
+    context sc = get_current_context(ci);
+    //assert(is_syscall_context(sc));
+    if (!is_syscall_context(sc)) {
+        rprintf("%s not syscall %d, called from %p\n", __func__, sc->type, __builtin_return_address(0));
+        assert(0);
+    }
     assert(t->blocked_on);
     t->blocked_on = 0;
-    t->syscall = -1;
-    schedule_frame(thread_frame(t));
+    t->syscall = 0;
+    //rprintf("%s: kc %p\n", __func__, ci->m.kernel_context);
+    context_switch(ci->m.kernel_context); /* nop if already installed */
+    release_syscall_context((syscall_context)sc);
+    schedule_thread(t);
+}
+
+/* hacky callback for interrupt dispatch - should be scheduler interface */
+void thread_reenqueue(thread t)
+{
+    schedule_thread(t);
 }
 
 boolean thread_attempt_interrupt(thread t)
@@ -287,12 +299,6 @@ define_closure_function(1, 0, void, free_thread,
     deallocate(heap_locked(get_kernel_heaps()), bound(t), sizeof(struct thread));
 }
 
-define_closure_function(1, 0, void, resume_syscall, thread, t)
-{
-    thread_resume(bound(t));
-    syscall_debug(thread_frame(bound(t)));
-}
-
 thread create_thread(process p)
 {
     static int tidcount = 0;
@@ -301,6 +307,9 @@ thread create_thread(process p)
     thread t = allocate(h, sizeof(struct thread));
     if (t == INVALID_ADDRESS)
         goto fail;
+    init_context(&t->context, CONTEXT_TYPE_THREAD);
+    t->context.pause = init_closure(&t->pause, thread_pause, t);
+    t->context.resume = apply_context_to_closure(init_closure(&t->resume, thread_resume, t), &t->context);
 
     t->thread_bq = allocate_blockq(h, "thread");
     if (t->thread_bq == INVALID_ADDRESS)
@@ -311,7 +320,7 @@ thread create_thread(process p)
         goto fail_sfds;
 
     t->p = p;
-    t->syscall = -1;
+    t->syscall = 0;
     runtime_memcpy(&t->uh, p->uh, sizeof(*p->uh));
     init_refcount(&t->refcount, 1, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
@@ -319,14 +328,19 @@ thread create_thread(process p)
     t->clear_tid = 0;
     t->name[0] = '\0';
 
-    t->frame = allocate_frame(h);
     init_thread_fault_handler(t);
-    setup_thread_frame(h, t->frame, t);
-    t->frame[FRAME_RUN] = u64_from_pointer(init_closure(&t->run_thread, run_thread, t));
     
+    t->scheduling_queue = current_cpu()->thread_queue;
+    context_frame f = thread_frame(t);
+#ifdef __x86_64__
+    f[FRAME_CS] = 0x2b & ~1; // CS 0x28 + CPL 3 but clear bit 0 to indicate syscall
+#endif
+#ifdef __aarch64__
+    f[FRAME_EL] = 0;
+#endif
+
     t->signal_stack = 0;
     t->signal_stack_length = 0;
-    t->thrd.pause = init_closure(&t->pause_thread, pause_thread, t);
     t->affinity = allocate_bitmap(h, h, total_processors);
     if (t->affinity == INVALID_ADDRESS)
         goto fail_affinity;
@@ -337,10 +351,8 @@ thread create_thread(process p)
     t->signal_mask = 0;
     t->saved_signal_mask = -1ull;
     t->interrupting_syscall = false;
-    init_closure(&t->deferred_syscall, resume_syscall, t);
-    t->sysctx = false;
     t->utime = t->stime = 0;
-    t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
+    t->start_time = 0;
     t->last_syscall = -1;
 
     list_init(&t->l_faultwait);
@@ -348,7 +360,6 @@ thread create_thread(process p)
 
     /* install gdb fault handler if gdb is inited */
     gdb_check_fault_handler(t);
-    // XXX sigframe
     spin_lock(&p->threads_lock);
     do {
         if (tidcount < 0)
@@ -359,11 +370,11 @@ thread create_thread(process p)
     spin_unlock(&p->threads_lock);
     return t;
   fail_affinity:
-    deallocate_frame(t->frame);
     deallocate_notify_set(t->signalfds);
   fail_sfds:
     deallocate_blockq(t->thread_bq);
   fail_bq:
+    destruct_context(&t->context);
     deallocate(h, t, sizeof(struct thread));
   fail:
     msg_err("%s: failed to allocate\n", __func__);
@@ -400,14 +411,8 @@ void exit_thread(thread t)
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
 
-    t->frame[FRAME_RUN] = INVALID_PHYSICAL;
-    t->frame[FRAME_QUEUE] = INVALID_PHYSICAL;
-    t->frame[FRAME_FAULT_HANDLER] = INVALID_PHYSICAL;
-    deallocate_frame(t->frame);
-
     /* replace references to thread with placeholder */
-    set_current_thread((nanos_thread)dummy_thread);
-    set_running_frame(current_cpu(), dummy_thread->frame);
+    //set_current_context(current_cpu(), &dummy_thread->context); // XXX
     refcount_release(&t->refcount);
 }
 

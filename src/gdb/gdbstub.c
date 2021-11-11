@@ -38,20 +38,20 @@ static boolean read_thread_id(buffer b, int *tid)
 
 closure_function(1, 1, context, gdb_handle_exception,
                  gdb, g,
-                 context, frame)
+                 context, ctx)
 {
     gdb g = bound(g);
     g->t = current;
-    assert(g->t && g->t == pointer_from_u64(frame[FRAME_THREAD]));
-    sigval = computeSignal(frame);
+    assert(g->t);
+    sigval = computeSignal(ctx->frame);
     if (sigval == 0) {
         // XXX this always uses the first thread's fault handler, should be specific to the thread
         fault_handler fh = pointer_from_u64(g->fault_handler);
-        return apply(fh, frame);
+        return apply(fh, ctx);
     }
     g->p->trap = true;
     wakeup_or_interrupt_cpu_all();
-    gdb_debug("gdb exception: %ld %p [%p %p]\n", sigval, g, frame, thread_frame(g->t));
+    gdb_debug("gdb exception: %ld %p [%p %p]\n", sigval, g, ctx->frame, g->t->context.frame);
     string output = little_stack_buffer(32);
     reset_buffer(output);
     bprintf (output, "T");
@@ -167,7 +167,7 @@ closure_function(0, 1, boolean, sched_thread,
        and is kind of racey with unblocking */
     thread t = struct_from_field(n, thread, n);
     if (!t->blocked_on)
-        schedule_frame(thread_frame(t));
+        schedule_thread(t);
     return true;
 }
 
@@ -179,7 +179,7 @@ static void start_slave(gdb g, boolean stepping, thread t)
             t = g->t;
     }
 
-    gdb_debug("slave run %p %p %p %d\n", g, t, thread_frame(t), stepping);
+    gdb_debug("slave run %p %p %p %d\n", g, t, t->context.frame, stepping);
     g->p->trap = false;
     spin_lock(&g->p->threads_lock);
     rbtree_traverse(g->p->threads, RB_INORDER, stack_closure(reset_stepping));
@@ -332,7 +332,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         u64 regno;
         u8 buf[64];  // 512-bit maximum register size
         if (parse_int(b, 16, &regno)) {
-            int cnt = get_register(regno, buf, thread_frame(g->t));
+            int cnt = get_register(regno, buf, g->t->context.frame);
             if (cnt > 0) {
                 mem2hex(output, buf, cnt);
                 break;
@@ -551,7 +551,7 @@ static fault_handler gdb_fh;
 void gdb_check_fault_handler(thread t)
 {
     if (gdb_fh)
-        t->frame[FRAME_FAULT_HANDLER] = u64_from_pointer(gdb_fh);
+        t->context.fault_handler = gdb_fh;
 }
 
 buffer_handler init_gdb(heap h,
@@ -571,7 +571,7 @@ buffer_handler init_gdb(heap h,
     g->t = struct_from_field(rbtree_find_first(p->threads), thread, n);
     spin_unlock(&p->threads_lock);
     // XXX assumes both frames of all threads share same fault handler 
-    g->fault_handler = thread_frame(g->t)[FRAME_FAULT_HANDLER];
+    g->fault_handler = g->t->context.fault_handler;
     gdb_fh = closure(h, gdb_handle_exception, g);
     gdb_check_fault_handler(g->t);
     reset_parser(g);

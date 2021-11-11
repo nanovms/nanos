@@ -91,9 +91,7 @@ static void __attribute__((noinline)) ap_new_stack()
     int cid = cpuid_from_apicid(id);
     fetch_and_add(&total_processors, 1);
     cpu_init(cid);
-    cpuinfo ci = current_cpu();
 
-    set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
     mp_debug(", enable apic");
     apic_enable();
     mp_debug(", clear ap lock, enable ints, start_callback\n");
@@ -110,7 +108,9 @@ void ap_start()
     cpuinfo ci = init_cpuinfo(ap_heap, id);
     if (ci == INVALID_ADDRESS)
         return;
-    switch_stack(stack_from_kernel_context(get_kernel_context(ci)), ap_new_stack);
+    context_frame f = ci->m.kernel_context->frame;
+    switch_stack(frame_get_stack_top(f), ap_new_stack);
+
 }
 
 void allocate_apboot(heap stackheap, void (*ap_entry)())

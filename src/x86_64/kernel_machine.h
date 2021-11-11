@@ -4,8 +4,6 @@
 
 #define MBR_ADDRESS 0x7c00
 
-#include "frame.h"
-
 /*
   bit  47    - kern / user, extended for canonical
   bit  46    - set if directly-mapped (tag area must be zero)
@@ -248,15 +246,6 @@ static inline void set_page_write_protect(boolean enable)
     mov_to_cr("cr0", cr0);
 }
 
-/* per-cpu info, saved contexts and stacks */
-typedef u64 *context;
-
-#define KERNEL_STACK_WORDS (KERNEL_STACK_SIZE / sizeof(u64))
-typedef struct kernel_context {
-    u64 stackbase[KERNEL_STACK_WORDS];
-    u64 frame[0];
-} *kernel_context;
-
 typedef struct {
     u8 data[8];
 } seg_desc_t;
@@ -268,21 +257,24 @@ struct cpuinfo_machine {
     /* For accessing cpuinfo via %gs:0; must be first */
     void *self;
 
-    /* This points to the frame of the current, running context. +8 */
-    context running_frame;
+    /* This points to the currently-running context and bottom of associated frame. +8 */
+    context current_context;
 
-    /* Default frame and stack installed at kernel entry points (init,
-       syscall) and calls to runloop. +16 */
-    kernel_context kernel_context;
+    /* Next kernel context to install +16 */
+    context kernel_context;
 
-    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +24 */
+    /* Next syscall context to install +24 */
+    context syscall_context;
+
+    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +32 */
     u64 tmp;
 
+    /*** End of fields touched by kernel entries ***/
+
 #ifdef CONFIG_FTRACE
-    /* Used by mcount to determine if to enter ftrace code. Should be the last to not mess with crt0.s +32 */
+    /* Used by mcount to determine if to enter ftrace code. */
     u64 ftrace_disable_cnt;
 #endif
-    /*** End of fields touched by kernel entries ***/
 
     /* Stack for exceptions (which may occur in interrupt handlers) */
     void *exception_stack;
@@ -320,85 +312,133 @@ static inline cpuinfo current_cpu(void)
 }
 
 extern u64 extended_frame_size;
-static inline u64 total_frame_size(void)
+
+static inline boolean frame_is_full(context_frame f)
 {
-    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size;
+    return f[FRAME_FULL];
 }
 
-static inline void frame_enable_interrupts(context f)
+static inline void *frame_extended(context_frame f)
 {
-    f[FRAME_FLAGS] |= U64_FROM_BIT(EFLAG_INTERRUPT);
+    return pointer_from_u64(f[FRAME_EXTENDED]);
 }
 
-static inline void frame_disable_interrupts(context f)
+static inline void frame_enable_interrupts(context_frame f)
 {
-    f[FRAME_FLAGS] &= ~U64_FROM_BIT(EFLAG_INTERRUPT);
+    f[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_INTERRUPT);
 }
 
-extern void xsave(context f);
-extern void clone_frame_pstate(context dest, context src);
-extern void init_frame(context f);
+static inline void frame_disable_interrupts(context_frame f)
+{
+    f[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_INTERRUPT);
+}
 
-static inline boolean is_protection_fault(context f)
+extern void xsave(context_frame f);
+extern void clone_frame_pstate(context_frame dest, context_frame src);
+
+static inline boolean is_protection_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_P) != 0;
 }
 
-static inline boolean is_usermode_fault(context f)
+static inline boolean is_usermode_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_US) != 0;
 }
 
-static inline boolean is_instruction_fault(context f)
+static inline boolean is_instruction_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_ID) != 0;
 }
 
-static inline boolean is_data_fault(context f)
+static inline boolean is_data_fault(context_frame f)
 {
     return !is_instruction_fault(f);
 }
 
-static inline boolean is_write_fault(context f)
+static inline boolean is_write_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RW) != 0;
 }
 
 /* page table integrity check? open to interpretation for other archs... */
-static inline boolean is_pte_error(context f)
+static inline boolean is_pte_error(context_frame f)
 {
     /* XXX check sdm before merging - seems suspicious */
     return (is_protection_fault(f) && (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RSV));
 }
 
-static inline u64 frame_return_address(context f)
+static inline u64 frame_return_address(context_frame f)
 {
     return f[FRAME_RIP];
 }
 
-static inline u64 fault_address(context f)
+static inline u64 fault_address(context_frame f)
 {
     return f[FRAME_CR2];
 }
 
-static inline boolean is_page_fault(context f)
+static inline boolean is_page_fault(context_frame f)
 {
     return f[FRAME_VECTOR] == 14; // XXX defined somewhere?
 }
 
-static inline boolean is_div_by_zero(context f)
+static inline boolean is_div_by_zero(context_frame f)
 {
     return f[FRAME_VECTOR] == 0; // XXX defined somewhere?
 }
 
-static inline void frame_set_sp(context f, u64 sp)
+static inline void *frame_get_stack(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_RSP]);
+}
+
+static inline void frame_set_stack(context_frame f, u64 sp)
 {
     f[FRAME_RSP] = sp;
+}
+
+static inline void *frame_get_stack_top(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_STACK_TOP]);
+}
+
+static inline void frame_set_stack_top(context_frame f, void *st)
+{
+    f[FRAME_STACK_TOP] = u64_from_pointer(st);
+}
+
+static inline void frame_reset_stack(context_frame f)
+{
+    f[FRAME_RSP] = f[FRAME_STACK_TOP];
+}
+
+static inline void install_runloop_trampoline(context c, void *target)
+{
+    /* make instance of inline for trampoline use */
+    *(u64*)frame_get_stack_top(c->frame) = (u64)u64_from_pointer(target);
 }
 
 #define switch_stack(__s, __target) {                           \
         asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
         asm volatile("mov %0, %%rax": :"r"(__target));          \
+        asm volatile("mov %%rdx, %%rsp"::);                     \
+        asm volatile("jmp *%%rax"::);                           \
+    }
+
+#define switch_stack_1(__s, __target, __a0) {                   \
+        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm volatile("mov %0, %%rax": :"r"(__target));          \
+        asm volatile("mov %0, %%rdi": :"r"(__a0));              \
+        asm volatile("mov %%rdx, %%rsp"::);                     \
+        asm volatile("jmp *%%rax"::);                           \
+    }
+
+#define switch_stack_2(__s, __target, __a0, __a1) {             \
+        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
+        asm volatile("mov %0, %%rax": :"r"(__target));          \
+        asm volatile("mov %0, %%rdi": :"r"(__a0));              \
+        asm volatile("mov %0, %%rsi": :"r"(__a1));              \
         asm volatile("mov %%rdx, %%rsp"::);                     \
         asm volatile("jmp *%%rax"::);                           \
     }

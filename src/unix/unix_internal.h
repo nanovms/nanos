@@ -63,6 +63,49 @@ typedef struct thread *thread;
 thread create_thread(process);
 void exit_thread(thread);
 
+declare_closure_struct(1, 0, void, free_syscall_context,
+                       struct syscall_context *, sc);
+declare_closure_struct(1, 0, void, syscall_pause,
+                       struct syscall_context *, sc);
+declare_closure_struct(1, 0, void, syscall_resume,
+                       struct syscall_context *, sc);
+
+typedef struct syscall_context {
+    struct context context;
+    struct refcount refcount;
+    struct list l;              /* free list */
+    thread t;                   /* corresponding thread */
+    timestamp start_time;
+    int call;                   /* syscall number */
+    closure_struct(syscall_pause, pause);
+    closure_struct(syscall_resume, resume);
+    closure_struct(free_syscall_context, free);
+} *syscall_context;
+
+static inline void reserve_syscall_context(syscall_context sc)
+{
+    refcount_reserve(&sc->refcount);
+}
+
+static inline void release_syscall_context(syscall_context sc)
+{
+    refcount_release(&sc->refcount);
+}
+
+syscall_context allocate_syscall_context(void);
+
+static inline syscall_context get_syscall_context(cpuinfo ci)
+{
+    list l;
+    if ((l = list_get_next(&ci->free_syscall_contexts))) {
+        list_delete(l);
+        syscall_context sc = struct_from_field(l, syscall_context, l);
+        init_refcount(&sc->refcount, 1, (thunk)&sc->free);
+        return sc;
+    }
+    return allocate_syscall_context();
+}
+        
 // Taken from the manual pages
 // License: http://man7.org/linux/man-pages/man2/getdents.2.license.html
 struct linux_dirent {
@@ -234,16 +277,15 @@ typedef struct pending_fault {
     boolean kern;
 } *pending_fault;
 
+declare_closure_struct(1, 0, void, thread_pause,
+                       thread, t);
+declare_closure_struct(1, 0, void, thread_resume,
+                       thread, t);
 declare_closure_struct(1, 0, void, free_thread,
                        thread, t);
 declare_closure_struct(1, 0, void, resume_syscall,
                        thread, t);
-declare_closure_struct(1, 0, void, run_thread,
-                       thread, t);
-declare_closure_struct(1, 0, void, pause_thread,
-                        thread, t);
-declare_closure_struct(1, 1, context, default_fault_handler,
-                       thread, t,
+declare_closure_struct(0, 1, context, unix_fault_handler,
                        context, frame);
 declare_closure_struct(5, 0, void, thread_demand_file_page,
                        pending_fault, pf, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
@@ -254,18 +296,18 @@ declare_closure_struct(2, 1, void, thread_demand_page_complete,
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
 
-#define thread_frame(t) ((t)->frame)
+#define thread_frame(t) ((t)->context.frame)
 
 declare_closure_struct(2, 2, void, blockq_thread_timeout,
                        blockq, bq, struct thread *, t,
                        u64, expiry, u64, overruns);
 
 typedef struct thread {
-    struct nanos_thread thrd;
-    context frame;
+    struct context context;
 
     char name[16]; /* thread name */
-    int syscall;
+    syscall_context syscall;
+    queue scheduling_queue;
     process p;
 
     /* Heaps in the unix world are typically found through
@@ -278,9 +320,9 @@ typedef struct thread {
 
     struct refcount refcount;
     closure_struct(free_thread, free);
-    closure_struct(run_thread, run_thread);
-    closure_struct(pause_thread, pause_thread);
-    closure_struct(default_fault_handler, fault_handler);
+    closure_struct(thread_pause, pause);
+    closure_struct(thread_resume, resume);
+    closure_struct(unix_fault_handler, fault_handler);
     closure_struct(thread_demand_file_page, demand_file_page);
     closure_struct(thread_demand_page_complete, demand_page_complete);
 
@@ -306,12 +348,11 @@ typedef struct thread {
     blockq blocked_on;
 
     /* set by syscall_return(); used to detect if blocking is necessary */
-    boolean syscall_complete;
+    boolean syscall_complete; // XXX?
 
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
 
-    boolean sysctx;
     timestamp utime, stime;
     timestamp start_time;
     int last_syscall;
@@ -327,7 +368,6 @@ typedef struct thread {
     void *signal_stack;
     u64 signal_stack_length;
 
-    closure_struct(resume_syscall, deferred_syscall);
     bitmap affinity;
     struct list l_faultwait;
     struct spinlock lock;   /* generic lock for struct members without a specific lock */
@@ -506,21 +546,27 @@ typedef struct sigaction *sigaction;
 #define SIGACT_SIGNALFD 0x00000002 /* TODO */
 
 extern thread dummy_thread;
+
+// TODO could isolate thread type uses to eliminate conditional
+#define get_current_thread() \
+    ({context _ctx = get_current_context(current_cpu());                \
+        _ctx->type == CONTEXT_TYPE_SYSCALL ? ((syscall_context)_ctx)->t : \
+            (_ctx->type == CONTEXT_TYPE_THREAD ? (thread)_ctx : 0);})
+
 #ifdef CURRENT_DEBUG
 #define current _current(__func__)
 static inline thread _current(const char *caller) {
-    if (get_current_thread() == 0 &&
-      runtime_strcmp("run_thread_frame", caller) != 0 &&
-      runtime_strcmp("thread_wakeup", caller) != 0) {
+    thread t = get_current_thread();
+    if (t == 0 && runtime_strcmp("run_thread_frame", caller) != 0 &&
+        runtime_strcmp("thread_wakeup", caller) != 0) {
         log_printf("CURRENT", "invalid address returned to caller '%s'\n", caller);
         print_frame_trace_from_here();
     }
-    return (thread)get_current_thread();
+    return t;
 }
 #else
 #define current ((thread)get_current_thread())
 #endif
-
 
 void init_thread_fault_handler(thread t);
 
@@ -800,7 +846,7 @@ boolean unix_timers_init(unix_heaps uh);
 
 extern sysreturn syscall_ignore();
 u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete);
-boolean do_demand_page(u64 vaddr, vmap vm, context frame);
+boolean do_demand_page(context ctx, u64 vaddr, vmap vm);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
 boolean vmap_validate_range(process p, range q);
@@ -849,6 +895,21 @@ static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
     return get_syscall_return(t);
 }
 
+static inline void schedule_thread(thread t)
+{
+    assert(t->syscall == 0);
+    assert(enqueue_irqsafe(t->scheduling_queue, t->context.resume));
+}
+
+static inline void schedule_syscall_resume(syscall_context sc)
+{
+    thread t = sc->t;
+    assert(t);
+    assert(t->syscall == sc); // XXX bringup
+    assert(frame_is_full(sc->context.frame));
+    assert(enqueue_irqsafe(runqueue, sc->context.resume));
+}
+
 static inline sysreturn syscall_return(thread t, sysreturn val)
 {
     thread_lock(t);
@@ -860,6 +921,24 @@ static inline sysreturn syscall_return(thread t, sysreturn val)
         thread_wakeup(t);
     thread_unlock(t);
     return val;
+}
+
+static inline void syscall_accumulate_stime(syscall_context sc)
+{
+    assert(sc->start_time != 0);
+    sc->t->stime += now(CLOCK_ID_MONOTONIC_RAW) - sc->start_time;
+    sc->start_time = 0;
+}
+
+/* syscall finish without return (e.g. rt_sigreturn, exit, thread_yield) */
+static inline void __attribute__((noreturn)) syscall_finish(void)
+{
+    syscall_context sc = (syscall_context)get_current_context(current_cpu());
+    assert(is_syscall_context(&sc->context));
+    sc->t->syscall = 0;
+    assert(sc->refcount.c > 1); // XXX tmp: not necessarily true, just in cases so far
+    release_syscall_context(sc);
+    kern_yield();
 }
 
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
@@ -968,3 +1047,20 @@ static inline void sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
         if (sg_copy_to_buf(iov[i].iov_base, sg, iov[i].iov_len) == 0)
             break;
 }
+
+static inline void __attribute__((noreturn)) syscall_yield(void)
+{
+    cpuinfo ci = current_cpu();
+    disable_interrupts();
+    syscall_context sc = (syscall_context)get_current_context(ci);
+    assert(is_syscall_context(&sc->context));
+    if (ci->m.syscall_context == &sc->context) {
+        assert(sc->refcount.c > 1); /* syscall not finished */
+        release_syscall_context(sc);
+        sc = get_syscall_context(ci);
+        assert(sc != INVALID_ADDRESS);
+        ci->m.syscall_context = &sc->context;
+    }
+    kern_yield();
+}
+

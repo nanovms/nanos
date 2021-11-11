@@ -1,14 +1,26 @@
 /* main header for kernel objects */
 #include <runtime.h>
 #include <kernel_heaps.h>
+
+#define BOOTSTRAP_BASE  KMEM_BASE
+
+/* per-cpu info, saved contexts and stacks */
+declare_closure_struct(1, 0, void, free_kernel_context,
+                       struct kernel_context *, kc);
+
+#define KERNEL_STACK_WORDS (KERNEL_STACK_SIZE / sizeof(u64))
+typedef struct kernel_context {
+    struct context context;
+    struct refcount refcount;
+    struct list l;              /* free list */
+    closure_struct(free_kernel_context, free);
+    u64 stackbase[KERNEL_STACK_WORDS];
+} *kernel_context;
+
 #include <kernel_machine.h>
 #include <management.h>
 #include <page.h>
 #include "klib.h"
-
-typedef struct nanos_thread {
-    thunk pause;
-} *nanos_thread;
 
 #define cpu_not_present 0
 #define cpu_idle 1
@@ -23,6 +35,8 @@ typedef struct cpuinfo {
     int state;
     boolean have_kernel_lock;
     queue thread_queue;
+    struct list free_syscall_contexts;
+    struct list free_kernel_contexts;
     timestamp last_timer_update;
     u64 frcount;
     u64 inval_gen; /* Generation number for invalidates */
@@ -33,137 +47,7 @@ typedef struct cpuinfo {
 #endif
 } *cpuinfo;
 
-typedef closure_type(fault_handler, context, context);
-
 extern vector cpuinfos;
-
-/* subsume with introspection */
-struct mm_stats {
-    word minor_faults;
-    word major_faults;
-};
-
-extern struct mm_stats mm_stats;
-
-static inline cpuinfo cpuinfo_from_id(int cpu)
-{
-    return vector_get(cpuinfos, cpu);
-}
-
-static inline boolean is_current_kernel_context(context f)
-{
-    return f == current_cpu()->m.kernel_context->frame;
-}
-
-static inline boolean in_interrupt(void)
-{
-    return current_cpu()->state == cpu_interrupt;
-}
-
-static inline __attribute__((always_inline)) context get_running_frame(cpuinfo ci)
-{
-    return ci->m.running_frame;
-}
-
-static inline __attribute__((always_inline)) void set_running_frame(cpuinfo ci, context f)
-{
-    ci->m.running_frame = f;
-}
-
-static inline __attribute__((always_inline)) kernel_context get_kernel_context(cpuinfo ci)
-{
-    return ci->m.kernel_context;
-}
-
-static inline __attribute__((always_inline)) void set_kernel_context(cpuinfo ci, kernel_context kc)
-{
-    ci->m.kernel_context = kc;
-}
-
-static inline __attribute__((always_inline)) nanos_thread get_current_thread()
-{
-    context f = current_cpu()->m.kernel_context->frame;
-    return pointer_from_u64(f[FRAME_THREAD]);
-}
-
-static inline __attribute__((always_inline)) void set_current_thread(nanos_thread t)
-{
-    context f = current_cpu()->m.kernel_context->frame;
-    f[FRAME_THREAD] = u64_from_pointer(t);
-}
-
-static inline __attribute__((always_inline)) context frame_from_kernel_context(kernel_context c)
-{
-    return c->frame;
-}
-
-static inline __attribute__((always_inline)) void *stack_from_kernel_context(kernel_context c)
-{
-    return ((void*)c->stackbase) + KERNEL_STACK_SIZE - STACK_ALIGNMENT;
-}
-
-static inline __attribute__((always_inline)) void set_fault_handler(kernel_context kc, fault_handler h)
-{
-    context f = frame_from_kernel_context(kc);
-    f[FRAME_FAULT_HANDLER] = u64_from_pointer(h);
-}
-
-static inline void count_minor_fault(void)
-{
-    fetch_and_add(&mm_stats.minor_faults, 1);
-}
-
-static inline void count_major_fault(void)
-{
-    fetch_and_add(&mm_stats.major_faults, 1);
-}
-
-void runloop_internal() __attribute__((noreturn));
-
-NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
-{
-    cpuinfo ci = current_cpu();
-    kernel_context kc = get_kernel_context(ci);
-    set_running_frame(ci, frame_from_kernel_context(kc));
-    switch_stack(stack_from_kernel_context(kc), runloop_internal);
-    while(1);                   /* kill warning */
-}
-
-#define BOOTSTRAP_BASE  KMEM_BASE
-
-#define BREAKPOINT_INSTRUCTION 00
-#define BREAKPOINT_WRITE 01
-#define BREAKPOINT_IO 10
-#define BREAKPOINT_READ_WRITE 11
-
-u64 init_bootstrap_heap(u64 phys_length);
-id_heap init_physical_id_heap(heap h);
-void init_kernel_heaps(void);
-void init_cpuinfo_machine(cpuinfo ci, heap backed);
-void kernel_runtime_init(kernel_heaps kh);
-void read_kernel_syms(void);
-void reclaim_regions(void);
-
-boolean breakpoint_insert(heap h, u64 a, u8 type, u8 length, thunk completion);
-boolean breakpoint_remove(heap h, u32 a, thunk completion);
-
-context allocate_frame(heap h);
-void deallocate_frame(context);
-void *allocate_stack(heap h, u64 size);
-void deallocate_stack(heap h, u64 size, void *stack);
-cpuinfo init_cpuinfo(heap backed, int cpu);
-kernel_context allocate_kernel_context(heap h);
-void deallocate_kernel_context(kernel_context c);
-void init_kernel_contexts(heap backed);
-boolean kernel_suspended(void);
-kernel_context suspend_kernel_context(void);
-void resume_kernel_context(kernel_context c);
-void frame_return(context frame) __attribute__((noreturn));
-
-void init_interrupts(kernel_heaps kh);
-void msi_map_vector(int slot, int msislot, int vector);
-
-void syscall_enter(void);
 
 #ifdef KERNEL
 #define _IRQSAFE_1(rtype, name, t0)              \
@@ -224,8 +108,257 @@ static inline void spin_lock_2(spinlock l1, spinlock l2)
         spin_lock(l1);
     }
 }
-
 #endif
+
+/* subsume with introspection */
+struct mm_stats {
+    word minor_faults;
+    word major_faults;
+};
+
+extern struct mm_stats mm_stats;
+
+static inline cpuinfo cpuinfo_from_id(int cpu)
+{
+    return vector_get(cpuinfos, cpu);
+}
+
+static inline boolean is_kernel_context(context c)
+{
+    return c->type == CONTEXT_TYPE_KERNEL;
+}
+
+static inline boolean is_syscall_context(context c)
+{
+    return c->type == CONTEXT_TYPE_SYSCALL;
+}
+
+static inline boolean is_thread_context(context c)
+{
+    return c->type == CONTEXT_TYPE_THREAD;
+}
+
+static inline boolean in_interrupt(void)
+{
+    return current_cpu()->state == cpu_interrupt;
+}
+
+// XXX reorg all context-related funcs here
+static inline __attribute__((always_inline)) context get_current_context(cpuinfo ci)
+{
+    return ci->m.current_context;
+}
+
+static inline __attribute__((always_inline)) void set_current_context(cpuinfo ci, context c)
+{
+    ci->m.current_context = c;
+}
+
+typedef closure_type(async_1, void, u64);
+
+#ifdef KERNEL
+typedef struct applied_async_1 {
+    async_1 a;
+    u64 arg0;
+} *applied_async_1;
+
+static inline boolean async_apply_1(async_1 a, queue q, void *arg0)
+{
+    struct applied_async_1 aa;
+    aa.a = a;
+    aa.arg0 = u64_from_pointer(arg0);
+    return enqueue_n_irqsafe(q, &aa, sizeof(aa) / sizeof(u64));
+}
+#define async_apply_status_handler async_apply_1
+#endif
+
+void frame_return(context_frame f);
+
+// XXX low level header dep issue
+#if 0
+static inline heap transient_from_context(context c)
+{
+    return c->transient_heap;
+}
+#endif
+
+#ifdef CONTEXT_DEBUG
+#define context_debug rprintf
+#else
+#define context_debug(x, ...)
+#endif
+
+static inline void context_pause(context c)
+{
+    if (c->pause) {
+        context_debug("%s: invoking %F\n", __func__, c->pause);
+        apply(c->pause);
+    }
+}
+
+static inline void context_resume(context c)
+{
+    if (c->resume) {
+        context_debug("%s: invoking %F\n", __func__, c->resume);
+        apply(c->resume);
+    }
+}
+
+static inline void context_switch(context ctx)
+{
+    context_debug("%s: ctx %p\n", __func__, ctx);
+    assert(ctx);
+    cpuinfo ci = current_cpu();
+    context prev = get_current_context(ci);
+    if (ctx != prev) {
+        context_pause(prev);
+        set_current_context(ci, ctx);
+        context_resume(ctx);        /* may not return */
+    }
+}
+
+static inline context context_switch_light(context new)
+{
+    cpuinfo ci = current_cpu();
+    u64 flags = irq_disable_save();
+    context prev = get_current_context(ci);
+    set_current_context(ci, new);
+    irq_restore(flags);
+    return prev;
+}
+
+// XXX enable this later after checking existing uses of transient
+// #define transient (get_current_context(current_cpu())->transient)
+
+#define contextual_closure(__name, ...) ({                              \
+            context __ctx = get_current_context(current_cpu());         \
+            context_debug("contextual_closure(%s, ...) ctx %p\n", #__name, __ctx); \
+            heap __h = __ctx->transient_heap;                           \
+            struct _closure_##__name * __n = allocate(__h, sizeof(struct _closure_##__name)); \
+            __closure((u64_from_pointer(__ctx) |                        \
+                       (CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH | CLOSURE_COMMON_CTX_IS_CONTEXT)), \
+                      __n, sizeof(struct _closure_##__name), __name, ##__VA_ARGS__);}) 
+
+static inline context context_from_closure(void *p)
+{
+    struct _closure_common *c = p + sizeof(void *); /* skip __apply */
+    return (c->ctx & CLOSURE_COMMON_CTX_IS_CONTEXT) ?
+        pointer_from_u64(c->ctx & ~CLOSURE_COMMON_CTX_FLAGS_MASK) : 0;
+}
+
+/* not for allocated closures */
+static inline void *apply_context_to_closure(void *p, context ctx)
+{
+    struct _closure_common *c = p + sizeof(void *); /* skip __apply */
+    assert(c->ctx == 0);
+    c->ctx = u64_from_pointer(ctx) | CLOSURE_COMMON_CTX_IS_CONTEXT;
+    return p;
+}
+
+#define CONTEXT_FRAME_SIZE (FRAME_SIZE * sizeof(u64))
+
+static inline void zero_context_frame(context_frame f)
+{
+    zero(f, CONTEXT_FRAME_SIZE);
+}
+
+static inline void count_minor_fault(void)
+{
+    fetch_and_add(&mm_stats.minor_faults, 1);
+}
+
+static inline void count_major_fault(void)
+{
+    fetch_and_add(&mm_stats.major_faults, 1);
+}
+
+void runloop_internal() __attribute__((noreturn));
+
+NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
+{
+    cpuinfo ci = current_cpu();
+    context ctx = ci->m.kernel_context;
+    context_debug("runloop, ctx %p\n", ctx);
+    context_switch(ctx);        /* nop if already installed */
+    switch_stack(frame_get_stack_top(ctx->frame), runloop_internal);
+    while(1);                   /* kill warning */
+}
+
+/* call with ints disabled */
+static inline void context_apply(context ctx, thunk t)
+{
+    void *sp = frame_get_stack_top(ctx->frame);
+    if (ctx->type != CONTEXT_TYPE_THREAD) // XXX
+        install_runloop_trampoline(ctx, runloop);
+    context_debug("%s: ctx %p, t %F\n", __func__, ctx, t);
+    context_switch(ctx);
+    switch_stack_1(sp, *(u64*)t, t);
+}
+
+// XXX rename async_1
+static inline void context_apply_1(context ctx, async_1 a, u64 arg0)
+{
+    void *sp = frame_get_stack_top(ctx->frame);
+    // XXX seems we should only need to install once, but it's getting clobbered
+    install_runloop_trampoline(ctx, runloop);
+    context_debug("%s: ctx %p, sp %p (@ %p) a %p, target %p (%F), arg0 0x%lx\n",
+                  __func__, ctx, sp, *(u64*)sp, a, *(u64*)a, a, arg0);
+    context_switch(ctx);
+    switch_stack_2(sp, *(u64*)a, a, arg0);
+}
+
+static inline __attribute__((always_inline))  __attribute__((noreturn)) void kern_yield(void)
+{
+    //kern_unlock();
+    runloop();
+}
+
+#define BREAKPOINT_INSTRUCTION 00
+#define BREAKPOINT_WRITE 01
+#define BREAKPOINT_IO 10
+#define BREAKPOINT_READ_WRITE 11
+
+u64 init_bootstrap_heap(u64 phys_length);
+id_heap init_physical_id_heap(heap h);
+void init_kernel_heaps(void);
+void init_cpuinfo_machine(cpuinfo ci, heap backed);
+void kernel_runtime_init(kernel_heaps kh);
+void read_kernel_syms(void);
+void reclaim_regions(void);
+
+boolean breakpoint_insert(heap h, u64 a, u8 type, u8 length, thunk completion);
+boolean breakpoint_remove(heap h, u32 a, thunk completion);
+
+void init_context(context c, int type);
+void destruct_context(context c);
+void *allocate_stack(heap h, u64 size);
+void deallocate_stack(heap h, u64 size, void *stack);
+cpuinfo init_cpuinfo(heap backed, int cpu);
+kernel_context allocate_kernel_context(void);
+void deallocate_kernel_context(kernel_context c);
+void init_kernel_contexts(heap backed);
+boolean kernel_suspended(void);
+kernel_context suspend_kernel_context(void);
+void resume_kernel_context(kernel_context c);
+
+// XXX move this to kernel suspend; that should be the only place we'll need it
+static inline kernel_context get_kernel_context(void)
+{
+    cpuinfo ci = current_cpu();
+    list l;
+    if ((l = list_get_next(&ci->free_kernel_contexts))) {
+        list_delete(l);
+        kernel_context kc = struct_from_field(l, kernel_context, l);
+        frame_reset_stack(kc->context.frame);
+        return kc;
+    }
+    return allocate_kernel_context();
+}
+
+void init_interrupts(kernel_heaps kh);
+void msi_map_vector(int slot, int msislot, int vector);
+
+void syscall_enter(void);
 
 typedef struct queue *queue;
 extern queue bhqueue;
@@ -266,15 +399,6 @@ static inline u64 phys_from_linear_backed_virt(u64 virt)
 
 void unmap_and_free_phys(u64 virtual, u64 length);
 
-static inline void bhqueue_enqueue_irqsafe(thunk t)
-{
-    /* an interrupted enqueue and competing enqueue from int handler could cause a
-       deadlock; disable ints for safe enqueue from any context */
-    u64 flags = irq_disable_save();
-    enqueue(bhqueue, t);
-    irq_restore(flags);
-}
-
 static inline void schedule_timer_service(void)
 {
     if (compare_and_swap_boolean(&kernel_timers->service_scheduled, false, true))
@@ -288,8 +412,8 @@ heap locking_heap_wrapper(heap meta, heap parent);
 
 #endif
 
-void print_stack(context c);
-void print_frame(context f);
+void print_stack(context_frame c);
+void print_frame(context_frame f);
 
 void configure_timer(timestamp rate, thunk t);
 
@@ -300,7 +424,6 @@ timestamp kern_now(clock_id id);    /* klibs must use this instead of now() */
 void init_clock(void);
 
 void process_bhqueue();
-void install_fallback_fault_handler(fault_handler h);
 
 void msi_format(u32 *address, u32 *data, int vector);
 
@@ -339,15 +462,11 @@ boolean first_boot(void);
 extern void interrupt_exit(void);
 extern const char * const * const state_strings;
 
-// static inline void schedule_frame(context f) stupid header deps
-#define schedule_frame(___f)  do { context __f = ___f; assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); if ((__f)[FRAME_THREAD]) apply(((nanos_thread)(__f)[FRAME_THREAD])->pause); assert(enqueue_irqsafe((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))); } while(0)
-
 void kernel_unlock();
 
 extern bitmap idle_cpu_mask;
 extern u64 total_processors;
 extern u64 present_processors;
-extern void xsave(context f);
 
 void cpu_init(int cpu);
 void start_secondary_cores(kernel_heaps kh);
@@ -367,22 +486,3 @@ extern halt_handler vm_halt;
 void early_debug(const char *s);
 void early_debug_u64(u64 n);
 void early_dump(void *p, unsigned long length);
-
-#ifdef KERNEL
-typedef closure_type(async_1, void, u64);
-
-typedef struct applied_async_1 {
-    async_1 a;
-    u64 arg0;
-} *applied_async_1;
-
-static inline boolean async_apply_1(async_1 a, queue q, void *arg0)
-{
-    struct applied_async_1 aa;
-    aa.a = a;
-    aa.arg0 = u64_from_pointer(arg0);
-    return enqueue_n_irqsafe(q, &aa, sizeof(aa) / sizeof(u64));
-}
-
-#define async_apply_status_handler async_apply_1
-#endif

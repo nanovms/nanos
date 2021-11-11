@@ -455,7 +455,8 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
                                 closure(locked, do_shutdown_handler, h, status, m));
             if (ci->state == cpu_interrupt) {
                 interrupt_exit();
-                get_running_frame(ci)[FRAME_FULL] = false;
+                context c = get_current_context(ci);
+                c->frame[FRAME_FULL] = false;
             }
         }
         runloop();

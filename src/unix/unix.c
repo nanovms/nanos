@@ -129,7 +129,7 @@ const char *string_from_mmap_type(int type)
          (type == VMAP_MMAP_TYPE_IORING ? "io_uring" : "unknown"));
 }
 
-static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
+static boolean handle_protection_fault(context_frame frame, u64 vaddr, vmap vm)
 {
     /* vmap found, with protection violation set --> send prot violation */
     if (is_protection_fault(frame)) {
@@ -165,94 +165,95 @@ static boolean handle_protection_fault(context frame, u64 vaddr, vmap vm)
     return false;
 }
 
-define_closure_function(1, 1, context, default_fault_handler,
-                        thread, t,
-                        context, frame)
+define_closure_function(0, 1, context, unix_fault_handler,
+                        context, ctx)
 {
-    process p = 0;
-    u64 vaddr = fault_address(frame);
+    thread t;
+    if (ctx->type == CONTEXT_TYPE_SYSCALL) {
+        syscall_context sc = (syscall_context)ctx;
+        t = sc->t;
+    } else if (ctx->type == CONTEXT_TYPE_THREAD) {
+        t = (thread)ctx;
+        assert(is_usermode_fault(ctx->frame));
+    } else {
+        halt("%s: unknown context type %d\n", __func__, ctx->type);
+    }
+
+    u64 vaddr = fault_address(ctx->frame);
     if (vaddr >= USER_LIMIT) {
         rprintf("\nPage fault on non-user memory (vaddr 0x%lx)\n", vaddr);
         goto bug;
     }
 
-    thread current_thread = current;
-    if (!current_thread) {
-        rprintf("\nPage fault outside of thread context (vaddr 0x%lx)\n", vaddr);
-        goto bug;
-    }
+    boolean user = is_usermode_fault(ctx->frame);
 
-    boolean user = is_usermode_fault(frame);
-
-    /* Really this should be the enclosed thread, but that won't fly
-       for kernel page faults on user pages. If we were ever to
-       support multiple processes, we may need to install current when
-       resuming deferred processing. */
-    p = current_thread->p;
-
-    if (is_div_by_zero(frame)) {
+    if (is_div_by_zero(ctx->frame)) {
         if (current_cpu()->state == cpu_user) {
-            deliver_fault_signal(SIGFPE, current_thread, vaddr, FPE_INTDIV);
-            schedule_frame(frame);
+            deliver_fault_signal(SIGFPE, t, vaddr, FPE_INTDIV);
+            schedule_thread(t);
             return 0;
         } else {
             rprintf("\nDivide by zero occurs in kernel mode\n");
             goto bug;
         }
-    } else if (is_page_fault(frame)) {
+    } else if (is_page_fault(ctx->frame)) {
         pf_debug("page fault, vaddr 0x%lx\n", vaddr);
-        vmap vm = vmap_from_vaddr(p, vaddr);
+        vmap vm = vmap_from_vaddr(t->p, vaddr);
         if (vm == INVALID_ADDRESS) {
-            if (user) {
-                pf_debug("no vmap found for addr 0x%lx, rip 0x%lx", vaddr, frame[SYSCALL_FRAME_PC]);
-                deliver_fault_signal(SIGSEGV, current_thread, vaddr, SEGV_MAPERR);
-
-                /* schedule this thread to either run signal handler or terminate */
-                schedule_frame(frame);
-                return 0;
-            } else {
-                rprintf("\nUnhandled page fault in kernel mode: ");
+            if (!user) {
+                /* We presently don't have a way to differentiate between a
+                   fault resulting from bad parameters to a syscall or and one
+                   caused by faulty kernel code. Given that we are a
+                   unikernel, we're taking some liberty in allowing bad
+                   parameters to take down the kernel. */
+                rprintf("\nNo vmap found for page fault in kernel mode: ");
                 goto bug;
             }
+            pf_debug("no vmap found");
+            deliver_fault_signal(SIGSEGV, t, vaddr, SEGV_MAPERR);
+
+            /* schedule this thread to either run signal handler or terminate */
+            schedule_thread(t);
+            return 0;
         }
 
-        if (is_pte_error(frame)) {
+        if (is_pte_error(ctx->frame)) {
             /* no SEGV on reserved PTEs */
             msg_err("bug: pte entries reserved or corrupt\n");
             dump_page_tables(vaddr, 8);
             goto bug;
         }
 
-        if (is_instruction_fault(frame) && !user) {
+        if (is_instruction_fault(ctx->frame) && !user) {
             msg_err("kernel instruction fault\n");
             goto bug;
         }
 
-        if (handle_protection_fault(frame, vaddr, vm)) {
-            if (is_current_kernel_context(frame)) {
+        if (handle_protection_fault(ctx->frame, vaddr, vm)) {
+            if (!is_thread_context(ctx)) {
                 current_cpu()->state = cpu_kernel;
-                return frame;   /* direct return */
+                return ctx;   /* direct return */
             }
-            schedule_frame(frame);
+            schedule_thread(t);
             return 0;
         }
 
-        if (do_demand_page(fault_address(frame), vm, frame)) {
-            if (is_current_kernel_context(frame)) {
+        if (do_demand_page(ctx, fault_address(ctx->frame), vm)) {
+            if (!is_thread_context(ctx)) {
                 current_cpu()->state = cpu_kernel;
-                return frame;   /* direct return */
+                return ctx;   /* direct return */
             }
-            schedule_frame(frame);
+            schedule_thread(t);
             return 0;
         }
     }
     /* XXX arch dep */
 #ifdef __x86_64__
-    else if (frame[FRAME_VECTOR] == 13) {
+    else if (ctx->frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lx", frame[SYSCALL_FRAME_PC]);
-            deliver_fault_signal(SIGSEGV, current_thread, 0, SI_KERNEL);
-            schedule_frame(frame);
+            pf_debug("general protection fault in user mode, rip 0x%lx", ctx->frame[SYSCALL_FRAME_PC]);
+            deliver_fault_signal(SIGSEGV, t, 0, SI_KERNEL);
+            schedule_thread(t);
             return 0;
         }
     }
@@ -261,11 +262,11 @@ define_closure_function(1, 1, context, default_fault_handler,
   bug:
     // panic handling in a more central location?
     rprintf("cpu: %d\n", current_cpu()->id);
-    print_frame(frame);
-    print_stack(frame);
-    frame[FRAME_FULL] = 0;
+    print_frame(ctx->frame);
+    print_stack(ctx->frame);
+    ctx->frame[FRAME_FULL] = 0;
 
-    if (p && get(p->process_root, sym(fault))) {
+    if (t->p && get(t->p->process_root, sym(fault))) {
         rputs("TODO: in-kernel gdb needs revisiting\n");
 //        init_tcp_gdb(heap_locked(get_kernel_heaps()), p, 9090);
 //        thread_sleep_uninterruptible();
@@ -276,7 +277,7 @@ define_closure_function(1, 1, context, default_fault_handler,
 
 void init_thread_fault_handler(thread t)
 {
-    init_closure(&t->fault_handler, default_fault_handler, t);
+    t->context.fault_handler = init_closure(&t->fault_handler, unix_fault_handler);
 }
 
 closure_function(0, 6, sysreturn, dummy_read,
@@ -417,66 +418,23 @@ void process_get_cwd(process p, filesystem *cwd_fs, inode *cwd)
     process_unlock(p);
 }
 
-void thread_enter_user(thread in)
-{
-    thread_resume(in);
-    in->sysctx = false;
-}
-
-void thread_enter_system(thread t)
-{
-    if (!t->sysctx) {
-        timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
-        timestamp diff = here - t->start_time;
-        t->utime += diff;
-        t->start_time = here;
-        t->sysctx = true;
-        set_current_thread(&t->thrd);
-    }
-}
-
-void thread_pause(thread t)
-{
-    if (get_current_thread() != &t->thrd)
-        return;
-    timestamp diff = now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
-    if (t->sysctx) {
-        t->stime += diff;
-    }
-    else {
-        t->utime += diff;
-    }
-    context f = thread_frame(t);
-    thread_frame_save_fpsimd(f);
-    thread_frame_save_tls(f);
-    set_current_thread(0);
-}
-
-void thread_resume(thread t)
-{
-    nanos_thread old = get_current_thread();
-    if (old && old != &t->thrd)
-        apply(old->pause);
-    count_syscall_resume(t);
-    if (get_current_thread() == &t->thrd)
-        return;
-    t->start_time = now(CLOCK_ID_MONOTONIC_RAW);
-    set_current_thread(&t->thrd);
-}
-
 static timestamp utime_updated(thread t)
 {
+    thread_lock(t);
     timestamp ts = t->utime;
-    if (!t->sysctx)
+    if (t->start_time != 0)
         ts += now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
+    thread_unlock(t);
     return ts;
 }
 
 static timestamp stime_updated(thread t)
 {
+    thread_lock(t);
     timestamp ts = t->stime;
-    if (t->sysctx)
-        ts += now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
+    if (t->syscall && t->syscall->start_time)
+        ts += now(CLOCK_ID_MONOTONIC_RAW) - t->syscall->start_time;
+    thread_unlock(t);
     return ts;
 }
 
@@ -552,23 +510,13 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     cpuinfo ci;
     vector_foreach(cpuinfos, ci) {
-        context f = frame_from_kernel_context(get_kernel_context(ci));
-        f[FRAME_THREAD] = u64_from_pointer(dummy_thread);
+        syscall_context sc = allocate_syscall_context();
+        assert(sc != INVALID_ADDRESS);
+        ci->m.syscall_context = &sc->context;
     }
 
     /* XXX remove once we have http PUT support */
     ftrace_enable();
-
-    /* Install a fault handler for use when anonymous pages are
-       faulted in within the interrupt handler (e.g. syscall bottom
-       halves, I/O directly to user buffers). This is permissible now
-       because we only support one process address space. Should this
-       ever change, this will need to be reworked; either we make
-       faults from the interrupt handler illegal or store a reference
-       to the relevant thread frame upon entering the bottom half
-       routine.
-    */
-    install_fallback_fault_handler((fault_handler)&dummy_thread->fault_handler);
 
     register_special_files(kernel_process);
     init_syscalls(kernel_process->process_root);

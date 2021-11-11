@@ -2,8 +2,6 @@
 #error must be in kernel build
 #endif
 
-#include "frame.h"
-
 #define KERNEL_LIMIT     0x00fffffffffff000ull
 #define KERNEL_BASE      0x00ffffff80000000ull
 #define DEVICE_BASE      0x00ffffff00000000ull
@@ -225,27 +223,14 @@ MK_MMIO_WRITE(64, "", "x");
 #define read_psr_s(rstr) ({ register u64 r; asm volatile("mrs %0, " rstr : "=r"(r)); r;})
 #define write_psr_s(rstr, v) do { asm volatile("msr " rstr ", %0" : : "r"(v)); } while (0)
 
-/* per-cpu info, saved contexts and stacks */
-typedef u64 *context;
-
-#define KERNEL_STACK_WORDS (KERNEL_STACK_SIZE / sizeof(u64))
-typedef struct kernel_context {
-    u64 stackbase[KERNEL_STACK_WORDS];
-    u64 frame[0];
-} *kernel_context;
-
 struct cpuinfo_machine {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating x18-relative accesses in crt0.s ***/
 
-    /* This points to the frame of the current, running context. +0 */
-    context running_frame;
+    /* This points to the currently-running context and bottom of associated frame. +0 */
+    context current_context;
 
     /*** End of fields touched by kernel entries ***/
-
-    /* Default frame and stack installed at kernel entry points (init,
-       syscall) and calls to runloop. +8 */
-    kernel_context kernel_context;
 };
 
 typedef struct cpuinfo *cpuinfo;
@@ -257,26 +242,21 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(r);
 }
 
-static inline u64 total_frame_size(void)
-{
-    return FRAME_EXTENDED_MAX * sizeof(u64);
-}
+extern void clone_frame_pstate(context_frame dest, context_frame src);
+extern void init_extended_frame(context_frame f);
 
-extern void clone_frame_pstate(context dest, context src);
-#define init_frame(f)
-
-static inline boolean is_pte_error(context f)
+static inline boolean is_pte_error(context_frame f)
 {
     // arm equivalent?
     return false;
 }
 
-static inline u64 frame_return_address(context f)
+static inline u64 frame_return_address(context_frame f)
 {
     return f[FRAME_X30];
 }
 
-static inline u64 fault_address(context f)
+static inline u64 fault_address(context_frame f)
 {
     return f[FRAME_FAULT_ADDRESS];
 }
@@ -284,7 +264,7 @@ static inline u64 fault_address(context f)
 #define esr_from_frame(frame) (frame[FRAME_ESR_SPSR] >> 32)
 
 /* Maybe shift decoding to entry and encode in frame as flags? */
-static inline u8 fsc_from_frame(context f)
+static inline u8 fsc_from_frame(context_frame f)
 {
     u64 esr = esr_from_frame(f);
     u32 ec = field_from_u64(esr, ESR_EC);
@@ -294,38 +274,38 @@ static inline u8 fsc_from_frame(context f)
     return field_from_u64(field_from_u64(esr, ESR_ISS), ESR_ISS_ID_ABRT_FSC);
 }
 
-static inline boolean is_protection_fault(context f)
+static inline boolean is_protection_fault(context_frame_frame f)
 {
     u8 fsc = fsc_from_frame(f);
     return (fsc != 0xff && fsc >= ESR_ISS_ID_ABRT_FSC_PERMISSION_L1 &&
             fsc <= ESR_ISS_ID_ABRT_FSC_PERMISSION_L3);
 }
 
-static inline boolean is_page_fault(context f)
+static inline boolean is_page_fault(context_frame f)
 {
     u8 fsc = fsc_from_frame(f);
     return (fsc != 0xff && fsc >= ESR_ISS_ID_ABRT_FSC_TRANSLATION_L0 &&
             fsc <= ESR_ISS_ID_ABRT_FSC_PERMISSION_L3);
 }
 
-static inline boolean is_usermode_fault(context f)
+static inline boolean is_usermode_fault(context_frame f)
 {
     return f[FRAME_EL] == 0;
 }
 
-static inline boolean is_instruction_fault(context f)
+static inline boolean is_instruction_fault(context_frame f)
 {
     u32 ec = field_from_u64(esr_from_frame(f), ESR_EC);
     return (ec == ESR_EC_INST_ABRT || ec == ESR_EC_INST_ABRT_LEL);
 }
 
-static inline boolean is_data_fault(context f)
+static inline boolean is_data_fault(context_frame f)
 {
     u32 ec = field_from_u64(esr_from_frame(f), ESR_EC);
     return (ec == ESR_EC_DATA_ABRT || ec == ESR_EC_DATA_ABRT_LEL);
 }
 
-static inline boolean is_write_fault(context f)
+static inline boolean is_write_fault(context_frame f)
 {
     u64 esr = esr_from_frame(f);
     u32 ec = field_from_u64(esr, ESR_EC);
@@ -335,24 +315,40 @@ static inline boolean is_write_fault(context f)
         (iss & ESR_ISS_DATA_ABRT_WnR);
 }
 
-static inline boolean is_div_by_zero(context f)
+static inline boolean is_div_by_zero(context_frame f)
 {
     return false; // XXX not on arm / fp only?
 }
 
-static inline void frame_enable_interrupts(context f)
+static inline void frame_enable_interrupts(context_frame f)
 {
     f[FRAME_ESR_SPSR] &= ~SPSR_I; /* EL0 */
 }
 
-static inline void frame_disable_interrupts(context f)
+static inline void frame_disable_interrupts(context_frame f)
 {
     f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
 }
 
-static inline void frame_set_sp(context f, u64 sp)
+static inline void frame_set_sp(context_frame f, u64 sp)
 {
     f[FRAME_SP] = sp;
+}
+
+static inline void *frame_stack_top(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_STACK_TOP]);
+}
+
+static inline void *frame_stack(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_SP]);
+}
+
+static inline void install_runloop_trampoline(context c)
+{
+    /* make instance of inline for trampoline use */
+    *(u64*)c->frame[FRAME_STACK_TOP] = u64_from_pointer(runloop);
 }
 
 #define switch_stack(s, target) ({                                      \
@@ -366,6 +362,14 @@ static inline void frame_set_sp(context f, u64 sp)
             register u64 __x0 asm("x0") = (u64)(a0);                    \
             asm volatile("mov sp, %0; br %1" ::                         \
                          "r"(__s), "r"(__t), "r"(__x0) : "memory"); })
+
+#define switch_stack_2(s, target, a0, a1) ({                            \
+            register u64 __s = u64_from_pointer(s);                     \
+            register u64 __t = u64_from_pointer(target);                \
+            register u64 __x0 asm("x0") = (u64)(a0);                    \
+            register u64 __x1 asm("x1") = (u64)(a1);                    \
+            asm volatile("mov sp, %0; br %1" ::                         \
+                         "r"(__s), "r"(__t), "r"(__x0) : "r"(__x1) : "memory"); })
 
 /* syscall entry */
 #define init_syscall_handler()   /* stub */

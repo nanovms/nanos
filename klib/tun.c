@@ -174,7 +174,7 @@ closure_function(1, 6, sysreturn, tun_read,
     tun tun = tf->tun;
     if (!tun)
         return io_complete(completion, t, -EBADFD);
-    blockq_action ba = closure(tun_heap, tun_read_bh, tf, dest, len, t, completion);
+    blockq_action ba = contextual_closure(tun_read_bh, tf, dest, len, t, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(tf->bq, t, ba, bh);

@@ -364,9 +364,9 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
     aio->copied_evts = 0;
     aio->bq = current->thread_bq;
     return blockq_check_timeout(aio->bq, current,
-            closure(heap_locked(aio->kh), io_getevents_bh, aio, min_nr, nr,
-                    events, current, ts, syscall_io_complete), false,
-            CLOCK_ID_MONOTONIC, (ts == infinity) ? 0 : ts, false);
+                                contextual_closure(io_getevents_bh, aio, min_nr, nr, events,
+                                                   current, ts, syscall_io_complete), false,
+                                CLOCK_ID_MONOTONIC, (ts == infinity) ? 0 : ts, false);
 }
 
 static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh);
@@ -399,8 +399,9 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
         aio->bq = t->thread_bq;
         refcount_reserve(&aio->refcount);
         return blockq_check(aio->bq, t,
-                closure(heap_locked(aio->kh), io_getevents_bh, aio,
-                        ongoing_ops, ongoing_ops, 0, t, infinity, completion), in_bh);
+                            contextual_closure(io_getevents_bh, aio,
+                                               ongoing_ops, ongoing_ops, 0, t,
+                                               infinity, completion), in_bh);
     } else {
         aio_unlock(aio);
         apply(completion, t, 0);

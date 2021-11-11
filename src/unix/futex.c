@@ -198,7 +198,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             rv = -EAGAIN;
         else
             rv = blockq_check_timeout(f->bq, current,
-                                      closure(f->h, futex_bh, f, current, ts),
+                                      contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, false);
         futex_unlock(f);
         return rv;
@@ -315,7 +315,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             rv = -EAGAIN;
         else
             rv = blockq_check_timeout(f->bq, current,
-                                      closure(f->h, futex_bh, f, current, ts),
+                                      contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, true);
         futex_unlock(f);
         return rv;

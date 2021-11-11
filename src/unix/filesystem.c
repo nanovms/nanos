@@ -142,7 +142,7 @@ closure_function(2, 2, void, fs_op_complete,
 
     bound(f)->length = fsfile_get_length(fsf);
     fdesc_put(&bound(f)->f);
-    syscall_return(t, ret);
+    syscall_return(t, ret);     /* returns on kernel context */
     closure_finish();
 }
 
@@ -309,18 +309,17 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
         goto out;
     }
 
-    heap h = heap_locked(get_kernel_heaps());
     file f = (file) desc;
     switch (mode) {
     case 0:
     case FALLOC_FL_KEEP_SIZE:
         filesystem_alloc(f->fsf, offset, len,
                 mode == FALLOC_FL_KEEP_SIZE,
-                closure(h, fs_op_complete, current, f));
+                contextual_closure(fs_op_complete, current, f));
         break;
     case FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE:
         filesystem_dealloc(f->fsf, offset, len,
-                closure(h, fs_op_complete, current, f));
+                contextual_closure(fs_op_complete, current, f));
         break;
     default:
         rv = -EINVAL;

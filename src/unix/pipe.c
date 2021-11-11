@@ -184,8 +184,7 @@ closure_function(1, 6, sysreturn, pipe_read,
     if (length == 0)
         return io_complete(completion, t, 0);
 
-    blockq_action ba = closure(pf->pipe->h, pipe_read_bh, pf, t, dest, length,
-                               completion);
+    blockq_action ba = contextual_closure(pipe_read_bh, pf, t, dest, length, completion);
     return blockq_check(pf->bq, t, ba, bh);
 }
 
@@ -244,8 +243,7 @@ closure_function(1, 6, sysreturn, pipe_write,
         return io_complete(completion, t, 0);
 
     pipe_file pf = bound(pf);
-    blockq_action ba = closure(pf->pipe->h, pipe_write_bh, pf, t, dest, length,
-            completion);
+    blockq_action ba = contextual_closure(pipe_write_bh, pf, t, dest, length, completion);
     return blockq_check(pf->bq, t, ba, bh);
 }
 

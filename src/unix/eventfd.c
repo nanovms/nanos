@@ -80,8 +80,8 @@ closure_function(1, 6, sysreturn, efd_read,
         return io_complete(completion, t, -EINVAL);
     }
 
-    blockq_action ba = closure(bound(efd)->h, efd_read_bh, bound(efd), t, buf, length,
-            completion);
+    blockq_action ba = contextual_closure(efd_read_bh, bound(efd), t, buf, length,
+                                          completion);
     return blockq_check(bound(efd)->read_bq, t, ba, bh);
 }
 
@@ -127,8 +127,8 @@ closure_function(1, 6, sysreturn, efd_write,
         return io_complete(completion, t, -EINVAL);
     }
 
-    blockq_action ba = closure(bound(efd)->h, efd_write_bh, bound(efd), t, buf, length,
-            completion);
+    blockq_action ba = contextual_closure(efd_write_bh, bound(efd), t, buf, length,
+                                          completion);
     return blockq_check(bound(efd)->write_bq, t, ba, bh);
 }
 

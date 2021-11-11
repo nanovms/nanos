@@ -391,19 +391,15 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
         epoll_debug("   user_events null or full\n");
         return;
     }
-    thread old = current;
-    thread_resume(w->t);
+    context saved_context = context_switch_light(&w->t->context);
     struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
     e->data = efd->data;
     e->events = report;
     w->user_events->end += sizeof(struct epoll_event);
-    spin_unlock(&w->lock);
-    if (old)
-        thread_resume(old);
-    else
-        thread_pause(current);
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
-
+    context_switch_light(saved_context);
+    spin_unlock(&w->lock);
+    
     /* XXX check this */
     if (efd->eventmask & EPOLLONESHOT)
         efd->zombie = true;
@@ -546,7 +542,7 @@ sysreturn epoll_wait(int epfd,
 
     timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, epoll_wait_bh, w, current,
+                                contextual_closure(epoll_wait_bh, w, current,
                                 (timeout < 0) ? infinity : ts), false,
                                 CLOCK_ID_MONOTONIC, ts, false);
 }
@@ -877,7 +873,7 @@ static sysreturn select_internal(int nfds,
     spin_unlock(&e->fds_lock);
   check_timeout:
     return blockq_check_timeout(wt->t->thread_bq, current,
-                                closure(e->h, select_bh, wt, current, timeout), false,
+                                contextual_closure(select_bh, wt, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
@@ -1029,7 +1025,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     deallocate_bitmap(remove_efds);
 
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, poll_bh, w, current, timeout), false,
+                                contextual_closure(poll_bh, w, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 

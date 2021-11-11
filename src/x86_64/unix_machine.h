@@ -54,6 +54,7 @@ struct epoll_event {
 #define SYSCALL_FRAME_RETVAL1    FRAME_RAX
 #define SYSCALL_FRAME_RETVAL2    FRAME_RDX
 #define SYSCALL_FRAME_SP         FRAME_RSP
+#define SYSCALL_FRAME_SP_TOP     FRAME_STACK_TOP
 #define SYSCALL_FRAME_PC         FRAME_RIP
 
 #define UC_FP_XSTATE            0x1
@@ -202,17 +203,17 @@ static inline pageflags pageflags_from_vmflags(u64 vmflags)
     return flags;
 }
 
-static inline void set_tls(context f, u64 tls)
+static inline void set_tls(context_frame f, u64 tls)
 {
     f[FRAME_FSBASE] = tls;
 }
 
-static inline void syscall_restart_arch_setup(context f)
+static inline void syscall_restart_arch_setup(context_frame f)
 {
     f[FRAME_SAVED_RAX] = f[FRAME_VECTOR];
 }
 
-static inline void syscall_restart_arch_fixup(context f)
+static inline void syscall_restart_arch_fixup(context_frame f)
 {
     f[FRAME_RAX] = f[FRAME_SAVED_RAX];
     f[FRAME_RIP] -= 2; /* rewind to syscall */
