@@ -236,8 +236,7 @@ out:
     unixsock_unlock(s);
     if (read_done)
         unixsock_notify_writer(s);
-    blockq_handle_completion(s->sock.rxbq, flags, bound(completion), bound(t),
-            rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -352,8 +351,7 @@ out:
         unixsock_notify_reader(dest);
     if (full)   /* no more space available to write */
         fdesc_notify_events(&s->sock.f);
-    blockq_handle_completion(dest->sock.txbq, flags, bound(completion), bound(t),
-            rv);
+    apply(bound(completion), bound(t), rv);
     refcount_release(&dest->refcount);
     closure_finish();
     return rv;

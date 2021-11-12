@@ -45,45 +45,21 @@
 #define blockq_lock(bq) spin_lock(&bq->lock)
 #define blockq_unlock(bq) spin_unlock(&bq->lock)
 
-/* This applies a blockq action after it has been removed from the
-   waiters list. If the action indicates that waiting should continue,
-   it re-adds the thread to the waiter list and returns false. If the
-   action was terminal, it releases the thread and returns true. */
-static boolean blockq_apply(blockq bq, thread t, u64 bq_flags)
+// basically this would all have to turn async
+
+/* This applies a blockq action after it has been removed from the waiters
+   list. If the action cannot wake the thread and must continue blocking, it
+   needs to re-add itself to the queue (and reinstate any remaining timeout). */
+static void blockq_apply(blockq bq, thread t, u64 bq_flags)
 {
-    sysreturn rv;
-    boolean terminal;
     blockq_debug("bq %p (\"%s\") tid:%ld %s %s %s\n",
                  bq, blockq_name(bq), t->tid,
                  (bq_flags & BLOCKQ_ACTION_BLOCKED) ? "blocked " : "",
                  (bq_flags & BLOCKQ_ACTION_NULLIFY) ? "nullify " : "",
                  (bq_flags & BLOCKQ_ACTION_TIMEDOUT) ? "timedout" : "");
 
-    thread ot = current;
-    thread_resume(t);
     assert(t->blocked_on == bq);
-    rv = apply(t->bq_action, bq_flags);
-    blockq_debug("   - returned %ld\n", rv);
-    if ((bq_flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) ||
-        (rv != BLOCKQ_BLOCK_REQUIRED)) {
-        blockq_debug("   completed\n");
-
-        io_completion completion = t->bq_completion;
-        if (completion) {
-            t->bq_completion = 0;
-            apply(completion, t, t->bq_completion_rv);
-        }
-        thread_release(t);
-        terminal = true;
-    } else {
-        blockq_lock(bq);
-        list_insert_before(&bq->waiters_head, &t->bq_l);
-        blockq_unlock(bq);
-        terminal = false;
-    }
-    if (ot)
-        thread_resume(ot);
-    return terminal;
+    async_apply_1((async_1)t->bq_action, bhqueue_async_1, (void *)bq_flags); /* retval ignored */
 }
 
 /* A blockq_thread timed out. */
@@ -104,6 +80,11 @@ define_closure_function(2, 2, void, blockq_thread_timeout,
         blockq_apply(bq, t, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_TIMEDOUT);
     }
 }
+
+/* XXX Note semantic changes:
+   - bh actions need to reschedule themselves and restart time if cannot wake
+     - suspect there are no real cases of this yet
+*/
 
 /* Called with bq and thread locks taken, returns with them released. */
 static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_flags)
@@ -129,13 +110,8 @@ static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_fl
         t->interrupting_syscall = true;
     thread_unlock(t);
     blockq_unlock(bq);
-    boolean terminal = blockq_apply(bq, t, bq_flags);
-    if (!terminal && timer_pending) {
-        t->bq_timer_pending = true;
-        register_timer(kernel_timers, &t->bq_timer, t->bq_timer.id,
-                       remain, false, 0, (timer_handler)&t->bq_timeout_func);
-    }
-    return terminal;
+    blockq_apply(bq, t, bq_flags);
+    return true;
   unlock_fail:
     thread_unlock(t);
     blockq_unlock(bq);
@@ -144,8 +120,11 @@ static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_fl
 
 /* Wake a single waiter, returning the thread whose action was applied
 
-   Note that there is no guarantee that a thread was actually awoken; this
-   just means an action was applied. */
+   Note that a returned thread does not necessarily mean that the thread was
+   actually awoken; this just means an action was applied. However, if the bh
+   action will always wake a thread on a call in blocked state, it can be
+   assumed the returned thread was awoken (e.g. futex_bh) */
+
 thread blockq_wake_one(blockq bq)
 {
     blockq_debug("%p (\"%s\") \n", bq, blockq_name(bq));
@@ -154,8 +133,8 @@ thread blockq_wake_one(blockq bq)
     if (l) {
         thread t = struct_from_list(l, thread, bq_l);
         thread_lock(t);
-        return blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED) ?
-            t : INVALID_ADDRESS;
+        blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED);
+        return t;
     }
     blockq_unlock(bq);
     return INVALID_ADDRESS;
@@ -279,22 +258,12 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handle
     return transferred;
 }
 
-void blockq_set_completion(blockq bq, io_completion completion, thread t, sysreturn rv)
-{
-    assert(!t->bq_completion);
-    assert(bq == t->blocked_on);
-    t->bq_completion = completion;
-    t->bq_completion_rv = rv;
-}
-
 void blockq_thread_init(thread t)
 {
     t->bq_timer_pending = false;
     init_timer(&t->bq_timer);
     t->bq_action = 0;
     t->bq_l.prev = t->bq_l.next = 0;
-    t->bq_completion = 0;
-    t->bq_completion_rv = 0;
 }
 
 define_closure_function(1, 0, void, free_blockq,

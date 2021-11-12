@@ -184,8 +184,8 @@ static inline void service_async_1(queue q)
 {
     struct applied_async_1 aa;
     while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64)), aa.a != INVALID_ADDRESS) {
-        sched_debug(" run: %F arg0: 0x%lx status: %v\n",
-                    aa, state_strings[current_cpu()->state], aa->arg0);
+        sched_debug(" run: %F state: %s arg0: 0x%lx\n",
+                    aa.a, state_strings[current_cpu()->state], aa.arg0);
         apply(aa.a, aa.arg0);
     }
 }
@@ -198,13 +198,17 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     sched_thread_pause();
     disable_interrupts();
-    sched_debug("runloop from %s b:%d r:%d t:%d%s\n", state_strings[ci->state],
-                queue_length(bhqueue), queue_length(runqueue), queue_length(ci->thread_queue),
+    sched_debug("runloop from %s c: %d  ba1: %d  ra1: %d  \n"
+                "    b:%d  r:%d  t:%d%s\n", state_strings[ci->state],
+                queue_length(ci->cpu_queue), queue_length(bhqueue_async_1),
+                queue_length(runqueue_async_1), queue_length(bhqueue),
+                queue_length(runqueue), queue_length(ci->thread_queue),
                 ci->have_kernel_lock ? " locked" : "");
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();
 
+  retry:
     /* queue for cpu specific operations */
     while ((t = dequeue(ci->cpu_queue)) != INVALID_ADDRESS)
         run_thunk(t);
@@ -287,6 +291,15 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
             run_thunk(t);
         }
     }
+
+    /* We want to pick up items that were enqueued during this last pass, else
+       runnable items may get stuck waiting for the next interrupt.
+
+       Find cost of sleep / wakeup and consider spinning this check for that interval. */
+    if (queue_length(ci->cpu_queue) || queue_length(bhqueue_async_1) ||
+        queue_length(runqueue_async_1) || queue_length(bhqueue) ||
+        queue_length(runqueue) || (!shutting_down && queue_length(ci->thread_queue)))
+        goto retry;
 
     sched_thread_pause();
     kernel_sleep();

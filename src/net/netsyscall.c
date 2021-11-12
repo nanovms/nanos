@@ -470,7 +470,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
     rv = xfer_total;
   out:
     net_debug("   completion %p, rv %ld\n", completion, rv);
-    blockq_handle_completion(s->sock.rxbq, bqflags, completion, t, rv);
+    apply(completion, t, rv);
     return rv;
 }
 
@@ -634,7 +634,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
     }
   out:
     net_debug("   completion %p, rv %ld\n", completion, rv);
-    blockq_handle_completion(s->sock.txbq, bqflags, completion, t, rv);
+    apply(completion, t, rv);
     return rv;
 }
 

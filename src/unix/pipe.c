@@ -170,7 +170,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
     if (rv > 0)
         pipe_notify_writer(pf, EPOLLOUT);
   out:
-    blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -231,7 +231,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     if (rv > 0)
         pipe_notify_reader(pf, EPOLLIN);
   out:
-    blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }

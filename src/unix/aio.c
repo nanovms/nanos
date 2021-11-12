@@ -304,7 +304,6 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_BLOCKED)
         aio_lock(aio);
-    blockq bq = aio->bq;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out;
@@ -341,7 +340,7 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
 out:
     aio->bq = 0;
     aio_unlock(aio);
-    blockq_handle_completion(bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     refcount_release(&aio->refcount);
     return rv;

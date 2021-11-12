@@ -193,8 +193,6 @@ static inline const char * blockq_name(blockq bq)
 thread blockq_wake_one(blockq bq);
 boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify);
 void blockq_flush(blockq bq);
-void blockq_set_completion(blockq bq, io_completion completion, thread t,
-                           sysreturn rv);
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
                                clock_id id, timestamp timeout, boolean absolute);
 int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handler handler);
@@ -202,17 +200,6 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handle
 static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
 {
     return blockq_check_timeout(bq, t, a, in_bh, 0, 0, false);
-}
-
-static inline void blockq_handle_completion(blockq bq, u64 bq_flags, io_completion completion, thread t, sysreturn rv)
-{
-    if (!completion)
-        return;
-    if (bq_flags & BLOCKQ_ACTION_BLOCKED) {
-        blockq_set_completion(bq, completion, t, rv);
-    } else {
-        apply(completion, t, rv);
-    }
 }
 
 /* pending and masked signals for a given thread or process */
@@ -311,8 +298,6 @@ typedef struct thread {
     closure_struct(blockq_thread_timeout, bq_timeout_func);
     blockq_action bq_action;  /* action to check for wake, timeout or abort */
     struct list bq_l;         /* embedding on blockq->waiters_head */
-    io_completion bq_completion;
-    sysreturn bq_completion_rv;
 
     /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
     blockq blocked_on;

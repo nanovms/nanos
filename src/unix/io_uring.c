@@ -256,7 +256,6 @@ closure_function(3, 1, sysreturn, iour_close_bh,
                  u64, flags)
 {
     io_uring iour = bound(iour);
-    blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -ERESTARTSYS;
@@ -273,7 +272,7 @@ closure_function(3, 1, sysreturn, iour_close_bh,
     iour_release(iour);
     rv = 0;
 out:
-    blockq_handle_completion(bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     iour_debug("returning %d", rv);
     return rv;
@@ -1043,7 +1042,6 @@ simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
     io_uring iour = bound(iour);
     if (flags & BLOCKQ_ACTION_BLOCKED)
         iour_lock(iour);
-    blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         if (bound(submitted))
@@ -1071,7 +1069,7 @@ out:
     thread t = bound(t);
     if (bound(sig_set))
         t->signal_mask = iour->sigmask;
-    blockq_handle_completion(bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     iour_debug("returning %d", rv);
     fdesc_put(&iour->f);

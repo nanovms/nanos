@@ -514,7 +514,7 @@ unlock:
     if (lock)
         nl_unlock(s);
 out:
-    blockq_handle_completion(s->sock.rxbq, bqflags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }

@@ -872,7 +872,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
     rv = ninfos * sizeof(struct signalfd_siginfo);
     sig_debug("   %d infos, %ld bytes\n", ninfos, rv);
   out:
-    blockq_handle_completion(sfd->bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     return rv;
 }

@@ -159,7 +159,7 @@ closure_function(5, 1, sysreturn, tun_read_bh,
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:
-    blockq_handle_completion(tf->bq, flags, bound(completion), bound(t), ret);
+    apply(bound(completion), bound(t), ret);
     if (queue_empty(tf->pq))
         notify_events(&tf->f->f);
     closure_finish();
