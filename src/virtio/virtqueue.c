@@ -101,8 +101,7 @@ typedef struct virtqueue {
     u16 desc_idx;               /* head of descriptor free list */
     u16 last_used_idx;          /* irq only */
     struct list msg_queue;
-    queue service_queue;
-    thunk service;
+    struct list free_msgs;
     queue sched_queue;
     struct spinlock lock;
     vqmsg msgs[0];
@@ -112,25 +111,29 @@ typedef struct virtqueue {
 #define VQMSG_DEFAULT_SIZE     3
 vqmsg allocate_vqmsg(virtqueue vq)
 {
-    heap h = vq->dev->general;
-    vqmsg m = allocate(h, sizeof(struct vqmsg));
-    if (m == INVALID_ADDRESS)
-        return INVALID_ADDRESS;
+    vqmsg m;
+    u64 irqflags = spin_lock_irq(&vq->lock);
+    list l = list_get_next(&vq->free_msgs);
+    if (!l) {
+        spin_unlock_irq(&vq->lock, irqflags);
+        heap h = vq->dev->general;
+        m = allocate(h, sizeof(struct vqmsg));
+        if (m == INVALID_ADDRESS)
+            return INVALID_ADDRESS;
+        m->descv = allocate_buffer(h, sizeof(struct vring_desc) * VQMSG_DEFAULT_SIZE);
+        if (m->descv == INVALID_ADDRESS) {
+            deallocate(h, m, sizeof(struct vqmsg));
+            return INVALID_ADDRESS;
+        }
+    } else {
+        m = struct_from_list(l, vqmsg, l);
+        list_delete(l);
+        spin_unlock_irq(&vq->lock, irqflags);
+    }
     list_init(&m->l);
     m->count = 0;
-    m->descv = allocate_buffer(h, sizeof(struct vring_desc) * VQMSG_DEFAULT_SIZE);
-    if (m->descv == INVALID_ADDRESS) {
-        deallocate(h, m, sizeof(struct vqmsg));
-        return INVALID_ADDRESS;
-    }
     m->completion = 0;          /* fill on queue */
     return m;
-}
-
-void deallocate_vqmsg(virtqueue vq, vqmsg m)
-{
-    deallocate_buffer(m->descv);
-    deallocate(vq->dev->general, m, sizeof(struct vqmsg));
 }
 
 void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
@@ -169,9 +172,6 @@ closure_function(1, 0, void, vq_interrupt,
     virtqueue_debug_verbose("%s: ENTRY: vq %s: entries %d, last_used_idx %d, used->idx %d, desc_idx %d\n",
         __func__, vq->name, vq->entries, vq->last_used_idx, vq->used->idx, vq->desc_idx);
     
-    int processed = 0;
-    struct list q;
-    list_init(&q);
     spin_lock(&vq->lock);
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
@@ -192,50 +192,21 @@ closure_function(1, 0, void, vq_interrupt,
         vq->desc_idx = head;
 
         vq->last_used_idx++;
-        processed++;
         fetch_and_add(&vq->free_cnt, m->count);
         m->len = uep->len;
         vq->msgs[head] = 0;
         virtqueue_debug("add msg %p\n", m);
-        if (0 && vq->sched_queue == runqueue) {
-            async_apply_1(m->completion, runqueue_async_1, (void*)m->len);
-        }
-        list_insert_before(&q, &m->l);
+
+        /* kludge will go away with move to singular async queue on final kern lock removal */
+        async_apply_1(m->completion, vq->sched_queue == runqueue ? runqueue_async_1 : bhqueue_async_1, (void*)m->len);
+
+        /* TODO should probably observe a limit / drain method here */
+        list_insert_before(&vq->free_msgs, &m->l);
     }
     virtqueue_fill(vq);
-    virtqueue_debug("%s: EXIT: vq %s: processed %d, last_used_idx %d, desc_idx %d\n",
-        __func__, vq->name, processed, vq->last_used_idx, vq->desc_idx);
+    virtqueue_debug("%s: EXIT: vq %s: last_used_idx %d, desc_idx %d\n",
+                    __func__, vq->name, vq->last_used_idx, vq->desc_idx);
     spin_unlock(&vq->lock);
-
-    if (processed > 0) {
-        /* a little trick ... collapse the list head for queueing */
-        list l = list_get_next(&q);
-        assert(l);
-        list_delete(&q);
-        assert(enqueue(vq->service_queue, l));
-        enqueue(vq->sched_queue, vq->service);
-    }
-}
-
-closure_function(1, 0, void, virtqueue_service_vqmsgs,
-                 virtqueue, vq)
-{
-    virtqueue vq = bound(vq);
-    virtqueue_debug("%s enter, vq %s\n", __func__, vq->name);
-    list l;
-    while ((l = (list)dequeue(vq->service_queue)) != INVALID_ADDRESS) {
-        struct list q;
-        list_insert_before(l, &q);
-        list_foreach(&q, p) {
-            vqmsg m = struct_from_list(p, vqmsg, l);
-            virtqueue_debug("  msg %p, completion %F, len %ld\n", m, m->completion, m->len);
-//            if (vq->sched_queue != runqueue)
-                apply(m->completion, m->len);
-            list_delete(p);
-            deallocate_vqmsg(vq, m);
-        }
-    }
-    virtqueue_debug("%s exit\n", __func__);
 }
 
 status virtqueue_alloc(vtdev dev,
@@ -266,9 +237,7 @@ status virtqueue_alloc(vtdev dev,
     vq->entries = size;
     vq->free_cnt = size;
     list_init(&vq->msg_queue);
-    vq->service_queue = allocate_queue(dev->general, 1024);
-    assert(vq->service_queue != INVALID_ADDRESS);
-    vq->service = closure(dev->general, virtqueue_service_vqmsgs, vq);
+    list_init(&vq->free_msgs);
     vq->sched_queue = sched_queue;
     spin_lock_init(&vq->lock);
 
