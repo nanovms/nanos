@@ -200,8 +200,7 @@ static void setup_thread_frame(heap h, context frame, thread t)
     frame[FRAME_FAULT_HANDLER] = u64_from_pointer(&t->fault_handler);
     frame[FRAME_QUEUE] = u64_from_pointer(current_cpu()->thread_queue);
 #ifdef __x86_64__
-    frame[FRAME_IS_SYSCALL] = 1;
-    frame[FRAME_CS] = 0x2b; // where is this defined?
+    frame[FRAME_CS] = 0x2b & ~1; // CS 0x28 + CPL 3 but clear bit 0 to indicate syscall
 #endif
 #ifdef __aarch64__
     frame[FRAME_EL] = 0;

@@ -42,12 +42,11 @@
 
 #define FRAME_CR2 30
 #define FRAME_RUN 31 /*dont like this construction */
-#define FRAME_IS_SYSCALL 32 
-#define FRAME_QUEUE 33
-#define FRAME_FULL 34 
-#define FRAME_THREAD 35
-#define FRAME_HEAP 36
-#define FRAME_SAVED_RAX 37
-#define FRAME_MAX 38
+#define FRAME_QUEUE 32
+#define FRAME_FULL 33
+#define FRAME_THREAD 34
+#define FRAME_HEAP 35
+#define FRAME_SAVED_RAX 36
+#define FRAME_MAX 37
 #define FRAME_EXTENDED_SAVE 40
 
