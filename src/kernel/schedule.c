@@ -22,8 +22,10 @@ BSS_RO_AFTER_INIT static int wakeup_vector;
 BSS_RO_AFTER_INIT int shutdown_vector;
 boolean shutting_down;
 
-BSS_RO_AFTER_INIT queue runqueue;   /* kernel space from ?*/
-BSS_RO_AFTER_INIT queue bhqueue;    /* kernel from interrupt */
+BSS_RO_AFTER_INIT queue bhqueue;                  /* kernel from interrupt */
+BSS_RO_AFTER_INIT queue bhqueue_async_1;          /* queue of async 1 arg completions */
+BSS_RO_AFTER_INIT queue runqueue;
+BSS_RO_AFTER_INIT queue runqueue_async_1;
 BSS_RO_AFTER_INIT bitmap idle_cpu_mask;
 
 BSS_RO_AFTER_INIT timerqueue kernel_timers;
@@ -68,9 +70,6 @@ static void run_thunk(thunk t)
 {
     sched_debug(" run: %F state: %s\n", t, state_strings[current_cpu()->state]);
     apply(t);
-    // do we want to enforce this? i kinda just want to collapse
-    // the stack and ensure that the thunk actually wanted to come back here
-    //    halt("handler returned %d", cpustate);
 }
 
 static inline void sched_thread_pause(void)
@@ -180,6 +179,16 @@ closure_function(0, 0, void, timer_interrupt_handler_fn)
     schedule_timer_service();
 }
 
+static inline void service_async_1(queue q)
+{
+    struct applied_async_1 aa;
+    while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64)), aa.a != INVALID_ADDRESS) {
+        sched_debug(" run: %F arg0: 0x%lx status: %v\n",
+                    aa, state_strings[current_cpu()->state], aa->arg0);
+        apply(aa.a, aa.arg0);
+    }
+}
+
 // should we ever be in the user frame here? i .. guess so?
 NOTRACE void __attribute__((noreturn)) runloop_internal()
 {
@@ -198,6 +207,10 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     /* queue for cpu specific operations */
     while ((t = dequeue(ci->cpu_queue)) != INVALID_ADDRESS)
         run_thunk(t);
+
+    /* serve deferred status_handlers, some of which may not return */
+    service_async_1(bhqueue_async_1);
+
     /* bhqueue is for operations outside the realm of the kernel lock,
        e.g. storage I/O completions */
     while ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
@@ -206,6 +219,8 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
     if (kern_try_lock()) {
         /* invoke expired timer callbacks */
         ci->state = cpu_kernel;
+
+        service_async_1(runqueue_async_1);
 
         while ((t = dequeue(runqueue)) != INVALID_ADDRESS)
             run_thunk(t);
@@ -301,8 +316,11 @@ void init_scheduler(heap h)
     assert(wakeup_vector != INVALID_PHYSICAL);
 
     /* scheduling queues init */
-    runqueue = allocate_queue(h, 2048);
+    // XXX configs
     bhqueue = allocate_queue(h, 2048);
+    bhqueue_async_1 = allocate_queue(h, 8192);
+    runqueue = allocate_queue(h, 2048);
+    runqueue_async_1 = allocate_queue(h, 8192);
     shutting_down = false;
 }
 

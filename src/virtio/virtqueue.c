@@ -197,6 +197,9 @@ closure_function(1, 0, void, vq_interrupt,
         m->len = uep->len;
         vq->msgs[head] = 0;
         virtqueue_debug("add msg %p\n", m);
+        if (0 && vq->sched_queue == runqueue) {
+            async_apply_1(m->completion, runqueue_async_1, (void*)m->len);
+        }
         list_insert_before(&q, &m->l);
     }
     virtqueue_fill(vq);
@@ -226,7 +229,8 @@ closure_function(1, 0, void, virtqueue_service_vqmsgs,
         list_foreach(&q, p) {
             vqmsg m = struct_from_list(p, vqmsg, l);
             virtqueue_debug("  msg %p, completion %F, len %ld\n", m, m->completion, m->len);
-            apply(m->completion, m->len);
+//            if (vq->sched_queue != runqueue)
+                apply(m->completion, m->len);
             list_delete(p);
             deallocate_vqmsg(vq, m);
         }
