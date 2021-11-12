@@ -2,7 +2,9 @@
 
 #define apply(__c, ...) (*(__c))((void *)(__c), ## __VA_ARGS__)
 
-#define __closure(__h, __p, __s, __name, ...)    \
+#define async_apply(__t, __c, ...) async_apply_##__t(__c, ## __VA_ARGS__)
+
+#define __closure(__h, __p, __s, __name, ...)           \
     _fill_##__name(__h, __p, __s, ##__VA_ARGS__)
 
 #define closure_alloc(__h, __name, __var)   do {                \

@@ -179,11 +179,26 @@ void syscall_enter(void);
         return r;                                       \
     }
 
+#define _IRQSAFE_3(rtype, name, t0, t1, t2)                     \
+    static inline rtype name ## _irqsafe (t0 a0, t1 a1, t2 a2)  \
+    {                                                           \
+        u64 flags = irq_disable_save();                         \
+        rtype r = name(a0, a1, a2);                             \
+        irq_restore(flags);                                     \
+        return r;                                               \
+    }
+
 _IRQSAFE_2(boolean, enqueue, queue, void *);
 _IRQSAFE_2(boolean, enqueue_single, queue, void *);
 
 _IRQSAFE_1(void *, dequeue, queue);
 _IRQSAFE_1(void *, dequeue_single, queue);
+
+_IRQSAFE_3(boolean, enqueue_n, queue, void *, int);
+_IRQSAFE_3(boolean, enqueue_n_single, queue, void *, int);
+
+_IRQSAFE_3(boolean, dequeue_n, queue, void **, int);
+_IRQSAFE_3(boolean, dequeue_n_single, queue, void **, int);
 
 /* may not need irqsafe variants of these ... but it doesn't hurt to add */
 _IRQSAFE_1(u64, queue_length, queue);
@@ -209,7 +224,9 @@ static inline void spin_lock_2(spinlock l1, spinlock l2)
 
 typedef struct queue *queue;
 extern queue bhqueue;
+extern queue bhqueue_async_1;
 extern queue runqueue;
+extern queue runqueue_async_1;
 extern timerqueue kernel_timers;
 extern thunk timer_interrupt_handler;
 
@@ -340,3 +357,22 @@ extern halt_handler vm_halt;
 void early_debug(const char *s);
 void early_debug_u64(u64 n);
 void early_dump(void *p, unsigned long length);
+
+#ifdef KERNEL
+typedef closure_type(async_1, void, u64);
+
+typedef struct applied_async_1 {
+    async_1 a;
+    u64 arg0;
+} *applied_async_1;
+
+static inline boolean async_apply_1(async_1 a, queue q, void *arg0)
+{
+    struct applied_async_1 aa;
+    aa.a = a;
+    aa.arg0 = u64_from_pointer(arg0);
+    return enqueue_n_irqsafe(q, &aa, sizeof(aa) / sizeof(u64));
+}
+
+#define async_apply_status_handler async_apply_1
+#endif
