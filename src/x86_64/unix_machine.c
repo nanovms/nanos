@@ -157,7 +157,6 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     /* setup regs for signal handler */
     f[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
     f[FRAME_RDI] = signum;
-    f[FRAME_IS_SYSCALL] = 1;
 }
 
 /*

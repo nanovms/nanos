@@ -115,7 +115,6 @@ xsave:
         mov [rbx+FRAME_RBX*8], rax
         pop rax            ; vector
         mov [rbx+FRAME_VECTOR*8], rax
-        mov qword [rbx+FRAME_IS_SYSCALL*8], 0
         save_extended_registers rbx
 %endmacro
 
@@ -169,9 +168,11 @@ global frame_return
 frame_return:
         mov [gs:8], rdi         ; save to ci->running_frame
         mov qword [rdi+FRAME_FULL*8], 0
-        ; really flags
-        test qword [rdi+FRAME_IS_SYSCALL*8], 1
-        jne syscall_return
+        ; check for syscall (CS CPL==2)
+        mov al, [rdi+FRAME_CS*8]
+        and al, 3
+        cmp al, 2
+        je syscall_return
 
         push qword [rdi+FRAME_SS*8]    ; ss
         push qword [rdi+FRAME_RSP*8]   ; rsp
@@ -256,7 +257,7 @@ syscall_enter:
         mov [rdi+FRAME_RSP*8], rsp
         mov rax, [gs:24]
         mov qword [rdi+FRAME_RDI*8], rax
-        mov qword [rdi+FRAME_IS_SYSCALL*8], 1
+        and byte [rdi+FRAME_CS*8], ~1     ; clear low bit of CS to indicate syscall (CPL==2)
         save_extended_registers rdi
         mov rax, syscall        ; (running_frame, call)
         mov rax, [rax]
@@ -271,6 +272,8 @@ syscall_enter:
 
 ;; must follow syscall_enter
 syscall_return:
+        ; set CPL 3
+        or byte [rdi+FRAME_CS*8], 3
         ;; XXX lazy?
         load_seg_base FRAME_FSBASE
         load_seg_base FRAME_GSBASE
