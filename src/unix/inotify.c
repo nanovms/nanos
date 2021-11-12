@@ -118,7 +118,7 @@ closure_function(5, 1, sysreturn, inotify_read_bh,
     else if (empty)
         notify_dispatch(in->f.ns, 0);
 out:
-    blockq_handle_completion(in->bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }

@@ -525,7 +525,7 @@ closure_function(1, 1, sysreturn, rt_sigsuspend_bh,
     }
 
     sig_debug("-> block\n");
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
 }
 
 sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
@@ -713,7 +713,7 @@ closure_function(1, 1, sysreturn, pause_bh,
     }
 
     sig_debug("-> block\n");
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
 }
 
 /* aarch64: may be invoked directly from ppoll(2) */
@@ -754,7 +754,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
             return BLOCKQ_BLOCK_REQUIRED;
         } else {
             /* XXX record spurious wakeups? */
-            rv = nullify ? -EINTR : BLOCKQ_BLOCK_REQUIRED;
+            rv = nullify ? -EINTR : blockq_block_required(t, flags);
         }
     } else {
         if (bound(info))
@@ -858,7 +858,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
                     goto out;
                 }
                 sig_debug("   -> block\n");
-                return BLOCKQ_BLOCK_REQUIRED;
+                return blockq_block_required(t, flags);
             }
             break;
         }
@@ -872,7 +872,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
     rv = ninfos * sizeof(struct signalfd_siginfo);
     sig_debug("   %d infos, %ld bytes\n", ninfos, rv);
   out:
-    blockq_handle_completion(sfd->bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     return rv;
 }

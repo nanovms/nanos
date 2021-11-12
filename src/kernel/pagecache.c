@@ -143,7 +143,6 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
             assert(old_state == PAGECACHE_PAGESTATE_ALLOC);
             pagelist_enqueue(&pc->writing, pp);
         }
-        pp->write_count++;
         break;
     case PAGECACHE_PAGESTATE_NEW:
         if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
@@ -177,60 +176,20 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
         ((u64)state << PAGECACHE_PAGESTATE_SHIFT);
 }
 
-#ifdef KERNEL
-define_closure_function(2, 0, void, pagecache_service_completions,
-                        pagecache, pc, pagecache_completion_queue, cq)
-{
-    /* we don't need the pagecache lock here; flag reset is atomic and dequeue is safe */
-    pagecache_completion_queue cq = bound(cq);
-    assert(cq->scheduled);
-    cq->scheduled = false;
-    page_completion head;
-    while ((head = dequeue(cq->q)) != INVALID_ADDRESS) {
-        list_foreach(&head->l, l) {
-            page_completion c = struct_from_list(l, page_completion, l);
-            assert(c->sh != INVALID_ADDRESS && c->sh != 0);
-            apply(c->sh, head->s);
-            list_delete(l);
-            deallocate(bound(pc)->completions, c, sizeof(*c));
-        }
-        deallocate(bound(pc)->completions, head, sizeof(*head));
-    }
-}
-
-static inline void queue_completions_locked_internal(pagecache pc, list head,
-                                                     pagecache_completion_queue cq,
-                                                     queue sched_queue, status s)
-{
-    if (list_empty(head))
-        return;
-    page_completion qhead = allocate(pc->completions, sizeof(*qhead));
-    assert(qhead != INVALID_ADDRESS);
-    qhead->s = s;
-    list_move(&qhead->l, head);
-    assert(enqueue(cq->q, qhead));
-    if (!cq->scheduled) {
-        cq->scheduled = true;
-        assert(enqueue_irqsafe(sched_queue, &cq->service));
-    }
-}
-
-static void pagecache_page_queue_completions_locked(pagecache pc, pagecache_page pp, status s)
-{
-    queue_completions_locked_internal(pc, &pp->bh_completions, &pc->bh_completions, bhqueue, s);
-}
-#else
 static void pagecache_page_queue_completions_locked(pagecache pc, pagecache_page pp, status s)
 {
     list_foreach(&pp->bh_completions, l) {
         page_completion c = struct_from_list(l, page_completion, l);
         assert(c->sh != INVALID_ADDRESS && c->sh != 0);
+#ifdef KERNEL
+        async_apply_1((async_1)c->sh, bhqueue_async_1, s);
+#else
         apply(c->sh, s);
+#endif
         list_delete(l);
-        deallocate(pc->h, c, sizeof(*c));
+        deallocate(pc->completions, c, sizeof(*c));
     }
 }
-#endif
 
 static void enqueue_page_completion_statelocked(pagecache pc, pagecache_page pp, status_handler sh)
 {
@@ -561,7 +520,9 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
             zero(pp->kvirt + offset, copy_len);
         }
         pagecache_lock_state(pc);
+        assert(page_state(pp) != PAGECACHE_PAGESTATE_READING);
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
+        pp->write_count++;
         pagecache_unlock_state(pc);
         offset = 0;
         block_offset = 0;
@@ -654,6 +615,9 @@ closure_function(1, 3, void, pagecache_write_sg,
                 apply(completion, timm("result", err));
                 return;
             }
+
+            /* set to writing state to begin queueing dependent operations */
+            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
 
             /* When writing a new page at the end of a node whose length is not page-aligned, zero
                the remaining portion of the page. The filesystem will depend on this to properly
@@ -921,6 +885,7 @@ static void pagecache_commit_dirty_pages(pagecache pc)
         sgb->refcount = &pp->refcount;
         refcount_reserve(&pp->refcount);
         change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
+        pp->write_count++;
         pagecache_unlock_state(pc);
 
         apply(pp->node->fs_write, sg,
@@ -1336,16 +1301,6 @@ static inline void page_list_init(struct pagelist *pl)
     pl->pages = 0;
 }
 
-#ifdef KERNEL
-static void init_pagecache_completion_queue(pagecache pc, struct pagecache_completion_queue *cq)
-{
-    cq->q = allocate_queue(pc->h, MAX_PAGE_COMPLETION_VECS);
-    assert(cq->q != INVALID_ADDRESS);
-    init_closure(&cq->service, pagecache_service_completions, pc, cq);
-    cq->scheduled = false;
-}
-#endif
-
 void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
 {
     pagecache pc = allocate(general, sizeof(struct pagecache));
@@ -1381,8 +1336,6 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     init_closure(&pc->page_print_key, pagecache_page_print_key, pc);
 
 #ifdef KERNEL
-    init_pagecache_completion_queue(pc, &pc->bh_completions);
-
     pc->scan_in_progress = false;
     init_timer(&pc->scan_timer);
     init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);

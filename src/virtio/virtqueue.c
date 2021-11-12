@@ -201,7 +201,7 @@ closure_function(1, 0, void, vq_interrupt,
         async_apply_1(m->completion, vq->sched_queue == runqueue ? runqueue_async_1 : bhqueue_async_1, (void*)m->len);
 
         /* TODO should probably observe a limit / drain method here */
-        list_insert_before(&vq->free_msgs, &m->l);
+        list_insert_after(&vq->free_msgs, &m->l);
     }
     virtqueue_fill(vq);
     virtqueue_debug("%s: EXIT: vq %s: last_used_idx %d, desc_idx %d\n",

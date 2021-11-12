@@ -418,7 +418,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;               /* back to chewing more cud */
+        return blockq_block_required(t, bqflags); /* back to chewing more cud */
     }
 
     if (src_addr) {
@@ -485,7 +485,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
     rv = xfer_total;
   out:
     net_debug("   completion %p, rv %ld\n", completion, rv);
-    blockq_handle_completion(s->sock.rxbq, bqflags, completion, t, rv);
+    apply(completion, t, rv);
     return rv;
 }
 
@@ -493,6 +493,7 @@ closure_function(8, 1, sysreturn, sock_read_bh,
                  netsock, s, thread, t, void *, dest, u64, length, int, flags, struct sockaddr *, src_addr, socklen_t *, addrlen, io_completion, completion,
                  u64, flags)
 {
+    thread_resume(bound(t));
     sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length),
         bound(flags), bound(src_addr), bound(addrlen), bound(completion), flags);
     if (rv != BLOCKQ_BLOCK_REQUIRED)
@@ -531,6 +532,7 @@ closure_function(6, 1, sysreturn, recvmsg_bh,
                  netsock, s, thread, t, void *, dest, u64, length, int, flags, struct msghdr *, msg,
                  u64, flags)
 {
+    thread_resume(bound(t));
     io_completion completion = closure(bound(s)->sock.h, recvmsg_complete,
                                        bound(s), bound(msg), bound(dest),
                                        bound(length));
@@ -604,7 +606,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
             goto out;
         } else {
             net_debug(" send buf full, sleep\n");
-            return BLOCKQ_BLOCK_REQUIRED;           /* block again */
+            return blockq_block_required(t, bqflags); /* block again */
         }
     }
 
@@ -649,7 +651,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
     }
   out:
     net_debug("   completion %p, rv %ld\n", completion, rv);
-    blockq_handle_completion(s->sock.txbq, bqflags, completion, t, rv);
+    apply(completion, t, rv);
     return rv;
 }
 
@@ -657,6 +659,7 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
                  netsock, s, thread, t, void *, buf, u64, remain, int, flags, io_completion, completion,
                  u64, bqflags)
 {
+    thread_resume(bound(t));
     sysreturn rv = socket_write_tcp_bh_internal(bound(s), bound(t), bound(buf), bound(remain),
         bound(flags), bound(completion), bqflags);
     if (rv != BLOCKQ_BLOCK_REQUIRED)
@@ -1352,6 +1355,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
     net_debug("sock %d, tcp state %d, thread %ld, lwip_status %d, flags 0x%lx\n",
               s->sock.fd, s->info.tcp.state, t->tid, err, flags);
 
+    thread_resume(bound(t));
     rv = lwip_to_errno(err);
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         if (rv == 0) {
@@ -1378,7 +1382,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
             rv = -EINPROGRESS;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, flags);
     }
     assert(s->info.tcp.state == TCP_SOCK_OPEN);
   out:
@@ -1646,6 +1650,7 @@ closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
     void * buf = bound(buf);
     u64 len = bound(len);
     struct mmsghdr * msgvec = bound(msgvec);
+    thread_resume(bound(t));
 
     io_completion completion = closure(s->sock.h, sendmmsg_buf_complete, s, buf,
             len);
@@ -1923,6 +1928,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     netsock s = bound(s);
     thread t = bound(t);
     sysreturn rv = 0;
+    thread_resume(bound(t));
 
     err_t err = get_lwip_error(s);
     net_debug("sock %d, target thread %ld, lwip err %d\n", s->sock.fd, t->tid,
@@ -1944,7 +1950,7 @@ closure_function(5, 1, sysreturn, accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;               /* block */
+        return blockq_block_required(t, bqflags);               /* block */
     }
 
     boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED);

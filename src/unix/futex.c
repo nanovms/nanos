@@ -62,10 +62,11 @@ static thread futex_wake_one(struct futex * f)
      * about to be placed in the blockq waiter list. */
     while (f->waiters) {
         t = blockq_wake_one(f->bq);
-        if (t == INVALID_ADDRESS)
-            kern_pause();
-        else
-            break;
+        if (t != INVALID_ADDRESS) {
+            assert(fetch_and_add(&f->waiters, -1) > 0);
+            return t;
+        }
+        kern_pause();
     }
 
     return t;
@@ -109,7 +110,7 @@ boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val)
  * to timeout/signal delivery/etc., or by another thread in sys_futex
  *
  * Return:
- *  BLOCKQ_BLOCK_REQUIRED: timer still active
+ *  BLOCKQ_BLOCK_REQUIRED: top half, going to block
  *  -ETIMEDOUT: if we timed out
  *  -EINTR: if we're being nullified
  *  0: thread woken up
@@ -122,18 +123,22 @@ closure_function(3, 1, sysreturn, futex_bh,
     struct futex *f = bound(f);
     sysreturn rv;
 
-    if (flags & BLOCKQ_ACTION_NULLIFY)
-        rv = bound(timeout) ? -EINTR : -ERESTARTSYS;
-    else if (flags & BLOCKQ_ACTION_TIMEDOUT)
-        rv = -ETIMEDOUT;
-    else if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
+    if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
         fetch_and_add(&f->waiters, 1);
         futex_unlock(bound(f));
         thread_log(t, "%s: struct futex: %p, blocking", __func__, bound(f));
         return BLOCKQ_BLOCK_REQUIRED;
-    } else
+    }
+
+    if (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) {
+        fetch_and_add(&f->waiters, -1);
+        if (flags & BLOCKQ_ACTION_NULLIFY)
+            rv = bound(timeout) ? -EINTR : -ERESTARTSYS;
+        else
+            rv = -ETIMEDOUT;
+    } else {
         rv = 0; /* no timer expire + not us --> actual wakeup */
-    assert(fetch_and_add(&f->waiters, -1) > 0);
+    }
 
     thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", __func__, bound(f), flags, rv);
     closure_finish();

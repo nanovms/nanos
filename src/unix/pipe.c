@@ -154,7 +154,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
             goto unlock;
         }
         pipe_unlock(pf->pipe);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
 
     buffer_read(b, bound(dest), rv);
@@ -170,7 +170,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
     if (rv > 0)
         pipe_notify_writer(pf, EPOLLOUT);
   out:
-    blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -217,7 +217,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
             goto unlock;
         }
         pipe_unlock(p);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
 
     u64 real_length = MIN(length, avail);
@@ -231,7 +231,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     if (rv > 0)
         pipe_notify_reader(pf, EPOLLIN);
   out:
-    blockq_handle_completion(pf->bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }

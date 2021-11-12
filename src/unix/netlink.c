@@ -454,7 +454,7 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         }
         if (lock)
             nl_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), bqflags);;
     }
     rv = 0;
     struct iovec *iov = 0;
@@ -514,7 +514,7 @@ unlock:
     if (lock)
         nl_unlock(s);
 out:
-    blockq_handle_completion(s->sock.rxbq, bqflags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
