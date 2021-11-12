@@ -29,7 +29,7 @@ typedef struct queue {
 #define _queue_assert(x) assert(x)
 #define _queue_pause kern_pause
 
-static inline boolean _enqueue_common(queue q, void *p, boolean multi)
+static inline boolean _enqueue_common(queue q, void *p, boolean multi, int n)
 {
     if (p == INVALID_ADDRESS)
         return false;
@@ -42,7 +42,7 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
     if (pc.head - pc.tail == size)
         return false; /* full */
     _queue_assert(pc.head - pc.tail < size);
-    next = pc.head + 1;
+    next = pc.head + n;
     if (multi) {
         if (!compare_and_swap_32((u32*)&q->prod_head, pc.head, next))
             goto retry;
@@ -50,8 +50,13 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
         q->prod_head = next;
     }
 
-    /* save data */
-    q->d[_queue_idx(q, pc.head)] = p;
+    /* p is value if single word, else buffer pointer */
+    // XXX check asm for inlining
+    void **dest = &q->d[_queue_idx(q, pc.head)];
+    if (n == 1)
+        *dest = p;
+    else
+        runtime_memcpy(dest, p, sizeof(u64) * n);
     write_barrier();
 
     /* multi-producer: wait for previous enqueues to commit */
@@ -65,18 +70,21 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi)
     return true;
 }
 
-static inline void * _dequeue_common(queue q, boolean multi)
+static inline void _dequeue_common(queue q, void **p, boolean multi, int n)
 {
     u32 next, size = _queue_size(q);
     union combined cc;
+    _queue_assert(n > 0 && (n & (n - 1)) == 0);
 
   retry:
     cc.w = q->cc.w;               /* cons_head, prod_tail */
 
-    if (cc.head == cc.tail)
-        return INVALID_ADDRESS; /* empty */
+    if (cc.head == cc.tail) {
+        *p = INVALID_ADDRESS;   /* empty */
+        return;
+    }
     _queue_assert(cc.tail - cc.head <= size);
-    next = cc.head + 1;
+    next = cc.head + n;
     if (multi) {
         if (!compare_and_swap_32((u32*)&q->cons_head, cc.head, next))
             goto retry;
@@ -85,7 +93,12 @@ static inline void * _dequeue_common(queue q, boolean multi)
     }
 
     /* retrieve data */
-    void *p = q->d[_queue_idx(q, cc.head)];
+    // XXX check asm for inlining
+    void **src = &q->d[_queue_idx(q, cc.head)];
+    if (n == 1)
+        *p = *src;
+    else
+        runtime_memcpy(p, src, sizeof(u64) * n);
     read_barrier();
 
     /* multi-consumer: wait for previous dequeues to commit */
@@ -96,31 +109,61 @@ static inline void * _dequeue_common(queue q, boolean multi)
 
     /* commit */
     q->cons_tail = next;
-    return p;
 }
 
 /* multi-producer by default */
 static inline boolean enqueue(queue q, void *p)
 {
-    return _enqueue_common(q, p, true);
+    return _enqueue_common(q, p, true, 1);
 }
 
 static inline boolean enqueue_single(queue q, void *p)
 {
-    return _enqueue_common(q, p, false);
+    return _enqueue_common(q, p, false, 1);
 }
 
 static inline void *dequeue(queue q)
 {
-    return _dequeue_common(q, true);
+    void *p;
+    _dequeue_common(q, &p, true, 1);
+    return p;
 }
 
 static inline void *dequeue_single(queue q)
 {
-    return _dequeue_common(q, false);
+    void *p;
+    _dequeue_common(q, &p, false, 1);
+    return p;
 }
 
-/* results for these are clearly transient without a lock on q */
+/* These are variants which take a unit size expressed in log2 of words.
+   Only use one size for a given queue. */
+static inline boolean enqueue_n(queue q, void *p, int n)
+{
+    _queue_assert(n > 1 && (n & (n - 1)) == 0);
+    return _enqueue_common(q, p, true, n);
+}
+
+static inline boolean enqueue_n_single(queue q, void *p, int n)
+{
+    _queue_assert(n > 1 && (n & (n - 1)) == 0);
+    return _enqueue_common(q, p, false, n);
+}
+
+static inline boolean dequeue_n(queue q, void **p, int n)
+{
+    _queue_assert(n > 1 && (n & (n - 1)) == 0);
+    _dequeue_common(q, p, true, n);
+    return *p != INVALID_ADDRESS;
+}
+
+static inline boolean dequeue_n_single(queue q, void **p, int n)
+{
+    _queue_assert(n > 1 && (n & (n - 1)) == 0);
+    _dequeue_common(q, p, false, n);
+    return *p != INVALID_ADDRESS;
+}
+
 static inline u64 queue_length(queue q)
 {
     return q->prod_tail - q->cons_head;

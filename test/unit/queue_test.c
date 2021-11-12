@@ -173,6 +173,33 @@ static inline u64 test_dequeue(queue q, boolean multi) {
     return (u64)(multi ? dequeue(q) : dequeue_single(q));
 }
 
+static void n_test(void)
+{
+    queuetest_debug("%s\n", multi ? "multi" : "single");
+    queue q = allocate_queue(test_heap, QUEUE_SIZE);
+    QUEUETEST_ASSERT(q != INVALID_ADDRESS);
+    void **buf = allocate(test_heap, QUEUE_SIZE * sizeof(u64));
+    for (int n = QUEUE_SIZE; n > 1; n >>= 1) {
+        int items = QUEUE_SIZE / n;
+        for (u64 x = 0; x < items; x++) {
+            for (int y = 0; y < n; y++)
+                buf[y] = (void *)x;
+            QUEUETEST_ASSERT(enqueue_n(q, buf, n));
+        }
+        for (u64 x = 0; x < items; x++) {
+            dequeue_n(q, buf, n);
+            QUEUETEST_ASSERT(buf[0] != INVALID_ADDRESS);
+            for (int y = 0; y < n; y++) {
+                QUEUETEST_ASSERT(buf[y] == (void *)x);
+            }
+        }
+    }
+    /* dequeue should fail here */
+    QUEUETEST_ASSERT(queue_empty(q));
+    QUEUETEST_ASSERT(queue_length(q) == 0);
+    deallocate_queue(q);
+}
+
 #define BASIC_TEST_RANDOM_PASSES 512
 static void basic_test(boolean multi)
 {
@@ -243,6 +270,7 @@ int main(int argc, char **argv)
     basic_test(false);
     basic_test(true);
     thread_test();
+    n_test();
     queuetest_debug("queue test passed\n");
     return EXIT_SUCCESS;
 }
