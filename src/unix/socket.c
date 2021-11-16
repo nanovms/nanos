@@ -175,6 +175,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
     sharedbuf shb;
     sysreturn rv;
 
+    thread_resume(bound(t));
     unixsock_lock(s);
     boolean disconnected = (s->sock.type == SOCK_STREAM) && !(s->peer && s->peer->data);
     boolean read_done = false;
