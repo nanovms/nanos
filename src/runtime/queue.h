@@ -36,6 +36,7 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi, int n)
 
     u32 next, size = _queue_size(q);
     union combined pc;
+    _queue_assert(n > 0 && (n & (n - 1)) == 0);
 
   retry:
     pc.w = q->pc.w;               /* prod_head, cons_tail */
@@ -136,30 +137,26 @@ static inline void *dequeue_single(queue q)
     return p;
 }
 
-/* These are variants which take a unit size expressed in log2 of words.
-   Only use one size for a given queue. */
+/* These are variants which take a unit size expressed in a power-of-2 number
+   of words. Only use one size for a given queue. */
 static inline boolean enqueue_n(queue q, void *p, int n)
 {
-    _queue_assert(n > 1 && (n & (n - 1)) == 0);
     return _enqueue_common(q, p, true, n);
 }
 
 static inline boolean enqueue_n_single(queue q, void *p, int n)
 {
-    _queue_assert(n > 1 && (n & (n - 1)) == 0);
     return _enqueue_common(q, p, false, n);
 }
 
 static inline boolean dequeue_n(queue q, void **p, int n)
 {
-    _queue_assert(n > 1 && (n & (n - 1)) == 0);
     _dequeue_common(q, p, true, n);
     return *p != INVALID_ADDRESS;
 }
 
 static inline boolean dequeue_n_single(queue q, void **p, int n)
 {
-    _queue_assert(n > 1 && (n & (n - 1)) == 0);
     _dequeue_common(q, p, false, n);
     return *p != INVALID_ADDRESS;
 }

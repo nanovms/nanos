@@ -183,7 +183,7 @@ closure_function(0, 0, void, timer_interrupt_handler_fn)
 static inline void service_async_1(queue q)
 {
     struct applied_async_1 aa;
-    while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64)), aa.a != INVALID_ADDRESS) {
+    while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64))) {
         sched_debug(" run: %F state: %s arg0: 0x%lx\n",
                     aa.a, state_strings[current_cpu()->state], aa.arg0);
         apply(aa.a, aa.arg0);

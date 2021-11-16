@@ -166,7 +166,6 @@ void blockq_resume_blocking(blockq bq, thread t)
         t->bq_timer_pending = true;
         register_timer(kernel_timers, &t->bq_timer, t->bq_clkid, tr,
                        false, 0, (timer_handler)&t->bq_timeout_func);
-        t->bq_remain_at_wake = 0;
     }
     blockq_unlock(bq);
 }

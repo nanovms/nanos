@@ -175,7 +175,7 @@ static inline u64 test_dequeue(queue q, boolean multi) {
 
 static void n_test(void)
 {
-    queuetest_debug("%s\n", multi ? "multi" : "single");
+    queuetest_debug("");
     queue q = allocate_queue(test_heap, QUEUE_SIZE);
     QUEUETEST_ASSERT(q != INVALID_ADDRESS);
     void **buf = allocate(test_heap, QUEUE_SIZE * sizeof(u64));
@@ -187,8 +187,7 @@ static void n_test(void)
             QUEUETEST_ASSERT(enqueue_n(q, buf, n));
         }
         for (u64 x = 0; x < items; x++) {
-            dequeue_n(q, buf, n);
-            QUEUETEST_ASSERT(buf[0] != INVALID_ADDRESS);
+            QUEUETEST_ASSERT(dequeue_n(q, buf, n));
             for (int y = 0; y < n; y++) {
                 QUEUETEST_ASSERT(buf[y] == (void *)x);
             }
