@@ -485,7 +485,7 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
     spin_unlock(&w->lock);
 
     epoll_debug("  continue blocking\n");
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(bound(t), flags);
   out_wakeup:
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
@@ -724,7 +724,7 @@ closure_function(3, 1, sysreturn, select_bh,
     }
     spin_unlock(&w->lock);
 
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
   out_wakeup:
     if (w->rset)
         bitmap_unwrap(w->rset);
@@ -937,7 +937,7 @@ closure_function(3, 1, sysreturn, poll_bh,
     }
     spin_unlock(&w->lock);
 
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
   out_wakeup:
     unwrap_buffer(w->e->h, w->poll_fds);
     w->poll_fds = 0;

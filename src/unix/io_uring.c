@@ -267,7 +267,7 @@ closure_function(3, 1, sysreturn, iour_close_bh,
     if (iour->noncancelable_ops != 0) {
         iour_debug("blocking");
         iour_unlock(iour);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     iour_release(iour);
     rv = 0;
@@ -1064,7 +1064,7 @@ out:
     iour_unlock(iour);
     if (rv == BLOCKQ_BLOCK_REQUIRED) {
         iour_debug("blocking");
-        return rv;
+        return blockq_block_required(bound(t), flags);
     }
     thread t = bound(t);
     if (bound(sig_set))

@@ -77,6 +77,7 @@ define_closure_function(2, 2, void, blockq_thread_timeout,
         t->bq_timer_pending = false;
         list_delete(&t->bq_l);
         blockq_unlock(bq);
+        t->bq_remain_at_wake = 0;
         blockq_apply(bq, t, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_TIMEDOUT);
     }
 }
@@ -89,15 +90,16 @@ define_closure_function(2, 2, void, blockq_thread_timeout,
 /* Called with bq and thread locks taken, returns with them released. */
 static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_flags)
 {
-    timestamp remain;
     boolean timer_pending = t->bq_timer_pending;
     if (timer_pending) {
-        if (remove_timer(kernel_timers, &t->bq_timer, &remain)) {
+        if (remove_timer(kernel_timers, &t->bq_timer, &t->bq_remain_at_wake)) {
             t->bq_timer_pending = false;
         } else {
             /* The timeout already fired, so let it proceed and skip the wakeup. */
             goto unlock_fail;
         }
+    } else {
+        t->bq_remain_at_wake = 0;
     }
 
     if (!list_inserted(&t->bq_l)) {
@@ -154,6 +156,21 @@ boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify)
                                        (nullify ? BLOCKQ_ACTION_NULLIFY : 0));
 }
 
+void blockq_resume_blocking(blockq bq, thread t)
+{
+    blockq_lock(bq);
+    list_insert_before(&bq->waiters_head, &t->bq_l);
+    if (t->bq_remain_at_wake) {
+        timestamp tr = t->bq_remain_at_wake;
+        t->bq_remain_at_wake = 0;
+        t->bq_timer_pending = true;
+        register_timer(kernel_timers, &t->bq_timer, t->bq_clkid, tr,
+                       false, 0, (timer_handler)&t->bq_timeout_func);
+        t->bq_remain_at_wake = 0;
+    }
+    blockq_unlock(bq);
+}
+
 sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh,
                                clock_id clkid, timestamp timeout, boolean absolute)
 {
@@ -178,11 +195,13 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
         t->blocked_on = bq;
     if (timeout > 0) {
         t->bq_timer_pending = true;
+        t->bq_clkid = clkid;
         register_timer(kernel_timers, &t->bq_timer, clkid, timeout, absolute, 0,
                        init_closure(&t->bq_timeout_func, blockq_thread_timeout, bq, t));
     } else {
         t->bq_timer_pending = false;
     }
+    t->bq_remain_at_wake = 0;
     list_insert_before(&bq->waiters_head, &t->bq_l);
     thread_unlock(t);
     blockq_unlock(bq);
@@ -261,6 +280,8 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handle
 void blockq_thread_init(thread t)
 {
     t->bq_timer_pending = false;
+    t->bq_clkid = 0;
+    t->bq_remain_at_wake = 0;
     init_timer(&t->bq_timer);
     t->bq_action = 0;
     t->bq_l.prev = t->bq_l.next = 0;

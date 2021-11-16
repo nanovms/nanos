@@ -267,7 +267,7 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
         timer_debug("   -> block\n");
         if (!blocked)
             spin_unlock(&ut->lock);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, flags);
     }
     *(u64*)bound(dest) = overruns;
     ut->overruns = 0;

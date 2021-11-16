@@ -408,7 +408,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;               /* back to chewing more cud */
+        return blockq_block_required(t, bqflags); /* back to chewing more cud */
     }
 
     if (src_addr) {
@@ -589,7 +589,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
             goto out;
         } else {
             net_debug(" send buf full, sleep\n");
-            return BLOCKQ_BLOCK_REQUIRED;           /* block again */
+            return blockq_block_required(t, bqflags); /* block again */
         }
     }
 
@@ -1358,7 +1358,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
             rv = -EINPROGRESS;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, flags);
     }
     assert(s->info.tcp.state == TCP_SOCK_OPEN);
   out:
@@ -1924,7 +1924,7 @@ closure_function(5, 1, sysreturn, accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;               /* block */
+        return blockq_block_required(t, bqflags);               /* block */
     }
 
     boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED);

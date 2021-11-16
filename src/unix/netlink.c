@@ -453,7 +453,7 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         }
         if (lock)
             nl_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), bqflags);;
     }
     rv = 0;
     struct iovec *iov = 0;

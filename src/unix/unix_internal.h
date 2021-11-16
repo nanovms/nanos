@@ -294,7 +294,10 @@ typedef struct thread {
 
     /* blockq data */
     boolean bq_timer_pending;
-    struct timer bq_timer;         /* timer for this item */
+    struct timer bq_timer;       /* timer for this item */
+    clock_id bq_clkid;
+    timestamp bq_remain_at_wake; /* remaining time at timer removal */
+
     closure_struct(blockq_thread_timeout, bq_timeout_func);
     blockq_action bq_action;  /* action to check for wake, timeout or abort */
     struct list bq_l;         /* embedding on blockq->waiters_head */
@@ -432,6 +435,15 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
 {
     thread_frame(t)[SYSCALL_FRAME_RETVAL1] = (sysreturn)-val;
     return (sysreturn)-val;
+}
+
+void blockq_resume_blocking(blockq bq, thread t);
+
+static inline sysreturn blockq_block_required(thread t, u64 bq_flags)
+{
+    if (bq_flags & BLOCKQ_ACTION_BLOCKED)
+        blockq_resume_blocking(t->blocked_on, t);
+    return BLOCKQ_BLOCK_REQUIRED;
 }
 
 vmap allocate_vmap(rangemap rm, range r, struct vmap q);

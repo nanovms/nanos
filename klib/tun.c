@@ -116,7 +116,7 @@ closure_function(5, 1, sysreturn, tun_read_bh,
             ret = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     void * dest = bound(dest);
     u64 len = bound(len);

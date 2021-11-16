@@ -192,7 +192,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
             goto out;
         }
         unixsock_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     rv = 0;
     do {
@@ -342,7 +342,7 @@ closure_function(7, 1, sysreturn, unixsock_write_bh,
     rv = unixsock_write_to(src, bound(sg), length, dest, s);
     if ((rv == -EAGAIN) && !(s->sock.f.flags & SOCK_NONBLOCK)) {
         unixsock_unlock(dest);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     full = queue_full(dest->data);
 out:
@@ -598,7 +598,7 @@ closure_function(3, 1, sysreturn, connect_bh,
             goto out;
         }
         unixsock_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), bqflags);
     }
     unixsock peer = unixsock_alloc(s->sock.h, s->sock.type, 0);
     if (!peer) {
@@ -684,7 +684,7 @@ closure_function(5, 1, sysreturn, accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, bqflags);
     }
     if (empty) {
         fdesc_notify_events(&s->sock.f);

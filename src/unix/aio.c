@@ -334,7 +334,7 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
     if ((aio->copied_evts < bound(min_nr)) && (timeout != 0) &&
             !(flags & BLOCKQ_ACTION_TIMEDOUT)) {
         aio_unlock(aio);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, flags);;
     }
     rv = aio->copied_evts;
 out:

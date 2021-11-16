@@ -50,7 +50,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     if (efd->flags & EFD_SEMAPHORE) {
         u64 readVal = 1;
@@ -106,7 +106,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     efd->counter += counter;
     efd->io_event = true;

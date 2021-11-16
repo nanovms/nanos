@@ -27,7 +27,7 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
     }
 
     if (!(flags & BLOCKQ_ACTION_TIMEDOUT) && elapsed < bound(interval))
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, flags);
   out:
     closure_finish();
     return syscall_return(t, rv);
