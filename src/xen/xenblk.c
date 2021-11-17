@@ -161,6 +161,7 @@ static void xenblk_service_pending(xenblk_dev xbd)
                 break;
             }
             rreq->grefs[req->nr_segments] = seg->gref;
+            assert((phys & MASK(SECTOR_OFFSET)) == 0);
             seg->first_sect = (phys & MASK(PAGELOG)) >> SECTOR_OFFSET;
             if (seg->first_sect + sectors > XENBLK_SECTORS_PER_PAGE)
                 sectors = XENBLK_SECTORS_PER_PAGE - seg->first_sect;
