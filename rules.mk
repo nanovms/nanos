@@ -36,6 +36,7 @@ PLATFORMOBJDIR=	$(subst $(ROOTDIR),$(OUTDIR),$(PLATFORMDIR))
 ARCHDIR=	$(SRCDIR)/$(ARCH)
 
 IMAGE=		$(OUTDIR)/image/disk.raw
+DEFAULT_KERNEL_TARGET= kernel
 
 include $(SRCDIR)/runtime/files.mk
 
@@ -46,6 +47,7 @@ ECHO=		echo
 CAT=		cat
 # XXX llvm for darwin
 CP=		cp
+MV=		mv -f
 DD=		dd
 ifeq ($(UNAME_s),Darwin)
 GNUTAR=		gnutar
@@ -158,6 +160,9 @@ cmd_go=		$(GO_ENV) $(GO) build $(GOFLAGS) -o $@ $^
 msg_strip=	STRIP	$@
 cmd_strip=	$(STRIP) $(STRIPFLAGS) $(STRIPFLAGS-$(<F)) $< -o $@
 
+msg_mvdis=	MV	kernel.dis kernel.dis.old
+cmd_mvdis=  if [ -f $(OBJDIR)/kernel.dis ]; then $(MV) $(OBJDIR)/kernel.dis $(OBJDIR)/kernel.dis.old; fi
+
 msg_contgen=	CONTGEN	$@
 cmd_contgen=	$(CONTGEN) 10 10 >$@
 
@@ -189,6 +194,9 @@ ifneq ($(KLIB_SYMS),)
 	$(Q) $(SED) -i.bak -n 'G; s/\n/&&/; /^\([^\n]*\n\).*\n\1/d; s/\n//; h; P' $(KLIB_SYMS)
 # Delete linker script backup file
 	$(Q) $(RM) $(KLIB_SYMS).bak
+endif
+ifeq ($1,kernel.elf)
+	$(call cmd,mvdis)
 endif
 endif
 
@@ -277,6 +285,13 @@ ifneq ($(CURDIR),$(ROOTDIR))
 -include $(ROOTDIR)/Makefile.local
 endif
 -include Makefile.local
+
+ifdef BUILD_KERNEL_DIS
+DEFAULT_KERNEL_TARGET=	kernel.dis
+BUILD_KERNEL_DIS= $(OBJDIR)/kernel.dis
+endif
+
+CLEANFILES+= $(OBJDIR)/kernel.dis.old
 
 # Stack Smashing Protection
 ifeq ($(WITHOUT_SSP),)

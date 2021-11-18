@@ -92,6 +92,7 @@ closure_function(3, 2, void, fsstarted,
     enqueue(runqueue, create_init(init_heaps, root, fs, &m));
     boolean opening_bootfs = false;
     if (mbr) {
+        heap bh = (heap)heap_linear_backed(init_heaps);
         boolean ingest_kernel_syms = symtab_is_empty() &&
                 (klibs || get(root, sym(ingest_kernel_symbols)));
         struct partition_entry *bootfs_part;
@@ -106,7 +107,7 @@ closure_function(3, 2, void, fsstarted,
                                              klibs_in_bootfs, ingest_kernel_syms));
             opening_bootfs = true;
         }
-        deallocate(h, mbr, SECTOR_SIZE);
+        deallocate(bh, mbr, PAGESIZE);
     }
 
     if (klibs && !opening_bootfs)
@@ -241,8 +242,9 @@ closure_function(0, 4, void, attach_storage,
                  block_io, r, block_io, w, block_flush, flush, u64, length)
 {
     heap h = heap_locked(init_heaps);
-    /* Read partition table from disk */
-    u8 *mbr = allocate(h, SECTOR_SIZE);
+    heap bh = (heap)heap_linear_backed(init_heaps);
+    /* Read partition table from disk, use backed heap for guaranteed alignment */
+    u8 *mbr = allocate(bh, PAGESIZE);
     if (mbr == INVALID_ADDRESS) {
         msg_err("cannot allocate memory for MBR sector\n");
         return;
@@ -250,7 +252,7 @@ closure_function(0, 4, void, attach_storage,
     status_handler sh = closure(h, mbr_read, mbr, r, w, flush, length);
     if (sh == INVALID_ADDRESS) {
         msg_err("cannot allocate MBR read closure\n");
-        deallocate(h, mbr, SECTOR_SIZE);
+        deallocate(bh, mbr, PAGESIZE);
         return;
     }
     apply(r, mbr, irange(0, 1), sh);
