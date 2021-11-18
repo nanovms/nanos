@@ -211,7 +211,9 @@ all: $(KERNEL) kernel.dis
 mkfs vdsogen:
 	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
 
-kernel: $(KERNEL) $(OBJDIR)/kernel.dis
+kernel: $(KERNEL)
+
+kernel.dis: $(KERNEL) $(OBJDIR)/kernel.dis
 
 target:
 ifeq ($(TARGET),)
@@ -224,7 +226,7 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
 endif
 
-image: mkfs kernel target $(BOOTIMG)
+image: mkfs $(DEFAULT_KERNEL_TARGET) target $(BOOTIMG)
 ifeq ($(IMAGE),)
 	@echo IMAGE variable not specified
 	@false
@@ -240,7 +242,7 @@ release: mkfs kernel
 	$(CP) $(KERNEL) release
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
-.PHONY: mkfs vdsogen kernel target image release
+.PHONY: mkfs vdsogen kernel kernel.dis target image release
 
 $(VDSOGEN):
 	@$(MAKE) -C $(ROOTDIR)/tools vdsogen

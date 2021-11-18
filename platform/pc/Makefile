@@ -245,7 +245,9 @@ mkfs vdsogen:
 boot:
 	$(Q) $(MAKE) -C boot
 
-kernel: $(KERNEL) $(OBJDIR)/kernel.dis
+kernel: $(KERNEL)
+
+kernel.dis: $(KERNEL) $(OBJDIR)/kernel.dis
 
 target:
 ifeq ($(TARGET),)
@@ -262,7 +264,7 @@ ifneq ($(ENABLE_UEFI),)
 MKFS_UEFI=	-u $(OBJDIR)/boot/bootx64.efi
 endif
 
-image: mkfs boot kernel target
+image: mkfs boot $(DEFAULT_KERNEL_TARGET) target
 ifeq ($(IMAGE),)
 	@echo IMAGE variable not specified
 	@false
@@ -279,7 +281,7 @@ release: mkfs boot kernel
 	$(CP) $(KERNEL) release
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
-.PHONY: mkfs vdsogen boot kernel target image release
+.PHONY: mkfs vdsogen boot kernel kernel.dis target image release
 
 $(VDSOGEN):
 	@$(MAKE) -C $(ROOTDIR)/tools vdsogen

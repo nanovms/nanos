@@ -102,6 +102,9 @@ run-bridge: contgen image
 run-noaccel: contgen image
 	$(Q) $(MAKE) -C $(PLATFORMDIR) TARGET=$(TARGET) run-noaccel
 
+kernel.dis: contgen image
+	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel.dis
+
 ##############################################################################
 # VMware
 
