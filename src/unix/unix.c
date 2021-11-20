@@ -174,7 +174,8 @@ define_closure_function(0, 1, context, unix_fault_handler,
         t = sc->t;
     } else if (ctx->type == CONTEXT_TYPE_THREAD) {
         t = (thread)ctx;
-        assert(is_usermode_fault(ctx->frame));
+// Hmm...
+//        assert(is_usermode_fault(ctx->frame));
     } else {
         halt("%s: unknown context type %d\n", __func__, ctx->type);
     }

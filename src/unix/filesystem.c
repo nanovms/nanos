@@ -106,7 +106,7 @@ closure_function(4, 1, void, fs_sync_complete,
                 (status_handler)closure_self());
         return;
     }
-    apply(bound(sh), s);
+    async_apply_status_handler(bound(sh), s);
     closure_finish();
 }
 

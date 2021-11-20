@@ -42,13 +42,13 @@ typedef struct kernel_heaps {
        a general-purpose allocator. Compatible with a malloc/free
        interface, deallocations do not require a size (but will
        attempt to verify one if given, so use -1ull to indicate an
-       unspecified size). Not protected by spinlock. */
+       unspecified size). Not protected by spinlock; likely to be replaced by
+       the locked heap. */
     heap general;
 
-    /* Like general, but protected by a spinlock. Primarily for uses
-       outside of the domain of the kernel lock (e.g. bhqueue
-       processing). While heap operations from interrupt handlers are
-       generally discouraged, they should be safe on the locked heap. */
+    /* Like general, but protected by a spinlock. While heap operations from
+       interrupt handlers are generally discouraged, they should be safe on
+       the locked heap. */
     heap locked;
 } *kernel_heaps;
 

@@ -154,33 +154,30 @@ static inline __attribute__((always_inline)) void set_current_context(cpuinfo ci
     ci->m.current_context = c;
 }
 
+#ifdef KERNEL
+extern queue bhqueue;
+extern queue runqueue;
+extern queue async_queue_1;
+extern timerqueue kernel_timers;
+extern thunk timer_interrupt_handler;
+
 typedef closure_type(async_1, void, u64);
 
-#ifdef KERNEL
 typedef struct applied_async_1 {
     async_1 a;
     u64 arg0;
 } *applied_async_1;
 
-static inline boolean async_apply_1(async_1 a, queue q, void *arg0)
+static inline boolean async_apply_1(void *a, void *arg0)
 {
     struct applied_async_1 aa;
     aa.a = a;
     aa.arg0 = u64_from_pointer(arg0);
-    return enqueue_n_irqsafe(q, &aa, sizeof(aa) / sizeof(u64));
+    return enqueue_n_irqsafe(async_queue_1, &aa, sizeof(aa) / sizeof(u64));
 }
 #define async_apply_status_handler async_apply_1
-#endif
 
 void frame_return(context_frame f);
-
-// XXX low level header dep issue
-#if 0
-static inline heap transient_from_context(context c)
-{
-    return c->transient_heap;
-}
-#endif
 
 #ifdef CONTEXT_DEBUG
 #define context_debug rprintf
@@ -313,6 +310,13 @@ static inline __attribute__((always_inline))  __attribute__((noreturn)) void ker
     runloop();
 }
 
+static inline void schedule_timer_service(void)
+{
+    if (compare_and_swap_boolean(&kernel_timers->service_scheduled, false, true))
+        enqueue(bhqueue, kernel_timers->service);
+}
+#endif /* KERNEL */
+
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
 #define BREAKPOINT_IO 10
@@ -360,14 +364,6 @@ void msi_map_vector(int slot, int msislot, int vector);
 
 void syscall_enter(void);
 
-typedef struct queue *queue;
-extern queue bhqueue;
-extern queue bhqueue_async_1;
-extern queue runqueue;
-extern queue runqueue_async_1;
-extern timerqueue kernel_timers;
-extern thunk timer_interrupt_handler;
-
 backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize);
 
 backed_heap allocate_page_backed_heap(heap meta, heap virtual, heap physical,
@@ -399,12 +395,6 @@ static inline u64 phys_from_linear_backed_virt(u64 virt)
 
 void unmap_and_free_phys(u64 virtual, u64 length);
 
-static inline void schedule_timer_service(void)
-{
-    if (compare_and_swap_boolean(&kernel_timers->service_scheduled, false, true))
-        enqueue(bhqueue, kernel_timers->service);
-}
-
 #if !defined(BOOT)
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize);
@@ -435,9 +425,6 @@ void unregister_interrupt(int vector);
 u64 allocate_shirq(void);
 void register_shirq(int vector, thunk t, const char *name);
 
-void kern_lock(void);
-boolean kern_try_lock(void);
-void kern_unlock(void);
 void init_scheduler(heap);
 void init_scheduler_cpus(heap h);
 void mm_service(void);

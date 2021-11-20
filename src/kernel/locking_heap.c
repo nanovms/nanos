@@ -56,18 +56,6 @@ static bytes heaplock_total(heap h)
     return count;
 }
 
-/* These should only ever be called under the kernel lock, but assume that
-   management methods need to exclude heap activity elsewhere.
-
-   This is a little dicey, because if a locked heap is used down the stack
-   from one of these calls, they will hang. For this reason, all management
-   allocations are made from heap_general and *should not* be made from
-   heap_locked. For that matter, all management activity occurs with the
-   kernel lock held. Still, any function-backed heap management methods should
-   be careful to avoid allocations from the locked mcache. Even creating a
-   symbol could cause an allocation from the locked heap.
-*/
-
 closure_function(1, 1, value, heaplock_get,
                  heaplock, hl,
                  symbol, s)
@@ -110,13 +98,6 @@ static value heaplock_management(heap h)
                                        closure(hl->meta, heaplock_set, hl),
                                        closure(hl->meta, heaplock_iterate, hl));
     set(v, sym(parent), ft);
-
-    /* Do management setup outside the lock, for we might actually be the
-       locked general heap, and thus any allocation of symbols, etc. would
-       lead to a hang. Management functions are protected by the kernel lock,
-       but the parent heap management method should avoid accessing any state
-       for which there could be contention. So far, the management methods
-       just set up tuples and closures. */
 
     value pm = heap_management(hl->parent);
     lock_heap(hl);

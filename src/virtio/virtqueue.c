@@ -198,7 +198,7 @@ closure_function(1, 0, void, vq_interrupt,
         virtqueue_debug("add msg %p\n", m);
 
         /* kludge will go away with move to singular async queue on final kern lock removal */
-        async_apply_1(m->completion, vq->sched_queue == runqueue ? runqueue_async_1 : bhqueue_async_1, (void*)m->len);
+        async_apply_1(m->completion, (void*)m->len);
 
         /* TODO should probably observe a limit / drain method here */
         list_insert_after(&vq->free_msgs, &m->l);

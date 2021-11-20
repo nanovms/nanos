@@ -182,7 +182,7 @@ static void pagecache_page_queue_completions_locked(pagecache pc, pagecache_page
         page_completion c = struct_from_list(l, page_completion, l);
         assert(c->sh != INVALID_ADDRESS && c->sh != 0);
 #ifdef KERNEL
-        async_apply_1((async_1)c->sh, bhqueue_async_1, s);
+        async_apply_status_handler(c->sh, s);
 #else
         apply(c->sh, s);
 #endif
@@ -536,7 +536,11 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
     status_handler completion = bound(completion);
     pagecache_debug("   calling fs_write, range %R, sg %p\n", r, write_sg);
     apply(pn->fs_write, write_sg, r, (status_handler)closure_self());
+#ifdef KERNEL
+    async_apply_status_handler(completion, STATUS_OK);
+#else
     apply(completion, STATUS_OK);
+#endif
 }
 
 closure_function(1, 3, void, pagecache_write_sg,
@@ -1102,7 +1106,7 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
     apply(k, STATUS_OK);
 }
 
-/* no-alloc / no-fill path, meant to be safe outside of kernel lock */
+/* no-alloc / no-fill path */
 boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
                                      status_handler complete)
 {

@@ -1,7 +1,5 @@
 #include <kernel.h>
 
-/* Try to keep these within the confines of the runloop lock so we
-   don't create too much of a mess. */
 //#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
 #define sched_debug(x, ...) do {log_printf("SCHED", "[%02d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
@@ -23,48 +21,12 @@ BSS_RO_AFTER_INIT int shutdown_vector;
 boolean shutting_down;
 
 BSS_RO_AFTER_INIT queue bhqueue;                  /* kernel from interrupt */
-BSS_RO_AFTER_INIT queue bhqueue_async_1;          /* queue of async 1 arg completions */
 BSS_RO_AFTER_INIT queue runqueue;
-BSS_RO_AFTER_INIT queue runqueue_async_1;
+BSS_RO_AFTER_INIT queue async_queue_1;            /* queue of async 1 arg completions */
 BSS_RO_AFTER_INIT bitmap idle_cpu_mask;
 
 BSS_RO_AFTER_INIT timerqueue kernel_timers;
 BSS_RO_AFTER_INIT thunk timer_interrupt_handler;
-
-static struct spinlock kernel_lock;
-
-void kern_lock()
-{
-    cpuinfo ci = current_cpu();
-    context c = get_current_context(ci);
-    assert(ci->state == cpu_kernel);
-
-    /* allow interrupt handling to occur while spinning */
-    u64 flags = irq_enable_save();
-    frame_enable_interrupts(c->frame);
-    spin_lock(&kernel_lock);
-    ci->have_kernel_lock = true;
-    irq_restore(flags);
-    frame_disable_interrupts(c->frame);
-}
-
-boolean kern_try_lock()
-{
-    cpuinfo ci = current_cpu();
-    assert(ci->state != cpu_interrupt);
-    if (!spin_try(&kernel_lock))
-        return false;
-    ci->have_kernel_lock = true;
-    return true;
-}
-
-void kern_unlock()
-{
-    cpuinfo ci = current_cpu();
-    assert(ci->state != cpu_interrupt);
-    ci->have_kernel_lock = false;
-    spin_unlock(&kernel_lock);
-}
 
 NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 {
@@ -172,12 +134,20 @@ static void run_thunk(thunk t)
         apply(t);
 }
 
+static inline void service_thunk_queue(queue q)
+{
+    thunk t;
+    while ((t = dequeue(q)) != INVALID_ADDRESS) {
+        sched_debug(" run: %F\n", t);
+        run_thunk(t);
+    }
+}
+
 static inline void service_async_1(queue q)
 {
     struct applied_async_1 aa;
     while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64))) {
-        sched_debug(" run: %F state: %s arg0: 0x%lx\n",
-                    aa.a, state_strings[current_cpu()->state], aa.arg0);
+        sched_debug(" run: %F arg0: 0x%lx\n", aa.a, aa.arg0);
         context c = context_from_closure(aa.a);
         if (c)
             context_apply_1(c, aa.a, aa.arg0);
@@ -190,14 +160,13 @@ static inline void service_async_1(queue q)
 NOTRACE void __attribute__((noreturn)) runloop_internal()
 {
     cpuinfo ci = current_cpu();
-    thunk t;
 
     disable_interrupts();
-    sched_debug("runloop from %s c: %d  ba1: %d  ra1: %d  \n"
+    sched_debug("runloop from %s c: %d  a1: %d\n"
                 "    b:%d  r:%d  t:%d%s\n", state_strings[ci->state],
-                queue_length(ci->cpu_queue), queue_length(bhqueue_async_1),
-                queue_length(runqueue_async_1), queue_length(bhqueue),
-                queue_length(runqueue), queue_length(ci->thread_queue),
+                queue_length(ci->cpu_queue), queue_length(async_queue_1),
+                queue_length(bhqueue), queue_length(runqueue),
+                queue_length(ci->thread_queue),
                 ci->have_kernel_lock ? " locked" : "");
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
@@ -205,35 +174,23 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
   retry:
     /* queue for cpu specific operations */
-    while ((t = dequeue(ci->cpu_queue)) != INVALID_ADDRESS)
-        run_thunk(t);
+    service_thunk_queue(ci->cpu_queue);
+
+    /* bhqueue is for deferred operations, enqueued by interrupt handlers */
+    service_thunk_queue(bhqueue);
 
     /* serve deferred status_handlers, some of which may not return */
-    service_async_1(bhqueue_async_1);
+    service_async_1(async_queue_1);
 
-    /* bhqueue is for operations outside the realm of the kernel lock,
-       e.g. storage I/O completions */
-    while ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
-        run_thunk(t);
+    service_thunk_queue(runqueue);
 
-    if (kern_try_lock()) {
-        /* invoke expired timer callbacks */
-        ci->state = cpu_kernel;
-
-        service_async_1(runqueue_async_1);
-
-        while ((t = dequeue(runqueue)) != INVALID_ADDRESS)
-            run_thunk(t);
-
-        /* should be a list of per-runloop checks - also low-pri background */
-        mm_service();
-        kern_unlock();
-    }
+    /* should be a list of per-runloop checks - also low-pri background */
+    mm_service();
 
     boolean timer_updated = update_timer();
 
     if (!shutting_down) {
-        t = dequeue(ci->thread_queue);
+        thunk t = dequeue(ci->thread_queue);
         if (t == INVALID_ADDRESS) {
             /* Try to steal a thread from an idle CPU (so that it doesn't
              * have to be woken up), and wake up CPUs that have a non-empty
@@ -291,9 +248,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
        runnable items may get stuck waiting for the next interrupt.
 
        Find cost of sleep / wakeup and consider spinning this check for that interval. */
-    if (queue_length(ci->cpu_queue) || queue_length(bhqueue_async_1) ||
-        queue_length(runqueue_async_1) || queue_length(bhqueue) ||
-        queue_length(runqueue) || (!shutting_down && queue_length(ci->thread_queue)))
+    if (queue_length(ci->cpu_queue) || queue_length(async_queue_1) ||
+        queue_length(bhqueue) || queue_length(runqueue) ||
+        (!shutting_down && queue_length(ci->thread_queue)))
         goto retry;
 
     kernel_sleep();
@@ -306,8 +263,6 @@ closure_function(0, 0, void, global_shutdown)
 
 void init_scheduler(heap h)
 {
-    spin_lock_init(&kernel_lock);
-
     /* timer init */
     kernel_timers = allocate_timerqueue(h, "runloop");
     assert(kernel_timers != INVALID_ADDRESS);
@@ -326,9 +281,8 @@ void init_scheduler(heap h)
     /* scheduling queues init */
     // XXX configs
     bhqueue = allocate_queue(h, 2048);
-    bhqueue_async_1 = allocate_queue(h, 8192);
     runqueue = allocate_queue(h, 2048);
-    runqueue_async_1 = allocate_queue(h, 8192);
+    async_queue_1 = allocate_queue(h, 8192);
     shutting_down = false;
 }
 

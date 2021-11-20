@@ -39,36 +39,8 @@ kernel_context allocate_kernel_context(void)
     void *stack = allocate_stack(h, SYSCALL_STACK_SIZE);
     frame_set_stack_top(c->frame, stack);
     install_runloop_trampoline(c, runloop);
-    rprintf("%s: ctx %p trampoline 0x%lx = 0x%lx\n",
-            __func__, c, c->frame[FRAME_STACK_TOP],
-            *(u64*)c->frame[FRAME_STACK_TOP]);
     return kc;
 }
-
-#if 0
-boolean kernel_suspended(void)
-{
-    return spare_kernel_context == 0;
-}
-
-kernel_context suspend_kernel_context(void)
-{
-    cpuinfo ci = current_cpu();
-    assert(spare_kernel_context);
-    kernel_context saved = get_kernel_context(ci);
-    set_current_context(ci, spare_kernel_context);
-    spare_kernel_context = 0;
-    return saved;
-}
-
-void resume_kernel_context(kernel_context c)
-{
-    cpuinfo ci = current_cpu();
-    spare_kernel_context = get_kernel_context(ci);
-    set_kernel_context(ci, c);
-    frame_return(c->frame);
-}
-#endif
 
 BSS_RO_AFTER_INIT vector cpuinfos;
 

@@ -446,7 +446,6 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
             vector_foreach(shutdown_completions, h)
                 apply(h, status, m);
             apply(sh, STATUS_OK);
-            kern_unlock();
         } else {
             vector_push(shutdown_completions,
                         closure(locked, do_status_handler, sh));

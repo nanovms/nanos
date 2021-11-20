@@ -59,7 +59,7 @@ static void blockq_apply(blockq bq, thread t, u64 bq_flags)
                  (bq_flags & BLOCKQ_ACTION_TIMEDOUT) ? "timedout" : "");
 
     assert(t->blocked_on == bq);
-    async_apply_1((async_1)t->bq_action, runqueue_async_1, (void *)bq_flags); /* retval ignored */
+    async_apply_1((async_1)t->bq_action, (void *)bq_flags); /* retval ignored */
 }
 
 /* A blockq_thread timed out. */

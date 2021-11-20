@@ -111,7 +111,7 @@ void register_thread_syscalls(struct syscall *map)
 
 void thread_log_internal(thread t, const char *desc, ...)
 {
-    if (syscall_notrace(t->p, t->syscall->call))
+    if (t->syscall && syscall_notrace(t->p, t->syscall->call))
         return;
     vlist ap;
     vstart (ap, desc);
