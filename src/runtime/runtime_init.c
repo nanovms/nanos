@@ -149,7 +149,9 @@ void __stack_chk_guard_init()
     __stack_chk_guard = random_u64();
 }
 
+#ifndef KERNEL
 void __attribute__((noreturn)) __stack_chk_fail(void)
 {
     halt("stack check failed\n");
 }
+#endif

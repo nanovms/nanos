@@ -193,6 +193,8 @@ void print_frame(context_frame f)
         print_u64_with_sym(f[j]);
         rputs("\n");
     }
+    rputs("stack top: ");
+    print_u64(f[FRAME_STACK_TOP]);
 }
 
 extern u32 n_interrupt_vectors;
@@ -255,7 +257,6 @@ void common_handler()
         }
     } else {
         /* fault handlers likely act on cpu state, so don't change it */
-//        fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
         fault_handler fh = ctx->fault_handler;
         if (fh) {
             context retframe = apply(fh, ctx);
@@ -436,4 +437,15 @@ void triple_fault(void)
     *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
     asm volatile("lidt %0; int3": : "m"(*(u64*)idt_desc));
     while (1);
+}
+
+void __attribute__((noreturn)) __stack_chk_fail(void)
+{
+    cpuinfo ci = current_cpu();
+    context ctx = get_current_context(ci);
+    rprintf("stack check failed on cpu %d\n", ci->id);
+    print_frame(ctx->frame);
+    print_stack(ctx->frame);
+    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
+    vm_exit(VM_EXIT_FAULT);
 }

@@ -1,5 +1,3 @@
-struct context;
-typedef struct context *context;
 typedef u64 *context_frame;
 typedef closure_type(fault_handler, context, context);
 
@@ -14,5 +12,6 @@ struct context {
     thunk resume;
     fault_handler fault_handler;
     heap transient_heap;
+    u32 active_cpu;
     u8 type;
 };

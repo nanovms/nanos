@@ -65,9 +65,11 @@ void exit_thread(thread);
 
 declare_closure_struct(1, 0, void, free_syscall_context,
                        struct syscall_context *, sc);
-declare_closure_struct(1, 0, void, syscall_pause,
+declare_closure_struct(1, 0, void, syscall_context_pause,
                        struct syscall_context *, sc);
-declare_closure_struct(1, 0, void, syscall_resume,
+declare_closure_struct(1, 0, void, syscall_context_resume,
+                       struct syscall_context *, sc);
+declare_closure_struct(1, 0, void, syscall_context_return,
                        struct syscall_context *, sc);
 
 typedef struct syscall_context {
@@ -77,8 +79,9 @@ typedef struct syscall_context {
     thread t;                   /* corresponding thread */
     timestamp start_time;
     int call;                   /* syscall number */
-    closure_struct(syscall_pause, pause);
-    closure_struct(syscall_resume, resume);
+    closure_struct(syscall_context_pause, pause);
+    closure_struct(syscall_context_resume, resume);
+    closure_struct(syscall_context_return, _return);
     closure_struct(free_syscall_context, free);
 } *syscall_context;
 
@@ -274,7 +277,6 @@ typedef struct pending_fault {
         struct list l_free;
     };
     closure_struct(pending_fault_complete, complete);
-    boolean kern;
 } *pending_fault;
 
 declare_closure_struct(1, 0, void, thread_pause,
@@ -901,13 +903,15 @@ static inline void schedule_thread(thread t)
     assert(enqueue_irqsafe(t->scheduling_queue, t->context.resume));
 }
 
-static inline void schedule_syscall_resume(syscall_context sc)
+/* need to call this with context resumed to keep exclusive ... could also
+   look at using per-cpu queue */
+static inline void schedule_syscall_return(syscall_context sc)
 {
     thread t = sc->t;
     assert(t);
     assert(t->syscall == sc); // XXX bringup
     assert(frame_is_full(sc->context.frame));
-    assert(enqueue_irqsafe(runqueue, sc->context.resume));
+    assert(enqueue_irqsafe(runqueue, &sc->_return));
 }
 
 static inline sysreturn syscall_return(thread t, sysreturn val)
@@ -931,13 +935,16 @@ static inline void syscall_accumulate_stime(syscall_context sc)
 }
 
 /* syscall finish without return (e.g. rt_sigreturn, exit, thread_yield) */
-static inline void __attribute__((noreturn)) syscall_finish(void)
+static inline void __attribute__((noreturn)) syscall_finish(boolean run)
 {
     syscall_context sc = (syscall_context)get_current_context(current_cpu());
     assert(is_syscall_context(&sc->context));
-    sc->t->syscall = 0;
+    thread t = sc->t;
+    t->syscall = 0;
     assert(sc->refcount.c > 1); // XXX tmp: not necessarily true, just in cases so far
     release_syscall_context(sc);
+    if (run)
+        schedule_thread(t);
     kern_yield();
 }
 
@@ -1048,12 +1055,11 @@ static inline void sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
             break;
 }
 
-static inline void __attribute__((noreturn)) syscall_yield(void)
+static inline void check_syscall_context_replace(void)
 {
     cpuinfo ci = current_cpu();
     disable_interrupts();
     syscall_context sc = (syscall_context)get_current_context(ci);
-    assert(is_syscall_context(&sc->context));
     if (ci->m.syscall_context == &sc->context) {
         assert(sc->refcount.c > 1); /* syscall not finished */
         release_syscall_context(sc);
@@ -1061,6 +1067,12 @@ static inline void __attribute__((noreturn)) syscall_yield(void)
         assert(sc != INVALID_ADDRESS);
         ci->m.syscall_context = &sc->context;
     }
+}
+
+static inline void __attribute__((noreturn)) syscall_yield(void)
+{
+    disable_interrupts();
+    check_syscall_context_replace();
     kern_yield();
 }
 

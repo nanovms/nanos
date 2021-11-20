@@ -1093,7 +1093,7 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
     }
     closure_ref(iour_getevents_bh, bh);
     if (flags & IORING_ENTER_GETEVENTS) {
-        closure_alloc(iour->h, iour_getevents_bh, bh);
+        contextual_closure_alloc(iour_getevents_bh, bh);
         if (bh == INVALID_ADDRESS) {
             rv = -ENOMEM;
             goto out;
@@ -1147,7 +1147,6 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         bh->timeouts = iour->cq_timeouts;
         bh->t = current;
         bh->completion = syscall_io_complete;
-        // XXX need to make contextual or stamp
         return blockq_check(iour->bq, current,
             closure_get(iour_getevents_bh, bh), false);
     }

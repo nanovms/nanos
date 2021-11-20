@@ -157,6 +157,8 @@ static inline void check_stop_conditions(thread t)
 define_closure_function(1, 0, void, thread_pause,
                         thread, t)
 {
+    if (shutting_down)
+        return;
     thread t = bound(t);
     context_frame f = thread_frame(t);
     assert(t->start_time != 0); // XXX tmp debug
@@ -170,18 +172,18 @@ define_closure_function(1, 0, void, thread_pause,
 define_closure_function(1, 0, void, thread_resume,
                         thread, t)
 {
-    //rprintf("%s, tid %d\n", __func__, bound(t)->tid);
     thread t = bound(t);
     if (t->p->trap)
         runloop(); // XXX pause?
     assert(t->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     t->start_time = here == 0 ? 1 : here;
+
+    // XXX we need to be able to take a fault while setting up
+    // sigframe...but thread frame is full here
     dispatch_signals(t);
     current_cpu()->state = cpu_user;
     check_stop_conditions(t);
-//    thread old = current;       /* XXX this won't work now; switch out elsewhere */
-//    thread_enter_user(t);
     // XXX fixme
     //ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
@@ -202,8 +204,12 @@ define_closure_function(1, 0, void, thread_resume,
     /* If we migrated to a new CPU, remain on its thread queue. */
     t->scheduling_queue = ci->thread_queue;    
 
-    thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
-               current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
+    /* We can't safely print under the thread context, because a syslog file
+       write could try to allocate from a null thread transient. Maybe set
+       thread transient to a general heap, but check ramifications of this. */
+
+    /* thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx", */
+    /*            current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]); */
     ci->frcount++;
     frame_return(f);
     halt("return from frame_return!\n");
@@ -234,8 +240,7 @@ void thread_yield(void)
     assert(!current->blocked_on);
     current->syscall = 0;
     set_syscall_return(current, 0);
-    schedule_thread(current);
-    syscall_finish();
+    syscall_finish(true);
 }
 
 /* enter on syscall context, returns on kernel context */

@@ -28,6 +28,8 @@ typedef struct kernel_context {
 #define cpu_interrupt 3
 #define cpu_user 4
 
+extern boolean shutting_down;
+
 /* per-cpu, architecture-independent invariants */
 typedef struct cpuinfo {
     struct cpuinfo_machine m;
@@ -185,16 +187,46 @@ void frame_return(context_frame f);
 #define context_debug(x, ...)
 #endif
 
+#define CONTEXT_RESUME_SPIN_LIMIT (1ull << 24)
+
+static inline void context_acquire(context c, cpuinfo ci)
+{
+    context_debug("%s: c %p, cpu %d\n", __func__, c, ci->id);
+    assert(c->active_cpu != ci->id);
+    u64 remain = CONTEXT_RESUME_SPIN_LIMIT;
+    while (!compare_and_swap_32(&c->active_cpu, -1u, ci->id)) {
+        kern_pause();
+        assert(remain-- > 0);
+    }
+    context_debug("%s: c %p, cpu %d acquired\n", __func__, c, current_cpu()->id);
+}
+
+static inline void context_release(context c)
+{
+    if (!shutting_down) {
+        if (c->active_cpu == -1u)
+            halt("%s: already paused c %p, type %d\n", __func__, c, c->type);
+        assert(c->active_cpu == current_cpu()->id); /* XXX tmp for bringup */
+    }
+    c->active_cpu = -1u;
+    context_debug("%s: c %p, cpu %d released\n", __func__, c, current_cpu()->id);
+}
+
 static inline void context_pause(context c)
 {
     if (c->pause) {
         context_debug("%s: invoking %F\n", __func__, c->pause);
         apply(c->pause);
     }
+    context_release(c);
 }
 
 static inline void context_resume(context c)
 {
+    cpuinfo ci = current_cpu();
+    if (!shutting_down)
+        context_acquire(c, ci);
+    set_current_context(ci, c);
     if (c->resume) {
         context_debug("%s: invoking %F\n", __func__, c->resume);
         apply(c->resume);
@@ -203,25 +235,40 @@ static inline void context_resume(context c)
 
 static inline void context_switch(context ctx)
 {
-    context_debug("%s: ctx %p\n", __func__, ctx);
     assert(ctx);
     cpuinfo ci = current_cpu();
     context prev = get_current_context(ci);
+    context_debug("%s: ctx %p, prev %p, cpu %d, currently on %d\n",
+                  __func__, ctx, prev, ci->id, ctx->active_cpu);
     if (ctx != prev) {
         context_pause(prev);
-        set_current_context(ci, ctx);
         context_resume(ctx);        /* may not return */
     }
+    context_debug("...switched\n");
 }
 
-static inline context context_switch_light(context new)
+static inline context context_save_and_switch(context new)
 {
     cpuinfo ci = current_cpu();
     u64 flags = irq_disable_save();
     context prev = get_current_context(ci);
-    set_current_context(ci, new);
+    context_debug("%s: cpu %d, prev %p, new %p\n", __func__, ci->id, prev, new);
+    /* prev bound now; don't release */
+    context_resume(new);
     irq_restore(flags);
     return prev;
+}
+
+static inline void context_restore(context saved)
+{
+    cpuinfo ci = current_cpu();
+    u64 flags = irq_disable_save();
+    context prev = get_current_context(ci);
+    context_debug("%s: cpu %d, prev %p, saved %p\n", __func__, ci->id, prev, saved);
+    context_pause(prev);
+    /* no acquire for saved */
+    set_current_context(ci, saved);
+    irq_restore(flags);
 }
 
 // XXX enable this later after checking existing uses of transient
@@ -229,12 +276,26 @@ static inline context context_switch_light(context new)
 
 #define contextual_closure(__name, ...) ({                              \
             context __ctx = get_current_context(current_cpu());         \
-            context_debug("contextual_closure(%s, ...) ctx %p\n", #__name, __ctx); \
+            context_debug("contextual_closure(%s, ...) ctx %p type %d\n", #__name, __ctx, __ctx->type); \
             heap __h = __ctx->transient_heap;                           \
             struct _closure_##__name * __n = allocate(__h, sizeof(struct _closure_##__name)); \
             __closure((u64_from_pointer(__ctx) |                        \
                        (CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH | CLOSURE_COMMON_CTX_IS_CONTEXT)), \
                       __n, sizeof(struct _closure_##__name), __name, ##__VA_ARGS__);}) 
+
+#define contextual_closure_alloc(__name, __var) \
+    do {                                                                \
+        context __ctx = get_current_context(current_cpu());             \
+        context_debug("contextual_closure_alloc(%s, ...) ctx %p\n", #__name, __ctx); \
+        heap __h = __ctx->transient_heap;                               \
+        __var = allocate(__h, sizeof(struct _closure_##__name));        \
+        if (__var != INVALID_ADDRESS) {                                 \
+            __var->__apply = __name;                                    \
+            __var->__c.name = #__name;                                  \
+            __var->__c.ctx = ctx_from_context(__ctx);                   \
+            __var->__c.size = sizeof(struct _closure_##__name);         \
+        }                                                               \
+    } while (0);
 
 static inline context context_from_closure(void *p)
 {
@@ -275,7 +336,7 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
 {
     cpuinfo ci = current_cpu();
     context ctx = ci->m.kernel_context;
-    context_debug("runloop, ctx %p\n", ctx);
+    install_runloop_trampoline(ctx, runloop);
     context_switch(ctx);        /* nop if already installed */
     switch_stack(frame_get_stack_top(ctx->frame), runloop_internal);
     while(1);                   /* kill warning */
@@ -285,10 +346,9 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
 static inline void context_apply(context ctx, thunk t)
 {
     void *sp = frame_get_stack_top(ctx->frame);
-    if (ctx->type != CONTEXT_TYPE_THREAD) // XXX
-        install_runloop_trampoline(ctx, runloop);
     context_debug("%s: ctx %p, t %F\n", __func__, ctx, t);
     context_switch(ctx);
+    install_runloop_trampoline(ctx, runloop);
     switch_stack_1(sp, *(u64*)t, t);
 }
 
@@ -296,11 +356,11 @@ static inline void context_apply(context ctx, thunk t)
 static inline void context_apply_1(context ctx, async_1 a, u64 arg0)
 {
     void *sp = frame_get_stack_top(ctx->frame);
-    // XXX seems we should only need to install once, but it's getting clobbered
-    install_runloop_trampoline(ctx, runloop);
     context_debug("%s: ctx %p, sp %p (@ %p) a %p, target %p (%F), arg0 0x%lx\n",
                   __func__, ctx, sp, *(u64*)sp, a, *(u64*)a, a, arg0);
     context_switch(ctx);
+    assert(ctx->type != CONTEXT_TYPE_THREAD); // XXX checking
+    install_runloop_trampoline(ctx, runloop);
     switch_stack_2(sp, *(u64*)a, a, arg0);
 }
 
@@ -464,7 +524,6 @@ void detect_devices(kernel_heaps kh, storage_attach sa);
 typedef closure_type(shutdown_handler, void, int, merge);
 void add_shutdown_completion(shutdown_handler h);
 extern int shutdown_vector;
-extern boolean shutting_down;
 void wakeup_or_interrupt_cpu_all();
 
 typedef closure_type(halt_handler, void, int);

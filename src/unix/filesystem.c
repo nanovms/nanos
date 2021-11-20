@@ -309,17 +309,18 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
         goto out;
     }
 
+    heap h = heap_locked(get_kernel_heaps());
     file f = (file) desc;
     switch (mode) {
     case 0:
     case FALLOC_FL_KEEP_SIZE:
         filesystem_alloc(f->fsf, offset, len,
-                mode == FALLOC_FL_KEEP_SIZE,
-                contextual_closure(fs_op_complete, current, f));
+                         mode == FALLOC_FL_KEEP_SIZE,
+                         closure(h, fs_op_complete, current, f));
         break;
     case FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE:
         filesystem_dealloc(f->fsf, offset, len,
-                contextual_closure(fs_op_complete, current, f));
+                           closure(h, fs_op_complete, current, f));
         break;
     default:
         rv = -EINVAL;

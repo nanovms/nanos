@@ -7,7 +7,20 @@
 #define __closure(__c, __p, __s, __name, ...)    \
     _fill_##__name(__c, __p, __s, ##__VA_ARGS__)
 
+struct _closure_common {
+    char *name;
+#define CLOSURE_COMMON_CTX_IS_CONTEXT        1 /* vs heap */
+#define CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH 2
+#define CLOSURE_COMMON_CTX_FLAGS_MASK        3
+    u64 ctx;
+    bytes size;
+    void *context;
+};
+
 #define ctx_from_heap(__h) (u64_from_pointer(__h) | CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH)
+
+#define ctx_from_context(__c) (u64_from_pointer(__c) | CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH | \
+                               CLOSURE_COMMON_CTX_IS_CONTEXT)
 
 #define closure_alloc(__h, __name, __var)   do {                \
     __var = allocate(__h, sizeof(struct _closure_##__name));    \
@@ -19,17 +32,7 @@
     }                                                           \
 } while (0);
 
-struct _closure_common {
-    char *name;
-#define CLOSURE_COMMON_CTX_IS_CONTEXT        1 /* vs heap */
-#define CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH 2
-#define CLOSURE_COMMON_CTX_FLAGS_MASK        3
-    u64 ctx;
-    bytes size;
-    void *context;
-};
-
-#define closure_new(__h, __name, __var) \
+#define closure_new(__h, __name, __var)         \
     struct _closure_##__name *__var;   \
     closure_alloc(__h, __name, __var)
 

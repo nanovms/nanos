@@ -77,11 +77,9 @@ static void iov_op_each(struct iov_progress *p, thread t)
     thread_log(t, "   op: curr %d, offset %ld, @ %p, len %ld, blocking %d",
                p->curr, p->curr_offset, iov[p->curr].iov_base + p->curr_offset,
                iov[p->curr].iov_len - p->curr_offset, blocking);
-    context saved_context = context_switch_light(&t->context);
     apply(op, iov[p->curr].iov_base + p->curr_offset,
           iov[p->curr].iov_len - p->curr_offset, p->file_offset, t, !blocking,
           (io_completion)&p->each_complete);
-    context_switch_light(saved_context);
 }
 
 define_closure_function(2, 2, void, iov_op_each_complete,
@@ -134,7 +132,6 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     } else {
         if (p->file_offset != infinity)
             p->file_offset += rv;
-        // XXX prob need init_contextual_closure or something...
         enqueue_irqsafe(runqueue, &p->bh);
     }
     return;
@@ -234,6 +231,7 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     p->total_len = 0;
     p->completion = completion;
     init_closure(&p->bh, iov_bh, p, current);
+    apply_context_to_closure(&p->bh, get_current_context(current_cpu()));
     init_closure(&p->each_complete, iov_op_each_complete, iovcnt,
         p);
     io_completion each = (io_completion)&p->each_complete;
@@ -1277,6 +1275,7 @@ closure_function(2, 1, void, sync_complete,
                  thread, t, fdesc, f,
                  status, s)
 {
+    assert(is_syscall_context(get_current_context(current_cpu())));
     thread t = bound(t);
     thread_log(current, "%s: status %v", __func__, s);
     fdesc f = bound(f);
@@ -2045,7 +2044,7 @@ sysreturn sched_yield()
 void exit(int code)
 {
     exit_thread(current);
-    syscall_finish();
+    syscall_finish(false);
 }
 
 sysreturn exit_group(int status)
@@ -2330,31 +2329,45 @@ define_closure_function(1, 0, void, free_syscall_context,
                         syscall_context, sc)
 {
     /* TODO we can dealloc after some maximum... */
-    list_insert_before(&current_cpu()->free_syscall_contexts, &bound(sc)->l);
+    list_insert_after(&current_cpu()->free_syscall_contexts, &bound(sc)->l);
 }
 
-define_closure_function(1, 0, void, syscall_pause,
+define_closure_function(1, 0, void, syscall_context_pause,
                         syscall_context, sc)
 {
+    /* rprintf("%s, sc %p, from %p %d, cpu %d\n", __func__, bound(sc), */
+    /*         __builtin_return_address(0), bound(sc)->t->tid, */
+    /*         current_cpu()->id); */
     syscall_context sc = bound(sc);
     syscall_accumulate_stime(sc);
     count_syscall_save(sc->t);
 }
 
-define_closure_function(1, 0, void, syscall_resume,
+define_closure_function(1, 0, void, syscall_context_resume,
                         syscall_context, sc)
 {
+    /* rprintf("%s, sc %p, from %p %d, cpu %d\n", __func__, bound(sc), */
+    /*         __builtin_return_address(0), bound(sc)->t->tid, */
+    /*         current_cpu()->id); */
     thread t = bound(sc)->t;
     syscall_context sc = bound(sc);
     assert(sc->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     sc->start_time = here == 0 ? 1 : here;
     count_syscall_resume(t);
-    context_frame f = sc->context.frame;
-    if (f[FRAME_FULL]) {
-        rprintf("sc resume frame return\n");
-        frame_return(f);
-    }
+}
+
+define_closure_function(1, 0, void, syscall_context_return,
+                        syscall_context, sc)
+{
+    /* rprintf("%s: sc %p, cpu %d\n", __func__, bound(sc), current_cpu()->id); */
+    context_frame f = bound(sc)->context.frame;
+    assert(f[FRAME_FULL]);
+    /* rprintf("sc resume frame return, sp 0x%lx\n", f[FRAME_RSP]); */
+    /* print_frame(f); */
+    /* print_stack(f); */
+    context_switch(&bound(sc)->context);
+    frame_return(f);
 }
 
 syscall_context allocate_syscall_context(void)
@@ -2365,17 +2378,14 @@ syscall_context allocate_syscall_context(void)
         return sc;
     context c = &sc->context;
     init_context(c, CONTEXT_TYPE_SYSCALL);
-    sc->context.pause = init_closure(&sc->pause, syscall_pause, sc);
-    sc->context.resume = apply_context_to_closure(init_closure(&sc->resume, syscall_resume, sc), &sc->context);
+    sc->context.pause = init_closure(&sc->pause, syscall_context_pause, sc);
+    sc->context.resume = apply_context_to_closure(init_closure(&sc->resume, syscall_context_resume, sc), &sc->context);
+    init_closure(&sc->_return, syscall_context_return, sc);
     sc->context.transient_heap = h;
-    init_refcount(&sc->refcount, 1,
-                  init_closure(&sc->free, free_syscall_context, sc));
+    init_refcount(&sc->refcount, 1, init_closure(&sc->free, free_syscall_context, sc));
     void *stack = allocate_stack(h, SYSCALL_STACK_SIZE);
     frame_set_stack_top(c->frame, stack);
     install_runloop_trampoline(c, runloop);
-    rprintf("%s: ctx %p trampoline 0x%lx = 0x%lx\n",
-            __func__, c, c->frame[SYSCALL_FRAME_SP_TOP],
-            *(u64*)c->frame[SYSCALL_FRAME_SP_TOP]);
     return sc;
 }
 
@@ -2398,7 +2408,6 @@ void syscall_handler(thread t)
         goto out;
 
     if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
-        schedule_thread(t);
         thread_log(t, "invalid syscall %d", call);
         goto out;
     }
@@ -2411,6 +2420,7 @@ void syscall_handler(thread t)
     sc->call = call;
     assert(sc->refcount.c == 1);
     t->syscall = sc;
+    install_runloop_trampoline(&sc->context, runloop);
     context_pause(&t->context);
     context_resume(&sc->context);
 

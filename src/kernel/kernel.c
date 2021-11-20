@@ -65,7 +65,6 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
     ci->last_timer_update = 0;
     ci->frcount = 0;
     init_cpuinfo_machine(ci, backed);
-    set_current_context(ci, &allocate_kernel_context()->context);
     return ci;
 }
 

@@ -16,8 +16,6 @@ typedef struct vmap_heap {
     boolean randomize;
 } *vmap_heap;
 
-/* declare_closure_function(1, 0, void, kernel_frame_return, */
-/*                          kernel_context, kc); */
 declare_closure_function(0, 2, int, pending_fault_compare,
                          rbnode, a, rbnode, b);
 declare_closure_function(0, 1, boolean, pending_fault_print,
@@ -27,13 +25,10 @@ static struct {
     id_heap physical;
     backed_heap linear_backed;
 
-    /* closure_struct(kernel_frame_return, do_kernel_frame_return); */
     closure_struct(pending_fault_compare, pf_compare);
     closure_struct(pending_fault_print, pf_print);
 
     struct list pf_freelist;
-
-    kernel_context faulting_kernel_context;
 } mmap_info;
 
 define_closure_function(0, 2, int, pending_fault_compare,
@@ -56,7 +51,7 @@ define_closure_function(1, 1, void, pending_fault_complete,
                         status, s)
 {
     pending_fault pf = bound(pf);
-    pf_debug("%s: page 0x%lx, kern %d, status %v\n", __func__, pf->addr, pf->kern, s);
+    pf_debug("%s: page 0x%lx, status %v\n", __func__, pf->addr, s);
     if (!is_ok(s))
         rprintf("%s: page fill failed with %v\n", __func__, s);
     list_foreach(&pf->dependents, l) {
@@ -69,8 +64,13 @@ define_closure_function(1, 1, void, pending_fault_complete,
 
         if (t->syscall) {
             /* XXX not complete; need to cancel or restart syscall */
-            schedule_syscall_resume(t->syscall);
+//            rprintf("%s: schedule syscall return, tid %d, cpu %d\n", __func__, t->tid, current_cpu()->id);
+            /* We won't block; this is safe to use here. */
+            context saved = context_save_and_switch(&t->syscall->context);
+            schedule_syscall_return(t->syscall);
+            context_restore(saved);
         } else {
+//            rprintf("%s: schedule thread, tid %d, cpu %d\n", __func__, t->tid, current_cpu()->id);
             schedule_thread(t);
         }
         refcount_release(&t->refcount);
@@ -100,7 +100,6 @@ static pending_fault new_pending_fault_locked(process p, u64 addr)
     pf->p = p;
     list_init(&pf->dependents);
     init_closure(&pf->complete, pending_fault_complete, pf);
-    pf->kern = false;
     assert(rbtree_insert_node(&p->pending_faults, &pf->n));
     return pf;
 }
@@ -133,26 +132,12 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
 
 static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
 {
-    pf->kern = false;       /* direct return if kernel fault; no resume */
     if (new_zeroed_pages(vaddr & ~MASK(PAGELOG), PAGESIZE, pageflags_from_vmflags(vm->flags),
                          (status_handler)&pf->complete) == INVALID_PHYSICAL)
         return false;
     count_minor_fault();
     return true;
 }
-
-#if 0
-static void suspend_kernel(pending_fault pf)
-{
-    pf_debug("%s\n", __func__);
-    assert(!mmap_info.faulting_kernel_context);
-    assert(current_cpu()->have_kernel_lock);
-    mmap_info.faulting_kernel_context = suspend_kernel_context();
-    frame_from_kernel_context(mmap_info.faulting_kernel_context)[FRAME_FULL] = false;
-    pf->kern = true;
-    current_cpu()->have_kernel_lock = false;
-}
-#endif
 
 define_closure_function(5, 0, void, thread_demand_file_page,
                         pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
@@ -175,6 +160,7 @@ define_closure_function(5, 0, void, thread_demand_file_page,
 
 static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 vaddr, boolean in_kernel)
 {
+    context ctx = get_current_context(current_cpu());
     pageflags flags = pageflags_from_vmflags(vm->flags);
     u64 page_addr = vaddr & ~PAGEMASK;
     u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
@@ -201,11 +187,14 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
         return true;
     }
 
-    pf->kern = false;       /* user, or no kernel context resume if direct return */
     if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags,
                                      (status_handler)&pf->complete)) {
         pf_debug("   immediate completion\n");
         count_minor_fault();
+
+        /* XXX sort this out - prob just let thread faults frame return */
+        if (!is_syscall_context(ctx))
+            context_switch(current_cpu()->m.kernel_context);
         return true;
     }
 
@@ -216,6 +205,15 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
     u64 saved_flags = spin_lock_irq(&t->p->faulting_lock);
     list_insert_before(&pf->dependents, &t->l_faultwait);
     spin_unlock_irq(&t->p->faulting_lock, saved_flags);
+    if (is_syscall_context(ctx))
+        check_syscall_context_replace();
+    context_switch(current_cpu()->m.kernel_context);
+
+//    context ctx = t->syscall ? &t->syscall->context : &t->context;
+//    context_pause(ctx);
+    // XXX wrap this up
+//    rprintf("%s: before context switch currect ctx %p\n", __func__,
+//            get_current_context(current_cpu()));
     enqueue(bhqueue, &t->demand_file_page);
     count_major_fault();
     return false;
@@ -235,7 +233,7 @@ boolean do_demand_page(context ctx, u64 vaddr, vmap vm)
     pf_debug("%s: %s, %s, vaddr %p, vm flags 0x%02lx,\n", __func__,
              is_syscall ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
              vaddr, vm->flags);
-    pf_debug("   vmap %p, frame %p\n", vm, frame);
+    pf_debug("   vmap %p, context %p\n", vm, ctx);
 
     thread t = is_syscall ? ((syscall_context)ctx)->t : (thread)ctx;
     process p = t->p;
@@ -263,7 +261,6 @@ boolean do_demand_page(context ctx, u64 vaddr, vmap vm)
             halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
         }
     }
-    /* context suspended in runloop */
     kern_yield();
 }
 
@@ -1290,7 +1287,6 @@ void mmap_process_init(process p, boolean aslr)
                          ivmap(VMAP_FLAG_EXEC, 0, 0, 0)) != INVALID_ADDRESS);
 #endif
 
-    mmap_info.faulting_kernel_context = 0;
     spin_lock_init(&p->faulting_lock);
     init_rbtree(&p->pending_faults,
                 init_closure(&mmap_info.pf_compare, pending_fault_compare),

@@ -259,6 +259,9 @@ void __stack_chk_guard_init();
 
 #define struct_from_field(l, s, f) ((s)pointer_from_u64(u64_from_pointer(l) - offsetof(s, f)))
 
+struct context;
+typedef struct context *context;
+
 #if defined(KERNEL) || defined(BOOT)
 /* This is really kernel-specific, but closures require these definitions at a
    low-level, and runtime code built at kernel level doesn't always include kernel.h. */

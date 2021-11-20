@@ -391,13 +391,15 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
         epoll_debug("   user_events null or full\n");
         return;
     }
-    context saved_context = context_switch_light(&w->t->context);
+// XXX
+//    assert(w->t->syscall);
+//    context saved_context = context_save_and_switch(&w->t->syscall->context);
     struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
     e->data = efd->data;
     e->events = report;
     w->user_events->end += sizeof(struct epoll_event);
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
-    context_switch_light(saved_context);
+//    context_restore(saved_context);
     spin_unlock(&w->lock);
     
     /* XXX check this */

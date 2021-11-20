@@ -550,8 +550,8 @@ closure_function(1, 3, void, pagecache_write_sg,
     pagecache_node pn = bound(pn);
     pagecache_volume pv = pn->pv;
     pagecache pc = pv->pc;
-    pagecache_debug("%s: node %p, q %R, sg %p, completion %F\n", __func__, pn, q, sg, completion);
-
+    pagecache_debug("%s: node %p, q %R, sg %p, completion %F, from %p\n", __func__,
+                    pn, q, sg, completion, __builtin_return_address(0));
     if (!is_ok(pv->write_error)) {
         /* From a previous (asynchronous) write failure - see comment
            in pagecache_write_sg_finish above */
@@ -584,13 +584,17 @@ closure_function(1, 3, void, pagecache_write_sg,
     }
 
     /* prepare pages for writing */
-    merge m = allocate_merge(pc->h,
+    status_handler m_complete;
 #ifdef KERNEL
-                             contextual_closure(pagecache_write_sg_finish, pn, q, sg, completion, false)
-#else
-                             closure(pc->h, pagecache_write_sg_finish, pn, q, sg, completion, false)
+    context ctx = get_current_context(current_cpu());
+    if (ctx->type != CONTEXT_TYPE_KERNEL) {
+        m_complete = contextual_closure(pagecache_write_sg_finish, pn, q, sg, completion, false);
+    } else
 #endif
-        );
+    {
+        m_complete = closure(pc->h, pagecache_write_sg_finish, pn, q, sg, completion, false);
+    }
+    merge m = allocate_merge(pc->h, m_complete);
     status_handler sh = apply_merge(m);
 
     /* initiate reads for rmw start and/or end */
@@ -1083,6 +1087,7 @@ closure_function(5, 1, void, map_page_finish,
     closure_finish();
 }
 
+/* not context restoring */
 void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
                         status_handler complete)
 {
@@ -1097,8 +1102,8 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
         apply(complete, timm("result", "%s: unable to allocate pagecache page", __func__));
         return;
     }
-    merge m = allocate_merge(pc->h, contextual_closure(map_page_finish,
-                                                       pc, pp, vaddr, flags, complete));
+    merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,
+                                            pc, pp, vaddr, flags, complete));
     status_handler k = apply_merge(m);
     touch_or_fill_page_nodelocked(pn, pp, m);
     refcount_reserve(&pp->refcount);

@@ -80,6 +80,7 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
     ci->m.self = &ci->m;
     kernel_context kc = allocate_kernel_context();
     assert(kc != INVALID_ADDRESS);
+    kc->context.active_cpu = ci->id;
     ci->m.current_context = ci->m.kernel_context = &kc->context;
     ci->m.exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);
     ci->m.int_stack = allocate_stack(backed, INT_STACK_SIZE);
@@ -109,6 +110,7 @@ void init_context(context c, int type)
 {
     c->type = type;
     c->transient_heap = 0;
+    c->active_cpu = -1;
     zero_context_frame(c->frame);
     u64 e = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
     assert(e != INVALID_PHYSICAL);
