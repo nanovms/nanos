@@ -283,11 +283,14 @@ declare_closure_struct(1, 0, void, thread_pause,
                        thread, t);
 declare_closure_struct(1, 0, void, thread_resume,
                        thread, t);
+declare_closure_struct(1, 0, void, thread_run,
+                       thread, t);
 declare_closure_struct(1, 0, void, free_thread,
                        thread, t);
 declare_closure_struct(1, 0, void, resume_syscall,
                        thread, t);
-declare_closure_struct(0, 1, context, unix_fault_handler,
+declare_closure_struct(1, 1, context, unix_fault_handler,
+                       thread, t,
                        context, frame);
 declare_closure_struct(5, 0, void, thread_demand_file_page,
                        pending_fault, pf, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
@@ -324,6 +327,7 @@ typedef struct thread {
     closure_struct(free_thread, free);
     closure_struct(thread_pause, pause);
     closure_struct(thread_resume, resume);
+    closure_struct(thread_run, run);
     closure_struct(unix_fault_handler, fault_handler);
     closure_struct(thread_demand_file_page, demand_file_page);
     closure_struct(thread_demand_page_complete, demand_page_complete);
@@ -848,7 +852,7 @@ boolean unix_timers_init(unix_heaps uh);
 
 extern sysreturn syscall_ignore();
 u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete);
-boolean do_demand_page(context ctx, u64 vaddr, vmap vm);
+boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
 boolean vmap_validate_range(process p, range q);
@@ -900,7 +904,7 @@ static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
 static inline void schedule_thread(thread t)
 {
     assert(t->syscall == 0);
-    assert(enqueue_irqsafe(t->scheduling_queue, t->context.resume));
+    assert(enqueue_irqsafe(t->scheduling_queue, &t->run));
 }
 
 /* need to call this with context resumed to keep exclusive ... could also

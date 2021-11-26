@@ -173,36 +173,44 @@ define_closure_function(1, 0, void, thread_resume,
                         thread, t)
 {
     thread t = bound(t);
-    if (t->p->trap)
-        runloop(); // XXX pause?
     assert(t->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     t->start_time = here == 0 ? 1 : here;
+    if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
+        count_syscall(t, 0);
+    context_frame f = thread_frame(t);
+    thread_frame_restore_tls(f);
+    thread_frame_restore_fpsimd(f);
+    frame_enable_interrupts(f);
+}
+
+define_closure_function(1, 0, void, thread_run,
+                        thread, t)
+{
+    cpuinfo ci = current_cpu();
+    thread t = bound(t);
+    if (t->p->trap)
+        runloop(); // XXX pause?
 
     // XXX we need to be able to take a fault while setting up
     // sigframe...but thread frame is full here
+    context ctx = get_current_context(ci);
+    assert(is_kernel_context(ctx));
+    ctx->fault_handler = t->context.fault_handler;
     dispatch_signals(t);
     current_cpu()->state = cpu_user;
     check_stop_conditions(t);
     // XXX fixme
     //ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
-    /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     thread_lock(t);
+    /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     assert(t->blocked_on == 0);
     t->syscall = 0;
-    thread_unlock(t);
-
-    if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
-        count_syscall(t, 0);
-    context_frame f = thread_frame(t);
-    cpuinfo ci = current_cpu();
-    thread_frame_restore_tls(f);
-    thread_frame_restore_fpsimd(f);
-    frame_enable_interrupts(f);
 
     /* If we migrated to a new CPU, remain on its thread queue. */
     t->scheduling_queue = ci->thread_queue;    
+    thread_unlock(t);
 
     /* We can't safely print under the thread context, because a syslog file
        write could try to allocate from a null thread transient. Maybe set
@@ -211,7 +219,9 @@ define_closure_function(1, 0, void, thread_resume,
     /* thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx", */
     /*            current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]); */
     ci->frcount++;
-    frame_return(f);
+    ctx->fault_handler = 0;
+    context_switch(&t->context);
+    frame_return(thread_frame(t));
     halt("return from frame_return!\n");
 }
 
@@ -314,7 +324,8 @@ thread create_thread(process p)
         goto fail;
     init_context(&t->context, CONTEXT_TYPE_THREAD);
     t->context.pause = init_closure(&t->pause, thread_pause, t);
-    t->context.resume = apply_context_to_closure(init_closure(&t->resume, thread_resume, t), &t->context);
+    t->context.resume = init_closure(&t->resume, thread_resume, t);
+    init_closure(&t->run, thread_run, t);
 
     t->thread_bq = allocate_blockq(h, "thread");
     if (t->thread_bq == INVALID_ADDRESS)

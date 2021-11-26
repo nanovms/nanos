@@ -219,10 +219,10 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
     return false;
 }
 
-boolean do_demand_page(context ctx, u64 vaddr, vmap vm)
+boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
 {
     u64 page_addr = vaddr & ~PAGEMASK;
-    boolean is_syscall = is_syscall_context(ctx);
+    boolean in_kernel = is_syscall_context(ctx) || is_kernel_context(ctx);
 
     if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
@@ -231,11 +231,10 @@ boolean do_demand_page(context ctx, u64 vaddr, vmap vm)
     }
 
     pf_debug("%s: %s, %s, vaddr %p, vm flags 0x%02lx,\n", __func__,
-             is_syscall ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
+             in_kernel ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
              vaddr, vm->flags);
     pf_debug("   vmap %p, context %p\n", vm, ctx);
 
-    thread t = is_syscall ? ((syscall_context)ctx)->t : (thread)ctx;
     process p = t->p;
     u64 flags = spin_lock_irq(&p->faulting_lock);
     pending_fault pf = find_pending_fault_locked(p, page_addr);
@@ -254,7 +253,7 @@ boolean do_demand_page(context ctx, u64 vaddr, vmap vm)
         case VMAP_MMAP_TYPE_ANONYMOUS:
             return demand_anonymous_page(pf, vm, vaddr);
         case VMAP_MMAP_TYPE_FILEBACKED:
-            if (demand_filebacked_page(t, pf, vm, vaddr, is_syscall))
+            if (demand_filebacked_page(t, pf, vm, vaddr, in_kernel))
                 return true;
             break;
         default:
