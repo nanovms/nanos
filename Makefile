@@ -6,6 +6,7 @@ TARGET=		webg
 CLEANFILES+=	$(IMAGE)
 CLEANDIRS+=	$(OUTDIR)/image $(OUTDIR)/platform/$(PLATFORM) $(OUTDIR)/platform
 
+ACPICA_DIR=	$(VENDORDIR)/acpica
 LWIPDIR=	$(VENDORDIR)/lwip
 MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
@@ -39,8 +40,9 @@ all: image
 
 include rules.mk
 
-THIRD_PARTY= $(LWIPDIR)/.vendored $(MBEDTLS_DIR)/.vendored
+THIRD_PARTY= $(ACPICA_DIR)/.vendored $(LWIPDIR)/.vendored $(MBEDTLS_DIR)/.vendored
 
+$(ACPICA_DIR)/.vendored: GITFLAGS= --depth 1  https://github.com/acpica/acpica.git -b R09_30_21
 $(LWIPDIR)/.vendored: GITFLAGS= --depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_x
 $(MBEDTLS_DIR)/.vendored: GITFLAGS= --depth 1 https://github.com/nanovms/mbedtls.git
 

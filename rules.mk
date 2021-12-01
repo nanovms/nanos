@@ -7,6 +7,7 @@ OUTDIR=		$(ROOTDIR)/output
 OBJDIR=		$(subst $(ROOTDIR),$(OUTDIR),$(CURDIR))
 VENDORDIR=	$(ROOTDIR)/vendor
 TOOLDIR=	$(OUTDIR)/tools/bin
+PATCHDIR=	$(ROOTDIR)/patches
 UNAME_s=	$(shell uname -s)
 
 # If no platform is specified, try to guess it from the host architecture.
@@ -38,6 +39,7 @@ ARCHDIR=	$(SRCDIR)/$(ARCH)
 IMAGE=		$(OUTDIR)/image/disk.raw
 DEFAULT_KERNEL_TARGET= kernel
 
+include $(SRCDIR)/drivers/acpica.mk
 include $(SRCDIR)/runtime/files.mk
 
 # To reveal verbose build messages, override Q= in command line.
@@ -167,7 +169,8 @@ msg_contgen=	CONTGEN	$@
 cmd_contgen=	$(CONTGEN) 10 10 >$@
 
 msg_vendor=	VENDOR	$@
-cmd_vendor=	$(RM) -r $(@D) && $(GIT) clone $(GITFLAGS) $(@D) && $(TOUCH) $@
+cmd_vendor=	$(RM) -r $(@D) && $(GIT) clone $(GITFLAGS) $(@D) && $(TOUCH) $@ && \
+	([ ! -f $(PATCHDIR)/$(notdir $(@D)).patch ] || (patch -p1 -d$(@D) < $(PATCHDIR)/$(notdir $(@D)).patch))
 
 ##############################################################################
 # build a program

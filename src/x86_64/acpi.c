@@ -1,25 +1,8 @@
+#include <acpi.h>
 #include <kernel.h>
 #include <apic.h>
 #include <drivers/acpi.h>
-#include <pci.h>
-
-#define INTEL_PCI_VENDORID  0x8086
-
-#define PIIX4ACPI_PCI_DEVICEID 0x7113
-
-#define PIIX4ACPI_PM_BAR    12  /* Non-standard BAR address 0x40 */
-
-#define PIIX4ACPI_PMREGMISC_R   0x80
-
-/* PMREGMISC register */
-#define PIIX4ACPI_PMIOSE    (1 << 0)
-
-#define PIIX4ACPI_SLP_TYP_SOFF      0
-#define PIIX4ACPI_SLP_TYP_STR       1
-#define PIIX4ACPI_SLP_TYP_POSCL     2
-#define PIIX4ACPI_SUS_TYP_POSCCL    3
-#define PIIX4ACPI_SUS_TYP_POS       4
-#define PIIX4ACPI_SUS_TYP_WORK      5
+#include <io.h>
 
 //#define ACPI_DEBUG
 #ifdef ACPI_DEBUG
@@ -28,91 +11,16 @@
 #define acpi_debug(x, ...)
 #endif
 
-static acpi_rsdt rsdt;
-static table acpi_tables;
+#define acpi_heap   heap_locked(get_kernel_heaps())
 
-declare_closure_struct(1, 0, void, piix4acpi_irq,
-                       struct piix4acpi *, dev);
-declare_closure_struct(1, 1, void, piix4acpi_powerdown,
-                       struct piix4acpi *, dev,
-                       int, status);
-
-typedef struct piix4acpi {
-    pci_dev d;
-    struct pci_bar pm_bar;
-    closure_struct(piix4acpi_irq, irq_handler);
-    closure_struct(piix4acpi_powerdown, powerdown_handler);
-} *piix4acpi;
-
-define_closure_function(1, 1, void, piix4acpi_powerdown,
-                        piix4acpi, dev,
-                        int, status)
+closure_function(2, 0, void, acpi_irq,
+                 ACPI_OSD_HANDLER, service_routine, void *, context)
 {
-    acpi_debug("%s", __func__);
-    piix4acpi dev = bound(dev);
-    pci_bar_write_2(&dev->pm_bar, ACPI_PM1_CNT,
-                    ACPI_PM1_SLP_EN | ACPI_PM1_SLP_TYP(PIIX4ACPI_SLP_TYP_SOFF));
+    acpi_debug("irq");
+    bound(service_routine)(bound(context));
 }
 
-define_closure_function(1, 0, void, piix4acpi_irq,
-                        piix4acpi, dev)
-{
-    piix4acpi dev = bound(dev);
-    u16 sts = pci_bar_read_2(&dev->pm_bar, ACPI_PM1_STS);
-    acpi_debug("%s: sts 0x%04x", __func__, sts);
-    pci_bar_write_2(&dev->pm_bar, ACPI_PM1_STS, sts);   /* clear status bits */
-    if (sts & ACPI_PM1_PWRBTN_STS)
-        kernel_shutdown(0);
-}
-
-closure_function(1, 1, boolean, piix4acpi_probe,
-                 heap, h,
-                 pci_dev, d)
-{
-    if ((pci_get_vendor(d) != INTEL_PCI_VENDORID) || (pci_get_device(d) != PIIX4ACPI_PCI_DEVICEID))
-        return false;
-    piix4acpi dev = allocate(bound(h), sizeof(struct piix4acpi));
-    if (dev == INVALID_ADDRESS)
-        return false;
-    dev->d = d;
-    acpi_debug("%s", __func__);
-    ioapic_register_int(ACPI_SCI_IRQ, init_closure(&dev->irq_handler, piix4acpi_irq, dev),
-                        "PIIX4 ACPI");
-    pci_bar_init(dev->d, &dev->pm_bar, PIIX4ACPI_PM_BAR, 0, 0);
-    pci_cfgwrite(dev->d, PIIX4ACPI_PMREGMISC_R, 1, PIIX4ACPI_PMIOSE);
-    pci_bar_write_2(&dev->pm_bar, ACPI_PM1_EN, ACPI_PM1_PWRBTN_EN);
-    pci_bar_write_2(&dev->pm_bar, ACPI_PM1_CNT, ACPI_PM1_SCI_EN);
-    vm_halt = init_closure(&dev->powerdown_handler, piix4acpi_powerdown, dev);
-    return true;
-}
-
-static void *map_acpi_table(kernel_heaps kh, u64 paddr)
-{
-    u64 off, base, alen, v;
-    heap vh = (heap)heap_virtual_page(kh);
-
-    off = paddr & PAGEMASK;
-    base = paddr & ~PAGEMASK;
-    /* Allocate enough to guarantee reading of signature and table size (8 bytes) */
-    alen = pad(off + 8, PAGESIZE);
-again:
-    v = allocate_u64(vh, alen);
-    map(v, base, alen, pageflags_memory());
-    u32 *t = pointer_from_u64(v + off);
-    u32 tlen = t[1]; /* length of table stored in the second u32 */
-
-    /* The table actual length may be longer than allocated length,
-     * so repeat the mapping process if necessary */
-    if (alen - off < tlen) {
-        unmap(v, alen);
-        deallocate_u64(vh, v, alen);
-        alen = pad(off + tlen, PAGESIZE);
-        goto again;
-    }
-    return pointer_from_u64(v + off);
-}
-
-static u64 find_rsdt_addr(u64 va, u64 len)
+static u64 find_rsdp_internal(u64 va, u64 len)
 {
     assert((va & MASK(4)) == 0);
     for (u64 i = va; i < va + len; i += 16) {
@@ -123,7 +31,7 @@ static u64 find_rsdt_addr(u64 va, u64 len)
             acpi_debug("%s: RSDP failed checksum", __func__);
             continue;
         }
-        return rsdp->rsdt_addr;
+        return i;
     }
     return INVALID_PHYSICAL;
 }
@@ -133,9 +41,9 @@ static u64 find_rsdt_addr(u64 va, u64 len)
 #define BIOS_SEARCH_LENGTH (128*KB)
 #define BIOS_SEARCH_ADDR 0xe0000
 #define EDBA_SEARCH_LENGTH (1*KB)
-static boolean find_rsdt(kernel_heaps kh)
+static u64 find_rsdp(kernel_heaps kh)
 {
-    u64 va, edba_pa, rsdt_pa;
+    u64 va, edba_pa, rsdp;
     heap vh = (heap)heap_virtual_page(kh);
 
     va = allocate_u64(vh, BIOS_SEARCH_LENGTH);
@@ -143,10 +51,12 @@ static boolean find_rsdt(kernel_heaps kh)
 
     /* Search BIOS ROM */
     map(va, BIOS_SEARCH_ADDR, BIOS_SEARCH_LENGTH, pageflags_memory());
-    rsdt_pa = find_rsdt_addr(va, BIOS_SEARCH_LENGTH);
+    rsdp = find_rsdp_internal(va, BIOS_SEARCH_LENGTH);
     unmap(va, BIOS_SEARCH_LENGTH);
-    if (rsdt_pa != INVALID_PHYSICAL)
-        goto found;
+    if (rsdp != INVALID_PHYSICAL) {
+        rsdp = BIOS_SEARCH_ADDR + rsdp - va;
+        goto out;
+    }
 
     /* Search EDBA as a backup. The EDBA segment location is found at
      * 40:0Eh per ACPI spec */
@@ -157,64 +67,75 @@ static boolean find_rsdt(kernel_heaps kh)
     u64 edba_off = edba_pa & PAGEMASK;
     u64 edba_map_len = pad(edba_off + EDBA_SEARCH_LENGTH, PAGESIZE);
     map(va, edba_pa_map, edba_map_len, pageflags_memory());
-    rsdt_pa = find_rsdt_addr(va + edba_off, EDBA_SEARCH_LENGTH);
+    rsdp = find_rsdp_internal(va + edba_off, EDBA_SEARCH_LENGTH);
+    if (rsdp != INVALID_PHYSICAL)
+        rsdp = edba_pa_map + rsdp - va;
     unmap(va, edba_map_len);
-    if (rsdt_pa == INVALID_PHYSICAL)
-        goto out;
-found:
-    rsdt = map_acpi_table(kh, rsdt_pa);
-    if (runtime_memcmp(rsdt->h.sig, "RSDT", 4) != 0) {
-        acpi_debug("%s: RSDT has invalid signature\n", __func__);
-        rsdt = 0;
-        goto out;
-    }
-    if (!acpi_checksum(rsdt, rsdt->h.length)) {
-        acpi_debug("%s: RSDT failed checksum", __func__);
-        rsdt = 0;
-        goto out;
-    }
 out:
     deallocate_u64(vh, va, BIOS_SEARCH_LENGTH);
-    if (rsdt) {
-        acpi_debug("%s: mapped RSDT at %p", __func__, rsdt);
-        return true;
+    if (rsdp != INVALID_PHYSICAL) {
+        acpi_debug("%s: found RSDP at %p", __func__, rsdp);
     } else {
-        acpi_debug("%s: could not find valid RSDT", __func__);
-        return false;
+        acpi_debug("%s: could not find valid RSDP", __func__);
     }
+    return rsdp;
 }
 
-void acpi_walk_madt(acpi_madt madt, madt_handler mh)
+/* OS services layer */
+
+ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer(void)
 {
-    u8 *p = (u8 *)(madt + 1);
-    u8 *pe = (u8 *)madt + madt->h.length;
-    for (; p < pe; p += p[1])
-        apply(mh, p[0], p);
+    u64 rsdp = find_rsdp(get_kernel_heaps());
+    return (rsdp != INVALID_PHYSICAL) ? rsdp : 0;
 }
 
-void *acpi_get_table(u32 sig)
+ACPI_STATUS AcpiOsReadPort(ACPI_IO_ADDRESS address, UINT32 *value, UINT32 width)
 {
-    return table_find(acpi_tables, pointer_from_u64((u64)sig));
-}
-
-void init_acpi_tables(kernel_heaps kh)
-{
-    heap h = heap_general(kh);
-    acpi_tables = allocate_table(h, identity_key, pointer_equal);
-    if (find_rsdt(kh)) {
-        u32 *t, *te;
-        t = (u32 *)(rsdt + 1);
-        te = pointer_from_u64(u64_from_pointer(rsdt) + rsdt->h.length);
-        for (; t < te; t++) {
-            u32 *tp = map_acpi_table(kh, *t);
-            table_set(acpi_tables, pointer_from_u64((u64)*tp), tp);
-            acpi_debug("%s: mapped acpi table %.4s at %p", __func__, tp, tp);
-        }
+    switch (width) {
+    case 8:
+        *value = in8(address);
+        break;
+    case 16:
+        *value = in16(address);
+        break;
+    case 32:
+        *value = in32(address);
+        break;
+    default:
+        return AE_BAD_PARAMETER;
     }
+    return AE_OK;
 }
 
-void init_acpi(kernel_heaps kh)
+ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width)
 {
-    heap h = heap_general(kh);
-    register_pci_driver(closure(h, piix4acpi_probe, h));
+    switch (width) {
+    case 8:
+        out8(address, value);
+        break;
+    case 16:
+        out16(address, value);
+        break;
+    case 32:
+        out32(address, value);
+        break;
+    default:
+        return AE_BAD_PARAMETER;
+    }
+    return AE_OK;
+}
+
+UINT32 AcpiOsInstallInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine,
+                                     void *context)
+{
+    thunk irq_handler = closure(acpi_heap, acpi_irq, service_routine, context);
+    if (irq_handler == INVALID_ADDRESS)
+        return AE_NO_MEMORY;
+    ioapic_register_int(interrupt_number, irq_handler, "ACPI");
+    return AE_OK;
+}
+
+ACPI_STATUS AcpiOsRemoveInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine)
+{
+    return AE_NOT_IMPLEMENTED;
 }

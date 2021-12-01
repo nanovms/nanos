@@ -211,10 +211,8 @@ closure_function(0, 2, void, count_processors_handler,
 
 static void count_processors()
 {
-    acpi_madt madt = acpi_get_table(ACPI_SIG_MADT);
-    if (madt) {
-        present_processors = 0;
-        acpi_walk_madt(madt, stack_closure(count_processors_handler));
+    present_processors = 0;
+    if (acpi_walk_madt(stack_closure(count_processors_handler))) {
         init_debug("ACPI reports %d processors", present_processors);
     } else {
         present_processors = 1;

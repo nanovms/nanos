@@ -15,9 +15,6 @@
 
 #define ACPI_SCI_IRQ    9
 
-/* ACPI table signatures */
-#define ACPI_SIG_MADT   0x43495041  // "APIC"
-
 /* MADT controller types */
 #define ACPI_MADT_LAPIC     0
 #define ACPI_MADT_IOAPIC    1
@@ -98,5 +95,4 @@ typedef closure_type(madt_handler, void, u8, void *);
 
 void init_acpi(kernel_heaps kh);
 void init_acpi_tables(kernel_heaps kh);
-void *acpi_get_table(u32 sig);
-void acpi_walk_madt(acpi_madt madt, madt_handler mh);
+boolean acpi_walk_madt(madt_handler mh);

@@ -1,4 +1,5 @@
 SUBDIR=		boot
+ACPICA_DIR=	$(VENDORDIR)/acpica
 LWIPDIR=	$(VENDORDIR)/lwip
 PROGRAMS=	kernel.elf
 
@@ -6,10 +7,12 @@ SRCS-kernel.elf= \
 	$(CURDIR)/service.c \
 	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
+	$(ACPICA) \
 	$(SRCDIR)/aws/ena/ena.c \
 	$(SRCDIR)/aws/ena/ena_com/ena_com.c \
 	$(SRCDIR)/aws/ena/ena_com/ena_eth_com.c \
 	$(SRCDIR)/aws/ena/ena_datapath.c \
+	$(SRCDIR)/drivers/acpi.c \
 	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/drivers/ata-pci.c \
 	$(SRCDIR)/drivers/console.c \
@@ -164,6 +167,7 @@ INCLUDES=\
 	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/xen/public \
 	-I$(SRCDIR)/hyperv/include \
+	-I$(ACPICA_DIR)/source/include \
 	-I$(LWIPDIR)/src/include
 
 AFLAGS+=-I$(ARCHDIR)/
@@ -208,7 +212,7 @@ STRIPFLAGS=	-g
 
 DEPFILES+=      $(VDSO_DEPS)
 CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS) $(KERNEL)
-CLEANDIRS+=     $(foreach d,output/platform output src src/aws src/hyperv vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src vendor/lwip/src/netif vendor/lwip/src/netif/ppp platform,$(OBJDIR)/$d)
+CLEANDIRS+=     $(foreach d,output/platform output src src/aws src/hyperv vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src vendor/lwip/src/netif vendor/lwip/src/netif/ppp vendor/acpica vendor/acpica/source vendor/acpica/source/components platform,$(OBJDIR)/$d)
 
 msg_vdsogen=    VDSOGEN	$@
 cmd_vdsogen=    $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so $@

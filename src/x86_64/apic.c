@@ -295,13 +295,12 @@ closure_function(1, 2, void, apic_madt_handler,
 void init_apic(kernel_heaps kh)
 {
     apic_heap = heap_general(kh);
-    acpi_madt  madt = acpi_get_table(ACPI_SIG_MADT);
-    if (madt) {
-        apic_debug("walking MADT table...\n");
-        apic_id_map = allocate_buffer(apic_heap, 8);
-        assert(apic_id_map != INVALID_ADDRESS);
-        acpi_walk_madt(madt, stack_closure(apic_madt_handler, kh));
-    } else {
+    apic_id_map = allocate_buffer(apic_heap, 8);
+    assert(apic_id_map != INVALID_ADDRESS);
+    apic_debug("walking MADT table...\n");
+    if (!acpi_walk_madt(stack_closure(apic_madt_handler, kh))) {
+        deallocate_buffer(apic_id_map);
+        apic_id_map = 0;
         apic_debug("MADT not found, detecting apic interface...\n");
         if (x2apic_if.detect(&x2apic_if, kh)) {
             apic_debug("using x2APIC interface\n");
