@@ -167,6 +167,9 @@ declare_closure_struct(1, 0, void, nvme_io_irq,
                        struct nvme *, n);
 declare_closure_struct(1, 0, void, nvme_bh_service,
                        struct nvme *, n);
+declare_closure_struct(3, 3, void, nvme_io,
+                       struct nvme *, n, u32, namespace, boolean, write,
+                       void *, buf, range, blocks, status_handler, sh);
 
 typedef struct nvme {
     heap general, contiguous;
@@ -186,6 +189,8 @@ typedef struct nvme {
     vector cmds;
     struct list free_cmds;
     closure_struct(nvme_bh_service, bh_service);
+    closure_struct(nvme_io, r);
+    closure_struct(nvme_io, w);
     struct spinlock lock;
 } *nvme;
 
@@ -368,9 +373,9 @@ static void nvme_service_pending(nvme n, boolean allocate)
         nvme_sq_doorbell(n, NVME_IOQ_IDX, &n->iosq);
 }
 
-closure_function(3, 3, void, nvme_io,
-                 nvme, n, u32, namespace, boolean, write,
-                 void *, buf, range, blocks, status_handler, sh)
+define_closure_function(3, 3, void, nvme_io,
+                        nvme, n, u32, namespace, boolean, write,
+                        void *, buf, range, blocks, status_handler, sh)
 {
     nvme n = bound(n);
     u32 namespace = bound(namespace);
@@ -451,20 +456,8 @@ closure_function(4, 0, void, nvme_ns_attach,
     nvme n = bound(n);
     u32 ns_id = bound(ns_id);
     u64 disk_size = bound(disk_size);
-    block_io r = closure(n->general, nvme_io, n, ns_id, false);
-    if (r == INVALID_ADDRESS) {
-        msg_err("failed to allocate read closure\n");
-        goto done;
-    }
-    block_io w = closure(n->general, nvme_io, n, ns_id, true);
-    if (w != INVALID_ADDRESS) {
-        nvme_debug("attaching disk (NS ID %d, capacity %ld bytes)", ns_id, disk_size);
-        apply(bound(a), r, w, 0 /* TODO: flush */, disk_size);
-    } else {
-        msg_err("failed to allocate write closure\n");
-        deallocate_closure(r);
-    }
-  done:
+    apply(bound(a), init_closure(&n->r, nvme_io, n, ns_id, false),
+          init_closure(&n->w, nvme_io, n, ns_id, true), 0 /* TODO: flush */, disk_size);
     closure_finish();
 }
 
@@ -816,6 +809,7 @@ closure_function(3, 1, boolean, nvme_probe,
     if (!nvme_init_cq(n, &n->acq, NVME_ACQ_ORDER))
         goto deinit_asq;
     pci_bar_init(d, &n->bar, NVME_REG_BAR, 0, -1);
+    pci_enable_io_and_memory(d);
 
     /* reset controller */
     pci_bar_write_4(&n->bar, NVME_CC, 0);
@@ -875,8 +869,10 @@ closure_function(3, 1, boolean, nvme_probe,
     list_init(&n->free_cmds);
     spin_lock_init(&n->lock);
     init_closure(&n->bh_service, nvme_bh_service, n);
-    if (nvme_create_iocq(n, bound(a)))
+    if (nvme_create_iocq(n, bound(a))) {
+        d->driver_data = n;
         return true;
+    }
   free_cmds:
     deallocate_vector(n->cmds);
   deinit_acq:
@@ -888,8 +884,39 @@ closure_function(3, 1, boolean, nvme_probe,
     return false;
 }
 
+closure_function(2, 0, void, nvme_detach_complete,
+                 nvme, n, thunk, completion)
+{
+    nvme_debug("detach complete");
+    nvme n = bound(n);
+    pci_teardown_msix(n->d, NVME_IOQ_MSIX);
+    nvme_deinit_cq(n, &n->iocq);
+    pci_teardown_msix(n->d, NVME_AQ_MSIX);
+    pci_disable_msix(n->d);
+    deallocate_vector(n->cmds);
+    pci_bar_deinit(&n->bar);
+    nvme_deinit_cq(n, &n->acq);
+    nvme_deinit_sq(n, &n->asq);
+    deallocate(n->general, n, sizeof(*n));
+    apply(bound(completion));
+    closure_finish();
+}
+
+closure_function(0, 2, void, nvme_remove,
+                 void *, driver_data, thunk, completion)
+{
+    nvme_debug("removing");
+    nvme n = driver_data;
+    thunk nvme_complete = closure(n->general, nvme_detach_complete, n, completion);
+    if (nvme_complete != INVALID_ADDRESS)
+        storage_detach((block_io)&n->r, (block_io)&n->w, nvme_complete);
+    else
+        msg_err("failed to allocate completion closure\n");
+}
+
 void init_nvme(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, nvme_probe, h, a, (heap)heap_linear_backed(kh)));
+    register_pci_driver(closure(h, nvme_probe, h, a, (heap)heap_linear_backed(kh)),
+                        closure(h, nvme_remove));
 }

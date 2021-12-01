@@ -345,6 +345,6 @@ void init_virtio_network(kernel_heaps kh)
 {
     heap h = heap_locked(kh);
     backed_heap page_allocator = heap_linear_backed(kh);
-    register_pci_driver(closure(h, vtpci_net_probe, h, page_allocator));
+    register_pci_driver(closure(h, vtpci_net_probe, h, page_allocator), 0);
     vtmmio_probe_devs(stack_closure(vtmmio_net_probe, h, page_allocator));
 }

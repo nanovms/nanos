@@ -26,6 +26,125 @@ boolean acpi_walk_madt(madt_handler mh)
     return true;
 }
 
+closure_function(1, 0, void, acpi_eject,
+                 ACPI_HANDLE, device)
+{
+    ACPI_HANDLE device = bound(device);
+    acpi_debug("eject %p", device);
+    ACPI_OBJECT arg = {
+        .Integer = {
+            .Type = ACPI_TYPE_INTEGER,
+            .Value = 1,
+        },
+    };
+    ACPI_OBJECT_LIST arg_list;
+    arg_list.Count = 1;
+    arg_list.Pointer = &arg;
+    ACPI_STATUS rv = AcpiEvaluateObject(device, "_EJ0", &arg_list, NULL);
+    if (ACPI_FAILURE(rv))
+        msg_err("failed to eject device (%d)\n", rv);
+    closure_finish();
+}
+
+static void acpi_pci_notify(ACPI_HANDLE device, UINT32 value, void *context)
+{
+    acpi_debug("PCI notify %p %d", device, value);
+    struct pci_dev dev;
+    dev.bus = u64_from_pointer(context);
+    ACPI_OBJECT obj;
+    ACPI_BUFFER retb = {
+            .Pointer = &obj,
+            .Length = sizeof(obj),
+    };
+    ACPI_STATUS rv = AcpiEvaluateObjectTyped(device, METHOD_NAME__ADR, NULL,
+                                             &retb, ACPI_TYPE_INTEGER);
+    if (ACPI_FAILURE(rv)) {
+        msg_err("failed to get device address (%d)\n", rv);
+        return;
+    }
+    u32 adr = obj.Integer.Value;
+    dev.slot = (adr >> 16) & 0xFFFF;
+    dev.function = adr & 0xFFFF;
+    thunk complete;
+    switch (value) {
+    case ACPI_NOTIFY_DEVICE_CHECK:
+        pci_probe_device(&dev);
+        break;
+    case ACPI_NOTIFY_EJECT_REQUEST:
+        complete = closure(acpi_heap, acpi_eject, device);
+        if (complete != INVALID_ADDRESS)
+            pci_remove_device(&dev, complete);
+        else
+            msg_err("failed to allocate device ejection closure\n");
+        break;
+    }
+}
+
+ACPI_STATUS acpi_pci_res_handler(ACPI_RESOURCE *resource, void *context)
+{
+    id_heap iomem = context;
+    u64 base = 0, len;
+    switch(resource->Type) {
+    case ACPI_RESOURCE_TYPE_ADDRESS32:
+        base = resource->Data.Address32.Address.Minimum +
+               resource->Data.Address32.Address.TranslationOffset;
+        len = resource->Data.Address32.Address.AddressLength;
+        break;
+    case ACPI_RESOURCE_TYPE_ADDRESS64:
+        base = resource->Data.Address64.Address.Minimum +
+               resource->Data.Address64.Address.TranslationOffset,
+        len = resource->Data.Address64.Address.AddressLength;
+        break;
+    }
+
+    /* Skip low memory addresses, which may be reserved in some platforms (e.g. video memory at
+     * 0xA0000 in the PC platform). */
+    if ((base >= MB) && !(base & MASK(PAGELOG)) && !(len & MASK(PAGELOG)))
+        id_heap_add_range(iomem, base, len);
+
+    return AE_OK;
+}
+
+static ACPI_STATUS acpi_device_handler(ACPI_HANDLE object, u32 nesting_level, void *context,
+                                       void **return_value)
+{
+    ACPI_DEVICE_INFO *dev_info;
+    ACPI_STATUS rv = AcpiGetObjectInfo(object, &dev_info);
+    if (ACPI_SUCCESS(rv)) {
+        if (dev_info->Flags & ACPI_PCI_ROOT_BRIDGE) {
+            acpi_debug("retrieving PCI root bridge resources for %p", object);
+            id_heap iomem = allocate_id_heap(acpi_heap, acpi_heap, PAGESIZE, true);
+            assert(iomem != INVALID_ADDRESS);
+            rv = AcpiWalkResources(object, METHOD_NAME__CRS, acpi_pci_res_handler, iomem);
+            if (ACPI_SUCCESS(rv))
+                pci_bus_set_iomem(dev_info->Address, iomem);
+            else
+                msg_err("cannot retrieve PCI root bridge resources: %d\n", rv);
+        }
+        ACPI_FREE(dev_info);
+    }
+
+    /* Install notification handlers for hotpluggable PCI slots. */
+    ACPI_HANDLE tmp;
+    if (ACPI_FAILURE(AcpiGetHandle(object, METHOD_NAME__ADR, &tmp)) ||
+        ACPI_FAILURE(AcpiGetHandle(object, "_EJ0", &tmp)) ||
+        ACPI_FAILURE(AcpiGetParent(object, &tmp)))
+        return AE_OK;
+    ACPI_DEVICE_INFO *parent_info;
+    rv = AcpiGetObjectInfo(tmp, &parent_info);
+    if (ACPI_SUCCESS(rv)) {
+        if (parent_info->Flags & ACPI_PCI_ROOT_BRIDGE) {
+            acpi_debug("installing PCI notify handler for %p", object);
+            rv = AcpiInstallNotifyHandler(object, ACPI_SYSTEM_NOTIFY, acpi_pci_notify,
+                                          pointer_from_u64(parent_info->Address));
+            if (ACPI_FAILURE(rv))
+                msg_err("cannot install PCI notify handler: %d\n", rv);
+        }
+        ACPI_FREE(parent_info);
+    }
+    return rv;
+}
+
 void init_acpi_tables(kernel_heaps kh)
 {
     assert(ACPI_SUCCESS(AcpiInitializeSubsystem()));
@@ -37,6 +156,7 @@ void init_acpi_tables(kernel_heaps kh)
     rv = AcpiLoadTables();
     if (ACPI_FAILURE(rv))
         acpi_debug("AcpiLoadTables returned %d", rv);
+    AcpiGetDevices(NULL, acpi_device_handler, NULL, NULL);
 }
 
 static UINT32 acpi_shutdown(void *context)
@@ -106,6 +226,9 @@ void init_acpi(kernel_heaps kh)
     rv = AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON, acpi_shutdown, 0);
     if (ACPI_FAILURE(rv))
         acpi_debug("cannot install power button hander: %d", rv);
+    rv = AcpiUpdateAllGpes();
+    if (ACPI_FAILURE(rv))
+        acpi_debug("cannot update GPEs: %d", rv);
 }
 
 /* OS services layer */

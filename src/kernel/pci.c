@@ -8,9 +8,15 @@
 # define pci_debug(...) do { } while(0)
 #endif // PCI_DEBUG
 
+typedef struct pci_bus {
+    id_heap iomem;
+} *pci_bus;
+
 // use the global nodespace
+static vector pci_buses;
 static vector devices;
 static vector drivers;
+static struct spinlock pci_lock;
 static heap virtual_page;
 
 static u32 pci_bar_len(pci_dev dev, int bar)
@@ -22,11 +28,11 @@ static u32 pci_bar_len(pci_dev dev, int bar)
     return len;
 }
 
-u64 pci_bar_size(pci_dev dev, struct pci_bar *b, int bar)
+u64 pci_bar_size(pci_dev dev, u8 type, u8 flags, int bar)
 {
-    u32 mask = b->type == PCI_BAR_MEMORY ? ~PCI_BAR_B_MEMORY_MASK : ~PCI_BAR_B_IOPORT_MASK;
+    u32 mask = type == PCI_BAR_MEMORY ? ~PCI_BAR_B_MEMORY_MASK : ~PCI_BAR_B_IOPORT_MASK;
     u32 len_lo = pci_bar_len(dev, bar) & mask;
-    u32 len_hi = (b->flags & PCI_BAR_F_64BIT) ? pci_bar_len(dev, bar + 1) : 0xffffffff;
+    u32 len_hi = (flags & PCI_BAR_F_64BIT) ? pci_bar_len(dev, bar + 1) : 0xffffffff;
     return ~(((u64) len_hi << 32) | len_lo) + 1;
 }
 
@@ -49,7 +55,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
         b->addr = (base & ~PCI_BAR_B_IOPORT_MASK) + offset;
         pci_debug("   i/o: addr 0x%x\n", b->addr);
     }
-    b->size = pci_bar_size(dev, b, bar);
+    b->size = pci_bar_size(dev, b->type, b->flags, bar);
     pci_debug("   bar %d: type %d, addr 0x%lx, size 0x%lx, flags 0x%x\n",
               bar, b->type, b->addr, b->size, b->flags);
 
@@ -191,11 +197,12 @@ void pci_disable_msix(pci_dev dev)
     pci_bar_deinit(&dev->msix_bar);
 }
 
-void register_pci_driver(pci_probe probe)
+void register_pci_driver(pci_probe probe, pci_remove remove)
 {
     struct pci_driver *d = allocate(drivers->h, sizeof(struct pci_driver));
     assert(d != INVALID_ADDRESS); 
     d->probe = probe;
+    d->remove = remove;
     vector_push(drivers, d);
 }
 
@@ -211,7 +218,41 @@ static int pci_dev_find(pci_dev dev)
 
 static void pci_probe_bus(int bus);
 
-static void pci_probe_device(pci_dev dev)
+static void pci_parse_iomem(pci_dev dev, boolean allocate)
+{
+    pci_bus bus = vector_get(pci_buses, dev->bus);
+    if (!bus)
+        return;
+    id_heap iomem = bus->iomem;
+    int max_bar;
+    switch (pci_get_hdrtype(dev) & PCIM_HDRTYPE) {
+    case PCIM_HDRTYPE_NORMAL:
+       max_bar = PCIR_MAX_BAR_0;
+       break;
+    case PCIM_HDRTYPE_BRIDGE:
+       max_bar = 1;
+       break;
+    default:    /* no BARs */
+        return;
+    }
+    for (int bar = 0; bar <= max_bar; bar++) {
+        u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
+        if (((base & PCI_BAR_B_TYPE_MASK) == PCI_BAR_MEMORY) &&
+            ((base & ~PCI_BAR_B_MEMORY_MASK) != 0)) {
+            u64 size = pci_bar_size(dev, PCI_BAR_MEMORY, base & PCI_BAR_B_MEMORY_MASK, bar);
+            u64 addr = base & ~PCI_BAR_B_MEMORY_MASK;
+            if (base & PCI_BAR_F_64BIT) {
+                addr |= ((u64)pci_cfgread(dev, PCIR_BAR(bar + 1), 4)) << 32;
+                bar++;
+            }
+            pci_debug("%sllocating mem addr 0x%lx, size 0x%lx (bar %d)\n", allocate ? "A" : "Dea",
+                      addr, size, bar);
+            id_heap_set_area(iomem, addr, size, false, allocate);
+        }
+    }
+}
+
+void pci_probe_device(pci_dev dev)
 {
     u16 vendor = pci_get_vendor(dev);
     if (vendor == 0xffff)
@@ -219,22 +260,26 @@ static void pci_probe_device(pci_dev dev)
     pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
         __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
     pci_dev pcid;
+    spin_lock(&pci_lock);
     int dev_index = pci_dev_find(dev);
     if (dev_index < 0) {
         pci_dev new_dev = allocate(devices->h, sizeof(*new_dev));
         if (new_dev == INVALID_ADDRESS) {
             msg_err("cannot allocate memory for PCI device\n");
+            spin_unlock(&pci_lock);
             return;
         }
         *new_dev = *dev;
         new_dev->driver = 0;
+        pci_parse_iomem(new_dev, true);
         vector_push(devices, new_dev);
         pcid = new_dev;
     } else {
         pcid = vector_get(devices, dev_index);
-        if (pcid->driver)
-            return;
     }
+    spin_unlock(&pci_lock);
+    if (pcid->driver)
+        return;
 
     // PCI-PCI bridge
     u8 class = pci_get_class(dev);
@@ -249,6 +294,11 @@ static void pci_probe_device(pci_dev dev)
     }
 
     // probe drivers
+    spin_lock(&pci_lock);
+    if (pcid->driver) {
+        spin_unlock(&pci_lock);
+        return;
+    }
     struct pci_driver *d;
     vector_foreach(drivers, d) {
         pci_debug(" driver %p / %F\n", d, d->probe);
@@ -258,6 +308,57 @@ static void pci_probe_device(pci_dev dev)
             pcid->driver = d;
             break;
         }
+    }
+    spin_unlock(&pci_lock);
+}
+
+closure_function(4, 0, void, pci_device_remove_complete,
+                 int, bus, int, slot, int, function, thunk, completion)
+{
+    pci_debug("%s\n", __func__);
+    struct pci_dev dev = {
+        .bus = bound(bus),
+        .slot = bound(slot),
+        .function = bound(function),
+    };
+    spin_lock(&pci_lock);
+    int dev_index = pci_dev_find(&dev);
+    if (dev_index >= 0) {
+        deallocate(devices->h, vector_delete(devices, dev_index), sizeof(struct pci_dev));
+        pci_parse_iomem(&dev, false);
+    }
+    spin_unlock(&pci_lock);
+    apply(bound(completion));
+    closure_finish();
+}
+
+void pci_remove_device(pci_dev dev, thunk completion)
+{
+    pci_debug("%s: %02x:%02x:%x\n", __func__, dev->bus, dev->slot, dev->function);
+    spin_lock(&pci_lock);
+    int dev_index = pci_dev_find(dev);
+    pci_driver driver;
+    void *driver_data;
+    if (dev_index >= 0) {
+        pci_dev d = vector_get(devices, dev_index);
+        thunk pci_completion = closure(devices->h, pci_device_remove_complete,
+                                       d->bus, d->slot, d->function, completion);
+        if (pci_completion != INVALID_ADDRESS)
+            completion = pci_completion;
+        else
+            msg_err("cannot allocate completion closure\n");
+        driver = d->driver;
+        driver_data = d->driver_data;
+        d->driver_data = 0;
+    } else {
+        driver = 0;
+    }
+    spin_unlock(&pci_lock);
+    if (driver) {
+        if (driver->remove && driver_data)
+            apply(driver->remove, driver_data, completion);
+    } else {
+        apply(completion);
     }
 }
 
@@ -278,6 +379,22 @@ pci_probe_bus(int bus)
             }
         }
     }
+}
+
+void pci_bus_set_iomem(int bus, id_heap iomem)
+{
+    pci_bus pbus = allocate(pci_buses->h, sizeof(*pbus));
+    assert(pbus != INVALID_ADDRESS);
+    pbus->iomem = iomem;
+    assert(vector_set(pci_buses, bus, pbus));
+}
+
+id_heap pci_bus_get_iomem(int bus)
+{
+    pci_bus pbus = vector_get(pci_buses, bus);
+    if (pbus)
+        return pbus->iomem;
+    return 0;
 }
 
 /*
@@ -309,6 +426,9 @@ void init_pci(kernel_heaps kh)
 {
     // should use the global node space
     virtual_page = (heap)heap_virtual_page(kh);
+    pci_buses = allocate_vector(heap_general(kh), 1);
+    assert(pci_buses != INVALID_ADDRESS);
     devices = allocate_vector(heap_general(kh), 8);
     drivers = allocate_vector(heap_general(kh), 8);
+    spin_lock_init(&pci_lock);
 }

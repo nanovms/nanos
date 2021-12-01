@@ -620,5 +620,5 @@ closure_function(3, 1, boolean, virtio_scsi_probe,
 void init_virtio_scsi(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_linear_backed(kh)));
+    register_pci_driver(closure(h, virtio_scsi_probe, h, a, heap_linear_backed(kh)), 0);
 }

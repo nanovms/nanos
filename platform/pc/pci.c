@@ -159,7 +159,31 @@ void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
 
 void pci_platform_init_bar(pci_dev dev, int bar)
 {
-    /* bars configured by BIOS; nop */
+    pci_plat_debug("%s: dev %p, %d:%d:%d, bar %d\n", __func__, dev,
+                   dev->bus, dev->slot, dev->function, bar);
+    u64 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
+    boolean is_io = (base & PCI_BAR_B_TYPE_MASK) == PCI_BAR_IOPORT;
+    if (base & (is_io ? ~PCI_BAR_B_IOPORT_MASK : ~PCI_BAR_B_MEMORY_MASK))
+        return; /* BAR configured by BIOS */
+    if (is_io) {
+        msg_err("I/O port resource allocation not supported (%d:%d:%d, bar %d)\n",
+                dev->bus, dev->slot, dev->function, bar);
+        return;
+    }
+    id_heap iomem = pci_bus_get_iomem(dev->bus);
+    if (!iomem) {
+        msg_err("I/O memory heap not available for bus %d\n", dev->bus);
+        return;
+    }
+    base = id_heap_alloc_subrange(iomem,
+        pci_bar_size(dev, PCI_BAR_MEMORY, base & PCI_BAR_B_MEMORY_MASK, bar), 0, U64_FROM_BIT(32));
+    if (base != INVALID_PHYSICAL) {
+        pci_plat_debug("   allocated base 0x%x\n", base);
+        pci_cfgwrite(dev, PCIR_BAR(bar), 4, base);
+    } else {
+        msg_err("failed to allocate I/O memory (%d:%d:%d, bar %d)\n",
+                dev->bus, dev->slot, dev->function, bar);
+    }
 }
 
 u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data)

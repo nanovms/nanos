@@ -55,9 +55,11 @@
 typedef struct pci_dev *pci_dev;
 
 typedef closure_type(pci_probe, boolean, pci_dev); // bus slot func
+typedef closure_type(pci_remove, void, void *, thunk);
 
 typedef struct pci_driver {
     pci_probe probe;
+    pci_remove remove;
 } *pci_driver;
 
 struct pci_bar {
@@ -74,6 +76,7 @@ struct pci_dev {
     int slot;
     int function;
     pci_driver driver;
+    void *driver_data;
     struct pci_bar msix_bar;
 };
 
@@ -138,7 +141,9 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
  * PCI BAR (TODO name? really segment thereof)
  */
 
+u64 pci_bar_size(pci_dev dev, u8 type, u8 flags, int bar);
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length);
+void pci_bar_deinit(struct pci_bar *b);
 void pci_platform_init_bar(pci_dev dev, int bar);
 u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data);
 void pci_platform_deallocate_msi(pci_dev dev, u64 v);
@@ -162,7 +167,11 @@ void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val);
 u32 pci_find_cap(pci_dev dev, u8 cap);
 u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp);
 
+void pci_bus_set_iomem(int bus, id_heap iomem);
+id_heap pci_bus_get_iomem(int bus);
 void pci_discover();
+void pci_probe_device(pci_dev dev);
+void pci_remove_device(pci_dev dev, thunk completion);
 void pci_set_bus_master(pci_dev dev);
 int pci_get_msix_count(pci_dev dev);
 int pci_enable_msix(pci_dev dev);
@@ -188,4 +197,4 @@ void pci_setup_fixed_irq(pci_dev dev, int v, thunk h, const char *name);
 
 void init_pci(kernel_heaps kh);
 
-void register_pci_driver(pci_probe p);
+void register_pci_driver(pci_probe p, pci_remove remove);

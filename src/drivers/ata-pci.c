@@ -336,5 +336,5 @@ closure_function(3, 1, boolean, ata_pci_probe,
 void init_ata_pci(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, ata_pci_probe, h, (heap)heap_linear_backed(kh), a));
+    register_pci_driver(closure(h, ata_pci_probe, h, (heap)heap_linear_backed(kh), a), 0);
 }

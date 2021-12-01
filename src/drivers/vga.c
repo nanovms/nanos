@@ -205,5 +205,5 @@ closure_function(2, 1, boolean, vga_pci_probe,
 void vga_pci_register(kernel_heaps kh, console_attach a)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, vga_pci_probe, h, a));
+    register_pci_driver(closure(h, vga_pci_probe, h, a), 0);
 }
