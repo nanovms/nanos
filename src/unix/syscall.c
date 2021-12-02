@@ -2404,7 +2404,6 @@ syscall_context allocate_syscall_context(void)
     init_refcount(&sc->refcount, 1, init_closure(&sc->free, free_syscall_context, sc));
     void *stack = allocate_stack(h, SYSCALL_STACK_SIZE);
     frame_set_stack_top(c->frame, stack);
-    install_runloop_trampoline(c, runloop);
     return sc;
 }
 
@@ -2439,7 +2438,6 @@ void syscall_handler(thread t)
     sc->call = call;
     assert(sc->refcount.c == 1);
     t->syscall = sc;
-    install_runloop_trampoline(&sc->context, runloop);
     context_pause(&t->context);
     context_resume(&sc->context);
 

@@ -1,5 +1,5 @@
 
-static inline int computeSignal (context c)
+static inline int computeSignal (context_frame c)
 {
     return 0;
 }
@@ -12,7 +12,7 @@ static inline void set_thread_stepping(thread t)
 {
 }
 
-static inline int get_register(u64 num, void *buf, context c)
+static inline int get_register(u64 num, void *buf, context_frame c)
 {
     return -1;
 }

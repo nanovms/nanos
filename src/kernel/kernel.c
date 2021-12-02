@@ -71,7 +71,6 @@ kernel_context allocate_kernel_context(void)
     c->transient_heap = h;
     void *stack = allocate_stack(h, SYSCALL_STACK_SIZE);
     frame_set_stack_top(c->frame, stack);
-    install_runloop_trampoline(c, runloop);
     return kc;
 }
 

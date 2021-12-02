@@ -101,34 +101,28 @@ static inline pageflags pageflags_from_vmflags(u64 vmflags)
     return flags;
 }
 
-static inline u64 get_tls(context f)
-{
-    assert(f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_TPIDR_EL0_SAVED);
-    return f[FRAME_TPIDR_EL0];
-}
-
-static inline void set_tls(context f, u64 tls)
+static inline void set_tls(context_frame f, u64 tls)
 {
     f[FRAME_TPIDR_EL0] = tls;
     f[FRAME_TXCTX_FLAGS] |= FRAME_TXCTX_TPIDR_EL0_SAVED;
 }
 
-static inline void syscall_restart_arch_setup(context f)
+static inline void syscall_restart_arch_setup(context_frame f)
 {
     f[FRAME_SAVED_X0] = f[FRAME_X0];
 }
 
-static inline void syscall_restart_arch_fixup(context f)
+static inline void syscall_restart_arch_fixup(context_frame f)
 {
     /* rewind to syscall */
     f[FRAME_X0] = f[FRAME_SAVED_X0];
     f[FRAME_ELR] -= 4; /* rewind to syscall; no thumb mode support */
 }
 
-void frame_save_fpsimd(context f);
-void frame_restore_fpsimd(context f);
+void frame_save_fpsimd(context_frame f);
+void frame_restore_fpsimd(context_frame f);
 
-static inline void thread_frame_save_fpsimd(context f)
+static inline void thread_frame_save_fpsimd(context_frame f)
 {
     if ((f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_FPSIMD_SAVED) == 0) {
         f[FRAME_TXCTX_FLAGS] |= FRAME_TXCTX_FPSIMD_SAVED;
@@ -136,7 +130,7 @@ static inline void thread_frame_save_fpsimd(context f)
     }
 }
 
-static inline void thread_frame_restore_fpsimd(context f)
+static inline void thread_frame_restore_fpsimd(context_frame f)
 {
     if (f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_FPSIMD_SAVED) {
         f[FRAME_TXCTX_FLAGS] &= ~FRAME_TXCTX_FPSIMD_SAVED;
@@ -144,7 +138,7 @@ static inline void thread_frame_restore_fpsimd(context f)
     }
 }
 
-static inline void thread_frame_save_tls(context f)
+static inline void thread_frame_save_tls(context_frame f)
 {
     if ((f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_TPIDR_EL0_SAVED) == 0) {
         f[FRAME_TXCTX_FLAGS] |= FRAME_TXCTX_TPIDR_EL0_SAVED;
@@ -152,7 +146,7 @@ static inline void thread_frame_save_tls(context f)
     }
 }
 
-static inline void thread_frame_restore_tls(context f)
+static inline void thread_frame_restore_tls(context_frame f)
 {
     if (f[FRAME_TXCTX_FLAGS] & FRAME_TXCTX_TPIDR_EL0_SAVED) {
         f[FRAME_TXCTX_FLAGS] &= ~FRAME_TXCTX_TPIDR_EL0_SAVED;

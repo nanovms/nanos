@@ -151,8 +151,7 @@ static inline void service_async_1(queue q)
     }
 }
 
-// should we ever be in the user frame here? i .. guess so?
-NOTRACE void __attribute__((noreturn)) runloop_internal()
+NOTRACE void __attribute__((noreturn)) runloop_internal(void)
 {
     cpuinfo ci = current_cpu();
 
@@ -250,6 +249,12 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
 
     kernel_sleep();
 }    
+
+/* non-inlined trampoline target */
+NOTRACE void __attribute__((noreturn)) runloop_target(void)
+{
+    runloop();
+}
 
 closure_function(0, 0, void, global_shutdown)
 {

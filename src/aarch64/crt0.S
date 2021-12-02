@@ -11,7 +11,7 @@
         .endif
 
         str     x17, [sp, #-8]
-        ldr     x17, [x18]      // running_frame
+        ldr     x17, [x18]      // current_context / frame
         stp     x0, x1, [x17, #(FRAME_X0 * 8)]
         stp     x2, x3, [x17, #(FRAME_X2 * 8)]
         stp     x4, x5, [x17, #(FRAME_X4 * 8)]
@@ -107,7 +107,6 @@ entry_invalid_el1:
 // universal frame return
 .globl frame_return
 frame_return:
-        str     x0, [x18]       // set running_frame
         mov     x1, #0x0        // clear frame full condition
         str     x1, [x0, #(FRAME_FULL * 8)]
 
@@ -183,7 +182,7 @@ exception_vectors:
 
 .globl frame_save_fpsimd
 frame_save_fpsimd:
-        add     x0, x0, #(FRAME_Q0 * 8)
+        ldr     x0, [x0, #(FRAME_EXTENDED * 8)]
         stp     q0, q1, [x0, #(0 * 16)]
         stp     q2, q3, [x0, #(2 * 16)]
         stp     q4, q5, [x0, #(4 * 16)]
@@ -208,7 +207,7 @@ frame_save_fpsimd:
 
 .globl frame_restore_fpsimd
 frame_restore_fpsimd:
-        add     x0, x0, #(FRAME_Q0 * 8)
+        ldr     x0, [x0, #(FRAME_EXTENDED * 8)]
         ldp     q0, q1, [x0, #(0 * 16)]
         ldp     q2, q3, [x0, #(2 * 16)]
         ldp     q4, q5, [x0, #(4 * 16)]

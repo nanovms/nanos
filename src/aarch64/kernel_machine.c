@@ -63,10 +63,13 @@ void cpu_init(int cpu)
 
 void init_cpuinfo_machine(cpuinfo ci, heap backed)
 {
-    /* nop */
+    kernel_context kc = allocate_kernel_context();
+    assert(kc != INVALID_ADDRESS);
+    kc->context.active_cpu = ci->id;
+    ci->m.current_context = ci->m.kernel_context = &kc->context;
 }
 
-void clone_frame_pstate(context dest, context src)
+void clone_frame_pstate(context_frame dest, context_frame src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * FRAME_N_PSTATE);
 }
@@ -82,3 +85,26 @@ void psci_shutdown(void)
     arm_hvc(psci_fn, 0, 0, 0);
 }
 
+#ifdef KERNEL
+#define EXTENDED_FRAME_SIZE (FRAME_EXTENDED_MAX * sizeof(u64))
+void init_context(context c, int type)
+{
+    c->type = type;
+    c->transient_heap = 0;
+    c->active_cpu = -1;
+    zero_context_frame(c->frame);
+    void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()),
+                            EXTENDED_FRAME_SIZE);
+    assert(e != INVALID_ADDRESS);
+    c->frame[FRAME_EXTENDED] = u64_from_pointer(e);
+}
+
+void destruct_context(context c)
+{
+    if (c->frame[FRAME_EXTENDED]) {
+        deallocate_u64((heap)heap_page_backed(get_kernel_heaps()),
+                       c->frame[FRAME_EXTENDED], EXTENDED_FRAME_SIZE);
+        c->frame[FRAME_EXTENDED] = 0;
+    }
+}
+#endif

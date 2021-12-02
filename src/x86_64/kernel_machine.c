@@ -114,7 +114,6 @@ void init_context(context c, int type)
     zero_context_frame(c->frame);
     u64 e = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
     assert(e != INVALID_PHYSICAL);
-    assert((e & 63) == 0); // XXX check me
     c->frame[FRAME_EXTENDED] = e;
     xsave(c->frame);
 }

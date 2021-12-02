@@ -3,7 +3,7 @@
 
 struct rt_sigframe *get_rt_sigframe(thread t)
 {
-    return pointer_from_u64(t->frame[SYSCALL_FRAME_SP]);
+    return pointer_from_u64(thread_frame(t)[SYSCALL_FRAME_SP]);
 }
 
 struct frame_record {
@@ -16,7 +16,7 @@ struct frame_record {
  */
 static void setup_ucontext(struct ucontext *uctx, thread t)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     struct sigcontext * mcontext = &(uctx->uc_mcontext);
 
     mcontext->fault_address = f[FRAME_FAULT_ADDRESS];
@@ -30,13 +30,16 @@ static void setup_ucontext(struct ucontext *uctx, thread t)
 static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
 {
     /* We're not building frames like Linux yet; just a fixed fpsimd_context for now... */
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
+    u64 *fp = pointer_from_u64(f[FRAME_EXTENDED]);
+    if (!fp)
+        return;
     struct fpsimd_context *fpctx = (struct fpsimd_context *)uctx->uc_mcontext.reserved;
     fpctx->head.magic = FPSIMD_MAGIC;
     fpctx->head.size = sizeof(struct fpsimd_context);
-    fpctx->fpsr = f[FRAME_FPSR];
-    fpctx->fpcr = f[FRAME_FPCR];
-    runtime_memcpy(fpctx->vregs, &f[FRAME_Q0], sizeof(fpctx->vregs));
+    fpctx->fpsr = fp[FRAME_FPSR];
+    fpctx->fpcr = fp[FRAME_FPCR];
+    runtime_memcpy(fpctx->vregs, &fp[FRAME_Q0], sizeof(fpctx->vregs));
 }
 
 void setup_sigframe(thread t, int signum, struct siginfo *si)
@@ -45,7 +48,7 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
 
     assert(sizeof(struct siginfo) == 128);
 
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     u64 sp;
 
     if ((sa->sa_flags & SA_ONSTACK) && t->signal_stack)
@@ -94,10 +97,13 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
 static void restore_ucontext_fpsimd(struct fpsimd_context *fpctx, thread t)
 {
     /* We're not building frames like Linux yet; just a fixed fpsimd_context for now... */
-    context f = thread_frame(t);
-    f[FRAME_FPSR] = fpctx->fpsr;
-    f[FRAME_FPCR] = fpctx->fpcr;
-    runtime_memcpy(&f[FRAME_Q0], fpctx->vregs, sizeof(fpctx->vregs));
+    context_frame f = thread_frame(t);
+    u64 *fp = pointer_from_u64(f[FRAME_EXTENDED]);
+    if (!fp)
+        return;
+    fp[FRAME_FPSR] = fpctx->fpsr;
+    fp[FRAME_FPCR] = fpctx->fpcr;
+    runtime_memcpy(&fp[FRAME_Q0], fpctx->vregs, sizeof(fpctx->vregs));
 }
 
 /*
@@ -105,7 +111,7 @@ static void restore_ucontext_fpsimd(struct fpsimd_context *fpctx, thread t)
  */
 void restore_ucontext(struct ucontext *uctx, thread t)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     struct sigcontext * mcontext = &(uctx->uc_mcontext);
     runtime_memcpy(f, mcontext->regs, sizeof(u64) * 31);
     f[FRAME_SP] = mcontext->sp;

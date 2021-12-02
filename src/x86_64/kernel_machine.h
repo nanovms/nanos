@@ -291,6 +291,7 @@ struct cpuinfo_machine {
         seg_desc_t user_code_64;
         u8 tss_desc[0x10];
     } gdt;
+
     struct gdt_pointer {
         u16 limit;
         u64 base;
@@ -413,11 +414,13 @@ static inline void frame_reset_stack(context_frame f)
     f[FRAME_RSP] = f[FRAME_STACK_TOP];
 }
 
-static inline void install_runloop_trampoline(context c, void *target)
+#ifdef KERNEL
+static inline void install_runloop_trampoline(context c)
 {
     /* make instance of inline for trampoline use */
-    *(u64*)frame_get_stack_top(c->frame) = (u64)u64_from_pointer(target);
+    *(u64*)frame_get_stack_top(c->frame) = u64_from_pointer(runloop_target);
 }
+#endif
 
 #define switch_stack(__s, __target) {                           \
         asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \

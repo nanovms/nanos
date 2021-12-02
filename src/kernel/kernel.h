@@ -2,7 +2,12 @@
 #include <runtime.h>
 #include <kernel_heaps.h>
 
-#define BOOTSTRAP_BASE  KMEM_BASE
+//#define CONTEXT_DEBUG
+#ifdef CONTEXT_DEBUG
+#define context_debug rprintf
+#else
+#define context_debug(x, ...)
+#endif
 
 /* per-cpu info, saved contexts and stacks */
 declare_closure_struct(1, 0, void, kernel_context_pre_suspend,
@@ -28,6 +33,10 @@ typedef struct kernel_context {
     closure_struct(free_kernel_context, free);
     u64 stackbase[KERNEL_STACK_WORDS];
 } *kernel_context;
+
+#ifdef KERNEL
+void runloop_target(void) __attribute__((noreturn));
+#endif
 
 #include <kernel_machine.h>
 #include <management.h>
@@ -193,13 +202,6 @@ static inline boolean async_apply_1(void *a, void *arg0)
 }
 #define async_apply_status_handler async_apply_1
 
-//#define CONTEXT_DEBUG
-#ifdef CONTEXT_DEBUG
-#define context_debug rprintf
-#else
-#define context_debug(x, ...)
-#endif
-
 #define CONTEXT_RESUME_SPIN_LIMIT (1ull << 24)
 
 kernel_context allocate_kernel_context(void);
@@ -345,14 +347,13 @@ static inline void count_major_fault(void)
     fetch_and_add(&mm_stats.major_faults, 1);
 }
 
-void runloop_internal() __attribute__((noreturn));
+void runloop_internal(void) __attribute__((noreturn));
 
 // XXX generating copies of runloop now...
 NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
     cpuinfo ci = current_cpu();
     context ctx = ci->m.kernel_context;
-    install_runloop_trampoline(ctx, runloop);
     context_switch(ctx);        /* nop if already installed */
     switch_stack(frame_get_stack_top(ctx->frame), runloop_internal);
     while(1);                   /* kill warning */
@@ -365,7 +366,7 @@ static inline void context_apply(context ctx, thunk t)
     context_debug("%s: ctx %p, t %F\n", __func__, ctx, t);
     assert(ctx->type != CONTEXT_TYPE_KERNEL);
     context_switch(ctx);
-    install_runloop_trampoline(ctx, runloop);
+    install_runloop_trampoline(ctx);
     switch_stack_1(sp, *(u64*)t, t);
 }
 
@@ -378,7 +379,7 @@ static inline void context_apply_1(context ctx, async_1 a, u64 arg0)
     assert(ctx->type != CONTEXT_TYPE_KERNEL);
     context_switch(ctx);
     assert(ctx->type != CONTEXT_TYPE_THREAD); // XXX checking
-    install_runloop_trampoline(ctx, runloop);
+    install_runloop_trampoline(ctx);
     switch_stack_2(sp, *(u64*)a, a, arg0);
 }
 
@@ -422,6 +423,8 @@ static inline void schedule_timer_service(void)
 #define BREAKPOINT_WRITE 01
 #define BREAKPOINT_IO 10
 #define BREAKPOINT_READ_WRITE 11
+
+#define BOOTSTRAP_BASE  KMEM_BASE
 
 u64 init_bootstrap_heap(u64 phys_length);
 id_heap init_physical_id_heap(heap h);

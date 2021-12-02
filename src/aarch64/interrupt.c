@@ -46,10 +46,50 @@ static void print_far_if_valid(u32 iss)
     }
 }
 
-void print_frame(context f)
+static void frame_trace(u64 *fp)
 {
+    for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame ++) {
+        if (!validate_virtual(fp, sizeof(u64)) ||
+            !validate_virtual(fp + 1, sizeof(u64)))
+            break;
+
+        u64 n = fp[1];
+        if (n == 0)
+            break;
+        print_u64(u64_from_pointer(fp + 1));
+        rputs(":   ");
+        fp = pointer_from_u64(fp[0]);
+        print_u64_with_sym(n);
+        rputs("\n");
+    }
+}
+
+static void print_stack(context_frame c)
+{
+    rputs("\nframe trace: \n");
+    frame_trace(pointer_from_u64(c[FRAME_X29]));
+
+    rputs("\nstack trace:\n");
+    u64 *sp = pointer_from_u64(c[FRAME_SP]);
+    for (u64 *x = sp; x < (sp + STACK_TRACE_DEPTH) &&
+             validate_virtual(x, sizeof(u64)); x++) {
+        print_u64(u64_from_pointer(x));
+        rputs(":   ");
+        print_u64_with_sym(*x);
+        rputs("\n");
+    }
+    rputs("\n");
+}
+
+void dump_context(context ctx)
+{
+    context_frame f = ctx->frame;
     rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
+    if (ctx->type >= CONTEXT_TYPE_UNDEFINED && ctx->type < CONTEXT_TYPE_MAX) {
+        rputs("\n      type: ");
+        rputs(context_type_strings[ctx->type]);
+    }
     rputs("\n      spsr: ");
     print_u64(f[FRAME_ESR_SPSR] & MASK(32));
     rputs("\n       esr: ");
@@ -139,19 +179,26 @@ void print_frame(context f)
 
     rputs("\n       elr: ");
     print_u64_with_sym(f[FRAME_ELR]);
+    rputs("\n       far: ");
+    print_u64_with_sym(f[FRAME_FAULT_ADDRESS]);
+    rputs("\nactive_cpu: ");
+    print_u64(ctx->active_cpu);
+    rputs("\n stack top: ");
+    print_u64(f[FRAME_STACK_TOP]);
     rputs("\n\n");
 
+    u64 *fp = pointer_from_u64(f[FRAME_EXTENDED]);
     for (int j = 0; j < FRAME_N_GPREG; j++) {
         rputs("      ");
         rputs(gpreg_names[j]);
         rputs(": ");
         print_u64_with_sym(f[j]);
-        int qidx = FRAME_Q0 + (2 * j);
-        if (f[qidx] || f[qidx + 1]) {
+        int qidx = (2 * j);
+        if (fp && (fp[qidx] || fp[qidx + 1])) {
             rputs(fpsimd_names[j]);
             rputs(": ");
-            print_u64(f[qidx + 1]);
-            print_u64(f[qidx]);
+            print_u64(fp[qidx + 1]);
+            print_u64(fp[qidx]);
         }
         rputs("\n");
     }
@@ -165,24 +212,7 @@ void print_frame(context f)
         print_u64(v);
         rputs("\n");
     }
-}
-
-void frame_trace(u64 *fp)
-{
-    for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame ++) {
-        if (!validate_virtual(fp, sizeof(u64)) ||
-            !validate_virtual(fp + 1, sizeof(u64)))
-            break;
-
-        u64 n = fp[1];
-        if (n == 0)
-            break;
-        print_u64(u64_from_pointer(fp + 1));
-        rputs(":   ");
-        fp = pointer_from_u64(fp[0]);
-        print_u64_with_sym(n);
-        rputs("\n");
-    }
+    print_stack(f);
 }
 
 void print_frame_trace_from_here(void)
@@ -191,23 +221,6 @@ void print_frame_trace_from_here(void)
     u64 fp;
     asm("mov %0, x29" : "=r" (fp));
     frame_trace(pointer_from_u64(fp));
-}
-
-void print_stack(context c)
-{
-    rputs("\nframe trace: \n");
-    frame_trace(pointer_from_u64(c[FRAME_X29]));
-
-    rputs("\nstack trace:\n");
-    u64 *sp = pointer_from_u64(c[FRAME_SP]);
-    for (u64 *x = sp; x < (sp + STACK_TRACE_DEPTH) &&
-             validate_virtual(x, sizeof(u64)); x++) {
-        print_u64(u64_from_pointer(x));
-        rputs(":   ");
-        print_u64_with_sym(*x);
-        rputs("\n");
-    }
-    rputs("\n");
 }
 
 extern void (*syscall)(context f);
@@ -223,12 +236,17 @@ void synchronous_handler(void)
 
     int_debug("caught exception, EL%d, esr 0x%x\n", f[FRAME_EL], esr);
 
+    if (f[FRAME_FULL])
+        halt("\nframe %p already full\n", f);
+    f[FRAME_FULL] = true;
+
     int ec = field_from_u64(esr, ESR_EC);
     if (ec == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
         field_from_u64(esr, ESR_ISS_IMM16) == 0) {
+        context ctx = ci->m.syscall_context;
         f[FRAME_VECTOR] = f[FRAME_X8];
-        set_current_context(ci, get_kernel_context());
-        switch_stack_1(get_running_frame(ci), syscall, f); /* frame is top of stack */
+        set_current_context(ci, ctx);
+        switch_stack_1(frame_get_stack_top(ctx->frame), syscall, f); /* frame is top of stack */
         halt("%s: syscall returned\n", __func__);
     }
 
@@ -242,12 +260,12 @@ void synchronous_handler(void)
         }
     }
 
-    /* fault handlers likely act on cpu state, so don't change it */
-    fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
+    /* fault handlers may act on cpu state, so don't change it */
+    fault_handler fh = ctx->fault_handler;
     if (fh) {
-        context retframe = apply(fh, f);
+        context retframe = apply(fh, ctx);
         if (retframe)
-            frame_return(retframe);
+            frame_return(retframe->frame);
         if (is_kernel_context(ctx) || is_syscall_context(ctx))
             f[FRAME_FULL] = false;      /* no longer saving frame for anything */
         runloop();
@@ -262,13 +280,17 @@ NOTRACE
 void irq_handler(void)
 {
     cpuinfo ci = current_cpu();
-    context c = get_current_context(ci);
-    context_frame f = c->frame;
+    context ctx = get_current_context(ci);
+    context_frame f = ctx->frame;
     u64 i;
 
     int_debug("%s: enter\n", __func__);
 
     int saved_state = ci->state;
+
+    if (f[FRAME_FULL])
+        halt("\nframe %p already full\n", f);
+    f[FRAME_FULL] = true;
 
     while ((i = gic_dispatch_int()) != INTID_NO_PENDING) {
         int_debug("[%2d] # %d, state %s, EL%d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
@@ -298,7 +320,7 @@ void irq_handler(void)
         context_schedule_return(ctx);
     }
 
-    if (is_current_kernel_context(c)) {
+    if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
         if (saved_state == cpu_kernel) {
             ci->state = cpu_kernel;
             frame_return(f);
@@ -432,4 +454,13 @@ void init_interrupts(kernel_heaps kh)
     gic_set_int_priority(GIC_TIMER_IRQ, 0);
     gic_set_int_target(GIC_TIMER_IRQ, 1);
     register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), "arm timer");
+}
+
+void __attribute__((noreturn)) __stack_chk_fail(void)
+{
+    cpuinfo ci = current_cpu();
+    context ctx = get_current_context(ci);
+    rprintf("stack check failed on cpu %d\n", ci->id);
+    dump_context(ctx);
+    vm_exit(VM_EXIT_FAULT);
 }

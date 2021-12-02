@@ -178,7 +178,8 @@ void dump_context(context ctx)
     }
     rputs("\nactive_cpu: ");
     print_u64(ctx->active_cpu);
-    rputs("\n");
+    rputs("\n stack top: ");
+    print_u64(f[FRAME_STACK_TOP]);
 
     if (v == 13 || v == 14) {
 	rputs("error code: ");
@@ -193,15 +194,13 @@ void dump_context(context ctx)
         rputs("\n");
     }
     
-    rputs("\n");
+    rputs("\n\n");
     for (int j = 0; j < 24; j++) {
         rputs(register_name(j));
         rputs(": ");
         print_u64_with_sym(f[j]);
         rputs("\n");
     }
-    rputs("stack top: ");
-    print_u64(f[FRAME_STACK_TOP]);
     print_stack(f);
 }
 
@@ -262,7 +261,7 @@ void common_handler()
             context_schedule_return(ctx);
         }
     } else {
-        /* fault handlers likely act on cpu state, so don't change it */
+        /* fault handlers may act on cpu state, so don't change it */
         fault_handler fh = ctx->fault_handler;
         if (fh) {
             context retframe = apply(fh, ctx);

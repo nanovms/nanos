@@ -330,7 +330,9 @@ void kernel_runtime_init(kernel_heaps kh)
     init_heaps = kh;
 
     /* runtime and console init */
-    init_debug("kernel_runtime_init");
+#ifdef INIT_DEBUG
+    early_debug("kernel_runtime_init\n");
+#endif
     init_runtime(misc, locked);
     init_sg(locked);
     init_pagecache(locked, (heap)heap_linear_backed(kh), (heap)heap_physical(kh), PAGESIZE);

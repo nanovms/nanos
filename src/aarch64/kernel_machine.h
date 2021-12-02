@@ -231,6 +231,12 @@ struct cpuinfo_machine {
     context current_context;
 
     /*** End of fields touched by kernel entries ***/
+
+    /* Next kernel context to install */
+    context kernel_context;
+
+    /* Next syscall context to install */
+    context syscall_context;
 };
 
 typedef struct cpuinfo *cpuinfo;
@@ -274,7 +280,7 @@ static inline u8 fsc_from_frame(context_frame f)
     return field_from_u64(field_from_u64(esr, ESR_ISS), ESR_ISS_ID_ABRT_FSC);
 }
 
-static inline boolean is_protection_fault(context_frame_frame f)
+static inline boolean is_protection_fault(context_frame f)
 {
     u8 fsc = fsc_from_frame(f);
     return (fsc != 0xff && fsc >= ESR_ISS_ID_ABRT_FSC_PERMISSION_L1 &&
@@ -320,6 +326,16 @@ static inline boolean is_div_by_zero(context_frame f)
     return false; // XXX not on arm / fp only?
 }
 
+static inline boolean frame_is_full(context_frame f)
+{
+    return f[FRAME_FULL];
+}
+
+static inline void *frame_extended(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_EXTENDED]);
+}
+
 static inline void frame_enable_interrupts(context_frame f)
 {
     f[FRAME_ESR_SPSR] &= ~SPSR_I; /* EL0 */
@@ -330,25 +346,34 @@ static inline void frame_disable_interrupts(context_frame f)
     f[FRAME_ESR_SPSR] |= SPSR_I; /* EL0 */
 }
 
-static inline void frame_set_sp(context_frame f, u64 sp)
-{
-    f[FRAME_SP] = sp;
-}
-
-static inline void *frame_stack_top(context_frame f)
-{
-    return pointer_from_u64(f[FRAME_STACK_TOP]);
-}
-
-static inline void *frame_stack(context_frame f)
+static inline void *frame_get_stack(context_frame f)
 {
     return pointer_from_u64(f[FRAME_SP]);
 }
 
-static inline void install_runloop_trampoline(context c)
+static inline void frame_set_stack(context_frame f, u64 sp)
 {
-    /* make instance of inline for trampoline use */
-    *(u64*)c->frame[FRAME_STACK_TOP] = u64_from_pointer(runloop);
+    f[FRAME_SP] = sp;
+}
+
+static inline void *frame_get_stack_top(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_STACK_TOP]);
+}
+
+static inline void frame_set_stack_top(context_frame f, void *st)
+{
+    f[FRAME_STACK_TOP] = u64_from_pointer(st);
+}
+
+static inline void frame_reset_stack(context_frame f)
+{
+    f[FRAME_SP] = f[FRAME_STACK_TOP];
+}
+
+static inline void __attribute__((always_inline)) install_runloop_trampoline(context c)
+{
+    asm volatile("mov x30, %0" :: "r"(runloop_target));
 }
 
 #define switch_stack(s, target) ({                                      \
@@ -369,7 +394,7 @@ static inline void install_runloop_trampoline(context c)
             register u64 __x0 asm("x0") = (u64)(a0);                    \
             register u64 __x1 asm("x1") = (u64)(a1);                    \
             asm volatile("mov sp, %0; br %1" ::                         \
-                         "r"(__s), "r"(__t), "r"(__x0) : "r"(__x1) : "memory"); })
+                         "r"(__s), "r"(__t), "r"(__x0), "r"(__x1) : "memory"); })
 
 /* syscall entry */
 #define init_syscall_handler()   /* stub */
