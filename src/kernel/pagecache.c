@@ -429,8 +429,8 @@ static pagecache_page touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u6
     return pp;
 }
 
-closure_function(5, 1, void, pagecache_write_sg_finish,
-                 pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, boolean, complete,
+closure_function(6, 1, void, pagecache_write_sg_finish,
+                 pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, boolean, complete, context, saved_ctx,
                  status, s)
 {
     pagecache_node pn = bound(pn);
@@ -503,6 +503,13 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
         write_sg = 0;
     }
 
+#ifdef KERNEL
+    // XXX wrap this up
+    // common with thread return ?
+    context saved_ctx = bound(saved_ctx);
+    if (saved_ctx)
+        use_fault_handler(saved_ctx->fault_handler);
+#endif
     do {
         assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
         u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - offset;
@@ -530,6 +537,10 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     } while (pi < end);
     pagecache_unlock_node(pn);
+#ifdef KERNEL
+    if (saved_ctx)
+        clear_fault_handler();
+#endif
 
     /* issue write */
     bound(complete) = true;
@@ -583,18 +594,18 @@ closure_function(1, 3, void, pagecache_write_sg,
         }
     }
 
-    /* prepare pages for writing */
-    status_handler m_complete;
+    context ctx;
 #ifdef KERNEL
-    context ctx = get_current_context(current_cpu());
-    if (ctx->type != CONTEXT_TYPE_KERNEL) {
-        m_complete = contextual_closure(pagecache_write_sg_finish, pn, q, sg, completion, false);
-    } else
+    ctx = get_current_context(current_cpu());
+    if (!is_syscall_context(ctx))
+        ctx = 0;
+#else
+    ctx = 0;
 #endif
-    {
-        m_complete = closure(pc->h, pagecache_write_sg_finish, pn, q, sg, completion, false);
-    }
-    merge m = allocate_merge(pc->h, m_complete);
+
+    /* prepare pages for writing */
+    merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish, pn, q, sg,
+                                            completion, false, ctx));
     status_handler sh = apply_merge(m);
 
     /* initiate reads for rmw start and/or end */

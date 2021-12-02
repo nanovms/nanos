@@ -54,31 +54,20 @@ define_closure_function(1, 1, void, pending_fault_complete,
     pf_debug("%s: page 0x%lx, status %v\n", __func__, pf->addr, s);
     if (!is_ok(s))
         rprintf("%s: page fill failed with %v\n", __func__, s);
-    list_foreach(&pf->dependents, l) {
-        thread t = struct_from_list(l, thread, l_faultwait);
-        pf_debug("   wake tid %d\n", t->tid);
-        list_delete(l);
+    context ctx;
+    vector_foreach(pf->dependents, ctx) {
+        pf_debug("   wake ctx %p\n", ctx);
 
-        if (!is_ok(s))
-            deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
+        // XXX handling for sc and kc case
+        if (!is_ok(s) && is_thread_context(ctx))
+            deliver_fault_signal(SIGBUS, (thread)ctx, pf->addr, BUS_ADRERR);
 
-        if (t->syscall) {
-            /* XXX not complete; need to cancel or restart syscall */
-//            rprintf("%s: schedule syscall return, tid %d, cpu %d\n", __func__, t->tid, current_cpu()->id);
-            /* We won't block; this is safe to use here. */
-            context saved = context_save_and_switch(&t->syscall->context);
-            schedule_syscall_return(t->syscall);
-            context_restore(saved);
-        } else {
-//            rprintf("%s: schedule thread, tid %d, cpu %d\n", __func__, t->tid, current_cpu()->id);
-            schedule_thread(t);
-        }
-        refcount_release(&t->refcount);
+        context_schedule_return(ctx);
     }
+    vector_clear(pf->dependents);
 
     process p = pf->p;
     u64 flags = spin_lock_irq(&p->faulting_lock);
-    assert(list_empty(&pf->dependents));
     rbtree_remove_node(&pf->p->pending_faults, &pf->n);
     list_insert_after(&mmap_info.pf_freelist, &pf->l_free);
     spin_unlock_irq(&p->faulting_lock, flags);
@@ -94,11 +83,12 @@ static pending_fault new_pending_fault_locked(process p, u64 addr)
     } else {
         pf = allocate(mmap_info.h, sizeof(struct pending_fault));
         assert(pf != INVALID_ADDRESS);
+        pf->dependents = allocate_vector(mmap_info.h, sizeof(context) * 4);
+        assert(pf->dependents != INVALID_ADDRESS);
     }
     init_rbnode(&pf->n);
     pf->addr = addr;
     pf->p = p;
-    list_init(&pf->dependents);
     init_closure(&pf->complete, pending_fault_complete, pf);
     assert(rbtree_insert_node(&p->pending_faults, &pf->n));
     return pf;
@@ -158,9 +148,17 @@ define_closure_function(5, 0, void, thread_demand_file_page,
     }
 }
 
-static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 vaddr, boolean in_kernel)
+static void demand_page_suspend_context(thread t, pending_fault pf, context ctx)
 {
-    context ctx = get_current_context(current_cpu());
+    pf_debug("%s: tid %d, pf %p, ctx %p (%d), switch to %p\n", __func__,
+             t->tid, pf, ctx, ctx->type, current_cpu()->m.kernel_context);
+    if (ctx->pre_suspend)
+        apply(ctx->pre_suspend);
+    context_switch(current_cpu()->m.kernel_context);
+}
+
+static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr, pending_fault pf)
+{
     pageflags flags = pageflags_from_vmflags(vm->flags);
     u64 page_addr = vaddr & ~PAGEMASK;
     u64 node_offset = vm->node_offset + (page_addr - vm->node.r.start);
@@ -175,7 +173,7 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
     pf_debug("   map length 0x%lx\n", padlen);
     if (node_offset >= padlen) {
         pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", padlen);
-        if (in_kernel) {
+        if (is_syscall_context(ctx) || is_kernel_context(ctx)) {
             /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
                or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
                assume this is an unrecoverable error and exit here. */
@@ -199,21 +197,14 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
     }
 
     /* page not filled - schedule a page fill for this thread */
-    refcount_reserve(&t->refcount);
     init_closure(&t->demand_file_page, thread_demand_file_page,
                  pf, vm, node_offset, page_addr, flags);
+    demand_page_suspend_context(t, pf, ctx);
     u64 saved_flags = spin_lock_irq(&t->p->faulting_lock);
-    list_insert_before(&pf->dependents, &t->l_faultwait);
+    vector_push(pf->dependents, ctx);
     spin_unlock_irq(&t->p->faulting_lock, saved_flags);
-    if (is_syscall_context(ctx))
-        check_syscall_context_replace();
-    context_switch(current_cpu()->m.kernel_context);
 
-//    context ctx = t->syscall ? &t->syscall->context : &t->context;
-//    context_pause(ctx);
-    // XXX wrap this up
-//    rprintf("%s: before context switch currect ctx %p\n", __func__,
-//            get_current_context(current_cpu()));
+    /* no need to reserve context; we're on exception/int stack */
     enqueue(bhqueue, &t->demand_file_page);
     count_major_fault();
     return false;
@@ -222,7 +213,6 @@ static boolean demand_filebacked_page(thread t, pending_fault pf, vmap vm, u64 v
 boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
 {
     u64 page_addr = vaddr & ~PAGEMASK;
-    boolean in_kernel = is_syscall_context(ctx) || is_kernel_context(ctx);
 
     if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
@@ -230,8 +220,9 @@ boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
         return false;
     }
 
-    pf_debug("%s: %s, %s, vaddr %p, vm flags 0x%02lx,\n", __func__,
-             in_kernel ? "kern" : "user", string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
+    pf_debug("%s: %s context, %s, vaddr %p, vm flags 0x%02lx,\n", __func__,
+             context_type_strings[ctx->type],
+             string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
              vaddr, vm->flags);
     pf_debug("   vmap %p, context %p\n", vm, ctx);
 
@@ -240,9 +231,9 @@ boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
     pending_fault pf = find_pending_fault_locked(p, page_addr);
     if (pf) {
         pf_debug("   found pending_fault %p\n", pf);
-        refcount_reserve(&t->refcount); /* for fault */
-        list_insert_before(&pf->dependents, &t->l_faultwait);
+        vector_push(pf->dependents, ctx);
         spin_unlock_irq(&p->faulting_lock, flags);
+        demand_page_suspend_context(t, pf, ctx);
         count_minor_fault(); /* XXX not precise...stash pt type in faulting thread? */
     } else {
         pf = new_pending_fault_locked(p, page_addr);
@@ -253,7 +244,7 @@ boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
         case VMAP_MMAP_TYPE_ANONYMOUS:
             return demand_anonymous_page(pf, vm, vaddr);
         case VMAP_MMAP_TYPE_FILEBACKED:
-            if (demand_filebacked_page(t, pf, vm, vaddr, in_kernel))
+            if (demand_filebacked_page(t, ctx, vm, vaddr, pf))
                 return true;
             break;
         default:

@@ -259,8 +259,7 @@ bug:
     console_force_unlock();
     rprintf("\n%s\n", errmsg);
     rprintf("cpu: %d, context type: %d\n", current_cpu()->id, ctx->type);
-    print_frame(ctx->frame);
-    print_stack(ctx->frame);
+    dump_context(ctx);
     ctx->frame[FRAME_FULL] = 0;
 
     if (t && t->p && get(t->p->process_root, sym(fault))) {

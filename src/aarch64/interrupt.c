@@ -253,14 +253,10 @@ void synchronous_handler(void)
         runloop();
     } else {
         console("\nno fault handler for frame ");
-        print_frame(f);
-        print_stack(f);
+        dump_context(ctx);
         vm_exit(VM_EXIT_FAULT);
     }
 }
-
-/* XXX We don't have unix defines...this should change to direct return anyway */
-void schedule_thread(void *t);
 
 NOTRACE
 void irq_handler(void)
@@ -299,7 +295,7 @@ void irq_handler(void)
     /* enqueue interrupted user thread */
     if (saved_state == cpu_user && !shutting_down) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
-        schedule_thread(c);
+        context_schedule_return(ctx);
     }
 
     if (is_current_kernel_context(c)) {
@@ -318,9 +314,8 @@ void serror_handler(void)
 {
     console("\nserror exception caught\n");
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
-    print_frame(f);
-    print_stack(f);
+    context ctx = get_current_context(ci);
+    dump_context(ctx);
     vm_exit(VM_EXIT_FAULT);
 }
 

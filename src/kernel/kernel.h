@@ -5,6 +5,15 @@
 #define BOOTSTRAP_BASE  KMEM_BASE
 
 /* per-cpu info, saved contexts and stacks */
+declare_closure_struct(1, 0, void, kernel_context_pre_suspend,
+                       struct kernel_context *, kc);
+
+declare_closure_struct(1, 0, void, kernel_context_schedule_return,
+                       struct kernel_context *, kc);
+
+declare_closure_struct(1, 0, void, kernel_context_return,
+                       struct kernel_context *, kc);
+
 declare_closure_struct(1, 0, void, free_kernel_context,
                        struct kernel_context *, kc);
 
@@ -13,6 +22,9 @@ typedef struct kernel_context {
     struct context context;
     struct refcount refcount;
     struct list l;              /* free list */
+    closure_struct(kernel_context_pre_suspend, pre_suspend);
+    closure_struct(kernel_context_schedule_return, schedule_return);
+    closure_struct(kernel_context_return, kernel_return);
     closure_struct(free_kernel_context, free);
     u64 stackbase[KERNEL_STACK_WORDS];
 } *kernel_context;
@@ -125,6 +137,8 @@ static inline cpuinfo cpuinfo_from_id(int cpu)
     return vector_get(cpuinfos, cpu);
 }
 
+extern const char *context_type_strings[CONTEXT_TYPE_MAX];
+
 static inline boolean is_kernel_context(context c)
 {
     return c->type == CONTEXT_TYPE_KERNEL;
@@ -179,8 +193,7 @@ static inline boolean async_apply_1(void *a, void *arg0)
 }
 #define async_apply_status_handler async_apply_1
 
-void frame_return(context_frame f);
-
+//#define CONTEXT_DEBUG
 #ifdef CONTEXT_DEBUG
 #define context_debug rprintf
 #else
@@ -188,6 +201,11 @@ void frame_return(context_frame f);
 #endif
 
 #define CONTEXT_RESUME_SPIN_LIMIT (1ull << 24)
+
+kernel_context allocate_kernel_context(void);
+void deallocate_kernel_context(kernel_context c);
+void init_kernel_contexts(heap backed);
+void frame_return(context_frame f);
 
 static inline void context_acquire(context c, cpuinfo ci)
 {
@@ -203,17 +221,17 @@ static inline void context_acquire(context c, cpuinfo ci)
 
 static inline void context_release(context c)
 {
-    if (!shutting_down) {
-        if (c->active_cpu == -1u)
-            halt("%s: already paused c %p, type %d\n", __func__, c, c->type);
-        assert(c->active_cpu == current_cpu()->id); /* XXX tmp for bringup */
-    }
+    if (c->active_cpu == -1u)
+        halt("%s: already paused c %p, type %d\n", __func__, c, c->type);
+    assert(c->active_cpu == current_cpu()->id); /* XXX tmp for bringup */
     c->active_cpu = -1u;
     context_debug("%s: c %p, cpu %d released\n", __func__, c, current_cpu()->id);
 }
 
 static inline void context_pause(context c)
 {
+    if (shutting_down)
+        return;
     if (c->pause) {
         context_debug("%s: invoking %F\n", __func__, c->pause);
         apply(c->pause);
@@ -227,10 +245,16 @@ static inline void context_resume(context c)
     if (!shutting_down)
         context_acquire(c, ci);
     set_current_context(ci, c);
-    if (c->resume) {
+    if (!shutting_down && c->resume) {
         context_debug("%s: invoking %F\n", __func__, c->resume);
         apply(c->resume);
     }
+}
+
+static inline void context_schedule_return(context ctx)
+{
+    assert(ctx->schedule_return);
+    apply(ctx->schedule_return);
 }
 
 static inline void context_switch(context ctx)
@@ -247,28 +271,19 @@ static inline void context_switch(context ctx)
     context_debug("...switched\n");
 }
 
-static inline context context_save_and_switch(context new)
+static inline void use_fault_handler(fault_handler h)
 {
-    cpuinfo ci = current_cpu();
-    u64 flags = irq_disable_save();
-    context prev = get_current_context(ci);
-    context_debug("%s: cpu %d, prev %p, new %p\n", __func__, ci->id, prev, new);
-    /* prev bound now; don't release */
-    context_resume(new);
-    irq_restore(flags);
-    return prev;
+    context ctx = get_current_context(current_cpu());
+    assert(is_kernel_context(ctx));
+    assert(!frame_is_full(ctx->frame));
+    assert(!ctx->fault_handler);
+    ctx->fault_handler = h;
 }
 
-static inline void context_restore(context saved)
+static inline void clear_fault_handler(void)
 {
-    cpuinfo ci = current_cpu();
-    u64 flags = irq_disable_save();
-    context prev = get_current_context(ci);
-    context_debug("%s: cpu %d, prev %p, saved %p\n", __func__, ci->id, prev, saved);
-    context_pause(prev);
-    /* no acquire for saved */
-    set_current_context(ci, saved);
-    irq_restore(flags);
+    context ctx = get_current_context(current_cpu());
+    ctx->fault_handler = 0;
 }
 
 // XXX enable this later after checking existing uses of transient
@@ -332,6 +347,7 @@ static inline void count_major_fault(void)
 
 void runloop_internal() __attribute__((noreturn));
 
+// XXX generating copies of runloop now...
 NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) void runloop(void)
 {
     cpuinfo ci = current_cpu();
@@ -347,6 +363,7 @@ static inline void context_apply(context ctx, thunk t)
 {
     void *sp = frame_get_stack_top(ctx->frame);
     context_debug("%s: ctx %p, t %F\n", __func__, ctx, t);
+    assert(ctx->type != CONTEXT_TYPE_KERNEL);
     context_switch(ctx);
     install_runloop_trampoline(ctx, runloop);
     switch_stack_1(sp, *(u64*)t, t);
@@ -358,15 +375,39 @@ static inline void context_apply_1(context ctx, async_1 a, u64 arg0)
     void *sp = frame_get_stack_top(ctx->frame);
     context_debug("%s: ctx %p, sp %p (@ %p) a %p, target %p (%F), arg0 0x%lx\n",
                   __func__, ctx, sp, *(u64*)sp, a, *(u64*)a, a, arg0);
+    assert(ctx->type != CONTEXT_TYPE_KERNEL);
     context_switch(ctx);
     assert(ctx->type != CONTEXT_TYPE_THREAD); // XXX checking
     install_runloop_trampoline(ctx, runloop);
     switch_stack_2(sp, *(u64*)a, a, arg0);
 }
 
+static inline kernel_context get_kernel_context(cpuinfo ci)
+{
+    list l;
+    if ((l = list_get_next(&ci->free_kernel_contexts))) {
+        list_delete(l);
+        kernel_context kc = struct_from_field(l, kernel_context, l);
+        frame_reset_stack(kc->context.frame);
+        return kc;
+    }
+    return allocate_kernel_context();
+}
+
+static inline void check_kernel_context_replace(void)
+{
+    cpuinfo ci = current_cpu();
+    kernel_context kc = (kernel_context)get_current_context(ci);
+    if (ci->m.kernel_context == &kc->context) {
+        // XXX bother with refcount?
+        kc = get_kernel_context(ci);
+        assert(kc != INVALID_ADDRESS);
+        ci->m.kernel_context = &kc->context;
+    }
+}
+
 static inline __attribute__((always_inline))  __attribute__((noreturn)) void kern_yield(void)
 {
-    //kern_unlock();
     runloop();
 }
 
@@ -398,27 +439,6 @@ void destruct_context(context c);
 void *allocate_stack(heap h, u64 size);
 void deallocate_stack(heap h, u64 size, void *stack);
 cpuinfo init_cpuinfo(heap backed, int cpu);
-kernel_context allocate_kernel_context(void);
-void deallocate_kernel_context(kernel_context c);
-void init_kernel_contexts(heap backed);
-boolean kernel_suspended(void);
-kernel_context suspend_kernel_context(void);
-void resume_kernel_context(kernel_context c);
-
-// XXX move this to kernel suspend; that should be the only place we'll need it
-static inline kernel_context get_kernel_context(void)
-{
-    cpuinfo ci = current_cpu();
-    list l;
-    if ((l = list_get_next(&ci->free_kernel_contexts))) {
-        list_delete(l);
-        kernel_context kc = struct_from_field(l, kernel_context, l);
-        frame_reset_stack(kc->context.frame);
-        return kc;
-    }
-    return allocate_kernel_context();
-}
-
 void init_interrupts(kernel_heaps kh);
 void msi_map_vector(int slot, int msislot, int vector);
 
@@ -462,8 +482,7 @@ heap locking_heap_wrapper(heap meta, heap parent);
 
 #endif
 
-void print_stack(context_frame c);
-void print_frame(context_frame f);
+void dump_context(context c);
 
 void configure_timer(timestamp rate, thunk t);
 

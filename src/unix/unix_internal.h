@@ -69,6 +69,10 @@ declare_closure_struct(1, 0, void, syscall_context_pause,
                        struct syscall_context *, sc);
 declare_closure_struct(1, 0, void, syscall_context_resume,
                        struct syscall_context *, sc);
+declare_closure_struct(1, 0, void, syscall_context_schedule_return,
+                       struct syscall_context *, sc);
+declare_closure_struct(1, 0, void, syscall_context_pre_suspend,
+                       struct syscall_context *, sc);
 declare_closure_struct(1, 0, void, syscall_context_return,
                        struct syscall_context *, sc);
 
@@ -81,7 +85,9 @@ typedef struct syscall_context {
     int call;                   /* syscall number */
     closure_struct(syscall_context_pause, pause);
     closure_struct(syscall_context_resume, resume);
-    closure_struct(syscall_context_return, _return);
+    closure_struct(syscall_context_schedule_return, schedule_return);
+    closure_struct(syscall_context_pre_suspend, pre_suspend);
+    closure_struct(syscall_context_return, syscall_return);
     closure_struct(free_syscall_context, free);
 } *syscall_context;
 
@@ -272,10 +278,8 @@ typedef struct pending_fault {
     struct rbnode n;            /* must be first */
     u64 addr;
     process p;
-    union {
-        struct list dependents;
-        struct list l_free;
-    };
+    vector dependents;
+    struct list l_free;
     closure_struct(pending_fault_complete, complete);
 } *pending_fault;
 
@@ -283,7 +287,9 @@ declare_closure_struct(1, 0, void, thread_pause,
                        thread, t);
 declare_closure_struct(1, 0, void, thread_resume,
                        thread, t);
-declare_closure_struct(1, 0, void, thread_run,
+declare_closure_struct(1, 0, void, thread_schedule_return,
+                       thread, t);
+declare_closure_struct(1, 0, void, thread_return,
                        thread, t);
 declare_closure_struct(1, 0, void, free_thread,
                        thread, t);
@@ -327,7 +333,8 @@ typedef struct thread {
     closure_struct(free_thread, free);
     closure_struct(thread_pause, pause);
     closure_struct(thread_resume, resume);
-    closure_struct(thread_run, run);
+    closure_struct(thread_schedule_return, schedule_return);
+    closure_struct(thread_return, thread_return);
     closure_struct(unix_fault_handler, fault_handler);
     closure_struct(thread_demand_file_page, demand_file_page);
     closure_struct(thread_demand_page_complete, demand_page_complete);
@@ -903,19 +910,7 @@ static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
 
 static inline void schedule_thread(thread t)
 {
-    assert(t->syscall == 0);
-    assert(enqueue_irqsafe(t->scheduling_queue, &t->run));
-}
-
-/* need to call this with context resumed to keep exclusive ... could also
-   look at using per-cpu queue */
-static inline void schedule_syscall_return(syscall_context sc)
-{
-    thread t = sc->t;
-    assert(t);
-    assert(t->syscall == sc); // XXX bringup
-    assert(frame_is_full(sc->context.frame));
-    assert(enqueue_irqsafe(runqueue, &sc->_return));
+    context_schedule_return(&t->context);
 }
 
 static inline sysreturn syscall_return(thread t, sysreturn val)
@@ -1062,7 +1057,6 @@ static inline void sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
 static inline void check_syscall_context_replace(void)
 {
     cpuinfo ci = current_cpu();
-    disable_interrupts();
     syscall_context sc = (syscall_context)get_current_context(ci);
     if (ci->m.syscall_context == &sc->context) {
         assert(sc->refcount.c > 1); /* syscall not finished */

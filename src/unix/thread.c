@@ -149,8 +149,7 @@ static inline void check_stop_conditions(thread t)
     return;
   terminate:
     rprintf("\nProcess abort: %s received by thread %d\n\n", cause, t->tid);
-    print_frame(thread_frame(t));
-    print_stack(thread_frame(t));
+    dump_context(&t->context);
     halt("Terminating.\n");
 }
 
@@ -184,7 +183,14 @@ define_closure_function(1, 0, void, thread_resume,
     frame_enable_interrupts(f);
 }
 
-define_closure_function(1, 0, void, thread_run,
+define_closure_function(1, 0, void, thread_schedule_return,
+                        thread, t)
+{
+    thread t = bound(t);
+    enqueue_irqsafe(t->scheduling_queue, &t->thread_return);
+}
+
+define_closure_function(1, 0, void, thread_return,
                         thread, t)
 {
     cpuinfo ci = current_cpu();
@@ -194,9 +200,7 @@ define_closure_function(1, 0, void, thread_run,
 
     // XXX we need to be able to take a fault while setting up
     // sigframe...but thread frame is full here
-    context ctx = get_current_context(ci);
-    assert(is_kernel_context(ctx));
-    ctx->fault_handler = t->context.fault_handler;
+    use_fault_handler(t->context.fault_handler);
     dispatch_signals(t);
     current_cpu()->state = cpu_user;
     check_stop_conditions(t);
@@ -212,14 +216,11 @@ define_closure_function(1, 0, void, thread_run,
     t->scheduling_queue = ci->thread_queue;    
     thread_unlock(t);
 
-    /* We can't safely print under the thread context, because a syslog file
-       write could try to allocate from a null thread transient. Maybe set
-       thread transient to a general heap, but check ramifications of this. */
-
-    /* thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx", */
-    /*            current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]); */
+    context_frame f = ctx->frame;
+    thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
+               current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
     ci->frcount++;
-    ctx->fault_handler = 0;
+    clear_fault_handler();
     context_switch(&t->context);
     frame_return(thread_frame(t));
     halt("return from frame_return!\n");
@@ -325,7 +326,9 @@ thread create_thread(process p)
     init_context(&t->context, CONTEXT_TYPE_THREAD);
     t->context.pause = init_closure(&t->pause, thread_pause, t);
     t->context.resume = init_closure(&t->resume, thread_resume, t);
-    init_closure(&t->run, thread_run, t);
+    t->context.schedule_return = init_closure(&t->schedule_return, thread_schedule_return, t);
+    t->context.pre_suspend = 0;
+    init_closure(&t->thread_return, thread_return, t);
 
     t->thread_bq = allocate_blockq(h, "thread");
     if (t->thread_bq == INVALID_ADDRESS)

@@ -142,7 +142,7 @@ void print_frame_trace_from_here(void)
     frame_trace(pointer_from_u64(rbp));
 }
 
-void print_stack(context_frame c)
+static void print_stack(context_frame c)
 {
     rputs("\nframe trace:\n");
     frame_trace(pointer_from_u64(c[FRAME_RBP]));
@@ -159,8 +159,9 @@ void print_stack(context_frame c)
     rputs("\n");
 }
 
-void print_frame(context_frame f)
+void dump_context(context ctx)
 {
+    context_frame f = ctx->frame;
     u64 v = f[FRAME_VECTOR];
     rputs(" interrupt: ");
     print_u64(v);
@@ -171,6 +172,12 @@ void print_frame(context_frame f)
     }
     rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
+    if (ctx->type >= CONTEXT_TYPE_UNDEFINED && ctx->type < CONTEXT_TYPE_MAX) {
+        rputs("\n      type: ");
+        rputs(context_type_strings[ctx->type]);
+    }
+    rputs("\nactive_cpu: ");
+    print_u64(ctx->active_cpu);
     rputs("\n");
 
     if (v == 13 || v == 14) {
@@ -195,13 +202,12 @@ void print_frame(context_frame f)
     }
     rputs("stack top: ");
     print_u64(f[FRAME_STACK_TOP]);
+    print_stack(f);
 }
 
 extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
 extern void * interrupt_vectors;
-
-void thread_reenqueue(void *t);  /* XXX move to direct return */
 
 NOTRACE
 void common_handler()
@@ -253,7 +259,7 @@ void common_handler()
         /* enqueue interrupted user thread */
         if (is_thread_context(ctx) && !shutting_down) {
             int_debug("int sched thread %p\n", ctx);
-            thread_reenqueue(ctx);
+            context_schedule_return(ctx);
         }
     } else {
         /* fault handlers likely act on cpu state, so don't change it */
@@ -263,11 +269,7 @@ void common_handler()
             if (retframe)
                 frame_return(retframe->frame);
         } else {
-            console("\nno fault handler for frame type ");
-            print_u64(ctx->type);
-            /* make a half attempt to identify it short of asking unix */
-            /* we should just have a name here */
-            console("\n");
+            console("\nno fault handler\n");
             goto exit_fault;
         }
     }
@@ -298,8 +300,7 @@ void common_handler()
     console(", vector ");
     print_u64(i);
     console("\n");
-    print_frame(f);
-    print_stack(f);
+    dump_context(ctx);
     apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
@@ -444,8 +445,7 @@ void __attribute__((noreturn)) __stack_chk_fail(void)
     cpuinfo ci = current_cpu();
     context ctx = get_current_context(ci);
     rprintf("stack check failed on cpu %d\n", ci->id);
-    print_frame(ctx->frame);
-    print_stack(ctx->frame);
+    dump_context(ctx);
     apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }

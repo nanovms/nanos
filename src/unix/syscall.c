@@ -2357,6 +2357,17 @@ define_closure_function(1, 0, void, syscall_context_resume,
     count_syscall_resume(t);
 }
 
+define_closure_function(1, 0, void, syscall_context_schedule_return,
+                        syscall_context, sc)
+{
+    syscall_context sc = bound(sc);
+    thread t = sc->t;
+    assert(t);
+    assert(t->syscall == sc); // XXX bringup
+    assert(frame_is_full(sc->context.frame));
+    assert(enqueue_irqsafe(runqueue, &sc->syscall_return));
+}
+
 define_closure_function(1, 0, void, syscall_context_return,
                         syscall_context, sc)
 {
@@ -2370,6 +2381,12 @@ define_closure_function(1, 0, void, syscall_context_return,
     frame_return(f);
 }
 
+define_closure_function(1, 0, void, syscall_context_pre_suspend,
+                        syscall_context, sc)
+{
+    check_syscall_context_replace();
+}
+
 syscall_context allocate_syscall_context(void)
 {
     heap h = heap_locked(get_kernel_heaps());
@@ -2379,8 +2396,10 @@ syscall_context allocate_syscall_context(void)
     context c = &sc->context;
     init_context(c, CONTEXT_TYPE_SYSCALL);
     sc->context.pause = init_closure(&sc->pause, syscall_context_pause, sc);
-    sc->context.resume = apply_context_to_closure(init_closure(&sc->resume, syscall_context_resume, sc), &sc->context);
-    init_closure(&sc->_return, syscall_context_return, sc);
+    sc->context.resume = init_closure(&sc->resume, syscall_context_resume, sc);
+    sc->context.schedule_return = init_closure(&sc->schedule_return, syscall_context_schedule_return, sc);
+    sc->context.pre_suspend = init_closure(&sc->pre_suspend, syscall_context_pre_suspend, sc);
+    init_closure(&sc->syscall_return, syscall_context_return, sc);
     sc->context.transient_heap = h;
     init_refcount(&sc->refcount, 1, init_closure(&sc->free, free_syscall_context, sc));
     void *stack = allocate_stack(h, SYSCALL_STACK_SIZE);

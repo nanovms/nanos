@@ -124,22 +124,17 @@ closure_function(0, 0, void, timer_interrupt_handler_fn)
     schedule_timer_service();
 }
 
-static void run_thunk(thunk t)
-{
-    context c = context_from_closure(t);
-    sched_debug(" run: %F state: %s context: %p\n", t, state_strings[current_cpu()->state], c);
-    if (c)
-        context_apply(c, t);
-    else
-        apply(t);
-}
-
 static inline void service_thunk_queue(queue q)
 {
     thunk t;
+    context c;
     while ((t = dequeue(q)) != INVALID_ADDRESS) {
-        sched_debug(" run: %F\n", t);
-        run_thunk(t);
+        c = context_from_closure(t);
+        sched_debug(" run: %F state: %s context: %p\n", t, state_strings[current_cpu()->state], c);
+        if (c)
+            context_apply(c, t);
+        else
+            apply(t);
     }
 }
 
@@ -240,7 +235,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                     ci->last_timer_update = here + kernel_timers->max;
                 }
             }
-            run_thunk(t);
+            apply(t);
         }
     }
 
