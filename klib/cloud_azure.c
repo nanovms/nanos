@@ -69,7 +69,6 @@ closure_function(1, 1, void, wireserver_parse_resp,
         azure_report_ready(az);
     }
   exit:
-    destruct_tuple(v, true);
     closure_finish();
 }
 

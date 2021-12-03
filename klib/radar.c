@@ -237,7 +237,6 @@ closure_function(0, 1, void, telemetry_crash_recv,
                     break;
                 }
         }
-        destruct_tuple(v, true);
     }
     closure_finish();
 }
@@ -320,7 +319,6 @@ closure_function(0, 1, void, telemetry_boot_recv,
         klog_set_boot_id(telemetry.boot_id);
     }
   exit:
-    destruct_tuple(v, true);
     closure_finish();
 }
 

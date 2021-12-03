@@ -138,9 +138,7 @@ closure_function(3, 2, void, cloud_download_save_complete,
                  status, s, bytes, len)
 {
     value v = bound(v);
-    if (v)
-        destruct_tuple(v, true);
-    else
+    if (!v)
         deallocate_buffer(bound(content));
     apply(bound(sh), s);
     closure_finish();
@@ -199,8 +197,6 @@ closure_function(5, 1, void, cloud_download_save,
     }
   error:
     *bound(content_len) = (bytes)-1;    /* special value that indicates error */
-    if (v)
-        destruct_tuple(v, true);
     apply(sh, s);
 }
 

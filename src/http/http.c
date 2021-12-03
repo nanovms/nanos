@@ -161,6 +161,25 @@ static void reset_parser(http_parser p)
     p->content_length = 0;
 }
 
+static void cleanup_parser(http_parser p)
+{
+    buffer word;
+    vector_foreach(p->start_line, word) {
+        deallocate_buffer(word);
+    }
+    deallocate_vector(p->start_line);
+    if (p->word != INVALID_ADDRESS)
+        deallocate_buffer(p->word);
+    destruct_tuple(p->header, true);
+}
+
+static void deallocate_parser(http_parser p)
+{
+    cleanup_parser(p);
+    deallocate_closure(p->each);
+    deallocate(p->h, p, sizeof(*p));
+}
+
 // we're going to patch the connection together by looking at the
 // leftover bits in buffer...defer until we need to actually
 // switch protocols
@@ -173,11 +192,14 @@ closure_function(1, 1, status, http_recv,
 
     /* content may be delimited by close rather than content length */
     if (!b) {
-        if (p->state == STATE_BODY)
+        int state = p->state;
+        if (state == STATE_BODY)
             goto content_finish;
-        if (p->state == STATE_INIT)
+        deallocate_parser(p);
+        closure_finish();
+        if (state == STATE_INIT)
             return STATUS_OK;   /* XXX teardown */
-        return timm("result", "http_recv: connection closed before finished parsing (state %d)", p->state);
+        return timm("result", "http_recv: connection closed before finished parsing (state %d)", state);
     }
     
     for (bytes i = b->start; i < b->end; i++) {
@@ -253,9 +275,17 @@ closure_function(1, 1, status, http_recv,
         set(start_line, intern_u64(i), a);
     }
     set(p->header, sym(start_line), start_line);
+    vector_clear(p->start_line);
     set(p->header, sym(content), p->word);
+    p->word = INVALID_ADDRESS;
     apply(p->each, p->header);
-    reset_parser(p);
+    if (b) {
+        cleanup_parser(p);
+        reset_parser(p);
+    } else {
+        deallocate_parser(p);
+        closure_finish();
+    }
     return STATUS_OK;
 }
 
@@ -314,34 +344,37 @@ closure_function(2, 1, void, each_http_request,
     if (method == HTTP_REQUEST_METHODS)
         goto not_found;
 
-    /* support absoluteURI? */
     buffer uri = vector_get(vsl, 1);
     if (!uri || buffer_length(uri) < 1 || *(u8*)buffer_ref(uri, 0) != '/')
         goto not_found;
-    buffer_consume(uri, 1);
 
     /* whatever test for default page */
-    if (buffer_length(uri) == 0) {
+    if (buffer_length(uri) == 1) {
         if (!hl->default_handler)
             goto not_found;
         apply(hl->default_handler, method, bound(out), v);
         return;
     }
 
-    int total_len = buffer_length(uri);
+    buffer rel_uri = clone_buffer(hl->h, uri);
+    assert(rel_uri != INVALID_ADDRESS);
+    buffer_consume(rel_uri, 1);
+    int total_len = buffer_length(rel_uri);
     int top_len = 0;
-    char * top = buffer_ref(uri, 0);
+    char *top = buffer_ref(rel_uri, 0);
     for (int i = 0; i < total_len; i++) {
         if (top[i] == '/') {
-            buffer_consume(uri, 1);
+            buffer_consume(rel_uri, 1);
             break;
         }
         top_len++;
     }
-    buffer_consume(uri, top_len);
+    buffer_consume(rel_uri, top_len);
 
-    if (buffer_length(uri) > 0)
-        set(v, sym(relative_uri), uri);
+    if (buffer_length(rel_uri) > 0)
+        set(v, sym(relative_uri), rel_uri);
+    else
+        deallocate_buffer(rel_uri);
 
     list_foreach(&hl->registrants, l) {
         http_listener_registrant r = struct_from_list(l, http_listener_registrant, l);
