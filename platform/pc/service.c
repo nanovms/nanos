@@ -41,20 +41,6 @@
 
 extern filesystem root_fs;
 
-#define BOOTSTRAP_REGION_SIZE_KB	2048
-static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE_KB << 10];
-static u64 bootstrap_base = (unsigned long long)bootstrap_region;
-static u64 bootstrap_alloc(heap h, bytes length)
-{
-    u64 result = bootstrap_base;
-    if ((result + length) >=  (u64_from_pointer(bootstrap_region) + sizeof(bootstrap_region))) {
-        rputs("*** bootstrap heap overflow! ***\n");
-        return INVALID_PHYSICAL;
-    }
-    bootstrap_base += length;
-    return result;
-}
-
 void read_kernel_syms(void)
 {
     u64 kern_base = INVALID_PHYSICAL;
@@ -293,8 +279,31 @@ static void find_initial_pages(void)
     halt("no initial pages region found; halt\n");
 }
 
-static id_heap init_physical_id_heap(heap h)
+id_heap init_physical_id_heap(heap h)
 {
+    u64 phys_length = 0;
+    for_regions(e) {
+        if (e->type == REGION_PHYSICAL) {
+            phys_length += e->length;
+        }
+    }
+    u64 bootstrap_size = init_bootstrap_heap(phys_length);
+
+    /* Carve the bootstrap heap out of a physical memory region. */
+    for_regions(e) {
+        if (e->type == REGION_PHYSICAL) {
+            u64 base = pad(e->base, PAGESIZE);
+            u64 end = e->base + e->length;
+            u64 length = (end & ~MASK(PAGELOG)) - base;
+            if (length >= bootstrap_size) {
+                map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
+                e->base = base + bootstrap_size;
+                e->length = end - e->base;
+                break;
+            }
+        }
+    }
+
     id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     boolean found = false;
     early_init_debug("physical memory:");
@@ -325,44 +334,6 @@ static id_heap init_physical_id_heap(heap h)
 	halt("no valid physical regions found; halt\n");
     }
     return physical;
-}
-
-static void init_kernel_heaps(void)
-{
-    static struct heap bootstrap;
-    bootstrap.alloc = bootstrap_alloc;
-    bootstrap.dealloc = leak;
-
-    kernel_heaps kh = get_kernel_heaps();
-    kh->virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
-                                      KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
-    assert(kh->virtual_huge != INVALID_ADDRESS);
-
-    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap,
-                                             (heap)kh->virtual_huge, PAGESIZE, true);
-    assert(kh->virtual_page != INVALID_ADDRESS);
-
-    kh->physical = init_physical_id_heap(&bootstrap);
-    assert(kh->physical != INVALID_ADDRESS);
-
-    /* Must occur after physical memory setup but before backed heap init. */
-    find_initial_pages();
-    init_mmu();
-    init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
-
-    kh->page_backed = allocate_page_backed_heap(&bootstrap, (heap)kh->virtual_page,
-                                                (heap)kh->physical, PAGESIZE, true);
-    assert(kh->page_backed != INVALID_ADDRESS);
-
-    kh->linear_backed = allocate_linear_backed_heap(&bootstrap, kh->physical);
-    assert(kh->linear_backed != INVALID_ADDRESS);
-
-    kh->general = allocate_mcache(&bootstrap, (heap)kh->linear_backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M);
-    assert(kh->general != INVALID_ADDRESS);
-
-    kh->locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)kh->linear_backed, 5, MAX_MCACHE_ORDER, PAGESIZE_2M));
-    assert(kh->locked != INVALID_ADDRESS);
 }
 
 static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {
@@ -496,6 +467,9 @@ void init_service(u64 rdi, u64 rsi)
     serial_init();
     early_init_debug("init_service");
 
+    find_initial_pages();
+    init_mmu();
+    init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
     init_kernel_heaps();
     if (cmdline)
         cmdline_parse(cmdline);

@@ -23,8 +23,71 @@ static kernel_heaps init_heaps;
 #define MAX_BLOCK_IO_SIZE (64 * 1024)
 #define SHUTDOWN_COMPLETIONS_SIZE 8
 
+static u64 bootstrap_base = BOOTSTRAP_BASE;
+static u64 bootstrap_limit;
+static u64 bootstrap_alloc(heap h, bytes length)
+{
+    u64 result = bootstrap_base;
+    if ((result + length) > bootstrap_limit) {
+        rputs("*** bootstrap heap overflow! ***\n");
+        return INVALID_PHYSICAL;
+    }
+    bootstrap_base += length;
+    return result;
+}
+
 static struct kernel_heaps heaps;
 static vector shutdown_completions;
+
+u64 init_bootstrap_heap(u64 phys_length)
+{
+    u64 page_count = phys_length >> PAGELOG;
+
+    /* In theory, the bootstrap heap must accommodate 1 bit per physical memory page (as needed by
+     * the id heap bitmap); but due to the way buffer extension works, when a bitmap is extended its
+     * internal buffer doubles its allocated memory, which may need up to double the theoretical
+     * amount of memory; plus, this allocated memory needs to coexist with previously allocated
+     * memory (because deallocation is not implemented); thus, the bootstrap heap needs 4 times the
+     * theoretical amount of memory.
+     * In addition, we need some extra space for various initial allocations. */
+    u64 bootstrap_size = 4 * PAGESIZE + pad(page_count >> 1, PAGESIZE);
+
+    bootstrap_limit = BOOTSTRAP_BASE + bootstrap_size;
+    return bootstrap_size;
+}
+
+void init_kernel_heaps(void)
+{
+    static struct heap bootstrap;
+    bootstrap.alloc = bootstrap_alloc;
+    bootstrap.dealloc = leak;
+
+    heaps.physical = init_physical_id_heap(&bootstrap);
+    assert(heaps.physical != INVALID_ADDRESS);
+
+    heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical);
+    assert(heaps.linear_backed != INVALID_ADDRESS);
+
+    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.linear_backed, 5, MAX_MCACHE_ORDER,
+                                    PAGESIZE_2M);
+    assert(heaps.general != INVALID_ADDRESS);
+
+    heaps.locked = locking_heap_wrapper(heaps.general, heaps.general);
+    assert(heaps.locked != INVALID_ADDRESS);
+
+    u64 kmem_base = pad(bootstrap_limit, HUGE_PAGESIZE);
+    heaps.virtual_huge = create_id_heap(heaps.general, heaps.locked, kmem_base,
+                                        KMEM_LIMIT - kmem_base, HUGE_PAGESIZE, true);
+    assert(heaps.virtual_huge != INVALID_ADDRESS);
+
+    heaps.virtual_page = create_id_heap_backed(heaps.general, heaps.locked,
+                                               (heap)heaps.virtual_huge, PAGESIZE, true);
+    assert(heaps.virtual_page != INVALID_ADDRESS);
+
+    heaps.page_backed = allocate_page_backed_heap(heaps.general, (heap)heaps.virtual_page,
+                                                  (heap)heaps.physical, PAGESIZE, true);
+    assert(heaps.page_backed != INVALID_ADDRESS);
+}
 
 closure_function(2, 3, void, offset_block_io,
                  u64, offset, block_io, io,

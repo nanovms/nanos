@@ -129,11 +129,16 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
     while(1);                   /* kill warning */
 }
 
+#define BOOTSTRAP_BASE  KMEM_BASE
+
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
 #define BREAKPOINT_IO 10
 #define BREAKPOINT_READ_WRITE 11
 
+u64 init_bootstrap_heap(u64 phys_length);
+id_heap init_physical_id_heap(heap h);
+void init_kernel_heaps(void);
 void init_cpuinfo_machine(cpuinfo ci, heap backed);
 void kernel_runtime_init(kernel_heaps kh);
 void read_kernel_syms(void);

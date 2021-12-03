@@ -28,30 +28,9 @@ u64 random_seed(void)
     return rdtsc();
 }
 
-#define BOOTSTRAP_REGION_SIZE (2 << 20)
-static u8 bootstrap_region[BOOTSTRAP_REGION_SIZE];
-static u64 bootstrap_base = (u64)bootstrap_region;
-static u64 bootstrap_end = (u64)&bootstrap_region[BOOTSTRAP_REGION_SIZE];
-static u64 bootstrap_alloc(heap h, bytes length)
-{
-    u64 result = bootstrap_base;
-    if ((result + length) >= bootstrap_end) {
-        rputs("*** bootstrap heap overflow! ***\n");
-        print_u64(result + length);
-        rputs("\n");
-        print_u64(bootstrap_end);
-        rputs("\n");
-
-        return INVALID_PHYSICAL;
-    }
-    bootstrap_base += length;
-    return result;
-}
-
 extern void *START, *END;
-static id_heap init_physical_id_heap(heap h)
+id_heap init_physical_id_heap(heap h)
 {
-    id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     init_debug("init_physical_id_heap\n");
     u64 kernel_size = pad(u64_from_pointer(&END) -
                           u64_from_pointer(&START), PAGESIZE);
@@ -59,13 +38,17 @@ static id_heap init_physical_id_heap(heap h)
     init_debug("init_setup_stack: kernel size ");
     init_debug_u64(kernel_size);
 
-    u64 base = pad(KERNEL_PHYS + kernel_size, PAGESIZE_2M);
+    u64 base = KERNEL_PHYS + kernel_size;
     u64 end = 0x80000000; // XXX 1G fixed til we can parse tree
+    u64 bootstrap_size = init_bootstrap_heap(end - base);
+    map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
+    base = pad(base + bootstrap_size, PAGESIZE_2M);
     init_debug("\nfree base ");
     init_debug_u64(base);
     init_debug("\nend ");
     init_debug_u64(end);
     init_debug("\n");
+    id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     if (!id_heap_add_range(physical, base, end - base)) {
         halt("init_physical_id_heap: failed to add range %R\n",
              irange(base, end));
@@ -147,40 +130,6 @@ void start_secondary_cores(kernel_heaps kh)
 
 void count_cpus_present(void)
 {
-}
-
-static void init_kernel_heaps(void)
-{
-    static struct heap bootstrap;
-    bootstrap.alloc = bootstrap_alloc;
-    bootstrap.dealloc = leak;
-
-    kernel_heaps kh = get_kernel_heaps();
-    kh->virtual_huge = create_id_heap(&bootstrap, &bootstrap, KMEM_BASE,
-                                      KMEM_LIMIT - KMEM_BASE, HUGE_PAGESIZE, true);
-    assert(kh->virtual_huge != INVALID_ADDRESS);
-
-    kh->virtual_page = create_id_heap_backed(&bootstrap, &bootstrap,
-                                             (heap)kh->virtual_huge, PAGESIZE, true);
-    assert(kh->virtual_page != INVALID_ADDRESS);
-
-    kh->physical = init_physical_id_heap(&bootstrap);
-    assert(kh->physical != INVALID_ADDRESS);
-
-    kh->page_backed = allocate_page_backed_heap(&bootstrap, (heap)kh->virtual_page,
-                                                (heap)kh->physical, PAGESIZE, true);
-    assert(kh->page_backed != INVALID_ADDRESS);
-
-    kh->linear_backed = allocate_linear_backed_heap(&bootstrap, kh->physical);
-    assert(kh->linear_backed != INVALID_ADDRESS);
-
-    kh->general = allocate_mcache(&bootstrap, (heap)kh->linear_backed,
-                                  5, 20, PAGESIZE_2M);
-    assert(kh->general != INVALID_ADDRESS);
-
-    kh->locked = locking_heap_wrapper(&bootstrap,
-        allocate_mcache(&bootstrap, (heap)kh->linear_backed, 5, 20, PAGESIZE_2M));
-    assert(kh->locked != INVALID_ADDRESS);
 }
 
 static void __attribute__((noinline)) init_service_new_stack(void)
