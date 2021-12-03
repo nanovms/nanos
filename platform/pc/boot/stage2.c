@@ -360,10 +360,6 @@ void centry()
     backed = region_allocator(&working_heap, PAGESIZE, REGION_PHYSICAL);
     assert(backed != INVALID_ADDRESS);
 
-    /* allocate identity region for page tables */
-    initial_pages_base = allocate_u64(backed, INITIAL_PAGES_SIZE);
-    assert(initial_pages_base != INVALID_PHYSICAL);
-
     /* allocate stage2 (and early stage3) stack */
     stack_base = allocate_u64(backed, STAGE2_STACK_SIZE);
     assert(stack_base != INVALID_PHYSICAL);
@@ -374,6 +370,10 @@ void centry()
     assert(working_p != INVALID_PHYSICAL);
     working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
+
+    /* allocate identity region for page tables */
+    initial_pages_base = allocate_u64(backed, INITIAL_PAGES_SIZE);
+    assert(initial_pages_base != INVALID_PHYSICAL);
 
     u32 stacktop = stack_base + STAGE2_STACK_SIZE - 4;
     asm("mov %0, %%esp": :"g"(stacktop));
