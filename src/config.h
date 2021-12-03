@@ -45,6 +45,7 @@
 /* mm stuff */
 #define PAGECACHE_DRAIN_CUTOFF (64 * MB)
 #define PAGECACHE_SCAN_PERIOD_SECONDS 5
+#define LOW_MEMORY_THRESHOLD   (64 * MB)
 
 /* don't go below this minimum amount of physical memory when inflating balloon */
 #define BALLOON_MEMORY_MINIMUM (16 * MB)

@@ -266,7 +266,7 @@ static inline void schedule_timer_service(void)
 
 #if !defined(BOOT)
 
-heap allocate_tagged_region(kernel_heaps kh, u64 tag);
+heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize);
 heap locking_heap_wrapper(heap meta, heap parent);
 
 #endif
@@ -306,6 +306,11 @@ typedef closure_type(balloon_deflater, u64, u64);
 void mm_register_balloon_deflater(balloon_deflater deflater);
 
 kernel_heaps get_kernel_heaps(void);
+
+static inline boolean is_low_memory_machine(kernel_heaps kh)
+{
+    return (heap_total((heap)heap_physical(kh)) < LOW_MEMORY_THRESHOLD);
+}
 
 struct filesystem *get_root_fs(void);
 tuple get_root_tuple(void);

@@ -34,7 +34,7 @@ static u64 tag_alloc(heap h, bytes s)
     return a;
 }
 
-heap allocate_tagged_region(kernel_heaps kh, u64 tag)
+heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize)
 {
     heap h = heap_locked(kh);
     struct tagheap *th = allocate(h, sizeof(struct tagheap));

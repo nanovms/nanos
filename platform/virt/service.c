@@ -139,10 +139,11 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     init_page_tables((heap)heap_linear_backed(kh));
     /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
+    bytes pagesize = is_low_memory_machine(kh) ? PAGESIZE : PAGESIZE_2M;
     init_tuples(locking_heap_wrapper(heap_general(kh),
-                allocate_tagged_region(kh, tag_table_tuple)));
-    init_symbols(allocate_tagged_region(kh, tag_symbol), heap_locked(kh));
-    init_management(allocate_tagged_region(kh, tag_function_tuple), heap_general(kh));
+                allocate_tagged_region(kh, tag_table_tuple, pagesize)));
+    init_symbols(allocate_tagged_region(kh, tag_symbol, pagesize), heap_locked(kh));
+    init_management(allocate_tagged_region(kh, tag_function_tuple, pagesize), heap_general(kh));
     init_debug("calling runtime init\n");
     kernel_runtime_init(kh);
     while(1);

@@ -348,7 +348,9 @@ void init_net(kernel_heaps kh)
 {
     heap h = heap_general(kh);
     heap backed = (heap)heap_linear_backed(kh);
-    lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, PAGESIZE_2M);
+    bytes pagesize = is_low_memory_machine(kh) ?
+                     U64_FROM_BIT(MAX_LWIP_ALLOC_ORDER + 1) : PAGESIZE_2M;
+    lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, pagesize);
     spin_lock_init(&lwip_spinlock);
     lwip_lock();
     lwip_init();

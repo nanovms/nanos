@@ -68,8 +68,10 @@ void init_kernel_heaps(void)
     heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical);
     assert(heaps.linear_backed != INVALID_ADDRESS);
 
+    bytes pagesize = is_low_memory_machine(&heaps) ?
+                     U64_FROM_BIT(MAX_MCACHE_ORDER + 1) : PAGESIZE_2M;
     heaps.general = allocate_mcache(&bootstrap, (heap)heaps.linear_backed, 5, MAX_MCACHE_ORDER,
-                                    PAGESIZE_2M);
+                                    pagesize);
     assert(heaps.general != INVALID_ADDRESS);
 
     heaps.locked = locking_heap_wrapper(heaps.general, heaps.general);
