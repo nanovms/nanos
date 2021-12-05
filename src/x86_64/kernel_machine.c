@@ -58,9 +58,7 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize)
 void clone_frame_pstate(context_frame dest, context_frame src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * (FRAME_N_PSTATE + 1));
-    runtime_memcpy(pointer_from_u64(dest[FRAME_EXTENDED]),
-                   pointer_from_u64(src[FRAME_EXTENDED]),
-                   extended_frame_size);
+    runtime_memcpy(frame_extended(dest), frame_extended(src), extended_frame_size);
 }
 
 static void seg_desc_set(seg_desc_t *d, u32 base, u16 limit, u16 flags)
@@ -80,6 +78,9 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
     ci->m.self = &ci->m;
     kernel_context kc = allocate_kernel_context();
     assert(kc != INVALID_ADDRESS);
+
+    /* start off kernel context in resumed state */
+    context_reserve_refcount(&kc->context);
     kc->context.active_cpu = ci->id;
     ci->m.current_context = ci->m.kernel_context = &kc->context;
     ci->m.exception_stack = allocate_stack(backed, EXCEPT_STACK_SIZE);

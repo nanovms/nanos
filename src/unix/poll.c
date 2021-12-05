@@ -391,15 +391,18 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
         epoll_debug("   user_events null or full\n");
         return;
     }
-// XXX
-//    assert(w->t->syscall);
-//    context saved_context = context_save_and_switch(&w->t->syscall->context);
+    context ctx = get_current_context(current_cpu());
+    if (is_kernel_context(ctx)) {
+        /* Borrow the thread's fault handler prior to touching user memory. */
+        use_fault_handler(w->t->context.fault_handler);
+    }
     struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
     e->data = efd->data;
     e->events = report;
     w->user_events->end += sizeof(struct epoll_event);
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
-//    context_restore(saved_context);
+    if (is_kernel_context(ctx))
+        clear_fault_handler();
     spin_unlock(&w->lock);
     
     /* XXX check this */

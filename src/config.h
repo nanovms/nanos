@@ -4,13 +4,15 @@
 /* The stage2 working heap needs to be large enough to accomodate all tfs
    allocations when loading the kernel. It gets recycled on stage3 entry. */
 #define STAGE2_WORKING_HEAP_SIZE (4 * MB)
+#define STAGE2_STACK_SIZE  (32 * KB)  /* stage2 stack is recycled, too */
 
-#define STAGE2_STACK_SIZE  (128 * KB)  /* stage2 stack is recycled, too */
-#define KERNEL_STACK_SIZE  (128 * KB)  /* must match value in crt0.s */
-#define EXCEPT_STACK_SIZE  (64 * KB)
+/* stacks installed by machine or in asm entry */
+#define EXCEPT_STACK_SIZE  (32 * KB)
 #define INT_STACK_SIZE     (32 * KB)
-#define BH_STACK_SIZE      (32 * KB)
-#define SYSCALL_STACK_SIZE (32 * KB)
+
+/* contexts with embedded stacks */
+#define KERNEL_CONTEXT_SIZE  (32 * KB)
+#define SYSCALL_CONTEXT_SIZE (32 * KB)
 
 #define PAGE_INVAL_QUEUE_LENGTH  4096
 

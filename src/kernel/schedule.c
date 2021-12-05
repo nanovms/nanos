@@ -157,11 +157,10 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
 
     disable_interrupts();
     sched_debug("runloop from %s c: %d  a1: %d\n"
-                "    b:%d  r:%d  t:%d%s\n", state_strings[ci->state],
+                "    b:%d  r:%d  t:%d\n", state_strings[ci->state],
                 queue_length(ci->cpu_queue), queue_length(async_queue_1),
                 queue_length(bhqueue), queue_length(runqueue),
-                queue_length(ci->thread_queue),
-                ci->have_kernel_lock ? " locked" : "");
+                queue_length(ci->thread_queue));
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();

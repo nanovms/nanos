@@ -108,7 +108,6 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     struct iovec *iov = p->iov;
     p->total_len += rv;
     p->curr_offset += rv;
-
     if (p->curr_offset == iov[p->curr].iov_len) {
         p->curr_offset = 0;
         do {
@@ -571,7 +570,6 @@ closure_function(2, 6, sysreturn, file_sg_read,
                length, f->length);
 
     begin_file_read(t, f);
-    // validate ctx save upstream
     apply(f->fs_read, sg, irangel(offset, length),
           contextual_closure(file_sg_read_complete, t, f, sg, is_file_offset, completion));
     file_readahead(f, offset, length);
@@ -646,7 +644,6 @@ closure_function(2, 6, sysreturn, file_write,
     sgb->refcount = 0;
 
     begin_file_write(t, f, length);
-    // validate ctx save upstream
     apply(f->fs_write, sg, irangel(offset, length),
           contextual_closure(file_write_complete, t, f, sg, length, is_file_offset, completion));
     /* possible direct return in top half */
@@ -1287,7 +1284,6 @@ closure_function(2, 1, void, sync_complete,
 
 sysreturn sync(void)
 {
-    // XXX only if syscall_context?
     status_handler sh = contextual_closure(sync_complete, current, 0);
     if (sh == INVALID_ADDRESS)
         return -ENOMEM;
@@ -2044,7 +2040,7 @@ sysreturn sched_yield()
 void exit(int code)
 {
     exit_thread(current);
-    syscall_finish(false);
+    syscall_finish(true);
 }
 
 sysreturn exit_group(int status)
@@ -2325,42 +2321,45 @@ void count_syscall(thread t, sysreturn rv)
 
 static boolean debugsyscalls;
 
-define_closure_function(1, 0, void, free_syscall_context,
-                        syscall_context, sc)
+/* TODO: Deallocate these after some limit is reached. */
+define_closure_function(2, 0, void, free_syscall_context,
+                        syscall_context, sc, boolean, queued)
 {
-    /* TODO we can dealloc after some maximum... */
-    list_insert_after(&current_cpu()->free_syscall_contexts, &bound(sc)->l);
+    /* The final release may happen while running in the context (and on the
+       context stack), so defer the return to free list until after the
+       context switch (runloop). */
+    cpuinfo ci = current_cpu();
+    if (!bound(queued)) {
+        bound(queued) = true;
+        enqueue_irqsafe(ci->cpu_queue, closure_self());
+        return;
+    }
+    bound(queued) = false;
+    list_insert_after(&ci->free_syscall_contexts, &bound(sc)->l);
 }
 
-define_closure_function(1, 0, void, syscall_context_pause,
-                        syscall_context, sc)
+static void syscall_context_pause(context ctx)
 {
-    /* rprintf("%s, sc %p, from %p %d, cpu %d\n", __func__, bound(sc), */
-    /*         __builtin_return_address(0), bound(sc)->t->tid, */
-    /*         current_cpu()->id); */
-    syscall_context sc = bound(sc);
+    syscall_context sc = (syscall_context)ctx;
     syscall_accumulate_stime(sc);
     count_syscall_save(sc->t);
+    context_release_refcount(&sc->context);
 }
 
-define_closure_function(1, 0, void, syscall_context_resume,
-                        syscall_context, sc)
+static void syscall_context_resume(context ctx)
 {
-    /* rprintf("%s, sc %p, from %p %d, cpu %d\n", __func__, bound(sc), */
-    /*         __builtin_return_address(0), bound(sc)->t->tid, */
-    /*         current_cpu()->id); */
-    thread t = bound(sc)->t;
-    syscall_context sc = bound(sc);
+    syscall_context sc = (syscall_context)ctx;
+    thread t = sc->t;
     assert(sc->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     sc->start_time = here == 0 ? 1 : here;
     count_syscall_resume(t);
+    context_reserve_refcount(&sc->context);
 }
 
-define_closure_function(1, 0, void, syscall_context_schedule_return,
-                        syscall_context, sc)
+static void syscall_context_schedule_return(context ctx)
 {
-    syscall_context sc = bound(sc);
+    syscall_context sc = (syscall_context)ctx;
     thread t = sc->t;
     assert(t);
     assert(t->syscall == sc); // XXX bringup
@@ -2368,42 +2367,41 @@ define_closure_function(1, 0, void, syscall_context_schedule_return,
     assert(enqueue_irqsafe(runqueue, &sc->syscall_return));
 }
 
+static void syscall_context_pre_suspend(context ctx)
+{
+    check_syscall_context_replace(current_cpu(), (syscall_context)ctx);
+}
+
 define_closure_function(1, 0, void, syscall_context_return,
                         syscall_context, sc)
 {
-    /* rprintf("%s: sc %p, cpu %d\n", __func__, bound(sc), current_cpu()->id); */
-    context_frame f = bound(sc)->context.frame;
+    syscall_context sc = bound(sc);
+    context_frame f = sc->context.frame;
     assert(f[FRAME_FULL]);
-    /* rprintf("sc resume frame return, sp 0x%lx\n", f[FRAME_RSP]); */
-    /* print_frame(f); */
-    /* print_stack(f); */
-    context_switch(&bound(sc)->context);
+    context_switch(&sc->context);
+    context_release_refcount(&sc->context);
     frame_return(f);
-}
-
-define_closure_function(1, 0, void, syscall_context_pre_suspend,
-                        syscall_context, sc)
-{
-    check_syscall_context_replace();
 }
 
 syscall_context allocate_syscall_context(void)
 {
-    heap h = heap_locked(get_kernel_heaps());
-    syscall_context sc = allocate(h, sizeof(struct syscall_context));
+    build_assert((SYSCALL_CONTEXT_SIZE & (SYSCALL_CONTEXT_SIZE - 1)) == 0);
+    syscall_context sc = allocate((heap)heap_linear_backed(get_kernel_heaps()),
+                                  SYSCALL_CONTEXT_SIZE);
     if (sc == INVALID_ADDRESS)
         return sc;
     context c = &sc->context;
     init_context(c, CONTEXT_TYPE_SYSCALL);
-    sc->context.pause = init_closure(&sc->pause, syscall_context_pause, sc);
-    sc->context.resume = init_closure(&sc->resume, syscall_context_resume, sc);
-    sc->context.schedule_return = init_closure(&sc->schedule_return, syscall_context_schedule_return, sc);
-    sc->context.pre_suspend = init_closure(&sc->pre_suspend, syscall_context_pre_suspend, sc);
+    init_refcount(&c->refcount, 1, init_closure(&sc->free, free_syscall_context, sc, false));
+    c->pause = syscall_context_pause;
+    c->resume = syscall_context_resume;
+    c->schedule_return = syscall_context_schedule_return;
+    c->pre_suspend = syscall_context_pre_suspend;
     init_closure(&sc->syscall_return, syscall_context_return, sc);
-    sc->context.transient_heap = h;
-    init_refcount(&sc->refcount, 1, init_closure(&sc->free, free_syscall_context, sc));
-    void *stack = allocate_stack(h, SYSCALL_STACK_SIZE);
-    frame_set_stack_top(c->frame, stack);
+    c->fault_handler = 0;
+    sc->context.transient_heap = heap_locked(get_kernel_heaps());
+    void *stack_top = ((void *)sc) + SYSCALL_CONTEXT_SIZE - STACK_ALIGNMENT;
+    frame_set_stack_top(c->frame, stack_top);
     return sc;
 }
 
@@ -2414,9 +2412,10 @@ void syscall_handler(thread t)
        and complete the context switch. */
     cpuinfo ci = current_cpu();
     ci->state = cpu_kernel;
-    //rprintf("%s: type %d\n", __func__, t->context.type);
     assert(is_thread_context(&t->context));
-    context_frame f = t->context.frame;
+    context_frame f = thread_frame(t);
+    f[FRAME_FULL] = true;
+    thread_reserve(t); /* frame save reference */
     u64 call = f[FRAME_VECTOR];
     u64 arg0 = f[SYSCALL_FRAME_ARG0]; /* aliases retval on arm; cache arg */
     syscall_restart_arch_setup(f);
@@ -2436,7 +2435,7 @@ void syscall_handler(thread t)
     sc->context.fault_handler = t->context.fault_handler;
     sc->start_time = 0;
     sc->call = call;
-    assert(sc->refcount.c == 1);
+    assert(sc->context.refcount.c == 1);
     t->syscall = sc;
     context_pause(&t->context);
     context_resume(&sc->context);
@@ -2458,11 +2457,11 @@ void syscall_handler(thread t)
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     if (h) {
         t->syscall_complete = false;
-        reserve_syscall_context(sc);
+        context_reserve_refcount(&sc->context);
         sysreturn rv = h(arg0, f[SYSCALL_FRAME_ARG1], f[SYSCALL_FRAME_ARG2],
                          f[SYSCALL_FRAME_ARG3], f[SYSCALL_FRAME_ARG4], f[SYSCALL_FRAME_ARG5]);
-        assert(sc->refcount.c > 1); // XXX tmp
-        release_syscall_context(sc);
+        assert(sc->context.refcount.c > 1); // XXX tmp
+        context_release_refcount(&sc->context);
         set_syscall_return(t, rv);
         if (do_syscall_stats)
             count_syscall(t, rv);

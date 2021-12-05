@@ -412,21 +412,6 @@ closure_function(0, 2, void, storage_shutdown, int, status, merge, m)
     storage_sync(apply_merge(m));
 }
 
-
-closure_function(3, 0, void, do_shutdown_handler,
-                 shutdown_handler, h, int, status, merge, m)
-{
-    apply(bound(h), bound(status), bound(m));
-    closure_finish();
-}
-
-closure_function(1, 0, void, do_status_handler,
-                 status_handler, sh)
-{
-    apply(bound(sh), STATUS_OK);
-    closure_finish();
-}
-
 extern boolean shutting_down;
 void __attribute__((noreturn)) kernel_shutdown(int status)
 {
@@ -444,21 +429,13 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
 
     if (vector_length(shutdown_completions) > 0) {
         cpuinfo ci = current_cpu();
-        if (ci->have_kernel_lock) {
-            vector_foreach(shutdown_completions, h)
-                apply(h, status, m);
-            apply(sh, STATUS_OK);
-        } else {
-            vector_push(shutdown_completions,
-                        closure(locked, do_status_handler, sh));
-            vector_foreach(shutdown_completions, h)
-                enqueue_irqsafe(runqueue,
-                                closure(locked, do_shutdown_handler, h, status, m));
-            if (ci->state == cpu_interrupt) {
-                interrupt_exit();
-                context c = get_current_context(ci);
-                c->frame[FRAME_FULL] = false;
-            }
+        vector_foreach(shutdown_completions, h)
+            apply(h, status, m);
+        apply(sh, STATUS_OK);
+        if (ci->state == cpu_interrupt) {
+            interrupt_exit();
+            context c = get_current_context(ci);
+            c->frame[FRAME_FULL] = false;
         }
         runloop();
     }

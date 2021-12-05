@@ -45,8 +45,6 @@
 #define blockq_lock(bq) spin_lock(&bq->lock)
 #define blockq_unlock(bq) spin_unlock(&bq->lock)
 
-// basically this would all have to turn async
-
 /* This applies a blockq action after it has been removed from the waiters
    list. If the action cannot wake the thread and must continue blocking, it
    needs to re-add itself to the queue (and reinstate any remaining timeout). */
@@ -81,11 +79,6 @@ define_closure_function(2, 2, void, blockq_thread_timeout,
         blockq_apply(bq, t, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_TIMEDOUT);
     }
 }
-
-/* XXX Note semantic changes:
-   - bh actions need to reschedule themselves and restart time if cannot wake
-     - suspect there are no real cases of this yet
-*/
 
 /* Called with bq and thread locks taken, returns with them released. */
 static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_flags)
@@ -188,7 +181,6 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
 
     blockq_lock(bq);
     thread_lock(t);
-    thread_reserve(t);
     t->bq_action = a;
     if (!in_bh)
         t->blocked_on = bq;

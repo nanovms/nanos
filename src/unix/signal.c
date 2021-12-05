@@ -407,7 +407,7 @@ sysreturn rt_sigreturn(void)
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(t);
     count_syscall_noreturn(t);
-    syscall_finish(true);
+    syscall_finish(false);
 }
 
 sysreturn rt_sigaction(int signum,

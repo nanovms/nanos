@@ -9,10 +9,11 @@ typedef closure_type(fault_handler, context, context);
 
 struct context {
     u64 frame[FRAME_SIZE]; /* must be first */
-    thunk pause;
-    thunk resume;
-    thunk pre_suspend;
-    thunk schedule_return;
+    struct refcount refcount;
+    void (*pause)(struct context *);
+    void (*resume)(struct context *);
+    void (*pre_suspend)(struct context *);
+    void (*schedule_return)(struct context *);
     fault_handler fault_handler;
     heap transient_heap;
     u32 active_cpu;

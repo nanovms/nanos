@@ -504,8 +504,6 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
     }
 
 #ifdef KERNEL
-    // XXX wrap this up
-    // common with thread return ?
     context saved_ctx = bound(saved_ctx);
     if (saved_ctx)
         use_fault_handler(saved_ctx->fault_handler);

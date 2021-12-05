@@ -63,43 +63,20 @@ typedef struct thread *thread;
 thread create_thread(process);
 void exit_thread(thread);
 
-declare_closure_struct(1, 0, void, free_syscall_context,
-                       struct syscall_context *, sc);
-declare_closure_struct(1, 0, void, syscall_context_pause,
-                       struct syscall_context *, sc);
-declare_closure_struct(1, 0, void, syscall_context_resume,
-                       struct syscall_context *, sc);
-declare_closure_struct(1, 0, void, syscall_context_schedule_return,
-                       struct syscall_context *, sc);
-declare_closure_struct(1, 0, void, syscall_context_pre_suspend,
-                       struct syscall_context *, sc);
+declare_closure_struct(2, 0, void, free_syscall_context,
+                       struct syscall_context *, sc, boolean, queued);
 declare_closure_struct(1, 0, void, syscall_context_return,
                        struct syscall_context *, sc);
 
 typedef struct syscall_context {
     struct context context;
-    struct refcount refcount;
     struct list l;              /* free list */
     thread t;                   /* corresponding thread */
     timestamp start_time;
     int call;                   /* syscall number */
-    closure_struct(syscall_context_pause, pause);
-    closure_struct(syscall_context_resume, resume);
-    closure_struct(syscall_context_schedule_return, schedule_return);
-    closure_struct(syscall_context_pre_suspend, pre_suspend);
     closure_struct(syscall_context_return, syscall_return);
     closure_struct(free_syscall_context, free);
 } *syscall_context;
-
-static inline void reserve_syscall_context(syscall_context sc)
-{
-    refcount_reserve(&sc->refcount);
-}
-
-static inline void release_syscall_context(syscall_context sc)
-{
-    refcount_release(&sc->refcount);
-}
 
 syscall_context allocate_syscall_context(void);
 
@@ -109,7 +86,7 @@ static inline syscall_context get_syscall_context(cpuinfo ci)
     if ((l = list_get_next(&ci->free_syscall_contexts))) {
         list_delete(l);
         syscall_context sc = struct_from_field(l, syscall_context, l);
-        init_refcount(&sc->refcount, 1, (thunk)&sc->free);
+        init_refcount(&sc->context.refcount, 1, (thunk)&sc->free);
         return sc;
     }
     return allocate_syscall_context();
@@ -283,26 +260,15 @@ typedef struct pending_fault {
     closure_struct(pending_fault_complete, complete);
 } *pending_fault;
 
-declare_closure_struct(1, 0, void, thread_pause,
-                       thread, t);
-declare_closure_struct(1, 0, void, thread_resume,
-                       thread, t);
-declare_closure_struct(1, 0, void, thread_schedule_return,
-                       thread, t);
 declare_closure_struct(1, 0, void, thread_return,
                        thread, t);
 declare_closure_struct(1, 0, void, free_thread,
-                       thread, t);
-declare_closure_struct(1, 0, void, resume_syscall,
                        thread, t);
 declare_closure_struct(1, 1, context, unix_fault_handler,
                        thread, t,
                        context, frame);
 declare_closure_struct(5, 0, void, thread_demand_file_page,
                        pending_fault, pf, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
-declare_closure_struct(2, 1, void, thread_demand_page_complete,
-                       thread, t, u64, vaddr,
-                       status, s);
 
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
@@ -329,15 +295,10 @@ typedef struct thread {
     */
     struct unix_heaps uh;
 
-    struct refcount refcount;
     closure_struct(free_thread, free);
-    closure_struct(thread_pause, pause);
-    closure_struct(thread_resume, resume);
-    closure_struct(thread_schedule_return, schedule_return);
     closure_struct(thread_return, thread_return);
     closure_struct(unix_fault_handler, fault_handler);
     closure_struct(thread_demand_file_page, demand_file_page);
-    closure_struct(thread_demand_page_complete, demand_page_complete);
 
     epoll select_epoll;
     int *clear_tid;
@@ -636,12 +597,12 @@ static inline u32 file_perms(process p, file f)
 
 static inline void thread_reserve(thread t)
 {
-    refcount_reserve(&t->refcount);
+    refcount_reserve(&t->context.refcount);
 }
 
 static inline void thread_release(thread t)
 {
-    refcount_release(&t->refcount);
+    refcount_release(&t->context.refcount);
 }
 
 static inline thread thread_from_tid(process p, int tid)
@@ -934,15 +895,16 @@ static inline void syscall_accumulate_stime(syscall_context sc)
 }
 
 /* syscall finish without return (e.g. rt_sigreturn, exit, thread_yield) */
-static inline void __attribute__((noreturn)) syscall_finish(boolean run)
+static inline void __attribute__((noreturn)) syscall_finish(boolean exit)
 {
     syscall_context sc = (syscall_context)get_current_context(current_cpu());
     assert(is_syscall_context(&sc->context));
     thread t = sc->t;
     t->syscall = 0;
-    assert(sc->refcount.c > 1); // XXX tmp: not necessarily true, just in cases so far
-    release_syscall_context(sc);
-    if (run)
+    context_release_refcount(&sc->context);
+    if (exit)
+        thread_release(t);      /* void frame return reference */
+    else
         schedule_thread(t);
     kern_yield();
 }
@@ -1054,13 +1016,11 @@ static inline void sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
             break;
 }
 
-static inline void check_syscall_context_replace(void)
+static inline void check_syscall_context_replace(cpuinfo ci, syscall_context sc)
 {
-    cpuinfo ci = current_cpu();
-    syscall_context sc = (syscall_context)get_current_context(ci);
     if (ci->m.syscall_context == &sc->context) {
-        assert(sc->refcount.c > 1); /* syscall not finished */
-        release_syscall_context(sc);
+        assert(sc->context.refcount.c > 1); /* syscall not finished */
+        context_release_refcount(&sc->context);
         sc = get_syscall_context(ci);
         assert(sc != INVALID_ADDRESS);
         ci->m.syscall_context = &sc->context;
@@ -1069,8 +1029,10 @@ static inline void check_syscall_context_replace(void)
 
 static inline void __attribute__((noreturn)) syscall_yield(void)
 {
+    cpuinfo ci = current_cpu();
+    syscall_context sc = (syscall_context)get_current_context(ci);
     disable_interrupts();
-    check_syscall_context_replace();
+    check_syscall_context_replace(ci, sc);
     kern_yield();
 }
 

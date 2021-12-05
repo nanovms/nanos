@@ -187,7 +187,7 @@ void dump_context(context ctx)
     print_u64(f[FRAME_STACK_TOP]);
     rputs("\n\n");
 
-    u64 *fp = pointer_from_u64(f[FRAME_EXTENDED]);
+    u64 *fp = frame_extended(f);
     for (int j = 0; j < FRAME_N_GPREG; j++) {
         rputs("      ");
         rputs(gpreg_names[j]);
@@ -239,6 +239,7 @@ void synchronous_handler(void)
     if (f[FRAME_FULL])
         halt("\nframe %p already full\n", f);
     f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
 
     int ec = field_from_u64(esr, ESR_EC);
     if (ec == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
@@ -246,7 +247,7 @@ void synchronous_handler(void)
         context ctx = ci->m.syscall_context;
         f[FRAME_VECTOR] = f[FRAME_X8];
         set_current_context(ci, ctx);
-        switch_stack_1(frame_get_stack_top(ctx->frame), syscall, f); /* frame is top of stack */
+        switch_stack_1(frame_get_stack_top(ctx->frame), syscall, f);
         halt("%s: syscall returned\n", __func__);
     }
 
@@ -264,10 +265,14 @@ void synchronous_handler(void)
     fault_handler fh = ctx->fault_handler;
     if (fh) {
         context retframe = apply(fh, ctx);
-        if (retframe)
+        if (retframe) {
+            context_release_refcount(ctx);
             frame_return(retframe->frame);
-        if (is_kernel_context(ctx) || is_syscall_context(ctx))
+        }
+        if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
             f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+            context_release_refcount(ctx);
+        }
         runloop();
     } else {
         console("\nno fault handler for frame ");
@@ -291,6 +296,7 @@ void irq_handler(void)
     if (f[FRAME_FULL])
         halt("\nframe %p already full\n", f);
     f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
 
     while ((i = gic_dispatch_int()) != INTID_NO_PENDING) {
         int_debug("[%2d] # %d, state %s, EL%d, frame %p, elr 0x%lx, spsr_esr 0x%lx\n",
@@ -315,13 +321,14 @@ void irq_handler(void)
     }
 
     /* enqueue interrupted user thread */
-    if (saved_state == cpu_user && !shutting_down) {
+    if (is_thread_context(ctx) && !shutting_down) {
         int_debug("int sched %F\n", f[FRAME_RUN]);
         context_schedule_return(ctx);
     }
 
     if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
-        if (saved_state == cpu_kernel) {
+        context_release_refcount(ctx);
+        if (saved_state != cpu_idle) {
             ci->state = cpu_kernel;
             frame_return(f);
         }

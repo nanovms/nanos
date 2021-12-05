@@ -65,6 +65,8 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
 {
     kernel_context kc = allocate_kernel_context();
     assert(kc != INVALID_ADDRESS);
+    /* start off kernel context in resumed state */
+    context_reserve_refcount(&kc->context);
     kc->context.active_cpu = ci->id;
     ci->m.current_context = ci->m.kernel_context = &kc->context;
 }

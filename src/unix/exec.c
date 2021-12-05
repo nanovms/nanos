@@ -145,6 +145,8 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 void start_process(thread t, void *start)
 {
     thread_frame(t)[SYSCALL_FRAME_PC] = u64_from_pointer(start);
+    thread_frame(t)[FRAME_FULL] = true;
+    thread_reserve(t);
     if (get(t->p->process_root, sym(gdb))) {
         rputs("NOTE: in-kernel gdb is a work in progress\n");
         init_tcp_gdb(heap_locked(get_kernel_heaps()), t->p, 9090);
@@ -303,11 +305,6 @@ process exec_elf(buffer ex, process kp)
                                closure(heap_locked(kh), load_interp_fail));
         return proc;
     }
-
-    /* current needs to be valid for further setup */
-
-    // really? if so, we could make a dummy syscall_context
-    // set_current_thread(&t->thrd);
 
     string cwd = get_string(root, sym(cwd));
     if (cwd) {

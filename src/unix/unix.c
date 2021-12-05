@@ -234,12 +234,8 @@ define_closure_function(1, 1, context, unix_fault_handler,
         }
 
         if (do_demand_page(t, ctx, fault_address(ctx->frame), vm)) {
-            if (!is_thread_context(ctx)) {
-                current_cpu()->state = cpu_kernel;
-                return ctx;   /* direct return */
-            }
-            schedule_thread(t);
-            return 0;
+            current_cpu()->state = cpu_kernel;
+            return ctx;   /* direct return */
         }
     }
     /* XXX arch dep */
@@ -260,7 +256,7 @@ bug:
     rprintf("\n%s\n", errmsg);
     rprintf("cpu: %d, context type: %d\n", current_cpu()->id, ctx->type);
     dump_context(ctx);
-    ctx->frame[FRAME_FULL] = 0;
+    ctx->frame[FRAME_FULL] = false;
 
     if (t && t->p && get(t->p->process_root, sym(fault))) {
         rputs("TODO: in-kernel gdb needs revisiting\n");

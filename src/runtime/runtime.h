@@ -281,12 +281,6 @@ static inline void deallocate_closure(void *p)
         (c->ctx & CLOSURE_COMMON_CTX_IS_CONTEXT) ? ((context)x)->transient_heap :
 #endif
         x;
-#ifdef KERNEL
-    if (0 && (c->ctx & CLOSURE_COMMON_CTX_IS_CONTEXT)) {
-        rprintf("   h %p\n", ((context)x)->transient_heap);
-        rprintf("   dealloc %p\n", (((context)x)->transient_heap)->dealloc);
-    }
-#endif
     if (h && c->size > 0)
         deallocate(h, p, c->size);
 }

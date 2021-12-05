@@ -182,16 +182,14 @@ void dump_context(context ctx)
     print_u64(f[FRAME_STACK_TOP]);
 
     if (v == 13 || v == 14) {
-	rputs("error code: ");
+	rputs("\nerror code: ");
 	print_u64(f[FRAME_ERROR_CODE]);
-	rputs("\n");
     }
 
     // page fault
     if (v == 14)  {
-        rputs("   address: ");
+        rputs("\n   address: ");
         print_u64_with_sym(f[FRAME_CR2]);
-        rputs("\n");
     }
     
     rputs("\n\n");
@@ -247,6 +245,7 @@ void common_handler()
         goto exit_fault;
     }
     f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
 
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
@@ -264,9 +263,11 @@ void common_handler()
         /* fault handlers may act on cpu state, so don't change it */
         fault_handler fh = ctx->fault_handler;
         if (fh) {
-            context retframe = apply(fh, ctx);
-            if (retframe)
-                frame_return(retframe->frame);
+            context retctx = apply(fh, ctx);
+            if (retctx) {
+                context_release_refcount(retctx);
+                frame_return(retctx->frame);
+            }
         } else {
             console("\nno fault handler\n");
             goto exit_fault;
@@ -284,7 +285,8 @@ void common_handler()
        is reached. */
 
     if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
-        if (saved_state == cpu_kernel) {
+        context_release_refcount(ctx);
+        if (saved_state != cpu_idle) {
             ci->state = cpu_kernel;
             frame_return(f);
         }

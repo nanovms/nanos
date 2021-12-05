@@ -76,21 +76,24 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
         return set_syscall_error(current, EFAULT);
 
     thread t = create_thread(current->p);
+    context_frame f = thread_frame(t);
     /* clone frame processor state */
-    clone_frame_pstate(thread_frame(t), thread_frame(current));
+    clone_frame_pstate(f, thread_frame(current));
     thread_clone_sigmask(t, current);
 
     /* clone behaves like fork at the syscall level, returning 0 to the child */
     set_syscall_return(t, 0);
-    thread_frame(t)[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
+    f[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
     if (flags & CLONE_SETTLS)
-        set_tls(thread_frame(t), newtls);
+        set_tls(f, newtls);
     if (flags & CLONE_PARENT_SETTID)
         *ptid = t->tid;
     if (flags & CLONE_CHILD_CLEARTID)
         t->clear_tid = ctid;
     t->blocked_on = 0;
     t->syscall = 0;
+    f[FRAME_FULL] = true;
+    thread_reserve(t);
     schedule_thread(t);
     return t->tid;
 }
@@ -153,12 +156,11 @@ static inline void check_stop_conditions(thread t)
     halt("Terminating.\n");
 }
 
-define_closure_function(1, 0, void, thread_pause,
-                        thread, t)
+static void thread_pause(context ctx)
 {
     if (shutting_down)
         return;
-    thread t = bound(t);
+    thread t = (thread)ctx;
     context_frame f = thread_frame(t);
     assert(t->start_time != 0); // XXX tmp debug
     timestamp diff = now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
@@ -168,10 +170,9 @@ define_closure_function(1, 0, void, thread_pause,
     thread_frame_save_tls(f);
 }
 
-define_closure_function(1, 0, void, thread_resume,
-                        thread, t)
+static void thread_resume(context ctx)
 {
-    thread t = bound(t);
+    thread t = (thread)ctx;
     assert(t->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     t->start_time = here == 0 ? 1 : here;
@@ -183,10 +184,9 @@ define_closure_function(1, 0, void, thread_resume,
     frame_enable_interrupts(f);
 }
 
-define_closure_function(1, 0, void, thread_schedule_return,
-                        thread, t)
+static void thread_schedule_return(context ctx)
 {
-    thread t = bound(t);
+    thread t = (thread)ctx;
     enqueue_irqsafe(t->scheduling_queue, &t->thread_return);
 }
 
@@ -198,8 +198,7 @@ define_closure_function(1, 0, void, thread_return,
     if (t->p->trap)
         runloop(); // XXX pause?
 
-    // XXX we need to be able to take a fault while setting up
-    // sigframe...but thread frame is full here
+    /* temporarily install fault handler to catch faults for stack pages */
     use_fault_handler(t->context.fault_handler);
     dispatch_signals(t);
     current_cpu()->state = cpu_user;
@@ -217,11 +216,13 @@ define_closure_function(1, 0, void, thread_return,
     thread_unlock(t);
 
     context_frame f = t->context.frame;
+    assert(f[FRAME_FULL]);
     thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
                current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
     ci->frcount++;
     clear_fault_handler();
     context_switch(&t->context);
+    thread_release(t);
     frame_return(thread_frame(t));
     halt("return from frame_return!\n");
 }
@@ -251,10 +252,12 @@ void thread_yield(void)
     assert(!current->blocked_on);
     current->syscall = 0;
     set_syscall_return(current, 0);
-    syscall_finish(true);
+    syscall_finish(false);
 }
 
-/* enter on syscall context, returns on kernel context */
+/* Schedule a thread for execution, disassociating the syscall context with
+   the thread. Execution stays on the syscall context into runloop(), at which
+   point pause and release are called and the context is placed on a free list. */
 void thread_wakeup(thread t)
 {
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
@@ -262,17 +265,11 @@ void thread_wakeup(thread t)
             "(null)", thread_frame(t)[SYSCALL_FRAME_PC]);
     cpuinfo ci = current_cpu();
     context sc = get_current_context(ci);
-    //assert(is_syscall_context(sc));
-    if (!is_syscall_context(sc)) {
-        rprintf("%s not syscall %d, called from %p\n", __func__, sc->type, __builtin_return_address(0));
-        assert(0);
-    }
+    assert(is_syscall_context(sc));
     assert(t->blocked_on);
     t->blocked_on = 0;
     t->syscall = 0;
-    //rprintf("%s: kc %p\n", __func__, ci->m.kernel_context);
-    context_switch(ci->m.kernel_context); /* nop if already installed */
-    release_syscall_context((syscall_context)sc);
+    context_release_refcount(sc);
     schedule_thread(t);
 }
 
@@ -324,9 +321,9 @@ thread create_thread(process p)
     if (t == INVALID_ADDRESS)
         goto fail;
     init_context(&t->context, CONTEXT_TYPE_THREAD);
-    t->context.pause = init_closure(&t->pause, thread_pause, t);
-    t->context.resume = init_closure(&t->resume, thread_resume, t);
-    t->context.schedule_return = init_closure(&t->schedule_return, thread_schedule_return, t);
+    t->context.pause = thread_pause;
+    t->context.resume = thread_resume;
+    t->context.schedule_return = thread_schedule_return;
     t->context.pre_suspend = 0;
     init_closure(&t->thread_return, thread_return, t);
 
@@ -341,7 +338,7 @@ thread create_thread(process p)
     t->p = p;
     t->syscall = 0;
     runtime_memcpy(&t->uh, p->uh, sizeof(*p->uh));
-    init_refcount(&t->refcount, 1, init_closure(&t->free, free_thread, t));
+    init_refcount(&t->context.refcount, 1, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
     runtime_memset((void *)&t->n, 0, sizeof(struct rbnode));
     t->clear_tid = 0;
@@ -429,10 +426,7 @@ void exit_thread(thread t)
     blockq_flush(t->thread_bq);
     deallocate_blockq(t->thread_bq);
     t->thread_bq = INVALID_ADDRESS;
-
-    /* replace references to thread with placeholder */
-    //set_current_context(current_cpu(), &dummy_thread->context); // XXX
-    refcount_release(&t->refcount);
+    thread_release(t);
 }
 
 closure_function(0, 1, boolean, tid_print_key,

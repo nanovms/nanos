@@ -269,12 +269,12 @@ struct cpuinfo_machine {
     /* One temporary for syscall enter to use so that we don't need to touch the user stack. +32 */
     u64 tmp;
 
-    /*** End of fields touched by kernel entries ***/
-
 #ifdef CONFIG_FTRACE
-    /* Used by mcount to determine if to enter ftrace code. */
+    /* Used by mcount to determine if to enter ftrace code. +40 */
     u64 ftrace_disable_cnt;
 #endif
+
+    /*** End of fields touched by kernel entries ***/
 
     /* Stack for exceptions (which may occur in interrupt handlers) */
     void *exception_stack;

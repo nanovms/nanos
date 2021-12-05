@@ -58,11 +58,24 @@ define_closure_function(1, 1, void, pending_fault_complete,
     vector_foreach(pf->dependents, ctx) {
         pf_debug("   wake ctx %p\n", ctx);
 
-        // XXX handling for sc and kc case
-        if (!is_ok(s) && is_thread_context(ctx))
-            deliver_fault_signal(SIGBUS, (thread)ctx, pf->addr, BUS_ADRERR);
+        if (is_ok(s)) {
+            context_schedule_return(ctx);
+            continue;
+        }
 
-        context_schedule_return(ctx);
+        thread t;
+        if (is_thread_context(ctx)) {
+            t = (thread)ctx;
+        } else if (is_syscall_context(ctx)) {
+            /* TODO syscall cleanup, like below */
+            t = ((syscall_context)ctx)->t;
+        } else {
+            /* TODO We need to be able to reach the thread context
+               associated with the faulting kernel code here... */
+            halt("unhandled demand page failure for context type %d\n", ctx->type);
+        }
+        deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
+        schedule_thread(t);
     }
     vector_clear(pf->dependents);
 
@@ -152,8 +165,7 @@ static void demand_page_suspend_context(thread t, pending_fault pf, context ctx)
 {
     pf_debug("%s: tid %d, pf %p, ctx %p (%d), switch to %p\n", __func__,
              t->tid, pf, ctx, ctx->type, current_cpu()->m.kernel_context);
-    if (ctx->pre_suspend)
-        apply(ctx->pre_suspend);
+    context_pre_suspend(ctx);
     context_switch(current_cpu()->m.kernel_context);
 }
 
@@ -173,26 +185,23 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
     pf_debug("   map length 0x%lx\n", padlen);
     if (node_offset >= padlen) {
         pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", padlen);
-        if (is_syscall_context(ctx) || is_kernel_context(ctx)) {
-            /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
-               or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
-               assume this is an unrecoverable error and exit here. */
-            halt("%s: file-backed access in kernel mode outside of map range, "
-                 "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
-                 vm->node.r.start, node_offset);
-        }
         deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
-        return true;
+        if (is_thread_context(ctx))
+            goto sched_thread_return;
+        /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
+           or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
+           assume this is an unrecoverable error and exit here. */
+        halt("%s: file-backed access in kernel mode outside of map range, "
+             "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
+             vm->node.r.start, node_offset);
     }
 
     if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags,
                                      (status_handler)&pf->complete)) {
         pf_debug("   immediate completion\n");
         count_minor_fault();
-
-        /* XXX sort this out - prob just let thread faults frame return */
-        if (!is_syscall_context(ctx))
-            context_switch(current_cpu()->m.kernel_context);
+        if (is_thread_context(ctx))
+            goto sched_thread_return;
         return true;
     }
 
@@ -207,6 +216,10 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
     /* no need to reserve context; we're on exception/int stack */
     enqueue(bhqueue, &t->demand_file_page);
     count_major_fault();
+    return false;
+  sched_thread_return:
+    context_switch(current_cpu()->m.kernel_context);
+    context_schedule_return(ctx);
     return false;
 }
 

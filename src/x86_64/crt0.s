@@ -14,11 +14,6 @@ extern  init_service
 %define FS_MSR        0xc0000100
 %define KERNEL_GS_MSR 0xc0000102
 
-;; This needs to match the value in uniboot.h, unfortunately. We need
-;; some way to source constants from the same place, or at least make
-;; an asm include at build time...
-%define KERNEL_STACK_SIZE (128 << 10)
-
 %ifdef DEBUG
 %include "debug.inc"
 %endif
@@ -264,7 +259,6 @@ syscall_enter:
         mov rbx, [gs:24]        ; switch to syscall context
         mov [gs:8], rbx
         mov rsp, [rbx+FRAME_STACK_TOP*8]
-;;      sub rsp, 0x10           ; align
         cld
         jmp rax
 .end:

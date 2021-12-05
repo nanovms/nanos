@@ -31,7 +31,7 @@ static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
 {
     /* We're not building frames like Linux yet; just a fixed fpsimd_context for now... */
     context_frame f = thread_frame(t);
-    u64 *fp = pointer_from_u64(f[FRAME_EXTENDED]);
+    u64 *fp = frame_extended(f);
     if (!fp)
         return;
     struct fpsimd_context *fpctx = (struct fpsimd_context *)uctx->uc_mcontext.reserved;
@@ -98,7 +98,7 @@ static void restore_ucontext_fpsimd(struct fpsimd_context *fpctx, thread t)
 {
     /* We're not building frames like Linux yet; just a fixed fpsimd_context for now... */
     context_frame f = thread_frame(t);
-    u64 *fp = pointer_from_u64(f[FRAME_EXTENDED]);
+    u64 *fp = frame_extended(f);
     if (!fp)
         return;
     fp[FRAME_FPSR] = fpctx->fpsr;

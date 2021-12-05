@@ -14,7 +14,6 @@ struct _closure_common {
 #define CLOSURE_COMMON_CTX_FLAGS_MASK        3
     u64 ctx;
     bytes size;
-    void *context;
 };
 
 #define ctx_from_heap(__h) (u64_from_pointer(__h) | CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH)
