@@ -430,19 +430,11 @@ static void fill_v4_sockaddr(struct sockaddr_in *in, u32 address, u16 port)
 
 static void register_descriptor_write(heap h, notifier n, descriptor f, thunk each)
 {
-    registration r = allocate(h, sizeof(struct registration));
-    assert(r != INVALID_ADDRESS);
-    r->fd = f;
-    r->a = each;
     notifier_register(n, f, EPOLLOUT, each);
 }
 
 static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
 {
-    registration r = allocate(h, sizeof(struct registration));
-    assert(r != INVALID_ADDRESS);
-    r->fd = f;
-    r->a = each;
     notifier_register(n, f, EPOLLIN|EPOLLHUP, each);
 }
 
@@ -451,7 +443,7 @@ closure_function(4, 0, void, connection_input,
 {
     // can reuse?
     descriptor f = bound(f);
-    buffer b = allocate_buffer(bound(h), 512);
+    buffer b = little_stack_buffer(512);
     int res = read(f, b->contents, b->length);
     if (res > 0) {
         b->end = res;
@@ -473,6 +465,7 @@ closure_function(2, 1, status, connection_output,
     descriptor c = bound(c);
     if (b)  {
         igr(write(c, b->contents, buffer_length(b)));
+        deallocate_buffer(b);
     } else {
 	notifier_reset_fd(bound(n), c);
         close(c);
