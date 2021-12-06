@@ -284,13 +284,6 @@ static void poll_spin(notifier n)
 #ifdef SOCKET_USER_EPOLL_DEBUG
             rprintf("   fd %d, events %x, revents %x:\n", fds[i], fds[i].events, fds[i].revents);
 #endif
-            if (fds[i].revents & POLLHUP) {
-                rprintf("   fd %d: POLLHUP, closing\n", fds[i].fd);
-                notifier_reset_fd(n, fds[i].fd);
-                // always the right thing to do?
-                close(fds[i].fd);
-                continue;
-            }
 
             registration r = vector_get(p->registrations, fds[i].fd);
             do {
@@ -394,14 +387,7 @@ static void epoll_spin(notifier n)
 #ifdef SOCKET_USER_EPOLL_DEBUG
 	    rprintf("   fd %d, events %x\n", r->fd, ev[i].events);
 #endif
-            if (ev[i].events & EPOLLHUP)  {
-                descriptor fd = r->fd;
-		notifier_reset_fd(n, fd);
-                // always the right thing to do?
-                close(fd);
-            } else {
-                apply(r->a);
-            }
+            apply(r->a);
         }
     }
 }
