@@ -45,6 +45,19 @@ typedef struct select_notifier {
     select_bitmaps tmp;
 } *select_notifier;
 
+declare_closure_struct(0, 0, void, connection_input);
+declare_closure_struct(0, 1, status, connection_output,
+                       buffer, b);
+
+typedef struct conn_handler {
+    heap h;
+    notifier n;
+    descriptor f;
+    closure_struct(connection_input, in);
+    closure_struct(connection_output, out);
+    buffer_handler bh;
+} *conn_handler;
+
 static inline void select_bitmaps_init(heap h, select_bitmaps * b)
 {
     b->r = allocate_bitmap(h, h, infinity);
@@ -438,39 +451,49 @@ static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
     notifier_register(n, f, EPOLLIN|EPOLLHUP, each);
 }
 
-closure_function(4, 0, void, connection_input,
-                 heap, h, descriptor, f, notifier, n, buffer_handler, p)
+define_closure_function(0, 0, void, connection_input)
 {
-    // can reuse?
-    descriptor f = bound(f);
+    conn_handler ch = struct_from_field(closure_self(), conn_handler, in);
+    descriptor f = ch->f;
     buffer b = little_stack_buffer(512);
     int res = read(f, b->contents, b->length);
     if (res > 0) {
         b->end = res;
-        apply(bound(p), b);
+        apply(ch->bh, b);
 	return;
     }
     if (res < 0 && errno != ENOTCONN)
 	rprintf("read error: %s (%d)\n", strerror(errno), errno);
-    notifier_reset_fd(bound(n), f);
+    notifier_reset_fd(ch->n, f);
     close(f);
-    apply(bound(p), 0);        // should pass status
+    apply(ch->bh, 0);   // should pass status
+    deallocate(ch->h, ch, sizeof(*ch));
 }
 
 
-closure_function(2, 1, status, connection_output,
-                 descriptor, c, notifier, n,
-                 buffer, b)
+define_closure_function(0, 1, status, connection_output,
+                        buffer, b)
 {
-    descriptor c = bound(c);
+    conn_handler ch = struct_from_field(closure_self(), conn_handler, out);
+    descriptor c = ch->f;
     if (b)  {
         igr(write(c, b->contents, buffer_length(b)));
         deallocate_buffer(b);
     } else {
-	notifier_reset_fd(bound(n), c);
-        close(c);
+        shutdown(c, SHUT_RDWR); /* trigger execution of input handler, which will clean up things */
     }
     return STATUS_OK;           /* pff */
+}
+
+static void register_conn_descriptor(heap h, notifier n, descriptor f, new_connection nc)
+{
+    conn_handler ch = allocate(h, sizeof(*ch));
+    assert(ch != INVALID_ADDRESS);
+    ch->h = h;
+    ch->n = n;
+    ch->f = f;
+    ch->bh = apply(nc, init_closure(&ch->out, connection_output));
+    register_descriptor(h, n, f, init_closure(&ch->in, connection_input));
 }
 
 closure_function(4, 0, void, accepting,
@@ -482,9 +505,7 @@ closure_function(4, 0, void, accepting,
     socklen_t len = sizeof(struct sockaddr_in);
     int s = accept(bound(c), (struct sockaddr *)&where, &len);
     if (s < 0 ) halt("accept %s\n", strerror(errno));
-    buffer_handler out = closure(h, connection_output, s, n);
-    buffer_handler in = apply(bound(nc), out);
-    register_descriptor(h, n, s, closure(h, connection_input, h, s, n, in));
+    register_conn_descriptor(h, n, s, bound(nc));
 }
 
 
@@ -494,11 +515,9 @@ closure_function(4, 0, void, connection_start,
     heap h = bound(h);
     descriptor s = bound(s);
     notifier n = bound(n);
-    buffer_handler out = closure(h, connection_output, s, n);
-    buffer_handler input = apply(bound(c), out);
     // dont stay for write
     notifier_reset_fd(n, s);
-    register_descriptor(h, n, s, closure(h, connection_input, h, s, n, input));
+    register_conn_descriptor(h, n, s, bound(c));
 }
 
 // more general registration than epoll fd
