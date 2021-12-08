@@ -114,11 +114,31 @@ SRCS-mbedtls-tls= \
 	$(MBEDTLS_DIR)/library/ssl_ticket.c \
 	$(MBEDTLS_DIR)/library/ssl_tls.c \
 
-all: $(PROGRAMS)
+all: klib-syms
 
 KLIB_SYMS= $(OBJDIR)/klib-syms.lds
 
 include ../rules.mk
+
+msg_add_syms=	KLIB_SYMS	$@
+cmd_add_syms=	$(foreach prog, $(PROGRAM_BINARIES), $(call add_syms,$(prog)))
+
+# append list of undefined symbols to linker script
+define add_syms
+
+	$(Q) $(OBJDUMP) -R $1 | $(SED) -n -E 's/.*(GLOB_DAT|JUMP_SLOT)[[:space:]]*/EXTERN(/p' | $(SED) -n 's/$$/)/p' >> $(KLIB_SYMS)
+
+endef
+
+klib-syms: $(KLIB_SYMS)
+
+$(KLIB_SYMS): $(PROGRAM_BINARIES)
+	$(Q) $(RM) $(KLIB_SYMS)
+	$(call cmd,add_syms)
+# remove duplicated lines in linker script
+	$(Q) $(SED) -i.bak -n 'G; s/\n/&&/; /^\([^\n]*\n\).*\n\1/d; s/\n//; h; P' $(KLIB_SYMS)
+# delete linker script backup file
+	$(Q) $(RM) $(KLIB_SYMS).bak
 
 ifeq ($(UNAME_s),Darwin)
 ELF_TARGET=     -target x86_64-elf

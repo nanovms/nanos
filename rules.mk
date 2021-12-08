@@ -190,14 +190,6 @@ ifneq ($$(OBJS-$1),)
 $$(PROG-$1): $$(OBJS-$1)
 	@$(MKDIR) $$(dir $$@)
 	$$(call cmd,ld)
-ifneq ($(KLIB_SYMS),)
-# Append list of undefined symbols to linker script
-	$(Q) $(OBJDUMP) -R $$(PROG-$1) | $(SED) -n -E 's/.*(GLOB_DAT|JUMP_SLOT)[[:space:]]*/EXTERN(/p' | $(SED) -n 's/$$$$/)/p' >> $(KLIB_SYMS)
-# Remove duplicated lines in linker script
-	$(Q) $(SED) -i.bak -n 'G; s/\n/&&/; /^\([^\n]*\n\).*\n\1/d; s/\n//; h; P' $(KLIB_SYMS)
-# Delete linker script backup file
-	$(Q) $(RM) $(KLIB_SYMS).bak
-endif
 ifeq ($1,kernel.elf)
 	$(call cmd,mvdis)
 endif
@@ -214,6 +206,8 @@ $(foreach prog, $(PROGRAMS) $(ADDITIONAL_PROGRAMS), $(eval $(call build_program,
 ifeq ($(filter print-% clean cleandepend,$(MAKECMDGOALS)),)
 -include $(sort $(DEPFILES))
 endif
+
+PROGRAM_BINARIES= $(foreach prog, $(PROGRAMS), $(OBJDIR)/bin/$(prog))
 
 ##############################################################################
 # closure_templates
