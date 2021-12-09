@@ -113,6 +113,10 @@ typedef struct netsock {
     } info;
 } *netsock;
 
+#define DEFAULT_SO_RCVBUF   0x34000 /* same as Linux */
+
+int so_rcvbuf;
+
 static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen);
 static sysreturn netsock_listen(struct sock *sock, int backlog);
@@ -434,8 +438,11 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             if (cur_buf->len > 0) {
                 u64 xfer = MIN(length, cur_buf->len);
                 runtime_memcpy(dest, cur_buf->payload, xfer);
-                if (!(flags & MSG_PEEK))
+                if (!(flags & MSG_PEEK)) {
                     pbuf_consume(cur_buf, xfer);
+                    if (s->sock.type == SOCK_STREAM)
+                        s->sock.rx_len -= xfer;
+                }
                 length -= xfer;
                 xfer_total += xfer;
                 dest = (char *) dest + xfer;
@@ -451,8 +458,10 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
                 p = queue_peek_at(s->incoming, ++pbuf_idx);
         } else if (!cur_buf || (s->sock.type == SOCK_DGRAM)) {
             assert(dequeue(s->incoming) == p);
-            if (s->sock.type == SOCK_DGRAM)
+            if (s->sock.type == SOCK_DGRAM) {
+                s->sock.rx_len -= pbuf->tot_len;
                 deallocate(s->sock.h, p, sizeof(struct udp_entry));
+            }
             pbuf_free(pbuf);
             p = queue_peek(s->incoming);
             if (p == INVALID_ADDRESS)
@@ -1060,14 +1069,18 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	      s->sock.fd, pcb, p, n[0], n[1], n[2], n[3], port);
     assert(pcb == s->info.udp.lw);
     if (p) {
+	if ((s->sock.rx_len + p->tot_len > so_rcvbuf) || queue_full(s->incoming)) {
+	    pbuf_free(p);
+	    return;
+	}
 	/* could make a cache if we care to */
 	struct udp_entry * e = allocate(s->sock.h, sizeof(*e));
 	assert(e != INVALID_ADDRESS);
 	e->pbuf = p;
 	runtime_memcpy(&e->raddr, addr, sizeof(ip_addr_t));
 	e->rport = port;
-	if (!enqueue(s->incoming, e))
-	    msg_err("incoming queue full\n");
+	enqueue(s->incoming, e);
+	s->sock.rx_len += p->tot_len;
     } else {
 	msg_err("null pbuf\n");
     }
@@ -1227,10 +1240,11 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
 
     /* A null pbuf indicates connection closed. */
     if (p) {
-        if (!enqueue(s->incoming, p)) {
+        if ((s->sock.rx_len + p->tot_len > so_rcvbuf) || !enqueue(s->incoming, p)) {
 	    msg_err("incoming queue full\n");
             return ERR_BUF;     /* XXX verify */
         }
+        s->sock.rx_len += p->tot_len;
     }
     wakeup_sock(s, WAKEUP_SOCK_RX);
 
@@ -2196,8 +2210,11 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
             ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_SNDBUF:
+            ret_optval.val = (s->sock.type == SOCK_STREAM) ? TCP_SND_BUF : 0;
+            ret_optlen = sizeof(ret_optval.val);
+            break;
         case SO_RCVBUF:
-            ret_optval.val = 2048;  /* minimum value for this option in Linux */
+            ret_optval.val = so_rcvbuf;
             ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_PRIORITY:
@@ -2268,8 +2285,13 @@ void register_net_syscalls(struct syscall *map)
     register_syscall(map, shutdown, shutdown);
 }
 
-boolean netsyscall_init(unix_heaps uh)
+boolean netsyscall_init(unix_heaps uh, tuple cfg)
 {
+    u64 rcvbuf;
+    if (get_u64(cfg, sym(so_rcvbuf), &rcvbuf))
+        so_rcvbuf = MIN(MAX(rcvbuf, 256), MASK(sizeof(so_rcvbuf) * 8 - 1));
+    else
+        so_rcvbuf = DEFAULT_SO_RCVBUF;
     kernel_heaps kh = (kernel_heaps)uh;
     heap socket_cache = locking_heap_wrapper(heap_general(kh), allocate_objcache(heap_general(kh),
         (heap)heap_linear_backed(kh), sizeof(struct netsock), PAGESIZE));

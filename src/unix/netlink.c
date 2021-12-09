@@ -209,7 +209,8 @@ typedef struct nlsock {
 
 static void nl_enqueue(nlsock s, void *msg, u64 msg_len)
 {
-    if (enqueue(s->data, msg)) {
+    if ((s->sock.rx_len + msg_len < so_rcvbuf) && enqueue(s->data, msg)) {
+        s->sock.rx_len += msg_len;
         blockq_wake_one(s->sock.rxbq);
         fdesc_notify_events(&s->sock.f);
     } else {
@@ -498,6 +499,7 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         }
         if ((rv < hdr->nlmsg_len) && (bound(flags) & MSG_TRUNC))
             rv = hdr->nlmsg_len;
+        s->sock.rx_len -= hdr->nlmsg_len;
         deallocate(s->sock.h, hdr, hdr->nlmsg_len);
         hdr = queue_peek(s->data);
         if (hdr == INVALID_ADDRESS) { /* no more data available to read */

@@ -214,9 +214,11 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
         }
         rv += xfer;
         length -= xfer;
+        s->sock.rx_len -= xfer;
         if (!buffer_length(b) || (s->sock.type == SOCK_DGRAM)) {
             assert(dequeue(s->data) == shb);
             if (s->sock.type == SOCK_DGRAM) {
+                s->sock.rx_len -= buffer_length(b);
                 struct sockaddr_un *from_addr = bound(from_addr);
                 socklen_t *from_length = bound(from_length);
                 if (from_addr && from_length) {
@@ -271,13 +273,15 @@ static sysreturn unixsock_write_check(unixsock s, u64 len)
 static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
                                    unixsock dest, unixsock from)
 {
-    if (queue_full(dest->data)) {
+    if ((dest->sock.rx_len >= so_rcvbuf) || queue_full(dest->data)) {
         return -EAGAIN;
     }
 
     sysreturn rv = 0;
     do {
         u64 xfer = MIN(UNIXSOCK_BUF_MAX_SIZE, length);
+        if (from->sock.type == SOCK_STREAM)
+            xfer = MIN(xfer, so_rcvbuf - dest->sock.rx_len);
         sharedbuf shb = sharedbuf_allocate(dest->sock.h, xfer);
         if (shb == INVALID_ADDRESS) {
             if (rv == 0) {
@@ -296,9 +300,10 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
             buffer_produce(shb->b, xfer);
         }
         assert(enqueue(dest->data, shb));
+        dest->sock.rx_len += xfer;
         rv += xfer;
         length -= xfer;
-    } while ((length > 0) && !queue_full(dest->data));
+    } while ((length > 0) && (dest->sock.rx_len < so_rcvbuf) && !queue_full(dest->data));
     return rv;
 }
 
@@ -345,7 +350,7 @@ closure_function(7, 1, sysreturn, unixsock_write_bh,
         unixsock_unlock(dest);
         return BLOCKQ_BLOCK_REQUIRED;
     }
-    full = queue_full(dest->data);
+    full = (dest->sock.rx_len >= so_rcvbuf) || queue_full(dest->data);
 out:
     unixsock_unlock(dest);
     if ((rv > 0) || ((rv == 0) && (dest->sock.type != SOCK_STREAM)))
@@ -446,7 +451,7 @@ closure_function(1, 1, u32, unixsock_events,
             if (!peer->data)
                 events |= (s->sock.type == SOCK_STREAM) ?
                           (EPOLLIN | EPOLLOUT | EPOLLHUP) : EPOLLOUT;
-            else if (!queue_full(peer->data))
+            else if ((peer->sock.rx_len < so_rcvbuf) && !queue_full(peer->data))
                 events |= EPOLLOUT;
             unixsock_unlock(peer);
             refcount_release(&peer->refcount);

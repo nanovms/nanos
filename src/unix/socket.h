@@ -57,6 +57,7 @@ struct sock {
     heap h;
     blockq rxbq;
     blockq txbq;
+    u64 rx_len;
     unsigned int msg_count;
     sysreturn (*bind)(struct sock *sock, struct sockaddr *addr,
             socklen_t addrlen);
@@ -92,6 +93,7 @@ static inline int socket_init(process p, heap h, int domain, int type, u32 flags
         msg_err("failed to allocate blockq\n");
         goto err_tx;
     }
+    s->rx_len = 0;
     init_fdesc(h, &s->f, FDESC_TYPE_SOCKET);
     s->f.flags = (flags & ~O_ACCMODE) | O_RDWR;
     s->domain = domain;
@@ -139,3 +141,5 @@ sysreturn unixsock_open(int type, int protocol);
 
 void netlink_init(void);
 sysreturn netlink_open(int type, int family);
+
+extern int so_rcvbuf;

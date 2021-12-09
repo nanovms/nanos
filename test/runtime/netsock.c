@@ -394,6 +394,41 @@ static void netsock_test_peek(void)
     test_assert(close(fd) == 0);
 }
 
+static void netsock_test_rcvbuf(void)
+{
+    int tx_fd, rx_fd;
+    struct sockaddr_in addr;
+    int rcvbuf;
+    socklen_t optval;
+    uint8_t pkt[KB];
+    const int xfer_size = 80 * KB;
+    const int pkt_count = xfer_size / sizeof(pkt);
+    int rx_avail, rx_count;
+
+    tx_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(tx_fd > 0);
+    rx_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(rx_fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(1234);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(bind(rx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    optval = sizeof(rcvbuf);
+    test_assert(getsockopt(rx_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &optval) == 0);
+    test_assert((optval == sizeof(rcvbuf)) && (rcvbuf > 0));
+    test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    for (int i = 0; i < pkt_count; i++)
+        test_assert(send(tx_fd, pkt, sizeof(pkt), 0) == sizeof(pkt));
+    rx_count = 0;
+    do {
+        test_assert(recv(rx_fd, pkt, sizeof(pkt), 0) == sizeof(pkt));
+        rx_count += sizeof(pkt);
+        test_assert(ioctl(rx_fd, FIONREAD, &rx_avail) == 0);
+    } while (rx_avail > 0);
+    test_assert(rx_count == MIN(xfer_size, rcvbuf));
+    test_assert((close(tx_fd) == 0) && (close(rx_fd) == 0));
+}
+
 int main(int argc, char **argv)
 {
     setbuf(stdout, NULL);
@@ -404,6 +439,7 @@ int main(int argc, char **argv)
     netsock_test_connclosed();
     netsock_test_nonblocking_connect();
     netsock_test_peek();
+    netsock_test_rcvbuf();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }

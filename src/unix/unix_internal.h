@@ -55,7 +55,7 @@ typedef s64 sysreturn;
 // conditionalize
 // fix config/build, remove this include to take off network
 #include <net.h>
-boolean netsyscall_init(unix_heaps uh);
+boolean netsyscall_init(unix_heaps uh, tuple cfg);
 
 typedef struct process *process;
 typedef struct thread *thread;

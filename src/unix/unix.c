@@ -506,7 +506,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     if (ftrace_init(uh, fs))
 	goto alloc_fail;
 #ifdef NET
-    if (!netsyscall_init(uh))
+    if (!netsyscall_init(uh, root))
         goto alloc_fail;
 #endif
     process kernel_process = create_process(uh, root, fs);
