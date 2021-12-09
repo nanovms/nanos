@@ -499,16 +499,14 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         if ((rv < hdr->nlmsg_len) && (bound(flags) & MSG_TRUNC))
             rv = hdr->nlmsg_len;
         deallocate(s->sock.h, hdr, hdr->nlmsg_len);
-        if (dest_len > 0)
-            hdr = dequeue(s->data);
-        else
-            hdr = queue_peek(s->data);
+        hdr = queue_peek(s->data);
         if (hdr == INVALID_ADDRESS) { /* no more data available to read */
             fdesc_notify_events(&s->sock.f);
             break;
         }
         if (hdr->nlmsg_len > dest_len)
             break;
+        dequeue(s->data);
     } while (dest_len > 0);
 unlock:
     if (lock)
