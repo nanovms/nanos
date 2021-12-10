@@ -26,6 +26,13 @@
 /* length of thread scheduling queue */
 #define MAX_THREADS 8192
 
+/* size of free context queues */
+#define FREE_KERNEL_CONTEXT_QUEUE_SIZE  8
+#define FREE_SYSCALL_CONTEXT_QUEUE_SIZE 8
+
+/* per-cpu queue */
+#define CPU_QUEUE_SIZE 8
+
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
 

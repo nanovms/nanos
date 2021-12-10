@@ -23,10 +23,11 @@ void deallocate_stack(heap h, u64 size, void *stack)
     deallocate(h, u64_from_pointer(stack) - padsize + STACK_ALIGNMENT, padsize);
 }
 
-/* TODO: Deallocate these after some limit is reached. */
-define_closure_function(2, 0, void, free_kernel_context,
-                        kernel_context, kc, boolean, queued)
+define_closure_function(3, 0, void, free_kernel_context,
+                        kernel_context, kc, cpuinfo, orig_ci, boolean, queued)
 {
+    kernel_context kc = bound(kc);
+
     /* The final release may happen while running in the context (and on the
        context stack), so defer the return to free list until after the
        context switch (runloop). */
@@ -36,8 +37,10 @@ define_closure_function(2, 0, void, free_kernel_context,
         enqueue_irqsafe(ci->cpu_queue, closure_self());
         return;
     }
+
     bound(queued) = false;
-    list_insert_before(&ci->free_kernel_contexts, &bound(kc)->l);
+    if (!enqueue(bound(orig_ci)->free_kernel_contexts, kc))
+        deallocate((heap)heap_linear_backed(get_kernel_heaps()), kc, KERNEL_CONTEXT_SIZE);
 }
 
 static void kernel_context_pause(context c)
@@ -68,12 +71,9 @@ define_closure_function(1, 0, void, kernel_context_return,
     frame_return(f);
 }
 
-static void kernel_context_pre_suspend(context c)
-{
-    check_kernel_context_replace(current_cpu(), (kernel_context)c);
-}
+static void kernel_context_pre_suspend(context ctx);
 
-kernel_context allocate_kernel_context(void)
+kernel_context allocate_kernel_context(cpuinfo ci)
 {
     build_assert((KERNEL_CONTEXT_SIZE & (KERNEL_CONTEXT_SIZE - 1)) == 0);
     kernel_context kc = allocate((heap)heap_linear_backed(get_kernel_heaps()),
@@ -82,7 +82,8 @@ kernel_context allocate_kernel_context(void)
         return kc;
     context c = &kc->context;
     init_context(c, CONTEXT_TYPE_KERNEL);
-    init_refcount(&c->refcount, 1, init_closure(&kc->free, free_kernel_context, kc, false));
+    init_refcount(&c->refcount, 1, init_closure(&kc->free, free_kernel_context,
+                                                kc, ci, false));
     c->pause = kernel_context_pause;
     c->resume = kernel_context_resume;
     c->schedule_return = kernel_context_schedule_return;
@@ -93,6 +94,23 @@ kernel_context allocate_kernel_context(void)
     void *stack_top = ((void *)kc) + KERNEL_CONTEXT_SIZE - STACK_ALIGNMENT;
     frame_set_stack_top(c->frame, stack_top);
     return kc;
+}
+
+static void kernel_context_pre_suspend(context ctx)
+{
+    cpuinfo ci = current_cpu();
+    if (ci->m.kernel_context == ctx) {
+        assert(ctx->refcount.c > 1); /* not final release */
+        context_release_refcount(ctx);
+        ctx = dequeue_single(ci->free_kernel_contexts);
+        if (ctx != INVALID_ADDRESS) {
+            refcount_set_count(&ctx->refcount, 1);
+        } else {
+            ctx = (context)allocate_kernel_context(ci);
+            assert(ctx != INVALID_ADDRESS);
+        }
+        ci->m.kernel_context = ctx;
+    }
 }
 
 BSS_RO_AFTER_INIT vector cpuinfos;
@@ -111,10 +129,13 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
     ci->id = cpu;
     ci->state = cpu_not_present;
     ci->thread_queue = allocate_queue(backed, MAX_THREADS);
-    list_init(&ci->free_syscall_contexts);
-    list_init(&ci->free_kernel_contexts);
-    ci->cpu_queue = allocate_queue(backed, 8); // XXX This is an arbitrary size
     assert(ci->thread_queue != INVALID_ADDRESS);
+    ci->free_kernel_contexts = allocate_queue(backed, FREE_KERNEL_CONTEXT_QUEUE_SIZE);
+    assert(ci->free_kernel_contexts != INVALID_ADDRESS);
+    ci->free_syscall_contexts = allocate_queue(backed, FREE_SYSCALL_CONTEXT_QUEUE_SIZE);
+    assert(ci->free_syscall_contexts != INVALID_ADDRESS);
+    ci->cpu_queue = allocate_queue(backed, CPU_QUEUE_SIZE);
+    assert(ci->cpu_queue != INVALID_ADDRESS);
     ci->last_timer_update = 0;
     ci->frcount = 0;
     init_cpuinfo_machine(ci, backed);

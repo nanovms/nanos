@@ -502,7 +502,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     cpuinfo ci;
     vector_foreach(cpuinfos, ci) {
-        syscall_context sc = allocate_syscall_context();
+        syscall_context sc = allocate_syscall_context(ci);
         assert(sc != INVALID_ADDRESS);
         ci->m.syscall_context = &sc->context;
     }

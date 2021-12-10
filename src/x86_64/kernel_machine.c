@@ -76,7 +76,7 @@ static void seg_desc_set(seg_desc_t *d, u32 base, u16 limit, u16 flags)
 void init_cpuinfo_machine(cpuinfo ci, heap backed)
 {
     ci->m.self = &ci->m;
-    kernel_context kc = allocate_kernel_context();
+    kernel_context kc = allocate_kernel_context(ci);
     assert(kc != INVALID_ADDRESS);
 
     /* start off kernel context in resumed state */

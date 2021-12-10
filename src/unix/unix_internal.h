@@ -63,14 +63,13 @@ typedef struct thread *thread;
 thread create_thread(process);
 void exit_thread(thread);
 
-declare_closure_struct(2, 0, void, free_syscall_context,
-                       struct syscall_context *, sc, boolean, queued);
+declare_closure_struct(3, 0, void, free_syscall_context,
+                       struct syscall_context *, sc, cpuinfo, orig_ci, boolean, queued);
 declare_closure_struct(1, 0, void, syscall_context_return,
                        struct syscall_context *, sc);
 
 typedef struct syscall_context {
     struct context context;
-    struct list l;              /* free list */
     thread t;                   /* corresponding thread */
     timestamp start_time;
     int call;                   /* syscall number */
@@ -78,20 +77,8 @@ typedef struct syscall_context {
     closure_struct(free_syscall_context, free);
 } *syscall_context;
 
-syscall_context allocate_syscall_context(void);
+syscall_context allocate_syscall_context(cpuinfo ci);
 
-static inline syscall_context get_syscall_context(cpuinfo ci)
-{
-    list l;
-    if ((l = list_get_next(&ci->free_syscall_contexts))) {
-        list_delete(l);
-        syscall_context sc = struct_from_field(l, syscall_context, l);
-        init_refcount(&sc->context.refcount, 1, (thunk)&sc->free);
-        return sc;
-    }
-    return allocate_syscall_context();
-}
-        
 // Taken from the manual pages
 // License: http://man7.org/linux/man-pages/man2/getdents.2.license.html
 struct linux_dirent {
@@ -1016,23 +1003,27 @@ static inline void sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
             break;
 }
 
-static inline void check_syscall_context_replace(cpuinfo ci, syscall_context sc)
+static inline void check_syscall_context_replace(cpuinfo ci, context ctx)
 {
-    if (ci->m.syscall_context == &sc->context) {
-        assert(sc->context.refcount.c > 1); /* syscall not finished */
-        context_release_refcount(&sc->context);
-        sc = get_syscall_context(ci);
-        assert(sc != INVALID_ADDRESS);
-        ci->m.syscall_context = &sc->context;
+    if (ci->m.syscall_context == ctx) {
+        assert(ctx->refcount.c > 1); /* not final release */
+        context_release_refcount(ctx);
+        ctx = dequeue_single(ci->free_syscall_contexts);
+        if (ctx != INVALID_ADDRESS) {
+            refcount_set_count(&ctx->refcount, 1);
+        } else {
+            ctx = (context)allocate_syscall_context(ci);
+            assert(ctx != INVALID_ADDRESS);
+        }
+        ci->m.syscall_context = ctx;
     }
 }
 
 static inline void __attribute__((noreturn)) syscall_yield(void)
 {
     cpuinfo ci = current_cpu();
-    syscall_context sc = (syscall_context)get_current_context(ci);
     disable_interrupts();
-    check_syscall_context_replace(ci, sc);
+    check_syscall_context_replace(ci, get_current_context(ci));
     kern_yield();
 }
 

@@ -19,12 +19,11 @@ void runloop_target(void) __attribute__((noreturn));
 declare_closure_struct(1, 0, void, kernel_context_return,
                        struct kernel_context *, kc);
 
-declare_closure_struct(2, 0, void, free_kernel_context,
-                       struct kernel_context *, kc, boolean, queued);
+declare_closure_struct(3, 0, void, free_kernel_context,
+                       struct kernel_context *, kc, cpuinfo, orig_ci, boolean, queued);
 
 typedef struct kernel_context {
     struct context context;
-    struct list l;              /* free list */
     closure_struct(kernel_context_return, kernel_return);
     closure_struct(free_kernel_context, free);
 } *kernel_context;
@@ -46,13 +45,15 @@ typedef struct cpuinfo {
     struct cpuinfo_machine m;
     u32 id;
     int state;
+    queue cpu_queue;
     queue thread_queue;
-    struct list free_syscall_contexts;
-    struct list free_kernel_contexts;
     timestamp last_timer_update;
     u64 frcount;
     u64 inval_gen; /* Generation number for invalidates */
-    queue cpu_queue;
+
+    /* multiple producers, single consumer */
+    queue free_kernel_contexts;
+    queue free_syscall_contexts;
 #ifdef CONFIG_FTRACE
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
@@ -187,7 +188,7 @@ static inline boolean async_apply_1(void *a, void *arg0)
 
 #define CONTEXT_RESUME_SPIN_LIMIT (1ull << 24)
 
-kernel_context allocate_kernel_context(void);
+kernel_context allocate_kernel_context(cpuinfo ci);
 void deallocate_kernel_context(kernel_context kc);
 void init_kernel_contexts(heap backed);
 void frame_return(context_frame f);
@@ -374,30 +375,6 @@ static inline void context_apply_1(context ctx, async_1 a, u64 arg0)
     context_switch(ctx);
     install_runloop_trampoline(ctx);
     switch_stack_2(sp, *(u64*)a, a, arg0);
-}
-
-static inline kernel_context get_kernel_context(cpuinfo ci)
-{
-    list l;
-    if ((l = list_get_next(&ci->free_kernel_contexts))) {
-        list_delete(l);
-        kernel_context kc = struct_from_field(l, kernel_context, l);
-        init_refcount(&kc->context.refcount, 1, (thunk)&kc->free);
-        frame_reset_stack(kc->context.frame);
-        return kc;
-    }
-    return allocate_kernel_context();
-}
-
-static inline void check_kernel_context_replace(cpuinfo ci, kernel_context kc)
-{
-    if (ci->m.kernel_context == &kc->context) {
-        assert(kc->context.refcount.c > 1);
-        context_release_refcount(&kc->context);
-        kc = get_kernel_context(ci);
-        assert(kc != INVALID_ADDRESS);
-        ci->m.kernel_context = &kc->context;
-    }
 }
 
 static inline __attribute__((always_inline))  __attribute__((noreturn)) void kern_yield(void)

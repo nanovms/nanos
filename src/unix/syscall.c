@@ -2321,21 +2321,25 @@ void count_syscall(thread t, sysreturn rv)
 
 static boolean debugsyscalls;
 
-/* TODO: Deallocate these after some limit is reached. */
-define_closure_function(2, 0, void, free_syscall_context,
-                        syscall_context, sc, boolean, queued)
+define_closure_function(3, 0, void, free_syscall_context,
+                        syscall_context, sc, cpuinfo, orig_ci, boolean, queued)
 {
-    /* The final release may happen while running in the context (and on the
-       context stack), so defer the return to free list until after the
-       context switch (runloop). */
+    syscall_context sc = bound(sc);
     cpuinfo ci = current_cpu();
+
+    /* The final release may happen while running in the context, but adding
+       it to the free queue at once creates the possibility that another cpu
+       will start running on its stack (in syscall entry). This defers the
+       enqueueing to runloop, following the context being switched out. */
     if (!bound(queued)) {
         bound(queued) = true;
         enqueue_irqsafe(ci->cpu_queue, closure_self());
         return;
     }
+
     bound(queued) = false;
-    list_insert_after(&ci->free_syscall_contexts, &bound(sc)->l);
+    if (!enqueue(bound(orig_ci)->free_syscall_contexts, sc))
+        deallocate((heap)heap_linear_backed(get_kernel_heaps()), sc, SYSCALL_CONTEXT_SIZE);
 }
 
 static void syscall_context_pause(context ctx)
@@ -2369,7 +2373,7 @@ static void syscall_context_schedule_return(context ctx)
 
 static void syscall_context_pre_suspend(context ctx)
 {
-    check_syscall_context_replace(current_cpu(), (syscall_context)ctx);
+    check_syscall_context_replace(current_cpu(), ctx);
 }
 
 define_closure_function(1, 0, void, syscall_context_return,
@@ -2383,7 +2387,7 @@ define_closure_function(1, 0, void, syscall_context_return,
     frame_return(f);
 }
 
-syscall_context allocate_syscall_context(void)
+syscall_context allocate_syscall_context(cpuinfo ci)
 {
     build_assert((SYSCALL_CONTEXT_SIZE & (SYSCALL_CONTEXT_SIZE - 1)) == 0);
     syscall_context sc = allocate((heap)heap_linear_backed(get_kernel_heaps()),
@@ -2392,7 +2396,8 @@ syscall_context allocate_syscall_context(void)
         return sc;
     context c = &sc->context;
     init_context(c, CONTEXT_TYPE_SYSCALL);
-    init_refcount(&c->refcount, 1, init_closure(&sc->free, free_syscall_context, sc, false));
+    init_refcount(&c->refcount, 1, init_closure(&sc->free, free_syscall_context,
+                                                sc, ci, false));
     c->pause = syscall_context_pause;
     c->resume = syscall_context_resume;
     c->schedule_return = syscall_context_schedule_return;
