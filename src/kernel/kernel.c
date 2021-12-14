@@ -34,7 +34,7 @@ define_closure_function(3, 0, void, free_kernel_context,
     cpuinfo ci = current_cpu();
     if (!bound(queued)) {
         bound(queued) = true;
-        enqueue_irqsafe(ci->cpu_queue, closure_self());
+        assert(enqueue_irqsafe(ci->cpu_queue, closure_self()));
         return;
     }
 

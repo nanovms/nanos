@@ -2333,7 +2333,7 @@ define_closure_function(3, 0, void, free_syscall_context,
        enqueueing to runloop, following the context being switched out. */
     if (!bound(queued)) {
         bound(queued) = true;
-        enqueue_irqsafe(ci->cpu_queue, closure_self());
+        assert(enqueue_irqsafe(ci->cpu_queue, closure_self()));
         return;
     }
 

@@ -31,7 +31,7 @@
 #define FREE_SYSCALL_CONTEXT_QUEUE_SIZE 8
 
 /* per-cpu queue */
-#define CPU_QUEUE_SIZE 8
+#define CPU_QUEUE_SIZE 512
 
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
