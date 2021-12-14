@@ -30,6 +30,7 @@ static const char *interrupt_names[] = {
 
 
 static const char *register_names[] = {
+    "        pc",
     "        ra",
     "        sp",
     "        gp",
@@ -93,8 +94,6 @@ void print_frame(context f)
     print_u64_with_sym(u64_from_pointer(f[FRAME_STATUS]));
     rputs("\n     stval: ");
     print_u64_with_sym(u64_from_pointer(f[FRAME_FAULT_ADDRESS]));
-    rputs("\n       epc: ");
-    print_u64_with_sym(u64_from_pointer(f[FRAME_PC]));
 
     rputs("\n");
     for (int i = 0; i < sizeof(register_names)/sizeof(register_names[0]); i++) {
@@ -108,16 +107,16 @@ void print_frame(context f)
 void frame_trace(u64 *fp)
 {
     for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame ++) {
-        if (!validate_virtual(fp, sizeof(u64)) ||
-            !validate_virtual(fp + 1, sizeof(u64)))
+        if (!validate_virtual(fp - 1 , sizeof(u64)) ||
+            !validate_virtual(fp - 2, sizeof(u64)))
             break;
 
-        u64 n = fp[1];
+        u64 n = fp[-1];
         if (n == 0)
             break;
-        print_u64(u64_from_pointer(fp + 1));
+        print_u64(u64_from_pointer(fp - 1));
         rputs(":   ");
-        fp = pointer_from_u64(fp[0]);
+        fp = pointer_from_u64(fp[-2]);
         print_u64_with_sym(n);
         rputs("\n");
     }
@@ -125,7 +124,6 @@ void frame_trace(u64 *fp)
 
 void print_frame_trace_from_here(void)
 {
-    // XXX not working?
     rputs("\nframe trace: \n");
     u64 fp;
     asm("mv %0, fp" : "=r" (fp));
@@ -134,7 +132,6 @@ void print_frame_trace_from_here(void)
 
 void print_stack(context c)
 {
-    // XXX not working?
     rputs("\nframe trace: \n");
     frame_trace(pointer_from_u64(c[FRAME_FP]));
 
