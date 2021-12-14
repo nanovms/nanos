@@ -2305,7 +2305,7 @@ struct syscall {
 };
 
 static struct syscall _linux_syscalls[SYS_MAX];
-struct syscall *linux_syscalls = _linux_syscalls;
+struct syscall * const linux_syscalls = _linux_syscalls;
 
 void count_syscall(thread t, sysreturn rv)
 {

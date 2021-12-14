@@ -198,7 +198,7 @@ static u32 cpu_online_events(file f)
     return (EPOLLIN | EPOLLOUT);
 }
 
-static special_file special_files[] = {
+static const special_file special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
     { "/proc/mounts", .open = mounts_open, .close = mounts_close, .read = mounts_read, .events = mounts_events, .alloc_size = sizeof(struct mounts_notify_data)},
@@ -208,10 +208,10 @@ static special_file special_files[] = {
 };
 
 closure_function(2, 6, sysreturn, spec_read,
-                 special_file *, sf, file, f,
+                 const special_file *, sf, file, f,
                  void *, dest, u64, len, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
-    special_file *sf = bound(sf);
+    const special_file *sf = bound(sf);
     thread_log(t, "spec_read: %s", sf->path);
     file f = bound(f);
     sysreturn nr;
@@ -227,10 +227,10 @@ closure_function(2, 6, sysreturn, spec_read,
 }
 
 closure_function(2, 6, sysreturn, spec_write,
-                 special_file *, sf, file, f,
+                 const special_file *, sf, file, f,
                  void *, dest, u64, len, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
-    special_file *sf = bound(sf);
+    const special_file *sf = bound(sf);
     thread_log(t, "spec_write: %s", sf->path);
     file f = bound(f);
     sysreturn nr;
@@ -246,10 +246,10 @@ closure_function(2, 6, sysreturn, spec_write,
 }
 
 closure_function(2, 1, u32, spec_events,
-                 special_file *, sf, file, f,
+                 const special_file *, sf, file, f,
                  thread, t)
 {
-    special_file *sf = bound(sf);
+    const special_file *sf = bound(sf);
     thread_log(current, "spec_events: %s", sf->path);
     if (sf->events)
         return sf->events(bound(f));
@@ -257,10 +257,10 @@ closure_function(2, 1, u32, spec_events,
 }
 
 closure_function(2, 2, sysreturn, spec_close,
-                 special_file *, sf, file, f,
+                 const special_file *, sf, file, f,
                  thread, t, io_completion, completion)
 {
-    special_file *sf = bound(sf);
+    const special_file *sf = bound(sf);
     thread_log(current, "spec_close: %s", sf->path);
     file f = bound(f);
     sysreturn ret;
@@ -277,10 +277,10 @@ closure_function(2, 2, sysreturn, spec_close,
 }
 
 closure_function(1, 1, sysreturn, special_open,
-                 special_file *, sf,
+                 const special_file *, sf,
                  file, f)
 {
-    special_file *sf = bound(sf);
+    const special_file *sf = bound(sf);
     heap h = heap_locked(get_kernel_heaps());
     sysreturn ret;
 
@@ -352,7 +352,7 @@ void register_special_files(process p)
     }
 
     for (int i = 0; i < sizeof(special_files) / sizeof(special_files[0]); i++) {
-        special_file *sf = special_files + i;
+        const special_file *sf = special_files + i;
 
         /* create special file */
         spec_file_open open = closure(h, special_open, sf);

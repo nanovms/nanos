@@ -79,7 +79,7 @@ static boolean detect(apic_iface i, kernel_heaps kh)
     return true;
 }
 
-struct apic_iface xapic_if = {
+const struct apic_iface xapic_if = {
     "xapic",
     xapic_get_id,
     xapic_write,

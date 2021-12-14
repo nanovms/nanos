@@ -20,7 +20,7 @@ void register_format(character c, formatter f, int accepts_long)
 
 static void invalid_format(buffer d, buffer fmt, int start_idx, int idx)
 {
-    static char header[] = "[invalid format ";
+    static const char header[] = "[invalid format ";
 
     assert(buffer_write(d, header, sizeof(header) - 1));
     for (int i = 0; i < idx - start_idx + 1; i++)

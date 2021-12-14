@@ -27,7 +27,7 @@ write_header(FILE * fp)
     fprintf(fp, " * - DO NOT MODIFY -\n");
     fprintf(fp, " */\n");
 
-    fprintf(fp, "unsigned char vdso_raw[] __attribute__((aligned (%d))) = {", PAGESIZE);
+    fprintf(fp, "const unsigned char vdso_raw[] __attribute__((aligned (%d))) = {", PAGESIZE);
 }
 
 static void
@@ -35,7 +35,7 @@ write_footer(FILE * fp, unsigned long total)
 {
     fprintf(fp, "\n");
     fprintf(fp, "};\n");
-    fprintf(fp, "unsigned long vdso_raw_length = %ld;\n", total);
+    fprintf(fp, "const unsigned long vdso_raw_length = %ld;\n", total);
 }
 
 int main(int argc, char ** argv)

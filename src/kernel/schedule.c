@@ -9,8 +9,7 @@
 #define sched_debug(x, ...)
 #endif
 
-// currently defined in x86_64.h
-static char *state_strings_backing[] = {
+static const char * const state_strings_backing[] = {
     "not present",
     "idle",
     "kernel",
@@ -18,7 +17,7 @@ static char *state_strings_backing[] = {
     "user",         
 };
 
-char **state_strings = state_strings_backing;
+const char * const * const state_strings = state_strings_backing;
 static int wakeup_vector;
 int shutdown_vector;
 boolean shutting_down;
