@@ -40,6 +40,8 @@
 #define PCIR_SUBDEV_0   0x2e
 #define PCIR_IOBASEH_1  0x30
 #define PCIR_IOLIMITH_1 0x32
+#define PCIR_INT_LINE   0x3c
+#define PCIR_INT_PIN    0x3d
 
 /* PCI device class */
 #define PCIC_STORAGE 0x01
@@ -147,6 +149,7 @@ void pci_bar_deinit(struct pci_bar *b);
 void pci_platform_init_bar(pci_dev dev, int bar);
 u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data);
 void pci_platform_deallocate_msi(pci_dev dev, u64 v);
+boolean pci_platform_has_msi(void);
 
 u8 pci_bar_read_1(struct pci_bar *b, u64 offset);
 void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val);

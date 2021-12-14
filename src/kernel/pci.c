@@ -133,6 +133,8 @@ int pci_get_msix_count(pci_dev dev)
 int pci_enable_msix(pci_dev dev)
 {
     pci_debug("%s: dev %p\n", __func__, dev);
+    if (!pci_platform_has_msi())
+        return 0;
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
     if (cp == 0)
         return 0;

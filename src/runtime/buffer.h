@@ -412,6 +412,7 @@ int buffer_strstr(buffer b, const char *str);
     ({                                                                  \
         buffer __b = stack_allocate(sizeof(struct buffer));             \
         __b->contents = stack_allocate(__length);                       \
+        ((u8 *)__b->contents)[0] = 0; /* quiet uninitialized warning */ \
         __b->start = 0;                                                 \
         __b->end = 0;                                                   \
         __b->length = (__length);                                       \

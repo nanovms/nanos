@@ -51,9 +51,9 @@ sysreturn arch_prctl(int code, unsigned long addr)
 }
 #endif
 
-#ifdef __x86_64__
+#if defined(__x86_64__)
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || defined(__riscv) // XXX double check
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long newtls, int *ctid)
 #endif
 {
@@ -353,6 +353,9 @@ thread create_thread(process p)
 #endif
 #ifdef __aarch64__
     f[FRAME_EL] = 0;
+#endif
+#ifdef __riscv
+    f[FRAME_STATUS] = FS_INITIAL<<STATUS_BIT_FS;
 #endif
 
     t->signal_stack = 0;

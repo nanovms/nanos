@@ -1,0 +1,1 @@
+lib:(children:(riscv64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/riscv64-linux-gnu/libc.so.6)) libpthread.so.0:(contents:(host:/lib/riscv64-linux-gnu/libpthread.so.0)))) ld-linux-riscv64-lp64d.so.1:(contents:(host:/lib/ld-linux-riscv64-lp64d.so.1))))

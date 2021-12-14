@@ -141,3 +141,11 @@ sysreturn __vdso_rt_sigreturn(void)
     asm volatile ("mov x8, #139; svc #0"); // SYS_rt_sigreturn
 }
 #endif
+#ifdef __riscv
+sysreturn __attribute__((noreturn)) __attribute__((naked)) __vdso_rt_sigreturn(void)
+{
+    /* these two instructions cannot change - libgcc and others look
+       for these when unwinding signal handlers */
+    asm volatile ("li a7, 139; ecall"); // SYS_rt_sigreturn
+}
+#endif

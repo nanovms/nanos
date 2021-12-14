@@ -1584,6 +1584,9 @@ sysreturn uname(struct utsname *v)
 #ifdef __aarch64__
         "aarch64";
 #endif
+#ifdef __riscv
+        "riscv64";
+#endif
 
     if (!validate_user_memory(v, sizeof(struct utsname), true))
         return -EFAULT;
