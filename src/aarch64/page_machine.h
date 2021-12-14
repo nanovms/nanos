@@ -263,6 +263,11 @@ static inline pageflags pageflags_default_user(void)
     return pageflags_user(pageflags_minpage(pageflags_memory()));
 }
 
+static inline boolean pageflags_is_present(pageflags flags)
+{
+    return (flags.w & PAGE_L0_3_DESC_VALID) != 0;
+}
+
 static inline boolean pageflags_is_writable(pageflags flags)
 {
     return (flags.w & PAGE_READONLY) == 0;
@@ -347,6 +352,11 @@ static inline u64 flags_from_pte(u64 pte)
     return pte & PAGE_FLAGS_MASK;
 }
 
+static inline pageflags pageflags_from_pte(pte pte)
+{
+    return (pageflags){.w = flags_from_pte(pte)};
+}
+
 static inline u64 page_pte(u64 phys, u64 flags)
 {
     return flags | (phys & PAGE_4K_NEXT_TABLE_OR_PAGE_OUT_MASK) |
@@ -398,10 +408,5 @@ static inline u64 page_from_pte(pte pte)
 }
 
 #define table_from_pte page_from_pte
-
-static inline pageflags pageflags_from_pteptr(pteptr pp)
-{
-    return (pageflags){.w = PAGE_FLAGS_MASK & *pp};
-}
 
 void init_mmu(range init_pt, u64 vtarget);

@@ -90,6 +90,11 @@ static inline pageflags pageflags_default_user(void)
     return pageflags_user(pageflags_minpage(pageflags_memory()));
 }
 
+static inline boolean pageflags_is_present(pageflags flags)
+{
+    return (flags.w & PAGE_PRESENT) != 0;
+}
+
 static inline boolean pageflags_is_writable(pageflags flags)
 {
     return (flags.w & PAGE_WRITABLE) != 0;
@@ -136,6 +141,11 @@ static inline boolean pte_is_block_mapping(pte entry)
 static inline u64 flags_from_pte(u64 pte)
 {
     return pte & PAGE_FLAGS_MASK;
+}
+
+static inline pageflags pageflags_from_pte(pte pte)
+{
+    return (pageflags){.w = flags_from_pte(pte)};
 }
 
 static inline u64 page_pte(u64 phys, u64 flags)

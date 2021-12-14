@@ -194,6 +194,21 @@ boolean validate_virtual(void * base, u64 length)
     return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry));
 }
 
+closure_function(0, 3, boolean, validate_entry_writable,
+                 int, level, u64, vaddr, pteptr, entry)
+{
+    pte pte = pte_from_pteptr(entry);
+    if (!pte_is_present(pte))
+        return false;
+    return !pte_is_mapping(level, pte) || pageflags_is_writable(pageflags_from_pte(pte));
+}
+
+boolean validate_virtual_writable(void * base, u64 length)
+{
+    page_debug("base %p, length 0x%lx\n", base, length);
+    return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry_writable));
+}
+
 /* called with lock held */
 closure_function(2, 3, boolean, update_pte_flags,
                  pageflags, flags, flush_entry, fe,

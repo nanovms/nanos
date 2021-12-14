@@ -8,18 +8,13 @@ boolean parse_hex_pair(buffer in, u64 *first, u64 *second)
     return(true);
 }
 
-/* convert the memory pointed to by mem into hex, placing result in buf */
-/* return a pointer to the last char put in buf (null) */
-/* If MAY_FAULT is non-zero, then we should set mem_err in response to
-   a fault; if zero treat a fault like any other fault in the stub.  */
+/* encode count bytes of mem in hex */
 boolean mem2hex (string b, void *mem, int count)
 {
     int i;
     unsigned char ch;
-    if (!validate_virtual(mem, count)) {
-        rprintf ("validation failed\n");
+    if (!validate_virtual(mem, count))
         return false;
-    }
     for (i = 0; i < count; i++) {
         ch = *(unsigned char *)(mem++);
         print_number(b, (u64)ch, 16, 2);
@@ -27,12 +22,13 @@ boolean mem2hex (string b, void *mem, int count)
     return (true);
 }
 
+/* write count bytes from hex buffer into mem */
 boolean hex2mem (buffer b, void *mem, int count)
 {
     int i;
     unsigned char ch;
 
-    if (!validate_virtual(mem, count)) 
+    if (!validate_virtual_writable(mem, count))
         return false;
     
     for (i = 0; i < count; i++) {
