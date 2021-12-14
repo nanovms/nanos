@@ -3,7 +3,8 @@
 #include <kernel.h>
 #include <apic.h>
 
-static void *apboot = INVALID_ADDRESS;
+#define apboot  pointer_from_u64(AP_BOOT_START)
+
 extern u8 apinit, apinit_end;
 extern void *ap_pagetable, *ap_idt_pointer, *ap_stack;
 void *ap_stack;
@@ -115,7 +116,6 @@ void ap_start()
 void allocate_apboot(heap stackheap, void (*ap_entry)())
 {
     start_callback = ap_entry;
-    apboot = pointer_from_u64(AP_BOOT_START);
     map((u64)apboot, (u64)apboot, PAGESIZE,
         pageflags_writable(pageflags_exec(pageflags_memory())));
 
