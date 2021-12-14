@@ -411,7 +411,7 @@ closure_function(3, 1, void, zero_hole,
     sg_zero_fill(bound(sg), length);
 }
 
-io_status_handler ignore_io_status;
+BSS_RO_AFTER_INIT io_status_handler ignore_io_status;
 
 /* whole block reads, file length resolved in cache */
 closure_function(2, 3, void, filesystem_storage_read,
@@ -1975,7 +1975,7 @@ u64 fs_freeblocks(filesystem fs)
     return heap_free((heap)fs->storage);
 }
 
-static struct {
+BSS_RO_AFTER_INIT static struct {
     filesystem (*get_root_fs)();    /* return filesystem at "/" */
     inode (*get_mountpoint)(tuple, filesystem *);   /* find mount point and parent filesystem */
 } fs_path_helper;

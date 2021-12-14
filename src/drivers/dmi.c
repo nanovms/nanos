@@ -22,7 +22,7 @@ struct dmi_header {
     u16 handle;
 } __attribute__((packed));
 
-u64 smbios_entry_point;
+BSS_RO_AFTER_INIT u64 smbios_entry_point;
 
 static u32 dmi_len;
 static u16 dmi_num;

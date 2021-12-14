@@ -6,15 +6,15 @@
 #define COMP_QUEUE_SIZE (MAX_FLUSH_ENTRIES*2)
 #define ENTRIES_SERVICE_THRESHOLD (MAX_FLUSH_ENTRIES/2)
 
-static boolean initialized = false;
-static int flush_ipi;
+BSS_RO_AFTER_INIT static boolean initialized;
+BSS_RO_AFTER_INIT static int flush_ipi;
 static volatile word inval_gen;
-static queue free_flush_entries;
+BSS_RO_AFTER_INIT static queue free_flush_entries;
 static struct list entries;
 static int entries_count;
 static volatile boolean service_scheduled;
-static thunk flush_service;
-static queue flush_completion_queue;
+BSS_RO_AFTER_INIT static thunk flush_service;
+BSS_RO_AFTER_INIT static queue flush_completion_queue;
 static struct rw_spinlock flush_lock;
 
 static void queue_flush_service();

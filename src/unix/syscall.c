@@ -20,16 +20,16 @@ typedef struct syscall_stat {
 } *syscall_stat;
 
 static struct syscall_stat stats[SYS_MAX];
-boolean do_syscall_stats;
-static boolean do_missing_files;
-static vector missing_files;
+BSS_RO_AFTER_INIT boolean do_syscall_stats;
+BSS_RO_AFTER_INIT static boolean do_missing_files;
+BSS_RO_AFTER_INIT static vector missing_files;
 
 sysreturn close(int fd);
 
-io_completion syscall_io_complete;
-io_completion io_completion_ignore;
-shutdown_handler print_syscall_stats;
-shutdown_handler print_missing_files;
+BSS_RO_AFTER_INIT io_completion syscall_io_complete;
+BSS_RO_AFTER_INIT io_completion io_completion_ignore;
+BSS_RO_AFTER_INIT shutdown_handler print_syscall_stats;
+BSS_RO_AFTER_INIT shutdown_handler print_missing_files;
 
 boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
 {
@@ -2394,7 +2394,7 @@ boolean syscall_notrace(process p, int syscall)
 
 // should hang off the thread context, but the assembly handler needs
 // to find it.
-void (*syscall)(context f);
+BSS_RO_AFTER_INIT void (*syscall)(context f);
 
 closure_function(0, 2, void, syscall_io_complete_cfn,
                  thread, t, sysreturn, rv)

@@ -11,7 +11,7 @@ static void serial_console_write(void *d, const char *s, bytes count)
     }
 }
 
-struct console_driver serial_console_driver = {
+RO_AFTER_INIT struct console_driver serial_console_driver = {
     .write = serial_console_write,
     .name = "serial"
 };

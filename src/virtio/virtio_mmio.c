@@ -21,7 +21,7 @@
 #define virtio_mmio_debug(x, ...)
 #endif
 
-static struct list vtmmio_devices = {
+RO_AFTER_INIT static struct list vtmmio_devices = {
         &vtmmio_devices, &vtmmio_devices
 };
 

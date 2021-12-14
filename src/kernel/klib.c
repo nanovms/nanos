@@ -11,10 +11,10 @@
 #define klib_debug(x, ...)
 #endif
 
-static kernel_heaps klib_kh;
-static filesystem klib_fs;
-static tuple klib_root;
-static id_heap klib_heap;
+BSS_RO_AFTER_INIT static kernel_heaps klib_kh;
+BSS_RO_AFTER_INIT static filesystem klib_fs;
+BSS_RO_AFTER_INIT static tuple klib_root;
+BSS_RO_AFTER_INIT static id_heap klib_heap;
 
 closure_function(1, 1, void, klib_elf_walk,
                  klib, kl,

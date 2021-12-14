@@ -10,7 +10,7 @@
 #define IFF_NOARP       (1 << 7)
 #define IFF_MULTICAST   (1 << 12)
 
-static heap lwip_heap;
+BSS_RO_AFTER_INIT static heap lwip_heap;
 struct spinlock lwip_spinlock;
 
 /* Pretty silly. LWIP offers lwip_cyclic_timers for use elsewhere, but
@@ -354,7 +354,7 @@ void init_net(kernel_heaps kh)
     spin_lock_init(&lwip_spinlock);
     lwip_lock();
     lwip_init();
-    NETIF_DECLARE_EXT_CALLBACK(netif_callback);
+    BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, lwip_ext_callback);
     lwip_unlock();
 }

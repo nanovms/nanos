@@ -7,9 +7,9 @@
 #define PIT_FREQUENCY   1193182ul   /* Hz */
 #define PIT_PERIOD_MSB  nanoseconds(256 * BILLION / PIT_FREQUENCY)
 
-clock_now platform_monotonic_now;
-clock_timer platform_timer;
-thunk platform_timer_percpu_init;
+BSS_RO_AFTER_INIT clock_now platform_monotonic_now;
+BSS_RO_AFTER_INIT clock_timer platform_timer;
+BSS_RO_AFTER_INIT thunk platform_timer_percpu_init;
 
 void init_clock(void)
 {

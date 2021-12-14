@@ -92,8 +92,8 @@ struct HPETMemoryMap {
     struct HPETTimer timers[32];
 } __attribute__((__packed__));
 
-static volatile struct HPETMemoryMap* hpet;
-static timestamp hpet_period_scaled_32;
+BSS_RO_AFTER_INIT static volatile struct HPETMemoryMap* hpet;
+BSS_RO_AFTER_INIT static timestamp hpet_period_scaled_32;
 static struct hpet_timer_cfg {
     int interrupt;
     u64 config;

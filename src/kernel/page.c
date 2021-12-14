@@ -41,7 +41,7 @@ static struct {
     u64 levelmask;              /* bitmap of levels allowed to map */
 } pagemem;
 
-boolean bootstrapping;
+BSS_RO_AFTER_INIT boolean bootstrapping;
 
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)

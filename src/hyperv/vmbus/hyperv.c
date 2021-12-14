@@ -72,7 +72,7 @@ typedef struct hyperv_platform_info {
     boolean initialized;
 } *hyperv_platform_info;
 
-struct hyperv_platform_info hyperv_info;
+BSS_RO_AFTER_INIT struct hyperv_platform_info hyperv_info;
 
 u64
 hypercall_md(volatile void *hc_addr, u64 in_val,

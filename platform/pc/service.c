@@ -66,8 +66,8 @@ void read_kernel_syms(void)
     }
 }
 
-static boolean have_rdseed = false;
-static boolean have_rdrand = false;
+BSS_RO_AFTER_INIT static boolean have_rdseed;
+BSS_RO_AFTER_INIT static boolean have_rdrand;
 
 static boolean hw_seed(u64 * seed, boolean rdseed)
 {
@@ -122,7 +122,7 @@ void reclaim_regions(void)
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
 }
 
-halt_handler vm_halt;
+BSS_RO_AFTER_INIT halt_handler vm_halt;
 
 void vm_exit(u8 code)
 {
@@ -156,7 +156,7 @@ void vm_exit(u8 code)
 }
 
 u64 total_processors = 1;
-u64 present_processors = 1;
+BSS_RO_AFTER_INIT u64 present_processors;
 
 #ifdef SMP_ENABLE
 /* Value comes from LDMXCSR instruction reference in Intel Architectures SDM */
@@ -197,7 +197,6 @@ closure_function(0, 2, void, count_processors_handler,
 
 static void count_processors()
 {
-    present_processors = 0;
     if (acpi_walk_madt(stack_closure(count_processors_handler))) {
         init_debug("ACPI reports %d processors", present_processors);
     } else {
@@ -236,7 +235,7 @@ void count_cpus_present(void)
 
 u64 xsave_features();
 
-static range initial_pages;
+BSS_RO_AFTER_INIT static range initial_pages;
 
 static void __attribute__((noinline)) init_service_new_stack()
 {

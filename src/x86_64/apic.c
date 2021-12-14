@@ -24,10 +24,10 @@
 #define apic_debug(x, ...)
 #endif
 
-static heap apic_heap;
-static u64 ioapic_membase;
-apic_iface apic_if;
-buffer apic_id_map;
+BSS_RO_AFTER_INIT static heap apic_heap;
+BSS_RO_AFTER_INIT static u64 ioapic_membase;
+BSS_RO_AFTER_INIT apic_iface apic_if;
+BSS_RO_AFTER_INIT buffer apic_id_map;
 
 static inline void apic_write(int reg, u32 val)
 {
@@ -71,7 +71,7 @@ static inline void apic_clear(int reg, u32 v)
     apic_write(reg, apic_read(reg) & ~v);
 }
 
-static u32 apic_timer_cal_sec;
+BSS_RO_AFTER_INIT static u32 apic_timer_cal_sec;
 
 /* We could possibly trim this if the extra delay in boot becomes a concern. */
 #define CALIBRATE_DURATION_MS 10
@@ -158,7 +158,7 @@ boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init)
     return true;
 }
 
-static u64 lvt_err_irq;
+BSS_RO_AFTER_INIT static u64 lvt_err_irq;
 extern u32 spurious_int_vector;
 
 void apic_per_cpu_init(void)
@@ -180,7 +180,7 @@ void apic_enable(void)
 
 extern struct apic_iface xapic_if, x2apic_if;
 
-static void *ioapic_vbase;
+BSS_RO_AFTER_INIT static void *ioapic_vbase;
 
 static void ioapic_init(kernel_heaps kh, u64 membase)
 {

@@ -70,7 +70,7 @@ typedef struct unix_timer {
     closure_struct(unix_timer_free, free);
 } *unix_timer;
 
-static heap unix_timer_heap;
+BSS_RO_AFTER_INIT static heap unix_timer_heap;
 
 define_closure_function(1, 0, void, unix_timer_free,
                         unix_timer, ut)

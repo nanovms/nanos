@@ -88,7 +88,7 @@ static inline char *register_name(u64 s)
     return textoreg[s];
 }
 
-static u64 *idt;
+BSS_RO_AFTER_INIT static u64 *idt;
 
 static inline void *idt_from_interrupt(int interrupt)
 {
@@ -112,8 +112,8 @@ static void __attribute__((noinline)) write_idt(int interrupt, u64 offset, u64 i
     target[1] = offset >> 32;   /*  95 - 64 */
 }
 
-static thunk *handlers;
-u32 spurious_int_vector;
+BSS_RO_AFTER_INIT static thunk *handlers;
+BSS_RO_AFTER_INIT u32 spurious_int_vector;
 
 extern void *text_start;
 extern void *text_end;
@@ -300,8 +300,8 @@ void common_handler()
     vm_exit(VM_EXIT_FAULT);
 }
 
-static id_heap interrupt_vector_heap;
-static heap int_general;
+BSS_RO_AFTER_INIT static id_heap interrupt_vector_heap;
+BSS_RO_AFTER_INIT static heap int_general;
 
 u64 allocate_interrupt(void)
 {

@@ -173,7 +173,7 @@ struct storvsc_softc {
  * to a win8 host.
  * Track the correct size we need to apply.
  */
-static int vmscsi_size_delta = sizeof(struct vmscsi_win8_extension);
+RO_AFTER_INIT static int vmscsi_size_delta = sizeof(struct vmscsi_win8_extension);
 
 struct storvsc_driver_props {
     char        *drv_name;
@@ -203,7 +203,7 @@ static const struct hyperv_guid gBlkVscDeviceType={
          0x9b, 0x5c, 0x50, 0xd1, 0x41, 0x73, 0x54, 0xf5}
 };
 
-static struct storvsc_driver_props g_drv_props_table[] = {
+RO_AFTER_INIT static struct storvsc_driver_props g_drv_props_table[] = {
     {"blkvsc", "Hyper-V IDE",
      BLKVSC_MAX_IDE_DISKS_PER_TARGET, BLKVSC_MAX_IO_REQUESTS,
      20*PAGESIZE},
@@ -216,14 +216,14 @@ static struct storvsc_driver_props g_drv_props_table[] = {
  * Sense buffer size changed in win8; have a run-time
  * variable to track the size we should use.
  */
-static int sense_buffer_size = PRE_WIN8_STORVSC_SENSE_BUFFER_SIZE;
+RO_AFTER_INIT static int sense_buffer_size = PRE_WIN8_STORVSC_SENSE_BUFFER_SIZE;
 
 /*
  * The storage protocol version is determined during the
  * initial exchange with the host.  It will indicate which
  * storage functionality is available in the host.
 */
-static int vmstor_proto_version;
+BSS_RO_AFTER_INIT static int vmstor_proto_version;
 
 struct vmstor_proto {
         int proto_version;

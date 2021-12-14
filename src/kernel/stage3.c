@@ -15,6 +15,18 @@ closure_function(2, 1, void, program_start,
 {
     if (!is_ok(s))
         halt("%s: aborting %v\n", __func__, s);
+
+    /* Set mapping flags to read-only for data that has been initialized during boot and should not
+     * be modified afterwards. */
+    extern void *ro_after_init_start, *ro_after_init_end;
+    extern void *bss_ro_after_init_start, *bss_ro_after_init_end;
+    update_map_flags(u64_from_pointer(&ro_after_init_start),
+                     &ro_after_init_end - &ro_after_init_start,
+                     pageflags_memory());
+    update_map_flags(u64_from_pointer(&bss_ro_after_init_start),
+                     &bss_ro_after_init_end - &bss_ro_after_init_start,
+                     pageflags_memory());
+
     exec_elf(bound(elf), bound(kp));
     closure_finish();
 }

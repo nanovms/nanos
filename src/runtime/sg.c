@@ -13,7 +13,7 @@
 
 #define DEFAULT_SG_FRAGS 8
 
-static heap sg_heap;
+BSS_RO_AFTER_INIT static heap sg_heap;
 static struct list free_sg_lists;
 
 #ifdef KERNEL

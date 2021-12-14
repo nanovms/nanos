@@ -35,7 +35,7 @@ typedef void *nanos_thread;
    queueing a ton with the polled ATA driver. There's only one queue globally anyhow. */
 #define MAX_PAGE_COMPLETION_VECS 16384
 
-static pagecache global_pagecache;
+BSS_RO_AFTER_INIT static pagecache global_pagecache;
 
 static inline u64 cache_pagesize(pagecache pc)
 {

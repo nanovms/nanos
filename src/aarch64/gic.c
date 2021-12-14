@@ -8,8 +8,8 @@
 #define gic_debug(x, ...)
 #endif
 
-static boolean gicc_v3_iface;
-static u32 gic_intid_mask;
+BSS_RO_AFTER_INIT static boolean gicc_v3_iface;
+BSS_RO_AFTER_INIT static u32 gic_intid_mask;
 
 void gic_disable_int(int irq)
 {
@@ -179,8 +179,8 @@ static void init_gicc(void)
     }
 }
 
-u16 gic_msi_vector_base;
-u16 gic_msi_vector_num;
+BSS_RO_AFTER_INIT u16 gic_msi_vector_base;
+BSS_RO_AFTER_INIT u16 gic_msi_vector_num;
 
 void init_gic(void)
 {
