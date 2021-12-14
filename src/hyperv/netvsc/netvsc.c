@@ -43,8 +43,6 @@
 
 #define NETVSC_RX_MAXSEGSIZE       NETVSC_MAX_CONFIGURABLE_MTU
 
-int hv_promisc_mode = 0;
-
 typedef struct xpbuf
 {
     struct pbuf_custom p;
