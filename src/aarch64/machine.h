@@ -210,6 +210,12 @@ static inline __attribute__((always_inline)) word fetch_and_add(word *target, wo
     return __sync_fetch_and_add(target, num);
 }
 
+static inline __attribute__((always_inline)) word fetch_and_add_32(u32 *target, u32 num)
+{
+    asm volatile("prfm pstl1strm, %0" :: "Q" (*target));
+    return __sync_fetch_and_add(target, num);
+}
+
 static inline __attribute__((always_inline)) u8 compare_and_swap_32(u32 *p, u32 old, u32 new)
 {
     asm volatile("prfm pstl1strm, %0" :: "Q" (*p));

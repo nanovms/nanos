@@ -89,7 +89,7 @@ xsave:
 ;; [error code - if vec 0xe or 0xd]
 ;; vector <- rsp
 
-%macro interrupt_common_top 0
+%macro save_current_context 0
         push rbx
         mov rbx, [gs:8]         ; current_context / frame start
         mov [rbx+FRAME_RAX*8], rax
@@ -106,25 +106,29 @@ xsave:
         mov [rbx+FRAME_R13*8], r13
         mov [rbx+FRAME_R14*8], r14
         mov [rbx+FRAME_R15*8], r15
-        mov rdi, cr2
-        mov [rbx+FRAME_CR2*8], rdi
         pop rax            ; rbx
         mov [rbx+FRAME_RBX*8], rax
-        pop rax            ; vector
-        mov [rbx+FRAME_VECTOR*8], rax
         save_extended_registers rbx
 %endmacro
 
+%macro interrupt_common_top 0
+        save_current_context
+        mov rdi, cr2
+        mov [rbx+FRAME_CR2*8], rdi
+        pop rax            ; vector
+        mov [rbx+FRAME_VECTOR*8], rax
+%endmacro
+        
 extern common_handler
 
 %macro interrupt_common_bottom 0
-        pop rax            ; eip
+        pop rax            ; rip
         mov [rbx+FRAME_RIP*8], rax
         pop rax            ; cs
         mov [rbx+FRAME_CS*8], rax
         pop rax            ; rflags
         mov [rbx+FRAME_EFLAGS*8], rax
-        pop rax            ; rsp?
+        pop rax            ; rsp
         mov [rbx+FRAME_RSP*8], rax
         pop rax            ; ss         
         mov [rbx+FRAME_SS*8], rax
@@ -291,6 +295,24 @@ syscall_return:
         o64 sysret
 .end:
 
+extern context_suspend_finish
+
+global_func context_suspend
+context_suspend:
+        pushfq
+        cli
+        save_current_context
+        pop rax                 ; rflags
+        mov [rbx+FRAME_EFLAGS*8], rax
+        pop rax                 ; return addr
+        mov [rbx+FRAME_RIP*8], rax
+        mov [rbx+FRAME_CS*8], cs
+        mov [rbx+FRAME_SS*8], ss
+        mov [rbx+FRAME_RSP*8], rsp
+        mov rdi, rbx
+        jmp context_suspend_finish      ; finish in C
+.end:
+        
 global_func read_msr
 read_msr:
         mov rcx, rdi

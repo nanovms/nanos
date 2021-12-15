@@ -16,6 +16,7 @@ struct context {
     void (*schedule_return)(struct context *);
     fault_handler fault_handler;
     heap transient_heap;
+    void *waiting_on;
     u32 active_cpu;
     u8 type;
 };

@@ -2,7 +2,7 @@
 #include <frame.h>
 #include <kernel_machine.h>
         
-.macro  frame_save el
+.macro  frame_save el ex
         /* In the kernel, x18 always points to cpuinfo. */
 
         .if \el == 0
@@ -43,14 +43,20 @@
         str     x0, [x17, #(FRAME_EL * 8)]
 
         mrs     x0, spsr_el1
+        .if \ex == 1
         mrs     x1, esr_el1
         mrs     x2, elr_el1
         mrs     x3, far_el1
+        .endif
 
         add     x17, x17, #256
+        .if \ex == 1
         stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
         str     x2, [x17, #((FRAME_ELR - 32) * 8)]
         str     x3, [x17, #((FRAME_FAULT_ADDRESS - 32) * 8)]
+        .else
+        str     w0, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
+        .endif
         .endm
 
         .text
@@ -73,35 +79,35 @@ _start:
 
 // exception entries
 entry_sync_el1h:
-        frame_save 1
+        frame_save 1 1
         b       synchronous_handler
 
 entry_irq_el1h:
-        frame_save 1
+        frame_save 1 1
         b       irq_handler
 
 entry_serror_el1h:
-        frame_save 1
+        frame_save 1 1
         b       serror_handler
         
 entry_sync_el0: 
-        frame_save 0
+        frame_save 0 1
         b       synchronous_handler
 
 entry_irq_el0:
-        frame_save 0
+        frame_save 0 1
         b       irq_handler
 
 entry_serror_el0:
-        frame_save 0
+        frame_save 0 1
         b       serror_handler
 
 entry_invalid_el0:
-        frame_save 0
+        frame_save 0 1
         b       invalid_handler
 
 entry_invalid_el1:
-        frame_save 1
+        frame_save 1 1
         b       invalid_handler
 
 // universal frame return
@@ -138,6 +144,13 @@ frame_return:
         ldp     x28, x29, [x0, #(FRAME_X28 * 8)]
         ldp     x0, x1, [x0, #(FRAME_X0 * 8)]
         eret
+
+.globl context_suspend
+context_suspend:
+        frame_save 1 0
+        str     x30, [x17, #((FRAME_ELR - 32) * 8)]
+        ldr     x0, [x18]
+        b context_suspend_finish
 
         .globl arm_hvc
 arm_hvc:

@@ -111,11 +111,12 @@ void init_context(context c, int type)
 {
     c->type = type;
     c->transient_heap = 0;
+    c->waiting_on = 0;
     c->active_cpu = -1;
     zero_context_frame(c->frame);
-    u64 e = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
-    assert(e != INVALID_PHYSICAL);
-    c->frame[FRAME_EXTENDED] = e;
+    void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
+    assert(e != INVALID_ADDRESS);
+    c->frame[FRAME_EXTENDED] = u64_from_pointer(e);
     xsave(c->frame);
 }
 
