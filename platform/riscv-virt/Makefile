@@ -283,7 +283,7 @@ QEMU_ACCEL=	-enable-kvm -cpu host
 
 .PHONY: run run-bridge run-nokvm
 
-QEMU=		qemu-system-riscv64
+QEMU=		$(QEMU_PATH)qemu-system-riscv64
 QEMU_CPU=	-cpu rv64
 DISPLAY=	none
 STORAGE=	virtio-blk

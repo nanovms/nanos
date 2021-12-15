@@ -184,6 +184,25 @@ jobs:
       - run: gsutil cp nanos-nightly-linux-virt.timestamp gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.timestamp
 
+  build-riscv:
+    docker:
+      - image: cimg/go:1.17.5
+    steps:
+      - checkout
+      - run: sudo apt-get update
+      - run: sudo apt-get install gcc-riscv64-linux-gnu qemu-system-riscv64 ent xxd
+      # requires a custom built qemu for now
+      - run: mkdir qemu && cd qemu && wget https://storage.googleapis.com/testmisc/qemu-riscv64-6.2.tar.gz && tar -xzf qemu-riscv64-6.2.tar.gz
+      - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/riscv64-target-root.tar.gz && sudo tar --exclude=dev/* -xzf riscv64-target-root.tar.gz
+      # runtime tests for now
+      - run:
+          name: riscv64-build
+          environment:
+            NANOS_TARGET_ROOT: ~/project/target-root
+            QEMU_PATH: ~/project/qemu/
+          command: |
+            make PLATFORM=riscv-virt runtime-tests-noaccel
+
 workflows:
   version: 2
   commit-workflow:
@@ -191,6 +210,7 @@ workflows:
       - build-pc
       - build-virt
       - build-pc-memdebug
+      - build-riscv
   nightly:
     triggers:
       - schedule:
