@@ -357,12 +357,9 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         /* mAA..AA,LLLL  Read LLLL bytes at address AA..AA */
     case 'm':
         if (parse_hex_pair(b, &addr, &length)) {
-            set_current_thread(&g->t->thrd);
             if (!mem2hex (output, pointer_from_u64(addr), length)) {
-                rprintf ("gdb: memory error\n");
                 bprintf(output, "E03");
             }
-            set_current_thread(0);
             break;
         }
         bprintf(output, "E01");
@@ -373,7 +370,6 @@ static boolean handle_request(gdb g, buffer b, buffer output)
         /* TRY TO READ '%x,%x:'.  IF SUCCEED, SET PTR = 0 */
         if (parse_hex_pair(b, &addr, &length))
             if (get_char(b) == ':') {
-                set_current_thread(&g->t->thrd);
                 set_write_protect(false);
                 if (!hex2mem (b, (char *) addr, length)) {
                     bprintf(output, "E03");
@@ -381,7 +377,6 @@ static boolean handle_request(gdb g, buffer b, buffer output)
                     bprintf(output, "OK");
                 }
                 set_write_protect(true);
-                set_current_thread(0);
                 break;
             }
         bprintf(output, "E02");
@@ -389,13 +384,15 @@ static boolean handle_request(gdb g, buffer b, buffer output)
     case 'X':
         if (parse_hex_pair(b, &addr, &length)) {
             if (get_char(b) == ':' && buffer_length(b) >= length) {
-                set_current_thread(&g->t->thrd);
                 if (length > 0) {
-                    set_write_protect(false);
-                    runtime_memcpy((char *)addr, buffer_ref(b, 0), length);
-                    set_write_protect(true);
+                    if (validate_virtual_writable(pointer_from_u64(addr), length)) {
+                        set_write_protect(false);
+                        runtime_memcpy((char *)addr, buffer_ref(b, 0), length);
+                        set_write_protect(true);
+                    } else {
+                        bprintf(output, "E03");
+                    }
                 }
-                set_current_thread(0);
                 bprintf(output, "OK");
                 break;
             }

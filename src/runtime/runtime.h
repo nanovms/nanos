@@ -127,6 +127,7 @@ physical vtop(void *x);
 heap zero_wrap(heap meta, heap parent);
 
 boolean validate_virtual(void *base, u64 length);
+boolean validate_virtual_writable(void *base, u64 length);
 
 void sha256(buffer dest, buffer source);
 

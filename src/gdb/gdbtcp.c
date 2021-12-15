@@ -9,12 +9,8 @@ closure_function(1, 1, status, gdb_send,
                  tcpgdb, g,
                  buffer, b)
 {
-    //    u64 len = tcp_sndbuf(g->pcb);
-    // flags can force a stack copy or toggle push
-    // pool?
-    lwip_lock();
+    /* invoked exclusively by gdbserver_input with lwIP lock held */
     err_t err = tcp_write(bound(g)->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
-    lwip_unlock();
     if (err != ERR_OK)
         return timm("result", "%s: tcp_write returned with error %d", __func__, err);
     return STATUS_OK;
