@@ -256,12 +256,12 @@ closure_function(3, 2, boolean, autoload_klib_each,
 
 void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler complete)
 {
-    klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
-               __func__, fs, config_root, klib_md);
     assert(fs);
     assert(config_root);
     tuple klib_md = filesystem_getroot(fs);
     assert(klib_md);
+    klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
+               __func__, fs, config_root, klib_md);
     heap h = heap_locked(kh);
     klib_kh = kh;
     klib_fs = (filesystem)fs;
