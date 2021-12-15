@@ -115,6 +115,7 @@ struct ftrace_printer {
     buffer b;
     u64 local_offset;
     u64 max_size; /* stop printing if the buffer reaches this size */
+    struct timer t;
 
     /* listed below */
     unsigned long flags;
@@ -238,7 +239,7 @@ printer_init(struct ftrace_printer * p, unsigned long flags)
         msg_err("failed to allocate ftrace buffer\n");
         return -1;
     }
-
+    init_timer(&p->t);
     p->local_offset = 0;
     p->flags = flags;
     return 0;
@@ -1714,15 +1715,16 @@ send_http_chunk_failed:
 #define SEND_HTTP_CHUNK_INTERVAL_MS     (milliseconds(75))
 
 /* simultaneous requests might present issues, so ... don't do them?? */
-closure_function(4, 1, void, __ftrace_send_http_chunk,
+closure_function(4, 2, void, __ftrace_send_http_chunk,
                  struct ftrace_routine *, routine, struct ftrace_printer *, p,
                  boolean, local_printer, buffer_handler, out,
-                 u64, overruns /* ignored */)
+                 u64, expiry, u64, overruns)
 {
-    if (__ftrace_send_http_chunk_internal(bound(routine), bound(p),
-            bound(local_printer), bound(out)))
-    {
-        register_timer(runloop_timers, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, (timer_handler)closure_self());
+    if (overruns != timer_disabled &&
+        __ftrace_send_http_chunk_internal(bound(routine), bound(p),
+                                          bound(local_printer), bound(out))) {
+        register_timer(kernel_timers, &bound(p)->t, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS,
+                       false, 0, (timer_handler)closure_self());
     } else {
         closure_finish();
     }
@@ -1788,7 +1790,7 @@ __ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
         {
             timer_handler t = closure(ftrace_heap, __ftrace_send_http_chunk, routine,
                 p, local_printer, out);
-            register_timer(runloop_timers, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, t);
+            register_timer(kernel_timers, &p->t, CLOCK_ID_MONOTONIC, SEND_HTTP_CHUNK_INTERVAL_MS, false, 0, t);
         }
     }
 
