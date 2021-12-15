@@ -15,7 +15,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/riscv64/interrupt.c \
 	$(SRCDIR)/riscv64/page.c \
 	$(SRCDIR)/riscv64/plic.c \
-	$(SRCDIR)/riscv64/stub.c \
 	$(SRCDIR)/riscv64/serial.c \
 	$(SRCDIR)/riscv64/unix_machine.c \
 	$(SRCDIR)/drivers/console.c \
