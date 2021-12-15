@@ -28,11 +28,10 @@ struct stat {
     s32 unused[2];
 } __attribute__((packed));
 
-// XXX check these
-#define O_DIRECTORY     00040000
-#define O_NOFOLLOW      00100000
-#define O_DIRECT        00200000
-#define O_LARGEFILE     00000000
+#define O_DIRECTORY     00200000
+#define O_NOFOLLOW      00400000
+#define O_DIRECT        00040000
+#define O_LARGEFILE     00100000
 
 struct epoll_event {
     u32 events;                 /* Epoll events */
