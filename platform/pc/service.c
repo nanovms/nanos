@@ -285,6 +285,18 @@ id_heap init_physical_id_heap(heap h)
     u64 phys_length = 0;
     for_regions(e) {
         if (e->type == REGION_PHYSICAL) {
+            /* Remove low memory area from physical memory regions, so that it can be used for
+             * things like starting secondary CPUs. */
+            if (e->base < MB) {
+                u64 end = e->base + e->length;
+                if (end > MB) {
+                    e->base = MB;
+                    e->length = end - MB;
+                } else {
+                    e->length = 0;
+                }
+            }
+
             phys_length += e->length;
         }
     }
