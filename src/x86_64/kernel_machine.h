@@ -422,29 +422,44 @@ static inline void install_runloop_trampoline(context c)
 }
 #endif
 
-#define switch_stack(__s, __target) {                           \
-        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm volatile("mov %0, %%rax": :"r"(__target));          \
-        asm volatile("mov %%rdx, %%rsp"::);                     \
-        asm volatile("jmp *%%rax"::);                           \
-    }
+#define _switch_stack_head(s, target)                                   \
+    register u64 __s = u64_from_pointer(s);                             \
+    register u64 __t = u64_from_pointer(target)
 
-#define switch_stack_1(__s, __target, __a0) {                   \
-        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm volatile("mov %0, %%rax": :"r"(__target));          \
-        asm volatile("mov %0, %%rdi": :"r"(__a0));              \
-        asm volatile("mov %%rdx, %%rsp"::);                     \
-        asm volatile("jmp *%%rax"::);                           \
-    }
+#define _switch_stack_tail(...)                                         \
+    asm volatile("mov %0, %%rsp; jmp *%1" :: "r"(__s), "r"(__t), ##__VA_ARGS__ : "memory")
 
-#define switch_stack_2(__s, __target, __a0, __a1) {             \
-        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm volatile("mov %0, %%rax": :"r"(__target));          \
-        asm volatile("mov %0, %%rdi": :"r"(__a0));              \
-        asm volatile("mov %0, %%rsi": :"r"(__a1));              \
-        asm volatile("mov %%rdx, %%rsp"::);                     \
-        asm volatile("jmp *%%rax"::);                           \
-    }
+#define _switch_stack_args_1(__a0)              \
+    register u64 __ra0 asm("rdi") = (u64)(__a0);
+#define _switch_stack_args_2(__a0, __a1)                \
+    _switch_stack_args_1(__a0);                         \
+    register u64 __ra1 asm("rsi") = (u64)(__a1);
+#define _switch_stack_args_3(__a0, __a1, __a2)          \
+    _switch_stack_args_2(__a0, __a1);                   \
+    register u64 __ra2 asm("rdx") = (u64)(__a2);
+#define _switch_stack_args_4(__a0, __a1, __a2, __a3)    \
+    _switch_stack_args_3(__a0, __a1, __a2);             \
+    register u64 __ra3 asm("rcx") = (u64)(__a3);
+#define _switch_stack_args_5(__a0, __a1, __a2, __a3, __a4)     \
+    _switch_stack_args_4(__a0, __a1, __a2, __a3);              \
+    register u64 __ra4 asm("r8") = (u64)(__a4);
+
+#define switch_stack(s, target) _switch_stack_head(s, target); _switch_stack_tail()
+#define switch_stack_1(s, target, __a0) do {                   \
+    _switch_stack_head(s, target); _switch_stack_args_1(__a0); \
+    _switch_stack_tail("r"(__ra0)); } while(0)
+#define switch_stack_2(s, target, __a0, __a1) do {                      \
+    _switch_stack_head(s, target); _switch_stack_args_2(__a0, __a1);    \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1)); } while(0)
+#define switch_stack_3(s, target, __a0, __a1, __a2) do {                \
+    _switch_stack_head(s, target); _switch_stack_args_3(__a0, __a1, __a2); \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2)); } while(0)
+#define switch_stack_4(s, target, __a0, __a1, __a2, __a3) do {          \
+    _switch_stack_head(s, target); _switch_stack_args_4(__a0, __a1, __a2, __a3); \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2), "r"(__ra3)); } while(0)
+#define switch_stack_5(s, target, __a0, __a1, __a2, __a3, __a4) do {    \
+    _switch_stack_head(s, target); _switch_stack_args_5(__a0, __a1, __a2, __a3, __a4); \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2), "r"(__ra3), "r"(__ra4)); } while(0)
 
 /* for vdso */
 #define do_syscall(sysnr, rdi, rsi) ({\
