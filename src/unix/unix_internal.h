@@ -619,36 +619,8 @@ static inline void fdesc_put(fdesc f)
         apply(f->close, 0, io_completion_ignore);
 }
 
-define_closure_function(1, 2, void, fdesc_io_complete,
-                        struct fdesc *, f,
-                        thread, t, sysreturn, rv)
-{
-    fdesc_put(bound(f));
-    apply(syscall_io_complete, t, rv);
-}
-
-static inline void init_fdesc(heap h, fdesc f, int type)
-{
-    f->read = 0;
-    f->write = 0;
-    f->sg_read = 0;
-    f->sg_write = 0;
-    f->close = 0;
-    f->events = 0;
-    f->edge_trigger_handler = 0;
-    init_closure(&f->io_complete, fdesc_io_complete, f);
-    f->ioctl = 0;
-    f->refcnt = 1;
-    f->type = type;
-    f->flags = 0;
-    f->ns = allocate_notify_set(h);
-    spin_lock_init(&f->lock);
-}
-
-static inline void release_fdesc(fdesc f)
-{
-    deallocate_notify_set(f->ns);
-}
+void init_fdesc(heap h, fdesc f, int type);
+void release_fdesc(fdesc f);
 
 static inline int fdesc_type(fdesc f)
 {
