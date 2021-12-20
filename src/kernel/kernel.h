@@ -193,17 +193,17 @@ void deallocate_kernel_context(kernel_context kc);
 void init_kernel_contexts(heap backed);
 void frame_return(context_frame f);
 
-static inline void context_reserve_refcount(context ctx)
+static inline void __attribute__((always_inline)) context_reserve_refcount(context ctx)
 {
     refcount_reserve(&ctx->refcount);
 }
 
-static inline void context_release_refcount(context ctx)
+static inline void __attribute__((always_inline)) context_release_refcount(context ctx)
 {
     refcount_release(&ctx->refcount);
 }
 
-static inline void context_acquire(context ctx, cpuinfo ci)
+static inline void __attribute__((always_inline)) context_acquire(context ctx, cpuinfo ci)
 {
     context_debug("%s: ctx %p, cpu %d\n", __func__, ctx, ci->id);
     assert(ctx->active_cpu != ci->id);
@@ -215,25 +215,26 @@ static inline void context_acquire(context ctx, cpuinfo ci)
     context_debug("%s: ctx %p, cpu %d acquired\n", __func__, ctx, ci->id);
 }
 
-static inline void context_release(context ctx)
+static inline void __attribute__((always_inline)) context_release(context ctx)
 {
+    if (shutting_down)
+        return;
     if (ctx->active_cpu == -1u)
         halt("%s: already paused c %p, type %d\n", __func__, ctx, ctx->type);
     assert(ctx->active_cpu == current_cpu()->id); /* XXX tmp for bringup */
     ctx->active_cpu = -1u;
 }
 
-static inline void context_pause(context ctx)
+static inline void __attribute__((always_inline)) context_pause(context ctx)
 {
     context_debug("%s: ctx %p\n", __func__, ctx);
     if (shutting_down)
         return;
     if (ctx->pause)
         ctx->pause(ctx);
-    context_release(ctx);
 }
 
-static inline void context_resume(context ctx)
+static inline void __attribute__((always_inline)) context_resume(context ctx)
 {
     context_debug("%s: ctx %p\n", __func__, ctx);
     cpuinfo ci = current_cpu();
@@ -250,24 +251,43 @@ static inline void context_pre_suspend(context ctx)
         ctx->pre_suspend(ctx);
 }
 
+void context_suspend(void);
+
 static inline void context_schedule_return(context ctx)
 {
     assert(ctx->schedule_return);
     ctx->schedule_return(ctx);
 }
 
-static inline void context_switch(context ctx)
+void __attribute__((noreturn)) context_switch_finish(context prev, context next, void *a, u64 arg0, u64 arg1);
+
+/* TODO: make into varargs / macro to avoid unneeded arg copies */
+static inline void __attribute__((always_inline)) __attribute__((noreturn))
+context_switch_and_branch(context ctx, void * a, u64 arg0, u64 arg1)
+{
+    cpuinfo ci = current_cpu();
+    context prev = get_current_context(ci);
+    context_debug("%s: prev %p, next %p, a %p, arg0 0x%lx, arg1 0x%lx\n",
+                  __func__, prev, ctx, a, arg0, arg1);
+    if (ctx != prev) {
+        context_pause(prev);
+        if (!shutting_down)
+            context_acquire(ctx, ci);
+    }
+    switch_stack_5(frame_get_stack_top(ctx->frame), context_switch_finish, prev, ctx, a, arg0, arg1);
+    while(1);                   /* kill warning */
+}
+
+static inline void __attribute__((always_inline)) context_switch(context ctx)
 {
     assert(ctx);
     cpuinfo ci = current_cpu();
     context prev = get_current_context(ci);
-    context_debug("%s: ctx %p, prev %p, cpu %d, currently on %d\n",
-                  __func__, ctx, prev, ci->id, ctx->active_cpu);
     if (ctx != prev) {
         context_pause(prev);
-        context_resume(ctx);        /* may not return */
+        context_resume(ctx);
+        context_release(prev);
     }
-    context_debug("...switched\n");
 }
 
 static inline void use_fault_handler(fault_handler h)
@@ -350,31 +370,20 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
 {
     cpuinfo ci = current_cpu();
     context ctx = ci->m.kernel_context;
-    context_switch(ctx);        /* nop if already installed */
-    switch_stack(frame_get_stack_top(ctx->frame), runloop_internal);
-    while(1);                   /* kill warning */
+    context_switch_and_branch(ctx, runloop_internal, 0, 0);
 }
 
 /* call with ints disabled */
 static inline void context_apply(context ctx, thunk t)
 {
-    void *sp = frame_get_stack_top(ctx->frame);
-    context_debug("%s: ctx %p, t %F\n", __func__, ctx, t);
     assert(ctx->type != CONTEXT_TYPE_KERNEL);
-    context_switch(ctx);
-    install_runloop_trampoline(ctx);
-    switch_stack_1(sp, *(u64*)t, t);
+    context_switch_and_branch(ctx, *(void**)t, u64_from_pointer(t), 0);
 }
 
 static inline void context_apply_1(context ctx, async_1 a, u64 arg0)
 {
-    void *sp = frame_get_stack_top(ctx->frame);
-    context_debug("%s: ctx %p, sp %p (@ %p) a %p, target %p (%F), arg0 0x%lx\n",
-                  __func__, ctx, sp, *(u64*)sp, a, *(u64*)a, a, arg0);
     assert(ctx->type != CONTEXT_TYPE_KERNEL);
-    context_switch(ctx);
-    install_runloop_trampoline(ctx);
-    switch_stack_2(sp, *(u64*)a, a, arg0);
+    context_switch_and_branch(ctx, *(void**)a, u64_from_pointer(a), arg0);
 }
 
 static inline __attribute__((always_inline))  __attribute__((noreturn)) void kern_yield(void)

@@ -414,14 +414,6 @@ static inline void frame_reset_stack(context_frame f)
     f[FRAME_RSP] = f[FRAME_STACK_TOP];
 }
 
-#ifdef KERNEL
-static inline void install_runloop_trampoline(context c)
-{
-    /* make instance of inline for trampoline use */
-    *(u64*)frame_get_stack_top(c->frame) = u64_from_pointer(runloop_target);
-}
-#endif
-
 #define _switch_stack_head(s, target)                                   \
     register u64 __s = u64_from_pointer(s);                             \
     register u64 __t = u64_from_pointer(target)

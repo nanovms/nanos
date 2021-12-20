@@ -371,11 +371,6 @@ static inline void frame_reset_stack(context_frame f)
     f[FRAME_SP] = f[FRAME_STACK_TOP];
 }
 
-static inline void __attribute__((always_inline)) install_runloop_trampoline(context c)
-{
-    asm volatile("mov x30, %0" :: "r"(runloop_target));
-}
-
 #define _switch_stack_head(s, target)                                   \
     register u64 __s = u64_from_pointer(s);                             \
     register u64 __t = u64_from_pointer(target)

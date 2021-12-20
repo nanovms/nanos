@@ -67,6 +67,7 @@ define_closure_function(1, 0, void, kernel_context_return,
     context_frame f = kc->context.frame;
     assert(f[FRAME_FULL]);
     context_switch(&kc->context);
+    assert(kc->context.refcount.c > 1);
     context_release_refcount(&kc->context);
     frame_return(f);
 }
@@ -150,4 +151,17 @@ void init_kernel_contexts(heap backed)
     assert(ci != INVALID_ADDRESS);
     cpu_init(0);
     current_cpu()->state = cpu_kernel;
+}
+
+void __attribute__((noreturn)) context_switch_finish(context prev, context next, void *a, u64 arg0, u64 arg1)
+{
+    if (prev != next) {
+        cpuinfo ci = current_cpu();
+        set_current_context(ci, next);
+        context_release(prev);
+        if (!shutting_down && next->resume)
+            next->resume(next);
+    }
+    ((void (*)(u64, u64))a)(arg0, arg1);
+    runloop();
 }

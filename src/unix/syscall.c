@@ -2443,6 +2443,7 @@ void syscall_handler(thread t)
     assert(sc->context.refcount.c == 1);
     t->syscall = sc;
     context_pause(&t->context);
+    context_release(&t->context);
     context_resume(&sc->context);
 
     /* In the future, interrupt enable can go here. */

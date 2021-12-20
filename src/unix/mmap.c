@@ -165,6 +165,8 @@ static void demand_page_suspend_context(thread t, pending_fault pf, context ctx)
 {
     pf_debug("%s: tid %d, pf %p, ctx %p (%d), switch to %p\n", __func__,
              t->tid, pf, ctx, ctx->type, current_cpu()->m.kernel_context);
+
+    /* We get away with this because we are on the exception handler stack. */
     context_pre_suspend(ctx);
     context_switch(current_cpu()->m.kernel_context);
 }
