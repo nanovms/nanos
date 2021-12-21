@@ -223,6 +223,11 @@ define_closure_function(1, 1, context, default_fault_handler,
             goto bug;
         }
 
+        if (is_instruction_fault(frame) && !user) {
+            msg_err("kernel instruction fault\n");
+            goto bug;
+        }
+
         if (handle_protection_fault(frame, vaddr, vm)) {
             if (is_current_kernel_context(frame)) {
                 current_cpu()->state = cpu_kernel;
