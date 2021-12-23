@@ -1238,17 +1238,19 @@ sysreturn truncate(const char *path, long length)
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
-    } else if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE)) {
-        rv = -EACCES;
-    } else if (is_dir(t)) {
-        rv = -EISDIR;
-    } else if (!fsf) {
-        rv = -EINVAL;
     } else {
-        fsfile_reserve(fsf);
-        rv = 0;
+        if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE)) {
+            rv = -EACCES;
+        } else if (is_dir(t)) {
+            rv = -EISDIR;
+        } else if (!fsf) {
+            rv = -EINVAL;
+        } else {
+            fsfile_reserve(fsf);
+            rv = 0;
+        }
+        filesystem_put_node(fs, t);
     }
-    filesystem_put_node(fs, t);
     if (rv == 0) {
         rv = truncate_internal(fs, fsf, 0, length);
         fsfile_release(fsf);
