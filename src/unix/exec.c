@@ -112,6 +112,10 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         {AT_PAGESZ, PAGESIZE},
         {AT_RANDOM, u64_from_pointer(s)},
         {AT_ENTRY, u64_from_pointer(start)},
+#ifdef __aarch64__
+        /* This is aarch64 specific because it's needed for arm .so search paths */
+        {AT_HWCAP, get_cpu_capabilities()},
+#endif
         {AT_SYSINFO_EHDR, p->vdso_base}
     };
     for (int i = 0; i < sizeof(auxp) / sizeof(auxp[0]); i++) {

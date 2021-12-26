@@ -158,3 +158,14 @@ static inline void thread_frame_restore_tls(context f)
         write_psr(TPIDR_EL0, f[FRAME_TPIDR_EL0]);
     }
 }
+
+/* We currently only check for the atomic feature as it is the only one used
+   to generate the necessary dynamic library search paths */
+#define HWCAP_ATOMICS   (1 << 8)
+static inline u64 get_cpu_capabilities(void)
+{
+    if (field_from_u64(read_psr(ID_AA64ISAR0_EL1), ID_AA64ISAR0_EL1_ATOMIC)
+        == ID_AA64ISAR0_EL1_ATOMIC_IMPLEMENTED)
+        return HWCAP_ATOMICS;
+    return 0;
+}
