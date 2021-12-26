@@ -2,7 +2,7 @@
 #include <ftrace.h>
 #include <gdb.h>
 
-thread dummy_thread;
+BSS_RO_AFTER_INIT thread dummy_thread;
 
 sysreturn gettid()
 {

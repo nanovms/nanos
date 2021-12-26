@@ -98,9 +98,9 @@ static int ena_enable_msix_and_set_admin_interrupts(struct ena_adapter *);
 static void ena_update_on_link_change(void *, struct ena_admin_aenq_entry *);
 static void unimplemented_aenq_handler(void *, struct ena_admin_aenq_entry *);
 
-static char ena_version[] = DEVICE_NAME " " DRV_MODULE_NAME " v" DRV_MODULE_VERSION;
+static const char ena_version[] = DEVICE_NAME " " DRV_MODULE_NAME " v" DRV_MODULE_VERSION;
 
-static ena_vendor_info_t ena_vendor_info_array[] = {
+static const ena_vendor_info_t ena_vendor_info_array[] = {
         { PCI_VENDOR_ID_AMAZON, PCI_DEV_ID_ENA_PF, 0 },
         { PCI_VENDOR_ID_AMAZON, PCI_DEV_ID_ENA_PF_RSERV0, 0 },
         { PCI_VENDOR_ID_AMAZON, PCI_DEV_ID_ENA_VF, 0 },
@@ -112,7 +112,7 @@ static ena_vendor_info_t ena_vendor_info_array[] = {
 /*
  * Contains pointers to event handlers, e.g. link state chage.
  */
-static struct ena_aenq_handlers aenq_handlers;
+static const struct ena_aenq_handlers aenq_handlers;
 
 int ena_dma_alloc(struct ena_adapter *adapter, u64 size, ena_mem_handle_t *dma,
                   int mapflags, u64 alignment)
@@ -138,7 +138,7 @@ closure_function(2, 1, boolean, ena_probe,
         heap, general, heap, page_allocator,
         pci_dev, d)
 {
-    ena_vendor_info_t *ent;
+    const ena_vendor_info_t *ent;
     uint16_t pci_vendor_id = 0;
     uint16_t pci_device_id = 0;
 
@@ -2224,7 +2224,7 @@ static void unimplemented_aenq_handler(void *adapter_data, struct ena_admin_aenq
         "Unknown event was received or event with unimplemented handler\n");
 }
 
-static struct ena_aenq_handlers aenq_handlers = {
+static const struct ena_aenq_handlers aenq_handlers = {
         .handlers = {
                 [ENA_ADMIN_LINK_CHANGE] = ena_update_on_link_change,
                 [ENA_ADMIN_NOTIFICATION] = ena_notification,

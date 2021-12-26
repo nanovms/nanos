@@ -161,7 +161,7 @@ static int ena_com_admin_init_cq(struct ena_com_admin_queue *admin_queue)
 }
 
 static int ena_com_admin_init_aenq(struct ena_com_dev *ena_dev,
-                                   struct ena_aenq_handlers *aenq_handlers)
+                                   const struct ena_aenq_handlers *aenq_handlers)
 {
     struct ena_com_aenq *aenq = &ena_dev->aenq;
     u32 addr_low, addr_high, aenq_caps;
@@ -1596,7 +1596,7 @@ void ena_com_mmio_reg_read_request_write_dev_addr(struct ena_com_dev *ena_dev)
     ENA_REG_WRITE32(ena_dev->bus, addr_high, ena_dev->reg_bar + ENA_REGS_MMIO_RESP_HI_OFF);
 }
 
-int ena_com_admin_init(struct ena_com_dev *ena_dev, struct ena_aenq_handlers *aenq_handlers)
+int ena_com_admin_init(struct ena_com_dev *ena_dev, const struct ena_aenq_handlers *aenq_handlers)
 {
     struct ena_com_admin_queue *admin_queue = &ena_dev->admin_queue;
     u32 aq_caps, acq_caps, dev_sts, addr_low, addr_high;
@@ -1844,7 +1844,7 @@ void ena_com_admin_q_comp_intr_handler(struct ena_com_dev *ena_dev)
  */
 static ena_aenq_handler ena_com_get_specific_aenq_cb(struct ena_com_dev *ena_dev, u16 group)
 {
-    struct ena_aenq_handlers *aenq_handlers = ena_dev->aenq.aenq_handlers;
+    const struct ena_aenq_handlers *aenq_handlers = ena_dev->aenq.aenq_handlers;
 
     if ((group < ENA_MAX_HANDLERS) && aenq_handlers->handlers[group])
         return aenq_handlers->handlers[group];

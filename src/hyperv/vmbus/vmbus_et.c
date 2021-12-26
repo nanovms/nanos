@@ -53,7 +53,7 @@ struct vmbus_timer {
 
 typedef struct vmbus_timer *vmbus_timer_t;
 
-static vmbus_timer_t vmbus_et;
+BSS_RO_AFTER_INIT static vmbus_timer_t vmbus_et;
 
 static __inline u64
 hyperv_sbintime2count(timestamp time)

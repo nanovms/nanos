@@ -12,7 +12,7 @@
 #define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
 #endif
 
-static unix_heaps u_heap;
+BSS_RO_AFTER_INIT static unix_heaps u_heap;
 
 unix_heaps get_unix_heaps()
 {
@@ -220,6 +220,11 @@ define_closure_function(1, 1, context, default_fault_handler,
             /* no SEGV on reserved PTEs */
             msg_err("bug: pte entries reserved or corrupt\n");
             dump_page_tables(vaddr, 8);
+            goto bug;
+        }
+
+        if (is_instruction_fault(frame) && !user) {
+            msg_err("kernel instruction fault\n");
             goto bug;
         }
 

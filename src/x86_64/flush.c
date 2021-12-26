@@ -6,16 +6,15 @@
 #define COMP_QUEUE_SIZE (MAX_FLUSH_ENTRIES*2)
 #define ENTRIES_SERVICE_THRESHOLD (MAX_FLUSH_ENTRIES/2)
 
-static boolean initialized = false;
-static int flush_ipi;
-static heap flush_heap;
+BSS_RO_AFTER_INIT static boolean initialized;
+BSS_RO_AFTER_INIT static int flush_ipi;
 static volatile word inval_gen;
-static queue free_flush_entries;
+BSS_RO_AFTER_INIT static queue free_flush_entries;
 static struct list entries;
 static int entries_count;
 static volatile boolean service_scheduled;
-static thunk flush_service;
-static queue flush_completion_queue;
+BSS_RO_AFTER_INIT static thunk flush_service;
+BSS_RO_AFTER_INIT static queue flush_completion_queue;
 static struct rw_spinlock flush_lock;
 
 static void queue_flush_service();
@@ -220,12 +219,11 @@ void init_flush(heap h)
 {
     flush_ipi = allocate_interrupt();
     register_interrupt(flush_ipi, closure(h, flush_handler), "flush ipi");
-    flush_heap = h;
     list_init(&entries);
-    flush_service = closure(flush_heap, do_flush_service);
-    free_flush_entries = allocate_queue(flush_heap, MAX_FLUSH_ENTRIES + 1);
-    flush_completion_queue = allocate_queue(flush_heap, COMP_QUEUE_SIZE);
-    flush_entry fa = allocate(flush_heap, sizeof(struct flush_entry) * MAX_FLUSH_ENTRIES);
+    flush_service = closure(h, do_flush_service);
+    free_flush_entries = allocate_queue(h, MAX_FLUSH_ENTRIES + 1);
+    flush_completion_queue = allocate_queue(h, COMP_QUEUE_SIZE);
+    flush_entry fa = allocate(h, sizeof(struct flush_entry) * MAX_FLUSH_ENTRIES);
     assert(fa);
     for (flush_entry f = fa; f < fa + MAX_FLUSH_ENTRIES; f++)
         assert(enqueue(free_flush_entries, f));

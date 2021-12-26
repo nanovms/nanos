@@ -976,7 +976,6 @@ typedef struct hn_softc {
 /*
  * Externs
  */
-extern int hv_promisc_mode;
 
 extern void netvsc_linkstatus_callback(struct hv_device *device_obj,
 				       uint32_t status);

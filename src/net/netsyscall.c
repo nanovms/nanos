@@ -134,7 +134,7 @@ static sysreturn netsock_sendmsg(struct sock *sock, const struct msghdr *msg,
 static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
                                  int flags);
 
-static thunk net_loop_poll;
+BSS_RO_AFTER_INIT static thunk net_loop_poll;
 static boolean net_loop_poll_queued;
 
 closure_function(0, 0, void, netsock_poll) {

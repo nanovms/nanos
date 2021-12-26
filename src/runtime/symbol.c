@@ -4,9 +4,9 @@
 #include <runtime.h>
 #endif
 
-static table symbols;
-static heap sheap;
-static heap iheap;
+BSS_RO_AFTER_INIT static table symbols;
+BSS_RO_AFTER_INIT static heap sheap;
+BSS_RO_AFTER_INIT static heap iheap;
 
 #ifdef KERNEL
 

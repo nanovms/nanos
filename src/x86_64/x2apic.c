@@ -78,7 +78,7 @@ static void per_cpu_init(apic_iface i)
                  x2apic_read(i, APIC_APICVER));
 }
 
-struct apic_iface x2apic_if = {
+const struct apic_iface x2apic_if = {
     "x2apic",
     x2apic_get_id,
     x2apic_write,

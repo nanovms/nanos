@@ -58,7 +58,9 @@
 #define CR4_PGE         (1 << 7)
 #define CR4_OSFXSR      (1 << 9)
 #define CR4_OSXMMEXCPT  (1 << 10)
+#define CR4_UMIP        (1 << 11)
 #define CR4_OSXSAVE     (1 << 18)
+#define CR4_SMEP        (1 << 20)
 
 #define EFLAG_CARRY                     0
 #define EFLAG_FIXED                     1

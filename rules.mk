@@ -110,7 +110,7 @@ KERNCFLAGS+=    -mno-sse \
 		-mno-sse2
 endif
 KERNCFLAGS+=	-fno-omit-frame-pointer
-KERNLDFLAGS=	--gc-sections -n -L $(OUTDIR)/klib
+KERNLDFLAGS=	--gc-sections -z max-page-size=4096 -L $(OUTDIR)/klib
 
 ifeq ($(MEMDEBUG),mcache)
 CFLAGS+= -DMEMDEBUG_MCACHE

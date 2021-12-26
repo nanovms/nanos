@@ -38,7 +38,7 @@ enum epoll_type {
     EPOLL_TYPE_EPOLL,
 };
 
-static heap epoll_heap;
+BSS_RO_AFTER_INIT static heap epoll_heap;
 
 struct epoll_blocked {
     epoll e;

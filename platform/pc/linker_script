@@ -56,13 +56,21 @@ SECTIONS
 
     .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
     {
+        ro_after_init_start = .;
+        *(.ro_after_init)
+        . = ALIGN(4096);
+        ro_after_init_end = .;
         *(.data)
         *(.data.*)
     } :data
 
     PROVIDE(bss_start = .);
-    .bss  ALIGN(32): AT(ADDR(.bss) - LOAD_OFFSET)
+    .bss  ALIGN(4096): AT(ADDR(.bss) - LOAD_OFFSET)
     {
+        bss_ro_after_init_start = .;
+        *(.bss.ro_after_init)
+        . = ALIGN(4096);
+        bss_ro_after_init_end = .;
         *(.bss)
         *(.bss.*)
         *(COMMON)

@@ -263,7 +263,7 @@ struct ena_com_aenq {
     dma_addr_t dma_addr;
     ena_mem_handle_t mem_handle;
     u16 q_depth;
-    struct ena_aenq_handlers *aenq_handlers;
+    const struct ena_aenq_handlers *aenq_handlers;
 };
 
 struct ena_com_mmio_read {
@@ -422,7 +422,7 @@ void ena_com_mmio_reg_read_request_destroy(struct ena_com_dev *ena_dev);
  *
  * @return - 0 on success, negative value on failure.
  */
-int ena_com_admin_init(struct ena_com_dev *ena_dev, struct ena_aenq_handlers *aenq_handlers);
+int ena_com_admin_init(struct ena_com_dev *ena_dev, const struct ena_aenq_handlers *aenq_handlers);
 
 /* ena_com_admin_destroy - Destroy the admin and the async events queues.
  * @ena_dev: ENA communication layer struct

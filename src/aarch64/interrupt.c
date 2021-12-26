@@ -17,7 +17,7 @@ typedef struct inthandler {
     const char *name;
 } *inthandler;
 
-static struct list *handlers;
+BSS_RO_AFTER_INIT static struct list *handlers;
 
 extern u32 n_interrupt_vectors;
 extern u32 interrupt_vector_size;
@@ -325,10 +325,10 @@ void invalid_handler(void)
     halt("%s\n", __func__);
 }
 
-static id_heap ipi_vector_heap;
-static id_heap msi_vector_heap;
-static id_heap mmio_vector_heap;
-static heap int_general;
+BSS_RO_AFTER_INIT static id_heap ipi_vector_heap;
+BSS_RO_AFTER_INIT static id_heap msi_vector_heap;
+BSS_RO_AFTER_INIT static id_heap mmio_vector_heap;
+BSS_RO_AFTER_INIT static heap int_general;
 
 #define MK_INT_ALLOC_FNS(name)                                          \
     u64 allocate_## name ##_interrupt(void)                             \
@@ -391,7 +391,7 @@ closure_function(0, 0, void, arm_timer)
     schedule_timer_service();
 }
 
-closure_struct(arm_timer, _timer);
+BSS_RO_AFTER_INIT closure_struct(arm_timer, _timer);
 
 void init_interrupts(kernel_heaps kh)
 {

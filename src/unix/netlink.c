@@ -831,7 +831,7 @@ void netlink_init(void)
     assert(netlink.sockets != INVALID_ADDRESS);
     spin_lock_init(&netlink.lock);
     lwip_lock();
-    NETIF_DECLARE_EXT_CALLBACK(netif_callback);
+    BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, nl_lwip_ext_callback);
     lwip_unlock();
 }

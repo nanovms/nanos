@@ -650,15 +650,10 @@ hv_rf_open_device(rndis_device *device)
         return (0);
     }
 
-    if (hv_promisc_mode != 1) {
-        ret = hv_rf_set_packet_filter(device,
+    ret = hv_rf_set_packet_filter(device,
             NDIS_PACKET_TYPE_BROADCAST     |
             NDIS_PACKET_TYPE_ALL_MULTICAST |
             NDIS_PACKET_TYPE_DIRECTED);
-    } else {
-        ret = hv_rf_set_packet_filter(device, 
-            NDIS_PACKET_TYPE_PROMISCUOUS);
-    }
 
     if (ret == 0) {
         device->state = RNDIS_DEV_DATAINITIALIZED;

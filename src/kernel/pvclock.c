@@ -2,8 +2,8 @@
 #include <pvclock.h>
 #include <apic.h>
 
-static heap pvclock_heap;
-static volatile struct pvclock_vcpu_time_info *vclock = 0;
+BSS_RO_AFTER_INIT static heap pvclock_heap;
+BSS_RO_AFTER_INIT static volatile struct pvclock_vcpu_time_info *vclock;
 
 u64 pvclock_now_ns(void)
 {

@@ -2,8 +2,8 @@
 #include <elf64.h>
 
 /* really this should be an instance... */
-static heap general;
-static rangemap elf_symtable;
+BSS_RO_AFTER_INIT static heap general;
+BSS_RO_AFTER_INIT static rangemap elf_symtable;
 
 typedef struct elfsym {
     struct rmnode node;

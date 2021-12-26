@@ -40,7 +40,7 @@ struct vmbus_msghc {
     struct hypercall_postmsg_in mh_inprm_save;
 };
 
-uint32_t            vmbus_current_version;
+BSS_RO_AFTER_INIT uint32_t vmbus_current_version;
 
 static __inline void
 vmbus_handle_intr1(vmbus_dev sc, int cpu)

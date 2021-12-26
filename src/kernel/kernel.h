@@ -320,7 +320,7 @@ void register_root_notify(symbol s, set_value_notify n);
 boolean first_boot(void);
 
 extern void interrupt_exit(void);
-extern char **state_strings;
+extern const char * const * const state_strings;
 
 // static inline void schedule_frame(context f) stupid header deps
 #define schedule_frame(___f)  do { context __f = ___f; assert((__f)[FRAME_QUEUE] != INVALID_PHYSICAL); if ((__f)[FRAME_THREAD]) apply(((nanos_thread)(__f)[FRAME_THREAD])->pause); assert(enqueue_irqsafe((queue)pointer_from_u64((__f)[FRAME_QUEUE]), pointer_from_u64((__f)[FRAME_RUN]))); } while(0)

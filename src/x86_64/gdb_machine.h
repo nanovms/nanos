@@ -1,4 +1,4 @@
-int signalmap[]={8, 5, 0, 5, 8, 10, 4, 8, 7, 10, 11, 11, 11, 11, 0, 0, 8, 10, 10, 8, 10};
+const int signalmap[]={8, 5, 0, 5, 8, 10, 4, 8, 7, 10, 11, 11, 11, 11, 0, 0, 8, 10, 10, 8, 10};
 static inline int computeSignal (context frame)
 {
     u64 exceptionVector = frame[FRAME_VECTOR];

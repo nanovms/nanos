@@ -24,7 +24,7 @@ status send_http_chunk(buffer_handler out, buffer c);
 status send_http_chunked_response(buffer_handler out, tuple t);
 status send_http_response(buffer_handler out, tuple t, buffer c);
 
-extern const char *http_request_methods[];
+extern const char * const http_request_methods[];
 
 typedef struct http_listener *http_listener;
 typedef closure_type(http_request_handler, void, http_method, buffer_handler, value);

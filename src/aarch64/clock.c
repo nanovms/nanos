@@ -3,9 +3,9 @@
 
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 
-clock_now platform_monotonic_now;
-clock_timer platform_timer;
-thunk platform_timer_percpu_init;
+BSS_RO_AFTER_INIT clock_now platform_monotonic_now;
+BSS_RO_AFTER_INIT clock_timer platform_timer;
+BSS_RO_AFTER_INIT thunk platform_timer_percpu_init;
 
 static inline u64 cntfrq(void)
 {
@@ -30,9 +30,9 @@ closure_function(0, 0, void, arm_timer_percpu_init)
 {
 }
 
-closure_struct(arm_clock_now, _clock_now);
-closure_struct(arm_deadline_timer, _deadline_timer);
-closure_struct(arm_timer_percpu_init, _timer_percpu_init);
+BSS_RO_AFTER_INIT closure_struct(arm_clock_now, _clock_now);
+BSS_RO_AFTER_INIT closure_struct(arm_deadline_timer, _deadline_timer);
+BSS_RO_AFTER_INIT closure_struct(arm_timer_percpu_init, _timer_percpu_init);
 
 void init_clock(void)
 {

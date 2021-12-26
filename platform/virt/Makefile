@@ -192,7 +192,7 @@ msg_sed=	SED	$@
 cmd_sed=	$(SED) -e 's/\#/%/' <$^ >$@
 
 msg_version=	VERSION	$@
-cmd_version=	$(MKDIR) $(dir $@); $(ECHO) "const char *gitversion = \"$(shell $(GIT) rev-parse HEAD)\";" >$@
+cmd_version=	$(MKDIR) $(dir $@); $(ECHO) "const char * const gitversion = \"$(shell $(GIT) rev-parse HEAD)\";" >$@
 
 msg_xxd_r=	XXD_R	$@
 cmd_xxd_r=	$(XXD) -r $< $@

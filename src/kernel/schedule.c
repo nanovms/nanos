@@ -9,8 +9,7 @@
 #define sched_debug(x, ...)
 #endif
 
-// currently defined in x86_64.h
-static char *state_strings_backing[] = {
+static const char * const state_strings_backing[] = {
     "not present",
     "idle",
     "kernel",
@@ -18,17 +17,17 @@ static char *state_strings_backing[] = {
     "user",         
 };
 
-char **state_strings = state_strings_backing;
-static int wakeup_vector;
-int shutdown_vector;
+const char * const * const state_strings = state_strings_backing;
+BSS_RO_AFTER_INIT static int wakeup_vector;
+BSS_RO_AFTER_INIT int shutdown_vector;
 boolean shutting_down;
 
-queue runqueue;                 /* kernel space from ?*/
-queue bhqueue;                  /* kernel from interrupt */
-bitmap idle_cpu_mask;
+BSS_RO_AFTER_INIT queue runqueue;   /* kernel space from ?*/
+BSS_RO_AFTER_INIT queue bhqueue;    /* kernel from interrupt */
+BSS_RO_AFTER_INIT bitmap idle_cpu_mask;
 
-timerqueue kernel_timers;
-thunk timer_interrupt_handler;
+BSS_RO_AFTER_INIT timerqueue kernel_timers;
+BSS_RO_AFTER_INIT thunk timer_interrupt_handler;
 
 static struct spinlock kernel_lock;
 

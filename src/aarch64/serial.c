@@ -1,8 +1,8 @@
 #include <kernel.h>
 #include "serial.h"
 
-volatile u32 *UART0_DR = (volatile u32 *)DEV_BASE_UART;
-volatile u32 *UART0_FR = (volatile u32 *)(DEV_BASE_UART + 0x18);
+RO_AFTER_INIT volatile u32 *UART0_DR = (volatile u32 *)DEV_BASE_UART;
+RO_AFTER_INIT volatile u32 *UART0_FR = (volatile u32 *)(DEV_BASE_UART + 0x18);
 
 #define UART_FR_TXFF (1 << 5)   /* TX FIFO full */
 

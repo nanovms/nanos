@@ -1,6 +1,6 @@
 #include <kernel.h>
 
-u64 pagebase;
+BSS_RO_AFTER_INIT u64 pagebase;
 
 /* assumes page table is consistent when called */
 void flush_tlb()

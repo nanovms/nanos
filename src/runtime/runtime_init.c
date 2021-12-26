@@ -4,9 +4,9 @@
 void initialize_buffer();
 
 closure_function(0, 0, void, ignore_body) {}
-thunk ignore;
-status_handler ignore_status;
-value null_value;
+BSS_RO_AFTER_INIT thunk ignore;
+BSS_RO_AFTER_INIT status_handler ignore_status;
+BSS_RO_AFTER_INIT value null_value;
 static char *hex_digits="0123456789abcdef";
 
 void print_u64(u64 s)
@@ -111,8 +111,8 @@ static void format_spaces(buffer dest, struct formatter_state *s, vlist *a)
 }
 
 // maybe the same?
-heap errheap;
-heap transient;
+BSS_RO_AFTER_INIT heap errheap;
+BSS_RO_AFTER_INIT heap transient;
 
 // init linker sets would clean up the platform dependency, if you link
 // with it, it gets initialized
@@ -142,7 +142,7 @@ void rputs(const char *s)
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766
 
-u64 __attribute__((weak)) __stack_chk_guard = STACK_CHK_GUARD;
+RO_AFTER_INIT u64 __attribute__((weak)) __stack_chk_guard = STACK_CHK_GUARD;
 
 void __stack_chk_guard_init()
 {

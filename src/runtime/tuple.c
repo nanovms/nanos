@@ -7,7 +7,7 @@
 #define tuple_debug(x, ...)
 #endif
 
-static heap theap;
+BSS_RO_AFTER_INIT static heap theap;
 
 // use runtime tags directly?
 #define type_tuple 1

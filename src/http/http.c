@@ -300,7 +300,7 @@ buffer_handler allocate_http_parser(heap h, value_handler each)
     return closure(h, http_recv, p);
 }
 
-const char *http_request_methods[] = {
+const char * const http_request_methods[] = {
     [HTTP_REQUEST_METHOD_GET] = "GET",
     [HTTP_REQUEST_METHOD_HEAD] = "HEAD",
     [HTTP_REQUEST_METHOD_POST] = "POST",

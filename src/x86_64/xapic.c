@@ -16,7 +16,7 @@
 
 #define APIC_ICRL_DELIVERY_STATUS (1 << 12)
 
-static u64 xapic_vbase;
+BSS_RO_AFTER_INIT static u64 xapic_vbase;
 
 static u64 xapic_from_x2apic_reg(int reg)
 {
@@ -79,7 +79,7 @@ static boolean detect(apic_iface i, kernel_heaps kh)
     return true;
 }
 
-struct apic_iface xapic_if = {
+const struct apic_iface xapic_if = {
     "xapic",
     xapic_get_id,
     xapic_write,

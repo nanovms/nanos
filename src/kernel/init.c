@@ -16,15 +16,15 @@
 #define init_debug(x, ...)
 #endif
 
-filesystem root_fs;
-static kernel_heaps init_heaps;
+BSS_RO_AFTER_INIT filesystem root_fs;
+BSS_RO_AFTER_INIT static kernel_heaps init_heaps;
 
 //#define MAX_BLOCK_IO_SIZE PAGE_SIZE
 #define MAX_BLOCK_IO_SIZE (64 * 1024)
 #define SHUTDOWN_COMPLETIONS_SIZE 8
 
 static u64 bootstrap_base = BOOTSTRAP_BASE;
-static u64 bootstrap_limit;
+BSS_RO_AFTER_INIT static u64 bootstrap_limit;
 static u64 bootstrap_alloc(heap h, bytes length)
 {
     u64 result = bootstrap_base;
@@ -36,8 +36,8 @@ static u64 bootstrap_alloc(heap h, bytes length)
     return result;
 }
 
-static struct kernel_heaps heaps;
-static vector shutdown_completions;
+BSS_RO_AFTER_INIT static struct kernel_heaps heaps;
+BSS_RO_AFTER_INIT static vector shutdown_completions;
 
 u64 init_bootstrap_heap(u64 phys_length)
 {
@@ -58,7 +58,7 @@ u64 init_bootstrap_heap(u64 phys_length)
 
 void init_kernel_heaps(void)
 {
-    static struct heap bootstrap;
+    BSS_RO_AFTER_INIT static struct heap bootstrap;
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
 
@@ -120,7 +120,7 @@ extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                           status_handler klibs_complete, boolean klibs_in_bootfs,
                                           boolean ingest_kernel_syms);
 
-static tuple_notifier wrapped_root;
+BSS_RO_AFTER_INIT static tuple_notifier wrapped_root;
 
 closure_function(3, 2, void, fsstarted,
                  u8 *, mbr, block_io, r, block_io, w,

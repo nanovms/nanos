@@ -13,11 +13,11 @@ typedef struct pci_bus {
 } *pci_bus;
 
 // use the global nodespace
-static vector pci_buses;
-static vector devices;
-static vector drivers;
+BSS_RO_AFTER_INIT static vector pci_buses;
+BSS_RO_AFTER_INIT static vector devices;
+BSS_RO_AFTER_INIT static vector drivers;
 static struct spinlock pci_lock;
-static heap virtual_page;
+BSS_RO_AFTER_INIT static heap virtual_page;
 
 static u32 pci_bar_len(pci_dev dev, int bar)
 {

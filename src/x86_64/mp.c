@@ -3,7 +3,8 @@
 #include <kernel.h>
 #include <apic.h>
 
-static void *apboot = INVALID_ADDRESS;
+#define apboot  pointer_from_u64(AP_BOOT_START)
+
 extern u8 apinit, apinit_end;
 extern void *ap_pagetable, *ap_idt_pointer, *ap_stack;
 void *ap_stack;
@@ -26,6 +27,12 @@ static void (*start_callback)();
 #define CPUID_XSAVE (1<<26)
 #define CPUID_AVX (1<<28)
 
+/* CPUID level 7 (EBX) */
+#define CPUID_SMEP  (1<<7)
+
+/* CPUID level 7 (ECX) */
+#define CPUID_UMIP  (1<<2)
+
 #define XCR0_SSE (1<<1)
 #define XCR0_AVX (1<<2)
 u8 use_xsave;
@@ -39,10 +46,16 @@ void init_cpu_features()
     cpuid(1, 0, v);
     if (v[2] & CPUID_XSAVE)
         use_xsave = 1;
+    boolean avx = (v[2] & CPUID_AVX) != 0;
     mov_from_cr("cr4", cr);
     cr |= CR4_PGE | CR4_OSFXSR | CR4_OSXMMEXCPT;
     if (use_xsave)
         cr |= CR4_OSXSAVE;
+    cpuid(7, 0, v);
+    if (v[1] & CPUID_SMEP)
+        cr |= CR4_SMEP;
+    if (v[2] & CPUID_UMIP)
+        cr |= CR4_UMIP;
     mov_to_cr("cr4", cr);
     mov_from_cr("cr0", cr);
     cr |= C0_MP | C0_WP;
@@ -51,7 +64,7 @@ void init_cpu_features()
     if (use_xsave) {
         xgetbv(0, &v[0], &v[1]);
         v[0] |= XCR0_SSE;
-        if (v[2] & CPUID_AVX)
+        if (avx)
             v[0] |= XCR0_AVX;
         xsetbv(0, v[0], v[1]);
         cpuid(0xd, 0, v);
@@ -103,7 +116,6 @@ void ap_start()
 void allocate_apboot(heap stackheap, void (*ap_entry)())
 {
     start_callback = ap_entry;
-    apboot = pointer_from_u64(AP_BOOT_START);
     map((u64)apboot, (u64)apboot, PAGESIZE,
         pageflags_writable(pageflags_exec(pageflags_memory())));
 

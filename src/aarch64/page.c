@@ -12,8 +12,8 @@
 #define page_init_dump(p, len)
 #endif
 
-u64 kernel_tablebase;
-u64 user_tablebase;
+BSS_RO_AFTER_INIT u64 kernel_tablebase;
+BSS_RO_AFTER_INIT u64 user_tablebase;
 
 /* TODO until flush code is ported to aarch64... */
 void page_invalidate(flush_entry f, u64 address)

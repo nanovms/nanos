@@ -81,7 +81,7 @@ void resume_kernel_context(kernel_context c)
     frame_return(c->frame);
 }
 
-vector cpuinfos;
+BSS_RO_AFTER_INIT vector cpuinfos;
 
 cpuinfo init_cpuinfo(heap backed, int cpu)
 {
