@@ -66,6 +66,7 @@ void
 vmbus_et_intr(void)
 {
     vmbus_timer_debug("%s\n", __func__);
+    schedule_timer_service();
 }
 
 closure_function(1, 1, void, vmbus_et_timer, hyperv_tc64_t, hyperv_tc64,
