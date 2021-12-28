@@ -208,7 +208,8 @@ typedef closure_type(thunk, void);
 #include <timer.h>
 
 typedef closure_type(buffer_handler, status, buffer);
-typedef closure_type(connection_handler, buffer_handler, buffer_handler);
+typedef closure_type(input_buffer_handler, boolean, buffer);
+typedef closure_type(connection_handler, input_buffer_handler, buffer_handler);
 typedef closure_type(value_handler, void, value);
 typedef closure_type(io_status_handler, void, status, bytes);
 typedef closure_type(block_io, void, void *, range, status_handler);

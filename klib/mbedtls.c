@@ -6,10 +6,10 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/ssl.h>
 
-declare_closure_struct(1, 1, buffer_handler, tls_conn_handler,
+declare_closure_struct(1, 1, input_buffer_handler, tls_conn_handler,
                        struct tls_conn *, conn,
                        buffer_handler, out);
-declare_closure_struct(1, 1, status, tls_in_handler,
+declare_closure_struct(1, 1, boolean, tls_in_handler,
                        struct tls_conn *, conn,
                        buffer, b);
 declare_closure_struct(1, 1, status, tls_out_handler,
@@ -22,7 +22,7 @@ typedef struct tls_conn {
     closure_struct(tls_in_handler, in);
     buffer_handler out;
     connection_handler app_ch;
-    buffer_handler app_in;
+    input_buffer_handler app_in;
     closure_struct(tls_out_handler, app_out);
     buffer incoming, outgoing;
     enum {
@@ -43,7 +43,7 @@ static struct {
 static void tls_close(tls_conn conn)
 {
     if (conn->app_in) {
-        buffer_handler app_in = conn->app_in;
+        input_buffer_handler app_in = conn->app_in;
         conn->app_in = 0;
         apply(app_in, 0);   /* notify connection shutdown to application layer */
     } else if (conn->app_ch) {
@@ -128,7 +128,7 @@ define_closure_function(1, 1, status, tls_out_handler,
     return STATUS_OK;
 }
 
-define_closure_function(1, 1, status, tls_in_handler,
+define_closure_function(1, 1, boolean, tls_in_handler,
                         struct tls_conn *, conn,
                         buffer, b)
 {
@@ -159,9 +159,7 @@ define_closure_function(1, 1, status, tls_in_handler,
             if (ret > 0) {
                 buffer_produce(b, ret);
                 if (conn->app_in) {
-                    status s = apply(conn->app_in, b);
-                    if (!is_ok(s))
-                        return s;
+                    apply(conn->app_in, b);
                 }
                 buffer_clear(b);
             } else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
@@ -171,7 +169,7 @@ define_closure_function(1, 1, status, tls_in_handler,
             }
             if (conn->outgoing && (tls_out_internal(conn, 0) < 0))
                 /* An error happened and the connection has been closed. */
-                return timm("result", "failed to send outgoing data");
+                return true;
         } while ((ret > 0) && conn->app_in);
         break;
     case tls_closing:
@@ -181,16 +179,13 @@ define_closure_function(1, 1, status, tls_in_handler,
         break;
     }
     conn->incoming = 0;
-    return STATUS_OK;
+    return false;
   conn_close:
     tls_close(conn);
-    if (b)  /* connection closed by us */
-        return timm("result", "connection closed");
-    else    /* connection closed by the peer */
-        return STATUS_OK;
+    return true;
 }
 
-define_closure_function(1, 1, buffer_handler, tls_conn_handler,
+define_closure_function(1, 1, input_buffer_handler, tls_conn_handler,
                         struct tls_conn *, conn,
                         buffer_handler, out)
 {
@@ -198,7 +193,7 @@ define_closure_function(1, 1, buffer_handler, tls_conn_handler,
     conn->out = out;
     if (!out)   /* TCP connection failed */
         goto conn_close;
-    buffer_handler in = init_closure(&conn->in, tls_in_handler, conn);
+    input_buffer_handler in = init_closure(&conn->in, tls_in_handler, conn);
     mbedtls_ssl_set_bio(&conn->ssl, conn, tls_send, tls_recv, NULL);
     conn->state = tls_handshake;
     int ret = mbedtls_ssl_handshake(&conn->ssl);

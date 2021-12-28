@@ -390,12 +390,32 @@ closure_function(2, 1, void, each_http_request,
                                "<body><h1>Not Found</h1></body></html>\r\n"));
 }
 
-closure_function(1, 1, buffer_handler, each_http_connection,
+closure_function(1, 1, boolean, http_ibh,
+                 buffer_handler, parser,
+                 buffer, b)
+{
+    status s = apply(bound(parser), b);
+    if (!b)
+        closure_finish();
+    if (s == STATUS_OK)
+        return false;
+    timm_dealloc(s);
+    return true;
+}
+
+closure_function(1, 1, input_buffer_handler, each_http_connection,
                  http_listener, hl,
                  buffer_handler, out)
 {
     http_listener hl = bound(hl);
-    return allocate_http_parser(hl->h, closure(hl->h, each_http_request, hl, out));
+    buffer_handler parser = allocate_http_parser(hl->h, closure(hl->h, each_http_request, hl, out));
+    if (parser == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    input_buffer_handler ibh = closure(hl->h, http_ibh, parser);
+    if (ibh != INVALID_ADDRESS)
+        return ibh;
+    apply(parser, 0);
+    return INVALID_ADDRESS;
 }
 
 /* just top level of abs_path */

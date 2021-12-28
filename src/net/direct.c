@@ -35,7 +35,7 @@ typedef struct direct_conn {
     struct tcp_pcb *p;
     struct list sendq_head;
     closure_struct(direct_conn_send, send_bh);
-    buffer_handler receive_bh;
+    input_buffer_handler receive_bh;
     queue receive_queue;
     err_t pending_err;          /* lwIP */
 } *direct_conn;
@@ -46,7 +46,7 @@ typedef struct qbuf {
     buffer b;
 } *qbuf;
 
-static status direct_conn_closed(direct_conn dc);
+static boolean direct_conn_closed(direct_conn dc);
 
 define_closure_function(1, 0, void, direct_receive_service,
                         direct, d)
@@ -58,39 +58,44 @@ define_closure_function(1, 0, void, direct_receive_service,
     list_foreach(&d->conn_head, l) {
         direct_conn dc = struct_from_list(l, direct_conn, l);
         if (!dc->receive_bh) {
-            buffer_handler bh = apply(d->new, (buffer_handler)&dc->send_bh);
+            input_buffer_handler bh = apply(d->new, (buffer_handler)&dc->send_bh);
             if (bh == INVALID_ADDRESS) {
                 lwip_lock();
                 tcp_arg(dc->p, 0);
                 tcp_close(dc->p);
-                direct_conn_closed(dc);
+                boolean done = direct_conn_closed(dc);
                 lwip_unlock();
+                if (done)
+                    return;
                 continue;
             }
             dc->receive_bh = bh;
         }
+        boolean client = (dc->p == d->p);
         while (true) {
             struct pbuf *p = dequeue(dc->receive_queue);
             if (p == INVALID_ADDRESS)
                 break;
-            status s;
             if (p) {
-                s = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
+                boolean done = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
                 lwip_lock();
-                tcp_recved(dc->p, p->len);
+                if (!done)
+                    tcp_recved(dc->p, p->len);
                 pbuf_free(p);
                 lwip_unlock();
+                if (done) {
+                    if (client)
+                        return;
+                    break;
+                }
             } else {
                 lwip_lock();
-                s = direct_conn_closed(dc);
+                boolean done = direct_conn_closed(dc);
                 lwip_unlock();
-            }
-            if (!is_ok(s)) {
-                /* semantics of error status here undefined; report to console for now */
-                msg_err("handler failed with status %v; aborting connection\n", s);
-            }
-            if (!p)
+                if (done)
+                    return;
                 break;
+            }
         }
     }
     spin_unlock(&d->conn_lock);
@@ -131,13 +136,10 @@ static void direct_dealloc(direct d)
 }
 
 /* lwIP locked on entry */
-static status direct_conn_closed(direct_conn dc)
+static boolean direct_conn_closed(direct_conn dc)
 {
-    status s;
     if (dc->receive_bh)
-        s = apply(dc->receive_bh, 0);
-    else
-        s = STATUS_OK;
+        apply(dc->receive_bh, 0);
     direct d = dc->d;
     boolean client = (dc->p == d->p);
     list_delete(&dc->l);
@@ -146,7 +148,7 @@ static status direct_conn_closed(direct_conn dc)
         d->p = 0;
         direct_dealloc(d);
     }
-    return s;
+    return client;
 }
 
 static void direct_conn_send_internal(direct_conn dc, qbuf q, boolean lwip_locked)
@@ -173,6 +175,7 @@ static void direct_conn_send_internal(direct_conn dc, qbuf q, boolean lwip_locke
             list_delete(&q->l);
             deallocate(dc->d->h, q, sizeof(struct qbuf));
             direct_conn_closed(dc);
+            dc = 0;
             break;
         }
 
@@ -207,7 +210,8 @@ static void direct_conn_send_internal(direct_conn dc, qbuf q, boolean lwip_locke
     }
     if (!lwip_locked)
         lwip_unlock();
-    spin_unlock(&dc->send_lock);
+    if (dc)
+        spin_unlock(&dc->send_lock);
 }
 
 static err_t direct_conn_sent(void *arg, struct tcp_pcb *pcb, u16 len)

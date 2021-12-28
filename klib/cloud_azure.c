@@ -72,7 +72,7 @@ closure_function(1, 1, void, wireserver_parse_resp,
     closure_finish();
 }
 
-closure_function(2, 1, status, wireserver_get_resp,
+closure_function(2, 1, boolean, wireserver_get_resp,
                  azure, az, buffer_handler, out,
                  buffer, data)
 {
@@ -91,18 +91,19 @@ closure_function(2, 1, status, wireserver_get_resp,
         apply(bound(out), 0);
         if (!success)
             azure_report_retry(az);
+        return true;
     } else {
         closure_finish();
     }
-    return STATUS_OK;
+    return false;
 }
 
-closure_function(1, 1, buffer_handler, wireserver_get_ch,
+closure_function(1, 1, input_buffer_handler, wireserver_get_ch,
                  azure, az,
                  buffer_handler, out)
 {
     azure az = bound(az);
-    buffer_handler in = INVALID_ADDRESS;
+    input_buffer_handler in = INVALID_ADDRESS;
     if (out) {    /* connection succeeded */
         tuple req = allocate_tuple();
         if (req == INVALID_ADDRESS)
@@ -124,23 +125,25 @@ closure_function(1, 1, buffer_handler, wireserver_get_ch,
     return in;
 }
 
-closure_function(1, 1, status, wireserver_post_resp,
+closure_function(1, 1, boolean, wireserver_post_resp,
                  buffer_handler, out,
                  buffer, data)
 {
-    if (data)
+    if (data) {
         apply(bound(out), 0);
-    else
+        return true;
+    } else {
         closure_finish();
-    return STATUS_OK;
+        return false;
+    }
 }
 
-closure_function(1, 1, buffer_handler, wireserver_post_ch,
+closure_function(1, 1, input_buffer_handler, wireserver_post_ch,
                  azure, az,
                  buffer_handler, out)
 {
     azure az = bound(az);
-    buffer_handler in = INVALID_ADDRESS;
+    input_buffer_handler in = INVALID_ADDRESS;
     if (out) {    /* connection succeeded */
         tuple req = allocate_tuple();
         if (req == INVALID_ADDRESS)

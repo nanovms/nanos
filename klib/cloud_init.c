@@ -200,7 +200,7 @@ closure_function(5, 1, void, cloud_download_save,
     apply(sh, s);
 }
 
-closure_function(7, 1, status, cloud_download_recv,
+closure_function(7, 1, boolean, cloud_download_recv,
                  cloud_download_cfg, cfg, buffer_handler, out, value_handler, vh, bytes, content_len, bytes, received, status_handler, sh, merge, m,
                  buffer, data)
 {
@@ -250,8 +250,10 @@ closure_function(7, 1, status, cloud_download_recv,
             apply(bound(vh), 0);
         }
         bytes content_len = bound(content_len);
-        if ((content_len == (bytes)-1) || ((content_len > 0) && (bound(received) >= content_len)))
+        if ((content_len == (bytes)-1) || ((content_len > 0) && (bound(received) >= content_len))) {
             apply(bound(out), 0);   /* close connection */
+            return true;
+        }
     } else {  /* connection closed */
         bytes content_len = bound(content_len);
         status s;
@@ -269,21 +271,21 @@ closure_function(7, 1, status, cloud_download_recv,
             deallocate_closure(bound(vh));
         closure_finish();
     }
-    return STATUS_OK;
+    return false;
   error:
     apply(bound(out), 0);   /* close connection */
-    return STATUS_OK;
+    return true;
 }
 
 static boolean cloud_download_retry(connection_handler ch);
 
-closure_function(1, 1, buffer_handler, cloud_download_ch,
+closure_function(1, 1, input_buffer_handler, cloud_download_ch,
                  cloud_download_cfg, cfg,
                  buffer_handler, out)
 {
     cloud_download_cfg cfg = bound(cfg);
     status_handler sh = (status_handler)&cfg->complete;
-    buffer_handler in = 0;
+    input_buffer_handler in = INVALID_ADDRESS;
     if (!out) {
         if (!cloud_download_retry((connection_handler)closure_self())) {
             apply(sh, timm("result", "%s: failed to schedule retry", __func__));

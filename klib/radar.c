@@ -116,7 +116,7 @@ static boolean telemetry_req(const char *url, buffer data, buffer_handler bh)
     }
 }
 
-closure_function(2, 1, status, telemetry_recv,
+closure_function(2, 1, boolean, telemetry_recv,
                  value_handler, vh, buffer_handler, out,
                  buffer, data)
 {
@@ -136,6 +136,7 @@ closure_function(2, 1, status, telemetry_recv,
             }
         }
         apply(bound(out), 0);   /* close connection */
+        return true;
     } else {  /* connection closed */
         closure_finish();
         if (telemetry.dump) {
@@ -164,15 +165,15 @@ closure_function(2, 1, status, telemetry_recv,
             }
         }
     }
-    return STATUS_OK;
+    return false;
 }
 
-closure_function(3, 1, buffer_handler, telemetry_ch,
+closure_function(3, 1, input_buffer_handler, telemetry_ch,
                  const char *, url, buffer, data, value_handler, vh,
                  buffer_handler, out)
 {
     buffer data = bound(data);
-    buffer_handler in = 0;
+    input_buffer_handler in = INVALID_ADDRESS;
     if (out) {
         boolean success = telemetry_req(bound(url), data, out);
         if (success)
