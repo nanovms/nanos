@@ -113,7 +113,7 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
         deallocate_closure(pf->f.events);
     }
     if (&p->files[PIPE_WRITE] == pf) {
-        pipe_notify_reader(pf, EPOLLIN | EPOLLHUP);
+        pipe_notify_reader(pf, (buffer_length(p->data) ? EPOLLIN : 0) | EPOLLHUP);
         pipe_debug("%s(%p): reader notified\n", __func__, p);
         deallocate_closure(pf->f.write);
         deallocate_closure(pf->f.close);
@@ -258,7 +258,7 @@ closure_function(1, 1, u32, pipe_read_events,
     pipe_lock(pf->pipe);
     u32 events = buffer_length(pf->pipe->data) ? EPOLLIN : 0;
     if (pf->pipe->files[PIPE_WRITE].fd == -1)
-        events |= EPOLLIN | EPOLLHUP;
+        events |= EPOLLHUP;
     pipe_unlock(pf->pipe);
     return events;
 }

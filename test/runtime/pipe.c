@@ -176,6 +176,7 @@ int main(int argc, char **argv)
 {
     int fds[2] = {0,0};
     int status;
+    struct pollfd pfd;
 
     heap h = init_process_runtime();
     parse_arguments(h, argc, argv);
@@ -190,7 +191,16 @@ int main(int argc, char **argv)
 
     blocking_test(h, fds);
 
-    close(fds[0]);
     close(fds[1]);
+    pfd.fd = fds[0];
+    pfd.events = POLLIN | POLLOUT;
+    status = poll(&pfd, 1, -1);
+    if ((status != 1) || (pfd.revents != POLLHUP)) {
+        printf("after closing writer fd: poll on reader fd returned %d, pfd.revents 0x%x\n",
+               status, pfd.revents);
+        exit(EXIT_FAILURE);
+    }
+
+    close(fds[0]);
     return(EXIT_SUCCESS);
 }
