@@ -1,4 +1,5 @@
 #include <netinet/in.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +61,7 @@ static void *netsock_test_basic_thread(void *arg)
 static void netsock_test_basic(int sock_type)
 {
     int fd, tx_fd;
+    struct pollfd pfd;
     struct sockaddr_in addr;
     pthread_t pt;
     int ret;
@@ -71,6 +73,11 @@ static void netsock_test_basic(int sock_type)
 
     fd = socket(AF_INET, sock_type, 0);
     test_assert(fd > 0);
+    pfd.fd = fd;
+    pfd.events = POLLIN | POLLOUT;
+    ret = poll(&pfd, 1, -1);
+    test_assert(ret == 1);
+    test_assert(pfd.revents == ((sock_type == SOCK_STREAM) ? (POLLHUP | POLLOUT) : POLLOUT));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(NETSOCK_TEST_BASIC_PORT);
@@ -215,6 +222,7 @@ static void netsock_test_connclosed(void)
     struct sockaddr_in addr;
     socklen_t addr_len;
     const int port = 1234;
+    struct pollfd pfd;
     pthread_t pt;
     uint8_t buf[8];
     struct iovec iov;
@@ -243,6 +251,10 @@ static void netsock_test_connclosed(void)
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
     test_assert(recvmsg(conn_fd, &msg, 0) == 0);
+    pfd.fd = conn_fd;
+    pfd.events = POLLIN | POLLOUT;
+    ret = poll(&pfd, 1, -1);
+    test_assert((ret == 1) && (pfd.revents == (POLLIN | POLLOUT)));
     test_assert(pthread_join(pt, NULL) == 0);
     test_assert(close(conn_fd) == 0);
 

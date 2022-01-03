@@ -169,20 +169,26 @@ closure_function(1, 1, u32, socket_events,
     boolean in = !queue_empty(s->incoming);
     sysreturn rv;
     if (s->sock.type == SOCK_STREAM) {
-        if (s->info.tcp.state == TCP_SOCK_LISTENING) {
+        switch (s->info.tcp.state) {
+        case TCP_SOCK_LISTENING:
             rv = in ? EPOLLIN : 0;
-        } else if (s->info.tcp.state == TCP_SOCK_OPEN) {
+            break;
+        case TCP_SOCK_OPEN:
             /* We can't take the lwIP lock here given that notifies are
                triggered by lwIP callbackes, but the lwIP state read is atomic
                as is the TCP sendbuf size read. */
             rv = (in ? EPOLLIN | EPOLLRDNORM : 0) |
                 (s->info.tcp.lw->state == ESTABLISHED ?
                  (tcp_sndbuf(s->info.tcp.lw) ? EPOLLOUT | EPOLLWRNORM : 0) :
-                 EPOLLIN | EPOLLHUP);
-        } else if (s->info.tcp.state == TCP_SOCK_UNDEFINED ||
-                   s->info.tcp.state == TCP_SOCK_CREATED) {
-            rv = EPOLLHUP;
-        } else {
+                 EPOLLIN | EPOLLOUT);
+            break;
+        case TCP_SOCK_UNDEFINED:
+            rv = EPOLLIN | EPOLLOUT;
+            break;
+        case TCP_SOCK_CREATED:
+            rv = EPOLLHUP | EPOLLOUT;
+            break;
+        default:
             rv = 0;
         }
     } else {
