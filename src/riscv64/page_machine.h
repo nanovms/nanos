@@ -12,7 +12,6 @@ static inline u64 get_pagetable_base(u64 vaddr)
    - no user access
    - no execute
 */
-// XXX
 #define PAGE_VALID      U64_FROM_BIT(0)
 #define PAGE_READABLE   U64_FROM_BIT(1)
 #define PAGE_WRITABLE   U64_FROM_BIT(2)
@@ -48,12 +47,12 @@ static inline pageflags pageflags_memory(void)
 
 static inline pageflags pageflags_memory_writethrough(void)
 {
-    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS}; // XXX search qemu source
+    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS}; // PMAs are hardwired
 }
 
 static inline pageflags pageflags_device(void)
 {
-    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS}; // XXX double check
+    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS}; // PMAs are hardwired
 }
 
 static inline pageflags pageflags_writable(pageflags flags)

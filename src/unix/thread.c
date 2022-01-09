@@ -53,7 +53,7 @@ sysreturn arch_prctl(int code, unsigned long addr)
 
 #if defined(__x86_64__)
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
-#elif defined(__aarch64__) || defined(__riscv) // XXX double check
+#elif defined(__aarch64__) || defined(__riscv)
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long newtls, int *ctid)
 #endif
 {

@@ -294,7 +294,8 @@ static inline void frame_set_sp(context f, u64 sp)
 /* IPI */
 static inline void machine_halt(void)
 {
-    __asm__("wfi"); /* XXX */
+    disable_interrupts();
+    __asm__("wfi");
 }
 
 u64 allocate_msi_interrupt(void);

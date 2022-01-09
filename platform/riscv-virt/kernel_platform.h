@@ -3,7 +3,7 @@
 #define INIT_PAGEMEM          (PHYSMEM_BASE+BIOS_SIZE)
 #define INIT_IDENTITY_SIZE    0x00800000
 
-#define DEV_MAP_SIZE          0x60000000 // XXX double check
+#define DEV_MAP_SIZE          0x80000000
 #define DEV_BASE_UART         0x10000000 
 #define DEV_BASE_CLINT        0x02000000
 #define DEV_BASE_PLIC         0x0c000000

@@ -98,8 +98,11 @@ trap_handler:
         sd x30, FRAME_X30*8(t0)
         sd x31, FRAME_X31*8(t0)
         csrr s0, sstatus
-        srli t1, s0, STATUS_BIT_SD
-        beqz t1, 1f             // FS or XS is dirty and we only use FS for now
+        // save fp regs if FS is dirty
+        srli t1, s0, STATUS_BIT_FS
+        andi t1, t1, FS_MASK
+        li t2, FS_DIRTY
+        bne t1, t2, 1f
         fsd f0, FRAME_F0*8(t0)
         fsd f1, FRAME_F1*8(t0)
         fsd f2, FRAME_F2*8(t0)
@@ -134,15 +137,16 @@ trap_handler:
         fsd f31, FRAME_F31*8(t0)
         frcsr t1
         sd t1, FRAME_FCSR*8(t0)
-1:      csrr t1, sepc
+        // clear low FS bit to mark clean
+        li t2, ~(1<<STATUS_BIT_FS)
+        and s0, s0, t2
+1:      li t2, (FS_MASK<<STATUS_BIT_FS)|STATUS_SPP|STATUS_SPIE
+        and s0, s0, t2
+        sd s0, FRAME_STATUS*8(t0)
+        csrr t1, sepc
         sd t1, FRAME_PC*8(t0)
         csrr t1, stval
         sd t1, FRAME_FAULT_ADDRESS*8(t0)
-        li t2, STATUS_SPP|STATUS_SPIE
-        and t1, s0, t2
-        li t2, FS_CLEAN<<STATUS_BIT_FS // always mark FS_CLEAN
-        or t1, t1, t2
-        sd t1, FRAME_STATUS*8(t0)
         csrr t1, scause
         sd t1, FRAME_CAUSE*8(t0)
         srli t1, t1, 63
@@ -163,9 +167,10 @@ frame_return:
         and t0, t0, t1
         ld t1, FRAME_STATUS*8(a0)
         or t0, t0, t1
-        // if user, restore fp state. XXX how to do this lazily?
-        andi t1, t1, STATUS_SPP
-        bnez t1, 2f
+        // load fp regs if FS is not zero
+        srli t1, t1, STATUS_BIT_FS
+        andi t1, t1, FS_MASK
+        beqz t1, 2f
         fld f0, FRAME_F0*8(a0)
         fld f1, FRAME_F1*8(a0)
         fld f2, FRAME_F2*8(a0)

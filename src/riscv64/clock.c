@@ -3,7 +3,7 @@
 #define RTC_TIME_LOW        0x00
 #define RTC_TIME_HIGH       0x04
 
-#define CLINT_TIMEBASE_FREQ 10000000 // XXX is this discoverable?
+#define CLINT_TIMEBASE_FREQ 10000000 // XXX should be getting freq from device tree
 #define CLINT_MTIME         0xbff8
 
 #define read_rtc_reg(o) mmio_read_32(mmio_base_addr(RTC) + (o))
@@ -30,7 +30,7 @@ u64 rtc_gettimeofday(void)
 
 void rtc_settimeofday(u64 seconds)
 {
-    // XXX device might be RO? Need to try writing new time (high then low)
+    // goldfish-rtc documentation says the registers are read-only
 }
 
 closure_function(0, 0, timestamp, riscv_clock_now)

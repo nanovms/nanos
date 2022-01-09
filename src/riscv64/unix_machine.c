@@ -86,7 +86,6 @@ void restore_ucontext(struct ucontext *uctx, thread t)
 
 void register_other_syscalls(struct syscall *map)
 {
-    // XXX double check
     register_syscall(map, shmget, 0);
     register_syscall(map, shmat, 0);
     register_syscall(map, shmctl, 0);

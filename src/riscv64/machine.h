@@ -177,7 +177,6 @@ static inline __attribute__((always_inline)) void memory_barrier(void)
     asm volatile("fence.tso" ::: "memory");
 }
 
-/* XXX something b0rked with ldset here...ordering, or asm constraints? */
 static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *target, u64 bit)
 {
     /* XXX no bit manip operations yet */
@@ -227,7 +226,7 @@ static inline __attribute__((always_inline)) u8 compare_and_swap_8(u8 *p, u8 old
 
 static inline __attribute__((always_inline)) void kern_pause(void)
 {
-    asm volatile("wfi" ::: "memory");
+    //asm volatile("pause" ::: "memory"); // XXX need Zihintpause extension support
 }
 
 /* XXX used in vdso, but is rdcycle right for that? */

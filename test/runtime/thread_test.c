@@ -86,6 +86,12 @@ void halt(char *message)
     exit(-1);
 }
 
+double expected_float_sum(word n, word nt) {
+    word tsum = (nt) * (0 + (nt - 1)) / 2;
+    n -= 1;
+    return (double)(n * (n + 1) * (2 * n + 1) / 6 + tsum * n);
+}
+
 word expected_sum(word n, word nt) {
     word tsum = (nt) * (0 + (nt - 1)) / 2;
     n -= 1;
@@ -95,15 +101,17 @@ word expected_sum(word n, word nt) {
 void *terminus(void *k)
 {
     word x = 0, v;
+    double y = 0.0;
     pipelock p= k;
     while ((v = pipelock_read(p)) != pipe_exit) {
         x += v;
+        y += (double)v;
     }
-    if (x == expected_sum(NNUMS, nthreads)) {
+    if (x == expected_sum(NNUMS, nthreads) && y == expected_float_sum(NNUMS, nthreads)) {
         printf("passed\n");
         exit(0);
     }
-    printf("%lld\n", x);
+    printf("%lld %f\n", x, y);
     exit(-1);
 
 }

@@ -203,7 +203,7 @@ void trap_interrupt(void)
     int saved_state = ci->state;
     switch (SCAUSE_CODE(f[FRAME_CAUSE])) {
     case TRAP_I_SSOFT:
-        console("software interrupt?\n"); // XXX
+        console("software interrupt\n"); // XXX need to implement for smp
         break;
     case TRAP_I_STIMER:
         int_debug("[%2d] timer interrupt, state %s user %d\n", ci->id,
@@ -327,7 +327,7 @@ void deallocate_interrupt(u64 irq)
 
 u64 allocate_mmio_interrupt(void)
 {
-    // XXX no programmable hw interrupt support
+    // no programmable hw interrupt support
     assert(0);
     return 0;
 }
@@ -348,7 +348,7 @@ void deallocate_ipi_interrupt(u64 irq)
 
 u64 allocate_msi_interrupt(void)
 {
-    // XXX no programmable hw interrupt support
+    // no programmable hw interrupt support
     assert(0);
 }
 
