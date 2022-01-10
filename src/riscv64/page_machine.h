@@ -183,6 +183,11 @@ static inline u64 flags_from_pte(u64 pte)
     return pte & PAGE_FLAGS_MASK;
 }
 
+static inline pageflags pageflags_from_pte(pte pte)
+{
+    return (pageflags){.w = flags_from_pte(pte)};
+}
+
 static inline u64 page_pte(u64 phys, u64 flags)
 {
     // XXX?
