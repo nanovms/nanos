@@ -55,6 +55,8 @@ define_closure_function(1, 1, void, pending_fault_complete,
     if (!is_ok(s))
         rprintf("%s: page fill failed with %v\n", __func__, s);
     context ctx;
+    process p = pf->p;
+    u64 flags = spin_lock_irq(&p->faulting_lock);
     vector_foreach(pf->dependents, ctx) {
         pf_debug("   wake ctx %p\n", ctx);
 
@@ -78,10 +80,7 @@ define_closure_function(1, 1, void, pending_fault_complete,
         schedule_thread(t);
     }
     vector_clear(pf->dependents);
-
-    process p = pf->p;
-    u64 flags = spin_lock_irq(&p->faulting_lock);
-    rbtree_remove_node(&pf->p->pending_faults, &pf->n);
+    rbtree_remove_node(&p->pending_faults, &pf->n);
     list_insert_after(&mmap_info.pf_freelist, &pf->l_free);
     spin_unlock_irq(&p->faulting_lock, flags);
 }
