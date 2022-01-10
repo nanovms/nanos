@@ -1,8 +1,7 @@
 typedef struct mutex {
-    u32 count;
-    context turn;
     u64 spin_iterations;
-    queue waiters;
+    context turn;
+    context waiters_tail;
 } *mutex;
 
 boolean mutex_try_lock(mutex ql);

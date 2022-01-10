@@ -27,18 +27,18 @@
 
 static inline void mutex_acquired(mutex m, context ctx)
 {
+    assert(!ctx->waiting_on);
     assert(!m->turn);
     m->turn = ctx;
-    ctx->waiting_on = 0;
 }
 
 static inline boolean mutex_cas_take(mutex m, context ctx)
 {
-    if (compare_and_swap_32(&m->count, 0, 1)) {
+    boolean acquired = compare_and_swap_64((u64*)&m->waiters_tail, 0,
+                                           u64_from_pointer(ctx));
+    if (acquired)
         mutex_acquired(m, ctx);
-        return true;
-    }
-    return false;
+    return acquired;
 }
 
 static inline boolean mutex_lock_internal(mutex m, boolean wait)
@@ -48,13 +48,14 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
 
     mutex_debug("cpu %d, mutex %p, wait %d, ra %p\n", ci->id, m, wait,
                 __builtin_return_address(0));
-    mutex_debug("   ctx %p, turn %p, count %d\n", ctx, m->turn, m->count);
+    mutex_debug("   ctx %p, turn %p\n", ctx, m->turn);
 
-    /* not preemptable (but could become so if needed) */
+    /* not preemptable (could become option on allocate) */
     if (m->turn == ctx)
         halt("%s: lock already held - cpu %d, mutex %p, ctx %p, ra %p\n", __func__,
              ci->id, m, ctx, __builtin_return_address(0));
 
+    assert(!ctx->next_waiter);
     if (!wait)
         return mutex_cas_take(m, ctx);
 
@@ -65,19 +66,16 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
         mutex_pause();
     }
 
-    if (fetch_and_add_32(&m->count, 1) == 0) {
+    assert(!frame_is_full(ctx->frame));
+    ctx->waiting_on = m;
+    context prev_tail = pointer_from_u64(atomic_swap_64((u64*)&m->waiters_tail,
+                                                        u64_from_pointer(ctx)));
+    mutex_debug("   add ctx %p to tail, prev_tail %p\n", ctx, prev_tail);
+    if (!prev_tail) {
         mutex_acquired(m, ctx);
         return true;
     }
-
-    /* race covered by dequeue loop in unlock */
-    assert(!frame_is_full(ctx->frame));
-
-    mutex_debug("ctx %p about to wait, count %d\n", ctx, m->count);
-    ctx->waiting_on = m;
-    while (!enqueue(m->waiters, ctx)) {
-        mutex_pause();      /* XXX timeout */
-    }
+    prev_tail->next_waiter = ctx;
     context_pre_suspend(ctx);
     context_suspend();
     return true;
@@ -98,35 +96,31 @@ void mutex_unlock(mutex m)
     cpuinfo ci = current_cpu();
     context ctx = get_current_context(ci);
     mutex_debug("cpu %d, mutex %p, ra %p\n", ci->id, m, __builtin_return_address(0));
-    mutex_debug("   ctx %p turn %p, count %d\n", ctx, m->turn, m->count);
+    mutex_debug("   ctx %p, next_waiter %p\n", ctx, ctx->next_waiter);
     assert(ctx == m->turn);
-    context next = INVALID_ADDRESS;
-  retry:
-    /* loop to cover race between fetch_and_add and enqueue */
-    while (m->count > 1) {
-        next = dequeue(m->waiters);
-        if (next != INVALID_ADDRESS)
-            break;
+    if (!ctx->next_waiter) {
+        /* cover race between m->waiters_tail swap and write to ctx->next_waiter */
+        m->turn = 0;
+        if (compare_and_swap_64((u64*)&m->waiters_tail, u64_from_pointer(ctx), 0))
+            return;        /* no successor */
+
+        /* enqueue pending; spin until next waiter is set */
+        while (!ctx->next_waiter)
+            mutex_pause();
     }
 
-    if (next != INVALID_ADDRESS) {
-        assert(fetch_and_add_32(&m->count, -1) > 1);
-        m->turn = next;
-        assert(next->waiting_on == m);
-        next->waiting_on = 0;
-        /* cover race between enqueue and context_suspend() */
-        while (!frame_is_full(next->frame))
-            kern_pause();
-        mutex_debug("returning to %p, type %d\n", next, next->type);
-        context_schedule_return(next);
-        return;
-    }
+    context next = ctx->next_waiter;
+    ctx->next_waiter = 0;
+    m->turn = next;
+    assert(next->waiting_on == m);
+    next->waiting_on = 0;
 
-    m->turn = 0;
+    /* cover race between enqueue and context_suspend() */
+    while (!frame_is_full(next->frame))
+        kern_pause();
 
-    /* cover race between dequeue and final release */
-    if (!compare_and_swap_32(&m->count, 1, 0))
-        goto retry;
+    mutex_debug("scheduling return to %p, type %d\n", next, next->type);
+    context_schedule_return(next);
 }
 
 mutex allocate_mutex(heap h, u64 depth, u64 spin_iterations)
@@ -136,13 +130,8 @@ mutex allocate_mutex(heap h, u64 depth, u64 spin_iterations)
     if (m == INVALID_ADDRESS)
         return m;
 
-    m->count = 0;
-    m->turn = 0;
     m->spin_iterations = spin_iterations;
-    m->waiters = allocate_queue(h, depth);
-    if (m->waiters == INVALID_ADDRESS) {
-        deallocate(h, m, msize);
-        return INVALID_ADDRESS;
-    }
+    m->turn = 0;
+    m->waiters_tail = 0;
     return m;
 }

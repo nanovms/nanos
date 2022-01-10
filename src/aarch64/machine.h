@@ -216,6 +216,17 @@ static inline __attribute__((always_inline)) word fetch_and_add_32(u32 *target, 
     return __sync_fetch_and_add(target, num);
 }
 
+static inline __attribute__((always_inline)) u64 atomic_swap_64(u64 *variable, u64 value)
+{
+    return __atomic_exchange_n(variable, value, __ATOMIC_SEQ_CST);
+}
+
+static inline __attribute__((always_inline)) u8 compare_and_swap_64(u64 *p, u64 old, u64 new)
+{
+    asm volatile("prfm pstl1strm, %0" :: "Q" (*p));
+    return __sync_bool_compare_and_swap(p, old, new);
+}
+
 static inline __attribute__((always_inline)) u8 compare_and_swap_32(u32 *p, u32 old, u32 new)
 {
     asm volatile("prfm pstl1strm, %0" :: "Q" (*p));
