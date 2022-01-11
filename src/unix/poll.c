@@ -340,21 +340,10 @@ static void epoll_blocked_release(epoll_blocked w, u64 bq_flags)
 {
     epoll_debug("w %p\n", w);
 
-    /* The lock protecting the list of blocked threads must be acquired if this function call comes
-     * from either the top half of a syscall (in which case BLOCKQ_ACTION_BLOCKED is not set), or a
-     * timeout or signal that interrupts an ongoing syscall (in which case, either
-     * BLOCKQ_ACTION_NULLIFY or BLOCKQ_ACTION_TIMEDOUT is set). */
-    boolean locked = ((bq_flags & (BLOCKQ_ACTION_BLOCKED |
-                                  BLOCKQ_ACTION_NULLIFY |
-                                  BLOCKQ_ACTION_TIMEDOUT))
-                      ^ BLOCKQ_ACTION_BLOCKED) != 0;
-
-    if (locked)
-        spin_lock(&w->e->blocked_lock);
+    spin_lock(&w->e->blocked_lock);
     assert(!list_empty(&w->blocked_list));
     list_delete(&w->blocked_list);
-    if (locked)
-        spin_unlock(&w->e->blocked_lock);
+    spin_unlock(&w->e->blocked_lock);
     list_init(&w->blocked_list);
     refcount_release(&w->refcount);
 }

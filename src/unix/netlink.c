@@ -443,17 +443,14 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
-    boolean lock = !(bqflags & BLOCKQ_ACTION_BLOCKED);
-    if (lock)
-        nl_lock(s);
+    nl_lock(s);
     struct nlmsghdr *hdr = dequeue(s->data);
     if (hdr == INVALID_ADDRESS) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto unlock;
         }
-        if (lock)
-            nl_unlock(s);
+        nl_unlock(s);
         return blockq_block_required(bound(t), bqflags);;
     }
     rv = 0;
@@ -511,8 +508,7 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         dequeue(s->data);
     } while (dest_len > 0);
 unlock:
-    if (lock)
-        nl_unlock(s);
+    nl_unlock(s);
 out:
     apply(bound(completion), bound(t), rv);
     closure_finish();

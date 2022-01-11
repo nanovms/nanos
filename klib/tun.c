@@ -120,16 +120,13 @@ closure_function(5, 1, sysreturn, tun_read_bh,
     }
     void * dest = bound(dest);
     u64 len = bound(len);
-    boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
     if (!(tun->flags & IFF_NO_PI)) {
         struct tun_pi pi;
         if (len < sizeof(pi)) {
             ret = -EINVAL;
-            if (!blocked)
-                lwip_lock();
+            lwip_lock();
             pbuf_free(p);
-            if (!blocked)
-                lwip_unlock();
+            lwip_unlock();
             goto out;
         }
         if (len < p->tot_len + sizeof(pi))
@@ -150,12 +147,10 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         len -= sizeof(pi);
     }
     ret = MIN(len, p->tot_len);
-    if (!blocked)
-        lwip_lock();
+    lwip_lock();
     pbuf_copy_partial(p, dest, ret, 0);
     pbuf_free(p);
-    if (!blocked)
-        lwip_unlock();
+    lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:

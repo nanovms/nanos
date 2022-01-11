@@ -250,8 +250,7 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
         goto out;
     }
 
-    if (!blocked)
-        spin_lock(&ut->lock);
+    spin_lock(&ut->lock);
 
     if (ut->info.timerfd.canceled) {
         rv = -ECANCELED;
@@ -265,15 +264,13 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
             goto out;
         }
         timer_debug("   -> block\n");
-        if (!blocked)
-            spin_unlock(&ut->lock);
+        spin_unlock(&ut->lock);
         return blockq_block_required(t, flags);
     }
     *(u64*)bound(dest) = overruns;
     ut->overruns = 0;
   out:
-    if (!blocked)
-        spin_unlock(&ut->lock);
+    spin_unlock(&ut->lock);
     timer_debug("   -> returning %ld\n", rv);
     apply(bound(completion), t, rv);
     closure_finish();

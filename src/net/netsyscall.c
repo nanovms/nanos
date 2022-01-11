@@ -311,12 +311,11 @@ static void addrport_to_sockaddr(int af, ip_addr_t *ip_addr, u16 port,
     *len = addr_len;
 }
 
-static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len, boolean lwip_locked)
+static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len)
 {
     ip_addr_t *ip_addr;
     u16_t port;
-    if (!lwip_locked)
-        lwip_lock();
+    lwip_lock();
     if (s->sock.type == SOCK_STREAM) {
         struct tcp_pcb *lw = s->info.tcp.lw;
         assert(lw);
@@ -329,8 +328,7 @@ static void remote_sockaddr(netsock s, struct sockaddr *addr, socklen_t *len, bo
         port = lw->remote_port;
         ip_addr = &lw->remote_ip;
     }
-    if (!lwip_locked)
-        lwip_unlock();
+    lwip_unlock();
     addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, len);
 }
 
@@ -397,18 +395,12 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         goto out;
     }
 
-    /* If we're blocked and not a nullify, we know that we were woken up from
-       an lwIP callback, and thus the lwIP lock is held. Otherwise we are in a
-       syscall top half or continuation, and must grab the lwIP lock here. */
-    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
-    if (!blocked)
-        lwip_lock();
+    lwip_lock();
 
     /* check if we actually have data */
     void * p = queue_peek(s->incoming);
     if (p == INVALID_ADDRESS) {
-        if (!blocked)
-            lwip_unlock();
+        lwip_unlock();
         if (s->sock.type == SOCK_STREAM &&
             s->info.tcp.lw->state != ESTABLISHED) {
             rv = 0;
@@ -423,7 +415,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
 
     if (src_addr) {
         if (s->sock.type == SOCK_STREAM) {
-            remote_sockaddr(s, src_addr, addrlen, blocked);
+            remote_sockaddr(s, src_addr, addrlen);
         } else {
             struct udp_entry * e = p;
             addrport_to_sockaddr(s->sock.domain, &e->raddr, e->rport, src_addr,
@@ -475,8 +467,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         }
     } while(s->sock.type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
 
-    if (!blocked)
-        lwip_unlock();
+    lwip_unlock();
 
     if (s->sock.type == SOCK_STREAM)
         /* Calls to tcp_recved() may have enqueued new packets in the loopback interface. */
@@ -585,18 +576,15 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         goto out;
     }
 
-    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED) != 0;
     /* Note that the actual transmit window size is truncated to 16
        bits here (and tcp_write() doesn't accept more than 2^16
        anyway), so even if we have a large transmit window due to
        LWIP_WND_SCALE, we still can't write more than 2^16. Sigh... */
-    if (!blocked)
-        lwip_lock();
+    lwip_lock();
     u64 avail = tcp_sndbuf(s->info.tcp.lw);
     if (avail == 0) {
       full:
-        if (!blocked)
-            lwip_unlock();
+        lwip_unlock();
         if ((bqflags & BLOCKQ_ACTION_BLOCKED) == 0 &&
                 ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT))) {
             net_debug(" send buf full and non-blocking, return EAGAIN\n");
@@ -623,8 +611,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         /* XXX prob add a flag to determine whether to continuously
            post data, e.g. if used by send/sendto... */
         err = tcp_output(s->info.tcp.lw);
-        if (!blocked)
-            lwip_unlock();
+        lwip_unlock();
         if (err == ERR_OK) {
             net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
             netsock_check_loop();
@@ -642,8 +629,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         net_debug(" tcp_write() returned ERR_MEM\n");
         goto full;
     } else {
-        if (!blocked)
-            lwip_unlock();
+        lwip_unlock();
         net_debug(" tcp_write() lwip error: %d\n", err);
         rv = lwip_to_errno(err);
     }
@@ -1946,11 +1932,10 @@ closure_function(5, 1, sysreturn, accept_bh,
         return blockq_block_required(t, bqflags);               /* block */
     }
 
-    boolean blocked = (bqflags & BLOCKQ_ACTION_BLOCKED);
     child->sock.f.flags |= bound(flags);
     if (bound(addr)) {
         if (child->info.tcp.state == TCP_SOCK_OPEN)
-            remote_sockaddr(child, bound(addr), bound(addrlen), blocked);
+            remote_sockaddr(child, bound(addr), bound(addrlen));
         else
             /* The new socket is disconnected already, we can't retrieve the address of the remote
              * peer. */
@@ -1964,11 +1949,9 @@ closure_function(5, 1, sysreturn, accept_bh,
 
     /* release slot in lwIP listen backlog */
     if (child->info.tcp.lw) {
-        if (!blocked)
-            lwip_lock();
+        lwip_lock();
         tcp_backlog_accepted(child->info.tcp.lw);
-        if (!blocked)
-            lwip_unlock();
+        lwip_unlock();
     }
 
     rv = child->sock.fd;
@@ -2085,7 +2068,7 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     else if ((s->sock.type == SOCK_STREAM) && (s->info.tcp.state != TCP_SOCK_OPEN))
         rv = -ENOTCONN;
     else
-        remote_sockaddr(s, addr, addrlen, false);
+        remote_sockaddr(s, addr, addrlen);
     socket_release(sock);
     return rv;
 }
