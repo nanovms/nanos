@@ -410,32 +410,12 @@ void process_get_cwd(process p, filesystem *cwd_fs, inode *cwd)
     process_unlock(p);
 }
 
-static timestamp utime_updated(thread t)
-{
-    thread_lock(t);
-    timestamp ts = t->utime;
-    if (t->start_time != 0)
-        ts += now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
-    thread_unlock(t);
-    return ts;
-}
-
-static timestamp stime_updated(thread t)
-{
-    thread_lock(t);
-    timestamp ts = t->stime;
-    if (t->syscall && t->syscall->start_time)
-        ts += now(CLOCK_ID_MONOTONIC_RAW) - t->syscall->start_time;
-    thread_unlock(t);
-    return ts;
-}
-
 closure_function(2, 1, boolean, count_thread_time,
                  timestamp *, ts, boolean, is_utime,
                  rbnode, n)
 {
     thread t = struct_from_field(n, thread, n);
-    *bound(ts) += bound(is_utime) ? utime_updated(t) : stime_updated(t);
+    *bound(ts) += bound(is_utime) ? t->utime : t->stime;
     return true;
 }
 
@@ -459,12 +439,12 @@ timestamp proc_stime(process p)
 
 timestamp thread_utime(thread t)
 {
-    return utime_updated(t);
+    return t->utime;
 }
 
 timestamp thread_stime(thread t)
 {
-    return stime_updated(t);
+    return t->stime;
 }
 
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)
