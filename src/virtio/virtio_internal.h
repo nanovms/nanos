@@ -95,9 +95,8 @@ static inline void virtio_attach(heap h, backed_heap page_allocator,
     d->transport = transport;
 }
 
-status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, queue sched_queue,
-                              struct virtqueue **result);
-status virtio_register_config_change_handler(vtdev dev, thunk handler, queue sched_queue);
+status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, struct virtqueue **result);
+status virtio_register_config_change_handler(vtdev dev, thunk handler);
 
 status virtqueue_alloc(vtdev dev,
                        const char *name,
@@ -106,8 +105,7 @@ status virtqueue_alloc(vtdev dev,
                        bytes notify_offset,
                        int align,
                        struct virtqueue **vqp,
-                       thunk *t,
-                       queue sched_queue);
+                       thunk *t);
 
 /* The Host uses this in used->flags to advise the Guest: don't kick me
  * when you add a buffer.  It's unreliable, so it's simply an

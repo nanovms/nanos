@@ -102,7 +102,6 @@ typedef struct virtqueue {
     u16 last_used_idx;          /* irq only */
     struct list msg_queue;
     struct list free_msgs;
-    queue sched_queue;
     struct spinlock lock;
     vqmsg msgs[0];
 } *virtqueue;
@@ -197,7 +196,6 @@ closure_function(1, 0, void, vq_interrupt,
         vq->msgs[head] = 0;
         virtqueue_debug("add msg %p\n", m);
 
-        /* kludge will go away with move to singular async queue on final kern lock removal */
         async_apply_1(m->completion, (void*)m->len);
 
         /* TODO should probably observe a limit / drain method here */
@@ -216,8 +214,7 @@ status virtqueue_alloc(vtdev dev,
                        bytes notify_offset,
                        int align,
                        virtqueue *vqp,
-                       thunk *t,
-                       queue sched_queue)
+                       thunk *t)
 {
     u64 vq_alloc_size = sizeof(struct virtqueue) + size * sizeof(vqmsg);
     virtqueue vq = allocate_zero(dev->general, vq_alloc_size);
@@ -238,7 +235,6 @@ status virtqueue_alloc(vtdev dev,
     vq->free_cnt = size;
     list_init(&vq->msg_queue);
     list_init(&vq->free_msgs);
-    vq->sched_queue = sched_queue;
     spin_lock_init(&vq->lock);
 
     if ((vq->ring_mem = allocate_zero(&dev->contiguous->h, alloc)) == INVALID_ADDRESS) {

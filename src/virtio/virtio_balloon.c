@@ -363,23 +363,20 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
 
     thunk t = closure(general, virtio_balloon_config_change, v);
     assert(t != INVALID_ADDRESS);
-    status s = virtio_register_config_change_handler(v, t, runqueue);
+    status s = virtio_register_config_change_handler(v, t);
     if (!is_ok(s))
         goto fail;
-    s = virtio_alloc_virtqueue(v, "virtio balloon inflateq", 0, runqueue,
-                               &virtio_balloon.inflateq);
+    s = virtio_alloc_virtqueue(v, "virtio balloon inflateq", 0, &virtio_balloon.inflateq);
     if (!is_ok(s))
         goto fail;
-    s = virtio_alloc_virtqueue(v, "virtio balloon deflateq", 1, runqueue,
-                               &virtio_balloon.deflateq);
+    s = virtio_alloc_virtqueue(v, "virtio balloon deflateq", 1, &virtio_balloon.deflateq);
     if (!is_ok(s))
         goto fail;
     if (balloon_has_stats_vq()) {
         virtio_balloon.stats = alloc_map(backed, sizeof(virtio_balloon.stats),
                                          &virtio_balloon.stats_phys);
         assert(virtio_balloon.stats != INVALID_ADDRESS);
-        s = virtio_alloc_virtqueue(v, "virtio balloon statsq", 2, runqueue,
-                                   &virtio_balloon.statsq);
+        s = virtio_alloc_virtqueue(v, "virtio balloon statsq", 2, &virtio_balloon.statsq);
         if (!is_ok(s))
             goto fail;
     } else {

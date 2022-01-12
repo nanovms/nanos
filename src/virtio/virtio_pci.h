@@ -72,7 +72,6 @@ struct vtpci {
     thunk non_msix_handler;
     vector vq_handlers;         /* queue handler thunks */
     thunk config_handler;
-    queue config_sched_queue;
 };
 
 /* VirtIO ABI version, this must match exactly. */
@@ -95,8 +94,8 @@ struct vtpci {
 
 boolean vtpci_probe(pci_dev d, int virtio_dev_id);
 vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_mask);
-status vtpci_alloc_virtqueue(vtpci dev, const char *name, int idx, queue sched_queue, struct virtqueue **result);
-status vtpci_register_config_change_handler(vtpci dev, thunk handler, queue sched_queue);
+status vtpci_alloc_virtqueue(vtpci dev, const char *name, int idx, struct virtqueue **result);
+status vtpci_register_config_change_handler(vtpci dev, thunk handler);
 void vtpci_set_status(vtpci dev, u8 status);
 boolean vtpci_is_modern(vtpci dev);
 
