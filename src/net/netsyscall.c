@@ -2146,6 +2146,8 @@ sysreturn setsockopt(int sockfd,
             }
             lwip_unlock();
             break;
+        case SO_REUSEPORT:
+            goto unimplemented;
         default:
             goto unimplemented;
         }
@@ -2159,9 +2161,9 @@ sysreturn setsockopt(int sockfd,
             }
             lwip_lock();
             if (*((int *)optval))
-                tcp_nagle_enable(s->info.tcp.lw);
-            else
                 tcp_nagle_disable(s->info.tcp.lw);
+            else
+                tcp_nagle_enable(s->info.tcp.lw);
             lwip_unlock();
             break;
         default:
@@ -2235,6 +2237,36 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         case SO_ACCEPTCONN:
             ret_optval.val = (s->sock.type == SOCK_STREAM) && (s->info.tcp.state == TCP_SOCK_LISTENING);
             ret_optlen = sizeof(ret_optval.val);
+            break;
+        case SO_REUSEADDR:
+            lwip_lock();
+            if ((s->sock.type == SOCK_STREAM) && s->info.tcp.lw) {
+                ret_optval.val = !!ip_get_option(s->info.tcp.lw, SOF_REUSEADDR);
+            } else if (s->sock.type == SOCK_DGRAM){
+                ret_optval.val = !!ip_get_option(s->info.udp.lw, SOF_REUSEADDR);
+            } else {
+                lwip_unlock();
+                rv = -EINVAL;
+                goto out;
+            }
+            ret_optlen = sizeof(ret_optval.val);
+            lwip_unlock();
+            break;
+        case SO_REUSEPORT:
+            ret_optval.val = 0;
+            ret_optlen = sizeof(ret_optval.val);
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
+    case SOL_TCP:
+        switch (optname) {
+        case TCP_NODELAY:
+            lwip_lock();
+            ret_optval.val = tcp_nagle_disabled(s->info.tcp.lw);
+            ret_optlen = sizeof(ret_optval.val);
+            lwip_unlock();
             break;
         default:
             goto unimplemented;
