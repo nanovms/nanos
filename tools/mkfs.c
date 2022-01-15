@@ -233,8 +233,7 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
 heap malloc_allocator();
 
 tuple root;
-closure_function(1, 1, void, finish,
-                 heap, h,
+closure_function(0, 1, void, finish,
                  void *, v)
 {
     root = v;
@@ -243,7 +242,8 @@ closure_function(1, 1, void, finish,
 closure_function(0, 1, void, perr,
                  string, s)
 {
-    rprintf("parse error %b\n", s);
+    rprintf("manifest parse error %b\n", s);
+    exit(EXIT_FAILURE);
 }
 
 closure_function(2, 3, void, bwrite,
@@ -321,7 +321,7 @@ closure_function(0, 2, void, mkfs_write_handler,
 {
     if (!is_ok(s)) {
         rprintf("write failed with %v\n", s);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -331,7 +331,7 @@ closure_function(4, 2, void, fsc,
 {
     tuple root = bound(root);
     if (!root)
-        exit(1);
+        exit(EXIT_FAILURE);
 
     heap h = bound(h);
     vector worklist = allocate_vector(h, 10);
@@ -523,7 +523,8 @@ static void usage(const char *program_name)
            "-s image-size	- specify minimum image file size; can be expressed"
            " in bytes, KB (with k or K suffix), MB (with m or M suffix), and GB"
            " (with g or G suffix)\n"
-           "-e              - create empty filesystem\n",
+           "-t (key:value ...)  - add tuple(s) to manifest\n"
+           "-e                  - create empty filesystem\n",
            p, p);
 }
 
@@ -555,6 +556,33 @@ boolean parse_size(const char *str, long long *size)
     return true;
 }
 
+tuple cmdline_tuple;
+
+closure_function(0, 1, void, cmdline_tuple_finish,
+                 void *, v)
+{
+    if (!is_tuple(v)) {
+        rprintf("parsed cmdline value is not a tuple: %v\n", v);
+        exit(EXIT_FAILURE);
+    }
+    cmdline_tuple = v;
+}
+
+closure_function(0, 1, void, cmdline_tuple_err,
+                 string, s)
+{
+    rprintf("cmdline tuple parse error %b\n", s);
+    exit(EXIT_FAILURE);
+}
+
+
+closure_function(0, 2, boolean, cmdline_tuple_each,
+                 void *, k, void *, v)
+{
+    set(root, k, v);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     int c;
@@ -565,8 +593,9 @@ int main(int argc, char **argv)
     long long img_size = 0;
     boolean empty_fs = false;
     const char *uefi_loader = NULL;
+    heap h = init_process_runtime();
 
-    while ((c = getopt(argc, argv, "eb:k:l:r:s:u:")) != EOF) {
+    while ((c = getopt(argc, argv, "eb:k:l:r:s:u:t:")) != EOF) {
         switch (c) {
         case 'e':
             empty_fs = true;
@@ -583,7 +612,7 @@ int main(int argc, char **argv)
         case 'l':
             if (strlen(optarg) >= VOLUME_LABEL_MAX_LEN) {
                 printf("label '%s' too long\n", optarg);
-                exit(1);
+                exit(EXIT_FAILURE);
             }
             label = optarg;
             break;
@@ -594,13 +623,20 @@ int main(int argc, char **argv)
             if (!parse_size(optarg, &img_size)) {
                 printf("invalid image file size %s\n", optarg);
                 usage(argv[0]);
-                exit(1);
+                exit(EXIT_FAILURE);
             }
+            break;
+        }
+        case 't': {
+            buffer b = alloca_wrap_buffer(optarg, strlen(optarg));
+            parser p = tuple_parser(h, stack_closure(cmdline_tuple_finish),
+                                    stack_closure(cmdline_tuple_err));
+            parser_feed(p, b);
             break;
         }
         default:
             usage(argv[0]);
-            exit(1);
+            exit(EXIT_FAILURE);
         }
     }
     if (uefi_loader && !bootimg_path)
@@ -609,13 +645,12 @@ int main(int argc, char **argv)
 
     if (argc == 0) {
         usage(argv[0]);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     argv += optind;
     const char *image_path = argv[0];
 
-    heap h = init_process_runtime();
     descriptor out = open(image_path, O_CREAT|O_RDWR|O_TRUNC, 0644);
     if (out < 0) {
         halt("couldn't open output file %s: %s\n", image_path, strerror(errno));
@@ -658,15 +693,21 @@ int main(int argc, char **argv)
         root = allocate_tuple();
         set(root, sym(children), allocate_tuple());
     } else {
-        parser p = tuple_parser(h, closure(h, finish, h), closure(h, perr));
-        // this can be streaming
-        parser_feed (p, read_stdin(h));
+        parser p = tuple_parser(h, stack_closure(finish), stack_closure(perr));
+        parser_feed(p, read_stdin(h));
     }
 
     init_pagecache(h, h, 0, PAGESIZE);
     mkfs_write_status = closure(h, mkfs_write_handler);
 
     if (root && !empty_fs) {
+        /* apply commandline tuple to root, if any */
+        if (cmdline_tuple) {
+            iterate(cmdline_tuple, stack_closure(cmdline_tuple_each));
+            deallocate_value(cmdline_tuple);
+            cmdline_tuple = 0;
+        }
+
         value v = get(root, sym(imagesize));
         if (v) {
             set(root, sym(imagesize), 0); /* consume it, kernel doesn't need it */

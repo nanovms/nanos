@@ -145,14 +145,18 @@ void vm_exit(u8 code)
 
     /* TODO MP: coordinate via IPIs */
     tuple root = get_root_tuple();
-    if (root && get(root, sym(reboot_on_exit))) {
-        triple_fault();
-    } else if (vm_halt) {
+    if (root) {
+        if (get(root, sym(reboot_on_exit)))
+            triple_fault();
+        if (get(root, sym(debug_exit)))
+            goto debug_exit;
+    }
+    if (vm_halt) {
         apply(vm_halt, code);
         while (1);  /* to honor noreturn attribute */
-    } else {
-        QEMU_HALT(code);
     }
+  debug_exit:
+    QEMU_HALT(code);
 }
 
 u64 total_processors = 1;
