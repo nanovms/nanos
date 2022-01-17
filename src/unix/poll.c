@@ -385,10 +385,21 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
         /* Borrow the thread's fault handler prior to touching user memory. */
         use_fault_handler(w->t->context.fault_handler);
     }
-    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
+    struct epoll_event *e, *end;
+    e = buffer_ref(w->user_events, 0);
+    end = buffer_ref(w->user_events, w->user_events->end);
+    while (e < end) {
+        if (e->data == efd->data) {
+            /* Use the union of reported events so that edge triggers aren't missed. */
+            e->events |= report;
+            goto reported;
+        }
+        e++;
+    }
     e->data = efd->data;
     e->events = report;
     w->user_events->end += sizeof(struct epoll_event);
+  reported:
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
     if (is_kernel_context(ctx))
         clear_fault_handler();
@@ -671,16 +682,16 @@ static inline void select_notify(epollfd efd, epoll_blocked w, u64 events)
     int count = 0;
     spin_lock(&w->lock);
     if (w->rset && (events & POLLFDMASK_READ)) {
-        bitmap_set(w->rset, efd->fd, 1);
-        count++;
+        if (!bitmap_test_and_set_atomic(w->rset, efd->fd, 1))
+            count++;
     }
     if (w->wset && (events & POLLFDMASK_WRITE)) {
-        bitmap_set(w->wset, efd->fd, 1);
-        count++;
+        if (!bitmap_test_and_set_atomic(w->wset, efd->fd, 1))
+            count++;
     }
     if (w->eset && (events & POLLFDMASK_EXCEPT)) {
-        bitmap_set(w->eset, efd->fd, 1);
-        count++;
+        if (!bitmap_test_and_set_atomic(w->eset, efd->fd, 1))
+            count++;
     }
     spin_unlock(&w->lock);
     if (count > 0) {
@@ -895,8 +906,16 @@ static inline void poll_notify(epollfd efd, epoll_blocked w, u64 events)
         return;
 
     spin_lock(&w->lock);
+    if (!w->poll_fds) {
+        spin_unlock(&w->lock);
+        return;
+    }
     struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
-    fetch_and_add(&w->poll_retcount, 1);
+    if (pfd->revents == 0) {
+        /* Only increment if we're not amending an entry. */
+        assert(fetch_and_add(&w->poll_retcount, 1) <
+               (w->poll_fds->length / sizeof(struct pollfd)));
+    }
     pfd->revents = events;
     epoll_debug("   event on %d (%d), events 0x%x\n", efd->fd, pfd->fd, pfd->revents);
     spin_unlock(&w->lock);
