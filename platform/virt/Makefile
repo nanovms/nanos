@@ -234,7 +234,7 @@ ifeq ($(IMAGE),)
 endif
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(IMAGE)
+	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(IMAGE) -t "(debug_exit:t)"
 
 release: mkfs kernel
 	$(Q) $(RM) -r release
