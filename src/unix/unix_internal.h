@@ -181,6 +181,7 @@ declare_closure_struct(1, 0, void, free_blockq,
 struct blockq {
     heap h;
     char name[BLOCKQ_NAME_MAX]; /* for debug */
+    boolean wake;
     struct spinlock lock;
     struct list waiters_head;   /* of threads and associated timers+actions */
     struct refcount refcount;

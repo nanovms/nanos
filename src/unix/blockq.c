@@ -131,6 +131,13 @@ thread blockq_wake_one(blockq bq)
         blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED);
         return t;
     }
+
+    /* Setting wake covers the case that a wakeup occurs after an action,
+       invoked by blockq_check, determines that blocking is required but
+       before the blockq lock is taken and the thread is added to the waiter
+       list. See blockq_check_timeout() for more detail. */
+    bq->wake = true;
+    write_barrier();
     blockq_unlock(bq);
     return INVALID_ADDRESS;
 }
@@ -169,10 +176,37 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     assert(t);
     assert(a);
     assert(!(in_bh && timeout)); /* no timeout checks in bh */
+    assert(is_contextual_closure(a));
 
-    blockq_debug("%p \"%s\", tid %ld, action %p, timeout %ld, clock_id %d\n",
-                 bq, blockq_name(bq), t->tid, a, timeout, clkid);
+    blockq_debug("%p \"%s\", tid %ld, action %p (%F), timeout %ld, clock_id %d\n",
+                 bq, blockq_name(bq), t->tid, a, a, timeout, clkid);
 
+    /* The wake flag senses whether a wakeup occurred between invoking the
+       blockq_action and queueing the waiting thread. We cannot simply take
+       the blockq lock prior to calling the action; the action itself may
+       invoke functions which take the lock. Also, deferred action invocations
+       occur straight from the async dispatch without any locks taken (which
+       is ideal, as we don't necessarily want to serialize all processing
+       around a blockq). Spinning on a count of waiters being nonzero in
+       blockq_wake() is also not an option, for code invoking the wake may be
+       holding a lock used by an action, thus leading to a deadlock.
+
+       This solution has blockq_wake_one(), under blockq lock, set the wake
+       flag if a waiting thread could not be dequeued. This function first
+       clears the flag, invokes the action and then checks, under blockq lock,
+       if the flag was set. If it was, a wakeup may (but not necessarily) have
+       been missed, and blockq_wake_one() is called after releasing the locks.
+
+       There is the possibility of a spurious wakeup here. This would seem to
+       affect only the futex code, however such spurious futex wakeups (a
+       FUTEX_WAIT returning 0, not triggered by a FUTEX_WAKE) are explictly
+       allowed. (See the FUTEX WAIT entry under the RETURN VALUE section of
+       the futex(2) manpage.) In a similar manner, all blockq actions should
+       be written to assume that spurious invocations are possible.
+    */
+
+    bq->wake = false;
+    write_barrier();
     sysreturn rv = apply(a, 0);
     if (rv != BLOCKQ_BLOCK_REQUIRED) {
         blockq_debug(" - direct return: %ld\n", rv);
@@ -194,8 +228,15 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     }
     t->bq_remain_at_wake = 0;
     list_insert_before(&bq->waiters_head, &t->bq_l);
+    boolean wake = bq->wake;
     thread_unlock(t);
     blockq_unlock(bq);
+
+    /* It is safe to call wake here. Action closures are contextual, so the
+       context acquire will wait for this path to terminate at runloop before
+       the action runs. */
+    if (wake)
+        blockq_wake_one(bq);
 
     /* if we're either in bh or a non-current thread is invoking this, return now */
     if (in_bh || (current != t))
@@ -303,6 +344,7 @@ blockq allocate_blockq(heap h, char * name)
         len = 0;
     }
     bq->name[len] = '\0';
+    bq->wake = false;
     spin_lock_init(&bq->lock);
     list_init(&bq->waiters_head);
     init_refcount(&bq->refcount, 1, init_closure(&bq->free, free_blockq, bq));

@@ -4,7 +4,6 @@ struct futex {
     heap h;
     blockq bq;
     struct spinlock lock;
-    u64 waiters;
 };
 
 #define futex_lock(f)   spin_lock(&(f)->lock)
@@ -47,7 +46,6 @@ static struct futex * soft_create_futex(process p, u64 key)
     }
 
     spin_lock_init(&f->lock);
-    f->waiters = 0;
     table_set(p->futices, pointer_from_u64(key), f);
   out:
     process_unlock(p);
@@ -56,19 +54,10 @@ static struct futex * soft_create_futex(process p, u64 key)
 
 static thread futex_wake_one(struct futex * f)
 {
-    thread t = INVALID_ADDRESS;
-
-    /* As long as the futex waiter count is non-zero, there must be a thread that is either in or
-     * about to be placed in the blockq waiter list. */
-    while (f->waiters) {
-        t = blockq_wake_one(f->bq);
-        if (t != INVALID_ADDRESS) {
-            assert(fetch_and_add(&f->waiters, -1) > 0);
-            return t;
-        }
-        kern_pause();
-    }
-
+    thread t = blockq_wake_one(f->bq);
+    if (t != INVALID_ADDRESS)
+        return t;
+    kern_pause();
     return t;
 }
 
@@ -124,14 +113,12 @@ closure_function(3, 1, sysreturn, futex_bh,
     sysreturn rv;
 
     if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
-        fetch_and_add(&f->waiters, 1);
-        futex_unlock(bound(f));
-        thread_log(t, "%s: struct futex: %p, blocking", __func__, bound(f));
+        futex_unlock(f);
+        thread_log(t, "%s: struct futex: %p, blocking", __func__, f);
         return BLOCKQ_BLOCK_REQUIRED;
     }
 
     if (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) {
-        fetch_and_add(&f->waiters, -1);
         if (flags & BLOCKQ_ACTION_NULLIFY)
             rv = bound(timeout) ? -EINTR : -ERESTARTSYS;
         else
@@ -140,7 +127,7 @@ closure_function(3, 1, sysreturn, futex_bh,
         rv = 0; /* no timer expire + not us --> actual wakeup */
     }
 
-    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", __func__, bound(f), flags, rv);
+    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", __func__, f, flags, rv);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -242,8 +229,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             }
             requeued = blockq_transfer_waiters(new->bq, f->bq, val2,
                                                stack_closure(futex_requeue_handler, new));
-            fetch_and_add(&f->waiters, -requeued);
-            fetch_and_add(&new->waiters, requeued);
             if (futex_verbose)
                 thread_log(current, " awoken: %d, re-queued %d", woken, requeued);
         }

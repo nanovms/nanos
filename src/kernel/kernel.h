@@ -331,6 +331,12 @@ static inline void clear_fault_handler(void)
         }                                                               \
     } while (0);
 
+static inline boolean is_contextual_closure(void *p)
+{
+    struct _closure_common *c = p + sizeof(void *); /* skip __apply */
+    return (c->ctx & CLOSURE_COMMON_CTX_IS_CONTEXT) != 0;
+}
+
 static inline context context_from_closure(void *p)
 {
     struct _closure_common *c = p + sizeof(void *); /* skip __apply */
