@@ -2346,18 +2346,19 @@ static void syscall_context_pause(context ctx)
 {
     syscall_context sc = (syscall_context)ctx;
     syscall_accumulate_stime(sc);
-    count_syscall_save(sc->t);
+    if (sc->call >= 0)
+        count_syscall_save(sc->t);
     context_release_refcount(&sc->context);
 }
 
 static void syscall_context_resume(context ctx)
 {
     syscall_context sc = (syscall_context)ctx;
-    thread t = sc->t;
     assert(sc->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     sc->start_time = here == 0 ? 1 : here;
-    count_syscall_resume(t);
+    if (sc->call >= 0)
+        count_syscall_resume(sc->t);
     context_reserve_refcount(&sc->context);
 }
 

@@ -878,7 +878,8 @@ static inline sysreturn syscall_return(thread t, sysreturn val)
 static inline void syscall_accumulate_stime(syscall_context sc)
 {
     assert(sc->start_time != 0);
-    sc->t->stime += now(CLOCK_ID_MONOTONIC_RAW) - sc->start_time;
+    timestamp dt = now(CLOCK_ID_MONOTONIC_RAW) - sc->start_time;
+    fetch_and_add(&sc->t->stime, dt);
     sc->start_time = 0;
 }
 
@@ -1018,6 +1019,13 @@ static inline void check_syscall_context_replace(cpuinfo ci, context ctx)
         }
         ci->m.syscall_context = ctx;
     }
+}
+
+static inline void orphan_syscall_context(cpuinfo ci, syscall_context sc)
+{
+    check_syscall_context_replace(ci, &sc->context);
+    sc->call = -1;             /* orphaned */
+    count_syscall_save(sc->t);
 }
 
 static inline void __attribute__((noreturn)) syscall_yield(void)
