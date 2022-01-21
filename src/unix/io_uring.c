@@ -577,6 +577,7 @@ closure_function(3, 2, void, iour_rw_complete,
 {
     fdesc_put(bound(f));
     iour_complete(bound(iour), bound(user_data), rv, true, true);
+    context_release_refcount(get_current_context(current_cpu()));
     closure_finish();
 }
 
@@ -589,6 +590,7 @@ static void iour_iov(io_uring iour, fdesc f, boolean write, struct iovec *iov,
         fdesc_put(f);
         iour_complete(iour, user_data, -ENOMEM, false, false);
     } else {
+        context_reserve_refcount(get_current_context(current_cpu()));
         fetch_and_add(&iour->noncancelable_ops, 1);
         iov_op(f, write, iov, len, off, false, completion);
     }
@@ -616,6 +618,7 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
         fdesc_put(f);
         iour_complete(iour, user_data, err, false, false);
     } else {
+        context_reserve_refcount(get_current_context(current_cpu()));
         fetch_and_add(&iour->noncancelable_ops, 1);
         apply(op, addr, len, offset, current, true, completion);
     }
@@ -1125,6 +1128,9 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
             break;
         }
     }
+    cpuinfo ci = current_cpu();
+    syscall_context sc = (syscall_context)get_current_context(ci);
+    assert(is_syscall_context(&sc->context));
     rv = submitted;
     if (flags & IORING_ENTER_GETEVENTS) {
         iour_lock(iour);
@@ -1147,8 +1153,11 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         bh->timeouts = iour->cq_timeouts;
         bh->t = current;
         bh->completion = syscall_io_complete;
+        check_syscall_context_replace(ci, &sc->context);
         return blockq_check(iour->bq, current,
             closure_get(iour_getevents_bh, bh), false);
+    } else {
+        orphan_syscall_context(ci, sc);
     }
 out:
     fdesc_put(&iour->f);
