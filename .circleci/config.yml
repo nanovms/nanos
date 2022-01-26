@@ -176,7 +176,7 @@ jobs:
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
-      - run: mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
+      - run: mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux-virt.tar.gz * && gsutil cp nanos-nightly-linux-virt.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.tar.gz
       - run: rm -r temp

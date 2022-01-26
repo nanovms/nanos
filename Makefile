@@ -32,6 +32,7 @@ AWS_AMI_IMAGE=	nanos-$(TARGET)
 MKFS=		$(TOOLDIR)/mkfs
 DUMP=		$(TOOLDIR)/dump
 BOOTIMG=	$(PLATFORMOBJDIR)/boot/boot.img
+UEFI_LOADER=$(PLATFORMOBJDIR)/boot/$(UEFI_FILE)
 KERNEL=		$(PLATFORMOBJDIR)/bin/kernel.img
 
 all: image
@@ -39,6 +40,14 @@ all: image
 .PHONY: distclean image release target tools
 
 include rules.mk
+
+ifeq ($(ARCH),x86_64)
+UEFI_FILE=	bootx64.efi
+else
+ifeq ($(ARCH),aarch64)
+UEFI_FILE=	bootaa64.efi
+endif
+endif
 
 THIRD_PARTY= $(ACPICA_DIR)/.vendored $(LWIPDIR)/.vendored $(MBEDTLS_DIR)/.vendored
 
@@ -58,7 +67,8 @@ release: $(THIRD_PARTY) tools
 	$(Q) $(MKDIR) release
 	$(CP) $(MKFS) release
 	$(CP) $(DUMP) release
-	$(CP) $(BOOTIMG) release
+	if [ -f $(BOOTIMG) ]; then $(CP) $(BOOTIMG) release; fi
+	if [ -f $(UEFI_LOADER) ]; then $(CP) $(UEFI_LOADER) release; fi
 	$(CP) $(KERNEL) release
 	$(Q) $(MKDIR) release/klibs
 	$(CP) $(OUTDIR)/klib/bin/* release/klibs
