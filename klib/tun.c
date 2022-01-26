@@ -116,20 +116,17 @@ closure_function(5, 1, sysreturn, tun_read_bh,
             ret = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     void * dest = bound(dest);
     u64 len = bound(len);
-    boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
     if (!(tun->flags & IFF_NO_PI)) {
         struct tun_pi pi;
         if (len < sizeof(pi)) {
             ret = -EINVAL;
-            if (!blocked)
-                lwip_lock();
+            lwip_lock();
             pbuf_free(p);
-            if (!blocked)
-                lwip_unlock();
+            lwip_unlock();
             goto out;
         }
         if (len < p->tot_len + sizeof(pi))
@@ -150,16 +147,14 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         len -= sizeof(pi);
     }
     ret = MIN(len, p->tot_len);
-    if (!blocked)
-        lwip_lock();
+    lwip_lock();
     pbuf_copy_partial(p, dest, ret, 0);
     pbuf_free(p);
-    if (!blocked)
-        lwip_unlock();
+    lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:
-    blockq_handle_completion(tf->bq, flags, bound(completion), bound(t), ret);
+    apply(bound(completion), bound(t), ret);
     if (queue_empty(tf->pq))
         notify_events(&tf->f->f);
     closure_finish();
@@ -174,7 +169,7 @@ closure_function(1, 6, sysreturn, tun_read,
     tun tun = tf->tun;
     if (!tun)
         return io_complete(completion, t, -EBADFD);
-    blockq_action ba = closure(tun_heap, tun_read_bh, tf, dest, len, t, completion);
+    blockq_action ba = contextual_closure(tun_read_bh, tf, dest, len, t, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(tf->bq, t, ba, bh);

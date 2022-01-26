@@ -4,8 +4,6 @@
 
 #define MBR_ADDRESS 0x7c00
 
-#include "frame.h"
-
 /*
   bit  47    - kern / user, extended for canonical
   bit  46    - set if directly-mapped (tag area must be zero)
@@ -167,6 +165,7 @@ void install_gdt64_and_tss(void *tss_desc, void *tss, void *gdt, void *gdt_point
 #ifdef KERNEL
 /* locking constructs */
 #include <lock.h>
+#include <mutex.h>
 #endif
 
 /* device mmio region access */
@@ -248,15 +247,6 @@ static inline void set_page_write_protect(boolean enable)
     mov_to_cr("cr0", cr0);
 }
 
-/* per-cpu info, saved contexts and stacks */
-typedef u64 *context;
-
-#define KERNEL_STACK_WORDS (KERNEL_STACK_SIZE / sizeof(u64))
-typedef struct kernel_context {
-    u64 stackbase[KERNEL_STACK_WORDS];
-    u64 frame[0];
-} *kernel_context;
-
 typedef struct {
     u8 data[8];
 } seg_desc_t;
@@ -268,20 +258,23 @@ struct cpuinfo_machine {
     /* For accessing cpuinfo via %gs:0; must be first */
     void *self;
 
-    /* This points to the frame of the current, running context. +8 */
-    context running_frame;
+    /* This points to the currently-running context and bottom of associated frame. +8 */
+    context current_context;
 
-    /* Default frame and stack installed at kernel entry points (init,
-       syscall) and calls to runloop. +16 */
-    kernel_context kernel_context;
+    /* Next kernel context to install +16 */
+    context kernel_context;
 
-    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +24 */
+    /* Next syscall context to install +24 */
+    context syscall_context;
+
+    /* One temporary for syscall enter to use so that we don't need to touch the user stack. +32 */
     u64 tmp;
 
 #ifdef CONFIG_FTRACE
-    /* Used by mcount to determine if to enter ftrace code. Should be the last to not mess with crt0.s +32 */
+    /* Used by mcount to determine if to enter ftrace code. +40 */
     u64 ftrace_disable_cnt;
 #endif
+
     /*** End of fields touched by kernel entries ***/
 
     /* Stack for exceptions (which may occur in interrupt handlers) */
@@ -299,6 +292,7 @@ struct cpuinfo_machine {
         seg_desc_t user_code_64;
         u8 tss_desc[0x10];
     } gdt;
+
     struct gdt_pointer {
         u16 limit;
         u64 base;
@@ -320,88 +314,145 @@ static inline cpuinfo current_cpu(void)
 }
 
 extern u64 extended_frame_size;
-static inline u64 total_frame_size(void)
+
+static inline boolean frame_is_full(context_frame f)
 {
-    return FRAME_EXTENDED_SAVE * sizeof(u64) + extended_frame_size;
+    return f[FRAME_FULL];
 }
 
-static inline void frame_enable_interrupts(context f)
+static inline void *frame_extended(context_frame f)
 {
-    f[FRAME_FLAGS] |= U64_FROM_BIT(EFLAG_INTERRUPT);
+    return pointer_from_u64(f[FRAME_EXTENDED]);
 }
 
-static inline void frame_disable_interrupts(context f)
+static inline void frame_enable_interrupts(context_frame f)
 {
-    f[FRAME_FLAGS] &= ~U64_FROM_BIT(EFLAG_INTERRUPT);
+    f[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_INTERRUPT);
 }
 
-extern void xsave(context f);
-extern void clone_frame_pstate(context dest, context src);
-extern void init_frame(context f);
+static inline void frame_disable_interrupts(context_frame f)
+{
+    f[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_INTERRUPT);
+}
 
-static inline boolean is_protection_fault(context f)
+extern void xsave(context_frame f);
+extern void clone_frame_pstate(context_frame dest, context_frame src);
+
+static inline boolean is_protection_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_P) != 0;
 }
 
-static inline boolean is_usermode_fault(context f)
+static inline boolean is_usermode_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_US) != 0;
 }
 
-static inline boolean is_instruction_fault(context f)
+static inline boolean is_instruction_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_ID) != 0;
 }
 
-static inline boolean is_data_fault(context f)
+static inline boolean is_data_fault(context_frame f)
 {
     return !is_instruction_fault(f);
 }
 
-static inline boolean is_write_fault(context f)
+static inline boolean is_write_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RW) != 0;
 }
 
 /* page table integrity check? open to interpretation for other archs... */
-static inline boolean is_pte_error(context f)
+static inline boolean is_pte_error(context_frame f)
 {
     /* XXX check sdm before merging - seems suspicious */
     return (is_protection_fault(f) && (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RSV));
 }
 
-static inline u64 frame_return_address(context f)
+static inline u64 frame_return_address(context_frame f)
 {
     return f[FRAME_RIP];
 }
 
-static inline u64 fault_address(context f)
+static inline u64 fault_address(context_frame f)
 {
     return f[FRAME_CR2];
 }
 
-static inline boolean is_page_fault(context f)
+static inline boolean is_page_fault(context_frame f)
 {
     return f[FRAME_VECTOR] == 14; // XXX defined somewhere?
 }
 
-static inline boolean is_div_by_zero(context f)
+static inline boolean is_div_by_zero(context_frame f)
 {
     return f[FRAME_VECTOR] == 0; // XXX defined somewhere?
 }
 
-static inline void frame_set_sp(context f, u64 sp)
+static inline void *frame_get_stack(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_RSP]);
+}
+
+static inline void frame_set_stack(context_frame f, u64 sp)
 {
     f[FRAME_RSP] = sp;
 }
 
-#define switch_stack(__s, __target) {                           \
-        asm volatile("mov %0, %%rdx": :"r"(__s):"%rdx");        \
-        asm volatile("mov %0, %%rax": :"r"(__target));          \
-        asm volatile("mov %%rdx, %%rsp"::);                     \
-        asm volatile("jmp *%%rax"::);                           \
-    }
+static inline void *frame_get_stack_top(context_frame f)
+{
+    return pointer_from_u64(f[FRAME_STACK_TOP]);
+}
+
+static inline void frame_set_stack_top(context_frame f, void *st)
+{
+    f[FRAME_STACK_TOP] = u64_from_pointer(st);
+}
+
+static inline void frame_reset_stack(context_frame f)
+{
+    f[FRAME_RSP] = f[FRAME_STACK_TOP];
+}
+
+#define _switch_stack_head(s, target)                                   \
+    register u64 __s = u64_from_pointer(s);                             \
+    register u64 __t = u64_from_pointer(target)
+
+#define _switch_stack_tail(...)                                         \
+    asm volatile("mov %0, %%rsp; jmp *%1" :: "r"(__s), "r"(__t), ##__VA_ARGS__ : "memory")
+
+#define _switch_stack_args_1(__a0)              \
+    register u64 __ra0 asm("rdi") = (u64)(__a0);
+#define _switch_stack_args_2(__a0, __a1)                \
+    _switch_stack_args_1(__a0);                         \
+    register u64 __ra1 asm("rsi") = (u64)(__a1);
+#define _switch_stack_args_3(__a0, __a1, __a2)          \
+    _switch_stack_args_2(__a0, __a1);                   \
+    register u64 __ra2 asm("rdx") = (u64)(__a2);
+#define _switch_stack_args_4(__a0, __a1, __a2, __a3)    \
+    _switch_stack_args_3(__a0, __a1, __a2);             \
+    register u64 __ra3 asm("rcx") = (u64)(__a3);
+#define _switch_stack_args_5(__a0, __a1, __a2, __a3, __a4)     \
+    _switch_stack_args_4(__a0, __a1, __a2, __a3);              \
+    register u64 __ra4 asm("r8") = (u64)(__a4);
+
+#define switch_stack(s, target) _switch_stack_head(s, target); _switch_stack_tail()
+#define switch_stack_1(s, target, __a0) do {                   \
+    _switch_stack_head(s, target); _switch_stack_args_1(__a0); \
+    _switch_stack_tail("r"(__ra0)); } while(0)
+#define switch_stack_2(s, target, __a0, __a1) do {                      \
+    _switch_stack_head(s, target); _switch_stack_args_2(__a0, __a1);    \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1)); } while(0)
+#define switch_stack_3(s, target, __a0, __a1, __a2) do {                \
+    _switch_stack_head(s, target); _switch_stack_args_3(__a0, __a1, __a2); \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2)); } while(0)
+#define switch_stack_4(s, target, __a0, __a1, __a2, __a3) do {          \
+    _switch_stack_head(s, target); _switch_stack_args_4(__a0, __a1, __a2, __a3); \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2), "r"(__ra3)); } while(0)
+#define switch_stack_5(s, target, __a0, __a1, __a2, __a3, __a4) do {    \
+    _switch_stack_head(s, target); _switch_stack_args_5(__a0, __a1, __a2, __a3, __a4); \
+    _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2), "r"(__ra3), "r"(__ra4)); } while(0)
 
 /* for vdso */
 #define do_syscall(sysnr, rdi, rsi) ({\

@@ -1165,11 +1165,16 @@ void filesystem_dealloc(fsfile f, long offset, long len,
                         fs_status_handler completion)
 {
     assert(f);
-    filesystem fs = f->fs;
     /* A write with !sg indicates that the pagecache should zero the
        range. The null sg is propagated to the storage write for
        extent removal. */
-    filesystem_write_sg(f, 0, irangel(offset, len), closure(fs->h, filesystem_op_complete, f, completion));
+    status_handler sh;
+#ifdef KERNEL
+    sh = contextual_closure(filesystem_op_complete, f, completion);
+#else
+    sh = closure(f->fs->h, filesystem_op_complete, f, completion);
+#endif
+    filesystem_write_sg(f, 0, irangel(offset, len), sh);
 }
 
 static tuple fs_new_entry(filesystem fs)

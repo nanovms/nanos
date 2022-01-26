@@ -27,3 +27,8 @@ static inline boolean refcount_release(refcount r)
     }
     return false;
 }
+
+static inline void refcount_set_count(refcount r, int c)
+{
+    r->c = c;
+}

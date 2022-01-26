@@ -118,7 +118,7 @@ closure_function(5, 1, sysreturn, inotify_read_bh,
     else if (empty)
         notify_dispatch(in->f.ns, 0);
 out:
-    blockq_handle_completion(in->bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -127,7 +127,7 @@ define_closure_function(0, 6, sysreturn, inotify_read,
                        void *, buf, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     inotify in = struct_from_field(closure_self(), inotify, read);
-    blockq_action ba = closure(in->h, inotify_read_bh, in, t, buf, length, completion);
+    blockq_action ba = contextual_closure(inotify_read_bh, in, t, buf, length, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(in->bq, t, ba, bh);

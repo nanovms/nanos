@@ -407,10 +407,7 @@ sysreturn rt_sigreturn(void)
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(t);
     count_syscall_noreturn(t);
-
-    schedule_frame(thread_frame(t));
-    kern_unlock();
-    runloop();
+    syscall_finish(false);
 }
 
 sysreturn rt_sigaction(int signum,
@@ -525,7 +522,7 @@ closure_function(1, 1, sysreturn, rt_sigsuspend_bh,
     }
 
     sig_debug("-> block\n");
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
 }
 
 sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
@@ -539,8 +536,7 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
     thread t = current;
     u64 saved_mask = get_signal_mask(t);
     sig_debug("tid %d, *mask 0x%lx, saved_mask\n", t->tid, *mask, saved_mask);
-    heap h = heap_locked(get_kernel_heaps());
-    blockq_action ba = closure(h, rt_sigsuspend_bh, t);
+    blockq_action ba = contextual_closure(rt_sigsuspend_bh, t);
     t->saved_signal_mask = saved_mask;
     set_signal_mask(t, *mask);
     return blockq_check(t->thread_bq, t, ba, false);
@@ -551,7 +547,7 @@ static boolean thread_is_on_altsigstack(thread t)
     return t->signal_stack != 0 &&
         point_in_range(irangel(u64_from_pointer(t->signal_stack),
                                t->signal_stack_length),
-                       t->frame[SYSCALL_FRAME_SP]);
+                       thread_frame(t)[SYSCALL_FRAME_SP]);
 }
 
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
@@ -713,15 +709,14 @@ closure_function(1, 1, sysreturn, pause_bh,
     }
 
     sig_debug("-> block\n");
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
 }
 
 /* aarch64: may be invoked directly from ppoll(2) */
 sysreturn pause(void)
 {
     sig_debug("tid %d\n", current->tid);
-    heap h = heap_locked(get_kernel_heaps());
-    blockq_action ba = closure(h, pause_bh, current);
+    blockq_action ba = contextual_closure(pause_bh, current);
     return blockq_check(current->thread_bq, current, ba, false);
 }
 
@@ -754,7 +749,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
             return BLOCKQ_BLOCK_REQUIRED;
         } else {
             /* XXX record spurious wakeups? */
-            rv = nullify ? -EINTR : BLOCKQ_BLOCK_REQUIRED;
+            rv = nullify ? -EINTR : blockq_block_required(t, flags);
         }
     } else {
         if (bound(info))
@@ -776,8 +771,7 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
         (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false)))
         return -EFAULT;
     sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, *set, info, timeout);
-    heap h = heap_locked(get_kernel_heaps());
-    blockq_action ba = closure(h, rt_sigtimedwait_bh, current, *set, info, timeout);
+    blockq_action ba = contextual_closure(rt_sigtimedwait_bh, current, *set, info, timeout);
     timestamp t = timeout ? time_from_timespec(timeout) : 0;
     return blockq_check_timeout(current->thread_bq, current, ba, false, CLOCK_ID_MONOTONIC, t, false);
 }
@@ -858,7 +852,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
                     goto out;
                 }
                 sig_debug("   -> block\n");
-                return BLOCKQ_BLOCK_REQUIRED;
+                return blockq_block_required(t, flags);
             }
             break;
         }
@@ -872,7 +866,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
     rv = ninfos * sizeof(struct signalfd_siginfo);
     sig_debug("   %d infos, %ld bytes\n", ninfos, rv);
   out:
-    blockq_handle_completion(sfd->bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     return rv;
 }
@@ -883,7 +877,7 @@ closure_function(1, 6, sysreturn, signalfd_read,
 {
     signal_fd sfd = bound(sfd);
     sig_debug("fd %d, buf %p, length %ld, tid %d, bh %d\n", sfd->fd, buf, length, t->tid, bh);
-    blockq_action ba = closure(sfd->h, signalfd_read_bh, sfd, t, buf, length, completion);
+    blockq_action ba = contextual_closure(signalfd_read_bh, sfd, t, buf, length, completion);
     return blockq_check(sfd->bq, t, ba, bh);
 }
 

@@ -50,7 +50,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     if (efd->flags & EFD_SEMAPHORE) {
         u64 readVal = 1;
@@ -67,7 +67,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
     blockq_wake_one(efd->write_bq);
     fdesc_notify_events(&efd->f);
 out:
-    blockq_handle_completion(efd->read_bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -80,8 +80,8 @@ closure_function(1, 6, sysreturn, efd_read,
         return io_complete(completion, t, -EINVAL);
     }
 
-    blockq_action ba = closure(bound(efd)->h, efd_read_bh, bound(efd), t, buf, length,
-            completion);
+    blockq_action ba = contextual_closure(efd_read_bh, bound(efd), t, buf, length,
+                                          completion);
     return blockq_check(bound(efd)->read_bq, t, ba, bh);
 }
 
@@ -106,7 +106,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     efd->counter += counter;
     efd->io_event = true;
@@ -114,7 +114,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
     blockq_wake_one(efd->read_bq);
     fdesc_notify_events(&efd->f);
 out:
-    blockq_handle_completion(efd->write_bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -127,8 +127,8 @@ closure_function(1, 6, sysreturn, efd_write,
         return io_complete(completion, t, -EINVAL);
     }
 
-    blockq_action ba = closure(bound(efd)->h, efd_write_bh, bound(efd), t, buf, length,
-            completion);
+    blockq_action ba = contextual_closure(efd_write_bh, bound(efd), t, buf, length,
+                                          completion);
     return blockq_check(bound(efd)->write_bq, t, ba, bh);
 }
 

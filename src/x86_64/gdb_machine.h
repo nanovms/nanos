@@ -1,5 +1,5 @@
 const int signalmap[]={8, 5, 0, 5, 8, 10, 4, 8, 7, 10, 11, 11, 11, 11, 0, 0, 8, 10, 10, 8, 10};
-static inline int computeSignal (context frame)
+static inline int computeSignal (context_frame frame)
 {
     u64 exceptionVector = frame[FRAME_VECTOR];
     if (exceptionVector > (sizeof(signalmap)/sizeof(int)))
@@ -9,14 +9,14 @@ static inline int computeSignal (context frame)
 
 static inline void clear_thread_stepping(thread t)
 {
-    thread_frame(t)[FRAME_FLAGS] &= ~U64_FROM_BIT(EFLAG_TRAP);
-    thread_frame(t)[FRAME_FLAGS] |= U64_FROM_BIT(EFLAG_RESUME);
+    thread_frame(t)[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_TRAP);
+    thread_frame(t)[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_RESUME);
 }
 
 static inline void set_thread_stepping(thread t)
 {
-    thread_frame(t)[FRAME_FLAGS] &= ~U64_FROM_BIT(EFLAG_RESUME);
-    thread_frame(t)[FRAME_FLAGS] |= U64_FROM_BIT(EFLAG_TRAP);
+    thread_frame(t)[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_RESUME);
+    thread_frame(t)[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_TRAP);
 }
 
 /* XXX This is a hack. The numbering of the registers is based on
@@ -26,17 +26,17 @@ static inline void set_thread_stepping(thread t)
  * gdb is using. I think the qSupported xmlRegisters option can allow
  * the stub to define which registers are which number, which is the
  * real solution. */
-static inline int get_register(u64 num, void *buf, context c)
+static inline int get_register(u64 num, void *buf, context_frame f)
 {
     /* gp registers plus rip */
     if (num >= 0 && num < 17) {
-        *(u64 *)buf = c[num];
+        *(u64 *)buf = f[num];
         return sizeof(u64);
     } else if (num >= 17 && num < 24) {
-        *(u32 *)buf = (u32)c[num];
+        *(u32 *)buf = (u32)f[num];
         return sizeof(u32);
     } else if (num == 57 || num == 58) {
-        *(u64 *)buf = c[num-35];
+        *(u64 *)buf = f[num-35];
         return sizeof(u64);
     } else
         return -1;

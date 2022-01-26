@@ -31,6 +31,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/linear_backed_heap.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/log.c \
+	$(SRCDIR)/kernel/mutex.c \
 	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/page_backed_heap.c \
 	$(SRCDIR)/kernel/pagecache.c \

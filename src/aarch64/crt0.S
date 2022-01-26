@@ -2,7 +2,7 @@
 #include <frame.h>
 #include <kernel_machine.h>
         
-.macro  frame_save el
+.macro  frame_save el ex
         /* In the kernel, x18 always points to cpuinfo. */
 
         .if \el == 0
@@ -11,7 +11,7 @@
         .endif
 
         str     x17, [sp, #-8]
-        ldr     x17, [x18]      // running_frame
+        ldr     x17, [x18]      // current_context / frame
         stp     x0, x1, [x17, #(FRAME_X0 * 8)]
         stp     x2, x3, [x17, #(FRAME_X2 * 8)]
         stp     x4, x5, [x17, #(FRAME_X4 * 8)]
@@ -43,14 +43,20 @@
         str     x0, [x17, #(FRAME_EL * 8)]
 
         mrs     x0, spsr_el1
+        .if \ex == 1
         mrs     x1, esr_el1
         mrs     x2, elr_el1
         mrs     x3, far_el1
+        .endif
 
         add     x17, x17, #256
+        .if \ex == 1
         stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
         str     x2, [x17, #((FRAME_ELR - 32) * 8)]
         str     x3, [x17, #((FRAME_FAULT_ADDRESS - 32) * 8)]
+        .else
+        str     w0, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
+        .endif
         .endm
 
         .text
@@ -73,41 +79,40 @@ _start:
 
 // exception entries
 entry_sync_el1h:
-        frame_save 1
+        frame_save 1 1
         b       synchronous_handler
 
 entry_irq_el1h:
-        frame_save 1
+        frame_save 1 1
         b       irq_handler
 
 entry_serror_el1h:
-        frame_save 1
+        frame_save 1 1
         b       serror_handler
         
 entry_sync_el0: 
-        frame_save 0
+        frame_save 0 1
         b       synchronous_handler
 
 entry_irq_el0:
-        frame_save 0
+        frame_save 0 1
         b       irq_handler
 
 entry_serror_el0:
-        frame_save 0
+        frame_save 0 1
         b       serror_handler
 
 entry_invalid_el0:
-        frame_save 0
+        frame_save 0 1
         b       invalid_handler
 
 entry_invalid_el1:
-        frame_save 1
+        frame_save 1 1
         b       invalid_handler
 
 // universal frame return
 .globl frame_return
 frame_return:
-        str     x0, [x18]       // set running_frame
         mov     x1, #0x0        // clear frame full condition
         str     x1, [x0, #(FRAME_FULL * 8)]
 
@@ -139,6 +144,13 @@ frame_return:
         ldp     x28, x29, [x0, #(FRAME_X28 * 8)]
         ldp     x0, x1, [x0, #(FRAME_X0 * 8)]
         eret
+
+.globl context_suspend
+context_suspend:
+        frame_save 1 0
+        str     x30, [x17, #((FRAME_ELR - 32) * 8)]
+        ldr     x0, [x18]
+        b context_suspend_finish
 
         .globl arm_hvc
 arm_hvc:
@@ -183,7 +195,7 @@ exception_vectors:
 
 .globl frame_save_fpsimd
 frame_save_fpsimd:
-        add     x0, x0, #(FRAME_Q0 * 8)
+        ldr     x0, [x0, #(FRAME_EXTENDED * 8)]
         stp     q0, q1, [x0, #(0 * 16)]
         stp     q2, q3, [x0, #(2 * 16)]
         stp     q4, q5, [x0, #(4 * 16)]
@@ -208,7 +220,7 @@ frame_save_fpsimd:
 
 .globl frame_restore_fpsimd
 frame_restore_fpsimd:
-        add     x0, x0, #(FRAME_Q0 * 8)
+        ldr     x0, [x0, #(FRAME_EXTENDED * 8)]
         ldp     q0, q1, [x0, #(0 * 16)]
         ldp     q2, q3, [x0, #(2 * 16)]
         ldp     q4, q5, [x0, #(4 * 16)]

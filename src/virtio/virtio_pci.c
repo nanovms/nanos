@@ -213,9 +213,9 @@ closure_function(1, 0, void, vtpci_non_msix_irq,
     }
 
     if ((isr_status & VIRTIO_PCI_ISR_CONFIG) && dev->config_handler) {
-        virtio_pci_debug("       queueing config change handler %F to queue %p\n",
-                         dev->config_handler, dev->config_sched_queue);
-        enqueue(dev->config_sched_queue, dev->config_handler);
+        virtio_pci_debug("       queueing config change handler %F\n",
+                         dev->config_handler);
+        enqueue(runqueue, dev->config_handler);
     }
 }
 
@@ -238,18 +238,16 @@ static void vtpci_register_non_msix_queue_handler(vtpci dev, thunk handler)
     vector_push(dev->vq_handlers, handler);
 }
 
-static void vtpci_register_non_msix_config_handler(vtpci dev, thunk handler, queue sched_queue)
+static void vtpci_register_non_msix_config_handler(vtpci dev, thunk handler)
 {
     vtpci_register_non_msix_irq(dev);
     assert(!dev->config_handler);
     dev->config_handler = handler;
-    dev->config_sched_queue = sched_queue;
 }
 
 status vtpci_alloc_virtqueue(vtpci dev,
                              const char *name,
                              int idx,
-                             queue sched_queue,
                              struct virtqueue **result)
 {
     // allocate virtqueue
@@ -264,7 +262,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     virtio_pci_debug("%s: name %s, notify_offset 0x%lx\n", __func__, name, notify_offset);
     status s = virtqueue_alloc(&dev->virtio_dev, name, idx, size, notify_offset,
-                               VIRTIO_PCI_VRING_ALIGN, &vq, &handler, sched_queue);
+                               VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
     if (!is_ok(s))
         return s;
 
@@ -297,20 +295,19 @@ status vtpci_alloc_virtqueue(vtpci dev,
     return STATUS_OK;
 }
 
-closure_function(3, 0, void, vtpci_config_change_msix_irq,
-                 vtpci, dev, thunk, handler, queue, sched_queue)
+closure_function(2, 0, void, vtpci_config_change_msix_irq,
+                 vtpci, dev, thunk, handler)
 {
-    virtio_pci_debug("%s: dev %p, queueing config change handler %F to queue %p\n",
-                     __func__, bound(dev), bound(handler), bound(sched_queue));
-    enqueue(bound(sched_queue), bound(handler));
+    virtio_pci_debug("%s: dev %p, queueing config change handler %F\n",
+                     __func__, bound(dev), bound(handler));
+    enqueue(runqueue, bound(handler));
 }
 
-status vtpci_register_config_change_handler(vtpci dev, thunk handler, queue sched_queue)
+status vtpci_register_config_change_handler(vtpci dev, thunk handler)
 {
-    virtio_pci_debug("%s: dev %p, handler %p (%F), sched_queue %p\n",
-                     __func__, dev, handler, handler, sched_queue);
+    virtio_pci_debug("%s: dev %p, handler %p (%F)\n", __func__, dev, handler, handler);
     if (dev->msix_enabled) {
-        thunk t = closure(dev->virtio_dev.general, vtpci_config_change_msix_irq, dev, handler, sched_queue);
+        thunk t = closure(dev->virtio_dev.general, vtpci_config_change_msix_irq, dev, handler);
         assert(t != INVALID_ADDRESS);
 
         // XXX vtdev name
@@ -320,7 +317,7 @@ status vtpci_register_config_change_handler(vtpci dev, thunk handler, queue sche
         if (pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_CONFIG_MSIX_VECTOR]) != 0)
             return timm("status", "cannot configure config change MSI-X vector");
     } else {
-        vtpci_register_non_msix_config_handler(dev, handler, sched_queue);
+        vtpci_register_non_msix_config_handler(dev, handler);
     }
     return STATUS_OK;
 }
@@ -449,6 +446,5 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
     dev->non_msix_handler = 0;
     dev->vq_handlers = 0;
     dev->config_handler = 0;
-    dev->config_sched_queue = 0;
     return dev;
 }

@@ -139,17 +139,19 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     // stack should be 16-byte aligned
     assert(pad(u64_from_pointer(s), STACK_ALIGNMENT) == u64_from_pointer(s));
 
-    frame_set_sp(t->frame, u64_from_pointer(s));
+    frame_set_stack(thread_frame(t), u64_from_pointer(s));
 }
 
 void start_process(thread t, void *start)
 {
-    t->frame[SYSCALL_FRAME_PC] = u64_from_pointer(start);
+    thread_frame(t)[SYSCALL_FRAME_PC] = u64_from_pointer(start);
+    thread_frame(t)[FRAME_FULL] = true;
+    thread_reserve(t);
     if (get(t->p->process_root, sym(gdb))) {
         rputs("NOTE: in-kernel gdb is a work in progress\n");
         init_tcp_gdb(heap_locked(get_kernel_heaps()), t->p, 9090);
     } else {
-        schedule_frame(t->frame);
+        schedule_thread(t);
     }
 }
 
@@ -303,9 +305,6 @@ process exec_elf(buffer ex, process kp)
                                closure(heap_locked(kh), load_interp_fail));
         return proc;
     }
-
-    /* current needs to be valid for further setup */
-    set_current_thread(&t->thrd);
 
     string cwd = get_string(root, sym(cwd));
     if (cwd) {

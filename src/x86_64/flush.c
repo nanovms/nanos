@@ -112,9 +112,9 @@ static void service_list(boolean trydefer)
         if (f->completion) {
             if (trydefer) {
                 if (!enqueue(flush_completion_queue, f->completion))
-                    apply(f->completion, STATUS_OK);
+                    async_apply_status_handler(f->completion, STATUS_OK);
             } else {
-                apply(f->completion, STATUS_OK);
+                async_apply_status_handler(f->completion, STATUS_OK);
             }
         }
         assert(enqueue(free_flush_entries, f));
@@ -131,7 +131,7 @@ closure_function(0, 0, void, do_flush_service)
         service_list(false);
         spin_wunlock_irq(&flush_lock, flags);
         while ((c = dequeue(flush_completion_queue)) != INVALID_ADDRESS)
-            apply(c, STATUS_OK);
+            async_apply_status_handler(c, STATUS_OK);
     }
 }
 
@@ -188,7 +188,7 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
         irq_restore(flags);
     } else {
         if (completion)
-            apply(completion, STATUS_OK);
+            async_apply_status_handler(completion, STATUS_OK);
     }
 }
 

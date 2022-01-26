@@ -256,7 +256,6 @@ closure_function(3, 1, sysreturn, iour_close_bh,
                  u64, flags)
 {
     io_uring iour = bound(iour);
-    blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = -ERESTARTSYS;
@@ -268,12 +267,12 @@ closure_function(3, 1, sysreturn, iour_close_bh,
     if (iour->noncancelable_ops != 0) {
         iour_debug("blocking");
         iour_unlock(iour);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     iour_release(iour);
     rv = 0;
 out:
-    blockq_handle_completion(bq, flags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     iour_debug("returning %d", rv);
     return rv;
@@ -311,8 +310,7 @@ define_closure_function(1, 2, sysreturn, iour_close,
     }
     if (t) {
         if (iour->noncancelable_ops) {
-            blockq_action ba = closure(iour->h, iour_close_bh, iour, t,
-                completion);
+            blockq_action ba = contextual_closure(iour_close_bh, iour, t, completion);
             if (ba != INVALID_ADDRESS) {
                 iour->bq = t->thread_bq;
                 return blockq_check(iour->bq, t, ba, false);
@@ -579,6 +577,7 @@ closure_function(3, 2, void, iour_rw_complete,
 {
     fdesc_put(bound(f));
     iour_complete(bound(iour), bound(user_data), rv, true, true);
+    context_release_refcount(get_current_context(current_cpu()));
     closure_finish();
 }
 
@@ -591,6 +590,7 @@ static void iour_iov(io_uring iour, fdesc f, boolean write, struct iovec *iov,
         fdesc_put(f);
         iour_complete(iour, user_data, -ENOMEM, false, false);
     } else {
+        context_reserve_refcount(get_current_context(current_cpu()));
         fetch_and_add(&iour->noncancelable_ops, 1);
         iov_op(f, write, iov, len, off, false, completion);
     }
@@ -618,6 +618,7 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
         fdesc_put(f);
         iour_complete(iour, user_data, err, false, false);
     } else {
+        context_reserve_refcount(get_current_context(current_cpu()));
         fetch_and_add(&iour->noncancelable_ops, 1);
         apply(op, addr, len, offset, current, true, completion);
     }
@@ -1043,7 +1044,6 @@ simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
     io_uring iour = bound(iour);
     if (flags & BLOCKQ_ACTION_BLOCKED)
         iour_lock(iour);
-    blockq bq = iour->bq;
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         if (bound(submitted))
@@ -1066,12 +1066,12 @@ out:
     iour_unlock(iour);
     if (rv == BLOCKQ_BLOCK_REQUIRED) {
         iour_debug("blocking");
-        return rv;
+        return blockq_block_required(bound(t), flags);
     }
     thread t = bound(t);
     if (bound(sig_set))
         t->signal_mask = iour->sigmask;
-    blockq_handle_completion(bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     iour_debug("returning %d", rv);
     fdesc_put(&iour->f);
@@ -1096,7 +1096,7 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
     }
     closure_ref(iour_getevents_bh, bh);
     if (flags & IORING_ENTER_GETEVENTS) {
-        closure_alloc(iour->h, iour_getevents_bh, bh);
+        contextual_closure_alloc(iour_getevents_bh, bh);
         if (bh == INVALID_ADDRESS) {
             rv = -ENOMEM;
             goto out;
@@ -1128,6 +1128,9 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
             break;
         }
     }
+    cpuinfo ci = current_cpu();
+    syscall_context sc = (syscall_context)get_current_context(ci);
+    assert(is_syscall_context(&sc->context));
     rv = submitted;
     if (flags & IORING_ENTER_GETEVENTS) {
         iour_lock(iour);
@@ -1150,8 +1153,11 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         bh->timeouts = iour->cq_timeouts;
         bh->t = current;
         bh->completion = syscall_io_complete;
+        check_syscall_context_replace(ci, &sc->context);
         return blockq_check(iour->bq, current,
             closure_get(iour_getevents_bh, bh), false);
+    } else {
+        orphan_syscall_context(ci, sc);
     }
 out:
     fdesc_put(&iour->f);
