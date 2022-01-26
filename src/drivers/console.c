@@ -40,6 +40,11 @@ void console_write(const char *s, bytes count)
     spin_unlock(&write_lock);
 }
 
+void console_force_unlock(void)
+{
+    spin_unlock(&write_lock);
+}
+
 closure_function(0, 1, void, attach_console,
                  struct console_driver *, d)
 {

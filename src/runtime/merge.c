@@ -1,4 +1,8 @@
+#ifdef KERNEL
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
 
 typedef closure_type(merge_apply, status_handler);
 
@@ -20,7 +24,11 @@ closure_function(1, 1, void, merge_join,
 
     word n = fetch_and_add(&m->count, (word)-1);
     if (n == 1) {
+#if KERNEL
+        async_apply_status_handler(m->completion, m->last_status);
+#else
         apply(m->completion, m->last_status);
+#endif
         deallocate_closure(m->apply);
         deallocate(m->h, m, sizeof(struct merge));
         closure_finish();

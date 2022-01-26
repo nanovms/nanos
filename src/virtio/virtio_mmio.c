@@ -162,7 +162,7 @@ define_closure_function(1, 0, void, vtmmio_irq,
     }
 }
 
-status vtmmio_alloc_virtqueue(vtmmio dev, const char *name, int idx, queue sched_queue,
+status vtmmio_alloc_virtqueue(vtmmio dev, const char *name, int idx,
                               struct virtqueue **result)
 {
     virtio_mmio_debug("allocating virtqueue %d (%s)", idx, name);
@@ -175,7 +175,7 @@ status vtmmio_alloc_virtqueue(vtmmio dev, const char *name, int idx, queue sched
         size = U16_MAX;
     thunk handler;
     status s = virtqueue_alloc(&dev->virtio_dev, name, idx, size,
-                               VTMMIO_OFFSET_QUEUENOTIFY, PAGESIZE, &vq, &handler, sched_queue);
+                               VTMMIO_OFFSET_QUEUENOTIFY, PAGESIZE, &vq, &handler);
     if (!is_ok(s))
         return s;
     if (!dev->irq_vector) {

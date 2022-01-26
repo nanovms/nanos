@@ -12,7 +12,7 @@ typedef struct gdb {
     buffer_handler output_handler;
     thread t; // we can really get several 
     process p;
-    u64 fault_handler;
+    fault_handler fault_handler;
     boolean multiprocess;
     boolean sending;
     int ctid; // thread id for vcont/continues

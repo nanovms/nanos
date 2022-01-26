@@ -81,15 +81,15 @@ void cblock()
     p("};\n\n");
 
     p("#define CLOSURE_DECLARE_FUNCS_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
-    p("static _rettype (**_fill_##_name(heap h, struct _closure_##_name* n, bytes s^))(void *~);|", ", _lt% l%", ", _rt%");
+    p("static _rettype (**_fill_##_name(u64 ctx, struct _closure_##_name* n, bytes s^))(void *~);|", ", _lt% l%", ", _rt%");
     p("static _rettype _name(struct _closure_##_name *~);\n\n", ", _rt%");
 
     p("#define CLOSURE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
-    p("static _rettype (**_fill_##_name(heap h, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _rt%");
+    p("static _rettype (**_fill_##_name(u64 ctx, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _rt%");
     p("  if (n != INVALID_ADDRESS) {|");
     p("    n->__apply = _name;|");
     p("    n->__c.name = #_name;|");
-    p("    n->__c.h = h;|");
+    p("    n->__c.ctx = ctx;|");
     p("    n->__c.size = s;|");
     for (int i = 0; i < nleft ; i++)  p("  n->_ln% = l%;|", i, i);
     p("  }|");

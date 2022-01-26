@@ -7,11 +7,6 @@ declare_closure_struct(1, 2, void, pagecache_scan_timer,
                        struct pagecache *, pc,
                        u64, expiry, u64, overruns);
 
-struct pagecache_completion_queue;
-
-declare_closure_struct(2, 0, void, pagecache_service_completions,
-                       struct pagecache *, pc, struct pagecache_completion_queue *, cq);
-
 declare_closure_struct(0, 2, int, pagecache_page_compare,
                        rbnode, a, rbnode, b);
 declare_closure_struct(1, 1, boolean, pagecache_page_print_key,
@@ -25,12 +20,6 @@ typedef struct page_completion {
         status s;               /* queued list head has status to apply */
     };
 } *page_completion;
-
-typedef struct pagecache_completion_queue {
-    queue q;
-    boolean scheduled;
-    closure_struct(pagecache_service_completions, service);
-} *pagecache_completion_queue;
 
 typedef struct pagecache {
     word total_pages;
@@ -54,8 +43,6 @@ typedef struct pagecache {
     struct pagelist dirty;     /* phase 2 */
     struct list volumes;
     struct list shared_maps;
-
-    struct pagecache_completion_queue bh_completions;
 
     boolean scan_in_progress;
     struct timer scan_timer;

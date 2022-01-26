@@ -142,7 +142,7 @@ void print_frame_trace_from_here(void)
     frame_trace(pointer_from_u64(rbp));
 }
 
-void print_stack(context c)
+static void print_stack(context_frame c)
 {
     rputs("\nframe trace:\n");
     frame_trace(pointer_from_u64(c[FRAME_RBP]));
@@ -159,8 +159,9 @@ void print_stack(context c)
     rputs("\n");
 }
 
-void print_frame(context f)
+void dump_context(context ctx)
 {
+    context_frame f = ctx->frame;
     u64 v = f[FRAME_VECTOR];
     rputs(" interrupt: ");
     print_u64(v);
@@ -171,28 +172,34 @@ void print_frame(context f)
     }
     rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
-    rputs("\n");
+    if (ctx->type >= CONTEXT_TYPE_UNDEFINED && ctx->type < CONTEXT_TYPE_MAX) {
+        rputs("\n      type: ");
+        rputs(context_type_strings[ctx->type]);
+    }
+    rputs("\nactive_cpu: ");
+    print_u64(ctx->active_cpu);
+    rputs("\n stack top: ");
+    print_u64(f[FRAME_STACK_TOP]);
 
     if (v == 13 || v == 14) {
-	rputs("error code: ");
+	rputs("\nerror code: ");
 	print_u64(f[FRAME_ERROR_CODE]);
-	rputs("\n");
     }
 
     // page fault
     if (v == 14)  {
-        rputs("   address: ");
+        rputs("\n   address: ");
         print_u64_with_sym(f[FRAME_CR2]);
-        rputs("\n");
     }
     
-    rputs("\n");
+    rputs("\n\n");
     for (int j = 0; j < 24; j++) {
         rputs(register_name(j));
         rputs(": ");
         print_u64_with_sym(f[j]);
         rputs("\n");
     }
+    print_stack(f);
 }
 
 extern u32 n_interrupt_vectors;
@@ -205,7 +212,8 @@ void common_handler()
     /* XXX yes, this will be a problem on a machine check or other
        fault while in an int handler...need to fix in interrupt_common */
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
+    context ctx = get_current_context(ci);
+    context_frame f = ctx->frame;
     int i = f[FRAME_VECTOR];
 
     if (i >= n_interrupt_vectors) {
@@ -225,16 +233,6 @@ void common_handler()
     if (i == spurious_int_vector)
         frame_return(f);        /* direct return, no EOI */
 
-    /* Unless there's some reason to handle a page fault in interrupt
-       mode, this should always be terminal.
-
-       This really should include kernel mode, too, but we're for the
-       time being allowing the kernel to take page faults...which
-       really isn't sustainable unless we want fine-grained locking
-       around the vmaps and page tables. Validating user buffers will
-       get rid of this requirement (and allow us to add the check for
-       cpu_kernel here too).
-    */
     if (ci->state == cpu_interrupt) {
         console("\nexception during interrupt handling\n");
         goto exit_fault;
@@ -247,6 +245,7 @@ void common_handler()
         goto exit_fault;
     }
     f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
 
     /* invoke handler if available, else general fault handler */
     if (handlers[i]) {
@@ -256,30 +255,38 @@ void common_handler()
             lapic_eoi();
 
         /* enqueue interrupted user thread */
-        if (saved_state == cpu_user && !shutting_down) {
-            int_debug("int sched %F\n", f[FRAME_RUN]);
-            schedule_frame(f);
+        if (is_thread_context(ctx) && !shutting_down) {
+            int_debug("int sched thread %p\n", ctx);
+            context_schedule_return(ctx);
         }
     } else {
-        /* fault handlers likely act on cpu state, so don't change it */
-        fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
+        /* fault handlers may act on cpu state, so don't change it */
+        fault_handler fh = ctx->fault_handler;
         if (fh) {
-            context retframe = apply(fh, f);
-            if (retframe)
-                frame_return(retframe);
+            context retctx = apply(fh, ctx);
+            if (retctx) {
+                context_release_refcount(retctx);
+                frame_return(retctx->frame);
+            }
         } else {
-            console("\nno fault handler for frame ");
-            print_u64(u64_from_pointer(f));
-            /* make a half attempt to identify it short of asking unix */
-            /* we should just have a name here */
-            if (is_current_kernel_context(f))
-                console(" (kernel frame)");
-            console("\n");
+            console("\nno fault handler\n");
             goto exit_fault;
         }
     }
-    if (is_current_kernel_context(f)) {
-        if (saved_state == cpu_kernel) {
+
+    /* For now we will frame return directly to syscall and kernel
+       contexts. We could explore inserting bh processing prior to the return
+       (the bh handlers are supposed to be reentrant - however I suspect some
+       non-irq-bh tasks migrated over from runqueue during the kernel lock
+       removal transition and need to be moved back), but without a full trip
+       through runloop it's not clear how beneficial this would be. Or the
+       context could be optionally scheduled if some condition is met,
+       e.g. some limit of consecutive frame returns without a call to runloop
+       is reached. */
+
+    if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
+        context_release_refcount(ctx);
+        if (saved_state != cpu_idle) {
             ci->state = cpu_kernel;
             frame_return(f);
         }
@@ -294,8 +301,7 @@ void common_handler()
     console(", vector ");
     print_u64(i);
     console("\n");
-    print_frame(f);
-    print_stack(f);
+    dump_context(ctx);
     apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
@@ -433,4 +439,14 @@ void triple_fault(void)
     *(u64*)(idt_desc + sizeof(u16)) = u64_from_pointer(idt);
     asm volatile("lidt %0; int3": : "m"(*(u64*)idt_desc));
     while (1);
+}
+
+void __attribute__((noreturn)) __stack_chk_fail(void)
+{
+    cpuinfo ci = current_cpu();
+    context ctx = get_current_context(ci);
+    rprintf("stack check failed on cpu %d\n", ci->id);
+    dump_context(ctx);
+    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
+    vm_exit(VM_EXIT_FAULT);
 }

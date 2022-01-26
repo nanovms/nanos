@@ -340,21 +340,10 @@ static void epoll_blocked_release(epoll_blocked w, u64 bq_flags)
 {
     epoll_debug("w %p\n", w);
 
-    /* The lock protecting the list of blocked threads must be acquired if this function call comes
-     * from either the top half of a syscall (in which case BLOCKQ_ACTION_BLOCKED is not set), or a
-     * timeout or signal that interrupts an ongoing syscall (in which case, either
-     * BLOCKQ_ACTION_NULLIFY or BLOCKQ_ACTION_TIMEDOUT is set). */
-    boolean locked = ((bq_flags & (BLOCKQ_ACTION_BLOCKED |
-                                  BLOCKQ_ACTION_NULLIFY |
-                                  BLOCKQ_ACTION_TIMEDOUT))
-                      ^ BLOCKQ_ACTION_BLOCKED) != 0;
-
-    if (locked)
-        spin_lock(&w->e->blocked_lock);
+    spin_lock(&w->e->blocked_lock);
     assert(!list_empty(&w->blocked_list));
     list_delete(&w->blocked_list);
-    if (locked)
-        spin_unlock(&w->e->blocked_lock);
+    spin_unlock(&w->e->blocked_lock);
     list_init(&w->blocked_list);
     refcount_release(&w->refcount);
 }
@@ -391,19 +380,31 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
         epoll_debug("   user_events null or full\n");
         return;
     }
-    thread old = current;
-    thread_resume(w->t);
-    struct epoll_event *e = buffer_ref(w->user_events, w->user_events->end);
+    context ctx = get_current_context(current_cpu());
+    if (is_kernel_context(ctx)) {
+        /* Borrow the thread's fault handler prior to touching user memory. */
+        use_fault_handler(w->t->context.fault_handler);
+    }
+    struct epoll_event *e, *end;
+    e = buffer_ref(w->user_events, 0);
+    end = buffer_ref(w->user_events, w->user_events->end);
+    while (e < end) {
+        if (e->data == efd->data) {
+            /* Use the union of reported events so that edge triggers aren't missed. */
+            e->events |= report;
+            goto reported;
+        }
+        e++;
+    }
     e->data = efd->data;
     e->events = report;
     w->user_events->end += sizeof(struct epoll_event);
-    spin_unlock(&w->lock);
-    if (old)
-        thread_resume(old);
-    else
-        thread_pause(current);
+  reported:
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
-
+    if (is_kernel_context(ctx))
+        clear_fault_handler();
+    spin_unlock(&w->lock);
+    
     /* XXX check this */
     if (efd->eventmask & EPOLLONESHOT)
         efd->zombie = true;
@@ -485,7 +486,7 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
     spin_unlock(&w->lock);
 
     epoll_debug("  continue blocking\n");
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(bound(t), flags);
   out_wakeup:
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
@@ -546,7 +547,7 @@ sysreturn epoll_wait(int epfd,
 
     timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, epoll_wait_bh, w, current,
+                                contextual_closure(epoll_wait_bh, w, current,
                                 (timeout < 0) ? infinity : ts), false,
                                 CLOCK_ID_MONOTONIC, ts, false);
 }
@@ -681,16 +682,16 @@ static inline void select_notify(epollfd efd, epoll_blocked w, u64 events)
     int count = 0;
     spin_lock(&w->lock);
     if (w->rset && (events & POLLFDMASK_READ)) {
-        bitmap_set(w->rset, efd->fd, 1);
-        count++;
+        if (!bitmap_test_and_set_atomic(w->rset, efd->fd, 1))
+            count++;
     }
     if (w->wset && (events & POLLFDMASK_WRITE)) {
-        bitmap_set(w->wset, efd->fd, 1);
-        count++;
+        if (!bitmap_test_and_set_atomic(w->wset, efd->fd, 1))
+            count++;
     }
     if (w->eset && (events & POLLFDMASK_EXCEPT)) {
-        bitmap_set(w->eset, efd->fd, 1);
-        count++;
+        if (!bitmap_test_and_set_atomic(w->eset, efd->fd, 1))
+            count++;
     }
     spin_unlock(&w->lock);
     if (count > 0) {
@@ -724,7 +725,7 @@ closure_function(3, 1, sysreturn, select_bh,
     }
     spin_unlock(&w->lock);
 
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
   out_wakeup:
     if (w->rset)
         bitmap_unwrap(w->rset);
@@ -877,7 +878,7 @@ static sysreturn select_internal(int nfds,
     spin_unlock(&e->fds_lock);
   check_timeout:
     return blockq_check_timeout(wt->t->thread_bq, current,
-                                closure(e->h, select_bh, wt, current, timeout), false,
+                                contextual_closure(select_bh, wt, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
@@ -905,8 +906,16 @@ static inline void poll_notify(epollfd efd, epoll_blocked w, u64 events)
         return;
 
     spin_lock(&w->lock);
+    if (!w->poll_fds) {
+        spin_unlock(&w->lock);
+        return;
+    }
     struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
-    fetch_and_add(&w->poll_retcount, 1);
+    if (pfd->revents == 0) {
+        /* Only increment if we're not amending an entry. */
+        assert(fetch_and_add(&w->poll_retcount, 1) <
+               (w->poll_fds->length / sizeof(struct pollfd)));
+    }
     pfd->revents = events;
     epoll_debug("   event on %d (%d), events 0x%x\n", efd->fd, pfd->fd, pfd->revents);
     spin_unlock(&w->lock);
@@ -937,7 +946,7 @@ closure_function(3, 1, sysreturn, poll_bh,
     }
     spin_unlock(&w->lock);
 
-    return BLOCKQ_BLOCK_REQUIRED;
+    return blockq_block_required(t, flags);
   out_wakeup:
     unwrap_buffer(w->e->h, w->poll_fds);
     w->poll_fds = 0;
@@ -1029,7 +1038,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     deallocate_bitmap(remove_efds);
 
     return blockq_check_timeout(w->t->thread_bq, current,
-                                closure(e->h, poll_bh, w, current, timeout), false,
+                                contextual_closure(poll_bh, w, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 

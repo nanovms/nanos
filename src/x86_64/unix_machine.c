@@ -74,7 +74,7 @@ struct rt_sigframe *get_rt_sigframe(thread t)
  */
 static void setup_ucontext(struct ucontext *uctx, thread t, void *fpstate)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     struct sigcontext * mcontext = &(uctx->uc_mcontext);
 
     mcontext->r8 = f[FRAME_R8];
@@ -94,7 +94,7 @@ static void setup_ucontext(struct ucontext *uctx, thread t, void *fpstate)
     mcontext->rcx = f[FRAME_RCX];
     mcontext->rsp = f[FRAME_RSP];
     mcontext->rip = f[FRAME_RIP];
-    mcontext->eflags = f[FRAME_FLAGS];
+    mcontext->eflags = f[FRAME_EFLAGS];
     mcontext->cs = f[FRAME_CS];
     mcontext->ss = f[FRAME_SS];
     mcontext->fs = 0;
@@ -110,7 +110,7 @@ static u64 setup_ucontext_fpstate(void **fpstate, thread t, u64 rsp)
 {
     rsp -= pad(extended_frame_size, 16);
     *fpstate = pointer_from_u64(rsp);
-    runtime_memcpy(*fpstate, &thread_frame(t)[FRAME_EXTENDED_SAVE], extended_frame_size);
+    runtime_memcpy(*fpstate, frame_extended(t->context.frame), extended_frame_size);
     return rsp;
 }
 
@@ -119,9 +119,8 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     sigaction sa = sigaction_from_sig(t, signum);
 
     assert(sizeof(struct siginfo) == 128);
-    thread_resume(t);
 
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     u64 rsp;
 
     if ((sa->sa_flags & SA_ONSTACK) && t->signal_stack)
@@ -164,7 +163,7 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
  */
 void restore_ucontext(struct ucontext * uctx, thread t)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     struct sigcontext * mcontext = &(uctx->uc_mcontext);
 
     f[FRAME_R8] = mcontext->r8;
@@ -184,12 +183,12 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     f[FRAME_RCX] = mcontext->rcx;
     f[FRAME_RSP] = mcontext->rsp;
     f[FRAME_RIP] = mcontext->rip;
-    f[FRAME_FLAGS] = (f[FRAME_FLAGS] & ~SAFE_EFLAGS) | (mcontext->eflags & SAFE_EFLAGS);
+    f[FRAME_EFLAGS] = (f[FRAME_EFLAGS] & ~SAFE_EFLAGS) | (mcontext->eflags & SAFE_EFLAGS);
     f[FRAME_CS] = mcontext->cs | 0x3; /* force CPL3 */
     f[FRAME_SS] = mcontext->ss | 0x3;
     t->signal_mask = normalize_signal_mask(mcontext->oldmask);
     if (mcontext->fpstate)
-        runtime_memcpy(&thread_frame(t)[FRAME_EXTENDED_SAVE], mcontext->fpstate, extended_frame_size);
+        runtime_memcpy(frame_extended(t->context.frame), mcontext->fpstate, extended_frame_size);
 }
 
 void register_other_syscalls(struct syscall *map)

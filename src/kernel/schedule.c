@@ -1,7 +1,5 @@
 #include <kernel.h>
 
-/* Try to keep these within the confines of the runloop lock so we
-   don't create too much of a mess. */
 //#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
 #define sched_debug(x, ...) do {log_printf("SCHED", "[%02d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
@@ -22,67 +20,13 @@ BSS_RO_AFTER_INIT static int wakeup_vector;
 BSS_RO_AFTER_INIT int shutdown_vector;
 boolean shutting_down;
 
-BSS_RO_AFTER_INIT queue runqueue;   /* kernel space from ?*/
-BSS_RO_AFTER_INIT queue bhqueue;    /* kernel from interrupt */
+BSS_RO_AFTER_INIT queue bhqueue;                  /* kernel from interrupt */
+BSS_RO_AFTER_INIT queue runqueue;
+BSS_RO_AFTER_INIT queue async_queue_1;            /* queue of async 1 arg completions */
 BSS_RO_AFTER_INIT bitmap idle_cpu_mask;
 
 BSS_RO_AFTER_INIT timerqueue kernel_timers;
 BSS_RO_AFTER_INIT thunk timer_interrupt_handler;
-
-static struct spinlock kernel_lock;
-
-void kern_lock()
-{
-    cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
-    assert(ci->state == cpu_kernel);
-
-    /* allow interrupt handling to occur while spinning */
-    u64 flags = irq_enable_save();
-    frame_enable_interrupts(f);
-    spin_lock(&kernel_lock);
-    ci->have_kernel_lock = true;
-    irq_restore(flags);
-    frame_disable_interrupts(f);
-}
-
-boolean kern_try_lock()
-{
-    cpuinfo ci = current_cpu();
-    assert(ci->state != cpu_interrupt);
-    if (!spin_try(&kernel_lock))
-        return false;
-    ci->have_kernel_lock = true;
-    return true;
-}
-
-void kern_unlock()
-{
-    cpuinfo ci = current_cpu();
-    assert(ci->state != cpu_interrupt);
-    ci->have_kernel_lock = false;
-    spin_unlock(&kernel_lock);
-}
-
-static void run_thunk(thunk t)
-{
-    sched_debug(" run: %F state: %s\n", t, state_strings[current_cpu()->state]);
-    apply(t);
-    // do we want to enforce this? i kinda just want to collapse
-    // the stack and ensure that the thunk actually wanted to come back here
-    //    halt("handler returned %d", cpustate);
-}
-
-static inline void sched_thread_pause(void)
-{
-    if (shutting_down)
-        return;
-    nanos_thread nt = get_current_thread();
-    if (nt) {
-        sched_debug("sched_thread_pause, nt %p\n", nt);
-        apply(nt->pause);
-    }
-}
 
 NOTRACE void __attribute__((noreturn)) kernel_sleep(void)
 {
@@ -180,45 +124,66 @@ closure_function(0, 0, void, timer_interrupt_handler_fn)
     schedule_timer_service();
 }
 
-// should we ever be in the user frame here? i .. guess so?
-NOTRACE void __attribute__((noreturn)) runloop_internal()
+static inline void service_thunk_queue(queue q)
+{
+    thunk t;
+    context c;
+    while ((t = dequeue(q)) != INVALID_ADDRESS) {
+        c = context_from_closure(t);
+        sched_debug(" run: %F state: %s context: %p\n", t, state_strings[current_cpu()->state], c);
+        if (c)
+            context_apply(c, t);
+        else
+            apply(t);
+    }
+}
+
+static inline void service_async_1(queue q)
+{
+    struct applied_async_1 aa;
+    while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64))) {
+        sched_debug(" run: %F arg0: 0x%lx\n", aa.a, aa.arg0);
+        context c = context_from_closure(aa.a);
+        if (c)
+            context_apply_1(c, aa.a, aa.arg0);
+        else
+            apply(aa.a, aa.arg0);
+    }
+}
+
+NOTRACE void __attribute__((noreturn)) runloop_internal(void)
 {
     cpuinfo ci = current_cpu();
-    thunk t;
 
-    sched_thread_pause();
     disable_interrupts();
-    sched_debug("runloop from %s b:%d r:%d t:%d%s\n", state_strings[ci->state],
-                queue_length(bhqueue), queue_length(runqueue), queue_length(ci->thread_queue),
-                ci->have_kernel_lock ? " locked" : "");
+    sched_debug("runloop from %s c: %d  a1: %d\n"
+                "    b:%d  r:%d  t:%d\n", state_strings[ci->state],
+                queue_length(ci->cpu_queue), queue_length(async_queue_1),
+                queue_length(bhqueue), queue_length(runqueue),
+                queue_length(ci->thread_queue));
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();
 
+  retry:
     /* queue for cpu specific operations */
-    while ((t = dequeue(ci->cpu_queue)) != INVALID_ADDRESS)
-        run_thunk(t);
-    /* bhqueue is for operations outside the realm of the kernel lock,
-       e.g. storage I/O completions */
-    while ((t = dequeue(bhqueue)) != INVALID_ADDRESS)
-        run_thunk(t);
+    service_thunk_queue(ci->cpu_queue);
 
-    if (kern_try_lock()) {
-        /* invoke expired timer callbacks */
-        ci->state = cpu_kernel;
+    /* bhqueue is for deferred operations, enqueued by interrupt handlers */
+    service_thunk_queue(bhqueue);
 
-        while ((t = dequeue(runqueue)) != INVALID_ADDRESS)
-            run_thunk(t);
+    /* serve deferred status_handlers, some of which may not return */
+    service_async_1(async_queue_1);
 
-        /* should be a list of per-runloop checks - also low-pri background */
-        mm_service();
-        kern_unlock();
-    }
+    service_thunk_queue(runqueue);
+
+    /* should be a list of per-runloop checks - also low-pri background */
+    mm_service();
 
     boolean timer_updated = update_timer();
 
     if (!shutting_down) {
-        t = dequeue(ci->thread_queue);
+        thunk t = dequeue(ci->thread_queue);
         if (t == INVALID_ADDRESS) {
             /* Try to steal a thread from an idle CPU (so that it doesn't
              * have to be woken up), and wake up CPUs that have a non-empty
@@ -268,13 +233,27 @@ NOTRACE void __attribute__((noreturn)) runloop_internal()
                     ci->last_timer_update = here + kernel_timers->max;
                 }
             }
-            run_thunk(t);
+            apply(t);
         }
     }
 
-    sched_thread_pause();
+    /* We want to pick up items that were enqueued during this last pass, else
+       runnable items may get stuck waiting for the next interrupt.
+
+       Find cost of sleep / wakeup and consider spinning this check for that interval. */
+    if (queue_length(ci->cpu_queue) || queue_length(async_queue_1) ||
+        queue_length(bhqueue) || queue_length(runqueue) ||
+        (!shutting_down && queue_length(ci->thread_queue)))
+        goto retry;
+
     kernel_sleep();
 }    
+
+/* non-inlined trampoline target */
+NOTRACE void __attribute__((noreturn)) runloop_target(void)
+{
+    runloop();
+}
 
 closure_function(0, 0, void, global_shutdown)
 {
@@ -283,8 +262,6 @@ closure_function(0, 0, void, global_shutdown)
 
 void init_scheduler(heap h)
 {
-    spin_lock_init(&kernel_lock);
-
     /* timer init */
     kernel_timers = allocate_timerqueue(h, "runloop");
     assert(kernel_timers != INVALID_ADDRESS);
@@ -301,8 +278,10 @@ void init_scheduler(heap h)
     assert(wakeup_vector != INVALID_PHYSICAL);
 
     /* scheduling queues init */
-    runqueue = allocate_queue(h, 2048);
+    // XXX configs
     bhqueue = allocate_queue(h, 2048);
+    runqueue = allocate_queue(h, 2048);
+    async_queue_1 = allocate_queue(h, 8192);
     shutting_down = false;
 }
 

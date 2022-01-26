@@ -192,7 +192,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
             goto out;
         }
         unixsock_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     rv = 0;
     do {
@@ -238,8 +238,7 @@ out:
     unixsock_unlock(s);
     if (read_done)
         unixsock_notify_writer(s);
-    blockq_handle_completion(s->sock.rxbq, flags, bound(completion), bound(t),
-            rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -249,8 +248,8 @@ static sysreturn unixsock_read_with_addr(unixsock s, void *dest, u64 length, u64
     if ((s->sock.type == SOCK_STREAM) && (length == 0))
         return io_complete(completion, t, 0);
 
-    blockq_action ba = closure(s->sock.h, unixsock_read_bh, s, t, dest, 0, length,
-            completion, addr, addrlen);
+    blockq_action ba = contextual_closure(unixsock_read_bh, s, t, dest, 0, length,
+                                          completion, addr, addrlen);
     return blockq_check(s->sock.rxbq, t, ba, bh);
 }
 
@@ -348,7 +347,7 @@ closure_function(7, 1, sysreturn, unixsock_write_bh,
     rv = unixsock_write_to(src, bound(sg), length, dest, s);
     if ((rv == -EAGAIN) && !(s->sock.f.flags & SOCK_NONBLOCK)) {
         unixsock_unlock(dest);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     full = (dest->sock.rx_len >= so_rcvbuf) || queue_full(dest->data);
 out:
@@ -357,8 +356,7 @@ out:
         unixsock_notify_reader(dest);
     if (full)   /* no more space available to write */
         fdesc_notify_events(&s->sock.f);
-    blockq_handle_completion(dest->sock.txbq, flags, bound(completion), bound(t),
-            rv);
+    apply(bound(completion), bound(t), rv);
     refcount_release(&dest->refcount);
     closure_finish();
     return rv;
@@ -373,8 +371,8 @@ static sysreturn unixsock_write_with_addr(unixsock s, void *src, u64 length, u64
         return io_complete(completion, t, rv);
     }
 
-    blockq_action ba = closure(s->sock.h, unixsock_write_bh, s, t, src, 0, length,
-                               completion, addr);
+    blockq_action ba = contextual_closure(unixsock_write_bh, s, t, src, 0, length,
+                                          completion, addr);
     return blockq_check(addr->sock.txbq, t, ba, bh);
 }
 
@@ -397,8 +395,8 @@ closure_function(1, 6, sysreturn, unixsock_sg_read,
                  sg_list, sg, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
 {
     unixsock s = bound(s);
-    blockq_action ba = closure(s->sock.h, unixsock_read_bh, s, t, 0, sg, length,
-        completion, 0, 0);
+    blockq_action ba = contextual_closure(unixsock_read_bh, s, t, 0, sg, length,
+                                          completion, 0, 0);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(s->sock.rxbq, t, ba, bh);
@@ -419,8 +417,8 @@ closure_function(1, 6, sysreturn, unixsock_sg_write,
     unixsock_unlock(bound(s));
     if (!dest)
         return io_complete(completion, t, -ENOTCONN);
-    blockq_action ba = closure(s->sock.h, unixsock_write_bh, s, t, 0, sg, length,
-                               completion, dest);
+    blockq_action ba = contextual_closure(unixsock_write_bh, s, t, 0, sg, length,
+                                          completion, dest);
     if (ba == INVALID_ADDRESS) {
         refcount_release(&dest->refcount);
         return io_complete(completion, t, -ENOMEM);
@@ -605,7 +603,7 @@ closure_function(3, 1, sysreturn, connect_bh,
             goto out;
         }
         unixsock_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), bqflags);
     }
     unixsock peer = unixsock_alloc(s->sock.h, s->sock.type, 0);
     if (!peer) {
@@ -638,7 +636,7 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
         goto out;
     switch (s->sock.type) {
     case SOCK_STREAM: {
-        blockq_action ba = closure(sock->h, connect_bh, s, current, listener);
+        blockq_action ba = contextual_closure(connect_bh, s, current, listener);
         if (ba == INVALID_ADDRESS) {
             rv = -ENOMEM;
             break;
@@ -691,7 +689,7 @@ closure_function(5, 1, sysreturn, accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, bqflags);
     }
     if (empty) {
         fdesc_notify_events(&s->sock.f);
@@ -729,7 +727,7 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
         rv = -EINVAL;
         goto out;
     }
-    blockq_action ba = closure(sock->h, accept_bh, s, current, addr, addrlen,
+    blockq_action ba = contextual_closure(accept_bh, s, current, addr, addrlen,
             flags);
     return blockq_check(sock->rxbq, current, ba, false);
 out:
@@ -838,7 +836,6 @@ closure_function(4, 2, void, recvmsg_complete,
                  struct sock *, sock, sg_list, sg, struct iovec *, iov, int, iovlen,
                  thread, t, sysreturn, rv)
 {
-    thread_resume(t);
     sg_list sg = bound(sg);
     sg_to_iov(sg, bound(iov), bound(iovlen));
     deallocate_sg_list(sg);

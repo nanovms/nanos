@@ -258,3 +258,31 @@ void __stack_chk_guard_init();
 #define _countof(a) (sizeof(a) / sizeof(*(a)))
 
 #define struct_from_field(l, s, f) ((s)pointer_from_u64(u64_from_pointer(l) - offsetof(s, f)))
+
+struct context;
+typedef struct context *context;
+
+#if defined(KERNEL) || defined(BOOT)
+/* This is really kernel-specific, but closures require these definitions at a
+   low-level, and runtime code built at kernel level doesn't always include kernel.h. */
+#include <frame.h>
+#include <context.h>
+#endif
+
+/* XXX type safety, possibly tag */
+static inline void deallocate_closure(void *p)
+{
+    struct _closure_common *c = p + sizeof(void *); /* skip __apply */
+    void *x = pointer_from_u64(c->ctx & ~CLOSURE_COMMON_CTX_FLAGS_MASK);
+    if ((c->ctx & CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH) == 0)
+        return;
+    heap h =
+#ifdef KERNEL
+        (c->ctx & CLOSURE_COMMON_CTX_IS_CONTEXT) ? ((context)x)->transient_heap :
+#endif
+        x;
+    if (h && c->size > 0)
+        deallocate(h, p, c->size);
+}
+
+#define closure_finish() do { deallocate_closure(__self); __self = 0; } while(0)

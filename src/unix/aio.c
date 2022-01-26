@@ -136,6 +136,7 @@ closure_function(3, 2, void, aio_eventfd_complete,
     u64 *efd_val = bound(efd_val);
     deallocate(bound(h), efd_val, sizeof(*efd_val));
     fdesc_put(bound(f));
+    context_release_refcount(get_current_context(current_cpu()));
     closure_finish();
 }
 
@@ -174,11 +175,14 @@ closure_function(5, 2, void, aio_complete,
                 *efd_val = 1;
                 io_completion completion = closure(h, aio_eventfd_complete, h, res, efd_val);
                 apply(res->write, efd_val, sizeof(*efd_val), 0, t, true, completion);
+                goto wake_and_release;
             } else {
                 fdesc_put(res);
             }
         }
     }
+    context_release_refcount(get_current_context(current_cpu()));
+  wake_and_release:
     if (bq) {
         blockq_wake_one(bq);
         blockq_release(bq);
@@ -196,7 +200,7 @@ static unsigned int aio_avail_events(struct aio *aio)
     return avail;
 }
 
-static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
+static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb, context ctx)
 {
     if (!validate_user_memory(iocb, sizeof(struct iocb), false)) {
         return -EFAULT;
@@ -226,6 +230,7 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb)
     }
     io_completion completion = closure(heap_locked(aio->kh), aio_complete, aio, f,
             iocb->aio_data, (u64) iocb, res_fd);
+    context_reserve_refcount(ctx);
     refcount_reserve(&aio->refcount);
     sysreturn rv;
     switch (iocb->aio_lio_opcode) {
@@ -262,6 +267,7 @@ error:
     aio_unlock(aio);
     refcount_release(&aio->refcount);
     deallocate_closure(completion);
+    context_release_refcount(ctx);
     fdesc_put(f);
     return rv;
 }
@@ -276,9 +282,12 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
     if (!(aio = aio_from_ring(current->p, ctx_id))) {
         return -EINVAL;
     }
+    cpuinfo ci = current_cpu();
+    syscall_context sc = (syscall_context)get_current_context(ci);
+    assert(is_syscall_context(&sc->context));
     int io_ops;
     for (io_ops = 0; io_ops < nr; io_ops++) {
-        sysreturn rv = iocb_enqueue(aio, iocbpp[io_ops]);
+        sysreturn rv = iocb_enqueue(aio, iocbpp[io_ops], &sc->context);
         if (rv) {
             if (io_ops == 0) {
                 io_ops = rv;
@@ -287,6 +296,7 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
         }
     }
     refcount_release(&aio->refcount);
+    orphan_syscall_context(ci, sc);
     return io_ops;
 }
 
@@ -304,7 +314,6 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
     sysreturn rv;
     if (flags & BLOCKQ_ACTION_BLOCKED)
         aio_lock(aio);
-    blockq bq = aio->bq;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         rv = (timeout == infinity) ? -ERESTARTSYS : -EINTR;
         goto out;
@@ -335,13 +344,13 @@ closure_function(7, 1, sysreturn, io_getevents_bh,
     if ((aio->copied_evts < bound(min_nr)) && (timeout != 0) &&
             !(flags & BLOCKQ_ACTION_TIMEDOUT)) {
         aio_unlock(aio);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, flags);;
     }
     rv = aio->copied_evts;
 out:
     aio->bq = 0;
     aio_unlock(aio);
-    blockq_handle_completion(bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     refcount_release(&aio->refcount);
     return rv;
@@ -365,9 +374,9 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
     aio->copied_evts = 0;
     aio->bq = current->thread_bq;
     return blockq_check_timeout(aio->bq, current,
-            closure(heap_locked(aio->kh), io_getevents_bh, aio, min_nr, nr,
-                    events, current, ts, syscall_io_complete), false,
-            CLOCK_ID_MONOTONIC, (ts == infinity) ? 0 : ts, false);
+                                contextual_closure(io_getevents_bh, aio, min_nr, nr, events,
+                                                   current, ts, syscall_io_complete), false,
+                                CLOCK_ID_MONOTONIC, (ts == infinity) ? 0 : ts, false);
 }
 
 static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh);
@@ -400,8 +409,9 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
         aio->bq = t->thread_bq;
         refcount_reserve(&aio->refcount);
         return blockq_check(aio->bq, t,
-                closure(heap_locked(aio->kh), io_getevents_bh, aio,
-                        ongoing_ops, ongoing_ops, 0, t, infinity, completion), in_bh);
+                            contextual_closure(io_getevents_bh, aio,
+                                               ongoing_ops, ongoing_ops, 0, t,
+                                               infinity, completion), in_bh);
     } else {
         aio_unlock(aio);
         apply(completion, t, 0);

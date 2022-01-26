@@ -4,7 +4,6 @@ struct futex {
     heap h;
     blockq bq;
     struct spinlock lock;
-    u64 waiters;
 };
 
 #define futex_lock(f)   spin_lock(&(f)->lock)
@@ -47,7 +46,6 @@ static struct futex * soft_create_futex(process p, u64 key)
     }
 
     spin_lock_init(&f->lock);
-    f->waiters = 0;
     table_set(p->futices, pointer_from_u64(key), f);
   out:
     process_unlock(p);
@@ -56,18 +54,10 @@ static struct futex * soft_create_futex(process p, u64 key)
 
 static thread futex_wake_one(struct futex * f)
 {
-    thread t = INVALID_ADDRESS;
-
-    /* As long as the futex waiter count is non-zero, there must be a thread that is either in or
-     * about to be placed in the blockq waiter list. */
-    while (f->waiters) {
-        t = blockq_wake_one(f->bq);
-        if (t == INVALID_ADDRESS)
-            kern_pause();
-        else
-            break;
-    }
-
+    thread t = blockq_wake_one(f->bq);
+    if (t != INVALID_ADDRESS)
+        return t;
+    kern_pause();
     return t;
 }
 
@@ -109,7 +99,7 @@ boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val)
  * to timeout/signal delivery/etc., or by another thread in sys_futex
  *
  * Return:
- *  BLOCKQ_BLOCK_REQUIRED: timer still active
+ *  BLOCKQ_BLOCK_REQUIRED: top half, going to block
  *  -ETIMEDOUT: if we timed out
  *  -EINTR: if we're being nullified
  *  0: thread woken up
@@ -122,20 +112,22 @@ closure_function(3, 1, sysreturn, futex_bh,
     struct futex *f = bound(f);
     sysreturn rv;
 
-    if (flags & BLOCKQ_ACTION_NULLIFY)
-        rv = bound(timeout) ? -EINTR : -ERESTARTSYS;
-    else if (flags & BLOCKQ_ACTION_TIMEDOUT)
-        rv = -ETIMEDOUT;
-    else if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
-        fetch_and_add(&f->waiters, 1);
-        futex_unlock(bound(f));
-        thread_log(t, "%s: struct futex: %p, blocking", __func__, bound(f));
+    if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
+        futex_unlock(f);
+        thread_log(t, "%s: struct futex: %p, blocking", __func__, f);
         return BLOCKQ_BLOCK_REQUIRED;
-    } else
-        rv = 0; /* no timer expire + not us --> actual wakeup */
-    assert(fetch_and_add(&f->waiters, -1) > 0);
+    }
 
-    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", __func__, bound(f), flags, rv);
+    if (flags & (BLOCKQ_ACTION_NULLIFY | BLOCKQ_ACTION_TIMEDOUT)) {
+        if (flags & BLOCKQ_ACTION_NULLIFY)
+            rv = bound(timeout) ? -EINTR : -ERESTARTSYS;
+        else
+            rv = -ETIMEDOUT;
+    } else {
+        rv = 0; /* no timer expire + not us --> actual wakeup */
+    }
+
+    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", __func__, f, flags, rv);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -193,7 +185,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             rv = -EAGAIN;
         else
             rv = blockq_check_timeout(f->bq, current,
-                                      closure(f->h, futex_bh, f, current, ts),
+                                      contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, false);
         futex_unlock(f);
         return rv;
@@ -237,8 +229,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             }
             requeued = blockq_transfer_waiters(new->bq, f->bq, val2,
                                                stack_closure(futex_requeue_handler, new));
-            fetch_and_add(&f->waiters, -requeued);
-            fetch_and_add(&new->waiters, requeued);
             if (futex_verbose)
                 thread_log(current, " awoken: %d, re-queued %d", woken, requeued);
         }
@@ -310,7 +300,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             rv = -EAGAIN;
         else
             rv = blockq_check_timeout(f->bq, current,
-                                      closure(f->h, futex_bh, f, current, ts),
+                                      contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, true);
         futex_unlock(f);
         return rv;

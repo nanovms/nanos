@@ -443,18 +443,15 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
-    boolean lock = !(bqflags & BLOCKQ_ACTION_BLOCKED);
-    if (lock)
-        nl_lock(s);
+    nl_lock(s);
     struct nlmsghdr *hdr = dequeue(s->data);
     if (hdr == INVALID_ADDRESS) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto unlock;
         }
-        if (lock)
-            nl_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        nl_unlock(s);
+        return blockq_block_required(bound(t), bqflags);;
     }
     rv = 0;
     struct iovec *iov = 0;
@@ -511,10 +508,9 @@ closure_function(7, 1, sysreturn, nl_read_bh,
         dequeue(s->data);
     } while (dest_len > 0);
 unlock:
-    if (lock)
-        nl_unlock(s);
+    nl_unlock(s);
 out:
-    blockq_handle_completion(s->sock.rxbq, bqflags, bound(completion), bound(t), rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -525,8 +521,7 @@ closure_function(1, 6, sysreturn, nl_read,
 {
     nl_debug("read len %ld", length);
     nlsock s = bound(s);
-    blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, dest, length, 0, 0,
-        completion);
+    blockq_action ba = contextual_closure(nl_read_bh, s, current, dest, length, 0, 0, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(s->sock.rxbq, current, ba, false);
@@ -662,8 +657,8 @@ static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
 {
     nl_debug("recvfrom: len %ld, flags 0x%x", len, flags);
     nlsock s = (nlsock)sock;
-    blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, buf, len, 0, flags,
-        (io_completion)&sock->f.io_complete);
+    blockq_action ba = contextual_closure(nl_read_bh, s, current, buf, len, 0, flags,
+                                          (io_completion)&sock->f.io_complete);
     if (ba == INVALID_ADDRESS) {
         socket_release(sock);
         return -ENOMEM;
@@ -708,8 +703,8 @@ static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
 {
     nl_debug("recvmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
     nlsock s = (nlsock)sock;
-    blockq_action ba = closure(s->sock.h, nl_read_bh, s, current, 0, 0, msg, flags,
-        (io_completion)&sock->f.io_complete);
+    blockq_action ba = contextual_closure(nl_read_bh, s, current, 0, 0, msg, flags,
+                                          (io_completion)&sock->f.io_complete);
     if (ba == INVALID_ADDRESS) {
         socket_release(sock);
         return -ENOMEM;

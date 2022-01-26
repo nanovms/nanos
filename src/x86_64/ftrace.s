@@ -102,7 +102,7 @@ mcount:
     jz ftrace_stub
 
     ;; check if enabled on this cpu
-    test qword [gs:32], 1
+    test qword [gs:40], 1
     jnz ftrace_stub
 
     cmp qword [__ftrace_function_fn], ftrace_stub

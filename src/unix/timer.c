@@ -250,8 +250,7 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
         goto out;
     }
 
-    if (!blocked)
-        spin_lock(&ut->lock);
+    spin_lock(&ut->lock);
 
     if (ut->info.timerfd.canceled) {
         rv = -ECANCELED;
@@ -265,17 +264,15 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
             goto out;
         }
         timer_debug("   -> block\n");
-        if (!blocked)
-            spin_unlock(&ut->lock);
-        return BLOCKQ_BLOCK_REQUIRED;
+        spin_unlock(&ut->lock);
+        return blockq_block_required(t, flags);
     }
     *(u64*)bound(dest) = overruns;
     ut->overruns = 0;
   out:
-    if (!blocked)
-        spin_unlock(&ut->lock);
+    spin_unlock(&ut->lock);
     timer_debug("   -> returning %ld\n", rv);
-    blockq_handle_completion(ut->info.timerfd.bq, flags, bound(completion), t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
     return rv;
 }
@@ -289,7 +286,7 @@ closure_function(1, 6, sysreturn, timerfd_read,
     unix_timer ut = bound(ut);
     timer_debug("ut %p, dest %p, length %ld, tid %d, bh %d, completion %p\n",
                 ut, dest, length, t->tid, bh, completion);
-    blockq_action ba = closure(unix_timer_heap, timerfd_read_bh, ut, dest, length, t, completion);
+    blockq_action ba = contextual_closure(timerfd_read_bh, ut, dest, length, t, completion);
     return blockq_check(ut->info.timerfd.bq, t, ba, bh);
 }
 
