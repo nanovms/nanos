@@ -19,7 +19,7 @@ func defaultConfig() types.Config {
 
 	c.Boot = "../../output/test/go/boot.img"
 	c.Kernel = "../../output/test/go/kernel.img"
-	c.NameServer = "8.8.8.8"
+	c.NameServers = []string{"8.8.8.8"}
 
 	c.Env = make(map[string]string)
 	c.TargetRoot = os.Getenv("NANOS_TARGET_ROOT")
