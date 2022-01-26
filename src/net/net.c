@@ -11,7 +11,7 @@
 #define IFF_MULTICAST   (1 << 12)
 
 BSS_RO_AFTER_INIT static heap lwip_heap;
-struct spinlock lwip_spinlock;
+BSS_RO_AFTER_INIT mutex lwip_mutex;
 
 /* Pretty silly. LWIP offers lwip_cyclic_timers for use elsewhere, but
    says to use LWIP_ARRAYSIZE(), which isn't possible with an
@@ -344,6 +344,9 @@ void init_network_iface(tuple root) {
 
 extern void lwip_init();
 
+#define LWIP_LOCK_WAITER_QUEUE_DEPTH 64
+#define LWIP_LOCK_SPIN_ITERATIONS (1ull << 20)
+
 void init_net(kernel_heaps kh)
 {
     heap h = heap_general(kh);
@@ -351,7 +354,8 @@ void init_net(kernel_heaps kh)
     bytes pagesize = is_low_memory_machine(kh) ?
                      U64_FROM_BIT(MAX_LWIP_ALLOC_ORDER + 1) : PAGESIZE_2M;
     lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, pagesize);
-    spin_lock_init(&lwip_spinlock);
+    lwip_mutex = allocate_mutex(h, LWIP_LOCK_WAITER_QUEUE_DEPTH, LWIP_LOCK_SPIN_ITERATIONS);
+    assert(lwip_mutex != INVALID_ADDRESS);
     lwip_lock();
     lwip_init();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);

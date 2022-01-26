@@ -93,6 +93,7 @@ void init_context(context c, int type)
 {
     c->type = type;
     c->transient_heap = 0;
+    c->waiting_on = 0;
     c->active_cpu = -1;
     zero_context_frame(c->frame);
     void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()),

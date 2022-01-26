@@ -191,6 +191,7 @@ static inline void wait_for_interrupt(void)
 
 /* locking constructs */
 #include <lock.h>
+#include <mutex.h>
 
 /* device mmio region access */
 #define MK_MMIO_READ(BITS, ISUFFIX, RPREFIX) \

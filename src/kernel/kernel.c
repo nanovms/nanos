@@ -153,6 +153,14 @@ void init_kernel_contexts(heap backed)
     current_cpu()->state = cpu_kernel;
 }
 
+/* finish suspend after frame save */
+void __attribute__((noreturn)) context_suspend_finish(context ctx)
+{
+    context_reserve_refcount(ctx);
+    ctx->frame[FRAME_FULL] = true; /* must be last */
+    runloop();
+}
+
 void __attribute__((noreturn)) context_switch_finish(context prev, context next, void *a, u64 arg0, u64 arg1)
 {
     if (prev != next) {

@@ -28,17 +28,14 @@ void netif_name_cpy(char *dest, struct netif *netif);
 
 #define netif_is_loopback(netif)    (((netif)->name[0] == 'l') && ((netif)->name[1] == 'o'))
 
-extern struct spinlock lwip_spinlock;
+extern mutex lwip_mutex;
 
 static inline void lwip_lock(void)
 {
-#ifdef KERNEL
-    assert(!in_interrupt());    /* XXX remove me after no-kernel-lock transition complete */
-#endif
-    spin_lock(&lwip_spinlock);
+    mutex_lock(lwip_mutex);
 }
 
 static inline void lwip_unlock(void)
 {
-    spin_unlock(&lwip_spinlock);
+    mutex_unlock(lwip_mutex);
 }
