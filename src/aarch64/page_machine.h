@@ -379,11 +379,6 @@ static inline boolean flags_has_minpage(u64 flags)
     return (flags & PAGE_NO_BLOCK) != 0;
 }
 
-static inline u64 canonize_address(u64 addr)
-{
-    return addr;
-}
-
 /* TODO: While the cpu type used under qemu is armv8.1-a, a read of
    ID_AA64MMFR1_EL1 does not indicate that hardware management of
    dirty pages is available (e.g. HD and HA bits are zero). If we

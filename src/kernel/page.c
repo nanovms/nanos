@@ -108,8 +108,9 @@ static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr
 {
     int shift = pt_level_shift(level);
     u64 lsize = U64_FROM_BIT(shift);
-    u64 start_idx = vstart > laddr ? ((vstart - laddr) >> shift) : 0;
-    u64 x = vstart + len - laddr;
+    u64 vaddr = vstart & MASK(VIRTUAL_ADDRESS_BITS);
+    u64 start_idx = vaddr > laddr ? ((vaddr - laddr) >> shift) : 0;
+    u64 x = vaddr + len - laddr;
     u64 end_idx = MIN(pad(x, lsize) >> shift, PTE_ENTRIES);
     u64 offset = start_idx << shift;
 
@@ -123,7 +124,7 @@ static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr
     assert(end_idx <= PTE_ENTRIES);
 
     for (u64 i = start_idx; i < end_idx; i++, offset += lsize) {
-        u64 addr = canonize_address(laddr + (i << shift));
+        u64 addr = (vstart & ~MASK(VIRTUAL_ADDRESS_BITS)) + laddr + (i << shift);
         u64 pteaddr = pbase + (i * sizeof(u64));
         u64 *pte = pointer_from_pteaddr(pteaddr);
 #ifdef PAGE_TRAVERSE_DEBUG
@@ -148,7 +149,7 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
 #endif
     pagetable_lock();
     boolean result = recurse_ptes(get_pagetable_base(vaddr), PT_FIRST_LEVEL,
-                                  vaddr & MASK(VIRTUAL_ADDRESS_BITS), length, 0, ph);
+                                  vaddr, length, 0, ph);
     pagetable_unlock();
     return result;
 }
@@ -274,7 +275,7 @@ closure_function(3, 3, boolean, remap_entry,
 
     /* transpose mapped page */
     assert(map_level(pointer_from_pteaddr(get_pagetable_base(new_curr)), PT_FIRST_LEVEL,
-                     irangel(new_curr & MASK(VIRTUAL_ADDRESS_BITS), U64_FROM_BIT(map_order)),
+                     irangel(new_curr, U64_FROM_BIT(map_order)),
                      &phys, flags, bound(fe)));
 
     /* reset old entry */
@@ -370,6 +371,9 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
 {
     int shift = pt_level_shift(level);
     u64 mask = MASK(shift);
+    u64 vmask = v.start & ~MASK(VIRTUAL_ADDRESS_BITS);
+    v.start &= MASK(VIRTUAL_ADDRESS_BITS);
+    v.end &= MASK(VIRTUAL_ADDRESS_BITS);
     // XXX this was level > 2, but that didn't seem right - validate me
     u64 vlbase = level > PT_FIRST_LEVEL ? v.start & ~MASK(pt_level_shift(level - 1)) : 0;
     int first_index = (v.start >> shift) & INDEX_MASK;
@@ -434,7 +438,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
                 page_init_debug(", len ");
                 page_init_debug_u64(len);
                 page_init_debug("\n");
-                if (!map_level(tp, level + 1, irangel(v.start, len), p, flags, fe))
+                if (!map_level(tp, level + 1, irangel(v.start | vmask, len), p, flags, fe))
                     return false;
             }
             page_init_debug("      pte @ ");
@@ -444,7 +448,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
             page_init_debug("\n");
             table_ptr[i] = pte;
             if (invalidate)
-                page_invalidate(fe, v.start);
+                page_invalidate(fe, v.start | vmask);
         } else {
             /* fail if page or block already installed */
             if (pte_is_mapping(level, pte)) {
@@ -457,7 +461,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
             u64 *nexttable_ptr = pointer_from_pteaddr(nexttable);
             u64 end = vlbase | (((u64)(i + 1)) << shift);
             u64 len = MIN(range_span(v), end - v.start);
-            if (!map_level(nexttable_ptr, level + 1, irangel(v.start, len), p, flags, fe))
+            if (!map_level(nexttable_ptr, level + 1, irangel(v.start | vmask, len), p, flags, fe))
                 return false;
         }
     }
@@ -480,7 +484,7 @@ void map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_ha
 
     assert((v & PAGEMASK) == 0);
     assert((p & PAGEMASK) == 0);
-    range r = irangel(v & MASK(VIRTUAL_ADDRESS_BITS), pad(length, PAGESIZE));
+    range r = irangel(v, pad(length, PAGESIZE));
     flush_entry fe = get_page_flush_entry();
     pagetable_lock();
     u64 *table_ptr = pointer_from_pteaddr(get_pagetable_base(v));

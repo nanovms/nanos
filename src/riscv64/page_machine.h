@@ -210,13 +210,6 @@ static inline boolean flags_has_minpage(u64 flags)
     return (flags & PAGE_NO_BLOCK) != 0;
 }
 
-static inline u64 canonize_address(u64 addr)
-{
-    if (addr & U64_FROM_BIT(47))
-        addr |= 0xffff000000000000;
-    return addr;
-}
-
 static inline boolean pte_is_dirty(pte entry)
 {
     return (entry & PAGE_DIRTY) != 0;

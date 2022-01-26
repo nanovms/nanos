@@ -168,13 +168,6 @@ static inline boolean flags_has_minpage(u64 flags)
     return (flags & PAGE_NO_PS) != 0;
 }
 
-static inline u64 canonize_address(u64 addr)
-{
-    if (addr & U64_FROM_BIT(47))
-        addr |= 0xffff000000000000;
-    return addr;
-}
-
 extern u64 pagebase;
 static inline u64 get_pagetable_base(u64 vaddr)
 {

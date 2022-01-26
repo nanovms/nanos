@@ -19,7 +19,7 @@ BSS_RO_AFTER_INIT u64 user_tablebase;
 void page_invalidate(flush_entry f, u64 address)
 {
     /* no final sync here; need "dsb ish" at end of operation */
-    register u64 a = (address >> PAGELOG) & MASK(55 - PAGELOG); /* no asid */
+    register u64 a = (address >> PAGELOG) & MASK(56 - PAGELOG); /* no asid */
     asm volatile("dsb ishst;"
                  "tlbi vale1is, %0" :: "r"(a) : "memory");
 }
