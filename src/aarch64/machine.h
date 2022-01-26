@@ -119,6 +119,8 @@ __bswap64(u64 _x)
 typedef void *value;
 typedef u8 value_tag;
 
+#ifndef BOOT
+
 static inline __attribute__((always_inline)) value tag(void *v, value_tag t) {
     return pointer_from_u64(VA_TAG_BASE | (((u64)t) << VA_TAG_OFFSET) |
                             u64_from_pointer(v));
@@ -127,6 +129,8 @@ static inline __attribute__((always_inline)) value tag(void *v, value_tag t) {
 static inline __attribute__((always_inline)) value_tag tagof(value v) {
     return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
 }
+
+#endif
 
 typedef struct spinlock {
     word w;

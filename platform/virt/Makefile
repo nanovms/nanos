@@ -1,3 +1,4 @@
+ACPICA_DIR=	$(VENDORDIR)/acpica
 LWIPDIR=	$(VENDORDIR)/lwip
 PROGRAMS=	kernel.elf
 
@@ -8,6 +9,8 @@ SRCS-kernel.elf= \
 	$(CURDIR)/service.c \
 	$(CURDIR)/pci.c \
 	$(OBJDIR)/gitversion.c \
+	$(ACPICA) \
+	$(SRCDIR)/aarch64/acpi.c \
 	$(SRCDIR)/aarch64/clock.c \
 	$(SRCDIR)/aarch64/crt0.S \
 	$(SRCDIR)/aarch64/elf64.c \
@@ -18,8 +21,15 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/aarch64/rtc.c \
 	$(SRCDIR)/aarch64/serial.c \
 	$(SRCDIR)/aarch64/unix_machine.c \
+	$(SRCDIR)/aws/ena/ena.c \
+	$(SRCDIR)/aws/ena/ena_com/ena_com.c \
+	$(SRCDIR)/aws/ena/ena_com/ena_eth_com.c \
+	$(SRCDIR)/aws/ena/ena_datapath.c \
+	$(SRCDIR)/drivers/acpi.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/netconsole.c \
+	$(SRCDIR)/drivers/ns16550.c \
+	$(SRCDIR)/drivers/nvme.c \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \
@@ -130,6 +140,7 @@ INCLUDES=\
 	-I$(SRCDIR)/unix \
 	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/xen/public \
+	-I$(ACPICA_DIR)/source/include \
 	-I$(LWIPDIR)/src/include \
 	-I$(VDSO_OBJDIR)
 
@@ -168,9 +179,42 @@ VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
 STRIPFLAGS=	-g
 
-DEPFILES+=      $(VDSO_DEPS)
-CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis bin/kernel.elf src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(BOOTIMG) $(KERNEL)
-CLEANDIRS+=     $(foreach d,output/platform output src vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src vendor/lwip/src/netif vendor/lwip/src/netif/ppp platform,$(OBJDIR)/$d)
+BOOT_OBJDIR=    $(OBJDIR)/boot
+
+UEFI_SRCS= \
+	$(SRCDIR)/aarch64/elf64.c \
+	$(SRCDIR)/aarch64/uefi.c \
+	$(SRCDIR)/boot/uefi.c \
+	$(SRCDIR)/kernel/elf.c \
+	$(SRCDIR)/kernel/pagecache.c \
+	$(SRCDIR)/runtime/buffer.c \
+	$(SRCDIR)/runtime/format.c \
+	$(SRCDIR)/runtime/memops.c \
+	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/range.c \
+	$(SRCDIR)/runtime/rbtree.c \
+	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/sg.c \
+	$(SRCDIR)/runtime/symbol.c \
+	$(SRCDIR)/runtime/table.c \
+	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/tfs/tfs.c \
+	$(SRCDIR)/tfs/tlog.c \
+
+UEFI_OBJDIR=    $(BOOT_OBJDIR)/uefi
+UEFI_OBJS=      $(patsubst $(SRCDIR)/%.c,$(UEFI_OBJDIR)/%.o,$(UEFI_SRCS)) \
+	$(UEFI_OBJDIR)/aarch64/uefi-crt0.o
+UEFI_OBJDIRS=	$(sort $(dir $(UEFI_OBJS))) $(UEFI_OBJDIR)
+UEFI_DEPS=      $(patsubst %.o,%.d,$(UEFI_OBJS))
+UEFI_CFLAGS=    -Wall -Werror -fpic -fshort-wchar -O3 -std=gnu11 \
+	-ffreestanding -DBOOT -DUEFI $(call cc-option, -mno-outline-atomics, "") \
+	-I$(SRCDIR) -I$(SRCDIR)/aarch64 -I$(SRCDIR)/boot -I$(SRCDIR)/kernel \
+	-I$(SRCDIR)/runtime -I$(SRCDIR)/tfs -I$(PLATFORMDIR) -I$(OBJDIR)
+UEFI_LDFLAGS=   -nostdlib -shared -Bsymbolic -T $(SRCDIR)/aarch64/uefi.lds
+
+DEPFILES+=      $(VDSO_DEPS) $(UEFI_DEPS)
+CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis bin/kernel.elf boot/uefi.so src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(UEFI_OBJS) $(UEFI_DEPS) $(UEFI_LOADER) $(BOOTIMG) $(KERNEL)
+CLEANDIRS+=     $(foreach d,output/platform output src src/aws vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src vendor/lwip/src/netif vendor/lwip/src/netif/ppp vendor/acpica vendor/acpica/source vendor/acpica/source/components platform,$(OBJDIR)/$d) $(BOOT_OBJDIR) $(UEFI_OBJDIRS)
 
 OBJCOPYFLAGS	= -S -O binary
 
@@ -198,10 +242,20 @@ cmd_version=	$(MKDIR) $(dir $@); $(ECHO) "const char * const gitversion = \"$(sh
 msg_xxd_r=	XXD_R	$@
 cmd_xxd_r=	$(XXD) -r $< $@
 
+msg_uefi_cc=    $(msg_cc)
+cmd_uefi_cc=    $(CC) $(DEPFLAGS) $(UEFI_CFLAGS) -c $< -o $@
+
+msg_uefi_ld=    $(msg_ld)
+cmd_uefi_ld=    $(LD) $(UEFI_LDFLAGS) $(UEFI_OBJS) -o $@
+
+msg_uefi_objcopy=    $(msg_objcopy)
+cmd_uefi_objcopy=    $(OBJCOPY) -j .text -j .sdata -j .data -j .dynamic -j .dynsym  -j .rel -j .rela -j .rel.* -j .rela.* -j .reloc -O binary --subsystem=10 $< $@
+
 include ../../rules.mk
 
 MKFS=		$(TOOLDIR)/mkfs
 BOOTIMG=	$(OBJDIR)/boot-stub.img
+UEFI_LOADER=$(OBJDIR)/boot/bootaa64.efi
 KERNEL=		$(OBJDIR)/bin/kernel.img
 
 ifneq ($(ARCH),aarch64)
@@ -212,6 +266,8 @@ all: $(KERNEL) kernel.dis
 
 mkfs vdsogen:
 	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
+
+boot: $(UEFI_LOADER)
 
 kernel: $(KERNEL)
 
@@ -228,14 +284,18 @@ ifneq ($(NANOS_TARGET_ROOT),)
 TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
 endif
 
-image: mkfs $(DEFAULT_KERNEL_TARGET) target $(BOOTIMG)
+ifneq ($(ENABLE_UEFI),)
+MKFS_UEFI=	-u $(UEFI_LOADER)
+endif
+
+image: mkfs $(DEFAULT_KERNEL_TARGET) target $(BOOTIMG) $(UEFI_LOADER)
 ifeq ($(IMAGE),)
 	@echo IMAGE variable not specified
 	@false
 endif
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(IMAGE) -t "(debug_exit:t)"
+	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) $(MKFS_UEFI) -k $(KERNEL) $(IMAGE) -t "(debug_exit:t)"
 
 release: mkfs kernel
 	$(Q) $(RM) -r release
@@ -277,6 +337,20 @@ $(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
 
 $(BOOTIMG): mbr.hex
 	$(call cmd,xxd_r)
+
+$(UEFI_OBJDIR)/aarch64/uefi-crt0.o:	$(SRCDIR)/aarch64/uefi-crt0.s
+	@$(MKDIR) $(dir $@)
+	$(call cmd,uefi_cc)
+
+$(UEFI_OBJDIR)/%.o: $(SRCDIR)/%.c $(GENHEADERS)
+	@$(MKDIR) $(dir $@)
+	$(call cmd,uefi_cc)
+
+$(BOOT_OBJDIR)/uefi.so:	$(UEFI_OBJS)
+	$(call cmd,uefi_ld)
+
+$(UEFI_LOADER):	$(BOOT_OBJDIR)/uefi.so
+	$(call cmd,uefi_objcopy)
 
 LD=             $(CROSS_COMPILE)ld
 REL_OS=		linux

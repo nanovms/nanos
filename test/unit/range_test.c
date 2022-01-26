@@ -136,6 +136,44 @@ boolean basic_test(heap h)
     return false;
 }
 
+static boolean range_diff_test(void)
+{
+    range a, b, d1, d2;
+    a.start = 10;
+    a.end = 20;
+    b.start = 9;
+    b.end = 10;
+    range_difference(a, b, &d1, &d2);
+    if ((d1.start != a.start) || (d1.end != a.end) || !range_empty(d2))
+        return false;
+    b.end = 12;
+    range_difference(a, b, &d1, &d2);
+    if (range_empty(d1)) {
+        if ((d2.start != b.end) || (d2.end != a.end))
+            return false;
+    } else {
+        if ((d1.start != b.end) || (d1.end != a.end) || !range_empty(d2))
+            return false;
+    }
+    b.start = 11;
+    range_difference(a, b, &d1, &d2);
+    if ((d1.start != a.start) || (d1.end != b.start) || (d2.start != b.end) || (d2.end != a.end))
+        return false;
+    b.end = 21;
+    range_difference(a, b, &d1, &d2);
+    if ((d1.start != a.start) || (d1.end != b.start) || !range_empty(d2))
+        return false;
+    b.start = 20;
+    range_difference(a, b, &d1, &d2);
+    if ((d1.start != a.start) || (d1.end != a.end) || !range_empty(d2))
+        return false;
+    b.start = 9;
+    range_difference(a, b, &d1, &d2);
+    if (!range_empty(d1) || !range_empty(d2))
+        return false;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -143,10 +181,8 @@ int main(int argc, char **argv)
     if (!basic_test(h))
         goto fail;
 
-    /*
-      if (!random_test(h, 100, 1000))
-      goto fail;
-    */
+    if (!range_diff_test())
+        goto fail;
 
     msg_debug("range test passed\n");
     exit(EXIT_SUCCESS);

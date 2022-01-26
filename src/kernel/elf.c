@@ -244,3 +244,63 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
     msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
     return INVALID_ADDRESS;
 }
+
+closure_function(5, 1, void, elf_load_program,
+                 heap, h, Elf64_Phdr *, phdr, Elf64_Half, phnum, elf_loader, loader, status_handler, sh,
+                 status, s)
+{
+    heap h = bound(h);
+    Elf64_Phdr *phdr = bound(phdr);
+    Elf64_Half phnum = bound(phnum);
+    status_handler sh = bound(sh);
+    if (is_ok(s)) {
+        merge m = allocate_merge(h, sh);
+        assert(m != INVALID_ADDRESS);
+        sh = apply_merge(m);
+        for (int i = 0; i < phnum; i++) {
+            Elf64_Phdr *p = &phdr[i];
+            if ((p->p_type == PT_LOAD) && (p->p_filesz > 0)) {
+                elf_debug("    PT_LOAD paddr 0x%lx, offset 0x%lx, filesz 0x%lx\n",
+                          p->p_paddr, p->p_offset, p->p_filesz);
+                apply(bound(loader), p->p_offset, p->p_filesz, pointer_from_u64(p->p_paddr),
+                      apply_merge(m));
+            }
+        }
+    }
+    apply(sh, STATUS_OK);
+    deallocate(bound(h), phdr, sizeof(Elf64_Phdr) * phnum);
+    closure_finish();
+}
+
+closure_function(5, 1, void, elf_load_phdr,
+                 heap, h, Elf64_Ehdr *, e, elf_loader, loader, u64 *, entry, status_handler, sh,
+                 status, s)
+{
+    heap h = bound(h);
+    Elf64_Ehdr *e = bound(e);
+    elf_loader loader = bound(loader);
+    status_handler sh = bound(sh);
+    if (is_ok(s)) {
+        elf_debug("  %d program headers, entry %p\n", e->e_phnum, e->e_entry);
+        *(bound(entry)) = e->e_entry;
+        Elf64_Phdr *phdr = allocate(h, sizeof(Elf64_Phdr) * e->e_phnum);
+        assert(phdr != INVALID_ADDRESS);
+        status_handler load_program = closure(h, elf_load_program, h, phdr, e->e_phnum, loader, sh);
+        assert(load_program != INVALID_ADDRESS);
+        apply(loader, e->e_phoff, e->e_phentsize * e->e_phnum, phdr, load_program);
+    } else {
+        apply(sh, s);
+    }
+    deallocate(h, e, sizeof(Elf64_Ehdr));
+    closure_finish();
+}
+
+
+void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh)
+{
+    Elf64_Ehdr *e = allocate(h, sizeof(Elf64_Ehdr));
+    assert(e != INVALID_ADDRESS);
+    status_handler load_phdr = closure(h, elf_load_phdr, h, e, loader, entry, sh);
+    assert(load_phdr != INVALID_ADDRESS);
+    apply(loader, 0, sizeof(Elf64_Ehdr), e, load_phdr);
+}

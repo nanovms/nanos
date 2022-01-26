@@ -1,5 +1,22 @@
 #include <runtime.h>
 
+/* Calculates the set difference between range a and range b, i.e. the sub-ranges of a that don't
+ * intersect with b. The result is returned in d1 and d2. */
+void range_difference(range a, range b, range *d1, range *d2)
+{
+    b = range_intersection(a, b);
+    if (range_span(b)) {
+        d1->start = a.start;
+        d1->end = b.start;
+        d2->start = b.end;
+        d2->end = a.end;
+    } else {
+        d1->start = a.start;
+        d1->end = a.end;
+        d2->start = d2->end = 0;
+    }
+}
+
 boolean rangemap_insert(rangemap rm, rmnode n)
 {
     init_rbnode(&n->n);

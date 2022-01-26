@@ -503,6 +503,9 @@ void unregister_interrupt(int vector);
 u64 allocate_shirq(void);
 void register_shirq(int vector, thunk t, const char *name);
 
+boolean dev_irq_enable(u32 dev_id, int vector);
+void dev_irq_disable(u32 dev_id, int vector);
+
 static inline boolean in_interrupt(void)
 {
     return current_cpu()->state == cpu_interrupt;

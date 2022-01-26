@@ -2055,6 +2055,7 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
     ena_dev->dmadev = adapter;
 
     pci_bar_init(adapter->pdev, &adapter->registers, ENA_REG_BAR, 0, -1);
+    pci_enable_io_and_memory(adapter->pdev);
 
     ena_dev->bus = allocate(general, sizeof(struct ena_bus));
     if (ena_dev->bus == INVALID_ADDRESS)

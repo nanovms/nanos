@@ -82,6 +82,8 @@ struct pci_dev {
     struct pci_bar msix_bar;
 };
 
+#define pci_dev_id(dev) ((dev->bus << 8) | (dev->slot << 3) | dev->function)
+
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source);
 u32 pci_cfgread(pci_dev dev, int reg, int bytes);
 
@@ -146,6 +148,7 @@ static inline u8 pci_get_hdrtype(pci_dev dev)
 u64 pci_bar_size(pci_dev dev, u8 type, u8 flags, int bar);
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length);
 void pci_bar_deinit(struct pci_bar *b);
+void pci_platform_init(void);
 void pci_platform_init_bar(pci_dev dev, int bar);
 u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data);
 void pci_platform_deallocate_msi(pci_dev dev, u64 v);

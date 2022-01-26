@@ -215,12 +215,15 @@ typedef struct {
 
 /* returns virtual address to access map (e.g. vaddr or identity in stage2) */
 typedef closure_type(elf_map_handler, u64, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, pageflags /* flags */);
+typedef closure_type(elf_loader, void, u64 /* offset */, u64 /* length */, void * /* dest */,
+                     status_handler);
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
 typedef closure_type(elf_sym_resolver, void *, const char *);
 void elf_symbols(buffer elf, elf_sym_handler each);
 boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver);
 void walk_elf(buffer elf, range_handler rh);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
+void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh);
 
 /* Architecture-specific */
 typedef closure_type(elf_sym_relocator, boolean, Elf64_Rela *);

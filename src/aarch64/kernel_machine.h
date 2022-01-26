@@ -1,5 +1,5 @@
-#ifndef KERNEL
-#error must be in kernel build
+#if !(defined(KERNEL) || defined(BOOT))
+#error must be in kernel or bootloader build
 #endif
 
 #define KERNEL_LIMIT     0x00fffffffffff000ull
@@ -241,6 +241,8 @@ struct cpuinfo_machine {
 };
 
 typedef struct cpuinfo *cpuinfo;
+
+extern struct uefi_boot_params boot_params;
 
 static inline cpuinfo current_cpu(void)
 {

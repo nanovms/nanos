@@ -27,6 +27,9 @@ struct efi_guid uefi_rng_proto = {
 struct efi_guid uefi_smbios_table = {
         0xeb9d2d31, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}
 };
+struct efi_guid uefi_acpi20_table = {
+        0x8868e871, 0xe4f1, 0x11d3, {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}
+};
 
 static void *uefi_image_handle;
 static efi_system_table uefi_system_table;
@@ -135,6 +138,32 @@ closure_function(1, 4, u64, uefi_kernel_map,
     return paddr;
 }
 
+closure_function(1, 2, void, uefi_io_sh,
+                 status_handler, sh,
+                 status, s, bytes, length)
+{
+    apply(bound(sh), s);
+}
+
+closure_function(1, 4, void, uefi_kernel_load,
+                 fsfile, kernel,
+                 u64, offset, u64, length, void *, dest, status_handler, sh)
+{
+    filesystem_read_linear(bound(kernel), dest, irangel(offset, length),
+                           stack_closure(uefi_io_sh, sh));
+}
+
+closure_function(1, 1, void, uefi_kernel_loaded,
+                 u64 *, kernel_entry,
+                 status, s)
+{
+    if (!is_ok(s))
+        halt("UEFI: failed to load kernel %v\n", s);
+    u64 entry = *bound(kernel_entry);
+    uefi_debug("starting kernel at %p", entry);
+    uefi_start_kernel(uefi_image_handle, uefi_system_table, 0, pointer_from_u64(entry));
+}
+
 closure_function(1, 1, status, uefi_kernel_complete,
                  heap, h,
                  buffer, b)
@@ -166,8 +195,8 @@ closure_function(2, 3, void, uefi_blkdev_read,
           EFI_ERROR(status) ? timm("result", "read_blocks status %d", status) : STATUS_OK);
 }
 
-closure_function(2, 2, void, uefi_bootfs_complete,
-                 heap, general, heap, aligned,
+closure_function(3, 2, void, uefi_bootfs_complete,
+                 heap, general, heap, aligned, uefi_arch_options, options,
                  filesystem, fs, status, s)
 {
     if (!is_ok(s))
@@ -178,11 +207,20 @@ closure_function(2, 2, void, uefi_bootfs_complete,
         halt("UEFI: kernel file not found\n");
     heap general = bound(general);
     heap aligned = bound(aligned);
-    buffer_handler bh = closure(general, uefi_kernel_complete, aligned);
-    assert(bh != INVALID_ADDRESS);
-    status_handler sh = closure(general, uefi_kernel_fail);
-    assert(sh != INVALID_ADDRESS);
-    filesystem_read_entire(fs, t, aligned, bh, sh);
+    if (bound(options)->load_to_physical) {
+        fsfile fsf = fsfile_from_node(fs, t);
+        if (!fsf)
+            halt("UEFI: invalid kernel file\n");
+        u64 kernel_entry;
+        load_elf_to_physical(general, stack_closure(uefi_kernel_load, fsf), &kernel_entry,
+                             stack_closure(uefi_kernel_loaded, &kernel_entry));
+    } else {
+        buffer_handler bh = closure(general, uefi_kernel_complete, aligned);
+        assert(bh != INVALID_ADDRESS);
+        status_handler sh = closure(general, uefi_kernel_fail);
+        assert(sh != INVALID_ADDRESS);
+        filesystem_read_entire(fs, t, aligned, bh, sh);
+    }
 }
 
 efi_status efi_main(void *image_handle, efi_system_table system_table)
@@ -202,7 +240,8 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
     init_tuples(allocate_tagged_region(&general, tag_table_tuple));
     init_symbols(allocate_tagged_region(&general, tag_symbol), &general);
     init_sg(&general);
-    uefi_arch_setup(&general, &aligned_heap);
+    struct uefi_arch_options options;
+    uefi_arch_setup(&general, &aligned_heap, &options);
 
     u64 handle_count;
     void **handle_buffer;
@@ -232,7 +271,7 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
         init_pagecache(&general, &general, 0, PAGESIZE);
         create_filesystem(&general, SECTOR_SIZE, bootfs_part->nsectors * SECTOR_SIZE,
                           closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start), 0, 0, 0,
-                          closure(&general, uefi_bootfs_complete, &general, &aligned_heap));
+                          closure(&general, uefi_bootfs_complete, &general, &aligned_heap, &options));
     }
     UBS->free_pool(handle_buffer);
     return EFI_LOAD_ERROR;  /* should never reach here */

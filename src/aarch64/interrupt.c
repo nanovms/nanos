@@ -9,8 +9,6 @@
 #define int_debug(x, ...)
 #endif
 
-#define MAX_INTERRUPT_VECTORS  256 /* as defined by architecture; we may have less */
-
 typedef struct inthandler {
     struct list l;
     thunk t;
@@ -18,10 +16,6 @@ typedef struct inthandler {
 } *inthandler;
 
 BSS_RO_AFTER_INIT static struct list *handlers;
-
-extern u32 n_interrupt_vectors;
-extern u32 interrupt_vector_size;
-extern void * interrupt_vectors;
 
 static char* gpreg_names[FRAME_N_GPREG] = {
     "  x0", "  x1", "  x2", "  x3", "  x4", "  x5", "  x6", "  x7",
@@ -303,9 +297,6 @@ void irq_handler(void)
                   ci->id, i, state_strings[ci->state], f[FRAME_EL],
                   f, f[FRAME_ELR], f[FRAME_ESR_SPSR]);
 
-        if (i >= GIC_MAX_INT)
-            halt("dispatched interrupt %d exceeds GIC_MAX_INT\n", i);
-
         if (list_empty(&handlers[i]))
             halt("no handler for interrupt %d\n", i);
 
@@ -425,17 +416,18 @@ BSS_RO_AFTER_INIT closure_struct(arm_timer, _timer);
 void init_interrupts(kernel_heaps kh)
 {
     int_general = heap_locked(kh);
-    handlers = allocate_zero(int_general, GIC_MAX_INT * sizeof(handlers[0]));
-    assert(handlers != INVALID_ADDRESS);
-    for (int i = 0; i < GIC_MAX_INT; i++)
-        list_init(&handlers[i]);
 
     /* set exception vector table base */
     register u64 v = u64_from_pointer(&exception_vectors);
     asm volatile("dsb sy; msr vbar_el1, %0" :: "r"(v));
 
     /* initialize interrupt controller */
-    init_gic();
+    int gic_max_int = init_gic();
+
+    handlers = allocate_zero(int_general, gic_max_int * sizeof(handlers[0]));
+    assert(handlers != INVALID_ADDRESS);
+    for (int i = 0; i < gic_max_int; i++)
+        list_init(&handlers[i]);
 
     /* msi vector heap */
     if (gic_msi_vector_num > 0) {

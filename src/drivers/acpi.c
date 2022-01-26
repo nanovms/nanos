@@ -26,6 +26,34 @@ boolean acpi_walk_madt(madt_handler mh)
     return true;
 }
 
+boolean acpi_walk_mcfg(mcfg_handler h)
+{
+    ACPI_TABLE_HEADER *mcfg;
+    ACPI_STATUS rv = AcpiGetTable(ACPI_SIG_MCFG, 1, &mcfg);
+    if (ACPI_FAILURE(rv))
+        return false;
+    ACPI_MCFG_ALLOCATION *a = (ACPI_MCFG_ALLOCATION *)(((ACPI_TABLE_MCFG *)mcfg) + 1);
+    int n = (mcfg->Length - sizeof(ACPI_TABLE_MCFG)) / sizeof(ACPI_MCFG_ALLOCATION);
+    for (int i = 0; i < n; i++) {
+        if (apply(h, a->Address, a->PciSegment, a->StartBusNumber, a->EndBusNumber))
+            break;
+    }
+    AcpiPutTable(mcfg);
+    return true;
+}
+
+boolean acpi_parse_spcr(spcr_handler h)
+{
+    ACPI_TABLE_HEADER *t;
+    ACPI_STATUS rv = AcpiGetTable(ACPI_SIG_SPCR, 1, &t);
+    if (ACPI_FAILURE(rv))
+        return false;
+    ACPI_TABLE_SPCR *spcr = (ACPI_TABLE_SPCR *)t;
+    apply(h, spcr->InterfaceType, spcr->SerialPort.Address);
+    AcpiPutTable(t);
+    return true;
+}
+
 closure_function(1, 0, void, acpi_eject,
                  ACPI_HANDLE, device)
 {

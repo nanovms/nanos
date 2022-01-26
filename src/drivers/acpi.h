@@ -19,6 +19,9 @@
 #define ACPI_MADT_LAPIC     0
 #define ACPI_MADT_IOAPIC    1
 #define ACPI_MADT_LAPICx2   9
+#define ACPI_MADT_GEN_DIST  12
+#define ACPI_MADT_GEN_RDIST 14
+#define ACPI_MADT_GEN_TRANS 15
 
 #define MADT_LAPIC_ENABLED  1
 /* ACPI table structures */
@@ -82,6 +85,34 @@ typedef struct acpi_ioapic {
     u32 gsi_base;
 } __attribute__((packed)) *acpi_ioapic;
 
+typedef struct acpi_gen_dist {  /* Generic Distributor */
+    u8 type;
+    u8 length;
+    u16 res;
+    u32 gic_id;
+    u64 base_address;
+    u32 global_irq_base;
+    u8 version;
+    u8 res2[3];
+} __attribute__((packed)) *acpi_gen_dist;
+
+typedef struct acpi_gen_redist {    /* Generic Redistributor */
+    u8 type;
+    u8 length;
+    u16 res;
+    u64 base_address;
+    u32 len;
+} __attribute__((packed)) *acpi_gen_redist;
+
+typedef struct acpi_gen_trans { /* Generic Translator */
+    u8 type;
+    u8 length;
+    u16 res;
+    u32 translation_id;
+    u64 base_address;
+    u32 res2;
+} __attribute__((packed)) *acpi_gen_trans;
+
 static inline boolean acpi_checksum(void *a, u8 len)
 {
     u8 *addr = a;
@@ -92,7 +123,11 @@ static inline boolean acpi_checksum(void *a, u8 len)
 }
 
 typedef closure_type(madt_handler, void, u8, void *);
+typedef closure_type(mcfg_handler, boolean, u64, u16, u8, u8);
+typedef closure_type(spcr_handler, void, u8, u64);
 
 void init_acpi(kernel_heaps kh);
 void init_acpi_tables(kernel_heaps kh);
 boolean acpi_walk_madt(madt_handler mh);
+boolean acpi_walk_mcfg(mcfg_handler mh);
+boolean acpi_parse_spcr(spcr_handler h);

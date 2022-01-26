@@ -46,7 +46,7 @@ static void start_kernel(void *kern_entry)
     switch_stack((u64)INITIAL_MAP_SIZE - STACK_ALIGNMENT, START_FUNC_ADDR);
 }
 
-void uefi_arch_setup(heap general, heap aligned)
+void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options)
 {
     uefi_heap = general;
     regions->type = 0;  /* initialize region area */
@@ -59,6 +59,7 @@ void uefi_arch_setup(heap general, heap aligned)
     pgdir = bootstrap_page_tables(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
     map(0, 0, INITIAL_MAP_SIZE, pageflags_writable(pageflags_exec(pageflags_memory())));
     map(PAGES_BASE, initial_pages, INITIAL_PAGES_SIZE, pageflags_writable(pageflags_memory()));
+    options->load_to_physical = false;
 }
 
 closure_function(1, 1, void, uefi_add_mem,

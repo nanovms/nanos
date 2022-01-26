@@ -14,6 +14,10 @@ typedef u64 efi_status;
 #define EFI_BAD_BUFFER_SIZE     EFIERR(4)
 #define EFI_BUFFER_TOO_SMALL    EFIERR(5)
 
+#ifndef EFIAPI
+#define EFIAPI
+#endif
+
 typedef struct efi_guid {
     u32 data1;
     u16 data2;
@@ -352,6 +356,10 @@ typedef struct efi_system_table {
 
 /* End of UEFI standard definitions */
 
+typedef struct uefi_arch_options {
+    boolean load_to_physical;
+} *uefi_arch_options;
+
 typedef struct uefi_mem_map {
     void *map;
     u64 map_size;
@@ -359,14 +367,20 @@ typedef struct uefi_mem_map {
     u32 desc_version;
 } *uefi_mem_map;
 
+typedef struct uefi_boot_params {
+    u64 acpi_rsdp;
+    struct uefi_mem_map mem_map;
+} *uefi_boot_params;
+
 void uefi_exit_bs(uefi_mem_map map);
 
 extern struct efi_guid uefi_smbios_table;
+extern struct efi_guid uefi_acpi20_table;
 
 /* Arch-specific functions */
 
 /* Aligned heap allocates at page-aligned addresses. */
-void uefi_arch_setup(heap general, heap aligned);
+void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options);
 
 void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer kern_elf,
                        void *kern_entry);

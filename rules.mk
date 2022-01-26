@@ -152,6 +152,9 @@ endef
 # $2 - source file
 objfile=	$(patsubst $(ROOTDIR)/%$(suffix $2),$(OBJDIR)/%$1,$2)
 
+cc-option=	$(shell if $(CC) -Werror $(1) -S -o /dev/null -xc /dev/null \
+	> /dev/null 2>&1; then echo "$(1)"; else echo "$(2)"; fi ;)
+
 cmd=		$(if $(Q),@ echo "$(msg_$(1))";) $(cmd_$(1))
 
 ##############################################################################

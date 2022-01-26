@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <pci.h>
 #include <gic.h>
+#include <drivers/acpi.h>
 
 //#define PCI_PLATFORM_DEBUG
 #ifdef PCI_PLATFORM_DEBUG
@@ -13,15 +14,19 @@
 #define pio_in8(port) mmio_read_8(PIO_DATA + port)
 #define pio_in16(port) mmio_read_16(PIO_DATA + port)
 #define pio_in32(port) mmio_read_32(PIO_DATA + port)
+#define pio_in64(port) mmio_read_64(PIO_DATA + port)
 #define pio_out8(port, source) mmio_write_8(PIO_DATA + port, source)
 #define pio_out16(port, source) mmio_write_16(PIO_DATA + port, source)
 #define pio_out32(port, source) mmio_write_32(PIO_DATA + port, source)
+#define pio_out64(port, source) mmio_write_64(PIO_DATA + port, source)
+
+BSS_RO_AFTER_INIT static u64 pcie_ecam_base;
 
 /* ECAM */
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     u32 data = -1;
-    u64 base = mmio_base_addr(PCIE_ECAM)
+    u64 base = pcie_ecam_base
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
     pci_plat_debug("%s:  dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx: ", __func__,
               dev, dev->bus, reg, bytes, base);
@@ -42,7 +47,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
-    u64 base = mmio_base_addr(PCIE_ECAM)
+    u64 base = pcie_ecam_base
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
     pci_plat_debug("%s: dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx= 0x%x\n",
                    __func__, dev, dev->bus, reg, bytes, base, source);
@@ -86,10 +91,12 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 MK_PCI_BAR_READ(1, 8)
 MK_PCI_BAR_READ(2, 16)
 MK_PCI_BAR_READ(4, 32)
+MK_PCI_BAR_READ(8, 64)
 
 MK_PCI_BAR_WRITE(1, 8)
 MK_PCI_BAR_WRITE(2, 16)
 MK_PCI_BAR_WRITE(4, 32)
+MK_PCI_BAR_WRITE(8, 64)
 
 void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
 {
@@ -97,6 +104,23 @@ void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
     u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % VIRT_PCIE_IRQ_NUM);
     pci_plat_debug("%s: dev %p, irq %d, handler %F, name %s\n", __func__, dev, v, h, name);
     register_interrupt(v, h, name);
+}
+
+closure_function(0, 4, boolean, pci_mcfg_handler,
+                 u64, addr, u16, segment, u8, bus_start, u8, bus_end)
+{
+    if ((segment == 0) && (bus_start == 0)) {
+        pcie_ecam_base = DEVICE_BASE + addr;
+        return true;
+    }
+    return false;
+}
+
+void pci_platform_init(void)
+{
+    acpi_walk_mcfg(stack_closure(pci_mcfg_handler));
+    if (!pcie_ecam_base)
+        pcie_ecam_base = mmio_base_addr(PCIE_ECAM);
 }
 
 /* Rudimentary resource allocation based on fixed offests for virt
@@ -128,12 +152,18 @@ u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *addre
     if (v == INVALID_PHYSICAL)
         return v;
     register_interrupt(v, h, name);
+    if (!dev_irq_enable(pci_dev_id(dev), v)) {
+        unregister_interrupt(v);
+        deallocate_msi_interrupt(v);
+        return INVALID_PHYSICAL;
+    }
     msi_format(address, data, v);
     return v;
 }
 
 void pci_platform_deallocate_msi(pci_dev dev, u64 v)
 {
+    dev_irq_disable(pci_dev_id(dev), v);
     unregister_interrupt(v);
     deallocate_msi_interrupt(v);
 }

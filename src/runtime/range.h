@@ -103,6 +103,8 @@ static inline range range_intersection(range a, range b)
     return dest;
 }
 
+void range_difference(range a, range b, range *d1, range *d2);
+
 static inline u64 range_span(range r)
 {
     return r.end - r.start;

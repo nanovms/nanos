@@ -32,3 +32,41 @@ boolean elf_apply_relocate_syms(buffer elf, Elf64_Shdr *s, elf_sym_relocator rel
     }
     return true;
 }
+
+void elf_dyn_relocate(u64 base, Elf64_Dyn *dyn)
+{
+    Elf64_Rela *rel = 0;
+    u64 relsz = 0, relent = 0;
+    u64 *loc;
+    int i;
+
+    for (i = 0; dyn[i].d_tag != DT_NULL; ++i) {
+        switch (dyn[i].d_tag) {
+            case DT_RELA:
+                rel = pointer_from_u64(dyn[i].d_un.d_ptr + base);
+                break;
+            case DT_RELASZ:
+                relsz = dyn[i].d_un.d_val;
+                break;
+            case DT_RELAENT:
+                relent = dyn[i].d_un.d_val;
+                break;
+            default:
+                break;
+        }
+    }
+    if (!rel || !relent)
+        return;
+    while (relsz > 0) {
+        switch (ELF64_R_TYPE (rel->r_info)) {
+            case R_AARCH64_RELATIVE:
+                loc = pointer_from_u64(base + rel->r_offset);
+                *loc = base + rel->r_addend;
+                break;
+            default:
+                break;
+        }
+        rel = (Elf64_Rela *) ((void *)rel + relent);
+        relsz -= relent;
+    }
+}

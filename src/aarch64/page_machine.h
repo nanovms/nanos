@@ -170,6 +170,8 @@
 /* bits [58:55] reserved for sw use */
 #define PAGE_NO_BLOCK       U64_FROM_BIT(55)
 
+#ifndef physical_from_virtual
+
 // XXX kernel addr, also should return INVALID_PHYSICAL if PAR_EL1.F is set
 #define __physical_from_virtual_locked(v) ({                            \
             register u64 __r;                                           \
@@ -178,6 +180,8 @@
             (__r & (MASK(47) & ~MASK(12))) | (__x & MASK(12));})
 
 physical physical_from_virtual(void *x);
+
+#endif
 
 extern u64 kernel_tablebase;
 extern u64 user_tablebase;

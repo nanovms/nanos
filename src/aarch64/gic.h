@@ -4,6 +4,7 @@
 #define GIC_PPI_INTS_END   32
 #define GIC_SPI_INTS_START 32
 #define GIC_SPI_INTS_END   (GIC_SPI_INTS_START + 256) /* virt */
+#define GIC_LPI_INTS_START 8192
 #define GIC_MAX_INT        GIC_SPI_INTS_END
 #define GIC_MAX_PRIO       16
 #define GIC_TIMER_IRQ      27
@@ -51,45 +52,67 @@
 #define INTID_NO_PENDING 1023
 
 /* GIC Distributor */
-#define GICD_CTLR                   mmio_base_addr(GIC_DIST)
+#define GICD_CTLR                   0x0000
 #define GICD_CTLR_DISABLE           0
 #define GICD_CTLR_ENABLEGRP0        1
 #define GICD_CTLR_ENABLEGRP1        2
-#define GICD_TYPER                  (GICD_CTLR + 0x0004))
+#define GICD_TYPER                  0x0004
+#define GICD_IDbits_BITS            5
+#define GICD_IDbits_SHIFT           19
+#define GICD_num_LPIs_BITS          5
+#define GICD_num_LPIs_SHIFT         11
 #define GICD_ITLinesNumber_BITS     5
 #define GICD_ITLinesNumber_SHIFT    0
-#define GICD_IIDR                   (GICD_CTLR + 0x0008))
-#define GICD_TYPER2                 (GICD_CTLR + 0x000c))
-#define GICD_STATUSR                (GICD_CTLR + 0x0010))
-#define GICD_SETSPI_NSR             (GICD_CTLR + 0x0040))
-#define GICD_CLRSPI_NSR             (GICD_CTLR + 0x0048))
-#define GICD_SETSPI_SR              (GICD_CTLR + 0x0050))
-#define GICD_CLRSPI_SR              (GICD_CTLR + 0x0058))
-#define GICD_IGROUPR(n)             (GICD_CTLR + 0x0080 + 4 * (n))
+#define GICD_IIDR                   0x0008
+#define GICD_TYPER2                 0x000c
+#define GICD_STATUSR                0x0010
+#define GICD_SETSPI_NSR             0x0040
+#define GICD_CLRSPI_NSR             0x0048
+#define GICD_SETSPI_SR              0x0050
+#define GICD_CLRSPI_SR              0x0058
+#define GICD_IGROUPR(n)             (0x0080 + 4 * (n))
 #define GICD_INTS_PER_IGROUP_REG    32
-#define GICD_ISENABLER(n)           (GICD_CTLR + 0x0100 + 4 * (n))
-#define GICD_ICENABLER(n)           (GICD_CTLR + 0x0180 + 4 * (n))
+#define GICD_ISENABLER(n)           (0x0100 + 4 * (n))
+#define GICD_ICENABLER(n)           (0x0180 + 4 * (n))
 #define GICD_INTS_PER_IENABLE_REG   32
-#define GICD_ISPENDR(n)             (GICD_CTLR + 0x0200 + 4 * (n))
-#define GICD_ICPENDR(n)             (GICD_CTLR + 0x0280 + 4 * (n))
+#define GICD_ISPENDR(n)             (0x0200 + 4 * (n))
+#define GICD_ICPENDR(n)             (0x0280 + 4 * (n))
 #define GICD_INTS_PER_IPEND_REG     32
-#define GICD_ISACTIVER(n)           (GICD_CTLR + 0x0300 + 4 * (n))
-#define GICD_ICACTIVER(n)           (GICD_CTLR + 0x0380 + 4 * (n))
-#define GICD_IPRIORITYR(n)          (GICD_CTLR + 0x0400 + 4 * (n))
+#define GICD_ISACTIVER(n)           (0x0300 + 4 * (n))
+#define GICD_ICACTIVER(n)           (0x0380 + 4 * (n))
+#define GICD_IPRIORITYR(n)          (0x0400 + 4 * (n))
 #define GICD_INTS_PER_IPRIORITY_REG 4
-#define GICD_ITARGETSR(n)           (GICD_CTLR + 0x0800 + 4 * (n))
+#define GICD_ITARGETSR(n)           (0x0800 + 4 * (n))
 #define GICD_INTS_PER_ITARGETS_REG  4
-#define GICD_ICFGR(n)               (GICD_CTLR + 0x0c00 + 4 * (n))
+#define GICD_ICFGR(n)               (0x0c00 + 4 * (n))
 #define GICD_INTS_PER_ICFG_REG      16
 #define GICD_ICFGR_LEVEL            0
 #define GICD_ICFGR_EDGE             2
-#define GICD_IGRPMODR(n)            (GICD_CTLR + 0x0d00)
-#define GICD_NSACR(n)               (GICD_CTLR + 0x0e00)
-#define GICD_SGIR                   (GICD_CTLR + 0x0f00)
-#define GICD_CPENDSGIR(n)           (GICD_CTLR + 0x0f10)
-#define GICD_SPENDSGIR(n)           (GICD_CTLR + 0x0f20)
+#define GICD_IGRPMODR(n)            0x0d00
+#define GICD_NSACR(n)               0x0e00
+#define GICD_SGIR                   0x0f00
+#define GICD_CPENDSGIR(n)           0x0f10
+#define GICD_SPENDSGIR(n)           0x0f20
 
-#define _GICR_OFFSET                (mmio_base_addr(GIC_REDIST) + 0x10000)
+#define GICR_CTLR                   0x0000
+#define GICR_CTLR_EnableLPIs            U64_FROM_BIT(0)
+#define GICR_IIDR                   0x0004
+#define GICR_TYPER                  0x0008
+#define GICR_TYPER_PROC_NUM(type)       (((type) & 0xffff00) >> 8)
+#define GICR_STATUSR                0x0010
+#define GICR_WAKER                  0x0014
+#define GICR_MPAMIDR                0x0018
+#define GICR_PARTIDR                0x001c
+#define GICR_SETLPIR                0x0040
+#define GICR_CLRLPIR                0x0048
+#define GICR_PROPBASER              0x0070
+#define GICR_PENDBASER              0x0078
+#define GICR_PENDBASER_PTZ              U64_FROM_BIT(62)
+#define GICR_INVLPIR                0x00a0
+#define GICR_INVALLR                0x00b0
+#define GICR_SYNCR                  0x00c0
+
+#define _GICR_OFFSET                0x10000
 #define GICR_IGROUPR                (_GICR_OFFSET + 0x0080)
 #define GICR_INTS_PER_IGROUP_REG    32
 #define GICR_ISENABLER              (_GICR_OFFSET + 0x0100)
@@ -149,6 +172,53 @@
 #define GIC_V2M_MSI_SETSPI_NS        0x40
 #define GIC_V2M_MSI_IIDR             GIC_V2M_REG(0xfcc)
 
+/* Interrupt Translation Service */
+
+#define GITS_CTLR       0x0000
+#define GITS_CTRL_ENABLED   U64_FROM_BIT(0)
+#define GITS_IIDR       0x0004
+#define GITS_TYPER      0x0008
+#define GITS_TYPER_PTA              U64_FROM_BIT(19)
+#define GITS_ITT_entry_size(type)   (((type) & 0xf0) >> 4)
+#define GITS_MPAMIDR    0x0010
+#define GITS_PARTIDR    0x0014
+#define GITS_MPIDR      0x0018
+#define GITS_STATUSR    0x0040
+#define GITS_UMSIR      0x0048
+#define GITS_CBASER     0x0080
+#define GITS_CBASER_VALID   U64_FROM_BIT(63)
+#define GITS_CWRITER    0x0088
+#define GITS_CREADR     0x0090
+#define GITS_CREADR_STALLED U64_FROM_BIT(0)
+#define GITS_BASER(n)   (0x0100 + (n) * 8)
+#define GITS_BASER_VALID                U64_FROM_BIT(63)
+#define GITS_TABLE_TYPE(baser)          (((baser) & 0x700000000000000ull) >> 56)
+#define GITS_TABLE_ENTRY_SIZE(baser)    (((baser) & 0x1f000000000000ull) >> 48)
+#define GITS_TABLE_DEVICES              0b001
+#define GITS_TABLE_COLLECTIONS          0b100
+#define GITS_BASE_PA_MASK               0xfffffffff000
+#define GITS_PAGE_SIZE(baser)           (((baser) & 0x300) >> 8)
+#define GITS_PGSZ_4K                    0b00
+#define GITS_PGSZ_16K                   0b01
+#define GITS_PGSZ_64K                   0b10
+
+#define GITS_TRANSLATER 0x10040
+
+#define ITS_CMD_CLEAR   0x04
+#define ITS_CMD_DISCARD 0x0f
+#define ITS_CMD_INT     0x03
+#define ITS_CMD_INV     0x0c
+#define ITS_CMD_INVALL  0x0d
+#define ITS_CMD_MAPC    0x09
+#define ITS_MAPC_V          U64_FROM_BIT(63)
+#define ITS_CMD_MAPD    0x08
+#define ITS_MAPD_V          U64_FROM_BIT(63)
+#define ITS_CMD_MAPI    0x0b
+#define ITS_CMD_MAPTI   0x0a
+#define ITS_CMD_MOVALL  0x0e
+#define ITS_CMD_MOVI    0x01
+#define ITS_CMD_SYNC    0x05
+
 extern u16 gic_msi_vector_base;
 extern u16 gic_msi_vector_num;
 
@@ -160,7 +230,7 @@ void gic_set_int_config(int irq, u32 cfg);
 boolean gic_int_is_pending(int irq);
 u64 gic_dispatch_int(void);
 void gic_eoi(int irq);
-void init_gic(void);
+int init_gic(void);
 
 #define _GIC_SET_INTFIELD(name, type) void gic_set_int_##name(int irq, u32 v);
 _GIC_SET_INTFIELD(priority, IPRIORITY)
