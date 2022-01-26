@@ -64,8 +64,8 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
     {                                                                   \
         pci_plat_debug("%s:  bar %p, %s addr + offset 0x%lx: ", __func__, b, \
                        b->type == PCI_BAR_MEMORY ? "memory" : "ioport", \
-                       b->addr + offset);                               \
-        u##BITS rv = b->type == PCI_BAR_MEMORY ? mmio_read_##BITS(b->addr + offset) : \
+                       (b->type == PCI_BAR_MEMORY ? b->vaddr : b->addr) + offset);      \
+        u##BITS rv = b->type == PCI_BAR_MEMORY ? mmio_read_##BITS(b->vaddr + offset) :  \
             pio_in##BITS(b->addr + offset);                             \
         pci_plat_debug("0x%x\n", rv);                                   \
         return rv;                                                      \
@@ -76,9 +76,9 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
     {                                                                   \
         pci_plat_debug("%s: bar %p, %s addr + offset 0x%lx= 0x%x\n", __func__, b, \
                        b->type == PCI_BAR_MEMORY ? "memory" : "ioport", \
-                       b->addr + offset, val);                          \
+                       (b->type == PCI_BAR_MEMORY ? b->vaddr : b->addr) + offset, val); \
         if (b->type == PCI_BAR_MEMORY)                                  \
-            mmio_write_##BITS(b->addr + offset, val);                   \
+            mmio_write_##BITS(b->vaddr + offset, val);                  \
         else                                                            \
             pio_out##BITS(b->addr + offset, val);                       \
     }
