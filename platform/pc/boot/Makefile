@@ -59,7 +59,6 @@ cmd_objcopy=	$(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 SRCS-uefi= \
 	$(SRCDIR)/boot/uefi.c \
 	$(SRCDIR)/kernel/elf.c \
-	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/runtime/buffer.c \

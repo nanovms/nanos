@@ -1,5 +1,4 @@
 #include <runtime.h>
-#include <kernel_machine.h>
 #include <page.h>
 #include <elf64.h>
 #include <pagecache.h>
@@ -87,10 +86,15 @@ u64 random_u64()
     }
 }
 
-void kernel_shutdown(int status)
+void halt(char *format, ...)
 {
-    while (1)
-        wait_for_interrupt();
+    vlist a;
+    buffer b = little_stack_buffer(512);
+    vstart(a, format);
+    vbprintf(b, alloca_wrap_cstring(format), &a);
+    buffer_print(b);
+    UBS->exit(uefi_image_handle, EFI_LOAD_ERROR, 0, 0); /* does not return */
+    while(1);   /* to honor "noreturn" attribute */
 }
 
 static u64 uefi_alloc(heap h, bytes b)
