@@ -34,8 +34,6 @@
 #ifndef ENA_PLAT_H_
 #define ENA_PLAT_H_
 
-#include <atomic.h>
-
 #define __STRING(x)     #x
 #define __XSTRING(x)    __STRING(x)
 
@@ -283,8 +281,8 @@ static inline u32 ena_reg_read32(struct ena_bus *bus, u64 offset)
 #define prefetch(x)     (void)(x)
 #define prefetchw(x)    (void)(x)
 
-#define ATOMIC32_INC(I32_PTR)       atomic_add32(I32_PTR, 1)
-#define ATOMIC32_DEC(I32_PTR)       atomic_add32(I32_PTR, -1)
+#define ATOMIC32_INC(I32_PTR)       fetch_and_add_32(I32_PTR, 1)
+#define ATOMIC32_DEC(I32_PTR)       fetch_and_add_32(I32_PTR, -1)
 #define ATOMIC32_READ(I32_PTR)      (*(I32_PTR))
 #define ATOMIC32_SET(I32_PTR, VAL)  *(I32_PTR) = (VAL)
 
