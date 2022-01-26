@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include <drivers/console.h>
 #include <pagecache.h>
 #include <tfs.h>
 #include <management.h>
@@ -179,6 +180,16 @@ void __attribute__((noreturn)) start(void *a0, void *dtb)
     init_mmu(irange(INIT_PAGEMEM, pad(INIT_PAGEMEM,PAGESIZE_2M)), u64_from_pointer(init_mmu_target));
 
     while (1);
+}
+
+void init_platform_devices(kernel_heaps kh)
+{
+    RO_AFTER_INIT static struct console_driver serial_console_driver = {
+        .name = "serial",
+        .write = serial_console_write,
+    };
+
+    attach_console_driver(&serial_console_driver);
 }
 
 void detect_hypervisor(kernel_heaps kh)

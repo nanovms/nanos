@@ -8,10 +8,13 @@
 #include <aws/aws.h>
 #include <drivers/acpi.h>
 #include <drivers/ata-pci.h>
+#include <drivers/console.h>
 #include <drivers/dmi.h>
 #include <drivers/nvme.h>
+#include <drivers/vga.h>
 #include <hyperv_platform.h>
 #include <kvm_platform.h>
+#include <pci.h>
 #include <xen_platform.h>
 #include <virtio/virtio.h>
 #include <vmware/storage.h>
@@ -494,6 +497,18 @@ void init_service(u64 rdi, u64 rsi)
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
     switch_stack(stack_location, init_service_new_stack);
+}
+
+void init_platform_devices(kernel_heaps kh)
+{
+    RO_AFTER_INIT static struct console_driver serial_console_driver = {
+        .name = "serial",
+        .write = serial_console_write,
+    };
+
+    attach_console_driver(&serial_console_driver);
+    vga_pci_register(kh);
+    pci_discover(); // early PCI discover to configure VGA console
 }
 
 extern boolean init_hpet(kernel_heaps kh);

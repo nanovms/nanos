@@ -171,8 +171,8 @@ static void vga_console_write(void *_d, const char *s, bytes count)
     vga_set_cursor(d, d->cur_x, d->cur_y);
 }
 
-closure_function(3, 1, boolean, vga_pci_probe,
-                 heap, general, console_attach, a, heap, virtual,
+closure_function(2, 1, boolean, vga_pci_probe,
+                 heap, general, heap, virtual,
                  pci_dev, _d)
 {
     if (pci_get_class(_d) != PCIC_DISPLAY)
@@ -198,12 +198,12 @@ closure_function(3, 1, boolean, vga_pci_probe,
     vga_debug("%s: max buffer lines %d\n", __func__, d->max_lines);
     vga_set_offset(d, d->y_offset);
 
-    apply(bound(a), &d->c);
+    attach_console_driver(&d->c);
     return true;
 }
 
-void vga_pci_register(kernel_heaps kh, console_attach a)
+void vga_pci_register(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    register_pci_driver(closure(h, vga_pci_probe, h, a, (heap)heap_virtual_page(kh)), 0);
+    register_pci_driver(closure(h, vga_pci_probe, h, (heap)heap_virtual_page(kh)), 0);
 }

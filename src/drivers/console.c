@@ -1,22 +1,16 @@
 #include <kernel.h>
 #include "serial.h"
 #include "console.h"
-#include "vga.h"
 #include "netconsole.h"
 
 static boolean inited;
 
-static void serial_console_write(void *d, const char *s, bytes count)
+void serial_console_write(void *d, const char *s, bytes count)
 {
     for (; count--; s++) {
         serial_putchar(*s);
     }
 }
-
-RO_AFTER_INIT struct console_driver serial_console_driver = {
-    .write = serial_console_write,
-    .name = "serial"
-};
 
 static struct list console_drivers;
 
@@ -61,10 +55,8 @@ closure_function(0, 1, void, attach_console,
 void init_console(kernel_heaps kh)
 {
     list_init(&console_drivers);
-    list_push_back(&console_drivers, &serial_console_driver.l);
     heap h = heap_general(kh);
     console_attach a = closure(h, attach_console);
-    vga_pci_register(kh, a);
     netconsole_register(kh, a);
     inited = true;
 }

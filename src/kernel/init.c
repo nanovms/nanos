@@ -344,6 +344,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_extra_prints();
     init_pci(kh);
     init_console(kh);
+    init_platform_devices(kh);
     init_symtab(kh);
     read_kernel_syms();
     reclaim_regions();          /* for pc: no accessing regions after this point */
@@ -352,8 +353,6 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("init_interrupts");
     init_interrupts(kh);
 
-    init_debug("pci_discover (for VGA)");
-    pci_discover(); // early PCI discover to configure VGA console
     init_debug("clock");
     init_clock();
     init_debug("init_kernel_contexts");

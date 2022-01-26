@@ -12,3 +12,5 @@ void init_console(kernel_heaps kh);
 void config_console(tuple root);
 void attach_console_driver(struct console_driver *driver);
 void console_force_unlock(void);
+
+void serial_console_write(void *d, const char *s, bytes count);

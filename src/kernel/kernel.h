@@ -426,6 +426,7 @@ static inline void schedule_timer_service(void)
 u64 init_bootstrap_heap(u64 phys_length);
 id_heap init_physical_id_heap(heap h);
 void init_kernel_heaps(void);
+void init_platform_devices(kernel_heaps kh);
 void init_cpuinfo_machine(cpuinfo ci, heap backed);
 void kernel_runtime_init(kernel_heaps kh);
 void read_kernel_syms(void);

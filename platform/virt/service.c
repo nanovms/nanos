@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <pagecache.h>
 #include <tfs.h>
+#include <drivers/console.h>
 #include <management.h>
 #include <virtio/virtio.h>
 #include "serial.h"
@@ -202,6 +203,17 @@ void __attribute__((noreturn)) start(void)
     init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
 
     while (1);
+}
+
+void init_platform_devices(kernel_heaps kh)
+{
+    struct console_driver *console_driver = 0;
+    if (!console_driver) {
+        console_driver = allocate_zero(heap_general(kh), sizeof(*console_driver));
+        console_driver->name = "serial";
+        console_driver->write = serial_console_write;
+    }
+    attach_console_driver(console_driver);
 }
 
 void detect_hypervisor(kernel_heaps kh)
