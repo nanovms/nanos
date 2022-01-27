@@ -295,7 +295,7 @@ static int tfs_getattr(const char *name, struct stat *s)
 {
     tuple n;
     pthread_rwlock_rdlock(&rwlock);
-    int r = resolve_cstring(0, cwd, name, &n, 0);
+    int r = resolve_cstring(&rootfs, cwd, name, &n, 0);
     if (r) {
         pthread_rwlock_unlock(&rwlock);
         return r;
@@ -572,7 +572,7 @@ closure_function(3, 2, boolean, tfs_readdir_each,
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     char *p = cstring(symbol_string(k), tmpbuf);
     tuple n;
-    resolve_cstring(0, file_get_meta(bound(f)), p, &n, 0);
+    resolve_cstring(&rootfs, file_get_meta(bound(f)), p, &n, 0);
     struct stat s;
     fill_stat(file_type_from_tuple(n), n, &s);
     if (bound(filler)(bound(buf), p, &s, 0))
@@ -602,7 +602,7 @@ static int tfs_readlink(const char *path, char *buf, size_t bufsiz)
     tfs_fuse_debug("%s: path %s\n", __func__, path);
     pthread_rwlock_rdlock(&rwlock);
     tuple n;
-    int ret = resolve_cstring(0, cwd, path, &n, 0);
+    int ret = resolve_cstring(&rootfs, cwd, path, &n, 0);
     if (ret)
         goto out;
     if (!is_symlink(n)) {
@@ -681,7 +681,7 @@ static int truncate_internal(const char *path, off_t length)
 {
     tuple t;
     filesystem fs = rootfs;
-    int ret = resolve_cstring_follow(0, cwd, path, &t, 0);
+    int ret = resolve_cstring_follow(&rootfs, cwd, path, &t, 0);
     if (ret) {
         return ret;
     }
@@ -869,13 +869,23 @@ void usage(const char *prog)
     fprintf(stderr, "  -s\t\t\tSingle threaded\n");
     fprintf(stderr, "  -f\t\t\tStay in foreground\n");
     fprintf(stderr, "  -d\t\t\tFuse debug messages\n");
+    fprintf(stderr, "  -b\t\t\tMount boot partition\n");
     exit(EXIT_FAILURE);
 }
 
 int main(int argc, char **argv)
 {
+    int partition = PARTITION_ROOTFS;
     if (argc < 3)
         usage(argv[0]);
+    /* if -b is passed, remove it from the args for fuse */
+    for (int i = 1; i < argc - 2; i++) {
+        if (strcmp(argv[i], "-b") != 0)
+            continue;
+        partition = PARTITION_BOOTFS;
+        memmove(&argv[i], &argv[i+1], (argc - i+1) * sizeof(char *));
+        argc--;
+    }
     int fd = open(argv[argc - 1], O_RDWR);
     if (fd < 0) {
         fprintf(stderr, "couldn't open fs image file %s: %s\n", argv[argc - 1],
@@ -887,7 +897,7 @@ int main(int argc, char **argv)
     h = init_process_runtime();
     init_pagecache(h, h, 0, PAGESIZE);
     u64 length;
-    u64 offset = get_fs_offset(fd, PARTITION_ROOTFS, false, &length);
+    u64 offset = get_fs_offset(fd, partition, false, &length);
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
