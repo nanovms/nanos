@@ -13,6 +13,9 @@
 #define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
 #endif
 
+#define MAX_PROCESSES 2
+process processes[MAX_PROCESSES];
+
 BSS_RO_AFTER_INIT static unix_heaps u_heap;
 
 unix_heaps get_unix_heaps()
@@ -398,6 +401,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->aio = allocate_vector(locked, 8);
     p->trace = 0;
     p->trap = 0;
+    if ((u64)p->pid - 1 < MAX_PROCESSES)
+        processes[p->pid - 1] = p;
     return p;
 }
 

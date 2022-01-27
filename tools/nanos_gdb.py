@@ -18,6 +18,14 @@ def get_buffer_string(val):
     str = val['contents'].cast(typ('char').pointer()) + val['start']
     return repr(str.string(length=(val['end']-val['start'])))[1:-1]
 
+def rbtree_traverse_inorder(n, f):
+    if n == 0:
+        return True
+    if not rbtree_traverse_inorder(n['c'][0], f):
+        return False
+    f(n)
+    return rbtree_traverse_inorder(n['c'][1], f)
+
 def print_table(t):
     i = 0
     while i < t['buckets']:
@@ -64,6 +72,47 @@ class TablePrinter(gdb.Command):
             return
         print_table(buf_val)
 
+class TreePrinter(gdb.Command):
+    "Print a nanos rbtree"
+
+    def __init__(self):
+        super(TreePrinter, self).__init__ ("print_tree", gdb.COMMAND_USER)
+
+    def invoke(self, arg, from_tty):
+        argv = gdb.string_to_argv(arg)
+        offset = 0
+        contype = None
+        if len(argv) < 1:
+            return
+        tree = gdb.parse_and_eval(argv[0])
+        if (tree.type.name != 'rbtree'):
+            print('argument must be of type rbtree (was %s)' % (tree.type))
+            return
+        if len(argv) >= 2:
+            contype = typ(argv[1]).strip_typedefs()
+            if contype.code == gdb.TYPE_CODE_PTR:
+                contype = contype.target()
+            if contype.code != gdb.TYPE_CODE_STRUCT:
+                print('container type is not a struct')
+                return
+            fieldname = None
+            for f in contype.fields():
+                if f.type.name == typ('rbnode').name:
+                    fieldname = f.name
+                    break
+            if fieldname == None:
+                print('container type does not contain rbnode')
+                return
+            offset = gdb.parse_and_eval('offsetof(struct %s, %s)' % (contype.name, fieldname))
+        def print_node(n):
+            if contype == None:
+                print('(rbnode)0x%x' % (n))
+            else:
+                print('(struct %s *)0x%x' % (contype.name, int(n) - offset))
+
+        rbtree_traverse_inorder(tree['root'], print_node)
+
 BufferPrinter()
 TablePrinter()
+TreePrinter()
 
