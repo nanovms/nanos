@@ -188,10 +188,29 @@ static inline boolean async_apply_1(void *a, void *arg0)
 
 #define CONTEXT_RESUME_SPIN_LIMIT (1ull << 24)
 
+void init_context_machine(context c);
 kernel_context allocate_kernel_context(cpuinfo ci);
 void deallocate_kernel_context(kernel_context kc);
 void init_kernel_contexts(heap backed);
 void frame_return(context_frame f);
+
+#define CONTEXT_FRAME_SIZE (FRAME_SIZE * sizeof(u64))
+
+static inline void zero_context_frame(context_frame f)
+{
+    zero(f, CONTEXT_FRAME_SIZE);
+}
+
+static inline void init_context(context c, int type)
+{
+    c->type = type;
+    c->transient_heap = 0;
+    c->waiting_on = 0;
+    c->next_waiter = 0;
+    c->active_cpu = -1;
+    zero_context_frame(c->frame);
+    init_context_machine(c);
+}
 
 static inline void __attribute__((always_inline)) context_reserve_refcount(context ctx)
 {
@@ -353,13 +372,6 @@ static inline void *apply_context_to_closure(void *p, context ctx)
     return p;
 }
 
-#define CONTEXT_FRAME_SIZE (FRAME_SIZE * sizeof(u64))
-
-static inline void zero_context_frame(context_frame f)
-{
-    zero(f, CONTEXT_FRAME_SIZE);
-}
-
 static inline void count_minor_fault(void)
 {
     fetch_and_add(&mm_stats.minor_faults, 1);
@@ -421,8 +433,6 @@ void reclaim_regions(void);
 
 boolean breakpoint_insert(heap h, u64 a, u8 type, u8 length, thunk completion);
 boolean breakpoint_remove(heap h, u32 a, thunk completion);
-
-void init_context(context c, int type);
 void destruct_context(context c);
 void *allocate_stack(heap h, u64 size);
 void deallocate_stack(heap h, u64 size, void *stack);
