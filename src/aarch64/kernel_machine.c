@@ -89,13 +89,8 @@ void psci_shutdown(void)
 
 #ifdef KERNEL
 #define EXTENDED_FRAME_SIZE (FRAME_EXTENDED_MAX * sizeof(u64))
-void init_context(context c, int type)
+void init_context_machine(context c)
 {
-    c->type = type;
-    c->transient_heap = 0;
-    c->waiting_on = 0;
-    c->active_cpu = -1;
-    zero_context_frame(c->frame);
     void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()),
                             EXTENDED_FRAME_SIZE);
     assert(e != INVALID_ADDRESS);
