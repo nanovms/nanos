@@ -477,7 +477,11 @@ static void run_flush_completions(log tl, status s)
     if (tl->flush_completions) {
         status_handler sh;
         vector_foreach(tl->flush_completions, sh)
+#ifdef KERNEL
+            async_apply_status_handler(sh, s);
+#else
             apply(sh, s);
+#endif
         vector_clear(tl->flush_completions);
     }
 }
