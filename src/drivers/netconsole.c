@@ -63,8 +63,8 @@ static void netconsole_config(void *_d, tuple r)
 
     char b[IPADDR_STRLEN_MAX+1];
     runtime_memcpy(b, s, len);
-    s[len] = 0;
-    if (!ipaddr_aton(s, &nd->dst_ip)) {
+    b[len] = 0;
+    if (!ipaddr_aton(b, &nd->dst_ip)) {
         msg_err("%s: failed to translate ip address\n");
         return;
     }
