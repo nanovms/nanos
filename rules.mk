@@ -114,6 +114,10 @@ KERNLDFLAGS=	--gc-sections -z max-page-size=4096 -L $(OUTDIR)/klib
 
 ifeq ($(MEMDEBUG),mcache)
 CFLAGS+= -DMEMDEBUG_MCACHE
+else ifeq ($(MEMDEBUG),backed)
+CFLAGS+= -DMEMDEBUG_BACKED
+else ifeq ($(MEMDEBUG),all)
+CFLAGS+= -DMEMDEBUG_ALL
 endif
 
 TARGET_ROOT=	$(NANOS_TARGET_ROOT)

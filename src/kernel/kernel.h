@@ -442,7 +442,7 @@ void msi_map_vector(int slot, int msislot, int vector);
 
 void syscall_enter(void);
 
-backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize);
+backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize, boolean nohdr);
 
 backed_heap allocate_page_backed_heap(heap meta, heap virtual, heap physical,
                                       u64 pagesize, boolean locking);

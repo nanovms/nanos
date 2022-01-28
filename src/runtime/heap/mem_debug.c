@@ -172,6 +172,25 @@ heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize)
 }
 
 #ifdef KERNEL
+static void *mem_debug_backed_alloc_map_nohdr(backed_heap h, bytes b, u64 *phys)
+{
+    mem_debug_backed_heap mdh = (mem_debug_backed_heap)h;
+    void *v = alloc_map(mdh->parent, b, phys);
+#ifdef MEMDBG_INIT
+    set_pattern(v, b, &pat_init, sizeof(pat_init));
+#endif
+    return v;
+}
+
+static void mem_debug_backed_dealloc_unmap_nohdr(backed_heap h, void *v, u64 p, bytes b)
+{
+    mem_debug_backed_heap mdh = (mem_debug_backed_heap)h;
+#ifdef MEMDBG_FREE
+    set_pattern(v, b, &pat_freed, sizeof(pat_freed));
+#endif
+    dealloc_unmap(mdh->parent, v, p, b);
+}
+
 static void *mem_debug_backed_alloc_map(backed_heap h, bytes b, u64 *phys)
 {
     mem_debug_backed_heap mdh = (mem_debug_backed_heap)h;
@@ -203,23 +222,23 @@ static void mem_debug_backed_dealloc_unmap(backed_heap h, void *v, u64 p, bytes 
 
 static u64 mem_debug_backed_alloc(heap h, bytes b)
 {
-    return u64_from_pointer(mem_debug_backed_alloc_map((backed_heap)h, b, 0));
+    return u64_from_pointer(alloc_map((backed_heap)h, b, 0));
 }
 
 static void mem_debug_backed_dealloc(heap h, u64 a, bytes b)
 {
-    mem_debug_backed_dealloc_unmap((backed_heap)h, pointer_from_u64(a), 0, b);
+    dealloc_unmap((backed_heap)h, pointer_from_u64(a), 0, b);
 }
 
-backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize)
+backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize, boolean nohdr)
 {
     mem_debug_backed_heap mbh = allocate_zero(meta, sizeof(*mbh));
     mbh->parent = parent;
     mbh->bh.h.pagesize = parent->h.pagesize;
     mbh->bh.h.alloc = mem_debug_backed_alloc;
     mbh->bh.h.dealloc = mem_debug_backed_dealloc;
-    mbh->bh.alloc_map = mem_debug_backed_alloc_map;
-    mbh->bh.dealloc_unmap = mem_debug_backed_dealloc_unmap;
+    mbh->bh.alloc_map = nohdr ? mem_debug_backed_alloc_map_nohdr : mem_debug_backed_alloc_map;
+    mbh->bh.dealloc_unmap = nohdr ? mem_debug_backed_dealloc_unmap_nohdr : mem_debug_backed_dealloc_unmap;
     mbh->padsize = MAX(padsize, PAD_MIN_BACKED);
     return &mbh->bh;
 }
