@@ -26,7 +26,9 @@ static void netconsole_write(void *_d, const char *s, bytes count)
        If so, the pbuf_alloc should be happening elsewhere (e.g. background
        task and queued to free list) */
     assert(!in_interrupt());
-    lwip_lock();
+    boolean lock = !mutex_is_acquired(lwip_mutex);
+    if (lock)
+        lwip_lock();
     while (count > 0) {
         bytes len = MIN(count, MAX_PAYLOAD);
         struct pbuf *pb = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
@@ -38,7 +40,8 @@ static void netconsole_write(void *_d, const char *s, bytes count)
         count -= len;
         off += len;
     }
-    lwip_unlock();
+    if (lock)
+        lwip_unlock();
 }
 
 static void netconsole_config(void *_d, tuple r)
@@ -63,8 +66,8 @@ static void netconsole_config(void *_d, tuple r)
 
     char b[IPADDR_STRLEN_MAX+1];
     runtime_memcpy(b, s, len);
-    s[len] = 0;
-    if (!ipaddr_aton(s, &nd->dst_ip)) {
+    b[len] = 0;
+    if (!ipaddr_aton(b, &nd->dst_ip)) {
         msg_err("%s: failed to translate ip address\n");
         return;
     }
