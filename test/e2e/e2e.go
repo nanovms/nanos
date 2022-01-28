@@ -127,9 +127,9 @@ func testPackages(t *testing.T) {
 				tt.prebuild(t)
 			}
 			if tt.elf != "" {
-				execcmd = fmt.Sprintf("ops run %s -c config.json", tt.elf)
+				execcmd = fmt.Sprintf("ops run %s -c config.json --smp %d", tt.elf, runtime.NumCPU())
 			} else {
-				execcmd = fmt.Sprintf("ops pkg load %s -c config.json", tt.pkg)
+				execcmd = fmt.Sprintf("ops pkg load %s -c config.json --smp %d", tt.pkg, runtime.NumCPU())
 			}
 			p, buffer, err := AsyncCmdStart(execcmd)
 			defer KillProcess(p)

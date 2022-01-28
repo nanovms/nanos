@@ -65,7 +65,11 @@ void init_kernel_heaps(void)
     heaps.physical = init_physical_id_heap(&bootstrap);
     assert(heaps.physical != INVALID_ADDRESS);
 
+#if defined(MEMDEBUG_BACKED) || defined(MEMDEBUG_ALL)
+    heaps.linear_backed = mem_debug_backed(&bootstrap, allocate_linear_backed_heap(&bootstrap, heaps.physical), PAGESIZE_2M, true);
+#else
     heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical);
+#endif
     assert(heaps.linear_backed != INVALID_ADDRESS);
 
     bytes pagesize = is_low_memory_machine(&heaps) ?
