@@ -305,7 +305,7 @@ void trap_exception(void)
 void init_interrupts(kernel_heaps kh)
 {
     int_general = heap_locked(kh);
-    handlers = allocate_zero(int_general, PLIC_MAX_INT * sizeof(handlers[0]));
+    handlers = allocate_zero(int_general, (PLIC_MAX_INT + 1) * sizeof(handlers[0]));
     assert(handlers != INVALID_ADDRESS);
     for (int i = 0; i <= PLIC_MAX_INT; i++)
         list_init(&handlers[i]);

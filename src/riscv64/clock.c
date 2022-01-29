@@ -13,8 +13,6 @@ clock_now platform_monotonic_now;
 clock_timer platform_timer;
 thunk platform_timer_percpu_init;
 
-static u64 boot_ns;
-
 static u64 read_rtc(void)
 {
     u64 t = read_rtc_reg(RTC_TIME_LOW);
@@ -61,7 +59,6 @@ void init_clock(void)
 {
     __vdso_dat->clock_src = VDSO_CLOCK_SYSCALL;
     __vdso_dat->platform_has_rdtscp = 0;
-    boot_ns = read_rtc();
     register_platform_clock_now(init_closure(&_clock_now, riscv_clock_now), VDSO_CLOCK_PVCLOCK);
     register_platform_clock_timer(init_closure(&_deadline_timer, riscv_deadline_timer),
                                   init_closure(&_timer_percpu_init, riscv_timer_percpu_init));

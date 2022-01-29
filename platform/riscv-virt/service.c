@@ -60,8 +60,6 @@ void reclaim_regions(void)
 {
 }
 
-extern filesystem root_fs;
-
 static inline void virt_shutdown(u64 code)
 {
     disable_interrupts();
@@ -165,11 +163,7 @@ void init_setup_stack(void)
     switch_stack(stack_top, init_service_new_stack);
 }
 
-/* avoids pc-relative immediate (must not be static) */
 void (*init_mmu_target)(void) = &init_setup_stack;
-extern void *bss_start;
-extern void *bss_end;
-extern void *END;
 
 void __attribute__((noreturn)) start(void *a0, void *dtb)
 {

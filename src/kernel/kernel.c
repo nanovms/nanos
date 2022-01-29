@@ -11,9 +11,10 @@ struct mm_stats mm_stats;
 
 #ifdef __riscv
 /* XXX newer gcc wants a memset to link to */
-void memset(void *a, u8 b, bytes len)
+void *memset(void *a, u8 b, bytes len)
 {
     runtime_memset(a, b, len);
+    return a;
 }
 #endif
 
