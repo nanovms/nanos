@@ -143,8 +143,8 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
         goto out;
     }
 
-    buffer b = pf->pipe->data;
     pipe_lock(pf->pipe);
+    buffer b = pf->pipe->data;
     rv = MIN(buffer_length(b), bound(length));
     if (rv == 0) {
         if (pf->pipe->files[PIPE_WRITE].fd == -1)
@@ -163,10 +163,13 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
     // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available
     if (buffer_length(b) == 0) {
         buffer_clear(b);
+        pipe_unlock(pf->pipe);
         notify_dispatch(pf->f.ns, 0); /* for edge trigger */
+        goto notify_writer;
     }
   unlock:
     pipe_unlock(pf->pipe);
+  notify_writer:
     if (rv > 0)
         pipe_notify_writer(pf, EPOLLOUT);
   out:
@@ -221,12 +224,11 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
 
     u64 real_length = MIN(length, avail);
     assert(buffer_write(b, bound(dest), real_length));
-    if (avail == length)
-        notify_dispatch(pf->f.ns, 0); /* for edge trigger */
-
     rv = real_length;
   unlock:
     pipe_unlock(p);
+    if (avail == length)
+        notify_dispatch(pf->f.ns, 0); /* for edge trigger */
     if (rv > 0)
         pipe_notify_reader(pf, EPOLLIN);
   out:
