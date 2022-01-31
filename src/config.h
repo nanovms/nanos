@@ -74,3 +74,8 @@
 /* debug parameters */
 #define FRAME_TRACE_DEPTH 32
 #define STACK_TRACE_DEPTH 32
+
+/* net parameters (not covered by lwipopts.h) */
+
+/* number of iterations to spin for lwip lock acquire before suspending context */
+#define LWIP_LOCK_SPIN_ITERATIONS (1ull << 12)

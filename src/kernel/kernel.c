@@ -148,6 +148,9 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
     assert(ci->cpu_queue != INVALID_ADDRESS);
     ci->last_timer_update = 0;
     ci->frcount = 0;
+    ci->mcs_prev = 0;
+    ci->mcs_next = 0;
+    ci->mcs_waiting = false;
     init_cpuinfo_machine(ci, backed);
     return ci;
 }

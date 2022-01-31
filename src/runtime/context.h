@@ -16,8 +16,8 @@ struct context {
     void (*schedule_return)(struct context *);
     fault_handler fault_handler;
     heap transient_heap;
-    void *waiting_on;
-    void *next_waiter;
+    void *waiting_on;           /* should use tag types here */
+    struct list mutex_l;        /* mutex waiters */
     u32 active_cpu;
     u8 type;
 };
