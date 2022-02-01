@@ -90,7 +90,10 @@ static inline vector split(heap h, buffer source, char divider)
             push_character(each, i);
         }
     }
-    if (buffer_length(each) > 0)  vector_push(result, each);
+    if (buffer_length(each) > 0)
+        vector_push(result, each);
+    else
+        deallocate_buffer(each);
     return result;
 }
 
@@ -105,6 +108,15 @@ static inline buffer join(heap h, vector source, char between)
 }
 
 #define vector_foreach(__v, __i) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)
+
+static inline void split_dealloc(vector v)
+{
+    buffer b;
+    vector_foreach(v, b) {
+        deallocate_buffer(b);
+    }
+    deallocate_vector(v);
+}
 
 static inline void bitvector_set(buffer b, int position)
 {

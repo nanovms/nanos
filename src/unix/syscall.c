@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <filesystem.h>
+#include <lwip.h>
 #include <storage.h>
 
 // lifted from linux UAPI
@@ -18,6 +19,8 @@ typedef struct syscall_stat {
     u64 errors;
     u64 usecs;
 } *syscall_stat;
+
+static buffer hostname;
 
 static struct syscall_stat stats[SYS_MAX];
 BSS_RO_AFTER_INIT boolean do_syscall_stats;
@@ -1574,7 +1577,6 @@ sysreturn lseek(int fd, s64 offset, int whence)
 sysreturn uname(struct utsname *v)
 {
     char sysname[] = "Nanos";
-    char nodename[] = "nanovms"; // TODO: later we probably would want to get this from /etc/hostname
     char machine[] =
 #ifdef __x86_64__
         "x86_64";
@@ -1587,7 +1589,24 @@ sysreturn uname(struct utsname *v)
         return -EFAULT;
 
     runtime_memcpy(v->sysname, sysname, sizeof(sysname));
-    runtime_memcpy(v->nodename, nodename, sizeof(nodename));
+    if (hostname) {
+        bytes length = MIN(buffer_length(hostname), sizeof(v->nodename) - 1);
+        runtime_memcpy(v->nodename, buffer_ref(hostname, 0), length);
+        v->nodename[length] = '\0';
+    } else {
+        v->nodename[0] = 0;
+        lwip_lock();
+        if (netif_default) {
+            /* Derive nodename from the IP address of the default network interface. */
+            const ip4_addr_t *addr = netif_ip4_addr(netif_default);
+            if (!ip4_addr_isany_val(*addr))
+                rsnprintf(v->nodename, sizeof(v->nodename), "%d-%d-%d-%d",
+                          ip4_addr1(addr), ip4_addr2(addr), ip4_addr3(addr), ip4_addr4(addr));
+        }
+        lwip_unlock();
+        if (!v->nodename[0])
+            runtime_memcpy(v->nodename, sysname, sizeof(sysname));
+    }
     runtime_memcpy(v->machine, machine, sizeof(machine));
 
     /* gitversion shouldn't exceed the field, but just in case... */
@@ -2506,6 +2525,24 @@ closure_function(0, 2, void, syscall_io_complete_cfn,
     syscall_return(t, rv);
 }
 
+closure_function(0, 1, status, hostname_done,
+                 buffer, b)
+{
+    hostname = b;
+
+    /* Remove trailing CR and LF, if any. */
+    while (buffer_length(hostname) > 0) {
+        char last_char = *(char *)(buffer_end(hostname) - 1);
+        if ((last_char == '\r') || (last_char == '\n'))
+            hostname->end--;
+        else
+            break;
+    }
+
+    closure_finish();
+    return STATUS_OK;
+}
+
 closure_function(0, 2, void, io_complete_ignore,
                  thread, t, sysreturn, rv)
 {
@@ -2605,6 +2642,12 @@ void init_syscalls(tuple root)
     syscall = syscall_handler;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
+    vector hostname_v = split(h, alloca_wrap_cstring("etc/hostname"), '/');
+    tuple hostname_t = resolve_path(root, hostname_v);
+    split_dealloc(hostname_v);
+    if (hostname_t)
+        filesystem_read_entire(get_root_fs(), hostname_t, h,
+                               closure(h, hostname_done), ignore_status);
     do_syscall_stats = get(root, sym(syscall_summary)) != 0;
     if (do_syscall_stats) {
         print_syscall_stats = closure(h, print_syscall_stats_cfn);
