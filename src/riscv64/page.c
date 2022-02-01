@@ -1,6 +1,6 @@
 #include <kernel.h>
 
-#define PAGE_INIT_DEBUG
+//#define PAGE_INIT_DEBUG
 
 #ifdef PAGE_INIT_DEBUG
 #define page_init_debug(x) early_debug(x)
@@ -16,7 +16,7 @@ u64 tablebase;
 
 extern void *START, *END;
 
-boolean is_protection_fault(context f)
+boolean is_protection_fault(context_frame f)
 {
     /* XXX is there no hw distinction between writing to a valid
        readonly page versus writing to a non-existant page? */

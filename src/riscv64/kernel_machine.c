@@ -41,10 +41,18 @@ void cpu_init(int cpu)
 
 void init_cpuinfo_machine(cpuinfo ci, heap backed)
 {
-    /* nop */
+    kernel_context kc = allocate_kernel_context(ci);
+    assert(kc != INVALID_ADDRESS);
+    /* start off kernel context in resumed state */
+    context_reserve_refcount(&kc->context);
+    kc->context.active_cpu = ci->id;
+    void *p = allocate(backed, TRAP_STACK_SIZE);
+    assert(p != INVALID_ADDRESS);
+    ci->m.tstack_top = p + TRAP_STACK_SIZE;
+    ci->m.current_context = ci->m.kernel_context = &kc->context;
 }
 
-void clone_frame_pstate(context dest, context src)
+void clone_frame_pstate(context_frame dest, context_frame src)
 {
     runtime_memcpy(dest, src, sizeof(u64) * FRAME_N_PSTATE);
 }
@@ -53,4 +61,24 @@ void interrupt_exit(void)
 {
     plic_eoi(plic_dispatch_int());
 }
+
+#ifdef KERNEL
+#define EXTENDED_FRAME_SIZE (FRAME_EXTENDED_MAX * sizeof(u64))
+void init_context_machine(context c)
+{
+    void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()),
+                            EXTENDED_FRAME_SIZE);
+    assert(e != INVALID_ADDRESS);
+    c->frame[FRAME_EXTENDED] = u64_from_pointer(e);
+}
+
+void destruct_context(context c)
+{
+    if (c->frame[FRAME_EXTENDED]) {
+        deallocate_u64((heap)heap_page_backed(get_kernel_heaps()),
+                       c->frame[FRAME_EXTENDED], EXTENDED_FRAME_SIZE);
+        c->frame[FRAME_EXTENDED] = 0;
+    }
+}
+#endif
 

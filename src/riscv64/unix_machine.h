@@ -139,22 +139,17 @@ static inline pageflags pageflags_from_vmflags(u64 vmflags)
     return flags;
 }
 
-static inline u64 get_tls(context f)
-{
-    return f[FRAME_TP];
-}
-
-static inline void set_tls(context f, u64 tls)
+static inline void set_tls(context_frame f, u64 tls)
 {
     f[FRAME_TP] = tls;
 }
 
-static inline void syscall_restart_arch_setup(context f)
+static inline void syscall_restart_arch_setup(context_frame f)
 {
     f[FRAME_SAVED_A0] = f[FRAME_A0];
 }
 
-static inline void syscall_restart_arch_fixup(context f)
+static inline void syscall_restart_arch_fixup(context_frame f)
 {
     /* rewind to syscall */
     f[FRAME_PC] -= 4;

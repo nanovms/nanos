@@ -74,36 +74,6 @@ static struct list *handlers;
 
 static heap int_general;
 
-void print_frame(context f)
-{
-    u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
-    boolean isint = SCAUSE_INTERRUPT(f[FRAME_CAUSE]);
-    if (isint)
-        rputs(" interrupt: ");
-    else
-        rputs(" exception: ");
-    print_u64(v);
-    if (!isint && v < sizeof(interrupt_names)/sizeof(interrupt_names[0])) {
-        rputs(" (");
-        rputs((char *)interrupt_names[v]);
-        rputs(")");
-    }
-    rputs("\n     frame: ");
-    print_u64_with_sym(u64_from_pointer(f));
-    rputs("\n    status: ");
-    print_u64_with_sym(u64_from_pointer(f[FRAME_STATUS]));
-    rputs("\n     stval: ");
-    print_u64_with_sym(u64_from_pointer(f[FRAME_FAULT_ADDRESS]));
-
-    rputs("\n");
-    for (int i = 0; i < sizeof(register_names)/sizeof(register_names[0]); i++) {
-        rputs(register_names[i]);
-        rputs(": ");
-        print_u64_with_sym(f[i]);
-        rputs("\n");
-    }
-}
-
 void frame_trace(u64 *fp)
 {
     for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame ++) {
@@ -130,7 +100,7 @@ void print_frame_trace_from_here(void)
     frame_trace(pointer_from_u64(fp));
 }
 
-void print_stack(context c)
+void print_stack(context_frame c)
 {
     rputs("\nframe trace: \n");
     frame_trace(pointer_from_u64(c[FRAME_FP]));
@@ -145,6 +115,46 @@ void print_stack(context c)
         rputs("\n");
     }
     rputs("\n");
+}
+
+void dump_context(context ctx)
+{
+    context_frame f = ctx->frame;
+    u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
+    boolean isint = SCAUSE_INTERRUPT(f[FRAME_CAUSE]);
+    if (isint)
+        rputs(" interrupt: ");
+    else
+        rputs(" exception: ");
+    print_u64(v);
+
+    if (!isint && v < sizeof(interrupt_names)/sizeof(interrupt_names[0])) {
+        rputs(" (");
+        rputs((char *)interrupt_names[v]);
+        rputs(")");
+    }
+    rputs("\n     frame: ");
+    print_u64_with_sym(u64_from_pointer(f));
+    if (ctx->type >= CONTEXT_TYPE_UNDEFINED && ctx->type < CONTEXT_TYPE_MAX) {
+        rputs("\n      type: ");
+        rputs(context_type_strings[ctx->type]);
+    }
+    rputs("\nactive_cpu: ");
+    print_u64(ctx->active_cpu);
+    rputs("\n stack top: ");
+    print_u64(f[FRAME_STACK_TOP]);
+    rputs("\n    status: ");
+    print_u64_with_sym(u64_from_pointer(f[FRAME_STATUS]));
+    rputs("\n     stval: ");
+    print_u64_with_sym(u64_from_pointer(f[FRAME_FAULT_ADDRESS]));
+    rputs("\n");
+    for (int i = 0; i < sizeof(register_names)/sizeof(register_names[0]); i++) {
+        rputs(register_names[i]);
+        rputs(": ");
+        print_u64_with_sym(f[i]);
+        rputs("\n");
+    }
+    print_stack(f);
 }
 
 void register_interrupt(int vector, thunk t, const char *name)
@@ -198,7 +208,14 @@ void riscv_timer(void)
 void trap_interrupt(void)
 {
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
+    context ctx = get_current_context(ci);
+    context_frame f = ctx->frame;
+
+    if (f[FRAME_FULL])
+        halt("\nframe %p already full\n", f);
+
+    f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
 
     int saved_state = ci->state;
     switch (SCAUSE_CODE(f[FRAME_CAUSE])) {
@@ -206,8 +223,8 @@ void trap_interrupt(void)
         console("software interrupt\n"); // XXX need to implement for smp
         break;
     case TRAP_I_STIMER:
-        int_debug("[%2d] timer interrupt, state %s user %d\n", ci->id,
-                state_strings[ci->state], f[FRAME_USER]);
+        int_debug("[%2d] timer interrupt, state %s\n", ci->id,
+                state_strings[ci->state]);
         riscv_timer();
         break;
     case TRAP_I_SEXT: {
@@ -239,13 +256,14 @@ void trap_interrupt(void)
     }
 
     /* enqueue interrupted user thread */
-    if (saved_state == cpu_user && !shutting_down) {
-        int_debug("int sched %F\n", f[FRAME_RUN]);
-        schedule_frame(f);
+    if (is_thread_context(ctx) && !shutting_down) {
+        int_debug("int sched %p\n", ctx);
+        context_schedule_return(ctx);
     }
 
-    if (is_current_kernel_context(f)) {
-        if (saved_state == cpu_kernel) {
+    if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
+        context_release_refcount(ctx);
+        if (saved_state != cpu_idle) {
             ci->state = cpu_kernel;
             frame_return(f);
         }
@@ -255,21 +273,29 @@ void trap_interrupt(void)
     runloop();
 }
 
-extern void (*syscall)(context f);
+extern void (*syscall)(context_frame f);
 
 void trap_exception(void)
 {
     cpuinfo ci = current_cpu();
-    context f = get_running_frame(ci);
+    context ctx = get_current_context(ci);
+    context_frame f = ctx->frame;
+
+    if (f[FRAME_FULL])
+        halt("\nframe %p already full\n", f);
+
+    f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
 
     if (f[FRAME_CAUSE] == TRAP_E_ECALL_UMODE) {
         f[FRAME_PC] += 4;   /* must advance pc, hw does not do it */
-        set_running_frame(ci, frame_from_kernel_context(get_kernel_context(ci)));
-        switch_stack_1(get_running_frame(ci), syscall, f); /* frame is top of stack */
+        context ctx = ci->m.syscall_context;
+        set_current_context(ci, ctx);
+        switch_stack_1(frame_get_stack_top(ctx->frame), syscall, f); /* frame is top of stack */
         halt("%s: syscall returned\n", __func__);
     }
     /* fault handlers likely act on cpu state, so don't change it */
-    fault_handler fh = pointer_from_u64(f[FRAME_FAULT_HANDLER]);
+    fault_handler fh = ctx->fault_handler;
     if (fh) {
 #ifdef INT_DEBUG
         u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
@@ -278,8 +304,11 @@ void trap_exception(void)
             rputs((char *)interrupt_names[v]);
             rputs(")");
         }
-        rputs("\n     frame: ");
-        print_u64_with_sym(u64_from_pointer(f));
+        rputs("\n   context: ");
+        print_u64_with_sym(u64_from_pointer(ctx));
+        rputs(" (");
+        rputs(state_strings[ci->state]);
+        rputs(")");
         rputs("\n    status: ");
         print_u64_with_sym(u64_from_pointer(f[FRAME_STATUS]));
         rputs("\n     stval: ");
@@ -288,16 +317,19 @@ void trap_exception(void)
         print_u64_with_sym(u64_from_pointer(f[FRAME_PC]));
         rputs("\n");
 #endif
-        context retframe = apply(fh, f);
-        if (retframe)
-            frame_return(retframe);
-        if (is_current_kernel_context(f))
+        context retframe = apply(fh, ctx);
+        if (retframe) {
+            context_release_refcount(ctx);
+            frame_return(retframe->frame);
+        }
+        if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
             f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+            context_release_refcount(ctx);
+        }
         runloop();
     } else {
         console("\nno fault handler for frame\n");
-        print_frame(f);
-        print_stack(f);
+        dump_context(ctx);
         vm_exit(VM_EXIT_FAULT);
     }
 }
@@ -354,5 +386,14 @@ u64 allocate_msi_interrupt(void)
 
 void deallocate_msi_interrupt(u64 irq)
 {
+}
+
+void __attribute__((noreturn)) __stack_chk_fail(void)
+{
+    cpuinfo ci = current_cpu();
+    context ctx = get_current_context(ci);
+    rprintf("stack check failed on cpu %d\n", ci->id);
+    dump_context(ctx);
+    vm_exit(VM_EXIT_FAULT);
 }
 

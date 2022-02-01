@@ -210,6 +210,16 @@ static inline __attribute__((always_inline)) word fetch_and_add(word *target, wo
     return __sync_fetch_and_add(target, num);
 }
 
+static inline __attribute__((always_inline)) u64 atomic_swap_64(u64 *variable, u64 value)
+{
+    return __atomic_exchange_n(variable, value, __ATOMIC_SEQ_CST);
+}
+
+static inline __attribute__((always_inline)) u8 compare_and_swap_64(u64 *p, u64 old, u64 new)
+{
+    return __atomic_compare_exchange_8(p, &old, new, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
 static inline __attribute__((always_inline)) u8 compare_and_swap_32(u32 *p, u32 old, u32 new)
 {
     return __atomic_compare_exchange_4(p, &old, new, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);

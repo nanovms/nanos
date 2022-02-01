@@ -3,12 +3,12 @@
 
 struct rt_sigframe *get_rt_sigframe(thread t)
 {
-    return pointer_from_u64(t->frame[FRAME_SP]);
+    return pointer_from_u64(thread_frame(t)[FRAME_SP]);
 }
 
 static void setup_ucontext(struct ucontext *uctx, thread t)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     struct sigcontext *mcontext = &uctx->uc_mcontext;
 
     runtime_memcpy(&mcontext->sc_regs, f, sizeof(u64) * 32);
@@ -17,7 +17,7 @@ static void setup_ucontext(struct ucontext *uctx, thread t)
 
 static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     struct __riscv_d_ext_state *fpctx = &uctx->uc_mcontext.sc_fpregs.d;
 
     fpctx->fcsr = f[FRAME_FCSR];
@@ -29,9 +29,8 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     sigaction sa = sigaction_from_sig(t, signum);
 
     assert(sizeof(struct siginfo) == 128);
-    thread_resume(t);
 
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     u64 sp;
 
     if ((sa->sa_flags & SA_ONSTACK) && t->signal_stack)
@@ -70,14 +69,14 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
 
 void restore_ucontext_fpsimd(struct __riscv_d_ext_state *d, thread t)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     f[FRAME_FCSR] = d->fcsr;
     runtime_memcpy(&f[FRAME_F0], d, sizeof(u64) * 32);
 }
 
 void restore_ucontext(struct ucontext *uctx, thread t)
 {
-    context f = thread_frame(t);
+    context_frame f = thread_frame(t);
     struct sigcontext *mcontext = &uctx->uc_mcontext;
     runtime_memcpy(f, &mcontext->sc_regs, sizeof(u64) * 32);
     t->signal_mask = normalize_signal_mask(uctx->uc_sigmask.sig[0]);
