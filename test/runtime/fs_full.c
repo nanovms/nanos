@@ -11,6 +11,7 @@
 #define BIGDATA "bigfile"
 #define NEWFILE "newfile"
 #define SECTOR_SIZE 512
+#define NUM_WRITE_RETRIES 2
 /* this could be up to log ext size */
 #define MAX_FREE_BYTES (512 * 1024)
 
@@ -19,25 +20,35 @@ int write_blocks(int fd, int nb, int bs)
     assert(bs && (bs & (SECTOR_SIZE-1)) == 0);
     uint8_t *buf = malloc(bs);
     assert(buf);
-    int b;
+    int b, bw, br;
 
     for (b = 0; b < nb; b++) {
         uint64_t *p = (uint64_t *)buf;
+        int retries;
         while (p < (uint64_t *)(buf + bs))
             *p++ = b;
-        if (write(fd, buf, bs) <= 0) {
-            printf("failed writing at block %d err '%s'\n", b, strerror(errno));
+        /* retry because sometimes additional space is released after final write */
+        for (retries = 0; retries < NUM_WRITE_RETRIES; retries++) {
+            if ((bw = pwrite(fd, buf, bs, bs * b)) > 0)
+                break;
             assert(errno == ENOSPC);
-            break;
+            usleep(1000 * 1000);
         }
-        if (pread(fd, buf, bs, bs * b) != bs) {
-            printf("failed to read written block %d err '%s'\n", b, strerror(errno));
+        if (retries == NUM_WRITE_RETRIES) {
+            printf("failed writing at block %d err '%s'\n", b, strerror(errno));
+            goto out;
+        }
+        assert(bw % SECTOR_SIZE == 0);
+        if ((br = pread(fd, buf, bs, bs * b)) != bw) {
+            printf("failed to read written block %d rv %d err '%s'\n", b, br, strerror(errno));
+            b = -1;
             break;
         }
         p = (uint64_t *)buf;
         while (p < (uint64_t *)(buf + bs)) {
             if (*p++ != b) {
                 printf("block %d does not match expected pattern in validation\n", b);
+                b = -1;
                 goto out;
             }
         }
@@ -88,17 +99,18 @@ int main(int argc, char **argv)
     /* create big file test */
     fd = open(BIGDATA, O_CREAT|O_RDWR, 0644);
     assert(fd >= 0);
-    uint64_t bwritten = write_blocks(fd, bfree, BLOCKSIZE);
+    int64_t bwritten = write_blocks(fd, bfree, BLOCKSIZE);
+    assert(bwritten >= 0);
     assert(statfs(argv[0], &statbuf) == 0);
-    assert(statbuf.f_bfree < MAX_FREE_BYTES/BLOCKSIZE);
     printf("written blocks: %lu\ncalculated free blocks: %lu\nactual free blocks %lu\nmetadata blocks allocated: %lu\n",
         bwritten, bfree - bwritten, statbuf.f_bfree, bfree - bwritten - statbuf.f_bfree);
+    assert(statbuf.f_bfree < MAX_FREE_BYTES/BLOCKSIZE);
     close(fd);
 
     /* check that still can't write to a new file */
     fd = open(NEWFILE, O_CREAT|O_RDWR, 0644);
     if (fd >= 0) {
-        assert(write_blocks(fd, 32, BLOCKSIZE) == 0);
+        assert(write_blocks(fd, 32, BLOCKSIZE) <= 0);
         close(fd);
     }
     /* verify big file */
