@@ -194,7 +194,7 @@ static void syslog_dns_failure(void)
 {
     if (syslog.dns_backoff == 0)
         syslog.dns_backoff = seconds(1);
-    else
+    else if (syslog.dns_backoff < seconds(60))
         syslog.dns_backoff *= 2;
     syslog.dns_req_next = kern_now(CLOCK_ID_MONOTONIC) + syslog.dns_backoff;
 }
@@ -239,10 +239,9 @@ static void syslog_set_hdr_len(void)
 
 static void syslog_udp_flush(void)
 {
-    if (ip_addr_isany_val(syslog.server_ip)) {
-        syslog_server_resolve();
+    syslog_server_resolve();
+    if (ip_addr_isany_val(syslog.server_ip))
         return;
-    }
     if (!syslog.hdr_len) {
         syslog_set_hdr_len();
         if (!syslog.hdr_len)
