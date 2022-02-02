@@ -439,7 +439,10 @@ int init(status_handler complete)
     }
     if (syslog.server) {
         syslog_server_resolve();
-        syslog.program = get(root, sym(program));
+        tuple env = get_environment();
+        syslog.program = get(env, sym(IMAGE_NAME));
+        if (!syslog.program)
+            syslog.program = get(root, sym(program));
         syslog.max_hdr_len = 1 + sizeof(__XSTRING(SYSLOG_PRIORITY)) + sizeof(SYSLOG_VERSION) +
                 sizeof("YYYY-MM-ddThh:mm:ss.uuuuuuZ") + sizeof(syslog.local_ip) +
                 buffer_length(syslog.program) + 7;
