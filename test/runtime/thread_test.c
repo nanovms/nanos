@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 typedef unsigned long long word;
 #define true 1
@@ -86,24 +87,33 @@ void halt(char *message)
     exit(-1);
 }
 
-word expected_sum(word n, word nt) {
+word expected_sum(word n, word nt)
+{
     word tsum = (nt) * (0 + (nt - 1)) / 2;
     n -= 1;
     return n * (n + 1) * (2 * n + 1) / 6 + tsum * n;
 }
 
+boolean check_expected_float_sum(word n, word nt, double expected)
+{
+    /* if floating registers aren't saved the difference will be huge */
+    return fabs(expected - (double)expected_sum(n, nt)) < 1e-1;
+}
+
 void *terminus(void *k)
 {
     word x = 0, v;
+    double y = 0.0;
     pipelock p= k;
     while ((v = pipelock_read(p)) != pipe_exit) {
         x += v;
+        y += (double)v;
     }
-    if (x == expected_sum(NNUMS, nthreads)) {
+    if (x == expected_sum(NNUMS, nthreads) && check_expected_float_sum(NNUMS, nthreads, y)) {
         printf("passed\n");
         exit(0);
     }
-    printf("%lld\n", x);
+    printf("%lld %f\n", x, y);
     exit(-1);
 
 }

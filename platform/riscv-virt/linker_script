@@ -1,0 +1,87 @@
+OUTPUT_FORMAT("elf64-littleriscv")
+
+ENTRY(_phys_start)
+
+INCLUDE klib-syms.lds
+
+SECTIONS
+{
+        KERNEL_PHYSADDR = 0x80200000;
+        LOAD_OFFSET = START - KERNEL_PHYSADDR;
+        _phys_start = _start - LOAD_OFFSET; /* entry point physical adddress */
+
+        . = 0xffffffff80000000;
+        START = .;
+
+        text_start = .;
+        .text ALIGN(4096): AT(ADDR(.text) - LOAD_OFFSET)
+        {
+       	    *(.text)
+            *(.text.*)
+            . = ALIGN(4096);
+        }
+        text_end = .;
+
+        .rodata ALIGN(4096): AT(ADDR(.rodata) - LOAD_OFFSET)
+        {
+            *(.rodata)
+            *(.rodata.*)
+        }
+        .srodata ALIGN(4096): AT(ADDR(.srodata) - LOAD_OFFSET)
+        {
+            *(.srodata)
+            *(.srodata.*)
+        }
+
+        READONLY_END = .;
+        .sdata ALIGN(4096): AT(ADDR(.sdata) - LOAD_OFFSET)
+        {
+            *(.sdata)
+            *(.sdata.*)
+        }
+
+        .sbss  ALIGN(4096): AT(ADDR(.sbss) - LOAD_OFFSET)
+        {
+            PROVIDE(bss_start = .);
+            *(.sbss)
+            *(.sbss.*)
+        }
+        .bss ALIGN(8): AT(ADDR(.bss) - LOAD_OFFSET)
+        {
+            bss_ro_after_init_start = .;
+            *(.bss.ro_after_init)
+            . = ALIGN(4096);
+            bss_ro_after_init_end = .;
+            *(.bss)
+            *(.bss.*)
+            *(COMMON)
+        }
+        . = ALIGN(4096);
+        PROVIDE(bss_end = .);
+        /* All kernel variables accessible to userspace
+         * Offsets from vvar_page must match the corresponding offsets specified
+         * in src/aarch64/vdso.lds
+         *
+         * We could look at generating them automatically, but for now it's easy enough
+         * to do it this way
+         */
+        .vvar ALIGN(4096): AT(ADDR(.vvar) - LOAD_OFFSET)
+        {
+            vvar_page = .;
+            __vdso_vdso_dat = vvar_page + 128;
+            . += 4096; /* reserve a page since the linker seems to discard this section */
+        }
+        .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
+        {
+            ro_after_init_start = .;
+            *(.ro_after_init)
+            . = ALIGN(4096);
+            ro_after_init_end = .;
+            *(.data)
+            *(.data.*)
+        }
+        END = .;
+
+	. = 0x80800000; /* for early init stack */
+	stack_top = .;
+}

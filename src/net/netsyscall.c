@@ -212,7 +212,17 @@ static err_t get_lwip_error(netsock s)
 
 static err_t get_and_clear_lwip_error(netsock s)
 {
+#ifdef __riscv
+    /* riscv can't do atomics < 4 bytes */
+    err_t e;
+    lwip_lock();
+    e = s->lwip_error;
+    s->lwip_error = ERR_OK;
+    lwip_unlock();
+    return e;
+#else
     return __atomic_exchange_n(&s->lwip_error, ERR_OK, __ATOMIC_ACQUIRE);
+#endif
 }
 
 #define WAKEUP_SOCK_RX          0x00000001

@@ -201,3 +201,9 @@ void pci_platform_deallocate_msi(pci_dev dev, u64 v)
     unregister_interrupt(v);
     deallocate_interrupt(v);
 }
+
+boolean pci_platform_has_msi(void)
+{
+    return true;
+}
+

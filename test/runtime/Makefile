@@ -311,6 +311,9 @@ include ../../rules.mk
 ifneq ($(CROSS_COMPILE),)
 CFLAGS+=	--sysroot $(TARGET_ROOT) -I$(TARGET_ROOT)/usr/include
 LDFLAGS+=	--sysroot=$(TARGET_ROOT) -L$(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu
+ifeq ($(ARCH),riscv64)
+LDFLAGS+=	-Wl,--eh-frame-hdr
+endif
 else
 ifeq ($(UNAME_s),Darwin)
 CFLAGS+=	-target x86_64-elf --sysroot $(TARGET_ROOT) -I $(TARGET_ROOT)/usr/include

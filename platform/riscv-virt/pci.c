@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <pci.h>
-#include <gic.h>
 #include <drivers/console.h>
 
 //#define PCI_PLATFORM_DEBUG
@@ -23,7 +22,6 @@ void vga_pci_register(kernel_heaps kh, console_attach a)
 {
 }
 
-/* ECAM */
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     u32 data = -1;
@@ -99,10 +97,12 @@ MK_PCI_BAR_WRITE(4, 32)
 
 void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
 {
-    /* queue index ignored; virtio ints are shared */
-    u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % VIRT_PCIE_IRQ_NUM);
-    pci_plat_debug("%s: dev %p, irq %d, handler %F, name %s\n", __func__, dev, v, h, name);
-    register_interrupt(v, h, name);
+    /* To mimic the interrupt assignment swizzle we need to know the 
+       device/slot and interrupt pin assignment: 
+         0x20 + (slot + pin) % 4 */
+    u64 irq = 0x20 + (dev->slot + (pci_cfgread(dev, PCIR_INT_PIN, 1)-1)) % 4;
+    pci_plat_debug("%s: bus %d slot %d func %d pin %d irq 0x%x\n", __func__, dev->bus, dev->slot, dev->function, pci_cfgread(dev, PCIR_INT_PIN, 1), irq);
+    register_interrupt(irq, h, name);
 }
 
 /* Rudimentary resource allocation based on fixed offests for virt
@@ -146,6 +146,6 @@ void pci_platform_deallocate_msi(pci_dev dev, u64 v)
 
 boolean pci_platform_has_msi(void)
 {
-    return true;
+    return false;
 }
 

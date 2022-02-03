@@ -4,6 +4,8 @@
 #include "vga.h"
 #include "netconsole.h"
 
+static boolean inited;
+
 static void serial_console_write(void *d, const char *s, bytes count)
 {
     for (; count--; s++) {
@@ -30,6 +32,11 @@ void attach_console_driver(struct console_driver *driver)
 
 void console_write(const char *s, bytes count)
 {
+    if (!inited) {
+        while (count-- > 0)
+            serial_putchar(*s++);
+        return;
+    }
     spin_lock(&write_lock);
     list_foreach(&console_drivers, e) {
         struct console_driver *d = struct_from_list(e, struct console_driver *, l);
@@ -59,6 +66,7 @@ void init_console(kernel_heaps kh)
     console_attach a = closure(h, attach_console);
     vga_pci_register(kh, a);
     netconsole_register(kh, a);
+    inited = true;
 }
 
 void config_console(tuple root)

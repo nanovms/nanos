@@ -19,6 +19,9 @@ endif
 ifeq ($(ARCH),x86_64)
 PLATFORM?=	pc
 endif
+ifeq ($(ARCH),riscv64)
+PLATFORM?=	riscv-virt
+endif
 else
 # Otherwise, assume we're cross-compiling, and derive the arch from the platform.
 ifeq ($(PLATFORM),virt)
@@ -26,6 +29,9 @@ ARCH?=		aarch64
 endif
 ifeq ($(PLATFORM),pc)
 ARCH?=		x86_64
+endif
+ifeq ($(PLATFORM),riscv-virt)
+ARCH?=		riscv64
 endif
 ifneq ($(ARCH),$(shell uname -m))
 CROSS_COMPILE?=	$(ARCH)-linux-gnu-
@@ -301,6 +307,8 @@ ifneq ($(CC),clang)
 ifneq ($(UNAME_s),Darwin)
 ifeq ($(ARCH),aarch64)
 # XXX SSP on arm not working yet; check flags
+KERNCFLAGS+=	-fstack-protector-all
+else ifeq ($(ARCH),riscv64)
 KERNCFLAGS+=	-fstack-protector-all
 else
 KERNCFLAGS+=	-mstack-protector-guard=global \

@@ -1172,6 +1172,7 @@ static void filebacked_sigbus_test(void)
 
     printf("** write to both pages (should not cause fault)\n");
     expect_sigbus = 0;
+    compiler_barrier();
     *(unsigned long *)p = 0;
     *(unsigned long *)(p + PAGESIZE) = 0;
 
@@ -1188,6 +1189,7 @@ static void filebacked_sigbus_test(void)
         close(out);
     } else {
         expect_sigbus = 1;
+        compiler_barrier();
         *(unsigned long *)(p + PAGESIZE) = 0;
         printf("** failed; map access should have caused SIGBUS\n");
         exit(EXIT_FAILURE);

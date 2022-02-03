@@ -528,10 +528,17 @@ static inline void set_pc(ucontext_t *context, unsigned long pc)
 }
 #endif
 
-static bool
-child_should_die(void * ucontext)
+#ifdef __riscv
+static inline void set_pc(ucontext_t *context, unsigned long pc)
 {
-    return get_fault_address((ucontext_t *)ucontext) == BAD_PC;
+    context->uc_mcontext.__gregs[0] = pc;
+}
+#endif
+
+static bool
+child_should_die(siginfo_t * info)
+{
+    return (unsigned long long)info->si_addr == BAD_PC;
 }
 
 static void
@@ -552,12 +559,13 @@ sigsegv_sigaction(int signo, siginfo_t * info, void * ucontext)
     print_ucontext(ucontext);
 #endif
 
+#ifndef __riscv
     if (iter == 1 && (unsigned long)info->si_addr != get_fault_address((ucontext_t *)ucontext))
         fail_perror("  childtid: fault address not info-si_addr\n");
-
+#endif
     iter++;
 
-    if (child_should_die(ucontext))
+    if (child_should_die(info))
         syscall(SYS_exit, 0);
  
     /* update the RIP to something invalid */

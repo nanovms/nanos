@@ -98,6 +98,7 @@ void *allocate_table_page(u64 *phys)
     void *p = pointer_from_pteaddr(*phys);
     page_init_debug(" phys: ");
     page_init_debug_u64(*phys);
+    page_init_debug("\n");
     zero(p, PAGESIZE);
     return p;
 }
@@ -191,6 +192,9 @@ closure_function(0, 3, boolean, validate_entry,
 boolean validate_virtual(void * base, u64 length)
 {
     page_debug("base %p, length 0x%lx\n", base, length);
+    u64 p = u64_from_pointer(base) >> VIRTUAL_ADDRESS_BITS;
+    if (p != 0 && p != MASK(64-VIRTUAL_ADDRESS_BITS))
+        return false;
     return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry));
 }
 
@@ -221,8 +225,8 @@ closure_function(2, 3, boolean, update_pte_flags,
 
     pte_set(entry, (orig_pte & ~PAGE_PROT_FLAGS) | bound(flags).w);
 #ifdef PAGE_UPDATE_DEBUG
-    page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, old,
-               pte_from_pteptr(entry).w);
+    page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, orig_pte,
+               pte_from_pteptr(entry));
 #endif
     page_invalidate(bound(fe), addr);
     return true;

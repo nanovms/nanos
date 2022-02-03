@@ -126,7 +126,7 @@ cmd_add_syms=	$(foreach prog, $(PROGRAM_BINARIES), $(call add_syms,$(prog)))
 # append list of undefined symbols to linker script
 define add_syms
 
-	$(Q) $(OBJDUMP) -R $1 | $(SED) -n -E 's/.*(GLOB_DAT|JUMP_SLOT)[[:space:]]*/EXTERN(/p' | $(SED) -n 's/$$/)/p' >> $(KLIB_SYMS)
+	$(Q) $(OBJDUMP) -R $1 | $(SED) -n -E 's/.*(GLOB_DAT|JUMP_SLOT|RISCV_64)[[:space:]]*/EXTERN(/p' | $(SED) -n 's/$$/)/p' >> $(KLIB_SYMS)
 
 endef
 
