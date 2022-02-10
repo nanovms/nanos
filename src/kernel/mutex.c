@@ -124,6 +124,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
         mutex_pause();
     }
     mutex_debug("   spin timeout; removing from MCS list\n");
+    fetch_and_add(&m->mcs_spinouts, 1);
 
     /* spin timed out; extract waiter from list and block
 
@@ -155,6 +156,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     ci->mcs_waiting = false;
     on_mcs = false;
 
+  wait:
     /* To cover the race where an unlock occurs between removal from MCS list
        and insertion into waiters, attempt to grab the mutex under waiters_lock. */
     mutex_debug("   removed; taking waiters_lock\n");
@@ -172,11 +174,25 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     context_pre_suspend(ctx);
     context_suspend();
   acquire:
-    while (!compare_and_swap_64((u64*)&m->turn, 0, u64_from_pointer(ctx)))
+    spins_remain = MUTEX_ACQUIRE_SPIN_LIMIT;
+    while (spins_remain-- > 0) {
+        if (m->turn == 0 && compare_and_swap_64((u64*)&m->turn, 0, u64_from_pointer(ctx))) {
+            if (on_mcs)
+                mcs_unlock(m, ci);
+            return true;
+        }
         mutex_pause();
-    if (on_mcs)
+    }
+    fetch_and_add(&m->acquire_spinouts, 1);
+
+    /* we cannot reschedule while holding the mcs lock, so join waiters */
+    if (on_mcs) {
         mcs_unlock(m, ci);
-    return true;
+        on_mcs = false;
+        goto wait;
+    }
+    context_reschedule(ctx);
+    goto acquire;
 }
 
 boolean mutex_try_lock(mutex m)
@@ -230,6 +246,8 @@ mutex allocate_mutex(heap h, u64 spin_iterations)
     m->spin_iterations = spin_iterations;
     m->turn = 0;
     m->mcs_tail = 0;
+    m->mcs_spinouts = 0;
+    m->acquire_spinouts = 0;
     spin_lock_init(&m->waiters_lock);
     list_init(&m->waiters);
     return m;

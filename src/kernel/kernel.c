@@ -65,7 +65,6 @@ static void kernel_context_resume(context c)
 static void kernel_context_schedule_return(context c)
 {
     kernel_context kc = (kernel_context)c;
-    assert(frame_is_full(kc->context.frame));
     assert(enqueue_irqsafe(runqueue, &kc->kernel_return));
 }
 
@@ -74,10 +73,10 @@ define_closure_function(1, 0, void, kernel_context_return,
 {
     kernel_context kc = bound(kc);
     context_frame f = kc->context.frame;
-    assert(f[FRAME_FULL]);
     context_switch(&kc->context);
     assert(kc->context.refcount.c > 1);
     context_release_refcount(&kc->context);
+    assert(frame_is_full(f));
     frame_return(f);
 }
 

@@ -2390,7 +2390,6 @@ static void syscall_context_schedule_return(context ctx)
     thread t = sc->t;
     assert(t);
     assert(t->syscall == sc); // XXX bringup
-    assert(frame_is_full(sc->context.frame));
     assert(enqueue_irqsafe(runqueue, &sc->syscall_return));
 }
 
@@ -2404,9 +2403,9 @@ define_closure_function(1, 0, void, syscall_context_return,
 {
     syscall_context sc = bound(sc);
     context_frame f = sc->context.frame;
-    assert(f[FRAME_FULL]);
     context_switch(&sc->context);
     context_release_refcount(&sc->context);
+    assert(frame_is_full(f));
     frame_return(f);
 }
 

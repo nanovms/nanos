@@ -284,6 +284,15 @@ static inline void context_schedule_return(context ctx)
     ctx->schedule_return(ctx);
 }
 
+static inline void context_reschedule(context ctx)
+{
+    context_debug("%s: suspend ctx %p, cpu %d\n", __func__, ctx, current_cpu()->id);
+    context_pre_suspend(ctx);
+    context_schedule_return(ctx);
+    context_suspend();
+    context_debug("%s: resume ctx %p, cpu %d\n", __func__, ctx, current_cpu()->id);
+}
+
 void __attribute__((noreturn)) context_switch_finish(context prev, context next, void *a, u64 arg0, u64 arg1);
 
 /* TODO: make into varargs / macro to avoid unneeded arg copies */

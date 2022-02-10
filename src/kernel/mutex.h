@@ -4,6 +4,8 @@ typedef struct mutex {
     void *mcs_tail;             /* cpuinfo */
     struct spinlock waiters_lock;
     struct list waiters;
+    u64 mcs_spinouts;           /* stats */
+    u64 acquire_spinouts;
 } *mutex;
 
 boolean mutex_try_lock(mutex ql);
