@@ -33,6 +33,9 @@
 /* per-cpu queue */
 #define CPU_QUEUE_SIZE 512
 
+/* locking */
+#define MUTEX_ACQUIRE_SPIN_LIMIT (1ull << 20)
+
 /* could probably find progammatically via cpuid... */
 #define DEFAULT_CACHELINE_SIZE 64
 
@@ -74,3 +77,8 @@
 /* debug parameters */
 #define FRAME_TRACE_DEPTH 32
 #define STACK_TRACE_DEPTH 32
+
+/* net parameters (not covered by lwipopts.h) */
+
+/* number of iterations to spin for lwip lock acquire before suspending context */
+#define LWIP_LOCK_SPIN_ITERATIONS (1ull << 16)

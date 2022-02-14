@@ -344,9 +344,6 @@ void init_network_iface(tuple root) {
 
 extern void lwip_init();
 
-#define LWIP_LOCK_WAITER_QUEUE_DEPTH 64
-#define LWIP_LOCK_SPIN_ITERATIONS (1ull << 20)
-
 void init_net(kernel_heaps kh)
 {
     heap h = heap_general(kh);
@@ -354,7 +351,7 @@ void init_net(kernel_heaps kh)
     bytes pagesize = is_low_memory_machine(kh) ?
                      U64_FROM_BIT(MAX_LWIP_ALLOC_ORDER + 1) : PAGESIZE_2M;
     lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, pagesize);
-    lwip_mutex = allocate_mutex(h, LWIP_LOCK_WAITER_QUEUE_DEPTH, LWIP_LOCK_SPIN_ITERATIONS);
+    lwip_mutex = allocate_mutex(h, LWIP_LOCK_SPIN_ITERATIONS);
     assert(lwip_mutex != INVALID_ADDRESS);
     lwip_lock();
     lwip_init();

@@ -14,6 +14,11 @@ static inline void list_init(struct list * head)
     head->prev = head->next = head;
 }
 
+static inline void list_init_member(struct list * p)
+{
+    p->prev = p->next = 0;
+}
+
 static inline boolean list_empty(struct list * head)
 {
 #ifndef KLIB

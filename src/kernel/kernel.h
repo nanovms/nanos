@@ -41,7 +41,9 @@ typedef struct kernel_context {
 extern boolean shutting_down;
 
 /* per-cpu, architecture-independent invariants */
-typedef struct cpuinfo {
+typedef struct cpuinfo *cpuinfo;
+
+struct cpuinfo {
     struct cpuinfo_machine m;
     u32 id;
     int state;
@@ -51,6 +53,10 @@ typedef struct cpuinfo {
     u64 frcount;
     u64 inval_gen; /* Generation number for invalidates */
 
+    cpuinfo mcs_prev;
+    cpuinfo mcs_next;
+    boolean mcs_waiting;
+
     /* multiple producers, single consumer */
     queue free_kernel_contexts;
     queue free_syscall_contexts;
@@ -58,7 +64,7 @@ typedef struct cpuinfo {
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
 #endif
-} *cpuinfo;
+};
 
 extern vector cpuinfos;
 
@@ -206,7 +212,7 @@ static inline void init_context(context c, int type)
     c->type = type;
     c->transient_heap = 0;
     c->waiting_on = 0;
-    c->next_waiter = 0;
+    list_init_member(&c->mutex_l);
     c->active_cpu = -1;
     zero_context_frame(c->frame);
     init_context_machine(c);
@@ -276,6 +282,15 @@ static inline void context_schedule_return(context ctx)
 {
     assert(ctx->schedule_return);
     ctx->schedule_return(ctx);
+}
+
+static inline void context_reschedule(context ctx)
+{
+    context_debug("%s: suspend ctx %p, cpu %d\n", __func__, ctx, current_cpu()->id);
+    context_pre_suspend(ctx);
+    context_schedule_return(ctx);
+    context_suspend();
+    context_debug("%s: resume ctx %p, cpu %d\n", __func__, ctx, current_cpu()->id);
 }
 
 void __attribute__((noreturn)) context_switch_finish(context prev, context next, void *a, u64 arg0, u64 arg1);
