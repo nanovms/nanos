@@ -737,10 +737,12 @@ sysreturn mprotect(void * addr, u64 len, int prot)
         return -EINVAL;
 
     u64 new_vmflags = 0;
-    if ((prot & PROT_EXEC))
-        new_vmflags |= VMAP_FLAG_EXEC;
+    if ((prot & PROT_READ))
+        new_vmflags |= VMAP_FLAG_READABLE;
     if ((prot & PROT_WRITE))
         new_vmflags |= VMAP_FLAG_WRITABLE;
+    if ((prot & PROT_EXEC))
+        new_vmflags |= VMAP_FLAG_EXEC;
 
     process p = current->p;
     vmap_lock(p);
@@ -1032,10 +1034,12 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     int map_type = flags & MAP_TYPE_MASK;
     if (map_type == MAP_SHARED || map_type == MAP_SHARED_VALIDATE)
         vmflags |= VMAP_FLAG_SHARED;
-    if ((prot & PROT_EXEC))
-        vmflags |= VMAP_FLAG_EXEC;
+    if ((prot & PROT_READ))
+        vmflags |= VMAP_FLAG_READABLE;
     if ((prot & PROT_WRITE))
         vmflags |= VMAP_FLAG_WRITABLE;
+    if ((prot & PROT_EXEC))
+        vmflags |= VMAP_FLAG_EXEC;
 
     /* TODO: assert for unsupported:
        MAP_GROWSDOWN
