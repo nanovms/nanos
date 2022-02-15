@@ -1241,6 +1241,59 @@ bytes vmh_total(struct heap *h)
     return PROCESS_VIRTUAL_HEAP_LIMIT;
 }
 
+closure_function(3, 1, void, check_vmap_permissions,
+                 u64, required_flags, u64, disallowed_flags, boolean *, fail,
+                 rmnode, n)
+{
+    vmap vm = (vmap)n;
+    u64 rf = bound(required_flags), df = bound(disallowed_flags);
+    if ((vm->flags & rf) != rf || (vm->flags & df))
+        *bound(fail) = true;
+}
+
+closure_function(1, 1, void, check_vmap_gap,
+                 boolean *, have_gap,
+                 range, r)
+{
+    *bound(have_gap) = true;
+}
+
+boolean validate_user_memory_permissions(const void *buf, bytes length,
+                                         u64 required_flags, u64 disallowed_flags)
+{
+    u64 addr = u64_from_pointer(buf);
+    range q = irange(addr, pad(addr + length, PAGESIZE));
+    boolean perm_fail = false, have_gap = false;
+    process p = current->p;
+    vmap_lock(p);
+    rangemap_range_lookup_with_gaps(p->vmaps, q,
+                                    stack_closure(check_vmap_permissions, required_flags,
+                                                  disallowed_flags, &perm_fail),
+                                    stack_closure(check_vmap_gap, &have_gap));
+    vmap_unlock(p);
+    return !(perm_fail || have_gap);
+}
+
+boolean fault_in_user_memory(const void *buf, bytes length,
+                             u64 required_flags, u64 disallowed_flags)
+{
+    if (!validate_user_memory_permissions(buf, length, required_flags,
+                                          disallowed_flags))
+        return false;
+
+    /* Fault in non-present pages by touching each page in buffer */
+    u64 addr = u64_from_pointer(buf);
+    volatile u8 *bp = pointer_from_u64(addr & ~PAGEMASK),
+        *end = pointer_from_u64(pad((addr + length), PAGESIZE));
+    while (bp < end) {
+        /* We always support reading regardless of flags... */
+        (void)*bp;
+        bp += PAGESIZE;
+    }
+    memory_barrier();
+    return true;
+}
+
 void mmap_process_init(process p, boolean aslr)
 {
     kernel_heaps kh = &p->uh->kh;
