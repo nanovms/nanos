@@ -46,7 +46,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     assert(id_heap_set_area(p->virtual32, stack_start, PROCESS_STACK_SIZE, true, true));
 #endif
     p->stack_map = allocate_vmap(p->vmaps, irangel(stack_start, PROCESS_STACK_SIZE),
-                                 ivmap(VMAP_FLAG_WRITABLE, 0, 0, 0));
+                                 ivmap(VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE, 0, 0, 0));
     assert(p->stack_map != INVALID_ADDRESS);
 
     u64 * s = pointer_from_u64(stack_start);
@@ -168,7 +168,7 @@ closure_function(3, 4, u64, exec_elf_map,
                  u64, vaddr, u64, paddr, u64, size, pageflags, flags)
 {
     kernel_heaps kh = bound(kh);
-    u64 vmflags = 0;
+    u64 vmflags = VMAP_FLAG_READABLE;
     if (pageflags_is_exec(flags))
         vmflags |= VMAP_FLAG_EXEC;
     if (pageflags_is_writable(flags))
@@ -281,7 +281,7 @@ process exec_elf(buffer ex, process kp)
     proc->brk = pointer_from_u64(brk);
     proc->heap_base = brk;
     proc->heap_map = allocate_vmap(proc->vmaps, irange(brk, brk),
-        ivmap(VMAP_FLAG_WRITABLE, 0, 0, 0));
+        ivmap(VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE, 0, 0, 0));
     assert(proc->heap_map != INVALID_ADDRESS);
     exec_debug("entry %p, brk %p (offset 0x%lx)\n", entry, proc->brk, brk_offset);
 
