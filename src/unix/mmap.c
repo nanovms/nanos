@@ -193,7 +193,7 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
            or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
            assume this is an unrecoverable error and exit here. */
         halt("%s: file-backed access in kernel mode outside of map range, "
-             "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
+             "node %p (start 0x%lx), offset 0x%lx\n", __func__, vm->cache_node,
              vm->node.r.start, node_offset);
     }
 
