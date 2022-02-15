@@ -657,6 +657,12 @@ void deallocate_fd(process p, int fd);
 
 void init_vdso(process p);
 
+boolean validate_user_memory_permissions(process p, const void *buf, bytes length,
+                                         u64 required_flags, u64 disallowed_flags);
+
+boolean fault_in_user_memory(const void *buf, bytes length,
+                             u64 required_flags, u64 disallowed_flags);
+
 void mmap_process_init(process p, boolean aslr);
 
 /* This "validation" is just a simple limit check right now, but this
@@ -979,7 +985,34 @@ void spec_deallocate(file f);
 void syscall_debug(context f);
 
 boolean validate_iovec(struct iovec *iov, u64 len, boolean write);
-boolean validate_user_string(const char *name);
+
+static inline boolean validate_user_string(const char *name)
+{
+    u64 a = u64_from_pointer(name);
+    while (validate_user_memory(pointer_from_u64(a & ~PAGEMASK),
+                                PAGESIZE, false)) {
+        u64 lim = (a & ~PAGEMASK) + PAGESIZE;
+        while (a < lim) {
+            if (*(u8*)pointer_from_u64(a++) == '\0')
+                return true;
+        }
+    }
+    return false;
+}
+
+static inline boolean fault_in_user_string(const char *name)
+{
+    u64 a = u64_from_pointer(name);
+    while (fault_in_user_memory(pointer_from_u64(a & ~PAGEMASK),
+                                PAGESIZE, VMAP_FLAG_READABLE, 0)) {
+        u64 lim = (a & ~PAGEMASK) + PAGESIZE;
+        while (a < lim) {
+            if (*(u8*)pointer_from_u64(a++) == '\0')
+                return true;
+        }
+    }
+    return false;
+}
 
 static inline boolean iov_to_sg(sg_list sg, struct iovec *iov, int iovlen)
 {

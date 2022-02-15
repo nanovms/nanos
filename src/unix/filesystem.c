@@ -29,6 +29,8 @@ sysreturn sysreturn_from_fs_status(fs_status s)
         return -ENAMETOOLONG;
     case FS_STATUS_XDEV:
         return -EXDEV;
+    case FS_STATUS_FAULT:
+        return -EFAULT;
     default:
         return 0;
     }
@@ -149,7 +151,7 @@ closure_function(2, 2, void, fs_op_complete,
 static sysreturn symlink_internal(filesystem fs, inode cwd, const char *path,
         const char *target)
 {
-    if (!validate_user_string(path) || !validate_user_string(target)) {
+    if (!fault_in_user_string(path) || !fault_in_user_string(target)) {
         return set_syscall_error(current, EFAULT);
     }
     return sysreturn_from_fs_status(filesystem_symlink(fs, cwd, path, target));
@@ -182,6 +184,8 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
     tuple t;
     filesystem fs;
     inode cwd;
+    if (!fault_in_user_string(filename))
+        return -EFAULT;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fs_status fss = filesystem_get_node(&fs, cwd, filename, false, false, false, &t, 0);
@@ -200,9 +204,8 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
 
 sysreturn utime(const char *filename, const struct utimbuf *times)
 {
-    if (!validate_user_string(filename) ||
-        !validate_user_memory(times, sizeof(struct utimbuf), false))
-        return set_syscall_error(current, EFAULT);
+    if (times && !validate_user_memory(times, sizeof(struct utimbuf), false))
+        return -EFAULT;
     timestamp atime = times ? seconds(times->actime) : now(CLOCK_ID_REALTIME);
     timestamp mtime = times ? seconds(times->modtime) : now(CLOCK_ID_REALTIME);
     return utime_internal(filename, atime, mtime);
@@ -210,9 +213,8 @@ sysreturn utime(const char *filename, const struct utimbuf *times)
 
 sysreturn utimes(const char *filename, const struct timeval times[2])
 {
-    if (!validate_user_string(filename) ||
-        !validate_user_memory(times, 2 * sizeof(struct timeval), false))
-        return set_syscall_error(current, EFAULT);
+    if (times && !validate_user_memory(times, 2 * sizeof(struct timeval), false))
+        return -EFAULT;
     /* Sub-second precision is not supported. */
     timestamp atime =
             times ? time_from_timeval(&times[0]) : now(CLOCK_ID_REALTIME);
@@ -223,9 +225,6 @@ sysreturn utimes(const char *filename, const struct timeval times[2])
 
 static sysreturn statfs_internal(filesystem fs, tuple t, struct statfs *buf)
 {
-    if (!buf) {
-        return set_syscall_error(current, EFAULT);
-    }
     runtime_memset((u8 *) buf, 0, sizeof(*buf));
     if (fs) {
         buf->f_bsize = fs_blocksize(fs);
@@ -244,22 +243,26 @@ static sysreturn statfs_internal(filesystem fs, tuple t, struct statfs *buf)
 
 sysreturn statfs(const char *path, struct statfs *buf)
 {
-    if (!validate_user_string(path) ||
-        !validate_user_memory(buf, sizeof(struct statfs), true))
-        return set_syscall_error(current, EFAULT);
     filesystem fs;
     inode cwd;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
-    tuple t;
-    fs_status fss = filesystem_get_node(&fs, cwd, path, true, false, false, &t, 0);
+    tuple t = 0;
     sysreturn rv;
+    if (!fault_in_user_string(path) ||
+        !fault_in_user_memory(buf, sizeof(struct statfs), VMAP_FLAG_WRITABLE, 0)) {
+        rv = -EFAULT;
+        goto out;
+    }
+    fs_status fss = filesystem_get_node(&fs, cwd, path, true, false, false, &t, 0);
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
     } else {
         rv = statfs_internal(fs, t, buf);
     }
-    filesystem_put_node(fs, t);
+  out:
+    if (t)
+        filesystem_put_node(fs, t);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -278,12 +281,16 @@ sysreturn fstatfs(int fd, struct statfs *buf)
         f = 0;
         break;
     }
-    tuple t;
+    tuple t = 0;
+    sysreturn rv;
+    if (!fault_in_user_memory(buf, sizeof(struct statfs), VMAP_FLAG_WRITABLE, 0)) {
+        rv = -EFAULT;
+        goto out;
+    }
     if (f)
         t = filesystem_get_meta(f->fs, f->n);
-    else
-        t = 0;
-    sysreturn rv = statfs_internal(f ? f->fs : 0, t, buf);
+    rv = statfs_internal(f ? f->fs : 0, t, buf);
+  out:
     fdesc_put(desc);
     if (t)
         filesystem_put_meta(f->fs, t);

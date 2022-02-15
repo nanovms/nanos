@@ -83,6 +83,7 @@ typedef enum {
     FS_STATUS_LINKLOOP,
     FS_STATUS_NAMETOOLONG,
     FS_STATUS_XDEV,
+    FS_STATUS_FAULT
 } fs_status;
 
 const char *string_from_fs_status(fs_status s);
