@@ -133,12 +133,25 @@ const char *string_from_mmap_type(int type)
          (type == VMAP_MMAP_TYPE_IORING ? "io_uring" : "unknown"));
 }
 
-static boolean handle_protection_fault(context_frame frame, u64 vaddr, vmap vm)
+#define format_protection_violation(vaddr, ctx, vm, str)        \
+    "page_protection_violation%s\naddr 0x%lx, rip 0x%lx, "     \
+    "error %s%s%s vm->flags (%s%s %s%s%s)\n",                   \
+        str, vaddr, frame_return_address(ctx->frame),           \
+        is_write_fault(ctx->frame) ? "W" : "R",                 \
+        is_usermode_fault(ctx->frame) ? "U" : "S",              \
+        is_instruction_fault(ctx->frame) ? "I" : "D",           \
+        (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",            \
+        string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK), \
+        (vm->flags & VMAP_FLAG_READABLE) ? "readable " : "",    \
+        (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",    \
+        (vm->flags & VMAP_FLAG_EXEC) ? "executable " : ""
+
+static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
 {
     /* vmap found, with protection violation set --> send prot violation */
-    if (is_protection_fault(frame)) {
+    if (is_protection_fault(ctx->frame)) {
         u64 flags = VMAP_FLAG_MMAP | VMAP_FLAG_WRITABLE;
-        if (is_write_fault(frame) && (vm->flags & flags) == flags &&
+        if (is_write_fault(ctx->frame) && (vm->flags & flags) == flags &&
             (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
             /* copy on write */
             u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
@@ -146,24 +159,20 @@ static boolean handle_protection_fault(context_frame frame, u64 vaddr, vmap vm)
             pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
                      vaddr, vm->cache_node, node_offset);
             if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
-                                            pageflags_from_vmflags(vm->flags))) {
-                msg_err("cannot get physical page; OOM\n");
-                return false;
-            }
+                                            pageflags_from_vmflags(vm->flags)))
+                halt("cannot get physical page for vaddr 0x%lx, ctx %p; OOM\n", vaddr, ctx);
             return true;
         }
-        pf_debug("page protection violation\naddr 0x%lx, rip 0x%lx, "
-                 "error %s%s%s vm->flags (%s%s %s%s)",
-                 vaddr, frame_return_address(frame),
-                 is_write_fault(frame) ? "W" : "R",
-                 is_usermode_fault(frame) ? "U" : "S",
-                 is_instruction_fault(frame) ? "I" : "D",
-                 (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",
-                 string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK),
-                 (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",
-                 (vm->flags & VMAP_FLAG_EXEC) ? "executable " : "");
 
-        deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_ACCERR);
+        if (is_thread_context(ctx)) {
+            pf_debug(format_protection_violation(vaddr, ctx, vm, ""));
+            deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_ACCERR);
+        } else {
+            /* Until we can differentiate between faults caused by a bad
+               buffer supplied by userspace and genuine kernel bugs, assume
+               the later. */
+            halt(format_protection_violation(vaddr, ctx, vm, " from kernel access"));
+        }
         return true;
     }
     return false;
@@ -227,7 +236,7 @@ define_closure_function(1, 1, context, unix_fault_handler,
             goto bug;
         }
 
-        if (handle_protection_fault(ctx->frame, vaddr, vm)) {
+        if (handle_protection_fault(ctx, vaddr, vm)) {
             if (!is_thread_context(ctx)) {
                 current_cpu()->state = cpu_kernel;
                 return ctx;   /* direct return */
