@@ -30,7 +30,8 @@ func unWarpConfig(file string) *types.Config {
 
 func TestNodeHelloWorld(t *testing.T) {
 
-	const packageName = "node_v11.5.0"
+	const packageName = "eyberg/node:v11.5.0"
+        const packageDir = "node_v11.5.0"
 	localpackage, err := api.DownloadPackage(packageName, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +49,7 @@ func TestNodeHelloWorld(t *testing.T) {
 
 	api.ExtractPackage(localpackage, staging, nil)
 	// load the package manifest
-	manifest := path.Join(staging, packageName, "package.manifest")
+	manifest := path.Join(staging, packageDir, "package.manifest")
 	if _, err := os.Stat(manifest); err != nil {
 		panic(err)
 	}
@@ -62,7 +63,7 @@ func TestNodeHelloWorld(t *testing.T) {
 	c.Env = make(map[string]string)
 	c.RunConfig.Imagename = "image"
 
-	if err := api.BuildImageFromPackage(path.Join(staging, packageName), *c); err != nil {
+	if err := api.BuildImageFromPackage(path.Join(staging, packageDir), *c); err != nil {
 		t.Error(err)
 	}
 
