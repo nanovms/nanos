@@ -319,7 +319,7 @@ sysreturn inotify_init1(int flags)
 
 sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
 {
-    if (!validate_user_string(pathname))
+    if (!fault_in_user_string(pathname))
         return -EFAULT;
     if (!mask)
         return -EINVAL;

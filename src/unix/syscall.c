@@ -755,19 +755,13 @@ static int dt_from_tuple(tuple n)
         return DT_REG;
 }
 
-boolean validate_user_string(const char *name)
+static inline fs_status node_from_user_path(filesystem *fs, inode cwd, const char *path,
+                                            boolean nofollow, boolean create, boolean exclusive,
+                                            tuple *n, fsfile *f)
 {
-    /* validate a page at a time */
-    u64 a = u64_from_pointer(name);
-    while (validate_user_memory(pointer_from_u64(a & ~PAGEMASK),
-                                PAGESIZE, false)) {
-        u64 lim = (a & ~PAGEMASK) + PAGESIZE;
-        while (a < lim) {
-            if (*(u8*)pointer_from_u64(a++) == '\0')
-                return true;
-        }
-    }
-    return false;
+    if (!fault_in_user_string(path))
+        return FS_STATUS_FAULT;
+    return filesystem_get_node(fs, cwd, path, nofollow, create, exclusive, n, f);
 }
 
 sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
@@ -779,13 +773,12 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     int ret;
     buffer b = 0;
 
-    if (!validate_user_string(name))
-        return -EFAULT;
-
     fsfile fsf;
-    fs_status fss = filesystem_get_node(&fs, cwd, name, !!(flags & O_NOFOLLOW), !!(flags & O_CREAT),
-        !!(flags & O_EXCL), &n, &fsf);
+    fs_status fss = node_from_user_path(&fs, cwd, name, !!(flags & O_NOFOLLOW),
+                                        !!(flags & O_CREAT), !!(flags & O_EXCL), &n, &fsf);
     ret = sysreturn_from_fs_status(fss);
+    if (ret == -EFAULT)
+        return ret;
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
         filesystem_put_node(fs, n);
         ret = -ELOOP;
@@ -1000,7 +993,7 @@ sysreturn dup3(int oldfd, int newfd, int flags)
 
 sysreturn mkdir(const char *pathname, int mode)
 {
-    if (!validate_user_string(pathname))
+    if (!fault_in_user_string(pathname))
         return -EFAULT;
     thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname, mode);
     filesystem cwd_fs;
@@ -1025,7 +1018,7 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn mkdirat(int dirfd, char *pathname, int mode)
 {
-    if (!validate_user_string(pathname))
+    if (!fault_in_user_string(pathname))
         return -EFAULT;
     thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname, dirfd, mode);
     filesystem fs;
@@ -1128,12 +1121,15 @@ closure_function(7, 2, boolean, getdents_each,
 
 static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boolean dirent64)
 {
-    if (!validate_user_memory(dirp, count, true))
-        return set_syscall_error(current, EFAULT);
     file f = resolve_fd(current->p, fd);
-    tuple md = filesystem_get_meta(f->fs, f->n);
-    tuple c;
+    tuple md = 0;
     sysreturn rv;
+    if (!fault_in_user_memory(dirp, count, VMAP_FLAG_WRITABLE, 0)) {
+        rv = -EFAULT;
+        goto out;
+    }
+    md = filesystem_get_meta(f->fs, f->n);
+    tuple c;
     if (!md || !(c = children(md))) {
         rv = -ENOTDIR;
         goto out;
@@ -1172,8 +1168,8 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 
 sysreturn chdir(const char *path)
 {
-    if (!validate_user_string(path))
-        return set_syscall_error(current, EFAULT);
+    if (!fault_in_user_string(path))
+        return -EFAULT;
     return sysreturn_from_fs_status(filesystem_chdir(current->p, path));
 }
 
@@ -1231,7 +1227,7 @@ sysreturn truncate(const char *path, long length)
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fsfile fsf;
-    fs_status fss = filesystem_get_node(&fs, cwd, path, false, false, false, &t, &fsf);
+    fs_status fss = node_from_user_path(&fs, cwd, path, false, false, false, &t, &fsf);
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
@@ -1332,7 +1328,7 @@ sysreturn fdatasync(int fd)
 static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname, int mode)
 {
     tuple m = 0;
-    fs_status fss = filesystem_get_node(&fs, cwd, pathname, false, false, false, &m, 0);
+    fs_status fss = node_from_user_path(&fs, cwd, pathname, false, false, false, &m, 0);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
     u32 perms = file_meta_perms(current->p, m);
@@ -1349,8 +1345,6 @@ static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname,
 sysreturn access(const char *pathname, int mode)
 {
     thread_log(current, "access: \"%s\", mode %d", pathname, mode);
-    if (!validate_user_string(pathname))
-        return -EFAULT;
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -1362,8 +1356,6 @@ sysreturn access(const char *pathname, int mode)
 sysreturn faccessat(int dirfd, const char *pathname, int mode)
 {
     thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname, mode);
-    if (!validate_user_string(pathname))
-        return -EFAULT;
     filesystem fs;
     inode cwd = resolve_dir(fs, dirfd, pathname);
     sysreturn rv = access_internal(fs, cwd, pathname, mode);
@@ -1452,6 +1444,11 @@ static sysreturn fstat(int fd, struct stat *s)
     filesystem fs;
     tuple n;
     fsfile fsf = 0;
+    sysreturn rv = 0;
+    if (!fault_in_user_memory(s, sizeof(struct stat), VMAP_FLAG_WRITABLE, 0)) {
+        rv = -EFAULT;
+        goto out;
+    }
     switch (f->type) {
     case FDESC_TYPE_REGULAR:
         fsf = ((file)f)->fsf;
@@ -1471,8 +1468,9 @@ static sysreturn fstat(int fd, struct stat *s)
     if (n)
         filesystem_put_meta(fs, n);
     thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx", s->st_ino, s->st_mode, s->st_size);
+  out:
     fdesc_put(f);
-    return 0;
+    return rv;
 }
 
 static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boolean follow,
@@ -1481,11 +1479,10 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
     tuple n;
     fsfile fsf;
 
-    if (!validate_user_string(name) ||
-        !validate_user_memory(buf, sizeof(struct stat), true))
+    if (!fault_in_user_memory(buf, sizeof(struct stat), VMAP_FLAG_WRITABLE, 0))
         return -EFAULT;
 
-    fs_status fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, &n, &fsf);
+    fs_status fss = node_from_user_path(&fs, cwd, name, !follow, false, false, &n, &fsf);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
 
@@ -1710,7 +1707,7 @@ static sysreturn getrusage(int who, struct rusage *usage)
 
 static sysreturn getcwd(char *buf, u64 length)
 {
-    if (!validate_user_memory(buf, length, true))
+    if (!fault_in_user_memory(buf, length, VMAP_FLAG_WRITABLE, 0))
         return -EFAULT;
     process p = current->p;
     int cwd_len = file_get_path(p->cwd_fs, p->cwd, buf, length);
@@ -1759,11 +1756,11 @@ static sysreturn brk(void *addr)
 static sysreturn readlink_internal(filesystem fs, inode cwd, const char *pathname, char *buf,
         u64 bufsiz)
 {
-    if (!validate_user_string(pathname) || !validate_user_memory(buf, bufsiz, true)) {
+    if (!fault_in_user_memory(buf, bufsiz, VMAP_FLAG_WRITABLE, 0)) {
         return set_syscall_error(current, EFAULT);
     }
     tuple n;
-    fs_status fss = filesystem_get_node(&fs, cwd, pathname, true, false, false, &n, 0);
+    fs_status fss = node_from_user_path(&fs, cwd, pathname, true, false, false, &n, 0);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
     sysreturn rv;
@@ -1804,7 +1801,7 @@ sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 
 sysreturn unlink(const char *pathname)
 {
-    if (!validate_user_string(pathname))
+    if (!fault_in_user_string(pathname))
         return -EFAULT;
     thread_log(current, "unlink %s", pathname);
     filesystem cwd_fs;
@@ -1817,7 +1814,7 @@ sysreturn unlink(const char *pathname)
 
 sysreturn unlinkat(int dirfd, const char *pathname, int flags)
 {
-    if (!validate_user_string(pathname))
+    if (!fault_in_user_string(pathname))
         return -EFAULT;
     thread_log(current, "unlinkat %d %s 0x%x", dirfd, pathname, flags);
     if (flags & ~AT_REMOVEDIR) {
@@ -1833,7 +1830,7 @@ sysreturn unlinkat(int dirfd, const char *pathname, int flags)
 
 sysreturn rmdir(const char *pathname)
 {
-    if (!validate_user_string(pathname))
+    if (!fault_in_user_string(pathname))
         return -EFAULT;
     thread_log(current, "rmdir %s", pathname);
     filesystem cwd_fs;
@@ -1846,7 +1843,7 @@ sysreturn rmdir(const char *pathname)
 
 sysreturn rename(const char *oldpath, const char *newpath)
 {
-    if (!validate_user_string(oldpath) || !validate_user_string(newpath))
+    if (!fault_in_user_string(oldpath) || !fault_in_user_string(newpath))
         return -EFAULT;
     thread_log(current, "rename \"%s\" \"%s\"", oldpath, newpath);
     filesystem cwd_fs;
@@ -1861,7 +1858,7 @@ sysreturn rename(const char *oldpath, const char *newpath)
 sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
         const char *newpath)
 {
-    if (!validate_user_string(oldpath) || !validate_user_string(newpath))
+    if (!fault_in_user_string(oldpath) || !fault_in_user_string(newpath))
         return -EFAULT;
     thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath,
             newdirfd, newpath);
@@ -1878,7 +1875,7 @@ sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
 sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         const char *newpath, unsigned int flags)
 {
-    if (!validate_user_string(oldpath) || !validate_user_string(newpath))
+    if (!fault_in_user_string(oldpath) || !fault_in_user_string(newpath))
         return -EFAULT;
     thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd,
             oldpath, newdirfd, newpath, flags);

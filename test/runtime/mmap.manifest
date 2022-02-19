@@ -4,7 +4,9 @@
 	infile:(contents:(host:test/runtime/read_contents/hello))
 	mapfile:(contents:(host:test/runtime/read_contents/mapfile))
 	mapfile2:(contents:(host:test/runtime/read_contents/mapfile))
+        stattest:(contents:(host:test/runtime/read_contents/mapfile))
 	unmapme:(contents:(host:test/runtime/read_contents/unmapme))
+        testpath:(contents:(host:test/runtime/read_contents/testpath))
     )
     # filesystem path to elf for kernel to run
     program:/mmap

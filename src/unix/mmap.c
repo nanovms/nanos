@@ -193,7 +193,7 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
            or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
            assume this is an unrecoverable error and exit here. */
         halt("%s: file-backed access in kernel mode outside of map range, "
-             "node %p (start 0x%lx), offset 0x%lx\n", vm->cache_node,
+             "node %p (start 0x%lx), offset 0x%lx\n", __func__, vm->cache_node,
              vm->node.r.start, node_offset);
     }
 
@@ -737,10 +737,12 @@ sysreturn mprotect(void * addr, u64 len, int prot)
         return -EINVAL;
 
     u64 new_vmflags = 0;
-    if ((prot & PROT_EXEC))
-        new_vmflags |= VMAP_FLAG_EXEC;
+    if ((prot & PROT_READ))
+        new_vmflags |= VMAP_FLAG_READABLE;
     if ((prot & PROT_WRITE))
         new_vmflags |= VMAP_FLAG_WRITABLE;
+    if ((prot & PROT_EXEC))
+        new_vmflags |= VMAP_FLAG_EXEC;
 
     process p = current->p;
     vmap_lock(p);
@@ -1032,10 +1034,12 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     int map_type = flags & MAP_TYPE_MASK;
     if (map_type == MAP_SHARED || map_type == MAP_SHARED_VALIDATE)
         vmflags |= VMAP_FLAG_SHARED;
-    if ((prot & PROT_EXEC))
-        vmflags |= VMAP_FLAG_EXEC;
+    if ((prot & PROT_READ))
+        vmflags |= VMAP_FLAG_READABLE;
     if ((prot & PROT_WRITE))
         vmflags |= VMAP_FLAG_WRITABLE;
+    if ((prot & PROT_EXEC))
+        vmflags |= VMAP_FLAG_EXEC;
 
     /* TODO: assert for unsupported:
        MAP_GROWSDOWN
@@ -1235,6 +1239,58 @@ bytes vmh_allocated(struct heap *h)
 bytes vmh_total(struct heap *h)
 {
     return PROCESS_VIRTUAL_HEAP_LIMIT;
+}
+
+closure_function(3, 1, void, check_vmap_permissions,
+                 u64, required_flags, u64, disallowed_flags, boolean *, fail,
+                 rmnode, n)
+{
+    vmap vm = (vmap)n;
+    u64 rf = bound(required_flags), df = bound(disallowed_flags);
+    if ((vm->flags & rf) != rf || (vm->flags & df))
+        *bound(fail) = true;
+}
+
+closure_function(1, 1, void, check_vmap_gap,
+                 boolean *, have_gap,
+                 range, r)
+{
+    *bound(have_gap) = true;
+}
+
+boolean validate_user_memory_permissions(process p, const void *buf, bytes length,
+                                         u64 required_flags, u64 disallowed_flags)
+{
+    u64 addr = u64_from_pointer(buf);
+    range q = irange(addr, pad(addr + length, PAGESIZE));
+    boolean perm_fail = false, have_gap = false;
+    vmap_lock(p);
+    rangemap_range_lookup_with_gaps(p->vmaps, q,
+                                    stack_closure(check_vmap_permissions, required_flags,
+                                                  disallowed_flags, &perm_fail),
+                                    stack_closure(check_vmap_gap, &have_gap));
+    vmap_unlock(p);
+    return !(perm_fail || have_gap);
+}
+
+boolean fault_in_user_memory(const void *buf, bytes length,
+                             u64 required_flags, u64 disallowed_flags)
+{
+    if (!validate_user_memory_permissions(current->p, buf, length, required_flags,
+                                          disallowed_flags))
+        return false;
+
+    /* Fault in non-present pages by touching each page in buffer */
+    u64 addr = u64_from_pointer(buf);
+    volatile u8 *bp = pointer_from_u64(addr & ~PAGEMASK),
+        *end = pointer_from_u64(pad((addr + length), PAGESIZE));
+    while (bp < end) {
+        /* We always support reading regardless of flags... */
+        (void)*bp;
+        bp += PAGESIZE;
+    }
+    memory_barrier();
+    return true;
 }
 
 void mmap_process_init(process p, boolean aslr)

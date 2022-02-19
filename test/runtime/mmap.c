@@ -1146,6 +1146,54 @@ static void handle_sigbus(int sig, siginfo_t *si, void *ucontext)
     siglongjmp(sjb, 1);
 }
 
+#define MAP_SIZE 4096
+static void check_fault_in_user_memory(void)
+{
+    printf("** validate_user_memory_permissions() test\n");
+    void *p = mmap(0, MAP_SIZE, PROT_NONE, MAP_ANONYMOUS, -1, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap with prot none");
+    int rv = stat("/infile", p);
+    if (rv != -1 || errno != EFAULT) {
+        fprintf(stderr, "%s: stat should have failed with EFAULT (rv %d, errno %d)\n",
+                __func__, rv, errno);
+        exit(EXIT_FAILURE);
+    }
+    munmap(p, MAP_SIZE);
+
+    /* Check that we can handle a file-backed fault on a mapped pathname. If
+       the kernel does not fault in the pathname before making a call that
+       takes the filesystem lock, this will hang. */
+    printf("** fault_in_user_string() test\n");
+    int fd = open("/testpath", O_RDONLY);
+    if (fd < 0)
+        handle_err("open testpath");
+    p = mmap(0, MAP_SIZE, PROT_READ, MAP_SHARED, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap testpath");
+    rv = access(p, O_RDONLY);
+    if (rv < 0)
+        handle_err("access testpath map");
+    munmap(p, MAP_SIZE);
+    close(fd);
+
+    /* Now attempt to write to a new file-backed mapping. Before the call to
+       fault_in_user_memory() was added to stat_internal(), the page fault
+       would deadlock while trying to take the filesystem lock. */
+    printf("** fault_in_user_memory() test\n");
+    fd = open("/stattest", O_RDWR);
+    if (fd < 0)
+        handle_err("open stattest");
+    p = mmap(0, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap stattest");
+    rv = stat("/infile", p);
+    if (rv < 0)
+        handle_err("stat to file-backed page");
+    munmap(p, MAP_SIZE);
+    close(fd);
+}
+
 static void filebacked_sigbus_test(void)
 {
     printf("** starting mmap SIGBUS test\n");
@@ -1221,6 +1269,7 @@ int main(int argc, char * argv[])
     filebacked_test(h);
     multithread_filebacked_test(h, MT_N_THREADS);
     filebacked_sigbus_test();
+    check_fault_in_user_memory();
 
     printf("\n**** all tests passed ****\n");
 
