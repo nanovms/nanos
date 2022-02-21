@@ -38,6 +38,22 @@ static inline void sg_unlock(void)
 #define sg_unlock()
 #endif
 
+void sg_consume(sg_list sg, u64 length)
+{
+    sg_list_foreach(sg, sgb) {
+        if (length + sgb->offset >= sgb->size) {
+            sg_list_head_remove(sg);
+            length -= sg_buf_len(sgb);
+            sg_buf_release(sgb);
+            if (length == 0)
+                break;
+        } else {
+            sgb->offset += length;
+            break;
+        }
+    }
+}
+
 /* TODO clean up redundant parts of loop with macros or static closures */
 
 /* copy content of sg, up to length bytes, into target, releasing consumed buffers */

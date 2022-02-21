@@ -44,9 +44,8 @@ typedef struct filesystem {
     closure_type(log, void, tuple);
     heap dma;
     void *zero_page;
-    block_io r;
-    block_io w;
-    block_flush flush;
+    storage_req_handler req_handler;
+    boolean ro; /* true for read-only filesystem */
     pagecache_volume pv;
     log tl;
     log temp_log;
@@ -82,7 +81,7 @@ typedef struct uninited_queued_op {
     sg_list sg;
     merge m;
     range blocks;
-    block_io op;
+    boolean write;
 } *uninited_queued_op;
 
 declare_closure_struct(2, 0, void, free_uninited,
@@ -124,7 +123,8 @@ void flush(filesystem fs, status_handler);
 u64 filesystem_allocate_storage(filesystem fs, u64 nblocks);
 boolean filesystem_reserve_storage(filesystem fs, range storage_blocks);
 boolean filesystem_free_storage(filesystem fs, range storage_blocks);
-void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op);
+void filesystem_storage_op(filesystem fs, sg_list sg, range blocks, boolean write,
+                           status_handler completion);
     
 void filesystem_log_rebuild(filesystem fs, log new_tl, status_handler sh);
 void filesystem_log_rebuild_done(filesystem fs, log new_tl);

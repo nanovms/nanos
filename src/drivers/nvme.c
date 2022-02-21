@@ -191,6 +191,7 @@ typedef struct nvme {
     closure_struct(nvme_bh_service, bh_service);
     closure_struct(nvme_io, r);
     closure_struct(nvme_io, w);
+    closure_struct(storage_simple_req_handler, req_handler);
     struct spinlock lock;
 } *nvme;
 
@@ -456,8 +457,10 @@ closure_function(4, 0, void, nvme_ns_attach,
     nvme n = bound(n);
     u32 ns_id = bound(ns_id);
     u64 disk_size = bound(disk_size);
-    apply(bound(a), init_closure(&n->r, nvme_io, n, ns_id, false),
-          init_closure(&n->w, nvme_io, n, ns_id, true), 0 /* TODO: flush */, disk_size);
+    apply(bound(a),
+          storage_init_req_handler(&n->req_handler, init_closure(&n->r, nvme_io, n, ns_id, false),
+                                   init_closure(&n->w, nvme_io, n, ns_id, true)),
+          disk_size);
     closure_finish();
 }
 
@@ -909,7 +912,7 @@ closure_function(0, 2, void, nvme_remove,
     nvme n = driver_data;
     thunk nvme_complete = closure(n->general, nvme_detach_complete, n, completion);
     if (nvme_complete != INVALID_ADDRESS)
-        storage_detach((block_io)&n->r, (block_io)&n->w, nvme_complete);
+        storage_detach((storage_req_handler)&n->req_handler, nvme_complete);
     else
         msg_err("failed to allocate completion closure\n");
 }

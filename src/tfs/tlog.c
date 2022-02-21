@@ -97,28 +97,18 @@ struct log {
     closure_struct(log_free, free);
 };
 
-closure_function(0, 3, void, zero_fill,
-                 sg_list, sg, range, q, status_handler, sh)
-{
-    tlog_debug("%s: zero-fill sg %p, q %R, sh %F\n", __func__, sg, q, sh);
-    sg_zero_fill(sg, range_span(q));
-    apply(sh, STATUS_OK);
-}
-
 closure_function(3, 3, void, log_storage_op,
-                 filesystem, fs, u64, start_sector, block_io, op,
+                 filesystem, fs, u64, start_sector, boolean, write,
                  sg_list, sg, range, q, status_handler, sh)
 {
     int order = bound(fs)->blocksize_order;
     assert((q.start & MASK(order)) == 0);
     assert((range_span(q) & MASK(order)) == 0);
-    merge m = allocate_merge(bound(fs)->h, sh);
-    status_handler k = apply_merge(m);
     range blocks = range_add(range_rshift(q, order), bound(start_sector));
-    tlog_debug("%s: sg %p, q %R, blocks %R, sh %F, op %F\n", __func__,
-               sg, q, blocks, sh, bound(op));
-    filesystem_storage_op(bound(fs), sg, m, blocks, bound(op));
-    apply(k, STATUS_OK);
+    boolean write = bound(write);
+    tlog_debug("%s: sg %p, q %R, blocks %R, sh %F, %s\n", __func__,
+               sg, q, blocks, sh, write ? "write" : "read");
+    filesystem_storage_op(bound(fs), sg, blocks, write, sh);
 }
 
 define_closure_function(1, 1, void, log_ext_sync_complete,
@@ -161,9 +151,8 @@ static log_ext open_log_extension(log tl, range sectors)
     if (ext->staging == INVALID_ADDRESS)
         goto fail_dealloc;
     ext->open = false;
-    sg_io r_op = tl->fs->r ? closure(tl->h, log_storage_op, tl->fs, sectors.start, tl->fs->r) :
-        closure(tl->h, zero_fill);  /* mkfs */
-    sg_io w_op = closure(tl->h, log_storage_op, tl->fs, sectors.start, tl->fs->w);
+    sg_io r_op = closure(tl->h, log_storage_op, tl->fs, sectors.start, false);
+    sg_io w_op = closure(tl->h, log_storage_op, tl->fs, sectors.start, true);
     ext->cache_node = pagecache_allocate_node(tl->fs->pv, r_op, w_op, 0);
     if (ext->cache_node == INVALID_ADDRESS)
         goto fail_dealloc_staging;
@@ -839,7 +828,7 @@ closure_function(4, 1, void, log_read_complete,
 
     tl->fs->root = (tuple)table_find(tl->dictionary, pointer_from_u64(1));
 
-    if (tl->fs->w) {
+    if (!tl->fs->ro) {
         /* Reverse pairs in dictionary so that we can use it for writing
            the next log segment. */
         table newdict = allocate_table(tl->h, identity_key, pointer_equal);

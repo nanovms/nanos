@@ -1,19 +1,21 @@
 #include <runtime.h>
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/mman.h>
 #include <pagecache.h>
+#include <storage.h>
 #include <tfs.h>
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 
 #include <region.h>
-#include <storage.h>
 
 #define string_ends_with(str, substr) ({                \
     int slen = strlen(str);                             \
@@ -246,22 +248,48 @@ closure_function(0, 1, void, perr,
     exit(EXIT_FAILURE);
 }
 
-closure_function(2, 3, void, bwrite,
+closure_function(2, 1, void, bwrite,
                  descriptor, d, ssize_t, offset,
-                 void *, s, range, blocks, status_handler, c)
+                 storage_req, req)
 {
-    ssize_t start = blocks.start << SECTOR_OFFSET;
-    ssize_t size = range_span(blocks) << SECTOR_OFFSET;
-    ssize_t total = 0;
-    while (total < size) {
-        ssize_t rv = pwrite(bound(d), s + total, size - total, bound(offset) + start + total);
-        if (rv < 0 && errno != EINTR) {
-            apply(c, timm("error", "pwrite error: %s", strerror(errno)));
+    switch (req->op) {
+    case STORAGE_OP_WRITESG:
+        break;
+    case STORAGE_OP_READSG:
+        sg_zero_fill(req->data, range_span(req->blocks) << SECTOR_OFFSET);
+        /* no break */
+    case STORAGE_OP_FLUSH:
+        apply(req->completion, STATUS_OK);
+        return;
+    default:
+        halt("%s: invalid storage op %d\n", __func__, req->op);
+    }
+    sg_list sg = req->data;
+    u64 offset = bound(offset) + (req->blocks.start << SECTOR_OFFSET);
+    u64 total = range_span(req->blocks) << SECTOR_OFFSET;
+    struct iovec iov[IOV_MAX];
+    int iov_count;
+    ssize_t xfer;
+    while (total > 0) {
+        iov_count = 0;
+        xfer = 0;
+        sg_list_foreach(sg, sgb) {
+            iov[iov_count].iov_base = sgb->buf + sgb->offset;
+            iov[iov_count].iov_len = MIN(sg_buf_len(sgb), total - xfer);
+            xfer += iov[iov_count].iov_len;
+            if ((++iov_count == IOV_MAX) || (xfer == total))
+                break;
+        }
+        xfer = pwritev(bound(d), iov, iov_count, offset);
+        if (xfer < 0 && errno != EINTR) {
+            apply(req->completion, timm("result", "write error", "error", "%s", strerror(errno)));
             return;
         }
-        total += rv;
+        sg_consume(sg, xfer);
+        offset += xfer;
+        total -= xfer;
     }
-    apply(c, STATUS_OK);
+    apply(req->completion, STATUS_OK);
 }
 
 closure_function(0, 1, void, err,
@@ -745,9 +773,7 @@ int main(int argc, char **argv)
             }
         }
         if (boot) {
-            create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, 0 /* no read */,
-                              closure(h, bwrite, out, offset),
-                              0 /* no flush */,
+            create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, closure(h, bwrite, out, offset), false,
                               "", closure(h, fsc, h, out, boot, target_root));
             offset += BOOTFS_SIZE;
 
@@ -761,9 +787,8 @@ int main(int argc, char **argv)
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,
-                      0, /* no read -> new fs */
                       closure(h, bwrite, out, offset),
-                      0, /* no flush */
+                      false,
                       label,
                       closure(h, fsc, h, out, root, target_root));
 

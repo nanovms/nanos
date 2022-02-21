@@ -37,6 +37,7 @@
 #include <kernel.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>
+#include <storage.h>
 #include <vmbus.h>
 #include <net_system_structs.h>
 #include <virtio/scsi.h>
@@ -145,6 +146,7 @@ struct hv_storvsc_request {
 struct storvsc_softc {
     heap general;
     heap contiguous;                /* physically */
+    closure_struct(storage_simple_req_handler, req_handler);
 
     heap hcb_objcache;
     struct spinlock mem_lock;
@@ -730,7 +732,7 @@ closure_function(5, 0, void, storvsc_read_capacity_done,
 
     block_io in = closure(s->general, storvsc_read, s);
     block_io out = closure(s->general, storvsc_write, s);
-    apply(bound(a), in, out, 0 /* TODO: flush */, s->capacity);
+    apply(bound(a), storage_init_req_handler(&s->req_handler, in, out), s->capacity);
   out:
     closure_finish();
 }

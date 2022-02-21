@@ -92,11 +92,16 @@ struct virtio_blk_config {
 #define VIRTIO_BLK_S_IOERR      1
 #define VIRTIO_BLK_S_UNSUPP     2
 
+declare_closure_struct(0, 1, void, virtio_storage_req_handler,
+                       storage_req, req);
+
 typedef struct storage {
     vtdev v;
+    closure_struct(virtio_storage_req_handler, req_handler);
     struct virtqueue *command;
     u64 capacity;
     u64 block_size;
+    u32 seg_max;
 } *storage;
 
 static virtio_blk_req allocate_virtio_blk_req(storage st, u32 type, u64 sector, u64 *phys)
@@ -159,29 +164,62 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     apply(sh, timm("result", "%s", err));
 }
 
-closure_function(1, 3, void, storage_write,
-                 storage, st,
-                 void *, source, range, blocks, status_handler, s)
+static void virtio_storage_io_commit(storage st, virtqueue vq, vqmsg msg, virtio_blk_req req,
+                                     u64 req_phys, status_handler completion)
 {
-    virtio_blk_debug("%s: source %p, range %R, handler %p (%F)\n", __func__, source, blocks, s, s);
-    storage_rw_internal(bound(st), true, source, blocks, s);
+    vqmsg_push(vq, msg, req_phys + VIRTIO_BLK_REQ_HEADER_SIZE, VIRTIO_BLK_REQ_STATUS_SIZE, true);
+    vqfinish c = closure(st->v->general, complete, st, completion, req, req_phys);
+    assert(c != INVALID_ADDRESS);
+    vqmsg_commit(vq, msg, c);
 }
 
-closure_function(1, 3, void, storage_read,
-                 storage, st,
-                 void *, target, range, blocks, status_handler, s)
+static void virtio_storage_io_sg(storage st, boolean write, sg_list sg, range blocks,
+                                 status_handler sh)
 {
-    virtio_blk_debug("%s: target %p, range %R, handler %p (%F)\n", __func__, target, blocks, s, s);
-    storage_rw_internal(bound(st), false, target, blocks, s);
+    virtio_blk_debug("SG %c, blocks %R, sh %F\n", write ? 'w' : 'r', blocks, sh);
+    virtio_blk_req req = 0;
+    u64 req_phys;
+    heap h = st->v->general;
+    virtqueue vq = st->command;
+    vqmsg msg;
+    u32 desc_count;
+    merge m = 0;
+    while (range_span(blocks)) {
+        if (!req) {
+            req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
+                                          blocks.start, &req_phys);
+            msg = allocate_vqmsg(vq);
+            assert(msg != INVALID_ADDRESS);
+            vqmsg_push(vq, msg, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
+            desc_count = 0;
+        }
+        sg_buf sgb = sg_list_head_peek(sg);
+        u64 length = sg_buf_len(sgb);
+        assert((length & (st->block_size - 1)) == 0);
+        length = MIN(range_span(blocks) * st->block_size, length);
+        vqmsg_push(vq, msg, physical_from_virtual(sgb->buf + sgb->offset), length, !write);
+        sg_consume(sg, length);
+        blocks.start += length / st->block_size;
+        if (++desc_count == st->seg_max) {
+            if (!m && range_span(blocks)) {
+                m = allocate_merge(h, sh);
+                sh = apply_merge(m);
+            }
+            virtio_storage_io_commit(st, vq, msg, req, req_phys, m ? apply_merge(m) : sh);
+            req = 0;
+        }
+    }
+    if (req) {
+        virtio_storage_io_commit(st, vq, msg, req, req_phys, m ? apply_merge(m) : sh);
+    }
+    if (m)
+        apply(sh, STATUS_OK);
 }
 
-closure_function(1, 1, void, storage_flush,
-                 storage, st,
-                 status_handler, s)
+static void storage_flush(storage st, status_handler s)
 {
     virtio_blk_debug("%s: handler %p (%F)\n", __func__, s, s);
     u64 req_phys;
-    storage st = bound(st);
     virtio_blk_req req = allocate_virtio_blk_req(st, VIRTIO_BLK_T_FLUSH, 0, &req_phys);
     virtqueue vq = st->command;
     vqmsg m = allocate_vqmsg(vq);
@@ -191,6 +229,32 @@ closure_function(1, 1, void, storage_flush,
     vqfinish c = closure(st->v->general, complete, st, s, req, req_phys);
     assert(c != INVALID_ADDRESS);
     vqmsg_commit(vq, m, c);
+}
+
+define_closure_function(0, 1, void, virtio_storage_req_handler,
+                        storage_req, req)
+{
+    storage st = struct_from_field(closure_self(), storage, req_handler);
+    switch (req->op) {
+    case STORAGE_OP_READSG:
+        virtio_storage_io_sg(st, false, req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_WRITESG:
+        virtio_storage_io_sg(st, true, req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_FLUSH:
+        if (st->v->features & VIRTIO_BLK_F_FLUSH)
+            storage_flush(st, req->completion);
+        else
+            apply(req->completion, STATUS_OK);
+        break;
+    case STORAGE_OP_READ:
+        storage_rw_internal(st, false, req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_WRITE:
+        storage_rw_internal(st, true, req->data, req->blocks, req->completion);
+        break;
+    }
 }
 
 static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
@@ -206,19 +270,19 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
     virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
     virtio_alloc_virtqueue(v, "virtio blk", 0, &s->command);
 
-    block_flush flush;
+    /* If the device does not support the SEG_MAX feature, assume that an I/O request can have up to
+     * (virtqueue_size - 2) scatter-gather list elements (2 descriptors are needed for the request
+     * header and status). */
+    s->seg_max = (v->features & VIRTIO_BLK_F_SEG_MAX) ?
+            vtdev_cfg_read_4(v, VIRTIO_BLK_R_SEG_MAX) : virtqueue_entries(s->command) - 2;
+
     if (v->features & VIRTIO_BLK_F_FLUSH) {
-        flush = closure(general, storage_flush, s);
         if (v->features & VIRTIO_BLK_F_CONFIG_WCE)
             vtdev_cfg_write_1(v, VIRTIO_BLK_R_WRITEBACK, 1 /* writeback */);
-    } else {
-        flush = 0;
     }
     vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
-    block_io in = closure(general, storage_read, s);
-    block_io out = closure(general, storage_write, s);
-    apply(a, in, out, flush, s->capacity);
+    apply(a, init_closure(&s->req_handler, virtio_storage_req_handler), s->capacity);
 }
 
 closure_function(3, 1, boolean, vtpci_blk_probe,

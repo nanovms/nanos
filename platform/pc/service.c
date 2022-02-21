@@ -17,8 +17,7 @@
 #include <pci.h>
 #include <xen_platform.h>
 #include <virtio/virtio.h>
-#include <vmware/storage.h>
-#include <vmware/vmxnet3.h>
+#include <vmware/vmware.h>
 #include "serial.h"
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8

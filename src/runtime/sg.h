@@ -60,6 +60,9 @@ static inline sg_buf sg_list_head_remove(sg_list sg)
     return sgb;
 }
 
+#define sg_list_foreach(sg, sgb) \
+    for (sg_buf sgb = buffer_ref((sg)->b, 0); sgb != buffer_end((sg)->b); sgb++)
+
 static inline u32 sg_buf_len(sg_buf sgb)
 {
     return sgb->size - sgb->offset;
@@ -82,6 +85,7 @@ static inline void sg_list_release(sg_list sg)
 sg_list allocate_sg_list(void);
 void deallocate_sg_list(sg_list sg);
 void init_sg(heap h);
+void sg_consume(sg_list sg, u64 length);
 u64 sg_copy_to_buf(void *target, sg_list sg, u64 length);
 u64 sg_copy_to_buf_and_release(void *dest, sg_list src, u64 limit);
 u64 sg_move(sg_list dest, sg_list src, u64 n);

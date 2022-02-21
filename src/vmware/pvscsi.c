@@ -1,8 +1,9 @@
 #include <kernel.h>
 #include <pci.h>
+#include <storage.h>
 #include "pvscsi.h"
-#include "storage.h"
 #include "virtio/scsi.h"
+#include "vmware.h"
 
 //#define PVSCSI_DEBUG
 #ifdef PVSCSI_DEBUG
@@ -68,6 +69,7 @@ typedef struct pvscsi_disk {
     u16 lun;
     u64 capacity;
     u64 block_size;
+    closure_struct(storage_simple_req_handler, req_handler);
 } *pvscsi_disk;
 
 static void pvscsi_write_cmd(pvscsi dev, u32 cmd, void *data, u32 len)
@@ -255,7 +257,7 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
 
     block_io in = closure(s->general, pvscsi_read, d);
     block_io out = closure(s->general, pvscsi_write, d);
-    apply(bound(a), in, out, 0 /* TODO: flush */, d->capacity);
+    apply(bound(a), storage_init_req_handler(&d->req_handler, in, out), d->capacity);
   out:
     closure_finish();
 }

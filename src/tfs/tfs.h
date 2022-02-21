@@ -27,9 +27,8 @@ void filesystem_get_uuid(filesystem fs, u8 *uuid);
 void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,
-                       block_io read,
-                       block_io write,
-                       block_flush flush,
+                       storage_req_handler req_handler,
+                       boolean ro,
                        const char *label,
                        filesystem_complete complete);
 void destroy_filesystem(filesystem fs);

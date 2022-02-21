@@ -48,7 +48,7 @@ struct _closure_common {
 
 #define closure_struct(__name, __field) struct _closure_##__name __field;
 
-#define closure_ref(__name, __var) struct _closure_##__name *__var = 0;
+#define closure_ref(__name, __var) struct _closure_##__name *__var
 
 #define __closure_struct_declare(nl, nr) CLOSURE_STRUCT_ ## nl ## _ ## nr
 #define __closure_function_declare(nl, nr) CLOSURE_DECLARE_FUNCS_ ## nl ## _ ## nr

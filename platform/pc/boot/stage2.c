@@ -80,57 +80,70 @@ void klog_write(const char *s, bytes count)
 {
 }
 
-closure_function(1, 3, void, stage2_bios_read,
+closure_function(1, 1, void, stage2_bios_read,
                  u64, offset,
-                 void *, dest, range, blocks, status_handler, completion)
+                 storage_req, req)
 {
+    if (req->op != STORAGE_OP_READSG)
+        halt("%s: invalid storage op %d\n", __func__, req->op);
     u64 offset = bound(offset);
     assert((offset & (SECTOR_SIZE - 1)) == 0);
-    u64 start_sector = (offset >> SECTOR_OFFSET) + blocks.start;
-    u64 nsectors = range_span(blocks);
+    u64 start_sector = (offset >> SECTOR_OFFSET) + req->blocks.start;
+    u64 nsectors = range_span(req->blocks);
+    sg_list sg = req->data;
 
     void *read_buffer = pointer_from_u64(SCRATCH_BASE);
     stage2_debug("%s: %p <- 0x%lx (0x%lx)\n", __func__, dest, start_sector, nsectors);
 
     while (nsectors > 0) {
         int read_sectors = MIN(nsectors, SCRATCH_LEN >> SECTOR_OFFSET);
+        sg_buf sgb = sg_list_head_peek(sg);
+        void *dest = sgb->buf + sgb->offset;
+        read_sectors = MIN(read_sectors, sg_buf_len(sgb) >> SECTOR_OFFSET);
         stage2_debug("bios_read_sectors: %p <- 0x%lx (0x%x)\n", dest, start_sector, read_sectors);
         int ret = bios_read_sectors(read_buffer, start_sector, read_sectors);
         if (ret != 0)
             halt("bios_read_sectors: error 0x%x\n", ret);
         runtime_memcpy(dest, read_buffer, read_sectors << SECTOR_OFFSET);
-        dest += read_sectors << SECTOR_OFFSET;
+        sg_consume(sg, read_sectors << SECTOR_OFFSET);
         start_sector += read_sectors;
         nsectors -= read_sectors;
     }
 
-    apply(completion, STATUS_OK);
+    apply(req->completion, STATUS_OK);
 }
 
 #define MAX_BLOCK_IO_SIZE (64 * 1024)
 
-closure_function(2, 3, void, stage2_ata_read,
+closure_function(2, 1, void, stage2_ata_read,
                  struct ata *, dev, u64, offset,
-                 void *, dest, range, blocks, status_handler, completion)
+                 storage_req, req)
 {
+    if (req->op != STORAGE_OP_READSG)
+        halt("%s: invalid storage op %d\n", __func__, req->op);
     u64 offset = bound(offset);
     stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, offset);
     assert((offset & (SECTOR_SIZE - 1)) == 0);
+    range blocks = req->blocks;
     u64 ds = offset >> SECTOR_OFFSET;
     blocks.start += ds;
     blocks.end += ds;
+    sg_list sg = req->data;
 
     // split I/O to MAX_BLOCK_IO_SIZE requests
     heap h = general;
-    merge m = allocate_merge(h, completion);
+    merge m = allocate_merge(h, req->completion);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
         u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
+        sg_buf sgb = sg_list_head_peek(sg);
+        void *dest = sgb->buf + sgb->offset;
+        span = MIN(span, sg_buf_len(sgb) >> SECTOR_OFFSET);
         ata_io_cmd(bound(dev), ATA_READ48, dest, irange(blocks.start, blocks.start + span), apply_merge(m));
 
         // next block
         blocks.start += span;
-        dest = (char *) dest + (span << SECTOR_OFFSET);
+        sg_consume(sg, span << SECTOR_OFFSET);
     }
     apply(k, STATUS_OK);
 }
@@ -158,7 +171,7 @@ void kernel_delay(timestamp delta)
         kern_pause();
 }
 
-static block_io get_stage2_disk_read(heap general, u64 fs_offset)
+static storage_req_handler get_stage2_disk_read(heap general, u64 fs_offset)
 {
     assert(pad(fs_offset, SECTOR_SIZE) == fs_offset);
 
@@ -169,11 +182,6 @@ static block_io get_stage2_disk_read(heap general, u64 fs_offset)
     }
 
     return closure(general, stage2_ata_read, dev, fs_offset);
-}
-
-closure_function(0, 3, void, stage2_empty_write,
-                 void *, src, range, blocks, status_handler, completion)
-{
 }
 
 closure_function(0, 1, void, fail,
@@ -280,8 +288,7 @@ void newstack()
                       SECTOR_SIZE,
                       infinity,
                       get_stage2_disk_read(h, fs_offset),
-                      closure(h, stage2_empty_write),
-                      0 /* no flush */,
+                      true,
                       false,
                       closure(h, filesystem_initialized, h, backed, bh));
     

@@ -71,10 +71,31 @@ static inline void partition_write(struct partition_entry *e, boolean active,
 
 struct filesystem;
 
+enum storage_op {
+    STORAGE_OP_READ,
+    STORAGE_OP_WRITE,
+    STORAGE_OP_READSG,
+    STORAGE_OP_WRITESG,
+    STORAGE_OP_FLUSH,
+};
+
+typedef struct storage_req {
+    u8 op;
+    range blocks;
+    void *data;
+    status_handler completion;
+} *storage_req;
+
+declare_closure_struct(2, 1, void, storage_simple_req_handler,
+                       block_io, read, block_io, write,
+                       storage_req, req);
+storage_req_handler storage_init_req_handler(closure_ref(storage_simple_req_handler, handler),
+                                             block_io read, block_io write);
+
 void init_volumes(heap h);
 void storage_set_root_fs(struct filesystem *root_fs);
 void storage_set_mountpoints(tuple mounts);
-boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, block_flush flush, u64 size);
+boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size);
 void storage_when_ready(status_handler complete);
 void storage_sync(status_handler sh);
 
@@ -84,7 +105,7 @@ u64 storage_get_mountpoint(tuple root, struct filesystem **fs);
 typedef closure_type(volume_handler, void, u8 *, const char *, struct filesystem *, u64);
 void storage_iterate(volume_handler vh);
 
-void storage_detach(block_io r, block_io w, thunk complete);
+void storage_detach(storage_req_handler req_handler, thunk complete);
 typedef closure_type(mount_notification_handler, void, u64);
 void storage_register_mount_notify(mount_notification_handler nh);
 void storage_unregister_mount_notify(mount_notification_handler nh);

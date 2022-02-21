@@ -11,7 +11,7 @@
 #include "lwip/dhcp.h"
 #include <pci.h>
 #include "netif/ethernet.h"
-#include "vmxnet3.h"
+#include "vmware.h"
 #include "vmxnet3_queue.h"
 #include "vmxnet3_net.h"
 

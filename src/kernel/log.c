@@ -16,7 +16,7 @@ static struct {
     bytes count;
     struct spinlock lock;
     u64 disk_offset;
-    block_io disk_read, disk_write;
+    storage_req_handler disk_handler;
     closure_struct(klog_load_sh, load_sh);
     struct klog_dump dump;
 } klog;
@@ -41,11 +41,10 @@ void klog_write(const char *s, bytes count)
     klog_unlock();
 }
 
-void klog_disk_setup(u64 disk_offset, block_io disk_read, block_io disk_write)
+void klog_disk_setup(u64 disk_offset, storage_req_handler req_handler)
 {
     klog.disk_offset = disk_offset;
-    klog.disk_read = disk_read;
-    klog.disk_write = disk_write;
+    klog.disk_handler = req_handler;
 }
 
 void klog_set_boot_id(u64 id)
@@ -68,18 +67,17 @@ define_closure_function(2, 1, void, klog_load_sh,
 
 void klog_load(klog_dump dest, status_handler sh)
 {
-    if (klog.disk_read)
-        apply(klog.disk_read, dest,
-              irangel(klog.disk_offset >> SECTOR_OFFSET, KLOG_DUMP_SIZE >> SECTOR_OFFSET),
-              init_closure(&klog.load_sh, klog_load_sh, dest, sh));
+    struct storage_req req = {
+        .op = STORAGE_OP_READ,
+        .blocks = range_rshift(irangel(klog.disk_offset, KLOG_DUMP_SIZE), SECTOR_OFFSET),
+        .data = dest,
+        .completion = init_closure(&klog.load_sh, klog_load_sh, dest, sh),
+    };
+    apply(klog.disk_handler, &req);
 }
 
 void klog_save(int exit_code, status_handler sh)
 {
-    if (!klog.disk_write) {
-        apply(sh, STATUS_OK);
-        return;
-    }
     bytes msg_len = 0;
     if (klog.count > 0) {
         klog_lock();
@@ -94,8 +92,13 @@ void klog_save(int exit_code, status_handler sh)
     runtime_memcpy(&klog.dump.header, KLOG_DUMP_MAGIC, sizeof(KLOG_DUMP_MAGIC) - 1);
     klog.dump.msgs[msg_len] = '\0';
     klog.dump.exit_code = exit_code;
-    apply(klog.disk_write, &klog.dump,
-        irangel(klog.disk_offset >> SECTOR_OFFSET, KLOG_DUMP_SIZE >> SECTOR_OFFSET), sh);
+    struct storage_req req = {
+        .op = STORAGE_OP_WRITE,
+        .blocks = range_rshift(irangel(klog.disk_offset, KLOG_DUMP_SIZE), SECTOR_OFFSET),
+        .data = &klog.dump,
+        .completion = sh,
+    };
+    apply(klog.disk_handler, &req);
 }
 
 void klog_dump_clear(void)
@@ -104,6 +107,11 @@ void klog_dump_clear(void)
     zero(&klog.dump.header, sizeof(klog.dump.header));
 
     /* Only the first sector needs to be written. */
-    apply(klog.disk_write, &klog.dump,
-        irangel(klog.disk_offset >> SECTOR_OFFSET, 1), ignore_status);
+    struct storage_req req = {
+        .op = STORAGE_OP_WRITE,
+        .blocks = irangel(klog.disk_offset >> SECTOR_OFFSET, 1),
+        .data = &klog.dump,
+        .completion = ignore_status,
+    };
+    apply(klog.disk_handler, &req);
 }

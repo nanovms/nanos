@@ -1,13 +1,15 @@
 #include <runtime.h>
 
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <pagecache.h>
-#include <tfs.h>
 #include <storage.h>
+#include <tfs.h>
 #include <errno.h>
 #include <string.h>
 #include <limits.h>
@@ -20,22 +22,42 @@
 #define TERM_COLOR_WHITE    97
 #define TERM_COLOR_DEFAULT  0
 
-closure_function(2, 3, void, bread,
+closure_function(2, 1, void, bread,
                  descriptor, d, u64, fs_offset,
-                 void *, dest, range, blocks, status_handler, c)
+                 storage_req, req)
 {
-    ssize_t xfer, total = 0;
-    u64 offset = bound(fs_offset) + (blocks.start << SECTOR_OFFSET);
-    u64 length = range_span(blocks) << SECTOR_OFFSET;
-    while (total < length) {
-        xfer = pread(bound(d), dest + total, length - total, offset + total);
+    if (req->op != STORAGE_OP_READSG)
+        halt("%s: invalid storage op %d\n", __func__, req->op);
+    sg_list sg = req->data;
+    u64 offset = bound(fs_offset) + (req->blocks.start << SECTOR_OFFSET);
+    u64 total = range_span(req->blocks) << SECTOR_OFFSET;
+    struct iovec iov[IOV_MAX];
+    int iov_count;
+    ssize_t xfer;
+    while (total > 0) {
+        iov_count = 0;
+        xfer = 0;
+        sg_list_foreach(sg, sgb) {
+            iov[iov_count].iov_base = sgb->buf + sgb->offset;
+            iov[iov_count].iov_len = MIN(sg_buf_len(sgb), total - xfer);
+            xfer += iov[iov_count].iov_len;
+            if ((++iov_count == IOV_MAX) || (xfer == total))
+                break;
+        }
+        xfer = preadv(bound(d), iov, iov_count, offset);
         if (xfer < 0 && errno != EINTR) {
-            apply(c, timm("read-error", "%s", strerror(errno)));
+            apply(req->completion, timm("result", "read error", "error", "%s", strerror(errno)));
             return;
         }
-        total += xfer;
+        if (xfer == 0) {
+            apply(req->completion, timm("result", "end of file"));
+            return;
+        }
+        sg_consume(sg, xfer);
+        offset += xfer;
+        total -= xfer;
     }
-    apply(c, STATUS_OK);
+    apply(req->completion, STATUS_OK);
 }
 
 closure_function(1, 1, status, write_file,
@@ -281,7 +303,7 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       infinity,
                       closure(h, bread, fd, get_fs_offset(fd, PARTITION_ROOTFS, false)),
-                      0, 0, 0, /* no write, flush or label */
+                      true, 0,  /* read only, no label */
                       closure(h, fsc, h, target_dir, options));
     return EXIT_SUCCESS;
 }

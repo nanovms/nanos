@@ -114,6 +114,7 @@ struct virtio_scsi {
 
     struct virtqueue *requestq;
 
+    u32 seg_max;
     u16 max_target;
     u16 max_lun;
 
@@ -125,20 +126,11 @@ struct virtio_scsi {
 typedef struct virtio_scsi *virtio_scsi;
 typedef struct virtio_scsi_disk *virtio_scsi_disk;
 
-declare_closure_struct(1, 3, void, virtio_scsi_read,
-                       virtio_scsi_disk, s,
-                       void *, buf, range, blocks, status_handler, sh);
-declare_closure_struct(1, 3, void, virtio_scsi_write,
-                       virtio_scsi_disk, s,
-                       void *, buf, range, blocks, status_handler, sh);
-declare_closure_struct(1, 1, void, virtio_scsi_flush,
-                       virtio_scsi_disk, d,
-                       status_handler, sh);
+declare_closure_struct(0, 1, void, virtio_scsi_req_handler,
+                       storage_req, req);
 
 struct virtio_scsi_disk {
-    closure_struct(virtio_scsi_read, read);
-    closure_struct(virtio_scsi_write, write);
-    closure_struct(virtio_scsi_flush, flush);
+    closure_struct(virtio_scsi_req_handler, req_handler);
     virtio_scsi scsi;
     u16 target;
     u16 lun;
@@ -169,7 +161,7 @@ static void virtio_scsi_detach_disk(virtio_scsi s, u16 target, u16 lun)
             continue;
         vector_delete(s->disks, i);
         spin_unlock(&s->lock);
-        storage_detach((block_io)&d->read, (block_io)&d->write, closure(s->v->virtio_dev.general, deallocate_scsi_disk, s, d));
+        storage_detach((storage_req_handler)&d->req_handler, closure(s->v->virtio_dev.general, deallocate_scsi_disk, s, d));
         return;
     }
     spin_unlock(&s->lock);
@@ -326,25 +318,79 @@ static void virtio_scsi_io(virtio_scsi_disk d, u8 cmd, void *buf, range blocks,
                                 closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh));
 }
 
-define_closure_function(1, 3, void, virtio_scsi_write,
-                 virtio_scsi_disk, s,
-                 void *, buf, range, blocks, status_handler, sh)
+static void virtio_scsi_io_commit(virtio_scsi s, virtqueue vq, vqmsg msg, boolean write,
+                                  virtio_scsi_request r, u64 r_phys, status_handler completion)
 {
-    virtio_scsi_io(bound(s), SCSI_CMD_WRITE_16, buf, blocks, sh);
+    heap h = s->v->virtio_dev.general;
+    if (write)
+        vqmsg_push(vq, msg, r_phys + offsetof(virtio_scsi_request, resp), sizeof(r->resp), true);
+    vsr_complete c = closure(h, virtio_scsi_io_done, completion);
+    assert(c != INVALID_ADDRESS);
+    vqfinish f = closure(h, virtio_scsi_request_complete, c, s, r, r_phys);
+    assert(f != INVALID_ADDRESS);
+    vqmsg_commit(vq, msg, f);
 }
 
-define_closure_function(1, 3, void, virtio_scsi_read,
-                 virtio_scsi_disk, s,
-                 void *, buf, range, blocks, status_handler, sh)
+static void virtio_scsi_io_sg(virtio_scsi_disk d, boolean write, sg_list sg, range blocks,
+                              status_handler sh)
 {
-    virtio_scsi_io(bound(s), SCSI_CMD_READ_16, buf, blocks, sh);
+    virtio_scsi_debug("%s: %c blocks %R, sh %F\n", __func__, write ? 'w' : 'r', blocks, sh);
+    virtio_scsi s = d->scsi;
+    virtio_scsi_request r = 0;
+    u64 r_phys;
+    struct scsi_cdb_readwrite_16 *cdb;
+    u32 desc_blocks, req_blocks;
+    heap h = s->v->virtio_dev.general;
+    virtqueue vq = s->requestq;
+    vqmsg msg;
+    u32 desc_count;
+    merge m = 0;
+    while (range_span(blocks)) {
+        if (!r) {
+            r = virtio_scsi_alloc_request(s, d->target, d->lun,
+                                          write ? SCSI_CMD_WRITE_16 : SCSI_CMD_READ_16, &r_phys);
+            cdb = (struct scsi_cdb_readwrite_16 *)r->req.cdb;
+            cdb->addr = htobe64(blocks.start);
+            msg = allocate_vqmsg(vq);
+            assert(msg != INVALID_ADDRESS);
+            vqmsg_push(vq, msg, r_phys + offsetof(virtio_scsi_request, req), sizeof(r->req), false);
+            if (!write)
+                vqmsg_push(vq, msg, r_phys + offsetof(virtio_scsi_request, resp), sizeof(r->resp),
+                           true);
+            req_blocks = 0;
+            desc_count = 0;
+        }
+        sg_buf sgb = sg_list_head_peek(sg);
+        u64 length = sg_buf_len(sgb);
+        assert((length & (d->block_size - 1)) == 0);
+        length = MIN(range_span(blocks) * d->block_size, length);
+        vqmsg_push(vq, msg, physical_from_virtual(sgb->buf + sgb->offset), length, !write);
+        sg_consume(sg, length);
+        desc_blocks = length / d->block_size;
+        req_blocks += desc_blocks;
+        blocks.start += desc_blocks;
+        if (++desc_count == s->seg_max) {
+            virtio_scsi_debug("  requesting %d blocks\n", req_blocks);
+            cdb->length = htobe32(req_blocks);
+            if (!m && range_span(blocks)) {
+                m = allocate_merge(h, sh);
+                sh = apply_merge(m);
+            }
+            virtio_scsi_io_commit(s, vq, msg, write, r, r_phys, m ? apply_merge(m) : sh);
+            r = 0;
+        }
+    }
+    if (r) {
+        virtio_scsi_debug("  requesting %d blocks\n", req_blocks);
+        cdb->length = htobe32(req_blocks);
+        virtio_scsi_io_commit(s, vq, msg, write, r, r_phys, m ? apply_merge(m) : sh);
+    }
+    if (m)
+        apply(sh, STATUS_OK);
 }
 
-define_closure_function(1, 1, void, virtio_scsi_flush,
-                 virtio_scsi_disk, d,
-                 status_handler, sh)
+static void virtio_scsi_flush(virtio_scsi_disk d, status_handler sh)
 {
-    virtio_scsi_disk d = bound(d);
     virtio_scsi s = d->scsi;
     u64 r_phys;
     virtio_scsi_request r = virtio_scsi_alloc_request(s, d->target, d->lun,
@@ -362,6 +408,29 @@ define_closure_function(1, 1, void, virtio_scsi_flush,
                                 closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh));
 }
 
+define_closure_function(0, 1, void, virtio_scsi_req_handler,
+                 storage_req, req)
+{
+    virtio_scsi_disk d = struct_from_field(closure_self(), virtio_scsi_disk, req_handler);
+    switch (req->op) {
+    case STORAGE_OP_READSG:
+        virtio_scsi_io_sg(d, false, req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_WRITESG:
+        virtio_scsi_io_sg(d, true, req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_FLUSH:
+        virtio_scsi_flush(d, req->completion);
+        break;
+    case STORAGE_OP_READ:
+        virtio_scsi_io(d, SCSI_CMD_READ_16, req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_WRITE:
+        virtio_scsi_io(d, SCSI_CMD_WRITE_16, req->data, req->blocks, req->completion);
+        break;
+    }
+}
+
 closure_function(2, 0, void, virtio_scsi_init_done,
                  virtio_scsi_disk, d, storage_attach, a)
 {
@@ -370,8 +439,7 @@ closure_function(2, 0, void, virtio_scsi_init_done,
     spin_lock(&s->lock);
     vector_push(s->disks, d);
     spin_unlock(&s->lock);
-    apply(bound(a), init_closure(&d->read, virtio_scsi_read, d), init_closure(&d->write, virtio_scsi_write, d),
-        init_closure(&d->flush, virtio_scsi_flush, d), d->capacity);
+    apply(bound(a), init_closure(&d->req_handler, virtio_scsi_req_handler), d->capacity);
     closure_finish();
 }
 
@@ -557,9 +625,6 @@ static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_
     u32 num_queues = pci_bar_read_4(&s->v->device_config, VIRTIO_SCSI_R_NUM_QUEUES);
     virtio_scsi_debug("num queues %d\n", num_queues);
 
-    u32 seg_max = pci_bar_read_4(&s->v->device_config, VIRTIO_SCSI_R_SEG_MAX);
-    virtio_scsi_debug("seg max %d\n", seg_max);
-
     u32 max_sectors = pci_bar_read_4(&s->v->device_config, VIRTIO_SCSI_R_MAX_SECTORS);
     virtio_scsi_debug("max sectors %d\n", max_sectors);
 
@@ -576,6 +641,9 @@ static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_
     s->disks = allocate_vector(general, 2);
     s->sa = a;
     spin_lock_init(&s->lock);
+
+    s->seg_max = pci_bar_read_4(&s->v->device_config, VIRTIO_SCSI_R_SEG_MAX);
+    virtio_scsi_debug("seg max %d\n", s->seg_max);
 
     s->max_target = pci_bar_read_2(&s->v->device_config, VIRTIO_SCSI_R_MAX_TARGET);
     virtio_scsi_debug("max target %d\n", s->max_target);

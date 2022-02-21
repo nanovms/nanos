@@ -50,6 +50,7 @@ struct xenblk_dev {
     evtchn_port_t evtchn;
     closure_struct(xenblk_io, read);
     closure_struct(xenblk_io, write);
+    closure_struct(storage_simple_req_handler, req_handler);
     closure_struct(xenblk_event_handler, event_handler);
     closure_struct(xenblk_bh_service, bh_service);
     closure_struct(xenblk_watch_handler, watch_handler);
@@ -354,16 +355,18 @@ define_closure_function(1, 0, void, xenblk_watch_service,
             goto remove;
         }
         xenblk_debug("attaching disk, capacity %ld bytes", xbd->capacity);
-        apply(xbd->sa, init_closure(&xbd->read, xenblk_io, xbd, false),
-              init_closure(&xbd->write, xenblk_io, xbd, true),
-              0 /* TODO: flush */, xbd->capacity);
+        apply(xbd->sa,
+              storage_init_req_handler(&xbd->req_handler,
+                                       init_closure(&xbd->read, xenblk_io, xbd, false),
+                                       init_closure(&xbd->write, xenblk_io, xbd, true)),
+              xbd->capacity);
         break;
   remove:
         xenblk_remove(xbd);
         break;
     }
     case XenbusStateClosing:
-        storage_detach((block_io)&xbd->read, (block_io)&xbd->write,
+        storage_detach((storage_req_handler)&xbd->req_handler,
                        init_closure(&xbd->detach_complete, xenblk_detach_complete, xbd));
         break;
     default:

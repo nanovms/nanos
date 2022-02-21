@@ -8,8 +8,7 @@ typedef struct volume {
     struct list l;
     u8 uuid[UUID_LEN];
     char label[VOLUME_LABEL_MAX_LEN];
-    block_io r, w;
-    block_flush flush;
+    storage_req_handler req_handler;
     u64 size;
     boolean mounting;
     filesystem fs;
@@ -150,8 +149,52 @@ static void volume_mount(volume v, buffer mount_point)
     }
     storage_debug("mounting volume at %b", mount_point);
     v->mounting = true;
-    create_filesystem(storage.h, SECTOR_SIZE, v->size, v->r, v->w, v->flush,
+    create_filesystem(storage.h, SECTOR_SIZE, v->size, v->req_handler, false,
                       0 /* no label */, complete);
+}
+
+static void storage_io_sg(block_io op, sg_list sg, range blocks, status_handler completion)
+{
+    merge m = allocate_merge(storage.h, completion);
+    completion = apply_merge(m);
+    while (range_span(blocks)) {
+        sg_buf sgb = sg_list_head_peek(sg);
+        u64 length = MIN(sg_buf_len(sgb), range_span(blocks) << SECTOR_OFFSET);
+        u64 block_count = length >> SECTOR_OFFSET;
+        apply(op, sgb->buf + sgb->offset, irangel(blocks.start, block_count), apply_merge(m));
+        sg_consume(sg, length);
+        blocks.start += block_count;
+    }
+    apply(completion, STATUS_OK);
+}
+
+define_closure_function(2, 1, void, storage_simple_req_handler,
+                        block_io, read, block_io, write,
+                        storage_req, req)
+{
+    switch (req->op) {
+    case STORAGE_OP_READSG:
+        storage_io_sg(bound(read), req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_WRITESG:
+        storage_io_sg(bound(write), req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_FLUSH:
+        apply(req->completion, STATUS_OK);
+        break;
+    case STORAGE_OP_READ:
+        apply(bound(read), req->data, req->blocks, req->completion);
+        break;
+    case STORAGE_OP_WRITE:
+        apply(bound(write), req->data, req->blocks, req->completion);
+        break;
+    }
+}
+
+storage_req_handler storage_init_req_handler(closure_ref(storage_simple_req_handler, handler),
+                                             block_io read, block_io write)
+{
+    return init_closure(handler, storage_simple_req_handler, read, write);
 }
 
 void init_volumes(heap h)
@@ -212,7 +255,7 @@ closure_function(1, 2, boolean, volume_add_mount_each,
     return true;
 }
 
-boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, block_flush flush, u64 size)
+boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size)
 {
     storage_debug("new volume (%ld bytes)", size);
     volume v = allocate(storage.h, sizeof(*v));
@@ -220,9 +263,7 @@ boolean volume_add(u8 *uuid, char *label, block_io r, block_io w, block_flush fl
         return false;
     runtime_memcpy(v->uuid, uuid, UUID_LEN);
     runtime_memcpy(v->label, label, VOLUME_LABEL_MAX_LEN);
-    v->r = r;
-    v->w = w;
-    v->flush = flush;
+    v->req_handler = req_handler;
     v->size = size;
     v->mounting = false;
     v->fs = 0;
@@ -304,14 +345,14 @@ void storage_iterate(volume_handler vh)
     storage_unlock();
 }
 
-void storage_detach(block_io r, block_io w, thunk complete)
+void storage_detach(storage_req_handler req_handler, thunk complete)
 {
     storage_debug("%s", __func__);
     volume vol = 0;
     storage_lock();
     list_foreach(&storage.volumes, e) {
         volume v = struct_from_list(e, volume, l);
-        if ((v->r == r) && (v->w == w)) {
+        if (v->req_handler == req_handler) {
             list_delete(&v->l);
             vol = v;
             notify_mount_change_locked();

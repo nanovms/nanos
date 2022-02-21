@@ -184,14 +184,28 @@ closure_function(0, 1, void, uefi_kernel_fail,
     halt("UEFI: failed to read kernel file\n");
 }
 
-closure_function(2, 3, void, uefi_blkdev_read,
+closure_function(2, 1, void, uefi_blkdev_read,
                  efi_block_io_protocol , block_io, u64, offset,
-                 void *, dest, range, blocks, status_handler, completion)
+                 storage_req, req)
 {
+    if (req->op != STORAGE_OP_READSG)
+        halt("%s: invalid storage op %d\n", __func__, req->op);
+    sg_list sg = req->data;
     efi_block_io_protocol block_io = bound(block_io);
-    efi_status status = block_io->read_blocks(block_io, block_io->media->media_id,
-        bound(offset) + blocks.start, range_span(blocks) * SECTOR_SIZE, dest);
-    apply(completion,
+    efi_status status = EFI_SUCCESS;
+    while (range_span(req->blocks)) {
+        sg_buf sgb = sg_list_head_peek(sg);
+        u64 length = sg_buf_len(sgb);
+        assert((length & (SECTOR_SIZE - 1)) == 0);
+        length = MIN(length, range_span(req->blocks) << SECTOR_OFFSET);
+        status = block_io->read_blocks(block_io, block_io->media->media_id,
+            bound(offset) + req->blocks.start, length, sgb->buf + sgb->offset);
+        if (EFI_ERROR(status))
+            break;
+        sg_consume(sg, length);
+        req->blocks.start += length >> SECTOR_OFFSET;
+    }
+    apply(req->completion,
           EFI_ERROR(status) ? timm("result", "read_blocks status %d", status) : STATUS_OK);
 }
 
@@ -270,7 +284,7 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
                    bootfs_part->lba_start, bootfs_part->nsectors);
         init_pagecache(&general, &general, 0, PAGESIZE);
         create_filesystem(&general, SECTOR_SIZE, bootfs_part->nsectors * SECTOR_SIZE,
-                          closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start), 0, 0, 0,
+                          closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start), true, 0,
                           closure(&general, uefi_bootfs_complete, &general, &aligned_heap, &options));
     }
     UBS->free_pool(handle_buffer);

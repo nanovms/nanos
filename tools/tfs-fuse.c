@@ -9,6 +9,7 @@
  */
 
 #include <runtime.h>
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -16,6 +17,7 @@
 #include <tfs.h>
 #include <storage.h>
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <pthread.h>
 #include <signal.h>
@@ -188,42 +190,66 @@ static inline tuple file_get_meta(file f)
     return pointer_from_u64(f->n);
 }
 
-closure_function(2, 3, void, bread,
+closure_function(2, 1, void, req_handle,
                  descriptor, d, u64, fs_offset,
-                 void *, dest, range, blocks, status_handler, c)
+                 storage_req, req)
 {
-    ssize_t xfer, total = 0;
-    u64 offset = bound(fs_offset) + (blocks.start << SECTOR_OFFSET);
-    u64 length = range_span(blocks) << SECTOR_OFFSET;
-    while (total < length) {
-        xfer = pread(bound(d), dest + total, length - total, offset + total);
-        if (xfer < 0 && errno != EINTR) {
-            apply(c, timm("read-error", "%s", strerror(errno)));
-            return;
-        }
-        total += xfer;
-    }
-    apply(c, STATUS_OK);
-}
+    sg_list sg;
+    u64 offset;
+    u64 total;
+    struct iovec iov[IOV_MAX];
+    int iov_count;
+    boolean write;
+    ssize_t xfer;
 
-closure_function(2, 3, void, bwrite,
-                 descriptor, d, u64, fs_offset,
-                 void *, src, range, blocks, status_handler, c)
-{
-    tfs_fuse_debug("bwrite from %p blocks %R", src, blocks);
-    ssize_t start = bound(fs_offset) + (blocks.start << SECTOR_OFFSET);
-    ssize_t size = range_span(blocks) << SECTOR_OFFSET;
-    ssize_t total = 0;
-    while (total < size) {
-        ssize_t rv = pwrite(bound(d), src + total, size - total, start + total);
-        tfs_fuse_debug(" rv %d\n", rv);
-        if (rv < 0 && errno != EINTR) {
-            apply(c, timm("error", "pwrite error: %s", strerror(errno)));
-            return;
+    tfs_fuse_debug("storage request %d, blocks %R\n", req->op, req->blocks);
+    switch (req->op) {
+    case STORAGE_OP_READSG:
+    case STORAGE_OP_WRITESG:
+        write = (req->op == STORAGE_OP_WRITESG);
+        sg = req->data;
+        offset = bound(fs_offset) + (req->blocks.start << SECTOR_OFFSET);
+        total = range_span(req->blocks) << SECTOR_OFFSET;
+        while (total > 0) {
+            iov_count = 0;
+            xfer = 0;
+            sg_list_foreach(sg, sgb) {
+                iov[iov_count].iov_base = sgb->buf + sgb->offset;
+                iov[iov_count].iov_len = MIN(sg_buf_len(sgb), total - xfer);
+                xfer += iov[iov_count].iov_len;
+                if ((++iov_count == IOV_MAX) || (xfer == total))
+                    break;
+            }
+            if (write) {
+                xfer = pwritev(bound(d), iov, iov_count, offset);
+                if (xfer < 0 && errno != EINTR) {
+                    apply(req->completion,
+                          timm("result", "write error", "error", "%s", strerror(errno)));
+                    return;
+                }
+            } else {
+                xfer = preadv(bound(d), iov, iov_count, offset);
+                if (xfer < 0 && errno != EINTR) {
+                    apply(req->completion,
+                          timm("result", "read error", "error", "%s", strerror(errno)));
+                    return;
+                }
+                if (xfer == 0) {
+                    apply(req->completion, timm("result", "end of file"));
+                    return;
+                }
+            }
+            sg_consume(sg, xfer);
+            offset += xfer;
+            total -= xfer;
         }
-        total += rv;
+        break;
+    case STORAGE_OP_FLUSH:
+        break;
+    default:
+        halt("%s: invalid storage op %d\n", __func__, req->op);
     }
-    apply(c, STATUS_OK);
+    apply(req->completion, STATUS_OK);
 }
 
 static u64 get_fs_offset(descriptor fd, int part, boolean by_index, u64 *length)
@@ -901,8 +927,7 @@ int main(int argc, char **argv)
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
-                      closure(h, bread, fd, offset),
-                      closure(h, bwrite, fd, offset),
+                      closure(h, req_handle, fd, offset),
                       0, 0,
                       closure(h, fsc));
     fdallocator = create_id_heap(h, h, 0, infinity, 1, false);

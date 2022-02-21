@@ -1094,7 +1094,7 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         rv = -EFAULT;
         goto out;
     }
-    closure_ref(iour_getevents_bh, bh);
+    closure_ref(iour_getevents_bh, bh) = 0;
     if (flags & IORING_ENTER_GETEVENTS) {
         contextual_closure_alloc(iour_getevents_bh, bh);
         if (bh == INVALID_ADDRESS) {

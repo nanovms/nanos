@@ -19,8 +19,6 @@
 BSS_RO_AFTER_INIT filesystem root_fs;
 BSS_RO_AFTER_INIT static kernel_heaps init_heaps;
 
-//#define MAX_BLOCK_IO_SIZE PAGE_SIZE
-#define MAX_BLOCK_IO_SIZE (64 * 1024)
 #define SHUTDOWN_COMPLETIONS_SIZE 8
 
 static u64 bootstrap_base = BOOTSTRAP_BASE;
@@ -95,27 +93,14 @@ void init_kernel_heaps(void)
     assert(heaps.page_backed != INVALID_ADDRESS);
 }
 
-closure_function(2, 3, void, offset_block_io,
-                 u64, offset, block_io, io,
-                 void *, dest, range, blocks, status_handler, sh)
+closure_function(2, 1, void, offset_req_handler,
+                 u64, offset, storage_req_handler, req_handler,
+                 storage_req, req)
 {
     assert((bound(offset) & (SECTOR_SIZE - 1)) == 0);
     u64 ds = bound(offset) >> SECTOR_OFFSET;
-    blocks.start += ds;
-    blocks.end += ds;
-
-    // split I/O to storage driver to PAGESIZE requests
-    merge m = allocate_merge(heap_locked(init_heaps), sh);
-    status_handler k = apply_merge(m);
-    while (blocks.start < blocks.end) {
-        u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
-        apply(bound(io), dest, irange(blocks.start, blocks.start + span), apply_merge(m));
-
-        // next block
-        blocks.start += span;
-        dest = (char *) dest + (span << SECTOR_OFFSET);
-    }
-    apply(k, STATUS_OK);
+    req->blocks = range_add(req->blocks, ds);
+    apply(bound(req_handler), req);
 }
 
 /* stage3 */
@@ -126,8 +111,8 @@ extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
 
 BSS_RO_AFTER_INIT static tuple_notifier wrapped_root;
 
-closure_function(3, 2, void, fsstarted,
-                 u8 *, mbr, block_io, r, block_io, w,
+closure_function(2, 2, void, fsstarted,
+                 u8 *, mbr, storage_req_handler, req_handler,
                  filesystem, fs, status, s)
 {
     init_debug("%s\n", __func__);
@@ -169,9 +154,9 @@ closure_function(3, 2, void, fsstarted,
             (bootfs_part = partition_get(mbr, PARTITION_BOOTFS))) {
             create_filesystem(h, SECTOR_SIZE,
                               bootfs_part->nsectors * SECTOR_SIZE,
-                              closure(h, offset_block_io,
-                                      bootfs_part->lba_start * SECTOR_SIZE, bound(r)),
-                              0, 0, 0, /* no write, flush or label */
+                              closure(h, offset_req_handler,
+                                      bootfs_part->lba_start * SECTOR_SIZE, bound(req_handler)),
+                              true, 0, /* read-only, no label */
                               bootfs_handler(init_heaps, root, klibs ? apply_merge(m) : 0,
                                              klibs_in_bootfs, ingest_kernel_syms));
             opening_bootfs = true;
@@ -260,8 +245,7 @@ boolean first_boot(void)
     return !get(get_root_tuple(), sym(booted));
 }
 
-static void rootfs_init(u8 *mbr, u64 offset,
-                        block_io r, block_io w, block_flush flush, u64 length)
+static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u64 length)
 {
     init_debug("%s", __func__);
     length -= offset;
@@ -269,15 +253,14 @@ static void rootfs_init(u8 *mbr, u64 offset,
     create_filesystem(h,
                       SECTOR_SIZE,
                       length,
-                      closure(h, offset_block_io, offset, r),
-                      closure(h, offset_block_io, offset, w),
-                      flush,
+                      closure(h, offset_req_handler, offset, req_handler),
                       false,
-                      closure(h, fsstarted, mbr, r, w));
+                      false,
+                      closure(h, fsstarted, mbr, req_handler));
 }
 
-closure_function(5, 1, void, mbr_read,
-                 u8 *, mbr, block_io, r, block_io, w, block_flush, flush, u64, length,
+closure_function(3, 1, void, mbr_read,
+                 u8 *, mbr, storage_req_handler, req_handler, u64, length,
                  status, s)
 {
     init_debug("%s", __func__);
@@ -291,24 +274,23 @@ closure_function(5, 1, void, mbr_read,
         u8 uuid[UUID_LEN];
         char label[VOLUME_LABEL_MAX_LEN];
         if (filesystem_probe(mbr, uuid, label))
-            volume_add(uuid, label, bound(r), bound(w), bound(flush), bound(length));
+            volume_add(uuid, label, bound(req_handler), bound(length));
         else
             init_debug("unformatted storage device, ignoring");
         deallocate(heap_locked(init_heaps), mbr, SECTOR_SIZE);
     } else {
         /* The on-disk kernel log dump section is immediately before the first partition. */
         struct partition_entry *first_part = partition_at(mbr, 0);
-        klog_disk_setup(first_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(r), bound(w));
+        klog_disk_setup(first_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(req_handler));
 
-        rootfs_init(mbr, rootfs_part->lba_start * SECTOR_SIZE,
-                    bound(r), bound(w), bound(flush), bound(length));
+        rootfs_init(mbr, rootfs_part->lba_start * SECTOR_SIZE, bound(req_handler), bound(length));
     }
   out:
     closure_finish();
 }
 
-closure_function(0, 4, void, attach_storage,
-                 block_io, r, block_io, w, block_flush, flush, u64, length)
+closure_function(0, 2, void, attach_storage,
+                 storage_req_handler, req_handler, u64, length)
 {
     heap h = heap_locked(init_heaps);
     heap bh = (heap)heap_linear_backed(init_heaps);
@@ -318,13 +300,19 @@ closure_function(0, 4, void, attach_storage,
         msg_err("cannot allocate memory for MBR sector\n");
         return;
     }
-    status_handler sh = closure(h, mbr_read, mbr, r, w, flush, length);
+    status_handler sh = closure(h, mbr_read, mbr, req_handler, length);
     if (sh == INVALID_ADDRESS) {
         msg_err("cannot allocate MBR read closure\n");
         deallocate(bh, mbr, PAGESIZE);
         return;
     }
-    apply(r, mbr, irange(0, 1), sh);
+    struct storage_req req = {
+        .op = STORAGE_OP_READ,
+        .blocks = irange(0, 1),
+        .data = mbr,
+        .completion = sh,
+    };
+    apply(req_handler, &req);
 }
 
 void kernel_runtime_init(kernel_heaps kh)

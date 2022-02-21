@@ -224,21 +224,21 @@ static inline extent allocate_extent(heap h, range file_blocks, range storage_bl
 
 u64 filesystem_allocate_storage(filesystem fs, u64 nblocks)
 {
-    if (fs->w)
+    if (fs->storage)
         return allocate_u64((heap)fs->storage, nblocks);
     return INVALID_PHYSICAL;
 }
 
 boolean filesystem_reserve_storage(filesystem fs, range blocks)
 {
-    if (fs->w)
+    if (fs->storage)
         return id_heap_set_area(fs->storage, blocks.start, range_span(blocks), true, true);
     return true;
 }
 
 boolean filesystem_free_storage(filesystem fs, range blocks)
 {
-    if (fs->w)
+    if (fs->storage)
         return id_heap_set_area(fs->storage, blocks.start, range_span(blocks), true, false);
     return true;
 }
@@ -312,51 +312,69 @@ static boolean enumerate_dir_entries(filesystem fs, tuple t)
     return true;
 }
 
-void filesystem_storage_op(filesystem fs, sg_list sg, merge m, range blocks, block_io op)
+void filesystem_storage_op(filesystem fs, sg_list sg, range blocks, boolean write,
+                           status_handler completion)
 {
-    tfs_debug("%s: fs %p, sg %p, sg size %ld, blocks %R, op %F\n", __func__,
-              fs, sg, sg->count, blocks, op);
-    assert(op);
-    u64 blocks_remain = range_span(blocks);
-    u64 offset = 0;
-    do {
-        sg_buf sgb = sg_list_head_peek(sg);
-        assert(sgb != INVALID_ADDRESS);
-        u64 avail = sgb->size - sgb->offset;
-        assert((avail & MASK(fs->blocksize_order)) == 0);
-        u64 nblocks = MIN(avail >> fs->blocksize_order, blocks_remain);
-        if (nblocks > 0) {
-            u64 block_offset = blocks.start + offset;
-            range q = irangel(block_offset, nblocks);
-            assert(range_span(q) + sgb->offset < U64_FROM_BIT(fs->page_order));
-            apply(op, sgb->buf + sgb->offset, q, apply_merge(m));
-            offset += nblocks;
-            blocks_remain -= nblocks;
-            u64 n = nblocks << fs->blocksize_order;
-            sgb->offset += n;
-        }
-        if (sgb->offset == sgb->size) {
-            assert(sg_list_head_remove(sg) == sgb);
-            sg_buf_release(sgb);
-        }
-    } while (blocks_remain > 0);
+    tfs_debug("%s: fs %p, sg %p, sg size %ld, blocks %R, %c\n", __func__,
+              fs, sg, sg->count, blocks, write ? 'w' : 'r');
+    struct storage_req req = {
+        .op = write ? STORAGE_OP_WRITESG : STORAGE_OP_READSG,
+        .blocks = blocks,
+        .data = sg,
+        .completion = completion,
+    };
+    apply(fs->req_handler, &req);
+}
+
+closure_function(2, 1, void, zero_blocks_complete,
+                 sg_list, sg, status_handler, completion,
+                 status, s)
+{
+    sg_list sg = bound(sg);
+    sg_list_release(sg);
+    deallocate_sg_list(sg);
+    apply(bound(completion), s);
+    closure_finish();
 }
 
 void zero_blocks(filesystem fs, range blocks, merge m)
 {
     int blocks_per_page = U64_FROM_BIT(fs->page_order - fs->blocksize_order);
     tfs_debug("%s: fs %p, blocks %R\n", __func__, fs, blocks);
-    while (range_span(blocks) > 0) {
-        range r = irangel(blocks.start, MIN(range_span(blocks), blocks_per_page));
-        tfs_debug("   zero %R\n", r);
-        apply(fs->w, fs->zero_page, r, apply_merge(m));
-        blocks.start = r.end;
+    status_handler completion = apply_merge(m);
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS) {
+        apply(completion, timm("result", "failed to allocate sg list"));
+        return;
     }
+    status_handler zero_blocks_completion = closure(fs->h, zero_blocks_complete, sg, completion);
+    if (zero_blocks_completion == INVALID_ADDRESS) {
+        apply(completion, timm("result", "failed to allocate completion"));
+        deallocate_sg_list(sg);
+        return;
+    }
+    range r = blocks;
+    while (range_span(r) > 0) {
+        u64 length = MIN(range_span(r), blocks_per_page);
+        sg_buf sgb = sg_list_tail_add(sg, length);
+        sgb->buf = fs->zero_page;
+        sgb->offset = 0;
+        sgb->size = U64_FROM_BIT(fs->page_order);
+        sgb->refcount = 0;
+        r.start += length;
+    }
+    struct storage_req req = {
+        .op = STORAGE_OP_WRITESG,
+        .blocks = blocks,
+        .data = sg,
+        .completion = zero_blocks_completion,
+    };
+    apply(fs->req_handler, &req);
 }
 
 /* called with uninited lock held */
 static void queue_uninited_op(filesystem fs, uninited u, sg_list sg, range blocks,
-                              status_handler complete, block_io op)
+                              status_handler complete, boolean write)
 {
     struct uninited_queued_op uqo;
     uqo.sg = sg;
@@ -364,7 +382,7 @@ static void queue_uninited_op(filesystem fs, uninited u, sg_list sg, range block
     if (uqo.m == INVALID_ADDRESS)
         goto alloc_fail;
     uqo.blocks = blocks;
-    uqo.op = op;
+    uqo.write = write;
     if (!buffer_append(u->op_queue, &uqo, sizeof(uqo))) {
         complete = apply_merge(uqo.m);
         goto alloc_fail;
@@ -388,15 +406,15 @@ closure_function(4, 1, void, read_extent,
     tfs_debug("%s: e %p, uninited %p, sg %p m %p blocks %R, i %R, len %ld, blocks %R\n",
               __func__, e, e->uninited, bound(sg), bound(m), bound(blocks), i, len, blocks);
     if (!e->uninited) {
-        filesystem_storage_op(fs, sg, bound(m), blocks, fs->r);
+        filesystem_storage_op(fs, sg, blocks, false, apply_merge(bound(m)));
     } else if (e->uninited == INVALID_ADDRESS) {
         sg_zero_fill(sg, range_span(blocks) << fs->blocksize_order);
     } else {
         uninited_lock(e->uninited);
         if (e->uninited->initialized)
-            filesystem_storage_op(fs, sg, bound(m), blocks, fs->r);
+            filesystem_storage_op(fs, sg, blocks, false, apply_merge(bound(m)));
         else
-            queue_uninited_op(fs, e->uninited, sg, blocks, apply_merge(bound(m)), fs->r);
+            queue_uninited_op(fs, e->uninited, sg, blocks, apply_merge(bound(m)), false);
         uninited_unlock(e->uninited);
     }
 }
@@ -689,7 +707,7 @@ define_closure_function(2, 1, void, uninited_complete,
         tfs_debug("%s: issuing op, fs %p, sg %p, m %p, blocks %R, op %F\n",
                   __func__, u->fs, uqo->sg, uqo->m, uqo->blocks, uqo->op);
         if (uqo->sg)
-            filesystem_storage_op(u->fs, uqo->sg, uqo->m, uqo->blocks, uqo->op);
+            filesystem_storage_op(u->fs, uqo->sg, uqo->blocks, uqo->write, apply_merge(uqo->m));
         else
             zero_blocks(u->fs, uqo->blocks, uqo->m);
         buffer_consume(u->op_queue, sizeof(struct uninited_queued_op));
@@ -767,7 +785,7 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
                 zero_blocks(fs, range_add(irange(0, data_offset), ex->start_block), m);
             if (data_end < extent_end)
                 zero_blocks(fs, range_add(irange(data_end, extent_end), ex->start_block), m);
-            filesystem_storage_op(fs, sg, m, r, fs->w);
+            filesystem_storage_op(fs, sg, r, true, apply_merge(m));
         } else {
             zero_blocks(fs, r, m);
         }
@@ -779,13 +797,13 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
             uninited_unlock(ex->uninited);
             goto write;
         }
-        queue_uninited_op(fs, ex->uninited, sg, r, apply_merge(m), fs->w);
+        queue_uninited_op(fs, ex->uninited, sg, r, apply_merge(m), true);
         uninited_unlock(ex->uninited);
         return i.end;
     }
   write:
     if (sg)
-        filesystem_storage_op(fs, sg, m, r, fs->w);
+        filesystem_storage_op(fs, sg, r, true, apply_merge(m));
     else
         zero_blocks(fs, r, m);
     return i.end;
@@ -1030,10 +1048,16 @@ closure_function(3, 1, void, log_flush_completed,
         bound(sync_complete) = true;
         pagecache_sync_volume(bound(fs)->pv, (status_handler)closure_self());
     } else {
-        if (bound(fs)->flush)
-            apply(bound(fs)->flush, bound(completion));
-        else
+        if (is_ok(s)) {
+            struct storage_req req = {
+                .op = STORAGE_OP_FLUSH,
+                .blocks = irange(0, 0),
+                .completion = bound(completion),
+            };
+            apply(bound(fs)->req_handler, &req);
+        } else {
             apply(bound(completion), s);
+        }
         closure_finish();
     }
 }
@@ -1872,9 +1896,8 @@ boolean filesystem_reserve_log_space(filesystem fs, u64 *next_offset, u64 *offse
 void create_filesystem(heap h,
                        u64 blocksize,
                        u64 size,
-                       block_io read,
-                       block_io write,
-                       block_flush flush,
+                       storage_req_handler req_handler,
+                       boolean ro,
                        const char *label,
                        filesystem_complete complete)
 {
@@ -1887,7 +1910,7 @@ void create_filesystem(heap h,
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->zero_page = pagecache_get_zero_page();
     assert(fs->zero_page);
-    fs->r = read;
+    fs->req_handler = req_handler;
     fs->root = 0;
     fs->page_order = pagecache_get_page_order();
     fs->size = size;
@@ -1896,8 +1919,6 @@ void create_filesystem(heap h,
     fs->pv = pagecache_allocate_volume(size, fs->blocksize_order);
     assert(fs->pv != INVALID_ADDRESS);
 #ifndef TFS_READ_ONLY
-    fs->w = write;
-    fs->flush = flush;
     fs->storage = create_id_heap(h, h, 0, size >> fs->blocksize_order, 1, false);
     assert(fs->storage != INVALID_ADDRESS);
     fs->temp_log = 0;
@@ -1905,9 +1926,9 @@ void create_filesystem(heap h,
     fs->sync_complete = 0;
     filesystem_lock_init(fs);
 #else
-    fs->w = 0;
     fs->storage = 0;
 #endif
+    fs->ro = ro;
     if (label) {
         int label_len = runtime_strlen(label);
         if (label_len >= sizeof(fs->label))

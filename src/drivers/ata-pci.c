@@ -88,6 +88,7 @@ typedef struct ata_pci {
     closure_struct(ata_pci_io, read);
     closure_struct(ata_pci_io, write);
     block_io pio_read, pio_write;
+    closure_struct(storage_simple_req_handler, req_handler);
     closure_struct(ata_pci_irq, irq_handler);
     closure_struct(ata_pci_service, service);
     struct list reqs;
@@ -328,7 +329,8 @@ closure_function(3, 1, boolean, ata_pci_probe,
     assert(irq != INVALID_PHYSICAL);
     ioapic_set_int(ATA_IRQ(ATA_PRIMARY), irq);
     register_interrupt(irq, (thunk)&dev->irq_handler, "ata pci");
-    apply(bound(a), (block_io)&dev->read, (block_io)&dev->write, 0 /* TODO: flush */,
+    apply(bound(a),
+          storage_init_req_handler(&dev->req_handler, (block_io)&dev->read, (block_io)&dev->write),
           ata_get_capacity(dev->ata));
     return true;
 }
