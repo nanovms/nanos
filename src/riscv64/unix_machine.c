@@ -24,7 +24,7 @@ static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
     runtime_memcpy(fpctx->f, &f[FRAME_F0], sizeof(u64) * 32);
 }
 
-void setup_sigframe(thread t, int signum, struct siginfo *si)
+boolean setup_sigframe(thread t, int signum, struct siginfo *si)
 {
     sigaction sa = sigaction_from_sig(t, signum);
 
@@ -42,7 +42,8 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     sp = sp & ~15;
 
     /* create space for rt_sigframe */
-    sp -= pad(sizeof(struct rt_sigframe), 16);
+    if ((sp = grow_and_validate_stack(t, sp, pad(sizeof(struct rt_sigframe), 16))) == INVALID_PHYSICAL)
+        return false;
 
     /* setup sigframe for user sig trampoline */
     struct rt_sigframe *frame = (struct rt_sigframe *)sp;
@@ -65,6 +66,7 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     f[FRAME_A0] = signum;
     f[FRAME_RA] = (sa->sa_flags & SA_RESTORER) ?
         u64_from_pointer(sa->sa_restorer) : t->p->vdso_base + VDSO_OFFSET_RT_SIGRETURN;
+    return true;
 }
 
 void restore_ucontext_fpsimd(struct __riscv_d_ext_state *d, thread t)

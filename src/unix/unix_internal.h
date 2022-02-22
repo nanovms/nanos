@@ -685,6 +685,13 @@ static inline boolean validate_user_memory(const void *p, bytes length, boolean 
     return v < USER_LIMIT - length;
 }
 
+static inline u64 grow_and_validate_stack(thread t, u64 sp, u64 size)
+{
+    if (!validate_user_memory_permissions(t->p, pointer_from_u64(sp - size), size, VMAP_FLAG_WRITABLE, 0))
+        return INVALID_PHYSICAL;
+    return sp - size;
+}
+
 static inline u64 get_aslr_offset(u64 range)
 {
     assert((range & (range - 1)) == 0);
@@ -758,7 +765,7 @@ void threads_to_vector(process p, vector v);
 
 /* machine-specific signal dispatch */
 struct rt_sigframe *get_rt_sigframe(thread t);
-void setup_sigframe(thread t, int signum, struct siginfo *si);
+boolean setup_sigframe(thread t, int signum, struct siginfo *si);
 void restore_ucontext(struct ucontext * uctx, thread t);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name);

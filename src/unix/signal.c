@@ -1117,7 +1117,14 @@ boolean dispatch_signals(thread t)
         t->interrupting_syscall = false;
         check_syscall_restart(t, sa);
     }
-    setup_sigframe(t, signum, si);
+    if (!setup_sigframe(t, signum, si)) {
+        /* force an uncatchable SIGSEGV */
+        sig_debug("failed to setup sigframe for tid %d\n", t->tid);
+        struct queued_signal qs = {};
+        qs.si.si_signo = SIGSEGV;
+        default_signal_action(t, &qs);
+        assert(0); // should not get here
+    }
 
     /* apply signal mask for handler */
     t->signal_mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];

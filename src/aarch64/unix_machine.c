@@ -42,7 +42,7 @@ static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
     runtime_memcpy(fpctx->vregs, &fp[FRAME_Q0], sizeof(fpctx->vregs));
 }
 
-void setup_sigframe(thread t, int signum, struct siginfo *si)
+boolean setup_sigframe(thread t, int signum, struct siginfo *si)
 {
     sigaction sa = sigaction_from_sig(t, signum);
 
@@ -61,7 +61,8 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
     struct frame_record *rec = pointer_from_u64(sp);
 
     /* create space for rt_sigframe */
-    sp -= pad(sizeof(struct rt_sigframe), 16);
+    if ((sp = grow_and_validate_stack(t, sp, pad(sizeof(struct rt_sigframe), 16))) == INVALID_PHYSICAL)
+        return false;
 
     /* setup sigframe for user sig trampoline */
     struct rt_sigframe *frame = (struct rt_sigframe *)sp;
@@ -92,6 +93,7 @@ void setup_sigframe(thread t, int signum, struct siginfo *si)
         u64_from_pointer(sa->sa_restorer) : t->p->vdso_base + VDSO_OFFSET_RT_SIGRETURN;
 
     /* TODO address BTI if supported */
+    return true;
 }
 
 static void restore_ucontext_fpsimd(struct fpsimd_context *fpctx, thread t)
