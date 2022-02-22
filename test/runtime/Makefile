@@ -31,6 +31,7 @@ PROGRAMS= \
 	readv \
 	rename \
 	sendfile \
+	sigoverflow \
 	signal \
 	socketpair \
 	symlink \
@@ -188,6 +189,13 @@ LDFLAGS-rename=		-static
 
 SRCS-sendfile=		$(CURDIR)/sendfile.c
 LDFLAGS-sendfile=	-static
+
+SRCS-sigoverflow= \
+	$(CURDIR)/sigoverflow.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(RUNTIME)
+LDFLAGS-sigoverflow=	-static
+LIBS-sigoverflow=	-lpthread
 
 SRCS-signal= \
 	$(CURDIR)/signal.c \
