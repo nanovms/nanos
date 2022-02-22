@@ -1069,7 +1069,7 @@ static void default_signal_action(thread t, queued_signal qs)
     }
     dump_sig_info(t, qs);
     thread_log(t, fate);
-    halt(fate);
+    halt_with_code(VM_EXIT_SIGNAL(signum), fate);
 }
 
 boolean dispatch_signals(thread t)

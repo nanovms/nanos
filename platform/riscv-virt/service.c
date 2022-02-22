@@ -99,12 +99,19 @@ void vm_exit(u8 code)
         QEMU_HALT(code);
     }
 #endif
+    tuple root = get_root_tuple();
+    if (root) {
+       u64 expected_code;
+       if (get_u64(root, sym(expected_exit_code), &expected_code) &&
+                expected_code == code)
+            code = 0;
+    }
     virt_shutdown(code);
 
     while (1) asm("wfi");
 }
 
-void halt(char *format, ...)
+void halt_with_code(u8 code, char *format, ...)
 {
     vlist a;
     buffer b = little_stack_buffer(512);
@@ -112,7 +119,7 @@ void halt(char *format, ...)
     vstart(a, format);
     vbprintf(b, alloca_wrap_cstring(format), &a);
     buffer_print(b);
-    kernel_shutdown(VM_EXIT_HALT);
+    kernel_shutdown(code);
 }
 
 u64 total_processors = 1;

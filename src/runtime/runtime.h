@@ -33,11 +33,13 @@ void console_write(const char *s, bytes count);
 
 void print_u64(u64 s);
 
+#define VM_EXIT_SIGNAL(x) (x)
 #define VM_EXIT_GDB 0x7d
 #define VM_EXIT_FAULT 0x7e
 #define VM_EXIT_HALT 0x7f
 
-void halt(char *format, ...) __attribute__((noreturn));
+#define halt(fmt, ...) halt_with_code(VM_EXIT_HALT, fmt, ##__VA_ARGS__)
+void halt_with_code(u8 code, char *format, ...) __attribute__((noreturn));
 void kernel_shutdown(int status) __attribute__((noreturn));
 void vm_exit(u8 code) __attribute__((noreturn));
 void print_frame_trace_from_here();

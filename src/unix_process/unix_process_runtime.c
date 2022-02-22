@@ -100,7 +100,7 @@ heap malloc_allocator()
     return h;
 }
 
-void halt(char *format, ...)
+void halt_with_code(u8 code, char *format, ...)
 {
     buffer z = little_stack_buffer(500);
     vlist a;
