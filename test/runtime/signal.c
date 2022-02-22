@@ -661,6 +661,112 @@ test_sigsegv(void)
         fail_perror("siggaction for SIGSEGV failed");
 }
 
+static void sigill_handler(int signo)
+{
+    if (signo != SIGILL)
+        fail_perror("  childtid: caught non SIGILL signal %d\n", signo);
+
+    syscall(SYS_exit, 0);
+}
+
+static void *sigill_thread(void *arg)
+{
+
+    child_tid = syscall(SYS_gettid);
+
+    /* generate sigill */
+#if defined(__x86_64__)
+    asm volatile ("ud2");
+#elif defined(__aarch64__) || defined(__riscv)
+    asm volatile (".word 0");
+#endif
+    return NULL;
+}
+
+static void test_sigill(void)
+{
+    struct sigaction sa;
+    pthread_t pt;
+    void *retval;
+
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = sigill_handler;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGILL, &sa, NULL))
+        fail_perror("sigaction for SIGILL failed");
+
+    if (pthread_create(&pt, NULL, sigill_thread, (void *)0))
+        fail_perror("sigill_thread pthread_create");
+
+    sigtest_debug("yielding until child tid reported...\n");
+    yield_for(&child_tid);
+
+    if (pthread_join(pt, &retval))
+        fail_perror("blocking test pthread_join");
+
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGILL, &sa, NULL))
+        fail_perror("sigaction for SIGILL failed");
+}
+
+static void sigtrap_handler(int signo)
+{
+    if (signo != SIGTRAP)
+        fail_perror("  childtid: caught non SIGTRAP signal %d\n", signo);
+
+    syscall(SYS_exit, 0);
+}
+
+static void *sigtrap_thread(void *arg)
+{
+
+    child_tid = syscall(SYS_gettid);
+
+    /* generate sigtrap */
+#if defined(__x86_64__)
+    asm volatile ("int3");
+#elif defined(__aarch64__)
+    asm volatile ("brk #1000");
+#elif defined(__riscv)
+    asm volatile ("ebreak");
+#endif
+    return NULL;
+}
+
+static void test_sigtrap(void)
+{
+    struct sigaction sa;
+    pthread_t pt;
+    void *retval;
+
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = sigtrap_handler;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGTRAP, &sa, NULL))
+        fail_perror("sigaction for SIGTRAP failed");
+
+    if (pthread_create(&pt, NULL, sigtrap_thread, (void *)0))
+        fail_perror("sigtrap_thread pthread_create");
+
+    sigtest_debug("yielding until child tid reported...\n");
+    yield_for(&child_tid);
+
+    if (pthread_join(pt, &retval))
+        fail_perror("blocking test pthread_join");
+
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGTRAP, &sa, NULL))
+        fail_perror("sigaction for SIGTRAP failed");
+}
+
 /* XXX sort out arm counterpart - possibly don't even have integer div by zero exception - but have fp? */
 #ifdef __x86_64__
 static void sigfpe_handler(int signo)
@@ -1333,6 +1439,10 @@ int main(int argc, char * argv[])
 #endif
 
     test_sigsegv();
+
+    test_sigill();
+
+    test_sigtrap();
 
     test_signal_catch();
 
