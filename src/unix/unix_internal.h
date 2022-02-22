@@ -60,7 +60,7 @@ boolean netsyscall_init(unix_heaps uh, tuple cfg);
 typedef struct process *process;
 typedef struct thread *thread;
 
-thread create_thread(process);
+thread create_thread(process, u64 tid);
 void exit_thread(thread);
 
 declare_closure_struct(3, 0, void, free_syscall_context,
@@ -145,7 +145,7 @@ typedef struct unix_heaps {
 #endif
 
     /* id heaps */
-    id_heap processes;
+    heap processes;
 } *unix_heaps;
 
 #define BLOCKQ_ACTION_BLOCKED  1

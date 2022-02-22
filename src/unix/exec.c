@@ -224,7 +224,7 @@ process exec_elf(buffer ex, process kp)
     tuple root = kp->process_root;
     filesystem fs = kp->root_fs;
     process proc = create_process(uh, root, fs);
-    thread t = create_thread(proc);
+    thread t = create_thread(proc, proc->pid);
     tuple interp = 0;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
     boolean aslr = get(root, sym(noaslr)) == 0;

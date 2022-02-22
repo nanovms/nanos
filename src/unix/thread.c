@@ -75,7 +75,7 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
          !validate_user_memory(ctid, sizeof(int), true)))
         return set_syscall_error(current, EFAULT);
 
-    thread t = create_thread(current->p);
+    thread t = create_thread(current->p, INVALID_PHYSICAL);
     context_frame f = thread_frame(t);
     /* clone frame processor state */
     clone_frame_pstate(f, thread_frame(current));
@@ -307,14 +307,18 @@ boolean thread_attempt_interrupt(thread t)
 define_closure_function(1, 0, void, free_thread,
                         thread, t)
 {
-    deallocate_bitmap(bound(t)->affinity);
-    deallocate_notify_set(bound(t)->signalfds);
-    deallocate(heap_locked(get_kernel_heaps()), bound(t), sizeof(struct thread));
+    thread t = bound(t);
+    deallocate_bitmap(t->affinity);
+    deallocate_notify_set(t->signalfds);
+    /* XXX only free tids from non-leader threads. Leader threads will
+     * need different handling */
+    if (t->p->pid != t->tid)
+        deallocate_u64((heap)get_unix_heaps()->processes, t->tid, 1);
+    deallocate(heap_locked(get_kernel_heaps()), t, sizeof(struct thread));
 }
 
-thread create_thread(process p)
+thread create_thread(process p, u64 tid)
 {
-    static int tidcount = 0;
     heap h = heap_locked((kernel_heaps)p->uh);
 
     thread t = allocate(h, sizeof(struct thread));
@@ -379,12 +383,12 @@ thread create_thread(process p)
 
     /* install gdb fault handler if gdb is inited */
     gdb_check_fault_handler(t);
+    if (tid != INVALID_PHYSICAL)
+        t->tid = tid;
+    else
+        t->tid = allocate_u64(p->uh->processes, 1);
+    assert(t->tid != INVALID_PHYSICAL);
     spin_lock(&p->threads_lock);
-    do {
-        if (tidcount < 0)
-            tidcount = 1;
-        t->tid = tidcount++;
-    } while (rbtree_lookup(p->threads, &t->n) != INVALID_ADDRESS);
     rbtree_insert_node(p->threads, &t->n);
     spin_unlock(&p->threads_lock);
     return t;

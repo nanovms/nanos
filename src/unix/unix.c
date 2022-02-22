@@ -472,7 +472,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     u_heap = uh;
     uh->kh = *kh;
-    uh->processes = create_id_heap(h, h, 1, 65535, 1, false);
+    uh->processes = locking_heap_wrapper(h, (heap)create_id_heap(h, h, 1, 65535, 1, false));
     uh->file_cache = locking_heap_wrapper(h,
         allocate_objcache(h, (heap)heap_linear_backed(kh), sizeof(struct file), PAGESIZE));
     if (uh->file_cache == INVALID_ADDRESS)
@@ -490,7 +490,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
 #endif
     process kernel_process = create_process(uh, root, fs);
-    dummy_thread = create_thread(kernel_process);
+    dummy_thread = create_thread(kernel_process, kernel_process->pid);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
 
