@@ -166,6 +166,9 @@ void dump_context(context ctx)
             rputs(str);
         }
         break;
+    case ESR_EC_BRK:
+        rputs(" brk");
+        break;
     default:
         rputs(" illegal ec: ");
         print_u64(esr_ec);

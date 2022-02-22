@@ -377,6 +377,24 @@ struct rusage {
 #define FPE_FLTSUB 8 /* Subscript out of range */
 #define NSIGFPE 8
 
+/*
+ * SIGILL si_codes
+ */
+#define ILL_ILLOPC 1 /* Illegal opcode */
+#define ILL_ILLOPN 2 /* Illegal operand */
+#define ILL_ILLADR 3 /* Illegal addressing mode */
+#define ILL_ILLTRP 4 /* Illegal trap */
+#define ILL_PRVOPC 5 /* Privileged opcode */
+#define ILL_PRVREG 6 /* Privileged register */
+#define ILL_COPROC 7 /* Coprocessor error */
+#define ILL_BADSTK 8 /* Internal stack error */
+
+/*
+ * SIGTRAP si_codes
+ */
+#define TRAP_BRKPT 1 /* Process breakpoint */
+#define TRAP_TRACE 2 /* Process trace trap */
+
 typedef union sigval {
     s32 sival_int;
     void * sival_ptr;

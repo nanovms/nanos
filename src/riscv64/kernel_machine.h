@@ -237,6 +237,16 @@ static inline boolean is_div_by_zero(context_frame f)
     return false; // riscv has no div by zero exception, software must check
 }
 
+static inline boolean is_breakpoint(context_frame f)
+{
+    return SCAUSE_CODE(f[FRAME_CAUSE]) == TRAP_E_BREAKPOINT;
+}
+
+static inline boolean is_illegal_instruction(context_frame f)
+{
+    return SCAUSE_CODE(f[FRAME_CAUSE]) == TRAP_E_ILLEGAL_INST;
+}
+
 static inline boolean frame_is_full(context_frame f)
 {
     return f[FRAME_FULL];

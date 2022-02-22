@@ -107,6 +107,8 @@ static void __attribute__((noinline)) write_idt(int interrupt, u64 offset, u64 i
     u64 type_attr = 0x8e;
     u64 *target = idt_from_interrupt(interrupt);
 
+    if (interrupt == 3)
+        type_attr = 0xee; /* allow int3 from cpl 3 */
     target[0] = ((selector << 16) | (offset & MASK(16)) | /* 31 - 0 */
                  (((offset >> 16) & MASK(16)) << 48) | (type_attr << 40) | (ist << 32)); /* 63 - 32 */
     target[1] = offset >> 32;   /*  95 - 64 */
