@@ -159,7 +159,7 @@ int main(int argc, char **argv)
         locks[i] = create_pipelock(1);
     pthread_create(&term , 0, terminus, locks[npipes-1]);
     for (int i = 0; i < nthreads; i ++)  {
-        loopy_activation_record a = malloc(sizeof (loopy_activation_record));
+        loopy_activation_record a = malloc(sizeof (struct loopy_activation_record));
         a->p = locks+i;
         a->id = i;
         int r = pthread_create(threads + i , 0, loopy, a);
