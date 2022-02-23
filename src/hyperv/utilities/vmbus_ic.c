@@ -99,6 +99,7 @@ vmbus_ic_negomsg(struct vmbus_ic_softc *sc, void *data, int *dlen0,
 	 * Fine the best match message version.
 	 */
 	has_msg_ver = false;
+	sel_msg_ver = 0;
 	for (i = nego->ic_fwver_cnt;
 	    i < nego->ic_fwver_cnt + nego->ic_msgver_cnt; ++i) {
 		if (VMBUS_ICVER_LE(nego->ic_ver[i], msg_ver)) {
