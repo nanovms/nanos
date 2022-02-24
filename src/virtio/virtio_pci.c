@@ -34,7 +34,7 @@
 
 //#define VIRTIO_PCI_DEBUG
 #ifdef VIRTIO_PCI_DEBUG
-# define virtio_pci_debug rprintf
+# define virtio_pci_debug(x, ...) do {tprintf(sym(virtio_pci), 0, x, ##__VA_ARGS__);} while(0)
 #else
 # define virtio_pci_debug(...) do { } while(0)
 #endif // defined(VIRTIO_PCI_DEBUG)

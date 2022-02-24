@@ -7,7 +7,7 @@
 
 //#define VIRTIO_BLK_DEBUG
 #ifdef VIRTIO_BLK_DEBUG
-#define virtio_blk_debug(x, ...) do {rprintf("VTBLK: " x, ##__VA_ARGS__);} while(0)
+#define virtio_blk_debug(x, ...) do {tprintf(sym(vtblk), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define virtio_blk_debug(x, ...)
 #endif

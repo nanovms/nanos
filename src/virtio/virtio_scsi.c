@@ -6,7 +6,7 @@
 #include "virtio_pci.h"
 
 #ifdef VIRTIO_SCSI_DEBUG
-# define virtio_scsi_debug rprintf
+# define virtio_scsi_debug(x, ...) do {tprintf(sym(virtio_scsi), 0, x, ##__VA_ARGS__);} while(0)
 #else
 # define virtio_scsi_debug(...) do { } while(0)
 #endif // defined(VIRTIO_SCSI_DEBUG)
@@ -403,7 +403,7 @@ static void virtio_scsi_flush(virtio_scsi_disk d, status_handler sh)
     cdb->group = 0;             /* no group */
     cdb->length = 0;            /* all logical blocks */
     cdb->control = 0;           /* no ACA */
-    virtio_scsi_debug("%s: cmd %d\n", __func__, cmd);
+    virtio_scsi_debug("%s: enqueue request %p\n", __func__, r);
     virtio_scsi_enqueue_request(s, r, r_phys, 0, 0,
                                 closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh));
 }
@@ -618,8 +618,6 @@ static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_
     virtio_scsi s = allocate(general, sizeof(struct virtio_scsi));
     assert(s != INVALID_ADDRESS);
     s->v = attach_vtpci(general, page_allocator, _dev, VIRTIO_SCSI_F_HOTPLUG);
-
-    virtio_scsi_debug("features 0x%lx\n", s->v->features);
 
 #ifdef VIRTIO_SCSI_DEBUG
     u32 num_queues = pci_bar_read_4(&s->v->device_config, VIRTIO_SCSI_R_NUM_QUEUES);

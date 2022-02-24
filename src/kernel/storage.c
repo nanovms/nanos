@@ -4,6 +4,13 @@
 #include <tfs.h>
 #include <unix.h>
 
+//#define STORAGE_DEBUG
+#ifdef STORAGE_DEBUG
+#define storage_debug(x, ...) do {tprintf(sym(storage), 0, x "\n", ##__VA_ARGS__);} while(0)
+#else
+#define storage_debug(x, ...)
+#endif
+
 typedef struct volume {
     struct list l;
     u8 uuid[UUID_LEN];
@@ -27,15 +34,6 @@ static struct {
     u64 mount_generation;
     vector mounts_watchers;
 } storage;
-
-//#define STORAGE_DEBUG
-#ifdef STORAGE_DEBUG
-#define storage_debug(x, ...) do {  \
-    rprintf("STORAGE: " x "\n", ##__VA_ARGS__); \
-} while(0)
-#else
-#define storage_debug(x, ...)
-#endif
 
 #define storage_lock()      u64 _irqflags = spin_lock_irq(&storage.lock)
 #define storage_unlock()    spin_unlock_irq(&storage.lock, _irqflags)

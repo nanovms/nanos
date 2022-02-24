@@ -8,7 +8,7 @@
 
 //#define UNIX_TIMER_DEBUG
 #ifdef UNIX_TIMER_DEBUG
-#define timer_debug(x, ...) do {log_printf("UTMR", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define timer_debug(x, ...) do {tprintf(sym(unix_timer), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
 #define timer_debug(x, ...)
 #endif

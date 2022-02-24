@@ -1,9 +1,9 @@
 #include <gdb_internal.h>
 #include <gdb_machine.h>
 
-// #define GDB_DEBUG
+//#define GDB_DEBUG
 #ifdef GDB_DEBUG
-#define gdb_debug(...) rprintf(__VA_ARGS__)
+#define gdb_debug(x, ...) do {tprintf(sym(gdb), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define gdb_debug(...)
 #endif

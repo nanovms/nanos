@@ -2,7 +2,7 @@
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
-#define pf_debug(x, ...) do {log_printf("FAULT", "[%02d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
+#define pf_debug(x, ...) do {tprintf(sym(fault), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define pf_debug(x, ...)
 #endif

@@ -2,7 +2,7 @@
 
 //#define MUTEX_DEBUG
 #ifdef MUTEX_DEBUG
-#define mutex_debug(x, ...) do {log_printf(" MTX", "cpu %.2d %s: " x, ci->id, __func__, ##__VA_ARGS__);} while(0)
+#define mutex_debug(x, ...) do {tprintf(sym(mutex), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define mutex_debug(x, ...)
 #endif

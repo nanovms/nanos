@@ -16,7 +16,7 @@
 
 //#define VIRTIO_MMIO_DEBUG
 #ifdef VIRTIO_MMIO_DEBUG
-#define virtio_mmio_debug(x, ...) rprintf("VTMMIO: " x "\n", ##__VA_ARGS__)
+#define virtio_mmio_debug(x, ...) tprintf(sym(vtmmio), 0, x "\n", ##__VA_ARGS__)
 #else
 #define virtio_mmio_debug(x, ...)
 #endif

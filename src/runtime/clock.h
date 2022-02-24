@@ -69,6 +69,8 @@ static inline s64 clock_update_drift(timestamp raw)
 
 static inline timestamp now(clock_id id)
 {
+    if (!platform_monotonic_now)
+        return -1ull;
     timestamp t = apply(platform_monotonic_now);
 
 #if defined(KERNEL) || defined(BUILD_VDSO)

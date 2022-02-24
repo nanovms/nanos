@@ -9,7 +9,7 @@
 //#define VIRTIO_BALLOON_DEBUG
 //#define VIRTIO_BALLOON_VERBOSE
 #ifdef VIRTIO_BALLOON_DEBUG
-#define virtio_balloon_debug(x, ...) do {rprintf("VTBLN: " x, ##__VA_ARGS__);} while(0)
+#define virtio_balloon_debug(x, ...) do {tprintf(sym(vtbln), 0, x, ##__VA_ARGS__);} while(0)
 #ifdef VIRTIO_BALLOON_VERBOSE
 #define virtio_balloon_verbose virtio_balloon_debug
 #else

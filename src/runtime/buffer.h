@@ -17,6 +17,16 @@ struct buffer {
 #define buffer_assert(x) assert(x)
 #endif
 
+static inline void init_buffer(buffer b, bytes s, boolean wrapped, heap h, void *contents)
+{
+    b->start = 0;
+    b->end = 0;
+    b->length = s;
+    b->wrapped = wrapped;
+    b->h = h;
+    b->contents = contents;
+}
+
 static inline void *buffer_ref(buffer b, bytes offset)
 {
     buffer_assert(b->start + offset <= b->length);

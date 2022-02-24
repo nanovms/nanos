@@ -1,6 +1,9 @@
 /* main header for kernel objects */
 #include <runtime.h>
 #include <kernel_heaps.h>
+#ifdef KERNEL
+#include <debug.h>
+#endif
 
 #ifdef KERNEL
 void runloop_target(void) __attribute__((noreturn));
@@ -8,9 +11,15 @@ void runloop_target(void) __attribute__((noreturn));
 
 #include <kernel_machine.h>
 
+#ifdef CONFIG_TRACELOG
+#include <tracelog.h>
+#else
+void tprintf(symbol tag, tuple attrs, const char *format, ...);
+#endif
+
 //#define CONTEXT_DEBUG
 #ifdef CONTEXT_DEBUG
-#define context_debug rprintf
+#define context_debug(x, ...) do {tprintf(sym(context), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define context_debug(x, ...)
 #endif
@@ -63,6 +72,9 @@ struct cpuinfo {
 #ifdef CONFIG_FTRACE
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
+#endif
+#ifdef CONFIG_TRACELOG
+    void *tracelog_buffer;
 #endif
 };
 

@@ -49,7 +49,7 @@
 #include "virtio_pci.h"
 
 #ifdef VIRTIO_NET_DEBUG
-# define virtio_net_debug rprintf
+# define virtio_net_debug(x, ...) do {tprintf(sym(virtio_net), 0, x, __VA_ARGS__);} while (0)
 #else
 # define virtio_net_debug(...) do { } while(0)
 #endif // defined(VIRTIO_NET_DEBUG)

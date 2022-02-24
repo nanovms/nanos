@@ -220,10 +220,14 @@ static inline __attribute__((always_inline)) word fetch_and_add_32(u32 *target, 
     return __sync_fetch_and_add(target, num);
 }
 
-static inline __attribute__((always_inline)) u64 atomic_swap_64(u64 *variable, u64 value)
-{
-    return __atomic_exchange_n(variable, value, __ATOMIC_SEQ_CST);
-}
+#define mk_atomic_swap(bits) \
+    static inline __attribute__((always_inline)) u ## bits atomic_swap_ ## bits(u ## bits *variable, u ## bits value) \
+    { return __atomic_exchange_n(variable, value, __ATOMIC_SEQ_CST); }
+
+mk_atomic_swap(8)
+mk_atomic_swap(16)
+mk_atomic_swap(32)
+mk_atomic_swap(64)
 
 static inline __attribute__((always_inline)) u8 compare_and_swap_64(u64 *p, u64 old, u64 new)
 {

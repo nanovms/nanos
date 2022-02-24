@@ -7,8 +7,8 @@
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
-#define pf_debug(x, ...) do {log_printf("FAULT", "[%02d] tid %02d " x "\n", current_cpu()->id, \
-                                        current->tid, ##__VA_ARGS__);} while(0)
+#define pf_debug(x, ...) do {tprintf(sym(fault), 0, "tid %02d " x "\n", \
+                                     current ? current->tid : -1, ##__VA_ARGS__);} while(0)
 #else
 #define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
 #endif

@@ -25,7 +25,7 @@
 //#define IOUR_DEBUG
 #ifdef IOUR_DEBUG
 #define iour_debug(x, ...) do { \
-    rprintf("%s: " x "\n", __func__, ##__VA_ARGS__); \
+        tprintf(sym(iour), 0, "%s: " x "\n", __func__, ##__VA_ARGS__);   \
 } while(0)
 #else
 #define iour_debug(x, ...)

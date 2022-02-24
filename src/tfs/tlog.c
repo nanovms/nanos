@@ -7,7 +7,11 @@
 //#define TLOG_DEBUG
 //#define TLOG_DEBUG_DUMP
 #ifdef TLOG_DEBUG
-#define tlog_debug(x, ...) do {rprintf("TLOG: " x, ##__VA_ARGS__);} while(0)
+#ifdef KERNEL
+#define tlog_debug(x, ...) do {tprintf(sym(tlog), 0, x, ##__VA_ARGS__);} while(0)
+#else
+#define tlog_debug(x, ...) do {rprintf(" TLOG: " x, ##__VA_ARGS__);} while(0)
+#endif
 #else
 #define tlog_debug(x, ...)
 #endif
@@ -665,7 +669,6 @@ static boolean log_parse_tuple(log tl, buffer b)
 {
     tuple dv = decode_value(tl->h, tl->dictionary, b, &tl->total_entries,
         &tl->obsolete_entries);
-    tlog_debug("   decoded %v\n", dv);
     if (!is_tuple(dv))
         return false;
     return true;

@@ -6,7 +6,7 @@
 
 //#define KLIB_DEBUG
 #ifdef KLIB_DEBUG
-#define klib_debug(x, ...) do {log_printf("KLIB", x, ##__VA_ARGS__);} while(0)
+#define klib_debug(x, ...) do {tprintf(sym(klib), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define klib_debug(x, ...)
 #endif

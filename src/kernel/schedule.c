@@ -2,7 +2,7 @@
 
 //#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
-#define sched_debug(x, ...) do {log_printf("SCHED", "[%02d] " x, current_cpu()->id, ##__VA_ARGS__);} while(0)
+#define sched_debug(x, ...) do {tprintf(sym(sched), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define sched_debug(x, ...)
 #endif
@@ -156,11 +156,10 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     cpuinfo ci = current_cpu();
 
     disable_interrupts();
-    sched_debug("runloop from %s c: %d  a1: %d\n"
-                "    b:%d  r:%d  t:%d\n", state_strings[ci->state],
-                queue_length(ci->cpu_queue), queue_length(async_queue_1),
-                queue_length(bhqueue), queue_length(runqueue),
-                queue_length(ci->thread_queue));
+    sched_debug("runloop from %s c: %d  a1: %d b:%d  r:%d  t:%d\n",
+                state_strings[ci->state], queue_length(ci->cpu_queue),
+                queue_length(async_queue_1), queue_length(bhqueue),
+                queue_length(runqueue), queue_length(ci->thread_queue));
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();

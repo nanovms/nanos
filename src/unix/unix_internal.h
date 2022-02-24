@@ -333,6 +333,10 @@ typedef struct thread {
     bitmap affinity;
     struct list l_faultwait;
     struct spinlock lock;   /* generic lock for struct members without a specific lock */
+
+#ifdef CONFIG_TRACELOG
+    tuple tracelog_attrs;
+#endif
 } *thread;
 
 #define thread_lock(t)      spin_lock(&(t)->lock)

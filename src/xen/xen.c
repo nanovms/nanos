@@ -3,7 +3,7 @@
 
 //#define XEN_DEBUG
 #ifdef XEN_DEBUG
-#define xen_debug(x, ...) do {rprintf(" XEN: " x "\n", ##__VA_ARGS__);} while(0)
+#define xen_debug(x, ...) do {tprintf(sym(xen), 0, x "\n", ##__VA_ARGS__);} while(0)
 #else
 #define xen_debug(x, ...)
 #endif

@@ -22,6 +22,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \
+	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/clock.c \
 	$(SRCDIR)/kernel/init.c \
@@ -130,7 +131,8 @@ INCLUDES=\
 	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/xen/public \
 	-I$(LWIPDIR)/src/include \
-	-I$(VDSO_OBJDIR)
+	-I$(VDSO_OBJDIR) \
+	-I$(OUTDIR)
 
 AFLAGS+=-I$(ARCHDIR) -march=rv64gc -mabi=lp64d
 
@@ -144,6 +146,12 @@ CFLAGS+= -DCONFIG_FTRACE -pg
 SRCS-kernel.elf+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
+endif
+
+ifeq ($(TRACE),tracelog)
+CFLAGS+= -DCONFIG_TRACELOG
+SRCS-kernel.elf+= \
+	$(SRCDIR)/kernel/tracelog.c
 endif
 
 ifeq ($(MANAGEMENT),telnet)

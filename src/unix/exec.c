@@ -6,7 +6,7 @@
 
 //#define EXEC_DEBUG
 #ifdef EXEC_DEBUG
-#define exec_debug(x, ...) do {log_printf("EXEC", x, ##__VA_ARGS__);} while(0)
+#define exec_debug(x, ...) do {tprintf(sym(exec), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define exec_debug(x, ...)
 #endif
@@ -252,7 +252,7 @@ process exec_elf(buffer ex, process kp)
     exec_debug("range of loadable segments prior to adjustment: %R\n", load_range);
 
     if (interp)
-        exec_debug("interp: %v\n", interp);
+        exec_debug("interp: %p\n", interp);
 
     u64 load_offset = 0;
     if (e->e_type == ET_DYN && interp) {
