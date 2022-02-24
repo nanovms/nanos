@@ -51,6 +51,7 @@ SRCS-mbedtls-crypto= \
 	$(MBEDTLS_DIR)/library/cipher.c \
 	$(MBEDTLS_DIR)/library/cipher_wrap.c \
 	$(MBEDTLS_DIR)/library/cmac.c \
+	$(MBEDTLS_DIR)/library/constant_time.c \
 	$(MBEDTLS_DIR)/library/ctr_drbg.c \
 	$(MBEDTLS_DIR)/library/des.c \
 	$(MBEDTLS_DIR)/library/dhm.c \
@@ -84,6 +85,14 @@ SRCS-mbedtls-crypto= \
 	$(MBEDTLS_DIR)/library/platform_util.c \
 	$(MBEDTLS_DIR)/library/poly1305.c \
 	$(MBEDTLS_DIR)/library/psa_crypto.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_aead.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_cipher.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_client.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_driver_wrappers.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_ecp.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_hash.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_mac.c \
+	$(MBEDTLS_DIR)/library/psa_crypto_rsa.c \
 	$(MBEDTLS_DIR)/library/psa_crypto_se.c \
 	$(MBEDTLS_DIR)/library/psa_crypto_slot_management.c \
 	$(MBEDTLS_DIR)/library/psa_its_file.c \
@@ -154,6 +163,7 @@ INCLUDES= \
 	-I$(ARCHDIR) \
 	-I$(LWIPDIR)/src/include \
 	-I$(MBEDTLS_DIR)/include \
+	-I$(MBEDTLS_DIR)/library \
 	-I$(SRCDIR) \
 	-I$(SRCDIR)/http \
 	-I$(SRCDIR)/kernel \
