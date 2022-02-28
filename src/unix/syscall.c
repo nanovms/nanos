@@ -2660,36 +2660,75 @@ void init_syscalls(tuple root)
     }
 }
 
-void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name)
+void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name, u64 flags)
 {
     assert(m[n].handler == 0);
     m[n].handler = f;
     m[n].name = name;
+    m[n].flags = flags;
 }
 
-static void notrace_reset(process p)
+static struct trace_set {
+    char *name;
+    u64 flag;
+} trace_sets[] = {
+    { "%file", SYSCALL_F_SET_FILE },
+    { "%desc", SYSCALL_F_SET_DESC },
+    { "%memory", SYSCALL_F_SET_MEM },
+    { "%process", SYSCALL_F_SET_PROC },
+    { "%signal", SYSCALL_F_SET_SIG },
+    { "%net", SYSCALL_F_SET_NET },
+    { "%network", SYSCALL_F_SET_NET },
+};
+
+static void notrace_configure(process p, boolean set)
 {
     for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
         struct syscall *s = p->syscalls + i;
-        s->flags &= ~SYSCALL_F_NOTRACE;
+        if (set)
+            s->flags |= SYSCALL_F_NOTRACE;
+        else
+            s->flags &= ~SYSCALL_F_NOTRACE;
     }
 }
 
-closure_function(1, 2, boolean, notrace_each,
-                 process, p,
+closure_function(2, 2, boolean, notrace_each,
+                 process, p, boolean, set,
                  value, k, value, v)
 {
-    for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
-        struct syscall *s = bound(p)->syscalls + i;
-        if (!s->name)
-            continue;
+    if (peek_char(v) == '%') {
+        for (int j = 0; j < sizeof(trace_sets) / sizeof(trace_sets[0]); j++) {
+            struct trace_set *ts = trace_sets + j;
+            if (!buffer_compare_with_cstring(v, ts->name))
+                continue;
 
-        buffer name = alloca_wrap_buffer(s->name, runtime_strlen(s->name));
-        if (!buffer_compare(name, v))
-            continue;
+            for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
+                struct syscall *s = bound(p)->syscalls + i;
+                if (!s->name || !(s->flags & ts->flag))
+                    continue;
 
-        s->flags |= SYSCALL_F_NOTRACE;
-        break;
+                if (bound(set))
+                    s->flags |= SYSCALL_F_NOTRACE;
+                else
+                    s->flags &= ~SYSCALL_F_NOTRACE;
+            }
+            break;
+        }
+    } else {
+        for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
+            struct syscall *s = bound(p)->syscalls + i;
+            if (!s->name)
+                continue;
+
+            if (!buffer_compare_with_cstring(v, s->name))
+                continue;
+
+            if (bound(set))
+                s->flags |= SYSCALL_F_NOTRACE;
+            else
+                s->flags &= ~SYSCALL_F_NOTRACE;
+            break;
+        }
     }
     return true;
 }
@@ -2712,9 +2751,19 @@ closure_function(1, 1, boolean, notrace_notify,
                  process, p,
                  value, v)
 {
-    notrace_reset(bound(p));
+    notrace_configure(bound(p), false);
     if (is_tuple(v))
-        iterate(v, stack_closure(notrace_each, bound(p)));
+        iterate(v, stack_closure(notrace_each, bound(p), true));
+    return true;
+}
+
+closure_function(1, 1, boolean, tracelist_notify,
+                 process, p,
+                 value, v)
+{
+    notrace_configure(bound(p), true);
+    if (is_tuple(v))
+        iterate(v, stack_closure(notrace_each, bound(p), false));
     return true;
 }
 
@@ -2724,4 +2773,5 @@ void configure_syscalls(process p)
     register_root_notify(sym(debugsyscalls), closure(h, debugsyscalls_notify));
     register_root_notify(sym(syscall_defer), closure(h, syscall_defer_notify));
     register_root_notify(sym(notrace), closure(h, notrace_notify, p));
+    register_root_notify(sym(tracelist), closure(h, tracelist_notify, p));
 }
