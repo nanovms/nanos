@@ -101,15 +101,15 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
 
 void register_thread_syscalls(struct syscall *map)
 {
-    register_syscall(map, futex, futex);
-    register_syscall(map, set_robust_list, set_robust_list);
-    register_syscall(map, get_robust_list, get_robust_list);
-    register_syscall(map, clone, clone);
+    register_syscall(map, futex, futex, 0);
+    register_syscall(map, set_robust_list, set_robust_list, 0);
+    register_syscall(map, get_robust_list, get_robust_list, 0);
+    register_syscall(map, clone, clone, SYSCALL_F_SET_PROC);
 #ifdef __x86_64__
-    register_syscall(map, arch_prctl, arch_prctl);
+    register_syscall(map, arch_prctl, arch_prctl, 0);
 #endif
-    register_syscall(map, set_tid_address, set_tid_address);
-    register_syscall(map, gettid, gettid);
+    register_syscall(map, set_tid_address, set_tid_address, 0);
+    register_syscall(map, gettid, gettid, 0);
 }
 
 void thread_log_internal(thread t, const char *desc, ...)

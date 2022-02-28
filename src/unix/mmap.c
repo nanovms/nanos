@@ -1356,11 +1356,11 @@ void mmap_process_init(process p, boolean aslr)
 
 void register_mmap_syscalls(struct syscall *map)
 {
-    register_syscall(map, mincore, mincore);
-    register_syscall(map, mmap, mmap);
-    register_syscall(map, mremap, mremap);
-    register_syscall(map, msync, msync);
-    register_syscall(map, munmap, munmap);
-    register_syscall(map, mprotect, mprotect);
-    register_syscall(map, madvise, syscall_ignore);
+    register_syscall(map, mincore, mincore, SYSCALL_F_SET_MEM);
+    register_syscall(map, mmap, mmap, SYSCALL_F_SET_DESC|SYSCALL_F_SET_MEM);
+    register_syscall(map, mremap, mremap, SYSCALL_F_SET_MEM);
+    register_syscall(map, msync, msync, SYSCALL_F_SET_MEM);
+    register_syscall(map, munmap, munmap, SYSCALL_F_SET_MEM);
+    register_syscall(map, mprotect, mprotect, SYSCALL_F_SET_MEM);
+    register_syscall(map, madvise, syscall_ignore, SYSCALL_F_SET_MEM);
 }
