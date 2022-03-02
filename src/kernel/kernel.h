@@ -245,10 +245,11 @@ static inline void __attribute__((always_inline)) context_acquire(context ctx, c
     context_debug("%s: ctx %p, cpu %d\n", __func__, ctx, ci->id);
     assert(ctx->active_cpu != ci->id);
     u64 remain = CONTEXT_RESUME_SPIN_LIMIT;
-    while (!compare_and_swap_32(&ctx->active_cpu, -1u, ci->id)) {
+    while (ctx->active_cpu != -1u) {
         kern_pause();
         assert(remain-- > 0);
     }
+    ctx->active_cpu = ci->id;
     context_debug("%s: ctx %p, cpu %d acquired\n", __func__, ctx, ci->id);
 }
 
