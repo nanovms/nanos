@@ -128,8 +128,11 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
     zero(m, length);
     write_barrier();
     u64 p = phys_from_linear_backed_virt(u64_from_pointer(m));
-    map_with_complete(v, p, length, flags, complete);
-    return p;
+    u64 mapped_p = map_with_complete(v, p, length, flags, complete);
+    if (mapped_p != p)
+        /* The mapping must have been done in parallel by another CPU. */
+        deallocate((heap)mmap_info.linear_backed, m, length);
+    return mapped_p;
 }
 
 static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)

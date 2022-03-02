@@ -250,7 +250,7 @@ void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, stat
 #endif
 }
 
-static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe);
+static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags);
 
 /* called with lock held */
 closure_function(3, 3, boolean, remap_entry,
@@ -276,12 +276,12 @@ closure_function(3, 3, boolean, remap_entry,
     /* transpose mapped page */
     assert(map_level(pointer_from_pteaddr(get_pagetable_base(new_curr)), PT_FIRST_LEVEL,
                      irangel(new_curr, U64_FROM_BIT(map_order)),
-                     &phys, flags, bound(fe)));
+                     &phys, flags));
 
     /* reset old entry */
     *entry = 0;
 
-    /* invalidate old mapping (map_page takes care of new)  */
+    /* invalidate old mapping */
     page_invalidate(bound(fe), curr);
 
     return true;
@@ -367,7 +367,7 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 
 #define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
 #define INDEX_MASK (PAGEMASK >> 3)
-static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe)
+static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags)
 {
     int shift = pt_level_shift(level);
     u64 mask = MASK(shift);
@@ -438,7 +438,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
                 page_init_debug(", len ");
                 page_init_debug_u64(len);
                 page_init_debug("\n");
-                if (!map_level(tp, level + 1, irangel(v.start | vmask, len), p, flags, fe))
+                if (!map_level(tp, level + 1, irangel(v.start | vmask, len), p, flags))
                     return false;
             }
             page_init_debug("      pte @ ");
@@ -448,27 +448,29 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
             page_init_debug("\n");
             table_ptr[i] = pte;
             if (invalidate)
-                page_invalidate(fe, v.start | vmask);
+                page_invalidate(0, v.start | vmask);
         } else {
-            /* fail if page or block already installed */
+            /* Check if the page or block is already installed: if it is, assume the entire mapping
+             * has been done and return the mapped physical address. */
             if (pte_is_mapping(level, pte)) {
-                msg_err("would overwrite entry: level %d, v %R, pa 0x%lx, "
-                        "flags 0x%lx, index %d, entry 0x%lx\n", level, v, *p,
-                        flags, i, pte);
-                return false;
+                page_debug("would overwrite entry: level %d, v %R, pa 0x%lx, "
+                           "flags 0x%lx, index %d, entry 0x%lx\n", level, v, *p, flags, i, pte);
+                *p = page_from_pte(pte);
+                next_addr(*p, mask);
+                return true;
             }
             u64 nexttable = page_from_pte(pte);
             u64 *nexttable_ptr = pointer_from_pteaddr(nexttable);
             u64 end = vlbase | (((u64)(i + 1)) << shift);
             u64 len = MIN(range_span(v), end - v.start);
-            if (!map_level(nexttable_ptr, level + 1, irangel(v.start | vmask, len), p, flags, fe))
+            if (!map_level(nexttable_ptr, level + 1, irangel(v.start | vmask, len), p, flags))
                 return false;
         }
     }
     return true;
 }
 
-void map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
+physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     page_init_debug("map: v ");
     page_init_debug_u64(v);
@@ -485,10 +487,9 @@ void map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_ha
     assert((v & PAGEMASK) == 0);
     assert((p & PAGEMASK) == 0);
     range r = irangel(v, pad(length, PAGESIZE));
-    flush_entry fe = get_page_flush_entry();
     pagetable_lock();
     u64 *table_ptr = pointer_from_pteaddr(get_pagetable_base(v));
-    if (!map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, fe)) {
+    if (!map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w)) {
         pagetable_unlock();
         rprintf("ra %p\n", __builtin_return_address(0));
         print_frame_trace_from_here();
@@ -496,13 +497,14 @@ void map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_ha
              v, p, length, flags.w);
     }
     page_init_debug("map_level done\n");
-    page_invalidate_sync(fe, complete);
-    page_init_debug("invalidate sync done\n");
     pagetable_unlock();
+    if (complete)
+        apply(complete, STATUS_OK);
 #ifdef PAGE_DUMP_ALL
     early_debug("map ");
     dump_page_tables(v, length);
 #endif
+    return p - length;
 }
 
 void unmap(u64 virtual, u64 length)

@@ -90,7 +90,7 @@ void page_invalidate_flush(void)
 
 void page_invalidate(flush_entry f, u64 p)
 {
-    if (initialized) {
+    if (f && initialized) {
         if (f->flush)
             return;
         f->pages[f->npages++] = p;

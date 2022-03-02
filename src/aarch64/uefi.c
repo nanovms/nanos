@@ -29,9 +29,10 @@ void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer
     start(0, u64_from_pointer(&boot_params));
 }
 
-void map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
+physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
 {
     /* Mapping is not needed, since the MMU is disabled before starting the kernel. */
     if (complete)
         apply(complete, STATUS_OK);
+    return p;
 }

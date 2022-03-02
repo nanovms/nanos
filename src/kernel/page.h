@@ -19,7 +19,7 @@ void page_invalidate_sync(flush_entry f, status_handler completion);
 void page_invalidate_flush();
 
 /* mapping and flag update */
-void map_with_complete(u64 virtual, physical p, u64 length, pageflags flags, status_handler complete);
+physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete);
 
 static inline void map(u64 v, physical p, u64 length, pageflags flags)
 {
