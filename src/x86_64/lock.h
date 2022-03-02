@@ -10,7 +10,8 @@ static inline boolean spin_try(spinlock l) {
 
 static inline void spin_lock(spinlock l) {
     u64 tmp = 1;
-    asm volatile("1: lock xchg %0, %1; cmp $1, %1; jne 2f; pause; jmp 1b; 2:" : "+m"(*&l->w), "+r"(tmp) :: "memory");
+    asm volatile("1: cmp %0, %1; jne 2f; pause; jmp 1b; 2: lock xchg %0, %1; cmp $1, %1; je 1b" :
+                 "+m"(*&l->w), "+r"(tmp) :: "memory");
 }
 
 static inline void spin_unlock(spinlock l) {
