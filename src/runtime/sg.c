@@ -49,7 +49,7 @@ u64 sg_copy_to_buf(void *target, sg_list sg, u64 n)
     sg_debug("%s: target %p, sg %p, length 0x%lx, count %ld\n", __func__, target, sg, length, sg->count);
     while (remain > 0 && (sgb = sg_list_head_peek(sg)) != INVALID_ADDRESS) {
         assert(sgb->size > sgb->offset); /* invariant: no null-length bufs */
-        u64 len = MIN(remain, sgb->size - sgb->offset);
+        u64 len = MIN(remain, sg_buf_len(sgb));
         runtime_memcpy(target, sgb->buf + sgb->offset, len);
         target += len;
         sgb->offset += len;
@@ -68,7 +68,7 @@ u64 sg_move(sg_list dest, sg_list src, u64 n)
     u64 remain = n;
     while (remain > 0 && (ssgb = sg_list_head_peek(src)) != INVALID_ADDRESS) {
         assert(ssgb->size > ssgb->offset);
-        u64 len = MIN(remain, ssgb->size - ssgb->offset);
+        u64 len = MIN(remain, sg_buf_len(ssgb));
         sg_buf dsgb = sg_list_tail_add(dest, len);
         dsgb->buf = ssgb->buf;
         dsgb->size = ssgb->offset + len;
@@ -91,7 +91,7 @@ u64 sg_zero_fill(sg_list sg, u64 n)
     u64 remain = n;
     while (remain > 0 && (sgb = sg_list_head_peek(sg)) != INVALID_ADDRESS) {
         assert(sgb->size > sgb->offset);
-        u64 len = MIN(remain, sgb->size - sgb->offset);
+        u64 len = MIN(remain, sg_buf_len(sgb));
         zero(sgb->buf + sgb->offset, len);
         sgb->offset += len;
         remain -= len;
@@ -113,7 +113,7 @@ u64 sg_copy_to_buf_and_release(void *target, sg_list sg, u64 n)
     sg_debug("%s: target %p, sg %p, limit 0x%lx, count %ld\n", __func__, target, sg, limit, sg->count);
     while ((sgb = sg_list_head_remove(sg)) != INVALID_ADDRESS) {
         assert(sgb->size > sgb->offset);
-        u64 len = MIN(remain, sgb->size - sgb->offset);
+        u64 len = MIN(remain, sg_buf_len(sgb));
         if (len > 0) {
             runtime_memcpy(target, sgb->buf, len);
             target += len;

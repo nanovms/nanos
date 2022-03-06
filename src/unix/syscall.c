@@ -420,7 +420,7 @@ closure_function(9, 2, void, sendfile_bh,
     /* issue next write */
     assert(bound(cur_buf));
     void *buf = bound(cur_buf)->buf + bound(cur_buf)->offset;
-    u32 n = bound(cur_buf)->size - bound(cur_buf)->offset;
+    u32 n = sg_buf_len(bound(cur_buf));
     thread_log(t, "   writing %d bytes from %p", rv, n, buf);
     apply(bound(out)->write, buf, n, 0, t, true, (io_completion)closure_self());
     return;

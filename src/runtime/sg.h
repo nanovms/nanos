@@ -60,6 +60,11 @@ static inline sg_buf sg_list_head_remove(sg_list sg)
     return sgb;
 }
 
+static inline u32 sg_buf_len(sg_buf sgb)
+{
+    return sgb->size - sgb->offset;
+}
+
 static inline void sg_buf_release(sg_buf sgb)
 {
     if (sgb->refcount)
