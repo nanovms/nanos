@@ -277,7 +277,7 @@ closure_function(3, 1, void, mbr_read,
             volume_add(uuid, label, bound(req_handler), bound(length));
         else
             init_debug("unformatted storage device, ignoring");
-        deallocate(heap_locked(init_heaps), mbr, SECTOR_SIZE);
+        deallocate((heap)heap_linear_backed(init_heaps), mbr, PAGESIZE);
     } else {
         /* The on-disk kernel log dump section is immediately before the first partition. */
         struct partition_entry *first_part = partition_at(mbr, 0);
