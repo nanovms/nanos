@@ -135,12 +135,12 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 void register_clock_syscalls(struct syscall *map)
 {
 #ifdef __x86_64__
-    register_syscall(map, time, sys_time);
+    register_syscall(map, time, sys_time, 0);
 #endif
-    register_syscall(map, clock_gettime, clock_gettime);
-    register_syscall(map, clock_getres, syscall_ignore);
-    register_syscall(map, clock_nanosleep, clock_nanosleep);
-    register_syscall(map, gettimeofday, gettimeofday);
-    register_syscall(map, nanosleep, nanosleep);
-    register_syscall(map, times, times);
+    register_syscall(map, clock_gettime, clock_gettime, 0);
+    register_syscall(map, clock_getres, syscall_ignore, 0);
+    register_syscall(map, clock_nanosleep, clock_nanosleep, 0);
+    register_syscall(map, gettimeofday, gettimeofday, 0);
+    register_syscall(map, nanosleep, nanosleep, 0);
+    register_syscall(map, times, times, 0);
 }
