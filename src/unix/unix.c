@@ -109,7 +109,6 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
     };
 
     char *signame = "SIGSEGV";
-    assert(signo == SIGSEGV || signo == SIGBUS || signo == SIGFPE);
     switch (signo) {
     case SIGSEGV:
         signame = "SIGSEGV";
@@ -120,6 +119,14 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
     case SIGFPE:
         signame = "SIGFPE";
         break;
+    case SIGILL:
+        signame = "SIGILL";
+        break;
+    case SIGTRAP:
+        signame = "SIGTRAP";
+        break;
+    default:
+        halt("%s: unexpected signal number %d\n", __func__, signo);
     }
     pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d", signame,
         t->tid, vaddr, si_code);
@@ -200,6 +207,26 @@ define_closure_function(1, 1, context, unix_fault_handler,
             return 0;
         } else {
             errmsg = "Divide by zero occurs in kernel mode";
+            goto bug;
+        }
+    } else if (is_illegal_instruction(ctx->frame)) {
+        if (current_cpu()->state == cpu_user) {
+            pf_debug("invalid opcode fault in user mode, rip 0x%lx", ctx->frame[SYSCALL_FRAME_PC]);
+            deliver_fault_signal(SIGILL, t, vaddr, ILL_ILLOPC);
+            schedule_thread(t);
+            return 0;
+        } else {
+            errmsg = "Illegal instruction in kernel mode";
+            goto bug;
+        }
+    } else if (is_breakpoint(ctx->frame)) {
+        if (current_cpu()->state == cpu_user) {
+            pf_debug("breakpoint in user mode, rip 0x%lx", ctx->frame[SYSCALL_FRAME_PC]);
+            deliver_fault_signal(SIGTRAP, t, vaddr, TRAP_BRKPT);
+            schedule_thread(t);
+            return 0;
+        } else {
+            errmsg = "Breakpoint in kernel mode";
             goto bug;
         }
     } else if (is_page_fault(ctx->frame)) {
@@ -472,7 +499,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 
     u_heap = uh;
     uh->kh = *kh;
-    uh->processes = create_id_heap(h, h, 1, 65535, 1, false);
+    uh->processes = locking_heap_wrapper(h, (heap)create_id_heap(h, h, 1, 65535, 1, false));
     uh->file_cache = locking_heap_wrapper(h,
         allocate_objcache(h, (heap)heap_linear_backed(kh), sizeof(struct file), PAGESIZE));
     if (uh->file_cache == INVALID_ADDRESS)
@@ -490,7 +517,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
 #endif
     process kernel_process = create_process(uh, root, fs);
-    dummy_thread = create_thread(kernel_process);
+    dummy_thread = create_thread(kernel_process, kernel_process->pid);
     runtime_memcpy(dummy_thread->name, "dummy_thread",
         sizeof(dummy_thread->name));
 

@@ -150,6 +150,10 @@ void vm_exit(u8 code)
     if (root) {
         if (get(root, sym(reboot_on_exit)))
             triple_fault();
+        u64 expected_code;
+        if (get_u64(root, sym(expected_exit_code), &expected_code) &&
+                expected_code == code)
+            code = 0;
         if (get(root, sym(debug_exit)))
             goto debug_exit;
     }

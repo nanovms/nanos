@@ -45,6 +45,7 @@
 #define ESR_EC_DATA_ABRT      0x25
 #define ESR_EC_SP_ALIGN_FAULT 0x26
 #define ESR_EC_SERROR_INT     0x2f
+#define ESR_EC_BRK            0x3c
 
 #define ESR_IL        U64_FROM_BIT(25)
 #define ESR_ISS_BITS  25
@@ -327,6 +328,24 @@ static inline boolean is_write_fault(context_frame f)
 static inline boolean is_div_by_zero(context_frame f)
 {
     return false; // XXX not on arm / fp only?
+}
+
+static inline boolean is_breakpoint(context_frame f)
+{
+    u64 esr = esr_from_frame(f);
+    u32 ec = field_from_u64(esr, ESR_EC);
+    if (ec == ESR_EC_BRK)
+        return true;
+    return false;
+}
+
+static inline boolean is_illegal_instruction(context_frame f)
+{
+    u64 esr = esr_from_frame(f);
+    u32 ec = field_from_u64(esr, ESR_EC);
+    if (ec == ESR_EC_UNKNOWN)
+        return true;
+    return false;
 }
 
 static inline boolean frame_is_full(context_frame f)

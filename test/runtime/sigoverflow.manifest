@@ -1,0 +1,16 @@
+(
+    children:(
+              #user program
+	      sigoverflow:(contents:(host:output/test/runtime/bin/sigoverflow))
+	      )
+    # filesystem path to elf for kernel to run
+    program:/sigoverflow
+#    trace:t
+#    debugsyscalls:t
+#    futex_trace:t
+#    fault:t
+    arguments:[test]
+    environment:(USER:bobby PWD:/)
+    # expect to segfault
+    expected_exit_code:11
+)

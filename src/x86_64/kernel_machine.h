@@ -390,6 +390,16 @@ static inline boolean is_div_by_zero(context_frame f)
     return f[FRAME_VECTOR] == 0; // XXX defined somewhere?
 }
 
+static inline boolean is_breakpoint(context_frame f)
+{
+    return f[FRAME_VECTOR] == 3;
+}
+
+static inline boolean is_illegal_instruction(context_frame f)
+{
+    return f[FRAME_VECTOR] == 6;
+}
+
 static inline void *frame_get_stack(context_frame f)
 {
     return pointer_from_u64(f[FRAME_RSP]);

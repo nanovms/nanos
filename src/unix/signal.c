@@ -282,12 +282,13 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
 {
     int sig = info->si_signo;
     sig_debug("tid %d, sig %d\n", t->tid, sig);
-    if ((sig != SIGSEGV && sig != SIGKILL && sig != SIGSTOP && sig != SIGFPE) &&
+    if ((sig != SIGSEGV && sig != SIGKILL && sig != SIGSTOP && sig != SIGFPE && sig != SIGILL) &&
         sig_is_ignored(t->p, sig)) {
         sig_debug("signal ignored; no queue\n");
         return;
     }
 
+    assert(t && t != INVALID_ADDRESS);
     /* queue to thread for delivery */
     deliver_signal(&t->signals, info);
     sig_debug("... pending now 0x%lx\n", sigstate_get_pending(&t->signals));
@@ -335,6 +336,7 @@ void deliver_signal_to_process(process p, struct siginfo *info)
 {
     int sig = info->si_signo;
     u64 sigword = mask_from_sig(sig);
+    assert(p && p != INVALID_ADDRESS);
     sig_debug("pid %d, sig %d\n", p->pid, sig);
     if (sig_is_ignored(p, sig)) {
         sig_debug("signal ignored; no queue\n");
@@ -1067,7 +1069,7 @@ static void default_signal_action(thread t, queued_signal qs)
     }
     dump_sig_info(t, qs);
     thread_log(t, fate);
-    halt(fate);
+    halt_with_code(VM_EXIT_SIGNAL(signum), fate);
 }
 
 boolean dispatch_signals(thread t)
@@ -1117,7 +1119,14 @@ boolean dispatch_signals(thread t)
         t->interrupting_syscall = false;
         check_syscall_restart(t, sa);
     }
-    setup_sigframe(t, signum, si);
+    if (!setup_sigframe(t, signum, si)) {
+        /* force an uncatchable SIGSEGV */
+        sig_debug("failed to setup sigframe for tid %d\n", t->tid);
+        struct queued_signal qs = {};
+        qs.si.si_signo = SIGSEGV;
+        default_signal_action(t, &qs);
+        assert(0); // should not get here
+    }
 
     /* apply signal mask for handler */
     t->signal_mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];

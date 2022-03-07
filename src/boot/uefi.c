@@ -89,7 +89,7 @@ u64 random_u64()
     }
 }
 
-void halt(char *format, ...)
+void halt_with_code(u8 code, char *format, ...)
 {
     vlist a;
     buffer b = little_stack_buffer(512);
