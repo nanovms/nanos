@@ -104,6 +104,7 @@ typedef struct netsock {
     union {
 	struct {
 	    struct tcp_pcb *lw;
+	    tcpflags_t flags;
 	    enum tcp_socket_state state; // half open?
 	} tcp;
 	struct {
@@ -1157,6 +1158,7 @@ static int allocate_tcp_sock(process p, int af, struct tcp_pcb *pcb, u32 flags)
     int fd = allocate_sock(p, af, SOCK_STREAM, flags, &s);
     if (fd >= 0) {
 	s->info.tcp.lw = pcb;
+	s->info.tcp.flags = pcb->flags;
 	s->info.tcp.state = TCP_SOCK_CREATED;
     }
     return fd;
@@ -1846,7 +1848,8 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
         return err;               /* lwIP doesn't care */
     }
 
-    /* XXX such a thing as nonblock inherited from listen socket? */
+    /* TCP flags are inherited from listen socket. */
+    lw->flags = s->info.tcp.flags;
     int fd = allocate_tcp_sock(s->p, s->sock.domain, lw, 0);
     if (fd < 0)
 	return ERR_MEM;
@@ -2153,15 +2156,22 @@ sysreturn setsockopt(int sockfd,
     case SOL_TCP:
         switch (optname) {
         case TCP_NODELAY:
-            if ((optlen != sizeof(int)) || (s->sock.type != SOCK_STREAM) || !s->info.tcp.lw) {
+            if ((optlen != sizeof(int)) || (s->sock.type != SOCK_STREAM)) {
                 rv = -EINVAL;
                 goto out;
             }
             lwip_lock();
-            if (*((int *)optval))
-                tcp_nagle_disable(s->info.tcp.lw);
-            else
-                tcp_nagle_enable(s->info.tcp.lw);
+            if (s->info.tcp.lw && (s->info.tcp.state != TCP_SOCK_LISTENING)) {
+                if (*((int *)optval))
+                    tcp_nagle_disable(s->info.tcp.lw);
+                else
+                    tcp_nagle_enable(s->info.tcp.lw);
+            } else {
+                if (*((int *)optval))
+                    s->info.tcp.flags |= TF_NODELAY;
+                else
+                    s->info.tcp.flags &= ~TF_NODELAY;
+            }
             lwip_unlock();
             break;
         default:
@@ -2262,7 +2272,10 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
         switch (optname) {
         case TCP_NODELAY:
             lwip_lock();
-            ret_optval.val = tcp_nagle_disabled(s->info.tcp.lw);
+            if (s->info.tcp.lw && (s->info.tcp.state != TCP_SOCK_LISTENING))
+                ret_optval.val = tcp_nagle_disabled(s->info.tcp.lw);
+            else
+                ret_optval.val = ((s->info.tcp.flags & TF_NODELAY) != 0);
             ret_optlen = sizeof(ret_optval.val);
             lwip_unlock();
             break;

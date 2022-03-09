@@ -1,4 +1,5 @@
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -91,8 +92,18 @@ static void netsock_test_basic(int sock_type)
         test_assert(getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 1);
         ret = pthread_create(&pt, NULL, netsock_test_basic_thread, (void *)(long)sock_type);
         test_assert(ret == 0);
+
+        /* Change a TCP option on the listening socket and verify that the option is inherited by
+         * the accepted socket. */
+        test_assert(getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, &len) == 0 && val == 0);
+        val = 1;
+        test_assert(setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, len) == 0);
         tx_fd = accept(fd, NULL, NULL);
         test_assert(tx_fd > 0);
+        test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_NODELAY, &val, &len) == 0 && val == 1);
+        val = 0;
+        test_assert(setsockopt(tx_fd, IPPROTO_TCP, TCP_NODELAY, &val, len) == 0);
+
         test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
         test_assert(close(fd) == 0);
     } else {
