@@ -210,6 +210,7 @@ closure_function(2, 1, void, req_handle,
         sg = req->data;
         offset = bound(fs_offset) + (req->blocks.start << SECTOR_OFFSET);
         total = range_span(req->blocks) << SECTOR_OFFSET;
+        lseek(bound(d), offset, SEEK_SET);
         while (total > 0) {
             iov_count = 0;
             xfer = 0;
@@ -221,14 +222,14 @@ closure_function(2, 1, void, req_handle,
                     break;
             }
             if (write) {
-                xfer = pwritev(bound(d), iov, iov_count, offset);
+                xfer = writev(bound(d), iov, iov_count);
                 if (xfer < 0 && errno != EINTR) {
                     apply(req->completion,
                           timm("result", "write error", "error", "%s", strerror(errno)));
                     return;
                 }
             } else {
-                xfer = preadv(bound(d), iov, iov_count, offset);
+                xfer = readv(bound(d), iov, iov_count);
                 if (xfer < 0 && errno != EINTR) {
                     apply(req->completion,
                           timm("result", "read error", "error", "%s", strerror(errno)));

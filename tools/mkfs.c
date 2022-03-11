@@ -270,6 +270,7 @@ closure_function(2, 1, void, bwrite,
     struct iovec iov[IOV_MAX];
     int iov_count;
     ssize_t xfer;
+    lseek(bound(d), offset, SEEK_SET);
     while (total > 0) {
         iov_count = 0;
         xfer = 0;
@@ -280,13 +281,12 @@ closure_function(2, 1, void, bwrite,
             if ((++iov_count == IOV_MAX) || (xfer == total))
                 break;
         }
-        xfer = pwritev(bound(d), iov, iov_count, offset);
+        xfer = writev(bound(d), iov, iov_count);
         if (xfer < 0 && errno != EINTR) {
             apply(req->completion, timm("result", "write error", "error", "%s", strerror(errno)));
             return;
         }
         sg_consume(sg, xfer);
-        offset += xfer;
         total -= xfer;
     }
     apply(req->completion, STATUS_OK);
