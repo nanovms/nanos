@@ -439,7 +439,7 @@ closure_function(2, 0, void, virtio_scsi_init_done,
     spin_lock(&s->lock);
     vector_push(s->disks, d);
     spin_unlock(&s->lock);
-    apply(bound(a), init_closure(&d->req_handler, virtio_scsi_req_handler), d->capacity);
+    apply(bound(a), init_closure(&d->req_handler, virtio_scsi_req_handler), d->capacity, -1);
     closure_finish();
 }
 

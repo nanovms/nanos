@@ -282,7 +282,7 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
     }
     vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
-    apply(a, init_closure(&s->req_handler, virtio_storage_req_handler), s->capacity);
+    apply(a, init_closure(&s->req_handler, virtio_storage_req_handler), s->capacity, -1);
 }
 
 closure_function(3, 1, boolean, vtpci_blk_probe,

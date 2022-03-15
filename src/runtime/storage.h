@@ -95,7 +95,7 @@ storage_req_handler storage_init_req_handler(closure_ref(storage_simple_req_hand
 void init_volumes(heap h);
 void storage_set_root_fs(struct filesystem *root_fs);
 void storage_set_mountpoints(tuple mounts);
-boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size);
+boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size, int attach_id);
 void storage_when_ready(status_handler complete);
 void storage_sync(status_handler sh);
 

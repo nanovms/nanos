@@ -257,7 +257,7 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
 
     block_io in = closure(s->general, pvscsi_read, d);
     block_io out = closure(s->general, pvscsi_write, d);
-    apply(bound(a), storage_init_req_handler(&d->req_handler, in, out), d->capacity);
+    apply(bound(a), storage_init_req_handler(&d->req_handler, in, out), d->capacity, -1);
   out:
     closure_finish();
 }

@@ -10,6 +10,7 @@ typedef struct volume {
     char label[VOLUME_LABEL_MAX_LEN];
     storage_req_handler req_handler;
     u64 size;
+    int attach_id;
     boolean mounting;
     filesystem fs;
     inode mount_dir;
@@ -83,6 +84,15 @@ static boolean volume_match(symbol s, volume v)
 {
     /* UUID format in symbol string: 00112233-4455-6677-8899-aabbccddeeff */
     buffer vol = symbol_string(s);
+    if ((buffer_length(vol) > 1) && (peek_char(vol) == '%')) {
+        /* Volume attachment id format: %<attach_id> */
+        pop_u8(vol);
+        u64 attach_id;
+        boolean match = parse_int(vol, 10, &attach_id) && (attach_id == v->attach_id);
+        vol->start = 0; /* unconsume data consumed when parsing */
+        if (match)
+            return true;
+    }
     if (buffer_compare_with_cstring(vol, v->label))
         return true;
     if (buffer_length(vol) != 2 * UUID_LEN + 4)
@@ -255,7 +265,7 @@ closure_function(1, 2, boolean, volume_add_mount_each,
     return true;
 }
 
-boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size)
+boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size, int attach_id)
 {
     storage_debug("new volume (%ld bytes)", size);
     volume v = allocate(storage.h, sizeof(*v));
@@ -265,6 +275,7 @@ boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 s
     runtime_memcpy(v->label, label, VOLUME_LABEL_MAX_LEN);
     v->req_handler = req_handler;
     v->size = size;
+    v->attach_id = attach_id;
     v->mounting = false;
     v->fs = 0;
     v->mount_dir = 0;
