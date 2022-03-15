@@ -259,8 +259,8 @@ static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u6
                       closure(h, fsstarted, mbr, req_handler));
 }
 
-closure_function(3, 1, void, mbr_read,
-                 u8 *, mbr, storage_req_handler, req_handler, u64, length,
+closure_function(4, 1, void, mbr_read,
+                 u8 *, mbr, storage_req_handler, req_handler, u64, length, int, attach_id,
                  status, s)
 {
     init_debug("%s", __func__);
@@ -274,7 +274,7 @@ closure_function(3, 1, void, mbr_read,
         u8 uuid[UUID_LEN];
         char label[VOLUME_LABEL_MAX_LEN];
         if (filesystem_probe(mbr, uuid, label))
-            volume_add(uuid, label, bound(req_handler), bound(length));
+            volume_add(uuid, label, bound(req_handler), bound(length), bound(attach_id));
         else
             init_debug("unformatted storage device, ignoring");
         deallocate((heap)heap_linear_backed(init_heaps), mbr, PAGESIZE);
@@ -289,8 +289,8 @@ closure_function(3, 1, void, mbr_read,
     closure_finish();
 }
 
-closure_function(0, 2, void, attach_storage,
-                 storage_req_handler, req_handler, u64, length)
+closure_function(0, 3, void, attach_storage,
+                 storage_req_handler, req_handler, u64, length, int, attach_id)
 {
     heap h = heap_locked(init_heaps);
     heap bh = (heap)heap_linear_backed(init_heaps);
@@ -300,7 +300,7 @@ closure_function(0, 2, void, attach_storage,
         msg_err("cannot allocate memory for MBR sector\n");
         return;
     }
-    status_handler sh = closure(h, mbr_read, mbr, req_handler, length);
+    status_handler sh = closure(h, mbr_read, mbr, req_handler, length, attach_id);
     if (sh == INVALID_ADDRESS) {
         msg_err("cannot allocate MBR read closure\n");
         deallocate(bh, mbr, PAGESIZE);

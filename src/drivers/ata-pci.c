@@ -331,7 +331,7 @@ closure_function(3, 1, boolean, ata_pci_probe,
     register_interrupt(irq, (thunk)&dev->irq_handler, "ata pci");
     apply(bound(a),
           storage_init_req_handler(&dev->req_handler, (block_io)&dev->read, (block_io)&dev->write),
-          ata_get_capacity(dev->ata));
+          ata_get_capacity(dev->ata), 0);
     return true;
 }
 

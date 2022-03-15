@@ -218,7 +218,7 @@ typedef closure_type(block_io, void, void *, range, status_handler);
 
 struct storage_req;
 typedef closure_type(storage_req_handler, void, struct storage_req *);
-typedef closure_type(storage_attach, void, storage_req_handler, u64);
+typedef closure_type(storage_attach, void, storage_req_handler, u64, int);
 
 #include <sg.h>
 

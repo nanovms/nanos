@@ -104,6 +104,9 @@
 
 #define NVME_CID_MAX    0xFFFE
 
+#define AMZN_NVME_VID   0x1D0F
+#define AMZN_BDEV_SIZE  32
+
 //#define NVME_DEBUG
 #ifdef NVME_DEBUG
 #define nvme_debug(x, ...) do {rprintf("NVMe: " x "\n", ##__VA_ARGS__);} while(0)
@@ -184,6 +187,7 @@ typedef struct nvme {
     int ioq_order;     /* I/O queue size */
     struct nvme_sq iosq;    /* I/O submission queue */
     struct nvme_cq iocq;    /* I/O completion queue */
+    int attach_id;
     closure_struct(nvme_io_irq, io_irq);
     struct list pending_reqs, free_reqs, done_reqs;
     vector cmds;
@@ -460,7 +464,7 @@ closure_function(4, 0, void, nvme_ns_attach,
     apply(bound(a),
           storage_init_req_handler(&n->req_handler, init_closure(&n->r, nvme_io, n, ns_id, false),
                                    init_closure(&n->w, nvme_io, n, ns_id, true)),
-          disk_size);
+          disk_size, n->attach_id);
     closure_finish();
 }
 
@@ -589,8 +593,27 @@ closure_function(3, 0, void, nvme_identify_controller_resp,
             msg_err("failed to identify controller: status code 0x%x\n", sc);
             goto error;
         }
+        u16 vid = *(u16 *)resp; /* PCI Vendor ID */
         u32 nn = *(u32 *)(resp + 516);  /* number of namespaces */
-        nvme_debug("controller reports %d namespace(s)", nn);
+        nvme_debug("controller (vendor ID 0x%x) reports %d namespace(s)", vid, nn);
+        if (vid == AMZN_NVME_VID) {
+            /* Retrieve block device name in vendor-specific field.
+             * Expected name format (after trimming whitespace): '/dev/sd[a-z]' */
+            char *bdev = resp + 3072;
+            bdev[AMZN_BDEV_SIZE - 1] = '\0';
+            nvme_debug("AWS block device '%s'", bdev);
+            int len = runtime_strlen(bdev);
+            while (len > 0) {
+                char dev_id = bdev[len - 1];
+                if (dev_id == ' ') {
+                    len--;
+                } else {
+                    if ((dev_id >= 'a') && (dev_id <= 'z'))
+                        n->attach_id = dev_id - 'a';
+                    break;
+                }
+            }
+        }
         n->ac_handler = closure(n->general, nvme_ns_query_resp, n, 1, nn, resp, bound(a));
         if (n->ac_handler != INVALID_ADDRESS) {
             nvme_ns_query_next(n, 1, nn, resp);
@@ -866,6 +889,7 @@ closure_function(3, 1, boolean, nvme_probe,
         msg_err("failed to allocate MSI-X vector\n");
         goto free_cmds;
     }
+    n->attach_id = -1;
     list_init(&n->pending_reqs);
     list_init(&n->free_reqs);
     list_init(&n->done_reqs);

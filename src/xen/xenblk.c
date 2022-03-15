@@ -6,6 +6,11 @@
 #include "io/blkif.h"
 #include "io/protocols.h"
 
+/* Xen virtual block device identifier definitions */
+#define XEN_IDE0_MAJOR      3
+#define XENVBD_MAJOR        202
+#define XEN_VDEV_EXTENDED   (1 << 28)
+
 #define XENBLK_RING_SIZE                                                \
   (__RD32(((PAGESIZE) - __builtin_offsetof(struct blkif_sring, ring)) / \
           sizeof(((struct blkif_sring *)0)->ring[0])))
@@ -354,12 +359,28 @@ define_closure_function(1, 0, void, xenblk_watch_service,
             msg_err("failed to unmask event channel %d: rv %d\n", xbd->evtchn, rv);
             goto remove;
         }
-        xenblk_debug("attaching disk, capacity %ld bytes", xbd->capacity);
+        int attach_id;
+        if (!(xd->if_id & XEN_VDEV_EXTENDED)) {
+            int major = xd->if_id >> 8;
+            switch (major) {
+            case XEN_IDE0_MAJOR:
+                attach_id = 0;
+                break;
+            case XENVBD_MAJOR:
+                attach_id = (xd->if_id & 0xff) >> 4; /* id 1 to 15 */
+                break;
+            default:
+                attach_id = -1;
+            }
+        } else {
+            attach_id = 16 + ((xd->if_id & 0xfff) >> 8);
+        }
+        xenblk_debug("attaching disk, capacity %ld bytes, id %d", xbd->capacity, attach_id);
         apply(xbd->sa,
               storage_init_req_handler(&xbd->req_handler,
                                        init_closure(&xbd->read, xenblk_io, xbd, false),
                                        init_closure(&xbd->write, xenblk_io, xbd, true)),
-              xbd->capacity);
+              xbd->capacity, attach_id);
         break;
   remove:
         xenblk_remove(xbd);
