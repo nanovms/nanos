@@ -4,7 +4,7 @@ typedef struct id_heap {
     boolean (*set_area)(struct id_heap *i, u64 base, u64 length, boolean validate, boolean allocate);
     void (*set_randomize)(struct id_heap *i, boolean randomize);
     u64 (*alloc_subrange)(struct id_heap *i, bytes count, u64 start, u64 end);
-    void (*set_next)(struct id_heap *i, u64 next);
+    void (*set_next)(struct id_heap *i, bytes count, u64 next);
     /* private */
     u64 page_order;
     u64 allocated;
@@ -27,12 +27,12 @@ boolean id_heap_range_foreach(id_heap i, range_handler rh);
 #define id_heap_set_area(__h, __b, __l, __v, __a) ((__h)->set_area(__h, __b, __l, __v, __a))
 #define id_heap_set_randomize(__h, __r) ((__h)->set_randomize(__h, __r))
 #define id_heap_alloc_subrange(__h, __c, __s, __e) ((__h)->alloc_subrange(__h, __c, __s, __e))
-#define id_heap_set_next(__h, __n) ((__h)->set_next(__h, __n))
+#define id_heap_set_next(__h, __c, __n) ((__h)->set_next(__h, __c, __n))
 
 /* If count == 1, the return value is guaranteed to be the lowest-numbered
  * non-allocated id starting from min. */
 static inline u64 id_heap_alloc_gte(id_heap i, bytes count, u64 min)
 {
-    id_heap_set_next(i, min);
+    id_heap_set_next(i, count, min);
     return id_heap_alloc_subrange(i, count, min, infinity);
 }

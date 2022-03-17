@@ -45,6 +45,10 @@ static boolean basic_test(heap h)
 		u64 a = base + i * pagesize;
 		deallocate_u64(id, a, pagesize * n);
 	    }
+
+	    /* Reset next-fit location for the current allocation size to avoid unexpected results for
+	     * larger allocation sizes. */
+	    id_heap_set_next((id_heap)id, pagesize * n, 0);
 	}
 	if (heap_allocated(id) > 0) {
 	    msg_err("heap allocated should be zero; fail\n");
@@ -333,10 +337,12 @@ static boolean alloc_subrange_test(heap h)
     }
 
     for (int i = 0; i < pages_remaining; i++) {
-        if (i == 0)
-            expect = SUBRANGE_TEST_MIN; /* should pick up skipped page */
+        if (i < allocs)
+            /* Next fit for minimum-sized allocations should pick up from the first set of
+             * allocations and fill the gaps between allocations in the second set. */
+            expect = start + alloc_size + i * U64_FROM_BIT(find_order(alloc_size));
         else
-            expect = (15 * PAGESIZE) + 4 * (i - 1) * PAGESIZE;
+            expect = SUBRANGE_TEST_MIN; /* should wrap around and pick up skipped page from above */
 
         if ((res = allocate_u64((heap)id, PAGESIZE)) != expect) {
             msg_err("%s: remainder alloc returned 0x%lx, should be 0x%lx (iter %d)\n",

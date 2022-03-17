@@ -12,10 +12,14 @@
 #define id_debug(x, ...)
 #endif
 
+/* The location for next-fit search is stored for allocation size values from pagesize to
+ * (pagesize << (NEXT_BIT_COUNT - 1)). */
+#define NEXT_BIT_COUNT  10
+
 typedef struct id_range {
     struct rmnode n;            /* range in pages */
     bitmap b;
-    u64 next_bit;               /* for next-fit search */
+    u64 next_bit[NEXT_BIT_COUNT];   /* for next-fit search */
 } *id_range;
 
 #define ID_HEAP_FLAG_RANDOMIZE  1
@@ -23,6 +27,13 @@ typedef struct id_range {
 #define page_size(i) (i->h.pagesize)
 #define page_order(i) (i->page_order)
 #define page_mask(i) (page_size(i) - 1)
+
+#define get_next_bit(ir, page_order)    ((ir)->next_bit[MIN(page_order, NEXT_BIT_COUNT - 1)])
+
+#define set_next_bit(ir, page_order, bit)   do {    \
+    if (page_order < NEXT_BIT_COUNT)                \
+        (ir)->next_bit[page_order] = bit;           \
+} while (0)
 
 static inline int pages_from_bytes(id_heap i, bytes alloc_size)
 {
@@ -61,7 +72,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
         msg_err("%s: failed to allocate bitmap for range %R\n", __func__, ir->n.r);
         goto fail;
     }
-    ir->next_bit = 0;
+    zero(ir->next_bit, sizeof(ir->next_bit));
     i->total += length;
     id_debug("added range base 0x%lx, end 0x%lx (length 0x%lx)\n", base, base + length, length);
     return ir;
@@ -86,7 +97,8 @@ static id_range id_get_backed_page(id_heap i, bytes count)
 static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
 {
     id_debug("id range %R, pages %ld, subrange %R\n", r->n.r, pages, subrange);
-    u64 pages_rounded = U64_FROM_BIT(find_order(pages)); /* maintain 2^n alignment */
+    u64 page_order = find_order(pages);
+    u64 pages_rounded = U64_FROM_BIT(page_order);   /* maintain 2^n alignment */
 
     /* find intersection, align start and end to 2^n and subtract range offset */
     range ri = range_intersection(r->n.r, subrange);
@@ -107,13 +119,16 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
     }
 
     /* check for randomization, else check for next fit */
-    u64 max_start = range_span(ri) > pages_rounded ?
-        (range_span(ri) & ~(pages_rounded - 1)) - pages_rounded : 0;
+    u64 span = range_span(ri) & ~(pages_rounded - 1);
+    u64 margin = span > pages_rounded ? span - pages_rounded : 0;
     u64 start_bit = ri.start;
-    if ((i->flags & ID_HEAP_FLAG_RANDOMIZE) && max_start > 0)
-        start_bit += random_u64() % max_start;
-    else if (point_in_range(ri, r->next_bit))
-        start_bit = r->next_bit;
+    if ((i->flags & ID_HEAP_FLAG_RANDOMIZE) && margin > 0) {
+        start_bit += random_u64() % margin;
+    } else {
+        u64 next_bit = get_next_bit(r, page_order);
+        if (point_in_range(ri, next_bit))
+            start_bit = MIN(next_bit, start_bit + margin);
+    }
 
     id_debug("start_bit 0x%lx, end 0x%lx\n", start_bit, ri.end);
     /* search beginning at start_bit, wrapping around if needed */
@@ -123,6 +138,7 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
     if (bit == INVALID_PHYSICAL)
         return bit;
 
+    set_next_bit(r, page_order, bit + pages_rounded);
     i->allocated += pages << page_order(i);
     u64 result = (r->n.r.start + bit) << page_order(i);
     id_debug("allocated bit %ld, range page start %ld, returning 0x%lx\n",
@@ -169,6 +185,7 @@ closure_function(2, 1, void, dealloc_from_range,
         return;
     }
 
+    set_next_bit(r, find_order(pages), bit);
     u64 deallocated = pages << page_order(i);
     assert(i->allocated >= deallocated);
     i->allocated -= deallocated;
@@ -297,14 +314,15 @@ static inline u64 alloc_subrange(id_heap i, bytes count, u64 start, u64 end)
 }
 
 /* Provides a hint as to what id should be allocated next. */
-static inline void set_next(id_heap i, u64 next)
+static inline void set_next(id_heap i, bytes count, u64 next)
 {
+    u64 order = find_order(pages_from_bytes(i, count));
     rangemap_foreach(i->ranges, n) {
         id_range r = (id_range)n;
         if (point_in_range(r->n.r, next))
-            r->next_bit = next - r->n.r.start;
+            set_next_bit(r, order, next - r->n.r.start);
         else if (r->n.r.start > next)
-            r->next_bit = 0;
+            set_next_bit(r, order, 0);
     }
 }
 
@@ -360,10 +378,10 @@ static u64 alloc_subrange_locking(id_heap i, bytes count, u64 start, u64 end)
     return a;
 }
 
-static void set_next_locking(id_heap i, u64 next)
+static void set_next_locking(id_heap i, bytes count, u64 next)
 {
     u64 flags = spin_lock_irq(id_lock(i));
-    set_next(i, next);
+    set_next(i, count, next);
     spin_unlock_irq(id_lock(i), flags);
 }
 
