@@ -128,6 +128,7 @@ vqmsg allocate_vqmsg(virtqueue vq)
         m = struct_from_list(l, vqmsg, l);
         list_delete(l);
         spin_unlock_irq(&vq->lock, irqflags);
+        buffer_clear(m->descv);
     }
     list_init(&m->l);
     m->count = 0;
