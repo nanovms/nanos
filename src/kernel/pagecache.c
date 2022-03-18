@@ -524,6 +524,8 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
                 pi++;
                 pp = (pagecache_page)rbnode_get_next((rbnode)pp);
             } while (pi < end);
+            if (sg)
+                deallocate_sg_list(sg);
         }
         pagecache_unlock_node(pn);
         closure_finish();
@@ -586,6 +588,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
 
     /* issue write */
     bound(complete) = true;
+    bound(sg) = write_sg;   /* stash write_sg so it can be deallocated on write completion */
     status_handler completion = bound(completion);
     pagecache_debug("   calling fs_write, range %R, sg %p\n", r, write_sg);
     apply(pn->fs_write, write_sg, r, (status_handler)closure_self());
@@ -994,8 +997,8 @@ static void pagecache_scan_node(pagecache_node pn)
     page_invalidate_sync(fe, 0);
 }
 
-closure_function(2, 1, void, pagecache_commit_complete,
-                 pagecache, pc, pagecache_page, pp,
+closure_function(3, 1, void, pagecache_commit_complete,
+                 pagecache, pc, pagecache_page, pp, sg_list, sg,
                  status, s)
 {
     pagecache pc = bound(pc);
@@ -1013,6 +1016,7 @@ closure_function(2, 1, void, pagecache_commit_complete,
         pagecache_page_queue_completions_locked(pc, pp, s);
     }
     pagecache_unlock_state(pc);
+    deallocate_sg_list(bound(sg));
     closure_finish();
 }
 
@@ -1040,7 +1044,7 @@ static void pagecache_commit_dirty_pages(pagecache pc)
 
         apply(pp->node->fs_write, sg,
               irangel(page_offset(pp) << pc->page_order, cache_pagesize(pc)),
-              closure(pc->h, pagecache_commit_complete, pc, pp));
+              closure(pc->h, pagecache_commit_complete, pc, pp, sg));
 
         pagecache_lock_state(pc);
     }
