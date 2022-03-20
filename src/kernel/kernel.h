@@ -76,6 +76,11 @@ struct cpuinfo {
 #ifdef CONFIG_TRACELOG
     void *tracelog_buffer;
 #endif
+#ifdef LOCK_STATS
+    boolean lock_stats_disable;
+    table lock_stats_table;
+    heap lock_stats_heap;
+#endif
 };
 
 extern vector cpuinfos;
@@ -441,6 +446,13 @@ static inline void schedule_timer_service(void)
 {
     if (compare_and_swap_boolean(&kernel_timers->service_scheduled, false, true))
         enqueue(bhqueue, kernel_timers->service);
+}
+
+static inline boolean is_kernel_memory(void *a)
+{
+    if ((u64)a < KMEM_BASE || (u64)a > KERNEL_LIMIT)
+        return false;
+    return true;
 }
 #endif /* KERNEL */
 

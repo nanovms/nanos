@@ -39,6 +39,8 @@ void print_frame_trace(u64 *fp)
     u64 *rap;
 
     for (int frame = 0; frame < FRAME_TRACE_DEPTH; frame++) {
+        if (!validate_frame_ptr(fp))
+            break;
         if ((rap = get_frame_ra_ptr(fp, &nfp)) == 0)
             break;
 

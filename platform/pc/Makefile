@@ -179,17 +179,23 @@ CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 
 # Enable tracing by specifying TRACE=ftrace on command line
-ifeq ($(TRACE),ftrace)
+ifneq (,$(findstring ftrace,$(TRACE)))
 CFLAGS+= -DCONFIG_FTRACE -pg
 SRCS-kernel.elf+= \
 	$(SRCDIR)/unix/ftrace.c \
 	$(ARCHDIR)/ftrace.s
 endif
 
-ifeq ($(TRACE),tracelog)
+ifneq (,$(findstring tracelog,$(TRACE)))
 CFLAGS+= -DCONFIG_TRACELOG
 SRCS-kernel.elf+= \
 	$(SRCDIR)/kernel/tracelog.c
+endif
+
+ifneq (,$(findstring lockstats,$(TRACE)))
+CFLAGS+= -DLOCK_STATS
+SRCS-kernel.elf+= \
+	$(SRCDIR)/kernel/lockstats.c
 endif
 
 ifeq ($(MANAGEMENT),telnet)

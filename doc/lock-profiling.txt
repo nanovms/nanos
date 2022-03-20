@@ -1,0 +1,47 @@
+Nanos provides a simple lock profiling mechanism that can be optionally built into the
+kernel. The profile output is a list of frame traces for each lock or mutex acquired
+when profiling is enabled along with acquisition counts and time. A helper python
+script can be used on the profile output that groups backtraces together
+by lock address, making it easier to analyze which traces are accessing
+the same lock and their frequency of doing so.
+
+The compilation of lock profiling is controlled with the TRACE variable, like so:
+    make TRACE=lockstats
+This must be done with a clean output directory to ensure all support is properly
+built in. Lock profiling control is handled through a very simple http interface
+located on port 9090. Enabling and disabling profiling is done by accessing
+/lockstat/enable or /lockstat/disable, and the profile output is accessed via
+/lockstat/log, all by http get requests. Thus, tools like curl can be used to
+control lock profiling.
+    curl http://127.0.0.1:9090/lockstat/enable
+    ...[run test load]...
+    curl http://127.0.0.1:9090/lockstat/disable
+    curl http://127.0.0.1:9090/lockstat/log > locklog.txt
+
+The lock profile output has a line for each tuple of lock address and backtrace.
+The first field is the lock address first accessed by this backtrace. If a backtrace
+accesses a lock on transient data structures, only the first lock address is
+recorded, but profile data for other locks with the same backtrace are all accounted
+for in this line. The second field is the type of lock, spin or mutex. The next
+several fields are the statistics. This includes number of acquisitions, number
+of contended acquisitions, number of try locks that failed to acquire,
+spin count total, max, and min, held cycles total, max, and min, and then
+number of times the context was reschedule (sleeps, only for mutexes). Finally, the
+remainder of the line is the backtrace. The entire record is kept on a single line
+for ease of machine parsing rather than human readability.
+
+The python script tools/lockstat.py processes the profile log output and groups
+backtraces and statistics by lock address so that it is easy to see which
+backtraces access the same lock. Each line of the backtrace list starts with a
+percentage contribution that the backtrace makes towards the total. The python
+script can be run like this:
+    python tools/lockstat.py locklog.txt
+
+By default, the script sorts by descending contended acquisition count, but can
+be sorted by other fields by specifying a second argument with the field name
+shortcut. For example, to sort by total acquisition time:
+    python tools/lockstat.py locklog.txt spins
+
+Lock profiling support is currently only available for the x86_64 platform. Expect
+to see a decrease of 10-20% in performance with profiling enabled, including
+much greater variation in your test results.
