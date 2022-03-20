@@ -46,6 +46,7 @@ static inline value heap_management(heap h)
 heap wrap_freelist(heap meta, heap parent, bytes size);
 heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize);
 heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, heap wrapper);
+heap allocate_objcache_preallocated(heap meta, heap parent, bytes objsize, bytes pagesize, u64 prealloc_count, boolean prealloc_only);
 boolean objcache_validate(heap h);
 heap objcache_from_object(u64 obj, bytes parent_pagesize);
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize);
