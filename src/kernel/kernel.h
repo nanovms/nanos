@@ -469,6 +469,9 @@ cpuinfo init_cpuinfo(heap backed, int cpu);
 void init_interrupts(kernel_heaps kh);
 void msi_map_vector(int slot, int msislot, int vector);
 
+void print_frame_trace(u64 *fp);
+void print_frame_trace_from_here(void);
+
 void syscall_enter(void);
 
 backed_heap mem_debug_backed(heap m, backed_heap bh, u64 padsize, boolean nohdr);

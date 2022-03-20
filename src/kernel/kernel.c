@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include <symtab.h>
 
 const char *context_type_strings[CONTEXT_TYPE_MAX] = {
     "undefined",
@@ -30,6 +31,31 @@ void deallocate_stack(heap h, u64 size, void *stack)
 {
     u64 padsize = pad(size, h->pagesize);
     deallocate(h, u64_from_pointer(stack) - padsize + STACK_ALIGNMENT, padsize);
+}
+
+void print_frame_trace(u64 *fp)
+{
+    u64 *nfp;
+    u64 *rap;
+
+    for (int frame = 0; frame < FRAME_TRACE_DEPTH; frame++) {
+        if ((rap = get_frame_ra_ptr(fp, &nfp)) == 0)
+            break;
+
+        if (*rap == 0)
+            break;
+        print_u64(u64_from_pointer(rap));
+        rputs(":   ");
+        fp = nfp;
+        print_u64_with_sym(*rap);
+        rputs("\n");
+    }
+}
+
+void print_frame_trace_from_here(void)
+{
+    rputs("\nframe trace: \n");
+    print_frame_trace(get_current_fp());
 }
 
 define_closure_function(3, 0, void, free_kernel_context,

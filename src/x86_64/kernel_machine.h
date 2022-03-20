@@ -425,6 +425,29 @@ static inline void frame_reset_stack(context_frame f)
     f[FRAME_RSP] = f[FRAME_STACK_TOP];
 }
 
+static inline u64 *get_frame_ra_ptr(u64 *fp, u64 **nfp)
+{
+#ifdef LOCK_STATS
+    /* simple bounds check for performance and to avoid recursive pt locking */
+    if ((u64)fp < KMEM_BASE || (u64)fp > KERNEL_LIMIT)
+        return 0;
+#else
+    if (!validate_virtual(fp, sizeof(u64)) ||
+        !validate_virtual(fp + 1, sizeof(u64)))
+        return 0;
+#endif
+    u64 *rap = fp + 1;
+    *nfp = pointer_from_u64(fp[0]);
+    return rap;
+}
+
+static inline u64 *get_current_fp(void)
+{
+    u64 rbp;
+    asm("movq %%rbp, %0" : "=r" (rbp));
+    return pointer_from_u64(rbp);
+}
+
 #define _switch_stack_head(s, target)                                   \
     register u64 __s = u64_from_pointer(s);                             \
     register u64 __t = u64_from_pointer(target)

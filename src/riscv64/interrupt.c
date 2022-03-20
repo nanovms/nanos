@@ -74,36 +74,10 @@ static struct list *handlers;
 
 static heap int_general;
 
-void frame_trace(u64 *fp)
-{
-    for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame ++) {
-        if (!validate_virtual(fp - 1 , sizeof(u64)) ||
-            !validate_virtual(fp - 2, sizeof(u64)))
-            break;
-
-        u64 n = fp[-1];
-        if (n == 0)
-            break;
-        print_u64(u64_from_pointer(fp - 1));
-        rputs(":   ");
-        fp = pointer_from_u64(fp[-2]);
-        print_u64_with_sym(n);
-        rputs("\n");
-    }
-}
-
-void print_frame_trace_from_here(void)
-{
-    rputs("\nframe trace: \n");
-    u64 fp;
-    asm("mv %0, fp" : "=r" (fp));
-    frame_trace(pointer_from_u64(fp));
-}
-
 void print_stack(context_frame c)
 {
     rputs("\nframe trace: \n");
-    frame_trace(pointer_from_u64(c[FRAME_FP]));
+    print_frame_trace(pointer_from_u64(c[FRAME_FP]));
 
     rputs("\nstack trace:\n");
     u64 *sp = pointer_from_u64(c[FRAME_SP]);
