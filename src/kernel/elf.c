@@ -3,7 +3,11 @@
 
 //#define ELF_DEBUG
 #ifdef ELF_DEBUG
-#define elf_debug(x, ...) do {rprintf("ELF: " x, ##__VA_ARGS__);} while(0)
+#ifdef KERNEL
+#define elf_debug(x, ...) do {tprintf(sym(elf), 0, x, ##__VA_ARGS__);} while(0)
+#else
+#define elf_debug(x, ...) do {rprintf(" ELF: " x, ##__VA_ARGS__);} while(0)
+#endif
 #else
 #define elf_debug(x, ...)
 #endif

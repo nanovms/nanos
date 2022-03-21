@@ -119,13 +119,19 @@ void thread_log_internal(thread t, const char *desc, ...)
     vlist ap;
     vstart (ap, desc);
     buffer b = little_stack_buffer(512);
+#ifndef CONFIG_TRACELOG
     bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
+#endif
     if (t->name[0] != '\0')
         bprintf(b, "[%s] ", t->name);
     buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
     vbprintf(b, f, &ap);
     push_u8(b, '\n');
+#ifdef CONFIG_TRACELOG
+    tprintf(sym(thread), t->tracelog_attrs, "%b", b);
+#else
     buffer_print(b);
+#endif
 }
 
 static inline void check_stop_conditions(thread t)
@@ -315,6 +321,7 @@ define_closure_function(1, 0, void, free_thread,
     if (t->p->pid != t->tid)
         deallocate_u64((heap)get_unix_heaps()->processes, t->tid, 1);
     deallocate(heap_locked(get_kernel_heaps()), t, sizeof(struct thread));
+    /* TODO: Intentionally leaking tracelog_attrs; no accounting for attrs lifetime... */
 }
 
 thread create_thread(process p, u64 tid)
@@ -391,6 +398,14 @@ thread create_thread(process p, u64 tid)
     spin_lock(&p->threads_lock);
     rbtree_insert_node(p->threads, &t->n);
     spin_unlock(&p->threads_lock);
+#ifdef CONFIG_TRACELOG
+    t->tracelog_attrs = allocate_tuple();
+    if (t->tracelog_attrs == INVALID_ADDRESS) {
+        deallocate_bitmap(t->affinity);
+        goto fail_affinity;
+    }
+    set(t->tracelog_attrs, sym(tid), aprintf(h, "%d", t->tid));
+#endif
     return t;
   fail_affinity:
     deallocate_notify_set(t->signalfds);

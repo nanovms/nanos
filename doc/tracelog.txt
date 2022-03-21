@@ -1,0 +1,124 @@
+Nanos contains a general-purpose tracing facility for instrumenting code
+throughout the kernel. While the ftrace facility is designed to profile
+function execution times, the tracelog records discrete entries of formatted
+text accompanied by a timestamp, node (cpu) number, tag symbol to be used as a
+handle, and optional attributes which allow tracing only entries that match a
+given set of rules.
+
+The tracelog was designed to minimize the cost of adding trace entries. Each
+cpu has a dedicated trace buffer, avoiding the need to take a lock when adding
+trace data, and only a single compare-and-swap operation is necessary to set a
+"busy" bit (however this only fails on a race with a "collate" task replacing
+the buffer with a new one, so it is conceivable that there might only ever be
+a single "spin" iteration). Memory allocations for buffer space are designed
+to occur within said collate task, scheduled either when an upper threshold of
+buffer capacity has been reached or a request is made (currently only via
+http) for trace data. That said, buffer allocations by the producer (via
+buffer_extend) could occur as a last resort should a trace buffer reach
+capacity before a collate task could exchange it with a new one.
+
+The producer interface for the tracelog consists of two functions:
+
+void tprintf(symbol tag, tuple attrs, const char *format, ...);
+void vtprintf(symbol tag, tuple attrs, const char *format, vlist *ap);
+
+These work like other formatted print functions in the kernel with the
+addition of a tag symbol and an optional set of attributes that may be used to
+filter trace entries prior to recording them in memory. The interface tries to
+afford the user some flexibility in forming a trace entry by allowing it to be
+built across multiple tprintf (or vtprintf) invocations; the trace entry is
+terminated on a print ending with a newline. As such, each trace entry *must*
+be terminated with a newline to be properly recorded.
+
+As mentioned above, the collate task is scheduled to run as a result of either
+a tracelog buffer nearing capacity or a request for up-to-date trace data
+being received. It merges the individual cpu trace buffers that are first
+pruned off of the cpuinfos (via a CAS with a fresh buffer), producing a linked
+list of trace entries that may be finally consumed when the trace data is
+downloaded. While the potential exists for keeping trace data resident in the
+kernel and performing operations on that data in situ, the functionality is
+currently limited to bulk downloading the trace data via a crude http
+interface intended to be used with utilities like curl or wget. Trace data is
+deleted as it is downloaded.
+
+Tracelog support is built by specifying TRACE=tracelog on the make command
+line. Tracing for individual parts of the kernel (enumerated in
+src/debug_all.h) may be enabled via a comma-delimited list in the DEBUG make
+variable, with DEBUG=all enabling tracing for all areas of the kernel. For
+example,
+
+   make TRACE=tracelog DEBUG=all run
+
+runs Nanos with tracing everywhere in the kernel, while
+
+   make TRACE=tracelog DEBUG=sched,pf run
+
+runs with only scheduling and pagefault traces enabled.
+
+The tracelog facility exposes a few parameters that may be configured within a
+"tracelog" tuple in the root of the manifest:
+
+disable: This flag disables tracing on bootup. This allows the user to
+explicitly enable tracing (e.g. via the http interface, as described below)
+when needed, avoiding the capture of unneeded trace data.
+
+alloc_size: This specifies the size used to allocate new tracelog buffers,
+defaulting to TRACELOG_DEFAULT_BUFFER_SIZE. Increasing the allocation size
+will delay allocation of new buffers. This may be useful when tracing
+timing-sensitive execution that would otherwise be disrupted by the collate
+task and heap allocations for new trace buffers.
+
+trace_tags: The presence of this tuple will cause trace entries to be recorded
+only if they match specified tags and attributes. Each attribute of this tuple
+represents a tag, and the associated value is either a flag, indicating that
+all trace entries with such a tag should be recorded, or another tuple
+representing which trace attribute(s) should be selected. For example, this
+entry indicates that all trace entries with the "sched" and "thread" tags
+should be recorded:
+
+   tracelog:(trace_tags:(sched:t thread:t))
+
+while this entry causes only threads with a tid of 2 to be recorded:
+
+   tracelog:(trace_tags:(thread:(tid:2)))
+
+A set of acceptable values for a trace attribute may be expressed using a
+vector. This example will select thread traces for a tid of either 2 or 3:
+
+   tracelog:(trace_tags:(thread:(tid:[2 3])))
+
+Note that the tracelog configuration tuple is not parsed until after the
+filesystem is mounted, so any trace entries recorded prior this point will not
+have such filters applied.
+
+Retrieving tracelog data:
+
+An HTTP interface allows the tracelog to be retrieved as bulk data using a
+program like curl or wget.
+
+Trace data may be retrieved from a running Nanos image via the tracelog HTTP
+interface:
+
+$ curl -s -XGET http://127.0.0.1:9091/tracelog | tail
+[2.998344, 0, virtio_net] input: len 152
+[2.998344, 0, mutex] mutex 0xffffc0000045d0c0, wait 1, ra 0xffffffff80045bde
+[2.998345, 0, mutex]    ctx 0xffffc00000a28000, turn 0x0000000000000000
+[2.998346, 0, mutex]    add ci 0xffff80010002a000 to tail, prev 0x0000000000000000
+[2.998348, 0, mutex] mutex 0xffffc0000045d0c0, ctx 0xffffc00000a28000, ra 0xffffffff800e137d
+[2.998349, 0, virtqueue] virtqueue_fill: ENTRY: vq virtio net rx: entries 256, desc_idx 7, avail->idx 263, avail->flags 0x0
+[2.998350, 0, sched]  run: direct_receive_service state: kernel context: 0x0000000000000000
+[2.998372, 0, mutex] mutex 0xffffc0000045d1c0, wait 1, ra 0xffffffff80045bde
+[2.998373, 0, mutex]    ctx 0xffffc00000a28000, turn 0x0000000000000000
+[2.998373, 0, mutex]    add ci 0xffff80010002a000 to tail, prev 0x0000000000000000
+
+Trace entries are consumed when they are downloaded, so multiple requests may
+be concatenated to form a complete log.
+
+$ curl -s -XGET http://127.0.0.1:9091/tracelog > log
+$ curl -s -XGET http://127.0.0.1:9091/tracelog >> log
+
+There are some URI variants which allow control of tracing:
+
+tracelog/enable - turns on tracing
+tracelog/disable - turns off tracing
+tracelog/clear - removes trace data stored in the kernel (does not affect enable state)

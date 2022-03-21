@@ -3,7 +3,7 @@
 //#define XENNET_DEBUG
 //#define XENNET_DEBUG_DATA
 #ifdef XENNET_DEBUG
-#define xennet_debug(x, ...) do {rprintf("XNET: " x "\n", ##__VA_ARGS__);} while(0)
+#define xennet_debug(x, ...) do {tprintf(sym(xennet), 0, x "\n", ##__VA_ARGS__);} while(0)
 #else
 #define xennet_debug(x, ...)
 #endif

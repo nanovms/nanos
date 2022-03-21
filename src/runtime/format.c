@@ -97,6 +97,7 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
     }
 }
 
+// XXX fixme
 /* XXX the various debug stuff needs to be folded into one log facility...somewhere */
 void log_vprintf(const char *prefix, const char *log_format, vlist *a)
 {

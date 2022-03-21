@@ -35,9 +35,10 @@
      woken or terminated.
  */
 
+
 //#define BLOCKQ_DEBUG
 #ifdef BLOCKQ_DEBUG
-#define blockq_debug(x, ...) do {log_printf("  BQ", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define blockq_debug(x, ...) do {tprintf(sym(blockq), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
 #define blockq_debug(x, ...)
 #endif

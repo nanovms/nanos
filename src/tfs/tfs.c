@@ -3,7 +3,11 @@
 //#define TFS_DEBUG
 //#define TFS_REPORT_SHA256
 #if defined(TFS_DEBUG)
+#ifdef KERNEL
+#define tfs_debug(x, ...) do {tprintf(sym(tfs), 0, x, ##__VA_ARGS__);} while(0)
+#else
 #define tfs_debug(x, ...) do {rprintf("TFS: " x, ##__VA_ARGS__);} while(0)
+#endif
 #else
 #define tfs_debug(x, ...)
 #endif
@@ -498,7 +502,7 @@ closure_function(5, 1, void, read_entire_complete,
 
 void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler c, status_handler sh)
 {
-    tfs_debug("filesystem_read_entire: t %v, bufheap %p, buffer_handler %p, status_handler %p\n",
+    tfs_debug("filesystem_read_entire: t %p, bufheap %p, buffer_handler %p, status_handler %p\n",
               t, bufheap, c, sh);
     fsfile f;
     if (!(f = table_find(fs->files, t)) || (f == INVALID_ADDRESS)) {
@@ -704,8 +708,8 @@ define_closure_function(2, 1, void, uninited_complete,
     while (buffer_length(u->op_queue) > 0) {
         assert(buffer_length(u->op_queue) % sizeof(uninited_queued_op) == 0);
         uninited_queued_op uqo = buffer_ref(u->op_queue, 0);
-        tfs_debug("%s: issuing op, fs %p, sg %p, m %p, blocks %R, op %F\n",
-                  __func__, u->fs, uqo->sg, uqo->m, uqo->blocks, uqo->op);
+        tfs_debug("%s: issuing op, fs %p, sg %p, m %p, blocks %R, write %d\n",
+                  __func__, u->fs, uqo->sg, uqo->m, uqo->blocks, uqo->write);
         if (uqo->sg)
             filesystem_storage_op(u->fs, uqo->sg, uqo->blocks, uqo->write, apply_merge(uqo->m));
         else

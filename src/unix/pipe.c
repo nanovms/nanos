@@ -2,7 +2,7 @@
 
 //#define PIPE_DEBUG
 #ifdef PIPE_DEBUG
-#define pipe_debug(x, ...) do {log_printf("PIPE", x, ##__VA_ARGS__);} while(0)
+#define pipe_debug(x, ...) do {tprintf(sym(pipe), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define pipe_debug(x, ...)
 #endif

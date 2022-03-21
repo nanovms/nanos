@@ -3,7 +3,7 @@
 
 //#define MGMT_DEBUG
 #ifdef MGMT_DEBUG
-#define mgmt_debug(x, ...) do {rprintf("MGMT: " x, ##__VA_ARGS__);} while(0)
+#define mgmt_debug(x, ...) do {tprintf(sym(mgmt), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define mgmt_debug(x, ...)
 #endif

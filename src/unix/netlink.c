@@ -3,6 +3,13 @@
 #include <lwip.h>
 #include <socket.h>
 
+//#define NETLINK_DEBUG
+#ifdef NETLINK_DEBUG
+#define nl_debug(x, ...) do {tprintf(sym(netlink), 0, x "\n", ##__VA_ARGS__);} while(0)
+#else
+#define nl_debug(x, ...)
+#endif
+
 #define NL_PID_KERNEL   0
 
 struct sockaddr_nl {
@@ -183,13 +190,6 @@ enum {
 };
 
 #define NL_QUEUE_MAX_LEN    64
-
-//#define NETLINK_DEBUG
-#ifdef NETLINK_DEBUG
-#define nl_debug(x, ...)    rprintf("NL: " x "\n", ##__VA_ARGS__)
-#else
-#define nl_debug(x, ...)
-#endif
 
 static struct {
     id_heap pids;

@@ -32,7 +32,7 @@
 //#define VIRTQUEUE_DEBUG
 //#define VIRTQUEUE_DEBUG_VERBOSE
 #ifdef VIRTQUEUE_DEBUG
-# define virtqueue_debug rprintf
+# define virtqueue_debug(x, ...) do {tprintf(sym(virtqueue), 0, x, ##__VA_ARGS__);} while(0)
 #else
 # define virtqueue_debug(...) do { } while(0)
 #endif // defined(VIRTQUEUE_DEBUG)

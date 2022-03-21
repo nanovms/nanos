@@ -131,6 +131,10 @@ closure_function(6, 0, void, startup,
     tuple root = bound(root);
     filesystem fs = bound(fs);
 
+#ifdef CONFIG_TRACELOG
+    init_tracelog_config(root);
+#endif
+
     /* kernel process is used as a handle for unix */
     process kp = init_unix(kh, root, fs);
     if (kp == INVALID_ADDRESS) {

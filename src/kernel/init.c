@@ -179,7 +179,7 @@ closure_function(2, 2, void, fsstarted,
    just pick on the single pagecache... */
 
 #ifdef MM_DEBUG
-#define mm_debug(x, ...) do {rprintf("MM:   " x, ##__VA_ARGS__);} while(0)
+#define mm_debug(x, ...) do {tprintf(sym(mm), 0, x, ##__VA_ARGS__);} while(0)
 #else
 #define mm_debug(x, ...) do { } while(0)
 #endif
@@ -338,13 +338,14 @@ void kernel_runtime_init(kernel_heaps kh)
     reclaim_regions();          /* for pc: no accessing regions after this point */
     shutdown_completions = allocate_vector(locked, SHUTDOWN_COMPLETIONS_SIZE);
 
+    init_debug("init_kernel_contexts");
+    init_kernel_contexts((heap)heap_page_backed(kh));
+
     init_debug("init_interrupts");
     init_interrupts(kh);
 
     init_debug("clock");
     init_clock();
-    init_debug("init_kernel_contexts");
-    init_kernel_contexts((heap)heap_page_backed(kh));
 
     init_debug("init_scheduler");
     init_scheduler(locked);
@@ -366,6 +367,11 @@ void kernel_runtime_init(kernel_heaps kh)
     count_cpus_present();
     init_scheduler_cpus(misc);
     start_secondary_cores(kh);
+
+#ifdef CONFIG_TRACELOG
+    init_debug("init_tracelog");
+    init_tracelog(locked);
+#endif
 
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);

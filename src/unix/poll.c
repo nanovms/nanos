@@ -2,7 +2,7 @@
 
 //#define EPOLL_DEBUG
 #ifdef EPOLL_DEBUG
-#define epoll_debug(x, ...) do {log_printf("POLL", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define epoll_debug(x, ...) do {tprintf(sym(poll), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
 #else
 #define epoll_debug(x, ...)
 #endif

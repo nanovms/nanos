@@ -184,3 +184,20 @@ void __attribute__((noreturn)) context_switch_finish(context prev, context next,
     ((void (*)(u64, u64))a)(arg0, arg1);
     runloop();
 }
+
+#ifndef CONFIG_TRACELOG
+void tprintf(symbol tag, tuple attrs, const char *format, ...)
+{
+    vlist a;
+    buffer b = little_stack_buffer(256);
+    vstart(a, format);
+    buffer f = alloca_wrap_buffer(format, runtime_strlen(format));
+    bprintf(b, "[%T, %d, %v", now(CLOCK_ID_MONOTONIC), current_cpu()->id, tag);
+    if (attrs)
+        bprintf(b, " %v", attrs);
+    bprintf(b, "] ");
+    vbprintf(b, f, &a);
+    vend(a);
+    buffer_print(b);
+}
+#endif

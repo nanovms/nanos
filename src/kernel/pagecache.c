@@ -20,9 +20,12 @@ typedef void *nanos_thread;
 #include <pagecache.h>
 #include <pagecache_internal.h>
 
-//#define PAGECACHE_DEBUG
 #if defined(PAGECACHE_DEBUG)
+#ifdef KERNEL
+#define pagecache_debug(x, ...) do {tprintf(sym(pagecache), 0, x, ##__VA_ARGS__);} while(0)
+#else
 #define pagecache_debug(x, ...) do {rprintf("PGC: " x, ##__VA_ARGS__);} while(0)
+#endif
 #else
 #define pagecache_debug(x, ...)
 #endif

@@ -160,6 +160,7 @@ endif
 
 INCLUDES= \
 	-I$(CURDIR) \
+	-I$(OUTDIR) \
 	-I$(ARCHDIR) \
 	-I$(LWIPDIR)/src/include \
 	-I$(MBEDTLS_DIR)/include \

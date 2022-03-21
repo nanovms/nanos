@@ -369,20 +369,26 @@ closure_function(2, 1, void, each_http_request,
         }
         top_len++;
     }
-    buffer_consume(rel_uri, top_len);
 
+    http_listener_registrant match = 0;
+    list_foreach(&hl->registrants, l) {
+        http_listener_registrant r = struct_from_list(l, http_listener_registrant, l);
+        if (top_len == runtime_strlen(r->uri) &&
+            runtime_memcmp(top, r->uri, top_len) == 0) {
+            match = r;
+            break;
+        }
+    }
+
+    buffer_consume(rel_uri, top_len);
     if (buffer_length(rel_uri) > 0)
         set(v, sym(relative_uri), rel_uri);
     else
         deallocate_buffer(rel_uri);
 
-    list_foreach(&hl->registrants, l) {
-        http_listener_registrant r = struct_from_list(l, http_listener_registrant, l);
-        if (top_len == runtime_strlen(r->uri) &&
-            runtime_memcmp(top, r->uri, top_len) == 0) {
-            apply(r->each, method, bound(out), v);
-            return;
-        }
+    if (match) {
+        apply(match->each, method, bound(out), v);
+        return;
     }
   not_found:
     send_http_response(bound(out), timm("status", "404 Not Found"),
