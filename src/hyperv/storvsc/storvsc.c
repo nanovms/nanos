@@ -732,7 +732,7 @@ closure_function(5, 0, void, storvsc_read_capacity_done,
 
     block_io in = closure(s->general, storvsc_read, s);
     block_io out = closure(s->general, storvsc_write, s);
-    apply(bound(a), storage_init_req_handler(&s->req_handler, in, out), s->capacity, -1);
+    apply(bound(a), storage_init_req_handler(&s->req_handler, in, out), s->capacity, lun);
   out:
     closure_finish();
 }
