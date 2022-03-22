@@ -241,6 +241,26 @@ struct scsi_res_inquiry
     u8 vendor_specific1[SID_VENDOR_SPECIFIC_1_SIZE];
 } __attribute__((packed));
 
+/* Vital Product Data page codes */
+#define SCSI_VPD_DEVID  0x83
+
+struct scsi_devid_desc
+{
+    u8 byte0;
+    u8 byte1;
+    u8 reserved;
+    u8 length;
+    char id[];
+} __attribute__((packed));
+
+struct scsi_res_inquiry_vpd_devid
+{
+    u8 device;
+    u8 page_code;
+    u16 length;
+    struct scsi_devid_desc desc[];
+} __attribute__((packed));
+
 struct scsi_cdb_readwrite_16
 {
     u8 opcode;
