@@ -127,6 +127,10 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
 static sysreturn netsock_accept4(struct sock *sock, struct sockaddr *addr,
         socklen_t *addrlen, int flags);
 static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen);
+static sysreturn netsock_getsockopt(struct sock *sock, int level,
+                                    int optname, void *optval, socklen_t *optlen);
+static sysreturn netsock_setsockopt(struct sock *sock, int level,
+                                    int optname, void *optval, socklen_t optlen);
 static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
         int flags, struct sockaddr *dest_addr, socklen_t addrlen);
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
@@ -1155,6 +1159,8 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     s->sock.connect = netsock_connect;
     s->sock.accept4 = netsock_accept4;
     s->sock.getsockname = netsock_getsockname;
+    s->sock.getsockopt = netsock_getsockopt;
+    s->sock.setsockopt = netsock_setsockopt;
     s->sock.sendto = netsock_sendto;
     s->sock.recvfrom = netsock_recvfrom;
     s->sock.sendmsg = netsock_sendmsg;
@@ -2119,21 +2125,11 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     return rv;
 }
 
-sysreturn setsockopt(int sockfd,
-                     int level,
-                     int optname,
-                     void *optval,
-                     socklen_t optlen)
+static sysreturn netsock_setsockopt(struct sock *sock, int level,
+                                    int optname, void *optval, socklen_t optlen)
 {
-    if (!validate_user_memory(optval, optlen, false))
-        return -EFAULT;
-    struct sock *sock = resolve_socket(current->p, sockfd);
-    netsock s = get_netsock(sock);
+    netsock s = (netsock)sock;
     sysreturn rv;
-    if (!s) {
-        rv = -EOPNOTSUPP;
-        goto out;
-    }
     switch (level) {
     case IPPROTO_IPV6:
         switch (optname) {
@@ -2215,25 +2211,18 @@ sysreturn setsockopt(int sockfd,
     goto out;
 unimplemented:
     msg_warn("setsockopt unimplemented: fd %d, level %d, optname %d\n",
-	    sockfd, level, optname);
+             sock->fd, level, optname);
     rv = 0;
 out:
     socket_release(sock);
     return rv;
 }
 
-sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
+static sysreturn netsock_getsockopt(struct sock *sock, int level,
+                                    int optname, void *optval, socklen_t *optlen)
 {
-    if (!validate_user_memory(optlen, sizeof(socklen_t), true) ||
-            !validate_user_memory(optval, *optlen, true))
-        return -EFAULT;
-    struct sock *sock = resolve_socket(current->p, sockfd);
-    netsock s = get_netsock(sock);
+    netsock s = (netsock)sock;
     sysreturn rv;
-    if (!s) {
-        rv = -EOPNOTSUPP;
-        goto out;
-    }
     net_debug("sock %d, type %d, thread %ld, level %d, optname %d\n, optlen %d\n",
         s->sock.fd, s->sock.type, current->tid, level, optname,
         optlen ? *optlen : -1);
@@ -2342,11 +2331,36 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
     goto out;
 unimplemented:
     msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
-        sockfd, level, optname);
+            sock->fd, level, optname);
     rv = -ENOPROTOOPT;
 out:
     socket_release(sock);
     return rv;
+}
+
+sysreturn setsockopt(int sockfd, int level, int optname, void *optval, socklen_t optlen)
+{
+    if (!validate_user_memory(optval, optlen, false))
+        return -EFAULT;
+    struct sock *sock = resolve_socket(current->p, sockfd);
+    if (!sock->setsockopt) {
+        socket_release(sock);
+        return -EOPNOTSUPP;
+    }
+    return sock->setsockopt(sock, level, optname, optval, optlen);
+}
+
+sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
+{
+    if (!validate_user_memory(optlen, sizeof(socklen_t), true) ||
+            !validate_user_memory(optval, *optlen, true))
+        return -EFAULT;
+    struct sock *sock = resolve_socket(current->p, sockfd);
+    if (!sock->getsockopt) {
+        socket_release(sock);
+        return -EOPNOTSUPP;
+    }
+    return sock->getsockopt(sock, level, optname, optval, optlen);
 }
 
 void register_net_syscalls(struct syscall *map)

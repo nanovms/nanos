@@ -748,6 +748,27 @@ static sysreturn unixsock_getsockname(struct sock *sock, struct sockaddr *addr, 
     return 0;
 }
 
+static sysreturn unixsock_setsockopt(struct sock *sock, int level,
+                                     int optname, void *optval, socklen_t optlen)
+{
+    sysreturn rv;
+    switch (level) {
+    case SOL_SOCKET:
+        switch (optname) {
+        case SO_REUSEADDR:
+            rv = 0; /* to mimic Linux behavior, return 0 even if not actually implemented */
+            break;
+        default:
+            rv = -EOPNOTSUPP;
+        }
+        break;
+    default:
+        rv = -EOPNOTSUPP;
+    }
+    socket_release(sock);
+    return rv;
+}
+
 sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
         struct sockaddr *dest_addr, socklen_t addrlen)
 {
@@ -912,6 +933,7 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->sock.connect = unixsock_connect;
     s->sock.accept4 = unixsock_accept4;
     s->sock.getsockname = unixsock_getsockname;
+    s->sock.setsockopt = unixsock_setsockopt;
     s->sock.sendto = unixsock_sendto;
     s->sock.recvfrom = unixsock_recvfrom;
     s->sock.sendmsg = unixsock_sendmsg;

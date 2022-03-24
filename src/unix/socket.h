@@ -67,6 +67,10 @@ struct sock {
     sysreturn (*accept4)(struct sock *sock, struct sockaddr *addr,
             socklen_t *addrlen, int flags);
     sysreturn (*getsockname)(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen);
+    sysreturn (*getsockopt)(struct sock *sock, int level,
+                            int optname, void *optval, socklen_t *optlen);
+    sysreturn (*setsockopt)(struct sock *sock, int level,
+                            int optname, void *optval, socklen_t optlen);
     sysreturn (*sendto)(struct sock *sock, void *buf, u64 len, int flags,
              struct sockaddr *dest_addr, socklen_t addrlen);
     sysreturn (*recvfrom)(struct sock *sock, void *buf, u64 len, int flags,
