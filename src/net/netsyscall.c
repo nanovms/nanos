@@ -18,16 +18,17 @@
 #define net_debug(x, ...)
 #endif
 
-#define SIOCGIFCONF 0x8912
-#define SIOCGIFFLAGS    0x8913
-#define SIOCSIFFLAGS    0x8914
-#define SIOCGIFADDR 0x8915
-#define SIOCSIFADDR     0x8916
-#define SIOCGIFNETMASK  0x891B
-#define SIOCSIFNETMASK  0x891C
-#define SIOCGIFMTU      0x8921
-#define SIOCSIFMTU      0x8922
-#define SIOCGIFINDEX    0x8933
+#define SIOCGIFNAME    0x8910
+#define SIOCGIFCONF    0x8912
+#define SIOCGIFFLAGS   0x8913
+#define SIOCSIFFLAGS   0x8914
+#define SIOCGIFADDR    0x8915
+#define SIOCSIFADDR    0x8916
+#define SIOCGIFNETMASK 0x891B
+#define SIOCSIFNETMASK 0x891C
+#define SIOCGIFMTU     0x8921
+#define SIOCSIFMTU     0x8922
+#define SIOCGIFINDEX   0x8933
 
 #define MTU_MAX (32 * KB)
 
@@ -752,13 +753,22 @@ closure_function(1, 6, sysreturn, socket_write,
     return socket_write_internal(s, source, length, 0, 0, 0, t, bh, completion);
 }
 
-closure_function(1, 2, sysreturn, netsock_ioctl,
-                 netsock, s,
-                 unsigned long, request, vlist, ap)
+/* socket configuration controls; not netsock specific, but reliant on lwIP calls */
+sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
 {
-    netsock s = bound(s);
     net_debug("sock %d, request 0x%x\n", s->sock.fd, request);
     switch (request) {
+    case SIOCGIFNAME: {
+        struct ifreq *ifreq = varg(ap, struct ifreq *);
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
+            return -EFAULT;
+        lwip_lock();
+        struct netif *netif = netif_get_by_index(ifreq->ifr.ifr_ivalue);
+        lwip_unlock();
+        ifreq->ifr_name[IFNAMSIZ-1] = '\0';
+        netif_name_cpy(ifreq->ifr_name, netif);
+        return 0;
+    }
     case SIOCGIFCONF: {
         struct ifconf *ifconf = varg(ap, struct ifconf *);
         if (!validate_user_memory(ifconf, sizeof(struct ifconf), true))
@@ -935,6 +945,18 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         ifreq->ifr.ifr_ivalue = netif->num;
         return 0;
     }
+    default:
+        return ioctl_generic(&s->f, request, ap);
+    }
+}
+
+closure_function(1, 2, sysreturn, netsock_ioctl,
+                 netsock, s,
+                 unsigned long, request, vlist, ap)
+{
+    netsock s = bound(s);
+    net_debug("sock %d, request 0x%x\n", s->sock.fd, request);
+    switch (request) {
     case FIONREAD: {
         int *nbytes = varg(ap, int *);
         *nbytes = 0;
