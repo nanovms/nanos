@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -110,6 +111,7 @@ static void uds_stream_test(void)
     int s3[CLIENT_COUNT];
     struct sockaddr_un addr;
     socklen_t addr_len = sizeof(addr);
+    struct sockaddr_un ret_addr;
     struct stat s;
     pthread_t pt;
     uint8_t writeBuf[LARGEBUF_SIZE];
@@ -142,6 +144,9 @@ static void uds_stream_test(void)
     test_assert(bind(s1, (struct sockaddr *) &addr, addr_len) == 0);
     test_assert(stat(SERVER_SOCKET_PATH, &s) == 0);
     test_assert((s.st_mode & S_IFMT) == S_IFSOCK);
+    test_assert(getsockname(s1, (struct sockaddr *) &ret_addr, &addr_len) == 0);
+    test_assert(addr_len == offsetof(struct sockaddr_un, sun_path) + sizeof(SERVER_SOCKET_PATH));
+    test_assert(!strcmp(addr.sun_path, ret_addr.sun_path));
     test_assert(bind(s1, (struct sockaddr *) &addr, addr_len) == -1);
     test_assert(errno == EADDRINUSE);
 

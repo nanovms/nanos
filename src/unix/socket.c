@@ -735,6 +735,19 @@ out:
     return rv;
 }
 
+static sysreturn unixsock_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen)
+{
+    unixsock s = (unixsock)sock;
+    unixsock_lock(s);
+    socklen_t len = offsetof(struct sockaddr_un *, sun_path) +
+                    runtime_strlen(s->local_addr.sun_path) + 1;
+    runtime_memcpy(addr, &s->local_addr, MIN(len, *addrlen));
+    unixsock_unlock(s);
+    socket_release(sock);
+    *addrlen = len;
+    return 0;
+}
+
 sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
         struct sockaddr *dest_addr, socklen_t addrlen)
 {
@@ -898,6 +911,7 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->sock.listen = unixsock_listen;
     s->sock.connect = unixsock_connect;
     s->sock.accept4 = unixsock_accept4;
+    s->sock.getsockname = unixsock_getsockname;
     s->sock.sendto = unixsock_sendto;
     s->sock.recvfrom = unixsock_recvfrom;
     s->sock.sendmsg = unixsock_sendmsg;
