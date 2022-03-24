@@ -682,8 +682,12 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
     err_t err = ERR_OK;
 
     /* XXX check how much we can queue, maybe make udp bh */
-    /* XXX check if remote endpoint set? let LWIP check? */
     lwip_lock();
+    if (!dest_addr && !udp_is_flag_set(s->info.udp.lw, UDP_FLAGS_CONNECTED)) {
+        lwip_unlock();
+        return -EDESTADDRREQ;
+    }
+
     struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
     if (!pbuf) {
         lwip_unlock();

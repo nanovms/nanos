@@ -125,6 +125,9 @@ static void netsock_test_basic(int sock_type)
         netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 1);
         netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 0);
         tx_fd = fd;
+        /* Test that writing to an unconnected datagram socket gives an error. */
+        test_assert(write(tx_fd, &ret, sizeof(ret)) < 0 && errno == EDESTADDRREQ);
+        test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
     }
     test_assert((recv(tx_fd, tx_buf, sizeof(tx_buf), MSG_DONTWAIT) == -1) && (errno == EAGAIN));
     test_assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
