@@ -207,6 +207,14 @@ cmd_xxd_r=	$(XXD) -r $< $@
 
 include ../../rules.mk
 
+# check riscv64 gcc version for 9.3.0, lowest known working version (from Ubuntu 20)
+GCCRAWVER= $(shell $(CC) -dumpfullversion -dumpversion)
+GCCVER= $(shell echo $(GCCRAWVER) | awk -F'.' '{ printf "%02d%02d%02d", $$1, $$2, $$3 }')
+GCCOK= $(shell expr $(GCCVER) \>= 090300)
+ifeq ($(GCCOK), 0)
+$(error gcc version 9.3.0 or higher required to build RISC-V: $(CC) is only $(GCCRAWVER))
+endif
+
 MKFS=		$(TOOLDIR)/mkfs
 BOOTIMG=	$(OBJDIR)/boot-stub.img
 KERNEL=		$(OBJDIR)/bin/kernel.img

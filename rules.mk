@@ -117,6 +117,14 @@ ifeq ($(ARCH),x86_64)
 KERNCFLAGS+=    -mno-sse \
 		-mno-sse2
 endif
+
+ifeq ($(ARCH),aarch64)
+OUTLINE_ATOMICS=	$(shell $(CC) --help=target | grep -c outline-atomics)
+ifneq ($(OUTLINE_ATOMICS),0)
+KERNCFLAGS+=	-mno-outline-atomics
+endif
+endif
+
 KERNCFLAGS+=	-fno-omit-frame-pointer
 KERNLDFLAGS=	--gc-sections -z max-page-size=4096 -L $(OUTDIR)/klib
 
