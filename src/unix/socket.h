@@ -120,11 +120,7 @@ static inline void socket_flush_q(struct sock *s)
     blockq_flush(s->txbq);
 }
 
-static inline sysreturn socket_ioctl(struct sock *s, unsigned long request,
-        vlist ap)
-{
-    return ioctl_generic(&s->f, request, ap);
-}
+sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap);
 
 static inline boolean validate_msghdr(const struct msghdr *mh, boolean write)
 {

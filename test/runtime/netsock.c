@@ -1,5 +1,6 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <net/if.h>
 #include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -472,6 +473,21 @@ static void netsock_test_rcvbuf(void)
     test_assert((close(tx_fd) == 0) && (close(rx_fd) == 0));
 }
 
+static void netsock_test_netconf(void)
+{
+    /* SIOC?IF* ioctls aren't netsock-specific - in fact, netdevice(7)
+       declares that they may be performed on any socket "regardless of the
+       family or type" (and we'll use AF_UNIX here just to test this
+       assertion) - but here is as good a place as any to stash tests for
+       them. */
+    struct ifreq ifr;
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(fd > 0);
+    memset(&ifr, 0, sizeof(ifr));
+    ifr.ifr_ifindex = 1;
+    test_assert(ioctl(fd, SIOCGIFNAME, &ifr) == 0);
+}
+
 int main(int argc, char **argv)
 {
     setbuf(stdout, NULL);
@@ -483,6 +499,7 @@ int main(int argc, char **argv)
     netsock_test_nonblocking_connect();
     netsock_test_peek();
     netsock_test_rcvbuf();
+    netsock_test_netconf();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
