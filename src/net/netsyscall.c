@@ -682,8 +682,12 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
     err_t err = ERR_OK;
 
     /* XXX check how much we can queue, maybe make udp bh */
-    /* XXX check if remote endpoint set? let LWIP check? */
     lwip_lock();
+    if (!dest_addr && !udp_is_flag_set(s->info.udp.lw, UDP_FLAGS_CONNECTED)) {
+        lwip_unlock();
+        return -EDESTADDRREQ;
+    }
+
     struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
     if (!pbuf) {
         lwip_unlock();
@@ -2125,21 +2129,25 @@ sysreturn setsockopt(int sockfd,
     case SOL_SOCKET:
         switch (optname) {
         case SO_REUSEADDR:
+        case SO_KEEPALIVE:
+        case SO_BROADCAST:
             if (optlen != sizeof(int)) {
                 rv = -EINVAL;
                 goto out;
             }
+            u8 so_option = (optname == SO_REUSEADDR ? SOF_REUSEADDR :
+                            (optname == SO_KEEPALIVE ? SOF_KEEPALIVE : SOF_BROADCAST));
             lwip_lock();
             if ((s->sock.type == SOCK_STREAM) && s->info.tcp.lw) {
                 if (*((int *)optval))
-                    ip_set_option(s->info.tcp.lw, SOF_REUSEADDR);
+                    ip_set_option(s->info.tcp.lw, so_option);
                 else
-                    ip_reset_option(s->info.tcp.lw, SOF_REUSEADDR);
-            } else if (s->sock.type == SOCK_DGRAM){
+                    ip_reset_option(s->info.tcp.lw, so_option);
+            } else if (s->sock.type == SOCK_DGRAM) {
                 if (*((int *)optval))
-                    ip_set_option(s->info.udp.lw, SOF_REUSEADDR);
+                    ip_set_option(s->info.udp.lw, so_option);
                 else
-                    ip_reset_option(s->info.udp.lw, SOF_REUSEADDR);
+                    ip_reset_option(s->info.udp.lw, so_option);
             } else {
                 lwip_unlock();
                 rv = -EINVAL;
@@ -2247,11 +2255,15 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
             ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_REUSEADDR:
+        case SO_KEEPALIVE:
+        case SO_BROADCAST: {
+            u8 so_option = (optname == SO_REUSEADDR ? SOF_REUSEADDR :
+                            (optname == SO_KEEPALIVE ? SOF_KEEPALIVE : SOF_BROADCAST));
             lwip_lock();
             if ((s->sock.type == SOCK_STREAM) && s->info.tcp.lw) {
-                ret_optval.val = !!ip_get_option(s->info.tcp.lw, SOF_REUSEADDR);
-            } else if (s->sock.type == SOCK_DGRAM){
-                ret_optval.val = !!ip_get_option(s->info.udp.lw, SOF_REUSEADDR);
+                ret_optval.val = !!ip_get_option(s->info.tcp.lw, so_option);
+            } else if (s->sock.type == SOCK_DGRAM) {
+                ret_optval.val = !!ip_get_option(s->info.udp.lw, so_option);
             } else {
                 lwip_unlock();
                 rv = -EINVAL;
@@ -2260,6 +2272,7 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
             ret_optlen = sizeof(ret_optval.val);
             lwip_unlock();
             break;
+        }
         case SO_REUSEPORT:
             ret_optval.val = 0;
             ret_optlen = sizeof(ret_optval.val);

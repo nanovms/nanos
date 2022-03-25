@@ -59,6 +59,16 @@ static void *netsock_test_basic_thread(void *arg)
     return NULL;
 }
 
+static inline void netsock_toggle_and_check_sockopt(int fd, int level, int optname, int val)
+{
+    int v;
+    socklen_t len = sizeof(v);
+    test_assert(getsockopt(fd, level, optname, &v, &len) == 0 && v == !val);
+    v = val;
+    test_assert(setsockopt(fd, level, optname, &v, len) == 0);
+    test_assert(getsockopt(fd, level, optname, &v, &len) == 0 && v == val);
+}
+
 static void netsock_test_basic(int sock_type)
 {
     int fd, tx_fd;
@@ -87,6 +97,8 @@ static void netsock_test_basic(int sock_type)
         int val;
         socklen_t len = sizeof(val);
         test_assert(getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
+        netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_REUSEADDR, 1);
+        netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_KEEPALIVE, 1);
         test_assert(listen(fd, 1) == 0);
         test_assert(listen(fd, 1) == 0);    /* test listen() call on already listening socket */
         test_assert(getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 1);
@@ -95,19 +107,27 @@ static void netsock_test_basic(int sock_type)
 
         /* Change a TCP option on the listening socket and verify that the option is inherited by
          * the accepted socket. */
-        test_assert(getsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, &len) == 0 && val == 0);
-        val = 1;
-        test_assert(setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, len) == 0);
+        netsock_toggle_and_check_sockopt(fd, IPPROTO_TCP, TCP_NODELAY, 1);
         tx_fd = accept(fd, NULL, NULL);
         test_assert(tx_fd > 0);
         test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_NODELAY, &val, &len) == 0 && val == 1);
+
+        /* Also validate that SO_REUSEADDR and SO_KEEPALIVE are inherited. Linux follows this
+         * behavior, and it is explicitly supported by lwIP (see SOF_INHERITED). */
+        test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_REUSEADDR, &val, &len) == 0 && val == 1);
+        test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_KEEPALIVE, &val, &len) == 0 && val == 1);
         val = 0;
         test_assert(setsockopt(tx_fd, IPPROTO_TCP, TCP_NODELAY, &val, len) == 0);
 
         test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
         test_assert(close(fd) == 0);
     } else {
+        netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 1);
+        netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 0);
         tx_fd = fd;
+        /* Test that writing to an unconnected datagram socket gives an error. */
+        test_assert(write(tx_fd, &ret, sizeof(ret)) < 0 && errno == EDESTADDRREQ);
+        test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
     }
     test_assert((recv(tx_fd, tx_buf, sizeof(tx_buf), MSG_DONTWAIT) == -1) && (errno == EAGAIN));
     test_assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
