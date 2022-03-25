@@ -189,6 +189,98 @@ enum {
     IFA_FLAGS,
 };
 
+/* RTM_*ROUTE message payload */
+struct rtmsg {
+    u8 rtm_family;
+    u8 rtm_dst_len;
+    u8 rtm_src_len;
+    u8 rtm_tos;
+    u8 rtm_table;
+    u8 rtm_protocol;
+    u8 rtm_scope;
+    u8 rtm_type;
+    u32 rtm_flags;
+};
+
+/* rtmsg.rtm_table */
+enum {
+    RT_TABLE_UNSPEC = 0,
+    RT_TABLE_COMPAT = 252,
+    RT_TABLE_DEFAULT = 253,
+    RT_TABLE_MAIN = 254,
+    RT_TABLE_LOCAL = 255,
+};
+
+/* rtmsg.rtm_protocol */
+enum {
+    RTPROT_UNSPEC,
+    RTPROT_REDIRECT,
+    RTPROT_KERNEL,
+    RTPROT_BOOT,
+    RTPROT_STATIC,
+};
+
+/* rtmsg.rtm_type */
+enum {
+    RTN_UNSPEC,
+    RTN_UNICAST,
+    RTN_LOCAL,
+    RTN_BROADCAST,
+    RTN_ANYCAST,
+    RTN_MULTICAST,
+    RTN_BLACKHOLE,
+    RTN_UNREACHABLE,
+    RTN_PROHIBIT,
+    RTN_THROW,
+    RTN_NAT,
+    RTN_XRESOLVE,
+};
+
+/* rtmsg attributes */
+enum {
+    RTA_UNSPEC,
+    RTA_DST,
+    RTA_SRC,
+    RTA_IIF,
+    RTA_OIF,
+    RTA_GATEWAY,
+    RTA_PRIORITY,
+    RTA_PREFSRC,
+    RTA_METRICS,
+    RTA_MULTIPATH,
+    RTA_PROTOINFO,
+    RTA_FLOW,
+    RTA_CACHEINFO,
+    RTA_SESSION,
+    RTA_MP_ALGO,
+    RTA_TABLE,
+    RTA_MARK,
+    RTA_MFC_STATS,
+    RTA_VIA,
+    RTA_NEWDST,
+    RTA_PREF,
+    RTA_ENCAP_TYPE,
+    RTA_ENCAP,
+    RTA_EXPIRES,
+    RTA_PAD,
+    RTA_UID,
+    RTA_TTL_PROPAGATE,
+    RTA_IP_PROTO,
+    RTA_SPORT,
+    RTA_DPORT,
+    RTA_NH_ID
+};
+
+/* rtmsg.rtm_flags */
+#define RTM_F_NOTIFY	   0x100
+#define RTM_F_CLONED	   0x200
+#define RTM_F_EQUALIZE	   0x400
+#define RTM_F_PREFIX	   0x800
+#define RTM_F_LOOKUP_TABLE 0x1000
+#define RTM_F_FIB_MATCH	   0x2000
+#define RTM_F_OFFLOAD	   0x4000
+#define RTM_F_TRAP	   0x8000
+
 #define NL_QUEUE_MAX_LEN    64
 
 static struct {
@@ -238,7 +330,7 @@ static void nl_enqueue_ifinfo(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
     struct ifinfomsg *ifi = (struct ifinfomsg *)NLMSG_DATA(hdr);
     ifi->ifi_family = AF_UNSPEC;
     ifi->ifi_type = netif_is_loopback(netif) ? ARPHRD_LOOPBACK : ARPHRD_ETHER;
-    ifi->ifi_index = 1 + netif->num;
+    ifi->ifi_index = netif_get_index(netif);
     ifi->ifi_flags = ifflags_from_netif(netif);
     ifi->ifi_change = (u32)-1;
     struct rtattr *rta = (void*)ifi + NLMSG_ALIGN(sizeof(*ifi));
@@ -278,7 +370,7 @@ static void nl_enqueue_ifaddr(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
     ifa->ifa_prefixlen = 32 - lsb(ntohl(netmask.addr));
     ifa->ifa_flags = 0;
     ifa->ifa_scope = netif_is_loopback(netif) ? RT_SCOPE_HOST : RT_SCOPE_UNIVERSE;
-    ifa->ifa_index = 1 + netif->num;
+    ifa->ifa_index = netif_get_index(netif);
     struct rtattr *rta = (void*)ifa + NLMSG_ALIGN(sizeof(*ifa));
     rta->rta_len = RTA_LENGTH(sizeof(ip4_addr_t));
     rta->rta_type = IFA_ADDRESS;
@@ -287,6 +379,98 @@ static void nl_enqueue_ifaddr(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
     rta->rta_len = RTA_LENGTH(sizeof(netif->name) + 2);
     rta->rta_type = IFA_LABEL;
     netif_name_cpy(RTA_DATA(rta), netif);
+    nl_enqueue(s, hdr, resp_len);
+}
+
+enum {
+    RTMSG_TYPE_IF,
+    RTMSG_TYPE_GW
+};
+
+static void nl_enqueue_rtmsg(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, struct netif *netif, int rmtype)
+{
+    int resp_len;
+    boolean is_default = netif_default == netif;
+    const ip4_addr_t *addr = netif_ip4_addr(netif);
+    const ip4_addr_t *netmask = netif_ip4_netmask(netif);
+
+    switch (rmtype) {
+    case RTMSG_TYPE_IF:
+        resp_len = NLMSG_ALIGN(sizeof(struct nlmsghdr) + sizeof(struct rtmsg) +
+                               (RTA_SPACE(4) /* table */ +
+                                RTA_SPACE(sizeof(ip4_addr_t)) /* dst */ +
+                                RTA_SPACE(4) /* priority */ +
+                                RTA_SPACE(4) /* prefsrc */ +
+                                RTA_SPACE(4) /* oif */));
+        break;
+    case RTMSG_TYPE_GW:
+        resp_len = NLMSG_ALIGN(sizeof(struct nlmsghdr) + sizeof(struct rtmsg) +
+                               (RTA_SPACE(4) /* table */ +
+                                RTA_SPACE(4) /* priority */ +
+                                RTA_SPACE(sizeof(ip4_addr_t)) /* gateway */ +
+                                (is_default ? 0 : RTA_SPACE(sizeof(ip4_addr_t)) /* dst */) +
+                                RTA_SPACE(4) /* oif */));
+        break;
+    }
+    struct nlmsghdr *hdr = allocate(s->sock.h, resp_len);
+    if (hdr == INVALID_ADDRESS) {
+        msg_err("failed to allocate message\n");
+        return;
+    }
+    hdr->nlmsg_len = resp_len;
+    hdr->nlmsg_type = type;
+    hdr->nlmsg_flags = flags;
+    hdr->nlmsg_seq = seq;
+    hdr->nlmsg_pid = pid;
+    struct rtmsg *rtm = (struct rtmsg *)NLMSG_DATA(hdr);
+    rtm->rtm_family = AF_INET;
+    rtm->rtm_table = RT_TABLE_MAIN;
+    rtm->rtm_src_len = 0;
+    rtm->rtm_tos = 0;
+    rtm->rtm_protocol = (is_default && rmtype == RTMSG_TYPE_GW) ? RTPROT_STATIC : RTPROT_KERNEL;
+    rtm->rtm_scope = rmtype == RTMSG_TYPE_IF ? RT_SCOPE_LINK : RT_SCOPE_UNIVERSE;
+    rtm->rtm_type = RTN_UNICAST;
+    rtm->rtm_flags = 0;
+    rtm->rtm_dst_len = rmtype == RTMSG_TYPE_IF ? 32 - lsb(ntohl(netif->netmask.u_addr.ip4.addr)) :
+        (is_default ? 0 : 32);
+
+    struct rtattr *rta = (void*)rtm + NLMSG_ALIGN(sizeof(*rtm));
+    rta->rta_len = RTA_LENGTH(4);
+    rta->rta_type = RTA_TABLE;
+    *(u32 *)RTA_DATA(rta) = rtm->rtm_table;
+
+    if (!(rmtype == RTMSG_TYPE_GW && is_default)) {
+        rta = RTA_NEXT(rta);
+        rta->rta_len = RTA_LENGTH(sizeof(ip4_addr_t));
+        rta->rta_type = RTA_DST;
+        ip4_addr_t dest;
+        dest.addr = addr->addr & netmask->addr;
+        ip4_addr_copy(*(ip4_addr_t *)RTA_DATA(rta), dest);
+    }
+
+    rta = RTA_NEXT(rta);
+    rta->rta_len = RTA_LENGTH(4);
+    rta->rta_type = RTA_PRIORITY;
+    *(u32 *)RTA_DATA(rta) = 100;
+
+    if (rmtype == RTMSG_TYPE_GW) {
+        rta = RTA_NEXT(rta);
+        rta->rta_len = RTA_LENGTH(sizeof(ip4_addr_t));
+        rta->rta_type = RTA_GATEWAY;
+        ip4_addr_copy(*(ip4_addr_t *)RTA_DATA(rta), *(ip_2_ip4(&netif->gw)));
+    }
+
+    if (rmtype == RTMSG_TYPE_IF) {
+        rta = RTA_NEXT(rta);
+        rta->rta_len = RTA_LENGTH(sizeof(ip4_addr_t));
+        rta->rta_type = RTA_PREFSRC;
+        ip4_addr_copy(*(ip4_addr_t *)RTA_DATA(rta), *addr);
+    }
+
+    rta = RTA_NEXT(rta);
+    rta->rta_len = RTA_LENGTH(4);
+    rta->rta_type = RTA_OIF;
+    *(u32 *)RTA_DATA(rta) = netif_get_index(netif);
     nl_enqueue(s, hdr, resp_len);
 }
 
@@ -350,7 +534,7 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
             struct netif *netif = 0;
             lwip_lock();
             for (netif = netif_list; netif; netif = netif->next) {
-                if (netif->num + 1 == ifi->ifi_index) {
+                if (netif_get_index(netif) == ifi->ifi_index) {
                     nl_enqueue_ifinfo(s, RTM_NEWLINK, 0, hdr->nlmsg_seq, s->addr.nl_pid, netif);
                     break;
                 }
@@ -372,6 +556,35 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
                 for (struct netif *netif = netif_list; netif; netif = netif->next)
                     nl_enqueue_ifaddr(s, RTM_NEWADDR, NLM_F_MULTI, hdr->nlmsg_seq, s->addr.nl_pid,
                         netif, *netif_ip4_addr(netif), *netif_ip4_netmask(netif));
+                lwip_unlock();
+            }
+            nl_enqueue_done(s, hdr);
+        } else {
+            errno = EOPNOTSUPP;
+        }
+        break;
+    }
+    case RTM_GETROUTE: {
+        struct rtgenmsg *msg = (struct rtgenmsg *)NLMSG_DATA(hdr);
+        if (hdr->nlmsg_len < NLMSG_HDRLEN + sizeof(*msg)) {
+            errno = EINVAL;
+            break;
+        }
+        u8 af = msg->rtgen_family;
+        if (hdr->nlmsg_flags & NLM_F_DUMP) {
+            /* Presently only reporting IPv4 routes on the "main" table. */
+            if (af != AF_INET6) {
+                lwip_lock();
+                for (struct netif *netif = netif_list; netif; netif = netif->next) {
+                    /* No loopback reporting for main table. */
+                    if (netif->name[0] == 'l' && netif->name[1] == 'o')
+                        continue;
+                    if (!ip4_addr_cmp(ip_2_ip4(&netif->gw), IP4_ADDR_ANY4))
+                        nl_enqueue_rtmsg(s, RTM_NEWROUTE, NLM_F_MULTI, hdr->nlmsg_seq,
+                                         s->addr.nl_pid, netif, RTMSG_TYPE_GW);
+                    nl_enqueue_rtmsg(s, RTM_NEWROUTE, NLM_F_MULTI, hdr->nlmsg_seq,
+                                     s->addr.nl_pid, netif, RTMSG_TYPE_IF);
+                }
                 lwip_unlock();
             }
             nl_enqueue_done(s, hdr);
