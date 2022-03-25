@@ -8,8 +8,25 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <net/if.h>
 
-#define test_assert(expr) do { \
+#define DUMP_ROUTES
+//#define DEBUG_NETLINK
+
+#ifdef DUMP_ROUTES
+#define dump_routes(x, ...) do {printf(x, ##__VA_ARGS__);} while(0)
+#else
+#define dump_routes(x, ...)
+#endif
+
+#ifdef DEBUG_NETLINK
+#define debug_netlink(x, ...) do {printf(x, ##__VA_ARGS__);} while(0)
+#else
+#define debug_netlink(x, ...)
+#endif
+
+#define test_assert(expr) do {                  \
     if (!(expr)) { \
         printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
         exit(EXIT_FAILURE); \
@@ -41,8 +58,8 @@ static void assert_resp(struct nlmsghdr *resp_hdr, unsigned int len, unsigned in
     test_assert(resp_hdr->nlmsg_flags == flags);
 }
 
-static void recv_resp(int fd, struct msghdr *resp, unsigned int len, unsigned int type,
-                      unsigned int flags)
+static int recv_resp(int fd, struct msghdr *resp, unsigned int len, unsigned int type,
+                     unsigned int flags)
 {
     int ret;
     struct sockaddr_nl *addr = (struct sockaddr_nl *)resp->msg_name;
@@ -52,6 +69,7 @@ static void recv_resp(int fd, struct msghdr *resp, unsigned int len, unsigned in
     test_assert(resp->msg_namelen == sizeof(*addr));
     test_assert((addr->nl_family == AF_NETLINK) && (addr->nl_pid == 0));
     assert_resp((struct nlmsghdr *)resp->msg_iov[0].iov_base, len, type, flags);
+    return ret;
 }
 
 static void recv_resp_error(int fd, struct msghdr *resp, int err_number)
@@ -294,6 +312,93 @@ static void test_nonblocking(void)
     test_assert(close(fd) == 0);
 }
 
+static void test_getroute(int family)
+{
+    /* There is no guarantee that interfaces have been configured by the time
+       this runs, so just validate that we can walk the table without issues. */
+    int fd;
+    struct sockaddr_nl nladdr;
+    struct req {
+        struct nlmsghdr nlh;
+        struct rtgenmsg msg;
+    } req;
+    uint8_t buf[4096];
+    struct iovec iov;
+    struct msghdr msg;
+    int ret;
+
+    fd = netlink_open(&nladdr, 0);
+    nladdr.nl_pid = 0;
+    memset(&req, '\0', sizeof(req));
+    req.nlh.nlmsg_len = sizeof(req);
+    req.nlh.nlmsg_type = RTM_GETROUTE;
+    req.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+    req.nlh.nlmsg_pid = nladdr.nl_pid;
+    req.nlh.nlmsg_seq = 3;
+    iov.iov_base = buf;
+    msg.msg_name = &nladdr;
+    msg.msg_namelen = sizeof(nladdr);
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = NULL;
+    msg.msg_controllen = 0;
+    msg.msg_flags = 0;
+
+    req.msg.rtgen_family = family;
+    memcpy(iov.iov_base, &req, sizeof(req));
+    iov.iov_len = sizeof(req);
+    ret = sendmsg(fd, &msg, 0);
+    test_assert(ret == sizeof(req));
+    iov.iov_len = sizeof(buf);
+    int avail = recv_resp(fd, &msg, sizeof(struct rtmsg), RTM_NEWROUTE, NLM_F_MULTI);
+
+    char ifname[IF_NAMESIZE];
+    char dest[INET_ADDRSTRLEN];
+    char gwaddr[INET_ADDRSTRLEN];
+
+    dump_routes("Kernel %s routing table\n", family == AF_INET ? "IP" : "IPv6");
+    dump_routes("%-16s%-16s%-16s\n", "Destination", "Gateway", "Iface");
+    for (struct nlmsghdr *nlh = (struct nlmsghdr *)buf; NLMSG_OK(nlh, avail);
+         nlh = NLMSG_NEXT(nlh, avail)) {
+        debug_netlink("nlmsg: len %d, type %d, flags %d, seq %d, pid %d\n",
+                      nlh->nlmsg_len, nlh->nlmsg_type, nlh->nlmsg_flags, nlh->nlmsg_seq, nlh->nlmsg_pid);
+        if (nlh->nlmsg_type == NLMSG_DONE)
+            break;
+        ifname[0] = '\0';
+        dest[0] = '\0';
+        gwaddr[0] = '\0';
+        struct rtmsg *rtm = (struct rtmsg *)NLMSG_DATA(nlh);
+        debug_netlink("family %d, dst_len %d, src_len %d, tos %d, table %d, "
+                      "protocol %d, scope %d, type %d, flags 0x%x\n",
+                      rtm->rtm_family, rtm->rtm_dst_len, rtm->rtm_src_len, rtm->rtm_tos, rtm->rtm_table,
+                      rtm->rtm_protocol, rtm->rtm_scope, rtm->rtm_type, rtm->rtm_flags);
+        test_assert(rtm->rtm_family == family);
+        int rta_len = RTM_PAYLOAD(nlh);
+        for (struct rtattr *rta = (struct rtattr *)RTM_RTA(rtm); RTA_OK(rta, rta_len);
+             rta = RTA_NEXT(rta, rta_len)) {
+            debug_netlink(" -> type %d, len %d\n", rta->rta_type, rta->rta_len);
+            debug_netlink("    %d %d %d %d\n", *(unsigned char *)RTA_DATA(rta),
+                          *(unsigned char *)(RTA_DATA(rta) + 1),
+                          *(unsigned char *)(RTA_DATA(rta) + 2),
+                          *(unsigned char *)(RTA_DATA(rta) + 3));
+            switch (rta->rta_type) {
+            case RTA_OIF:
+                test_assert(if_indextoname(*(unsigned int *)RTA_DATA(rta), ifname));
+                break;
+            case RTA_GATEWAY:
+                test_assert(inet_ntop(family, RTA_DATA(rta), gwaddr, sizeof(gwaddr)));
+                break;
+            case RTA_DST:
+                test_assert(inet_ntop(family, RTA_DATA(rta), dest, sizeof(dest)));
+                break;
+            }
+        }
+        dump_routes("%-16s%-16s%-16s\n", dest[0] ? dest : "default", gwaddr[0] ? gwaddr : "0.0.0.0", ifname);
+    }
+    dump_routes("\n");
+    test_assert(close(fd) == 0);
+}
+
 int main(int argc, char *argv[])
 {
     test_basic();
@@ -301,5 +406,7 @@ int main(int argc, char *argv[])
     test_getlink();
     test_getaddr();
     test_nonblocking();
+    test_getroute(AF_INET);
+    /* test_getroute(AF_INET6); */
     return 0;
 }
