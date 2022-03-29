@@ -264,18 +264,14 @@ define_closure_function(1, 1, context, unix_fault_handler,
         }
 
         if (handle_protection_fault(ctx, vaddr, vm)) {
-            if (!is_thread_context(ctx)) {
-                current_cpu()->state = cpu_kernel;
+            if (!is_thread_context(ctx))
                 return ctx;   /* direct return */
-            }
             schedule_thread(t);
             return 0;
         }
 
-        if (do_demand_page(t, ctx, fault_address(ctx->frame), vm)) {
-            current_cpu()->state = cpu_kernel;
+        if (do_demand_page(t, ctx, fault_address(ctx->frame), vm))
             return ctx;   /* direct return */
-        }
     }
     /* XXX arch dep */
 #ifdef __x86_64__
