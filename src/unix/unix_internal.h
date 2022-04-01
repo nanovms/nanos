@@ -310,7 +310,8 @@ typedef struct thread {
     blockq blocked_on;
 
     /* set by syscall_return(); used to detect if blocking is necessary */
-    boolean syscall_complete; // XXX?
+    boolean syscall_complete;
+    boolean syscall_abandoned;
 
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;

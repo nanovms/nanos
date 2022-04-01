@@ -193,11 +193,6 @@ define_closure_function(1, 1, context, unix_fault_handler,
     const char *errmsg = 0;
 
     u64 vaddr = fault_address(ctx->frame);
-    if (vaddr >= USER_LIMIT) {
-        errmsg = "Page fault on non-user memory";
-        goto bug;
-    }
-
     boolean user = is_usermode_fault(ctx->frame);
 
     if (is_div_by_zero(ctx->frame)) {
@@ -232,18 +227,25 @@ define_closure_function(1, 1, context, unix_fault_handler,
     } else if (is_page_fault(ctx->frame)) {
         pf_debug("page fault, vaddr 0x%lx, ctx %p, type %d, pc 0x%lx",
                  vaddr, ctx, ctx->type, ctx->frame[SYSCALL_FRAME_PC]);
-        vmap vm = vmap_from_vaddr(t->p, vaddr);
+        vmap vm;
+        if (vaddr >= PAGESIZE && vaddr < USER_LIMIT)
+            vm = vmap_from_vaddr(t->p, vaddr);
+        else
+            vm = INVALID_ADDRESS;
         if (vm == INVALID_ADDRESS) {
-            if (!user) {
-                /* We presently don't have a way to differentiate between a
-                   fault resulting from bad parameters to a syscall or and one
-                   caused by faulty kernel code. Given that we are a
-                   unikernel, we're taking some liberty in allowing bad
-                   parameters to take down the kernel. */
-                errmsg = "No vmap found for page fault in kernel mode";
+            /* We're assuming here that an unhandled fault on a user page from
+               within a syscall context is actually a program bug - though
+               there's a chance that a true kernel bug might materialize as a
+               SEGV rather than a panic. */
+            pf_debug("no vmap found");
+            if (is_syscall_context(ctx)) {
+                thread_log(t, "fault on user page 0x%lx from within syscall; "
+                           "abandoning syscall context\n", vaddr);
+                t->syscall_abandoned = true;
+            } else if (is_kernel_context(ctx)) {
+                errmsg = "Page fault for user memory within kernel context";
                 goto bug;
             }
-            pf_debug("no vmap found");
             deliver_fault_signal(SIGSEGV, t, vaddr, SEGV_MAPERR);
 
             /* schedule this thread to either run signal handler or terminate */

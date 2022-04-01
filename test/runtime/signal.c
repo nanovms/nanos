@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <assert.h>
@@ -214,7 +215,7 @@ void test_rt_signal(void)
     test_rt_signal_enable = 1;
     void * retval;
     if (pthread_join(pt, &retval))
-        fail_perror("blocking test pthread_join");
+        fail_perror("rt_signal pthread_join");
 
     if (retval != (void*)EXIT_SUCCESS)
         fail_error("tgkill_test_pause child failed\n");
@@ -422,7 +423,7 @@ void test_rt_sigsuspend(void)
     sigtest_debug("waiting for child to exit...\n");
     void * retval;
     if (pthread_join(pt, &retval))
-        fail_perror("pthread_join");
+        fail_perror("rt_sigsuspend pthread_join");
 
     if (retval != (void*)EXIT_SUCCESS)
         fail_error("child failed\n");
@@ -584,13 +585,30 @@ sigsegv_handler(int signo)
 static void * 
 sigsegv_thread(void * arg)
 {
+    int *v;
     child_tid = syscall(SYS_gettid);
-    if (arg == 0) {
-        int * v = (int *)BAD_LOAD;
+    switch ((long)arg) {
+    case 0:
+        v = (int *)BAD_LOAD;
 
         /* generate sigsegv */
         *v = 1;
-    } else {
+        break;
+    case 1:
+        v = (int *)0x8;
+
+        /* generate sigsegv on zero page access */
+        *v = 1;
+        break;
+    case 2:
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__riscv)
+        v = (int *)0xffffffff80000000ull;
+
+        /* generate sigsegv on kernel page access */
+        *v = 1;
+#endif
+        break;
+    case 3:
         /* should cause sigsegv as a result of general protection fault */
 #ifdef __x86_64__
         asm volatile("hlt");
@@ -598,6 +616,12 @@ sigsegv_thread(void * arg)
 #ifdef __aarch64__
         asm volatile("wfi");
 #endif
+        break;
+    case 4:
+        /* should cause sigsegv by passing a bad buffer address to a syscall */
+        syscall(SYS_uname, (const char *)BAD_LOAD);
+        assert(0); /* shouldn't arrive here... */
+        break;
     }
     return NULL;
 }
@@ -617,17 +641,16 @@ test_sigsegv(void)
         sigemptyset(&sa.sa_mask);
 
         if (sigaction(SIGSEGV, &sa, NULL))
-            fail_perror("siggaction for SIGSEGV failed");
+            fail_perror("sigaction for SIGSEGV failed");
 
-        if (pthread_create(&pt, NULL, sigsegv_thread, (void *)0))
-            fail_perror("sigsegv_thread pthread_create");
+        for (long i = 0; i < 3; i++) {
+            if (pthread_create(&pt, NULL, sigsegv_thread, (void *)i))
+                fail_perror("sigsegv_thread pthread_create");
 
-        sigtest_debug("yielding until child tid reported...\n");
-        yield_for(&child_tid);
-
-        sigtest_debug("calling pthread_join...\n");
-        if (pthread_join(pt, &retval))
-            fail_perror("blocking test pthread_join");
+            sigtest_debug("calling pthread_join...\n");
+            if (pthread_join(pt, &retval))
+                fail_perror("sigsegv pthread_join");
+        }
         sigtest_debug("done\n");
     }
 
@@ -639,26 +662,39 @@ test_sigsegv(void)
         sigemptyset(&sa.sa_mask);
 
         if (sigaction(SIGSEGV, &sa, NULL))
-            fail_perror("siggaction for SIGSEGV failed");
+            fail_perror("sigaction for SIGSEGV failed");
 
-        if (pthread_create(&pt, NULL, sigsegv_thread, (void *)1))
+        if (pthread_create(&pt, NULL, sigsegv_thread, (void *)3))
             fail_perror("sigsegv_thread pthread_create 2");
-
-        sigtest_debug("yielding until child tid reported...\n");
-        yield_for(&child_tid);
 
         sigtest_debug("calling pthread_join...\n");
         if (pthread_join(pt, &retval))
-            fail_perror("blocking test pthread_join");
+            fail_perror("sigsegv pthread_join 2");
         sigtest_debug("done\n");
     }
 
+    /* test fault in syscall */
+    {
+        memset(&sa, 0, sizeof(struct sigaction));
+        sa.sa_handler = sigsegv_handler;
+        sigemptyset(&sa.sa_mask);
+
+        if (sigaction(SIGSEGV, &sa, NULL))
+            fail_perror("sigaction for SIGSEGV failed");
+
+        if (pthread_create(&pt, NULL, sigsegv_thread, (void *)4))
+            fail_perror("sigsegv_thread pthread_create 3");
+        sigtest_debug("calling pthread_join...\n");
+        if (pthread_join(pt, &retval))
+            fail_perror("sigsegv pthread_join 3");
+        sigtest_debug("done\n");
+    }
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = SIG_IGN;
     sigemptyset(&sa.sa_mask);
 
     if (sigaction(SIGSEGV, &sa, NULL))
-        fail_perror("siggaction for SIGSEGV failed");
+        fail_perror("sigaction for SIGSEGV failed");
 }
 
 static void sigill_handler(int signo)
@@ -698,9 +734,6 @@ static void test_sigill(void)
 
     if (pthread_create(&pt, NULL, sigill_thread, (void *)0))
         fail_perror("sigill_thread pthread_create");
-
-    sigtest_debug("yielding until child tid reported...\n");
-    yield_for(&child_tid);
 
     if (pthread_join(pt, &retval))
         fail_perror("blocking test pthread_join");
@@ -753,9 +786,6 @@ static void test_sigtrap(void)
     if (pthread_create(&pt, NULL, sigtrap_thread, (void *)0))
         fail_perror("sigtrap_thread pthread_create");
 
-    sigtest_debug("yielding until child tid reported...\n");
-    yield_for(&child_tid);
-
     if (pthread_join(pt, &retval))
         fail_perror("blocking test pthread_join");
 
@@ -806,9 +836,6 @@ static void test_sigfpe(void)
 
     if (pthread_create(&pt, NULL, sigfpe_thread, (void *)0))
         fail_perror("sigfpe_thread pthread_create");
-
-    sigtest_debug("yielding until child tid reported...\n");
-    yield_for(&child_tid);
 
     if (pthread_join(pt, &retval))
         fail_perror("blocking test pthread_join");
