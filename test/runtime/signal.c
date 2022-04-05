@@ -697,14 +697,6 @@ test_sigsegv(void)
         fail_perror("sigaction for SIGSEGV failed");
 }
 
-static void sigill_handler(int signo)
-{
-    if (signo != SIGILL)
-        fail_perror("  childtid: caught non SIGILL signal %d\n", signo);
-
-    syscall(SYS_exit, 0);
-}
-
 static void *sigill_thread(void *arg)
 {
 
@@ -719,6 +711,30 @@ static void *sigill_thread(void *arg)
     return NULL;
 }
 
+static void sigill_handler(int signo, siginfo_t *info, void *ucontext)
+{
+    if (signo != SIGILL)
+        fail_perror("  childtid: caught non SIGILL signal %d\n", signo);
+
+    if (info->si_code != ILL_ILLOPC)
+        fail_perror("  childtid: si_code for SIGILL should be ILL_ILLOPC, not %d\n",
+                    info->si_code);
+
+    if (info->si_addr - (void*)sigill_thread > 4096)
+        fail_perror("  childtid: si_addr (%p) not within page of sigill_thread start (%p)\n",
+                    info->si_addr, sigill_thread);
+
+#if defined(__x86_64__)
+    if (*(unsigned char *)info->si_addr != 0x0f ||
+        *(unsigned char *)(info->si_addr + 1) != 0x0b)
+        fail_perror("  childtid: memory at si_addr (%p) is not a UD2 instruction\n", info->si_addr);
+#elif defined(__aarch64__) || defined(__riscv)
+    if (*(unsigned int *)info->si_addr != 0)
+        fail_perror("  childtid: memory at si_addr (%p) is not a zero word\n", info->si_addr);
+#endif
+    syscall(SYS_exit, 0);
+}
+
 static void test_sigill(void)
 {
     struct sigaction sa;
@@ -726,7 +742,8 @@ static void test_sigill(void)
     void *retval;
 
     memset(&sa, 0, sizeof(struct sigaction));
-    sa.sa_handler = sigill_handler;
+    sa.sa_sigaction = sigill_handler;
+    sa.sa_flags = SA_SIGINFO;
     sigemptyset(&sa.sa_mask);
 
     if (sigaction(SIGILL, &sa, NULL))
