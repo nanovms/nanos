@@ -193,12 +193,12 @@ static inline boolean is_pte_error(context_frame f)
     return false;
 }
 
-static inline u64 frame_return_address(context_frame f)
+static inline u64 frame_fault_pc(context_frame f)
 {
-    return f[FRAME_RA];
+    return f[FRAME_PC];
 }
 
-static inline u64 fault_address(context_frame f)
+static inline u64 frame_fault_address(context_frame f)
 {
     return f[FRAME_FAULT_ADDRESS];
 }

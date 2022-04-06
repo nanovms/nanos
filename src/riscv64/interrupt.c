@@ -294,7 +294,6 @@ void trap_exception(void)
         switch_stack_1(frame_get_stack_top(ctx->frame), syscall, f); /* frame is top of stack */
         halt("%s: syscall returned\n", __func__);
     }
-    /* fault handlers likely act on cpu state, so don't change it */
     fault_handler fh = ctx->fault_handler;
     if (fh) {
 #ifdef INT_DEBUG
@@ -317,15 +316,20 @@ void trap_exception(void)
         print_u64_with_sym(u64_from_pointer(f[FRAME_PC]));
         rputs("\n");
 #endif
-        context retframe = apply(fh, ctx);
-        if (retframe) {
-            context_release_refcount(ctx);
-            frame_return(retframe->frame);
+        context retctx = apply(fh, ctx);
+        if (retctx) {
+            context_release_refcount(retctx);
+            frame_return(retctx->frame);
         }
-        if (is_kernel_context(ctx) || is_syscall_context(ctx)) {
-            f[FRAME_FULL] = false;      /* no longer saving frame for anything */
+        if (is_syscall_context(ctx)) {
+            /* This indicates an unhandled fault on a user page from within a
+               syscall. We need to abandon the syscall at this point and let
+               the thread run so it may receive the appropriate signal. The
+               frame is left full so that future context dumps will report the
+               actual processor state when the exception occurred. */
             context_release_refcount(ctx);
         }
+        assert(!is_kernel_context(ctx));
         runloop();
     } else {
         console("\nno fault handler for frame\n");

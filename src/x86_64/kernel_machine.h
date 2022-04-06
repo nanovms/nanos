@@ -370,12 +370,12 @@ static inline boolean is_pte_error(context_frame f)
     return (is_protection_fault(f) && (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_RSV));
 }
 
-static inline u64 frame_return_address(context_frame f)
+static inline u64 frame_fault_pc(context_frame f)
 {
     return f[FRAME_RIP];
 }
 
-static inline u64 fault_address(context_frame f)
+static inline u64 frame_fault_address(context_frame f)
 {
     return f[FRAME_CR2];
 }

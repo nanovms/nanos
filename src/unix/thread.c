@@ -213,6 +213,14 @@ define_closure_function(1, 0, void, thread_return,
     //ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
     thread_lock(t);
+    if (t->syscall_abandoned) {
+        /* TODO: This will likely leak resources allocated by the abandoned
+           syscall. Such leakage could be addressed by making use of
+           per-syscall transient heaps. */
+        assert(t->syscall);
+        context_release_refcount(&t->syscall->context); /* in lieu of syscall_finish() */
+        t->syscall_abandoned = false;
+    }
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     assert(t->blocked_on == 0);
     t->syscall = 0;
@@ -376,6 +384,8 @@ thread create_thread(process p, u64 tid)
         goto fail_affinity;
     bitmap_range_check_and_set(t->affinity, 0, total_processors, false, true);
     t->blocked_on = 0;
+    t->syscall_complete = false;
+    t->syscall_abandoned = false;
     blockq_thread_init(t);
     init_sigstate(&t->signals);
     t->signal_mask = 0;

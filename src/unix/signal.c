@@ -1011,10 +1011,10 @@ sysreturn signalfd(int fd, const u64 *mask, u64 sigsetsize)
 static void dump_sig_info(thread t, queued_signal qs)
 {
     siginfo_t *si = &qs->si;
-    rprintf("signal %d received by tid %d, errno %d, code %d\n",
+    rprintf("\n*** signal %d received by tid %d, errno %d, code %d\n",
             si->si_signo, t->tid, si->si_errno, si->si_code);
     if (si->si_signo == SIGSEGV || si->si_signo == SIGBUS || si->si_signo == SIGFPE)
-        rprintf("   fault address 0x%lx\n", si->sifields.sigfault.addr);
+        rprintf("    fault address 0x%lx\n", si->sifields.sigfault.addr);
 
     /* can add more siginfo interpretation here... */
 }
@@ -1039,7 +1039,7 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGIO:
     case SIGPWR:
         /* terminate */
-        fate = "   terminate\n";
+        fate = "   terminate";
         break;
 
     case SIGQUIT:
@@ -1053,7 +1053,7 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGXCPU:
     case SIGXFSZ:
         /* TODO add core dump action here */
-        fate = "   core dump (unimplemented)\n";
+        fate = "   core dump (unimplemented)";
         break;
 
     case SIGSTOP:
@@ -1061,15 +1061,23 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGTTIN:
     case SIGTTOU:
         /* stop */
-        fate = "   stop\n";
+        fate = "   stop";
         break;
     default:
         /* ignore */
         return;
     }
     dump_sig_info(t, qs);
+    if (frame_is_full(t->context.frame)) {
+        rprintf("\n*** Thread context:\n");
+        dump_context(&t->context);
+    }
+    if (t->syscall && frame_is_full(t->syscall->context.frame)) {
+        rprintf("\n*** Syscall context:\n");
+        dump_context(&t->syscall->context);
+    }
     thread_log(t, fate);
-    halt_with_code(VM_EXIT_SIGNAL(signum), fate);
+    halt_with_code(VM_EXIT_SIGNAL(signum), "%s\n", fate);
 }
 
 boolean dispatch_signals(thread t)
@@ -1093,22 +1101,22 @@ boolean dispatch_signals(thread t)
 
     sig_debug("dispatching signal %d; sigaction handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",
               signum, handler, sa->sa_mask.sig[0], sa->sa_flags);
-    thread_log(t, "signal %d received, errno %d, code %d\n",
+    thread_log(t, "signal %d received, errno %d, code %d",
                si->si_signo, si->si_errno, si->si_code);
     if (si->si_signo == SIGSEGV || si->si_signo == SIGBUS || si->si_signo == SIGFPE)
-        thread_log(t, "   fault address 0x%lx\n", si->sifields.sigfault.addr);
+        thread_log(t, "   fault address 0x%lx", si->sifields.sigfault.addr);
 
     if (handler == SIG_DFL) {
-        const char *s = "   default action\n";
-        sig_debug("%s", s);
+        const char *s = "   default action";
+        sig_debug("%s\n", s);
         thread_log(t, s);
         default_signal_action(t, qs);
         /* ignore if returned */
     }
 
     if (handler == SIG_DFL || handler == SIG_IGN) {
-        const char *s = "   ignored\n";
-        sig_debug("%s", s);
+        const char *s = "   ignored";
+        sig_debug("%s\n", s);
         thread_log(t, s);
         return false;
     }

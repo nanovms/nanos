@@ -141,9 +141,9 @@ const char *string_from_mmap_type(int type)
 }
 
 #define format_protection_violation(vaddr, ctx, vm, str)        \
-    "page_protection_violation%s\naddr 0x%lx, rip 0x%lx, "     \
+    "page_protection_violation%s\naddr 0x%lx, pc 0x%lx, "       \
     "error %s%s%s vm->flags (%s%s %s%s%s)\n",                   \
-        str, vaddr, frame_return_address(ctx->frame),           \
+        str, vaddr, frame_fault_pc(ctx->frame),                 \
         is_write_fault(ctx->frame) ? "W" : "R",                 \
         is_usermode_fault(ctx->frame) ? "U" : "S",              \
         is_instruction_fault(ctx->frame) ? "I" : "D",           \
@@ -191,18 +191,12 @@ define_closure_function(1, 1, context, unix_fault_handler,
 {
     thread t = bound(t);
     const char *errmsg = 0;
-
-    u64 vaddr = fault_address(ctx->frame);
-    if (vaddr >= USER_LIMIT) {
-        errmsg = "Page fault on non-user memory";
-        goto bug;
-    }
-
+    u64 fault_pc = frame_fault_pc(ctx->frame);
     boolean user = is_usermode_fault(ctx->frame);
 
     if (is_div_by_zero(ctx->frame)) {
         if (current_cpu()->state == cpu_user) {
-            deliver_fault_signal(SIGFPE, t, vaddr, FPE_INTDIV);
+            deliver_fault_signal(SIGFPE, t, fault_pc, FPE_INTDIV);
             schedule_thread(t);
             return 0;
         } else {
@@ -211,8 +205,8 @@ define_closure_function(1, 1, context, unix_fault_handler,
         }
     } else if (is_illegal_instruction(ctx->frame)) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("invalid opcode fault in user mode, rip 0x%lx", ctx->frame[SYSCALL_FRAME_PC]);
-            deliver_fault_signal(SIGILL, t, vaddr, ILL_ILLOPC);
+            pf_debug("invalid opcode fault in user mode, rip 0x%lx", fault_pc);
+            deliver_fault_signal(SIGILL, t, fault_pc, ILL_ILLOPC);
             schedule_thread(t);
             return 0;
         } else {
@@ -221,8 +215,8 @@ define_closure_function(1, 1, context, unix_fault_handler,
         }
     } else if (is_breakpoint(ctx->frame)) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("breakpoint in user mode, rip 0x%lx", ctx->frame[SYSCALL_FRAME_PC]);
-            deliver_fault_signal(SIGTRAP, t, vaddr, TRAP_BRKPT);
+            pf_debug("breakpoint in user mode, rip 0x%lx", fault_pc);
+            deliver_fault_signal(SIGTRAP, t, fault_pc, TRAP_BRKPT);
             schedule_thread(t);
             return 0;
         } else {
@@ -230,20 +224,28 @@ define_closure_function(1, 1, context, unix_fault_handler,
             goto bug;
         }
     } else if (is_page_fault(ctx->frame)) {
-        pf_debug("page fault, vaddr 0x%lx, ctx %p, type %d, pc 0x%lx",
-                 vaddr, ctx, ctx->type, ctx->frame[SYSCALL_FRAME_PC]);
-        vmap vm = vmap_from_vaddr(t->p, vaddr);
+        u64 vaddr = frame_fault_address(ctx->frame);
+        vmap vm;
+        if (vaddr >= PAGESIZE && vaddr < USER_LIMIT)
+            vm = vmap_from_vaddr(t->p, vaddr);
+        else
+            vm = INVALID_ADDRESS;
+        pf_debug("page fault, vaddr 0x%lx, vmap %p, ctx %p, type %d, pc 0x%lx",
+                 vaddr, vm, ctx, ctx->type, fault_pc);
         if (vm == INVALID_ADDRESS) {
-            if (!user) {
-                /* We presently don't have a way to differentiate between a
-                   fault resulting from bad parameters to a syscall or and one
-                   caused by faulty kernel code. Given that we are a
-                   unikernel, we're taking some liberty in allowing bad
-                   parameters to take down the kernel. */
-                errmsg = "No vmap found for page fault in kernel mode";
+            /* We're assuming here that an unhandled fault on a user page from
+               within a syscall context is actually a program bug - though
+               there's a chance that a true kernel bug might materialize as a
+               SEGV rather than a panic. */
+            pf_debug("no vmap found");
+            if (is_syscall_context(ctx)) {
+                thread_log(t, "fault on user page 0x%lx from within syscall; "
+                           "abandoning syscall context\n", vaddr);
+                t->syscall_abandoned = true;
+            } else if (is_kernel_context(ctx)) {
+                errmsg = "Page fault for user memory within kernel context";
                 goto bug;
             }
-            pf_debug("no vmap found");
             deliver_fault_signal(SIGSEGV, t, vaddr, SEGV_MAPERR);
 
             /* schedule this thread to either run signal handler or terminate */
@@ -270,14 +272,14 @@ define_closure_function(1, 1, context, unix_fault_handler,
             return 0;
         }
 
-        if (do_demand_page(t, ctx, fault_address(ctx->frame), vm))
+        if (do_demand_page(t, ctx, vaddr, vm))
             return ctx;   /* direct return */
     }
     /* XXX arch dep */
 #ifdef __x86_64__
     else if (ctx->frame[FRAME_VECTOR] == 13) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("general protection fault in user mode, rip 0x%lx", ctx->frame[SYSCALL_FRAME_PC]);
+            pf_debug("general protection fault in user mode, rip 0x%lx", fault_pc);
             deliver_fault_signal(SIGSEGV, t, 0, SI_KERNEL);
             schedule_thread(t);
             return 0;
