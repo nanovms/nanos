@@ -300,9 +300,15 @@ void vm_exit(u8 code)
     QEMU_HALT(code);
 }
 
-void kernel_shutdown(int status)
+void halt_with_code(u8 code, char *format, ...)
 {
-    vm_exit(status);
+    buffer b = little_stack_buffer(512);
+    vlist a;
+    vstart(a, format);
+    vbprintf(b, alloca_wrap_cstring(format), &a);
+    vend(a);
+    buffer_print(b);
+    vm_exit(code);
 }
 
 static struct heap working_heap;

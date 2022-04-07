@@ -256,17 +256,6 @@ void vm_exit(u8 code)
     while (1);
 }
 
-void halt_with_code(u8 code, char *format, ...)
-{
-    vlist a;
-    buffer b = little_stack_buffer(512);
-
-    vstart(a, format);
-    vbprintf(b, alloca_wrap_cstring(format), &a);
-    buffer_print(b);
-    kernel_shutdown(code);
-}
-
 u64 total_processors = 1;
 u64 present_processors = 1;
 

@@ -5,7 +5,6 @@ SRCS-stage2.elf= \
 	$(CURDIR)/service32.s \
 	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/kernel/elf.c \
-	$(SRCDIR)/kernel/kvm_platform.c \
 	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/runtime/buffer.c \

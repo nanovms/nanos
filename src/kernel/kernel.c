@@ -213,6 +213,17 @@ void __attribute__((noreturn)) context_switch_finish(context prev, context next,
     runloop();
 }
 
+void halt_with_code(u8 code, char *format, ...)
+{
+    buffer b = little_stack_buffer(512);
+    vlist a;
+    vstart(a, format);
+    vbprintf(b, alloca_wrap_cstring(format), &a);
+    vend(a);
+    buffer_print(b);
+    kernel_shutdown(code);
+}
+
 #ifndef CONFIG_TRACELOG
 void tprintf(symbol tag, tuple attrs, const char *format, ...)
 {

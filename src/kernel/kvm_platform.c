@@ -18,17 +18,6 @@
 #define KVM_MSR_SYSTEM_TIME 0x4b564d01
 #define KVM_MSR_WALL_CLOCK  0x4b564d00
 
-void halt_with_code(u8 code, char *format, ...)
-{
-    vlist a;
-    buffer b = little_stack_buffer(512);
-
-    vstart(a, format);
-    vbprintf(b, alloca_wrap_cstring(format), &a);
-    buffer_print(b);
-    kernel_shutdown(code);
-}
-
 static boolean probe_kvm_pvclock(kernel_heaps kh)
 {
     kvm_debug("probing for KVM pvclock...");
