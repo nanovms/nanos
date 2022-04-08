@@ -263,9 +263,6 @@ static inline physical __physical_from_virtual_locked(void *x)
 physical physical_from_virtual(void *x);
 #endif
 
-typedef struct flush_entry *flush_entry;
-
-void flush_tlb();
 void *bootstrap_page_tables(heap initial);
 #ifdef KERNEL
 void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,

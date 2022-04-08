@@ -36,6 +36,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/clock.c \
+	$(SRCDIR)/kernel/flush.c \
 	$(SRCDIR)/kernel/init.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \

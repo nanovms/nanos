@@ -548,8 +548,6 @@ static inline void machine_halt(void)
     __asm__("cli; hlt");
 }
 
-void send_ipi(u64 cpu, u8 vector);
-
 u64 allocate_interrupt(void);
 void deallocate_interrupt(u64 irq);
 #define allocate_ipi_interrupt allocate_interrupt

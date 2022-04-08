@@ -26,6 +26,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/http/http.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/clock.c \
+	$(SRCDIR)/kernel/flush.c \
 	$(SRCDIR)/kernel/init.c \
 	$(SRCDIR)/kernel/kernel.c \
 	$(SRCDIR)/kernel/klib.c \
@@ -107,7 +108,6 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/x86_64/clock.c \
 	$(SRCDIR)/x86_64/crt0.s \
 	$(SRCDIR)/x86_64/elf64.c \
-	$(SRCDIR)/x86_64/flush.c \
 	$(SRCDIR)/x86_64/hpet.c \
 	$(SRCDIR)/x86_64/interrupt.c \
 	$(SRCDIR)/x86_64/kernel_machine.c \

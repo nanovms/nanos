@@ -18,6 +18,9 @@ void page_invalidate(flush_entry f, u64 address);
 void page_invalidate_sync(flush_entry f, status_handler completion);
 void page_invalidate_flush();
 
+void invalidate(u64 page);
+void flush_tlb(boolean full_flush);
+
 /* mapping and flag update */
 physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete);
 

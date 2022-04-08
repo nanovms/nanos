@@ -28,25 +28,15 @@ boolean is_protection_fault(context_frame f)
     return (e & PAGE_VALID) && (cause == TRAP_E_SPAGE_FAULT);
 }
 
-void page_invalidate(flush_entry f, u64 address)
+void invalidate(u64 page)
 {
-    asm volatile("sfence.vma %0, x0" :: "r"(address) : "memory");
+    asm volatile("sfence.vma %0, x0" :: "r"(page) : "memory");
 }
 
-void page_invalidate_sync(flush_entry f, status_handler completion)
+void flush_tlb(boolean full_flush)
 {
-    asm volatile("sfence.vma" ::: "memory");
-    if (completion)
-        apply(completion, STATUS_OK);
-}
-
-void page_invalidate_flush()
-{
-}
-
-flush_entry get_page_flush_entry()
-{
-    return 0;
+    if (full_flush)
+        asm volatile("sfence.vma" ::: "memory");
 }
 
 void init_mmu(range init_pt, u64 vtarget)

@@ -733,6 +733,10 @@ void register_shirq(int vector, thunk t, const char *name);
 boolean dev_irq_enable(u32 dev_id, int vector);
 void dev_irq_disable(u32 dev_id, int vector);
 
+#define TARGET_EXCLUSIVE_BROADCAST  (-1ull)
+
+void send_ipi(u64 cpu, u8 vector);
+
 static inline boolean in_interrupt(void)
 {
     return current_cpu()->state == cpu_interrupt;

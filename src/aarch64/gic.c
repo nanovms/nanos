@@ -470,3 +470,7 @@ int init_gic(void)
     init_gicc();
     return (gic.v3_iface ? gic_msi_vector_base + gic_msi_vector_num : GIC_MAX_INT);
 }
+
+void send_ipi(u64 cpu, u8 vector)
+{
+}

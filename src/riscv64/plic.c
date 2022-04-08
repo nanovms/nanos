@@ -68,3 +68,6 @@ void msi_format(u32 *address, u32 *data, int vector)
 {
 }
 
+void send_ipi(u64 cpu, u8 vector)
+{
+}

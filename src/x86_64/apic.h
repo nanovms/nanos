@@ -44,7 +44,6 @@
 #define ICR_DEST_ALL          0x00080000
 #define ICR_DEST_ALL_EXC_SELF 0x000C0000
 
-#define TARGET_EXCLUSIVE_BROADCAST 0xfffffffful
 #define IA32_APIC_BASE_MSR 0x1b
 
 /* 64 bit data for x2apic, only 32 used for xapic */
@@ -62,7 +61,7 @@ void lapic_eoi(void);
 void init_apic(kernel_heaps kh);
 void lapic_set_tsc_deadline_mode(u32 v);
 boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init);
-void apic_ipi(u32 target, u64 flags, u8 vector);
+void apic_ipi(u64 target, u64 flags, u8 vector);
 void apic_per_cpu_init(void);
 void apic_enable(void);
 int cpuid_from_apicid(u32 aid);

@@ -15,30 +15,19 @@
 BSS_RO_AFTER_INIT u64 kernel_tablebase;
 BSS_RO_AFTER_INIT u64 user_tablebase;
 
-/* TODO until flush code is ported to aarch64... */
-void page_invalidate(flush_entry f, u64 address)
+void invalidate(u64 page)
 {
     /* no final sync here; need "dsb ish" at end of operation */
-    register u64 a = (address >> PAGELOG) & MASK(56 - PAGELOG); /* no asid */
+    register u64 a = (page >> PAGELOG) & MASK(56 - PAGELOG);    /* no asid */
     asm volatile("dsb ishst;"
                  "tlbi vale1is, %0" :: "r"(a) : "memory");
 }
 
-void page_invalidate_sync(flush_entry f, status_handler completion)
+void flush_tlb(boolean full_flush)
 {
     asm volatile("dsb ish" ::: "memory");
-    if (completion)
-        apply(completion, STATUS_OK);
-}
-
-void page_invalidate_flush()
-{
-
-}
-
-flush_entry get_page_flush_entry()
-{
-    return 0;
+    if (full_flush)
+        asm volatile("tlbi vmalle1is");
 }
 
 extern void *START, *READONLY_END, *END;

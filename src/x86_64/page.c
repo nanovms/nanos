@@ -2,18 +2,25 @@
 
 BSS_RO_AFTER_INIT u64 pagebase;
 
-/* assumes page table is consistent when called */
-void flush_tlb()
+void invalidate(u64 page)
 {
-    u64 *base;
-    mov_from_cr("cr3", base);
-    mov_to_cr("cr3", base);
+    asm volatile("invlpg (%0)" :: "r" ((word)page) : "memory");
+}
+
+/* assumes page table is consistent when called */
+void flush_tlb(boolean full_flush)
+{
+    if (full_flush) {
+        u64 *base;
+        mov_from_cr("cr3", base);
+        mov_to_cr("cr3", base);
+    }
 }
 
 #ifdef BOOT
 void page_invalidate(flush_entry f, u64 address)
 {
-    flush_tlb();
+    flush_tlb(true);
 }
 
 void page_invalidate_sync(flush_entry f, status_handler completion)

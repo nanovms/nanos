@@ -46,7 +46,7 @@ static inline u32 apicid_from_cpuid(u32 idx)
     return *(u32 *)buffer_ref(apic_id_map, idx * sizeof(u32));
 }
 
-void apic_ipi(u32 target, u64 flags, u8 vector)
+void apic_ipi(u64 target, u64 flags, u8 vector)
 {
     /* Do not use native "all but self" destination as it is very slow
      * and may target processors not available */

@@ -384,6 +384,4 @@ static inline void supervisor_ecall(int type, u64 arg)
     asm volatile("li a7, %0; mv a0, %1; ecall" :: "I"(type), "r"(arg) : "a0", "a7");
 }
 
-
-#define send_ipi(cpu, vector)
 #endif /* __ASSEMBLY__ */

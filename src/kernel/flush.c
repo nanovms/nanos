@@ -1,5 +1,4 @@
 #include <kernel.h>
-#include <apic.h>
 
 #define FLUSH_THRESHOLD 32
 #define MAX_FLUSH_ENTRIES 1024
@@ -17,7 +16,7 @@ BSS_RO_AFTER_INIT static thunk flush_service;
 BSS_RO_AFTER_INIT static queue flush_completion_queue;
 static struct rw_spinlock flush_lock;
 
-static void queue_flush_service();
+static void queue_flush_service(void);
 
 declare_closure_struct(1, 0, void, flush_complete,
     flush_entry, f);
@@ -32,11 +31,6 @@ struct flush_entry {
     status_handler completion;
     closure_struct(flush_complete, finish);
 };
-
-static void invalidate (u64 page)
-{
-    asm volatile("invlpg (%0)" :: "r" (page) : "memory");
-}
 
 define_closure_function(1, 0, void, flush_complete, flush_entry, f)
 {
@@ -74,8 +68,7 @@ static void _flush_handler(void)
     }
     spin_runlock(&flush_lock);
 
-    if (full_flush)
-        flush_tlb();
+    flush_tlb(full_flush);
 }
 
 closure_function(0, 0, void, flush_handler)
@@ -85,7 +78,8 @@ closure_function(0, 0, void, flush_handler)
 
 void page_invalidate_flush(void)
 {
-    _flush_handler();
+    if (initialized)
+        _flush_handler();
 }
 
 void page_invalidate(flush_entry f, u64 p)
@@ -183,10 +177,11 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
         f->gen = fetch_and_add((word *)&inval_gen, 1) + 1;
         spin_wunlock(&flush_lock);
 
-        apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, flush_ipi);
+        send_ipi(TARGET_EXCLUSIVE_BROADCAST, flush_ipi);
         _flush_handler();
         irq_restore(flags);
     } else {
+        flush_tlb(false);
         if (completion)
             async_apply_status_handler(completion, STATUS_OK);
     }
@@ -217,7 +212,7 @@ flush_entry get_page_flush_entry(void)
 
 void init_flush(heap h)
 {
-    flush_ipi = allocate_interrupt();
+    flush_ipi = allocate_ipi_interrupt();
     register_interrupt(flush_ipi, closure(h, flush_handler), "flush ipi");
     list_init(&entries);
     flush_service = closure(h, do_flush_service);
@@ -229,4 +224,3 @@ void init_flush(heap h)
         assert(enqueue(free_flush_entries, f));
     initialized = true;
 }
-

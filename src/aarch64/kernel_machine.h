@@ -483,5 +483,4 @@ void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
 void angel_shutdown(u64 x0);
 void psci_shutdown(void);
 
-#define send_ipi(cpu, vector)
 #endif /* __ASSEMBLY__ */
