@@ -42,21 +42,25 @@
         stp     x30, x1, [x17, #(FRAME_X30 * 8)]
         str     x0, [x17, #(FRAME_EL * 8)]
 
-        mrs     x0, spsr_el1
         .if \ex == 1
+        mrs     x0, spsr_el1
         mrs     x1, esr_el1
         mrs     x2, elr_el1
         mrs     x3, far_el1
+        .else
+        mrs     x0, nzcv    /* processor state */
+        /* dummy ELR to not return from exception when restoring the frame */
+        mov     x2, #0x0
         .endif
 
         add     x17, x17, #256
         .if \ex == 1
         stp     w0, w1, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
-        str     x2, [x17, #((FRAME_ELR - 32) * 8)]
         str     x3, [x17, #((FRAME_FAULT_ADDRESS - 32) * 8)]
         .else
         str     w0, [x17, #((FRAME_ESR_SPSR - 32) * 8)]
         .endif
+        str     x2, [x17, #((FRAME_ELR - 32) * 8)]
         .endm
 
         .text
@@ -116,19 +120,7 @@ frame_return:
         mov     x1, #0x0        // clear frame full condition
         str     x1, [x0, #(FRAME_FULL * 8)]
 
-        ldp     x2, x3, [x0, #(FRAME_ESR_SPSR * 8)]
-        mov     w2, w2          // mask off esr
-        msr     spsr_el1, x2
-        msr     elr_el1, x3
         ldp     x30, x1, [x0, #(FRAME_X30 * 8)]
-        tbnz    x2, #2, 1f
-
-        /* user return: restore x18 and place stack */
-        ldr     x18, [x0, #(FRAME_X18 * 8)]
-        msr     sp_el0, x1
-        b       2f
-1:      mov     sp, x1
-2:      ldp     x2, x3, [x0, #(FRAME_X2 * 8)]
         ldp     x4, x5, [x0, #(FRAME_X4 * 8)]
         ldp     x6, x7, [x0, #(FRAME_X6 * 8)]
         ldp     x8, x9, [x0, #(FRAME_X8 * 8)]
@@ -142,13 +134,35 @@ frame_return:
         ldp     x24, x25, [x0, #(FRAME_X24 * 8)]
         ldp     x26, x27, [x0, #(FRAME_X26 * 8)]
         ldp     x28, x29, [x0, #(FRAME_X28 * 8)]
+        ldp     x2, x3, [x0, #(FRAME_ESR_SPSR * 8)]
+        cmp     x3, #0x0
+        b.eq    3f
+
+        /* return from exception */
+        mov     w2, w2          // mask off esr
+        msr     spsr_el1, x2
+        msr     elr_el1, x3
+        tbnz    x2, #2, 1f
+        /* user return: restore x18 and place stack */
+        ldr     x18, [x0, #(FRAME_X18 * 8)]
+        msr     sp_el0, x1
+        b       2f
+        /* kernel return */
+1:      mov     sp, x1
+2:      ldp     x2, x3, [x0, #(FRAME_X2 * 8)]
         ldp     x0, x1, [x0, #(FRAME_X0 * 8)]
         eret
+
+        /* resume context */
+3:      msr     nzcv, x2
+        mov     sp, x1
+        ldp     x2, x3, [x0, #(FRAME_X2 * 8)]
+        ldp     x0, x1, [x0, #(FRAME_X0 * 8)]
+        ret
 
 .globl context_suspend
 context_suspend:
         frame_save 1 0
-        str     x30, [x17, #((FRAME_ELR - 32) * 8)]
         ldr     x0, [x18]
         b context_suspend_finish
 
