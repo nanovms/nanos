@@ -151,6 +151,7 @@ static void kernel_context_pre_suspend(context ctx)
 }
 
 BSS_RO_AFTER_INIT vector cpuinfos;
+BSS_RO_AFTER_INIT vector percpu_init;
 
 cpuinfo init_cpuinfo(heap backed, int cpu)
 {
@@ -190,6 +191,8 @@ void init_kernel_contexts(heap backed)
     assert(ci != INVALID_ADDRESS);
     cpu_init(0);
     current_cpu()->state = cpu_kernel;
+    percpu_init = allocate_vector(backed, 1);
+    assert(percpu_init != INVALID_ADDRESS);
 }
 
 /* finish suspend after frame save */
@@ -211,6 +214,19 @@ void __attribute__((noreturn)) context_switch_finish(context prev, context next,
     }
     ((void (*)(u64, u64))a)(arg0, arg1);
     runloop();
+}
+
+void register_percpu_init(thunk t)
+{
+    vector_push(percpu_init, t);
+}
+
+void run_percpu_init(void)
+{
+    thunk t;
+    vector_foreach(percpu_init, t) {
+        apply(t);
+    }
 }
 
 void halt_with_code(u8 code, char *format, ...)

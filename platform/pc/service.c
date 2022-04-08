@@ -179,8 +179,7 @@ static void init_mxcsr() {
 
 static void new_cpu()
 {
-    if (platform_timer_percpu_init)
-        apply(platform_timer_percpu_init);
+    run_percpu_init();
 
     init_mxcsr();
 

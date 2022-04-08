@@ -193,6 +193,24 @@ extern queue async_queue_1;
 extern timerqueue kernel_timers;
 extern thunk timer_interrupt_handler;
 
+typedef closure_type(clock_timer, void, timestamp);
+
+extern clock_timer platform_timer;
+
+void register_percpu_init(thunk t);
+void run_percpu_init(void);
+
+static inline void register_platform_clock_timer(clock_timer ct, thunk percpu_init)
+{
+    platform_timer = ct;
+    register_percpu_init(percpu_init);
+}
+
+static inline void set_platform_timer(timestamp duration)
+{
+    apply(platform_timer, duration);
+}
+
 typedef closure_type(async_1, void, u64);
 
 typedef struct applied_async_1 {

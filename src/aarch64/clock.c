@@ -5,7 +5,6 @@
 
 BSS_RO_AFTER_INIT clock_now platform_monotonic_now;
 BSS_RO_AFTER_INIT clock_timer platform_timer;
-BSS_RO_AFTER_INIT thunk platform_timer_percpu_init;
 
 static inline u64 cntfrq(void)
 {

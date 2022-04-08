@@ -9,7 +9,6 @@
 
 BSS_RO_AFTER_INIT clock_now platform_monotonic_now;
 BSS_RO_AFTER_INIT clock_timer platform_timer;
-BSS_RO_AFTER_INIT thunk platform_timer_percpu_init;
 
 void init_clock(void)
 {
@@ -72,7 +71,11 @@ boolean init_tsc_timer(kernel_heaps kh)
     if (tsc_scaling) {
         register_platform_clock_now(closure(heap_general(kh), tsc_now, tsc_scaling),
                                     VDSO_CLOCK_TSC_STABLE);
-        return init_lapic_timer(&platform_timer, &platform_timer_percpu_init);
+        thunk percpu_init;
+        boolean success = init_lapic_timer(&platform_timer, &percpu_init);
+        if (success)
+            register_percpu_init(percpu_init);
+        return success;
     } else {
         return false;
     }

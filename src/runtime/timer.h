@@ -50,22 +50,6 @@ struct timer {
     timer_handler handler;
 };
 
-typedef closure_type(clock_timer, void, timestamp);
-
-extern clock_timer platform_timer;
-extern thunk platform_timer_percpu_init;
-
-static inline void register_platform_clock_timer(clock_timer ct, thunk percpu_init)
-{
-    platform_timer = ct;
-    platform_timer_percpu_init = percpu_init;
-}
-
-static inline void set_platform_timer(timestamp duration)
-{
-    apply(platform_timer, duration);
-}
-
 static inline void init_timer(timer t)
 {
     t->active = false;

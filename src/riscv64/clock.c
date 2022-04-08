@@ -11,7 +11,6 @@
 
 clock_now platform_monotonic_now;
 clock_timer platform_timer;
-thunk platform_timer_percpu_init;
 
 static u64 read_rtc(void)
 {
