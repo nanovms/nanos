@@ -180,12 +180,14 @@ closure_function(2, 1, void, dealloc_from_range,
 
     int bit = ri.start - n->r.start;
     u64 pages = range_span(ri);
+    int order = find_order(pages);
     if (!bitmap_dealloc(r->b, bit, pages)) {
         msg_err("heap %p: bitmap dealloc for range %R failed; leaking\n", i, q);
         return;
     }
 
-    set_next_bit(r, find_order(pages), bit);
+    if (bit < get_next_bit(r, order))
+        set_next_bit(r, order, bit);
     u64 deallocated = pages << page_order(i);
     assert(i->allocated >= deallocated);
     i->allocated -= deallocated;
