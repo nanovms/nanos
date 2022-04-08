@@ -34,6 +34,13 @@
 #define ICC_SRE_EL3     "S3_6_C12_C12_5"
 #define ICC_IGRPEN1_EL3 "S3_6_C12_C12_7"
 
+#define ICC_SGIxR_EL1_AFF3_SHIFT    48
+#define ICC_SGIxR_EL1_RS_SHIFT      44
+#define ICC_SGIxR_EL1_IRM           U64_FROM_BIT(40)
+#define ICC_SGIxR_EL1_AFF2_SHIFT    32
+#define ICC_SGIxR_EL1_INTID_SHIFT   24
+#define ICC_SGIxR_EL1_AFF1_SHIFT    16
+
 #define ICC_CTLR_EL1_ExtRange      U64_FROM_BIT(19)
 #define ICC_CTLR_EL1_RSS           U64_FROM_BIT(18)
 #define ICC_CTLR_EL1_A3V           U64_FROM_BIT(15)
@@ -91,6 +98,9 @@
 #define GICD_IGRPMODR(n)            0x0d00
 #define GICD_NSACR(n)               0x0e00
 #define GICD_SGIR                   0x0f00
+#define GICD_TargetList_BCAST       U64_FROM_BIT(24)
+#define GICD_CPUTargetList_SHIFT    16
+#define GICD_SGIR_NSATT             U64_FROM_BIT(15)
 #define GICD_CPENDSGIR(n)           0x0f10
 #define GICD_SPENDSGIR(n)           0x0f20
 
@@ -98,6 +108,12 @@
 #define GICR_CTLR_EnableLPIs            U64_FROM_BIT(0)
 #define GICR_IIDR                   0x0004
 #define GICR_TYPER                  0x0008
+#define GICR_TYPER_AFF3(type)           (((type) & 0xff00000000000000) >> 56)
+#define GICR_TYPER_AFF2(type)           (((type) & 0x00ff000000000000) >> 48)
+#define GICR_TYPER_AFF1(type)           (((type) & 0x0000ff0000000000) >> 40)
+#define GICR_TYPER_AFF0(type)           (((type) & 0x000000ff00000000) >> 32)
+#define GICR_TYPER_LAST                 U64_FROM_BIT(4)
+#define GICR_TYPER_VLPIS                U64_FROM_BIT(1)
 #define GICR_TYPER_PROC_NUM(type)       (((type) & 0xffff00) >> 8)
 #define GICR_STATUSR                0x0010
 #define GICR_WAKER                  0x0014
@@ -229,6 +245,7 @@ boolean gic_int_is_pending(int irq);
 u64 gic_dispatch_int(void);
 void gic_eoi(int irq);
 int init_gic(void);
+void gic_percpu_init(void);
 
 #define _GIC_SET_INTFIELD(name, type) void gic_set_int_##name(int irq, u32 v);
 _GIC_SET_INTFIELD(priority, IPRIORITY)

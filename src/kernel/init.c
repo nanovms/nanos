@@ -339,7 +339,7 @@ void kernel_runtime_init(kernel_heaps kh)
     shutdown_completions = allocate_vector(locked, SHUTDOWN_COMPLETIONS_SIZE);
 
     init_debug("init_kernel_contexts");
-    init_kernel_contexts((heap)heap_page_backed(kh));
+    init_kernel_contexts((heap)heap_linear_backed(kh));
 
     init_debug("init_interrupts");
     init_interrupts(kh);

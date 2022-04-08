@@ -64,9 +64,9 @@
         .endm
 
         .text
-// entry from kernel loader
-.globl _start
-_start:
+
+.globl aarch64_cpu_init
+aarch64_cpu_init:
         // allow debug and serror interrupts, disable irq and firq
         mov     x0, #0xc0
         msr     daif, x0
@@ -79,6 +79,13 @@ _start:
         // temporary stack
         mov     x0, (PHYSMEM_BASE + INIT_IDENTITY_SIZE)
         mov     sp, x0
+
+        ret
+
+// entry from kernel loader
+.globl _start
+_start:
+        bl      aarch64_cpu_init
         b       start
 
 // exception entries

@@ -149,7 +149,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3 -march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18 -fno-pic
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -DSMP_ENABLE -O3 -march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18 -fno-pic
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 

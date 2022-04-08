@@ -41,10 +41,11 @@ typedef struct its_dev {
 #define gicd_read_32(reg)           mmio_read_32(gic.dist_base + GICD_ ## reg)
 #define gicd_write_32(reg, value)   mmio_write_32(gic.dist_base + GICD_ ## reg, value)
 
-#define gicr_read_32(reg)           mmio_read_32(gic.redist.base + GICR_ ## reg)
-#define gicr_read_64(reg)           mmio_read_64(gic.redist.base + GICR_ ## reg)
-#define gicr_write_32(reg, value)   mmio_write_32(gic.redist.base + GICR_ ## reg, value)
-#define gicr_write_64(reg, value)   mmio_write_64(gic.redist.base + GICR_ ## reg, value)
+#define gicr_base                   (current_cpu()->m.gic_rdist_base)
+#define gicr_read_32(reg)           mmio_read_32(gicr_base + GICR_ ## reg)
+#define gicr_read_64(reg)           mmio_read_64(gicr_base + GICR_ ## reg)
+#define gicr_write_32(reg, value)   mmio_write_32(gicr_base + GICR_ ## reg, value)
+#define gicr_write_64(reg, value)   mmio_write_64(gicr_base + GICR_ ## reg, value)
 
 #define gits_read_64(reg)           mmio_read_64(gic.its_base + GITS_ ## reg)
 #define gits_write_32(reg, value)   mmio_write_32(gic.its_base + GITS_ ## reg, value)
@@ -157,26 +158,70 @@ boolean gic_int_is_pending(int irq)
     return pending;
 }
 
+static void gicr_get_base(void)
+{
+    cpuinfo ci = current_cpu();
+    u64 mpid = read_mpid();
+    u64 ptr = gic.redist.base;
+    u64 typer;
+    do {
+        typer = mmio_read_64(ptr + GICR_TYPER);
+        if ((MPIDR_AFF3(mpid) == GICR_TYPER_AFF3(typer)) &&
+            (MPIDR_AFF2(mpid) == GICR_TYPER_AFF2(typer)) &&
+            (MPIDR_AFF1(mpid) == GICR_TYPER_AFF1(typer)) &&
+            (MPIDR_AFF0(mpid) == GICR_TYPER_AFF0(typer))) {
+            ci->m.gic_rdist_base = ptr;
+            return;
+        }
+        ptr += 2 * 64 * KB;     /* RD_base and SGI_base */
+        if (typer & GICR_TYPER_VLPIS)
+            ptr += 2 * 64 * KB; /* VLPI_base and reserved frame */
+    } while (!(typer & GICR_TYPER_LAST));
+    halt("failed to get GICR base for CPU %ld (MPID 0x%lx)\n", ci->id, mpid);
+}
+
+static void init_gicd_percpu(void)
+{
+    if (gic.v3_iface) {
+        gicr_write_32(ICENABLER, MASK(32));
+        gicr_write_32(ICPENDR, MASK(32));
+        for (int i = 0; i < GIC_PPI_INTS_END / GICD_INTS_PER_IPRIORITY_REG; i++)
+            gicr_write_32(IPRIORITYR(i), MASK(32));
+        gicr_write_32(IGROUPR, MASK(32));
+        for (int i = GIC_PPI_INTS_START / GICD_INTS_PER_ICFG_REG;
+             i < GIC_PPI_INTS_END / GICD_INTS_PER_ICFG_REG; i++)
+            gicr_write_32(ICFGR(i), 0); /* level-sensitive interrupts */
+    } else {
+        gicd_write_32(ICENABLER(0), MASK(32));
+        gicd_write_32(ICPENDR(0), MASK(32));
+        for (int i = 0; i < GIC_PPI_INTS_END / GICD_INTS_PER_IPRIORITY_REG; i++)
+            gicd_write_32(IPRIORITYR(i), MASK(32));
+        gicd_write_32(IGROUPR(0), MASK(32));
+        for (int i = GIC_PPI_INTS_START / GICD_INTS_PER_ICFG_REG;
+             i < GIC_PPI_INTS_END / GICD_INTS_PER_ICFG_REG; i++)
+            gicd_write_32(ICFGR(i), 0); /* level-sensitive interrupts */
+    }
+}
+
 static void init_gicd(void)
 {
     gicd_write_32(CTLR, GICD_CTLR_DISABLE);
 
+    init_gicd_percpu();
+
     /* disable and clear pending */
-    for (int i = 0; i < GIC_MAX_INT / GICD_INTS_PER_IENABLE_REG; i++)
+    for (int i = 1; i < GIC_MAX_INT / GICD_INTS_PER_IENABLE_REG; i++)
         gicd_write_32(ICENABLER(i), MASK(32));
     
-    for (int i = 0; i < GIC_MAX_INT / GICD_INTS_PER_IPEND_REG; i++)
+    for (int i = 1; i < GIC_MAX_INT / GICD_INTS_PER_IPEND_REG; i++)
         gicd_write_32(ICPENDR(i), MASK(32));
 
     /* set all to low priority */
-    for (int i = 0; i < GIC_MAX_INT / GICD_INTS_PER_IPRIORITY_REG; i++)
+    for (int i = GIC_SPI_INTS_START / GICD_INTS_PER_IPRIORITY_REG;
+         i < GIC_MAX_INT / GICD_INTS_PER_IPRIORITY_REG; i++)
         gicd_write_32(IPRIORITYR(i), MASK(32));
 
     /* set all to group 1, non-secure */
-    if (gic.v3_iface)
-        gicr_write_32(IGROUPR, MASK(32));
-    else
-        gicd_write_32(IGROUPR(0), MASK(32));
     for (int i = GIC_SPI_INTS_START / GICD_INTS_PER_IGROUP_REG;
          i < GIC_SPI_INTS_END / GICD_INTS_PER_IGROUP_REG; i++)
         gicd_write_32(IGROUPR(i), MASK(32));
@@ -186,11 +231,6 @@ static void init_gicd(void)
          i < GIC_SPI_INTS_END / GICD_INTS_PER_ITARGETS_REG; i++)
         gicd_write_32(ITARGETSR(i), 0x01010101);
 
-    /* set all to level triggered, active low */
-    for (int i = GIC_PPI_INTS_START / GICD_INTS_PER_ICFG_REG;
-         i < GIC_PPI_INTS_END / GICD_INTS_PER_ICFG_REG; i++)
-        gicd_write_32(ICFGR(i), 0); /* all level */
-    
     /* enable
        XXX - turn on affinity routing (ARE)? */
 
@@ -424,6 +464,7 @@ int init_gic(void)
     }
 
     if (gic.v3_iface) {
+        gicr_get_base();
         u64 icc_ctlr = read_psr_s(ICC_CTLR_EL1);
         gic.intid_mask = (field_from_u64(icc_ctlr, ICC_CTLR_EL1_IDbits) ==
                           ICC_CTLR_EL1_IDbits_24) ? MASK(24) : MASK(16);
@@ -471,6 +512,35 @@ int init_gic(void)
     return (gic.v3_iface ? gic_msi_vector_base + gic_msi_vector_num : GIC_MAX_INT);
 }
 
+void gic_percpu_init(void)
+{
+    if (gic.v3_iface)
+        gicr_get_base();
+    init_gicd_percpu();
+    init_gicc();
+}
+
 void send_ipi(u64 cpu, u8 vector)
 {
+    if (gic.v3_iface) {
+        u64 sgi = ((u32)vector) << ICC_SGIxR_EL1_INTID_SHIFT;
+        if (cpu != TARGET_EXCLUSIVE_BROADCAST) {
+            u64 mpid = mpid_from_cpuid(cpu);
+            u64 aff0 = MPIDR_AFF0(mpid);
+            sgi |= (MPIDR_AFF3(mpid) << ICC_SGIxR_EL1_AFF3_SHIFT) |
+                   (MPIDR_AFF2(mpid) << ICC_SGIxR_EL1_AFF2_SHIFT) |
+                   (MPIDR_AFF1(mpid) << ICC_SGIxR_EL1_AFF1_SHIFT) |
+                   ((aff0 >> 4) << ICC_SGIxR_EL1_RS_SHIFT) | (1 << (aff0 & 0xf));
+        } else {
+            sgi |= ICC_SGIxR_EL1_IRM;
+        }
+        write_psr_s(ICC_SGI1R_EL1, sgi);
+    } else {
+        u32 sgi = vector | GICD_SGIR_NSATT;
+        if (cpu != TARGET_EXCLUSIVE_BROADCAST)
+            sgi |= 1 << (GICD_CPUTargetList_SHIFT + mpid_from_cpuid(cpu));
+        else
+            sgi |= GICD_TargetList_BCAST;
+        gicd_write_32(SGIR, sgi);
+    }
 }

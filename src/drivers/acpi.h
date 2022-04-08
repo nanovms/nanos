@@ -19,6 +19,7 @@
 #define ACPI_MADT_LAPIC     0
 #define ACPI_MADT_IOAPIC    1
 #define ACPI_MADT_LAPICx2   9
+#define ACPI_MADT_GEN_INT   11
 #define ACPI_MADT_GEN_DIST  12
 #define ACPI_MADT_GEN_RDIST 14
 #define ACPI_MADT_GEN_TRANS 15
@@ -84,6 +85,32 @@ typedef struct acpi_ioapic {
     u32 addr;
     u32 gsi_base;
 } __attribute__((packed)) *acpi_ioapic;
+
+typedef struct acpi_gen_int
+{
+    u8 type;
+    u8 length;
+    u16 res;
+    u32 cpu_iface_num;
+    u32 acpi_proc_uid;
+    u32 flags;
+    u32 parking_proto_ver;
+    u32 perf_int_gsiv;
+    u64 parked_addr;
+    u64 base_addr;
+    u64 gicv_base_addr;
+    u64 gich_base_addr;
+    u32 vgic_int;
+    u64 gicr_base_addr;
+    u64 mpidr;
+    u8 efficiency_class;
+    u8 res2;
+    u16 spe_int;
+
+} __attribute__((packed)) *acpi_gen_int;
+
+/* acpi_gen_int flags */
+#define MADT_GENINT_ENABLED U64_FROM_BIT(0)
 
 typedef struct acpi_gen_dist {  /* Generic Distributor */
     u8 type;

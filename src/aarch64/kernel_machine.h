@@ -133,6 +133,14 @@
 #define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_3_0_4_0 1
 #define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_4_1     3
 
+#define MPIDR_AFF3(mpidr)   (((mpidr) >> 32) & 0xff)
+#define MPIDR_AFF2(mpidr)   (((mpidr) >> 16) & 0xff)
+#define MPIDR_AFF1(mpidr)   (((mpidr) >> 8) & 0xff)
+#define MPIDR_AFF0(mpidr)   ((mpidr) & 0xff)
+#define MPIDR_AFF_MASK      0xff00ffffffull /* Aff3 | Aff2 | Aff1 | Aff0 */
+
+#define read_mpid()    (read_psr(MPIDR_EL1) & MPIDR_AFF_MASK)
+
 #define SCTLR_EL1_UCI     U64_FROM_BIT(26) /* trap cache instructions in EL0 */
 #define SCTLR_EL1_EE      U64_FROM_BIT(25) /* endianness for EL1 data / pt table */
 #define SCTLR_EL1_E0E     U64_FROM_BIT(24) /* endianness for EL0 data */
@@ -238,6 +246,8 @@ struct cpuinfo_machine {
 
     /* Next syscall context to install */
     context syscall_context;
+
+    u64 gic_rdist_base; /* base (virtual) address of GICv3 redistributor */
 };
 
 typedef struct cpuinfo *cpuinfo;
@@ -479,6 +489,9 @@ void deallocate_msi_interrupt(u64 v);
 u64 allocate_mmio_interrupt(void);
 void deallocate_mmio_interrupt(u64 v);
 
+u64 mpid_from_cpuid(int id);
+
+void aarch64_cpu_init(void);
 void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
 void angel_shutdown(u64 x0);
 void psci_shutdown(void);

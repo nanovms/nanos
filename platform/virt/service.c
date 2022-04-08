@@ -257,23 +257,13 @@ void vm_exit(u8 code)
 }
 
 u64 total_processors = 1;
-u64 present_processors = 1;
-
-void start_secondary_cores(kernel_heaps kh)
-{
-}
-
-void count_cpus_present(void)
-{
-}
+BSS_RO_AFTER_INIT u64 present_processors;
 
 static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
     init_page_tables((heap)heap_linear_backed(kh));
-    /* mmu init complete; unmap temporary identity map */
-    unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     bytes pagesize = is_low_memory_machine(kh) ? PAGESIZE : PAGESIZE_2M;
     init_tuples(locking_heap_wrapper(heap_general(kh),
                 allocate_tagged_region(kh, tag_table_tuple, pagesize)));

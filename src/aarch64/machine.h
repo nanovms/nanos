@@ -173,8 +173,7 @@ static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *tar
     return tmp >> bit;
 #else
     u64 mask = 1ull << bit;
-    u64 w = *target;
-    *target = w | mask;
+    u64 w = __atomic_fetch_or(target, mask, __ATOMIC_RELAXED);
     return (w & mask) != 0;
 #endif
 }
@@ -188,8 +187,7 @@ static inline __attribute__((always_inline)) u8 atomic_test_and_clear_bit(u64 *t
     return tmp >> bit;
 #else
     u64 mask = 1ull << bit;
-    u64 w = *target;
-    *target = w & ~mask;
+    u64 w = __atomic_fetch_and(target, ~mask, __ATOMIC_RELAXED);
     return (w & mask) != 0;
 #endif
 }

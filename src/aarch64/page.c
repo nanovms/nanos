@@ -59,36 +59,10 @@ void init_mmu(range init_pt, u64 vtarget)
 
     page_set_allowed_levels(0xe); /* mapping at levels 1-3 always allowed */
     init_page_initial_map(pointer_from_u64(init_pt.start), init_pt);
-
-    /* memory attributes */
-    write_psr(MAIR_EL1, MAIR_EL1_INIT);
     
     assert(allocate_table_page(&user_tablebase));
-    write_psr(TTBR0_EL1, user_tablebase);
     assert(allocate_table_page(&kernel_tablebase));
-    write_psr(TTBR1_EL1, kernel_tablebase);
     
-    u64 tcr_el1 =
-        /* for TTBR1_EL1 (kernel) */
-        TCR_EL1_TBI1 | TCR_EL1_TBI0 | /* enable user and kernel tags */
-        u64_from_field(TCR_EL1_T1SZ, 64 - VIRTUAL_ADDRESS_BITS) |
-        u64_from_field(TCR_EL1_TG1, TCR_EL1_TG1_4KB) |
-        u64_from_field(TCR_EL1_ORGN1, TCR_EL1_xRGN_WB) |
-        u64_from_field(TCR_EL1_IRGN1, TCR_EL1_xRGN_WB) |
-
-        /* for TTBR0_EL1 (user) */
-        u64_from_field(TCR_EL1_T0SZ, 64 - VIRTUAL_ADDRESS_BITS) |
-        u64_from_field(TCR_EL1_TG0, TCR_EL1_TG0_4KB) |
-        u64_from_field(TCR_EL1_ORGN0, TCR_EL1_xRGN_WB) |
-        u64_from_field(TCR_EL1_IRGN0, TCR_EL1_xRGN_WB);
-
-    page_init_debug("tcr_el1: ");
-    page_init_debug_u64(tcr_el1);
-    page_init_debug("\n");
-
-    write_psr(TCR_EL1, tcr_el1);
-    write_psr(MDSCR_EL1, 0);
-
 #if 0
     /* XXX: something about splitting the mapping into two pieces
        causes some accesses to go off the rails ... even if both are made writable */
@@ -123,6 +97,38 @@ void init_mmu(range init_pt, u64 vtarget)
 
     page_init_debug("map temporary identity mapping\n");
     map(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
+
+    enable_mmu(vtarget);
+}
+
+void enable_mmu(u64 vtarget)
+{
+    /* memory attributes */
+    write_psr(MAIR_EL1, MAIR_EL1_INIT);
+
+    write_psr(TTBR0_EL1, user_tablebase);
+    write_psr(TTBR1_EL1, kernel_tablebase);
+
+    u64 tcr_el1 =
+        /* for TTBR1_EL1 (kernel) */
+        TCR_EL1_TBI1 | TCR_EL1_TBI0 | /* enable user and kernel tags */
+        u64_from_field(TCR_EL1_T1SZ, 64 - VIRTUAL_ADDRESS_BITS) |
+        u64_from_field(TCR_EL1_TG1, TCR_EL1_TG1_4KB) |
+        u64_from_field(TCR_EL1_ORGN1, TCR_EL1_xRGN_WB) |
+        u64_from_field(TCR_EL1_IRGN1, TCR_EL1_xRGN_WB) |
+
+        /* for TTBR0_EL1 (user) */
+        u64_from_field(TCR_EL1_T0SZ, 64 - VIRTUAL_ADDRESS_BITS) |
+        u64_from_field(TCR_EL1_TG0, TCR_EL1_TG0_4KB) |
+        u64_from_field(TCR_EL1_ORGN0, TCR_EL1_xRGN_WB) |
+        u64_from_field(TCR_EL1_IRGN0, TCR_EL1_xRGN_WB);
+
+    page_init_debug("tcr_el1: ");
+    page_init_debug_u64(tcr_el1);
+    page_init_debug("\n");
+
+    write_psr(TCR_EL1, tcr_el1);
+    write_psr(MDSCR_EL1, 0);
 
     page_init_debug("\nEnabling MMU and caches...\n");
 

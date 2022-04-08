@@ -409,3 +409,4 @@ static inline u64 page_from_pte(pte pte)
 #define table_from_pte page_from_pte
 
 void init_mmu(range init_pt, u64 vtarget);
+void enable_mmu(u64 vtarget);

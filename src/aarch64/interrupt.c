@@ -201,6 +201,7 @@ NOTRACE
 void synchronous_handler(void)
 {
     cpuinfo ci = current_cpu();
+    bitmap_set_atomic(idle_cpu_mask, ci->id, 0);
     context ctx = get_current_context(ci);
     context_frame f = ctx->frame;
     u32 esr = esr_from_frame(f);
@@ -260,6 +261,7 @@ NOTRACE
 void irq_handler(void)
 {
     cpuinfo ci = current_cpu();
+    bitmap_set_atomic(idle_cpu_mask, ci->id, 0);
     context ctx = get_current_context(ci);
     context_frame f = ctx->frame;
     u64 i;
@@ -346,6 +348,15 @@ MK_INT_ALLOC_FNS(ipi)
 MK_INT_ALLOC_FNS(msi)
 MK_INT_ALLOC_FNS(mmio)
 
+static void interrupt_init(int vector)
+{
+    gic_set_int_priority(vector, 0);
+    if (vector >= gic_msi_vector_base && vector < (gic_msi_vector_base + gic_msi_vector_num))
+        gic_set_int_config(vector, GICD_ICFGR_EDGE);
+    gic_clear_pending_int(vector);
+    gic_enable_int(vector);
+}
+
 void register_interrupt(int vector, thunk t, const char *name)
 {
     boolean initialized = !list_empty(&handlers[vector]);
@@ -358,14 +369,8 @@ void register_interrupt(int vector, thunk t, const char *name)
     h->name = name;
     list_insert_before(&handlers[vector], &h->l);
 
-    if (!initialized) {
-        gic_set_int_priority(vector, 0);
-        if (vector >= gic_msi_vector_base &&
-            vector < (gic_msi_vector_base + gic_msi_vector_num))
-            gic_set_int_config(vector, GICD_ICFGR_EDGE);
-        gic_clear_pending_int(vector);
-        gic_enable_int(vector);
-    }
+    if (!initialized)
+        interrupt_init(vector);
 }
 
 void unregister_interrupt(int vector)
@@ -384,6 +389,13 @@ void unregister_interrupt(int vector)
 
 extern void *exception_vectors;
 
+/* set exception vector table base */
+static void exc_vbar_set(void)
+{
+    register u64 v = u64_from_pointer(&exception_vectors);
+    asm volatile("dsb sy; msr vbar_el1, %0" :: "r"(v));
+}
+
 closure_function(0, 0, void, arm_timer)
 {
     // This assert failed once under KVM...not clear if it's a valid assumption...
@@ -394,13 +406,22 @@ closure_function(0, 0, void, arm_timer)
 
 BSS_RO_AFTER_INIT closure_struct(arm_timer, _timer);
 
+closure_function(0, 0, void, interrupt_percpu_init)
+{
+    exc_vbar_set();
+    gic_percpu_init();
+    for (int i = GIC_SGI_INTS_START; i < GIC_PPI_INTS_END; i++)
+        if (!list_empty(&handlers[i]))
+            interrupt_init(i);
+}
+
+BSS_RO_AFTER_INIT closure_struct(interrupt_percpu_init, int_percpu_init);
+
 void init_interrupts(kernel_heaps kh)
 {
     int_general = heap_locked(kh);
 
-    /* set exception vector table base */
-    register u64 v = u64_from_pointer(&exception_vectors);
-    asm volatile("dsb sy; msr vbar_el1, %0" :: "r"(v));
+    exc_vbar_set();
 
     /* initialize interrupt controller */
     int gic_max_int = init_gic();
@@ -433,6 +454,8 @@ void init_interrupts(kernel_heaps kh)
     gic_set_int_config(GIC_TIMER_IRQ, GICD_ICFGR_LEVEL);
     gic_set_int_priority(GIC_TIMER_IRQ, 0);
     register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), "arm timer");
+
+    register_percpu_init(init_closure(&int_percpu_init, interrupt_percpu_init));
 }
 
 void __attribute__((noreturn)) __stack_chk_fail(void)
