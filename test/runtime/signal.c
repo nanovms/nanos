@@ -45,15 +45,20 @@ static void yield_for(volatile int * v)
         fail_error("timed out");
 }
 
-static void * tgkill_test_pause(void * arg)
+static void * tgkill_test_pause(void *use_select)
 {
+    int rv;
     child_tid = syscall(SYS_gettid);
     sigtest_debug("child enter, tid %d\n", child_tid);
+    if (use_select) {
+        rv = syscall(SYS_pselect6, 0, NULL, NULL, NULL, NULL, NULL);
+    } else {
 #ifdef __x86_64__
-    int rv = syscall(SYS_pause);
+        rv = syscall(SYS_pause);
 #else
-    int rv = syscall(SYS_ppoll, 0, 0, 0, 0);
+        rv = syscall(SYS_ppoll, 0, 0, 0, 0);
 #endif
+    }
     if (rv < 0) {
         if (errno == EINTR) {
             sigtest_debug("child received signal\n");
@@ -70,12 +75,12 @@ static void test_signal_catch_handler(int sig)
     sigtest_debug("caught signal %d\n", sig);
 }
 
-void test_signal_catch(void)
+void test_signal_catch(int use_select)
 {
     sigtest_debug("\n");
     pthread_t pt = 0;
     child_tid = 0;
-    if (pthread_create(&pt, NULL, tgkill_test_pause, NULL))
+    if (pthread_create(&pt, NULL, tgkill_test_pause, (void*)(long)use_select))
         fail_perror("pthread_create");
 
     sigtest_debug("yielding until child tid reported...\n");
@@ -1488,7 +1493,9 @@ int main(int argc, char * argv[])
 
     test_sigtrap();
 
-    test_signal_catch();
+    test_signal_catch(0);
+
+    test_signal_catch(1);
 
     test_rt_signal();
 

@@ -760,9 +760,6 @@ static sysreturn select_internal(int nfds,
                                  timestamp timeout,
                                  const sigset_t * sigmask)
 {
-    if (nfds == 0 && timeout == infinity)
-        return 0;
-
     u64 set_bytes = pad(nfds, 64) / 8;
     if ((readfds && !validate_user_memory(readfds, set_bytes, true)) ||
         (writefds && !validate_user_memory(writefds, set_bytes, true)) ||
@@ -782,7 +779,7 @@ static sysreturn select_internal(int nfds,
     epoll_debug("nfds %d, readfds %p, writefds %p, exceptfds %p\n"
                 "   epoll_blocked %p, timeout %d\n", nfds, readfds, writefds, exceptfds,
                 wt, timeout);
-    if (nfds == 0)            /* timeout != infinity */
+    if (nfds == 0)
         goto check_timeout;
 
     wt->rset = readfds ? bitmap_wrap(e->h, readfds, nfds) : 0;
