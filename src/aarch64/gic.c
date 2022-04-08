@@ -130,23 +130,23 @@ void gic_clear_pending_int(int irq)
             return;                                                     \
         int w = 32 / GICD_INTS_PER_ ## type ## _REG;                    \
         int r = irq / GICD_INTS_PER_ ## type ## _REG;                   \
+        boolean redist = gic.v3_iface && (irq < GIC_PPI_INTS_END);      \
         u32 i;                                                          \
-        if (!gic.v3_iface || r)                                         \
+        if (!redist)                                                    \
             i = gicd_read_32(type ## R(r));                             \
         else                                                            \
-            i = gicr_read_32(type ## R);                                \
+            i = gicr_read_32(type ## R(r));                             \
         int s = (irq % GICD_INTS_PER_ ## type ## _REG) * w;             \
         u32 n = (i & ~(MASK32(w) << s)) | (v << s);                     \
-        if (!gic.v3_iface || r)                                         \
+        if (!redist)                                                    \
             gicd_write_32(type ## R(r), n);                             \
         else                                                            \
-            gicr_write_32(type ## R, n);                                \
+            gicr_write_32(type ## R(r), n);                             \
         gic_debug("irq %d, v %d, reg was 0x%x, now 0x%x\n", irq, v, i, n); \
     }
 
 GIC_SET_INTFIELD(priority, IPRIORITY)
 GIC_SET_INTFIELD(config, ICFG)
-GIC_SET_INTFIELD(target, ITARGETS)
 
 boolean gic_int_is_pending(int irq)
 {

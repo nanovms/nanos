@@ -123,11 +123,9 @@
 #define GICR_INTS_PER_IPEND_REG     32
 #define GICR_ISACTIVER              (_GICR_OFFSET + 0x0300)
 #define GICR_ICACTIVER              (_GICR_OFFSET + 0x0380)
-#define GICR_IPRIORITYR             (_GICR_OFFSET + 0x0400)
+#define GICR_IPRIORITYR(n)          (_GICR_OFFSET + 0x0400 + 4 * (n))
 #define GICR_INTS_PER_IPRIORITY_REG 4
-#define GICR_ITARGETSR              (_GICR_OFFSET + 0x0800)
-#define GICR_INTS_PER_ITARGETS_REG  4
-#define GICR_ICFGR                  (_GICR_OFFSET + 0x0c00)
+#define GICR_ICFGR(n)               (_GICR_OFFSET + 0x0c00 + 4 * (n))
 #define GICR_INTS_PER_ICFG_REG      16
 
 #define GICR_ICFGR_LEVEL 0
@@ -235,5 +233,4 @@ int init_gic(void);
 #define _GIC_SET_INTFIELD(name, type) void gic_set_int_##name(int irq, u32 v);
 _GIC_SET_INTFIELD(priority, IPRIORITY)
 _GIC_SET_INTFIELD(config, ICFG)
-_GIC_SET_INTFIELD(target, ITARGETS)
 #undef _GIC_SET_INTFIELD
