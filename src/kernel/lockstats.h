@@ -1,6 +1,4 @@
 #define MAX_TRACE_DEPTH 8
-#define LOCK_TYPE_SPIN 0
-#define LOCK_TYPE_MUTEX 1
 
 typedef struct lock_block {
     u64 lock_trace[MAX_TRACE_DEPTH];

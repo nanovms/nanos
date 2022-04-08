@@ -17,6 +17,10 @@ void runloop_target(void) __attribute__((noreturn));
 void tprintf(symbol tag, tuple attrs, const char *format, ...);
 #endif
 
+#ifdef LOCK_STATS
+#include <lockstats.h>
+#endif
+
 //#define CONTEXT_DEBUG
 #ifdef CONTEXT_DEBUG
 #define context_debug(x, ...) do {tprintf(sym(context), 0, x, ##__VA_ARGS__);} while(0)
@@ -85,6 +89,129 @@ struct cpuinfo {
 
 extern vector cpuinfos;
 
+#if defined(KERNEL) && defined(SMP_ENABLE)
+static inline boolean spin_try(spinlock l)
+{
+    boolean success = compare_and_swap_64(&l->w, 0, 1);
+#ifdef LOCK_STATS
+    LOCKSTATS_RECORD_LOCK(l->s, success, 0, 0);
+#endif
+    return success;
+}
+
+static inline void spin_lock(spinlock l)
+{
+#ifdef LOCK_STATS
+    u64 spins = 0;
+    while (l->w || !compare_and_swap_64(&l->w, 0, 1)) {
+        spins++;
+        kern_pause();
+    }
+    LOCKSTATS_RECORD_LOCK(l->s, true, spins, 0);
+#else
+    while (l->w || !compare_and_swap_64(&l->w, 0, 1))
+        kern_pause();
+#endif
+}
+
+static inline void spin_unlock(spinlock l)
+{
+#ifdef LOCK_STATS
+    LOCKSTATS_RECORD_UNLOCK(l->s);
+#endif
+    compiler_barrier();
+    *(volatile u64 *)&l->w = 0;
+}
+
+static inline void spin_rlock(rw_spinlock l)
+{
+    while (1) {
+        if (l->l.w) {
+            kern_pause();
+            continue;
+        }
+        fetch_and_add(&l->readers, 1);
+        if (!l->l.w)
+            return;
+        fetch_and_add(&l->readers, -1);
+    }
+}
+
+static inline void spin_runlock(rw_spinlock l)
+{
+    fetch_and_add(&l->readers, -1);
+}
+
+static inline void spin_wlock(rw_spinlock l)
+{
+    spin_lock(&l->l);
+    while (l->readers)
+        kern_pause();
+}
+
+static inline void spin_wunlock(rw_spinlock l)
+{
+    spin_unlock(&l->l);
+}
+#else
+#ifdef SPIN_LOCK_DEBUG_NOSMP
+u64 get_program_counter(void);
+
+static inline boolean spin_try(spinlock l)
+{
+    if (l->w)
+        return false;
+    l->w = get_program_counter();
+    return true;
+}
+
+static inline void spin_lock(spinlock l)
+{
+    if (l->w != 0) {
+        print_frame_trace_from_here();
+        halt("spin_lock: lock %p already locked by 0x%lx\n", l, l->w);
+    }
+    l->w = get_program_counter();
+}
+
+static inline void spin_unlock(spinlock l)
+{
+    assert(l->w != 1);
+    l->w = 0;
+}
+
+static inline void spin_rlock(rw_spinlock l) {
+    assert(l->l.w == 0);
+    assert(l->readers == 0);
+    l->readers++;
+}
+
+static inline void spin_runlock(rw_spinlock l) {
+    assert(l->readers == 1);
+    assert(l->l.w == 0);
+    l->readers--;
+}
+
+static inline void spin_wlock(rw_spinlock l) {
+    assert(l->readers == 0);
+    spin_lock(&l->l);
+}
+
+static inline void spin_wunlock(rw_spinlock l) {
+    assert(l->readers == 0);
+    spin_unlock(&l->l);
+}
+#else
+#define spin_try(x) (true)
+#define spin_lock(x) ((void)x)
+#define spin_unlock(x) ((void)x)
+#define spin_wlock(x) ((void)x)
+#define spin_wunlock(x) ((void)x)
+#define spin_rlock(x) ((void)x)
+#define spin_runlock(x) ((void)x)
+#endif
+#endif
+
 #ifdef KERNEL
 #define _IRQSAFE_1(rtype, name, t0)              \
     static inline rtype name ## _irqsafe (t0 a0) \
@@ -132,6 +259,45 @@ _IRQSAFE_1(boolean, queue_full, queue);
 _IRQSAFE_1(void *, queue_peek, queue);
 #undef _IRQSAFE_1
 #undef _IRQSAFE_2
+
+static inline u64 spin_lock_irq(spinlock l)
+{
+    u64 flags = irq_disable_save();
+    spin_lock(l);
+    return flags;
+}
+
+static inline void spin_unlock_irq(spinlock l, u64 flags)
+{
+    spin_unlock(l);
+    irq_restore(flags);
+}
+
+static inline u64 spin_wlock_irq(rw_spinlock l)
+{
+    u64 flags = irq_disable_save();
+    spin_wlock(l);
+    return flags;
+}
+
+static inline void spin_wunlock_irq(rw_spinlock l, u64 flags)
+{
+    spin_wunlock(l);
+    irq_restore(flags);
+}
+
+static inline u64 spin_rlock_irq(rw_spinlock l)
+{
+    u64 flags = irq_disable_save();
+    spin_rlock(l);
+    return flags;
+}
+
+static inline void spin_runlock_irq(rw_spinlock l, u64 flags)
+{
+    spin_runlock(l);
+    irq_restore(flags);
+}
 
 /* Acquires 2 locks, guarding against potential deadlock resulting from a concurrent thread trying
  * to acquire the same locks. */

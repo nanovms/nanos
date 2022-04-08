@@ -132,10 +132,6 @@ static inline __attribute__((always_inline)) value_tag tagof(value v) {
 
 #endif
 
-typedef struct spinlock {
-    word w;
-} *spinlock;
-
 /* returns -1 if x == 0, caller must check */
 static inline __attribute__((always_inline)) u64 msb(u64 x)
 {
