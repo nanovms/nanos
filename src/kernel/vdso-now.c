@@ -13,7 +13,6 @@
 
 #ifndef BUILD_VDSO
 VVAR_DEF(struct vdso_dat_struct, vdso_dat) = {
-    .platform_has_rdtscp = 0,
     .rtc_offset = 0,
     .pvclock_offset = 0,
     .clock_src = VDSO_CLOCK_SYSCALL
@@ -110,7 +109,7 @@ vdso_now(clock_id id)
 VDSO int
 vdso_getcpu(unsigned *cpu, unsigned *node)
 {
-    if (__vdso_dat->platform_has_rdtscp) {
+    if (__vdso_dat->machine.platform_has_rdtscp) {
         if (cpu)
             asm volatile("rdtscp" : "=c" (*cpu) :: "eax", "edx");
         if (node)

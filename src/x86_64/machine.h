@@ -133,3 +133,7 @@ static inline __attribute__((always_inline)) void kern_pause(void)
 {
     asm volatile("pause");
 }
+
+struct arch_vdso_dat {
+    u8 platform_has_rdtscp;
+};

@@ -16,7 +16,7 @@ void init_clock(void)
     u32 regs[4];
     cpuid(0x80000001, 0, regs);
     __vdso_dat->clock_src = VDSO_CLOCK_SYSCALL;
-    __vdso_dat->platform_has_rdtscp = (regs[3] & U64_FROM_BIT(27)) != 0;
+    __vdso_dat->machine.platform_has_rdtscp = (regs[3] & U64_FROM_BIT(27)) != 0;
 }
 
 /* error refers to the time (expressed in TSC cycles) it takes to read the PIT counter value. */

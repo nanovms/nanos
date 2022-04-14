@@ -56,7 +56,6 @@ closure_struct(riscv_timer_percpu_init, _timer_percpu_init);
 
 void init_clock(void)
 {
-    __vdso_dat->platform_has_rdtscp = 0;
     register_platform_clock_now(init_closure(&_clock_now, riscv_clock_now), VDSO_CLOCK_SYSCALL);
     register_platform_clock_timer(init_closure(&_deadline_timer, riscv_deadline_timer),
                                   init_closure(&_timer_percpu_init, riscv_timer_percpu_init));

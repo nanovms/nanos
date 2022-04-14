@@ -497,6 +497,16 @@ static inline u64 *get_current_fp(void)
 })
 
 /* clocksource */
+
+static inline boolean platform_has_precise_clocksource(void)
+{
+#if defined(KERNEL) || defined(BUILD_VDSO)
+    return __vdso_dat->machine.platform_has_rdtscp;
+#else
+    return false;
+#endif
+}
+
 static inline u64
 _rdtscp(void)
 {

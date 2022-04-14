@@ -16,8 +16,8 @@ struct vdso_dat_struct {
     s64 cal;    /* calibration value (from monotonic raw to monotonic); 0 means no drift */
     s64 last_drift; /* last calculated drift from monotonic raw to monotonic */
     timestamp last_raw; /* time at which last_drift has been calculated */
-    u8 platform_has_rdtscp;
-} __attribute((packed));
+    struct arch_vdso_dat machine;
+};
 
 /* VDSO accessible variables */
 VVAR_DECL(struct vdso_dat_struct, vdso_dat);

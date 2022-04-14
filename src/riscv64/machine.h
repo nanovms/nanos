@@ -248,6 +248,9 @@ static inline __attribute__((always_inline)) void kern_pause(void)
 /* XXX used in vdso, but is rdcycle right for that? */
 /* XXX make names generic */
 #if defined(KERNEL) || defined(BUILD_VDSO)
+struct arch_vdso_dat {
+};
+
 static inline __attribute__((always_inline)) u64 rdtsc(void)
 {
     // XXX vdso
