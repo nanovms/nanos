@@ -129,7 +129,7 @@ static inline u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 e
 
     endbit -= nbits;
 
-    if (nbits >= 64) {
+    if (stride >= 64) {
         /* multi-word */
         while (bit <= endbit) {
             if (bitmap_extend(b, bit + nbits))
