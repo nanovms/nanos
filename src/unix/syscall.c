@@ -1067,8 +1067,9 @@ static int try_write_dirent(void *dirp, boolean dirent64, char *p,
     int len = runtime_strlen(p);
     *read_sofar += len;
     if (*read_sofar > *f_offset) {
-        int reclen = (dirent64 ? sizeof(struct linux_dirent64) : sizeof(struct linux_dirent)) +
-                     len + 3;
+        int reclen = dirent64 ? (offsetof(struct linux_dirent64 *, d_name) + len + 1) :
+                     (offsetof(struct linux_dirent *, d_name) + len + 2);
+        reclen = pad(reclen, 8);    /* so that all dirent structures have natural alignment */
         // include this element in the getdents output
         if (reclen > *count) {
             // can't include, there's no space
@@ -1076,23 +1077,22 @@ static int try_write_dirent(void *dirp, boolean dirent64, char *p,
             return -1;
         } else {
             // include the entry in the buffer
-            runtime_memset((u8*)dirp, 0, reclen);
             if (dirent64) {
                 struct linux_dirent64 *dp = dirp;
                 dp->d_ino = u64_from_pointer(n);
                 dp->d_reclen = reclen;
                 runtime_memcpy(dp->d_name, p, len + 1);
-                dp->d_off = dp->d_reclen;   // XXX: in the future, pad this.
-                dp->d_name[len + 2] = 0;    /* some zero padding */
+                dp->d_off = reclen + *written_sofar;
+                dp->d_type = dt_from_tuple(n);
             } else {
                 struct linux_dirent *dp = dirp;
                 dp->d_ino = u64_from_pointer(n);
                 dp->d_reclen = reclen;
-                runtime_memcpy(dp->d_name, p, len + 1);
-                dp->d_off = dp->d_reclen;   // XXX: in the future, pad this.
-                dp->d_name[len + 2] = 0;    /* some zero padding */
+                runtime_memcpy(dp->d_name, p, len);
+                zero(dp->d_name + len, reclen - (((void *)dp->d_name) - dirp) - len - 1);
+                dp->d_off = reclen + *written_sofar;
+                ((char *)dirp)[reclen - 1] = dt_from_tuple(n);
             }
-            ((char *)dirp)[reclen - 1] = dt_from_tuple(n);
 
             // advance dirp
             *written_sofar += reclen;
