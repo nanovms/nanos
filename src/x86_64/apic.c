@@ -96,7 +96,7 @@ void msi_format(u32 *address, u32 *data, int vector)
     u32 dm = 0;             // destination mode: ignored if rh == 0
     u32 rh = 0;             // redirection hint: 0 - disabled
     u32 destination = 0;    // destination APIC
-    *address = (0xfee << 20) | (destination << 12) | (rh << 3) | (dm << 2);
+    *address = (0xfeeu << 20) | (destination << 12) | (rh << 3) | (dm << 2);
 
     u32 mode = 0;           // delivery mode: 000 fixed, 001 lowest, 010 smi, 100 nmi, 101 init, 111 extint
     u32 level = 0;          // trigger level: 0 - deassert, 1 - assert
