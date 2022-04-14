@@ -30,7 +30,7 @@ static u64 bootstrap_alloc(heap h, bytes length)
         rputs("*** bootstrap heap overflow! ***\n");
         return INVALID_PHYSICAL;
     }
-    bootstrap_base += length;
+    bootstrap_base += pad(length, 8);   /* ensure 8-byte alignment for the next allocation */
     return result;
 }
 
