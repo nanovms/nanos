@@ -36,7 +36,7 @@ jobs:
       - run: gsutil setmeta -h "Custom-Time:`date -Iseconds`" gs://nanos/release/${COMMIT_ID}/*
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/${COMMIT_ID}/*
 
-  build-pc-memdebug:
+  build-pc-debug:
     docker:
       # specify the version
       - image: cimg/go:1.16
@@ -45,13 +45,13 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install nasm qemu-system-x86 ent ruby rustc
       - run: cd .. && git clone git@github.com:nanovms/ops.git
-      - run: make MEMDEBUG=all
+      - run: make MEMDEBUG=all UBSAN=1
       - run: curl https://ops.city/get.sh -sSfL | sh
       - run:
           command: |
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
-            make MEMDEBUG=all test-noaccel
+            make MEMDEBUG=all UBSAN=1 test-noaccel
 
   nightly-build:
     docker:
@@ -209,7 +209,7 @@ workflows:
     jobs:
       - build-pc
       - build-virt
-      - build-pc-memdebug
+      - build-pc-debug
       - build-riscv
   nightly:
     triggers:
