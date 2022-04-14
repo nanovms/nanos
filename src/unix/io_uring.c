@@ -206,7 +206,7 @@ typedef struct iour_timer {
  *   - array of struct io_uring_sqe (sq_entries)
  */
 #define IOUR_REGION1_SIZE(iour) \
-        pad(sizeof(struct io_rings) + (iour)->sq_entries * sizeof(u32) + \
+        pad(sizeof(struct io_rings) + pad((iour)->sq_entries * sizeof(u32), 8) + \
         (iour)->cq_entries * sizeof(struct io_uring_cqe), PAGESIZE)
 #define IOUR_REGION2_SIZE(iour) \
         pad((iour)->sq_entries * sizeof(struct io_uring_sqe), PAGESIZE)
@@ -394,7 +394,7 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     }
     iour->sq_array = (u32 *)((u8 *)iour->rings + sizeof(struct io_rings));
     iour->cqes = (struct io_uring_cqe *)((u8 *)iour->sq_array +
-            iour->sq_entries * sizeof(u32));
+            pad(iour->sq_entries * sizeof(u32), 8));
     iour->sqes = (struct io_uring_sqe *)((u8 *)iour->rings +
             IOUR_REGION1_SIZE(iour));
     iour_debug("rings %p, SQ array %p, CQEs %p, SQEs %p", iour->rings,
