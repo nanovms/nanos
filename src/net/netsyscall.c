@@ -32,6 +32,8 @@
 
 #define MTU_MAX (32 * KB)
 
+#define TCP_SEND_LIMIT (128*KB) // XXX should go in config.h?
+
 #define resolve_socket(__p, __fd) ({fdesc f = resolve_fd(__p, __fd); \
     if (f->type != FDESC_TYPE_SOCKET) {              \
         fdesc_put(f);                                \
@@ -96,8 +98,12 @@ enum udp_socket_state {
     UDP_SOCK_CREATED = 1,
 };
 
+declare_closure_struct(1, 0, void, socket_tcp_write_deferred, struct netsock *, s);
+declare_closure_struct(1, 0, void, socket_tcp_recved_deferred, struct netsock *, s);
+
 typedef struct netsock {
     struct sock sock;             /* must be first */
+    struct spinlock lock;
     process p;
     queue incoming;
     err_t lwip_error;             /* lwIP error code; ERR_OK if normal */
@@ -107,6 +113,12 @@ typedef struct netsock {
 	    struct tcp_pcb *lw;
 	    tcpflags_t flags;
 	    enum tcp_socket_state state; // half open?
+        queue outgoing;
+        sg_list sent;
+        u64 queued;
+        u64 recved;
+        closure_struct(socket_tcp_write_deferred, deferred_send);
+        closure_struct(socket_tcp_recved_deferred, deferred_recved);
 	} tcp;
 	struct {
 	    struct udp_pcb *lw;
@@ -116,6 +128,36 @@ typedef struct netsock {
 } *netsock;
 
 #define DEFAULT_SO_RCVBUF   0x34000 /* same as Linux */
+
+declare_closure_struct(3, 0, void, tcp_buf_free,
+                       struct tcp_buf *, b, heap, h, u64, length);
+
+typedef struct tcp_buf {
+    u64 length;
+    u64 offset;
+    closure_struct(tcp_buf_free, free);
+    struct refcount refcount;
+    u8 b[0];
+} *tcp_buf;
+
+define_closure_function(3, 0, void, tcp_buf_free,
+                       struct tcp_buf *, b, heap, h, u64, length)
+{
+    deallocate(bound(h), bound(b), bound(length));
+}
+
+static tcp_buf allocate_tcp_buf(heap h, void *source, u64 length)
+{
+    u64 alloc_length = length + sizeof(struct tcp_buf);
+    tcp_buf b = allocate(h, alloc_length);
+    if (b == INVALID_ADDRESS)
+        return b;
+    b->length = length;
+    b->offset = 0;
+    init_refcount(&b->refcount, 1, init_closure(&b->free, tcp_buf_free, b, h, alloc_length));
+    runtime_memcpy(b->b, source, length);
+    return b;
+}
 
 int so_rcvbuf;
 
@@ -172,6 +214,7 @@ closure_function(1, 1, u32, socket_events,
                  netsock, s,
                  thread, t /* ignore */)
 {
+    // XXX called with s->lock already held?
     netsock s = bound(s);
     boolean in = !queue_empty(s->incoming);
     sysreturn rv;
@@ -182,11 +225,10 @@ closure_function(1, 1, u32, socket_events,
             break;
         case TCP_SOCK_OPEN:
             /* We can't take the lwIP lock here given that notifies are
-               triggered by lwIP callbackes, but the lwIP state read is atomic
-               as is the TCP sendbuf size read. */
+               triggered by lwIP callbackes, but the lwIP state read is atomic */
             rv = (in ? EPOLLIN | EPOLLRDNORM : 0) |
                 (s->info.tcp.lw->state == ESTABLISHED ?
-                 (tcp_sndbuf(s->info.tcp.lw) ? EPOLLOUT | EPOLLWRNORM : 0) :
+                 (s->info.tcp.queued < TCP_SEND_LIMIT ? EPOLLOUT | EPOLLWRNORM : 0) :
                  EPOLLIN | EPOLLOUT);
             break;
         case TCP_SOCK_UNDEFINED:
@@ -385,12 +427,22 @@ struct udp_entry {
     u16 rport;
 };
 
+/* lwip lock should already be held */
+define_closure_function(1, 0, void, socket_tcp_recved_deferred,
+                 netsock, s)
+{
+    netsock s = bound(s);
+    spin_lock(&s->lock);
+    tcp_recved(s->info.tcp.lw, s->info.tcp.recved);
+    s->info.tcp.recved = 0;
+    spin_unlock(&s->lock);
+}
+
 static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
                                        u64 length, int flags, struct sockaddr *src_addr,
                                        socklen_t *addrlen, io_completion completion, u64 bqflags)
 {
-    lwip_lock();
-
+    spin_lock(&s->lock);
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
     net_debug("sock %d, thread %ld, dest %p, len %ld, flags 0x%x, bqflags 0x%lx, lwip err %d\n",
@@ -425,7 +477,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             rv = -EAGAIN;
             goto out_unlock;
         }
-        lwip_unlock();
+        spin_unlock(&s->lock);
         return blockq_block_required(t, bqflags);
     }
 
@@ -460,8 +512,10 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
                 length -= xfer;
                 xfer_total += xfer;
                 dest = (char *) dest + xfer;
-                if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK))
-                    tcp_recved(s->info.tcp.lw, xfer);
+                if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK)) {
+                    s->info.tcp.recved += xfer;
+                    lwip_queue_tcp_recved((thunk)&s->info.tcp.deferred_recved);
+                }
             }
             if ((cur_buf->len == 0) || (flags & MSG_PEEK))
                 cur_buf = cur_buf->next;
@@ -483,13 +537,10 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         }
     } while(s->sock.type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
 
-    if (s->sock.type == SOCK_STREAM)
-        /* Calls to tcp_recved() may have enqueued new packets in the loopback interface. */
-        netsock_check_loop();
 
     rv = xfer_total;
   out_unlock:
-    lwip_unlock();
+    spin_unlock(&s->lock);
     net_debug("   completion %p, rv %ld\n", completion, rv);
     apply(completion, t, rv);
     return rv;
@@ -570,94 +621,48 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
                                               u64 remain, int flags, io_completion completion,
                                               u64 bqflags)
 {
-    lwip_lock();
-
     sysreturn rv = 0;
-    err_t err = get_lwip_error(s);
-    net_debug("fd %d, thread %ld, buf %p, remain %ld, flags 0x%x, bqflags 0x%lx, lwip err %d\n",
-              s->sock.fd, t->tid, buf, remain, flags, bqflags, err);
-    assert(remain > 0);
 
+    spin_lock(&s->lock);
+    err_t err = get_lwip_error(s);
     if (err != ERR_OK) {
         rv = lwip_to_errno(err);
-        goto out_unlock;
+        goto out;
     }
 
-    if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
+    if (s->info.tcp.state != TCP_SOCK_OPEN) {
         rv = -ENOTCONN;
-        goto out_unlock;
+        goto out;
     }
-
-    if (bqflags & BLOCKQ_ACTION_NULLIFY) {
-        rv = -ERESTARTSYS;
-        goto out_unlock;
-    }
-
-    /* Note that the actual transmit window size is truncated to 16
-       bits here (and tcp_write() doesn't accept more than 2^16
-       anyway), so even if we have a large transmit window due to
-       LWIP_WND_SCALE, we still can't write more than 2^16. Sigh... */
-    u64 avail = tcp_sndbuf(s->info.tcp.lw);
-    if (avail == 0) {
-        /* directly poll for loopback traffic in case the enqueued netsock_poll is backed up */
-        netif_poll_all();
-        avail = tcp_sndbuf(s->info.tcp.lw);
-        if (avail == 0) {
-          full:
-            if ((bqflags & BLOCKQ_ACTION_BLOCKED) == 0 &&
-                ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT))) {
-                net_debug(" send buf full and non-blocking, return EAGAIN\n");
-                rv = -EAGAIN;
-                goto out_unlock;
-            }
-            net_debug(" send buf full, sleep\n");
-            lwip_unlock();
-            return blockq_block_required(t, bqflags); /* block again */
-        }
-    }
-
     /* Figure actual length and flags */
     u64 n;
-    u8 apiflags = TCP_WRITE_FLAG_COPY;
+    u64 avail = TCP_SEND_LIMIT - s->info.tcp.queued;
     if (avail < remain) {
         n = avail;
-        apiflags |= TCP_WRITE_FLAG_MORE;
     } else {
         n = remain;
     }
-
-    err = tcp_write(s->info.tcp.lw, buf, n, apiflags);
-    if (err == ERR_OK) {
-        /* XXX prob add a flag to determine whether to continuously
-           post data, e.g. if used by send/sendto... */
-        err = tcp_output(s->info.tcp.lw);
-        lwip_unlock();
-        if (err == ERR_OK) {
-            net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
-            netsock_check_loop();
-            rv = n;
-            if (n == avail) {
-                fdesc_notify_events(&s->sock.f); /* reset a triggered EPOLLOUT condition */
-            }
-        } else {
-            net_debug(" tcp_output() lwip error: %d\n", err);
-            rv = lwip_to_errno(err);
-            /* XXX map error to socket tcp state */
+    if (avail == 0) {
+        if ((bqflags & BLOCKQ_ACTION_BLOCKED) == 0 &&
+            ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT))) {
+            net_debug(" send buf full and non-blocking, return EAGAIN\n");
+            rv = -EAGAIN;
+            goto out;
         }
+        net_debug(" send buf full, sleep\n");
+        return blockq_block_required(t, bqflags); /* block again */
+    }
+    tcp_buf tb = allocate_tcp_buf(s->sock.h, buf, n);
+    if (tb == INVALID_ADDRESS) {
+        rv = -ENOMEM;
         goto out;
     }
-    if (err == ERR_MEM) {
-        /* XXX some ambiguity in lwIP - investigate */
-        net_debug(" tcp_write() returned ERR_MEM\n");
-        goto full;
-    } else {
-        net_debug(" tcp_write() lwip error: %d\n", err);
-        rv = lwip_to_errno(err);
-    }
-  out_unlock:
-    lwip_unlock();
-  out:
-    net_debug("   completion %p, rv %ld\n", completion, rv);
+    assert(enqueue(s->info.tcp.outgoing, tb));
+    s->info.tcp.queued += n;
+    lwip_queue_tcp_send((thunk)&s->info.tcp.deferred_send);
+    rv = n;
+out:
+    spin_unlock(&s->lock);
     apply(completion, t, rv);
     return rv;
 }
@@ -723,10 +728,13 @@ static sysreturn socket_write_internal(struct sock *sock, void *source,
     sysreturn rv;
 
     if (sock->type == SOCK_STREAM) {
-	if (s->info.tcp.state != TCP_SOCK_OPEN) { /* XXX maybe defer to lwip for connect state */
-	    rv = -EPIPE;
-	    goto out;
-	}
+        spin_lock(&s->lock);
+        if (s->info.tcp.state != TCP_SOCK_OPEN) { /* XXX maybe defer to lwip for connect state */
+            rv = -EPIPE;
+            spin_unlock(&s->lock);
+            goto out;
+        }
+        spin_unlock(&s->lock);
 
         if (length == 0) {
             rv = 0;
@@ -745,6 +753,74 @@ static sysreturn socket_write_internal(struct sock *sock, void *source,
 out:
     apply(completion, t, rv);
     return rv;
+}
+
+/* lwip lock should already be held */
+define_closure_function(1, 0, void, socket_tcp_write_deferred,
+                 netsock, s)
+{
+    netsock s = bound(s);
+    spin_lock(&s->lock);
+    err_t err = get_lwip_error(s);
+    if (err != ERR_OK) {
+        spin_unlock(&s->lock);
+        // XXX what would happen here?
+        return;
+    }
+    if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
+        spin_unlock(&s->lock);
+        return;
+    }
+    u64 avail = tcp_sndbuf(s->info.tcp.lw);
+    if (avail == 0) {
+        /* directly poll for loopback traffic in case the enqueued netsock_poll is backed up */
+        netif_poll_all();
+        avail = tcp_sndbuf(s->info.tcp.lw);
+        if (avail == 0) {
+            spin_unlock(&s->lock);
+            return;
+        }
+    }
+    /* Figure actual length and flags */
+    u64 remain = s->info.tcp.queued;
+    u64 n;
+    u8 apiflags = 0;
+    if (avail < remain) {
+        n = avail;
+        apiflags |= TCP_WRITE_FLAG_MORE;
+    } else {
+        n = remain;
+    }
+    while (n > 0) {
+        tcp_buf tb = queue_peek(s->info.tcp.outgoing);
+        u64 wlen = tb->length - tb->offset;
+        if (wlen > n)
+            wlen = n;
+        err = tcp_write(s->info.tcp.lw, tb->b + tb->offset, wlen, apiflags);
+        if (err != ERR_OK) {
+            net_debug("tcp_write fail: %d\n", err);
+            break;
+        }
+        sg_buf sgb = sg_list_tail_add(s->info.tcp.sent, wlen);
+        sgb->buf = tb->b + tb->offset;
+        sgb->size = wlen;
+        sgb->offset = 0;
+        sgb->refcount = &tb->refcount;
+        refcount_reserve(&tb->refcount);
+        tb->offset += wlen;
+        if (tb->offset == tb->length) {
+            refcount_release(&tb->refcount);
+            dequeue(s->info.tcp.outgoing);
+        }
+        n -= wlen;
+        s->info.tcp.queued -= wlen;
+    }
+    err = tcp_output(s->info.tcp.lw);
+    if (err != ERR_OK) {
+        msg_err("tcp output fail: %d\n", err);
+        // XXX what to do here?
+    }
+    spin_unlock(&s->lock);
 }
 
 closure_function(1, 6, sysreturn, socket_write,
@@ -967,6 +1043,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
         lwip_lock();
         void *p = queue_peek(s->incoming);
         if (p != INVALID_ADDRESS) {
+            spin_lock(&s->lock);
             struct pbuf *buf = 0;
             switch (s->sock.type) {
             case SOCK_STREAM:
@@ -981,6 +1058,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
             default:
                 break;
             }
+            spin_unlock(&s->lock);
             while (buf) {
                 *nbytes += (int)buf->len;
                 buf = buf->next;
@@ -1009,19 +1087,25 @@ closure_function(1, 2, sysreturn, socket_close,
          * using a stale reference to the socket structure, set the callback
          * argument to NULL. */
         lwip_lock();
+        spin_lock(&s->lock);
         if (s->info.tcp.lw) {
             tcp_close(s->info.tcp.lw);
             tcp_arg(s->info.tcp.lw, 0);
             netsock_check_loop();
         }
+        spin_unlock(&s->lock);
         lwip_unlock();
         break;
     case SOCK_DGRAM:
         lwip_lock();
+        spin_lock(&s->lock);
         udp_remove(s->info.udp.lw);
+        spin_unlock(&s->lock);
         lwip_unlock();
         break;
     }
+    deallocate_sg_list(s->info.tcp.sent);
+    deallocate_queue(s->info.tcp.outgoing);
     deallocate_queue(s->incoming);
     deallocate_closure(s->sock.f.read);
     deallocate_closure(s->sock.f.write);
@@ -1062,6 +1146,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
             goto out;
         }
         lwip_lock();
+        spin_lock(&s->lock);
         if (shut_rx && shut_tx) {
             tcp_arg(s->info.tcp.lw, 0);
         }
@@ -1072,6 +1157,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
             s->info.tcp.lw = 0;
             s->info.tcp.state = TCP_SOCK_UNDEFINED;
         }
+        spin_unlock(&s->lock);
         lwip_unlock();
         netsock_check_loop();
         break;
@@ -1154,6 +1240,22 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
         goto err_queue;
     }
 
+    s->info.tcp.outgoing = allocate_queue(h, SOCK_QUEUE_LEN);
+    if (s->info.tcp.outgoing == INVALID_ADDRESS) {
+        msg_err("failed to allocate queue\n");
+        // XXX dealloc
+        goto err_queue;
+    }
+    s->info.tcp.sent = allocate_sg_list();
+    if (s->info.tcp.sent == INVALID_ADDRESS) {
+        msg_err("failed to allocate sg list\n");
+        deallocate_queue(s->incoming);
+        // XXX dealloc
+        goto err_queue;
+    }
+    s->info.tcp.queued = 0;
+    init_closure(&s->info.tcp.deferred_send, socket_tcp_write_deferred, s);
+    init_closure(&s->info.tcp.deferred_recved, socket_tcp_recved_deferred, s);
     s->sock.bind = netsock_bind;
     s->sock.listen = netsock_listen;
     s->sock.connect = netsock_connect;
@@ -1281,15 +1383,18 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
         msg_err("Unexpected error from lwIP: %d\n", err);
     }
 
+    spin_lock(&s->lock);
     /* A null pbuf indicates connection closed. */
     if (p) {
         if ((s->sock.rx_len + p->tot_len > so_rcvbuf) || !enqueue(s->incoming, p)) {
-	    msg_err("incoming queue full\n");
+            spin_unlock(&s->lock);
+            msg_err("incoming queue full\n");
             return ERR_BUF;     /* XXX verify */
         }
         s->sock.rx_len += p->tot_len;
     }
     wakeup_sock(s, WAKEUP_SOCK_RX);
+    spin_unlock(&s->lock);
 
     return ERR_OK;
 }
@@ -1373,7 +1478,12 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
     }
     netsock s = (netsock)arg;
     net_debug("fd %d, pcb %p, len %d\n", s->sock.fd, pcb, len);
+    spin_lock(&s->lock);
+    sg_consume(s->info.tcp.sent, len);
+    if (s->info.tcp.queued)
+        lwip_queue_tcp_send((thunk)&s->info.tcp.deferred_send);
     wakeup_sock(s, WAKEUP_SOCK_TX);
+    spin_unlock(&s->lock);
     return ERR_OK;
 }
 
@@ -1394,6 +1504,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
         if (rv == 0) {
             /* We can assume a nullify will not happen on an lwIP callback. */
             lwip_lock();
+            spin_lock(&s->lock);
             if (s->info.tcp.state == TCP_SOCK_OPEN) {
                 /* The connection opened before we could abort; close it. */
                 tcp_arg(s->info.tcp.lw, 0);
@@ -1404,6 +1515,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
                 assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
                 s->info.tcp.state = TCP_SOCK_ABORTING_CONNECTION;
             }
+            spin_unlock(&s->lock);
             lwip_unlock();
             rv = -ERESTARTSYS;
         }
@@ -1432,14 +1544,17 @@ static err_t connect_tcp_complete(void* arg, struct tcp_pcb* tpcb, err_t err)
    netsock s = (netsock)arg;
    net_debug("sock %d, tcp state %d, pcb %p, err %d\n", s->sock.fd,
            s->info.tcp.state, tpcb, err);
+    spin_lock(&s->lock);
    if (s->info.tcp.state == TCP_SOCK_ABORTING_CONNECTION) {
        s->info.tcp.state = TCP_SOCK_CREATED;
+       spin_unlock(&s->lock);
        return ERR_ABRT;
    }
    assert(s->info.tcp.state == TCP_SOCK_IN_CONNECTION);
    s->info.tcp.state = TCP_SOCK_OPEN;
    set_lwip_error(s, err);
    wakeup_sock(s, WAKEUP_SOCK_TX);
+   spin_unlock(&s->lock);
    return ERR_OK;
 }
 
@@ -1452,6 +1567,7 @@ static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
     /* Force exclusion in case - for whatever odd reason - there's a race with
        another thread trying to connect on the same socket. */
     lwip_lock();
+    spin_lock(&s->lock);
     struct tcp_pcb * lw = s->info.tcp.lw;
     switch (s->info.tcp.state) {
     case TCP_SOCK_IN_CONNECTION:
@@ -1474,6 +1590,7 @@ static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
     s->info.tcp.state = TCP_SOCK_IN_CONNECTION;
     set_lwip_error(s, ERR_OK);
     err_t err = tcp_connect(lw, address, port, connect_tcp_complete);
+    spin_unlock(&s->lock);
     lwip_unlock();
     if (err != ERR_OK)
         return lwip_to_errno(err);
@@ -1482,6 +1599,7 @@ static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
     return blockq_check(s->sock.txbq, current,
                         contextual_closure(connect_tcp_bh, s, current), false);
   unlock_out:
+    spin_unlock(&s->lock);
     lwip_unlock();
     return rv;
 }
@@ -1913,6 +2031,7 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     netsock s = (netsock) sock;
     sysreturn rv;
     lwip_lock();
+    spin_lock(&s->lock);
     backlog = MIN(backlog, SOCK_QUEUE_LEN);
     if (s->sock.type != SOCK_STREAM) {
         rv = -EOPNOTSUPP;
@@ -1935,6 +2054,7 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     tcp_accept(lw, accept_tcp_from_lwip);
     rv = 0;
   unlock_out:
+    spin_unlock(&s->lock);
     lwip_unlock();
     socket_release(sock);
     return rv;
@@ -2156,6 +2276,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
             u8 so_option = (optname == SO_REUSEADDR ? SOF_REUSEADDR :
                             (optname == SO_KEEPALIVE ? SOF_KEEPALIVE : SOF_BROADCAST));
             lwip_lock();
+            spin_lock(&s->lock);
             if ((s->sock.type == SOCK_STREAM) && s->info.tcp.lw) {
                 if (*((int *)optval))
                     ip_set_option(s->info.tcp.lw, so_option);
@@ -2167,10 +2288,12 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                 else
                     ip_reset_option(s->info.udp.lw, so_option);
             } else {
+                spin_unlock(&s->lock);
                 lwip_unlock();
                 rv = -EINVAL;
                 goto out;
             }
+            spin_unlock(&s->lock);
             lwip_unlock();
             break;
         case SO_REUSEPORT:
@@ -2187,6 +2310,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                 goto out;
             }
             lwip_lock();
+            spin_lock(&s->lock);
             if (s->info.tcp.lw && (s->info.tcp.state != TCP_SOCK_LISTENING)) {
                 if (*((int *)optval))
                     tcp_nagle_disable(s->info.tcp.lw);
@@ -2198,6 +2322,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                 else
                     s->info.tcp.flags &= ~TF_NODELAY;
             }
+            spin_unlock(&s->lock);
             lwip_unlock();
             break;
         default:
@@ -2296,11 +2421,13 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         switch (optname) {
         case TCP_NODELAY:
             lwip_lock();
+            spin_lock(&s->lock);
             if (s->info.tcp.lw && (s->info.tcp.state != TCP_SOCK_LISTENING))
                 ret_optval.val = tcp_nagle_disabled(s->info.tcp.lw);
             else
                 ret_optval.val = ((s->info.tcp.flags & TF_NODELAY) != 0);
             ret_optlen = sizeof(ret_optval.val);
+            spin_unlock(&s->lock);
             lwip_unlock();
             break;
         default:

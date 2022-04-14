@@ -39,6 +39,64 @@ static struct net_lwip_timer net_lwip_timers[] = {
     {DHCP6_TIMER_MSECS, dhcp6_tmr, "dhcp6"},
 };
 
+#define NET_QUEUE_LENGTH 8192
+static queue in_packets;
+static queue tcp_rcvd;
+static queue tcp_snd;
+static thunk lwip_service;
+static volatile boolean lwip_service_scheduled;
+
+closure_function(0, 0, void, lwip_service_thunk)
+{
+    do {
+        lwip_service_scheduled = false;
+        lwip_lock();
+        netif_poll_all();
+        thunk t;
+        while ((t = dequeue(in_packets)) != INVALID_ADDRESS)
+            apply(t);
+
+        while ((t = dequeue(tcp_rcvd)) != INVALID_ADDRESS)
+            apply(t);
+
+        while ((t = dequeue(tcp_snd)) != INVALID_ADDRESS) {
+            apply(t);
+        }
+        netif_poll_all();
+        lwip_unlock();
+    } while (lwip_service_scheduled);
+}
+
+void schedule_lwip_service(void)
+{
+    if (!atomic_swap_boolean((boolean *)&lwip_service_scheduled, true))
+        enqueue_irqsafe(runqueue, lwip_service);
+}
+
+boolean lwip_queue_tcp_recved(thunk t)
+{
+    boolean q = enqueue(tcp_rcvd, t);
+    if (q)
+        schedule_lwip_service();
+    return q;
+}
+
+boolean lwip_queue_packet(thunk t)
+{
+    boolean q = enqueue(in_packets, t);
+    if (q)
+        schedule_lwip_service();
+    return q;
+}
+
+boolean lwip_queue_tcp_send(thunk t)
+{
+    boolean q = enqueue(tcp_snd, t);
+    if (q)
+        schedule_lwip_service();
+    return q;
+}
+
 closure_function(2, 2, void, dispatch_lwip_timer,
                  lwip_cyclic_timer_handler, handler, const char *, name,
                  u64, expiry, u64, overruns)
@@ -152,6 +210,18 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len)
         if ((!*x) || (!*y)) return -1;
     }
     return 0;
+}
+
+struct spinlock prot_lock;
+sys_prot_t sys_arch_protect(void)
+{
+    spin_lock(&prot_lock);
+    return 0;
+}
+
+void sys_arch_unprotect(sys_prot_t x)
+{
+    spin_unlock(&prot_lock);
 }
 
 struct netif *netif_get_default(void)
@@ -350,9 +420,16 @@ void init_net(kernel_heaps kh)
     heap backed = (heap)heap_linear_backed(kh);
     bytes pagesize = is_low_memory_machine(kh) ?
                      U64_FROM_BIT(MAX_LWIP_ALLOC_ORDER + 1) : PAGESIZE_2M;
-    lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, pagesize);
+    lwip_heap = locking_heap_wrapper(h, allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, pagesize));
     lwip_mutex = allocate_mutex(h, LWIP_LOCK_SPIN_ITERATIONS);
     assert(lwip_mutex != INVALID_ADDRESS);
+    spin_lock_init(&prot_lock);
+    in_packets = allocate_queue(h, NET_QUEUE_LENGTH);
+    tcp_rcvd = allocate_queue(h, NET_QUEUE_LENGTH);
+    tcp_snd = allocate_queue(h, NET_QUEUE_LENGTH);
+    assert(in_packets != INVALID_ADDRESS && tcp_rcvd != INVALID_ADDRESS &&
+            tcp_snd != INVALID_ADDRESS);
+    lwip_service = closure(h, lwip_service_thunk);
     lwip_lock();
     lwip_init();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);

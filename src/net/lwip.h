@@ -30,6 +30,11 @@ void netif_name_cpy(char *dest, struct netif *netif);
 
 extern mutex lwip_mutex;
 
+void schedule_lwip_service(void);
+boolean lwip_queue_packet(thunk t);
+boolean lwip_queue_tcp_recved(thunk t);
+boolean lwip_queue_tcp_send(thunk t);
+
 static inline void lwip_lock(void)
 {
     mutex_lock(lwip_mutex);

@@ -68,20 +68,23 @@ typedef struct vnet {
     void *empty; // just a mac..fix, from pre-heap days
 } *vnet;
 
-typedef struct xpbuf
+typedef struct xpbuf *xpbuf;
+declare_closure_struct(1, 0, boolean, rx_packet,
+                                xpbuf, x);
+
+struct xpbuf
 {
     struct pbuf_custom p;
+    closure_struct(rx_packet, rx);
     vnet vn;
-} *xpbuf;
+};
 
 
 closure_function(1, 1, void, tx_complete,
                  struct pbuf *, p,
                  u64, len)
 {
-    lwip_lock();
     pbuf_free(bound(p));
-    lwip_unlock();
     closure_finish();
 }
 
@@ -197,11 +200,7 @@ closure_function(1, 1, void, input,
             } else
                 err = true;
         }
-        if (!err) {
-            lwip_lock();
-            err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
-            lwip_unlock();
-        }
+        err = !lwip_queue_packet((thunk)&x->rx);
         if (err) {
             receive_buffer_release(&x->p.pbuf);
         }
@@ -214,6 +213,15 @@ closure_function(1, 1, void, input,
     closure_finish();
 }
 
+define_closure_function(1, 0, boolean, rx_packet,
+                        xpbuf, x)
+{
+    xpbuf x = bound(x);
+    vnet vn = x->vn;
+    if (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK)
+        receive_buffer_release(&x->p.pbuf);
+    return true;
+}
 
 static void post_receive(vnet vn)
 {
@@ -221,6 +229,7 @@ static void post_receive(vnet vn)
     assert(x != INVALID_ADDRESS);
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
+    init_closure(&x->rx, rx_packet, x);
     /* no lwip lock necessary */
     pbuf_alloced_custom(PBUF_RAW,
                         vn->rxbuflen,

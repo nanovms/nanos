@@ -47,6 +47,7 @@
 #define LWIP_NO_INTTYPES_H 1
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
+#define SYS_LIGHTWEIGHT_PROT 1
 
 #define LWIP_CHKSUM_ALGORITHM   3
 
@@ -114,15 +115,6 @@ typedef unsigned long mem_ptr_t;
 struct tcpip_api_call_data
 {
 };
-
-static inline sys_prot_t sys_arch_protect(void)
-{
-    return 0;
-}
-
-static inline void sys_arch_unprotect(sys_prot_t x)
-{
-}
 
 typedef unsigned long long time; 
 extern void lwip_debug(char * format, ...);
