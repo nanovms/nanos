@@ -425,6 +425,28 @@ static inline void frame_reset_stack(context_frame f)
     f[FRAME_RSP] = f[FRAME_STACK_TOP];
 }
 
+static inline boolean validate_frame_ptr(u64 *fp)
+{
+    if (!validate_virtual(fp, sizeof(u64)) ||
+        !validate_virtual(fp + 1, sizeof(u64)))
+        return false;
+    return true;
+}
+
+static inline u64 *get_frame_ra_ptr(u64 *fp, u64 **nfp)
+{
+    u64 *rap = fp + 1;
+    *nfp = pointer_from_u64(fp[0]);
+    return rap;
+}
+
+static inline u64 *get_current_fp(void)
+{
+    u64 rbp;
+    asm("movq %%rbp, %0" : "=r" (rbp));
+    return pointer_from_u64(rbp);
+}
+
 #define _switch_stack_head(s, target)                                   \
     register u64 __s = u64_from_pointer(s);                             \
     register u64 __t = u64_from_pointer(target)

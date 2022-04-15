@@ -510,6 +510,9 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
         goto alloc_fail;
     if (ftrace_init(uh, fs))
 	goto alloc_fail;
+#ifdef LOCK_STATS
+    lockstats_init(kh);
+#endif
 #ifdef NET
     if (!netsyscall_init(uh, root))
         goto alloc_fail;

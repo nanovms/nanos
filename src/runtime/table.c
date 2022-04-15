@@ -35,23 +35,48 @@ void table_validate(table t, char *n)
     }
 }
 
-table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y))
+static table allocate_table_internal(heap h, heap pageheap, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y), int prealloc_count)
 {
     table t = allocate(h, sizeof(struct table));
     if (t == INVALID_ADDRESS)
         return t;
 
     t->h = h;
+    t->eh = h;
     t->count = 0;
-    t->buckets = 4;
+    if (prealloc_count)
+        t->buckets = prealloc_count;
+    else
+        t->buckets = 4;
     t->entries = allocate_zero(h, t->buckets * sizeof(void *));
     if (t->entries == INVALID_ADDRESS) {
         deallocate(h, t, sizeof(struct table));
         return INVALID_ADDRESS;
     }
+#ifndef BOOT
+    /* Boot code does not use or support objcache, which requires 64-bit interface */
+    if (prealloc_count) {
+        t->eh = (heap)allocate_objcache_preallocated(h, pageheap, sizeof(struct entry), PAGESIZE, prealloc_count, true);
+        if (t->eh == INVALID_ADDRESS) {
+            deallocate(h, t->entries, t->buckets * sizeof(void *));
+            deallocate(h, t, sizeof(struct table));
+            return INVALID_ADDRESS;
+        }
+    }
+#endif
     t->key_function = key_function;
     t->equals_function = equals_function;
     return t;
+}
+
+table allocate_table(heap h, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y))
+{
+    return allocate_table_internal(h, 0, key_function, equals_function, 0);
+}
+
+table allocate_table_preallocated(heap h, heap pageheap, u64 (*key_function)(void *x), boolean (*equals_function)(void *x, void *y), u64 prealloc_count)
+{
+    return allocate_table_internal(h, pageheap, key_function, equals_function, prealloc_count);
 }
 
 void deallocate_table(table t)
@@ -59,6 +84,8 @@ void deallocate_table(table t)
     table_paranoia(t, "deallocate");
     table_clear(t);
     deallocate(t->h, t->entries, t->buckets * sizeof(void *));
+    if (t->eh != t->h)
+        destroy_heap(t->eh);
     deallocate(t->h, t, sizeof(struct table));
 }
 
@@ -71,6 +98,7 @@ static void resize_table(table t, int buckets)
 {
     assert((buckets & (buckets - 1)) == 0);
     assert(buckets <= TABLE_MAX_BUCKETS);
+    assert(t->h == t->eh); /* don't resize preallocated tables */
     entry *nentries = allocate_zero(t->h, buckets * sizeof(void *));
     if (nentries == INVALID_ADDRESS)
         halt("resize_table: allocate fail for %d buckets\n", buckets);
@@ -112,7 +140,7 @@ void table_set(table t, void *c, void *v)
                 entry z = *e;
                 *e = (*e)->next;
                 table_paranoia(t, "remove");
-                deallocate(t->h, z, sizeof(struct entry));
+                deallocate(t->eh, z, sizeof(struct entry));
             } else {
                 (*e)->v = v;
             }
@@ -121,7 +149,7 @@ void table_set(table t, void *c, void *v)
     }
 
     if (v != EMPTY) {
-        entry n = allocate(t->h, sizeof(struct entry));
+        entry n = allocate(t->eh, sizeof(struct entry));
         if (n == INVALID_ADDRESS)
             halt("couldn't allocate table entry\n");
 
@@ -153,7 +181,7 @@ void table_clear(table t)
             continue;
         do {
             entry next = e->next;
-            deallocate(t->h, e, sizeof(struct entry));
+            deallocate(t->eh, e, sizeof(struct entry));
             e = next;
         } while (e);
         t->entries[i] = 0;

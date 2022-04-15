@@ -96,7 +96,8 @@ SRCS-rbtree_test= \
 SRCS-table_test= \
 	$(CURDIR)/table_test.c \
 	$(RUNTIME)\
-	$(SRCDIR)/unix_process/unix_process_runtime.c
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(SRCDIR)/unix_process/mmap_heap.c
 
 SRCS-tuple_test= \
 	$(CURDIR)/tuple_test.c \

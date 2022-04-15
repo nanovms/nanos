@@ -40,28 +40,10 @@ static void print_far_if_valid(u32 iss)
     }
 }
 
-static void frame_trace(u64 *fp)
-{
-    for (unsigned int frame = 0; frame < FRAME_TRACE_DEPTH; frame ++) {
-        if (!validate_virtual(fp, sizeof(u64)) ||
-            !validate_virtual(fp + 1, sizeof(u64)))
-            break;
-
-        u64 n = fp[1];
-        if (n == 0)
-            break;
-        print_u64(u64_from_pointer(fp + 1));
-        rputs(":   ");
-        fp = pointer_from_u64(fp[0]);
-        print_u64_with_sym(n);
-        rputs("\n");
-    }
-}
-
 static void print_stack(context_frame c)
 {
     rputs("\nframe trace: \n");
-    frame_trace(pointer_from_u64(c[FRAME_X29]));
+    print_frame_trace(pointer_from_u64(c[FRAME_X29]));
 
     rputs("\nstack trace:\n");
     u64 *sp = pointer_from_u64(c[FRAME_SP]);
@@ -210,14 +192,6 @@ void dump_context(context ctx)
         rputs("\n");
     }
     print_stack(f);
-}
-
-void print_frame_trace_from_here(void)
-{
-    rputs("\nframe trace: \n");
-    u64 fp;
-    asm("mov %0, x29" : "=r" (fp));
-    frame_trace(pointer_from_u64(fp));
 }
 
 extern void (*syscall)(context f);

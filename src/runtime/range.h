@@ -1,6 +1,13 @@
+
+declare_closure_struct(0, 2, int, rmnode_compare,
+                 rbnode, a, rbnode, b);
+declare_closure_struct(0, 1, boolean, print_key,
+                 rbnode, n);
 typedef struct rangemap {
     heap h;
     struct rbtree t;
+    closure_struct(rmnode_compare, compare);
+    closure_struct(print_key, print);
 } *rangemap;
 
 // [start, end)

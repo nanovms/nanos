@@ -34,21 +34,25 @@ static inline boolean validate_obj(heap h, void * obj)
 
 static boolean alloc_vec(heap h, int n, int s, vector v)
 {
-    if (!validate(h))
-	return false;
-    for (int i=0; i < n; i++) {
-	void * p = allocate(h, s);
-	if (p == INVALID_ADDRESS) {
-	    msg_err("tb: failed to allocate object\n");
-	    return false;
-	}
-	if (!validate_obj(h, p))
-	    return false;
-	
-	vector_set(v, i, p);
+    if (!validate(h)) {
+        msg_err("tb: failed first heap validation\n");
+        return false;
     }
-    if (!validate(h))
-	return false;
+    for (int i=0; i < n; i++) {
+        void * p = allocate(h, s);
+        if (p == INVALID_ADDRESS)
+            return false;
+        if (!validate_obj(h, p)) {
+            msg_err("tb: failed object validation\n");
+            return false;
+        }
+
+        vector_set(v, i, p);
+    }
+    if (!validate(h)) {
+        msg_err("tb: failed second heap validation\n");
+        return false;
+    }
 
     return true;
 }
@@ -83,32 +87,90 @@ boolean objcache_test(heap meta, heap parent, int objsize)
     msg_debug("objs %p, heap %p\n", objs, h);
 
     if (h == INVALID_ADDRESS) {
-	msg_err("tb: failed to allocate objcache heap\n");
-	/* XXX free vector */
-	return false;
+        msg_err("tb: failed to allocate objcache heap\n");
+        deallocate_vector(objs);
+        return false;
+    }
+
+    /* allocate a page's worth */
+    if (!alloc_vec(h, opp, objsize, objs)) {
+        msg_err("tb: failed to allocate object\n");
+        return false;
+    }
+
+    /* and return (cache) them */
+    if (!dealloc_vec(h, objsize, objs))
+        return false;
+
+    /* re-allocate a page's worth + 1 to trigger parent allocation */
+    if (!alloc_vec(h, opp + 1, objsize, objs)) {
+        msg_err("tb: failed to allocate object\n");
+        return false;
+    }
+
+    /* and return them */
+    if (!dealloc_vec(h, objsize, objs))
+        return false;
+
+    if (heap_allocated(h) > 0) {
+        msg_err("allocated (%d) should be 0; fail\n", heap_allocated(h));
+        return false;
+    }
+    destroy_heap(h);
+    deallocate_vector(objs);
+    return true;
+}
+
+boolean preallocated_objcache_test(heap meta, heap parent, int objsize, boolean prealloc_only)
+{
+    /* just a cursory test */
+    int opp = (TEST_PAGESIZE - FOOTER_SIZE) / objsize;
+
+    vector objs = allocate_vector(meta, opp);
+
+    heap h = allocate_objcache_preallocated(meta, parent, objsize, TEST_PAGESIZE, opp, prealloc_only);
+    u64 meta_occupancy = heap_allocated(meta);
+    u64 parent_occupancy = heap_allocated(parent);
+
+    msg_debug("objs %p, heap %p\n", objs, h);
+
+    if (h == INVALID_ADDRESS) {
+        msg_err("tb: failed to allocate objcache heap\n");
+        deallocate_vector(objs);
+        return false;
     }
 
     /* allocate a page's worth */
     if (!alloc_vec(h, opp, objsize, objs))
-	return false;
+        return false;
+
+    if (heap_allocated(meta) != meta_occupancy)
+        return false;
+    if (heap_allocated(parent) != parent_occupancy)
+        return false;
 
     /* and return (cache) them */
     if (!dealloc_vec(h, objsize, objs))
-	return false;
-    
-    /* re-allocate a page's worth + 1 to trigger parent allocation */
-    if (!alloc_vec(h, opp + 1, objsize, objs))
-	return false;
-    
-    /* and return them */
-    if (!dealloc_vec(h, objsize, objs))
-	return false;
+        return false;
 
-    if (heap_allocated(h) > 0) {
-	msg_err("allocated (%d) should be 0; fail\n", heap_allocated(h));
-	return false;
+    /* re-allocate a page + 1 worth to trigger parent allocation */
+    if (!(alloc_vec(h, opp + 1, objsize, objs) != prealloc_only)) {
+        msg_err("tb: unexpectedly %s to allocate object\n", prealloc_only ? "able" : "failed");
+        return false;
     }
-    h->destroy(h);
+
+    /* and return them */
+    if (!prealloc_only) {
+        if (!dealloc_vec(h, objsize, objs))
+            return false;
+
+        if (heap_allocated(h) > 0) {
+            msg_err("allocated (%d) should be 0; fail\n", heap_allocated(h));
+            return false;
+        }
+    }
+    destroy_heap(h);
+    deallocate_vector(objs);
     return true;
 }
 
@@ -123,9 +185,13 @@ int main(int argc, char **argv)
 
     /* XXX test a range of sizes */
     if (!objcache_test(h, pageheap, 32))
-	exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE);
+    if (!preallocated_objcache_test(h, pageheap, 32, true))
+        exit(EXIT_FAILURE);
+    if (!preallocated_objcache_test(h, pageheap, 32, false))
+        exit(EXIT_FAILURE);
 
     msg_debug("test passed\n");
-    
+
     exit(EXIT_SUCCESS);
 }

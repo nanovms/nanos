@@ -280,7 +280,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handle
         assert(t->blocked_on == src);
         boolean timer_pending = t->bq_timer_pending;
         timestamp remain;
-        clock_id id;
+        clock_id id = 0;
         if (timer_pending) {
             id = t->bq_timer.id;
             if (!remove_timer(kernel_timers, &t->bq_timer, &remain)) {

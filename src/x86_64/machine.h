@@ -42,8 +42,15 @@ static inline u8 tagof(void *v)
 
 #endif
 
+#ifdef LOCK_STATS
+#include <lockstats_struct.h>
+#endif
+
 typedef struct spinlock {
     word w;
+#ifdef LOCK_STATS
+    struct lockstats_lock s;
+#endif
 } *spinlock;
 
 typedef struct rw_spinlock {

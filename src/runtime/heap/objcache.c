@@ -44,6 +44,7 @@ typedef struct objcache {
     u64 total_objs;         /* total objects in cache */
     u64 alloced_objs;       /* total cache occupancy (of total_objs) */
     heap wrapper_heap;      /* heap wrapper */
+    boolean prealloc_only;  /* do not allocate beyond preallocated count */
     tuple mgmt;
 } *objcache;
 
@@ -185,8 +186,7 @@ static u64 objcache_allocate(heap h, bytes size)
     if (next_free) {
         f = footer_from_list(next_free);
     } else {
-        msg_debug("empty; calling objcache_addpage()\n", o->free);
-        if (!(f = objcache_addpage(o)))
+        if (o->prealloc_only || !(f = objcache_addpage(o)))
             return INVALID_PHYSICAL;
     }
 
@@ -240,9 +240,10 @@ static void objcache_destroy(heap h)
 
     footer f;
     foreach_page_footer(&o->free, f)
-	deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
+        deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
     foreach_page_footer(&o->full, f)
-	deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
+        deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
+    deallocate(o->meta, o, sizeof(struct objcache));
 }
 
 static u64 objcache_allocated(heap h)
@@ -498,6 +499,7 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     o->alloced_objs = 0;
     o->wrapper_heap = 0;
     o->mgmt = 0;
+    o->prealloc_only = false;
 
     return (heap)o;
 }
@@ -510,3 +512,18 @@ heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes page
     o->wrapper_heap = wrapper;
     return (heap)o;
 }
+
+heap allocate_objcache_preallocated(heap meta, heap parent, bytes objsize, bytes pagesize, u64 prealloc_count, boolean prealloc_only)
+{
+    objcache o = (objcache)allocate_objcache(meta, parent, objsize, pagesize);
+    if (o == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    u64 npages = prealloc_count / o->objs_per_page + (prealloc_count % o->objs_per_page ? 1 : 0);
+    for (u64 i = 0; i < npages; i++) {
+        footer f = objcache_addpage(o);
+        assert(f != INVALID_ADDRESS);
+    }
+    o->prealloc_only = prealloc_only;
+    return (heap)o;
+}
+

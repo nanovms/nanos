@@ -1,4 +1,5 @@
 #include <runtime.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 static inline key silly_key(void *a)
@@ -200,6 +201,59 @@ static boolean one_elem_table_tests(heap h, u64 n_elem)
     return true;
 }
 
+static boolean preallocated_table_tests(heap h, u64 (*key_function)(void *x), u64 n_elem)
+{
+    bytes mmapsize = pad(n_elem * sizeof (struct entry), PAGESIZE);
+
+    /* make a parent heap for pages */
+    heap m = allocate_mmapheap(h, mmapsize);
+
+
+    u64 heap_occupancy_before = heap_allocated(h);
+    heap pageheap = (heap)create_id_heap_backed(h, h, m, PAGESIZE, false);
+
+    table t = allocate_table_preallocated(h, pageheap, key_function, pointer_equal, n_elem);
+    u64 heap_occupancy = heap_allocated(h);
+    u64 count;
+
+    table_validate(t, "preallocated_table_tests: alloc");
+
+    if (table_elements(t) != 0) {
+        msg_err("table_elements() not zero on empty table\n");
+        return false;
+    }
+    for (count = 0; count < n_elem; count++) {
+        table_set(t, (void *)count, (void *)(count + 1));
+    }
+
+    table_validate(t, "preallocated_table_tests: after fill");
+
+    if (heap_allocated(h) != heap_occupancy) {
+        msg_err("unexpected allocation: heap_allocated(h) %llu, originally %llu\n", heap_allocated(h), heap_occupancy);
+        return false;
+    }
+
+    table_set(t, 0, 0);
+    if (table_find(t, 0)) {
+        msg_err("found unexpected element 0\n");
+        return false;
+    }
+    table_validate(t, "preallocated_table_tests: after remove one");
+
+    table_set(t, 0, (void *)1);
+    table_validate(t, "preallocated_table_tests: after insert one");
+
+
+    deallocate_table(t);
+    destroy_heap(pageheap);
+
+    if (heap_allocated(h) != heap_occupancy_before) {
+        msg_err("leak: heap_allocated(h) %ld, originally %ld\n", heap_allocated(h), heap_occupancy_before);
+        return false;
+    }
+    return true;
+}
+
 #define BASIC_ELEM_COUNT  512
 #define STRESS_ELEM_COUNT (1ull << 20)
 
@@ -231,6 +285,12 @@ int main(int argc, char **argv)
         msg_err("Stress table test failed\n");
         goto fail;
     }
+
+    if (!preallocated_table_tests(h, identity_key, BASIC_ELEM_COUNT)) {
+        msg_err("Preallocated table test failed\n");
+        goto fail;
+    }
+
     exit(EXIT_SUCCESS);
 fail:
     exit(EXIT_FAILURE);

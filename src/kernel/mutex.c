@@ -84,6 +84,10 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     mutex_debug("mutex %p, wait %d, ra %p\n", m, wait, __builtin_return_address(0));
     mutex_debug("   ctx %p, turn %p\n", ctx, m->turn);
 
+#ifdef LOCK_STATS
+    u64 spins = 0;
+    u64 sleeps = 0;
+#endif
     /* not preemptable (could become option on allocate) */
     if (m->turn == ctx)
         halt("%s: lock already held - cpu %d, mutex %p, ctx %p, ra %p\n", __func__,
@@ -96,6 +100,9 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
             acquired = compare_and_swap_64((u64*)&m->turn, 0, u64_from_pointer(ctx));
             mcs_unlock(m, ci);
         }
+#ifdef LOCK_STATS
+        LOCKSTATS_RECORD_LOCK(m->s, true, 0, 0);
+#endif
         return acquired;
     }
 
@@ -121,6 +128,9 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     while (spins_remain-- > 0) {
         if (!ci->mcs_waiting)
             goto acquire;
+#ifdef LOCK_STATS
+        spins++;
+#endif
         mutex_pause();
     }
     mutex_debug("   spin timeout; removing from MCS list\n");
@@ -138,6 +148,9 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
             compiler_barrier(); /* load aquire */
             goto acquire;
         }
+#ifdef LOCK_STATS
+        spins++;
+#endif
         mutex_pause();
 
         /* re-sample ci->mcs_prev as it may have been updated by a competing deletion */
@@ -161,16 +174,28 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
        and insertion into waiters, attempt to grab the mutex under waiters_lock. */
     mutex_debug("   removed; taking waiters_lock\n");
     ctx->waiting_on = m;
+#ifdef LOCK_STATS
+    boolean lsd = ci->lock_stats_disable;
+    ci->lock_stats_disable = true;
+#endif
     spin_lock(&m->waiters_lock);
     if (compare_and_swap_64((u64*)&m->turn, 0, u64_from_pointer(ctx))) {
         ctx->waiting_on = 0;
         mutex_debug("   mutex acquired; not suspending\n");
         spin_unlock(&m->waiters_lock);
+#ifdef LOCK_STATS
+        ci->lock_stats_disable = lsd;
+        LOCKSTATS_RECORD_LOCK(m->s, true, spins, sleeps);
+#endif
         return true;
     }
     mutex_debug("   inserting into waiters list and suspending\n");
     list_insert_before(&m->waiters, &ctx->mutex_l);
     spin_unlock(&m->waiters_lock);
+#ifdef LOCK_STATS
+    ci->lock_stats_disable = lsd;
+    sleeps++;
+#endif
     context_pre_suspend(ctx);
     context_suspend();
   acquire:
@@ -179,9 +204,15 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
         if (m->turn == 0 && compare_and_swap_64((u64*)&m->turn, 0, u64_from_pointer(ctx))) {
             if (on_mcs)
                 mcs_unlock(m, ci);
+#ifdef LOCK_STATS
+            LOCKSTATS_RECORD_LOCK(m->s, true, spins, sleeps);
+#endif
             return true;
         }
         mutex_pause();
+#ifdef LOCK_STATS
+        spins++;
+#endif
     }
     fetch_and_add(&m->acquire_spinouts, 1);
 
@@ -191,6 +222,9 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
         on_mcs = false;
         goto wait;
     }
+#ifdef LOCK_STATS
+    sleeps++;
+#endif
     context_reschedule(ctx);
     goto acquire;
 }
@@ -215,6 +249,11 @@ void mutex_unlock(mutex m)
 
     /* MCS owner can grab the mutex now, but we'll also schedule a waiter if we can. */
     context next = 0;
+#ifdef LOCK_STATS
+    LOCKSTATS_RECORD_UNLOCK(m->s);
+    boolean lsd = ci->lock_stats_disable;
+    ci->lock_stats_disable = true;
+#endif
     spin_lock(&m->waiters_lock);
     list l = list_get_next(&m->waiters);
     if (l) {
@@ -222,6 +261,9 @@ void mutex_unlock(mutex m)
         next = struct_from_list(l, context, mutex_l);
     }
     spin_unlock(&m->waiters_lock);
+#ifdef LOCK_STATS
+    ci->lock_stats_disable = lsd;
+#endif
     if (!next)
         return;
     mutex_debug("   dequeued context %p\n", next);
@@ -250,5 +292,10 @@ mutex allocate_mutex(heap h, u64 spin_iterations)
     m->acquire_spinouts = 0;
     spin_lock_init(&m->waiters_lock);
     list_init(&m->waiters);
+#ifdef LOCK_STATS
+    m->s.type = LOCK_TYPE_MUTEX;
+    m->s.acq_time = 0;
+    m->s.trace_hash = 0;
+#endif
     return m;
 }
