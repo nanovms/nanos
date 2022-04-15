@@ -204,6 +204,16 @@ static inline boolean buffer_read(buffer b, void *dest, bytes length)
     return(true);
 }
 
+static inline bytes buffer_read_at(buffer b, bytes offset, void *dest, bytes length)
+{
+    bytes available = buffer_length(b);
+    if (available <= offset)
+        return 0;
+    length = MIN(length, available - offset);
+    runtime_memcpy(dest, buffer_ref(b, offset), length);
+    return length;
+}
+
 static inline boolean push_buffer(buffer d, buffer s)
 {
     return buffer_write(d, buffer_ref(s, 0), buffer_length(s));

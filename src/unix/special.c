@@ -131,11 +131,7 @@ static sysreturn mounts_read(file f, void *dest, u64 length, u64 offset)
         return -ENOMEM;
     }
     storage_iterate(stack_closure(mounts_handler, b));
-    if (offset >= buffer_length(b)) {
-        return 0;
-    }
-    length = MIN(length, buffer_length(b) - offset);
-    runtime_memcpy(dest, buffer_ref(b, offset), length);
+    length = buffer_read_at(b, offset, dest, length);
     deallocate_buffer(b);
     return length;
 }
@@ -170,11 +166,7 @@ static sysreturn maps_read(file f, void *dest, u64 length, u64 offset)
         return -ENOMEM;
     }
     vmap_iterator(current->p, stack_closure(maps_handler, b));
-    if (offset >= buffer_length(b)) {
-        return 0;
-    }
-    length = MIN(length, buffer_length(b) - offset);
-    runtime_memcpy(dest, buffer_ref(b, offset), length);
+    length = buffer_read_at(b, offset, dest, length);
     deallocate_buffer(b);
     return length;
 }
@@ -188,9 +180,7 @@ static sysreturn cpu_online_read(file f, void *dest, u64 length, u64 offset)
 {
     buffer b = little_stack_buffer(16);
     bprintf(b, "0-%d\n", total_processors - 1);
-    length = MIN(length, buffer_length(b) - offset);
-    runtime_memcpy(dest, buffer_ref(b, offset), length);
-    return length;
+    return buffer_read_at(b, offset, dest, length);
 }
 
 static u32 cpu_online_events(file f)
