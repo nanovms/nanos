@@ -45,6 +45,21 @@ static u32 null_events(file f)
     return EPOLLOUT;
 }
 
+static sysreturn meminfo_read(file f, void *dest, u64 length, u64 offset)
+{
+    heap h = (heap)heap_physical(get_kernel_heaps());
+    u64 total = heap_total(h) / KB;
+    u64 free = total - heap_allocated(h) / KB;
+    u64 cached = pagecache_get_occupancy() / KB;
+    buffer b = little_stack_buffer(128);
+    bprintf(b, "MemTotal:     %9ld kB\n"
+               "MemFree:      %9ld kB\n"
+               "MemAvailable: %9ld kB\n"
+               "Cached:       %9ld kB\n",
+            total, free, free + cached, cached);
+    return buffer_read_at(b, offset, dest, length);
+}
+
 typedef struct mounts_notify_data *mounts_notify_data;
 declare_closure_struct(1, 1, void, mounts_notify,
                        mounts_notify_data, d,
@@ -191,6 +206,7 @@ static u32 cpu_online_events(file f)
 static const special_file special_files[] = {
     { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
     { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
+    { "/proc/meminfo", .read = meminfo_read},
     { "/proc/mounts", .open = mounts_open, .close = mounts_close, .read = mounts_read, .events = mounts_events, .alloc_size = sizeof(struct mounts_notify_data)},
     { "/proc/self/maps", .read = maps_read, .events = maps_events, },
     { "/sys/devices/system/cpu/online", .read = cpu_online_read, .write = null_write, .events = cpu_online_events },
