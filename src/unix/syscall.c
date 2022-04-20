@@ -2444,14 +2444,6 @@ void syscall_handler(thread t)
     syscall_restart_arch_setup(f);
     set_syscall_return(t, -ENOSYS);
 
-    if (shutting_down)
-        goto out;
-
-    if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
-        thread_log(t, "invalid syscall %d", call);
-        goto out;
-    }
-
     syscall_context sc = (syscall_context)get_current_context(ci);
     assert(is_syscall_context(&sc->context));
     sc->t = t;
@@ -2463,6 +2455,14 @@ void syscall_handler(thread t)
     context_pause(&t->context);
     context_release(&t->context);
     context_resume(&sc->context);
+
+    if (shutting_down)
+        goto out;
+
+    if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
+        thread_log(t, "invalid syscall %d", call);
+        goto out;
+    }
 
     /* In the future, interrupt enable can go here. */
     if (do_syscall_stats) {
