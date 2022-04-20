@@ -187,6 +187,32 @@ void init_acpi_tables(kernel_heaps kh)
     AcpiGetDevices(NULL, acpi_device_handler, NULL, NULL);
 }
 
+static UINT32 acpi_sleep(void *context)
+{
+    acpi_debug("sleep");
+    const u64 sleep_state = 3;  /* S3 state */
+    ACPI_STATUS rv = AcpiEnterSleepStatePrep(sleep_state);
+    if (ACPI_FAILURE(rv)) {
+        msg_err("failed to prepare to sleep (%d)\n", rv);
+        goto exit;
+    }
+    rv = AcpiEnterSleepState(sleep_state);
+    if (ACPI_FAILURE(rv)) {
+        msg_err("failed to enter sleep state (%d)\n", rv);
+        goto exit;
+    }
+    rv = AcpiLeaveSleepStatePrep(sleep_state);
+    if (ACPI_FAILURE(rv)) {
+        msg_err("failed to prepare to leave sleep state (%d)\n", rv);
+        goto exit;
+    }
+    rv = AcpiLeaveSleepState(sleep_state);
+    if (ACPI_FAILURE(rv))
+        msg_err("failed to leave sleep state (%d)\n", rv);
+  exit:
+    return ACPI_INTERRUPT_HANDLED;
+}
+
 static UINT32 acpi_shutdown(void *context)
 {
     acpi_debug("shutdown");
@@ -254,6 +280,9 @@ void init_acpi(kernel_heaps kh)
     rv = AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON, acpi_shutdown, 0);
     if (ACPI_FAILURE(rv))
         acpi_debug("cannot install power button hander: %d", rv);
+    rv = AcpiInstallFixedEventHandler(ACPI_EVENT_SLEEP_BUTTON, acpi_sleep, 0);
+    if (ACPI_FAILURE(rv))
+        acpi_debug("cannot install sleep button hander: %d", rv);
     rv = AcpiUpdateAllGpes();
     if (ACPI_FAILURE(rv))
         acpi_debug("cannot update GPEs: %d", rv);
@@ -543,4 +572,9 @@ ACPI_STATUS AcpiOsExecute(ACPI_EXECUTE_TYPE type, ACPI_OSD_EXEC_CALLBACK functio
 ACPI_THREAD_ID AcpiOsGetThreadId(void)
 {
     return 1;   /* dummy value */
+}
+
+ACPI_STATUS AcpiOsEnterSleep(UINT8 sleep_state, UINT32 rega_value, UINT32 regb_value)
+{
+    return AE_OK;
 }

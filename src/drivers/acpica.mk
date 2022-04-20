@@ -59,11 +59,14 @@ ACPICA= \
 	$(ACPICA_SRCDIR)/executer/extrace.c \
 	$(ACPICA_SRCDIR)/executer/exutils.c \
 	$(ACPICA_SRCDIR)/hardware/hwacpi.c \
+	$(ACPICA_SRCDIR)/hardware/hwesleep.c \
 	$(ACPICA_SRCDIR)/hardware/hwgpe.c \
 	$(ACPICA_SRCDIR)/hardware/hwpci.c \
 	$(ACPICA_SRCDIR)/hardware/hwregs.c \
+	$(ACPICA_SRCDIR)/hardware/hwsleep.c \
 	$(ACPICA_SRCDIR)/hardware/hwvalid.c \
 	$(ACPICA_SRCDIR)/hardware/hwxface.c \
+	$(ACPICA_SRCDIR)/hardware/hwxfsleep.c \
 	$(ACPICA_SRCDIR)/namespace/nsaccess.c \
 	$(ACPICA_SRCDIR)/namespace/nsalloc.c \
 	$(ACPICA_SRCDIR)/namespace/nsarguments.c \
