@@ -396,7 +396,7 @@ static void queue_uninited_op(filesystem fs, uninited u, sg_list sg, range block
     apply(complete, timm("result", "failed to allocate and enqueue uninited op"));
 }
 
-closure_function(4, 1, void, read_extent,
+closure_function(4, 1, boolean, read_extent,
                  filesystem, fs, sg_list, sg, merge, m, range, blocks,
                  rmnode, node)
 {
@@ -421,9 +421,10 @@ closure_function(4, 1, void, read_extent,
             queue_uninited_op(fs, e->uninited, sg, blocks, apply_merge(bound(m)), false);
         uninited_unlock(e->uninited);
     }
+    return true;
 }
 
-closure_function(3, 1, void, zero_hole,
+closure_function(3, 1, boolean, zero_hole,
                  filesystem, fs, sg_list, sg, range, blocks,
                  range, z)
 {
@@ -431,6 +432,7 @@ closure_function(3, 1, void, zero_hole,
     u64 length = range_span(i) << bound(fs)->blocksize_order;
     tfs_debug("%s: i %R, length %ld\n", __func__, i, length);
     sg_zero_fill(bound(sg), length);
+    return true;
 }
 
 BSS_RO_AFTER_INIT io_status_handler ignore_io_status;
@@ -1105,14 +1107,15 @@ closure_function(2, 1, void, filesystem_op_complete,
     closure_finish();
 }
 
-closure_function(1, 1, void, destroy_extent_node,
+closure_function(1, 1, boolean, destroy_extent_node,
                  filesystem, fs,
                  rmnode, n)
 {
     destroy_extent(bound(fs), (extent)n);
+    return true;
 }
 
-closure_function(0, 1, void, assert_no_node,
+closure_function(0, 1, boolean, assert_no_node,
                  rmnode, n)
 {
     halt("tfs: temporary rangemap not empty on dealloc\n");
@@ -1175,8 +1178,9 @@ void filesystem_alloc(fsfile f, long offset, long len,
         status = filesystem_truncate_locked(fs, f, end);
     }
 done:
-    deallocate_rangemap(new_rm, status == FS_STATUS_OK ? stack_closure(assert_no_node) :
-                        stack_closure(destroy_extent_node, fs));
+    deallocate_rangemap(new_rm, (status == FS_STATUS_OK ?
+                                 stack_closure(assert_no_node) :
+                                 stack_closure(destroy_extent_node, fs)));
     filesystem_unlock(fs);
     apply(completion, f, status);
 }
@@ -1421,11 +1425,12 @@ static void deallocate_fsfile(filesystem fs, fsfile f, rmnode_handler extent_des
     deallocate(fs->h, f, sizeof(*f));
 }
 
-closure_function(1, 1, void, free_extent,
+closure_function(1, 1, boolean, free_extent,
                  filesystem, fs,
                  rmnode, n)
 {
     destroy_extent(bound(fs), (extent)n);
+    return true;
 }
 
 fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boolean nofollow,
@@ -1939,11 +1944,12 @@ void create_filesystem(heap h,
 
 #ifndef BOOT
 
-closure_function(1, 1, void, dealloc_extent_node,
+closure_function(1, 1, boolean, dealloc_extent_node,
                  filesystem, fs,
                  rmnode, n)
 {
     deallocate(bound(fs)->h, n, sizeof(struct extent));
+    return true;
 }
 
 /* If the filesystem is not read-only, this function can only be called after flushing any pending

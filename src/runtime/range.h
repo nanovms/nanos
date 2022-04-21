@@ -24,9 +24,8 @@ typedef struct rmnode {
 #define irangel(__s, __l) (range){__s, (__s) + (__l)}
 #define point_in_range(__r, __p) ((__p >= __r.start) && (__p < __r.end))
 
-/* XXX might want to add a boolean return to abort op */
-typedef closure_type(rmnode_handler, void, rmnode);
-typedef closure_type(range_handler, void, range);
+typedef closure_type(rmnode_handler, boolean, rmnode);
+typedef closure_type(range_handler, boolean, range);
 
 boolean rangemap_insert(rangemap rm, rmnode n);
 boolean rangemap_reinsert(rangemap rm, rmnode n, range k);
@@ -35,10 +34,15 @@ void rangemap_remove_range(rangemap rm, rmnode n);
 rmnode rangemap_lookup(rangemap rm, u64 point);
 rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point);
 boolean rangemap_range_intersects(rangemap rm, range q);
-boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler node_handler);
-boolean rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler node_handler,
-                                        range_handler gap_handler);
-boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler);
+
+#define RM_NOMATCH -1           /* no handler invoked */
+#define RM_ABORT   0            /* a handler returned false, aborting traversal */
+#define RM_MATCH   1            /* success on all nodes/gaps handled */
+
+int rangemap_range_lookup(rangemap rm, range q, rmnode_handler node_handler);
+int rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler node_handler,
+                                    range_handler gap_handler);
+int rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler);
 
 rangemap allocate_rangemap(heap h);
 void init_rangemap(rangemap rm, heap h);

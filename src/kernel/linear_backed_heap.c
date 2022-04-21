@@ -90,7 +90,7 @@ static void add_linear_backed_page(linear_backed_heap hb, int index)
     }
 }
 
-closure_function(1, 1, void, physmem_range_handler,
+closure_function(1, 1, boolean, physmem_range_handler,
                  linear_backed_heap, hb,
                  range, r)
 {
@@ -112,6 +112,7 @@ closure_function(1, 1, void, physmem_range_handler,
 #endif
     for (int i = r.start; i <= r.end; i++)
         add_linear_backed_page(bound(hb), i);
+    return true;
 }
 
 static void linear_backed_init_maps(linear_backed_heap hb)

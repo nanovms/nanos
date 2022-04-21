@@ -179,9 +179,11 @@ void walk_elf(buffer elf, range_handler rh)
         if (p->p_type == PT_LOAD) {
             range r = irangel(p->p_vaddr & (~MASK(PAGELOG)),
                 pad(p->p_filesz + (p->p_vaddr & MASK(PAGELOG)), PAGESIZE));
-            apply(rh, r);
+            if (!apply(rh, r))
+                return;
             if (p->p_memsz > range_span(r))
-                apply(rh, irangel(r.end, pad(p->p_memsz - range_span(r), PAGESIZE)));
+                if (!apply(rh, irangel(r.end, pad(p->p_memsz - range_span(r), PAGESIZE))))
+                    return;
         }
     }
   out_elf_fail:

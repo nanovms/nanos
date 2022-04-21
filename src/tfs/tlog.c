@@ -194,11 +194,12 @@ static void close_log_extension(log_ext ext)
 
 #ifndef TLOG_READ_ONLY
 
-closure_function(1, 1, void, log_dealloc_ext_node,
+closure_function(1, 1, boolean, log_dealloc_ext_node,
                  log, tl,
                  rmnode, n)
 {
     deallocate(bound(tl)->h, n, sizeof(*n));
+    return true;
 }
 
 define_closure_function(1, 0, void, log_free,

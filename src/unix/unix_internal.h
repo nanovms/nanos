@@ -842,7 +842,7 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
 boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
-boolean vmap_validate_range(process p, range q);
+boolean vmap_validate_range(process p, range q, u32 flags);
 void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
@@ -855,12 +855,9 @@ void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
 boolean thread_attempt_interrupt(thread t);
 
-/* XXX This should eventually be rolled into validate_user_memory */
 static inline boolean validate_process_memory(process p, const void *a, bytes length, boolean write)
 {
-    u64 v = u64_from_pointer(a);
-
-    return vmap_validate_range(p, irange(v, v + length));
+    return vmap_validate_range(p, irangel(u64_from_pointer(a), length), write ? VMAP_FLAG_WRITABLE : 0);
 }
 
 static inline boolean thread_in_interruptible_sleep(thread t)

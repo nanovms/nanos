@@ -16,7 +16,7 @@ BSS_RO_AFTER_INIT static filesystem klib_fs;
 BSS_RO_AFTER_INIT static tuple klib_root;
 BSS_RO_AFTER_INIT static id_heap klib_heap;
 
-closure_function(1, 1, void, klib_elf_walk,
+closure_function(1, 1, boolean, klib_elf_walk,
                  klib, kl,
                  range, r)
 {
@@ -30,6 +30,7 @@ closure_function(1, 1, void, klib_elf_walk,
             kl->load_range.end = r.end;
     }
     klib_debug("%s: kl %s, r %R, load_range %R\n", __func__, kl->name, r, kl->load_range);
+    return true;
 }
 
 closure_function(1, 4, u64, klib_elf_map,
@@ -140,7 +141,7 @@ void load_klib(const char *name, klib_handler complete, status_handler sh)
     }
 }
 
-closure_function(1, 1, void, destruct_mapping,
+closure_function(1, 1, boolean, destruct_mapping,
                  klib, kl,
                  rmnode, n)
 {
@@ -148,6 +149,7 @@ closure_function(1, 1, void, destruct_mapping,
     klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags.w);
     unmap(km->n.r.start, range_span(km->n.r));
     deallocate(heap_locked(klib_kh), km, sizeof(struct klib_mapping));
+    return true;
 }
 
 void unload_klib(klib kl)

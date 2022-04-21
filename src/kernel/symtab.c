@@ -58,12 +58,13 @@ closure_function(1, 4, void, elf_symtable_add,
     }
 }
 
-closure_function(0, 1, void, symtab_remove_sym,
+closure_function(0, 1, boolean, symtab_remove_sym,
                  rmnode, n)
 {
     elfsym sym = struct_from_field(n, elfsym, node);
     rangemap_remove_node(elf_symtable, n);
     deallocate_elfsym(sym);
+    return true;
 }
 
 char * find_elf_sym(u64 a, u64 *offset, u64 *len)
