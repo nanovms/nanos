@@ -55,7 +55,7 @@ static inline sg_buf sg_list_head_remove(sg_list sg)
     if (buffer_length(sg->b) < sizeof(struct sg_buf))
         return INVALID_ADDRESS;
     sg_buf sgb = (sg_buf)buffer_ref(sg->b, 0);
-    fetch_and_add(&sg->count, -sgb->size);
+    fetch_and_add(&sg->count, -(word)sgb->size);
     buffer_consume(sg->b, sizeof(struct sg_buf));
     return sgb;
 }
