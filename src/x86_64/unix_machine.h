@@ -116,6 +116,37 @@ struct _fpstate_64 {
     };
 };
 
+/* XXX can reg order be made identical to sigcontext to avoid similar struct? */
+struct core_regs {
+    u64 r15;
+    u64 r14;
+    u64 r13;
+    u64 r12;
+    u64 bp;
+    u64 bx;
+    u64 r11;
+    u64 r10;
+    u64 r9;
+    u64 r8;
+    u64 ax;
+    u64 cx;
+    u64 dx;
+    u64 si;
+    u64 di;
+    u64 orig_ax;
+    u64 ip;
+    u64 cs;
+    u64 flags;
+    u64 sp;
+    u64 ss;
+    u64 fs_base;
+    u64 gs_base;
+    u64 ds;
+    u64 es;
+    u64 fs;
+    u64 gs;
+};
+
 struct sigcontext {
     u64 r8;
     u64 r9;

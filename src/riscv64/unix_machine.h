@@ -88,6 +88,8 @@ struct user_regs_struct {
     u64 t6;
 };
 
+#define core_regs user_regs_struct
+
 struct __riscv_f_ext_state {
     u32 f[32];
     u32 fcsr;

@@ -127,6 +127,40 @@ void restore_ucontext(struct ucontext *uctx, thread t)
         restore_ucontext_fpsimd((struct fpsimd_context *)uctx->uc_mcontext.reserved, t);
 }
 
+void reg_copy_out(struct core_regs *r, thread t)
+{
+    context_frame f = thread_frame(t);
+    runtime_memcpy(r, f, sizeof(u64) * 31);
+    r->sp = f[FRAME_SP];
+    r->pc = f[FRAME_ELR];
+    r->pstate = f[FRAME_ESR_SPSR] & MASK(32);
+}
+
+struct fpsimd_state {
+    u128 vregs[32];
+    u32 fpsr;
+    u32 fpcr;
+    u32 reserved[2];
+};
+
+u64 fpreg_size(void)
+{
+    return sizeof(struct fpsimd_state);
+}
+
+void fpreg_copy_out(void *b, thread t)
+{
+    struct fpsimd_state *s = b;
+    runtime_memset((void *)s, 0, sizeof(*s));
+    context_frame f = thread_frame(t);
+    u64 *fp = frame_extended(f);
+    if (!fp)
+        return;
+    s->fpsr = fp[FRAME_FPSR];
+    s->fpcr = fp[FRAME_FPCR];
+    runtime_memcpy(s->vregs, &fp[FRAME_Q0], sizeof(s->vregs));
+}
+
 void register_other_syscalls(struct syscall *map)
 {
     register_syscall(map, shmget, 0, 0);

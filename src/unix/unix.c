@@ -548,6 +548,22 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_other_syscalls(linux_syscalls);
     configure_syscalls(kernel_process);
 
+    tuple coredumplimit = get(root, sym(coredumplimit));
+    if (coredumplimit && is_string(coredumplimit)) {
+        buffer b = alloca_wrap((buffer)coredumplimit);
+        u64 size;
+        if (!parse_int(b, 10, &size))
+            goto out;
+        char suffix = (char)pop_u8(b);
+        if ((suffix == 'k') || (suffix == 'K'))
+            size *= KB;
+        else if ((suffix == 'm') || (suffix == 'M'))
+            size *= MB;
+        else if ((suffix == 'g') || (suffix == 'G'))
+            size *= GB;
+        coredump_set_limit(size);
+    }
+out:
     return kernel_process;
   alloc_fail:
     msg_err("failed to allocate kernel objects\n");

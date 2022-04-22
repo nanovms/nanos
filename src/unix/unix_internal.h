@@ -45,6 +45,8 @@
 #define PROCESS_HEAP_ASLR_RANGE     (4 * MB)
 #define PROCESS_STACK_ASLR_RANGE    (4 * MB)
 
+#define NAUX                        32
+
 /* This will change if we add support for more clocktypes */
 #define VVAR_NR_PAGES               2
 
@@ -490,6 +492,9 @@ typedef struct process {
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
     vmap              heap_map;
+    struct aux        saved_aux[NAUX];
+    char             *saved_args_begin;
+    char             *saved_args_end;
     struct rbtree     pending_faults; /* pending_faults in progress */
     struct spinlock   faulting_lock;
     struct sigstate   signals;
@@ -991,6 +996,11 @@ boolean create_special_file(const char *path, spec_file_open open, u64 size);
 sysreturn spec_open(file f, tuple t);
 file spec_allocate(tuple t);
 void spec_deallocate(file f);
+
+void coredump(thread t, struct siginfo *si, status_handler complete);
+void reg_copy_out(struct core_regs *r, thread t);
+u64 fpreg_size(void);
+void fpreg_copy_out(void *b, thread t);
 
 /* Values to pass as first argument to prctl() */
 #define PR_SET_NAME    15               /* Set process name */

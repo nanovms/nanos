@@ -91,6 +91,14 @@ struct rt_sigframe {
     struct ucontext uc;
 };
 
+/* XXX consolidate with sigcontext? */
+struct core_regs {
+    u64 regs[31];
+    u64 sp;
+    u64 pc;
+    u64 pstate;
+};
+
 static inline pageflags pageflags_from_vmflags(u64 vmflags)
 {
     pageflags flags = pageflags_user(pageflags_memory());

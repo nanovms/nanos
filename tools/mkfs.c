@@ -619,6 +619,7 @@ int main(int argc, char **argv)
     const char *label = "";
     const char *target_root = NULL;
     long long img_size = 0;
+    long long coredumplimit = 0;
     boolean empty_fs = false;
     const char *uefi_loader = NULL;
     heap h = init_process_runtime();
@@ -745,6 +746,16 @@ int main(int argc, char **argv)
                 halt("invalid imagesize string \"%s\"\n", s);
             }
             deallocate_buffer((buffer)v);
+        }
+
+        v = get(root, sym(coredumplimit));
+        if (v) {
+            char *cdl = buffer_to_cstring((buffer)v);
+            if (!parse_size(cdl,  &coredumplimit)) {
+                halt("invalid coredumplimit string \"%s\"\n", cdl);
+            }
+            if (coredumplimit > img_size)
+                img_size = coredumplimit;
         }
 
         tuple boot = get_tuple(root, sym(boot));
