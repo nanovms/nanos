@@ -60,6 +60,12 @@ typedef struct pagecache_volume {
     status write_error;         /* pending error from a previous write */
 } *pagecache_volume;
 
+declare_closure_struct(1, 0, void, pagecache_node_queue_free,
+                       pagecache_node, pn);
+
+declare_closure_struct(1, 0, void, pagecache_node_free,
+                       pagecache_node, pn);
+
 typedef struct pagecache_node {
     struct list l;              /* volume-wide node list */
     pagecache_volume pv;
@@ -78,6 +84,9 @@ typedef struct pagecache_node {
     sg_io fs_read;
     sg_io fs_write;
     pagecache_node_reserve fs_reserve;
+    closure_struct(pagecache_node_free, free);
+    closure_struct(pagecache_node_queue_free, queue_free);
+    struct refcount refcount;   /* count dirty pages before freeing node */
 } *pagecache_node;
 
 typedef struct pagecache_shared_map {
