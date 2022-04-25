@@ -227,6 +227,19 @@ static void check_exec_perm_test(void)
     }
 }
 
+/*
+ * Validate that the zero page cannot be mapped
+ */
+static void check_zeropage_test(void)
+{
+    void *addr = mmap(0, 4096, PROT_READ | PROT_WRITE,
+                      MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr != MAP_FAILED) {
+        fprintf(stderr, "map of zero page should have failed\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
 /* This used to be 32GB, which would not pass under Linux... */
 #define LARGE_MMAP_SIZE (4ull << 30)
 
@@ -239,7 +252,6 @@ static void large_mmap_test(void)
         exit(EXIT_FAILURE);
     }
 
-    printf("  and unmap...\n");
     if (munmap(map_addr, LARGE_MMAP_SIZE)) {
         perror("munmap failed");
         exit(EXIT_FAILURE);
@@ -252,7 +264,6 @@ static void large_mmap_test(void)
             __func__);
         exit(EXIT_FAILURE);
     }
-
 }
 
 /*
@@ -476,6 +487,7 @@ static void mmap_test(void)
 
     mmap_newfile_test();
     check_exec_perm_test();
+    check_zeropage_test();
 
     printf("  performing large mmap...\n");
     large_mmap_test();
@@ -1150,10 +1162,10 @@ static void handle_sigbus(int sig, siginfo_t *si, void *ucontext)
 static void check_fault_in_user_memory(void)
 {
     printf("** validate_user_memory_permissions() test\n");
-    void *p = mmap(0, MAP_SIZE, PROT_NONE, MAP_ANONYMOUS, -1, 0);
-    if (p == (void *)-1ull)
+    void *p = mmap(0, MAP_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED)
         handle_err("mmap with prot none");
-    int rv = stat("/infile", p);
+    int rv = stat("infile", p);
     if (rv != -1 || errno != EFAULT) {
         fprintf(stderr, "%s: stat should have failed with EFAULT (rv %d, errno %d)\n",
                 __func__, rv, errno);
@@ -1165,7 +1177,7 @@ static void check_fault_in_user_memory(void)
        the kernel does not fault in the pathname before making a call that
        takes the filesystem lock, this will hang. */
     printf("** fault_in_user_string() test\n");
-    int fd = open("/testpath", O_RDONLY);
+    int fd = open("testpath", O_RDONLY);
     if (fd < 0)
         handle_err("open testpath");
     p = mmap(0, MAP_SIZE, PROT_READ, MAP_SHARED, fd, 0);
@@ -1181,13 +1193,13 @@ static void check_fault_in_user_memory(void)
        fault_in_user_memory() was added to stat_internal(), the page fault
        would deadlock while trying to take the filesystem lock. */
     printf("** fault_in_user_memory() test\n");
-    fd = open("/stattest", O_RDWR);
+    fd = open("stattest", O_RDWR);
     if (fd < 0)
         handle_err("open stattest");
     p = mmap(0, MAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (p == (void *)-1ull)
         handle_err("mmap stattest");
-    rv = stat("/infile", p);
+    rv = stat("infile", p);
     if (rv < 0)
         handle_err("stat to file-backed page");
     munmap(p, MAP_SIZE);

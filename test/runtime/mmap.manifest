@@ -13,6 +13,7 @@
 #    trace:t
 #    debugsyscalls:t
 #    futex_trace:t
+#    mmap_min_addr:0
     fault:t
     arguments:[/mmap, basic]
     environment:(USER:bobby PWD:/)
