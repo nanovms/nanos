@@ -1880,8 +1880,6 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
         return err;               /* lwIP doesn't care */
     }
 
-    /* TCP flags are inherited from listen socket. */
-    lw->flags = s->info.tcp.flags;
     int fd = allocate_tcp_sock(s->p, s->sock.domain, lw, 0);
     if (fd < 0)
 	return ERR_MEM;
@@ -2003,6 +2001,8 @@ closure_function(5, 1, sysreturn, accept_bh,
     if (child->info.tcp.lw) {
         lwip_lock();
         tcp_backlog_accepted(child->info.tcp.lw);
+        /* TCP flags are inherited from listen socket. */
+        child->info.tcp.flags = child->info.tcp.lw->flags = s->info.tcp.flags;
         lwip_unlock();
     }
 
