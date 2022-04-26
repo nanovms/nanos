@@ -496,8 +496,8 @@ static boolean pagecache_set_dirty(pagecache_node pn, range r)
     return true;
 }
 
-closure_function(6, 1, void, pagecache_write_sg_finish,
-                 pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, boolean, complete, context, saved_ctx,
+closure_function(5, 1, void, pagecache_write_sg_finish,
+                 pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, context, saved_ctx,
                  status, s)
 {
     pagecache_node pn = bound(pn);
@@ -508,70 +508,18 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
     u64 pi = q.start >> page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> page_order;
     sg_list sg = bound(sg);
+    status_handler completion = bound(completion);
 
-    pagecache_debug("%s: pn %p, q %R, sg %p, complete %d, status %v\n", __func__, pn, q,
-                    sg, bound(complete), s);
+    pagecache_debug("%s: pn %p, q %R, sg %p, status %v\n", __func__, pn, q, sg, s);
+    if (!is_ok(s))
+        goto exit;
 
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, pi);
-    if (!is_ok(s) || bound(complete)) {
-        /* TODO: We handle storage errors after the syscall write
-           completion has been applied. This means that storage
-           I/O errors other than ENOSPC aren't being propagated back to
-           the syscalls that caused them and are therefore imprecise.
-           For now, we take note of any write error and stash it in
-           the volume to be returned on a subsequent call.
 
-           As of now, we do not automatically clear a pending error
-           condition after reporting. Some logic will need to be added
-           to clear specific conditions and allow the application to
-           recover from an error. */
-
-        if (!is_ok(s)) {
-            pagecache_debug("%s: %s error: %v\n", __func__, bound(complete) ? "write" : "read", s);
-            pn->pv->write_error = s;
-        }
-
-        if (bound(complete)) {
-            do {
-                assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
-                pagecache_lock_state(pc);
-                assert(pp->write_count > 0);
-                if (pp->write_count-- == 1) {
-                    if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
-                        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
-                    pagecache_page_queue_completions_locked(pc, pp, s);
-                }
-                pagecache_unlock_state(pc);
-                refcount_release(&pp->refcount);
-                pi++;
-                pp = (pagecache_page)rbnode_get_next((rbnode)pp);
-            } while (pi < end);
-            if (sg)
-                deallocate_sg_list(sg);
-        }
-        pagecache_unlock_node(pn);
-        closure_finish();
-        return;
-    }
-
-    /* apply writes, allocating pages as needed */
+    /* copy data to the page cache */
     u64 offset = q.start & MASK(page_order);
-    u64 block_offset = q.start & MASK(block_order);
     range r = irange(q.start & ~MASK(block_order), q.end);
-    sg_list write_sg;
-    if (sg) {
-        write_sg = allocate_sg_list();
-        if (write_sg == INVALID_ADDRESS) {
-            pagecache_unlock_node(pn);
-            apply(bound(completion), timm("result", "failed to allocate write sg"));
-            closure_finish();
-            return;
-        }
-    } else {
-        write_sg = 0;
-    }
-
 #ifdef KERNEL
     context saved_ctx = bound(saved_ctx);
     if (saved_ctx)
@@ -580,14 +528,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
     do {
         assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
         u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - offset;
-        u64 req_len = pad(copy_len + block_offset, U64_FROM_BIT(block_order));
-        if (write_sg) {
-            sg_buf sgb = sg_list_tail_add(write_sg, req_len);
-            sgb->buf = pp->kvirt;
-            sgb->offset = offset - block_offset;
-            sgb->size = sgb->offset + req_len;
-            sgb->refcount = &pp->refcount;
-            refcount_reserve(sgb->refcount);
+        if (sg) {
             u64 res = sg_copy_to_buf(pp->kvirt + offset, sg, copy_len);
             assert(res == copy_len);
         } else {
@@ -595,30 +536,26 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
         }
         pagecache_lock_state(pc);
         assert(page_state(pp) != PAGECACHE_PAGESTATE_READING);
-        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
-        pp->write_count++;
+        if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
+            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_DIRTY);
         pagecache_unlock_state(pc);
         offset = 0;
-        block_offset = 0;
         pi++;
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     } while (pi < end);
+    if (!pagecache_set_dirty(pn, r))
+        s = timm("result", "failed to add dirty range");
     pagecache_unlock_node(pn);
 #ifdef KERNEL
     if (saved_ctx)
         clear_fault_handler();
 #endif
-
-    /* issue write */
-    bound(complete) = true;
-    bound(sg) = write_sg;   /* stash write_sg so it can be deallocated on write completion */
-    status_handler completion = bound(completion);
-    pagecache_debug("   calling fs_write, range %R, sg %p\n", r, write_sg);
-    apply(pn->fs_write, write_sg, r, (status_handler)closure_self());
+  exit:
+    closure_finish();
 #ifdef KERNEL
-    async_apply_status_handler(completion, STATUS_OK);
+    async_apply_status_handler(completion, s);
 #else
-    apply(completion, STATUS_OK);
+    apply(completion, s);
 #endif
 }
 
@@ -632,8 +569,7 @@ closure_function(1, 3, void, pagecache_write_sg,
     pagecache_debug("%s: node %p, q %R, sg %p, completion %F, from %p\n", __func__,
                     pn, q, sg, completion, __builtin_return_address(0));
     if (!is_ok(pv->write_error)) {
-        /* From a previous (asynchronous) write failure - see comment
-           in pagecache_write_sg_finish above */
+        /* From a previous (asynchronous) write failure */
         pagecache_debug("   pending write error %v\n", __func__, pv->write_error);
         apply(completion, pv->write_error);
         return;
@@ -673,7 +609,7 @@ closure_function(1, 3, void, pagecache_write_sg,
 
     /* prepare pages for writing */
     merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish, pn, q, sg,
-                                            completion, false, ctx));
+                                            completion, ctx));
     status_handler sh = apply_merge(m);
 
     /* initiate reads for rmw start and/or end */
@@ -1135,8 +1071,19 @@ define_closure_function(1, 2, void, pagecache_scan_timer,
                         pagecache, pc,
                         u64, expiry, u64, overruns)
 {
-    if (overruns != timer_disabled)
-        pagecache_scan(bound(pc));
+    pagecache pc = bound(pc);
+    if ((overruns != timer_disabled) && !pc->writeback_in_progress) {
+        pagecache_scan(pc);
+        pc->writeback_in_progress = true;
+        pagecache_finish_pending_writes(pc, 0, 0, (status_handler)&pc->writeback_complete);
+    }
+}
+
+define_closure_function(0, 1, void, pagecache_writeback_complete,
+                        status, s)
+{
+    pagecache pc = struct_from_field(closure_self(), pagecache, writeback_complete);
+    pc->writeback_in_progress = false;
 }
 
 void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 node_offset)
@@ -1151,11 +1098,6 @@ void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 n
     pagecache_lock_state(pc);
     list_insert_before(&pc->shared_maps, &sm->l);
     assert(rangemap_insert(pn->shared_maps, &sm->n));
-    if (!timer_is_active(&pc->scan_timer)) {
-        timestamp t = seconds(PAGECACHE_SCAN_PERIOD_SECONDS);
-        register_timer(kernel_timers, &pc->scan_timer, CLOCK_ID_MONOTONIC, t, false, t,
-                       (timer_handler)&pc->do_scan_timer);
-    }
     pagecache_unlock_state(pc);
 }
 
@@ -1180,10 +1122,6 @@ closure_function(3, 1, void, close_shared_pages_intersection,
         rangemap_remove_node(pn->shared_maps, n);
         list_delete(&sm->l);
         deallocate(pc->h, sm, sizeof(struct pagecache_shared_map));
-        if (list_empty(&pc->shared_maps)) {
-            pagecache_debug("   disable scan timer\n");
-            remove_timer(kernel_timers, &pc->scan_timer, 0);
-        }
     } else if (head) {
         /* truncate map at start */
         assert(rangemap_reinsert(pn->shared_maps, n, irange(rn.start, ri.start)));
@@ -1488,6 +1426,11 @@ pagecache_volume pagecache_allocate_volume(u64 length, int block_order)
     list_init(&pv->dirty_nodes);
 #ifdef KERNEL
     spin_lock_init(&pv->lock);
+    if (!timer_is_active(&pc->scan_timer)) {
+        timestamp t = seconds(PAGECACHE_SCAN_PERIOD_SECONDS);
+        register_timer(kernel_timers, &pc->scan_timer, CLOCK_ID_MONOTONIC, t, false, t,
+                       (timer_handler)&pc->do_scan_timer);
+    }
 #endif
     pv->length = length;
     pv->block_order = block_order;
@@ -1541,8 +1484,10 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     init_closure(&pc->page_print_key, pagecache_page_print_key, pc);
 
 #ifdef KERNEL
+    pc->writeback_in_progress = false;
     init_timer(&pc->scan_timer);
     init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);
+    init_closure(&pc->writeback_complete, pagecache_writeback_complete);
 #endif
     global_pagecache = pc;
 }

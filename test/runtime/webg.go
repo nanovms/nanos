@@ -69,6 +69,9 @@ func filePersistenceHandler(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 
+	if err := f.Sync(); err != nil {
+		panic(err)
+	}
 	if err := f.Close(); err != nil {
 		panic(err)
 	}

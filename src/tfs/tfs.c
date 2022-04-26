@@ -886,9 +886,12 @@ static fs_status extend(fsfile f, extent ex, sg_list sg, range blocks, merge m, 
     return s;
 }
 
-static status extents_range_handler(filesystem fs, fsfile f, range blocks, sg_list sg, merge m)
+static status extents_range_handler(filesystem fs, fsfile f, range q, sg_list sg, merge m)
 {
+    assert(range_span(q) > 0);
+    range blocks = range_rshift_pad(q, fs->blocksize_order);
     tfs_debug("%s: file %p blocks %R sg %p m %p\n", __func__, f, blocks, sg, m);
+    assert(!sg || sg->count >= range_span(blocks) << fs->blocksize_order);
 
     rmnode prev;            /* prior to edge, but could be extended */
     rmnode next;            /* intersecting or succeeding */
@@ -954,6 +957,12 @@ static status extents_range_handler(filesystem fs, fsfile f, range blocks, sg_li
         assert(blocks.start <= blocks.end); // XXX tmp
     } while (range_span(blocks) > 0);
 
+    if (fsfile_get_length(f) < q.end) {
+        tfs_debug("   append; update length to %ld\n", q.end);
+        fs_status fss = filesystem_truncate_locked(fs, f, q.end);
+        if (fss != FS_STATUS_OK)
+            return timm("result", "unable to set file length", "fsstatus", "%d", fss);
+    }
     return STATUS_OK;
 }
 
@@ -963,12 +972,10 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
 {
     filesystem fs = bound(fs);
     fsfile f = bound(f);
-    assert(range_span(q) > 0);
-    range blocks = range_rshift_pad(q, fs->blocksize_order);
-    tfs_debug("%s: file %p range %R blocks %R\n", __func__, f, q, blocks);
+    tfs_debug("%s: file %p range %R\n", __func__, f, q);
 
     filesystem_lock(fs);
-    status s = extents_range_handler(fs, f, blocks, 0, 0);
+    status s = extents_range_handler(fs, f, q, 0, 0);
     filesystem_unlock(fs);
     return s;
 }
@@ -979,30 +986,15 @@ closure_function(2, 3, void, filesystem_storage_write,
 {
     filesystem fs = bound(fs);
     fsfile f = bound(f);
-    assert(range_span(q) > 0);
     assert((q.start & MASK(fs->blocksize_order)) == 0);
-    range blocks = range_rshift_pad(q, fs->blocksize_order);
-    tfs_debug("%s: fsfile %p, q %R, blocks %R, sg %p, sg count 0x%lx, complete %F\n", __func__,
-              f, q, blocks, sg, sg ? sg->count : 0, complete);
-    assert(!sg || sg->count >= range_span(blocks) << fs->blocksize_order);
+    tfs_debug("%s: fsfile %p, q %R, sg %p, sg count 0x%lx, complete %F\n", __func__,
+              f, q, sg, sg ? sg->count : 0, complete);
 
     merge m = allocate_merge(fs->h, complete);
     status_handler sh = apply_merge(m);
 
     filesystem_lock(fs);
-    status s = extents_range_handler(fs, f, blocks, sg, m);
-    if (s != STATUS_OK)
-        goto out;
-    if (fsfile_get_length(f) < q.end) {
-        tfs_debug("   append; update length to %ld\n", q.end);
-        fs_status fss = filesystem_truncate_locked(fs, f, q.end);
-        if (fss != FS_STATUS_OK) {
-            s = timm("result", "unable to set file length", "fsstatus", "%d",
-                fss);
-            goto out;
-        }
-    }
-  out:
+    status s = extents_range_handler(fs, f, q, sg, m);
     filesystem_unlock(fs);
     apply(sh, s);
 }

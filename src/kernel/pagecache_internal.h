@@ -6,6 +6,8 @@ typedef struct pagelist {
 declare_closure_struct(1, 2, void, pagecache_scan_timer,
                        struct pagecache *, pc,
                        u64, expiry, u64, overruns);
+declare_closure_struct(0, 1, void, pagecache_writeback_complete,
+                       status, s);
 
 declare_closure_struct(0, 2, int, pagecache_page_compare,
                        rbnode, a, rbnode, b);
@@ -43,8 +45,10 @@ typedef struct pagecache {
     struct list volumes;
     struct list shared_maps;
 
+    boolean writeback_in_progress;
     struct timer scan_timer;
     closure_struct(pagecache_scan_timer, do_scan_timer);
+    closure_struct(pagecache_writeback_complete, writeback_complete);
     closure_struct(pagecache_page_compare, page_compare);
     closure_struct(pagecache_page_print_key, page_print_key);
 } *pagecache;
