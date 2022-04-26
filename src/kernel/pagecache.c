@@ -957,12 +957,15 @@ closure_function(3, 3, boolean, pagecache_check_dirty_page,
         pagecache_debug("   dirty: vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
         pt_pte_clean(entry);
         page_invalidate(bound(fe), vaddr);
-        pagecache_page pp = page_lookup_nodelocked(sm->pn, pi);
+        pagecache_node pn = sm->pn;
+        pagecache_lock_node(pn);
+        pagecache_page pp = page_lookup_nodelocked(pn, pi);
         assert(pp != INVALID_ADDRESS);
         pagecache_lock_state(pc);
         if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_DIRTY);
         pagecache_unlock_state(pc);
+        pagecache_unlock_node(pn);
     }
     return true;
 }
