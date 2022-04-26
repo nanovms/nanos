@@ -59,6 +59,13 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 
     s += PROCESS_STACK_SIZE >> 3;
 
+    /* 16 bytes of random data for userspace (e.g. SSP guard init) */
+    for (int i = 0; i < 2; i++) {
+        s -= sizeof(u64);
+        *(u64 *)s = random_u64();
+    }
+    u64 *randbuf = s;
+
     // argv ASCIIZ strings
     vector arguments = vector_from_tuple(transient, get(process_root, sym(arguments)));
     if (!arguments)
@@ -110,7 +117,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         {AT_PHENT, e->e_phentsize},
         {AT_PHNUM, e->e_phnum},
         {AT_PAGESZ, PAGESIZE},
-        {AT_RANDOM, u64_from_pointer(s)},
+        {AT_RANDOM, u64_from_pointer(randbuf)},
         {AT_ENTRY, u64_from_pointer(start)},
 #ifdef __aarch64__
         /* This is aarch64 specific because it's needed for arm .so search paths */
