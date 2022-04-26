@@ -95,6 +95,16 @@ static inline void pagecache_unlock_state(pagecache pc)
     spin_unlock(&pc->state_lock);
 }
 
+static inline void pagecache_lock_volume(pagecache_volume pv)
+{
+    spin_lock(&pv->lock);
+}
+
+static inline void pagecache_unlock_volume(pagecache_volume pv)
+{
+    spin_unlock(&pv->lock);
+}
+
 /* TODO revisit node locking */
 static inline void pagecache_lock_node(pagecache_node pn)
 {
@@ -109,6 +119,8 @@ static inline void pagecache_unlock_node(pagecache_node pn)
 #else
 #define pagecache_lock_state(pc)
 #define pagecache_unlock_state(pc)
+#define pagecache_lock_volume(pv)
+#define pagecache_unlock_volume(pv)
 #define pagecache_lock_node(pn)
 #define pagecache_unlock_node(pn)
 #endif
@@ -137,13 +149,10 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
             pagelist_move(&pc->writing, &pc->new, pp);
         } else if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
             pagelist_move(&pc->writing, &pc->active, pp);
-        } else if (old_state == PAGECACHE_PAGESTATE_DIRTY) {
-            pagelist_move(&pc->writing, &pc->dirty, pp);
         } else if (old_state == PAGECACHE_PAGESTATE_WRITING) {
             /* write already pending, move to tail of queue */
             pagelist_touch(&pc->writing, pp);
         } else {
-            assert(old_state == PAGECACHE_PAGESTATE_ALLOC);
             pagelist_enqueue(&pc->writing, pp);
         }
         break;
@@ -163,12 +172,12 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
         break;
     case PAGECACHE_PAGESTATE_DIRTY:
         if (old_state == PAGECACHE_PAGESTATE_NEW) {
-            pagelist_move(&pc->dirty, &pc->new, pp);
+            pagelist_remove(&pc->new, pp);
         } else if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
-            pagelist_move(&pc->dirty, &pc->active, pp);
+            pagelist_remove(&pc->active, pp);
         } else {
             assert(old_state == PAGECACHE_PAGESTATE_WRITING);
-            pagelist_move(&pc->dirty, &pc->writing, pp);
+            pagelist_remove(&pc->writing, pp);
         }
         break;
     default:
@@ -471,6 +480,20 @@ static pagecache_page touch_or_fill_page_by_num_nodelocked(pagecache_node pn, u6
     else
         touch_or_fill_page_nodelocked(pn, pp, m);
     return pp;
+}
+
+/* called with node locked */
+static boolean pagecache_set_dirty(pagecache_node pn, range r)
+{
+    if (!rangemap_insert_range(&pn->dirty, r))
+        return false;
+    pagecache_debug("node %p, added dirty range %R\n", pn, r);
+    pagecache_volume pv = pn->pv;
+    pagecache_lock_volume(pv);
+    if (!list_inserted(&pn->l))
+        list_insert_before(&pv->dirty_nodes, &pn->l);
+    pagecache_unlock_volume(pv);
+    return true;
 }
 
 closure_function(6, 1, void, pagecache_write_sg_finish,
@@ -778,12 +801,117 @@ static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, p
 }
 
 #ifdef KERNEL
-static void pagecache_scan(pagecache pc);
+static void pagecache_scan_shared_mappings(pagecache pc);
 static void pagecache_scan_node(pagecache_node pn);
 #else
-static void pagecache_scan(pagecache pc) {}
+static void pagecache_scan_shared_mappings(pagecache pc) {}
 static void pagecache_scan_node(pagecache_node pn) {}
 #endif
+
+closure_function(4, 1, void, pagecache_commit_complete,
+                 pagecache, pc, pagecache_page, first_page, u64, page_count, sg_list, sg,
+                 status, s)
+{
+    pagecache pc = bound(pc);
+    pagecache_page pp = bound(first_page);
+    sg_list sg = bound(sg);
+    pagecache_debug("%s: pp %p, s %v\n", __func__, pp, s);
+    if (!is_ok(s)) {
+        pagecache_debug("%s: write_error now %v\n", __func__, s);
+        pp->node->pv->write_error = s;
+        sg_list_release(sg);
+    }
+    u64 page_count = bound(page_count);
+    pagecache_lock_state(pc);
+    do {
+        assert(pp->write_count > 0);
+        if (pp->write_count-- == 1) {
+            if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
+                change_page_state_locked(pc, pp,
+                                         is_ok(s) ? PAGECACHE_PAGESTATE_NEW :
+                                                    PAGECACHE_PAGESTATE_DIRTY);
+            pagecache_page_queue_completions_locked(pc, pp, s);
+        }
+        pp = (pagecache_page)rbnode_get_next((rbnode)pp);
+    } while (--page_count > 0);
+    pagecache_unlock_state(pc);
+    deallocate_sg_list(sg);
+    closure_finish();
+}
+
+static void pagecache_commit_dirty_node(pagecache_node pn)
+{
+    pagecache_debug("committing dirty node %p\n", pn);
+    pagecache_volume pv = pn->pv;
+    pagecache pc = pv->pc;
+    pagecache_lock_node(pn);
+    int cc=0;
+    rangemap_foreach(&pn->dirty, n) {
+        sg_list sg = allocate_sg_list();
+        if (sg == INVALID_ADDRESS)
+            goto unlock_node;
+        pagecache_debug("  range %R\n", n->r);
+        u64 start = n->r.start;
+        pagecache_page first_page = page_lookup_nodelocked(pn, start >> pc->page_order);
+        u64 page_count = 0;
+        pagecache_page pp = first_page;
+        do {
+            u64 page_offset = start & MASK(pc->page_order);
+            u64 len = pad(MIN(cache_pagesize(pc) - page_offset, n->r.end - start),
+                          U64_FROM_BIT(pv->block_order));
+            sg_buf sgb = sg_list_tail_add(sg, len);
+            sgb->buf = pp->kvirt + page_offset;
+            sgb->offset = 0;
+            sgb->size = len;
+            sgb->refcount = &pp->refcount;
+            refcount_reserve(&pp->refcount);
+            pagecache_lock_state(pc);
+            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
+            pp->write_count++;
+            pagecache_unlock_state(pc);
+            page_count++;
+            start += len;
+            pp = (pagecache_page)rbnode_get_next((rbnode)pp);
+        } while (start < n->r.end);
+        apply(pn->fs_write, sg, n->r,
+              closure(pc->h, pagecache_commit_complete, pc, first_page, page_count, sg));
+        cc++;
+        rangemap_remove_range(&pn->dirty, n);
+    }
+    pagecache_lock_volume(pv);
+    if (list_inserted(&pn->l))
+        list_delete(&pn->l);
+    pagecache_unlock_volume(pv);
+unlock_node:
+    pagecache_unlock_node(pn);
+}
+
+static void pagecache_commit_dirty_pages(pagecache pc)
+{
+    pagecache_debug("%s\n", __func__);
+
+    list_foreach(&pc->volumes, l) {
+        pagecache_volume pv = struct_from_list(l, pagecache_volume, l);
+        pagecache_node pn = 0;
+        do {
+            pagecache_lock_volume(pv);
+            list l = list_get_next(&pv->dirty_nodes);
+            pagecache_unlock_volume(pv);
+            if (l) {
+                pn = struct_from_list(l, pagecache_node, l);
+                pagecache_commit_dirty_node(pn);
+            } else {
+                pn = 0;
+            }
+        } while (pn);
+    }
+}
+
+static void pagecache_scan(pagecache pc)
+{
+    pagecache_scan_shared_mappings(pc);
+    pagecache_commit_dirty_pages(pc);
+}
 
 void pagecache_sync_volume(pagecache_volume pv, status_handler complete)
 {
@@ -803,6 +931,7 @@ void pagecache_sync_node(pagecache_node pn, status_handler complete)
 {
     pagecache_debug("%s: pn %p, complete %p (%F)\n", __func__, pn, complete, complete);
     pagecache_scan_node(pn);
+    pagecache_commit_dirty_node(pn);
     pagecache_finish_pending_writes(pn->pv->pc, 0, pn, complete);
 }
 #endif /* !PAGECACHE_READ_ONLY */
@@ -953,7 +1082,8 @@ closure_function(3, 3, boolean, pagecache_check_dirty_page,
     if (pte_is_present(old_entry) &&
         pte_is_mapping(level, old_entry) &&
         pte_is_dirty(old_entry)) {
-        u64 pi = (sm->node_offset + (vaddr - sm->n.r.start)) >> PAGELOG;
+        range r = irangel(sm->node_offset + (vaddr - sm->n.r.start), cache_pagesize(pc));
+        u64 pi = r.start >> pc->page_order;
         pagecache_debug("   dirty: vaddr 0x%lx, pi 0x%lx\n", vaddr, pi);
         pt_pte_clean(entry);
         page_invalidate(bound(fe), vaddr);
@@ -965,6 +1095,7 @@ closure_function(3, 3, boolean, pagecache_check_dirty_page,
         if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_DIRTY);
         pagecache_unlock_state(pc);
+        pagecache_set_dirty(pn, r);
         pagecache_unlock_node(pn);
     }
     return true;
@@ -998,69 +1129,6 @@ static void pagecache_scan_node(pagecache_node pn)
         pagecache_scan_shared_map(pn->pv->pc, sm, fe);
     }
     page_invalidate_sync(fe, 0);
-}
-
-closure_function(3, 1, void, pagecache_commit_complete,
-                 pagecache, pc, pagecache_page, pp, sg_list, sg,
-                 status, s)
-{
-    pagecache pc = bound(pc);
-    pagecache_page pp = bound(pp);
-    pagecache_debug("%s: pp %p, s %v\n", __func__, pp, s);
-    if (!is_ok(s)) {
-        pagecache_debug("%s: write_error now %v\n", __func__, s);
-        pp->node->pv->write_error = s;
-    }
-    pagecache_lock_state(pc);
-    assert(pp->write_count > 0);
-    if (pp->write_count-- == 1) {
-        if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
-            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
-        pagecache_page_queue_completions_locked(pc, pp, s);
-    }
-    pagecache_unlock_state(pc);
-    deallocate_sg_list(bound(sg));
-    closure_finish();
-}
-
-static void pagecache_commit_dirty_pages(pagecache pc)
-{
-    pagecache_debug("%s\n", __func__);
-    pagecache_lock_state(pc);
-
-    /* It might be more efficient to move these to a temporary list,
-       issue writes and then resolve on merge completion... */
-    list_foreach(&pc->dirty.l, l) {
-        pagecache_page pp = struct_from_list(l, pagecache_page, l);
-        sg_list sg = allocate_sg_list();
-        assert(sg != INVALID_ADDRESS);
-        sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
-        assert(pp->kvirt != INVALID_ADDRESS);
-        sgb->buf = pp->kvirt;
-        sgb->offset = 0;
-        sgb->size = cache_pagesize(pc);
-        sgb->refcount = &pp->refcount;
-        refcount_reserve(&pp->refcount);
-        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
-        pp->write_count++;
-        pagecache_unlock_state(pc);
-
-        apply(pp->node->fs_write, sg,
-              irangel(page_offset(pp) << pc->page_order, cache_pagesize(pc)),
-              closure(pc->h, pagecache_commit_complete, pc, pp, sg));
-
-        pagecache_lock_state(pc);
-    }
-    pagecache_unlock_state(pc);
-}
-
-static void pagecache_scan(pagecache pc)
-{
-    if (pc->scan_in_progress)   /* unnecessary? */
-        return;
-    pc->scan_in_progress = true;
-    pagecache_scan_shared_mappings(pc);
-    pagecache_commit_dirty_pages(pc);
 }
 
 define_closure_function(1, 2, void, pagecache_scan_timer,
@@ -1156,7 +1224,7 @@ void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* b
     flush_entry fe = get_page_flush_entry();
     rangemap_range_lookup(pn->shared_maps, q,
                           stack_closure(scan_shared_pages_intersection, pn->pv->pc, fe));
-    pagecache_commit_dirty_pages(pn->pv->pc);
+    pagecache_commit_dirty_node(pn);
     page_invalidate_sync(fe, 0);
 }
 
@@ -1348,7 +1416,6 @@ void pagecache_deallocate_node(pagecache_node pn)
     deallocate_closure(pn->cache_write);
 #endif
     destruct_rbtree(&pn->pages, stack_closure(pagecache_page_release));
-    list_delete(&pn->l);
     deallocate_rangemap(pn->shared_maps, stack_closure(pagecache_node_assert));
     deallocate(pn->pv->pc->h, pn, sizeof(*pn));
 }
@@ -1378,7 +1445,8 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
 #ifdef KERNEL
     spin_lock_init(&pn->pages_lock);
 #endif
-    list_insert_before(&pv->nodes, &pn->l);
+    list_init_member(&pn->l);
+    init_rangemap(&pn->dirty, h);
     init_rbtree(&pn->pages, (rb_key_compare)&pv->pc->page_compare,
                 (rbnode_handler)&pv->pc->page_print_key);
     pn->length = 0;
@@ -1417,7 +1485,10 @@ pagecache_volume pagecache_allocate_volume(u64 length, int block_order)
         return pv;
     pv->pc = pc;
     list_insert_before(&pc->volumes, &pv->l);
-    list_init(&pv->nodes);
+    list_init(&pv->dirty_nodes);
+#ifdef KERNEL
+    spin_lock_init(&pv->lock);
+#endif
     pv->length = length;
     pv->block_order = block_order;
     pv->write_error = STATUS_OK;
@@ -1464,14 +1535,12 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     page_list_init(&pc->new);
     page_list_init(&pc->active);
     page_list_init(&pc->writing);
-    page_list_init(&pc->dirty);
     list_init(&pc->volumes);
     list_init(&pc->shared_maps);
     init_closure(&pc->page_compare, pagecache_page_compare);
     init_closure(&pc->page_print_key, pagecache_page_print_key, pc);
 
 #ifdef KERNEL
-    pc->scan_in_progress = false;
     init_timer(&pc->scan_timer);
     init_closure(&pc->do_scan_timer, pagecache_scan_timer, pc);
 #endif

@@ -44,6 +44,52 @@ boolean rangemap_reinsert(rangemap rm, rmnode n, range k)
     return rangemap_insert(rm, n);
 }
 
+/* Can be called with a range already (partially or totally) present in the range map; merges the
+ * newly inserted range with any overlapping or adjacent ranges, allocating and deallocating rmnode
+ * structures as needed.
+ */
+boolean rangemap_insert_range(rangemap rm, range r)
+{
+    struct rmnode k = {
+        .r = r,
+    };
+    rmnode n = (rmnode)rbtree_lookup_max_lte(&rm->t, &k.n);
+    if (n == INVALID_ADDRESS)
+        n = (rmnode)rbtree_find_first(&rm->t);
+    if ((n != INVALID_ADDRESS) && (n->r.end < r.start))
+        n = rangemap_next_node(rm, n);
+    rmnode merged = 0;
+    while ((n != INVALID_ADDRESS) && (n->r.start <= r.end)) {
+        rmnode next = rangemap_next_node(rm, n);
+        if (!merged) {
+            if (n->r.start > r.start)
+                n->r.start = r.start;
+            if (n->r.end < r.end)
+                n->r.end = r.end;
+            merged = n;
+        } else {
+            if (merged->r.end < n->r.end)
+                merged->r.end = n->r.end;
+            rangemap_remove_range(rm, n);
+        }
+        n = next;
+    }
+    if (merged)
+        return true;
+    n = allocate(rm->h, sizeof(*n));
+    if (n == INVALID_ADDRESS)
+        return false;
+    rmnode_init(n, r);
+    rangemap_insert(rm, n);
+    return true;
+}
+
+void rangemap_remove_range(rangemap rm, rmnode n)
+{
+    rangemap_remove_node(rm, n);
+    deallocate(rm->h, n, sizeof(*n));
+}
+
 rmnode rangemap_lookup(rangemap rm, u64 point)
 {
     struct rmnode k;
@@ -164,9 +210,15 @@ rangemap allocate_rangemap(heap h)
     rangemap rm = allocate(h, sizeof(struct rangemap));
     if (rm == INVALID_ADDRESS)
         return rm;
-    rm->h = h;
-    init_rbtree(&rm->t, init_closure(&rm->compare, rmnode_compare), init_closure(&rm->print, print_key));
+    init_rangemap(rm, h);
     return rm;
+}
+
+void init_rangemap(rangemap rm, heap h)
+{
+    rm->h = h;
+    init_rbtree(&rm->t, init_closure(&rm->compare, rmnode_compare),
+                init_closure(&rm->print, print_key));
 }
 
 closure_function(1, 1, boolean, destruct_rmnode,

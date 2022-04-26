@@ -40,11 +40,9 @@ typedef struct pagecache {
     struct pagelist new;
     struct pagelist active;
     struct pagelist writing;
-    struct pagelist dirty;     /* phase 2 */
     struct list volumes;
     struct list shared_maps;
 
-    boolean scan_in_progress;
     struct timer scan_timer;
     closure_struct(pagecache_scan_timer, do_scan_timer);
     closure_struct(pagecache_page_compare, page_compare);
@@ -54,7 +52,8 @@ typedef struct pagecache {
 typedef struct pagecache_volume {
     struct list l;              /* volumes list */
     pagecache pc;
-    struct list nodes;          /* head of pagecache_nodes */
+    struct spinlock lock;
+    struct list dirty_nodes;    /* head of pagecache_nodes */
     u64 length;                 /* end of volume */
     int block_order;
     status write_error;         /* pending error from a previous write */
@@ -71,6 +70,7 @@ typedef struct pagecache_node {
 #endif
     struct rbtree pages;
     rangemap shared_maps;       /* shared mappings associated with this node */
+    struct rangemap dirty;
     u64 length;
 
     sg_io cache_read;

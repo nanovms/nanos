@@ -174,6 +174,72 @@ static boolean range_diff_test(void)
     return true;
 }
 
+static void rangemap_verify_ranges(rangemap rm, int expected_count, u64 expected_length)
+{
+    int count = 0;
+    u64 length = 0;
+    u64 previous_end = 0;
+    rangemap_foreach(rm, n) {
+        if ((count++ > 0) && (n->r.start <= previous_end)) {
+            msg_err("unexpected range %R, previous end %ld)\n", n->r, previous_end);
+            exit(EXIT_FAILURE);
+        }
+        length += range_span(n->r);
+    }
+    if ((count != expected_count) || (length != expected_length)) {
+        msg_err("range count %d (expected %d), length %ld (expected %ld)\n",
+                count, expected_count, length, expected_length);
+        exit(EXIT_FAILURE);
+    }
+}
+
+closure_function(1, 1, void, rangemap_merge_destructor,
+                 heap, h,
+                 rmnode, n)
+{
+    deallocate(bound(h), n, sizeof(*n));
+}
+
+static boolean rangemap_merge_test(heap h)
+{
+    rangemap rm = allocate_rangemap(h);
+    if (rm == INVALID_ADDRESS) {
+        msg_err("failed to allocate rangemap\n");
+        return false;
+    }
+    rangemap_verify_ranges(rm, 0, 0);
+    rangemap_insert_range(rm, irange(1, 2));
+    rangemap_verify_ranges(rm, 1, 1);
+    rangemap_insert_range(rm, irange(3, 4));
+    rangemap_verify_ranges(rm, 2, 2);
+    rangemap_insert_range(rm, irange(2, 3));
+    rangemap_verify_ranges(rm, 1, 3);
+    rangemap_insert_range(rm, irange(4, 5));
+    rangemap_verify_ranges(rm, 1, 4);
+    rangemap_insert_range(rm, irange(7, 8));
+    rangemap_verify_ranges(rm, 2, 5);
+    rangemap_insert_range(rm, irange(6, 7));
+    rangemap_verify_ranges(rm, 2, 6);
+    rangemap_insert_range(rm, irange(1, 9));
+    rangemap_verify_ranges(rm, 1, 8);
+    rangemap_insert_range(rm, irange(0, 10));
+    rangemap_verify_ranges(rm, 1, 10);
+    rangemap_insert_range(rm, irange(0, 1));
+    rangemap_verify_ranges(rm, 1, 10);
+    rangemap_insert_range(rm, irange(1, 2));
+    rangemap_verify_ranges(rm, 1, 10);
+    rangemap_insert_range(rm, irange(9, 10));
+    rangemap_verify_ranges(rm, 1, 10);
+    rangemap_insert_range(rm, irange(9, 11));
+    rangemap_verify_ranges(rm, 1, 11);
+    rangemap_insert_range(rm, irange(12, 14));
+    rangemap_verify_ranges(rm, 2, 13);
+    rangemap_insert_range(rm, irange(10, 13));
+    rangemap_verify_ranges(rm, 1, 14);
+    deallocate_rangemap(rm, stack_closure(rangemap_merge_destructor, h));
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -182,6 +248,9 @@ int main(int argc, char **argv)
         goto fail;
 
     if (!range_diff_test())
+        goto fail;
+
+    if (!rangemap_merge_test(h))
         goto fail;
 
     msg_debug("range test passed\n");
