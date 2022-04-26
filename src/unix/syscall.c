@@ -607,6 +607,7 @@ static void file_write_complete_internal(thread t, file f, u64 len,
         rv = len;
     } else {
         rv = sysreturn_from_fs_status_value(s);
+        timm_dealloc(s);
     }
     apply(completion, t, rv);
 }
