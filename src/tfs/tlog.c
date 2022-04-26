@@ -538,7 +538,11 @@ void log_flush(log tl, status_handler completion)
     tlog_debug("%s: log %p, completion %p, dirty %d\n", __func__, tl, completion, tl->dirty);
     if (!tl->dirty && !tl->compacting) {
         if (completion)
+#ifdef KERNEL
+            async_apply_status_handler(completion, STATUS_OK);
+#else
             apply(completion, STATUS_OK);
+#endif
         return;
     }
     if (completion)
