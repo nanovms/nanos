@@ -50,7 +50,7 @@ static void xapic_ipi(apic_iface i, u32 target, u64 flags, u8 vector)
     u64 w;
     u64 icr = (flags & ~0xff) | vector;
     
-    if (target == TARGET_EXCLUSIVE_BROADCAST) {
+    if (target == (u32)TARGET_EXCLUSIVE_BROADCAST) {
         w = icr | ICR_DEST_ALL_EXC_SELF;
     } else {
         w = icr | (((u64)target) << 56);
