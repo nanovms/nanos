@@ -42,7 +42,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) +
             get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
 
-    p->stack_map = allocate_vmap(p->vmaps, irangel(stack_start, PROCESS_STACK_SIZE),
+    p->stack_map = allocate_vmap(p, irangel(stack_start, PROCESS_STACK_SIZE),
                                  ivmap(VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE, 0, 0, 0));
     assert(p->stack_map != INVALID_ADDRESS);
 
@@ -188,8 +188,8 @@ closure_function(3, 4, u64, exec_elf_map,
     boolean is_bss = paddr == INVALID_PHYSICAL;
     exec_debug("%s: add to vmap: %R vmflags 0x%lx%s\n",
                __func__, r, vmflags, is_bss ? " bss" : "");
-    assert(allocate_vmap(bound(p)->vmaps, r, ivmap(vmflags, bound(allowed_flags), 0, 0)) !=
-            INVALID_ADDRESS);
+    assert(allocate_vmap(bound(p), r, ivmap(vmflags, bound(allowed_flags), 0, 0)) !=
+           INVALID_ADDRESS);
     if (is_bss) {
         /* bss */
         paddr = allocate_u64((heap)heap_physical(kh), size);
@@ -290,8 +290,8 @@ process exec_elf(buffer ex, process kp)
     u64 brk = pad(load_range.end, PAGESIZE) + brk_offset;
     proc->brk = pointer_from_u64(brk);
     proc->heap_base = brk;
-    proc->heap_map = allocate_vmap(proc->vmaps, irange(brk, brk),
-        ivmap(VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE, 0, 0, 0));
+    proc->heap_map = allocate_vmap(proc, irange(brk, brk),
+                                   ivmap(VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE, 0, 0, 0));
     assert(proc->heap_map != INVALID_ADDRESS);
     exec_debug("entry %p, brk %p (offset 0x%lx)\n", entry, proc->brk, brk_offset);
 

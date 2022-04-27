@@ -25,6 +25,7 @@
 #define MT_N_THREADS 4
 
 #define handle_err(s) do { perror(s); exit(EXIT_FAILURE);} while(0)
+#define fail_exit(s, ...) do { fprintf(stderr, "%s: " s, __func__, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
 
 /** Basic and intensive problem sizes **/
 typedef struct {
@@ -73,6 +74,8 @@ static problem_size_t problem_size_intensive = {
 };
 
 static problem_size_t * problem_size;
+static int test_zero_page_map;
+static int exec_enabled;
 
 #define __mmap_NR_MMAPS         problem_size->mmap.nr_mmaps
 #define __mmap_ALLOC_AT_A_TIME  problem_size->mmap.alloc_at_a_time
@@ -169,6 +172,13 @@ static void do_munmap(void * addr, unsigned long len)
         __munmap(addr, len);
 }
 
+static void mmap_flags_check(void)
+{
+    void *p = mmap(NULL, 4096, PROT_NONE, MAP_ANONYMOUS, -1, 0);
+    if (p != MAP_FAILED)
+        fail_exit("mmap should have failed without MAP_PRIVATE, MAP_SHARED or MAP_VALIDATE\n");
+}
+
 /*
  * mmap and munmap a new file with appropriate permissions
  */
@@ -215,9 +225,7 @@ static void check_exec_perm_test(void)
     }
     addr = mmap(NULL, maplen, PROT_EXEC, MAP_PRIVATE, fd, 0);
     if (addr != MAP_FAILED) {
-        fprintf(stderr, "%s: could mmap non-executable file with exec access\n",
-            __func__);
-        exit(EXIT_FAILURE);
+        fail_exit("could mmap non-executable file with exec access\n");
     } else if (errno != EACCES) {
         handle_err("exec-mmap non-executable file: unexpected error");
     }
@@ -234,10 +242,91 @@ static void check_zeropage_test(void)
 {
     void *addr = mmap(0, 4096, PROT_READ | PROT_WRITE,
                       MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (addr != MAP_FAILED) {
-        fprintf(stderr, "map of zero page should have failed\n");
+    if (test_zero_page_map) {
+        if (addr == MAP_FAILED)
+            fail_exit("map of zero page should have succeeded\n");
+    } else {
+        if (addr != MAP_FAILED)
+            fail_exit("map of zero page should have failed\n");
+    }
+}
+
+static unsigned long do_sum(unsigned long *p)
+{
+    unsigned long *end = p + (4096 * 3 / 8);
+    unsigned long sum = 0;
+    while (p < end)
+        sum += *p++;
+    return sum;
+}
+
+static void vmap_merge_test(void)
+{
+    /* Build kernel with:
+       - VMAP_PARANOIA to assert adjacent vmaps are dissimilar
+       - VMAP_DEBUG to observe vmaps being split and joined
+    */
+    int fd = open("unmapme", O_RDONLY);
+    if (fd < 0)
+        handle_err("open unmapme");
+    void *addr, *addr2;
+    addr = mmap(NULL, 4096 * 3, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (addr == MAP_FAILED) {
+        perror("merge test mmap");
         exit(EXIT_FAILURE);
     }
+
+    /* Create and fill holes at beginning, middle and end of mapping. */
+    unsigned long sum = do_sum(addr);
+    for (int i = 0; i < 3; i++) {
+        void *p = addr + (4096 * i);
+        munmap(p, 4096);
+        addr2 = mmap(p, 4096, PROT_READ, MAP_FIXED | MAP_PRIVATE, fd, (4096 * i));
+        if (addr2 == MAP_FAILED) {
+            perror("merge test mmap 2");
+            exit(EXIT_FAILURE);
+        }
+        unsigned long c = do_sum(addr);
+        if (c != sum)
+            fail_exit("checksum mismatch\n");
+    }
+    munmap(addr, 4096 * 3);
+    close(fd);
+}
+
+static void hint_test(void)
+{
+    void *addr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr == MAP_FAILED)
+        handle_err("hint test mmap failed");
+
+    /* hint without fixed should relocate */
+    void *addr2 = mmap(addr, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr2 == MAP_FAILED)
+        handle_err("hint test mmap 2 failed");
+    if (addr2 == addr)
+        fail_exit("hint should not have replaced existing mapping\n");
+    munmap(addr2, 4096);
+
+    /* fixed mapping should replace */
+    *(int *)addr = 1;
+    addr2 = mmap(addr, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    if (addr2 == MAP_FAILED)
+        handle_err("hint test mmap 3 failed");
+    if (addr2 != addr)
+        fail_exit("MAP_FIXED mapping returned different address\n");
+    if (*(int *)addr)
+        fail_exit("re-mapped memory should be zero\n");
+    munmap(addr2, 4096);
+    munmap(addr, 4096);
+
+    /* hint should succeed here */
+    addr = mmap(addr2, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr == MAP_FAILED)
+        handle_err("hint test mmap 4 failed");
+    if (addr != addr2)
+        fail_exit("hint not taken after clearing area\n");
+    munmap(addr, 4096);
 }
 
 /* This used to be 32GB, which would not pass under Linux... */
@@ -257,12 +346,12 @@ static void large_mmap_test(void)
         exit(EXIT_FAILURE);
     }
 
-    map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_EXEC,
-        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (map_addr != MAP_FAILED) {
-        fprintf(stderr, "%s: could set up anonymous mapping with exec access\n",
-            __func__);
-        exit(EXIT_FAILURE);
+    if (!exec_enabled) {
+        map_addr = mmap(NULL, LARGE_MMAP_SIZE, PROT_EXEC,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (map_addr != MAP_FAILED) {
+            fail_exit("could set up anonymous mapping with exec access\n");
+        }
     }
 }
 
@@ -484,10 +573,13 @@ static void mmap_test(void)
     int seed;
 
     printf("** starting mmap tests\n");
-
+    mmap_flags_check();
     mmap_newfile_test();
-    check_exec_perm_test();
+    if (!exec_enabled)
+        check_exec_perm_test();
     check_zeropage_test();
+    vmap_merge_test();
+    hint_test();
 
     printf("  performing large mmap...\n");
     large_mmap_test();
@@ -757,12 +849,16 @@ void mprotect_test(void)
     u8 *addr;
     int ret;
 
-    if (mprotect(0, PAGESIZE, PROT_READ) == 0) {
-        fprintf(stderr, "%s: could enable read access to zero page\n",
-            __func__);
-        exit(EXIT_FAILURE);
-    } else if (errno != ENOMEM) {
-        handle_err("mprotect() to zero page: unexpected error");
+    printf("** starting mprotect tests\n");
+    ret = mprotect(0, PAGESIZE, PROT_READ);
+    if (!test_zero_page_map) {
+        if (ret == 0)
+            fail_exit("could enable read access to zero page\n");
+        if (errno != ENOMEM)
+            handle_err("mprotect() to zero page: unexpected error");
+    } else {
+        if (ret < 0)
+            handle_err("mprotect() to zero page: failed");
     }
 
     addr = mmap(NULL, 5 * PAGESIZE, PROT_READ | PROT_WRITE,
@@ -770,39 +866,49 @@ void mprotect_test(void)
     if (addr == MAP_FAILED)
         handle_err("mprotect test: mmap");
 
+    /* To test merging of vmaps after a flags update, build kernel with VMAP_PARANOIA */
+    ret = mprotect(addr + PAGESIZE, PAGESIZE, PROT_READ);
+    if (ret < 0)
+        handle_err("mprotect 1");
+    ret = mprotect(addr + PAGESIZE, PAGESIZE, PROT_READ | PROT_WRITE);
+    if (ret < 0)
+        handle_err("mprotect 2");
+
     /* To test that mprotect() touches the supplied address range only, remove
      * write access to some pages and then write to neighboring pages. */
     ret = mprotect(addr, PAGESIZE, PROT_NONE);
     if (ret < 0)
-        handle_err("mprotect 1");
+        handle_err("mprotect 3");
     addr[PAGESIZE] = 0;
     ret = mprotect(addr + 2 * PAGESIZE, PAGESIZE, PROT_NONE);
     if (ret < 0)
-        handle_err("mprotect 2");
+        handle_err("mprotect 4");
     addr[2 * PAGESIZE - 1] = 0;
     addr[3 * PAGESIZE] = 0;
     ret = mprotect(addr + 4 * PAGESIZE, PAGESIZE, PROT_NONE);
     if (ret < 0)
-        handle_err("mprotect 3");
+        handle_err("mprotect 5");
     addr[4 * PAGESIZE - 1] = 0;
 
-    if (mprotect(addr, PAGESIZE, PROT_EXEC) == 0) {
-        fprintf(stderr, "%s: could enable exec access on anonymous mapping\n",
-            __func__);
-        exit(EXIT_FAILURE);
-    } else if (errno != EACCES) {
-        handle_err("mprotect(PROT_EXEC): unexpected error");
+    if (!exec_enabled) {
+        if (mprotect(addr, PAGESIZE, PROT_EXEC) == 0) {
+            fprintf(stderr, "%s: could enable exec access on anonymous mapping\n",
+                    __func__);
+            exit(EXIT_FAILURE);
+        } else if (errno != EACCES) {
+            handle_err("mprotect(PROT_EXEC): unexpected error");
+        }
+
+        void *addr2 = (u8 *)round_down_page(mprotect_test);
+        if (mprotect(addr2, PAGESIZE, PROT_WRITE) == 0) {
+            fprintf(stderr, "%s: could enable write access to program code\n", __func__);
+            exit(EXIT_FAILURE);
+        } else if (errno != EACCES) {
+            handle_err("mprotect(PROT_WRITE): unexpected error");
+        }
     }
 
     __munmap(addr, 5 * PAGESIZE);
-
-    addr = (u8 *)round_down_page(mprotect_test);
-    if (mprotect(addr, PAGESIZE, PROT_WRITE) == 0) {
-        fprintf(stderr, "%s: could enable write access to program code\n", __func__);
-        exit(EXIT_FAILURE);
-    } else if (errno != EACCES) {
-        handle_err("mprotect(PROT_WRITE): unexpected error");
-    }
 }
 
 const unsigned char test_sha[2][32] = {
@@ -1265,9 +1371,13 @@ int main(int argc, char * argv[])
      */
     problem_size = &problem_size_basic;
 
-    if (argc == 2) {
-        if (strcmp(argv[1], "intensive") == 0)
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "intensive") == 0)
             problem_size = &problem_size_intensive;
+        if (strcmp(argv[i], "zeropage") == 0)
+            test_zero_page_map = 1;
+        if (strcmp(argv[i], "exec") == 0)
+            exec_enabled = 1;
     }
 
     /* flush printfs immediately */

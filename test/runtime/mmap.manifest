@@ -15,7 +15,7 @@
 #    futex_trace:t
 #    mmap_min_addr:0
     fault:t
-    arguments:[/mmap, basic]
+    arguments:[/mmap] # intensive, zeropage, exec
     environment:(USER:bobby PWD:/)
     exec_protection:t
     imagesize:30M

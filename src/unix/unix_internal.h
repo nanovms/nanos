@@ -452,7 +452,7 @@ static inline sysreturn blockq_block_required(thread t, u64 bq_flags)
     return BLOCKQ_BLOCK_REQUIRED;
 }
 
-vmap allocate_vmap(rangemap rm, range r, struct vmap q);
+vmap allocate_vmap(process p, range r, struct vmap q);
 boolean adjust_process_heap(process p, range new);
 
 u64 process_get_virt_range(process p, u64 size, range region);
