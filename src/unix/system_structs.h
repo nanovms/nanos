@@ -169,6 +169,12 @@ struct flock {
 #define MAP_FIXED           0x10
 #define MAP_ANONYMOUS       0x20
 
+#define MAP_GROWSDOWN       0x100
+#define MAP_DENYWRITE       0x800
+#define MAP_EXECUTABLE      0x1000
+#define MAP_LOCKED          0x2000
+#define MAP_NORESERVE       0x4000
+
 #define MAP_POPULATE        0x08000
 #define MAP_NONBLOCK        0x10000
 #define MAP_STACK           0x20000
@@ -177,9 +183,11 @@ struct flock {
 #define MAP_FIXED_NOREPLACE 0x100000
 #define MAP_UNINITIALIZED   0x4000000
 
+#define HUGETLB_FLAG_ENCODE_SHIFT 26
+#define HUGETLB_FLAG_ENCODE_MASK  0x3ful
+
 #define MREMAP_MAYMOVE      1
 #define MREMAP_FIXED        2
-#define MAP_STACK           0x20000
 
 #define PROT_READ       0x1
 #define PROT_WRITE      0x2

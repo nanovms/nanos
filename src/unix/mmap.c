@@ -1114,7 +1114,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     if (len == 0)
         return -EINVAL;
 
-    /* Determine vmap flags */
+    /* validate parameters and determine vmap flags */
     u64 vmflags = VMAP_FLAG_MMAP;
 
     int map_type = flags & MAP_TYPE_MASK;
@@ -1134,13 +1134,28 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         thread_log(current, "   MAP_UNINITIALIZED is unsupported");
         return -EINVAL;
     }
-    /* TODO: assert for unsupported:
-       MAP_GROWSDOWN
-       MAP_LOCKED
-       MAP_NONBLOCK
-       MAP_POPULATE
-    */
+    if (flags & MAP_GROWSDOWN) {
+        thread_log(current, "   MAP_GROWSDOWN is unsupported");
+        return -EINVAL;
+    }
+    if (flags & MAP_HUGETLB)
+        thread_log(current, "   MAP_HUGETLB not implemented; ignoring");
+    if (flags & MAP_SYNC)
+        thread_log(current, "   MAP_SYNC not implemented; ignoring");
 
+    /* ignore MAP_DENYWRITE, MAP_EXECUTABLE, MAP_LOCKED, MAP_STACK, MAP_NORESERVE */
+    int valid_flags = MAP_TYPE_MASK | MAP_FIXED | MAP_ANONYMOUS |
+        MAP_GROWSDOWN | MAP_DENYWRITE | MAP_EXECUTABLE | MAP_LOCKED | MAP_NORESERVE |
+        MAP_POPULATE | MAP_NONBLOCK | MAP_STACK | MAP_HUGETLB | MAP_SYNC |
+        MAP_FIXED_NOREPLACE | MAP_UNINITIALIZED |
+        (HUGETLB_FLAG_ENCODE_MASK << HUGETLB_FLAG_ENCODE_SHIFT);
+    int unknown_flags = flags & ~valid_flags;
+    if (unknown_flags) {
+        thread_log(current, "   unknown flag(s) 0x%x", unknown_flags);
+        return -EINVAL;
+    }
+
+    /* handle fixed address or hint */
     fdesc desc = 0;
     sysreturn ret = -EINVAL;
     boolean fixed = (flags & (MAP_FIXED | MAP_FIXED_NOREPLACE)) != 0;
@@ -1150,30 +1165,30 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
 	/* Must be page-aligned */
 	if (q.start & MASK(PAGELOG)) {
 	    thread_log(current, "   attempt to map non-aligned FIXED address");
-	    goto out;
+	    goto out_unlock;
 	}
         if (!validate_mmap_range(p, q)) {
 	    thread_log(current, "   requested fixed range %R is out of bounds", q);
-            goto out;
+            goto out_unlock;
         }
         if ((flags & MAP_FIXED_NOREPLACE) &&
             rangemap_range_intersects(p->vmaps, q)) {
-            thread_log(current, "   MAP_FIXED_NOREPLACE and collision in range %R\n", q);
+            thread_log(current, "   MAP_FIXED_NOREPLACE and collision in range %R", q);
             ret = -EEXIST;
-            goto out;
+            goto out_unlock;
         }
     } else if (q.start != 0) {
         q = irangel(pad(q.start, PAGESIZE), len);
         if (rangemap_range_intersects(p->vmaps, q)) {
-            thread_log(current, "   hint %R collides, reverting to allocation\n", q);
+            thread_log(current, "   hint %R collides, reverting to allocation", q);
             q.start = 0;
         }
     }
 
     /* having checked parameters, procure backing resources */
-    u64 vmap_mmap_type;
-    u32 allowed_flags;
     fsfile fsf = 0;
+    u32 allowed_flags;
+    u64 vmap_mmap_type;
     pagecache_node node = 0;
     if (flags & MAP_ANONYMOUS) {
         vmap_mmap_type = VMAP_MMAP_TYPE_ANONYMOUS;
@@ -1189,10 +1204,10 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             break;
         case FDESC_TYPE_IORING:
             vmap_mmap_type = VMAP_MMAP_TYPE_IORING;
-            if (q.start != 0) {
-                thread_log(current, "   fixed ioring mappings unsupported\n");
+            if (fixed) {
+                thread_log(current, "   fixed ioring mappings unsupported");
                 ret = -ENOMEM;
-                goto out;
+                goto out_unlock;
             }
             allowed_flags = VMAP_FLAG_WRITABLE | VMAP_FLAG_READABLE;
             /* trigger vmap remove; replace placeholder vmap */
@@ -1201,14 +1216,14 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         default:
             thread_log(current, "   fail: attempt to mmap file of invalid type %d", desc->type);
             ret = -EINVAL;
-            goto out;
+            goto out_unlock;
         }
     }
     if ((vmflags & VMAP_FLAG_PROT_MASK) & ~allowed_flags) {
         thread_log(current, "   fail: forbidden access type 0x%x (allowed 0x%x)",
                    vmflags & VMAP_FLAG_PROT_MASK, allowed_flags);
         ret = -EACCES;
-        goto out;
+        goto out_unlock;
     }
     vmflags |= vmap_mmap_type;
     switch (vmap_mmap_type) {
@@ -1217,8 +1232,8 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         vmflags |= VMAP_FLAG_PREALLOC;
         ret = io_uring_mmap(desc, len, pageflags_from_vmflags(vmflags), offset);
         if (ret < 0) {
-            thread_log(current, "   io_uring_mmap() failed with %ld\n", ret);
-            goto out;
+            thread_log(current, "   io_uring_mmap() failed with %ld", ret);
+            goto out_unlock;
         }
         thread_log(current, "   io_uring_mmap mapped at 0x%lx", ret);
         q = irangel(ret, len);
@@ -1226,9 +1241,9 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     case VMAP_MMAP_TYPE_FILEBACKED:
         thread_log(current, "   fd %d: file-backed (regular)", fd);
         if (offset & PAGEMASK) {
-            thread_log(current, "   file-backed mapping must have aligned file offset (%d)\n", offset);
+            thread_log(current, "   file-backed mapping must have aligned file offset (%ld)", offset);
             ret = -EINVAL;
-            goto out;
+            goto out_unlock;
         }
         file f = (file)desc;
         fsf = f->fsf;
@@ -1249,7 +1264,8 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         u64 vaddr = process_allocate_range_locked(p, len, k, alloc_region);
         if (vaddr == INVALID_PHYSICAL) {
             ret = -ENOMEM;
-            goto map_fail;
+            thread_log(current, "   failed to create mapping for %R", q);
+            goto out_unlock;
         }
         q = irangel(vaddr, len);
     } else {
@@ -1257,22 +1273,25 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             process_remove_range_locked(p, q, true);
         vmap_assert(allocate_vmap_locked(p->vmaps, q, k) != INVALID_ADDRESS);
     }
+    vmap_unlock(p);
 
     if (vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED && (vmflags & VMAP_FLAG_SHARED))
         pagecache_node_add_shared_map(node, irangel(q.start, len), offset);
 
+    /* as man page suggests, ignore MAP_POPULATE if MAP_NONBLOCK is specified */
+    if ((flags & (MAP_POPULATE | MAP_NONBLOCK)) == MAP_POPULATE && (prot & PROT_READ)) {
+        vmap_debug("   faulting in %R\n", q);
+        fault_in_user_memory(pointer_from_u64(q.start), len, 0, 0);
+    }
     ret = q.start;
-    goto out;
-  map_fail:
-    thread_log(current, "   failed to create mapping for %R\n", q);
-    if (vmap_mmap_type == VMAP_MMAP_TYPE_IORING)
-        unmap(q.start, len);
   out:
     thread_log(current, "   returning 0x%lx", ret);
-    vmap_unlock(p);
     if (desc)
         fdesc_put(desc);
     return ret;
+  out_unlock:
+    vmap_unlock(p);
+    goto out;
 }
 
 static sysreturn munmap(void *addr, u64 length)

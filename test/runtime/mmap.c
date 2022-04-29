@@ -172,7 +172,7 @@ static void do_munmap(void * addr, unsigned long len)
         __munmap(addr, len);
 }
 
-static void mmap_flags_check(void)
+static void mmap_illegal_flags_check(void)
 {
     void *p = mmap(NULL, 4096, PROT_NONE, MAP_ANONYMOUS, -1, 0);
     if (p != MAP_FAILED)
@@ -294,7 +294,7 @@ static void vmap_merge_test(void)
     close(fd);
 }
 
-static void hint_test(void)
+static void hint_and_fixed_test(void)
 {
     void *addr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (addr == MAP_FAILED)
@@ -327,6 +327,26 @@ static void hint_test(void)
     if (addr != addr2)
         fail_exit("hint not taken after clearing area\n");
     munmap(addr, 4096);
+
+    /* hint to unaligned address */
+    addr = mmap(addr2 + 0x8, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (addr == MAP_FAILED)
+        handle_err("unaligned hint failed");
+
+#ifdef MAP_FIXED_NOREPLACE
+    /* map with noreplace should fail */
+    if (mmap(addr, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0)
+        != MAP_FAILED)
+        fail_exit("noreplace mmap should have failed\n");
+    munmap(addr, 4096);
+#endif
+
+    /* unaligned fixed should fail */
+    addr = mmap(addr2 + 0x8, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    if (addr != MAP_FAILED)
+        fail_exit("unaligned fixed map should have failed\n");
+    if (errno != EINVAL)
+        fail_exit("unaligned fixed map should have returned EINVAL, not %d\n", errno);
 }
 
 /* This used to be 32GB, which would not pass under Linux... */
@@ -573,13 +593,13 @@ static void mmap_test(void)
     int seed;
 
     printf("** starting mmap tests\n");
-    mmap_flags_check();
+    mmap_illegal_flags_check();
     mmap_newfile_test();
     if (!exec_enabled)
         check_exec_perm_test();
     check_zeropage_test();
     vmap_merge_test();
-    hint_test();
+    hint_and_fixed_test();
 
     printf("  performing large mmap...\n");
     large_mmap_test();
@@ -1267,16 +1287,20 @@ static void handle_sigbus(int sig, siginfo_t *si, void *ucontext)
 #define MAP_SIZE 4096
 static void check_fault_in_user_memory(void)
 {
+    printf("** check MAP_POPULATE\n");
+    void *p = mmap(0, MAP_SIZE, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+    if (p == MAP_FAILED)
+        handle_err("mmap with MAP_POPULATE failed");
+    /* TODO: actually validate this once we have something like /proc/<tid>/stat ... */
+    munmap(p, MAP_SIZE);
+
     printf("** validate_user_memory_permissions() test\n");
-    void *p = mmap(0, MAP_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    p = mmap(0, MAP_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (p == MAP_FAILED)
         handle_err("mmap with prot none");
     int rv = stat("infile", p);
-    if (rv != -1 || errno != EFAULT) {
-        fprintf(stderr, "%s: stat should have failed with EFAULT (rv %d, errno %d)\n",
-                __func__, rv, errno);
-        exit(EXIT_FAILURE);
-    }
+    if (rv != -1 || errno != EFAULT)
+        fail_exit("stat should have failed with EFAULT (rv %d, errno %d)\n", rv, errno);
     munmap(p, MAP_SIZE);
 
     /* Check that we can handle a file-backed fault on a mapped pathname. If
