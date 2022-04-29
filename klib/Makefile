@@ -121,9 +121,13 @@ SRCS-mbedtls-tls= \
 
 ADDITIONAL_PROGRAMS= \
 	test/klib \
+	test/page_table \
 
 SRCS-test/klib= \
 	$(CURDIR)/test/klib.c
+
+SRCS-test/page_table= \
+	$(CURDIR)/test/page_table.c
 
 all: klib-syms $(ADDITIONAL_PROGRAMS)
 
