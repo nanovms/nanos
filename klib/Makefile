@@ -6,7 +6,6 @@ PROGRAMS= \
 	ntp \
 	radar \
 	syslog \
-	test \
 	tls \
 	tun \
 
@@ -22,9 +21,6 @@ SRCS-radar= \
 
 SRCS-syslog= \
 	$(CURDIR)/syslog.c \
-
-SRCS-test= \
-	$(CURDIR)/test.c
 
 SRCS-tls= \
 	$(CURDIR)/mbedtls.c \
@@ -123,7 +119,13 @@ SRCS-mbedtls-tls= \
 	$(MBEDTLS_DIR)/library/ssl_ticket.c \
 	$(MBEDTLS_DIR)/library/ssl_tls.c \
 
-all: klib-syms
+ADDITIONAL_PROGRAMS= \
+	test/klib \
+
+SRCS-test/klib= \
+	$(CURDIR)/test/klib.c
+
+all: klib-syms $(ADDITIONAL_PROGRAMS)
 
 KLIB_SYMS= $(OBJDIR)/klib-syms.lds
 
@@ -189,4 +191,5 @@ CFLAGS+=	$(KERNCFLAGS) -O3 $(INCLUDES) -fPIC $(DEFINES)
 LDFLAGS+=	-shared -Bsymbolic -nostdlib -T$(ARCHDIR)/klib.lds
 
 CLEANFILES+=	$(KLIB_SYMS)
-CLEANDIRS+=	$(OUTDIR)/klib/vendor $(OUTDIR)/klib/vendor/mbedtls
+CLEANDIRS+=	$(OUTDIR)/klib/vendor $(OUTDIR)/klib/vendor/mbedtls \
+	$(OBJDIR)/bin/test

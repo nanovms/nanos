@@ -162,29 +162,6 @@ void unload_klib(klib kl)
     klib_debug("   unload complete\n");
 }
 
-/* this should move to hypothetical in-kernel test / diag area */
-closure_function(0, 2, void, klib_test_loaded,
-                 klib, kl, int, rv)
-{
-    if (rv != KLIB_INIT_OK)
-        halt("klib test load failed (%d)\n", rv);
-
-    rprintf("%s: klib %s\n", __func__, kl->name);
-    add_elf_syms(kl->elf, kl->load_range.start);
-
-    int (*foo)(int x) = symtab_get_addr("foo");
-    if (foo == INVALID_ADDRESS)
-        halt("%s: sym \"foo\" not found\n", __func__);
-    int r = foo(1);
-    if (r != 124)
-        halt("%s: foo call failed\n", __func__);
-
-    unload_klib(kl);
-    rprintf("   klib test passed\n");
-    closure_finish();
-    return;
-}
-
 closure_function(3, 1, void, klibs_complete,
                  u64, pending, queue, retry_klibs, status_handler, complete,
                  status, s)
@@ -279,11 +256,14 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
     klib_root = get_tuple(c, sym(klib));
     if (!klib_root)
         goto done;
+    c = children(klib_root);
     if (get(config_root, sym(klib_test))) {
-        klib_debug("   loading klib test\n");
-        load_klib("test/test", closure(h, klib_test_loaded), 0);
+        klib_debug("   loading in-kernel tests\n");
+        assert(c);
+        tuple test_dir = get(c, sym(test));
+        assert(test_dir);
+        c = children(test_dir);
     }
-    c = get_tuple(klib_root, sym(children));
     if (c) {
         queue retry_klibs = allocate_queue(h, tuple_count(c));
         assert(retry_klibs != INVALID_ADDRESS);
