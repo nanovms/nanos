@@ -571,112 +571,113 @@ boolean adjust_process_heap(process p, range new)
 sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void *new_address)
 {
     process p = current->p;
-    u64 old_addr = u64_from_pointer(old_address);
     sysreturn rv;
-
     thread_log(current, "mremap: old_address %p, old_size 0x%lx, new_size 0x%lx, flags 0x%x, "
                "new_address %p", old_address, old_size, new_size, flags, new_address);
 
-    if ((flags & MREMAP_MAYMOVE) == 0) {
-        msg_err("only supporting MREMAP_MAYMOVE yet\n");
-        return -ENOMEM;
-    }
-
-    if ((flags & MREMAP_FIXED)) {
-        msg_err("no support for MREMAP_FIXED yet\n");
-        return -ENOMEM;
-    }
-
-    if ((old_addr & MASK(PAGELOG)) ||
+    old_size = pad(old_size, PAGESIZE);
+    range old = irangel(u64_from_pointer(old_address), old_size);
+    if ((old.start & PAGEMASK) ||
         (flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED)) ||
-        new_size == 0)
+        new_size == 0 ||
+        (old_size == 0 && (flags & MREMAP_MAYMOVE) == 0)) {
         return -EINVAL;
-
-    heap vh = p->virtual;
-
-    old_size = pad(old_size, vh->pagesize);
-    if (new_size <= old_size)
-        return sysreturn_from_pointer(old_address);
+    }
 
     /* begin locked portion...no direct returns */
     vmap_lock(p);
-
-    /* verify we have a single vmap for the old address range */
-    vmap old_vm = vmap_from_vaddr_locked(p, old_addr);
-    if ((old_vm == INVALID_ADDRESS) ||
-        !range_contains(old_vm->node.r, irange(old_addr, old_addr + old_size))) {
+    vmap old_vmap = (vmap)rangemap_lookup(p->vmaps, old.start);
+    if (old_vmap == INVALID_ADDRESS || !range_contains(old_vmap->node.r, old)) {
+        vmap_debug("no match, old_vmap %p, old %R\n", old_vmap, old);
         rv = -EFAULT;
         goto unlock_out;
     }
 
-    if (old_vm->flags & VMAP_FLAG_PREALLOC) {
-        /* Remapping pre-allocated memory regions is not supported. */
+    if (old_size == 0) {
+        if ((old_vmap->flags & VMAP_FLAG_SHARED) == 0) {
+            rv = -EINVAL;
+            goto unlock_out;
+        }
+        new_size = MIN(new_size, (range_span(old_vmap->node.r) -
+                                  (old.start - old_vmap->node.r.start)));
+        old.end = old.start + new_size;
+    }
+
+    /* only remap mmap, non-preallocated regions */
+    struct vmap k = *old_vmap;
+    if ((k.flags & VMAP_FLAG_MMAP) == 0 || (k.flags & VMAP_FLAG_PREALLOC)) {
         rv = -EINVAL;
         goto unlock_out;
     }
 
-    /* XXX should determine if we're extending a virtual32 allocation...
-     * - for now only let the user move anon mmaps
-     */
-    u64 match = VMAP_FLAG_MMAP | VMAP_MMAP_TYPE_ANONYMOUS;
-    if ((old_vm->flags & match) != match) {
-        msg_err("mremap only supports anon mmap regions at the moment\n");
-        rv = -EINVAL;
-        goto unlock_out;
+    range new;
+    boolean remap_old = false;
+    new_size = pad(new_size, PAGESIZE);
+    if (flags & MREMAP_FIXED) {
+        if ((flags & MREMAP_MAYMOVE) == 0) {
+            rv = -EINVAL;
+            goto unlock_out;
+        }
+        new = irangel(u64_from_pointer(new_address), new_size);
+        if ((new.start & PAGEMASK) || ranges_intersect(old, new)) {
+            rv = -EINVAL;
+            goto unlock_out;
+        }
+        remap_old = true;
+    } else {
+        if (new_size > old_size) {
+            /* grow check */
+            new = irangel(old.start, new_size);
+            range delta = irange(old.end, new.end);
+            if (rangemap_range_intersects(p->vmaps, delta)) {
+                /* collision; allocate new */
+                if ((flags & MREMAP_MAYMOVE) == 0) {
+                    rv = -ENOMEM;
+                    goto unlock_out;
+                }
+                u64 vnew = process_get_virt_range_locked(p, new_size, PROCESS_VIRTUAL_MMAP_RANGE);
+                if (vnew == (u64)INVALID_ADDRESS) {
+                    msg_err("failed to allocate virtual memory, size %ld\n", new_size);
+                    rv = -ENOMEM;
+                    goto unlock_out;
+                }
+                new = irangel(vnew, new_size);
+                vmap_debug("new alloc: %R\n", new);
+                remap_old = true;
+            } else {
+                vmap_debug("extending: %R\n", new);
+            }
+        } else {
+            if (new_size < old_size) {
+                range delta = irange(old.start + new_size, old.end);
+                vmap_debug("shrinking: remove %R, new %R\n", delta, irangel(old.start, new_size));
+                process_remove_range_locked(p, delta, true);
+            }
+            rv = sysreturn_from_pointer(old.start);
+            goto unlock_out;
+        }
     }
 
-    /* remove old mapping, preserving attributes */
-    u64 vmflags = old_vm->flags;
+    process_remove_range_locked(p, old, false);
 
-    /* new virtual allocation */
-    u64 maplen = pad(new_size, vh->pagesize);
-    u64 vnew = process_get_virt_range_locked(p, maplen, PROCESS_VIRTUAL_MMAP_RANGE);
-    if (vnew == (u64)INVALID_ADDRESS) {
-        msg_err("failed to allocate virtual memory, size %ld\n", maplen);
-        rv = -ENOMEM;
-        goto unlock_out;
-    }
+    /* remove mappings under fixed area */
+    if (flags & MREMAP_FIXED)
+        process_remove_range_locked(p, new, true);
 
-    /* create new vm with old attributes */
-    if (allocate_vmap_locked(p->vmaps, irangel(vnew, maplen), *old_vm) == INVALID_ADDRESS) {
+    /* create new vmap with old attributes */
+    if (allocate_vmap_locked(p->vmaps, new, k) == INVALID_ADDRESS) {
         msg_err("failed to allocate vmap\n");
         rv = -ENOMEM;
         goto unlock_out;
     }
+    rv = sysreturn_from_pointer(new.start);
 
-    /* balance of physical allocation */
-    u64 dlen = maplen - old_size;
-    u64 dphys = allocate_u64((heap)mmap_info.physical, dlen);
-    if (dphys == INVALID_PHYSICAL) {
-        msg_err("failed to allocate physical memory, size %ld\n", dlen);
-        rv = -ENOMEM;
-        goto unlock_out;
+    if (remap_old) {
+        /* remap existing portion */
+        thread_log(current, "   remapping existing portion at 0x%lx (old %R)",
+                   new.start, old);
+        remap_pages(new.start, old.start, range_span(old));
     }
-    thread_log(current, "   new physical pages at 0x%lx, size %ld", dphys, dlen);
-
-    /* we're moving the vmap to a new address region, so we can safely remove
-     * the old node entirely */
-    rangemap_remove_node(p->vmaps, &old_vm->node);
-
-    /*
-     * XXX : if we decide to handle MREMAP_FIXED, we'll need to be careful about
-     * making sure destination address ranges are unmapped before mapping over them
-     * here
-     */
-
-    /* remap existing portion */
-    thread_log(current, "   remapping existing portion at 0x%lx (old_addr 0x%lx, size 0x%lx)",
-               vnew, old_addr, old_size);
-    remap_pages(vnew, old_addr, old_size);
-
-    /* map new portion and zero */
-    pageflags mapflags = pageflags_from_vmflags(vmflags);
-    thread_log(current, "   mapping and zeroing new portion at 0x%lx, page flags 0x%lx",
-               vnew + old_size, mapflags.w);
-    map(vnew + old_size, dphys, dlen, mapflags);
-    zero(pointer_from_u64(vnew + old_size), dlen);
-    vmap_unlock(p);
-    return sysreturn_from_pointer(vnew);
   unlock_out:
     vmap_unlock(p);
     return rv;
@@ -958,7 +959,6 @@ closure_function(4, 1, boolean, vmap_remove_intersection,
             vmap_assert(allocate_vmap_locked(pvmap, ri, nonmapped) != INVALID_ADDRESS);
         }
     }
-
     if (bound(unmap)) {
         struct vmap k = ivmap(match->flags,
                               0,

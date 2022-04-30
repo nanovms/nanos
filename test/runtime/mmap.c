@@ -775,7 +775,7 @@ static void mincore_test(void)
  */
 void mremap_test(void)
 {
-    void * map_addr, * tmp;
+    void * map_addr, * new_addr, * tmp;
     unsigned long map_size;
     mmap_t * mmaps;
     uint8_t * vec;
@@ -784,30 +784,75 @@ void mremap_test(void)
     printf("** starting mremap tests\n");
 
     map_addr = mmap(NULL, __mremap_INIT_SIZE, PROT_READ|PROT_WRITE,
-            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (map_addr == MAP_FAILED) {
-        perror("mmap failed");
-        exit(EXIT_FAILURE);
-    }
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (map_addr == MAP_FAILED)
+        handle_err("mmap failed");
 
-    /* ensure that MREMAP_MAYMOVE is needed and MREMAP_FIXED is invalid */
-    {
-        tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 0);
-        if (tmp != MAP_FAILED) {
-            fprintf(stderr, "mremap succeeded without MREMAP_MAYMOVE??\n");
-            exit(EXIT_FAILURE);
-        }
+    /* fixed requires maymove */
+    new_addr = map_addr+__mremap_INIT_SIZE;
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2,
+                 MREMAP_FIXED, new_addr);
+    if (tmp != MAP_FAILED)
+        fail_exit("mremap MREMAP_FIXED succeeded without MREMAP_MAYMOVE??\n");
+    if (errno != EINVAL)
+        fail_exit("EINVAL expected, got %d\n", errno);
 
-        /* Disabling this check for linux parity test... */
-#if 0
-        tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 
-                MREMAP_MAYMOVE | MREMAP_FIXED, map_addr+PAGESIZE);
-        if (tmp != MAP_FAILED) {
-            fprintf(stderr, "mremap succeeded with MREMAP_FIXED??\n");
-            exit(EXIT_FAILURE);
-        }
-#endif
-    }
+    /* fixed mremap to same address */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2,
+                 MREMAP_FIXED | MREMAP_MAYMOVE, map_addr);
+    if (tmp != MAP_FAILED)
+        fail_exit("fixed mremap to same address should have failed\n");
+    if (errno != EINVAL)
+        fail_exit("EINVAL expected, got %d\n", errno);
+
+    /* old_size == 0 only for shared mappings */
+    tmp = mremap(map_addr, 0, __mremap_INIT_SIZE*2, MREMAP_MAYMOVE, 0);
+    if (tmp != MAP_FAILED)
+        fail_exit("old_size == 0 on private mapping should have failed\n");
+    if (errno != EINVAL)
+        fail_exit("EINVAL expected, got %d\n", errno);
+
+    /* test move to fixed address */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE,
+                 MREMAP_FIXED | MREMAP_MAYMOVE, new_addr);
+    if (tmp == MAP_FAILED)
+        handle_err("mremap failed");
+    if (tmp != new_addr)
+        fail_exit("fixed mremap 1 expected at %p, got %p instead\n", new_addr, tmp);
+
+    /* move it back */
+    tmp = mremap(new_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE,
+                 MREMAP_FIXED | MREMAP_MAYMOVE, map_addr);
+    if (tmp == MAP_FAILED)
+        handle_err("mremap failed");
+    if (tmp != map_addr)
+        fail_exit("fixed mremap 2 expected at %p, got %p instead\n", map_addr, tmp);
+
+    /* test extension */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 0);
+    if (tmp == MAP_FAILED)
+        fail_exit("mremap extension failed\n");
+    if (tmp != map_addr)
+        fail_exit("extended map was moved\n");
+
+    /* should not be possible to grow section of mapping */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE*2, 0);
+    if (tmp != MAP_FAILED)
+        fail_exit("grow should have failed\n");
+
+    /* test shrinking */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE*2, __mremap_INIT_SIZE, 0);
+    if (tmp == MAP_FAILED)
+        fail_exit("mremap shrink failed\n");
+    if (tmp != map_addr)
+        fail_exit("shrunken map was moved\n");
+
+    /* test same size -> nop */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE, 0);
+    if (tmp == MAP_FAILED)
+        fail_exit("mremap same size failed\n");
+    if (tmp != map_addr)
+        fail_exit("same size moved\n");
 
     /*
      * allocate a bunch of mmaps to create a fragmented address space
