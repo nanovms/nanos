@@ -134,7 +134,7 @@ static boolean recurse_ptes(u64 pbase, int level, u64 vstart, u64 len, u64 laddr
         if (!apply(ph, level, addr, pte))
             return false;
         if (pte_is_present(*pte) && level < PT_PTE_LEVEL &&
-            (level == PT_FIRST_LEVEL || !pte_is_block_mapping(*pte)) &&
+            (level == PT_FIRST_LEVEL || !pte_is_mapping(level, *pte)) &&
             !recurse_ptes(page_from_pte(*pte), level + 1, vstart, len,
                           laddr + offset, ph))
             return false;
