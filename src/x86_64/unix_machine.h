@@ -226,3 +226,15 @@ static inline void syscall_restart_arch_fixup(context_frame f)
 /* ignore these unless moving fs/gs save out of entry */
 #define thread_frame_save_tls(f) ((void)f)
 #define thread_frame_restore_tls(f) ((void)f)
+
+#define HWCAP2_FSGSBASE     U64_FROM_BIT(1)
+
+static inline u64 get_hwcap2(void)
+{
+    u64 hwcap2 = 0;
+    u32 v[4];
+    cpuid(7, 0, v);
+    if (v[1] & CPUID_FSGSBASE)
+        hwcap2 |= HWCAP2_FSGSBASE;
+    return hwcap2;
+}

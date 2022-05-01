@@ -52,6 +52,8 @@ void init_cpu_features()
     if (use_xsave)
         cr |= CR4_OSXSAVE;
     cpuid(7, 0, v);
+    if (v[1] & CPUID_FSGSBASE)
+        cr |= CR4_FSGSBASE;
     if (v[1] & CPUID_SMEP)
         cr |= CR4_SMEP;
     if (v[2] & CPUID_UMIP)
