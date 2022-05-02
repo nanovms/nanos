@@ -30,10 +30,11 @@ void netif_name_cpy(char *dest, struct netif *netif);
 
 extern mutex lwip_mutex;
 
+typedef closure_type(lwip_handler, void, boolean);
 void schedule_lwip_service(void);
-boolean lwip_queue_packet(thunk t);
-boolean lwip_queue_tcp_recved(thunk t);
-boolean lwip_queue_tcp_send(thunk t);
+boolean lwip_queue_packet(lwip_handler t);
+boolean lwip_queue_tcp_recved(lwip_handler t);
+boolean lwip_queue_tcp_send(lwip_handler t);
 
 static inline void lwip_lock(void)
 {

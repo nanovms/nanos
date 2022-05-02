@@ -48,23 +48,25 @@ static volatile boolean lwip_service_scheduled;
 
 closure_function(0, 0, void, lwip_service_thunk)
 {
+    if (!lwip_service_scheduled)
+        return;
+    lwip_lock();
     do {
         lwip_service_scheduled = false;
-        lwip_lock();
-        netif_poll_all();
-        thunk t;
+        lwip_handler t;
         while ((t = dequeue(in_packets)) != INVALID_ADDRESS)
-            apply(t);
+            apply(t, true);
 
+        netif_poll_all();
         while ((t = dequeue(tcp_rcvd)) != INVALID_ADDRESS)
-            apply(t);
+            apply(t, true);
 
         while ((t = dequeue(tcp_snd)) != INVALID_ADDRESS) {
-            apply(t);
-        }
+            apply(t, true);
         netif_poll_all();
-        lwip_unlock();
+        }
     } while (lwip_service_scheduled);
+    lwip_unlock();
 }
 
 void schedule_lwip_service(void)
@@ -73,24 +75,43 @@ void schedule_lwip_service(void)
         enqueue_irqsafe(runqueue, lwip_service);
 }
 
-boolean lwip_queue_tcp_recved(thunk t)
+boolean lwip_queue_tcp_recved(lwip_handler t)
 {
+    if (mutex_try_lock(lwip_mutex)) {
+        apply(t, false);
+        lwip_unlock();
+        return true;
+    }
+
     boolean q = enqueue(tcp_rcvd, t);
     if (q)
         schedule_lwip_service();
     return q;
 }
 
-boolean lwip_queue_packet(thunk t)
+boolean lwip_queue_packet(lwip_handler t)
 {
+    if (mutex_try_lock(lwip_mutex)) {
+        apply(t, false);
+        lwip_unlock();
+        return true;
+    }
+
     boolean q = enqueue(in_packets, t);
     if (q)
         schedule_lwip_service();
     return q;
 }
 
-boolean lwip_queue_tcp_send(thunk t)
+boolean lwip_queue_tcp_send(lwip_handler t)
 {
+    if (mutex_try_lock(lwip_mutex)) {
+        apply(t, false);
+        netif_poll_all();
+        lwip_unlock();
+        return true;
+    }
+
     boolean q = enqueue(tcp_snd, t);
     if (q)
         schedule_lwip_service();

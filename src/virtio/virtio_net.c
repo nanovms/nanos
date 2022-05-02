@@ -69,8 +69,9 @@ typedef struct vnet {
 } *vnet;
 
 typedef struct xpbuf *xpbuf;
-declare_closure_struct(1, 0, boolean, rx_packet,
-                                xpbuf, x);
+declare_closure_struct(1, 1, boolean, rx_packet,
+                                xpbuf, x,
+                                boolean, deferred);
 
 struct xpbuf
 {
@@ -200,7 +201,7 @@ closure_function(1, 1, void, input,
             } else
                 err = true;
         }
-        err = !lwip_queue_packet((thunk)&x->rx);
+        err = !lwip_queue_packet((lwip_handler)&x->rx);
         if (err) {
             receive_buffer_release(&x->p.pbuf);
         }
@@ -213,8 +214,9 @@ closure_function(1, 1, void, input,
     closure_finish();
 }
 
-define_closure_function(1, 0, boolean, rx_packet,
-                        xpbuf, x)
+define_closure_function(1, 1, boolean, rx_packet,
+                        xpbuf, x,
+                        boolean, deferred)
 {
     xpbuf x = bound(x);
     vnet vn = x->vn;

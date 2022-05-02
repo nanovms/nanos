@@ -98,8 +98,8 @@ enum udp_socket_state {
     UDP_SOCK_CREATED = 1,
 };
 
-declare_closure_struct(1, 0, void, socket_tcp_write_deferred, struct netsock *, s);
-declare_closure_struct(1, 0, void, socket_tcp_recved_deferred, struct netsock *, s);
+declare_closure_struct(1, 1, void, socket_tcp_write_deferred, struct netsock *, s, boolean, deferred);
+declare_closure_struct(1, 1, void, socket_tcp_recved_deferred, struct netsock *, s, boolean, deferred);
 
 typedef struct netsock {
     struct sock sock;             /* must be first */
@@ -428,14 +428,19 @@ struct udp_entry {
 };
 
 /* lwip lock should already be held */
-define_closure_function(1, 0, void, socket_tcp_recved_deferred,
-                 netsock, s)
+define_closure_function(1, 1, void, socket_tcp_recved_deferred,
+                 netsock, s,
+                 boolean, deferred)
 {
     netsock s = bound(s);
-    spin_lock(&s->lock);
-    tcp_recved(s->info.tcp.lw, s->info.tcp.recved);
-    s->info.tcp.recved = 0;
-    spin_unlock(&s->lock);
+    if (deferred)
+        spin_lock(&s->lock);
+    if (s->info.tcp.recved) {
+        tcp_recved(s->info.tcp.lw, s->info.tcp.recved);
+        s->info.tcp.recved = 0;
+    }
+    if (deferred)
+        spin_unlock(&s->lock);
 }
 
 static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
@@ -514,7 +519,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
                 dest = (char *) dest + xfer;
                 if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK)) {
                     s->info.tcp.recved += xfer;
-                    lwip_queue_tcp_recved((thunk)&s->info.tcp.deferred_recved);
+                    lwip_queue_tcp_recved((lwip_handler)&s->info.tcp.deferred_recved);
                 }
             }
             if ((cur_buf->len == 0) || (flags & MSG_PEEK))
@@ -659,7 +664,7 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
     }
     assert(enqueue(s->info.tcp.outgoing, tb));
     s->info.tcp.queued += n;
-    lwip_queue_tcp_send((thunk)&s->info.tcp.deferred_send);
+    lwip_queue_tcp_send((lwip_handler)&s->info.tcp.deferred_send);
     rv = n;
 out:
     spin_unlock(&s->lock);
@@ -756,30 +761,29 @@ out:
 }
 
 /* lwip lock should already be held */
-define_closure_function(1, 0, void, socket_tcp_write_deferred,
-                 netsock, s)
+define_closure_function(1, 1, void, socket_tcp_write_deferred,
+                 netsock, s,
+                 boolean, deferred)
 {
     netsock s = bound(s);
-    spin_lock(&s->lock);
+    if (deferred)
+        spin_lock(&s->lock);
+    if (s->info.tcp.queued == 0)
+        goto out;
     err_t err = get_lwip_error(s);
     if (err != ERR_OK) {
-        spin_unlock(&s->lock);
         // XXX what would happen here?
-        return;
+        goto out;
     }
-    if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
-        spin_unlock(&s->lock);
-        return;
-    }
+    if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
+        goto out;
     u64 avail = tcp_sndbuf(s->info.tcp.lw);
     if (avail == 0) {
         /* directly poll for loopback traffic in case the enqueued netsock_poll is backed up */
         netif_poll_all();
         avail = tcp_sndbuf(s->info.tcp.lw);
-        if (avail == 0) {
-            spin_unlock(&s->lock);
-            return;
-        }
+        if (avail == 0)
+            goto out;
     }
     /* Figure actual length and flags */
     u64 remain = s->info.tcp.queued;
@@ -820,7 +824,9 @@ define_closure_function(1, 0, void, socket_tcp_write_deferred,
         msg_err("tcp output fail: %d\n", err);
         // XXX what to do here?
     }
-    spin_unlock(&s->lock);
+out:
+    if (deferred)
+        spin_unlock(&s->lock);
 }
 
 closure_function(1, 6, sysreturn, socket_write,
@@ -1481,7 +1487,7 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
     spin_lock(&s->lock);
     sg_consume(s->info.tcp.sent, len);
     if (s->info.tcp.queued)
-        lwip_queue_tcp_send((thunk)&s->info.tcp.deferred_send);
+        lwip_queue_tcp_send((lwip_handler)&s->info.tcp.deferred_send);
     wakeup_sock(s, WAKEUP_SOCK_TX);
     spin_unlock(&s->lock);
     return ERR_OK;
