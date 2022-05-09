@@ -2057,12 +2057,6 @@ sysreturn sched_yield()
     thread_yield();             /* noreturn */
 }
 
-void exit(int code)
-{
-    exit_thread(current);
-    syscall_finish(true);
-}
-
 sysreturn exit_group(int status)
 {
     /* Set shutting_down to prevent user threads from being scheduled
@@ -2071,6 +2065,19 @@ sysreturn exit_group(int status)
     shutting_down = true;
     wakeup_or_interrupt_cpu_all();
     kernel_shutdown(status);
+}
+
+void exit(int code)
+{
+    process p = current->p;
+    exit_thread(current);
+    spin_lock(&p->threads_lock);
+    int cnt = rbtree_get_count(p->threads);
+    spin_unlock(&p->threads_lock);
+    if (cnt == 0)
+        exit_group(code);
+    else
+        syscall_finish(true);
 }
 
 sysreturn pipe2(int fds[2], int flags)
