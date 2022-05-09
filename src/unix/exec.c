@@ -36,8 +36,8 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
 {
     exec_debug("build_exec_stack start %p, tid %d, va 0x%lx\n", start, t->tid, va);
 
-    /* allocate process stack at top of first 2gb of address space */
-    u64 stack_start = 0x80000000 - PROCESS_STACK_SIZE;
+    /* allocate process stack at top of 32-bit address space */
+    u64 stack_start = 0x100000000 - PROCESS_STACK_SIZE;
     if (aslr)
         stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) +
             get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
@@ -199,6 +199,10 @@ closure_function(3, 4, u64, exec_elf_map,
         assert(paddr != INVALID_PHYSICAL);
     }
     map(vaddr, paddr, size, pageflags_user(pageflags_minpage(flags)));
+#ifdef __x86_64__
+    if (vaddr < 0x100000000)
+        assert(id_heap_set_area(bound(p)->virtual32, vaddr, size, true, true));
+#endif
     if (is_bss)
         zero(pointer_from_u64(vaddr), size);
     return vaddr;
