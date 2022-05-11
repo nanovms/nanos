@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
+#include <sys/auxv.h>
+#include <sys/syscall.h>
 #include <math.h>
 
 typedef unsigned long long word;
@@ -142,11 +144,48 @@ static void test_affinity(void)
             halt("test_affinity: CPU set\n");
 }
 
+#ifdef __x86_64__
+
+#include <asm/prctl.h>
+
+#ifndef HWCAP2_FSGSBASE
+#define HWCAP2_FSGSBASE (1 << 1)
+#endif
+
+static void *get_fsbase(void *arg)
+{
+    void *fs;
+    if (getauxval(AT_HWCAP2) & HWCAP2_FSGSBASE) {
+        asm("rdfsbase %0" : "=r" (fs));
+    } else {
+        if (syscall(SYS_arch_prctl, ARCH_GET_FS, &fs))
+            halt("Failed to get FS register\n");
+    }
+    return fs;
+}
+
+#endif
+
+/* thread-local storage */
+static void test_tls(void)
+{
+#ifdef __x86_64__
+    void *fs = get_fsbase(NULL);
+    pthread_t t;
+    pthread_create(&t, 0, get_fsbase, NULL);
+    void *other_fs;
+    pthread_join(t, &other_fs);
+    if (fs == other_fs)
+        halt("Identical FS register value for different treads\n");
+#endif
+}
+
 // parse threads from command line
 // reader and shutdown
 int main(int argc, char **argv)
 {
     test_affinity();
+    test_tls();
     if (argc >= 2 && atoi(argv[1]) > 0)
         nthreads = atoi(argv[1]);
     printf("nthreads=%d\n", nthreads);

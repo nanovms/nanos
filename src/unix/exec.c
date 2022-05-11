@@ -125,6 +125,9 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         /* This is aarch64 specific because it's needed for arm .so search paths */
         {AT_HWCAP, get_cpu_capabilities()},
 #endif
+#if defined(__x86_64__)
+        {AT_HWCAP2, get_hwcap2()},
+#endif
         {AT_SYSINFO_EHDR, p->vdso_base}
     };
     for (int i = 0; i < sizeof(auxp) / sizeof(auxp[0]); i++) {

@@ -18,7 +18,7 @@ PROGRAMS= \
 	hw \
 	hwg \
 	hws \
-	klibs \
+	ktest \
 	inotify \
 	io_uring \
 	mkdir \
@@ -140,8 +140,8 @@ SRCS-io_uring= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-io_uring=	-static
 
-SRCS-klibs=		$(CURDIR)/klibs.c
-LDFLAGS-klibs=		-static
+SRCS-ktest=		$(CURDIR)/ktest.c
+LDFLAGS-ktest=		-static
 
 SRCS-mmap= \
 	$(CURDIR)/mmap.c \

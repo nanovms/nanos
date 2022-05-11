@@ -52,6 +52,8 @@ void init_cpu_features()
     if (use_xsave)
         cr |= CR4_OSXSAVE;
     cpuid(7, 0, v);
+    if (v[1] & CPUID_FSGSBASE)
+        cr |= CR4_FSGSBASE;
     if (v[1] & CPUID_SMEP)
         cr |= CR4_SMEP;
     if (v[2] & CPUID_UMIP)
@@ -77,7 +79,7 @@ void cpu_init(int cpu)
     u64 addr = u64_from_pointer(cpuinfo_from_id(cpu));
     write_msr(KERNEL_GS_MSR, 0); /* clear user GS */
     write_msr(GS_MSR, addr);
-    if (VVAR_REF(vdso_dat).platform_has_rdtscp)
+    if (VVAR_REF(vdso_dat).machine.platform_has_rdtscp)
         write_msr(TSC_AUX_MSR, cpu);    /* used by vdso_getcpu() */
     init_syscall_handler();
 }

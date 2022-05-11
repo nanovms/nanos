@@ -124,6 +124,7 @@ boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
             strtab_offset = dyn->d_un.d_ptr;
             break;
         case DT_RELA:
+        case DT_JMPREL:
             reltab_offset = dyn->d_un.d_ptr;
             break;
         }

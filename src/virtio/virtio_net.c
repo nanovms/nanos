@@ -291,7 +291,8 @@ static void virtio_net_attach(vtdev dev)
     vn->net_header_len = (dev->features & VIRTIO_F_VERSION_1) ||
         (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
-    vn->rxbuflen = vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) + 1500;
+    vn->rxbuflen = pad(vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) +
+                       1500, 8);    /* padding to make xpbuf structures aligned to 8 bytes */
     virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
     vn->rxbuffers = locking_heap_wrapper(h, allocate_objcache(h, (heap)contiguous,
 				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M));

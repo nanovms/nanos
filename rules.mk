@@ -128,6 +128,10 @@ endif
 KERNCFLAGS+=	-fno-omit-frame-pointer
 KERNLDFLAGS=	--gc-sections -z max-page-size=4096 -L $(OUTDIR)/klib
 
+ifneq ($(UBSAN),)
+KERNCFLAGS+= -fsanitize=undefined -fno-sanitize=alignment,null -fsanitize-undefined-trap-on-error
+endif
+
 ifeq ($(MEMDEBUG),mcache)
 CFLAGS+= -DMEMDEBUG_MCACHE
 else ifeq ($(MEMDEBUG),backed)

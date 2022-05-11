@@ -226,6 +226,7 @@ typedef struct {
 #define DT_RELA     7
 #define DT_RELASZ   8
 #define DT_RELAENT  9
+#define DT_JMPREL   23
 
 #define SHT_SYMTAB 2/* symbol table section */
 #define SHT_STRTAB 3/* string table section */

@@ -28,7 +28,11 @@ jobs:
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
-      - run: mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
+      - run:
+          name: copy build artifacts
+          command: |
+            shopt -s extglob
+            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test) temp/klibs
       - run: echo "export COMMIT_ID="`git rev-parse --short=7 HEAD` >> $BASH_ENV
       - run: cd temp && tar cvzf ../nanos-release-linux-${COMMIT_ID}.tar.gz *
       - run: gsutil cp nanos-release-linux-${COMMIT_ID}.tar.gz gs://nanos/release/${COMMIT_ID}/
@@ -36,7 +40,7 @@ jobs:
       - run: gsutil setmeta -h "Custom-Time:`date -Iseconds`" gs://nanos/release/${COMMIT_ID}/*
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/${COMMIT_ID}/*
 
-  build-pc-memdebug:
+  build-pc-debug:
     docker:
       # specify the version
       - image: cimg/go:1.16
@@ -45,13 +49,13 @@ jobs:
       - run: sudo apt-get update
       - run: sudo apt-get install nasm qemu-system-x86 ent ruby rustc
       - run: cd .. && git clone git@github.com:nanovms/ops.git
-      - run: make MEMDEBUG=all
+      - run: make MEMDEBUG=all UBSAN=1
       - run: curl https://ops.city/get.sh -sSfL | sh
       - run:
           command: |
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
-            make MEMDEBUG=all test-noaccel
+            make MEMDEBUG=all UBSAN=1 test-noaccel
 
   nightly-build:
     docker:
@@ -76,7 +80,11 @@ jobs:
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
-      - run: mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
+      - run:
+          name: copy build artifacts
+          command: |
+            shopt -s extglob
+            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/!(test) temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.tar.gz
       - run: rm -r temp
@@ -128,7 +136,11 @@ jobs:
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
-      - run: mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
+      - run:
+          name: copy build artifacts
+          command: |
+            shopt -s extglob
+            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/!(test) temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-darwin.tar.gz * && gsutil cp nanos-nightly-darwin.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.tar.gz
       - run: rm -r temp
@@ -176,7 +188,11 @@ jobs:
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
 
-      - run: mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/* temp/klibs
+      - run:
+          name: copy build artifacts
+          command: |
+            shopt -s extglob
+            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/!(test) temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux-virt.tar.gz * && gsutil cp nanos-nightly-linux-virt.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.tar.gz
       - run: rm -r temp
@@ -209,7 +225,7 @@ workflows:
     jobs:
       - build-pc
       - build-virt
-      - build-pc-memdebug
+      - build-pc-debug
       - build-riscv
   nightly:
     triggers:

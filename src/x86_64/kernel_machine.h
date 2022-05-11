@@ -57,6 +57,7 @@
 #define CR4_OSFXSR      (1 << 9)
 #define CR4_OSXMMEXCPT  (1 << 10)
 #define CR4_UMIP        (1 << 11)
+#define CR4_FSGSBASE    (1 << 16)
 #define CR4_OSXSAVE     (1 << 18)
 #define CR4_SMEP        (1 << 20)
 
@@ -204,6 +205,9 @@ extern void write_xmsr(u64, u64);
 
 #define mov_to_cr(__x, __y) asm volatile("mov %0,%%"__x : : "a"(__y) : "memory");
 #define mov_from_cr(__x, __y) asm volatile("mov %%"__x", %0" : "=a"(__y) : : "memory");
+
+/* CPUID level 7 (EBX) */
+#define CPUID_FSGSBASE  (1 << 0)
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
@@ -497,6 +501,16 @@ static inline u64 *get_current_fp(void)
 })
 
 /* clocksource */
+
+static inline boolean platform_has_precise_clocksource(void)
+{
+#if defined(KERNEL) || defined(BUILD_VDSO)
+    return __vdso_dat->machine.platform_has_rdtscp;
+#else
+    return false;
+#endif
+}
+
 static inline u64
 _rdtscp(void)
 {

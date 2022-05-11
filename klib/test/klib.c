@@ -19,6 +19,10 @@ int init(status_handler complete)
         if (z[i] != 0)
             return KLIB_INIT_FAILED;
 
+    int r = foo(1);
+    if (r != 124)
+        return KLIB_INIT_FAILED;
+
     unsigned long a = -1ull;
     runtime_memset((void *)&a, 0, sizeof(unsigned long));
     return a == 0 ? KLIB_INIT_OK : KLIB_INIT_FAILED;

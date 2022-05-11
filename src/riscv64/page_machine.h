@@ -134,11 +134,6 @@ static inline boolean pte_is_present(pte entry)
     return (entry & PAGE_VALID) != 0;
 }
 
-static inline boolean pte_is_block_mapping(pte entry)
-{
-    return (entry & PAGE_NO_BLOCK) != 0;
-}
-
 static inline int pt_level_shift(int level)
 {
     switch (level) {

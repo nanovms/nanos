@@ -30,7 +30,8 @@ typedef closure_type(range_handler, void, range);
 
 boolean rangemap_insert(rangemap rm, rmnode n);
 boolean rangemap_reinsert(rangemap rm, rmnode n, range k);
-boolean rangemap_remove_range(rangemap rm, range r);
+boolean rangemap_insert_range(rangemap rm, range r);
+void rangemap_remove_range(rangemap rm, rmnode n);
 rmnode rangemap_lookup(rangemap rm, u64 point);
 rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point);
 boolean rangemap_range_intersects(rangemap rm, range q);
@@ -40,6 +41,7 @@ boolean rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler nod
 boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler);
 
 rangemap allocate_rangemap(heap h);
+void init_rangemap(rangemap rm, heap h);
 void destruct_rangemap(rangemap rm, rmnode_handler destructor);
 void deallocate_rangemap(rangemap rm, rmnode_handler destructor);
 
@@ -150,7 +152,7 @@ static inline range range_add(range r, s64 delta)
 }
 
 #define rangemap_foreach(rm, n)                                         \
-    for (rmnode __next, (n) = (rmnode)rbtree_find_first(&rm->t);        \
+    for (rmnode __next, (n) = (rmnode)rbtree_find_first(&(rm)->t);          \
          __next = ((n) == INVALID_ADDRESS) ? 0 : rangemap_next_node(rm, n), \
              ((n) != INVALID_ADDRESS);                                  \
          (n) = __next)

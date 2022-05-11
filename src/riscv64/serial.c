@@ -18,6 +18,6 @@ void serial_putchar(char c)
 
 void serial_set_devbase(u64 devbase)
 {
-    UART0_BASE = ((void*)UART0_BASE) + devbase;
+    UART0_BASE = pointer_from_u64(u64_from_pointer(UART0_BASE) + devbase);
 }
 
