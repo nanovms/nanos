@@ -266,6 +266,9 @@ closure_function(1, 1, status, http_recv,
         if ((p->state == STATE_BODY) && (p->content_length == 0))
             goto content_finish;
     }
+    if ((p->state != STATE_BODY) || (p->content_length != 0))
+        /* Incomplete HTTP message; parsing can continue when the next packet arrives. */
+        return STATUS_OK;
 
   content_finish:
     // XXX change from vector to tuple
