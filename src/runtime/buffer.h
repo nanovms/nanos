@@ -10,12 +10,7 @@ struct buffer {
     void *contents;
 };
 
-/* don't force klibs import symbols for assert */
-#ifdef KLIB
-#define buffer_assert(x)
-#else
 #define buffer_assert(x) assert(x)
-#endif
 
 static inline void init_buffer(buffer b, bytes s, boolean wrapped, heap h, void *contents)
 {
