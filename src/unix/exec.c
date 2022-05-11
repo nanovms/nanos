@@ -86,6 +86,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     s -= pad(argv_len, STACK_ALIGNMENT) >> 3;
     int argc = 0;
     char * sp = (char *) s;
+    p->saved_args_begin = sp;
     vector_foreach(arguments, a) {
         int len = buffer_length(a);
         runtime_memcpy(sp, buffer_ref(a, 0), len);
@@ -93,6 +94,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         argv[argc++] = sp;
         sp += len + 1;
     }
+    p->saved_args_end = sp;
     deallocate_vector(arguments);
 
     // envp ASCIIZ strings
@@ -132,6 +134,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         spush(s, auxp[i].val);
         spush(s, auxp[i].tag);
     }
+    runtime_memcpy(p->saved_aux, s, MIN(sizeof(auxp), sizeof(p->saved_aux)));
 
     // envp
     spush(s, 0);

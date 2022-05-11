@@ -65,12 +65,39 @@ typedef Elf64_Sxword	Elf64_Ssize;
 /*
  * ELF header.
  */
+#define EI_MAG0     0           /* e_ident[] indexes */
+#define EI_MAG1     1
+#define EI_MAG2     2
+#define EI_MAG3     3
+#define EI_CLASS    4
+#define EI_DATA     5
+#define EI_VERSION  6
+#define EI_OSABI    7
+#define EI_PAD      8
 
-#define ET_NONE 0
-#define ET_REL 1
-#define ET_EXEC 2
-#define ET_DYN 3
-#define ET_CORE 4
+#define ELFMAG0     0x7f        /* EI_MAG */
+#define ELFMAG1     'E'
+#define ELFMAG2     'L'
+#define ELFMAG3     'F'
+
+#define ELFCLASS64      2       /* EI_CLASS */
+
+#define ELFDATA2LSB     1       /* EI_DATA */
+
+#define EV_CURRENT      1       /* e_version, EI_VERSION */
+
+#define ELFOSABI_NONE   0       /* EI_OSABI */
+#define ELFOSABI_LINUX  3
+
+#define ET_NONE     0           /* e_type */
+#define ET_REL      1
+#define ET_EXEC     2
+#define ET_DYN      3
+#define ET_CORE     4
+
+#define EM_X86_64   62      /* e_machine */
+#define EM_AARCH64  183
+#define EM_RISCV    243
 
 typedef struct {
 	unsigned char	e_ident[EI_NIDENT];	/* File identification. */
@@ -95,6 +122,7 @@ typedef struct {
 
 #define PT_LOAD 1
 #define PT_INTERP 3
+#define PT_NOTE 4
 
 
 /* Values for p_flags. */

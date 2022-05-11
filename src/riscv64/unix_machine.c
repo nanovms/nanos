@@ -15,13 +15,18 @@ static void setup_ucontext(struct ucontext *uctx, thread t)
     uctx->uc_sigmask.sig[0] = t->signal_mask;
 }
 
-static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
+static void copy_fpsimd(void *b, thread t)
 {
     context_frame f = thread_frame(t);
-    struct __riscv_d_ext_state *fpctx = &uctx->uc_mcontext.sc_fpregs.d;
+    struct __riscv_d_ext_state *fpctx = b;
 
     fpctx->fcsr = f[FRAME_FCSR];
     runtime_memcpy(fpctx->f, &f[FRAME_F0], sizeof(u64) * 32);
+}
+
+static void setup_ucontext_fpsimd(struct ucontext *uctx, thread t)
+{
+    copy_fpsimd(&uctx->uc_mcontext.sc_fpregs.d, t);
 }
 
 boolean setup_sigframe(thread t, int signum, struct siginfo *si)
@@ -83,6 +88,22 @@ void restore_ucontext(struct ucontext *uctx, thread t)
     runtime_memcpy(f, &mcontext->sc_regs, sizeof(u64) * 32);
     t->signal_mask = normalize_signal_mask(uctx->uc_sigmask.sig[0]);
     restore_ucontext_fpsimd(&mcontext->sc_fpregs.d, t);
+}
+
+void reg_copy_out(struct core_regs *r, thread t)
+{
+    context_frame f = thread_frame(t);
+    runtime_memcpy((void *)r, f, sizeof(*r));
+}
+
+u64 fpreg_size(void)
+{
+    return sizeof(struct __riscv_d_ext_state);
+}
+
+void fpreg_copy_out(void *b, thread t)
+{
+    copy_fpsimd(b, t);
 }
 
 void register_other_syscalls(struct syscall *map)

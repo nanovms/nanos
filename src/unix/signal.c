@@ -1019,8 +1019,25 @@ static void dump_sig_info(thread t, queued_signal qs)
     /* can add more siginfo interpretation here... */
 }
 
+closure_function(2, 1, void, after_dump_halt,
+                thread, t, int, signum,
+                status, s)
+{
+    char *fmt = "signal %d (%v)\n";
+    value st;
+    if (s == STATUS_OK)
+        st = alloca_wrap_cstring("core dumped");
+    else
+        st = get_string(s, sym(result));
+    int signum = bound(signum);
+    thread_log(bound(t), fmt, signum, st);
+    halt_with_code(VM_EXIT_SIGNAL(signum), fmt, signum, st);
+    closure_finish();
+}
+
 static void default_signal_action(thread t, queued_signal qs)
 {
+    heap h = heap_locked(get_kernel_heaps());
     char *fate;
     int signum = qs->si.si_signo;
 
@@ -1052,9 +1069,9 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGTRAP:
     case SIGXCPU:
     case SIGXFSZ:
-        /* TODO add core dump action here */
-        fate = "   core dump (unimplemented)";
-        break;
+        coredump(t, &qs->si, closure(h, after_dump_halt, t, signum));
+        runloop();
+        return;
 
     case SIGSTOP:
     case SIGTSTP:

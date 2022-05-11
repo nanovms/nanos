@@ -196,6 +196,50 @@ void restore_ucontext(struct ucontext * uctx, thread t)
         runtime_memcpy(frame_extended(t->context.frame), mcontext->fpstate, extended_frame_size);
 }
 
+void reg_copy_out(struct core_regs *r, thread t)
+{
+    r->r15 = t->context.frame[FRAME_R15];
+    r->r14 = t->context.frame[FRAME_R14];
+    r->r13 = t->context.frame[FRAME_R13];
+    r->r12 = t->context.frame[FRAME_R12];
+    r->bp = t->context.frame[FRAME_RBP];
+    r->bx = t->context.frame[FRAME_RBX];
+    r->r11 = t->context.frame[FRAME_R11];
+    r->r10 = t->context.frame[FRAME_R10];
+    r->r9 = t->context.frame[FRAME_R9];
+    r->r8 = t->context.frame[FRAME_R8];
+    r->ax = t->context.frame[FRAME_RAX];
+    r->cx = t->context.frame[FRAME_RCX];
+    r->dx = t->context.frame[FRAME_RDX];
+    r->si = t->context.frame[FRAME_RSI];
+    r->di = t->context.frame[FRAME_RDI];
+    r->orig_ax = t->context.frame[FRAME_SAVED_RAX];
+    r->ip = t->context.frame[FRAME_RIP];
+    r->cs = t->context.frame[FRAME_CS];
+    r->flags = t->context.frame[FRAME_EFLAGS];
+    r->sp = t->context.frame[FRAME_RSP];
+    r->ss = t->context.frame[FRAME_SS];
+    r->fs_base = t->context.frame[FRAME_FSBASE];
+    r->gs_base = t->context.frame[FRAME_GSBASE];
+    r->ds = t->context.frame[FRAME_DS];
+    r->es = t->context.frame[FRAME_ES];
+    r->fs = 0; // XXX ?
+    r->gs = 0; // XXX ?
+}
+
+#define FPREG_SIZE 0x200 /* this is the size in a Linux core, defined anywhere else? */
+
+u64 fpreg_size(void)
+{
+    return MIN(FPREG_SIZE, extended_frame_size);
+}
+
+void fpreg_copy_out(void *b, thread t)
+{
+    runtime_memcpy(b, pointer_from_u64(t->context.frame[FRAME_EXTENDED]),
+        fpreg_size());
+}
+
 void register_other_syscalls(struct syscall *map)
 {
     register_syscall(map, shmget, 0, 0);

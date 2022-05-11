@@ -155,12 +155,16 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
         } else {
             pagelist_enqueue(&pc->writing, pp);
         }
+        if (old_state != PAGECACHE_PAGESTATE_WRITING &&
+                old_state != PAGECACHE_PAGESTATE_DIRTY)
+            refcount_reserve(&pp->node->refcount);
         break;
     case PAGECACHE_PAGESTATE_NEW:
         if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
             pagelist_move(&pc->new, &pc->active, pp);
         } else if (old_state == PAGECACHE_PAGESTATE_WRITING) {
             pagelist_move(&pc->new, &pc->writing, pp);
+            refcount_release(&pp->node->refcount);
         } else {
             assert(old_state == PAGECACHE_PAGESTATE_READING);
             pagelist_enqueue(&pc->new, pp);
@@ -179,6 +183,8 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
             assert(old_state == PAGECACHE_PAGESTATE_WRITING);
             pagelist_remove(&pc->writing, pp);
         }
+        if (old_state != PAGECACHE_PAGESTATE_WRITING)
+            refcount_reserve(&pp->node->refcount);
         break;
     default:
         halt("%s: bad state %d, old %d\n", __func__, state, old_state);
@@ -1340,9 +1346,10 @@ closure_function(0, 1, void, pagecache_node_assert,
     assert(0);
 }
 
-/* This function can only be called when no I/O operations are pending. */
-void pagecache_deallocate_node(pagecache_node pn)
+define_closure_function(1, 0, void, pagecache_node_free,
+                        pagecache_node, pn)
 {
+    pagecache_node pn = bound(pn);
     if (pn->fs_read)
         deallocate_closure(pn->fs_read);
     deallocate_closure(pn->cache_read);
@@ -1356,6 +1363,23 @@ void pagecache_deallocate_node(pagecache_node pn)
     destruct_rbtree(&pn->pages, stack_closure(pagecache_page_release));
     deallocate_rangemap(pn->shared_maps, stack_closure(pagecache_node_assert));
     deallocate(pn->pv->pc->h, pn, sizeof(*pn));
+}
+
+define_closure_function(1, 0, void, pagecache_node_queue_free,
+                        pagecache_node, pn)
+{
+    thunk t = (void *)&bound(pn)->free;
+#ifdef KERNEL
+    /* freeing the node must be deferred to bhqueue to avoid state lock reentrance */
+    enqueue(bhqueue, t);
+#else
+    apply(t);
+#endif
+}
+
+void pagecache_deallocate_node(pagecache_node pn)
+{
+    refcount_release(&pn->refcount);
 }
 
 sg_io pagecache_node_get_reader(pagecache_node pn)
@@ -1397,6 +1421,8 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
     pn->fs_read = fs_read;
     pn->fs_write = fs_write;
     pn->fs_reserve = fs_reserve;
+    init_closure(&pn->free, pagecache_node_free, pn);
+    init_refcount(&pn->refcount, 1, init_closure(&pn->queue_free, pagecache_node_queue_free, pn));
     return pn;
 }
 

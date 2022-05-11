@@ -50,6 +50,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/tfs/tlog.c \
 	$(SRCDIR)/unix/aio.c \
 	$(SRCDIR)/unix/blockq.c \
+	$(SRCDIR)/unix/coredump.c \
 	$(SRCDIR)/unix/exec.c \
 	$(SRCDIR)/unix/eventfd.c \
 	$(SRCDIR)/unix/filesystem.c \
