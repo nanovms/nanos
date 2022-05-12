@@ -132,13 +132,37 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
     return 0;
 }
 
+sysreturn clock_getres(clockid_t clk_id, struct timespec *res)
+{
+    if (res && !validate_user_memory(res, sizeof(*res), true))
+        return -EFAULT;
+    switch (clk_id) {
+    case CLOCK_MONOTONIC:
+    case CLOCK_MONOTONIC_COARSE:
+    case CLOCK_MONOTONIC_RAW:
+    case CLOCK_BOOTTIME:
+    case CLOCK_REALTIME:
+    case CLOCK_REALTIME_COARSE:
+    case CLOCK_PROCESS_CPUTIME_ID:
+    case CLOCK_THREAD_CPUTIME_ID:
+        if (res) {
+            res->tv_sec = 0;
+            res->tv_nsec = 1;
+        }
+        break;
+    default:
+        return -EINVAL;
+    }
+    return 0;
+}
+
 void register_clock_syscalls(struct syscall *map)
 {
 #ifdef __x86_64__
     register_syscall(map, time, sys_time, 0);
 #endif
     register_syscall(map, clock_gettime, clock_gettime, 0);
-    register_syscall(map, clock_getres, syscall_ignore, 0);
+    register_syscall(map, clock_getres, clock_getres, 0);
     register_syscall(map, clock_nanosleep, clock_nanosleep, 0);
     register_syscall(map, gettimeofday, gettimeofday, 0);
     register_syscall(map, nanosleep, nanosleep, 0);

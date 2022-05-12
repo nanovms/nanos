@@ -223,6 +223,28 @@ static void test_cputime(void)
     } while ((thread_delta == 0) || (proc_delta == 0));
 }
 
+static void test_getres_clk(clockid_t clk_id)
+{
+    struct timespec res;
+
+    if ((clock_getres(clk_id, NULL) < 0) || (clock_getres(clk_id, &res) < 0))
+        fail_perror("failed to get resolution for clock %d", clk_id);
+    if ((res.tv_sec == 0) && (res.tv_nsec == 0))
+        fail_error("zero resolution for clock %d\n", clk_id);
+}
+
+static void test_getres(void)
+{
+    test_getres_clk(CLOCK_REALTIME);
+    test_getres_clk(CLOCK_MONOTONIC);
+    test_getres_clk(CLOCK_PROCESS_CPUTIME_ID);
+    test_getres_clk(CLOCK_THREAD_CPUTIME_ID);
+    test_getres_clk(CLOCK_MONOTONIC_RAW);
+    test_getres_clk(CLOCK_REALTIME_COARSE);
+    test_getres_clk(CLOCK_MONOTONIC_COARSE);
+    test_getres_clk(CLOCK_BOOTTIME);
+}
+
 #define pertest_msg(x, ...) timetest_msg("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_debug(x, ...) timetest_debug("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_fail_perror(x, ...) fail_perror("test %d: " x, test->test_id, ##__VA_ARGS__);
@@ -767,6 +789,7 @@ main()
     test_posix_timers();
     test_itimers();
     test_cputime();
+    test_getres();
     test_alarm();
     printf("time test passed\n");
     return EXIT_SUCCESS;
