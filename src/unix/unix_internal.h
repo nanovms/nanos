@@ -38,7 +38,7 @@
 #define PROCESS_STACK_SIZE          (2 * MB)
 
 /* restrict the area in which ELF segments can be placed */
-#define PROCESS_ELF_LOAD_END        (GB) /* 1gb hard upper limit */
+#define PROCESS_ELF_LOAD_END        (3ull * GB) /* 3gb hard upper limit */
 
 /* range of variation for various ASLR mappings; kind of arbitrary at this point */
 #define PROCESS_PIE_LOAD_ASLR_RANGE (4 * MB)
