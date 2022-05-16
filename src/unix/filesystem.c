@@ -31,6 +31,8 @@ sysreturn sysreturn_from_fs_status(fs_status s)
         return -EXDEV;
     case FS_STATUS_FAULT:
         return -EFAULT;
+    case FS_STATUS_READONLY:
+        return -EROFS;
     default:
         return 0;
     }

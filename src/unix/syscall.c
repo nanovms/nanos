@@ -821,6 +821,10 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
         break;
     case O_WRONLY:
     case O_RDWR:
+        if (filesystem_is_readonly(fs)) {
+            ret = -EROFS;
+            goto out;
+        }
         if (!(file_meta_perms(current->p, n) & ACCESS_PERM_WRITE)) {
             ret = -EACCES;
             goto out;
@@ -845,7 +849,11 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     int type;
 
     if (flags & O_TMPFILE) {
-        fsf = filesystem_creat_unnamed(fs);
+        fs_status fss = filesystem_creat_unnamed(fs, &fsf);
+        if (fss != FS_STATUS_OK) {
+            ret = sysreturn_from_fs_status(fss);
+            goto out;
+        }
         type = FDESC_TYPE_REGULAR;
     } else {
         type = file_type_from_tuple(n);

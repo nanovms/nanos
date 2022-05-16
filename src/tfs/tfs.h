@@ -82,7 +82,8 @@ typedef enum {
     FS_STATUS_LINKLOOP,
     FS_STATUS_NAMETOOLONG,
     FS_STATUS_XDEV,
-    FS_STATUS_FAULT
+    FS_STATUS_FAULT,
+    FS_STATUS_READONLY,
 } fs_status;
 
 const char *string_from_fs_status(fs_status s);
@@ -111,7 +112,7 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
 void filesystem_put_node(filesystem fs, tuple n);
 tuple filesystem_get_meta(filesystem fs, inode n);
 void filesystem_put_meta(filesystem fs, tuple n);
-fsfile filesystem_creat_unnamed(filesystem fs);
+fs_status filesystem_creat_unnamed(filesystem fs, fsfile *f);
 fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const char *target);
 fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean directory);
 fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
@@ -128,6 +129,8 @@ fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child)
 void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, thunk complete);
 
 tuple filesystem_getroot(filesystem fs);
+boolean filesystem_is_readonly(filesystem fs);
+void filesystem_set_readonly(filesystem fs);
 
 u64 fs_blocksize(filesystem fs);
 u64 fs_totalblocks(filesystem fs);
