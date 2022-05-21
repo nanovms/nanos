@@ -52,7 +52,8 @@ static void uefi_mem_map_iterate(uefi_mem_map mem_map, range_handler h)
         case efi_boot_services_code:
         case efi_boot_services_data:
         case efi_conventional_memory:
-            apply(h, irangel(d->physical_start, d->number_of_pages * PAGESIZE));
+            if (!apply(h, irangel(d->physical_start, d->number_of_pages * PAGESIZE)))
+                return;
             break;
         default:
             break;
@@ -60,26 +61,30 @@ static void uefi_mem_map_iterate(uefi_mem_map mem_map, range_handler h)
     }
 }
 
-closure_function(1, 1, void, get_mem_size,
+closure_function(1, 1, boolean, get_mem_size,
                  u64 *, mem_size,
                  range, r)
 {
     *bound(mem_size) += range_span(r);
+    return true;
 }
 
-closure_function(3, 1, void, get_bootstrap_base,
+closure_function(3, 1, boolean, get_bootstrap_base,
                  range, rsvd, u64, bootstrap_size, u64 *, base,
                  range, r)
 {
-    if (!*bound(base)) {
-        u64 bootstrap_size = bound(bootstrap_size);
-        range r1, r2;
-        range_difference(r, bound(rsvd), &r1, &r2);
-        if (range_span(r1) >= bootstrap_size)
-            *bound(base) = r1.start;
-        else if (range_span(r2) >= bootstrap_size)
-            *bound(base) = r2.start;
+    u64 bootstrap_size = bound(bootstrap_size);
+    range r1, r2;
+    range_difference(r, bound(rsvd), &r1, &r2);
+    if (range_span(r1) >= bootstrap_size) {
+        *bound(base) = r1.start;
+        return false;
     }
+    if (range_span(r2) >= bootstrap_size) {
+        *bound(base) = r2.start;
+        return false;
+    }
+    return true;
 }
 
 static void add_heap_range_internal(id_heap h, range r, range *remainder)
@@ -126,7 +131,7 @@ static inline void add_heap_range_helper(id_heap h, range r, range rsvd, range *
     }
 }
 
-closure_function(4, 1, void, add_heap_range,
+closure_function(4, 1, boolean, add_heap_range,
                  id_heap, h, range, rsvd1, range, rsvd2, range *, remainder,
                  range, r)
 {
@@ -136,6 +141,7 @@ closure_function(4, 1, void, add_heap_range,
     range_difference(r, bound(rsvd1), &r1, &r2);
     add_heap_range_helper(h, r1, bound(rsvd2), remainder);
     add_heap_range_helper(h, r2, bound(rsvd2), remainder);
+    return true;
 }
 
 extern void *START, *END;

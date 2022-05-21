@@ -1107,7 +1107,7 @@ void pagecache_node_add_shared_map(pagecache_node pn, range q /* bytes */, u64 n
     pagecache_unlock_state(pc);
 }
 
-closure_function(3, 1, void, close_shared_pages_intersection,
+closure_function(3, 1, boolean, close_shared_pages_intersection,
                  pagecache_node, pn, range, q, flush_entry, fe,
                  rmnode, n)
 {
@@ -1142,6 +1142,7 @@ closure_function(3, 1, void, close_shared_pages_intersection,
         assert(rangemap_reinsert(pn->shared_maps, n, irange(ri.end, rn.end)));
         sm->node_offset += ri.end - rn.start;
     }
+    return true;
 }
 
 void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */, flush_entry fe)
@@ -1151,7 +1152,7 @@ void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */, f
                           stack_closure(close_shared_pages_intersection, pn, q, fe));
 }
 
-closure_function(2, 1, void, scan_shared_pages_intersection,
+closure_function(2, 1, boolean, scan_shared_pages_intersection,
                  pagecache, pc, flush_entry, fe,
                  rmnode, n)
 {
@@ -1160,6 +1161,7 @@ closure_function(2, 1, void, scan_shared_pages_intersection,
     pagecache_shared_map sm = (pagecache_shared_map)n;
     pagecache_debug("   map %p\n", sm);
     pagecache_scan_shared_map(bound(pc), sm, bound(fe));
+    return true;
 }
 
 void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* bytes */)
@@ -1339,11 +1341,12 @@ closure_function(0, 1, boolean, pagecache_page_release,
     return true;
 }
 
-closure_function(0, 1, void, pagecache_node_assert,
+closure_function(0, 1, boolean, pagecache_node_assert,
                  rmnode, n)
 {
     /* A pagecache node being deallocated must not have any shared maps. */
     assert(0);
+    return false;
 }
 
 define_closure_function(1, 0, void, pagecache_node_free,

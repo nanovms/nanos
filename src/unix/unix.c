@@ -226,7 +226,7 @@ define_closure_function(1, 1, context, unix_fault_handler,
     } else if (is_page_fault(ctx->frame)) {
         u64 vaddr = frame_fault_address(ctx->frame);
         vmap vm;
-        if (vaddr >= PAGESIZE && vaddr < USER_LIMIT)
+        if (vaddr >= MIN(t->p->mmap_min_addr, PAGESIZE) && vaddr < USER_LIMIT)
             vm = vmap_from_vaddr(t->p, vaddr);
         else
             vm = INVALID_ADDRESS;
@@ -387,7 +387,6 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     heap locked = heap_locked(kh);
     process p = allocate(locked, sizeof(struct process));
     assert(p != INVALID_ADDRESS); 
-    boolean aslr = get(root, sym(noaslr)) == 0;
 
     spin_lock_init(&p->lock);
     p->uh = uh;
@@ -397,24 +396,11 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
-
-#ifdef __x86_64__
-        /* This heap is used to track the lowest 32 bits of process
-           address space. Allocations are presently only made from the
-           top half for MAP_32BIT mappings. */
-        p->virtual32 = create_id_heap(locked, locked, 0, 0x100000000, PAGESIZE, true);
-        assert(p->virtual32 != INVALID_ADDRESS);
-        if (aslr)
-            id_heap_set_randomize(p->virtual32, true);
-#endif
-        mmap_process_init(p, aslr);
+        mmap_process_init(p, root);
         init_vdso(p);
     } else {
-#ifdef __x86_64__
-        p->virtual32 = 0;
-#endif
         p->virtual = 0;
-        p->vareas = p->vmaps = INVALID_ADDRESS;
+        p->vmaps = INVALID_ADDRESS;
     }
     filesystem_reserve(fs); /* because it hosts the current working directory */
     p->root_fs = p->cwd_fs = fs;

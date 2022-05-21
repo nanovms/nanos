@@ -62,7 +62,7 @@ void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options)
     options->load_to_physical = false;
 }
 
-closure_function(1, 1, void, uefi_add_mem,
+closure_function(1, 1, boolean, uefi_add_mem,
                  region, last_region,
                  range, r)
 {
@@ -72,6 +72,7 @@ closure_function(1, 1, void, uefi_add_mem,
         last_region->length += range_span(r);
     else
         bound(last_region) = create_region(r.start, range_span(r), REGION_PHYSICAL);
+    return true;
 }
 
 void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer kern_elf,

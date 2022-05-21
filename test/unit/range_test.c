@@ -21,7 +21,7 @@ typedef struct test_node {
     int val;
 } *test_node;
 
-closure_function(0, 1, void, basic_test_validate,
+closure_function(0, 1, boolean, basic_test_validate,
                  rmnode, node)
 {
     static int count = 0;
@@ -38,6 +38,7 @@ closure_function(0, 1, void, basic_test_validate,
         exit(EXIT_FAILURE);
     }
     count++;
+    return true;
 }
 
 static test_node allocate_test_node(heap h, range r, int val)
@@ -52,11 +53,12 @@ static test_node allocate_test_node(heap h, range r, int val)
     return tn;
 }
 
-closure_function(1, 1, void, dealloc_test_node,
+closure_function(1, 1, boolean, dealloc_test_node,
                  heap, h,
                  rmnode, n)
 {
     deallocate(bound(h), n, sizeof(struct test_node));
+    return true;
 }
 
 boolean basic_test(heap h)
@@ -193,11 +195,12 @@ static void rangemap_verify_ranges(rangemap rm, int expected_count, u64 expected
     }
 }
 
-closure_function(1, 1, void, rangemap_merge_destructor,
+closure_function(1, 1, boolean, rangemap_merge_destructor,
                  heap, h,
                  rmnode, n)
 {
     deallocate(bound(h), n, sizeof(*n));
+    return true;
 }
 
 static boolean rangemap_merge_test(heap h)

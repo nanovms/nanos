@@ -34,6 +34,8 @@
 #define PROCESS_VIRTUAL_HEAP_START  0x000100000000ull
 #define PROCESS_VIRTUAL_HEAP_LIMIT  USER_LIMIT
 #define PROCESS_VIRTUAL_HEAP_LENGTH (PROCESS_VIRTUAL_HEAP_LIMIT - PROCESS_VIRTUAL_HEAP_START)
+#define PROCESS_VIRTUAL_MMAP_RANGE  (irange(PROCESS_VIRTUAL_HEAP_START, PROCESS_VIRTUAL_HEAP_LIMIT))
+#define PROCESS_VIRTUAL_32BIT_RANGE (irange(2ull * GB, 4ull * GB))
 
 #define PROCESS_STACK_SIZE          (2 * MB)
 
@@ -415,12 +417,6 @@ typedef struct vmap {
     fsfile fsf;
 } *vmap;
 
-typedef struct varea {
-    struct rmnode node;
-    id_heap h;
-    boolean allow_fixed;
-} *varea;
-
 #define ivmap(__f, __af, __o, __fsf) (struct vmap) {        \
     .flags = __f,                                   \
     .allowed_flags = __f | __af,                    \
@@ -456,10 +452,10 @@ static inline sysreturn blockq_block_required(thread t, u64 bq_flags)
     return BLOCKQ_BLOCK_REQUIRED;
 }
 
-vmap allocate_vmap(rangemap rm, range r, struct vmap q);
+vmap allocate_vmap(process p, range r, struct vmap q);
 boolean adjust_process_heap(process p, range new);
 
-u64 process_get_virt_range(process p, u64 size);
+u64 process_get_virt_range(process p, u64 size, range region);
 void *process_map_physical(process p, u64 phys_addr, u64 size, u64 vmflags);
 
 typedef struct file *file;
@@ -473,9 +469,6 @@ typedef struct process {
     u64               heap_base;
     u64               vdso_base;
     heap              virtual; /* pagesized, default for mmaps */
-#ifdef __x86_64__
-    id_heap           virtual32; /* for tracking low 32-bit space and MAP_32BIT maps */
-#endif
     id_heap           fdallocator;
     filesystem        root_fs;
     filesystem        cwd_fs;
@@ -487,7 +480,7 @@ typedef struct process {
     struct spinlock   threads_lock;
     struct syscall   *syscalls;
     vector            files;
-    rangemap          vareas;   /* available address space */
+    u64               mmap_min_addr;
     struct spinlock   vmap_lock;
     rangemap          vmaps;    /* process mappings */
     vmap              stack_map;
@@ -673,7 +666,7 @@ boolean validate_user_memory_permissions(process p, const void *buf, bytes lengt
 boolean fault_in_user_memory(const void *buf, bytes length,
                              u64 required_flags, u64 disallowed_flags);
 
-void mmap_process_init(process p, boolean aslr);
+void mmap_process_init(process p, tuple root);
 
 /* This "validation" is just a simple limit check right now, but this
    could optionally expand to do more rigorous validation (e.g. vmap
@@ -685,8 +678,7 @@ static inline boolean validate_user_memory(const void *p, bytes length, boolean 
 {
     u64 v = u64_from_pointer(p);
 
-    /* no zero page access */
-    if (v < PAGESIZE)
+    if (v < MIN(PAGESIZE, current->p->mmap_min_addr))
         return false;
 
     if (length >= USER_LIMIT)
@@ -842,7 +834,7 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
 boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
-boolean vmap_validate_range(process p, range q);
+boolean vmap_validate_range(process p, range q, u32 flags);
 void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
@@ -855,12 +847,9 @@ void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
 boolean thread_attempt_interrupt(thread t);
 
-/* XXX This should eventually be rolled into validate_user_memory */
 static inline boolean validate_process_memory(process p, const void *a, bytes length, boolean write)
 {
-    u64 v = u64_from_pointer(a);
-
-    return vmap_validate_range(p, irange(v, v + length));
+    return vmap_validate_range(p, irangel(u64_from_pointer(a), length), write ? VMAP_FLAG_WRITABLE : 0);
 }
 
 static inline boolean thread_in_interruptible_sleep(thread t)

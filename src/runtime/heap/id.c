@@ -169,7 +169,7 @@ static inline u64 id_alloc(heap h, bytes count)
     return INVALID_PHYSICAL;
 }
 
-closure_function(2, 1, void, dealloc_from_range,
+closure_function(2, 1, boolean, dealloc_from_range,
                  id_heap, i, range, q,
                  rmnode, n)
 {
@@ -183,7 +183,7 @@ closure_function(2, 1, void, dealloc_from_range,
     int order = find_order(pages);
     if (!bitmap_dealloc(r->b, bit, pages)) {
         msg_err("heap %p: bitmap dealloc for range %R failed; leaking\n", i, q);
-        return;
+        return false;
     }
 
     if (bit < get_next_bit(r, order))
@@ -191,6 +191,15 @@ closure_function(2, 1, void, dealloc_from_range,
     u64 deallocated = pages << page_order(i);
     assert(i->allocated >= deallocated);
     i->allocated -= deallocated;
+    return true;
+}
+
+closure_function(2, 1, boolean, dealloc_gap,
+                 id_heap, h, range, q,
+                 range, r)
+{
+    msg_err("heap %p: gap %R found while deallocating %R\n", bound(h), r, bound(q));
+    return false;
 }
 
 static inline void id_dealloc(heap h, u64 a, bytes count)
@@ -207,17 +216,19 @@ static inline void id_dealloc(heap h, u64 a, bytes count)
 
     range q = range_rshift(irangel(a, count), page_order(i));
     rmnode_handler nh = stack_closure(dealloc_from_range, i, q);
-    if (!rangemap_range_lookup(i->ranges, q, nh))
-        msg_err("heap %p: no match for range %R\n", h, q);
+    range_handler rh = stack_closure(dealloc_gap, i, q);
+    if (rangemap_range_lookup_with_gaps(i->ranges, q, nh, rh) == RM_ABORT)
+        msg_err("failed, ra %p\n", __builtin_return_address(0));
 }
 
-closure_function(1, 1, void, destruct_id_range,
+closure_function(1, 1, boolean, destruct_id_range,
                  id_heap, i,
                  rmnode, n)
 {
     id_range r = (id_range)n;
     deallocate_bitmap(r->b);
     deallocate(bound(i)->meta, r, sizeof(struct id_range));
+    return true;
 }
 
 static inline bytes id_size(void)
@@ -242,16 +253,16 @@ static boolean add_range(id_heap i, u64 base, u64 length)
     return id_add_range(i, base, length) != INVALID_ADDRESS;
 }
 
-closure_function(4, 1, void, set_intersection,
-                 range, q, boolean *, fail, boolean, validate, boolean, allocate,
+closure_function(3, 1, boolean, set_intersection,
+                 range, q, boolean, validate, boolean, allocate,
                  rmnode, n)
 {
     range ri = range_intersection(bound(q), n->r);
     id_range r = (id_range)n;
-
     int bit = ri.start - n->r.start;
     if (!bitmap_range_check_and_set(r->b, bit, range_span(ri), bound(validate), bound(allocate)))
-        *bound(fail) = true;
+        return false;
+    return true;
 }
 
 static u64 id_allocated(heap h)
@@ -264,16 +275,25 @@ static u64 id_total(heap h)
     return ((id_heap)h)->total;
 }
 
+closure_function(2, 1, boolean, set_gap,
+                 id_heap, i, range, q,
+                 range, r)
+{
+    /* really no reason to ever set across ranges, so we should know if it happens... */
+    msg_err("heap: %p, gap %R found while setting %R\n", bound(i), r, bound(q));
+    return false;
+}
+
 static inline boolean set_area(id_heap i, u64 base, u64 length, boolean validate, boolean allocate)
 {
     base &= ~page_mask(i);
     length = pad(length, page_size(i));
 
     range q = range_rshift(irangel(base, length), page_order(i));
-    boolean fail = false;
-    rmnode_handler nh = stack_closure(set_intersection, q, &fail, validate, allocate);
-    boolean result = rangemap_range_lookup(i->ranges, q, nh);
-    if (validate && !fail) {
+    rmnode_handler nh = stack_closure(set_intersection, q, validate, allocate);
+    range_handler rh = stack_closure(set_gap, i, q);
+    int result = rangemap_range_lookup_with_gaps(i->ranges, q, nh, rh);
+    if (validate && result == RM_MATCH) {
         if (allocate) {
             i->allocated += length;
         } else {
@@ -281,7 +301,7 @@ static inline boolean set_area(id_heap i, u64 base, u64 length, boolean validate
             i->allocated -= length;
         }
     }
-    return result && !fail;
+    return result == RM_MATCH;
 }
 
 static inline void set_randomize(id_heap i, boolean randomize)
@@ -431,11 +451,12 @@ static value id_management(heap h)
 
 #endif /* KERNEL */
 
-closure_function(2, 1, void, node_foreach_handler,
+closure_function(2, 1, boolean, node_foreach_handler,
                  range_handler, rh, int, order,
                  rmnode, n)
 {
     apply(bound(rh), range_lshift(n->r, bound(order)));
+    return true;
 }
 
 boolean id_heap_range_foreach(id_heap i, range_handler rh)

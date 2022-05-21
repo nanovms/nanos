@@ -135,9 +135,9 @@ boolean rangemap_range_intersects(rangemap rm, range q)
 }
 
 /* inlined for optimized variants */
-static inline boolean rangemap_range_lookup_internal(rangemap rm, range q,
-                                                     rmnode_handler node_handler,
-                                                     range_handler gap_handler)
+static inline int rangemap_range_lookup_internal(rangemap rm, range q,
+                                                 rmnode_handler node_handler,
+                                                 range_handler gap_handler)
 {
     boolean match = false;
     u64 lastedge = q.start;
@@ -149,7 +149,8 @@ static inline boolean rangemap_range_lookup_internal(rangemap rm, range q,
             range i = range_intersection(irange(lastedge, edge), q);
             if (range_span(i)) {
                 match = true;
-                apply(gap_handler, i);
+                if (!apply(gap_handler, i))
+                    return RM_ABORT;
             }
             lastedge = curr->r.end;
         }
@@ -158,7 +159,8 @@ static inline boolean rangemap_range_lookup_internal(rangemap rm, range q,
             range i = range_intersection(curr->r, q);
             if (!range_empty(i)) {
                 match = true;
-                apply(node_handler, curr);
+                if (!apply(node_handler, curr))
+                    return RM_ABORT;
             }
         }
     }
@@ -168,24 +170,25 @@ static inline boolean rangemap_range_lookup_internal(rangemap rm, range q,
         range i = range_intersection(irange(lastedge, q.end), q);
         if (range_span(i)) {
             match = true;
-            apply(gap_handler, i);
+            if (!apply(gap_handler, i))
+                return RM_ABORT;
         }
     }
-    return match;
+    return match ? RM_MATCH : RM_NOMATCH;
 }
 
-boolean rangemap_range_lookup(rangemap rm, range q, rmnode_handler node_handler)
+int rangemap_range_lookup(rangemap rm, range q, rmnode_handler node_handler)
 {
     return rangemap_range_lookup_internal(rm, q, node_handler, 0);
 }
 
-boolean rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler node_handler,
-                                        range_handler gap_handler)
+int rangemap_range_lookup_with_gaps(rangemap rm, range q, rmnode_handler node_handler,
+                                    range_handler gap_handler)
 {
     return rangemap_range_lookup_internal(rm, q, node_handler, gap_handler);
 }
 
-boolean rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler)
+int rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler)
 {
     return rangemap_range_lookup_internal(rm, q, 0, gap_handler);
 }
