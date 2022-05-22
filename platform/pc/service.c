@@ -41,6 +41,30 @@
 #define early_init_debug_u64(x)
 #endif
 
+#define HVM_START_MAGIC_VALUE   0x336ec578
+
+#define HVM_MEMMAP_TYPE_RAM     1
+
+typedef struct hvm_start_info {
+    u32 magic;
+    u32 version;
+    u32 flags;
+    u32 nr_modules;
+    u64 modlist_paddr;
+    u64 cmdline_paddr;
+    u64 rsdp_paddr;
+    u64 memmap_paddr;
+    u32 memmap_entries;
+    u32 reserved;
+} *hvm_start_info;
+
+typedef struct hvm_memmap_entry {
+    u64 addr;
+    u64 size;
+    u32 type;
+    u32 reserved;
+} *hvm_memmap_entry;
+
 extern filesystem root_fs;
 
 void read_kernel_syms(void)
@@ -516,6 +540,24 @@ void init_service(u64 rdi, u64 rsi)
     stack_location += stack_size - STACK_ALIGNMENT;
     *(u64 *)stack_location = 0;
     switch_stack(stack_location, init_service_new_stack);
+}
+
+void pvh_start(hvm_start_info start_info)
+{
+    if (start_info->magic != HVM_START_MAGIC_VALUE)
+        return;
+    regions->type = 0;
+    hvm_memmap_entry mem_table = pointer_from_u64(start_info->memmap_paddr);
+    for (int i = 0; i < start_info->memmap_entries; i++) {
+        if (mem_table[i].type == HVM_MEMMAP_TYPE_RAM)
+            create_region(mem_table[i].addr, mem_table[i].size, REGION_PHYSICAL);
+    }
+    region temp_pages_r;
+    int temp_pages = kernel_map_virtual(&temp_pages_r);
+    jump_to_virtual();
+    temp_pages += setup_initmap(temp_pages_r);
+    region_resize(temp_pages_r, temp_pages * PAGESIZE);
+    init_service(0, 0);
 }
 
 void init_platform_devices(kernel_heaps kh)

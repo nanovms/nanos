@@ -381,3 +381,84 @@ align 4096
 global hypercall_page
 hypercall_page:
         times 4096 db 0
+
+%include "../../platform/pc/boot/longmode.inc"
+
+global pvh_start32
+extern _phys_pvh_start32
+extern pvh_start
+
+pvh_start32:
+bits 32
+        PREPARE_LONG_MODE eax
+        ; set up minimal mapping to be able to run in 64-bit mode, carving page
+        ; tables from memory just below kernel code
+        mov eax, 0x200000 - 0x1000 ; PML4
+        ; PDPT
+        mov ecx, eax
+        sub ecx, 0x1000
+        mov [eax], ecx
+        or dword [eax], 0x3
+        mov dword [eax + 4], 0
+        ; PDT
+        mov edx, ecx
+        sub edx, 0x1000
+        mov [ecx], edx
+        or dword [ecx], 0x3
+        mov dword [ecx + 4], 0
+        ; map start info data (whose address is in the ebx register)
+        mov ecx, ebx
+        and ecx, 0xffe00000
+        mov esi, ecx
+        shr esi, 18
+        mov dword [edx + esi], ecx
+        or dword [edx + esi], 0x83
+        mov dword [edx + esi + 4], 0
+        ; map kernel code
+        mov dword [edx + 8], 0x200000 | 0x83
+        mov dword [edx + 12], 0
+        mov cr3, eax
+        ENTER_LONG_MODE eax
+        lgdt [pvh_gdt.Pointer + _phys_pvh_start32 - pvh_start32]
+        jmp pvh_gdt.Code:(long_mode + _phys_pvh_start32 - pvh_start32)
+
+bits 64
+long_mode:
+        mov edi, ebx ; retrieve start info address from ebx register
+        jmp pvh_start
+
+%include "segment.inc"
+
+align 16
+pvh_gdt:
+        .Null: equ $ - pvh_gdt
+        dd 0
+        dd 0
+        .Code: equ $ - pvh_gdt
+        dd 0
+        dd KERN_CODE_SEG_DESC
+        .Data: equ $ - pvh_gdt
+        dd 0
+        dd KERN_DATA_SEG_DESC
+        .UserCode: equ $ - pvh_gdt
+        dd 0
+        dd 0
+        .UserData: equ $ - pvh_gdt
+        dd 0
+        dd USER_DATA_SEG_DESC
+        .UserCode64: equ $ - pvh_gdt
+        dd 0
+        dd USER_CODE_SEG_DESC
+        .Pointer:
+        dw $ - pvh_gdt - 1                             ; Limit.
+        dq (pvh_gdt + _phys_pvh_start32 - pvh_start32) ; 64 bit Base
+
+section .note.Xen noalloc
+align 4
+        dd 4 ; name size
+        dd 4 ; data size
+        dd 18 ; type (XEN_ELFNOTE_PHYS32_ENTRY)
+align 4
+        db 'Xen',0x00 ; name
+align 4
+        dd _phys_pvh_start32 ; data

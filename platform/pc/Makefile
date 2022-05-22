@@ -359,6 +359,7 @@ endif
 .PHONY: run run-bridge run-nokvm
 
 QEMU=		qemu-system-x86_64
+QEMU_FLAGS=
 MACHINE_TYPE=	q35
 QEMU_CPU=	-cpu max
 DISPLAY=	none
@@ -372,6 +373,9 @@ QEMU_MEMORY=	-m 2G
 QEMU_PCI=	-device pcie-root-port,port=0x10,chassis=1,id=pci.1,bus=$(PCI_BUS),multifunction=on,addr=0x3 \
 		-device pcie-root-port,port=0x11,chassis=2,id=pci.2,bus=$(PCI_BUS),addr=0x3.0x1 \
 		-device pcie-root-port,port=0x12,chassis=3,id=pci.3,bus=$(PCI_BUS),addr=0x3.0x2
+ifneq ($(KERNEL_BOOT),)
+QEMU_FLAGS+=	-kernel $(KERNEL)
+endif
 
 ifeq ($(DISPLAY),none)
 QEMU_DISPLAY=	-display none
@@ -415,7 +419,6 @@ QEMU_QMP=	-qmp unix:$(ROOTDIR)/qmp-sock,server,nowait
 #QEMU_QMP=	-qmp tcp:localhost:4444,server,nowait
 endif
 #QEMU_USERNET+=	-object filter-dump,id=filter0,netdev=n0,file=/tmp/nanos.pcap
-QEMU_FLAGS=
 #QEMU_FLAGS+=	-smp 4
 #QEMU_FLAGS+=	-d int -D int.log
 #QEMU_FLAGS+=	-s -S

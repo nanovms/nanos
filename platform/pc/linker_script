@@ -10,6 +10,7 @@ PHDRS
     rodata PT_LOAD FLAGS(4);        /* R */
     data PT_LOAD FLAGS(6);          /* RW */
     stack PT_GNU_STACK FLAGS(7);    /* RWE */
+    note PT_NOTE FLAGS(4);          /* R */
 }
 
 /* Note these are ordered such that sections are grouped together by write
@@ -22,6 +23,7 @@ SECTIONS
     /* Physical addresses are only relevant in case of direct stage3 load. */
     LOAD_OFFSET = START - 0x200000;     /* 0x200000 equals KERNEL_BASE_PHYS */
     _phys_start = _start - LOAD_OFFSET; /* entry point physical adddress */
+    _phys_pvh_start32 = pvh_start32 - LOAD_OFFSET;
 
     . = 0xffffffff80000000;
     START = .;
@@ -92,4 +94,9 @@ SECTIONS
     } :data
 
     END = .;
+
+    .note :
+    {
+        KEEP(*(.note.*))
+    } :note
 }
