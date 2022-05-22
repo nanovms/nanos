@@ -158,3 +158,13 @@ void init_acpi_tables(kernel_heaps kh);
 boolean acpi_walk_madt(madt_handler mh);
 boolean acpi_walk_mcfg(mcfg_handler mh);
 boolean acpi_parse_spcr(spcr_handler h);
+
+typedef struct acpi_mmio_dev {
+    u64 membase;
+    u64 memsize;
+    u32 irq;
+} *acpi_mmio_dev;
+
+typedef closure_type(acpi_mmio_handler, void, acpi_mmio_dev);
+
+void acpi_get_vtmmio_devs(acpi_mmio_handler handler);

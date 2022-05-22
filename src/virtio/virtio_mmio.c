@@ -3,6 +3,7 @@
  * section 4.2 "Virtio Over MMIO". */
 
 #include <kernel.h>
+#include <drivers/acpi.h>
 
 #ifdef __x86_64__
 #include <apic.h>
@@ -24,6 +25,31 @@
 RO_AFTER_INIT static struct list vtmmio_devices = {
         &vtmmio_devices, &vtmmio_devices
 };
+
+closure_function(1, 1, void, vtmmio_new_dev,
+                 kernel_heaps, kh,
+                 acpi_mmio_dev, adev)
+{
+    virtio_mmio_debug("new device");
+    kernel_heaps kh = bound(kh);
+    heap h = heap_general(kh);
+    vtmmio dev = allocate(h, sizeof(*dev));
+    assert(dev != INVALID_ADDRESS);
+    dev->membase = adev->membase;
+    dev->memsize = adev->memsize;
+    dev->irq = adev->irq;
+    u64 page_offset = dev->membase & PAGEMASK;
+    dev->vbase = allocate((heap)heap_virtual_huge(kh), page_offset + dev->memsize);
+    assert(dev->vbase != INVALID_ADDRESS);
+    map(u64_from_pointer(dev->vbase), dev->membase - page_offset, page_offset + dev->memsize,
+        pageflags_writable(pageflags_device()));
+    dev->vbase += page_offset;
+    dev->irq_vector = 0;
+    dev->vq_handlers = allocate_vector(h, 2);
+    assert(dev->vq_handlers != INVALID_ADDRESS);
+    vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
+    list_push_back(&vtmmio_devices, &dev->l);
+}
 
 void virtio_mmio_parse(kernel_heaps kh, const char *str, int len)
 {
@@ -55,21 +81,18 @@ void virtio_mmio_parse(kernel_heaps kh, const char *str, int len)
                 !parse_int(b, 16, &membase) || (pop_u8(b) != ':') ||
                 !parse_int(b, 10, &irq))
             return;
-        virtio_mmio_debug("new device");
-        heap h = heap_general(kh);
-        vtmmio dev = allocate(h, sizeof(*dev));
-        assert(dev != INVALID_ADDRESS);
-        dev->membase = membase;
-        dev->memsize = memsize;
-        dev->irq = irq;
-        dev->vbase = allocate((heap)heap_virtual_huge(kh), memsize);
-        assert(dev->vbase != INVALID_ADDRESS);
-        map(u64_from_pointer(dev->vbase), membase, memsize, pageflags_writable(pageflags_device()));
-        dev->irq_vector = 0;
-        dev->vq_handlers = allocate_vector(h, 2);
-        assert(dev->vq_handlers != INVALID_ADDRESS);
-        list_push_back(&vtmmio_devices, &dev->l);
+        struct acpi_mmio_dev adev = {
+            .membase = membase,
+            .memsize = memsize,
+            .irq = irq,
+        };
+        apply(stack_closure(vtmmio_new_dev, kh), &adev);
     }
+}
+
+void virtio_mmio_enum_devs(kernel_heaps kh)
+{
+    acpi_get_vtmmio_devs(stack_closure(vtmmio_new_dev, kh));
 }
 
 void vtmmio_probe_devs(vtmmio_probe probe)

@@ -288,6 +288,39 @@ void init_acpi(kernel_heaps kh)
         acpi_debug("cannot update GPEs: %d", rv);
 }
 
+static ACPI_STATUS acpi_mmio_res_handler(ACPI_RESOURCE *resource, void *context)
+{
+    acpi_mmio_dev dev = context;
+    switch(resource->Type) {
+    case ACPI_RESOURCE_TYPE_FIXED_MEMORY32:
+        dev->membase = resource->Data.FixedMemory32.Address;
+        dev->memsize = resource->Data.FixedMemory32.AddressLength;
+        break;
+    case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+        if (resource->Data.ExtendedIrq.InterruptCount == 1)
+            dev->irq = resource->Data.ExtendedIrq.Interrupts[0];
+        break;
+    }
+    return AE_OK;
+}
+
+static ACPI_STATUS acpi_mmio_parse(ACPI_HANDLE object, u32 nesting_level, void *context,
+                                   void **return_value)
+{
+    struct acpi_mmio_dev dev = {0};
+    ACPI_STATUS rv = AcpiWalkResources(object, METHOD_NAME__CRS, acpi_mmio_res_handler, &dev);
+    if (ACPI_SUCCESS(rv) && dev.membase && dev.memsize && dev.irq) {
+        acpi_mmio_handler handler = context;
+        apply(handler, &dev);
+    }
+    return rv;
+}
+
+void acpi_get_vtmmio_devs(acpi_mmio_handler handler)
+{
+    AcpiGetDevices("LNRO0005", acpi_mmio_parse, handler, NULL);
+}
+
 /* OS services layer */
 
 ACPI_STATUS AcpiOsInitialize(void)

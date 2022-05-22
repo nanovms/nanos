@@ -360,19 +360,33 @@ endif
 
 QEMU=		qemu-system-x86_64
 QEMU_FLAGS=
+ifneq ($(MICROVM),)
+IOAPIC2=	$(shell $(QEMU) -machine microvm,help | grep -c ioapic2)
+ifneq ($(IOAPIC2),0)
+MACHINE_TYPE=	microvm,rtc=on,ioapic2=off
+else
+MACHINE_TYPE=	microvm,rtc=on
+endif
+KERNEL_BOOT=	1
+STORAGE=	virtio-mmio
+NETWORK=	virtio-net-device
+QEMU_FLAGS+=	-global virtio-mmio.force-legacy=false
+else
 MACHINE_TYPE=	q35
-QEMU_CPU=	-cpu max
-DISPLAY=	none
 STORAGE=	virtio-scsi
 STORAGE_BUS=	,bus=pci.2,addr=0x0
 NETWORK=	virtio-net
 NETWORK_BUS=	,bus=pci.3,addr=0x0
 NETWORK_BUS_2=  ,bus=pci.3,addr=0x1
-QEMU_MACHINE=	-machine $(MACHINE_TYPE)
-QEMU_MEMORY=	-m 2G
+QEMU_RNG=	-device virtio-rng-pci
 QEMU_PCI=	-device pcie-root-port,port=0x10,chassis=1,id=pci.1,bus=$(PCI_BUS),multifunction=on,addr=0x3 \
 		-device pcie-root-port,port=0x11,chassis=2,id=pci.2,bus=$(PCI_BUS),addr=0x3.0x1 \
 		-device pcie-root-port,port=0x12,chassis=3,id=pci.3,bus=$(PCI_BUS),addr=0x3.0x2
+endif
+QEMU_CPU=	-cpu max
+DISPLAY=	none
+QEMU_MACHINE=	-machine $(MACHINE_TYPE)
+QEMU_MEMORY=	-m 2G
 ifneq ($(KERNEL_BOOT),)
 QEMU_FLAGS+=	-kernel $(KERNEL)
 endif
@@ -392,6 +406,8 @@ else ifeq ($(STORAGE),pvscsi)
 QEMU_STORAGE+=	-device pvscsi$(STORAGE_BUS),id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
 else ifeq ($(STORAGE),virtio-blk)
 QEMU_STORAGE+=	-device virtio-blk-pci$(STORAGE_BUS),drive=hd0
+else ifeq ($(STORAGE),virtio-mmio)
+QEMU_STORAGE+=	-device virtio-blk-device,drive=hd0
 else ifeq ($(STORAGE),ide)
 MACHINE_TYPE=	pc # no AHCI support yet
 QEMU_STORAGE+=	-device ide-hd,bus=ide.0,drive=hd0
@@ -413,7 +429,6 @@ endif
 ifneq ($(ENABLE_BALLOON),)
 QEMU_BALLOON=   -device virtio-balloon-pci
 endif
-QEMU_RNG=	-device virtio-rng-pci
 ifneq ($(ENABLE_QMP),)
 QEMU_QMP=	-qmp unix:$(ROOTDIR)/qmp-sock,server,nowait
 #QEMU_QMP=	-qmp tcp:localhost:4444,server,nowait

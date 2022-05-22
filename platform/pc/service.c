@@ -620,6 +620,7 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
             init_ata_pci(kh, sa); /* hvm ata fallback */
     } else {
         init_debug("hypervisor undetected or HVM platform; registering all PCI drivers...");
+        virtio_mmio_enum_devs(kh);
 
         /* net */
         init_virtio_network(kh);
