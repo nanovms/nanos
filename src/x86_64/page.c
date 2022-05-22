@@ -61,13 +61,22 @@ void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
     u64 *pml4;
     mov_from_cr("cr3", pml4);
     flags.w |= PAGE_PRESENT;
-    pml4[(v >> PT_SHIFT_L1) & MASK(9)] = u64_from_pointer(pdpt) | flags.w;
+    u64 table_index = (v >> PT_SHIFT_L1) & MASK(9);
+    if (pml4[table_index] & PAGE_PRESENT)
+        pdpt = pointer_from_u64(pml4[table_index] & ~PAGE_FLAGS_MASK);
+    else
+        pml4[table_index] = u64_from_pointer(pdpt) | flags.w;
     v &= MASK(PT_SHIFT_L1);
-    pdpt[v >> PT_SHIFT_L2] = u64_from_pointer(pdt) | flags.w;
+    table_index = v >> PT_SHIFT_L2;
+    if (pdpt[table_index] & PAGE_PRESENT)
+        pdt = pointer_from_u64(pdpt[table_index] & ~PAGE_FLAGS_MASK);
+    else
+        pdpt[table_index] = u64_from_pointer(pdt) | flags.w;
     v &= MASK(PT_SHIFT_L2);
-    assert(v + pages <= 512);
+    table_index = v >> PT_SHIFT_L3;
+    assert(table_index + pages <= 512);
     for (int i = 0; i < pages; i++)
-        pdt[v + i] = (p + (i << PAGELOG_2M)) | flags.w | PAGE_PS;
+        pdt[table_index + i] = (p + (i << PAGELOG_2M)) | flags.w | PAGE_PS;
     memory_barrier();
 }
 

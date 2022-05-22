@@ -357,17 +357,46 @@ id_heap init_physical_id_heap(heap h)
     return physical;
 }
 
-static void jump_to_virtual(u64 kernel_size, u64 *pdpt, u64 *pdt) {
+extern void *END;
+
+/* The temp_pages_r pointer is set to a memory region that can be used to allocate temporary page
+ * tables. Returns the number of pages have been allocated from that region. */
+static int kernel_map_virtual(region *temp_pages_r) {
+    u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE;
+    u64 *pdpt = 0;
+    u64 *pdt = 0;
+    *temp_pages_r = 0;
+    for_regions(r) {
+        if ((r->type = REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
+                (r->base + r->length > KERNEL_BASE_PHYS)) {
+            /* This is the memory region where the kernel has been loaded: adjust the region
+             * boundaries so that the memory occupied by the kernel code does not appear as free
+             * memory, and possibly and make a new memory region. */
+            if (r->base < KERNEL_BASE_PHYS)
+                create_region(r->base, KERNEL_BASE_PHYS - r->base, r->type);
+            region_resize(r, r->base - pad(KERNEL_BASE_PHYS + kernel_size, PAGESIZE));
+        }
+        if (!*temp_pages_r && (r->length >= 4 * PAGESIZE)) {
+            *temp_pages_r = r;
+            pdpt = pointer_from_u64(r->base);
+            pdt = pointer_from_u64(r->base + PAGESIZE);
+            region_resize(r, -2 * PAGESIZE);
+        }
+    }
+
     /* Set up a temporary mapping of kernel code virtual address space, to be
      * able to run from virtual addresses (which is needed to properly access
      * things such as literal strings, static variables and function pointers).
      */
-    assert(pdpt);
-    assert(pdt);
+    assert(*temp_pages_r);
     map_setup_2mbpages(KERNEL_BASE, KERNEL_BASE_PHYS,
                        pad(kernel_size, PAGESIZE_2M) >> PAGELOG_2M,
                        pageflags_writable(pageflags_exec(pageflags_memory())), pdpt, pdt);
 
+    return 2;
+}
+
+static inline void jump_to_virtual(void) {
     /* Jump to virtual address */
     asm("movq $1f, %rdi \n\
         jmp *%rdi \n\
@@ -396,6 +425,39 @@ static void cmdline_parse(const char *cmdline)
 
 extern void *READONLY_END;
 
+/* Returns the number of pages have been allocated from the temporary page table region. */
+static int setup_initmap(region temp_pages_r)
+{
+    /* Set up initial mappings in the same way as stage2 does. */
+    /* Enable NXE bit now to avoid page faults when mapping a noexec page. */
+    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
+    struct region_heap rh;
+    region_heap_init(&rh, PAGESIZE, REGION_PHYSICAL);
+    u64 initial_pages_base = allocate_u64(&rh.h, INITIAL_PAGES_SIZE);
+    assert(initial_pages_base != INVALID_PHYSICAL);
+    u64 *pdpt = pointer_from_u64(temp_pages_r->base);
+    u64 *pdt = pointer_from_u64(temp_pages_r->base + PAGESIZE);
+    region_resize(temp_pages_r, -2 * PAGESIZE);
+    u64 map_base = initial_pages_base & ~MASK(PAGELOG_2M);
+    map_setup_2mbpages(map_base, map_base,
+                       pad(initial_pages_base - map_base + INITIAL_PAGES_SIZE, PAGESIZE_2M) >>
+                       PAGELOG_2M, pageflags_writable(pageflags_memory()), pdpt, pdt);
+    create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
+    heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
+    void *pgdir = bootstrap_page_tables(pageheap);
+    pageflags flags = pageflags_writable(pageflags_memory());
+    pageflags roflags = pageflags_exec(pageflags_readonly(pageflags_memory()));
+    map(0, 0, INITIAL_MAP_SIZE, flags);
+    map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
+    u64 roend = pad(u64_from_pointer(&READONLY_END), PAGESIZE);
+    map(KERNEL_BASE, KERNEL_BASE_PHYS, roend - KERNEL_BASE, roflags);
+    map(roend, KERNEL_BASE_PHYS + roend - KERNEL_BASE,
+        pad(u64_from_pointer(&END), PAGESIZE) - roend, flags);
+    mov_to_cr("cr3", pgdir);
+    bootstrapping = false;
+    return 2;
+}
+
 // init linker set
 void init_service(u64 rdi, u64 rsi)
 {
@@ -412,39 +474,15 @@ void init_service(u64 rdi, u64 rsi)
          * through stage1 and stage2. */
         u8 e820_entries = *(params + BOOT_PARAM_OFFSET_E820_ENTRIES);
         region e820_r = (region)(params + BOOT_PARAM_OFFSET_E820_TABLE);
-        extern u8 END;
-        u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE;
-        u64 *pdpt = 0;
-        u64 *pdt = 0;
         for (u8 entry = 0; entry < e820_entries; entry++) {
             region r = &e820_r[entry];
             if (r->base == 0)
                 continue;
-            if ((r->type = REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
-                    (r->base + r->length > KERNEL_BASE_PHYS)) {
-                /* This is the memory region where the kernel has been loaded:
-                 * adjust the region boundaries so that the memory occupied by
-                 * the kernel code does not appear as free memory. */
-                u64 new_base = pad(KERNEL_BASE_PHYS + kernel_size, PAGESIZE);
-
-                /* Check that there is a gap between start of memory region and
-                 * start of kernel code, then use part of this gap as storage
-                 * for a set of temporary page tables that we need to set up an
-                 * initial mapping of the kernel virtual address space, and make
-                 * the remainder a new memory region. */
-                assert(KERNEL_BASE_PHYS - r->base >= 2 * PAGESIZE);
-                pdpt = pointer_from_u64(r->base);
-                pdt = pointer_from_u64(r->base + PAGESIZE);
-                create_region(r->base + 2 * PAGESIZE,
-                              KERNEL_BASE_PHYS - (r->base + 2 * PAGESIZE),
-                              r->type);
-
-                r->length -= new_base - r->base;
-                r->base = new_base;
-            }
             create_region(r->base, r->length, r->type);
         }
-        jump_to_virtual(kernel_size, pdpt, pdt);
+        region temp_pages_r;
+        int temp_pages = kernel_map_virtual(&temp_pages_r);
+        jump_to_virtual();
 
         cmdline = pointer_from_u64((u64)*((u32 *)(params +
                 BOOT_PARAM_OFFSET_CMD_LINE_PTR)));
@@ -460,27 +498,8 @@ void init_service(u64 rdi, u64 rsi)
             cmdline = (char *)params;
         }
 
-        /* Set up initial mappings in the same way as stage2 does. */
-        struct region_heap rh;
-        region_heap_init(&rh, PAGESIZE, REGION_PHYSICAL);
-        u64 initial_pages_base = allocate_u64(&rh.h, INITIAL_PAGES_SIZE);
-        assert(initial_pages_base != INVALID_PHYSICAL);
-        create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
-        heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
-        void *pgdir = bootstrap_page_tables(pageheap);
-
-        /* Enable NXE bit now to avoid page faults when mapping a noexec page */
-        write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
-        pageflags flags = pageflags_writable(pageflags_memory());
-        pageflags roflags = pageflags_exec(pageflags_readonly(pageflags_memory()));
-        map(0, 0, INITIAL_MAP_SIZE, flags);
-        map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
-        u64 roend_offset = pad(u64_from_pointer(&READONLY_END) - KERNEL_BASE, PAGESIZE);
-        map(KERNEL_BASE, KERNEL_BASE_PHYS, roend_offset, roflags);
-        map(KERNEL_BASE + roend_offset, KERNEL_BASE_PHYS + roend_offset,
-               pad(kernel_size - roend_offset, PAGESIZE), flags);
-        mov_to_cr("cr3", pgdir);
-        bootstrapping = false;
+        temp_pages += setup_initmap(temp_pages_r);
+        region_resize(temp_pages_r, temp_pages * PAGESIZE);
     }
 
     serial_init();

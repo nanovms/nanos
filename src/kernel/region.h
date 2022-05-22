@@ -79,6 +79,11 @@ static inline heap region_allocator(heap h, u64 pagesize, int type)
     return (heap)rh;
 }
 
+static inline void region_resize(region r, s64 delta)
+{
+    r->base -= delta;
+    r->length += delta;
+}
 
 static inline void print_regions()
 {
