@@ -12,7 +12,6 @@
 #define START_FUNC_SIZE 0x20
 
 static heap uefi_heap;
-static region initial_pages_region;
 static void *pgdir; /* page directory (PML4) */
 static rangemap rsvd_mem;
 
@@ -54,7 +53,7 @@ void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options)
     assert(rsvd_mem != INVALID_ADDRESS);
     u64 initial_pages = allocate_u64(aligned, INITIAL_PAGES_SIZE);
     assert(initial_pages != INVALID_PHYSICAL);
-    initial_pages_region = create_region(initial_pages, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
+    create_region(initial_pages, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
     rsvd_mem_add(irangel(initial_pages, INITIAL_PAGES_SIZE));
     pgdir = bootstrap_page_tables(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
     map(0, 0, INITIAL_MAP_SIZE, pageflags_writable(pageflags_exec(pageflags_memory())));
@@ -108,6 +107,5 @@ void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer
             break;
         }
     }
-    initial_pages_region->length = INITIAL_PAGES_SIZE;
     start_kernel(kern_entry + KERNEL_BASE - KERNEL_BASE_PHYS);
 }

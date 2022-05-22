@@ -190,8 +190,6 @@ closure_function(0, 1, void, fail,
     halt("filesystem_read_entire failed: %v\n", s);
 }
 
-static region initial_pages_region;
-
 static void setup_page_tables()
 {
     stage2_debug("%s\n", __func__);
@@ -199,7 +197,7 @@ static void setup_page_tables()
     /* initial page tables, carried into stage3 init */
     stage2_debug("initial page tables at [0x%lx,  0x%lx)\n", initial_pages_base,
                  initial_pages_base + INITIAL_PAGES_SIZE);
-    initial_pages_region = create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
+    create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
     init_mmu(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
 
     /* initial map, page tables and stack */

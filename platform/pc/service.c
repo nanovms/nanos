@@ -465,8 +465,7 @@ void init_service(u64 rdi, u64 rsi)
         region_heap_init(&rh, PAGESIZE, REGION_PHYSICAL);
         u64 initial_pages_base = allocate_u64(&rh.h, INITIAL_PAGES_SIZE);
         assert(initial_pages_base != INVALID_PHYSICAL);
-        region initial_pages_region = create_region(initial_pages_base,
-            INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
+        create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
         heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
         void *pgdir = bootstrap_page_tables(pageheap);
 
@@ -480,7 +479,6 @@ void init_service(u64 rdi, u64 rsi)
         map(KERNEL_BASE, KERNEL_BASE_PHYS, roend_offset, roflags);
         map(KERNEL_BASE + roend_offset, KERNEL_BASE_PHYS + roend_offset,
                pad(kernel_size - roend_offset, PAGESIZE), flags);
-        initial_pages_region->length = INITIAL_PAGES_SIZE;
         mov_to_cr("cr3", pgdir);
         bootstrapping = false;
     }
