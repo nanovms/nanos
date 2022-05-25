@@ -25,7 +25,15 @@
  *
  */
 
+#ifdef KERNEL
+#include <kernel.h>
+#define chacha20_lock() do { mutex_lock(chacha20inst.m); } while (0)
+#define chacha20_unlock() do { mutex_unlock(chacha20inst.m); } while (0)
+#else
 #include <runtime.h>
+#define chacha20_lock()
+#define chacha20_unlock()
+#endif
 #include <crypto/chacha.h>
 
 /*
@@ -39,29 +47,55 @@
 #define CHACHA20_KEYBYTES       32
 #define CHACHA20_BUFFER_SIZE    64
 
-struct chacha20_s {
+static struct chacha20_s {
+#ifdef KERNEL
+    mutex m;
+#endif
     int numbytes;
     u64 t_reseed;
     u8 m_buffer[CHACHA20_BUFFER_SIZE];
     struct chacha_ctx ctx;
-};
+} chacha20inst;
 
-extern u64 random_seed();
+/* entropy source mux - for any rng, not just chacha */
+bytes (*preferred_get_seed)(void *seed, bytes len);
+
+static bytes fallback_get_seed(void *seed, bytes len)
+{
+    bytes n, remain;
+    u64 s;
+    remain = len;
+    while (remain > 0) {
+        n = MIN(sizeof(s), remain);
+        s = hw_get_seed();
+        runtime_memcpy(seed, &s, n);
+        seed += n;
+        remain -= n;
+    }
+    return len;
+}
+
+/* draw from preferred entropy source or resort to fallback */
+void get_seed_complete(void *seed, bytes len)
+{
+    while (len > 0) {
+        bytes s = preferred_get_seed ? preferred_get_seed(seed, len) : 0;
+        if (s == 0)
+            s = fallback_get_seed(seed, len);
+        seed += s;
+        assert(len >= s);
+        len -= s;
+    }
+}
 
 /*
  * Mix up the current context.
  */
 static void
-chacha20_randomstir(struct chacha20_s *chacha20, timestamp t)
+chacha20_randomstir_locked(struct chacha20_s *chacha20, timestamp t)
 {
     u8 key[CHACHA20_KEYBYTES];
-    u64 seed;
-    assert(sizeof(key) % sizeof(seed) == 0);
-    for (int i = 0; i < sizeof(key); i += sizeof(seed)) {
-        seed = random_seed();
-        *(u64 *) (key + i) = seed;
-        i += sizeof(seed);
-    }
+    get_seed_complete(key, CHACHA20_KEYBYTES);
 
     u64 now_sec = sec_from_timestamp(t);
     u64 now_usec = usec_from_timestamp(truncate_seconds(t));
@@ -73,26 +107,29 @@ chacha20_randomstir(struct chacha20_s *chacha20, timestamp t)
     chacha20->numbytes = 0;
 }
 
-// should be per-CPU structure
-static struct chacha20_s chacha20inst;
-
-void init_random()
+void init_random(heap h)
 {
+#ifdef KERNEL
+    chacha20inst.m = allocate_mutex(h, 2048);
+    assert(chacha20inst.m != INVALID_ADDRESS);
+#endif
     assert(CHACHA20_KEYBYTES*8 >= CHACHA_MINKEYLEN);
-    chacha20_randomstir(&chacha20inst, now(CLOCK_ID_MONOTONIC_RAW));
+    chacha20_lock();
+    chacha20_randomstir_locked(&chacha20inst, now(CLOCK_ID_MONOTONIC_RAW));
+    chacha20_unlock();
 }
 
-void
-arc4rand(void *ptr, bytes len)
+void arc4rand(void *ptr, bytes len)
 {
     struct chacha20_s *chacha20 = &chacha20inst;
     bytes length;
     u8 *p;
 
+    chacha20_lock();
     timestamp t = now(CLOCK_ID_MONOTONIC_RAW);
     u64 now_sec = sec_from_timestamp(t);
     if ((chacha20->numbytes > CHACHA20_RESEED_BYTES) || (now_sec > chacha20->t_reseed))
-        chacha20_randomstir(chacha20, t);
+        chacha20_randomstir_locked(chacha20, t);
 
     p = ptr;
     while (len) {
@@ -102,15 +139,15 @@ arc4rand(void *ptr, bytes len)
         len -= length;
         chacha20->numbytes += length;
         if (chacha20->numbytes > CHACHA20_RESEED_BYTES) {
-            chacha20_randomstir(chacha20, t);
+            chacha20_randomstir_locked(chacha20, t);
         }
     }
+    chacha20_unlock();
 }
 
-u64 random_u64()
+u64 random_u64(void)
 {
     u64 retval;
-
     arc4rand(&retval, sizeof(retval));
     return retval;
 }
@@ -119,4 +156,11 @@ u64 random_buffer(buffer b)
 {
     arc4rand(buffer_ref(b, 0), buffer_length(b));
     return buffer_length(b);
+}
+
+void random_reseed(void)
+{
+    chacha20_lock();
+    chacha20_randomstir_locked(&chacha20inst, now(CLOCK_ID_MONOTONIC_RAW));
+    chacha20_unlock();
 }

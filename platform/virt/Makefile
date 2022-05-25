@@ -88,6 +88,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/virtio/virtio_mmio.c \
 	$(SRCDIR)/virtio/virtio_net.c \
 	$(SRCDIR)/virtio/virtio_pci.c \
+	$(SRCDIR)/virtio/virtio_rng.c \
 	$(SRCDIR)/virtio/virtio_scsi.c \
 	$(SRCDIR)/virtio/virtio_storage.c \
 	$(SRCDIR)/virtio/virtqueue.c \
@@ -402,6 +403,7 @@ QEMU_USERNET=	-device $(NETWORK)$(NETWORK_BUS),netdev=n0 -netdev user,id=n0,host
 ifneq ($(ENABLE_BALLOON),)
 QEMU_BALLOON=   -device virtio-balloon-pci
 endif
+QEMU_RNG=	-device virtio-rng-pci
 ifneq ($(ENABLE_QMP),)
 QEMU_QMP=	-qmp unix:$(ROOTDIR)/qmp-sock,server,nowait
 #QEMU_QMP=	-qmp tcp:localhost:4444,server,nowait
@@ -419,7 +421,7 @@ QEMU_FLAGS+=	-semihosting
 
 #QEMU_FLAGS+=	-monitor telnet:127.0.0.1:9999,server,nowait
 
-QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_BALLOON) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_PCI) $(QEMU_SERIAL) $(QEMU_STORAGE) -no-reboot $(QEMU_FLAGS) $(QEMU_QMP)
+QEMU_COMMON=	$(QEMU_MACHINE) $(QEMU_MEMORY) $(QEMU_BALLOON) $(QEMU_KERNEL) $(QEMU_DISPLAY) $(QEMU_PCI) $(QEMU_RNG) $(QEMU_SERIAL) $(QEMU_STORAGE) -no-reboot $(QEMU_FLAGS) $(QEMU_QMP)
 
 run: image
 	$(QEMU) $(QEMU_COMMON) $(QEMU_USERNET) $(QEMU_ACCEL)

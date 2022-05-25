@@ -356,7 +356,7 @@ void kernel_runtime_init(kernel_heaps kh)
 
     /* RNG, stack canaries */
     init_debug("RNG");
-    init_random();
+    init_random(locked);
     __stack_chk_guard_init();
 
     /* networking */

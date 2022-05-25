@@ -87,14 +87,14 @@ static boolean hw_seed(u64 * seed, boolean rdseed)
     return false;
 }
 
-u64 random_seed(void)
+u64 hw_get_seed(void)
 {
     u64 seed = 0;
     if (have_rdseed && hw_seed(&seed, true))
         return seed;
     if (have_rdrand && hw_seed(&seed, false))
         return seed;
-    return (u64)now(CLOCK_ID_MONOTONIC_RAW);
+    return (u64)now(CLOCK_ID_REALTIME);
 }
 
 static void init_hwrand(void)
@@ -579,4 +579,5 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_acpi(kh);
 
     init_virtio_balloon(kh);
+    init_virtio_rng(kh);
 }
