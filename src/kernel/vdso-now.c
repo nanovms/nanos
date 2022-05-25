@@ -79,30 +79,41 @@ vdso_get_now_fn(vdso_clock_id id)
 VDSO timestamp
 vdso_now(clock_id id)
 {
-    timestamp _now = VDSO_NO_NOW, _off = 0;
+    timestamp _now = VDSO_NO_NOW, _off = 0, _ival = 0;
+    u64 _gen;
 
-    switch (id) {
-    case CLOCK_ID_MONOTONIC:
-    case CLOCK_ID_MONOTONIC_RAW:
-    case CLOCK_ID_MONOTONIC_COARSE:
-    case CLOCK_ID_BOOTTIME:
-        _now = vdso_get_now_fn(__vdso_dat->clock_src)();
-        break;
+    do {
+        _gen = __vdso_dat->vdso_gen & ~1ull;
+        switch (id) {
+        case CLOCK_ID_MONOTONIC:
+        case CLOCK_ID_MONOTONIC_RAW:
+        case CLOCK_ID_MONOTONIC_COARSE:
+        case CLOCK_ID_BOOTTIME:
+            _now = vdso_get_now_fn(__vdso_dat->clock_src)();
+            if (id == CLOCK_ID_MONOTONIC_RAW)
+                break;
+            _off = clock_freq_adjust(_now - __vdso_dat->last_raw);
+            break;
 
-    case CLOCK_ID_REALTIME:
-    case CLOCK_ID_REALTIME_COARSE:
-        _now = vdso_get_now_fn(__vdso_dat->clock_src)();
-        _off = __vdso_dat->rtc_offset;
-        break;
+        case CLOCK_ID_REALTIME:
+        case CLOCK_ID_REALTIME_COARSE:
+            _now = vdso_get_now_fn(__vdso_dat->clock_src)();
+            _off = __vdso_dat->rtc_offset;
+            _ival = _now - __vdso_dat->last_raw;
+            _off += clock_freq_adjust(_ival);
+            _off += clock_phase_adjust(_now, _ival);
+            break;
 
-    default:
-        break;
-    }
+        default:
+            break;
+        }
+        read_barrier();
+    } while (__vdso_dat->vdso_gen != _gen);
 
     if (_now == VDSO_NO_NOW)
         return VDSO_NO_NOW;
 
-    return _now + clock_get_drift(_now) + _off;
+    return _now + _off;
 }
 
 #ifdef __x86_64__

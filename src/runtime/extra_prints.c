@@ -217,7 +217,7 @@ static void format_csum_buffer(buffer dest, struct formatter_state *s, vlist *a)
     print_csum_buffer(dest, b);
 }
 
-static void print_timestamp(string b, timestamp t)
+static void print_decimal(string b, timestamp t, int prec)
 {
     u32 s= t>>32;
     u64 f= t&MASK(32);
@@ -229,7 +229,7 @@ static void print_timestamp(string b, timestamp t)
         bprintf(b,".");
 
         /* should round or something */
-        while ((f *= 10) && (count++ < 6)) {
+        while ((f *= 10) && (count++ < prec)) {
             u32 d = (f>>32);
             bprintf (b, "%d", d);
             f -= ((u64)d)<<32;
@@ -240,7 +240,23 @@ static void print_timestamp(string b, timestamp t)
 static void format_timestamp(buffer dest, struct formatter_state *s, vlist *a)
 {
     timestamp t = varg(*a, timestamp);
-    print_timestamp(dest, t);
+    print_decimal(dest, t, 6);
+}
+
+static void print_fixed(string b, s64 fx)
+{
+    s64 t = fx;
+    if (t < 0) {
+        bprintf(b, "-");
+        t = -t;
+    }
+    print_decimal(b, (u64)t, 9);
+}
+
+static void format_fixed(buffer dest, struct formatter_state *s, vlist *a)
+{
+    s64 t = varg(*a, s64);
+    print_fixed(dest, t);
 }
 
 static void format_range(buffer dest, struct formatter_state *s, vlist *a)
@@ -268,4 +284,5 @@ void init_extra_prints(void)
     register_format('R', format_range, 0);
     register_format('C', format_csum_buffer, 0);
     register_format('F', format_closure, 0);
+    register_format('f', format_fixed, 0);
 }

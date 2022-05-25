@@ -8,6 +8,8 @@
 #endif
 
 extern void notify_unix_timers_of_rtc_change(void);
+/* These should happen in pairs such that odd indicates update in-progress */
+#define vdso_update_gen() fetch_and_add((word *)&__vdso_dat->vdso_gen, 1)
 
 void kernel_delay(timestamp delta)
 {
@@ -21,19 +23,37 @@ timestamp kern_now(clock_id id)
     return now(id);
 }
 
-void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal)
+void clock_update_last_raw(timestamp t)
 {
-    clock_debug("%s: wallclock_now %T, temp_cal %ld, sync_complete %T, cal %ld\n",
-                __func__, wallclock_now, temp_cal, sync_complete, cal);
+    /* Periodically update last_raw to avoid numerical errors from big intervals */
+    if (__vdso_dat->base_freq && (t - __vdso_dat->last_raw > (CLOCK_RAW_UPDATE_SECONDS<<CLOCK_FP_BITS))) {
+        vdso_update_gen();
+        __vdso_dat->rtc_offset += ((s64)(t - __vdso_dat->last_raw) *
+            __vdso_dat->base_freq) >> CLOCK_FP_BITS;
+        __vdso_dat->last_raw = t;
+        vdso_update_gen();
+    }
+}
+
+void clock_set_freq(s64 freq)
+{
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
-    if (__vdso_dat->last_raw == 0)
-        __vdso_dat->last_raw = here;
-    __vdso_dat->temp_cal = temp_cal;
-    __vdso_dat->sync_complete = sync_complete;
-    __vdso_dat->cal = cal;
-    clock_update_drift(here);
+    vdso_update_gen();
+    __vdso_dat->rtc_offset += ((s64)(here - __vdso_dat->last_raw) * __vdso_dat->base_freq) >> CLOCK_FP_BITS;
+    __vdso_dat->base_freq = freq;
+    __vdso_dat->last_raw = here;
+    vdso_update_gen();
     timer_reorder(kernel_timers);
-    rtc_settimeofday(sec_from_timestamp(wallclock_now));
+}
+
+void clock_set_slew(s64 slewfreq, timestamp start, u64 duration)
+{
+    vdso_update_gen();
+    __vdso_dat->slew_freq = slewfreq;
+    __vdso_dat->slew_start = start;
+    __vdso_dat->slew_end = start + duration;
+    vdso_update_gen();
+    timer_reorder(kernel_timers);
 }
 
 closure_function(1, 1, boolean, timer_adjust_handler,
@@ -53,6 +73,17 @@ closure_function(1, 1, boolean, timer_adjust_handler,
         break;
     }
     return true;
+}
+
+void clock_step_rtc(s64 step)
+{
+    timer_adjust_begin(kernel_timers);
+    vdso_update_gen();
+    __vdso_dat->rtc_offset += step;
+    vdso_update_gen();
+    timer_adjust_end(kernel_timers, stack_closure(timer_adjust_handler, step));
+    rtc_settimeofday(sec_from_timestamp(now(CLOCK_ID_REALTIME)));
+    notify_unix_timers_of_rtc_change();
 }
 
 void clock_reset_rtc(timestamp wallclock_now)

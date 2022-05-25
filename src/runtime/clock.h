@@ -1,5 +1,6 @@
-/* Number of fractional bits in fixed-point clock calibration value. */
-#define CLOCK_CALIBR_BITS   32
+/* Number of fractional bits in fixed-point clock values. */
+#define CLOCK_FP_BITS   32
+#define CLOCK_RAW_UPDATE_SECONDS 30ull
 
 /* these need to map to linux values */
 typedef enum {
@@ -31,60 +32,62 @@ extern clock_now platform_monotonic_now;
 #include <vdso.h>
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 
-static inline s64 clock_calculate_drift(timestamp interval, s64 cal)
+static inline s64 clock_freq_adjust(s64 interval)
 {
-    if (cal >= 0)
-        return ((interval * cal) >> CLOCK_CALIBR_BITS);
-    else
-        return -((interval * -cal) >> CLOCK_CALIBR_BITS);
+    return (interval * __vdso_dat->base_freq) >> CLOCK_FP_BITS;
 }
 
-static inline s64 clock_get_drift(timestamp raw)
+static inline s64 clock_phase_adjust(timestamp raw, s64 interval)
 {
-    if (!__vdso_dat->temp_cal && !__vdso_dat->cal)
+    timestamp start = raw - interval;
+    timestamp end = raw;
+    if (__vdso_dat->slew_start > start)
+        start = __vdso_dat->slew_start;
+    if (raw > __vdso_dat->slew_end)
+        end = __vdso_dat->slew_end;
+    if (raw < start)
         return 0;
-    s64 drift = __vdso_dat->last_drift;
-    if (raw > __vdso_dat->sync_complete) {
-        if (__vdso_dat->last_raw > __vdso_dat->sync_complete) {
-            drift += clock_calculate_drift(raw - __vdso_dat->last_raw, __vdso_dat->cal);
-        } else {
-            drift += clock_calculate_drift(__vdso_dat->sync_complete - __vdso_dat->last_raw,
-                __vdso_dat->temp_cal);
-            drift += clock_calculate_drift(raw - __vdso_dat->sync_complete, __vdso_dat->cal);
-        }
-    } else {
-        drift += clock_calculate_drift(raw - __vdso_dat->last_raw, __vdso_dat->temp_cal);
-    }
-    return drift;
+    interval = end - start;
+
+    return __vdso_dat->slew_freq * interval >> CLOCK_FP_BITS;
 }
 
-static inline s64 clock_update_drift(timestamp raw)
-{
-    s64 drift = clock_get_drift(raw);
-    __vdso_dat->last_drift = drift;
-    __vdso_dat->last_raw = raw;
-    return drift;
-}
+void clock_set_freq(s64 freq);
+void clock_set_slew(s64 slewfreq, timestamp start, u64 duration);
+void clock_step_rtc(s64 step);
+void clock_update_last_raw(timestamp t);
 #endif
 
 static inline timestamp now(clock_id id)
 {
     if (!platform_monotonic_now)
         return -1ull;
-    timestamp t = apply(platform_monotonic_now);
+    timestamp t;
 
 #if defined(KERNEL) || defined(BUILD_VDSO)
-    if (id == CLOCK_ID_MONOTONIC_RAW)
-        return t;
-    t += clock_update_drift(t);
-    switch (id) {
-    case CLOCK_ID_REALTIME:
-    case CLOCK_ID_REALTIME_COARSE:
-        t += __vdso_dat->rtc_offset;
-        break;
-    default:
-        break;
-    }
+    u64 gen;
+    do {
+        gen = __vdso_dat->vdso_gen & ~1ull;
+#endif
+        t = apply(platform_monotonic_now);
+#if defined(KERNEL) || defined(BUILD_VDSO)
+        if (id == CLOCK_ID_MONOTONIC_RAW)
+            return t;
+        s64 last_raw = __vdso_dat->last_raw;
+        s64 interval = t - last_raw;
+        t += clock_freq_adjust(interval);
+        assert(t >= last_raw);
+        switch (id) {
+        case CLOCK_ID_REALTIME:
+        case CLOCK_ID_REALTIME_COARSE:
+            t += clock_phase_adjust(t, interval);
+            t += __vdso_dat->rtc_offset;
+            break;
+        default:
+            break;
+        }
+        read_barrier();
+    } while (gen != __vdso_dat->vdso_gen);
 #endif
 
     return t;
@@ -103,9 +106,12 @@ static inline void reset_clock_vdso_dat()
 {
     u64 rt = rtc_gettimeofday();
     __vdso_dat->rtc_offset = rt ? (rt << 32) - apply(platform_monotonic_now) : 0;
-    __vdso_dat->temp_cal = __vdso_dat->cal = 0;
-    __vdso_dat->sync_complete = 0;
-    __vdso_dat->last_raw = __vdso_dat->last_drift = 0;
+    __vdso_dat->last_raw = 0;
+    __vdso_dat->base_freq = 0;
+    __vdso_dat->slew_freq = 0;
+    __vdso_dat->slew_start = 0;
+    __vdso_dat->slew_end = 0;
+    __vdso_dat->vdso_gen = 0;
 }
 #endif
 
@@ -118,7 +124,6 @@ static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
 #endif
 }
 
-void clock_adjust(timestamp wallclock_now, s64 temp_cal, timestamp sync_complete, s64 cal);
 void clock_reset_rtc(timestamp wallclock_now);
 #if defined(KERNEL) || defined(BUILD_VDSO)
 #undef __vdso_dat
