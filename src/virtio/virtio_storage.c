@@ -92,6 +92,9 @@ struct virtio_blk_config {
 #define VIRTIO_BLK_S_IOERR      1
 #define VIRTIO_BLK_S_UNSUPP     2
 
+#define VIRTIO_BLK_DRIVER_FEATURES  \
+    (VIRTIO_BLK_F_SEG_MAX | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_CONFIG_WCE | VIRTIO_BLK_F_FLUSH)
+
 declare_closure_struct(0, 1, void, virtio_storage_req_handler,
                        storage_req, req);
 
@@ -270,12 +273,8 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
     virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
     virtio_alloc_virtqueue(v, "virtio blk", 0, &s->command);
 
-    /* If the device does not support the SEG_MAX feature, assume that an I/O request can have up to
-     * (virtqueue_size - 2) scatter-gather list elements (2 descriptors are needed for the request
-     * header and status). */
     s->seg_max = (v->features & VIRTIO_BLK_F_SEG_MAX) ?
-            vtdev_cfg_read_4(v, VIRTIO_BLK_R_SEG_MAX) : virtqueue_entries(s->command) - 2;
-
+            vtdev_cfg_read_4(v, VIRTIO_BLK_R_SEG_MAX) : 1;
     if (v->features & VIRTIO_BLK_F_FLUSH) {
         if (v->features & VIRTIO_BLK_F_CONFIG_WCE)
             vtdev_cfg_write_1(v, VIRTIO_BLK_R_WRITEBACK, 1 /* writeback */);
@@ -295,8 +294,7 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
 
     virtio_blk_debug("   attaching\n");
     heap general = bound(general);
-    vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d,
-                                  VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_CONFIG_WCE | VIRTIO_BLK_F_FLUSH);
+    vtdev v = (vtdev)attach_vtpci(general, bound(page_allocator), d, VIRTIO_BLK_DRIVER_FEATURES);
     virtio_blk_attach(general, bound(a), v);
     return true;
 }
@@ -312,8 +310,7 @@ closure_function(3, 1, void, vtmmio_blk_probe,
         return;
     virtio_blk_debug("   attaching\n");
     heap general = bound(general);
-    if (attach_vtmmio(general, bound(page_allocator), d,
-                      VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_CONFIG_WCE | VIRTIO_BLK_F_FLUSH))
+    if (attach_vtmmio(general, bound(page_allocator), d, VIRTIO_BLK_DRIVER_FEATURES))
         virtio_blk_attach(general, bound(a), (vtdev)d);
 }
 
