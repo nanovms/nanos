@@ -161,6 +161,8 @@ closure_function(6, 0, void, startup,
         rprintf("Debug http server started on port 9090\n");
     }
 #endif
+    if (get(root, sym(readonly_rootfs)))
+        filesystem_set_readonly(fs);
     value p = get(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));

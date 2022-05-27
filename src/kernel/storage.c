@@ -133,20 +133,27 @@ closure_function(2, 2, void, volume_link,
 
 static void volume_mount(volume v, buffer mount_point)
 {
+    boolean readonly = false;
+    char *cmount_point = buffer_to_cstring(mount_point);
+    int i = buffer_strstr(mount_point, ":ro");
+    if (i > 0) {
+        cmount_point[i] = 0;
+        readonly = true;
+    }
     filesystem fs = storage.root_fs;
     tuple root = filesystem_getroot(storage.root_fs);
     tuple mount_dir_t;
-    fs_status fss = filesystem_get_node(&fs, inode_from_tuple(root), buffer_to_cstring(mount_point),
+    fs_status fss = filesystem_get_node(&fs, inode_from_tuple(root), cmount_point,
         false, false, false, &mount_dir_t, 0);
     if (fss != FS_STATUS_OK) {
-        msg_err("mount point %b not found\n", mount_point);
+        msg_err("mount point %s not found\n", cmount_point);
         return;
     }
     inode mount_dir = inode_from_tuple(mount_dir_t);
     boolean ok = (fs == storage.root_fs) && (mount_dir_t != root) && children(mount_dir_t);
     filesystem_put_node(fs, mount_dir_t);
     if (!ok) {
-        msg_err("invalid mount point %b\n", mount_point);
+        msg_err("invalid mount point %s\n", cmount_point);
         return;
     }
     filesystem_complete complete = closure(storage.h, volume_link,
@@ -155,9 +162,9 @@ static void volume_mount(volume v, buffer mount_point)
         msg_err("cannot allocate closure\n");
         return;
     }
-    storage_debug("mounting volume at %b", mount_point);
+    storage_debug("mounting volume%s at %s", readonly ? " readonly" : "", cmount_point);
     v->mounting = true;
-    create_filesystem(storage.h, SECTOR_SIZE, v->size, v->req_handler, false,
+    create_filesystem(storage.h, SECTOR_SIZE, v->size, v->req_handler, readonly,
                       0 /* no label */, complete);
 }
 

@@ -48,6 +48,8 @@ const char *string_from_fs_status(fs_status s)
         return "out of memory";
     case FS_STATUS_LINKLOOP:
         return "maximum link hops reached";
+    case FS_STATUS_READONLY:
+        return "filesystem read-only";
     default:
         return "unknown error";
     }
@@ -535,6 +537,8 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
 #ifndef TFS_READ_ONLY
 fs_status filesystem_write_tuple(filesystem fs, tuple t)
 {
+    if (fs->ro)
+        return FS_STATUS_READONLY;
     if (log_write(fs->tl, t) && (!fs->temp_log || log_write(fs->temp_log, t)))
         return FS_STATUS_OK;
     else
@@ -543,6 +547,8 @@ fs_status filesystem_write_tuple(filesystem fs, tuple t)
 
 fs_status filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
 {
+    if (fs->ro)
+        return FS_STATUS_READONLY;
     if (log_write_eav(fs->tl, t, a, v) &&
             (!fs->temp_log || log_write_eav(fs->temp_log, t, a, v)))
         return FS_STATUS_OK;
@@ -552,6 +558,8 @@ fs_status filesystem_write_eav(filesystem fs, tuple t, symbol a, value v)
 
 static fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
 {
+    if (fs->ro)
+        return FS_STATUS_READONLY;
     if (f->md) {
         value v = value_from_u64(fs->h, len);
         if (v == INVALID_ADDRESS)
@@ -580,6 +588,7 @@ static fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
 
 static fs_status create_extent(filesystem fs, range blocks, boolean uninited, extent *ex)
 {
+    assert(!fs->ro);
     heap h = fs->h;
     u64 nblocks = MAX(range_span(blocks), MIN_EXTENT_SIZE >> fs->blocksize_order);
 
@@ -975,7 +984,8 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
     filesystem fs = bound(fs);
     fsfile f = bound(f);
     tfs_debug("%s: file %p range %R\n", __func__, f, q);
-
+    if (fs->ro)
+       return timm("result", "read-only filesystem", "fsstatus", "%d", FS_STATUS_READONLY);
     filesystem_lock(fs);
     status s = extents_range_handler(fs, f, q, 0, 0);
     filesystem_unlock(fs);
@@ -991,6 +1001,10 @@ closure_function(2, 3, void, filesystem_storage_write,
     assert((q.start & MASK(fs->blocksize_order)) == 0);
     tfs_debug("%s: fsfile %p, q %R, sg %p, sg count 0x%lx, complete %F\n", __func__,
               f, q, sg, sg ? sg->count : 0, complete);
+    if (fs->ro) {
+        apply(complete, timm("result", "read-only filesystem", "fsstatus", "%d", FS_STATUS_READONLY));
+        return;
+    }
 
     merge m = allocate_merge(fs->h, complete);
     status_handler sh = apply_merge(m);
@@ -1314,6 +1328,8 @@ fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
 
 fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry, boolean persistent, boolean recursive)
 {
+    if (fs->ro)
+        return FS_STATUS_READONLY;
     filesystem_lock(fs);
     tuple parent = cwd ? cwd : fs->root;
     assert(children(parent));
@@ -1452,6 +1468,10 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
                 fss = FS_STATUS_NOENT;
                 goto out;
             }
+            if ((*fs)->ro) {
+                fss = FS_STATUS_READONLY;
+                goto out;
+            }
             t = fs_new_entry(*fs);
 
             /* 'make it a file' by adding an empty extents list */
@@ -1517,12 +1537,16 @@ void filesystem_put_meta(filesystem fs, tuple n)
 }
 
 /* Called with fs locked. */
-fsfile filesystem_creat_unnamed(filesystem fs)
+fs_status filesystem_creat_unnamed(filesystem fs, fsfile *f)
 {
-    fsfile f = allocate_fsfile(fs, 0);
-    tfs_debug("%s: create unnamed file %p\n", __func__, f);
-    fsfile_set_length(f, 0);
-    return f;
+    if (fs->ro)
+        return FS_STATUS_READONLY;
+    *f = allocate_fsfile(fs, 0);
+    if (*f == INVALID_ADDRESS)
+        return FS_STATUS_NOMEM;
+    tfs_debug("%s: create unnamed file %p\n", __func__, *f);
+    fsfile_set_length(*f, 0);
+    return FS_STATUS_OK;
 }
 
 fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const char *target)
@@ -1538,6 +1562,10 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
     }
     if ((fss != FS_STATUS_NOENT) || !parent)
         goto out;
+    if (fs->ro) {
+        fss = FS_STATUS_READONLY;
+        goto out;
+    }
     tuple link = fs_new_entry(fs);
     set(link, sym(linktarget), buffer_cstring(fs->h, target));
     symbol name = sym_this(filename_from_path(path));
@@ -1579,6 +1607,10 @@ fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean 
             fss = FS_STATUS_ISDIR;
             goto out;
         }
+    }
+    if (fs->ro) {
+        fss = FS_STATUS_READONLY;
+        goto out;
     }
     symbol name = sym_this(filename_from_path(path));
     fss = fs_set_dir_entry(fs, parent, name, 0);
@@ -1635,7 +1667,10 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
         s = FS_STATUS_XDEV;
         goto out;
     }
-
+    if (oldfs->ro) {
+        s = FS_STATUS_READONLY;
+        goto out;
+    }
     /* oldfs may have been unlocked in the process of resolving newpath, so check (now that the
      * filesystem is locked again) whether previously found tuples are still valid. */
     if (!table_find(oldfs->files, old) || !table_find(oldfs->files, oldparent)) {
@@ -1727,7 +1762,10 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
         s = FS_STATUS_XDEV;
         goto out;
     }
-
+    if (fs1->ro) {
+        s = FS_STATUS_READONLY;
+        goto out;
+    }
     /* fs1 may have been unlocked in the process of resolving path2, so check (now that the
      * filesystem is locked again) whether previously found tuples are still valid. */
     if (!table_find(fs1->files, n1) || !table_find(fs1->files, parent1)) {
@@ -1981,6 +2019,16 @@ void destroy_filesystem(filesystem fs)
 tuple filesystem_getroot(filesystem fs)
 {
     return fs->root;
+}
+
+boolean filesystem_is_readonly(filesystem fs)
+{
+    return fs->ro;
+}
+
+void filesystem_set_readonly(filesystem fs)
+{
+    fs->ro = true;
 }
 
 u64 fs_blocksize(filesystem fs)
