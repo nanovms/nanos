@@ -1051,10 +1051,31 @@ sysreturn creat(const char *pathname, int mode)
     return rv;
 }
 
+/* small enough to not exhaust entropy resources without scheduling */
+#define GETRANDOM_MAX_BUFLEN (1ull << 20)
+
+static inline void fill_random(void *buf, u64 buflen)
+{
+    random_buffer(alloca_wrap_buffer(buf, buflen));
+}
+
+closure_function(3, 0, void, getrandom_deferred,
+                 void *, buf, u64, buflen, u64, written)
+{
+    u64 len = MIN(GETRANDOM_MAX_BUFLEN, bound(buflen) - bound(written));
+    fill_random(bound(buf) + bound(written), len);
+    bound(written) += len;
+    if (bound(written) < bound(buflen)) {
+        assert(enqueue_irqsafe(runqueue, closure_self()));
+        kern_yield();
+    } else {
+        syscall_return(current, bound(written));
+        closure_finish();
+    }
+}
+
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
 {
-    buffer b;
-
     if (!buflen)
         return set_syscall_error(current, EINVAL);
 
@@ -1064,8 +1085,17 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
         return set_syscall_error(current, EINVAL);
 
-    b = alloca_wrap_buffer(buf, buflen);
-    return random_buffer(b);
+    u64 n = MIN(GETRANDOM_MAX_BUFLEN, buflen);
+    fill_random(buf, n);
+
+    if (n < buflen) {
+        thunk t = contextual_closure(getrandom_deferred, buf, buflen, n);
+        assert(t != INVALID_ADDRESS);
+        assert(enqueue_irqsafe(runqueue, t));
+        /* not really sleeping */
+        thread_maybe_sleep_uninterruptible(current);
+    }
+    return buflen;
 }
 
 static int try_write_dirent(void *dirp, boolean dirent64, char *p,

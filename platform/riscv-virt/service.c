@@ -17,10 +17,9 @@
 #define init_dump(p, len)
 #endif
 
-u64 random_seed(void)
+u64 hw_get_seed(void)
 {
-    // XXX add qemu random device? virtio-rng-device?
-    return rdtsc();
+    return (u64)now(CLOCK_ID_REALTIME);
 }
 
 extern void *START, *END;
@@ -199,4 +198,5 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_virtio_blk(kh, sa);
     init_virtio_scsi(kh, sa);
     init_virtio_balloon(kh);
+    init_virtio_rng(kh);
 }

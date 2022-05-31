@@ -7,13 +7,12 @@
 #include <errno.h>
 #include <math.h>
 
-#define BUF_LEN 128
+#define BUF_LEN (4ull << 20)
 
 static int hash[256];
 
- void *malloc(size_t size);
-       void free(void *ptr);
-
+void *malloc(size_t size);
+void free(void *ptr);
 
 int
 __getrandom(void *buf, int i, int f)
@@ -31,7 +30,7 @@ int main(int argc, char **argvp)
     }
 
     r = __getrandom(buffer, BUF_LEN, 0);
-    if (r != 128) {
+    if (r != BUF_LEN) {
         printf("didn't get enough bytes: r = %d, errno = %d\n", r, errno);
         return 2;
     }

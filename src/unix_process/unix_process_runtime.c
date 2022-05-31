@@ -36,7 +36,7 @@ clock_now platform_monotonic_now;
 void *malloc(size_t size);
 void free(void *ptr);
 
-u64 random_seed()
+u64 hw_get_seed()
 {
     return random();
 }
@@ -178,7 +178,7 @@ heap init_process_runtime()
 {
     heap h = malloc_allocator();
     platform_monotonic_now = closure(h, unix_now);
-    init_random();
+    init_random(h);
     init_runtime(h, h);
     init_tuples(allocate_tagged_region(h, tag_table_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
