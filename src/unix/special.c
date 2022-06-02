@@ -135,7 +135,7 @@ closure_function(1, 4, void, mounts_handler,
         push_u8(b, '/');
     }
 out:
-    buffer_write_cstring(b, " tfs rw 0 0\n");
+    bprintf(b, " tfs %s 0 0\n", filesystem_is_readonly(fs) ? "ro" : "rw");
 }
 
 static sysreturn mounts_read(file f, void *dest, u64 length, u64 offset)
