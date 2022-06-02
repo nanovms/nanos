@@ -60,8 +60,8 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
     thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
         flags, child_stack, ptid, ctid, newtls);
 
-    if (!child_stack) {   /* this is actually a fork() */
-        thread_log(current, "attempted to fork by passing null child stack, aborting.");
+    if (!(flags & CLONE_THREAD)) {
+        thread_log(current, "attempted to create new process, aborting.");
         return set_syscall_error(current, ENOSYS);
     }
 
