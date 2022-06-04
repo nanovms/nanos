@@ -51,6 +51,53 @@ sysreturn arch_prctl(int code, unsigned long addr)
 }
 #endif
 
+static sysreturn clone_internal(struct clone_args_internal *args)
+{
+     u64 flags = args->flags;
+     void *stack = args->stack;
+     bytes stack_size = args->stack_size;
+
+     if (!stack_size)
+          return -EINVAL;
+
+     if (!(flags & CLONE_THREAD)) {
+          thread_log(current, "attempted to create new process, aborting.");
+          return -ENOSYS;
+     }
+
+     if (!validate_user_memory(stack, stack_size, true))
+          return -EFAULT;
+
+     if (((flags & CLONE_PARENT_SETTID) &&
+          !validate_user_memory(args->parent_tid, sizeof(u64), true)) ||
+         ((flags & CLONE_CHILD_CLEARTID) &&
+          !validate_user_memory(args->child_tid, sizeof(u64), true)))
+          return -EFAULT;
+
+     thread t = create_thread(current->p, INVALID_PHYSICAL);
+     context_frame f = thread_frame(t);
+
+     clone_frame_pstate(f, thread_frame(current));
+     thread_clone_sigmask(t, current);
+
+     set_syscall_return(t, 0);
+     f[SYSCALL_FRAME_SP] = (u64)stack + stack_size;
+     if (flags & CLONE_SETTLS)
+	  set_tls(f, args->tls);
+     if (flags & CLONE_PARENT_SETTID)
+	  *(args->parent_tid) = t->tid;
+     if (flags & CLONE_CHILD_SETTID)
+	  *(args->child_tid) = t->tid;
+     if (flags & CLONE_CHILD_CLEARTID)
+	  t->clear_tid = args->child_tid;
+     t->blocked_on = 0;
+     t->syscall = 0;
+     f[FRAME_FULL] = true;
+     thread_reserve(t);
+     schedule_thread(t);
+     return t->tid;
+}
+
 #if defined(__x86_64__)
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, unsigned long newtls)
 #elif defined(__aarch64__) || defined(__riscv)
@@ -60,44 +107,43 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
     thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
         flags, child_stack, ptid, ctid, newtls);
 
-    if (!(flags & CLONE_THREAD)) {
-        thread_log(current, "attempted to create new process, aborting.");
-        return set_syscall_error(current, ENOSYS);
-    }
+    struct clone_args_internal args = {
+         .flags = flags,
+         .child_tid = ctid,
+         .parent_tid = ptid,
+         /* no stack size given, just validate the top word */
+         .stack = child_stack - sizeof(u64),
+         .stack_size = sizeof(u64),
+         .tls = newtls,
+    };
 
-    /* no stack size given, just validate the top word */
-    if (!validate_user_memory(child_stack, sizeof(u64), true))
-        return set_syscall_error(current, EFAULT);
-
-    if (((flags & CLONE_PARENT_SETTID) &&
-         !validate_user_memory(ptid, sizeof(int), true)) ||
-        ((flags & CLONE_CHILD_CLEARTID) &&
-         !validate_user_memory(ctid, sizeof(int), true)))
-        return set_syscall_error(current, EFAULT);
-
-    thread t = create_thread(current->p, INVALID_PHYSICAL);
-    context_frame f = thread_frame(t);
-    /* clone frame processor state */
-    clone_frame_pstate(f, thread_frame(current));
-    thread_clone_sigmask(t, current);
-
-    /* clone behaves like fork at the syscall level, returning 0 to the child */
-    set_syscall_return(t, 0);
-    f[SYSCALL_FRAME_SP] = u64_from_pointer(child_stack);
-    if (flags & CLONE_SETTLS)
-        set_tls(f, newtls);
-    if (flags & CLONE_PARENT_SETTID)
-        *ptid = t->tid;
-    if (flags & CLONE_CHILD_CLEARTID)
-        t->clear_tid = ctid;
-    t->blocked_on = 0;
-    t->syscall = 0;
-    f[FRAME_FULL] = true;
-    thread_reserve(t);
-    schedule_thread(t);
-    return t->tid;
+    return clone_internal(&args);
 }
 
+sysreturn clone3(struct clone_args *args, bytes size)
+{
+     thread_log(current,
+         "clone3: args_size: %ld, pidfd: %p, child_tid: %p, parent_tid: %p, exit_signal: %ld, stack: %p, stack_size: 0x%lx, tls: %p",
+         size, args->pidfd, args->child_tid, args->parent_tid, args->exit_signal,
+         args->stack, args->stack_size, args->tls);
+
+     if (size < sizeof(*args))
+          return -EINVAL;
+
+     if (!validate_user_memory(args, size, false))
+          return -EFAULT;
+
+     struct clone_args_internal argsi = {
+          .flags = args->flags,
+          .child_tid = (int *)args->child_tid,
+          .parent_tid = (int *)args->parent_tid,
+          .stack = (void *)args->stack,
+          .stack_size = args->stack_size,
+          .tls = args->tls
+     };
+
+     return clone_internal(&argsi);
+}
 
 void register_thread_syscalls(struct syscall *map)
 {
@@ -105,6 +151,7 @@ void register_thread_syscalls(struct syscall *map)
     register_syscall(map, set_robust_list, set_robust_list, 0);
     register_syscall(map, get_robust_list, get_robust_list, 0);
     register_syscall(map, clone, clone, SYSCALL_F_SET_PROC);
+    register_syscall(map, clone3, clone3, SYSCALL_F_SET_PROC);
 #ifdef __x86_64__
     register_syscall(map, arch_prctl, arch_prctl, 0);
 #endif

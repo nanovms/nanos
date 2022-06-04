@@ -333,5 +333,6 @@
 #define SYS_io_uring_setup			425
 #define SYS_io_uring_enter			426
 #define SYS_io_uring_register			427
+#define SYS_clone3				435
 
-#define SYS_MAX 428
+#define SYS_MAX 436
