@@ -71,7 +71,7 @@ release: $(THIRD_PARTY) tools
 	if [ -f $(UEFI_LOADER) ]; then $(CP) $(UEFI_LOADER) release; fi
 	$(CP) $(KERNEL) release
 	$(Q) $(MKDIR) release/klibs
-	$(CP) $(OUTDIR)/klib/bin/* release/klibs
+	bash -O extglob -c "$(CP) $(OUTDIR)/klib/bin/!(test) release/klibs"
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
 target: contgen
