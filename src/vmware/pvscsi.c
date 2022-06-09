@@ -131,17 +131,17 @@ static void pvscsi_action_io_queued(pvscsi dev, struct pvscsi_hcb *hcb, u16 targ
     hcb->lun = lun;
 
     // order: put into hcb queue if not empty
-    spin_lock(&dev->queue_lock);
+    u64 flags = spin_lock_irq(&dev->queue_lock);
     if (!list_empty(&dev->hcb_queue)) {
         list_push_back(&dev->hcb_queue, &hcb->links);
-        spin_unlock(&dev->queue_lock);
+        spin_unlock_irq(&dev->queue_lock, flags);
         return;
     }
 
     if (!pvscsi_action_io(dev, hcb)) {
         list_push_back(&dev->hcb_queue, &hcb->links);
     }
-    spin_unlock(&dev->queue_lock);
+    spin_unlock_irq(&dev->queue_lock, flags);
 }
 
 static inline void pvscsi_action(pvscsi dev, struct pvscsi_hcb *hcb, u16 target, u16 lun)
@@ -460,7 +460,7 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
         }
     }
 
-    spin_lock(&dev->queue_lock);
+    u64 flags = spin_lock_irq(&dev->queue_lock);
     list_foreach(&dev->hcb_queue, i) {
         assert(i);
         struct pvscsi_hcb *hcb = struct_from_list(i, struct pvscsi_hcb *, links);
@@ -468,7 +468,7 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
             break;
         list_delete(i);
     }
-    spin_unlock(&dev->queue_lock);
+    spin_unlock_irq(&dev->queue_lock, flags);
 }
 
 define_closure_function(0, 1, u64, pvscsi_mem_cleaner,

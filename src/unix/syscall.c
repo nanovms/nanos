@@ -2487,6 +2487,7 @@ define_closure_function(1, 0, void, syscall_context_return,
 {
     syscall_context sc = bound(sc);
     context_frame f = sc->context.frame;
+    disable_interrupts();
     context_switch(&sc->context);
     context_release_refcount(&sc->context);
     assert(frame_is_full(f));
@@ -2543,6 +2544,7 @@ void syscall_handler(thread t)
     context_pause(&t->context);
     context_release(&t->context);
     context_resume(&sc->context);
+    enable_interrupts();
 
     if (shutting_down)
         goto out;

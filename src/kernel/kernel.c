@@ -101,6 +101,7 @@ define_closure_function(1, 0, void, kernel_context_return,
 {
     kernel_context kc = bound(kc);
     context_frame f = kc->context.frame;
+    disable_interrupts();
     context_switch(&kc->context);
     assert(kc->context.refcount.c > 1);
     context_release_refcount(&kc->context);

@@ -634,6 +634,7 @@ NOTRACE static inline __attribute__((always_inline)) __attribute__((noreturn)) v
 {
     cpuinfo ci = current_cpu();
     context ctx = ci->m.kernel_context;
+    disable_interrupts();
     context_switch_and_branch(ctx, runloop_internal, 0, 0);
 }
 

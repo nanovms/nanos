@@ -18,10 +18,10 @@ static struct spinlock write_lock;
 
 void attach_console_driver(struct console_driver *driver)
 {
-    spin_lock(&write_lock);
+    u64 flags = spin_lock_irq(&write_lock);
     list_insert_before(driver->disabled ? list_end(&console_drivers) : list_begin(&console_drivers),
             &driver->l);
-    spin_unlock(&write_lock);
+    spin_unlock_irq(&write_lock, flags);
 }
 
 void console_write(const char *s, bytes count)
@@ -31,14 +31,14 @@ void console_write(const char *s, bytes count)
             serial_putchar(*s++);
         return;
     }
-    spin_lock(&write_lock);
+    u64 flags = spin_lock_irq(&write_lock);
     list_foreach(&console_drivers, e) {
         struct console_driver *d = struct_from_list(e, struct console_driver *, l);
         if (d->disabled)
             break;
         d->write(d, s, count);
     }
-    spin_unlock(&write_lock);
+    spin_unlock_irq(&write_lock, flags);
 }
 
 void console_force_unlock(void)

@@ -50,6 +50,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
     u32 data = -1;
     int port;
 
+    u64 flags = irq_disable_save();
     port = pci_cfgenable(dev, reg, bytes);
     if (port != 0) {
         switch (bytes) {
@@ -64,6 +65,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
             break;
         }
     }
+    irq_restore(flags);
     return (data);
 }
 
@@ -73,6 +75,7 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
                    __func__, dev, dev->bus, reg, bytes, source);
     int port;
 
+    u64 flags = irq_disable_save();
     port = pci_cfgenable(dev, reg, bytes);
     if (port != 0) {
         switch (bytes) {
@@ -87,64 +90,86 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
             break;
         }
     }
+    irq_restore(flags);
 }
 
+/* Seeing bad effects if an interrupt is caught after port I/O; disable irqs as precaution */
 u8 pci_bar_read_1(struct pci_bar *b, u64 offset)
 {
     pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", __func__, b, offset);
-    return b->type == PCI_BAR_MEMORY ? *(u8 *) (b->vaddr + offset) : in8(b->addr + offset);
+    u64 flags = irq_disable_save();
+    u8 v = b->type == PCI_BAR_MEMORY ? *(u8 *) (b->vaddr + offset) : in8(b->addr + offset);
+    irq_restore(flags);
+    return v;
 }
 
 void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val)
 {
     pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", __func__, b, offset, val);
+    u64 flags = irq_disable_save();
     if (b->type == PCI_BAR_MEMORY)
         *(u8 *) (b->vaddr + offset) = val;
     else
         out8(b->addr + offset, val);
+    irq_restore(flags);
 }
 
 u16 pci_bar_read_2(struct pci_bar *b, u64 offset)
 {
     pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", __func__, b, offset);
-    return b->type == PCI_BAR_MEMORY ? *(u16 *) (b->vaddr + offset) : in16(b->addr + offset);
+    u64 flags = irq_disable_save();
+    u16 v = b->type == PCI_BAR_MEMORY ? *(u16 *) (b->vaddr + offset) : in16(b->addr + offset);
+    irq_restore(flags);
+    return v;
 }
 
 void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val)
 {
     pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", __func__, b, offset, val);
+    u64 flags = irq_disable_save();
     if (b->type == PCI_BAR_MEMORY)
         *(u16 *) (b->vaddr + offset) = val;
     else
         out16(b->addr + offset, val);
+    irq_restore(flags);
 }
 
 u32 pci_bar_read_4(struct pci_bar *b, u64 offset)
 {
     pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", __func__, b, offset);
-    return b->type == PCI_BAR_MEMORY ? *(u32 *) (b->vaddr + offset) : in32(b->addr + offset);
+    u64 flags = irq_disable_save();
+    u32 v = b->type == PCI_BAR_MEMORY ? *(u32 *) (b->vaddr + offset) : in32(b->addr + offset);
+    irq_restore(flags);
+    return v;
 }
 
 void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
 {
     pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", __func__, b, offset, val);
+    u64 flags = irq_disable_save();
     if (b->type == PCI_BAR_MEMORY)
         *(u32 *) (b->vaddr + offset) = val;
     else
         out32(b->addr + offset, val);
+    irq_restore(flags);
 }
 
 u64 pci_bar_read_8(struct pci_bar *b, u64 offset)
 {
-    return b->type == PCI_BAR_MEMORY ? *(u64 *) (b->vaddr + offset) : in64(b->addr + offset);
+    u64 flags = irq_disable_save();
+    u64 v = b->type == PCI_BAR_MEMORY ? *(u64 *) (b->vaddr + offset) : in64(b->addr + offset);
+    irq_restore(flags);
+    return v;
 }
 
 void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
 {
+    u64 flags = irq_disable_save();
     if (b->type == PCI_BAR_MEMORY)
         *(u64 *) (b->vaddr + offset) = val;
     else
         out64(b->addr + offset, val);
+    irq_restore(flags);
 }
 
 void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)

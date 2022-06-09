@@ -567,9 +567,9 @@ buffer_handler init_gdb(heap h,
     g->in = allocate_buffer(h, 256);
     g->h = h;
     g->p = p;
-    spin_lock(&p->threads_lock);
+    u64 flags = spin_lock_irq(&p->threads_lock);
     g->t = struct_from_field(rbtree_find_first(p->threads), thread, n);
-    spin_unlock(&p->threads_lock);
+    spin_unlock_irq(&p->threads_lock, flags);
     // XXX assumes both frames of all threads share same fault handler 
     g->fault_handler = g->t->context.fault_handler;
     gdb_fh = closure(h, gdb_handle_exception, g);

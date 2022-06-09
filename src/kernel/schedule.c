@@ -151,11 +151,11 @@ static inline void service_async_1(queue q)
     }
 }
 
+/* must enter with interrupts disabled */
 NOTRACE void __attribute__((noreturn)) runloop_internal(void)
 {
     cpuinfo ci = current_cpu();
 
-    disable_interrupts();
     sched_debug("runloop from %s c: %d  a1: %d b:%d  r:%d  t:%d\n",
                 state_strings[ci->state], queue_length(ci->cpu_queue),
                 queue_length(async_queue_1), queue_length(bhqueue),
@@ -165,6 +165,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     page_invalidate_flush();
 
   retry:
+    /* int handling safe under general execution */
+    enable_interrupts();
+
     /* queue for cpu specific operations */
     service_thunk_queue(ci->cpu_queue);
 

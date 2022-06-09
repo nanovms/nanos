@@ -238,6 +238,7 @@ static void thread_resume(context ctx)
     t->start_time = here == 0 ? 1 : here;
     if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
         count_syscall(t, 0);
+    disable_interrupts(); // XXX defend location
     context_frame f = thread_frame(t);
     thread_frame_restore_tls(f);
     thread_frame_restore_fpsimd(f);
@@ -290,6 +291,7 @@ define_closure_function(1, 0, void, thread_return,
                  current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
     ci->frcount++;
     clear_fault_handler();
+    disable_interrupts();
     context_switch(&t->context);
     thread_release(t);
     frame_return(thread_frame(t));
@@ -491,9 +493,9 @@ void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");
 
-    spin_lock(&t->p->threads_lock);
+    u64 flags = spin_lock_irq(&t->p->threads_lock);
     rbtree_remove_by_key(t->p->threads, &t->n);
-    spin_unlock(&t->p->threads_lock);
+    spin_unlock_irq(&t->p->threads_lock, flags);
 
     /* dequeue signals for thread */
     sigstate_flush_queue(&t->signals);
