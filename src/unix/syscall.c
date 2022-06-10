@@ -2380,7 +2380,6 @@ void count_syscall(thread t, sysreturn rv)
     else
         us = t->syscall_time;
     fetch_and_add(&ss->usecs, us);
-    t->syscall_time = 0;
 }
 
 static boolean debugsyscalls;
@@ -2515,6 +2514,7 @@ void syscall_handler(thread t)
         assert(t->last_syscall == -1);
         t->last_syscall = call;
         t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC_RAW);
+        t->syscall_time = 0;
     }
     struct syscall *s = t->p->syscalls + call;
     if (debugsyscalls) {
