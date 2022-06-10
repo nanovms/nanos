@@ -790,7 +790,7 @@ void count_syscall(thread t, sysreturn rv);
 extern boolean do_syscall_stats;
 static inline void count_syscall_save(thread t)
 {
-    if (do_syscall_stats && !t->syscall_complete) {
+    if (do_syscall_stats && !t->syscall_complete && t->syscall_enter_ts) {
         t->syscall_time += usec_from_timestamp(now(CLOCK_ID_MONOTONIC_RAW) - t->syscall_enter_ts);
         t->syscall_enter_ts = 0;
     }
