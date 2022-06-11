@@ -37,6 +37,7 @@ typedef struct pagecache {
        alterations to page completion vecs */
 #ifdef KERNEL
     struct spinlock state_lock;
+    struct spinlock global_lock;
 #endif
     struct pagelist free;      /* see state descriptions */
     struct pagelist new;

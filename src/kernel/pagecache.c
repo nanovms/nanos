@@ -85,6 +85,16 @@ static inline void pagelist_touch(pagelist pl, pagecache_page pp)
 }
 
 #ifdef KERNEL
+static inline void pagecache_lock(pagecache pc)
+{
+    spin_lock(&pc->global_lock);
+}
+
+static inline void pagecache_unlock(pagecache pc)
+{
+    spin_unlock(&pc->global_lock);
+}
+
 static inline void pagecache_lock_state(pagecache pc)
 {
     spin_lock(&pc->state_lock);
@@ -117,6 +127,8 @@ static inline void pagecache_unlock_node(pagecache_node pn)
 }
 
 #else
+#define pagecache_lock(pc)
+#define pagecache_unlock(pc)
 #define pagecache_lock_state(pc)
 #define pagecache_unlock_state(pc)
 #define pagecache_lock_volume(pv)
@@ -832,6 +844,7 @@ static void pagecache_commit_dirty_pages(pagecache pc)
 {
     pagecache_debug("%s\n", __func__);
 
+    pagecache_lock(pc);
     list_foreach(&pc->volumes, l) {
         pagecache_volume pv = struct_from_list(l, pagecache_volume, l);
         pagecache_node pn = 0;
@@ -847,6 +860,7 @@ static void pagecache_commit_dirty_pages(pagecache pc)
             }
         } while (pn);
     }
+    pagecache_unlock(pc);
 }
 
 static void pagecache_scan(pagecache pc)
@@ -1451,7 +1465,9 @@ pagecache_volume pagecache_allocate_volume(u64 length, int block_order)
     if (pv == INVALID_ADDRESS)
         return pv;
     pv->pc = pc;
+    pagecache_lock(pc);
     list_insert_before(&pc->volumes, &pv->l);
+    pagecache_unlock(pc);
     list_init(&pv->dirty_nodes);
 #ifdef KERNEL
     spin_lock_init(&pv->lock);
@@ -1469,7 +1485,9 @@ pagecache_volume pagecache_allocate_volume(u64 length, int block_order)
 
 void pagecache_dealloc_volume(pagecache_volume pv)
 {
+    pagecache_lock(pv->pc);
     list_delete(&pv->l);
+    pagecache_unlock(pv->pc);
     deallocate(pv->pc->h, pv, sizeof(*pv));
 }
 
@@ -1500,6 +1518,7 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
                                                         PAGESIZE));
     assert(pc->completions != INVALID_ADDRESS);
     spin_lock_init(&pc->state_lock);
+    spin_lock_init(&pc->global_lock);
 #else
     pc->completions = general;
 #endif
