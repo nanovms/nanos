@@ -29,6 +29,12 @@ __Page Protections__:
 
 * Text no write
 
+__Random Number Generation__:
+
+* virtio-rng driver
+
+* rdseed and rdrand CPU instructions on x86 platforms
+
 ## Other Considerations
 
 * Single Process
