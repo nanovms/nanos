@@ -369,6 +369,7 @@ thread create_thread(process p, u64 tid)
     context_frame f = thread_frame(t);
 #ifdef __x86_64__
     f[FRAME_CS] = 0x2b & ~1; // CS 0x28 + CPL 3 but clear bit 0 to indicate syscall
+    f[FRAME_SS] = USER_DATA_SELECTOR | 0x3 /* RPL */;
 #endif
 #ifdef __aarch64__
     f[FRAME_EL] = 0;
