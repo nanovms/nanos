@@ -189,8 +189,9 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     f[FRAME_RSP] = mcontext->rsp;
     f[FRAME_RIP] = mcontext->rip;
     f[FRAME_EFLAGS] = (f[FRAME_EFLAGS] & ~SAFE_EFLAGS) | (mcontext->eflags & SAFE_EFLAGS);
-    f[FRAME_CS] = mcontext->cs | 0x3; /* force CPL3 */
-    f[FRAME_SS] = mcontext->ss | 0x3;
+    /* Don't trust segment selector values (CS and SS) that may have been modified by the process,
+     * because invalid values can cause a general protection fault (in kernel mode) when trying to
+     * resume this thread. */
     t->signal_mask = normalize_signal_mask(mcontext->oldmask);
     if (mcontext->fpstate)
         runtime_memcpy(frame_extended(t->context.frame), mcontext->fpstate, extended_frame_size);
