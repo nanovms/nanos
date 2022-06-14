@@ -642,7 +642,7 @@ define_closure_function(1, 2, void, itimer_expire,
 
 #define USEC_LIMIT 999999
 
-static sysreturn setitimer_internal(unix_timer ut, int clockid,
+static sysreturn setitimer_internal(unix_timer ut,
                                     const struct itimerval *new_value,
                                     struct itimerval *old_value)
 {
@@ -661,12 +661,11 @@ static sysreturn setitimer_internal(unix_timer ut, int clockid,
     timestamp tinit = time_from_timeval(&new_value->it_value);
     timestamp interval = time_from_timeval(&new_value->it_interval);
 
-    timer_debug("register timer: clockid %d, init value %T, interval %T\n",
-                clockid, tinit, interval);
+    timer_debug("register timer: init value %T, interval %T\n", tinit, interval);
     if (interval != 0)
         ut->interval = true;
     reserve_unix_timer(ut);
-    register_timer(kernel_timers, &ut->t, clockid, tinit, false, interval,
+    register_timer(kernel_timers, &ut->t, CLOCK_ID_MONOTONIC, tinit, false, interval,
                    init_closure(&ut->info.itimer.timer_expire, itimer_expire, ut));
     rv = 0;
   out:
@@ -674,11 +673,11 @@ static sysreturn setitimer_internal(unix_timer ut, int clockid,
     return rv;
 }
 
-static unix_timer unix_timer_from_itimer_index(process p, int which, clock_id clockid)
+static unix_timer unix_timer_from_itimer_index(process p, int which)
 {
     unix_timer ut = vector_get(p->itimers, which);
     if (!ut) {
-        ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER, clockid);
+        ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER, CLOCK_ID_MONOTONIC);
         if (ut == INVALID_ADDRESS)
             return ut;
         ut->info.itimer.which = which;
@@ -704,16 +703,11 @@ static unix_timer unix_timer_from_itimer_index(process p, int which, clock_id cl
 sysreturn setitimer(int which, const struct itimerval *new_value,
                     struct itimerval *old_value)
 {
-    /* Since we are a unikernel, and ITIMER_REAL accounts for both
-       user and system time, we'll just treat it like an ITIMER_REAL.
-
-       This isn't entirely accurate because it accounts for system
-       time that isn't on behalf of running threads. A more accurate
-       method might be to create a timer heap per clock domain (in
-       this case timer heaps attached to the process itself). We are
-       presently limited by all timers mapping to monotonic system
-       time. */
-    clock_id clockid;
+    /* XXX: ITIMER_PROF should account only for CPU time spent by the process (both user and system
+     * time), but is currently treated like ITIMER_REAL.
+     * A possible method to account for CPU time might be to create a timer heap per clock domain
+     * (in this case timer heaps attached to the process itself). We are presently limited by all
+     * timers mapping to monotonic system time. */
     if (which == ITIMER_VIRTUAL) {
         msg_err("timer type %d not yet supported\n", which);
         if (new_value) {
@@ -722,11 +716,7 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
                     time_from_timeval(&new_value->it_interval));
         }
         return -EOPNOTSUPP;
-    } else if (which == ITIMER_REAL) {
-        clockid = CLOCK_ID_REALTIME;
-    } else if (which == ITIMER_PROF) {
-        clockid = CLOCK_ID_MONOTONIC;
-    } else {
+    } else if ((which != ITIMER_REAL) && (which != ITIMER_PROF)) {
         return -EINVAL;
     }
 
@@ -740,11 +730,11 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
     process p = current->p;
     sysreturn ret;
     process_lock(p);
-    unix_timer ut = unix_timer_from_itimer_index(p, which, clockid);
+    unix_timer ut = unix_timer_from_itimer_index(p, which);
     if (ut == INVALID_ADDRESS)
         ret = -ENOMEM;
     else
-        ret = setitimer_internal(ut, clockid, new_value, old_value);
+        ret = setitimer_internal(ut, new_value, old_value);
     process_unlock(p);
     return ret;
 }
@@ -761,8 +751,8 @@ sysreturn alarm(unsigned int seconds)
     process p = current->p;
     boolean error = false;
     process_lock(p);
-    unix_timer ut = unix_timer_from_itimer_index(p, ITIMER_REAL, CLOCK_ID_MONOTONIC);
-    if ((ut == INVALID_ADDRESS) || (setitimer_internal(ut, CLOCK_ID_REALTIME, &new, &old) < 0))
+    unix_timer ut = unix_timer_from_itimer_index(p, ITIMER_REAL);
+    if ((ut == INVALID_ADDRESS) || (setitimer_internal(ut, &new, &old) < 0))
         error = true;
     process_unlock(p);
     if (error)
