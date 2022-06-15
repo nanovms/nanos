@@ -134,7 +134,7 @@ define_closure_function(2, 2, void, iov_op_each_complete,
     } else {
         if (p->file_offset != infinity)
             p->file_offset += rv;
-        enqueue_irqsafe(runqueue, &p->bh);
+        async_apply((thunk)&p->bh);
     }
     return;
   out_complete:
@@ -1066,7 +1066,7 @@ closure_function(3, 0, void, getrandom_deferred,
     fill_random(bound(buf) + bound(written), len);
     bound(written) += len;
     if (bound(written) < bound(buflen)) {
-        assert(enqueue_irqsafe(runqueue, closure_self()));
+        async_apply((thunk)closure_self());
         kern_yield();
     } else {
         syscall_return(current, bound(written));
@@ -1091,7 +1091,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     if (n < buflen) {
         thunk t = contextual_closure(getrandom_deferred, buf, buflen, n);
         assert(t != INVALID_ADDRESS);
-        assert(enqueue_irqsafe(runqueue, t));
+        async_apply(t);
         /* not really sleeping */
         thread_maybe_sleep_uninterruptible(current);
     }
@@ -2431,7 +2431,7 @@ static void syscall_context_schedule_return(context ctx)
     thread t = sc->t;
     assert(t);
     assert(t->syscall == sc); // XXX bringup
-    assert(enqueue_irqsafe(runqueue, &sc->syscall_return));
+    async_apply_bh((thunk)&sc->syscall_return);
 }
 
 static void syscall_context_pre_suspend(context ctx)

@@ -275,7 +275,7 @@ define_closure_function(1, 0, void, ata_pci_irq,
                 ata_pci_req, l);
             req->s = timm("result", "I/O error");
         }
-        enqueue(bhqueue, &apci->service);
+        async_apply_bh((thunk)&apci->service);
     }
     spin_unlock_irq(&apci->lock, irqflags);
 }

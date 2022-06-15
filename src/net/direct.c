@@ -243,9 +243,9 @@ define_closure_function(1, 1, status, direct_conn_send,
 
 static void direct_conn_enqueue(direct_conn dc, struct pbuf *p)
 {
-    enqueue(dc->receive_queue, p);
+    assert(enqueue(dc->receive_queue, p));
     if (compare_and_swap_32(&dc->d->receive_service_scheduled, 0, 1))
-        enqueue(runqueue, &dc->d->receive_service);
+        async_apply((thunk)&dc->d->receive_service);
 }
 
 err_t direct_conn_input(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
@@ -296,7 +296,7 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     list_insert_before(&d->conn_head, &dc->l);
     spin_unlock(&d->conn_lock);
     if (compare_and_swap_32(&d->receive_service_scheduled, 0, 1))
-        enqueue(runqueue, &d->receive_service);
+        async_apply((thunk)&d->receive_service);
     return dc;
   fail_dealloc:
     deallocate(d->h, dc, sizeof(struct direct_conn));

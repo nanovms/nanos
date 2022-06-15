@@ -193,7 +193,7 @@ static void thread_resume(context ctx)
 static void thread_schedule_return(context ctx)
 {
     thread t = (thread)ctx;
-    enqueue_irqsafe(t->scheduling_queue, &t->thread_return);
+    assert(enqueue_irqsafe(t->scheduling_queue, &t->thread_return));
 }
 
 define_closure_function(1, 0, void, thread_return,

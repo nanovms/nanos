@@ -33,6 +33,11 @@
 /* per-cpu queue */
 #define CPU_QUEUE_SIZE 512
 
+/* general scheduling queues */
+#define BHQUEUE_SIZE       8192
+#define RUNQUEUE_SIZE      8192
+#define ASYNC_QUEUE_1_SIZE 65536
+
 /* locking */
 #define MUTEX_ACQUIRE_SPIN_LIMIT (1ull << 20)
 

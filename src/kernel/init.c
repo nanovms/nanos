@@ -143,7 +143,7 @@ closure_function(2, 2, void, fsstarted,
     boolean klibs_in_bootfs = klibs && buffer_compare_with_cstring(klibs, "bootfs");
 
     merge m;
-    enqueue(runqueue, create_init(init_heaps, root, fs, &m));
+    async_apply(create_init(init_heaps, root, fs, &m));
     boolean opening_bootfs = false;
     if (mbr) {
         heap bh = (heap)heap_linear_backed(init_heaps);

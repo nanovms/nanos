@@ -257,7 +257,7 @@ define_closure_function(1, 0, void, xenblk_event_handler,
     xenblk_service_ring(xbd);
     xenblk_service_pending(xbd);
     if (done_empty && !list_empty(&xbd->done))
-        enqueue(bhqueue, &xbd->bh_service);
+        async_apply_bh((thunk)&xbd->bh_service);
     spin_unlock(&xbd->lock);
 }
 
@@ -401,7 +401,7 @@ define_closure_function(1, 1, void, xenblk_watch_handler,
 {
     xenblk_dev xbd = bound(xbd);
     xenblk_debug("%s: path %s", __func__, path);
-    enqueue(runqueue, &xbd->watch_service);
+    async_apply_bh((thunk)&xbd->watch_service);
 }
 
 #define XENBLK_INFORM_BACKEND_RETRIES   64

@@ -2,8 +2,6 @@
 
 #define apply(__c, ...) (*(__c))((void *)(__c), ## __VA_ARGS__)
 
-#define async_apply(__t, __c, ...) async_apply_##__t(__c, ## __VA_ARGS__)
-
 #define __closure(__c, __p, __s, __name, ...)    \
     _fill_##__name(__c, __p, __s, ##__VA_ARGS__)
 

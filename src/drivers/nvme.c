@@ -431,7 +431,7 @@ define_closure_function(1, 0, void, nvme_io_irq,
     nvme_cq_doorbell(n, NVME_IOQ_IDX, &n->iocq);
     nvme_service_pending(n, false);
     if (done_empty && !list_empty(&n->done_reqs))
-        enqueue(bhqueue, &n->bh_service);
+        async_apply_bh((thunk)&n->bh_service);
     spin_unlock(&n->lock);
 }
 
@@ -500,7 +500,7 @@ static void nvme_ns_resp_parse(nvme n, u32 ns_id, void *ns_resp,
     if (ns_attach == INVALID_ADDRESS)
         msg_err("failed to allocate NS attach closure\n");
     else
-        enqueue(runqueue, ns_attach);
+        async_apply_bh(ns_attach);
 }
 
 static void nvme_ns_query(nvme n, u32 ns_id, void *ns_resp)

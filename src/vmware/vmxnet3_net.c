@@ -606,6 +606,6 @@ static void process_interrupt(vmxnet3 vn)
         /* trick: remove (local) head and queue first element */
         list_delete(&q);
         assert(enqueue(vn->rx_servicequeue, l));
-        enqueue(runqueue, vn->rx_service);
+        async_apply_bh(vn->rx_service);
     }
 }

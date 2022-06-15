@@ -216,7 +216,7 @@ closure_function(1, 0, void, vtpci_non_msix_irq,
     if ((isr_status & VIRTIO_PCI_ISR_CONFIG) && dev->config_handler) {
         virtio_pci_debug("       queueing config change handler %F\n",
                          dev->config_handler);
-        enqueue(runqueue, dev->config_handler);
+        async_apply_bh((thunk)dev->config_handler);
     }
 }
 
@@ -301,7 +301,7 @@ closure_function(2, 0, void, vtpci_config_change_msix_irq,
 {
     virtio_pci_debug("%s: dev %p, queueing config change handler %F\n",
                      __func__, bound(dev), bound(handler));
-    enqueue(runqueue, bound(handler));
+    async_apply_bh(bound(handler));
 }
 
 status vtpci_register_config_change_handler(vtpci dev, thunk handler)

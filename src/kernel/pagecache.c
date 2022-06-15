@@ -1373,8 +1373,8 @@ define_closure_function(1, 0, void, pagecache_node_queue_free,
 {
     thunk t = (void *)&bound(pn)->free;
 #ifdef KERNEL
-    /* freeing the node must be deferred to bhqueue to avoid state lock reentrance */
-    enqueue(bhqueue, t);
+    /* freeing the node must be deferred to avoid state lock reentrance */
+    async_apply(t);
 #else
     apply(t);
 #endif

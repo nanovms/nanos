@@ -1037,7 +1037,7 @@ define_closure_function(0, 1, void, xen_watch_handler,
     }
     if (depth == 0)
         return;
-    enqueue(runqueue, &xen_info.scan_service);
+    async_apply_bh((thunk)&xen_info.scan_service);
 }
 
 define_closure_function(0, 0, void, xen_scan_service)
@@ -1046,7 +1046,7 @@ define_closure_function(0, 0, void, xen_scan_service)
 
     /* Avoid concurrent scans. */
     if (atomic_test_and_set_bit(&xen_info.scanning, 0)) {
-        enqueue(runqueue, &xen_info.scan_service);
+        async_apply((thunk)&xen_info.scan_service);
         return;
     }
 

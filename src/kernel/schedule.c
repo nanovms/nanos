@@ -91,7 +91,7 @@ static void migrate_from_self(cpuinfo ci, u64 first_cpu, u64 ncpus)
             wakeup_cpu(cpu);
         } else if ((t = dequeue(ci->thread_queue)) != INVALID_ADDRESS) {
             sched_debug("migrating thread from self to idle CPU %d\n", cpu);
-            enqueue(cpui->thread_queue, t);
+            assert(enqueue(cpui->thread_queue, t));
             wakeup_cpu(cpu);
         }
         ncpus -= cpu - first_cpu + 1;
@@ -277,10 +277,9 @@ void init_scheduler(heap h)
     assert(wakeup_vector != INVALID_PHYSICAL);
 
     /* scheduling queues init */
-    // XXX configs
-    bhqueue = allocate_queue(h, 2048);
-    runqueue = allocate_queue(h, 2048);
-    async_queue_1 = allocate_queue(h, 8192);
+    bhqueue = allocate_queue(h, BHQUEUE_SIZE);
+    runqueue = allocate_queue(h, RUNQUEUE_SIZE);
+    async_queue_1 = allocate_queue(h, ASYNC_QUEUE_1_SIZE);
     shutting_down = false;
 }
 
