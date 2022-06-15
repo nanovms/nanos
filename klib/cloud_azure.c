@@ -35,8 +35,8 @@ static void azure_report_retry(azure az)
         az->report_backoff <<= 1;
 }
 
-closure_function(1, 1, void, wireserver_parse_resp,
-                 azure, az,
+closure_function(2, 1, void, wireserver_parse_resp,
+                 azure, az, buffer_handler, out,
                  value, v)
 {
     azure az = bound(az);
@@ -69,29 +69,19 @@ closure_function(1, 1, void, wireserver_parse_resp,
         azure_report_ready(az);
     }
   exit:
+    apply(bound(out), 0);
     closure_finish();
 }
 
-closure_function(2, 1, boolean, wireserver_get_resp,
-                 azure, az, buffer_handler, out,
+closure_function(3, 1, boolean, wireserver_get_resp,
+                 azure, az, buffer_handler, out, buffer_handler, parser,
                  buffer, data)
 {
     if (data) {
-        azure az = bound(az);
-        heap h = az->h;
-        boolean success = false;
-        value_handler vh = closure(h, wireserver_parse_resp, az);
-        if (vh != INVALID_ADDRESS) {
-            buffer_handler parser = allocate_http_parser(h, vh);
-            if (parser != INVALID_ADDRESS) {
-                apply(parser, data);
-                success = true;
-            }
+        if (apply(bound(parser), data) != STATUS_OK) {
+            azure_report_retry(bound(az));
+            return true;
         }
-        apply(bound(out), 0);
-        if (!success)
-            azure_report_retry(az);
-        return true;
     } else {
         closure_finish();
     }
@@ -103,6 +93,8 @@ closure_function(1, 1, input_buffer_handler, wireserver_get_ch,
                  buffer_handler, out)
 {
     azure az = bound(az);
+    value_handler vh = INVALID_ADDRESS;
+    buffer_handler parser = INVALID_ADDRESS;
     input_buffer_handler in = INVALID_ADDRESS;
     if (out) {    /* connection succeeded */
         tuple req = allocate_tuple();
@@ -111,17 +103,28 @@ closure_function(1, 1, input_buffer_handler, wireserver_get_ch,
         set(req, sym(url), alloca_wrap_cstring("/machine?comp=goalstate"));
         set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
         set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
+        vh = closure(az->h, wireserver_parse_resp, az, out);
+        if (vh == INVALID_ADDRESS)
+            goto exit;
+        buffer_handler parser = allocate_http_parser(az->h, vh);
+        if (parser == INVALID_ADDRESS)
+            goto exit;
         status s = http_request(az->h, out, HTTP_REQUEST_METHOD_GET, req, 0);
         deallocate_value(req);
         if (is_ok(s))
-            in = closure(az->h, wireserver_get_resp, az, out);
+            in = closure(az->h, wireserver_get_resp, az, out, parser);
         else
             timm_dealloc(s);
     }
   exit:
     closure_finish();
-    if (in == INVALID_ADDRESS)
+    if (in == INVALID_ADDRESS) {
+        if (vh != INVALID_ADDRESS)
+            deallocate_closure(vh);
+        if (parser != INVALID_ADDRESS)
+            apply(parser, 0);
         azure_report_retry(az);
+    }
     return in;
 }
 
