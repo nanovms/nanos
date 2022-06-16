@@ -144,4 +144,7 @@ timerqueue allocate_timerqueue(heap h, const char *name);
 void timer_service(timerqueue tq, timestamp here);
 void timer_reorder(timerqueue tq);
 
+void timer_adjust_begin(timerqueue tq);
+void timer_adjust_end(timerqueue tq, pqueue_element_handler h);
+
 s64 rtime(s64 *result);

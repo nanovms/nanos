@@ -57,7 +57,7 @@ void clock_reset_rtc(timestamp wallclock_now)
                 __func__, now(CLOCK_ID_REALTIME), wallclock_now);
     timestamp n = now(CLOCK_ID_REALTIME);
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
-    pqueue_walk(kernel_timers->pq, stack_closure(timer_adjust_handler, wallclock_now - n));
-    timer_reorder(kernel_timers);
+    timer_adjust_begin(kernel_timers);
     reset_clock_vdso_dat();
+    timer_adjust_end(kernel_timers, stack_closure(timer_adjust_handler, wallclock_now - n));
 }

@@ -133,6 +133,18 @@ void timer_reorder(timerqueue tq)
     timer_unlock(tq);
 }
 
+void timer_adjust_begin(timerqueue tq)
+{
+    timer_lock(tq);
+}
+
+void timer_adjust_end(timerqueue tq, pqueue_element_handler h)
+{
+    pqueue_walk(tq->pq, h);
+    pqueue_reorder(tq->pq);
+    timer_unlock(tq);
+}
+
 timerqueue allocate_timerqueue(heap h, const char *name)
 {
     timerqueue tq = allocate(h, sizeof(struct timerqueue));
