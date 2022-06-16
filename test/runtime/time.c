@@ -14,6 +14,10 @@
 #include <sched.h>
 #include <pthread.h>
 
+#ifndef TFD_TIMER_CANCEL_ON_SET /* old glibc */
+#define TFD_TIMER_CANCEL_ON_SET (1 << 1)
+#endif
+
 //#define TIMETEST_DEBUG
 
 #define timetest_msg(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -775,9 +779,88 @@ void test_alarm(void)
     timetest_msg("test passed; delta %lld nsec\n", delta);
 }
 
-int
-main()
+static void test_settime(void)
 {
+    struct timespec n;
+    struct itimerspec ts;
+    struct timeval tv;
+    unsigned long overruns;
+    int ret;
+    int fd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK);
+    if (fd < 0)
+        fail_perror("timerfd_create");
+    if (clock_gettime(CLOCK_REALTIME, &n) < 0)
+        fail_perror("clock_gettime(CLOCK_REALTIME)");
+    ts.it_interval.tv_sec = ts.it_interval.tv_nsec = 0;
+
+    ts.it_value.tv_sec = 1;
+    ts.it_value.tv_nsec = 0;
+    if (timerfd_settime(fd, 0, &ts, NULL) < 0)
+        fail_perror("timerfd_settime");
+    n.tv_sec++;
+    if (clock_settime(CLOCK_REALTIME, &n))
+        fail_perror("clock_settime");
+    if (timerfd_gettime(fd, &ts) < 0)
+        fail_perror("timerfd_gettime");
+    if ((ts.it_value.tv_sec == 0) && (ts.it_value.tv_nsec == 0))
+        fail_error("relative timer was affected by change to real-time clock\n");
+
+    n.tv_sec++;
+    ts.it_value.tv_sec = n.tv_sec + 1;
+    ts.it_value.tv_nsec = n.tv_nsec;
+    if (timerfd_settime(fd, TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET, &ts, NULL) < 0)
+        fail_perror("timerfd_settime(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET)");
+    if (clock_settime(CLOCK_REALTIME, &n))
+        fail_perror("clock_settime");
+    ret = read(fd, &overruns, sizeof(overruns));
+    if ((ret >= 0) || (errno != ECANCELED))
+        fail_error("absolute timer was not canceled by change to real-time clock (%d)\n",
+                   (ret >= 0) ? ret : -errno);
+    ret = read(fd, &overruns, sizeof(overruns));
+    if ((ret >= 0) || (errno != EAGAIN))
+        fail_error("unexpected result from second read after timer canceled (%d)\n",
+                   (ret >= 0) ? ret : -errno);
+
+    /* test removal of timer from list of cancelable timers */
+    if (timerfd_settime(fd, TFD_TIMER_ABSTIME, &ts, NULL) < 0)
+        fail_perror("timerfd_settime(TFD_TIMER_ABSTIME)");
+    if (clock_settime(CLOCK_REALTIME, &n))
+        fail_perror("clock_settime");
+    ret = read(fd, &overruns, sizeof(overruns));
+    if ((ret >= 0) || (errno != EAGAIN))
+        fail_error("unexpected read result from non-cancelable timer after change to real-time "
+                   "clock (%d)\n", (ret >= 0) ? ret : -errno);
+
+    /* undo changes to real-time clock */
+    n.tv_sec -= 2;
+    if (clock_settime(CLOCK_REALTIME, &n))
+        fail_perror("clock_settime");
+
+    close(fd);
+
+    tv.tv_sec = n.tv_sec;
+    tv.tv_usec = n.tv_nsec / 1000;
+    if (settimeofday(&tv, NULL))
+        fail_perror("settimeofday");
+
+    /* test setting of non-settable clock types */
+    ret = clock_settime(CLOCK_REALTIME_COARSE, &n);
+    if ((ret == 0) || (errno != EINVAL))
+        fail_error("unexpected result from clock_settime(CLOCK_REALTIME_COARSE) (%d)\n",
+                   (ret == 0) ? ret : -errno);
+}
+
+int main(int argc, char *argv[])
+{
+    int opt_settime = 0;
+    int c;
+    while ((c = getopt(argc, argv, "s")) != EOF) {
+        switch (c) {
+        case 's':
+            opt_settime = 1;
+            break;
+        }
+    }
     setbuf(stdout, NULL);
     test_time_and_times();
     for (int i = 0; i < N_INTERVALS; i++) {
@@ -791,6 +874,8 @@ main()
     test_cputime();
     test_getres();
     test_alarm();
+    if (opt_settime)
+        test_settime();
     printf("time test passed\n");
     return EXIT_SUCCESS;
 }

@@ -216,7 +216,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, adjtimex, 0, 0);
     register_syscall(map, chroot, 0, 0);
     register_syscall(map, acct, 0, 0);
-    register_syscall(map, settimeofday, 0, 0);
     register_syscall(map, mount, 0, 0);
     register_syscall(map, umount2, 0, 0);
     register_syscall(map, swapon, 0, 0);
@@ -246,7 +245,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, remap_file_pages, 0, 0);
     register_syscall(map, restart_syscall, 0, 0);
     register_syscall(map, semtimedop, 0, 0);
-    register_syscall(map, clock_settime, 0, 0);
     register_syscall(map, mbind, 0, 0);
     register_syscall(map, set_mempolicy, 0, 0);
     register_syscall(map, get_mempolicy, 0, 0);

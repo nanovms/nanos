@@ -8,6 +8,16 @@ sysreturn gettimeofday(struct timeval *tv, void *tz)
     return 0;
 }
 
+sysreturn settimeofday(const struct timeval *tv, const void *tz)
+{
+    if (tv) {
+        if (!validate_user_memory(tv, sizeof(struct timeval), false))
+            return -EFAULT;
+        clock_reset_rtc(time_from_timeval(tv));
+    }
+    return 0;
+}
+
 closure_function(5, 1, sysreturn, nanosleep_bh,
                  thread, t, timestamp, start, clock_id, id, timestamp, interval, struct timespec *, rem,
                  u64, flags)
@@ -132,6 +142,21 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
     return 0;
 }
 
+sysreturn clock_settime(clockid_t clk_id, const struct timespec *tp)
+{
+    thread_log(current, "%s: clk_id %d, tp %p", __func__, clk_id, tp);
+    if (!validate_user_memory(tp, sizeof(struct timespec), false))
+        return -EFAULT;
+    switch (clk_id) {
+    case CLOCK_REALTIME:
+        clock_reset_rtc(time_from_timespec(tp));
+        break;
+    default:
+        return -EINVAL;
+    }
+    return 0;
+}
+
 sysreturn clock_getres(clockid_t clk_id, struct timespec *res)
 {
     if (res && !validate_user_memory(res, sizeof(*res), true))
@@ -162,9 +187,11 @@ void register_clock_syscalls(struct syscall *map)
     register_syscall(map, time, sys_time, 0);
 #endif
     register_syscall(map, clock_gettime, clock_gettime, 0);
+    register_syscall(map, clock_settime, clock_settime, 0);
     register_syscall(map, clock_getres, clock_getres, 0);
     register_syscall(map, clock_nanosleep, clock_nanosleep, 0);
     register_syscall(map, gettimeofday, gettimeofday, 0);
+    register_syscall(map, settimeofday, settimeofday, 0);
     register_syscall(map, nanosleep, nanosleep, 0);
     register_syscall(map, times, times, 0);
 }
