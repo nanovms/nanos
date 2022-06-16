@@ -45,6 +45,7 @@ struct timer {
     clock_id id;
     timestamp expiry;
     timestamp interval;
+    boolean absolute;
     boolean active;
     boolean queued;
     timer_handler handler;

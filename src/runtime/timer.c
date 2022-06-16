@@ -31,6 +31,7 @@ void register_timer(timerqueue tq, timer t, clock_id id,
     t->id = id;
     t->expiry = absolute ? val : now(id) + val;
     t->interval = interval;
+    t->absolute = absolute;
     assert(!t->queued);
     t->active = true;
     t->queued = true;

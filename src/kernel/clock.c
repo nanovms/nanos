@@ -39,6 +39,8 @@ closure_function(1, 1, boolean, timer_adjust_handler,
                 void *, v)
 {
     timer t = v;
+    if (t->absolute)
+        return true;
     switch (t->id) {
     case CLOCK_ID_REALTIME:
     case CLOCK_ID_REALTIME_COARSE:
