@@ -59,7 +59,8 @@ typedef struct unix_timer {
             closure_struct(itimer_expire, timer_expire);
         } itimer;
 
-        struct {
+        struct timerfd {
+            struct list l;  /* cancelable timer list */
             blockq bq;
             boolean cancel_on_set;
             boolean canceled;   /* by time set */
@@ -71,6 +72,8 @@ typedef struct unix_timer {
 } *unix_timer;
 
 BSS_RO_AFTER_INIT static heap unix_timer_heap;
+static struct spinlock timer_cancel_lock;
+static struct list timer_cancel_list;
 
 define_closure_function(1, 0, void, unix_timer_free,
                         unix_timer, ut)
@@ -155,15 +158,19 @@ define_closure_function(1, 2, void, timerfd_timer_expire,
 
 void notify_unix_timers_of_rtc_change(void)
 {
-    /* XXX TODO:
-
-       This should be implemented if and when we support explicit
-       setting of wall time via settimeofday(2), clock_settime(2),
-       update detected from hypervisor, etc. Any such setting of the
-       clock should call this function, which in turn should walk
-       through the active unix_timers and cancel them as necessary (if
-       cancel_on_set).
-    */
+    spin_lock(&timer_cancel_lock);
+    list_foreach(&timer_cancel_list, e) {
+        struct timerfd *tfd = struct_from_list(e, struct timerfd *, l);
+        if (tfd->canceled)
+            continue;
+        unix_timer ut = struct_from_field(tfd, unix_timer, info);
+        spin_lock(&ut->lock);
+        tfd->canceled = true;
+        blockq_wake_one(tfd->bq);
+        notify_dispatch(ut->f.ns, EPOLLIN);
+        spin_unlock(&ut->lock);
+    }
+    spin_unlock(&timer_cancel_lock);
 }
 
 sysreturn timerfd_settime(int fd, int flags,
@@ -178,6 +185,7 @@ sysreturn timerfd_settime(int fd, int flags,
         return -EFAULT;
 
     unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
+    spin_lock(&timer_cancel_lock);  /* to avoid lock inversion with unix timer lock */
     spin_lock(&ut->lock);
     sysreturn rv = 0;
     if (ut->f.type != FDESC_TYPE_TIMERFD) {
@@ -189,9 +197,17 @@ sysreturn timerfd_settime(int fd, int flags,
         itimerspec_from_timer(ut, old_value);
     }
 
-    ut->info.timerfd.cancel_on_set =
+    ut->info.timerfd.canceled = false;
+    boolean cancel_on_set =
         (ut->cid == CLOCK_REALTIME || ut->cid == CLOCK_REALTIME_ALARM) &&
         (flags ^ (TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET)) == 0;
+    if (cancel_on_set != ut->info.timerfd.cancel_on_set) {
+        if (cancel_on_set)
+            list_push_back(&timer_cancel_list, &ut->info.timerfd.l);
+        else
+            list_delete(&ut->info.timerfd.l);
+        ut->info.timerfd.cancel_on_set = cancel_on_set;
+    }
 
     remove_unix_timer(ut);
     ut->overruns = 0;
@@ -211,6 +227,7 @@ sysreturn timerfd_settime(int fd, int flags,
                    init_closure(&ut->info.timerfd.timer_expire, timerfd_timer_expire, ut));
   out:
     spin_unlock(&ut->lock);
+    spin_unlock(&timer_cancel_lock);
     fdesc_put(&ut->f);
     return rv;
 }
@@ -253,6 +270,7 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
     spin_lock(&ut->lock);
 
     if (ut->info.timerfd.canceled) {
+        ut->info.timerfd.canceled = false;
         rv = -ECANCELED;
         goto out;
     }
@@ -783,5 +801,7 @@ void register_timer_syscalls(struct syscall *map)
 boolean unix_timers_init(unix_heaps uh)
 {
     unix_timer_heap = heap_locked((kernel_heaps)uh);
+    spin_lock_init(&timer_cancel_lock);
+    list_init(&timer_cancel_list);
     return true;
 }

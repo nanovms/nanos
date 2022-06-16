@@ -7,6 +7,8 @@
 #define clock_debug(x, ...)
 #endif
 
+extern void notify_unix_timers_of_rtc_change(void);
+
 void kernel_delay(timestamp delta)
 {
     timestamp end = now(CLOCK_ID_MONOTONIC) + delta;
@@ -59,6 +61,7 @@ void clock_reset_rtc(timestamp wallclock_now)
                 __func__, now(CLOCK_ID_REALTIME), wallclock_now);
     timestamp n = now(CLOCK_ID_REALTIME);
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
+    notify_unix_timers_of_rtc_change();
     timer_adjust_begin(kernel_timers);
     reset_clock_vdso_dat();
     timer_adjust_end(kernel_timers, stack_closure(timer_adjust_handler, wallclock_now - n));
