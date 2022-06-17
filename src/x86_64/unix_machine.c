@@ -191,7 +191,12 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     f[FRAME_EFLAGS] = (f[FRAME_EFLAGS] & ~SAFE_EFLAGS) | (mcontext->eflags & SAFE_EFLAGS);
     /* Don't trust segment selector values (CS and SS) that may have been modified by the process,
      * because invalid values can cause a general protection fault (in kernel mode) when trying to
-     * resume this thread. */
+     * resume this thread. Only copy the low bit of the CS field, which indicates whether the sysret
+     * or iret path should be taken to resume the thread. */
+    if (mcontext->cs & 1)
+        f[FRAME_CS] |= 1;
+    else
+        f[FRAME_CS] &= ~1;
     t->signal_mask = normalize_signal_mask(mcontext->oldmask);
     if (mcontext->fpstate)
         runtime_memcpy(frame_extended(t->context.frame), mcontext->fpstate, extended_frame_size);
