@@ -46,6 +46,7 @@ enum protocol_type {
 #define MSG_CONFIRM     0x00000800
 #define MSG_NOSIGNAL    0x00004000
 #define MSG_MORE        0x00008000
+#define MSG_WAITFORONE  0x00010000
 
 // tuplify
 #define SOCK_NONBLOCK 00004000

@@ -276,7 +276,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, preadv, 0, 0);
     register_syscall(map, pwritev, 0, 0);
     register_syscall(map, perf_event_open, 0, 0);
-    register_syscall(map, recvmmsg, 0, 0);
     register_syscall(map, fanotify_init, 0, 0);
     register_syscall(map, fanotify_mark, 0, 0);
     register_syscall(map, name_to_handle_at, 0, 0);

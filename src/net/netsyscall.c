@@ -1752,6 +1752,70 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
     return s->recvmsg(s, msg, flags, false, (io_completion)&s->f.io_complete);
 }
 
+declare_closure_struct(0, 0, void, recvmmsg_next);
+
+closure_function(6, 2, void, recvmmsg_complete,
+                 struct sock *, s, struct mmsghdr *, msgvec, unsigned int, vlen, int, flags, unsigned int, index, closure_struct_type(recvmmsg_next), next,
+                 thread, t, sysreturn, rv)
+{
+    struct sock *s = bound(s);
+    if (rv < 0)
+        goto out;
+    struct mmsghdr *msgvec = bound(msgvec);
+    struct mmsghdr *hdr = &msgvec[bound(index)];
+    hdr->msg_len = rv;
+    bound(index)++;
+    if (bound(index) < bound(vlen)) {
+        if (bound(flags) & MSG_WAITFORONE)
+            bound(flags) = (bound(flags) & ~MSG_WAITFORONE) | MSG_DONTWAIT;
+        enqueue(runqueue, &bound(next));
+        return;
+    }
+  out:
+    if (bound(index) > 0)
+        rv = bound(index);
+    closure_finish();
+    socket_release(s);
+    apply(syscall_io_complete, t, rv);
+}
+
+define_closure_function(0, 0, void, recvmmsg_next)
+{
+    closure_ref(recvmmsg_complete, completion) =
+        struct_from_field(closure_self(), closure_struct_type(recvmmsg_complete) *, next);
+    struct mmsghdr *hdr = &completion->msgvec[completion->index];
+    completion->s->recvmsg(completion->s, &hdr->msg_hdr, completion->flags, true,
+        (io_completion)completion);
+}
+
+sysreturn recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int flags,
+                   struct timespec *timeout)
+{
+    if (!validate_user_memory(msgvec, vlen * sizeof(struct mmsghdr), true))
+        return -EFAULT;
+    for (int i = 0; i < vlen; i++) {
+        if (!validate_msghdr(&msgvec[i].msg_hdr, true))
+            return -EFAULT;
+    }
+    if (vlen == 0)
+        return 0;
+    if (timeout)
+        return -EOPNOTSUPP;
+    thread t = current;
+    struct sock *s = resolve_socket(t->p, sockfd);
+    net_debug("sock %d, type %d, flags 0x%x, vlen %d\n", s->fd, s->type, flags, vlen);
+    closure_struct(recvmmsg_next, next);
+    contextual_closure_init(recvmmsg_next, &next);
+    io_completion completion = contextual_closure(recvmmsg_complete,
+                                                  s, msgvec, vlen, flags, 0, next);
+    if (completion == INVALID_ADDRESS) {
+        socket_release(s);
+        return -ENOMEM;
+    }
+    s->recvmsg(s, &msgvec->msg_hdr, flags & ~MSG_WAITFORONE, false, completion);
+    return thread_maybe_sleep_uninterruptible(t);
+}
+
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
 {
     if (!z) {
@@ -2261,6 +2325,7 @@ void register_net_syscalls(struct syscall *map)
     register_syscall(map, sendmmsg, sendmmsg, SYSCALL_F_SET_NET);
     register_syscall(map, recvfrom, recvfrom, SYSCALL_F_SET_NET);
     register_syscall(map, recvmsg, recvmsg, SYSCALL_F_SET_NET);
+    register_syscall(map, recvmmsg, recvmmsg, SYSCALL_F_SET_NET);
     register_syscall(map, setsockopt, setsockopt, SYSCALL_F_SET_NET);
     register_syscall(map, getsockname, getsockname, SYSCALL_F_SET_NET);
     register_syscall(map, getpeername, getpeername, SYSCALL_F_SET_NET);

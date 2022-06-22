@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <net/if.h>
@@ -488,6 +489,145 @@ static void netsock_test_netconf(void)
     test_assert(ioctl(fd, SIOCGIFNAME, &ifr) == 0);
 }
 
+static int iov_compare(struct iovec *iov1, unsigned int len1,
+                        struct iovec *iov2, unsigned int len2, unsigned int total_len)
+{
+    unsigned int offset = 0;
+    unsigned int index1 = 0, index2 = 0;
+    unsigned int offset1 = 0, offset2 = 0;
+
+    while ((offset < total_len) && (index1 < len1) && (index2 < len2)) {
+        unsigned int l = MIN(iov1[index1].iov_len - offset1, iov2[index2].iov_len - offset2);
+        int cmp = memcmp(iov1[index1].iov_base + offset1, iov2[index2].iov_base + offset2, l);
+
+        if (cmp)
+            return cmp;
+        offset += l;
+        offset1 += l;
+        if (offset1 == iov1[index1].iov_len) {
+            index1++;
+            offset1 = 0;
+        }
+        offset2 += l;
+        if (offset2 == iov2[index2].iov_len) {
+            index2++;
+            offset2 = 0;
+        }
+    }
+    if (offset == total_len)
+        return 0;
+    else if (index1 == len1)
+        return -1;
+    else
+        return 1;
+}
+
+static void netsock_test_msg(int sock_type)
+{
+    int listen_fd = -1, tx_fd, rx_fd;
+    struct sockaddr_in addr;
+    struct iovec iov1[2], iov2[2], iov3[2], iov4[2];
+    struct msghdr msg1, msg2;
+    struct mmsghdr mmsg1[2], mmsg2[2];
+    int total_len;
+    char tx_buf[4 * KB], rx_buf[4 * KB];
+
+    tx_fd = socket(AF_INET, sock_type, 0);
+    test_assert(tx_fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(1236);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (sock_type == SOCK_STREAM) {
+        listen_fd = socket(AF_INET, sock_type, 0);
+        test_assert(listen_fd > 0);
+        test_assert(bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+        test_assert(listen(listen_fd, 1) == 0);
+    } else {
+        rx_fd = socket(AF_INET, sock_type, 0);
+        test_assert(rx_fd > 0);
+        test_assert(bind(rx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    }
+    test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    if (sock_type == SOCK_STREAM) {
+        rx_fd = accept(listen_fd, NULL, NULL);
+        test_assert(rx_fd > 0);
+    }
+
+    memset(&msg1, 0, sizeof(msg1));
+    iov1[0].iov_base = "abc";
+    iov1[0].iov_len = 3;
+    iov1[1].iov_base = "de";
+    iov1[1].iov_len = 2;
+    msg1.msg_iov = iov1;
+    msg1.msg_iovlen = 2;
+    total_len = iov1[0].iov_len + iov1[1].iov_len;
+    test_assert(sendmsg(tx_fd, &msg1, 0) == total_len);
+
+    memset(&msg2, 0, sizeof(msg2));
+    iov2[0].iov_base = rx_buf;
+    iov2[0].iov_len = 2;
+    iov2[1].iov_base = rx_buf + sizeof(rx_buf) / 2;
+    iov2[1].iov_len = sizeof(rx_buf) / 2;
+    msg2.msg_iov = iov2;
+    msg2.msg_iovlen = 2;
+    test_assert((recvmsg(rx_fd, &msg2, 0) == total_len) && (msg2.msg_flags == 0));
+    test_assert(!iov_compare(iov1, 2, iov2, 2, total_len));
+
+    test_assert(sendmmsg(tx_fd, mmsg1, 0, 0) == 0); /* dummy sendmmsg() */
+    test_assert(recvmmsg(rx_fd, mmsg2, 0, 0, NULL) == 0);   /* dummy recvmmsg() */
+
+    memset(&mmsg1, 0, sizeof(mmsg1));
+    iov1[0].iov_base = tx_buf;
+    iov1[0].iov_len = 4;
+    iov1[1].iov_base = tx_buf + 4;
+    iov1[1].iov_len = sizeof(tx_buf) / 2 - 4;
+    mmsg1[0].msg_hdr.msg_iov = iov1;
+    mmsg1[0].msg_hdr.msg_iovlen = 2;
+    iov2[0].iov_base = tx_buf + sizeof(tx_buf) / 2;
+    iov2[0].iov_len = 6;
+    iov2[1].iov_base = tx_buf + sizeof(tx_buf) / 2 + 6;
+    iov2[1].iov_len = sizeof(tx_buf) / 2 - 6;
+    mmsg1[1].msg_hdr.msg_iov = iov2;
+    mmsg1[1].msg_hdr.msg_iovlen = 2;
+    test_assert(sendmmsg(tx_fd, mmsg1, 2, 0) == 2);
+    test_assert(mmsg1[0].msg_len == iov1[0].iov_len + iov1[1].iov_len);
+    test_assert(mmsg1[1].msg_len == iov2[0].iov_len + iov2[1].iov_len);
+    total_len = mmsg1[0].msg_len + mmsg1[1].msg_len;
+
+    if (sock_type == SOCK_STREAM) {
+        /* test a dummy recvmsg(), which should not consume any data available in the socket */
+        msg2.msg_iovlen = 0;
+        test_assert(recvmsg(rx_fd, &msg2, 0) == 0);
+    }
+
+    memset(&mmsg2, 0, sizeof(mmsg2));
+    iov3[0].iov_base = rx_buf;
+    iov3[0].iov_len = 1;
+    iov3[1].iov_base = rx_buf + 1;
+    iov3[1].iov_len = sizeof(rx_buf) / 2 - 1;
+    mmsg2[0].msg_hdr.msg_iov = iov3;
+    mmsg2[0].msg_hdr.msg_iovlen = 2;
+    iov4[0].iov_base = rx_buf + sizeof(rx_buf) / 2;
+    iov4[0].iov_len = 9;
+    iov4[1].iov_base = rx_buf + sizeof(rx_buf) / 2 + 9;
+    iov4[1].iov_len = sizeof(rx_buf) / 2 - 9;
+    mmsg2[1].msg_hdr.msg_iov = iov4;
+    mmsg2[1].msg_hdr.msg_iovlen = 2;
+    test_assert(recvmmsg(rx_fd, mmsg2, 2, 0, NULL) == 2);
+    test_assert(mmsg2[0].msg_len == iov3[0].iov_len + iov3[1].iov_len);
+    test_assert(!iov_compare(iov1, 2, iov3, 2, mmsg2[0].msg_len));
+    test_assert(mmsg2[1].msg_len == iov4[0].iov_len + iov4[1].iov_len);
+    test_assert(!iov_compare(iov2, 2, iov4, 2, mmsg2[1].msg_len));
+    test_assert(mmsg2[0].msg_len + mmsg2[1].msg_len == total_len);
+
+    test_assert(sendmmsg(tx_fd, mmsg1, 1, 0) == 1);
+    test_assert(recvmmsg(rx_fd, mmsg2, 2, MSG_WAITFORONE, NULL) == 1);
+
+    test_assert((close(tx_fd) == 0) && (close(rx_fd) == 0));
+    if (sock_type == SOCK_STREAM)
+        test_assert(close(listen_fd) == 0);
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -498,6 +638,8 @@ int main(int argc, char **argv)
     netsock_test_peek();
     netsock_test_rcvbuf();
     netsock_test_netconf();
+    netsock_test_msg(SOCK_STREAM);
+    netsock_test_msg(SOCK_DGRAM);
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
