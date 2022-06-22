@@ -576,6 +576,17 @@ static void netsock_test_msg(int sock_type)
     test_assert(sendmmsg(tx_fd, mmsg1, 0, 0) == 0); /* dummy sendmmsg() */
     test_assert(recvmmsg(rx_fd, mmsg2, 0, 0, NULL) == 0);   /* dummy recvmmsg() */
 
+    if (sock_type == SOCK_DGRAM) {
+        /* test reception of truncated messages */
+        test_assert(sendmsg(tx_fd, &msg1, 0) == total_len);
+        test_assert(sendmsg(tx_fd, &msg1, 0) == total_len);
+        msg2.msg_iovlen = 1;
+        test_assert(recvmsg(rx_fd, &msg2, 0) == msg2.msg_iov[0].iov_len);
+        test_assert(msg2.msg_flags == MSG_TRUNC);
+        test_assert(recvmsg(rx_fd, &msg2, MSG_TRUNC) == total_len);
+        test_assert(msg2.msg_flags == MSG_TRUNC);
+    }
+
     memset(&mmsg1, 0, sizeof(mmsg1));
     iov1[0].iov_base = tx_buf;
     iov1[0].iov_len = 4;

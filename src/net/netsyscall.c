@@ -482,6 +482,11 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
             assert(dequeue(s->incoming) == p);
             if (s->sock.type == SOCK_DGRAM) {
                 s->sock.rx_len -= pbuf->tot_len;
+                if (cur_buf) {
+                    msg->msg_flags |= MSG_TRUNC;
+                    if (flags & MSG_TRUNC)
+                        xfer_total = pbuf->tot_len;
+                }
                 deallocate(s->sock.h, p, sizeof(struct udp_entry));
             }
             pbuf_free(pbuf);
