@@ -495,5 +495,6 @@ void aarch64_cpu_init(void);
 void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
 void angel_shutdown(u64 x0);
 void psci_shutdown(void);
+void psci_reset(void);
 
 #endif /* __ASSEMBLY__ */

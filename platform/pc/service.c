@@ -27,8 +27,6 @@
 #define BOOT_PARAM_OFFSET_CMDLINE_SIZE  0x0238
 #define BOOT_PARAM_OFFSET_E820_TABLE    0x02D0
 
-//#define SMP_DUMP_FRAME_RETURN_COUNT
-
 //#define INIT_DEBUG
 //#define MM_DEBUG
 #ifdef INIT_DEBUG
@@ -150,34 +148,10 @@ void reclaim_regions(void)
 
 BSS_RO_AFTER_INIT halt_handler vm_halt;
 
-void vm_exit(u8 code)
+void vm_shutdown(u8 code)
 {
-#ifdef SMP_DUMP_FRAME_RETURN_COUNT
-    rprintf("cpu\tframe returns\n");
-    cpuinfo ci;
-    vector_foreach(cpuinfos, ci) {
-        if (ci->frcount)
-            rprintf("%d\t%ld\n", i, ci->frcount);
-    }
-#endif
-
-#ifdef DUMP_MEM_STATS
-    buffer b = allocate_buffer(heap_locked(get_kernel_heaps()), 512);
-    if (b != INVALID_ADDRESS) {
-        dump_mem_stats(b);
-        buffer_print(b);
-    }
-#endif
-
-    /* TODO MP: coordinate via IPIs */
     tuple root = get_root_tuple();
     if (root) {
-        if (get(root, sym(reboot_on_exit)))
-            triple_fault();
-        u64 expected_code;
-        if (get_u64(root, sym(expected_exit_code), &expected_code) &&
-                expected_code == code)
-            code = 0;
         if (get(root, sym(debug_exit)))
             goto debug_exit;
     }
@@ -187,6 +161,11 @@ void vm_exit(u8 code)
     }
   debug_exit:
     QEMU_HALT(code);
+}
+
+void vm_reset(void)
+{
+    triple_fault();
 }
 
 u64 total_processors = 1;

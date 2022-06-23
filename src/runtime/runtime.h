@@ -43,6 +43,8 @@ void print_u64(u64 s);
 void halt_with_code(u8 code, char *format, ...) __attribute__((noreturn));
 void kernel_shutdown(int status) __attribute__((noreturn));
 void vm_exit(u8 code) __attribute__((noreturn));
+void vm_shutdown(u8 code) __attribute__((noreturn));
+void vm_reset(void) __attribute__((noreturn));
 void print_frame_trace_from_here();
 
 // make into no-op for production

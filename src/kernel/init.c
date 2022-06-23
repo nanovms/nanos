@@ -440,6 +440,38 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
     while(1);
 }
 
+void vm_exit(u8 code)
+{
+#ifdef SMP_DUMP_FRAME_RETURN_COUNT
+    rprintf("cpu\tframe returns\n");
+    cpuinfo ci;
+    vector_foreach(cpuinfos, ci) {
+        if (ci->frcount)
+            rprintf("%d\t%ld\n", ci->id, ci->frcount);
+    }
+#endif
+
+#ifdef DUMP_MEM_STATS
+    buffer b = allocate_buffer(heap_locked(get_kernel_heaps()), 512);
+    if (b != INVALID_ADDRESS) {
+        extern void dump_mem_stats(buffer b);
+        dump_mem_stats(b);
+        buffer_print(b);
+    }
+#endif
+
+    tuple root = get_root_tuple();
+    if (root) {
+        u64 expected_code;
+        if (get_u64(root, sym(expected_exit_code), &expected_code) &&
+                expected_code == code)
+            code = 0;
+        if ((code != 0) && get(root, sym(reboot_on_exit)))
+            vm_reset();
+    }
+    vm_shutdown(code);
+}
+
 static char *hex_digits="0123456789abcdef";
 
 void early_debug(const char *s)

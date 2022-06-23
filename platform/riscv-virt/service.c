@@ -70,44 +70,17 @@ static inline void virt_shutdown(u64 code)
     mmio_write_32(mmio_base_addr(SYSCON), code);
 }
 
-void vm_exit(u8 code)
+void vm_shutdown(u8 code)
 {
-#ifdef SMP_DUMP_FRAME_RETURN_COUNT
-    rprintf("cpu\tframe returns\n");
-    cpuinfo ci;
-    vector_foreach(cpuinfos, ci) {
-        if (ci->frcount)
-            rprintf("%d\t%ld\n", i, ci->frcount);
-    }
-#endif
-
-#ifdef DUMP_MEM_STATS
-    buffer b = allocate_buffer(heap_locked(get_kernel_heaps()), 512);
-    if (b != INVALID_ADDRESS) {
-        dump_mem_stats(b);
-        buffer_print(b);
-    }
-#endif
-
-#if 0
-    /* TODO MP: coordinate via IPIs */
-    tuple root = get_root_tuple();
-    if (root && get(root, sym(reboot_on_exit))) {
-        triple_fault();
-    } else {
-        QEMU_HALT(code);
-    }
-#endif
-    tuple root = get_root_tuple();
-    if (root) {
-       u64 expected_code;
-       if (get_u64(root, sym(expected_exit_code), &expected_code) &&
-                expected_code == code)
-            code = 0;
-    }
     virt_shutdown(code);
 
     while (1) asm("wfi");
+}
+
+void vm_reset(void)
+{
+    mmio_write_32(mmio_base_addr(SYSCON), SYSCON_REBOOT);
+    while (1);  /* to honor noreturn attribute */
 }
 
 u64 total_processors = 1;

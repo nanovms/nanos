@@ -9,6 +9,7 @@
 #define PSCI_FN64(n)    (PSCI_FN64_BASE + (n))
 
 #define PSCI_FN_SYSTEM_OFF  PSCI_FN(8)
+#define PSCI_FN_RESET       PSCI_FN(9)
 #define PSCI_FN64_CPU_ON    PSCI_FN64(3)
 
 //#define TAG_HEAP_DEBUG
@@ -95,6 +96,11 @@ void psci_shutdown(void)
 {
     u32 psci_fn = PSCI_FN_SYSTEM_OFF;
     arm_hvc(psci_fn, 0, 0, 0);
+}
+
+void psci_reset(void)
+{
+    arm_hvc(PSCI_FN_RESET, 0, 0, 0);
 }
 
 BSS_RO_AFTER_INIT static buffer mpid_map;
