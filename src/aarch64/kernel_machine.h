@@ -481,7 +481,9 @@ static inline u64 *get_current_fp(void)
 /* IPI */
 static inline void machine_halt(void)
 {
-    __asm__("hlt #0"); /* XXX */
+    extern void gic_percpu_disable(void);
+    gic_percpu_disable();
+    __asm__("wfi");
 }
 
 u64 allocate_msi_interrupt(void);

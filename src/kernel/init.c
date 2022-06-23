@@ -468,6 +468,10 @@ void vm_exit(u8 code)
             code = 0;
         if ((code != 0) && get(root, sym(reboot_on_exit)))
             vm_reset();
+        if ((code == 0) && get(root, sym(idle_on_exit))) {
+            send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
+            machine_halt();
+        }
     }
     vm_shutdown(code);
 }

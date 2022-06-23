@@ -520,6 +520,11 @@ void gic_percpu_init(void)
     init_gicc();
 }
 
+void gic_percpu_disable(void)
+{
+    gicc_write(PMR, 0); /* mask interrupts at any priority */
+}
+
 void send_ipi(u64 cpu, u8 vector)
 {
     if (gic.v3_iface) {

@@ -369,8 +369,11 @@ static inline u64 *get_current_fp(void)
 /* IPI */
 static inline void machine_halt(void)
 {
-    disable_interrupts();
-    __asm__("wfi");
+    extern void plic_set_c1_threshold(u32 thresh);
+    plic_set_c1_threshold(1);   /* mask all interrupts */
+    enable_interrupts();    /* so that any interrupts already pending can be cleared */
+    while (1)
+        __asm__("wfi");
 }
 
 u64 allocate_msi_interrupt(void);

@@ -290,7 +290,6 @@ void common_handler()
     print_u64(i);
     console("\n");
     dump_context(ctx);
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
 
@@ -435,6 +434,5 @@ void __attribute__((noreturn)) __stack_chk_fail(void)
     context ctx = get_current_context(ci);
     rprintf("stack check failed on cpu %d\n", ci->id);
     dump_context(ctx);
-    apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
