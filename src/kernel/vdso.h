@@ -11,11 +11,12 @@ struct vdso_dat_struct {
     vdso_clock_id clock_src;
     timestamp rtc_offset;
     u64 pvclock_offset;
-    s64 temp_cal;   /* temporary calibration value (valid until sync_complete) */
-    timestamp sync_complete;    /* time at which temporary calibration ceases to take effect */
-    s64 cal;    /* calibration value (from monotonic raw to monotonic); 0 means no drift */
-    s64 last_drift; /* last calculated drift from monotonic raw to monotonic */
+    volatile word vdso_gen;
     timestamp last_raw; /* time at which last_drift has been calculated */
+    s64 base_freq;      /* frequency error adjustment */
+    s64 slew_freq;      /* slewing frequency */
+    timestamp slew_start;
+    timestamp slew_end;
     struct arch_vdso_dat machine;
 };
 

@@ -89,25 +89,24 @@ static inline timestamp timer_expiry(timer t)
     timestamp expiry = t->expiry;
 
 #if defined(KERNEL) || defined(BUILD_VDSO)
-    switch (t->id) {
-    case CLOCK_ID_MONOTONIC_RAW:
-        return expiry;
-    case CLOCK_ID_REALTIME:
-    case CLOCK_ID_REALTIME_COARSE:
-        expiry -= __vdso_dat->rtc_offset;
-        break;
-    default:
-        break;
-    }
-
-    s64 drift;
-    if (expiry > __vdso_dat->last_raw + __vdso_dat->last_drift)
-        /* Not entirely correct, because clock_get_drift() takes a raw timestamp as
-         * argument, but should be a reasonable approximation. */
-        drift = clock_get_drift(expiry - __vdso_dat->last_drift);
-    else
-        drift = __vdso_dat->last_drift;
-    expiry -= drift;
+    u64 gen;
+    do {
+        gen = __vdso_dat->vdso_gen & ~1;
+        s64 interval = expiry - __vdso_dat->last_raw;
+        switch (t->id) {
+        case CLOCK_ID_MONOTONIC_RAW:
+            return expiry;
+        case CLOCK_ID_REALTIME:
+        case CLOCK_ID_REALTIME_COARSE:
+            expiry -= __vdso_dat->rtc_offset;
+            expiry -= clock_phase_adjust(expiry, interval);
+            break;
+        default:
+            break;
+        }
+        expiry -= clock_freq_adjust(interval);
+        read_barrier();
+    } while (gen != __vdso_dat->vdso_gen);
 #endif
 
     return expiry;
