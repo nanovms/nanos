@@ -7,6 +7,7 @@
 #include <sys/vfs.h>
 #include <assert.h>
 #include <errno.h>
+#include <config.h>
 
 #define BIGDATA "bigfile"
 #define NEWFILE "newfile"
@@ -28,13 +29,13 @@ int write_blocks(int fd, int nb, int bs)
         while (p < (uint64_t *)(buf + bs))
             *p++ = b;
         /* retry because sometimes additional space is released after final write */
-        for (retries = 0; retries < NUM_WRITE_RETRIES; retries++) {
-            if ((bw = pwrite(fd, buf, bs, bs * b)) > 0)
-                break;
+        retries = 0;
+        while ((bw = pwrite(fd, buf, bs, bs * b)) <= 0 && retries < NUM_WRITE_RETRIES) {
             assert(errno == ENOSPC);
-            usleep(1000 * 1000);
+            retries++;
+            usleep(1000000 * TFS_LOG_FLUSH_DELAY_SECONDS);
         }
-        if (retries == NUM_WRITE_RETRIES) {
+        if (bw <= 0) {
             printf("failed writing at block %d err '%s'\n", b, strerror(errno));
             goto out;
         }
@@ -110,7 +111,7 @@ int main(int argc, char **argv)
     /* check that still can't write to a new file */
     fd = open(NEWFILE, O_CREAT|O_RDWR, 0644);
     if (fd >= 0) {
-        assert(write_blocks(fd, 32, BLOCKSIZE) <= 0);
+        assert(write_blocks(fd, 32, BLOCKSIZE) <= statbuf.f_bfree);
         close(fd);
     }
     /* verify big file */
@@ -124,9 +125,12 @@ int main(int argc, char **argv)
 
     /* remove big file and verify free space */
     assert(remove(BIGDATA) == 0);
+    /* Checking free space immediately may not reflect removed file */
+    sync();
+    usleep(1000*1000);
     assert(statfs(argv[0], &statbuf) == 0);
-    assert((bfree - statbuf.f_bfree) < bfree/10);
     printf("after delete big file: total bytes: %lu free bytes: %lu\n", statbuf.f_blocks * statbuf.f_bsize, statbuf.f_bfree * statbuf.f_bsize);
+    assert((bfree - statbuf.f_bfree) < bfree/10);
 
     /* check that we can now write to a new file */
     fd = open(NEWFILE, O_CREAT|O_RDWR, 0644);
