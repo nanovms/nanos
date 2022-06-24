@@ -238,7 +238,7 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
     spin_unlock_irq(&t->p->faulting_lock, saved_flags);
 
     /* no need to reserve context; we're on exception/int stack */
-    enqueue(bhqueue, &t->demand_file_page);
+    async_apply_bh((thunk)&t->demand_file_page);
     count_major_fault();
     return false;
   sched_thread_return:

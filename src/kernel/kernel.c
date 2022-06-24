@@ -93,7 +93,7 @@ static void kernel_context_resume(context c)
 static void kernel_context_schedule_return(context c)
 {
     kernel_context kc = (kernel_context)c;
-    assert(enqueue_irqsafe(runqueue, &kc->kernel_return));
+    async_apply_bh((thunk)&kc->kernel_return);
 }
 
 define_closure_function(1, 0, void, kernel_context_return,

@@ -353,6 +353,11 @@ static inline __attribute__((always_inline)) void set_current_context(cpuinfo ci
 }
 
 #ifdef KERNEL
+static inline boolean in_interrupt(void)
+{
+    return current_cpu()->state == cpu_interrupt;
+}
+
 extern queue bhqueue;
 extern queue runqueue;
 extern queue async_queue_1;
@@ -377,6 +382,17 @@ static inline void set_platform_timer(timestamp duration)
     apply(platform_timer, duration);
 }
 
+static inline void async_apply(thunk t)
+{
+    assert(!in_interrupt());
+    assert(enqueue(runqueue, t));
+}
+
+static inline void async_apply_bh(thunk t)
+{
+    assert(enqueue_irqsafe(bhqueue, t));
+}
+
 typedef closure_type(async_1, void, u64);
 
 typedef struct applied_async_1 {
@@ -384,12 +400,12 @@ typedef struct applied_async_1 {
     u64 arg0;
 } *applied_async_1;
 
-static inline boolean async_apply_1(void *a, void *arg0)
+static inline void async_apply_1(void *a, void *arg0)
 {
     struct applied_async_1 aa;
     aa.a = a;
     aa.arg0 = u64_from_pointer(arg0);
-    return enqueue_n_irqsafe(async_queue_1, &aa, sizeof(aa) / sizeof(u64));
+    assert(enqueue_n_irqsafe(async_queue_1, &aa, sizeof(aa) / sizeof(u64)));
 }
 #define async_apply_status_handler async_apply_1
 
@@ -629,7 +645,7 @@ static inline __attribute__((always_inline))  __attribute__((noreturn)) void ker
 static inline void schedule_timer_service(void)
 {
     if (compare_and_swap_boolean(&kernel_timers->service_scheduled, false, true))
-        enqueue(bhqueue, kernel_timers->service);
+        async_apply_bh(kernel_timers->service);
 }
 
 static inline boolean is_kernel_memory(void *a)
@@ -736,11 +752,6 @@ void dev_irq_disable(u32 dev_id, int vector);
 #define TARGET_EXCLUSIVE_BROADCAST  (-1ull)
 
 void send_ipi(u64 cpu, u8 vector);
-
-static inline boolean in_interrupt(void)
-{
-    return current_cpu()->state == cpu_interrupt;
-}
 
 void init_scheduler(heap);
 void init_scheduler_cpus(heap h);

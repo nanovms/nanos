@@ -95,7 +95,7 @@ vmbus_handle_intr1(vmbus_dev sc, int cpu)
     msg = msg_base + VMBUS_SINT_MESSAGE;
     if (msg->msg_type != HYPERV_MSGTYPE_NONE) {
         vmbus_debug("SINT Message!");
-        enqueue(runqueue, VMBUS_PCPU_GET(sc, message_task, cpu));
+        async_apply_bh(VMBUS_PCPU_GET(sc, message_task, cpu));
     }
 }
 

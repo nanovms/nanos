@@ -595,10 +595,7 @@ ACPI_STATUS AcpiOsExecute(ACPI_EXECUTE_TYPE type, ACPI_OSD_EXEC_CALLBACK functio
     thunk t = closure(acpi_heap, acpi_async_func, function, context);
     if (t == INVALID_ADDRESS)
         return AE_NO_MEMORY;
-    if (!enqueue_irqsafe(runqueue, t)) {
-        deallocate_closure(t);
-        return AE_NO_MEMORY;
-    }
+    async_apply_bh(t);
     return AE_OK;
 }
 

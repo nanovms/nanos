@@ -873,7 +873,7 @@ static void ena_handle_msix(void *arg)
     struct netif *netif = &adapter->ifp;
 
     if (likely(netif_is_flag_set(netif, NETIF_FLAG_UP)))
-        enqueue(runqueue, &queue->cleanup_task);
+        async_apply_bh((thunk)&queue->cleanup_task);
 }
 
 static int ena_enable_msix(struct ena_adapter *adapter)
@@ -1310,7 +1310,7 @@ static void check_for_empty_rx_ring(struct ena_adapter *adapter)
 
                 device_printf(adapter->pdev, "trigger refill for ring %d\n", i);
 
-                enqueue_irqsafe(runqueue, &rx_ring->que->cleanup_task);
+                async_apply((thunk)&rx_ring->que->cleanup_task);
                 rx_ring->empty_rx_queue = 0;
             }
         }
@@ -1339,7 +1339,7 @@ define_closure_function(1, 2, void, ena_timer_task,
 
     if (unlikely(ENA_FLAG_ISSET (ENA_FLAG_TRIGGER_RESET, adapter))) {
         device_printf(adapter->pdev, "Trigger reset is on\n");
-        enqueue_irqsafe(runqueue, &adapter->reset_task);
+        async_apply((thunk)&adapter->reset_task);
     }
 }
 
@@ -2189,10 +2189,10 @@ static void ena_update_on_link_change(void *adapter_data, struct ena_admin_aenq_
 
     if (status != 0) {
         ena_trace(NULL, ENA_INFO, "link UP interrupt\n");
-        enqueue(runqueue, &adapter->link_up_task);
+        async_apply_bh((thunk)&adapter->link_up_task);
     } else {
         ena_trace(NULL, ENA_INFO, "link DOWN interrupt\n");
-        enqueue(runqueue, &adapter->link_down_task);
+        async_apply_bh((thunk)&adapter->link_down_task);
     }
 }
 

@@ -133,7 +133,7 @@ static void queue_flush_service(void)
 {
     if (!service_scheduled) {
         service_scheduled = true;
-        assert(enqueue_irqsafe(bhqueue, flush_service));
+        async_apply_bh(flush_service);
     }
 }
 

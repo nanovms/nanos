@@ -81,7 +81,7 @@ void putpacket_deferred(gdb g, string b)
     }
     g->sending = true;
     put_sendstring(g, b);
-    assert(enqueue(runqueue, closure(g->h, gdb_deferred_tx, g)));
+    async_apply_bh(closure(g->h, gdb_deferred_tx, g));
     spin_unlock_irq(&g->send_lock, flags);
 }
 

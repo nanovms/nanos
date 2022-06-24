@@ -484,8 +484,8 @@ closure_function(4, 2, void, virtio_scsi_read_capacity_done,
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
         __func__, target, lun, d->block_size, d->capacity);
 
-    enqueue_irqsafe(runqueue, closure(s->v->virtio_dev.general, virtio_scsi_init_done,
-                                      d, bound(attach_id), bound(a)));
+    async_apply(closure(s->v->virtio_dev.general, virtio_scsi_init_done,
+                        d, bound(attach_id), bound(a)));
   out:
     closure_finish();
 }

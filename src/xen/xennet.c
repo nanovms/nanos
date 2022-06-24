@@ -290,7 +290,7 @@ static void xennet_service_tx_ring(xennet_dev xd)
             /* trick: remove (local) head and queue first element */
             list_delete(&q);
             assert(enqueue(xd->tx_servicequeue, l));
-            enqueue(runqueue, xd->tx_service);
+            async_apply_bh(xd->tx_service);
         }
         RING_FINAL_CHECK_FOR_RESPONSES(&xd->tx_ring, more);
     } while (more);
@@ -616,7 +616,7 @@ static void xennet_service_rx_ring(xennet_dev xd)
             list_delete(&q);
             assert(l->prev);
             assert(enqueue(xd->rx_servicequeue, l));
-            enqueue(runqueue, xd->rx_service);
+            async_apply_bh(xd->rx_service);
         }
         RING_FINAL_CHECK_FOR_RESPONSES(&xd->rx_ring, more);
     } while (more);

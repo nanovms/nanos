@@ -75,7 +75,7 @@ build_assert((TRACELOG_ENTRY_SIZE & (TRACELOG_ENTRY_SIZE - 1)) == 0);
 static inline void schedule_collator(void)
 {
     if (!atomic_swap_boolean(&tracelog.collator_scheduled, true))
-        enqueue_irqsafe(runqueue, &tracelog.collator);
+        async_apply_bh((thunk)&tracelog.collator);
 }
 
 static inline tracelog_buffer get_tracelog_buffer(cpuinfo ci)
@@ -455,7 +455,7 @@ static boolean tracelog_do_http_get(buffer_handler out, buffer relative_uri)
 
 static inline void schedule_send_http_chunk(void)
 {
-    enqueue_irqsafe(runqueue, &tracelog.send_http_chunk);
+    async_apply((thunk)&tracelog.send_http_chunk);
 }
 
 define_closure_function(2, 0, void, tracelog_send_http_chunk,

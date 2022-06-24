@@ -127,7 +127,7 @@ err_t ena_linkoutput(struct netif *netif, struct pbuf *p)
     /* Check if drbr is empty before putting packet */
     is_drbr_empty = queue_empty(tx_ring->br);
     if (unlikely(!enqueue(tx_ring->br, p))) {
-        enqueue(runqueue, &tx_ring->enqueue_task);
+        async_apply((thunk)&tx_ring->enqueue_task);
         return ERR_MEM;
     }
     pbuf_ref(p);
@@ -135,7 +135,7 @@ err_t ena_linkoutput(struct netif *netif, struct pbuf *p)
         ena_start_xmit(tx_ring);
         ENA_RING_MTX_UNLOCK(tx_ring);
     } else {
-        enqueue(runqueue, &tx_ring->enqueue_task);
+        async_apply((thunk)&tx_ring->enqueue_task);
     }
 
     return (0);
@@ -263,7 +263,7 @@ static int ena_tx_cleanup(struct ena_ring *tx_ring)
         if (!tx_ring->running && above_thresh) {
             tx_ring->running = true;
             tx_ring->tx_stats.queue_wakeup++;
-            enqueue(runqueue, &tx_ring->enqueue_task);
+            async_apply((thunk)&tx_ring->enqueue_task);
         }
         ENA_RING_MTX_UNLOCK(tx_ring);
     }
@@ -601,9 +601,9 @@ static void ena_start_xmit(struct ena_ring *tx_ring)
 
         if (unlikely((ret = ena_xmit_mbuf(tx_ring, &mbuf)) != 0)) {
             if (ret == ENA_COM_NO_MEM) {
-                enqueue(tx_ring->br, mbuf);
+                assert(enqueue(tx_ring->br, mbuf));
             } else if (ret == ENA_COM_NO_SPACE) {
-                enqueue(tx_ring->br, mbuf);
+                assert(enqueue(tx_ring->br, mbuf));
             } else {
                 pbuf_free(mbuf);
             }
@@ -625,5 +625,5 @@ static void ena_start_xmit(struct ena_ring *tx_ring)
     }
 
     if (unlikely(!tx_ring->running))
-        enqueue(runqueue, &tx_ring->que->cleanup_task);
+        async_apply((thunk)&tx_ring->que->cleanup_task);
 }

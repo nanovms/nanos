@@ -691,7 +691,7 @@ static void pvscsi_process_cmp_ring(pvscsi dev)
         /* only called from int handler, but use irqsafe in case this changes */
         list_delete(&q); /* trick: remove (local) head and queue first element */
         assert(enqueue_irqsafe(dev->rx_servicequeue, l));
-        enqueue_irqsafe(bhqueue, dev->rx_service);
+        async_apply_bh(dev->rx_service);
     }
 }
 

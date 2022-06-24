@@ -69,7 +69,7 @@ boolean breakpoint_insert(heap h, u64 a, u8 type, u8 log_length, thunk completio
             thunk t = closure(h, set_breakpoint, true, a, type, i, total_processors, completion);
             cpuinfo ci;
             vector_foreach(cpuinfos, ci) {
-                enqueue_irqsafe(ci->cpu_queue, t);
+                assert(enqueue_irqsafe(ci->cpu_queue, t));
             }
             wakeup_or_interrupt_cpu_all();
             return(true);
@@ -86,7 +86,7 @@ boolean breakpoint_remove(heap h, u32 a, thunk completion)
             thunk t = closure(h, set_breakpoint, false, 0, 0, i, total_processors, completion);
             cpuinfo ci;
             vector_foreach(cpuinfos, ci) {
-                enqueue_irqsafe(ci->cpu_queue, t);
+                assert(enqueue_irqsafe(ci->cpu_queue, t));
             }
             wakeup_or_interrupt_cpu_all();
             return(true);

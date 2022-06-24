@@ -157,7 +157,7 @@ static void netsock_check_loop(void)
      * enqueued more than once. */
     if (!net_loop_poll_queued) {
         net_loop_poll_queued = true;
-        enqueue_irqsafe(runqueue, net_loop_poll);
+        async_apply(net_loop_poll);
     }
 }
 
@@ -1119,7 +1119,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	e->pbuf = p;
 	runtime_memcpy(&e->raddr, addr, sizeof(ip_addr_t));
 	e->rport = port;
-	enqueue(s->incoming, e);
+	assert(enqueue(s->incoming, e));
 	s->sock.rx_len += p->tot_len;
     } else {
 	msg_err("null pbuf\n");
