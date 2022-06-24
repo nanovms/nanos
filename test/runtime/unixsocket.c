@@ -457,7 +457,6 @@ static void uds_nonblocking_test(void)
 
 int main(int argc, char **argv)
 {
-    setbuf(stdout, NULL);
     uds_stream_test();
     uds_dgram_test();
     uds_nonblocking_test();

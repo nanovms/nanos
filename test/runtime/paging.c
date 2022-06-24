@@ -94,7 +94,6 @@ static void usage(char * progname)
 
 int main(int argc, char * argv[])
 {
-    setbuf(stdout, NULL);
     pagesize = sysconf(_SC_PAGESIZE);
     if (argc == 2) {
         if (!strcmp(argv[1], "write-exec"))

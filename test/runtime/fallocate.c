@@ -40,8 +40,6 @@ int main(int argc, char **argv)
     unsigned long alloc_size, file_size;
     int ret;
 
-    setbuf(stdout, NULL);
-
     test_assert((fallocate(0, 0, 0, 1) == -1) && (errno == ESPIPE));
 
     fd = open("my_file", O_RDONLY | O_CREAT, S_IRWXU);

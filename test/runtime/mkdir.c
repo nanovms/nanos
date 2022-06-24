@@ -278,8 +278,6 @@ fail:
 
 int main(int argc, char **argv)
 {
-    setbuf(stdout, NULL);
-
     char c;
     char *cwd = getcwd(&c, 1);
     if (cwd || (errno != ERANGE)) {

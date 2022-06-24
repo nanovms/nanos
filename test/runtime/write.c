@@ -800,7 +800,6 @@ int main(int argc, char **argv)
     int c, op = WRITE_OP_ALL;
     long long size = DEFAULT_BULK_SIZE;
     char *endptr;
-    setvbuf(stdout, NULL, _IOLBF, 0);
 
     while ((c = getopt(argc, argv, "hbws:p")) != EOF) {
         switch (c) {

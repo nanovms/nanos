@@ -4,7 +4,6 @@
 int
 main()
 {
-	setbuf(stdout, NULL);
 	printf("started\n");
 
 	char *p = 0;

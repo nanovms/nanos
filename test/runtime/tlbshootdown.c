@@ -104,7 +104,6 @@ int main(int argc, char **argv)
     int loops;
     struct sigaction sa;
 
-    setbuf(stdout, NULL);
     pthread_cond_init(&kid_cv, NULL);
     pthread_cond_init(&sync_cv, NULL);
     pthread_mutex_init(&sync_mut, NULL);

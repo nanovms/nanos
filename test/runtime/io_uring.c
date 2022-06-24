@@ -1204,8 +1204,6 @@ static void iour_test_register_files(void)
 
 int main(int argc, char **argv)
 {
-    setbuf(stdout, NULL);
-
     iour_test_basic();
     iour_test_readwrite();
     iour_test_eventfd();

@@ -89,7 +89,6 @@ int main(int argc, char **argv)
     struct statfs statbuf;
     int fd;
 
-    setbuf(stdout, NULL);
     assert(statfs(argv[0], &statbuf) == 0);
     uint64_t bfree = statbuf.f_bfree;
     uint64_t btotal = statbuf.f_blocks;

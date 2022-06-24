@@ -24,8 +24,6 @@ static getcpu_fn vgetcpu = (getcpu_fn)(VSYSCALL_BASE + VSYSCALL_OFFSET_VGETCPU);
 
 int main(int argc, char * argv[])
 {
-    setvbuf(stdout, NULL, _IOLBF, 0);
-
     unsigned cpu = 0, node = 0;
     if (vgetcpu(&cpu, &node, NULL) != 0) {
         printf("vgetcpu failed: %s (%d)\n", strerror(errno), errno);

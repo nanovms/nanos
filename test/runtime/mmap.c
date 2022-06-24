@@ -1449,9 +1449,6 @@ int main(int argc, char * argv[])
             exec_enabled = 1;
     }
 
-    /* flush printfs immediately */
-    setbuf(stdout, NULL);
-
     heap h = init_process_runtime();
     mmap_test();
     mincore_test();

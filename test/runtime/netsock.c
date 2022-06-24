@@ -490,8 +490,6 @@ static void netsock_test_netconf(void)
 
 int main(int argc, char **argv)
 {
-    setbuf(stdout, NULL);
-
     netsock_test_basic(SOCK_STREAM);
     netsock_test_basic(SOCK_DGRAM);
     netsock_test_fionread();

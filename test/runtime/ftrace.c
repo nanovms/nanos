@@ -122,9 +122,6 @@ register_timeout(unsigned long sec)
 
 int main(int argc, char * argv[])
 {
-    /* flush printfs immediately */
-    setbuf(stdout, NULL);
-
     prctl(PR_SET_NAME, "ftrace_test");
 
     printf("available tracers: ");

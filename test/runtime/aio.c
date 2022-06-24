@@ -224,8 +224,6 @@ int main(int argc, char **argv)
 {
     aio_context_t ioc = 0;
 
-    setbuf(stdout, NULL);
-
     test_assert((syscall(SYS_io_setup, 1, NULL) == -1) && (errno == EFAULT));
     test_assert((syscall(SYS_io_setup, 0, &ioc) == -1) && (errno == EINVAL));
 

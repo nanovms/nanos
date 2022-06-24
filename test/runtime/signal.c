@@ -1481,8 +1481,6 @@ void test_nested_handling(void)
 
 int main(int argc, char * argv[])
 {
-    setbuf(stdout, NULL);
-
 #ifdef __x86_64__
     test_sigfpe();
 #endif

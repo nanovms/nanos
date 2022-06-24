@@ -80,7 +80,6 @@ main(int argc, char **argv)
 {
     pthread_t threads[MAX_THREADS];
 
-    setbuf(stdout, NULL);
     pthread_mutexattr_t attr;
     pthread_mutexattr_init(&attr); /* initialize the attributes object */
     pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST); /* set robustness */

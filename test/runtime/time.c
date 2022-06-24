@@ -861,7 +861,6 @@ int main(int argc, char *argv[])
             break;
         }
     }
-    setbuf(stdout, NULL);
     test_time_and_times();
     for (int i = 0; i < N_INTERVALS; i++) {
         test_nanosleep(test_intervals[i]);

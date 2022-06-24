@@ -29,7 +29,6 @@ int main(int argc, char **argv)
 {
     pthread_t pt;
 
-    setbuf(stdout, NULL);
     printf("expecting signal stack overflow to segfault...\n");
     pid_t pid = getpid();
     pthread_create(&pt, NULL, thread, 0);
