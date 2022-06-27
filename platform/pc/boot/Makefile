@@ -14,6 +14,7 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
+	$(SRCDIR)/runtime/queue.c \
 	$(SRCDIR)/runtime/pqueue.c \
 	$(SRCDIR)/runtime/sg.c \
 	$(SRCDIR)/runtime/symbol.c \

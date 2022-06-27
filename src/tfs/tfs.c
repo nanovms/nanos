@@ -364,9 +364,7 @@ void zero_blocks(filesystem fs, range blocks, merge m)
         u64 length = MIN(range_span(r), blocks_per_page);
         sg_buf sgb = sg_list_tail_add(sg, length);
         if (sgb == INVALID_ADDRESS) {
-            apply(completion, timm("result", "failed to allocate sg buf"));
-            sg_list_release(sg);
-            deallocate_sg_list(sg);
+            apply(zero_blocks_completion, timm("result", "failed to allocate sg buf"));
             return;
         }
         sgb->buf = fs->zero_page;
@@ -1041,6 +1039,7 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
     u64 length = range_span(q);
     sg_buf sgb = sg_list_tail_add(sg, length);
     if (sgb == INVALID_ADDRESS) {
+        deallocate_sg_list(sg);
         apply(io_complete, timm("result", "failed to allocate sg buf",
                                 "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
