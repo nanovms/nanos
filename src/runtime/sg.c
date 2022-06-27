@@ -189,6 +189,9 @@ sg_list allocate_sg_list(void)
 void deallocate_sg_list(sg_list sg)
 {
     buffer_clear(sg->b);
+    /* Recycle extremely large fragment buffers */
+    if (buffer_space(sg->b) > SG_FRAG_BYTE_THRESHOLD)
+        assert(buffer_set_capacity(sg->b, SG_FRAG_BYTE_THRESHOLD) == SG_FRAG_BYTE_THRESHOLD);
     sg->count = 0;
     sg_lock();
     list_insert_after(&free_sg_lists, &sg->l);
