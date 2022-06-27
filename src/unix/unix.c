@@ -274,6 +274,12 @@ define_closure_function(1, 1, context, unix_fault_handler,
 
         if (do_demand_page(t, ctx, vaddr, vm))
             return ctx;   /* direct return */
+        else if (current_cpu()->state == cpu_user) {
+            pf_debug("demand page failed user mode, rip 0x%lx", fault_pc);
+            deliver_fault_signal(SIGBUS, t, vaddr, SI_KERNEL);
+            schedule_thread(t);
+            return 0;
+        }
     }
     /* XXX arch dep */
 #ifdef __x86_64__
