@@ -144,9 +144,11 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
     case PAGECACHE_PAGESTATE_FREE:
         if (old_state == PAGECACHE_PAGESTATE_NEW) {
             pagelist_move(&pc->free, &pc->new, pp);
-        } else {
-            assert(old_state == PAGECACHE_PAGESTATE_ACTIVE);
+        } else if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
             pagelist_move(&pc->free, &pc->active, pp);
+        } else {
+            assert(old_state == PAGECACHE_PAGESTATE_ALLOC);
+            pagelist_enqueue(&pc->free, pp);
         }
         break;
     case PAGECACHE_PAGESTATE_ALLOC:
@@ -543,10 +545,21 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
     status_handler completion = bound(completion);
 
     pagecache_debug("%s: pn %p, q %R, sg %p, status %v\n", __func__, pn, q, sg, s);
-    if (!is_ok(s))
-        goto exit;
-
     pagecache_lock_node(pn);
+    if (!is_ok(s)) {
+        pagecache_lock_state(pc);
+        for (int i = bound(pi); i < end; i++)  {
+            pagecache_page pp = page_lookup_nodelocked(pn, i);
+            if (pp != INVALID_ADDRESS)
+                pagecache_page_release_locked(pc, pp);
+        }
+        pagecache_unlock_state(pc);
+        pagecache_unlock_node(pn);
+        if (sg)
+            sg_list_release(sg);
+        goto exit;
+    }
+
     pagecache_page pp = page_lookup_nodelocked(pn, bound(pi));
 
     /* copy data to the page cache */
@@ -682,7 +695,6 @@ closure_function(1, 3, void, pagecache_write_sg,
                 pagecache_unlock_node(pn);
                 const char *err = "failed to allocate pagecache_page";
                 apply(sh, timm("result", err)); /* close out merge, record write error */
-                apply(completion, timm("result", err));
                 return;
             }
 
@@ -1007,8 +1019,10 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     }
     pagecache_unlock_state(pc);
     pagecache_unlock_node(pn);
-    if (read_sg && !pagecache_node_fetch_sg(pc, pn, read_r, read_sg, read_pp, m))
+    if (read_sg && !pagecache_node_fetch_sg(pc, pn, read_r, read_sg, read_pp, m)) {
+        sg_list_release(read_sg);
         deallocate_sg_list(read_sg);
+    }
 
     /* finished issuing requests */
     apply(sh, STATUS_OK);
