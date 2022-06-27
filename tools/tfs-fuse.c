@@ -409,6 +409,7 @@ closure_function(2, 3, int, file_write,
         return -ENOMEM;
     }
     sg_buf sgb = sg_list_tail_add(sg, length);
+    assert(sgb != INVALID_ADDRESS);
     sgb->buf = src;
     sgb->size = length;
     sgb->offset = 0;

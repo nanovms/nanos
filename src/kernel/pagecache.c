@@ -252,6 +252,7 @@ static boolean realloc_pagelocked(pagecache pc, pagecache_page pp)
 static void pagecache_add_sgb(pagecache pc, pagecache_page pp, sg_list sg, boolean refcount)
 {
     sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
+    assert(sgb != INVALID_ADDRESS);
     sgb->buf = pp->kvirt;
     sgb->size = cache_pagesize(pc);
     sgb->offset = 0;
@@ -820,6 +821,11 @@ static void pagecache_commit_dirty_node(pagecache_node pn)
             u64 len = pad(MIN(cache_pagesize(pc) - page_offset, n->r.end - start),
                           U64_FROM_BIT(pv->block_order));
             sg_buf sgb = sg_list_tail_add(sg, len);
+            if (sgb == INVALID_ADDRESS) {
+                msg_err("sgbuf alloc fail\n");
+                r.end = start;
+                break;
+            }
             sgb->buf = pp->kvirt + page_offset;
             sgb->offset = 0;
             sgb->size = len;
@@ -1016,6 +1022,7 @@ closure_function(3, 1, void, pagecache_read_pp_handler,
     range i = range_intersection(bound(q), r);
     u64 length = range_span(i);
     sg_buf sgb = sg_list_tail_add(bound(sg), length);
+    assert(sgb != INVALID_ADDRESS);
     sgb->buf = pp->kvirt + (i.start - r.start);
     sgb->size = length;
     sgb->offset = 0;

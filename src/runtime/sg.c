@@ -86,6 +86,7 @@ u64 sg_move(sg_list dest, sg_list src, u64 n)
         assert(ssgb->size > ssgb->offset);
         u64 len = MIN(remain, sg_buf_len(ssgb));
         sg_buf dsgb = sg_list_tail_add(dest, len);
+        assert(dsgb != INVALID_ADDRESS);
         dsgb->buf = ssgb->buf;
         dsgb->size = ssgb->offset + len;
         dsgb->offset = ssgb->offset;
@@ -227,6 +228,7 @@ closure_function(3, 3, void, sg_wrapped_read,
     init_refcount(refcount, 1, closure(sg_heap, sg_wrapped_buf_release,
                                        refcount, bound(backed), buf, padlen));
     sg_buf sgb = sg_list_tail_add(sg, length);
+    assert(sgb != INVALID_ADDRESS);
     sgb->buf = buf;
     sgb->size = length;
     sgb->offset = 0;

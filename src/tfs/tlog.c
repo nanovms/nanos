@@ -314,6 +314,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
     sg_list sg = allocate_sg_list();
     assert(sg != INVALID_ADDRESS);
     sg_buf sgb = sg_list_tail_add(sg, buffer_length(b));
+    assert(sgb != INVALID_ADDRESS);
     sgb->buf = buffer_ref(b, 0);
     sgb->size = write_bytes; /* staging is prealloced to extension size */
     sgb->offset = 0;

@@ -74,6 +74,7 @@ u64 coredump_get_limit(void)
 static void add_to_sgl(sg_list sgl, void *b, u64 len)
 {
     sg_buf sgb = sg_list_tail_add(sgl, len);
+    assert(sgb != INVALID_ADDRESS);
     sgb->buf = b;
     sgb->offset = 0;
     sgb->refcount = 0;

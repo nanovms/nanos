@@ -1040,7 +1040,7 @@ static inline boolean iov_to_sg(sg_list sg, struct iovec *iov, int iovlen)
         if (len == 0)
             continue;
         sg_buf sgb = sg_list_tail_add(sg, len);
-        if (!sgb)
+        if (sgb == INVALID_ADDRESS)
             return false;
         sgb->buf = iov[i].iov_base;
         sgb->size = len;

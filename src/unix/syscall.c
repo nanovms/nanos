@@ -642,6 +642,11 @@ closure_function(2, 6, sysreturn, file_write,
         return io_complete(completion, t, -ENOMEM);
     }
     sg_buf sgb = sg_list_tail_add(sg, length);
+    if (sgb == INVALID_ADDRESS) {
+        thread_log(t, "   unable to allocate sg buf");
+        deallocate_sg_list(sg);
+        return io_complete(completion, t, -ENOMEM);
+    }
     sgb->buf = src;
     sgb->size = length;
     sgb->offset = 0;
