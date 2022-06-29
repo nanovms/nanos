@@ -191,8 +191,7 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
             pagelist_remove(&pc->new, pp);
         } else if (old_state == PAGECACHE_PAGESTATE_ACTIVE) {
             pagelist_remove(&pc->active, pp);
-        } else {
-            assert(old_state == PAGECACHE_PAGESTATE_WRITING);
+        } else if (old_state == PAGECACHE_PAGESTATE_WRITING) {
             pagelist_remove(&pc->writing, pp);
         }
         if (old_state != PAGECACHE_PAGESTATE_WRITING)
@@ -514,8 +513,8 @@ static boolean pagecache_set_dirty(pagecache_node pn, range r)
     return true;
 }
 
-closure_function(5, 1, void, pagecache_write_sg_finish,
-                 pagecache_node, pn, range, q, sg_list, sg, status_handler, completion, context, saved_ctx,
+closure_function(6, 1, void, pagecache_write_sg_finish,
+                 pagecache_node, pn, range, q, u64, pi, sg_list, sg, status_handler, completion, context, saved_ctx,
                  status, s)
 {
     pagecache_node pn = bound(pn);
@@ -523,7 +522,6 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
     range q = bound(q);
     int page_order = pc->page_order;
     int block_order = pn->pv->block_order;
-    u64 pi = q.start >> page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> page_order;
     sg_list sg = bound(sg);
     status_handler completion = bound(completion);
@@ -533,10 +531,10 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
         goto exit;
 
     pagecache_lock_node(pn);
-    pagecache_page pp = page_lookup_nodelocked(pn, pi);
+    pagecache_page pp = page_lookup_nodelocked(pn, bound(pi));
 
     /* copy data to the page cache */
-    u64 offset = q.start & MASK(page_order);
+    u64 offset = (bound(pi) == (q.start >> page_order)) ? (q.start & MASK(page_order)) : 0;
     range r = irange(q.start & ~MASK(block_order), q.end);
 #ifdef KERNEL
     context saved_ctx = bound(saved_ctx);
@@ -544,30 +542,41 @@ closure_function(5, 1, void, pagecache_write_sg_finish,
         use_fault_handler(saved_ctx->fault_handler);
 #endif
     do {
-        assert(pp != INVALID_ADDRESS && page_offset(pp) == pi);
-        u64 copy_len = MIN(q.end - (pi << page_order), cache_pagesize(pc)) - offset;
+        assert(pp != INVALID_ADDRESS && page_offset(pp) == bound(pi));
+        u64 copy_len = MIN(q.end - (bound(pi) << page_order), cache_pagesize(pc)) - offset;
+        if (sg)
+            sg_fault_in(sg, copy_len);  /* to prevent page faults while the state lock is held */
+        pagecache_lock_state(pc);
+        if (page_state(pp) == PAGECACHE_PAGESTATE_READING) {
+            /* A read request occurred in the middle of this write: postpone the completion of this
+             * write so that the data being written will overwrite the data fetched by the read
+             * request. */
+            enqueue_page_completion_statelocked(pc, pp, (status_handler)closure_self());
+            pagecache_unlock_state(pc);
+            break;
+        }
         if (sg) {
             u64 res = sg_copy_to_buf(pp->kvirt + offset, sg, copy_len);
             assert(res == copy_len);
         } else {
             zero(pp->kvirt + offset, copy_len);
         }
-        pagecache_lock_state(pc);
-        assert(page_state(pp) != PAGECACHE_PAGESTATE_READING);
         if (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY)
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_DIRTY);
         pagecache_unlock_state(pc);
         offset = 0;
-        pi++;
+        bound(pi)++;
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
-    } while (pi < end);
-    if (!pagecache_set_dirty(pn, r))
+    } while (bound(pi) < end);
+    if ((bound(pi) == end) && !pagecache_set_dirty(pn, r))
         s = timm("result", "failed to add dirty range");
     pagecache_unlock_node(pn);
 #ifdef KERNEL
     if (saved_ctx)
         clear_fault_handler();
 #endif
+    if (bound(pi) < end)
+        return;
   exit:
     closure_finish();
 #ifdef KERNEL
@@ -626,8 +635,8 @@ closure_function(1, 3, void, pagecache_write_sg,
 #endif
 
     /* prepare pages for writing */
-    merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish, pn, q, sg,
-                                            completion, ctx));
+    merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish, pn, q,
+                                            q.start >> pc->page_order, sg, completion, ctx));
     status_handler sh = apply_merge(m);
 
     /* initiate reads for rmw start and/or end */
@@ -661,9 +670,6 @@ closure_function(1, 3, void, pagecache_write_sg,
                 apply(completion, timm("result", err));
                 return;
             }
-
-            /* set to writing state to begin queueing dependent operations */
-            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_WRITING);
 
             /* When writing a new page at the end of a node whose length is not page-aligned, zero
                the remaining portion of the page. The filesystem will depend on this to properly

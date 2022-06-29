@@ -43,12 +43,14 @@ static inline sg_buf sg_list_tail_add(sg_list sg, word length)
    with sg_buf_release. Unremoved items from the list can be released
    at once with sg_list_finish. */
 
-static inline sg_buf sg_list_head_peek(sg_list sg)
+static inline sg_buf sg_list_peek_at(sg_list sg, u64 index)
 {
-    if (buffer_length(sg->b) < sizeof(struct sg_buf))
+    if (buffer_length(sg->b) < (index + 1) * sizeof(struct sg_buf))
         return INVALID_ADDRESS;
-    return (sg_buf)buffer_ref(sg->b, 0);
+    return (sg_buf)buffer_ref(sg->b, index * sizeof(struct sg_buf));
 }
+
+#define sg_list_head_peek(sg)   sg_list_peek_at((sg), 0)
 
 static inline sg_buf sg_list_head_remove(sg_list sg)
 {
@@ -90,4 +92,5 @@ u64 sg_copy_to_buf(void *target, sg_list sg, u64 length);
 u64 sg_copy_to_buf_and_release(void *dest, sg_list src, u64 limit);
 u64 sg_move(sg_list dest, sg_list src, u64 n);
 u64 sg_zero_fill(sg_list sg, u64 n);
+void sg_fault_in(sg_list sg, u64 n);
 sg_io sg_wrapped_block_reader(block_io bio, int block_order, heap backed);
