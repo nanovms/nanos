@@ -114,16 +114,16 @@ typedef struct pagecache_shared_map {
 
 typedef struct pagecache_page *pagecache_page;
 
-declare_closure_struct(2, 0, void, pagecache_page_free,
+declare_closure_struct(2, 0, void, pagecache_page_read_release,
                        pagecache, pc, pagecache_page, pp);
 
 struct pagecache_page {
     struct rbnode rbnode;
-    struct refcount refcount;   /* 24 */
+    struct refcount read_refcount;  /* 24 */
     u64 state_offset;           /* 40 - state and offset in pages */
     void *kvirt;                /* 48 */
     int write_count;            /* 56 */
-    int pad0;                   /* 60 */
+    int refcount;               /* 60 */
     /* end of first cacheline */
 
     pagecache_node node;
@@ -131,11 +131,6 @@ struct pagecache_page {
     u64 phys;                   /* physical address */
     struct list bh_completions; /* default for non-kernel use */
 
-    closure_struct(pagecache_page_free, free);
+    closure_struct(pagecache_page_read_release, read_release);
     boolean evicted;
 };
-
-static inline void pagecache_release_page(pagecache_page pp)
-{
-    refcount_release(&pp->refcount);
-}
