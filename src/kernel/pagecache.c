@@ -1370,7 +1370,11 @@ closure_function(1, 1, boolean, pagecache_page_release,
     pagecache_lock_state(pc);
     if (!pp->evicted)
         pagecache_page_release_locked(pc, pp);
+    /* a pagecache node being released means no outstanding page references are possible */
+    assert(page_state(pp) == PAGECACHE_PAGESTATE_FREE);
+    pagelist_remove(&pc->free, pp);
     pagecache_unlock_state(pc);
+    deallocate(pc->h, pp, sizeof(*pp));
     return true;
 }
 
