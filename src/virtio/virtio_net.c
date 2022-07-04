@@ -268,7 +268,8 @@ static err_t virtioif_init(struct netif *netif)
 
     /* device capabilities */
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
-    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_IGMP |
+            NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
 
     for (int i = 0; i < virtqueue_entries(vn->rxq); i++)
         post_receive(vn);

@@ -72,6 +72,7 @@ typedef struct iovec {
 #define ENOPROTOOPT     42              /* Protocol not available */
 
 #define ETIME           62		/* Timer expired */
+#define EPROTO          71		/* Protocol error */
 #define EBADFD          77		/* File descriptor in bad state */
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EMSGSIZE        90		/* Message too long */
@@ -766,6 +767,7 @@ struct io_uring_params {
 };
 
 /* Socket option levels */
+#define IPPROTO_IP      0
 #define SOL_SOCKET      1
 #define SOL_TCP         6
 #define IPPROTO_IPV6    41
@@ -783,6 +785,9 @@ struct io_uring_params {
 #define SO_LINGER       13
 #define SO_REUSEPORT    15
 #define SO_ACCEPTCONN   30
+
+#define IP_ADD_MEMBERSHIP   35
+#define IP_DROP_MEMBERSHIP  36
 
 #define IPV6_V6ONLY     26
 

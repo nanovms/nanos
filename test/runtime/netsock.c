@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <net/if.h>
@@ -488,6 +489,43 @@ static void netsock_test_netconf(void)
     test_assert(ioctl(fd, SIOCGIFNAME, &ifr) == 0);
 }
 
+static void netsock_test_igmp(void)
+{
+    int fd;
+    struct ip_mreq mreq;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+    mreq.imr_multiaddr.s_addr = inet_addr("232.0.0.1");
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+
+    /* invalid optlen */
+    test_assert(setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *)&mreq, sizeof(mreq) - 1) < 0);
+    test_assert(errno == EINVAL);
+
+    /* invalid multicast address */
+    mreq.imr_multiaddr.s_addr = htonl(INADDR_NONE);
+    test_assert(setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) < 0);
+    test_assert(errno == EINVAL);
+    mreq.imr_multiaddr.s_addr = inet_addr("232.0.0.1");
+
+    test_assert(setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) == 0);
+    test_assert(setsockopt(fd, IPPROTO_IP, IP_DROP_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) == 0);
+
+    /* close socket with IGMP group membership (should drop membership when closed) */
+    test_assert(setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) == 0);
+    close(fd);
+
+    /* try to configure multicast on TCP socket */
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(fd > 0);
+    test_assert(setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) < 0);
+    test_assert(errno == EPROTO);
+    test_assert(setsockopt(fd, IPPROTO_IP, IP_DROP_MEMBERSHIP, (void *)&mreq, sizeof(mreq)) < 0);
+    test_assert(errno == EPROTO);
+    close(fd);
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -498,6 +536,7 @@ int main(int argc, char **argv)
     netsock_test_peek();
     netsock_test_rcvbuf();
     netsock_test_netconf();
+    netsock_test_igmp();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }

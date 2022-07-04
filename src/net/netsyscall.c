@@ -7,6 +7,7 @@
 
 #include <unix_internal.h>
 #include <lwip.h>
+#include <lwip/igmp.h>
 #include <lwip/udp.h>
 #include <net_system_structs.h>
 #include <socket.h>
@@ -71,6 +72,11 @@ struct ifconf {
     } ifc;
 };
 
+struct ip_mreq {
+    u32 imr_multiaddr;
+    u32 imr_interface;
+};
+
 struct linger {
     int l_onoff;
     int l_linger;
@@ -111,9 +117,16 @@ typedef struct netsock {
 	struct {
 	    struct udp_pcb *lw;
 	    enum udp_socket_state state;
+	    struct list mcast_groups;
 	} udp;
     } info;
 } *netsock;
+
+typedef struct mcast_group {
+    struct list l;
+    ip4_addr_t if_addr;
+    ip4_addr_t multi_addr;
+} *mcast_group;
 
 #define DEFAULT_SO_RCVBUF   0x34000 /* same as Linux */
 
@@ -1018,6 +1031,11 @@ closure_function(1, 2, sysreturn, socket_close,
         break;
     case SOCK_DGRAM:
         lwip_lock();
+        list_foreach(&s->info.udp.mcast_groups, e) {
+            mcast_group group = struct_from_list(e, mcast_group, l);
+            igmp_leavegroup(&group->if_addr, &group->multi_addr);
+            deallocate(s->sock.h, group, sizeof(*group));
+        }
         udp_remove(s->info.udp.lw);
         lwip_unlock();
         break;
@@ -1203,6 +1221,7 @@ static int allocate_udp_sock(process p, int af, struct udp_pcb *pcb, u32 flags)
     if (fd >= 0) {
         s->info.udp.lw = pcb;
         s->info.udp.state = UDP_SOCK_CREATED;
+        list_init(&s->info.udp.mcast_groups);
         lwip_lock();
         udp_recv(pcb, udp_input_lower, s);
         lwip_unlock();
@@ -2125,12 +2144,79 @@ sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     return rv;
 }
 
+static boolean netsock_mcast_register(netsock s, ip4_addr_t if_addr, ip4_addr_t multi_addr)
+{
+    mcast_group group = allocate(s->sock.h, sizeof(*group));
+    if (group == INVALID_ADDRESS)
+        return false;
+    group->if_addr = if_addr;
+    group->multi_addr = multi_addr;
+    list_push_back(&s->info.udp.mcast_groups, &group->l);
+    return true;
+}
+
+static void netsock_mcast_unregister(netsock s, ip4_addr_t if_addr, ip4_addr_t multi_addr)
+{
+    list_foreach(&s->info.udp.mcast_groups, e) {
+        mcast_group group = struct_from_list(e, mcast_group, l);
+        if (ip4_addr_cmp(&group->if_addr, &if_addr) &&
+                ip4_addr_cmp(&group->multi_addr, &multi_addr)) {
+            list_delete(&group->l);
+            deallocate(s->sock.h, group, sizeof(*group));
+            return;
+        }
+    }
+}
+
 static sysreturn netsock_setsockopt(struct sock *sock, int level,
                                     int optname, void *optval, socklen_t optlen)
 {
     netsock s = (netsock)sock;
     sysreturn rv;
     switch (level) {
+    case IPPROTO_IP:
+        switch (optname) {
+        case IP_ADD_MEMBERSHIP:
+        case IP_DROP_MEMBERSHIP: {
+            struct ip_mreq *mreq = optval;
+            if (optlen < sizeof(*mreq)) {
+                rv = -EINVAL;
+                goto out;
+            }
+            if (s->sock.type != SOCK_DGRAM) {
+                rv = -EPROTO;
+                goto out;
+            }
+            ip4_addr_t if_addr;
+            ip4_addr_t multi_addr;
+            ip4_addr_set_u32(&if_addr, mreq->imr_interface);
+            ip4_addr_set_u32(&multi_addr, mreq->imr_multiaddr);
+            lwip_lock();
+            err_t err;
+            if (optname == IP_ADD_MEMBERSHIP) {
+                if (!netsock_mcast_register(s, if_addr, multi_addr)) {
+                    lwip_unlock();
+                    rv = -ENOMEM;
+                    goto out;
+                }
+                err = igmp_joingroup(&if_addr, &multi_addr);
+                if (err != ERR_OK)
+                    netsock_mcast_unregister(s, if_addr, multi_addr);
+            } else {
+                err = igmp_leavegroup(&if_addr, &multi_addr);
+                netsock_mcast_unregister(s, if_addr, multi_addr);
+            }
+            lwip_unlock();
+            if (err != ERR_OK) {
+                rv = lwip_to_errno(err);
+                goto out;
+            }
+            break;
+        }
+        default:
+            goto unimplemented;
+        }
+        break;
     case IPPROTO_IPV6:
         switch (optname) {
         case IPV6_V6ONLY:

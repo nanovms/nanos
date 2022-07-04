@@ -132,6 +132,7 @@ SRCS-lwip= \
 	$(LWIPDIR)/src/core/ipv4/dhcp.c \
 	$(LWIPDIR)/src/core/ipv4/etharp.c \
 	$(LWIPDIR)/src/core/ipv4/icmp.c \
+	$(LWIPDIR)/src/core/ipv4/igmp.c \
 	$(LWIPDIR)/src/core/ipv4/ip4_addr.c \
 	$(LWIPDIR)/src/core/ipv4/ip4_frag.c \
 	$(LWIPDIR)/src/core/ipv4/ip4.c \

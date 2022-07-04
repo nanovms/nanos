@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <lwip.h>
+#include <lwip/igmp.h>
 #include <lwip/priv/tcp_priv.h>
 
 /* Network interface flags */
@@ -33,6 +34,7 @@ static struct net_lwip_timer net_lwip_timers[] = {
     {ARP_TMR_INTERVAL, etharp_tmr, "arp"},
     {DHCP_COARSE_TIMER_MSECS, dhcp_coarse_tmr, "dhcp coarse"},
     {DHCP_FINE_TIMER_MSECS, dhcp_fine_tmr, "dhcp fine"},
+    {IGMP_TMR_INTERVAL, igmp_tmr, "igmp"},
     {ND6_TMR_INTERVAL, nd6_tmr, "nd6"},
     {IP6_REASS_TMR_INTERVAL, ip6_reass_tmr, "ip6 reass"},
     {MLD6_TMR_INTERVAL, mld6_tmr, "mld6"},
