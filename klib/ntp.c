@@ -717,21 +717,41 @@ static void ntp_server_add(heap h, buffer addr, u16 port)
 
 static boolean ntp_server_parse(heap h, buffer server)
 {
-    int separator = buffer_strchr(server, ':');
-    if ((separator == 0) || (separator == buffer_length(server) - 1))
+    if (buffer_length(server) == 0)
         return false;
-    buffer addr;
+    buffer addr = 0;
     u16 port;
+    int separator;
+    if (byte(server, 0) == '[') {   /* numeric IPv6 address */
+        int addr_end = buffer_strchr(server, ']');
+        if (addr_end < 0)
+            return false;
+        if (addr_end == buffer_length(server) - 1) {
+            separator = -1;
+        } else {
+            if ((addr_end < buffer_length(server) - 2) && (byte(server, addr_end + 1) == ':'))
+                separator = addr_end + 1;
+            else
+                return false;
+        }
+        addr = alloca_wrap_buffer(buffer_ref(server, 1), addr_end - 1);
+    } else {
+        separator = buffer_strchr(server, ':');
+        if ((separator == 0) || (separator == buffer_length(server) - 1))
+            return false;
+    }
     if (separator > 0) {
         buffer port_buf = alloca_wrap_buffer(buffer_ref(server, separator + 1),
                                              buffer_length(server) - separator - 1);
         u64 val;
         if (!u64_from_value(port_buf, &val) || (val > U16_MAX))
             return false;
-        addr = alloca_wrap_buffer(buffer_ref(server, 0), separator);
+        if (!addr)
+            addr = alloca_wrap_buffer(buffer_ref(server, 0), separator);
         port = val;
     } else {
-        addr = server;
+        if (!addr)
+            addr = server;
         port = NTP_PORT_DEFAULT;
     }
     ntp_server_add(h, addr, port);
@@ -836,7 +856,7 @@ int init(status_handler complete)
         ntp.max_base_freq = PPM_SCALE(ppm);
     }
     lwip_lock();
-    ntp.pcb = udp_new();
+    ntp.pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
     if (!ntp.pcb) {
         lwip_unlock();
         rprintf("NTP: failed to create PCB\n");
