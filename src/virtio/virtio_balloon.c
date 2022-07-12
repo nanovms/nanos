@@ -386,9 +386,10 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
     vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
     update_actual_pages(0);
     virtio_balloon_update();
-    balloon_deflater bd = closure(general, virtio_balloon_deflater);
+    mem_cleaner bd = closure(general, virtio_balloon_deflater);
     assert(bd != INVALID_ADDRESS);
-    mm_register_balloon_deflater(bd);
+    if (!mm_register_mem_cleaner(bd))
+        deallocate_closure(bd);
     if (balloon_has_stats_vq())
         virtio_balloon_init_statsq();
     return true;

@@ -16,6 +16,11 @@
 #define init_debug(x, ...)
 #endif
 
+typedef struct mm_cleaner {
+    struct list l;
+    mem_cleaner cleaner;
+} *mm_cleaner;
+
 BSS_RO_AFTER_INIT filesystem root_fs;
 BSS_RO_AFTER_INIT static kernel_heaps init_heaps;
 
@@ -184,11 +189,47 @@ closure_function(2, 2, void, fsstarted,
 #define mm_debug(x, ...) do { } while(0)
 #endif
 
-static balloon_deflater mm_balloon_deflater;
+static struct list mm_cleaners;
+static struct spinlock mm_lock;
 
-void mm_register_balloon_deflater(balloon_deflater deflater)
+static u64 mm_clean(u64 clean_bytes)
 {
-    mm_balloon_deflater = deflater;
+    s64 remain = clean_bytes;
+    spin_lock(&mm_lock);
+    list end = list_end(&mm_cleaners);
+    list last = end->prev;
+    list e = list_begin(&mm_cleaners);
+    while (e != end) {
+        mm_cleaner mmc = struct_from_list(e, mm_cleaner, l);
+        remain -= apply(mmc->cleaner, remain);
+        if (remain <= 0)
+            break;
+
+        /* This cleaner couldn't satisfy the clean request: move it to the back of the list, i.e.
+         * de-prioritize it for future requests. */
+        list next = e->next;
+        list_delete(e);
+        list_push_back(&mm_cleaners, e);
+
+        if (e == last)
+            /* any further elements down the list are cleaners that couldn't satisfy this request */
+            break;
+        e = next;
+    }
+    spin_unlock(&mm_lock);
+    return clean_bytes - remain;
+}
+
+boolean mm_register_mem_cleaner(mem_cleaner cleaner)
+{
+    mm_cleaner mmc = allocate(heap_locked(init_heaps), sizeof(*mmc));
+    if (mmc == INVALID_ADDRESS)
+        return false;
+    mmc->cleaner = cleaner;
+    spin_lock(&mm_lock);
+    list_push_back(&mm_cleaners, &mmc->l);
+    spin_unlock(&mm_lock);
+    return true;
 }
 
 void mm_service(void)
@@ -197,20 +238,11 @@ void mm_service(void)
     u64 free = heap_free(phys);
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__,
              heap_total(phys), heap_allocated(phys), free);
-    if (free < PAGECACHE_DRAIN_CUTOFF) {
-        u64 drain_bytes = PAGECACHE_DRAIN_CUTOFF - free;
-        u64 drained = pagecache_drain(drain_bytes);
-        if (drained > 0)
-            mm_debug("   drained %ld / %ld requested...\n", drained, drain_bytes);
-        free = heap_free(phys);
-    }
-
-    if (mm_balloon_deflater && free < BALLOON_DEFLATE_THRESHOLD) {
-        u64 deflate_bytes = BALLOON_DEFLATE_THRESHOLD - free;
-        mm_debug("   requesting %ld bytes from deflater\n", deflate_bytes);
-        u64 deflated = apply(mm_balloon_deflater, deflate_bytes);
-        mm_debug("   deflated %ld bytes\n", deflated);
-        (void)deflated;
+    if (free < MEM_CLEAN_THRESHOLD) {
+        u64 clean_bytes = MEM_CLEAN_THRESHOLD - free;
+        u64 cleaned = mm_clean(clean_bytes);
+        if (cleaned > 0)
+            mm_debug("   cleaned %ld / %ld requested...\n", cleaned, clean_bytes);
     }
 }
 
@@ -315,6 +347,12 @@ closure_function(0, 3, void, attach_storage,
     apply(req_handler, &req);
 }
 
+closure_function(0, 1, u64, mm_pagecache_cleaner,
+                 u64, clean_bytes)
+{
+    return pagecache_drain(clean_bytes);
+}
+
 void kernel_runtime_init(kernel_heaps kh)
 {
     heap misc = heap_general(kh);
@@ -327,8 +365,13 @@ void kernel_runtime_init(kernel_heaps kh)
 #endif
     init_runtime(misc, locked);
     init_sg(locked);
+    list_init(&mm_cleaners);
+    spin_lock_init(&mm_lock);
     init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_linear_backed(kh), PAGECACHE_MEMORY_RESERVE),
                reserve_heap_wrapper(misc, (heap)heap_physical(kh), PAGECACHE_MEMORY_RESERVE), PAGESIZE);
+    mem_cleaner pc_cleaner = closure(misc, mm_pagecache_cleaner);
+    assert(pc_cleaner != INVALID_ADDRESS);
+    assert(mm_register_mem_cleaner(pc_cleaner));
     unmap(0, PAGESIZE);         /* unmap zero page */
     init_extra_prints();
     init_pci(kh);

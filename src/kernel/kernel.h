@@ -756,8 +756,8 @@ void init_scheduler(heap);
 void init_scheduler_cpus(heap h);
 void mm_service(void);
 
-typedef closure_type(balloon_deflater, u64, u64);
-void mm_register_balloon_deflater(balloon_deflater deflater);
+typedef closure_type(mem_cleaner, u64, u64);
+boolean mm_register_mem_cleaner(mem_cleaner cleaner);
 
 kernel_heaps get_kernel_heaps(void);
 

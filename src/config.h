@@ -60,7 +60,7 @@
 #define XENNET_TX_SERVICEQUEUE_DEPTH 512
 
 /* mm stuff */
-#define PAGECACHE_DRAIN_CUTOFF (64 * MB)
+#define MEM_CLEAN_THRESHOLD (64 * MB)
 #define PAGECACHE_SCAN_PERIOD_SECONDS 5
 #define PAGECACHE_MEMORY_RESERVE (4 * MB)
 #define USER_MEMORY_RESERVE (4 * MB)
@@ -69,9 +69,6 @@
 
 /* don't go below this minimum amount of physical memory when inflating balloon */
 #define BALLOON_MEMORY_MINIMUM (16 * MB)
-
-/* attempt to deflate balloon when physical memory is below this threshold */
-#define BALLOON_DEFLATE_THRESHOLD (16 * MB)
 
 /* must be large enough for vendor code that use malloc/free interface */
 #define MAX_MCACHE_ORDER 16
