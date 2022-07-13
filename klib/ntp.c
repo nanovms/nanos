@@ -74,6 +74,9 @@ struct ntp_sample {
 typedef struct ntp_server {
     char *addr;
     u16 port;
+    ip_addr_t ip_addr;
+    struct ntp_ts last_transmit_time;
+    struct ntp_ts last_originate_time;
 } *ntp_server;
 
 declare_closure_struct(0, 2, void, ntp_query_func,
@@ -102,8 +105,6 @@ static struct {
 
     int query_errors;
     int jiggle_counter;
-    struct ntp_ts last_transmit_time;
-    struct ntp_ts last_originate_time;
     int bad_regressions;
     struct ntp_sample samples[MAX_SAMPLES];
     int nsamples;
@@ -116,7 +117,11 @@ static struct {
     s64 skew;
     s64 max_corr_freq;
     s64 max_base_freq;
+    struct spinlock lock;
 } ntp;
+
+#define ntp_lock()      spin_lock(&ntp.lock)
+#define ntp_unlock()    spin_unlock(&ntp.lock)
 
 /* Calculates a division between a 128-bit value and a 64-bit value and returns a 64-bit quotient.
  * If the quotient does not fit in 64 bits, -1ull is returned.
@@ -140,9 +145,11 @@ static u64 div128_64(u128 dividend, u64 divisor)
 
 static void ntp_schedule_query(void)
 {
+    ntp_lock();
     if (!timer_is_active(&ntp.query_timer))
         register_timer(kernel_timers, &ntp.query_timer, CLOCK_ID_MONOTONIC,
             seconds(U64_FROM_BIT(ntp.query_interval)), false, 0, (timer_handler)&ntp.query_func);
+    ntp_unlock();
 }
 
 static void timestamp_to_ntptime(timestamp t, struct ntp_ts *ntptime)
@@ -164,15 +171,11 @@ static s64 ntptime_diff(struct ntp_ts *t1, struct ntp_ts *t2)
 
 static void ntp_query_complete(boolean success)
 {
-    if (success) {
-        ntp.query_errors = 0;
-    } else if ((ntp.nsamples == 0) && (vector_length(ntp.servers) > 1)) {
-        if (++ntp.current_server == vector_length(ntp.servers))
-            ntp.current_server = 0;
-        ntp_debug("switching to server %d\n", ntp.current_server);
-    } else  if ((++ntp.query_errors > NTP_QUERY_ATTEMPTS) &&
-            (ntp.query_interval < ntp.pollmax)) {
-        ntp.query_interval++;
+    if (ntp.current_server >= 0) {
+        if (success)
+            ntp.query_errors = 0;
+        else if ((++ntp.query_errors > NTP_QUERY_ATTEMPTS) && (ntp.query_interval < ntp.pollmax))
+            ntp.query_interval++;
     }
     ntp_schedule_query();
 }
@@ -190,6 +193,9 @@ static void ntp_reset_state(void)
     ntp.base_freq = 0;
     ntp.skew = milliseconds(2);
     runtime_memset((void *)ntp.samples, 0, sizeof(ntp.samples));
+    ntp_lock();
+    ntp.current_server = -1;
+    ntp_unlock();
 }
 
 /* Converts pair of whole and fractional integer values to 64-bit fixed point */
@@ -289,7 +295,7 @@ static timestamp slew_compensate(timestamp raw)
     return raw + (ntp.offset - fpmul(ntp.slew_freq, raw - ntp.slew_start));
 }
 
-static void ntp_query(const ip_addr_t *server_addr, boolean lwip_locked)
+static void ntp_query(ntp_server server, boolean lwip_locked)
 {
     if (!lwip_locked)
         lwip_lock();
@@ -305,11 +311,10 @@ static void ntp_query(const ip_addr_t *server_addr, boolean lwip_locked)
     struct ntp_ts t;
     timestamp_to_ntptime(slew_compensate(kern_now(CLOCK_ID_REALTIME)), &t);
     runtime_memcpy(&pkt->transmit_ts, &t, sizeof(t));
-    runtime_memcpy(&ntp.last_originate_time, &t, sizeof(t));
+    runtime_memcpy(&server->last_originate_time, &t, sizeof(t));
     if (!lwip_locked)
         lwip_lock();
-    ntp_server server = vector_get(ntp.servers, ntp.current_server);
-    err_t err = udp_sendto(ntp.pcb, p, server_addr, server->port);
+    err_t err = udp_sendto(ntp.pcb, p, &server->ip_addr, server->port);
     if (err != ERR_OK) {
         rprintf("%s: failed to send request: %d\n", __func__, err);
         ntp_query_complete(false);
@@ -510,18 +515,18 @@ static s64 get_log_precision(s8 lp)
 }
 
 /* some sanity checks from RFC5905 */
-static boolean sanity_checks(struct ntp_packet *p)
+static boolean sanity_checks(ntp_server server, struct ntp_packet *p)
 {
     int tssz = sizeof(struct ntp_ts);
     struct ntp_ts zerots = {0};
     /* Check for duplicate packet */
-    if (runtime_memcmp(&p->transmit_ts, &ntp.last_transmit_time, tssz) == 0)
+    if (runtime_memcmp(&p->transmit_ts, &server->last_transmit_time, tssz) == 0)
         return false;
-    runtime_memcpy(&ntp.last_transmit_time, &p->transmit_ts, tssz);
+    runtime_memcpy(&server->last_transmit_time, &p->transmit_ts, tssz);
     /* Check packet matches our last transmit time */
-    if (runtime_memcmp(&p->originate_ts, &ntp.last_originate_time, tssz) != 0)
+    if (runtime_memcmp(&p->originate_ts, &server->last_originate_time, tssz) != 0)
         return false;
-    runtime_memset((void *)&ntp.last_originate_time, 0, tssz);
+    runtime_memset((void *)&server->last_originate_time, 0, tssz);
     /* Check all timestamps are non-zero */
     if (runtime_memcmp(&p->originate_ts, &zerots, tssz) == 0 ||
         runtime_memcmp(&p->receive_ts, &zerots, tssz) == 0 ||
@@ -545,10 +550,35 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
         success = false;
         goto done;
     }
-    if (!sanity_checks(pkt)) {
-        rprintf("%s: packet sanity checks failed; discarded\n", __func__);
-        success = false;
-        goto done;
+    ntp_lock();
+    if (ntp.current_server >= 0) {
+        ntp_server server = vector_get(ntp.servers, ntp.current_server);
+        ntp_unlock();
+        if (!ip_addr_cmp(addr, &server->ip_addr)) {
+            ntp_debug("received packet is not from current server, discarding\n");
+            goto exit;
+        }
+        if (!sanity_checks(server, pkt)) {
+            rprintf("%s: packet sanity checks failed; discarded\n", __func__);
+            success = false;
+            goto done;
+        }
+    } else {
+        ntp_server server = 0;
+        ntp_server s;
+        vector_foreach(ntp.servers, s) {
+            if (ip_addr_cmp(addr, &s->ip_addr)) {
+                if (sanity_checks(s, pkt)) {
+                    ntp_debug("selecting %s as current server\n", s->addr);
+                    ntp.current_server = _i;
+                    server = s;
+                }
+                break;
+            }
+        }
+        ntp_unlock();
+        if (!server)
+            goto exit;
     }
     timestamp wallclock_now = slew_compensate(kern_now(CLOCK_ID_REALTIME));
     struct ntp_ts t1, t2;
@@ -655,17 +685,34 @@ badlimit:
     success = true;
   done:
     ntp_query_complete(success);
+  exit:
     pbuf_free(p);
 }
 
 static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     if (ipaddr) {
-        ntp_query(ipaddr, true);
+        ntp_server server = callback_arg;
+        server->ip_addr = *ipaddr;
+        ntp_query(server, true);
     } else {
         rprintf("%s: failed to resolve hostname %s\n", __func__, name);
         ntp_query_complete(false);
     }
+}
+
+static boolean ntp_resolve_and_query(ntp_server server)
+{
+    lwip_lock();
+    err_t err = dns_gethostbyname(server->addr, &server->ip_addr, ntp_dns_cb, server);
+    lwip_unlock();
+    if (err == ERR_OK) {
+        ntp_query(server, false);
+    } else if (err != ERR_INPROGRESS) {
+        rprintf("%s: failed to resolve hostname %s: %d\n", __func__, server->addr, err);
+        return false;
+    }
+    return true;
 }
 
 define_closure_function(0, 2, void, ntp_query_func,
@@ -677,17 +724,19 @@ define_closure_function(0, 2, void, ntp_query_func,
         rprintf("NTP: failed to receive server response\n", __func__);
         ntp_query_complete(false);
     }
-    ip_addr_t server_addr;
-    lwip_lock();
-    ntp_server server = vector_get(ntp.servers, ntp.current_server);
-    err_t err = dns_gethostbyname(server->addr, &server_addr, ntp_dns_cb, 0);
-    lwip_unlock();
-    if (err == ERR_OK)
-        ntp_query(&server_addr, false);
-    else if (err != ERR_INPROGRESS) {
-        rprintf("%s: failed to resolve hostname: %d\n", __func__, err);
-        ntp_query_complete(false);
+    int current_server = ntp.current_server;
+    boolean success;
+    if (current_server >= 0) {
+        success = ntp_resolve_and_query(vector_get(ntp.servers, current_server));
+    } else {
+      success = false;
+      ntp_server server;
+      vector_foreach(ntp.servers, server) {
+          success |= ntp_resolve_and_query(server);
+      }
     }
+    if (!success)
+        ntp_query_complete(false);
 }
 
 /* Periodically update last raw to avoid numeric errors from big intervals */
@@ -867,6 +916,7 @@ int init(status_handler complete)
     init_closure(&ntp.query_func, ntp_query_func);
     init_closure(&ntp.slew_complete_func, ntp_slew_complete_func);
     init_closure(&ntp.raw_update_func, ntp_raw_update_func);
+    spin_lock_init(&ntp.lock);
     ntp_reset_state();
     runtime_memset((void *)ntp.samples, 0, sizeof(ntp.samples));
     init_timer(&ntp.query_timer);
