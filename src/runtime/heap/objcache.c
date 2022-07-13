@@ -89,8 +89,8 @@ static inline u16 index_from_obj(objcache o, page p, u64 obj)
 #define footer_from_list(l) struct_from_list(l, footer, list)
 
 #define foreach_page_footer(l, f)				\
-    for (f = footer_from_list((l)->next); &f->list != (l);	\
-	 f = footer_from_list(f->list.next))
+    for (footer __next, f = footer_from_list((l)->next);                        \
+        __next = footer_from_list(f->list.next), &f->list != (l); f = __next)
 
 static footer objcache_addpage(objcache o)
 {
@@ -238,7 +238,6 @@ static void objcache_destroy(heap h)
 	    o->alloced_objs, o);
     }
 
-    footer f;
     foreach_page_footer(&o->free, f)
         deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
     foreach_page_footer(&o->full, f)
@@ -280,8 +279,6 @@ boolean objcache_validate(heap h)
        - total_objs = page tally * objs_per_page
        - alloced_objs matches total objs_per_page minus f->avails
     */
-
-    footer f;
 
     u64 total_pages = 0;
     u64 total_avail = 0;
