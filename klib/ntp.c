@@ -71,6 +71,11 @@ struct ntp_sample {
     u64 peer_dispersion;
 };
 
+typedef struct ntp_server {
+    char *addr;
+    u16 port;
+} *ntp_server;
+
 declare_closure_struct(0, 2, void, ntp_query_func,
                        u64, expiry, u64, overruns);
 declare_closure_struct(0, 2, void, ntp_slew_complete_func,
@@ -79,8 +84,8 @@ declare_closure_struct(0, 2, void, ntp_raw_update_func,
                        u64, expiry, u64, overruns);
 
 static struct {
-    char server_addr[256];
-    u16 server_port;
+    vector servers;
+    int current_server;
     struct udp_pcb *pcb;
     struct timer query_timer;
     struct timer slew_timer;
@@ -161,6 +166,10 @@ static void ntp_query_complete(boolean success)
 {
     if (success) {
         ntp.query_errors = 0;
+    } else if ((ntp.nsamples == 0) && (vector_length(ntp.servers) > 1)) {
+        if (++ntp.current_server == vector_length(ntp.servers))
+            ntp.current_server = 0;
+        ntp_debug("switching to server %d\n", ntp.current_server);
     } else  if ((++ntp.query_errors > NTP_QUERY_ATTEMPTS) &&
             (ntp.query_interval < ntp.pollmax)) {
         ntp.query_interval++;
@@ -299,7 +308,8 @@ static void ntp_query(const ip_addr_t *server_addr, boolean lwip_locked)
     runtime_memcpy(&ntp.last_originate_time, &t, sizeof(t));
     if (!lwip_locked)
         lwip_lock();
-    err_t err = udp_sendto(ntp.pcb, p, server_addr, ntp.server_port);
+    ntp_server server = vector_get(ntp.servers, ntp.current_server);
+    err_t err = udp_sendto(ntp.pcb, p, server_addr, server->port);
     if (err != ERR_OK) {
         rprintf("%s: failed to send request: %d\n", __func__, err);
         ntp_query_complete(false);
@@ -669,7 +679,8 @@ define_closure_function(0, 2, void, ntp_query_func,
     }
     ip_addr_t server_addr;
     lwip_lock();
-    err_t err = dns_gethostbyname(ntp.server_addr, &server_addr, ntp_dns_cb, 0);
+    ntp_server server = vector_get(ntp.servers, ntp.current_server);
+    err_t err = dns_gethostbyname(server->addr, &server_addr, ntp_dns_cb, 0);
     lwip_unlock();
     if (err == ERR_OK)
         ntp_query(&server_addr, false);
@@ -690,6 +701,43 @@ define_closure_function(0, 2, void, ntp_raw_update_func,
         (timer_handler)&ntp.raw_update_func);
 }
 
+static void ntp_server_add(heap h, buffer addr, u16 port)
+{
+    ntp_debug("adding server %b (port %d)\n", addr, port);
+    ntp_server server = allocate(h, sizeof(*server));
+    assert(server != INVALID_ADDRESS);
+    bytes addr_len = buffer_length(addr);
+    server->addr = allocate(h, addr_len + 1);
+    assert(server->addr != INVALID_ADDRESS);
+    runtime_memcpy(server->addr, buffer_ref(addr, 0), addr_len);
+    server->addr[addr_len] = '\0';
+    server->port = port;
+    vector_push(ntp.servers, server);
+}
+
+static boolean ntp_server_parse(heap h, buffer server)
+{
+    int separator = buffer_strchr(server, ':');
+    if ((separator == 0) || (separator == buffer_length(server) - 1))
+        return false;
+    buffer addr;
+    u16 port;
+    if (separator > 0) {
+        buffer port_buf = alloca_wrap_buffer(buffer_ref(server, separator + 1),
+                                             buffer_length(server) - separator - 1);
+        u64 val;
+        if (!u64_from_value(port_buf, &val) || (val > U16_MAX))
+            return false;
+        addr = alloca_wrap_buffer(buffer_ref(server, 0), separator);
+        port = val;
+    } else {
+        addr = server;
+        port = NTP_PORT_DEFAULT;
+    }
+    ntp_server_add(h, addr, port);
+    return true;
+}
+
 int init(status_handler complete)
 {
     tuple root = get_root_tuple();
@@ -697,28 +745,34 @@ int init(status_handler complete)
         rprintf("NTP: failed to get root tuple\n");
         return KLIB_INIT_FAILED;
     }
-    buffer server_addr = get(root, sym_intern(ntp_address, intern));
-    if (server_addr) {
-        bytes len = buffer_length(server_addr);
-        if (len >= sizeof(ntp.server_addr)) {
-            rprintf("NTP: invalid server address\n");
-            return KLIB_INIT_FAILED;
+    heap h = heap_locked(get_kernel_heaps());
+    tuple servers = get_tuple(root, sym(ntp_servers));
+    int server_count;
+    if (servers) {
+        server_count = tuple_count(servers);
+        if (server_count == 0) {
+            servers = 0;
+            server_count = 1;
         }
-        runtime_memcpy(ntp.server_addr, buffer_ref(server_addr, 0), len);
-        ntp.server_addr[len] = '\0';
-    } else {
-        runtime_memcpy(ntp.server_addr, NTP_SERVER_DEFAULT, sizeof(NTP_SERVER_DEFAULT));
+    } else  {
+        server_count = 1;
     }
-    value server_port = get(root, sym_intern(ntp_port, intern));
-    if (server_port) {
-        u64 port;
-        if (!u64_from_value(server_port, &port) || (port > U16_MAX)) {
-            rprintf("NTP: invalid server port\n");
+    ntp.servers = allocate_vector(h, server_count);
+    assert(ntp.servers != INVALID_ADDRESS);
+    if (servers) {
+        string server;
+        for (int i = 0; (server = get_string(servers, intern_u64(i))); i++) {
+            if (!ntp_server_parse(h, server)) {
+                rprintf("NTP: invalid server '%b'\n", server);
+                return KLIB_INIT_FAILED;
+            }
+        }
+        if (vector_length(ntp.servers) == 0) {
+            rprintf("NTP: invalid servers %v\n", servers);
             return KLIB_INIT_FAILED;
         }
-        ntp.server_port = port;
     } else {
-        ntp.server_port = NTP_PORT_DEFAULT;
+        ntp_server_add(h, alloca_wrap_cstring(NTP_SERVER_DEFAULT), NTP_PORT_DEFAULT);
     }
     ntp.pollmin = 4;
     ntp.pollmax = 10;
