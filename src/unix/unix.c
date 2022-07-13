@@ -478,6 +478,18 @@ timestamp thread_stime(thread t)
     return t->stime;
 }
 
+define_closure_function(0, 1, u64, unix_mem_cleaner,
+                        u64, clean_bytes)
+{
+    unix_heaps uh = struct_from_field(closure_self(), unix_heaps, mem_cleaner);
+    u64 cleaned = cache_drain(uh->file_cache, clean_bytes, 0);
+    if (cleaned < clean_bytes)
+        cleaned += cache_drain(uh->pipe_cache, clean_bytes - cleaned, 0);
+    if (cleaned < clean_bytes)
+        cleaned += cache_drain(uh->socket_cache, clean_bytes - cleaned, 0);
+    return cleaned;
+}
+
 process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 {
     heap h = heap_locked(kh);
@@ -490,8 +502,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     u_heap = uh;
     uh->kh = *kh;
     uh->processes = locking_heap_wrapper(h, (heap)create_id_heap(h, h, 1, 65535, 1, false));
-    uh->file_cache = locking_heap_wrapper(h,
-        allocate_objcache(h, (heap)heap_linear_backed(kh), sizeof(struct file), PAGESIZE));
+    uh->file_cache = allocate_objcache(h, (heap)heap_linear_backed(kh), sizeof(struct file),
+                                       PAGESIZE, true);
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;
     if (!poll_init(uh))
@@ -555,6 +567,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
             size *= GB;
         coredump_set_limit(size);
     }
+    assert(mm_register_mem_cleaner(init_closure(&uh->mem_cleaner, unix_mem_cleaner)));
 out:
     return kernel_process;
   alloc_fail:
@@ -584,7 +597,7 @@ void dump_mem_stats(buffer b)
     dump_heap_stats(b, "virtual huge", (heap)heap_virtual_huge(kh));
     dump_heap_stats(b, "virtual page", (heap)heap_virtual_page(kh));
     bprintf(b, "Unix heaps:\n");
-    dump_heap_stats(b, "file cache", uh->file_cache);
-    dump_heap_stats(b, "pipe cache", uh->pipe_cache);
-    dump_heap_stats(b, "socket cache", uh->socket_cache);
+    dump_heap_stats(b, "file cache", (heap)uh->file_cache);
+    dump_heap_stats(b, "pipe cache", (heap)uh->pipe_cache);
+    dump_heap_stats(b, "socket cache", (heap)uh->socket_cache);
 }

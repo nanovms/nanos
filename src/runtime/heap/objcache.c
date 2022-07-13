@@ -6,10 +6,7 @@
 
    issues / todo:
 
-   - Do we bother with locking or leave it up to the caller to
-     correctly synchronize accesses to the objcache instance?
-
-     - Per-page locks may reduce contention.
+   - Per-page locks may reduce contention.
 
    - See notes in allocate_objcache() with regard to supporting
      multi-page parent head allocations.
@@ -18,7 +15,11 @@
 
 */
 
+#ifdef KERNEL
+#include <kernel.h>
+#else
 #include <runtime.h>
+#endif
 #include <management.h>
 
 #define FOOTER_MAGIC    (u16)(0xcafe)
@@ -34,7 +35,7 @@ typedef struct footer {
 } *footer;
 
 typedef struct objcache {
-    struct heap h;
+    struct caching_heap ch;
     heap meta;
     heap parent;
     struct list free;       /* pages with available objects */
@@ -46,11 +47,14 @@ typedef struct objcache {
     heap wrapper_heap;      /* heap wrapper */
     boolean prealloc_only;  /* do not allocate beyond preallocated count */
     tuple mgmt;
+#ifdef KERNEL
+    struct spinlock lock;
+#endif
 } *objcache;
 
 typedef u64 page;
 
-#define object_size(o) (o->h.pagesize)
+#define object_size(o) (o->ch.h.pagesize)
 #define page_size(o) (o->pagesize)
 #define next_free_from_obj(obj) (*(u16*)pointer_from_u64(obj))
 #define invalid_index ((u16)-1)
@@ -115,6 +119,13 @@ static footer objcache_addpage(objcache o)
     return f;
 }
 
+static void objcache_removepage(objcache o, footer f)
+{
+    list_delete(&f->list);
+    deallocate_u64(o->parent, page_from_footer(o, f), page_size(o));
+    o->total_objs -= o->objs_per_page;
+}
+
 static inline boolean validate_page(objcache o, footer f)
 {
     if (f->magic != FOOTER_MAGIC) {
@@ -130,7 +141,7 @@ static inline boolean validate_page(objcache o, footer f)
     return true;
 }
 
-static void objcache_deallocate(heap h, u64 x, bytes size)
+static inline void objcache_deallocate(heap h, u64 x, bytes size)
 {
     objcache o = (objcache)h;
     page p = page_from_obj(o, x);
@@ -168,7 +179,7 @@ static void objcache_deallocate(heap h, u64 x, bytes size)
     o->alloced_objs--;
 }
 
-static u64 objcache_allocate(heap h, bytes size)
+static inline u64 objcache_allocate(heap h, bytes size)
 {
     objcache o = (objcache)h;
     if (size != object_size(o)) {
@@ -437,11 +448,73 @@ static value objcache_management(heap h)
     return n;
 }
 
+static inline bytes objcache_drain(struct caching_heap *ch, bytes size, bytes retain)
+{
+    objcache o = (objcache)ch;
+    bytes retained = 0;
+    bytes drained = 0;
+    /* First pass: compute the amount of retained memory, and drain memory only if the amount
+     * computed so far is higher than `retain`. */
+    foreach_page_footer(&o->free, f) {
+        if ((retained >= retain) && (f->avail == o->objs_per_page)) {
+            objcache_removepage(o, f);
+            drained += page_size(o);
+            if (drained >= size)
+                return drained;
+        } else {
+            retained += f->avail * object_size(o);
+        }
+    }
+    /* Second pass: drain additional memory unless it would bring the total amount of retained
+     * memory below `retain`. */
+    foreach_page_footer(&o->free, f) {
+        if (retained < retain + page_size(o))
+            break;
+        if (f->avail == o->objs_per_page) {
+            objcache_removepage(o, f);
+            drained += page_size(o);
+            if (drained >= size)
+                break;
+            retained -= page_size(o);
+        }
+    }
+    return drained;
+}
+
+#ifdef KERNEL
+
+#define objcache_lock(h) (&((objcache)(h))->lock)
+
+static u64 objcache_alloc_locking(heap h, bytes size)
+{
+    u64 flags = spin_lock_irq(objcache_lock(h));
+    u64 a = objcache_allocate(h, size);
+    spin_unlock_irq(objcache_lock(h), flags);
+    return a;
+}
+
+static void objcache_dealloc_locking(heap h, u64 x, bytes size)
+{
+    u64 flags = spin_lock_irq(objcache_lock(h));
+    objcache_deallocate(h, x, size);
+    spin_unlock_irq(objcache_lock(h), flags);
+}
+
+static bytes objcache_drain_locking(struct caching_heap *ch, bytes size, bytes retain)
+{
+    u64 flags = spin_lock_irq(objcache_lock(ch));
+    u64 drained = objcache_drain(ch, size, retain);
+    spin_unlock_irq(objcache_lock(ch), flags);
+    return drained;
+}
+
+#endif
+
 /* If the parent heap gives allocations that are aligned to size, the
    caller may choose a power-of-2 pagesize that is larger than the
    parent pagesize. Otherwise, pagesize must be equal to parent
    pagesize. */
-heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
+caching_heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, boolean locking)
 {
     u64 objs_per_page;
 
@@ -477,13 +550,24 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
 
     objcache o = allocate(meta, sizeof(struct objcache));
     assert(o != INVALID_ADDRESS);
-    o->h.alloc = objcache_allocate;
-    o->h.dealloc = objcache_deallocate;
-    o->h.destroy = objcache_destroy;
-    o->h.allocated = objcache_allocated;
-    o->h.total = objcache_total;
-    o->h.pagesize = objsize;
-    o->h.management = objcache_management;
+#ifdef KERNEL
+    if (locking) {
+        spin_lock_init(objcache_lock(o));
+        o->ch.h.alloc = objcache_alloc_locking;
+        o->ch.h.dealloc = objcache_dealloc_locking;
+        o->ch.drain = objcache_drain_locking;
+    } else
+#endif
+    {
+        o->ch.h.alloc = objcache_allocate;
+        o->ch.h.dealloc = objcache_deallocate;
+        o->ch.drain = objcache_drain;
+    }
+    o->ch.h.destroy = objcache_destroy;
+    o->ch.h.allocated = objcache_allocated;
+    o->ch.h.total = objcache_total;
+    o->ch.h.pagesize = objsize;
+    o->ch.h.management = objcache_management;
     o->meta = meta;
     o->parent = parent;
 
@@ -498,21 +582,21 @@ heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize)
     o->mgmt = 0;
     o->prealloc_only = false;
 
-    return (heap)o;
+    return (caching_heap)o;
 }
 
-heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, heap wrapper)
+caching_heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, heap wrapper)
 {
-    objcache o = (objcache)allocate_objcache(meta, parent, objsize, pagesize);
+    objcache o = (objcache)allocate_objcache(meta, parent, objsize, pagesize, false);
     if (o == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     o->wrapper_heap = wrapper;
-    return (heap)o;
+    return (caching_heap)o;
 }
 
-heap allocate_objcache_preallocated(heap meta, heap parent, bytes objsize, bytes pagesize, u64 prealloc_count, boolean prealloc_only)
+caching_heap allocate_objcache_preallocated(heap meta, heap parent, bytes objsize, bytes pagesize, u64 prealloc_count, boolean prealloc_only)
 {
-    objcache o = (objcache)allocate_objcache(meta, parent, objsize, pagesize);
+    objcache o = (objcache)allocate_objcache(meta, parent, objsize, pagesize, false);
     if (o == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     u64 npages = prealloc_count / o->objs_per_page + (prealloc_count % o->objs_per_page ? 1 : 0);
@@ -521,6 +605,6 @@ heap allocate_objcache_preallocated(heap meta, heap parent, bytes objsize, bytes
         assert(f != INVALID_ADDRESS);
     }
     o->prealloc_only = prealloc_only;
-    return (heap)o;
+    return (caching_heap)o;
 }
 

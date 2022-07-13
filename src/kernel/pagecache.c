@@ -1652,10 +1652,8 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     assert(pc->zero_page != INVALID_ADDRESS);
 
 #ifdef KERNEL
-    pc->completions =
-        locking_heap_wrapper(general, allocate_objcache(general, contiguous,
-                                                        sizeof(struct page_completion),
-                                                        PAGESIZE));
+    pc->completions = (heap)allocate_objcache(general, contiguous, sizeof(struct page_completion),
+                                              PAGESIZE, true);
     assert(pc->completions != INVALID_ADDRESS);
     spin_lock_init(&pc->state_lock);
     spin_lock_init(&pc->global_lock);

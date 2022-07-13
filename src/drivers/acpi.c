@@ -491,8 +491,8 @@ ACPI_STATUS AcpiOsPredefinedOverride(const ACPI_PREDEFINED_NAMES *init_val, ACPI
 ACPI_STATUS AcpiOsCreateCache(char *cache_name, UINT16 object_size, UINT16 max_depth,
                               ACPI_CACHE_T **return_cache)
 {
-    heap h = allocate_objcache(acpi_heap, (heap)heap_linear_backed(get_kernel_heaps()), object_size,
-                               PAGESIZE);
+    caching_heap h = allocate_objcache(acpi_heap, (heap)heap_linear_backed(get_kernel_heaps()),
+                                       object_size, PAGESIZE, false);
     if (h == INVALID_ADDRESS)
         return AE_NO_MEMORY;
     *return_cache = (ACPI_CACHE_T *)h;
@@ -515,7 +515,8 @@ ACPI_STATUS AcpiOsReleaseObject(ACPI_CACHE_T *cache, void *object)
 
 ACPI_STATUS AcpiOsPurgeCache(ACPI_CACHE_T *cache)
 {
-    /* not implemented */
+    caching_heap ch = (caching_heap)cache;
+    cache_drain(ch, CACHE_DRAIN_ALL, 0);
     return AE_OK;
 }
 

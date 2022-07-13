@@ -138,15 +138,18 @@ typedef struct user_cap_data {
 } *cap_user_data_t;
 
 /* unix-specific memory objects and ids */
+declare_closure_struct(0, 1, u64, unix_mem_cleaner,
+                       u64, clean_bytes)
 typedef struct unix_heaps {
     struct kernel_heaps kh;	/* must be first */
 
     /* object caches */
-    heap file_cache;
-    heap pipe_cache;
+    caching_heap file_cache;
+    caching_heap pipe_cache;
 #ifdef NET
-    heap socket_cache;
+    caching_heap socket_cache;
 #endif
+    closure_struct(unix_mem_cleaner, mem_cleaner);
 
     /* id heaps */
     heap processes;
@@ -615,8 +618,8 @@ static inline thread thread_from_tid(process p, int tid)
 
 unix_heaps get_unix_heaps();
 
-#define unix_cache_alloc(uh, c) ({ heap __c = uh->c ## _cache; allocate(__c, __c->pagesize); })
-#define unix_cache_free(uh, c, p) ({ heap __c = uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
+#define unix_cache_alloc(uh, c) ({ heap __c = (heap)uh->c ## _cache; allocate(__c, __c->pagesize); })
+#define unix_cache_free(uh, c, p) ({ heap __c = (heap)uh->c ## _cache; deallocate(__c, p, __c->pagesize); })
 
 #define fdesc_lock(f)   spin_lock(&(f)->lock)
 #define fdesc_unlock(f) spin_unlock(&(f)->lock)

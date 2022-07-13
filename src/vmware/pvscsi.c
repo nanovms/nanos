@@ -37,6 +37,8 @@ struct pvscsi_hcb {
     u8 sense[PVSCSI_SENSE_SIZE];
 };
 
+declare_closure_struct(0, 1, u64, pvscsi_mem_cleaner,
+                       u64, clean_bytes);
 typedef struct pvscsi {
     pci_dev dev;
 
@@ -45,8 +47,8 @@ typedef struct pvscsi {
     heap contiguous;
     heap general;
 
-    heap hcb_objcache;
-    struct spinlock mem_lock;
+    caching_heap hcb_objcache;
+    closure_struct(pvscsi_mem_cleaner, mem_cleaner);
 
     struct pvscsi_rings_state    *rings_state;
     struct pvscsi_ring_req_desc    *req_ring;
@@ -87,20 +89,17 @@ static void pvscsi_write_cmd(pvscsi dev, u32 cmd, void *data, u32 len)
 
 static void pvscsi_hcb_dealloc(pvscsi dev, struct pvscsi_hcb *hcb)
 {
-    spin_lock(&dev->mem_lock);
     if (hcb->alloc_len) {
         deallocate(dev->contiguous, hcb->data, pad(hcb->alloc_len, dev->contiguous->pagesize));
     }
-    deallocate(dev->hcb_objcache, hcb, sizeof(struct pvscsi_hcb));
-    spin_unlock(&dev->mem_lock);
+    deallocate((heap)dev->hcb_objcache, hcb, sizeof(struct pvscsi_hcb));
 }
 
 static struct pvscsi_hcb *pvscsi_hcb_alloc(pvscsi dev, u16 target, u16 lun, u8 cmd)
 {
     int alloc_len = scsi_data_len(cmd);
     pvscsi_debug("%s: cmd %d, alloc_len %d\n", __func__, cmd, alloc_len);
-    spin_lock(&dev->mem_lock);
-    struct pvscsi_hcb *hcb = allocate(dev->hcb_objcache, sizeof(struct pvscsi_hcb));
+    struct pvscsi_hcb *hcb = allocate((heap)dev->hcb_objcache, sizeof(struct pvscsi_hcb));
     assert(hcb != INVALID_ADDRESS);
     if (alloc_len) {
         hcb->data = allocate(dev->contiguous, alloc_len);
@@ -110,7 +109,6 @@ static struct pvscsi_hcb *pvscsi_hcb_alloc(pvscsi dev, u16 target, u16 lun, u8 c
         hcb->data = 0;
         hcb->alloc_len = 0;
     }
-    spin_unlock(&dev->mem_lock);
     zero(hcb->cdb, sizeof(hcb->cdb));
     hcb->cdb[0] = cmd;
     pvscsi_debug("   hcb %p, cmd 0x%02x\n", hcb, hcb->cdb[0]);
@@ -473,6 +471,14 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
     spin_unlock(&dev->queue_lock);
 }
 
+define_closure_function(0, 1, u64, pvscsi_mem_cleaner,
+                        u64, clean_bytes)
+{
+    pvscsi dev = struct_from_field(closure_self(), pvscsi, mem_cleaner);
+    return cache_drain(dev->hcb_objcache, clean_bytes,
+                       STORAGE_REQUESTS_RETAIN * sizeof(struct pvscsi_hcb));
+}
+
 static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, pci_dev d)
 {
     struct pvscsi *dev = allocate(general, sizeof(struct pvscsi));
@@ -529,8 +535,8 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
 
     // setup hcb cache
     dev->hcb_objcache = allocate_objcache(dev->general, page_allocator,
-                      sizeof(struct pvscsi_hcb), PAGESIZE_2M);
-    spin_lock_init(&dev->mem_lock);
+                                          sizeof(struct pvscsi_hcb), PAGESIZE_2M, true);
+    mm_register_mem_cleaner(init_closure(&dev->mem_cleaner, pvscsi_mem_cleaner));
 
     dev->adapter_queue_size = cmd.req_ring_num_pages * PAGESIZE / sizeof(struct pvscsi_ring_req_desc);
     dev->adapter_queue_size = MIN(dev->adapter_queue_size, PVSCSI_MAX_REQ_QUEUE_DEPTH);

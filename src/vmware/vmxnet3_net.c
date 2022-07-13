@@ -21,11 +21,13 @@
 # define vmxnet3_net_debug(...) do { } while (0)
 #endif // defined(VMXNET3_NET_DEBUG)
 
+declare_closure_struct(0, 1, u64, vmxnet3_mem_cleaner,
+                       u64, clean_bytes);
 typedef struct vmxnet3 {
     vmxnet3_pci dev;
-    heap rxbuffers;
-    struct spinlock rx_buflock;
+    caching_heap rxbuffers;
     int rxbuflen;
+    closure_struct(vmxnet3_mem_cleaner, mem_cleaner);
     thunk rx_intr_handler;
     thunk rx_service;           /* for bhqueue processing */
     queue rx_servicequeue;
@@ -235,9 +237,7 @@ closure_function(1, 0, void, rx_interrupt,
 static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
-    u64 flags = spin_lock_irq(&x->vn->rx_buflock);
-    deallocate(x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
-    spin_unlock_irq(&x->vn->rx_buflock, flags);
+    deallocate((heap)x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
 }
 
 closure_function(1, 0, void, vmxnet3_rx_service_bh,
@@ -266,6 +266,14 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
 }
 
 void vmxnet3_newbuf(vmxnet3 vdev, int rid);
+
+define_closure_function(0, 1, u64, vmxnet3_mem_cleaner,
+                        u64, clean_bytes)
+{
+    vmxnet3 vn = struct_from_field(closure_self(), vmxnet3, mem_cleaner);
+    return cache_drain(vn->rxbuffers, clean_bytes,
+                       NET_RX_BUFFERS_RETAIN * (sizeof(struct xpbuf) + vn->rxbuflen));
+}
 
 static void test_shared(vmxnet3 vn)
 {
@@ -369,9 +377,9 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
 
     vn->rxbuflen = VMXNET3_RX_MAXSEGSIZE;
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
-                      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
+                                      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M, true);
     assert(vn->rxbuffers != INVALID_ADDRESS);
-    spin_lock_init(&vn->rx_buflock);
+    mm_register_mem_cleaner(init_closure(&vn->mem_cleaner, vmxnet3_mem_cleaner));
 
     dev->vmx_ds = allocate_zero(dev->contiguous, sizeof(struct vmxnet3_driver_shared));
     assert(dev->vmx_ds != INVALID_ADDRESS);
@@ -459,7 +467,7 @@ void vmxnet3_newbuf(vmxnet3 vdev, int rid)
     int idx = rxr->vxrxr_refill_start;
     struct vmxnet3_rxdesc *rxd = &rxr->vxrxr_rxd[idx];
 
-    xpbuf x = allocate(vdev->rxbuffers, sizeof(struct xpbuf) + vdev->rxbuflen);
+    xpbuf x = allocate((heap)vdev->rxbuffers, sizeof(struct xpbuf) + vdev->rxbuflen);
     assert(x != INVALID_ADDRESS);
     x->vn = vdev;
     x->p.custom_free_function = receive_buffer_release;
@@ -484,13 +492,6 @@ void vmxnet3_newbuf(vmxnet3 vdev, int rid)
         rxr->vxrxr_refill_start = 0;
         rxr->vxrxr_gen ^= 1;
     }
-}
-
-static inline void vmxnet3_newbuf_lock(vmxnet3 dev, int rid)
-{
-    spin_lock(&dev->rx_buflock);
-    vmxnet3_newbuf(dev, rid);
-    spin_unlock(&dev->rx_buflock);
 }
 
 void vmxnet3_receive(vmxnet3 vdev, struct list *l)
@@ -554,7 +555,7 @@ void vmxnet3_receive(vmxnet3 vdev, struct list *l)
                 goto next;
             }
 
-            vmxnet3_newbuf_lock(vdev, rid);
+            vmxnet3_newbuf(vdev, rid);
 
             m->tot_len = length;
             m->len = length;
@@ -564,7 +565,7 @@ void vmxnet3_receive(vmxnet3 vdev, struct list *l)
             assert(rxd->btype == VMXNET3_BTYPE_BODY);
             assert(dev->currpkt_head != NULL);
 
-            vmxnet3_newbuf_lock(vdev, rid);
+            vmxnet3_newbuf(vdev, rid);
 
             m->len = length;
             dev->currpkt_head->tot_len += length;

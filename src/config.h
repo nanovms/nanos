@@ -70,6 +70,10 @@
 /* don't go below this minimum amount of physical memory when inflating balloon */
 #define BALLOON_MEMORY_MINIMUM (16 * MB)
 
+/* Number of objects that should be retained in the cache when a cache drain is requested */
+#define NET_RX_BUFFERS_RETAIN           64
+#define STORAGE_REQUESTS_RETAIN         64
+
 /* must be large enough for vendor code that use malloc/free interface */
 #define MAX_MCACHE_ORDER 16
 

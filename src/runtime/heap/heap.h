@@ -19,6 +19,15 @@ typedef struct backed_heap {
 #define alloc_map(__bh, __l, __p) ((__bh)->alloc_map(__bh, __l, __p))
 #define dealloc_unmap(__bh, __v, __p, __l) ((__bh)->dealloc_unmap(__bh, __v, __p, __l))
 
+typedef struct caching_heap {
+    struct heap h;
+    bytes (*drain)(struct caching_heap *ch, bytes len, bytes retain);
+} *caching_heap;
+
+#define CACHE_DRAIN_ALL ((bytes)-1)
+
+#define cache_drain(__ch, __l, __r) ((__ch)->drain(__ch, __l, __r))
+
 heap debug_heap(heap m, heap p);
 heap mem_debug(heap m, heap p, u64 padsize);
 heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize);
@@ -44,9 +53,9 @@ static inline value heap_management(heap h)
 }
 
 heap wrap_freelist(heap meta, heap parent, bytes size);
-heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize);
-heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, heap wrapper);
-heap allocate_objcache_preallocated(heap meta, heap parent, bytes objsize, bytes pagesize, u64 prealloc_count, boolean prealloc_only);
+caching_heap allocate_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, boolean locking);
+caching_heap allocate_wrapped_objcache(heap meta, heap parent, bytes objsize, bytes pagesize, heap wrapper);
+caching_heap allocate_objcache_preallocated(heap meta, heap parent, bytes objsize, bytes pagesize, u64 prealloc_count, boolean prealloc_only);
 boolean objcache_validate(heap h);
 heap objcache_from_object(u64 obj, bytes parent_pagesize);
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize);

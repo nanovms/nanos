@@ -173,7 +173,7 @@ heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize)
     u64 padding = objsize >= PAGESIZE ? PAGESIZE : PAD_MIN;
 
     newsize = objsize + padding * 2;
-    mdh->parent = allocate_wrapped_objcache(meta, parent, newsize, pagesize, &mdh->h);
+    mdh->parent = (heap)allocate_wrapped_objcache(meta, parent, newsize, pagesize, &mdh->h);
     mdh->h.pagesize = objsize;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;

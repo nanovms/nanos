@@ -297,7 +297,7 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 #if defined(MEMDEBUG_MCACHE) || defined(MEMDEBUG_ALL)
 	heap h = mem_debug_objcache(meta, parent, obj_size, pagesize);
 #else
-	heap h = allocate_objcache(meta, parent, obj_size, pagesize);
+	caching_heap h = allocate_objcache(meta, parent, obj_size, pagesize, false);
 #endif
 #ifdef MCACHE_DEBUG
 	rputs(" - cache size ");

@@ -54,10 +54,13 @@
 # define virtio_net_debug(...) do { } while(0)
 #endif // defined(VIRTIO_NET_DEBUG)
 
+declare_closure_struct(0, 1, u64, vnet_mem_cleaner,
+                       u64, clean_bytes);
 typedef struct vnet {
     vtdev dev;
     u16 port;
-    heap rxbuffers;
+    caching_heap rxbuffers;
+    closure_struct(vnet_mem_cleaner, mem_cleaner);
     bytes net_header_len;
     int rxbuflen;
     struct netif *n;
@@ -119,7 +122,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
-    deallocate(x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
+    deallocate((heap)x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
 }
 
 static void post_receive(vnet vn);
@@ -217,7 +220,7 @@ closure_function(1, 1, void, input,
 
 static void post_receive(vnet vn)
 {
-    xpbuf x = allocate(vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
+    xpbuf x = allocate((heap)vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
     assert(x != INVALID_ADDRESS);
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
@@ -239,6 +242,14 @@ static void post_receive(vnet vn)
         vqmsg_push(vn->rxq, m, phys + vn->net_header_len, vn->rxbuflen - vn->net_header_len, true);
     }
     vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
+}
+
+define_closure_function(0, 1, u64, vnet_mem_cleaner,
+                        u64, clean_bytes)
+{
+    vnet vn = struct_from_field(closure_self(), vnet, mem_cleaner);
+    return cache_drain(vn->rxbuffers, clean_bytes,
+                       NET_RX_BUFFERS_RETAIN * (sizeof(struct xpbuf) + vn->rxbuflen));
 }
 
 static err_t virtioif_init(struct netif *netif)
@@ -294,8 +305,9 @@ static void virtio_net_attach(vtdev dev)
     vn->rxbuflen = pad(vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) +
                        1500, 8);    /* padding to make xpbuf structures aligned to 8 bytes */
     virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
-    vn->rxbuffers = locking_heap_wrapper(h, allocate_objcache(h, (heap)contiguous,
-				      vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M));
+    vn->rxbuffers = allocate_objcache(h, (heap)contiguous, vn->rxbuflen + sizeof(struct xpbuf),
+                                      PAGESIZE_2M, true);
+    mm_register_mem_cleaner(init_closure(&vn->mem_cleaner, vnet_mem_cleaner));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;

@@ -143,12 +143,14 @@ struct hv_storvsc_request {
     volatile boolean        channel_wait_msg_flag;
 };
 
+declare_closure_struct(0, 1, u64, storvsc_mem_cleaner,
+                       u64, clean_bytes);
 struct storvsc_softc {
     heap general;
     heap contiguous;                /* physically */
 
-    heap hcb_objcache;
-    struct spinlock mem_lock;
+    caching_heap hcb_objcache;
+    closure_struct(storvsc_mem_cleaner, mem_cleaner);
 
     struct list hcb_queue;
     struct spinlock queue_lock;
@@ -643,19 +645,16 @@ static void storvsc_init_requests(struct storvsc_softc *sc)
 
 static void storvsc_hcb_dealloc(struct storvsc_softc *sc, struct storvsc_hcb *hcb)
 {
-    u64 flags = spin_lock_irq(&sc->mem_lock);
     if (hcb->alloc_len) {
         deallocate(sc->contiguous, hcb->data, pad(hcb->alloc_len, sc->contiguous->pagesize));
     }
-    deallocate(sc->hcb_objcache, hcb, sizeof(struct storvsc_hcb));
-    spin_unlock_irq(&sc->mem_lock, flags);
+    deallocate((heap)sc->hcb_objcache, hcb, sizeof(struct storvsc_hcb));
 }
 
 static struct storvsc_hcb *storvsc_hcb_alloc(struct storvsc_softc* sc, u16 target, u16 lun, u8 cmd)
 {
     int alloc_len = scsi_data_len(cmd);
-    u64 flags = spin_lock_irq(&sc->mem_lock);
-    struct storvsc_hcb *hcb = allocate_zero(sc->hcb_objcache, sizeof(struct storvsc_hcb));
+    struct storvsc_hcb *hcb = allocate_zero((heap)sc->hcb_objcache, sizeof(struct storvsc_hcb));
     assert(hcb != INVALID_ADDRESS);
     if (alloc_len) {
         hcb->data = allocate(sc->contiguous, alloc_len);
@@ -665,7 +664,6 @@ static struct storvsc_hcb *storvsc_hcb_alloc(struct storvsc_softc* sc, u16 targe
         hcb->data = 0;
         hcb->alloc_len = 0;
     }
-    spin_unlock_irq(&sc->mem_lock, flags);
     hcb->cdb[0] = cmd;
     return hcb;
 }
@@ -910,6 +908,15 @@ static void storvsc_report_luns(struct storvsc_softc *sc, u16 target)
     storvsc_action(sc, r, target, 0);
 }
 
+define_closure_function(0, 1, u64, storvsc_mem_cleaner,
+                        u64, clean_bytes)
+{
+    struct storvsc_softc *sc = struct_from_field(closure_self(), struct storvsc_softc *,
+                                                 mem_cleaner);
+    return cache_drain(sc->hcb_objcache, clean_bytes,
+                       STORAGE_REQUESTS_RETAIN * sizeof(struct storvsc_hcb));
+}
+
 /**
  * @brief StorVSC attach function
  *
@@ -943,8 +950,8 @@ static status storvsc_attach(kernel_heaps kh, hv_device* device, storage_attach 
     spin_lock_init(&sc->queue_lock);
     // setup hcb cache
     sc->hcb_objcache = allocate_objcache(sc->general, sc->contiguous,
-                                         sizeof(struct storvsc_hcb), PAGESIZE_2M);
-    spin_lock_init(&sc->mem_lock);
+                                         sizeof(struct storvsc_hcb), PAGESIZE_2M, true);
+    mm_register_mem_cleaner(init_closure(&sc->mem_cleaner, storvsc_mem_cleaner));
     sc->sa = a;
     sc->disks = allocate_vector(h, 1);
     spin_lock_init(&sc->disks_lock);

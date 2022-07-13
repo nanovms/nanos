@@ -81,7 +81,7 @@ boolean objcache_test(heap meta, heap parent, int objsize)
 {
     /* just a cursory test */
     int opp = (TEST_PAGESIZE - FOOTER_SIZE) / objsize;
-    heap h = allocate_objcache(meta, parent, objsize, TEST_PAGESIZE);
+    heap h = (heap)allocate_objcache(meta, parent, objsize, TEST_PAGESIZE, false);
     vector objs = allocate_vector(meta, opp);
 
     msg_debug("objs %p, heap %p\n", objs, h);
@@ -128,7 +128,7 @@ boolean preallocated_objcache_test(heap meta, heap parent, int objsize, boolean 
 
     vector objs = allocate_vector(meta, opp);
 
-    heap h = allocate_objcache_preallocated(meta, parent, objsize, TEST_PAGESIZE, opp, prealloc_only);
+    heap h = (heap)allocate_objcache_preallocated(meta, parent, objsize, TEST_PAGESIZE, opp, prealloc_only);
     u64 meta_occupancy = heap_allocated(meta);
     u64 parent_occupancy = heap_allocated(parent);
 

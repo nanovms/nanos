@@ -958,6 +958,8 @@ typedef struct netvsc_packet_ {
 /*
  * Device-specific softc structure
  */
+declare_closure_struct(0, 1, u64, hn_mem_cleaner,
+                       u64, clean_bytes);
 typedef struct hn_softc {
 	heap general;
 	heap contiguous;                /* physically */
@@ -968,8 +970,8 @@ typedef struct hn_softc {
 	/* lwIP */
 	struct netif *netif;
 	u16 rxbuflen;
-	heap rxbuffers;
-	struct spinlock rx_buflock;
+	caching_heap rxbuffers;
+	closure_struct(hn_mem_cleaner, mem_cleaner);
 } hn_softc_t;
 
 

@@ -53,16 +53,13 @@ static void
 receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
-    u64 flags = spin_lock_irq(&x->hn->rx_buflock);
-    deallocate(x->hn->rxbuffers, x, x->hn->rxbuflen + sizeof(struct xpbuf));
-    spin_unlock_irq(&x->hn->rx_buflock, flags);
+    deallocate((heap)x->hn->rxbuffers, x, x->hn->rxbuflen + sizeof(struct xpbuf));
 }
 
 static xpbuf
 receive_buffer_alloc(hn_softc_t *hn)
 {
-    u64 flags = spin_lock_irq(&hn->rx_buflock);
-    xpbuf x = allocate(hn->rxbuffers, sizeof(struct xpbuf) + hn->rxbuflen);
+    xpbuf x = allocate((heap)hn->rxbuffers, sizeof(struct xpbuf) + hn->rxbuflen);
     assert(x != INVALID_ADDRESS);
     x->hn = hn;
     x->p.custom_free_function = receive_buffer_release;
@@ -73,7 +70,6 @@ receive_buffer_alloc(hn_softc_t *hn)
                         &x->p,
                         x+1,
                         hn->rxbuflen);
-    spin_unlock_irq(&hn->rx_buflock, flags);
     return x;
 }
 
@@ -222,6 +218,14 @@ retry_send:
     return ERR_OK;
 }
 
+define_closure_function(0, 1, u64, hn_mem_cleaner,
+                        u64, clean_bytes)
+{
+    hn_softc_t *hn = struct_from_field(closure_self(), hn_softc_t *, mem_cleaner);
+    return cache_drain(hn->rxbuffers, clean_bytes,
+                       NET_RX_BUFFERS_RETAIN * (sizeof(struct xpbuf) + hn->rxbuflen));
+}
+
 static err_t
 vmxif_init(struct netif *netif)
 {
@@ -257,8 +261,7 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
 
     hn->rxbuflen = NETVSC_RX_MAXSEGSIZE;
     hn->rxbuffers = allocate_objcache(hn->general, hn->contiguous,
-                      hn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M);
-    spin_lock_init(&hn->rx_buflock);
+                                      hn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M, true);
 
     struct netif *netif = allocate(h, sizeof(struct netif));
     assert(netif != INVALID_ADDRESS);
@@ -280,6 +283,7 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
               ethernet_input);
     lwip_unlock();
 
+    mm_register_mem_cleaner(init_closure(&hn->mem_cleaner, hn_mem_cleaner));
     netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x", __func__,
                  netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
                  netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
