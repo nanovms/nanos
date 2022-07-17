@@ -61,18 +61,18 @@ static void wakeup_cpu(u64 cpu)
     }
 }
 
-static thunk migrate_to_self(thunk t, u64 first_cpu, u64 ncpus)
+static sched_task migrate_to_self(sched_task t, u64 first_cpu, u64 ncpus)
 {
     u64 cpu;
     while ((ncpus > 0) &&
             ((cpu = bitmap_range_get_first(idle_cpu_mask, first_cpu, ncpus)) != INVALID_PHYSICAL)) {
         cpuinfo cpui = cpuinfo_from_id(cpu);
         if (t == INVALID_ADDRESS) {
-            t = dequeue(cpui->thread_queue);
+            t = sched_dequeue(&cpui->thread_queue);
             if (t != INVALID_ADDRESS)
                 sched_debug("migrating thread from idle CPU %d to self\n", cpu);
         }
-        if ((t != INVALID_ADDRESS) && !queue_empty(cpui->thread_queue))
+        if ((t != INVALID_ADDRESS) && !sched_queue_empty(&cpui->thread_queue))
             wakeup_cpu(cpu);
         ncpus -= cpu - first_cpu + 1;
         first_cpu = cpu + 1;
@@ -86,12 +86,12 @@ static void migrate_from_self(cpuinfo ci, u64 first_cpu, u64 ncpus)
     while ((ncpus > 0) &&
             ((cpu = bitmap_range_get_first(idle_cpu_mask, first_cpu, ncpus)) != INVALID_PHYSICAL)) {
         cpuinfo cpui = cpuinfo_from_id(cpu);
-        thunk t;
-        if (!queue_empty(cpui->thread_queue)) {
+        sched_task task;
+        if (!sched_queue_empty(&cpui->thread_queue)) {
             wakeup_cpu(cpu);
-        } else if ((t = dequeue(ci->thread_queue)) != INVALID_ADDRESS) {
+        } else if ((task = sched_dequeue(&ci->thread_queue)) != INVALID_ADDRESS) {
             sched_debug("migrating thread from self to idle CPU %d\n", cpu);
-            assert(enqueue(cpui->thread_queue, t));
+            sched_enqueue(&cpui->thread_queue, task);
             wakeup_cpu(cpu);
         }
         ncpus -= cpu - first_cpu + 1;
@@ -159,7 +159,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     sched_debug("runloop from %s c: %d  a1: %d b:%d  r:%d  t:%d\n",
                 state_strings[ci->state], queue_length(ci->cpu_queue),
                 queue_length(async_queue_1), queue_length(bhqueue),
-                queue_length(runqueue), queue_length(ci->thread_queue));
+                queue_length(runqueue), sched_queue_length(&ci->thread_queue));
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();
@@ -182,7 +182,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     boolean timer_updated = update_timer();
 
     if (!shutting_down) {
-        thunk t = dequeue(ci->thread_queue);
+        sched_task t = sched_dequeue(&ci->thread_queue);
         if (t == INVALID_ADDRESS) {
             /* Try to steal a thread from an idle CPU (so that it doesn't
              * have to be woken up), and wake up CPUs that have a non-empty
@@ -201,7 +201,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
                         break;
                     cpuinfo cpui = cpuinfo_from_id(cpu);
                     if (cpui->state == cpu_user) {
-                        t = dequeue(cpui->thread_queue);
+                        t = sched_dequeue(&cpui->thread_queue);
                         if (t != INVALID_ADDRESS) {
                             sched_debug("migrating thread from CPU %d to self\n", cpu);
                             break;
@@ -232,7 +232,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
                     ci->last_timer_update = here + kernel_timers->max;
                 }
             }
-            apply(t);
+            apply(t->t);
         }
     }
 
@@ -242,7 +242,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
        Find cost of sleep / wakeup and consider spinning this check for that interval. */
     if (queue_length(ci->cpu_queue) || queue_length(async_queue_1) ||
         queue_length(bhqueue) || queue_length(runqueue) ||
-        (!shutting_down && queue_length(ci->thread_queue)))
+        (!shutting_down && !sched_queue_empty(&ci->thread_queue)))
         goto retry;
 
     kernel_sleep();
@@ -288,4 +288,48 @@ void init_scheduler_cpus(heap h)
     idle_cpu_mask = allocate_bitmap(h, h, present_processors);
     assert(idle_cpu_mask != INVALID_ADDRESS);
     bitmap_alloc(idle_cpu_mask, present_processors);
+}
+
+static boolean sched_sort(void *a, void *b)
+{
+    sched_task ta = a, tb = b;
+    return (ta->runtime > tb->runtime);
+}
+
+boolean sched_queue_init(sched_queue sq, heap h)
+{
+    sq->q = allocate_pqueue(h, sched_sort);
+    if (sq->q == INVALID_ADDRESS)
+        return false;
+    sq->min_runtime = 0;
+    spin_lock_init(&sq->lock);
+    return true;
+}
+
+void sched_enqueue(sched_queue sq, sched_task task)
+{
+    spin_lock(&sq->lock);
+    sched_debug("sq %p, enqueuing task %p, runtime %T\n", sq, task, task->runtime);
+    task->runtime += sq->min_runtime;
+    pqueue_insert(sq->q, task);
+    spin_unlock(&sq->lock);
+}
+
+sched_task sched_dequeue(sched_queue sq)
+{
+    spin_lock(&sq->lock);
+    sched_task task = pqueue_pop(sq->q);
+    if (task != INVALID_ADDRESS) {
+        sched_debug("sq %p, dequeued task %p, runtime %T\n", sq, task,
+                    task->runtime - sq->min_runtime);
+        sq->min_runtime = task->runtime;
+        task->runtime = 0;
+    }
+    spin_unlock(&sq->lock);
+    return task;
+}
+
+u64 sched_queue_length(sched_queue sq)
+{
+    return pqueue_length(sq->q);
 }

@@ -125,6 +125,11 @@ void *pqueue_peek(pqueue q)
     return INVALID_ADDRESS;
 }
 
+u64 pqueue_length(pqueue q)
+{
+    return vector_length(q->body);
+}
+
 void pqueue_reorder(pqueue q)
 {
     /* Floyd's heap construction algorithm */

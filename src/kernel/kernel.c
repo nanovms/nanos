@@ -166,8 +166,7 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
     /* state */
     ci->id = cpu;
     ci->state = cpu_not_present;
-    ci->thread_queue = allocate_queue(backed, MAX_THREADS);
-    assert(ci->thread_queue != INVALID_ADDRESS);
+    assert(sched_queue_init(&ci->thread_queue, backed));
     ci->free_kernel_contexts = allocate_queue(backed, FREE_KERNEL_CONTEXT_QUEUE_SIZE);
     assert(ci->free_kernel_contexts != INVALID_ADDRESS);
     ci->free_syscall_contexts = allocate_queue(backed, FREE_SYSCALL_CONTEXT_QUEUE_SIZE);

@@ -279,7 +279,8 @@ typedef struct thread {
 
     char name[16]; /* thread name */
     syscall_context syscall;
-    queue scheduling_queue;
+    struct sched_task task;
+    sched_queue scheduling_queue;
     process p;
 
     /* Heaps in the unix world are typically found through

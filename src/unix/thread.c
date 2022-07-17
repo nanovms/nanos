@@ -209,16 +209,23 @@ static inline void check_stop_conditions(thread t)
     halt("Terminating.\n");
 }
 
+static void thread_cputime_update(thread t)
+{
+    if (t->start_time != 0) {
+        timestamp diff = now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
+        t->utime += diff;
+        t->task.runtime = diff;
+        t->start_time = 0;
+    }
+}
+
 static void thread_pause(context ctx)
 {
     if (shutting_down)
         return;
     thread t = (thread)ctx;
     context_frame f = thread_frame(t);
-    assert(t->start_time != 0); // XXX tmp debug
-    timestamp diff = now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
-    t->utime += diff;
-    t->start_time = 0; // XXX tmp debug
+    thread_cputime_update(t);
     thread_frame_save_fpsimd(f);
     thread_frame_save_tls(f);
 }
@@ -240,7 +247,8 @@ static void thread_resume(context ctx)
 static void thread_schedule_return(context ctx)
 {
     thread t = (thread)ctx;
-    assert(enqueue_irqsafe(t->scheduling_queue, &t->thread_return));
+    thread_cputime_update(t);   /* so that it is scheduled based on how much CPU time it used */
+    sched_enqueue(t->scheduling_queue, &t->task);
 }
 
 define_closure_function(1, 0, void, thread_return,
@@ -273,7 +281,7 @@ define_closure_function(1, 0, void, thread_return,
     t->syscall = 0;
 
     /* If we migrated to a new CPU, remain on its thread queue. */
-    t->scheduling_queue = ci->thread_queue;    
+    t->scheduling_queue = &ci->thread_queue;
     thread_unlock(t);
 
     context_frame f = t->context.frame;
@@ -391,7 +399,8 @@ thread create_thread(process p, u64 tid)
     t->context.resume = thread_resume;
     t->context.schedule_return = thread_schedule_return;
     t->context.pre_suspend = 0;
-    init_closure(&t->thread_return, thread_return, t);
+    t->task.t = init_closure(&t->thread_return, thread_return, t);
+    t->task.runtime = 0;
 
     t->thread_bq = allocate_blockq(h, "thread");
     if (t->thread_bq == INVALID_ADDRESS)
@@ -412,7 +421,7 @@ thread create_thread(process p, u64 tid)
 
     init_thread_fault_handler(t);
     
-    t->scheduling_queue = current_cpu()->thread_queue;
+    t->scheduling_queue = &current_cpu()->thread_queue;
     context_frame f = thread_frame(t);
 #ifdef __x86_64__
     f[FRAME_CS] = 0x2b & ~1; // CS 0x28 + CPL 3 but clear bit 0 to indicate syscall

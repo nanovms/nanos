@@ -113,6 +113,13 @@ void *terminus(void *k)
     }
     if (x == expected_sum(NNUMS, nthreads) && check_expected_float_sum(NNUMS, nthreads, y)) {
         printf("passed\n");
+
+        /* A glibc bug (https://bugs.launchpad.net/ubuntu/+source/glibc/+bug/1982326) may cause
+         * pthread_exit() to abort the program when this thread is interrupted in the middle of
+         * exit() and another thread calls pthread_exit(). As a workaround, sleep before calling
+         * exit(), so that the other threads have a chance to run (and terminate cleanly). */
+        usleep(1);
+
         exit(0);
     }
     printf("%lld %f\n", x, y);

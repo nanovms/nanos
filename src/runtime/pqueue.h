@@ -5,6 +5,7 @@ void pqueue_insert(pqueue q, void *v);
 boolean pqueue_remove(pqueue q, void *v);
 void *pqueue_peek(pqueue q);
 void *pqueue_pop(pqueue q);
+u64 pqueue_length(pqueue q);
 void pqueue_reorder(pqueue q);
 typedef closure_type(pqueue_element_handler, boolean, void *);
 boolean pqueue_walk(pqueue q, pqueue_element_handler h);

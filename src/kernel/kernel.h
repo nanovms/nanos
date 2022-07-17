@@ -53,6 +53,17 @@ typedef struct kernel_context {
 
 extern boolean shutting_down;
 
+typedef struct sched_task {
+    thunk t;
+    timestamp runtime;
+} *sched_task;
+
+typedef struct sched_queue {
+    pqueue q;
+    timestamp min_runtime;
+    struct spinlock lock;
+} *sched_queue;
+
 /* per-cpu, architecture-independent invariants */
 typedef struct cpuinfo *cpuinfo;
 
@@ -61,7 +72,7 @@ struct cpuinfo {
     u32 id;
     int state;
     queue cpu_queue;
-    queue thread_queue;
+    struct sched_queue thread_queue;
     timestamp last_timer_update;
     u64 frcount;
     u64 inval_gen; /* Generation number for invalidates */
@@ -755,6 +766,16 @@ void send_ipi(u64 cpu, u8 vector);
 void init_scheduler(heap);
 void init_scheduler_cpus(heap h);
 void mm_service(void);
+
+boolean sched_queue_init(sched_queue sq, heap h);
+void sched_enqueue(sched_queue sq, sched_task task);
+sched_task sched_dequeue(sched_queue sq);
+u64 sched_queue_length(sched_queue sq);
+
+static inline boolean sched_queue_empty(sched_queue sq)
+{
+    return (sched_queue_length(sq) == 0);
+}
 
 typedef closure_type(mem_cleaner, u64, u64);
 boolean mm_register_mem_cleaner(mem_cleaner cleaner);
