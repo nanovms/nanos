@@ -203,7 +203,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
             dest = (u8 *)dest + xfer;
         } else if (xfer > 0) {
             sg_buf sgb = sg_list_tail_add(bound(sg), xfer);
-            if (!sgb)
+            if (sgb == INVALID_ADDRESS)
                 break;
             sharedbuf_reserve(shb);
             sgb->buf = buffer_ref(b, 0);

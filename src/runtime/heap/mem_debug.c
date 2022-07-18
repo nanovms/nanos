@@ -141,6 +141,16 @@ static void mem_debug_dealloc(heap h, u64 a, bytes b)
     deallocate(mdh->parent, u64_from_pointer(hdr), nb);
 }
 
+static u64 mem_debug_allocated(heap h)
+{
+    return heap_allocated((heap)((mem_debug_heap)h)->parent);
+}
+
+static u64 mem_debug_total(heap h)
+{
+    return heap_total((heap)((mem_debug_heap)h)->parent);
+}
+
 heap mem_debug(heap meta, heap parent, u64 padsize)
 {
     build_assert(PAD_MIN > sizeof(mem_debug_hdr));
@@ -149,6 +159,8 @@ heap mem_debug(heap meta, heap parent, u64 padsize)
     mdh->h.pagesize = parent->pagesize;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
+    mdh->h.allocated = mem_debug_allocated;
+    mdh->h.total = mem_debug_total;
     mdh->h.management = 0;      /* TODO */
     mdh->padsize = MAX(padsize, PAD_MIN);
     return &mdh->h;
@@ -165,6 +177,8 @@ heap mem_debug_objcache(heap meta, heap parent, u64 objsize, u64 pagesize)
     mdh->h.pagesize = objsize;
     mdh->h.alloc = mem_debug_alloc;
     mdh->h.dealloc = mem_debug_dealloc;
+    mdh->h.total = mem_debug_allocated;
+    mdh->h.allocated = mem_debug_total;
     mdh->h.management = 0;      /* TODO */
     mdh->padsize = padding;
     mdh->objsize = objsize;
@@ -230,6 +244,16 @@ static void mem_debug_backed_dealloc(heap h, u64 a, bytes b)
     dealloc_unmap((backed_heap)h, pointer_from_u64(a), 0, b);
 }
 
+static u64 mem_debug_backed_allocated(heap h)
+{
+    return heap_allocated((heap)((mem_debug_backed_heap)h)->parent);
+}
+
+static u64 mem_debug_backed_total(heap h)
+{
+    return heap_total((heap)((mem_debug_backed_heap)h)->parent);
+}
+
 backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize, boolean nohdr)
 {
     mem_debug_backed_heap mbh = allocate_zero(meta, sizeof(*mbh));
@@ -240,6 +264,8 @@ backed_heap mem_debug_backed(heap meta, backed_heap parent, u64 padsize, boolean
     mbh->bh.alloc_map = nohdr ? mem_debug_backed_alloc_map_nohdr : mem_debug_backed_alloc_map;
     mbh->bh.dealloc_unmap = nohdr ? mem_debug_backed_dealloc_unmap_nohdr : mem_debug_backed_dealloc_unmap;
     mbh->padsize = MAX(padsize, PAD_MIN_BACKED);
+    mbh->bh.h.allocated = mem_debug_backed_allocated;
+    mbh->bh.h.total = mem_debug_backed_total;
     return &mbh->bh;
 }
 #endif

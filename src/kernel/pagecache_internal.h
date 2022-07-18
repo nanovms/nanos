@@ -82,6 +82,8 @@ typedef struct pagecache_node {
     struct rbtree pages;
     rangemap shared_maps;       /* shared mappings associated with this node */
     struct rangemap dirty;
+    queue dirty_commits;
+    boolean committing;
     u64 length;
 
     sg_io cache_read;

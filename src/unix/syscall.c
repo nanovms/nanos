@@ -497,14 +497,17 @@ closure_function(7, 1, void, file_read_complete,
 {
     thread_log(bound(t), "%s: status %v", __func__, s);
     sysreturn rv;
+    sg_list sg = bound(sg);
     if (is_ok(s)) {
         file f = bound(f);
-        u64 count = sg_copy_to_buf_and_release(bound(dest), bound(sg), bound(limit));
+        u64 count = sg_copy_to_buf_and_release(bound(dest), sg, bound(limit));
         thread_log(bound(t), "   read count %ld\n", count);
         if (bound(is_file_offset)) /* vs specified offset (pread) */
             f->offset += count;
         rv = count;
     } else {
+        sg_list_release(sg);
+        deallocate_sg_list(sg);
         rv = sysreturn_from_fs_status_value(s);
     }
     apply(bound(completion), bound(t), rv);
@@ -642,6 +645,11 @@ closure_function(2, 6, sysreturn, file_write,
         return io_complete(completion, t, -ENOMEM);
     }
     sg_buf sgb = sg_list_tail_add(sg, length);
+    if (sgb == INVALID_ADDRESS) {
+        thread_log(t, "   unable to allocate sg buf");
+        deallocate_sg_list(sg);
+        return io_complete(completion, t, -ENOMEM);
+    }
     sgb->buf = src;
     sgb->size = length;
     sgb->offset = 0;

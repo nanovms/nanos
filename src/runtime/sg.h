@@ -32,7 +32,8 @@ typedef closure_type(sg_io, void, sg_list, range, status_handler);
 
 static inline sg_buf sg_list_tail_add(sg_list sg, word length)
 {
-    assert(buffer_extend(sg->b, sizeof(struct sg_buf)));
+    if (!buffer_extend(sg->b, sizeof(struct sg_buf)))
+        return INVALID_ADDRESS;
     void *sgb = buffer_ref(sg->b, buffer_length(sg->b));
     buffer_produce(sg->b, sizeof(struct sg_buf));
     fetch_and_add(&sg->count, length);

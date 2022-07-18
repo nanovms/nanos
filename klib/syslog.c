@@ -161,7 +161,7 @@ static void syslog_file_write(const char *s, bytes count)
         if (syslog.file_sg == INVALID_ADDRESS)
             return;
         syslog.file_sgb = sg_list_tail_add(syslog.file_sg, SYSLOG_BUF_LEN);
-        if (!syslog.file_sgb) {
+        if (syslog.file_sgb == INVALID_ADDRESS) {
             deallocate_sg_list(syslog.file_sg);
             syslog.file_sg = 0;
             return;
