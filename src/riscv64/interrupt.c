@@ -295,14 +295,6 @@ void trap_exception(void)
             context_release_refcount(retctx);
             frame_return(retctx->frame);
         }
-        if (is_syscall_context(ctx)) {
-            /* This indicates an unhandled fault on a user page from within a
-               syscall. We need to abandon the syscall at this point and let
-               the thread run so it may receive the appropriate signal. The
-               frame is left full so that future context dumps will report the
-               actual processor state when the exception occurred. */
-            context_release_refcount(ctx);
-        }
         assert(!is_kernel_context(ctx));
         runloop();
     } else {

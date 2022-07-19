@@ -241,6 +241,7 @@ define_closure_function(1, 1, context, unix_fault_handler,
             if (is_syscall_context(ctx)) {
                 thread_log(t, "fault on user page 0x%lx from within syscall; "
                            "abandoning syscall context\n", vaddr);
+                orphan_syscall_context(current_cpu(), (syscall_context)ctx);
                 t->syscall_abandoned = true;
             } else if (is_kernel_context(ctx)) {
                 errmsg = "Page fault for user memory within kernel context";
