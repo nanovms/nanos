@@ -54,9 +54,9 @@ typedef struct log_ext *log_ext;
 
 #endif
 
-declare_closure_struct(1, 1, void, log_ext_sync_complete,
-                       log_ext, ext,
-                       status, s);
+declare_closure_struct(3, 3, void, log_storage_op,
+                       filesystem, fs, u64, start_sector, boolean, write,
+                       sg_list, sg, range, q, status_handler, sh)
 declare_closure_struct(1, 0, void, log_ext_free,
                        log_ext, ext);
 
@@ -65,15 +65,13 @@ struct log_ext {
     buffer staging;
     boolean open;
 
-    pagecache_node cache_node;
     range sectors;
-    sg_io read;
-    sg_io write;
+    closure_struct(log_storage_op, read);
+    closure_struct(log_storage_op, write);
 #ifdef KERNEL
     struct spinlock lock;
 #endif
     struct refcount refcount;
-    closure_struct(log_ext_sync_complete, sync_complete);
     closure_struct(log_ext_free, free);
 };
 
@@ -101,9 +99,9 @@ struct log {
     closure_struct(log_free, free);
 };
 
-closure_function(3, 3, void, log_storage_op,
-                 filesystem, fs, u64, start_sector, boolean, write,
-                 sg_list, sg, range, q, status_handler, sh)
+define_closure_function(3, 3, void, log_storage_op,
+                        filesystem, fs, u64, start_sector, boolean, write,
+                        sg_list, sg, range, q, status_handler, sh)
 {
     int order = bound(fs)->blocksize_order;
     assert((q.start & MASK(order)) == 0);
@@ -115,33 +113,15 @@ closure_function(3, 3, void, log_storage_op,
     filesystem_storage_op(bound(fs), sg, blocks, write, sh);
 }
 
-define_closure_function(1, 1, void, log_ext_sync_complete,
-                        log_ext, ext,
-                        status, s)
-{
-    if (!is_ok(s)) {
-        msg_err("failed to sync page cache node: %v\n", s);
-        timm_dealloc(s);
-    }
-    log_ext ext = bound(ext);
-    if (ext->staging)
-        deallocate_buffer(ext->staging);
-    pagecache_deallocate_node(ext->cache_node);
-    heap h = ext->tl->h;
-    refcount_release(&ext->tl->refcount);
-    deallocate(h, ext, sizeof(struct log_ext));
-}
-
 define_closure_function(1, 0, void, log_ext_free,
                         log_ext, ext)
 {
     log_ext ext = bound(ext);
-    status_handler completion = init_closure(&ext->sync_complete, log_ext_sync_complete, ext);
-#ifndef TLOG_READ_ONLY
-    pagecache_sync_node(ext->cache_node, completion);
-#else
-    apply(completion, STATUS_OK);
-#endif
+    if (ext->staging)
+        deallocate_buffer(ext->staging);
+    heap h = ext->tl->h;
+    refcount_release(&ext->tl->refcount);
+    deallocate(h, ext, sizeof(struct log_ext));
 }
 
 static log_ext open_log_extension(log tl, range sectors)
@@ -155,23 +135,15 @@ static log_ext open_log_extension(log tl, range sectors)
     if (ext->staging == INVALID_ADDRESS)
         goto fail_dealloc;
     ext->open = false;
-    sg_io r_op = closure(tl->h, log_storage_op, tl->fs, sectors.start, false);
-    sg_io w_op = closure(tl->h, log_storage_op, tl->fs, sectors.start, true);
-    ext->cache_node = pagecache_allocate_node(tl->fs->pv, r_op, w_op, 0);
-    if (ext->cache_node == INVALID_ADDRESS)
-        goto fail_dealloc_staging;
-
-    pagecache_set_node_length(ext->cache_node, TFS_LOG_DEFAULT_EXTENSION_SIZE);
+    init_closure(&ext->read, log_storage_op, tl->fs, sectors.start, false);
+    init_closure(&ext->write, log_storage_op, tl->fs, sectors.start, true);
     ext->sectors = sectors;
-    ext->read = pagecache_node_get_reader(ext->cache_node);
-    ext->write = pagecache_node_get_writer(ext->cache_node);
     init_refcount(&ext->refcount, 1, init_closure(&ext->free, log_ext_free, ext));
 #ifndef TLOG_READ_ONLY
     tlog_ext_lock_init(ext);
     if (sectors.start != 0) {
         rmnode n = allocate(tl->h, sizeof(*n));
         if (n == INVALID_ADDRESS) {
-            pagecache_deallocate_node(ext->cache_node);
             goto fail_dealloc_staging;
         }
         rmnode_init(n, sectors);
@@ -180,8 +152,10 @@ static log_ext open_log_extension(log tl, range sectors)
 #endif
     refcount_reserve(&tl->refcount);
     return ext;
+#ifndef TLOG_READ_ONLY
   fail_dealloc_staging:
     deallocate_buffer(ext->staging);
+#endif
   fail_dealloc:
     deallocate(tl->h, ext, sizeof(struct log_ext));
     return INVALID_ADDRESS;
@@ -322,8 +296,8 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
 
     range r = irangel(b->start, write_bytes);
     tlog_debug("%s: writing r %R, buffer addr %p\n", __func__, r, sgb->buf);
-    apply(ext->write, sg, r, closure(ext->tl->h, flush_log_extension_complete,
-                                     sg, ext, release, complete));
+    apply((sg_io)&ext->write, sg, r, closure(ext->tl->h, flush_log_extension_complete,
+                                             sg, ext, release, complete));
     if (!release) {
         b->end -= 1;                /* next write removes END_OF_LOG */
         tlog_debug("log ext offset was %d (end %d)\n", b->start, b->end);
@@ -728,8 +702,8 @@ closure_function(4, 1, void, log_read_complete,
 
     /* staging is preallocated to size */
     buffer b = ext->staging;
-    u64 n = sg_copy_to_buf_and_release(buffer_ref(b, 0), bound(sg), bound(length));
-    buffer_produce(b, n);
+    buffer_produce(b, bound(length));
+    deallocate_sg_list(bound(sg));
     dump_staging(ext);
     tlog_debug("log_read_complete: buffer len %d, status %v\n", buffer_length(b), read_status);
     tlog_debug("-> new log extension, checking magic and version\n");
@@ -869,9 +843,15 @@ static void log_read(log tl, status_handler sh)
         return;
     }
     range r = irangel(0, bytes_from_sectors(tl->fs, range_span(ext->sectors)));
-    status_handler tlc = closure(tl->h, log_read_complete, ext, sg, range_span(r), sh);
+    u64 length = range_span(r);
+    sg_buf sgb = sg_list_tail_add(sg, length);
+    sgb->buf = buffer_ref(ext->staging, 0);
+    sgb->size = length;
+    sgb->offset = 0;
+    sgb->refcount = 0;
+    status_handler tlc = closure(tl->h, log_read_complete, ext, sg, length, sh);
     tlog_debug("%s: issuing sg read, sg %p, r %R\n", __func__, sg, r);
-    apply(ext->read, sg, r, tlc);
+    apply((sg_io)&ext->read, sg, r, tlc);
 }
 
 boolean filesystem_probe(u8 *first_sector, u8 *uuid, char *label)
