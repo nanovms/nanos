@@ -58,7 +58,6 @@ struct sock {
     blockq rxbq;
     blockq txbq;
     u64 rx_len;
-    unsigned int msg_count;
     sysreturn (*bind)(struct sock *sock, struct sockaddr *addr,
             socklen_t addrlen);
     sysreturn (*listen)(struct sock *sock, int backlog);
@@ -76,8 +75,9 @@ struct sock {
     sysreturn (*recvfrom)(struct sock *sock, void *buf, u64 len, int flags,
              struct sockaddr *dest_addr, socklen_t *addrlen);
     sysreturn (*sendmsg)(struct sock *sock, const struct msghdr *msg,
-            int flags);
-    sysreturn (*recvmsg)(struct sock *sock, struct msghdr *msg, int flags);
+                         int flags, boolean in_bh, io_completion completion);
+    sysreturn (*recvmsg)(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
+                         io_completion completion);
     sysreturn (*shutdown)(struct sock *sock, int how);
 };
 

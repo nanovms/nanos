@@ -44,6 +44,7 @@ struct _closure_common {
 #define init_closure(__p, __name, ...)                                  \
     __closure(0, (__p), sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
 
+#define closure_struct_type(__name)     struct _closure_##__name
 #define closure_struct(__name, __field) struct _closure_##__name __field;
 
 #define closure_ref(__name, __var) struct _closure_##__name *__var

@@ -889,7 +889,8 @@ static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
     return blockq_check(s->sock.rxbq, current, ba, false);
 }
 
-static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int flags)
+static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int flags, boolean in_bh,
+                            io_completion completion)
 {
     nl_debug("sendmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
     nlsock s = (nlsock)sock;
@@ -908,20 +909,18 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
     nl_unlock(s);
     rv = (written > 0) ? written : rv;
   out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, current, rv);
 }
 
-static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
+static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
+                            io_completion completion)
 {
     nl_debug("recvmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
     nlsock s = (nlsock)sock;
-    blockq_action ba = contextual_closure(nl_read_bh, s, current, 0, 0, msg, flags,
-                                          (io_completion)&sock->f.io_complete);
-    if (ba == INVALID_ADDRESS) {
-        socket_release(sock);
-        return -ENOMEM;
-    }
+    thread t = current;
+    blockq_action ba = contextual_closure(nl_read_bh, s, t, 0, 0, msg, flags, completion);
+    if (ba == INVALID_ADDRESS)
+        return io_complete(completion, t, -ENOMEM);
     if (msg->msg_name && (msg->msg_namelen >= sizeof(struct sockaddr_nl))) {
         struct sockaddr_nl *addr = msg->msg_name;
         addr->nl_family = AF_NETLINK;
@@ -932,7 +931,7 @@ static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
     msg->msg_namelen = sizeof(struct sockaddr_nl);
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
-    return blockq_check(s->sock.rxbq, current, ba, false);
+    return blockq_check(s->sock.rxbq, t, ba, in_bh);
 }
 
 static void nl_lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,

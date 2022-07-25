@@ -136,9 +136,9 @@ static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
         int flags, struct sockaddr *src_addr, socklen_t *addrlen);
 static sysreturn netsock_sendmsg(struct sock *sock, const struct msghdr *msg,
-                                 int flags);
+                                 int flags, boolean in_bh, io_completion completion);
 static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
-                                 int flags);
+                                 int flags, boolean in_bh, io_completion completion);
 
 BSS_RO_AFTER_INIT static thunk net_loop_poll;
 static boolean net_loop_poll_queued;
@@ -385,17 +385,18 @@ struct udp_entry {
     u16 rport;
 };
 
-static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
-                                       u64 length, int flags, struct sockaddr *src_addr,
-                                       socklen_t *addrlen, io_completion completion, u64 bqflags)
+static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
+                                       io_completion completion, u64 bqflags)
 {
     lwip_lock();
 
+    thread t = current;
     sysreturn rv = 0;
     err_t err = get_lwip_error(s);
-    net_debug("sock %d, thread %ld, dest %p, len %ld, flags 0x%x, bqflags 0x%lx, lwip err %d\n",
-	      s->sock.fd, t->tid, dest, length, flags, bqflags, err);
-    assert(length > 0);
+    iovec iov = msg->msg_iov;
+    u64 length = msg->msg_iovlen;
+    net_debug("sock %d, thread %ld, iov %p, len %ld, flags 0x%x, bqflags 0x%lx, lwip err %d\n",
+	      s->sock.fd, t->tid, iov, length, flags, bqflags, err);
     assert(s->sock.type == SOCK_STREAM || s->sock.type == SOCK_DGRAM);
 
     if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
@@ -429,7 +430,9 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         return blockq_block_required(t, bqflags);
     }
 
+    sockaddr src_addr = msg->msg_name;
     if (src_addr) {
+        socklen_t *addrlen = &msg->msg_namelen;
         if (s->sock.type == SOCK_STREAM) {
             remote_sockaddr(s, src_addr, addrlen);
         } else {
@@ -439,6 +442,7 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
         }
     }
 
+    u64 iov_offset = 0;
     u64 xfer_total = 0;
     u32 pbuf_idx = 0;
 
@@ -448,24 +452,28 @@ static sysreturn sock_read_bh_internal(netsock s, thread t, void * dest,
             ((struct udp_entry *)p)->pbuf;
         struct pbuf *cur_buf = pbuf;
 
-        do {
+        while ((length > 0) && cur_buf) {
             if (cur_buf->len > 0) {
-                u64 xfer = MIN(length, cur_buf->len);
-                runtime_memcpy(dest, cur_buf->payload, xfer);
+                u64 xfer = MIN(iov->iov_len - iov_offset, cur_buf->len);
+                runtime_memcpy(iov->iov_base + iov_offset, cur_buf->payload, xfer);
                 if (!(flags & MSG_PEEK)) {
                     pbuf_consume(cur_buf, xfer);
                     if (s->sock.type == SOCK_STREAM)
                         s->sock.rx_len -= xfer;
                 }
-                length -= xfer;
                 xfer_total += xfer;
-                dest = (char *) dest + xfer;
                 if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK))
                     tcp_recved(s->info.tcp.lw, xfer);
+                iov_offset += xfer;
+                if (iov_offset == iov->iov_len) {
+                    length--;
+                    iov++;
+                    iov_offset = 0;
+                }
             }
             if ((cur_buf->len == 0) || (flags & MSG_PEEK))
                 cur_buf = cur_buf->next;
-        } while ((length > 0) && cur_buf);
+        }
 
         if (flags & MSG_PEEK) {
             if (!cur_buf)
@@ -499,54 +507,34 @@ closure_function(8, 1, sysreturn, sock_read_bh,
                  netsock, s, thread, t, void *, dest, u64, length, int, flags, struct sockaddr *, src_addr, socklen_t *, addrlen, io_completion, completion,
                  u64, flags)
 {
-    sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length),
-        bound(flags), bound(src_addr), bound(addrlen), bound(completion), flags);
-    if (rv != BLOCKQ_BLOCK_REQUIRED)
+    struct iovec iov = {
+        .iov_base = bound(dest),
+        .iov_len = bound(length),
+    };
+    struct msghdr msg = {
+        .msg_name = bound(src_addr),
+        .msg_iov = &iov,
+        .msg_iovlen = 1,
+    };
+    if (msg.msg_name)
+        msg.msg_namelen = *bound(addrlen);
+    sysreturn rv = sock_read_bh_internal(bound(s), &msg, bound(flags), bound(completion), flags);
+    if (rv != BLOCKQ_BLOCK_REQUIRED) {
+        if (msg.msg_name)
+            *bound(addrlen) = msg.msg_namelen;
         closure_finish();
+    }
     return rv;
 }
 
-static void recvmsg_complete_internal(netsock s, struct msghdr * msg, void * dest, u64 length,
-                                      thread t, sysreturn rv)
-{
-    s64 offset = 0;
-    int iv = 0;
-    while (offset < rv) {
-        struct iovec *iov = &msg->msg_iov[iv];
-
-        runtime_memcpy(iov->iov_base, dest + offset,
-                MIN(iov->iov_len, rv - offset));
-        offset += iov->iov_len;
-        iv++;
-    }
-    deallocate(s->sock.h, dest, length);
-    msg->msg_controllen = 0;
-    msg->msg_flags = 0;
-    apply(syscall_io_complete, t, rv);
-}
-
-closure_function(4, 2, void, recvmsg_complete,
-                 netsock, s, struct msghdr *, msg, void *, dest, u64, length,
-                 thread, t, sysreturn, rv)
-{
-    recvmsg_complete_internal(bound(s), bound(msg), bound(dest), bound(length), t, rv);
-    closure_finish();
-}
-
-closure_function(6, 1, sysreturn, recvmsg_bh,
-                 netsock, s, thread, t, void *, dest, u64, length, int, flags, struct msghdr *, msg,
+closure_function(4, 1, sysreturn, recvmsg_bh,
+                 netsock, s, struct msghdr *, msg, int, flags, io_completion, completion,
                  u64, flags)
 {
-    io_completion completion = closure(bound(s)->sock.h, recvmsg_complete,
-                                       bound(s), bound(msg), bound(dest),
-                                       bound(length));
-    sysreturn rv = sock_read_bh_internal(bound(s), bound(t), bound(dest), bound(length),
-                                         bound(flags), bound(msg)->msg_name,
-                                         &bound(msg)->msg_namelen, completion, flags);
-    if (rv != BLOCKQ_BLOCK_REQUIRED) {
-        socket_release(&bound(s)->sock);
+    sysreturn rv = sock_read_bh_internal(bound(s), bound(msg), bound(flags), bound(completion),
+                                        flags);
+    if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
-    }
     return rv;
 }
 
@@ -566,13 +554,19 @@ closure_function(1, 6, sysreturn, socket_read,
     return blockq_check(s->sock.rxbq, t, ba, bh);
 }
 
-static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
-                                              u64 remain, int flags, io_completion completion,
-                                              u64 bqflags)
+closure_function(6, 1, sysreturn, socket_write_tcp_bh,
+                 netsock, s, void *, buf, iovec, iov, u64, length, int, flags, io_completion, completion,
+                 u64, bqflags)
 {
     lwip_lock();
 
+    netsock s = bound(s);
+    void *buf = bound(buf);
+    u64 remain = bound(length);
+    int flags = bound(flags);
+    thread t = current;
     sysreturn rv = 0;
+    io_completion completion = bound(completion);
     err_t err = get_lwip_error(s);
     net_debug("fd %d, thread %ld, buf %p, remain %ld, flags 0x%x, bqflags 0x%lx, lwip err %d\n",
               s->sock.fd, t->tid, buf, remain, flags, bqflags, err);
@@ -615,28 +609,51 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
             return blockq_block_required(t, bqflags); /* block again */
         }
     }
+    iovec iov = bound(iov);
+    struct iovec iov_internal;
+    if (!iov) {
+        iov = &iov_internal;
+        iov->iov_base = buf;
+        iov->iov_len = remain;
+        remain = 1;
+    }
 
     /* Figure actual length and flags */
     u64 n;
-    u8 apiflags = TCP_WRITE_FLAG_COPY;
-    if (avail < remain) {
-        n = avail;
-        apiflags |= TCP_WRITE_FLAG_MORE;
-    } else {
-        n = remain;
-    }
+    for (u64 i = 0; i < remain; i++) {
+        u8 apiflags = TCP_WRITE_FLAG_COPY;
+        n = iov[i].iov_len;
+        if (avail < rv + n) {
+            n = avail - rv;
+            apiflags |= TCP_WRITE_FLAG_MORE;
+        } else if (i < remain) {
+            apiflags |= TCP_WRITE_FLAG_MORE;
+        }
 
-    err = tcp_write(s->info.tcp.lw, buf, n, apiflags);
+        err = tcp_write(s->info.tcp.lw, iov[i].iov_base, n, apiflags);
+        if (err == ERR_OK) {
+            rv += n;
+            continue;
+        }
+        if (err == ERR_MEM) {
+            /* XXX some ambiguity in lwIP - investigate */
+            net_debug(" tcp_write() returned ERR_MEM\n");
+            goto full;
+        } else {
+            net_debug(" tcp_write() lwip error: %d\n", err);
+            rv = lwip_to_errno(err);
+        }
+        break;
+    }
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
            post data, e.g. if used by send/sendto... */
         err = tcp_output(s->info.tcp.lw);
         lwip_unlock();
         if (err == ERR_OK) {
-            net_debug(" tcp_write and tcp_output successful for %ld bytes\n", n);
+            net_debug(" tcp_write and tcp_output successful for %ld bytes\n", rv);
             netsock_check_loop();
-            rv = n;
-            if (n == avail) {
+            if (rv == avail) {
                 fdesc_notify_events(&s->sock.f); /* reset a triggered EPOLLOUT condition */
             }
         } else {
@@ -646,34 +663,16 @@ static sysreturn socket_write_tcp_bh_internal(netsock s, thread t, void * buf,
         }
         goto out;
     }
-    if (err == ERR_MEM) {
-        /* XXX some ambiguity in lwIP - investigate */
-        net_debug(" tcp_write() returned ERR_MEM\n");
-        goto full;
-    } else {
-        net_debug(" tcp_write() lwip error: %d\n", err);
-        rv = lwip_to_errno(err);
-    }
   out_unlock:
     lwip_unlock();
   out:
+    closure_finish();
     net_debug("   completion %p, rv %ld\n", completion, rv);
     apply(completion, t, rv);
     return rv;
 }
 
-closure_function(6, 1, sysreturn, socket_write_tcp_bh,
-                 netsock, s, thread, t, void *, buf, u64, remain, int, flags, io_completion, completion,
-                 u64, bqflags)
-{
-    sysreturn rv = socket_write_tcp_bh_internal(bound(s), bound(t), bound(buf), bound(remain),
-        bound(flags), bound(completion), bqflags);
-    if (rv != BLOCKQ_BLOCK_REQUIRED)
-        closure_finish();
-    return rv;
-}
-
-static sysreturn socket_write_udp(netsock s, void *source, u64 length,
+static sysreturn socket_write_udp(netsock s, void *source, iovec iov, u64 length,
                                   struct sockaddr *dest_addr, socklen_t addrlen)
 {
     ip_addr_t ipaddr;
@@ -693,13 +692,22 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
         return -EDESTADDRREQ;
     }
 
-    struct pbuf * pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
+    struct iovec iov_internal;
+    if (!iov) {
+        iov = &iov_internal;
+        iov->iov_base = source;
+        iov->iov_len = length;
+        length = 1;
+    }
+    u64 total_len = iov_total_len(iov, length);
+    struct pbuf *pbuf = pbuf_alloc(PBUF_TRANSPORT, total_len, PBUF_RAM);
     if (!pbuf) {
         lwip_unlock();
         msg_err("failed to allocate pbuf for udp_send()\n");
         return -ENOBUFS;
     }
-    runtime_memcpy(pbuf->payload, source, length);
+    for (u64 i = 0, offset = 0; i < length; offset += iov[i].iov_len, i++)
+        runtime_memcpy(pbuf->payload + offset, iov[i].iov_base, iov[i].iov_len);
     if (dest_addr)
         err = udp_sendto(s->info.udp.lw, pbuf, &ipaddr, port);
     else
@@ -711,15 +719,16 @@ static sysreturn socket_write_udp(netsock s, void *source, u64 length,
         return lwip_to_errno(err);
     }
     netsock_check_loop();
-    return length;
+    return total_len;
 }
 
-static sysreturn socket_write_internal(struct sock *sock, void *source,
+static sysreturn socket_write_internal(struct sock *sock, void *source, iovec iov,
                                        u64 length, int flags,
                                        struct sockaddr *dest_addr, socklen_t addrlen,
-                                       thread t, boolean bh, io_completion completion)
+                                       boolean bh, io_completion completion)
 {
     netsock s = (netsock) sock;
+    thread t = current;
     sysreturn rv;
 
     if (sock->type == SOCK_STREAM) {
@@ -732,11 +741,11 @@ static sysreturn socket_write_internal(struct sock *sock, void *source,
             rv = 0;
             goto out;
         }
-        blockq_action ba = contextual_closure(socket_write_tcp_bh, s, t,
-                                              source, length, flags, completion);
+        blockq_action ba = contextual_closure(socket_write_tcp_bh, s, source, iov, length, flags,
+                                              completion);
         return blockq_check(sock->txbq, t, ba, bh);
     } else if (sock->type == SOCK_DGRAM) {
-        rv = socket_write_udp(s, source, length, dest_addr, addrlen);
+        rv = socket_write_udp(s, source, iov, length, dest_addr, addrlen);
     } else {
 	msg_err("socket type %d unsupported\n", sock->type);
 	rv = -EINVAL;
@@ -754,7 +763,7 @@ closure_function(1, 6, sysreturn, socket_write,
     struct sock *s = (struct sock *) bound(s);
     net_debug("sock %d, type %d, thread %ld, source %p, length %ld, offset %ld\n",
 	      s->fd, s->type, t->tid, source, length, offset);
-    return socket_write_internal(s, source, length, 0, 0, 0, t, bh, completion);
+    return socket_write_internal(s, source, 0, length, 0, 0, 0, bh, completion);
 }
 
 /* socket configuration controls; not netsock specific, but reliant on lwIP calls */
@@ -1567,7 +1576,7 @@ static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
         socket_release(sock);
         return set_syscall_return(current, rv);
     }
-    return socket_write_internal(sock, buf, len, flags, dest_addr, addrlen, current, false,
+    return socket_write_internal(sock, buf, 0, len, flags, dest_addr, addrlen, false,
             (io_completion)&sock->f.io_complete);
 }
 
@@ -1588,69 +1597,14 @@ sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
     return sock->sendto(sock, buf, len, flags, dest_addr, addrlen);
 }
 
-static sysreturn sendmsg_prepare(struct sock *s, const struct msghdr *msg,
-        int flags,
-        void **buf, u64 *len)
+static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg, int flags,
+                                 boolean in_bh, io_completion completion)
 {
-    sysreturn rv;
-    size_t i;
-
-    rv = sendto_prepare(s, flags);
-    if (rv < 0) {
-        return rv;
-    }
-    *len = 0;
-    for (i = 0; i < msg->msg_iovlen; i++) {
-        *len += msg->msg_iov[i].iov_len;
-    }
-    if (*len == 0) {
-        return 0;
-    }
-    *buf = allocate(s->h, *len);
-    if (*buf == INVALID_ADDRESS) {
-        return -ENOMEM;
-    }
-    s64 offset = 0;
-    for (i = 0; i < msg->msg_iovlen; i++) {
-        struct iovec *iov = &msg->msg_iov[i];
-
-        runtime_memcpy(*buf + offset, iov->iov_base, iov->iov_len);
-        offset += iov->iov_len;
-    }
-    return *len;
-}
-
-static void sendmsg_complete_internal(struct sock *s, void * buf, u64 len,
-                                      thread t, sysreturn rv)
-{
-    deallocate(s->h, buf, len);
-    socket_release(s);
-    apply(syscall_io_complete, t, rv);
-}
-
-closure_function(3, 2, void, sendmsg_complete,
-                 struct sock *, s, void *, buf, u64, len,
-                 thread, t, sysreturn, rv)
-{
-    sendmsg_complete_internal(bound(s), bound(buf), bound(len), t, rv);
-    closure_finish();
-}
-
-static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg,
-                                 int flags)
-{
-    void *buf;
-    u64 len;
-    sysreturn rv;
-
-    rv = sendmsg_prepare(s, msg, flags, &buf, &len);
-    if (rv <= 0) {
-        socket_release(s);
-        return set_syscall_return(current, rv);
-    }
-    io_completion completion = closure(s->h, sendmsg_complete, s, buf, len);
-    return socket_write_internal(s, buf, len, flags, msg->msg_name, msg->msg_namelen,
-        current, false, completion);
+    sysreturn rv = sendto_prepare(s, flags);
+    if (rv < 0)
+        return io_complete(completion, current, rv);
+    return socket_write_internal(s, 0, msg->msg_iov, msg->msg_iovlen, flags,
+                                 msg->msg_name, msg->msg_namelen, in_bh, completion);
 }
 
 sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
@@ -1663,123 +1617,67 @@ sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
         socket_release(s);
         return -EOPNOTSUPP;
     }
-    return s->sendmsg(s, msg, flags);
+    return s->sendmsg(s, msg, flags, false, (io_completion)&s->f.io_complete);
 }
 
-closure_function(3, 2, void, sendmmsg_buf_complete,
-                 netsock, s, void *, buf, u64, len,
+declare_closure_struct(0, 0, void, sendmmsg_next);
+
+closure_function(6, 2, void, sendmmsg_complete,
+                 struct sock *, s, struct mmsghdr *, msgvec, unsigned int, vlen, int, flags, unsigned int, index, closure_struct_type(sendmmsg_next), next,
                  thread, t, sysreturn, rv)
 {
-    deallocate(bound(s)->sock.h, bound(buf), bound(len));
+    struct sock *s = bound(s);
+    if (rv < 0)
+        goto out;
+    struct mmsghdr *hdr = &bound(msgvec)[bound(index)];
+    hdr->msg_len = rv;
+    bound(index)++;
+    if (bound(index) < bound(vlen)) {
+        enqueue(runqueue, &bound(next));
+        return;
+    }
+  out:
+    if (bound(index) > 0)
+        rv = bound(index);
     closure_finish();
+    socket_release(s);
+    apply(syscall_io_complete, t, rv);
 }
 
-closure_function(7, 1, sysreturn, sendmmsg_tcp_bh,
-                 netsock, s, thread, t, void *, buf, u64, len, int, flags, struct mmsghdr *, msgvec, unsigned int, vlen,
-                 u64, bqflags)
+define_closure_function(0, 0, void, sendmmsg_next)
 {
-    netsock s = bound(s);
-    thread t = bound(t);
-    void * buf = bound(buf);
-    u64 len = bound(len);
-    struct mmsghdr * msgvec = bound(msgvec);
-
-    io_completion completion = closure(s->sock.h, sendmmsg_buf_complete, s, buf,
-            len);
-    sysreturn rv = socket_write_tcp_bh_internal(s, t, buf, len, bound(flags), completion,
-        bqflags | BLOCKQ_ACTION_BLOCKED);
-
-    while (true) {
-        if (rv == BLOCKQ_BLOCK_REQUIRED) {
-            return rv;
-        }
-        else if (rv <= 0) {
-            if (s->sock.msg_count > 0) {
-                rv = s->sock.msg_count;
-            }
-            break;
-        }
-        msgvec[s->sock.msg_count++].msg_len = rv;
-        if (s->sock.msg_count == bound(vlen)) {
-            break;
-        }
-        rv = sendmsg_prepare(&s->sock, &msgvec[s->sock.msg_count].msg_hdr,
-                bound(flags), &buf, &len);
-        if (rv > 0) {
-            completion = closure(s->sock.h, sendmmsg_buf_complete, s, buf, len);
-            rv = socket_write_tcp_bh_internal(s, t, buf, len, bound(flags), completion,
-                bqflags | BLOCKQ_ACTION_BLOCKED);
-        }
-    }
-
-    if (bqflags & BLOCKQ_ACTION_BLOCKED)
-        socket_release(&s->sock);
-    closure_finish();
-    return syscall_return(t, rv);
+    closure_ref(sendmmsg_complete, completion) =
+        struct_from_field(closure_self(), closure_struct_type(sendmmsg_complete) *, next);
+    struct mmsghdr *hdr = &completion->msgvec[completion->index];
+    completion->s->sendmsg(completion->s, &hdr->msg_hdr, completion->flags, true,
+        (io_completion)completion);
 }
 
 sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
         int flags)
 {
+    if (vlen == 0)
+        return 0;
     if (!validate_user_memory(msgvec, vlen * sizeof(struct mmsghdr), true))
         return -EFAULT;
     for (int i = 0; i < vlen; i++) {
         if (!validate_msghdr(&msgvec[i].msg_hdr, false))
             return -EFAULT;
     }
+    thread t = current;
+    struct sock *s = resolve_socket(t->p, sockfd);
 
-    void *buf;
-    u64 len;
-    sysreturn rv = 0;
-    struct sock *sock = resolve_socket(current->p, sockfd);
-    netsock s = get_netsock(sock);
-    if (!s) {
-        rv = -EOPNOTSUPP;
-        goto out;
+    net_debug("sock %d, type %d, flags 0x%x, vlen %d\n", s->fd, s->type, flags, vlen);
+    closure_struct(sendmmsg_next, next);
+    contextual_closure_init(sendmmsg_next, &next);
+    io_completion completion = contextual_closure(sendmmsg_complete,
+                                                  s, msgvec, vlen, flags, 0, next);
+    if (completion == INVALID_ADDRESS) {
+        socket_release(s);
+        return -ENOMEM;
     }
-
-    net_debug("sock %d, type %d, flags 0x%x, vlen %d\n", sock->fd, sock->type,
-            flags,
-            vlen);
-
-    for (sock->msg_count = 0; sock->msg_count < vlen; sock->msg_count++) {
-        struct msghdr *msg_hdr = &msgvec[sock->msg_count].msg_hdr;
-
-        rv = sendmsg_prepare(sock, msg_hdr, flags, &buf, &len);
-        if (rv < 0) {
-            break;
-        }
-        else if (rv == 0) {
-            msgvec[sock->msg_count].msg_len = 0;
-            continue;
-        }
-        switch (sock->type) {
-        case SOCK_STREAM:
-            if (s->info.tcp.state != TCP_SOCK_OPEN) {
-                rv = -EPIPE;
-                break;
-            }
-            blockq_action ba = contextual_closure(sendmmsg_tcp_bh, s, current,
-                                                  buf, len, flags, msgvec, vlen);
-            rv = blockq_check(sock->txbq, current, ba, false);
-            break;
-        case SOCK_DGRAM:
-            rv = socket_write_udp(s, buf, len, msg_hdr->msg_name,
-                msg_hdr->msg_namelen);
-            break;
-        }
-        deallocate(sock->h, buf, len);
-        if (rv < 0) {
-            break;
-        }
-        msgvec[sock->msg_count].msg_len = rv;
-    }
-    if (sock->msg_count > 0) {
-        rv = sock->msg_count;
-    }
-  out:
-    socket_release(sock);
-    return set_syscall_return(current, rv);
+    s->sendmsg(s, &msgvec->msg_hdr, flags, false, completion);
+    return thread_maybe_sleep_uninterruptible(t);
 }
 
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
@@ -1823,10 +1721,9 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 }
 
 static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
-                                 int flags)
+                                 int flags, boolean in_bh, io_completion completion)
 {
-    u64 total_len;
-    u8 *buf;
+    thread t = current;
     netsock s = (netsock) sock;
     sysreturn rv;
 
@@ -1834,24 +1731,12 @@ static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
         rv = (s->info.tcp.state == TCP_SOCK_UNDEFINED) ? 0 : -ENOTCONN;
         goto out;
     }
-    total_len = 0;
-    for (int i = 0; i < msg->msg_iovlen; i++) {
-        total_len += msg->msg_iov[i].iov_len;
-    }
-    if (total_len == 0) {
-        rv = 0;
-        goto out;
-    }
-    buf = allocate(sock->h, total_len);
-    if (buf == INVALID_ADDRESS) {
-        rv = -ENOMEM;
-        goto out;
-    }
-    blockq_action ba = contextual_closure(recvmsg_bh, s, current, buf, total_len, flags, msg);
-    return blockq_check(sock->rxbq, current, ba, false);
+    msg->msg_controllen = 0;
+    msg->msg_flags = 0;
+    blockq_action ba = contextual_closure(recvmsg_bh, s, msg, flags, completion);
+    return blockq_check(sock->rxbq, t, ba, in_bh);
   out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, t, rv);
 }
 
 sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
@@ -1864,7 +1749,7 @@ sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
         socket_release(s);
         return -EOPNOTSUPP;
     }
-    return s->recvmsg(s, msg, flags);
+    return s->recvmsg(s, msg, flags, false, (io_completion)&s->f.io_complete);
 }
 
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)

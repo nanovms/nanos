@@ -833,19 +833,19 @@ sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
 }
 
 closure_function(2, 2, void, sendmsg_complete,
-                 struct sock *, sock, sg_list, sg,
+                 sg_list, sg, io_completion, completion,
                  thread, t, sysreturn, rv)
 {
     sg_list sg = bound(sg);
     deallocate_sg_list(sg);
-    socket_release(bound(sock));
-    apply(syscall_io_complete, t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
 }
 
 sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,
-        int flags)
+                           int flags, boolean in_bh, io_completion completion)
 {
+    thread t = current;
     sg_list sg = allocate_sg_list();
     sysreturn rv;
     if (sg == INVALID_ADDRESS) {
@@ -854,31 +854,30 @@ sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,
     }
     if (!iov_to_sg(sg, msg->msg_iov, msg->msg_iovlen))
         goto err_dealloc_sg;
-    io_completion complete = closure(sock->h, sendmsg_complete, sock, sg);
+    io_completion complete = closure(sock->h, sendmsg_complete, sg, completion);
     if (complete == INVALID_ADDRESS)
         goto err_dealloc_sg;
-    return apply(sock->f.sg_write, sg, sg->count, 0, current, false, complete);
+    return apply(sock->f.sg_write, sg, sg->count, 0, t, in_bh, complete);
   err_dealloc_sg:
     deallocate_sg_list(sg);
     rv = -ENOMEM;
   out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, t, rv);
 }
 
 closure_function(4, 2, void, recvmsg_complete,
-                 struct sock *, sock, sg_list, sg, struct iovec *, iov, int, iovlen,
+                 sg_list, sg, struct iovec *, iov, int, iovlen, io_completion, completion,
                  thread, t, sysreturn, rv)
 {
     sg_list sg = bound(sg);
     sg_to_iov(sg, bound(iov), bound(iovlen));
     deallocate_sg_list(sg);
-    socket_release(bound(sock));
-    apply(syscall_io_complete, t, rv);
+    apply(bound(completion), t, rv);
     closure_finish();
 }
 
-sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
+sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
+                           io_completion completion)
 {
     sg_list sg = allocate_sg_list();
     sysreturn rv;
@@ -886,8 +885,8 @@ sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
         rv = -ENOMEM;
         goto out;
     }
-    io_completion complete = closure(sock->h, recvmsg_complete, sock, sg,
-        msg->msg_iov, msg->msg_iovlen);
+    io_completion complete = closure(sock->h, recvmsg_complete, sg,
+                                     msg->msg_iov, msg->msg_iovlen, completion);
     if (complete == INVALID_ADDRESS)
         goto err_dealloc_sg;
 
@@ -901,8 +900,7 @@ sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags)
     deallocate_sg_list(sg);
     rv = -ENOMEM;
   out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, current, rv);
 }
 
 static unixsock unixsock_alloc(heap h, int type, u32 flags)
