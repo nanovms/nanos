@@ -232,8 +232,7 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     p->curr_offset = 0;
     p->total_len = 0;
     p->completion = completion;
-    init_closure(&p->bh, iov_bh, p, current);
-    apply_context_to_closure(&p->bh, get_current_context(current_cpu()));
+    contextual_closure_init(iov_bh, &p->bh, p, current);
     init_closure(&p->each_complete, iov_op_each_complete, iovcnt,
         p);
     io_completion each = (io_completion)&p->each_complete;

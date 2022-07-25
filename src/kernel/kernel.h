@@ -583,6 +583,14 @@ static inline void clear_fault_handler(void)
         }                                                               \
     } while (0);
 
+
+#define contextual_closure_init(__name, __var, ...)                                 \
+    do {                                                                            \
+        context __ctx = get_current_context(current_cpu());                         \
+        __closure(u64_from_pointer(__ctx) | CLOSURE_COMMON_CTX_IS_CONTEXT, (__var), \
+                  sizeof(struct _closure_##__name), __name, ##__VA_ARGS__);         \
+    } while (0);
+
 static inline boolean is_contextual_closure(void *p)
 {
     struct _closure_common *c = p + sizeof(void *); /* skip __apply */
@@ -594,15 +602,6 @@ static inline context context_from_closure(void *p)
     struct _closure_common *c = p + sizeof(void *); /* skip __apply */
     return (c->ctx & CLOSURE_COMMON_CTX_IS_CONTEXT) ?
         pointer_from_u64(c->ctx & ~CLOSURE_COMMON_CTX_FLAGS_MASK) : 0;
-}
-
-/* not for allocated closures */
-static inline void *apply_context_to_closure(void *p, context ctx)
-{
-    struct _closure_common *c = p + sizeof(void *); /* skip __apply */
-    assert(c->ctx == 0);
-    c->ctx = u64_from_pointer(ctx) | CLOSURE_COMMON_CTX_IS_CONTEXT;
-    return p;
 }
 
 static inline void count_minor_fault(void)
