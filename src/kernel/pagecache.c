@@ -937,23 +937,27 @@ static void pagecache_commit_dirty_node(pagecache_node pn, status_handler comple
     buffer b = allocate_buffer(h, sizeof(range));
     assert(b != INVALID_ADDRESS);
     if (rangemap_range_lookup(&pn->dirty, irange(0, infinity), stack_closure(dirty_range_handler, &pn->dirty, b)) != RM_MATCH) {
-        pagecache_unlock_node(pn);
-        if (complete)
-            apply(complete, STATUS_OK);
-        return;
+        deallocate_buffer(b);
+        b = 0;
     }
     pagecache_lock_volume(pn->pv);
     if (list_inserted(&pn->l))
         list_delete(&pn->l);
     pagecache_unlock_volume(pn->pv);
-    status_handler sh = closure(h, pagecache_commit_dirty_ranges, pn, b, complete);
+    status_handler sh;
+    if (b) {
+        sh = closure(h, pagecache_commit_dirty_ranges, pn, b, complete);
+        assert(sh != INVALID_ADDRESS);
+    } else  {
+        sh = complete;
+    }
     boolean busy = pn->committing;
     if (busy)
         assert(enqueue(pn->dirty_commits, sh));
     else
         pn->committing = true;
     pagecache_unlock_node(pn);
-    if (!busy)
+    if (!busy && sh)
         apply(sh, STATUS_OK);
 }
 
