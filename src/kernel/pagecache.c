@@ -740,12 +740,23 @@ u64 pagecache_drain(u64 drain_bytes)
 {
     pagecache pc = global_pagecache;
     u64 pages = pad(drain_bytes, cache_pagesize(pc)) >> pc->page_order;
+    u64 drained = 0;
 
     pagecache_lock_state(pc);
-    u64 evicted = evict_pages_locked(pc, pages);
+    do {
+        u64 evicted = evict_pages_locked(pc, pages);
+        drained += cache_drain((caching_heap)pc->contiguous, drain_bytes - drained,
+                               PAGECACHE_PAGES_RETAIN * cache_pagesize(pc));
+        if (evicted < pages)
+            break;
+        pages *= 2;
+    } while (drained < drain_bytes);
     balance_page_lists_locked(pc);
     pagecache_unlock_state(pc);
-    return evicted << pc->page_order;
+    if (drained < drain_bytes)
+        drained += cache_drain((caching_heap)pc->completions, drain_bytes - drained,
+                               PAGECACHE_COMPLETIONS_RETAIN * sizeof(struct page_completion));
+    return drained;
 }
 
 /* TODO could encode completion to indicate completion on transition
@@ -1646,7 +1657,11 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     pc->page_order = find_order(pagesize);
     assert(pagesize == U64_FROM_BIT(pc->page_order));
     pc->h = general;
+#ifdef KERNEL
+    pc->contiguous = (heap)allocate_objcache(general, contiguous, PAGESIZE, PAGESIZE_2M, true);
+#else
     pc->contiguous = contiguous;
+#endif
     pc->physical = physical;
     pc->zero_page = allocate_zero(contiguous, pagesize);
     assert(pc->zero_page != INVALID_ADDRESS);
