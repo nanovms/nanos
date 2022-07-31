@@ -97,6 +97,8 @@ typedef struct virtqueue {
     volatile struct vring_used *used;    
     u16 *avail_event;
     u16 *used_event;
+    boolean polling;
+    boolean events_enabled;
     u64 free_cnt;               /* atomic */
     u16 desc_idx;               /* head of descriptor free list */
     u16 last_used_idx;          /* irq only */
@@ -209,7 +211,7 @@ closure_function(1, 0, void, vq_interrupt,
     spin_lock(&vq->lock);
   poll:
     vq_poll(vq);
-    if ((vq->dev->features & VIRTIO_F_RING_EVENT_IDX) &&
+    if (!vq->polling && (vq->dev->features & VIRTIO_F_RING_EVENT_IDX) &&
         (vq->last_used_idx != *vq->used_event)) {
         *vq->used_event = vq->last_used_idx;
         /* Poll again, to cover cases where a new buffer has been used after the previous poll but
@@ -266,6 +268,7 @@ status virtqueue_alloc(vtdev dev,
         __func__, vq, vq->desc, vq->avail, vq->used);
     vq->avail_event = (void *)(vq->used + 1) + sizeof(vq->used->ring[0]) * size;
     vq->used_event = (void *)(vq->avail + 1) + sizeof(vq->avail->ring[0]) * size;
+    vq->events_enabled = true;
 
     // initialize descriptor chains
     for (int i = 0; i < vq->entries - 1; i++)
@@ -297,6 +300,34 @@ u16 virtqueue_entries(virtqueue vq)
     return vq->entries;
 }
 
+static void vq_enable_events(virtqueue vq)
+{
+    if (vq->dev->features & VIRTIO_F_RING_EVENT_IDX)
+        *vq->used_event = vq->last_used_idx;
+    else
+        vq->avail->flags &= ~VRING_AVAIL_F_NO_INTERRUPT;
+    vq->events_enabled = true;
+}
+
+static void vq_disable_events(virtqueue vq)
+{
+    if (vq->dev->features & VIRTIO_F_RING_EVENT_IDX)
+        /* set an arbitrary value, we will still receive an interrupt every 64K messages */
+        *vq->used_event = (u16)-1;
+    else
+        vq->avail->flags |= VRING_AVAIL_F_NO_INTERRUPT;
+    vq->events_enabled = false;
+}
+
+void virtqueue_set_polling(virtqueue vq, boolean enable)
+{
+    if (enable)
+        vq_disable_events(vq);
+    else
+        vq_enable_events(vq);
+    vq->polling = enable;
+}
+
 static int virtqueue_notify(virtqueue vq, u16 added)
 {
     // ensure used->flags update is visible to us
@@ -320,6 +351,9 @@ static void virtqueue_fill(virtqueue vq)
 
     list n = list_get_next(&vq->msg_queue);
     u16 added = 0;
+  begin:
+    if (vq->polling)
+        vq_poll(vq);
     while (n && n != &vq->msg_queue) {
         vqmsg m = struct_from_list(n, vqmsg, l);
         virtqueue_debug_verbose("   vqmsg %p, count %d\n", m, m->count);
@@ -362,6 +396,17 @@ static void virtqueue_fill(virtqueue vq)
         list nn = list_get_next(n);
         list_delete(n);
         n = nn;
+    }
+    if (vq->polling) {
+        /* If the queue is full and there are messages waiting to be sent, enable interrupts even if
+         * we are in polling mode, because we want to be notified as soon as a new message can be
+         * sent. */
+        if (!vq->events_enabled && !list_empty(&vq->msg_queue)) {
+            vq_enable_events(vq);
+            goto begin;
+        } else if (vq->events_enabled && list_empty(&vq->msg_queue)) {
+            vq_disable_events(vq);
+        }
     }
 
     int notified = 0;

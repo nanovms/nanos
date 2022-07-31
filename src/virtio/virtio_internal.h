@@ -120,6 +120,7 @@ physical virtqueue_desc_paddr(struct virtqueue *vq);
 physical virtqueue_avail_paddr(struct virtqueue *vq);
 physical virtqueue_used_paddr(struct virtqueue *vq);
 u16 virtqueue_entries(virtqueue vq);
+void virtqueue_set_polling(virtqueue vq, boolean enable);
 
 typedef struct vqmsg *vqmsg;
 
