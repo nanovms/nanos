@@ -1008,7 +1008,8 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
     }
 }
 
-#define SOCK_QUEUE_LEN 128
+/* Must fit in a u8_t, because it may be used as backlog value for tcp_listen_with_backlog(). */
+#define SOCK_QUEUE_LEN 255
 
 closure_function(1, 2, sysreturn, socket_close,
                  netsock, s,

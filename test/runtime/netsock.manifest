@@ -4,6 +4,5 @@
     )
     program:/netsock
     fault:t
-    so_rcvbuf:65536
     environment:()
 )

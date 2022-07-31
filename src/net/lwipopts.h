@@ -52,13 +52,14 @@
 
 #define LWIP_WND_SCALE 1
 #define TCP_MSS 1460            /* Assuming ethernet; may want to derive this */
-#define TCP_WND 65535
-#define TCP_SND_BUF 65535
+#define TCP_WND 0x34000         /* For maximum throughput should be the same as TCP_SND_BUF */
+#define TCP_SND_BUF 0x34000     /* Same as /proc/sys/net/core/wmem_default on Linux */
+#define TCP_SNDLOWAT (0xFFFE - (4 * TCP_MSS))   /* Unused, but needed to pass lwIP sanity checks */
 #define TCP_SND_QUEUELEN TCP_SNDQUEUELEN_OVERFLOW
 #define TCP_OVERSIZE TCP_MSS
 #define TCP_QUEUE_OOSEQ 1
 
-#define TCP_RCV_SCALE 0         /* XXX check */
+#define TCP_RCV_SCALE 2         /* (0xFFFFU << TCP_RCV_SCALE) must be greater than TCP_WND */
 #define TCP_LISTEN_BACKLOG 1
 #define LWIP_DHCP 1
 // would prefer to set this dynamically...also,
