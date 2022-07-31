@@ -336,7 +336,7 @@ closure_function(2, 1, boolean, vtpci_net_probe,
     if (!vtpci_probe(d, VIRTIO_ID_NETWORK))
         return false;
     vtpci dev = attach_vtpci(bound(general), bound(page_allocator), d,
-        VIRTIO_NET_F_MAC | VIRTIO_F_ANY_LAYOUT);
+        VIRTIO_NET_F_MAC | VIRTIO_F_ANY_LAYOUT | VIRTIO_F_RING_EVENT_IDX);
     virtio_net_attach(&dev->virtio_dev);
     return true;
 }

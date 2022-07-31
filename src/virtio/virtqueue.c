@@ -92,11 +92,11 @@ typedef struct virtqueue {
     u16 queue_index;
     bytes notify_offset;
     void *ring_mem;
-    bytes avail_offset;
-    bytes used_offset;
     volatile struct vring_desc *desc;
     volatile struct vring_avail *avail;
     volatile struct vring_used *used;    
+    u16 *avail_event;
+    u16 *used_event;
     u64 free_cnt;               /* atomic */
     u16 desc_idx;               /* head of descriptor free list */
     u16 last_used_idx;          /* irq only */
@@ -163,16 +163,11 @@ void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
     spin_unlock_irq(&vq->lock, irqflags);
 }
 
-closure_function(1, 0, void, vq_interrupt,
-                 virtqueue, vq)
+static void vq_poll(virtqueue vq)
 {
     // ensure we see up-to-date used->idx (updated by host)
     memory_barrier();
-    virtqueue vq = bound(vq);
-    virtqueue_debug_verbose("%s: ENTRY: vq %s: entries %d, last_used_idx %d, used->idx %d, desc_idx %d\n",
-        __func__, vq->name, vq->entries, vq->last_used_idx, vq->used->idx, vq->desc_idx);
     
-    spin_lock(&vq->lock);
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
         virtqueue_debug_verbose("%s: vq %s: last_used_idx %d, id %d, len %d\n",
@@ -202,6 +197,25 @@ closure_function(1, 0, void, vq_interrupt,
         /* TODO should probably observe a limit / drain method here */
         list_insert_after(&vq->free_msgs, &m->l);
     }
+}
+
+closure_function(1, 0, void, vq_interrupt,
+                 virtqueue, vq)
+{
+    virtqueue vq = bound(vq);
+    virtqueue_debug_verbose("%s: ENTRY: vq %s: entries %d, last_used_idx %d, used->idx %d, desc_idx %d\n",
+        __func__, vq->name, vq->entries, vq->last_used_idx, vq->used->idx, vq->desc_idx);
+
+    spin_lock(&vq->lock);
+  poll:
+    vq_poll(vq);
+    if ((vq->dev->features & VIRTIO_F_RING_EVENT_IDX) &&
+        (vq->last_used_idx != *vq->used_event)) {
+        *vq->used_event = vq->last_used_idx;
+        /* Poll again, to cover cases where a new buffer has been used after the previous poll but
+         * before updating used_event. */
+        goto poll;
+    }
     virtqueue_fill(vq);
     virtqueue_debug("%s: EXIT: vq %s: last_used_idx %d, desc_idx %d\n",
                     __func__, vq->name, vq->last_used_idx, vq->desc_idx);
@@ -219,9 +233,11 @@ status virtqueue_alloc(vtdev dev,
 {
     u64 vq_alloc_size = sizeof(struct virtqueue) + size * sizeof(vqmsg);
     virtqueue vq = allocate_zero(dev->general, vq_alloc_size);
-    vq->avail_offset = size * sizeof(struct vring_desc);
-    vq->used_offset = pad(vq->avail_offset + sizeof(*vq->avail) + sizeof(vq->avail->ring[0]) * size, align);
-    bytes alloc = vq->used_offset + pad(sizeof(*vq->used) + sizeof(vq->used->ring[0]) * size, align);
+    bytes avail_offset = size * sizeof(struct vring_desc);
+    bytes used_offset = pad(avail_offset + sizeof(*vq->avail) + sizeof(vq->avail->ring[0]) * size +
+                            sizeof(u16) /* used_event */, align);
+    bytes alloc = used_offset + pad(sizeof(*vq->used) + sizeof(vq->used->ring[0]) * size +
+                                    sizeof(u16) /* avail_event */, align);
     
     if (vq == INVALID_ADDRESS) 
         return timm("status", "cannot allocate virtqueue");
@@ -244,10 +260,12 @@ status virtqueue_alloc(vtdev dev,
     }
 
     vq->desc = (struct vring_desc *) vq->ring_mem;
-    vq->avail = (struct vring_avail *) (vq->ring_mem + vq->avail_offset);
-    vq->used = (struct vring_used *) (vq->ring_mem + vq->used_offset);
+    vq->avail = (struct vring_avail *) (vq->ring_mem + avail_offset);
+    vq->used = (struct vring_used *) (vq->ring_mem + used_offset);
     virtqueue_debug("%s: vq %p: desc %p, avail %p, used %p\n",
         __func__, vq, vq->desc, vq->avail, vq->used);
+    vq->avail_event = (void *)(vq->used + 1) + sizeof(vq->used->ring[0]) * size;
+    vq->used_event = (void *)(vq->avail + 1) + sizeof(vq->avail->ring[0]) * size;
 
     // initialize descriptor chains
     for (int i = 0; i < vq->entries - 1; i++)
@@ -266,12 +284,12 @@ physical virtqueue_desc_paddr(virtqueue vq)
 
 physical virtqueue_avail_paddr(virtqueue vq)
 {
-    return physical_from_virtual(vq->ring_mem) + vq->avail_offset;
+    return physical_from_virtual((void *)vq->avail);
 }
 
 physical virtqueue_used_paddr(virtqueue vq)
 {
-    return physical_from_virtual(vq->ring_mem) + vq->used_offset;
+    return physical_from_virtual((void *)vq->used);
 }
 
 u16 virtqueue_entries(virtqueue vq)
@@ -279,12 +297,16 @@ u16 virtqueue_entries(virtqueue vq)
     return vq->entries;
 }
 
-static int virtqueue_notify(virtqueue vq)
+static int virtqueue_notify(virtqueue vq, u16 added)
 {
     // ensure used->flags update is visible to us
     // and updated avail->idx is visible to host
     memory_barrier();
-    int should_notify = (vq->used->flags & VRING_USED_F_NO_NOTIFY) == 0;
+    int should_notify;
+    if (vq->dev->features & VIRTIO_F_RING_EVENT_IDX)
+        should_notify = ((vq->avail->idx - *vq->avail_event - 1) < added) || (added == vq->entries);
+    else
+        should_notify = ((vq->used->flags & VRING_USED_F_NO_NOTIFY) == 0);
     if (should_notify)
         apply(vq->dev->notify, vq->queue_index, vq->notify_offset);
     return should_notify;
@@ -344,7 +366,7 @@ static void virtqueue_fill(virtqueue vq)
 
     int notified = 0;
     if (added > 0)
-        notified = virtqueue_notify(vq);
+        notified = virtqueue_notify(vq, added);
     (void) notified;
     virtqueue_debug_verbose("   added %d, notified %d, desc_idx %d\n", added, notified, vq->desc_idx);
 }
