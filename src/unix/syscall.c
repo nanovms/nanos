@@ -614,14 +614,22 @@ static void file_write_complete_internal(thread t, file f, u64 len,
     apply(completion, t, rv);
 }
 
-closure_function(6, 1, void, file_write_complete,
-                 thread, t, file, f, sg_list, sg, u64, length, boolean, is_file_offset, io_completion, completion,
+closure_function(7, 1, void, file_write_complete,
+                 thread, t, file, f, sg_list, sg, u64, length, boolean, is_file_offset, io_completion, completion, boolean, flush,
                  status, s)
 {
-    thread_log(bound(t), "%s: f %p, sg, %p, completion %F, status %v",
-               __func__, bound(f), bound(sg), bound(completion), s);
-    sg_list_release(bound(sg));
-    deallocate_sg_list(bound(sg));
+    if (!bound(flush)) {
+        thread_log(bound(t), "%s: f %p, sg, %p, completion %F, status %v",
+                   __func__, bound(f), bound(sg), bound(completion), s);
+        sg_list_release(bound(sg));
+        deallocate_sg_list(bound(sg));
+        file f = bound(f);
+        if (f->f.flags & O_DSYNC) {
+            bound(flush) = true;
+            fsfile_flush(f->fsf, !(f->f.flags & _O_SYNC), (status_handler)closure_self());
+            return;
+        }
+    }
     file_write_complete_internal(bound(t), bound(f), bound(length),
                                  bound(is_file_offset), bound(completion), s);
     closure_finish();
@@ -656,17 +664,22 @@ closure_function(2, 6, sysreturn, file_write,
 
     begin_file_write(t, f, length);
     apply(f->fs_write, sg, irangel(offset, length),
-          contextual_closure(file_write_complete, t, f, sg, length, is_file_offset, completion));
+          contextual_closure(file_write_complete, t, f, sg, length, is_file_offset, completion, false));
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
-closure_function(5, 1, void, file_sg_write_complete,
-                 thread, t, file, f, u64, len, boolean, is_file_offset, io_completion, completion,
+closure_function(6, 1, void, file_sg_write_complete,
+                 thread, t, file, f, u64, len, boolean, is_file_offset, io_completion, completion, boolean, flush,
                  status, s)
 {
     thread t = bound(t);
     file f = bound(f);
+    if (!bound(flush) && (f->f.flags & O_DSYNC)) {
+        bound(flush) = true;
+        fsfile_flush(f->fsf, !(f->f.flags & _O_SYNC), (status_handler)closure_self());
+        return;
+    }
     u64 len = bound(len);
     io_completion completion = bound(completion);
     thread_log(t, "%s: f %p, len %ld, completion %F, status %v",
@@ -689,7 +702,7 @@ closure_function(2, 6, sysreturn, file_sg_write,
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                len, f->length);
     status_handler sg_complete = contextual_closure(file_sg_write_complete, t, f, len,
-                                                    is_file_offset, completion);
+                                                    is_file_offset, completion, false);
     if (sg_complete == INVALID_ADDRESS) {
         rv = -ENOMEM;
         goto out;

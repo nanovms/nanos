@@ -285,6 +285,19 @@ void append_write_test()
     exit(EXIT_FAILURE);
 }
 
+void sync_write_test(void)
+{
+    int fd = open("sync_write", O_CREAT | O_RDWR | O_SYNC, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("sync_write open");
+        exit(EXIT_FAILURE);
+    }
+    scatter_write_test_fd(fd, 1 << 12, 1, 512);
+    close(fd);
+    unlink("sync_write");
+    writetest_debug("sync write test passed\n");
+}
+
 void truncate_test(const char *prog)
 {
     unsigned char tmp[BUFLEN];
@@ -853,6 +866,7 @@ int main(int argc, char **argv)
         basic_write_test();
         scatter_write_test(1 << 18, 64, 1 << 12);
         append_write_test();
+        sync_write_test();
         truncate_test(argv[0]);
         write_exec_test(argv[0]);
         fs_stress_test();

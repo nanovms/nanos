@@ -96,8 +96,11 @@ typedef struct iovec {
 #define O_TRUNC		00001000
 #define O_APPEND	00002000
 #define O_NONBLOCK	00004000
+#define O_DSYNC         00010000
 #define O_NOATIME       01000000
 #define O_CLOEXEC       02000000
+#define _O_SYNC         04000000
+#define O_SYNC          (O_SYNC | O_DSYNC)
 #define O_PATH         010000000
 #define O_TMPFILE     020000000
 
