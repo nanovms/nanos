@@ -97,45 +97,6 @@ fs_status filesystem_chdir(process p, const char *path)
     return fss;
 }
 
-closure_function(4, 1, void, fs_sync_complete,
-                 filesystem, fs, pagecache_node, pn, status_handler, sh, boolean, fs_flushed,
-                 status, s)
-{
-    if (is_ok(s) && !bound(fs_flushed)) {
-        bound(fs_flushed) = true;
-        if (bound(pn))
-            pagecache_sync_node(bound(pn), (status_handler)closure_self());
-        else
-            pagecache_sync_volume(filesystem_get_pagecache_volume(bound(fs)),
-                (status_handler)closure_self());
-        return;
-    }
-    async_apply_status_handler(bound(sh), s);
-    closure_finish();
-}
-
-static void filesystem_sync_internal(filesystem fs, pagecache_node pn,
-                                     status_handler sh)
-{
-    status_handler sync_complete = closure(heap_locked(get_kernel_heaps()),
-        fs_sync_complete, fs, pn, sh, false);
-    if (sync_complete == INVALID_ADDRESS) {
-        apply(sh, timm("result", "cannot allocate closure"));
-        return;
-    }
-    filesystem_flush(fs, sync_complete);
-}
-
-void filesystem_sync(filesystem fs, status_handler sh)
-{
-    filesystem_sync_internal(fs, 0, sh);
-}
-
-void filesystem_sync_node(filesystem fs, pagecache_node pn, status_handler sh)
-{
-    filesystem_sync_internal(fs, pn, sh);
-}
-
 closure_function(2, 2, void, fs_op_complete,
                  thread, t, file, f,
                  fsfile, fsf, fs_status, s)

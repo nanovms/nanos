@@ -1313,12 +1313,12 @@ sysreturn ftruncate(int fd, long length)
     return rv;
 }
 
-closure_function(2, 1, void, sync_complete,
-                 thread, t, fdesc, f,
+closure_function(1, 1, void, sync_complete,
+                 fdesc, f,
                  status, s)
 {
     assert(is_syscall_context(get_current_context(current_cpu())));
-    thread t = bound(t);
+    thread t = current;
     thread_log(current, "%s: status %v", __func__, s);
     fdesc f = bound(f);
     if (f)
@@ -1329,7 +1329,7 @@ closure_function(2, 1, void, sync_complete,
 
 sysreturn sync(void)
 {
-    status_handler sh = contextual_closure(sync_complete, current, 0);
+    status_handler sh = contextual_closure(sync_complete, 0);
     if (sh == INVALID_ADDRESS)
         return -ENOMEM;
     storage_sync(sh);
@@ -1344,31 +1344,50 @@ sysreturn syncfs(int fd)
     return sync();
 }
 
-sysreturn fsync(int fd)
+static sysreturn fsync_internal(int fd, boolean datasync)
 {
     fdesc f = resolve_fd(current->p, fd);
     sysreturn rv;
     switch (f->type) {
     case FDESC_TYPE_REGULAR:
         assert(((file)f)->fsf);
-        filesystem_sync_node(((file)f)->fs,
-                             fsfile_get_cachenode(((file)f)->fsf),
-                             contextual_closure(sync_complete, current, f));
-        return thread_maybe_sleep_uninterruptible(current);
-    case FDESC_TYPE_DIRECTORY:
-    case FDESC_TYPE_SYMLINK:
-        rv = 0;
         break;
+    case FDESC_TYPE_DIRECTORY:
+        if (datasync) {
+            rv = 0;
+            goto done;
+        }
+        break;
+    case FDESC_TYPE_SYMLINK:
+        rv = -EBADF;
+        goto done;
     default:
         rv = -EINVAL;
+        goto done;
     }
+    status_handler completion = contextual_closure(sync_complete, f);
+    if (completion == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto done;
+    }
+    if (((file)f)->fsf)
+        fsfile_flush(((file)f)->fsf, datasync, completion);
+    else
+        filesystem_flush(((file)f)->fs, completion);
+    return thread_maybe_sleep_uninterruptible(current);
+  done:
     fdesc_put(f);
     return rv;
 }
 
+sysreturn fsync(int fd)
+{
+    return fsync_internal(fd, false);
+}
+
 sysreturn fdatasync(int fd)
 {
-    return fsync(fd);
+    return fsync_internal(fd, true);
 }
 
 static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname, int mode)

@@ -573,6 +573,7 @@ static fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
         if (s != FS_STATUS_OK)
             return s;
         set(f->md, l, v);
+        f->status |= FSF_DIRTY_DATASYNC;
         filesystem_update_mtime(fs, f->md);
     }
     fsfile_set_length(f, len);
@@ -657,6 +658,7 @@ static fs_status add_extent_to_file(fsfile f, extent ex)
             return s;
         }
         set(extents, offs, e);
+        f->status |= FSF_DIRTY_DATASYNC;
     }
     tfs_debug("%s: f %p, reserve %R\n", __func__, f, ex->node.r);
     if (!rangemap_insert(f->extentmap, &ex->node)) {
@@ -788,6 +790,7 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
                 return i.end;
             }
             set(ex->md, a, 0);
+            f->status |= FSF_DIRTY_DATASYNC;
         }
         ex->uninited = allocate_uninited(fs, apply_merge(m));
         tfs_debug("%s: new uninited %p\n", __func__, ex->uninited);
@@ -864,6 +867,7 @@ static fs_status update_extent_length(fsfile f, extent ex, u64 new_length)
         assert(oldval);
         deallocate_value(oldval);
         set(ex->md, l, v);
+        f->status |= FSF_DIRTY_DATASYNC;
     }
 
     /* TODO cheating; should be reinsert - update rangemap interface? */
@@ -1062,33 +1066,57 @@ fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
     return fss;
 }
 
-closure_function(3, 1, void, log_flush_completed,
-                 filesystem, fs, status_handler, completion, boolean, sync_complete,
+closure_function(3, 1, void, fs_cache_sync_complete,
+                 filesystem, fs, status_handler, completion, boolean, flush_log,
                  status, s)
 {
-    if (is_ok(s) && !bound(sync_complete)) {
-        bound(sync_complete) = true;
-        pagecache_sync_volume(bound(fs)->pv, (status_handler)closure_self());
-    } else {
-        if (is_ok(s)) {
-            struct storage_req req = {
-                .op = STORAGE_OP_FLUSH,
-                .blocks = irange(0, 0),
-                .completion = bound(completion),
-            };
-            apply(bound(fs)->req_handler, &req);
-        } else {
-            apply(bound(completion), s);
-        }
+    if (!is_ok(s)) {
+#ifdef KERNEL
+        async_apply_status_handler(bound(completion), s);
+#else
+        apply(bound(completion), s);
+#endif
         closure_finish();
+        return;
     }
+    if (bound(flush_log)) {
+        bound(flush_log) = false;
+        filesystem fs = bound(fs);
+        filesystem_lock(fs);
+        log_flush(fs->tl, (status_handler)closure_self());
+        filesystem_unlock(fs);
+        return;
+    }
+    struct storage_req req = {
+        .op = STORAGE_OP_FLUSH,
+        .blocks = irange(0, 0),
+        .completion = bound(completion),
+    };
+    apply(bound(fs)->req_handler, &req);
+    closure_finish();
 }
 
 void filesystem_flush(filesystem fs, status_handler completion)
 {
-    filesystem_lock(fs);
-    log_flush(fs->tl, closure(fs->h, log_flush_completed, fs, completion, false));
-    filesystem_unlock(fs);
+    status_handler sh = closure(fs->h, fs_cache_sync_complete, fs, completion, true);
+    if (sh == INVALID_ADDRESS) {
+        apply(completion, timm("result", "failed to allocate closure"));
+        return;
+    }
+    pagecache_sync_volume(fs->pv, sh);
+}
+
+void fsfile_flush(fsfile fsf, boolean datasync, status_handler completion)
+{
+    boolean flush_log = datasync ? (fsf->status & FSF_DIRTY_DATASYNC) : (fsf->status & FSF_DIRTY);
+    status_handler sh = closure(fsf->fs->h, fs_cache_sync_complete, fsf->fs, completion, flush_log);
+    if (sh == INVALID_ADDRESS) {
+        apply(completion, timm("result", "failed to allocate closure"));
+        return;
+    }
+    if (flush_log)
+        fsf->status &= ~FSF_DIRTY;
+    pagecache_sync_node(fsf->cache_node, sh);
 }
 
 void filesystem_reserve(filesystem fs)
@@ -1884,6 +1912,7 @@ fsfile allocate_fsfile(filesystem fs, tuple md)
 #else
     init_refcount(&f->refcount, 1, 0);
 #endif
+    f->status = 0;
 
     return f;
 }

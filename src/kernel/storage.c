@@ -2,7 +2,6 @@
 #include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
-#include <unix.h>
 
 //#define STORAGE_DEBUG
 #ifdef STORAGE_DEBUG
@@ -195,7 +194,7 @@ define_closure_function(2, 1, void, storage_simple_req_handler,
         storage_io_sg(bound(write), req->data, req->blocks, req->completion);
         break;
     case STORAGE_OP_FLUSH:
-        apply(req->completion, STATUS_OK);
+        async_apply_status_handler(req->completion, STATUS_OK);
         break;
     case STORAGE_OP_READ:
         apply(bound(read), req->data, req->blocks, req->completion);
@@ -308,13 +307,13 @@ void storage_sync(status_handler sh)
     storage_debug("sync (%F)", sh);
     merge m = allocate_merge(storage.h, sh);
     status_handler complete = apply_merge(m);
-    filesystem_sync(storage.root_fs, apply_merge(m));
+    filesystem_flush(storage.root_fs, apply_merge(m));
     storage_lock();
     list_foreach(&storage.volumes, e) {
         volume v = struct_from_list(e, volume, l);
         if (v->fs) {
             storage_debug("syncing mounted filesystem %p", v->fs);
-            filesystem_sync(v->fs, apply_merge(m));
+            filesystem_flush(v->fs, apply_merge(m));
         }
     }
     storage_unlock();

@@ -11,9 +11,6 @@ process exec_elf(buffer ex, process kernel_process);
 
 void dump_mem_stats(buffer b);
 
-void filesystem_sync(filesystem fs, status_handler sh);
-void filesystem_sync_node(filesystem fs, pagecache_node pn, status_handler sh);
-
 void coredump_set_limit(u64 s);
 u64 coredump_get_limit(void);
 

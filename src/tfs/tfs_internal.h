@@ -61,6 +61,11 @@ typedef struct filesystem {
     closure_struct(fs_free, free);
 } *filesystem;
 
+/* fsfile status flags */
+#define FSF_DIRTY_DATASYNC  (1 << 0)    /* metadata needed for retrieving file data */
+#define FSF_DIRTY_OTHER     (1 << 1)    /* any other metadata */
+#define FSF_DIRTY           (FSF_DIRTY_DATASYNC | FSF_DIRTY_OTHER)
+
 declare_closure_struct(1, 1, void, fsf_sync_complete,
                        struct fsfile *, f,
                        status, s);
@@ -75,6 +80,7 @@ typedef struct fsfile {
     sg_io write;
     struct refcount refcount;
     closure_struct(fsf_sync_complete, sync_complete);
+    u8 status;
 } *fsfile;
 
 typedef struct uninited_queued_op {

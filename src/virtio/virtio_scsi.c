@@ -298,7 +298,7 @@ closure_function(1, 2, void, virtio_scsi_io_done,
         scsi_dump_sense(resp->sense, sizeof(resp->sense));
         st = timm("result", "status %d", resp->status);
     }
-    apply(bound(sh), st);
+    async_apply_status_handler(bound(sh), st);
     closure_finish();
 }
 

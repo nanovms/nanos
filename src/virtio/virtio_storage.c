@@ -131,7 +131,7 @@ closure_function(4, 1, void, complete,
     status st = 0;
     // 1 is io error, 2 is unsupported operation
     if (bound(req)->status) st = timm("result", "%d", bound(req)->status);
-    apply(bound(f), st);
+    async_apply_status_handler(bound(f), st);
     deallocate_virtio_blk_req(bound(s), bound(req), bound(phys));
     closure_finish();
 }
@@ -249,7 +249,7 @@ define_closure_function(0, 1, void, virtio_storage_req_handler,
         if (st->v->features & VIRTIO_BLK_F_FLUSH)
             storage_flush(st, req->completion);
         else
-            apply(req->completion, STATUS_OK);
+            async_apply_status_handler(req->completion, STATUS_OK);
         break;
     case STORAGE_OP_READ:
         storage_rw_internal(st, false, req->data, req->blocks, req->completion);

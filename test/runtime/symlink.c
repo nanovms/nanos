@@ -43,6 +43,8 @@ int main(int argc, char **argv)
 
     fd = open("link", O_RDONLY | O_NOFOLLOW | O_PATH);
     test_assert(fd >= 0);
+    test_assert((fsync(fd) == -1) && (errno == EBADF));
+    test_assert((fdatasync(fd) == -1) && (errno == EBADF));
     close(fd);
 
     test_assert((faccessat(AT_FDCWD, "link", F_OK, AT_SYMLINK_NOFOLLOW) == 0));

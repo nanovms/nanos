@@ -66,7 +66,7 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
 fsfile allocate_fsfile(filesystem fs, tuple md);
 void fsfile_reserve(fsfile f);
 void fsfile_release(fsfile f);
-// XXX per-file flush
+void fsfile_flush(fsfile f, boolean datasync, status_handler completion);
 
 typedef enum {
     FS_STATUS_OK = 0,
