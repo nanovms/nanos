@@ -134,6 +134,7 @@ struct virtio_scsi_disk {
     virtio_scsi scsi;
     u16 target;
     u16 lun;
+    u32 max_xfer_len;
     u64 capacity;
     u64 block_size;
 };
@@ -364,12 +365,14 @@ static void virtio_scsi_io_sg(virtio_scsi_disk d, boolean write, sg_list sg, ran
         u64 length = sg_buf_len(sgb);
         assert((length & (d->block_size - 1)) == 0);
         length = MIN(range_span(blocks) * d->block_size, length);
+        if (d->max_xfer_len)
+            length = MIN((d->max_xfer_len - req_blocks) * d->block_size, length);
         vqmsg_push(vq, msg, physical_from_virtual(sgb->buf + sgb->offset), length, !write);
         sg_consume(sg, length);
         desc_blocks = length / d->block_size;
         req_blocks += desc_blocks;
         blocks.start += desc_blocks;
-        if (++desc_count == s->seg_max) {
+        if ((++desc_count == s->seg_max) || (req_blocks == d->max_xfer_len)) {
             virtio_scsi_debug("  requesting %d blocks\n", req_blocks);
             cdb->length = htobe32(req_blocks);
             if (!m && range_span(blocks)) {
@@ -444,8 +447,8 @@ closure_function(3, 0, void, virtio_scsi_init_done,
     closure_finish();
 }
 
-closure_function(4, 2, void, virtio_scsi_read_capacity_done,
-                 storage_attach, a, u16, target, u16, lun, int, attach_id,
+closure_function(5, 2, void, virtio_scsi_read_capacity_done,
+                 storage_attach, a, u16, target, u16, lun, int, attach_id, u32, max_xfer_len,
                  virtio_scsi, s, virtio_scsi_request, r)
 {
     u16 target = bound(target);
@@ -476,6 +479,7 @@ closure_function(4, 2, void, virtio_scsi_read_capacity_done,
 
     struct scsi_res_read_capacity_16 *res = (struct scsi_res_read_capacity_16 *) r->data;
     u64 sectors = be64toh(res->addr) + 1; // returns address of last sector
+    d->max_xfer_len = bound(max_xfer_len);
     d->block_size = be32toh(res->length);
     d->capacity = sectors * d->block_size;
     d->target = target;
@@ -490,8 +494,8 @@ closure_function(4, 2, void, virtio_scsi_read_capacity_done,
     closure_finish();
 }
 
-closure_function(5, 2, void, virtio_scsi_test_unit_ready_done,
-                 storage_attach, a, u16, target, u16, lun, int, attach_id, int, retry_count,
+closure_function(6, 2, void, virtio_scsi_test_unit_ready_done,
+                 storage_attach, a, u16, target, u16, lun, int, attach_id, u32, max_xfer_len, int, retry_count,
                  virtio_scsi, s, virtio_scsi_request, r)
 {
     storage_attach a = bound(a);
@@ -507,6 +511,7 @@ closure_function(5, 2, void, virtio_scsi_test_unit_ready_done,
     }
 
     int attach_id = bound(attach_id);
+    u32 max_xfer_len = bound(max_xfer_len);
     heap h = s->v->virtio_dev.general;
     u64 r_phys;
     if (resp->status != SCSI_STATUS_OK) {
@@ -514,7 +519,7 @@ closure_function(5, 2, void, virtio_scsi_test_unit_ready_done,
             r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY, &r_phys);
             virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
                                         closure(h, virtio_scsi_test_unit_ready_done, a, target, lun,
-                                                attach_id, retry_count + 1));
+                                                attach_id, max_xfer_len, retry_count + 1));
         } else {
             scsi_dump_sense(resp->sense, sizeof(resp->sense));
         }
@@ -528,13 +533,13 @@ closure_function(5, 2, void, virtio_scsi_test_unit_ready_done,
     cdb->alloc_len = htobe32(r->alloc_len);
     virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
                                 closure(h, virtio_scsi_read_capacity_done, a, target, lun,
-                                        attach_id));
+                                        attach_id, max_xfer_len));
   out:
     closure_finish();
 }
 
-closure_function(3, 2, void, virtio_scsi_inquiry_done,
-                 storage_attach, a, u16, target, u16, lun,
+closure_function(6, 2, void, virtio_scsi_inquiry_done,
+                 storage_attach, a, u16, target, u16, lun, int, attach_id, u32, max_xfer_len, u64, resp_count,
                  virtio_scsi, s, virtio_scsi_request, r)
 {
     u16 target = bound(target);
@@ -542,60 +547,84 @@ closure_function(3, 2, void, virtio_scsi_inquiry_done,
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: target %d, lun %d, response %d, status %d\n",
         __func__, target, lun, resp->response, resp->status);
-    int attach_id = -1;
     if (resp->response == VIRTIO_SCSI_S_OK && resp->status == SCSI_STATUS_OK) {
-        struct scsi_res_inquiry_vpd_devid *res = (struct scsi_res_inquiry_vpd_devid *) r->data;
-        u16 page_len = MIN(be16toh(res->length),
-                           r->alloc_len - offsetof(struct scsi_res_inquiry_vpd_devid *, desc));
-        u16 offset = 0;
-        int desc_index = 0;
-        while (offset < page_len) {
-            struct scsi_devid_desc *desc = res->desc + desc_index++;
-            offset += offsetof(struct scsi_devid_desc *, id);
-            if (offset >= page_len)
-                break;
-            u8 id_len = MIN(desc->length, page_len - offset);
-            if (id_len > 0)
-                offset += id_len;
-            else
-                break;
-            buffer desc_id = alloca_wrap_buffer(desc->id, id_len);
-            virtio_scsi_debug("%s: descriptor identifier '%b'\n", __func__, desc_id);
-            const char disk_prefix[] = "persistent-disk-";
-            if ((id_len >= sizeof(disk_prefix)) &&
-                !runtime_memcmp(buffer_ref(desc_id, 0), disk_prefix, sizeof(disk_prefix) - 1)) {
-                buffer_consume(desc_id, sizeof(disk_prefix) - 1);
-                u64 disk_id;
-                if (parse_int(desc_id, 10, &disk_id)) {
-                    attach_id = disk_id;
+        struct scsi_res_inquiry_vpd *common = (struct scsi_res_inquiry_vpd *)r->data;
+        switch (common->page_code) {
+        case SCSI_VPD_DEVID: {
+            struct scsi_res_inquiry_vpd_devid *res = (struct scsi_res_inquiry_vpd_devid *)r->data;
+            u16 page_len = MIN(be16toh(res->length),
+                               r->alloc_len - offsetof(struct scsi_res_inquiry_vpd_devid *, desc));
+            u16 offset = 0;
+            int desc_index = 0;
+            while (offset < page_len) {
+                struct scsi_devid_desc *desc = res->desc + desc_index++;
+                offset += offsetof(struct scsi_devid_desc *, id);
+                if (offset >= page_len)
                     break;
+                u8 id_len = MIN(desc->length, page_len - offset);
+                if (id_len > 0)
+                    offset += id_len;
+                else
+                    break;
+                buffer desc_id = alloca_wrap_buffer(desc->id, id_len);
+                virtio_scsi_debug("%s: descriptor identifier '%b'\n", __func__, desc_id);
+                const char disk_prefix[] = "persistent-disk-";
+                if ((id_len >= sizeof(disk_prefix)) &&
+                    !runtime_memcmp(buffer_ref(desc_id, 0), disk_prefix, sizeof(disk_prefix) - 1)) {
+                    buffer_consume(desc_id, sizeof(disk_prefix) - 1);
+                    u64 disk_id;
+                    if (parse_int(desc_id, 10, &disk_id)) {
+                        bound(attach_id) = disk_id;
+                        break;
+                    }
                 }
             }
+            break;
+        }
+        case SCSI_VPD_BLIM: {
+            struct scsi_res_inquiry_vpd_blim *res = (struct scsi_res_inquiry_vpd_blim *)r->data;
+            bound(max_xfer_len) = be32toh(res->max_xfer_len);
+            virtio_scsi_debug("%s: maximum transfer length %d\n", __func__, bound(max_xfer_len));
+            break;
+        }
         }
     }
 
-    // test unit ready
-    u64 r_phys;
-    r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY, &r_phys);
-    virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
-                                closure(s->v->virtio_dev.general,
-                                        virtio_scsi_test_unit_ready_done, bound(a), target, lun,
-                                        attach_id, 0));
-    closure_finish();
+    if (fetch_and_add(&bound(resp_count), 1) == 1) {
+        // test unit ready
+        u64 r_phys;
+        r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_TEST_UNIT_READY, &r_phys);
+        virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
+                                    closure(s->v->virtio_dev.general,
+                                            virtio_scsi_test_unit_ready_done, bound(a), target, lun,
+                                            bound(attach_id), bound(max_xfer_len), 0));
+        closure_finish();
+    }
 }
 
-static void send_lun_inquiry(virtio_scsi s, u16 target, u16 lun)
+static void virtio_scsi_inquiry_vpd(virtio_scsi s, u16 target, u16 lun, u8 page_code,
+                                    vsr_complete c)
 {
     u64 r_phys;
     virtio_scsi_request r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_INQUIRY,
         &r_phys);
     struct scsi_cdb_inquiry *cdb = (struct scsi_cdb_inquiry *) r->req.cdb;
     cdb->byte2 = SI_EVPD;
-    cdb->page_code = SCSI_VPD_DEVID;
+    cdb->page_code = page_code;
     cdb->length = htobe16(r->alloc_len);
-    virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
-                                closure(s->v->virtio_dev.general,
-                                virtio_scsi_inquiry_done, s->sa, target, lun));
+    virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len, c);
+}
+
+static void send_lun_inquiry(virtio_scsi s, u16 target, u16 lun)
+{
+    vsr_complete completion = closure(s->v->virtio_dev.general, virtio_scsi_inquiry_done, s->sa,
+                                      target, lun, -1, 0, 0);
+    if (completion == INVALID_ADDRESS) {
+        msg_err("failed to allocate completion\n");
+        return;
+    }
+    virtio_scsi_inquiry_vpd(s, target, lun, SCSI_VPD_DEVID, completion);
+    virtio_scsi_inquiry_vpd(s, target, lun, SCSI_VPD_BLIM, completion);
 }
 
 closure_function(2, 2, void, virtio_scsi_report_luns_done,

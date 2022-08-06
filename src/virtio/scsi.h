@@ -243,6 +243,7 @@ struct scsi_res_inquiry
 
 /* Vital Product Data page codes */
 #define SCSI_VPD_DEVID  0x83
+#define SCSI_VPD_BLIM   0xB0    /* Block Limits */
 
 struct scsi_devid_desc
 {
@@ -253,12 +254,39 @@ struct scsi_devid_desc
     char id[];
 } __attribute__((packed));
 
-struct scsi_res_inquiry_vpd_devid
+struct scsi_res_inquiry_vpd
 {
     u8 device;
     u8 page_code;
+} __attribute__((packed));
+
+struct scsi_res_inquiry_vpd_devid
+{
+    struct scsi_res_inquiry_vpd common;
     u16 length;
     struct scsi_devid_desc desc[];
+} __attribute__((packed));
+
+struct scsi_res_inquiry_vpd_blim
+{
+    struct scsi_res_inquiry_vpd common;
+    u16 length;
+    u8 features;
+    u8 max_caw_len;
+    u16 opt_xfer_len_gran;
+    u32 max_xfer_len;
+    u32 opt_xfer_len;
+    u32 max_prefetch_len;
+    u32 max_unmap_lba_count;
+    u32 max_unmap_bd_count;
+    u32 opt_unmap_gran;
+    u32 unmap_gran_align;
+    u64 max_write_same_len;
+    u32 max_atomic_xfer_len;
+    u32 atomic_align;
+    u32 atomic_xfer_len_gran;
+    u32 max_atomic_xfer_len_ab;
+    u32 max_atomic_boundary_size;
 } __attribute__((packed));
 
 struct scsi_cdb_readwrite_16
