@@ -114,7 +114,7 @@ jobs:
 
   nightly-build-mac:
     macos:
-        xcode: "12.2.0"
+        xcode: "14.0.0"
     steps:
       - checkout
       - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
@@ -128,8 +128,8 @@ jobs:
             NANOS_TARGET_ROOT: ~/project/target-root
           command: make
       - run: brew upgrade python
-      - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-240.0.0-darwin-x86_64.tar.gz
-      - run: tar xzf google-cloud-sdk*.tar.gz
+      - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-396.0.0-darwin-x86_64.tar.gz
+      - run: tar xzf google-cloud-cli*.tar.gz
       - run: ./google-cloud-sdk/install.sh -q
       - run: source $HOME/project/google-cloud-sdk/path.bash.inc && echo export PATH=$PATH > $BASH_ENV
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
