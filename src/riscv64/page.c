@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include <devicetree.h>
 
 //#define PAGE_INIT_DEBUG
 
@@ -39,7 +40,7 @@ void flush_tlb(boolean full_flush)
         asm volatile("sfence.vma" ::: "memory");
 }
 
-void init_mmu(range init_pt, u64 vtarget)
+void init_mmu(range init_pt, u64 vtarget, void *dtb)
 {
     /* XXX init_pt doesn't have to be a 2m page right? */
 //  assert(range_span(init_pt) == PAGESIZE_2M);
@@ -58,10 +59,14 @@ void init_mmu(range init_pt, u64 vtarget)
     page_init_debug("\n");
     map(KERNEL_BASE, KERNEL_PHYS, kernel_size, pageflags_writable(pageflags_exec(pageflags_memory())));
     page_init_debug("map devices\n");
-    map(DEVICE_BASE, 0, DEV_MAP_SIZE, pageflags_writable(pageflags_device()));
+    map(DEVICE_BASE, 0, DEVICETREE_BLOB_BASE - DEVICE_BASE, pageflags_writable(pageflags_device()));
 
     page_init_debug("map temporary identity mapping\n");
     map(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
+    page_init_debug("relocate and map devicetree blob\n");
+    assert(pad(dtb_blob_size(dtb), PAGESIZE) <= DTB_SIZE);
+    runtime_memcpy(pointer_from_u64(PHYSMEM_BASE+BIOS_SIZE), dtb, dtb_blob_size(dtb));
+    map(DEVICETREE_BLOB_BASE, PHYSMEM_BASE+BIOS_SIZE, pad(dtb_blob_size(dtb), PAGESIZE), pageflags_readonly(pageflags_memory()));
     u64 satp = Sv48 | (u64_from_pointer(tablebase) >> 12);
     asm volatile ("csrw satp, %0; sfence.vma; jr %1" :: "r"(satp), "r"(vtarget) : "memory");
 }

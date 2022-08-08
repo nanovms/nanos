@@ -17,6 +17,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/riscv64/plic.c \
 	$(SRCDIR)/riscv64/serial.c \
 	$(SRCDIR)/riscv64/unix_machine.c \
+	$(SRCDIR)/devicetree/devicetree.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/netconsole.c \
 	$(SRCDIR)/gdb/gdbstub.c \
@@ -124,6 +125,7 @@ INCLUDES=\
 	-I$(SRCDIR) \
 	-I$(ARCHDIR) \
 	-I$(CURDIR) \
+	-I$(SRCDIR)/devicetree \
 	-I$(SRCDIR)/gdb \
 	-I$(SRCDIR)/http \
 	-I$(SRCDIR)/kernel \
@@ -232,6 +234,8 @@ mkfs vdsogen:
 	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
 
 kernel: $(KERNEL) $(OBJDIR)/kernel.dis
+
+kernel.dis: $(KERNEL) $(OBJDIR)/kernel.dis
 
 target:
 ifeq ($(TARGET),)

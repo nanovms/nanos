@@ -25,6 +25,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/aws/ena/ena_com/ena_com.c \
 	$(SRCDIR)/aws/ena/ena_com/ena_eth_com.c \
 	$(SRCDIR)/aws/ena/ena_datapath.c \
+	$(SRCDIR)/devicetree/devicetree.c \
 	$(SRCDIR)/drivers/acpi.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/netconsole.c \
@@ -135,6 +136,7 @@ INCLUDES=\
 	-I$(SRCDIR) \
 	-I$(ARCHDIR) \
 	-I$(CURDIR) \
+	-I$(SRCDIR)/devicetree \
 	-I$(SRCDIR)/gdb \
 	-I$(SRCDIR)/http \
 	-I$(SRCDIR)/kernel \

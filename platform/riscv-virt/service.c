@@ -4,6 +4,7 @@
 #include <tfs.h>
 #include <management.h>
 #include <virtio/virtio.h>
+#include <devicetree.h>
 #include "serial.h"
 
 //#define INIT_DEBUG
@@ -32,9 +33,18 @@ id_heap init_physical_id_heap(heap h)
 
     init_debug("init_setup_stack: kernel size ");
     init_debug_u64(kernel_size);
+    init_debug("\n");
+
+    /* fetch physical memory range if available */
+    u64 mem_size = 1*GB;
+    range pr = dtb_read_memory_range(DEVICETREE);
+    if (pr.start != INVALID_PHYSICAL)
+        mem_size = range_span(pr);
+    else
+        init_debug("init_setup_stack: could not find memory from dtb\n");
 
     u64 base = KERNEL_PHYS + kernel_size;
-    u64 end = PHYSMEM_BASE + 0x40000000; // XXX 1G fixed til we can parse tree
+    u64 end = PHYSMEM_BASE + mem_size;
     u64 bootstrap_size = init_bootstrap_heap(end - base);
     map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
     base = pad(base + bootstrap_size, PAGESIZE_2M);
@@ -138,14 +148,13 @@ void __attribute__((noreturn)) start(void *a0, void *dtb)
 {
     init_debug("start\n\n");
 #if 0
-    init_debug("dtb:\n");
-    init_dump(dtb, 0x100);
+    devicetree_dump(dtb);
 #endif
 
     init_debug("calling init_mmu with target ");
     init_debug_u64(u64_from_pointer(init_mmu_target));
     init_debug("\n");
-    init_mmu(irange(INIT_PAGEMEM, pad(INIT_PAGEMEM,PAGESIZE_2M)), u64_from_pointer(init_mmu_target));
+    init_mmu(irange(INIT_PAGEMEM, pad(INIT_PAGEMEM,PAGESIZE_2M)), u64_from_pointer(init_mmu_target), dtb);
 
     while (1);
 }

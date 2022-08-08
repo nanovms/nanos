@@ -265,5 +265,5 @@ physical physical_from_virtual(void *x);
 
 #define table_from_pte page_from_pte
 
-void init_mmu(range init_pt, u64 vtarget);
+void init_mmu(range init_pt, u64 vtarget, void *dtb);
 
