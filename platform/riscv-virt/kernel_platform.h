@@ -1,7 +1,10 @@
 #define PHYSMEM_BASE          0x80000000
-#define BIOS_SIZE             (128*1024)
-#define INIT_PAGEMEM          (PHYSMEM_BASE+BIOS_SIZE)
+#define BIOS_SIZE             (256*KB)
+#define DTB_SIZE              (16*KB)
+#define INIT_PAGEMEM          (PHYSMEM_BASE+BIOS_SIZE+DTB_SIZE)
 #define INIT_IDENTITY_SIZE    0x00800000
+
+#define DEVICETREE_BLOB_BASE  (KERNEL_BASE-DTB_SIZE)
 
 #define DEV_MAP_SIZE          0x80000000
 #define DEV_BASE_UART         0x10000000 
@@ -20,6 +23,8 @@
 #define SYSCON_REBOOT         0x7777
 
 #ifndef __ASSEMBLY__
+#define DEVICETREE pointer_from_u64(DEVICETREE_BLOB_BASE)
+
 #define mmio_base_addr(x) ((u64)(DEVICE_BASE + DEV_BASE_ ##x))
 
 void early_debug(const char *s);

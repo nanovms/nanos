@@ -10,6 +10,7 @@
 #include <drivers/nvme.h>
 #include <management.h>
 #include <virtio/virtio.h>
+#include <devicetree.h>
 #include "serial.h"
 
 #define SERIAL_16550_COMPATIBLE 0x00
@@ -144,6 +145,14 @@ closure_function(4, 1, boolean, add_heap_range,
     return true;
 }
 
+static u64 get_memory_size(void *dtb)
+{
+    range r = dtb_read_memory_range(dtb);
+    if (r.start == INVALID_PHYSICAL)
+        return 1*GB;
+    return range_span(r);
+}
+
 extern void *START, *END;
 id_heap init_physical_id_heap(heap h)
 {
@@ -185,7 +194,7 @@ id_heap init_physical_id_heap(heap h)
         unmap(map_base, map_size);
     } else {
         u64 base = KERNEL_PHYS + kernel_size;
-        u64 end = 0x80000000; // XXX 1G fixed til we can parse tree
+        u64 end = base + get_memory_size(pointer_from_u64(DEVICETREE_BLOB_BASE));
         u64 bootstrap_size = init_bootstrap_heap(end - base);
         map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
         base = pad(base + bootstrap_size, PAGESIZE_2M);
@@ -257,6 +266,9 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 void init_setup_stack(void)
 {
     serial_set_devbase(DEVICE_BASE);
+#if 0
+    devicetree_dump(pointer_from_u64(DEVICETREE_BLOB_BASE));
+#endif
     init_debug("in init_setup_stack, calling init_kernel_heaps\n");
     init_kernel_heaps();
     init_debug("allocating stack\n");
@@ -296,10 +308,6 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
     } while (p < end);
 
     init_debug("start\n\n");
-#if 0
-    init_debug("dtb:\n");
-    init_dump(pointer_from_u64(0x40000000), 0x100);
-#endif
     if (x1) {
         struct uefi_boot_params *params = pointer_from_u64(x1);
         runtime_memcpy(&boot_params, params, sizeof(boot_params));

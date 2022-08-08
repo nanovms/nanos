@@ -20,13 +20,16 @@ blp:    sd x0, (t0)
 
         // set up a temporary page table (Sv39)
         li s0, ROOT_PT_ADDR
-        // identity map first 3 gigs
-        li t0, (0<<28) | 0xef
-        sd t0, 0(s0)
-        li t0, (1<<28) | 0xef
-        sd t0, 8(s0)
-        li t0, (2<<28) | 0xef
-        sd t0, 16(s0)
+        // identity map 512G
+        mv t1, s0
+        li t2, 0
+        li t3, 512
+ilp:    slli t0, t2, 28
+        ori t0, t0, 0xef
+        sd t0, (t1)
+        addi t2, t2, 1
+        addi t1, t1, 8
+        blt t2, t3, ilp
 
         // map the kernel va gig
         li t0, KERN_PT_ADDR
