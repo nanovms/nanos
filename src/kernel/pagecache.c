@@ -250,21 +250,15 @@ static boolean realloc_pagelocked(pagecache pc, pagecache_page pp)
     return true;
 }
 
-/* If the refcount argument is true, this function must be called with the page state lock held. */
-static void pagecache_add_sgb(pagecache pc, pagecache_page pp, sg_list sg, boolean refcount)
+static sg_buf pagecache_add_sgb(pagecache pc, pagecache_page pp, sg_list sg)
 {
     sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
     assert(sgb != INVALID_ADDRESS);
     sgb->buf = pp->kvirt;
     sgb->size = cache_pagesize(pc);
     sgb->offset = 0;
-    if (refcount) {
-        sgb->refcount = &pp->read_refcount;
-        if (fetch_and_add(&pp->read_refcount.c, 1) == 0)
-            pp->refcount++;
-    } else {
-        sgb->refcount = 0;
-    }
+    sgb->refcount = 0;
+    return sgb;
 }
 
 /* Returns true if the page is already cached (or is being fetched from disk), false if a disk read
@@ -360,7 +354,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
             pagecache_debug("   pc %p, pp %p, r %R, reading...\n", pc, pp, r);
             sg_list sg = allocate_sg_list();
             assert(sg != INVALID_ADDRESS);
-            pagecache_add_sgb(pc, pp, sg, false);
+            pagecache_add_sgb(pc, pp, sg);
             apply(pn->fs_read, sg, r,
                   closure(pc->h, pagecache_read_page_complete, pc, pp, sg));
         }
@@ -845,7 +839,7 @@ static void commit_dirty_node_complete(pagecache_node pn, status_handler complet
 }
 
 #ifdef KERNEL
-#define COMMIT_LIMIT (128*KB)
+#define COMMIT_LIMIT 32 /* number of SG buffers */
 #else
 #define COMMIT_LIMIT infinity
 #endif
@@ -883,21 +877,28 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
         u64 page_count = 0;
         pagecache_page pp = first_page;
         range r = *rp;
+        sg_buf sgb = 0;
 
         do {
             u64 page_offset = start & MASK(pc->page_order);
             u64 len = pad(MIN(cache_pagesize(pc) - page_offset, r.end - start),
                           U64_FROM_BIT(pv->block_order));
-            sg_buf sgb = sg_list_tail_add(sg, len);
-            if (sgb == INVALID_ADDRESS) {
-                msg_err("sgbuf alloc fail\n");
-                r.end = start;
-                break;
+            if (sgb && (sgb->buf + sgb->size == pp->kvirt)) {
+                sgb->size += len;
+                sg->count += len;
+            } else {
+                sgb = sg_list_tail_add(sg, len);
+                if (sgb == INVALID_ADDRESS) {
+                    msg_err("sgbuf alloc fail\n");
+                    r.end = start;
+                    break;
+                }
+                sgb->buf = pp->kvirt + page_offset;
+                sgb->offset = 0;
+                sgb->size = len;
+                sgb->refcount = 0;
+                committing++;
             }
-            sgb->buf = pp->kvirt + page_offset;
-            sgb->offset = 0;
-            sgb->size = len;
-            sgb->refcount = 0;
             pagecache_lock_state(pc);
             /* Reserve the page, unless it is in DIRTY state (in which case it has been reserved
              * when switching to DIRTY state). */
@@ -909,7 +910,7 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
             page_count++;
             start += len;
             pp = (pagecache_page)rbnode_get_next((rbnode)pp);
-            if (start - r.start >= COMMIT_LIMIT && start < r.end) {
+            if (committing >= COMMIT_LIMIT && start < r.end) {
                 r.end = start;
                 break;
             }
@@ -922,7 +923,6 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
             break;
         apply(pn->fs_write, sg, r,
               closure(pc->h, pagecache_commit_complete, pc, first_page, page_count, sg, apply_merge(m)));
-        committing += range_span(r);
     }
     if (committing == 0)
         s = timm("result", "%s: unable to perform i/o", __func__);
@@ -1039,6 +1039,7 @@ closure_function(5, 1, void, pagecache_node_fetch_complete,
         change_page_state_locked(pc, pp,
             is_ok(s) ? PAGECACHE_PAGESTATE_NEW : PAGECACHE_PAGESTATE_ALLOC);
         pagecache_page_queue_completions_locked(pc, pp, s);
+        pagecache_page_release_locked(pc, pp);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
     pagecache_unlock_state(pc);
@@ -1079,6 +1080,7 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     sg_list read_sg = 0;
     pagecache_page read_pp = 0;
     range read_r;
+    sg_buf sgb = 0;
     pagecache_lock_state(pc);
     for (u64 pi = k.state_offset; pi < end; pi++) {
         if (pp == INVALID_ADDRESS || page_offset(pp) > pi) {
@@ -1114,7 +1116,13 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
                 read_pp = pp;
                 read_r = range_lshift(irangel(page_offset(pp), 0), pc->page_order);
             }
-            pagecache_add_sgb(pc, pp, read_sg, true);
+            if (sgb && (sgb->buf + sgb->size == pp->kvirt)) {
+                sgb->size += cache_pagesize(pc);
+                read_sg->count += cache_pagesize(pc);
+            } else {
+                sgb = pagecache_add_sgb(pc, pp, read_sg);
+            }
+            pp->refcount++;
             read_r.end += cache_pagesize(pc);
         }
         if (ph)
