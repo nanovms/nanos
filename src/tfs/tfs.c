@@ -584,8 +584,8 @@ static fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
 
    The life an extent depends on a particular allocation of contiguous
    storage space. The extent is tied to this allocated area (nominally
-   page size). Only the extent data length may be updated; the file
-   offset, block start and allocation size are immutable. As an
+   page size). Only the extent data length and allocation size may be
+   updated; the file offset and block start are immutable. As an
    optimization, adjacent extents on the disk could be joined into
    larger extents with only a meta update.
 
@@ -603,6 +603,12 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
         return FS_STATUS_NOSPACE;
 
     u64 start_block = filesystem_allocate_storage(fs, nblocks);
+    while (start_block == u64_from_pointer(INVALID_ADDRESS)) {
+        if (nblocks <= (MIN_EXTENT_ALLOC_SIZE >> fs->blocksize_order))
+            break;
+        nblocks /= 2;
+        start_block = filesystem_allocate_storage(fs, nblocks);
+    }
     if (start_block == u64_from_pointer(INVALID_ADDRESS))
         return FS_STATUS_NOSPACE;
 
@@ -687,19 +693,12 @@ static fs_status add_extents(filesystem fs, range i, rangemap rm)
 {
     extent ex;
     fs_status fss;
-    while (range_span(i) >= MAX_EXTENT_SIZE) {
-        range r = {.start = i.start, .end = i.start + MAX_EXTENT_SIZE};
-        fss = create_extent(fs, r, true, &ex);
-        if (fss != FS_STATUS_OK)
-            return fss;
-        assert(rangemap_insert(rm, &ex->node));
-        i.start += MAX_EXTENT_SIZE;
-    }
-    if (range_span(i)) {
+    while (range_span(i)) {
         fss = create_extent(fs, i, true, &ex);
         if (fss != FS_STATUS_OK)
             return fss;
         assert(rangemap_insert(rm, &ex->node));
+        i.start = ex->node.r.end;
     }
     return FS_STATUS_OK;
 }
@@ -836,13 +835,12 @@ static u64 write_extent(fsfile f, extent ex, sg_list sg, range blocks, merge m)
 
 static fs_status fill_gap(fsfile f, sg_list sg, range blocks, merge m, u64 *edge)
 {
-    blocks = irangel(blocks.start, MIN(MAX_EXTENT_SIZE >> f->fs->blocksize_order,
-                                       range_span(blocks)));
     tfs_debug("   %s: writing new extent blocks %R\n", __func__, blocks);
     extent ex;
     fs_status fss = create_extent(f->fs, blocks, false, &ex);
     if (fss != FS_STATUS_OK)
         return fss;
+    blocks = ex->node.r;
     fss = add_extent_to_file(f, ex);
     if (fss != FS_STATUS_OK) {
         destroy_extent(f->fs, ex);
@@ -854,12 +852,11 @@ static fs_status fill_gap(fsfile f, sg_list sg, range blocks, merge m, u64 *edge
     return FS_STATUS_OK;
 }
 
-static fs_status update_extent_length(fsfile f, extent ex, u64 new_length)
+static fs_status update_extent(fsfile f, extent ex, symbol l, u64 val)
 {
     if (f->md) {
         assert(ex->md);
-        value v = value_from_u64(f->fs->h, new_length);
-        symbol l = sym(length);
+        value v = value_from_u64(f->fs->h, val);
         fs_status s = filesystem_write_eav(f->fs, ex->md, l, v);
         if (s != FS_STATUS_OK)
             return s;
@@ -869,6 +866,24 @@ static fs_status update_extent_length(fsfile f, extent ex, u64 new_length)
         set(ex->md, l, v);
         f->status |= FSF_DIRTY_DATASYNC;
     }
+    return FS_STATUS_OK;
+}
+
+static fs_status update_extent_allocated(fsfile f, extent ex, u64 allocated)
+{
+    fs_status s = update_extent(f, ex, sym(allocated), allocated);
+    if (s != FS_STATUS_OK)
+        return s;
+    tfs_debug("   %s: was 0x%lx, now 0x%lx\n", __func__, ex->allocated, allocated);
+    ex->allocated = allocated;
+    return FS_STATUS_OK;
+}
+
+static fs_status update_extent_length(fsfile f, extent ex, u64 new_length)
+{
+    fs_status s = update_extent(f, ex, sym(length), new_length);
+    if (s != FS_STATUS_OK)
+        return s;
 
     /* TODO cheating; should be reinsert - update rangemap interface? */
     tfs_debug("   %s: was %R\n", __func__, ex->node.r);
@@ -881,6 +896,20 @@ static fs_status extend(fsfile f, extent ex, sg_list sg, range blocks, merge m, 
 {
     u64 free = ex->allocated - range_span(ex->node.r);
     range r = irangel(ex->node.r.end, free);
+    if (blocks.end > r.end) {
+        filesystem fs = f->fs;
+        range new = irange(ex->start_block + ex->allocated,
+                           MIN(ex->start_block + blocks.end, fs->size >> fs->blocksize_order));
+        if (range_span(new) && filesystem_reserve_storage(fs, new)) {
+            fs_status s = update_extent_allocated(f, ex, ex->allocated + range_span(new));
+            if (s == FS_STATUS_OK) {
+                r.end = blocks.end;
+                free = r.end - ex->node.r.end;
+            } else {
+                filesystem_free_storage(fs, new);
+            }
+        }
+    }
     range i = range_intersection(r, blocks);
     tfs_debug("   %s: node %R, free 0x%lx (%R), i %R\n", __func__, ex->node.r, free, r, i);
     if (range_span(i) == 0) {
