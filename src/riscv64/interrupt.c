@@ -131,11 +131,17 @@ void dump_context(context ctx)
     print_stack(f);
 }
 
+static thunk flush_handler;
+
 void register_interrupt(int vector, thunk t, const char *name)
 {
     // XXX ignore handlers for vector 0 (i.e. not implemented)
     if (vector == 0)
         return;
+    if (vector == FLUSH_HANDLER_FAKE_IRQ) {
+        flush_handler = t;
+        return;
+    }
     boolean initialized = !list_empty(&handlers[vector]);
     int_debug("%s: vector %d, thunk %p (%F), name %s%s\n",
               __func__, vector, t, t, name, initialized ? ", shared" : "");
@@ -170,12 +176,10 @@ void unregister_interrupt(int vector)
     }
 }
 
-extern void *trap_handler;
-
 void riscv_timer(void)
 {
     /* disable timer via sbi */
-    supervisor_ecall(SBI_SETTIME, -1ull);
+    supervisor_ecall_1(SBI_EXT_0_1_SET_TIMER, -1ull);
     schedule_timer_service();
 }
 
@@ -185,16 +189,22 @@ void trap_interrupt(void)
     context ctx = get_current_context(ci);
     context_frame f = ctx->frame;
 
-    if (f[FRAME_FULL])
-        halt("\nframe %p already full\n", f);
+    if (f[FRAME_FULL]) {
+        console("\nframe already full\n");
+        goto exit_fault;
+    }
 
     f[FRAME_FULL] = true;
     context_reserve_refcount(ctx);
 
     int saved_state = ci->state;
-    switch (SCAUSE_CODE(f[FRAME_CAUSE])) {
+    u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
+    switch (v) {
     case TRAP_I_SSOFT:
-        console("software interrupt\n"); // XXX need to implement for smp
+        asm volatile("csrc sip, %0" : : "r"(SI_SSIP));
+        /* XXX no flush vector, flush with each ipi for now */
+        if (flush_handler)
+            apply(flush_handler);
         break;
     case TRAP_I_STIMER:
         int_debug("[%2d] timer interrupt, state %s\n", ci->id,
@@ -207,11 +217,15 @@ void trap_interrupt(void)
             int_debug("[%2d] # %d, state %s user %s\n", ci->id, i,
                     state_strings[ci->state], (f[FRAME_STATUS]&STATUS_SPP)?"false":"true" );
 
-            if (i > PLIC_MAX_INT)
-                halt("dispatched interrupt %d exceeds PLIC_MAX_INT\n", i);
+            if (i > PLIC_MAX_INT) {
+                rprintf("\ndispatched interrupt %d exceeds PLIC_MAX_INT\n", i);
+                goto exit_fault;
+            }
 
-            if (list_empty(&handlers[i]))
-                halt("no handler for interrupt %d\n", i);
+            if (list_empty(&handlers[i])) {
+                rprintf("\nno handler for interrupt %d\n", i);
+                goto exit_fault;
+            }
 
             list_foreach(&handlers[i], l) {
                 inthandler h = struct_from_list(l, inthandler, l);
@@ -245,6 +259,17 @@ void trap_interrupt(void)
     }
     int_debug("   calling runloop\n");
     runloop();
+  exit_fault:
+    console("cpu ");
+    print_u64(ci->id);
+    console(", state ");
+    console(state_strings[ci->state]);
+    console(", vector ");
+    print_u64(v);
+    console("\n");
+    dump_context(ctx);
+    // apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
+    vm_exit(VM_EXIT_FAULT);
 }
 
 extern void (*syscall)(context_frame f);
@@ -254,9 +279,13 @@ void trap_exception(void)
     cpuinfo ci = current_cpu();
     context ctx = get_current_context(ci);
     context_frame f = ctx->frame;
+    u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
 
-    if (f[FRAME_FULL])
-        halt("\nframe %p already full\n", f);
+    if (f[FRAME_FULL]) {
+        console("\nframe already full\n");
+        print_u64(f[FRAME_FULL]);
+        goto exit_fault;
+    }
 
     f[FRAME_FULL] = true;
     context_reserve_refcount(ctx);
@@ -266,12 +295,12 @@ void trap_exception(void)
         context ctx = ci->m.syscall_context;
         set_current_context(ci, ctx);
         switch_stack_1(frame_get_stack_top(ctx->frame), syscall, f); /* frame is top of stack */
-        halt("%s: syscall returned\n", __func__);
+        console("\nsyscall returned to trap handler\n");
+        goto exit_fault;
     }
     fault_handler fh = ctx->fault_handler;
     if (fh) {
 #ifdef INT_DEBUG
-        u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
         if (v < sizeof(interrupt_names)/sizeof(interrupt_names[0])) {
             rputs(" (");
             rputs((char *)interrupt_names[v]);
@@ -299,9 +328,18 @@ void trap_exception(void)
         runloop();
     } else {
         console("\nno fault handler for frame\n");
-        dump_context(ctx);
-        vm_exit(VM_EXIT_FAULT);
     }
+  exit_fault:
+    console("cpu ");
+    print_u64(ci->id);
+    console(", state ");
+    console(state_strings[ci->state]);
+    console(", vector ");
+    print_u64(v);
+    console("\n");
+    dump_context(ctx);
+    // apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
+    vm_exit(VM_EXIT_FAULT);
 }
 
 void init_interrupts(kernel_heaps kh)
@@ -312,8 +350,7 @@ void init_interrupts(kernel_heaps kh)
     for (int i = 0; i <= PLIC_MAX_INT; i++)
         list_init(&handlers[i]);
     init_plic();
-    plic_set_c1_threshold(0);
-    asm volatile("csrw stvec, %0" :: "r"(&trap_handler));
+    plic_set_threshold(current_cpu()->m.hartid, 0);
 }
 
 u64 allocate_interrupt(void)
@@ -340,8 +377,7 @@ void deallocate_mmio_interrupt(u64 irq)
 
 u64 allocate_ipi_interrupt(void)
 {
-    // XXX need to implement software interrupt support
-    return 0;
+    return FLUSH_HANDLER_FAKE_IRQ;
 }
 
 void deallocate_ipi_interrupt(u64 irq)

@@ -8,8 +8,18 @@ KERNEL_INDEX_OFF = (((KERNEL_BASE>>30)&0x1ff) * 8)
 ROOT_PT_ADDR = KERNEL_PHYS - 0x1000
 KERN_PT_ADDR = KERNEL_PHYS - 0x2000
 
+.macro  start_setup
+        // disable interrupts and FPU
+        csrw CSR_IE, zero
+        csrw CSR_IP, zero
+        li t0, SR_FS
+        csrc CSR_STATUS, t0
+.endm
+
 .globl _start
 _start:
+        start_setup
+
         // XXX does bios clear bss for us?
         // clear bss
         la t0, bss_start
@@ -47,16 +57,46 @@ mlp:    ori t1, t0, 0xef
         add t0, t0, t3
         addi s0, s0, 8
         blt t0, t2, mlp
+
         // load the root page into satp
         srli s0, s0, 12
         li t0, 0x8 << 60    // Sv39
         or s0, s0, t0
         csrw satp, s0
         sfence.vma
-        li sp, KERN_PT_ADDR // stack just below the temp pagetable
-        lui t0, %hi(start)
-        addi t0, t0, %lo(start)
+
+        // save boot hartid
+        la t0, boot_hartid
+        sd a0, 0(t0)
+
+        // stack just below the temp pagetable
+        li sp, KERN_PT_ADDR
+        la t0, start
         jr t0
+
+install_tablebase:
+        la t0, tablebase
+        ld t0, 0(t0)
+        srli t0, t0, 12
+        li s0, 0x9 << 60    // Sv48
+        or t0, t0, s0
+        csrw satp, t0
+        sfence.vma
+
+        // relocate pc on return
+        li t0, (KERNEL_BASE - KERNEL_PHYS)
+        add ra, ra, t0
+        ret
+
+.globl secondary_core_start_from_sbi
+secondary_core_start_from_sbi:
+        start_setup
+        li t0, 0x1 << 18    // SUM
+        csrs sstatus, t0
+        call install_tablebase
+        la t0, ap_start
+        mv sp, a1
+        jr t0   // hartid in a0
 
 // needs sp/tp to be appropriately set, so it does not save either reg
 .macro  frame_save
@@ -169,7 +209,7 @@ frame_return:
         ld t0, FRAME_PC*8(a0)
         csrw sepc, t0
         csrr t0, sstatus
-        li t1, ~(STATUS_SPP|STATUS_SIE|(FS_MASK<<STATUS_BIT_FS))
+        li t1, ~(STATUS_SPP|STATUS_SPIE|STATUS_SIE|(FS_MASK<<STATUS_BIT_FS))
         and t0, t0, t1
         ld t1, FRAME_STATUS*8(a0)
         or t0, t0, t1
@@ -213,10 +253,13 @@ frame_return:
         ld t2, FRAME_FCSR*8(t1)
         fscsr t2
 2:      csrw sstatus, t0
-        ld x1, FRAME_X1*8(a0)
+        // only restore tls for user mode
+        andi x1, t0, STATUS_SPP
+        bnez x1, 3f
+        ld x4, FRAME_X4*8(a0)
+3:      ld x1, FRAME_X1*8(a0)
         ld x2, FRAME_X2*8(a0)
         ld x3, FRAME_X3*8(a0)
-        ld x4, FRAME_X4*8(a0)
         ld x5, FRAME_X5*8(a0)
         ld x6, FRAME_X6*8(a0)
         ld x7, FRAME_X7*8(a0)
@@ -252,7 +295,12 @@ context_suspend:
         frame_save
         // t0 now contains pointer to frame
         sd sp, FRAME_SP*8(t0)
-        sd tp, FRAME_TP*8(t0)
-        sd ra, FRAME_PC*8(t0)
+        ld x1, FRAME_STATUS*8(t0)
+        andi x1, x1, ~STATUS_SPIE
+        ori x1, x1, STATUS_SPP
+        sd x1, FRAME_STATUS*8(t0)
+        ld t1, FRAME_RA*8(t0)
+        sd t1, FRAME_PC*8(t0)
+        mv a0, t0
         j context_suspend_finish
 

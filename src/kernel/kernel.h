@@ -112,15 +112,16 @@ static inline boolean spin_try(spinlock l)
 
 static inline void spin_lock(spinlock l)
 {
+    volatile u64 *p = (volatile u64 *)&l->w;
 #ifdef LOCK_STATS
     u64 spins = 0;
-    while (l->w || !compare_and_swap_64(&l->w, 0, 1)) {
+    while (*p || !compare_and_swap_64(&l->w, 0, 1)) {
         spins++;
         kern_pause();
     }
     LOCKSTATS_RECORD_LOCK(l->s, true, spins, 0);
 #else
-    while (l->w || !compare_and_swap_64(&l->w, 0, 1))
+    while (*p || !compare_and_swap_64(&l->w, 0, 1))
         kern_pause();
 #endif
 }
@@ -137,12 +138,12 @@ static inline void spin_unlock(spinlock l)
 static inline void spin_rlock(rw_spinlock l)
 {
     while (1) {
-        if (l->l.w) {
+        if (*(volatile word *)&l->l.w) {
             kern_pause();
             continue;
         }
         fetch_and_add(&l->readers, 1);
-        if (!l->l.w)
+        if (!*(volatile word *)&l->l.w)
             return;
         fetch_and_add(&l->readers, -1);
     }
@@ -156,7 +157,7 @@ static inline void spin_runlock(rw_spinlock l)
 static inline void spin_wlock(rw_spinlock l)
 {
     spin_lock(&l->l);
-    while (l->readers)
+    while (*(volatile word *)&l->readers)
         kern_pause();
 }
 
@@ -461,7 +462,8 @@ static inline void __attribute__((always_inline)) context_acquire(context ctx, c
     context_debug("%s: ctx %p, cpu %d\n", __func__, ctx, ci->id);
     assert(ctx->active_cpu != ci->id);
     u64 remain = CONTEXT_RESUME_SPIN_LIMIT;
-    while (ctx->active_cpu != -1u) {
+    volatile u32 *ac = &ctx->active_cpu;
+    while (*ac != -1u) {
         kern_pause();
         assert(remain-- > 0);
     }
@@ -654,7 +656,7 @@ static inline __attribute__((always_inline))  __attribute__((noreturn)) void ker
 
 static inline void schedule_timer_service(void)
 {
-    if (compare_and_swap_boolean(&kernel_timers->service_scheduled, false, true))
+    if (compare_and_swap_32(&kernel_timers->service_scheduled, false, true))
         async_apply_bh(kernel_timers->service);
 }
 

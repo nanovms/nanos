@@ -550,6 +550,8 @@ static void process_remove_range_locked(process p, range q, boolean unmap);
 
 void *process_map_physical(process p, u64 phys_addr, u64 size, u64 vmflags)
 {
+    vmap_debug("%s: phys_addr 0x%lx, size 0x%lx, vmflags 0x%lx\n",
+               __func__, phys_addr, size, vmflags);
     vmap_lock(p);
     u64 virt_addr = process_allocate_range_locked(p, size, ivmap(vmflags, 0, 0, 0),
                                                   PROCESS_VIRTUAL_MMAP_RANGE);

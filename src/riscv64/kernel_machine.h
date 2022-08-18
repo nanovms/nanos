@@ -23,6 +23,8 @@
 
 #define VIRTUAL_ADDRESS_BITS 48
 
+#define FLUSH_HANDLER_FAKE_IRQ 0x8000
+
 #define SCAUSE_INTERRUPT_BIT 63
 #define SCAUSE_INTERRUPT(x) ((x)>>SCAUSE_INTERRUPT_BIT)
 #define SCAUSE_CODE(x)       ((x)&~U64_FROM_BIT(SCAUSE_INTERRUPT_BIT))
@@ -85,6 +87,13 @@
 #define SI_MTIP             U64_FROM_BIT(MTIP)
 #define SI_SEIP             U64_FROM_BIT(SEIP)
 #define SI_MEIP             U64_FROM_BIT(MEIP)
+
+#define SR_FS 0x00006000
+#define CSR_STATUS 0x100
+#define CSR_IE 0x104
+#define CSR_IP 0x144
+
+#define MSIP_BASE(hartid) (mmio_base_addr(CLINT) + ((hartid) * 0x4))
 
 #ifndef __ASSEMBLY__
 /* interrupt control */
@@ -164,6 +173,7 @@ struct cpuinfo_machine {
     context current_context;
     u64 scratch;                    /* scratch to get handler going +8 */ 
     void *tstack_top;               /* top of stack for trap handler +16 */
+    u64 hartid;                     /* hardware thread ID as reported by SBI +24 */
 
     /*** End of fields touched by kernel entries ***/
 
@@ -179,10 +189,9 @@ typedef struct cpuinfo *cpuinfo;
 static inline cpuinfo current_cpu(void)
 {
     register u64 r;
-    asm("mv %0, tp" : "=r"(r));
+    asm volatile("mv %0, tp" : "=r"(r));
     return (cpuinfo)pointer_from_u64(r);
 }
-
 
 extern void clone_frame_pstate(context_frame dest, context_frame src);
 
@@ -248,7 +257,7 @@ static inline boolean is_illegal_instruction(context_frame f)
 
 static inline boolean frame_is_full(context_frame f)
 {
-    return f[FRAME_FULL];
+    return *(volatile u64 *)&f[FRAME_FULL];
 }
 
 static inline void *frame_extended(context_frame f)
@@ -369,8 +378,8 @@ static inline u64 *get_current_fp(void)
 /* IPI */
 static inline void machine_halt(void)
 {
-    extern void plic_set_c1_threshold(u32 thresh);
-    plic_set_c1_threshold(1);   /* mask all interrupts */
+    extern void plic_set_threshold(u64 hartid, u32 thresh);
+    plic_set_threshold(((struct cpuinfo_machine *)current_cpu())->hartid, 1);   /* mask all interrupts */
     enable_interrupts();    /* so that any interrupts already pending can be cleared */
     while (1)
         __asm__("wfi");
@@ -382,9 +391,33 @@ u64 allocate_mmio_interrupt(void);
 void deallocate_mmio_interrupt(u64 v);
 
 /* This is a simplified SEE ecall interface since we only use timer */
-static inline void supervisor_ecall(int type, u64 arg)
+static inline void supervisor_ecall_1(int type, u64 arg)
 {
     asm volatile("li a7, %0; mv a0, %1; ecall" :: "I"(type), "r"(arg) : "a0", "a7");
 }
 
-#endif /* __ASSEMBLY__ */
+struct sbiret {
+    u64 error;
+    u64 value;
+};
+
+static inline struct sbiret supervisor_ecall(u64 type, u64 func, u64 arg0, u64 arg1, u64 arg2,
+                                             u64 arg3, u64 arg4, u64 arg5)
+{
+    struct sbiret ret;
+    register u64 a0 asm("a0") = arg0;
+    register u64 a1 asm("a1") = arg1;
+    register u64 a2 asm("a2") = arg2;
+    register u64 a3 asm("a3") = arg3;
+    register u64 a4 asm("a4") = arg4;
+    register u64 a5 asm("a5") = arg5;
+    register u64 a6 asm("a6") = func;
+    register u64 a7 asm("a7") = type;
+    asm volatile("ecall" : "+r"(a0), "+r"(a1) :
+                 "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6), "r"(a7) : "memory");
+    ret.error = a0;
+    ret.value = a1;
+    return ret;
+}
+
+#endif /* !__ASSEMBLY__ */

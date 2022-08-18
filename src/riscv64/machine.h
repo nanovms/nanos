@@ -173,35 +173,12 @@ static inline __attribute__((always_inline)) void memory_barrier(void)
     asm volatile("fence.tso" ::: "memory");
 }
 
-static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *target, u64 bit)
-{
-    /* XXX no bit manip operations yet */
-    u64 mask = 1ull << bit;
-    u64 w = *target;
-    *target = w | mask;
-    return (w & mask) != 0;
-}
-
-static inline __attribute__((always_inline)) u8 atomic_test_and_clear_bit(u64 *target, u64 bit)
-{
-    /* XXX no bit manip operations yet */
-    u64 mask = 1ull << bit;
-    u64 w = *target;
-    *target = w & ~mask;
-    return (w & mask) != 0;
-}
-
-static inline __attribute__((always_inline)) void atomic_set_bit(u64 *target, u64 bit)
-{
-    atomic_test_and_set_bit(target, bit);
-}
-
-static inline __attribute__((always_inline)) void atomic_clear_bit(u64 *target, u64 bit)
-{
-    atomic_test_and_clear_bit(target, bit);
-}
-
 static inline __attribute__((always_inline)) word fetch_and_add(word *target, word num)
+{
+    return __sync_fetch_and_add(target, num);
+}
+
+static inline __attribute__((always_inline)) word fetch_and_add_32(u32 *target, u32 num)
 {
     return __sync_fetch_and_add(target, num);
 }
@@ -231,13 +208,51 @@ static inline __attribute__((always_inline)) u8 compare_and_swap_32(u32 *p, u32 
     return __atomic_compare_exchange_4(p, &old, new, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
 
+#if 0
 static inline __attribute__((always_inline)) u8 compare_and_swap_8(u8 *p, u8 old, u8 new)
 {
+#if 0
     /* XXX no byte size swap builtin */
     if (*p != old)
         return 0;
     *p = new;
     return 1;
+#else
+    return __atomic_compare_exchange_1(p, &old, new, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+#endif
+}
+#endif
+
+static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *target, u64 bit)
+{
+    /* Can't yet rely on B extension; use CAS loop here */
+    u64 w;
+    u64 v = 1ull << bit;
+    do {
+        w = *(volatile u64 *)target;
+    } while (!compare_and_swap_64(target, w, w | v));
+    return (w & v) != 0;
+}
+
+static inline __attribute__((always_inline)) u8 atomic_test_and_clear_bit(u64 *target, u64 bit)
+{
+    /* Can't yet rely on B extension; use CAS loop here */
+    u64 w;
+    u64 v = 1ull << bit;
+    do {
+        w = *(volatile u64 *)target;
+    } while (!compare_and_swap_64(target, w, w & ~v));
+    return (w & v) != 0;
+}
+
+static inline __attribute__((always_inline)) void atomic_set_bit(u64 *target, u64 bit)
+{
+    atomic_test_and_set_bit(target, bit);
+}
+
+static inline __attribute__((always_inline)) void atomic_clear_bit(u64 *target, u64 bit)
+{
+    atomic_test_and_clear_bit(target, bit);
 }
 
 static inline __attribute__((always_inline)) void kern_pause(void)
