@@ -203,7 +203,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     while (spins_remain-- > 0) {
         if (m->turn == 0 && compare_and_swap_64((u64*)&m->turn, 0, u64_from_pointer(ctx))) {
             if (on_mcs)
-                mcs_unlock(m, ci);
+                mcs_unlock(m, current_cpu());
 #ifdef LOCK_STATS
             LOCKSTATS_RECORD_LOCK(m->s, true, spins, sleeps);
 #endif
@@ -218,7 +218,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
 
     /* we cannot reschedule while holding the mcs lock, so join waiters */
     if (on_mcs) {
-        mcs_unlock(m, ci);
+        mcs_unlock(m, current_cpu());
         on_mcs = false;
         goto wait;
     }
