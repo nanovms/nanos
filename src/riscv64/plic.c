@@ -82,28 +82,3 @@ void init_plic()
 void msi_format(u32 *address, u32 *data, int vector)
 {
 }
-
-static void send_ipi_internal(u64 cpu)
-{
-    /* get hartid for cpu */
-    cpuinfo target_ci = cpuinfo_from_id(cpu);
-    u64 hartid = target_ci->m.hartid;
-    // rewrite to actually use mask, adjust hbase; otherwise limited to 64 cpus
-    struct sbiret r = supervisor_ecall(SBI_EXT_IPI, SBI_EXT_IPI_SEND_IPI,
-                                       (1ull << hartid), 0, 0, 0, 0, 0);
-    assert(r.error == 0);
-}
-
-void send_ipi(u64 cpu, u8 vector)
-{
-    if (cpu == TARGET_EXCLUSIVE_BROADCAST) {
-        cpuinfo ci = current_cpu();
-        for (int i = 0; i < present_processors; i++) {
-            if (i == ci->id)
-                continue;
-            send_ipi_internal(i);
-        }
-    } else {
-        send_ipi_internal(cpu);
-    }
-}

@@ -55,6 +55,7 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
     ci->m.tstack_top = p + TRAP_STACK_SIZE;
     ci->m.current_context = ci->m.kernel_context = &kc->context;
     ci->m.hartid = ci->id == 0 ? boot_hartid : -1ull;
+    ci->m.ipi_mask = 0;
 }
 
 void clone_frame_pstate(context_frame dest, context_frame src)

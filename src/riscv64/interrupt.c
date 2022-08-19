@@ -74,6 +74,11 @@ static struct list *handlers;
 
 static heap int_general;
 
+#define IPI_BASE_INT (PLIC_MAX_INT + 1)
+#define IPI_MAX_INT  (IPI_BASE_INT + 63)
+
+static id_heap ipi_heap;
+
 void print_stack(context_frame c)
 {
     rputs("\nframe trace: \n");
@@ -131,17 +136,12 @@ void dump_context(context ctx)
     print_stack(f);
 }
 
-static thunk flush_handler;
-
 void register_interrupt(int vector, thunk t, const char *name)
 {
     // XXX ignore handlers for vector 0 (i.e. not implemented)
     if (vector == 0)
         return;
-    if (vector == FLUSH_HANDLER_FAKE_IRQ) {
-        flush_handler = t;
-        return;
-    }
+
     boolean initialized = !list_empty(&handlers[vector]);
     int_debug("%s: vector %d, thunk %p (%F), name %s%s\n",
               __func__, vector, t, t, name, initialized ? ", shared" : "");
@@ -152,7 +152,7 @@ void register_interrupt(int vector, thunk t, const char *name)
     h->name = name;
     list_insert_before(&handlers[vector], &h->l);
 
-    if (!initialized) {
+    if (vector <= PLIC_MAX_INT && !initialized) {
         plic_set_int_priority(vector, 1);
         plic_clear_pending_int(vector);
         plic_enable_int(vector);
@@ -165,7 +165,8 @@ void unregister_interrupt(int vector)
     if (vector == 0)
         return;
     int_debug("%s: vector %d\n", __func__, vector);
-    plic_disable_int(vector);
+    if (vector <= PLIC_MAX_INT)
+        plic_disable_int(vector);
     if (list_empty(&handlers[vector]))
         halt("%s: no handler registered for vector %d\n", __func__, vector);
     list_foreach(&handlers[vector], l) {
@@ -183,11 +184,28 @@ void riscv_timer(void)
     schedule_timer_service();
 }
 
+static boolean invoke_handlers_for_vector(cpuinfo ci, int v)
+{
+    if (list_empty(&handlers[v])) {
+        rprintf("\nno handler for %s %d\n", v <= PLIC_MAX_INT ? "interrupt" : "IPI", v);
+        return false;
+    }
+
+    list_foreach(&handlers[v], l) {
+        inthandler h = struct_from_list(l, inthandler, l);
+        int_debug("   invoking handler %s (%F)\n", h->name, h->t);
+        ci->state = cpu_interrupt;
+        apply(h->t);
+    }
+    return true;
+}
+
 void trap_interrupt(void)
 {
     cpuinfo ci = current_cpu();
     context ctx = get_current_context(ci);
     context_frame f = ctx->frame;
+    u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
 
     if (f[FRAME_FULL]) {
         console("\nframe already full\n");
@@ -198,13 +216,18 @@ void trap_interrupt(void)
     context_reserve_refcount(ctx);
 
     int saved_state = ci->state;
-    u64 v = SCAUSE_CODE(f[FRAME_CAUSE]);
     switch (v) {
     case TRAP_I_SSOFT:
         asm volatile("csrc sip, %0" : : "r"(SI_SSIP));
-        /* XXX no flush vector, flush with each ipi for now */
-        if (flush_handler)
-            apply(flush_handler);
+        u64 ipi_mask;
+        while ((ipi_mask = atomic_swap_64(&ci->m.ipi_mask, 0))) {
+            do {
+                int bit = lsb(ipi_mask);
+                if (!invoke_handlers_for_vector(ci, IPI_BASE_INT + bit))
+                    goto exit_fault;
+                ipi_mask &= ~U64_FROM_BIT(bit);
+            } while (ipi_mask);
+        }
         break;
     case TRAP_I_STIMER:
         int_debug("[%2d] timer interrupt, state %s\n", ci->id,
@@ -222,17 +245,8 @@ void trap_interrupt(void)
                 goto exit_fault;
             }
 
-            if (list_empty(&handlers[i])) {
-                rprintf("\nno handler for interrupt %d\n", i);
+            if (!invoke_handlers_for_vector(ci, i))
                 goto exit_fault;
-            }
-
-            list_foreach(&handlers[i], l) {
-                inthandler h = struct_from_list(l, inthandler, l);
-                int_debug("   invoking handler %s (%F)\n", h->name, h->t);
-                ci->state = cpu_interrupt;
-                apply(h->t);
-            }
 
             int_debug("   eoi %d\n", i);
             plic_eoi(i);
@@ -268,7 +282,7 @@ void trap_interrupt(void)
     print_u64(v);
     console("\n");
     dump_context(ctx);
-    // apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
+    send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
 }
 
@@ -338,16 +352,46 @@ void trap_exception(void)
     print_u64(v);
     console("\n");
     dump_context(ctx);
-    // apic_ipi(TARGET_EXCLUSIVE_BROADCAST, ICR_ASSERT, shutdown_vector);
+    send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
     vm_exit(VM_EXIT_FAULT);
+}
+
+static void send_ipi_internal(u64 cpu, u8 vector)
+{
+    /* get hartid for cpu */
+    cpuinfo target_ci = cpuinfo_from_id(cpu);
+    u64 hartid = target_ci->m.hartid;
+    assert(vector >= IPI_BASE_INT && vector <= IPI_MAX_INT);
+    atomic_set_bit(&target_ci->m.ipi_mask, vector - IPI_BASE_INT);
+    // rewrite to actually use mask, adjust hbase; otherwise limited to 64 cpus
+    struct sbiret r = supervisor_ecall(SBI_EXT_IPI, SBI_EXT_IPI_SEND_IPI,
+                                       (1ull << hartid), 0, 0, 0, 0, 0);
+    assert(r.error == 0);
+}
+
+void send_ipi(u64 cpu, u8 vector)
+{
+    if (cpu == TARGET_EXCLUSIVE_BROADCAST) {
+        cpuinfo ci = current_cpu();
+        for (int i = 0; i < present_processors; i++) {
+            if (i == ci->id)
+                continue;
+            send_ipi_internal(i, vector);
+        }
+    } else {
+        send_ipi_internal(cpu, vector);
+    }
 }
 
 void init_interrupts(kernel_heaps kh)
 {
     int_general = heap_locked(kh);
-    handlers = allocate_zero(int_general, (PLIC_MAX_INT + 1) * sizeof(handlers[0]));
+    handlers = allocate_zero(int_general, (IPI_MAX_INT + 1) * sizeof(handlers[0]));
     assert(handlers != INVALID_ADDRESS);
-    for (int i = 0; i <= PLIC_MAX_INT; i++)
+    ipi_heap = create_id_heap(int_general, int_general, IPI_BASE_INT,
+                              IPI_MAX_INT - IPI_BASE_INT + 1, 1, true);
+    assert(ipi_heap != INVALID_ADDRESS);
+    for (int i = 0; i <= IPI_MAX_INT; i++)
         list_init(&handlers[i]);
     init_plic();
     plic_set_threshold(current_cpu()->m.hartid, 0);
@@ -377,11 +421,12 @@ void deallocate_mmio_interrupt(u64 irq)
 
 u64 allocate_ipi_interrupt(void)
 {
-    return FLUSH_HANDLER_FAKE_IRQ;
+    return allocate_u64((heap)ipi_heap, 1);
 }
 
 void deallocate_ipi_interrupt(u64 irq)
 {
+    deallocate_u64((heap)ipi_heap, irq, 1);
 }
 
 u64 allocate_msi_interrupt(void)

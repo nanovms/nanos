@@ -23,8 +23,6 @@
 
 #define VIRTUAL_ADDRESS_BITS 48
 
-#define FLUSH_HANDLER_FAKE_IRQ 0x8000
-
 #define SCAUSE_INTERRUPT_BIT 63
 #define SCAUSE_INTERRUPT(x) ((x)>>SCAUSE_INTERRUPT_BIT)
 #define SCAUSE_CODE(x)       ((x)&~U64_FROM_BIT(SCAUSE_INTERRUPT_BIT))
@@ -182,6 +180,8 @@ struct cpuinfo_machine {
 
     /* Next syscall context to install */
     context syscall_context;
+
+    u64 ipi_mask;
 };
 
 typedef struct cpuinfo *cpuinfo;
