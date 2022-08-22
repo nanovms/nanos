@@ -204,6 +204,7 @@ UEFI_SRCS= \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/memops.c \
 	$(SRCDIR)/runtime/merge.c \
+	$(SRCDIR)/runtime/queue.c \
 	$(SRCDIR)/runtime/range.c \
 	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
