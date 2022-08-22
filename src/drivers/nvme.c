@@ -488,6 +488,9 @@ static void nvme_ns_resp_parse(nvme n, u32 ns_id, void *ns_resp,
         }
         return;
     }
+    u64 nsze = *(u64 *)ns_resp;                 /* namespace size */
+    if (nsze == 0)
+        return;
     int flbas = *(u8 *)(ns_resp + 26) & 0xF;    /* formatted LBA size */
     u32 lbaf = *(u32 *)(ns_resp + 128 + flbas); /* LBA format */
     int lbads = 1 << ((lbaf >> 16) & 0xFF);     /* LBA data size */
@@ -495,7 +498,7 @@ static void nvme_ns_resp_parse(nvme n, u32 ns_id, void *ns_resp,
         msg_err("unsupported sector size %ld", lbads);
         return;
     }
-    u64 disk_size = *(u64 *)ns_resp * lbads;
+    u64 disk_size = nsze * lbads;
     thunk ns_attach = closure(n->general, nvme_ns_attach, n, ns_id, disk_size, a);
     if (ns_attach == INVALID_ADDRESS)
         msg_err("failed to allocate NS attach closure\n");
