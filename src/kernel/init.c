@@ -21,6 +21,7 @@ typedef struct mm_cleaner {
 } *mm_cleaner;
 
 BSS_RO_AFTER_INIT filesystem root_fs;
+BSS_RO_AFTER_INIT halt_handler vm_halt;
 BSS_RO_AFTER_INIT static kernel_heaps init_heaps;
 
 #define SHUTDOWN_COMPLETIONS_SIZE 8
@@ -516,6 +517,8 @@ void vm_exit(u8 code)
             machine_halt();
         }
     }
+    if (vm_halt && (!root || !get(root, sym(debug_exit))))
+        apply(vm_halt, code);
     vm_shutdown(code);
 }
 

@@ -146,20 +146,8 @@ void reclaim_regions(void)
     unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
 }
 
-BSS_RO_AFTER_INIT halt_handler vm_halt;
-
 void vm_shutdown(u8 code)
 {
-    tuple root = get_root_tuple();
-    if (root) {
-        if (get(root, sym(debug_exit)))
-            goto debug_exit;
-    }
-    if (vm_halt) {
-        apply(vm_halt, code);
-        while (1);  /* to honor noreturn attribute */
-    }
-  debug_exit:
     QEMU_HALT(code);
 }
 
