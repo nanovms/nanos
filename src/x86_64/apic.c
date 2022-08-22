@@ -104,6 +104,11 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
+int msi_get_vector(u32 data)
+{
+    return (data & 0xff);
+}
+
 void lapic_set_tsc_deadline_mode(u32 v)
 {
     assert(apic_if);

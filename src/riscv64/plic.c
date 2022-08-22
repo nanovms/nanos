@@ -82,3 +82,8 @@ void init_plic()
 void msi_format(u32 *address, u32 *data, int vector)
 {
 }
+
+int msi_get_vector(u32 data)
+{
+    return 0;
+}

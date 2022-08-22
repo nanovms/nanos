@@ -184,7 +184,7 @@ u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
 void pci_teardown_msix(pci_dev dev, int msi_slot)
 {
     u64 slot_addr = pci_msix_table_slot_addr(dev, msi_slot);
-    int v = mmio_read_32(slot_addr + sizeof(u32) * 2) & 0xff;
+    int v = msi_get_vector(mmio_read_32(slot_addr + sizeof(u32) * 2));
     pci_debug("%s: table slot addr 0x%lx, msi %d: int %d\n", __func__, slot_addr, msi_slot, v);
     mmio_write_32(slot_addr + (sizeof(u32) * 3), 1); /* set Masked bit to 1 */
     pci_platform_deallocate_msi(dev, v);

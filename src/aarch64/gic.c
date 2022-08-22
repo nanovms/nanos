@@ -333,6 +333,14 @@ void msi_format(u32 *address, u32 *data, int vector)
     }
 }
 
+int msi_get_vector(u32 data)
+{
+    if (gic.its_base)
+        return (data + gic_msi_vector_base);
+    else
+        return data;
+}
+
 static void init_gicc(void)
 {
     /* disable all interrupt groups */
