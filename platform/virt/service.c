@@ -6,6 +6,7 @@
 #include <boot/uefi.h>
 #include <drivers/acpi.h>
 #include <drivers/console.h>
+#include <drivers/gve.h>
 #include <drivers/ns16550.h>
 #include <drivers/nvme.h>
 #include <management.h>
@@ -357,6 +358,7 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_acpi(kh);
     init_virtio_network(kh);
     init_aws_ena(kh);
+    init_gve(kh);
     init_virtio_blk(kh, sa);
     init_virtio_scsi(kh, sa);
     init_nvme(kh, sa);

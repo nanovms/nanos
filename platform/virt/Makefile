@@ -28,6 +28,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/devicetree/devicetree.c \
 	$(SRCDIR)/drivers/acpi.c \
 	$(SRCDIR)/drivers/console.c \
+	$(SRCDIR)/drivers/gve.c \
 	$(SRCDIR)/drivers/netconsole.c \
 	$(SRCDIR)/drivers/ns16550.c \
 	$(SRCDIR)/drivers/nvme.c \
