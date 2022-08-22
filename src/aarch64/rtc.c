@@ -10,6 +10,7 @@
 #endif
 
 #define rtc_reg(offset) (*(volatile u32 *)pointer_from_u64(mmio_base_addr(RTC) + offset))
+#define rtc_reg8(offset)    (*(volatile u8 *)pointer_from_u64(mmio_base_addr(RTC) + offset))
 #define RTCDR           rtc_reg(0x000) /* data */
 #define RTCMR           rtc_reg(0x004) /* match */
 #define RTCLR           rtc_reg(0x008) /* load */
@@ -18,14 +19,14 @@
 #define RTCRIS          rtc_reg(0x014) /* raw interrupt status */
 #define RTCMIS          rtc_reg(0x018) /* masked interrupt status */
 #define RTCICR          rtc_reg(0x01c) /* interrupt clear */
-#define RTCPeriphID0    rtc_reg(0xfe0) /* peripheral ID bits [7:0] */
-#define RTCPeriphID1    rtc_reg(0xfe4) /* peripheral ID bits [15:8] */
-#define RTCPeriphID2    rtc_reg(0xfe8) /* peripheral ID bits [23:16] */
-#define RTCPeriphID3    rtc_reg(0xfec) /* peripheral ID bits [31:24] */
-#define RTCPCellID0     rtc_reg(0xff0) /* PrimeCell ID bits [7:0] */
-#define RTCPCellID1     rtc_reg(0xff4) /* PrimeCell ID bits [7:0] */
-#define RTCPCellID2     rtc_reg(0xff8) /* PrimeCell ID bits [7:0] */
-#define RTCPCellID3     rtc_reg(0xffc) /* PrimeCell ID bits [7:0] */
+#define RTCPeriphID0    rtc_reg8(0xfe0) /* peripheral ID bits [7:0] */
+#define RTCPeriphID1    rtc_reg8(0xfe4) /* peripheral ID bits [15:8] */
+#define RTCPeriphID2    rtc_reg8(0xfe8) /* peripheral ID bits [23:16] */
+#define RTCPeriphID3    rtc_reg8(0xfec) /* peripheral ID bits [31:24] */
+#define RTCPCellID0     rtc_reg8(0xff0) /* PrimeCell ID bits [7:0] */
+#define RTCPCellID1     rtc_reg8(0xff4) /* PrimeCell ID bits [7:0] */
+#define RTCPCellID2     rtc_reg8(0xff8) /* PrimeCell ID bits [7:0] */
+#define RTCPCellID3     rtc_reg8(0xffc) /* PrimeCell ID bits [7:0] */
 
 #define RTCPeriphID0_val  0x31
 #define RTCPeriphID1_val  0x10
