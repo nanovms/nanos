@@ -110,6 +110,8 @@ void enable_mmu(u64 vtarget)
     write_psr(TTBR1_EL1, kernel_tablebase);
 
     u64 tcr_el1 =
+        u64_from_field(TCR_EL1_IPS, TCR_EL1_IPS_48BITS) |
+
         /* for TTBR1_EL1 (kernel) */
         TCR_EL1_TBI1 | TCR_EL1_TBI0 | /* enable user and kernel tags */
         u64_from_field(TCR_EL1_T1SZ, 64 - VIRTUAL_ADDRESS_BITS) |
