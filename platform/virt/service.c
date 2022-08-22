@@ -354,6 +354,7 @@ void detect_hypervisor(kernel_heaps kh)
 
 void detect_devices(kernel_heaps kh, storage_attach sa)
 {
+    init_acpi(kh);
     init_virtio_network(kh);
     init_aws_ena(kh);
     init_virtio_blk(kh, sa);

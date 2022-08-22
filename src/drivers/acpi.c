@@ -232,6 +232,80 @@ closure_function(3, 1, void, acpi_powerdown,
                     ACPI_PM1_SLP_EN | ACPI_PM1_SLP_TYP(bound(pm1b_slp_typ)), 16);
 }
 
+static void acpi_pwrbtn_handler(ACPI_HANDLE device, UINT32 value, void *context)
+{
+    acpi_debug("power button value 0x%x", value);
+    if (value == 0x80)  /* button pressed */
+        acpi_shutdown(context);
+}
+
+static ACPI_STATUS acpi_pwrbtn_probe(ACPI_HANDLE object, u32 nesting_level, void *context,
+                                     void **return_value)
+{
+    acpi_debug("found power button");
+    ACPI_STATUS rv = AcpiInstallNotifyHandler(object, ACPI_DEVICE_NOTIFY,
+                                              acpi_pwrbtn_handler, NULL);
+    if (ACPI_FAILURE(rv))
+        msg_err("failed to install power button handler: %d\n", rv);
+    return rv;
+}
+
+closure_function(2, 0, void, acpi_ged_handler,
+                 ACPI_HANDLE, event, int, gsi)
+{
+    acpi_debug("GED event");
+    ACPI_OBJECT arg = {
+        .Integer = {
+            .Type = ACPI_TYPE_INTEGER,
+            .Value = bound(gsi),
+        },
+    };
+    ACPI_OBJECT_LIST arg_list;
+    arg_list.Count = 1;
+    arg_list.Pointer = &arg;
+    AcpiEvaluateObject(bound(event), NULL, &arg_list, NULL);
+}
+
+static ACPI_STATUS acpi_ged_res_probe(ACPI_RESOURCE *resource, void *context)
+{
+    switch (resource->Type) {
+    case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+        if (resource->Data.ExtendedIrq.InterruptCount == 1) {
+            int gsi = resource->Data.ExtendedIrq.Interrupts[0];
+            char ev_name[5];
+            ACPI_HANDLE event;
+            ACPI_STATUS rv;
+            switch (gsi) {
+            case 0 ... 255:
+                rsnprintf(ev_name, sizeof(ev_name), "_%c%02x",
+                          resource->Data.ExtendedIrq.Triggering == ACPI_EDGE_SENSITIVE ? 'E' : 'L',
+                          gsi);
+                if (ACPI_SUCCESS(AcpiGetHandle(context, ev_name, &event)))
+                    break;
+                /* fall through */
+            default:
+                rv = AcpiGetHandle(context, "_EVT", &event);
+                if (ACPI_FAILURE(rv)) {
+                    msg_err("failed to locate _EVT method: %d\n", rv);
+                    return rv;
+                }
+            }
+            thunk handler = closure(acpi_heap, acpi_ged_handler, event, gsi);
+            assert(handler != INVALID_ADDRESS);
+            register_interrupt(gsi, handler, "acpi-ged");
+        }
+        break;
+    }
+    return AE_OK;
+}
+
+static ACPI_STATUS acpi_ged_probe(ACPI_HANDLE object, u32 nesting_level, void *context,
+                                  void **return_value)
+{
+    acpi_debug("found Generic Event Device");
+    return AcpiWalkResources(object, METHOD_NAME__CRS, acpi_ged_res_probe, object);
+}
+
 static void acpi_powerdown_init(kernel_heaps kh)
 {
     ACPI_TABLE_HEADER *fadt;
@@ -248,6 +322,7 @@ static void acpi_powerdown_init(kernel_heaps kh)
     rv = AcpiEvaluateObjectTyped(NULL, "\\_S5", NULL, &retb, ACPI_TYPE_PACKAGE);
     if (ACPI_FAILURE(rv)) {
         acpi_debug("failed to get _S5 object (%d)", rv);
+        AcpiGetDevices("PNP0C0C", acpi_pwrbtn_probe, NULL, NULL);
         return;
     }
     ACPI_OBJECT *obj = retb.Pointer;
@@ -277,6 +352,7 @@ void init_acpi(kernel_heaps kh)
         return;
     }
     acpi_powerdown_init(kh);
+    AcpiGetDevices("ACPI0013", acpi_ged_probe, NULL, NULL);
     rv = AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON, acpi_shutdown, 0);
     if (ACPI_FAILURE(rv))
         acpi_debug("cannot install power button hander: %d", rv);
