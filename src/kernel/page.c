@@ -2,14 +2,7 @@
 
 #include <kernel.h>
 
-#ifdef KERNEL
-static struct spinlock pt_lock;
-#define pagetable_lock() u64 _savedflags = spin_lock_irq(&pt_lock)
-#define pagetable_unlock() spin_unlock_irq(&pt_lock, _savedflags)
-#else
-#define pagetable_lock()
-#define pagetable_unlock()
-#endif
+struct spinlock pt_lock;
 
 //#define PAGE_INIT_DEBUG
 //#define PAGE_DEBUG

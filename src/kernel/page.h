@@ -1,3 +1,12 @@
+#ifdef KERNEL
+extern struct spinlock pt_lock;
+#define pagetable_lock() u64 _savedflags = spin_lock_irq(&pt_lock)
+#define pagetable_unlock() spin_unlock_irq(&pt_lock, _savedflags)
+#else
+#define pagetable_lock()
+#define pagetable_unlock()
+#endif
+
 /* Though page flags are just a u64, we hide it behind this type to
    emphasize that page flags should be composed using helpers with
    clear semantics, not architecture bits. This is to avoid mistakes

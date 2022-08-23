@@ -22,8 +22,10 @@ boolean is_protection_fault(context_frame f)
     /* XXX is there no hw distinction between writing to a valid
        readonly page versus writing to a non-existant page? */
     pte e;
-    // XXX this lookup is not locked but will need to be for smp
-    if (physical_and_pte_from_virtual(frame_fault_address(f), &e) == INVALID_PHYSICAL)
+    pagetable_lock();
+    physical p = __physical_and_pte_from_virtual_locked(frame_fault_address(f), &e);
+    pagetable_unlock();
+    if (p == INVALID_PHYSICAL)
         return false;
     u64 cause = SCAUSE_CODE(f[FRAME_CAUSE]);
     return (e & PAGE_VALID) && (cause == TRAP_E_SPAGE_FAULT);
