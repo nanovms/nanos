@@ -501,7 +501,7 @@ typedef struct process {
     vector            itimers;      /* unix_timer by ITIMER_ type */
     id_heap           aio_ids;
     vector            aio;
-    boolean           trace;
+    u8                trace;
     boolean           trap;         /* do not run threads when set */
     struct spinlock   lock; /* generic lock for struct members without a specific lock */
 } *process;
@@ -843,7 +843,12 @@ void truncate_file_maps(process p, fsfile f, u64 new_length);
 const char *string_from_mmap_type(int type);
 
 void thread_log_internal(thread t, const char *desc, ...);
-#define thread_log(__t, __desc, ...) do {if (!__t || !__t->p->trace) break; thread_log_internal(__t, __desc, ##__VA_ARGS__);} while (0)
+#define thread_trace(__t, __f, __desc, ...)                 \
+    do {                                                    \
+        if ((__t) && ((__t)->p->trace & (__f)))             \
+        thread_log_internal(__t, __desc, ##__VA_ARGS__);    \
+    } while (0)
+#define thread_log(__t, __desc, ...)    thread_trace(__t, TRACE_OTHER, __desc, ##__VA_ARGS__)
 
 void thread_sleep_interruptible(void) __attribute__((noreturn));
 void thread_sleep_uninterruptible(thread t) __attribute__((noreturn));

@@ -1,3 +1,9 @@
+#define TRACE_OTHER         U64_FROM_BIT(0)
+#define TRACE_THREAD_RUN    U64_FROM_BIT(1)
+#define TRACE_PAGE_FAULT    U64_FROM_BIT(2)
+
+u64 trace_get_flags(value v);
+
 typedef struct klog_dump {
     u8 header[4];
     u64 boot_id;

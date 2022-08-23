@@ -11,6 +11,7 @@ void runloop_target(void) __attribute__((noreturn));
 
 #include <kernel_machine.h>
 
+#include <log.h>
 #ifdef CONFIG_TRACELOG
 #include <tracelog.h>
 #else

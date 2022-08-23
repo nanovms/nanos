@@ -286,8 +286,8 @@ define_closure_function(1, 0, void, thread_return,
 
     context_frame f = t->context.frame;
     assert(f[FRAME_FULL]);
-    thread_log(t, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
-               current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
+    thread_trace(t, TRACE_THREAD_RUN, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
+                 current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
     ci->frcount++;
     clear_fault_handler();
     context_switch(&t->context);

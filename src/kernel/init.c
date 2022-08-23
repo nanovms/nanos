@@ -3,7 +3,6 @@
 #include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
-#include <log.h>
 #include <net.h>
 #include <symtab.h>
 #include <drivers/console.h>

@@ -500,7 +500,7 @@ closure_function(7, 1, void, file_read_complete,
     if (is_ok(s)) {
         file f = bound(f);
         u64 count = sg_copy_to_buf_and_release(bound(dest), sg, bound(limit));
-        thread_log(bound(t), "   read count %ld\n", count);
+        thread_log(bound(t), "   read count %ld", count);
         if (bound(is_file_offset)) /* vs specified offset (pread) */
             f->offset += count;
         rv = count;

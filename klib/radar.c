@@ -1,6 +1,5 @@
 #include <kernel.h>
 #include <http.h>
-#include <log.h>
 #include <lwip.h>
 #include <pagecache.h>
 #include <storage.h>

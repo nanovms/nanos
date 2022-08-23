@@ -1,7 +1,6 @@
 #include <unix_internal.h>
 #include <ftrace.h>
 #include <gdb.h>
-#include <log.h>
 #include <filesystem.h>
 #include <drivers/console.h>
 
@@ -10,7 +9,7 @@
 #define pf_debug(x, ...) do {tprintf(sym(fault), 0, "tid %02d " x "\n", \
                                      current ? current->tid : -1, ##__VA_ARGS__);} while(0)
 #else
-#define pf_debug(x, ...) thread_log(current, x, ##__VA_ARGS__);
+#define pf_debug(x, ...) thread_trace(current, TRACE_PAGE_FAULT, x, ##__VA_ARGS__);
 #endif
 
 #define MAX_PROCESSES 2

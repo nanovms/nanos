@@ -36,9 +36,9 @@ closure_function(5, 1, status, read_program_complete,
                  buffer, b)
 {
     tuple root = bound(root);
-    if (get(root, sym(trace))) {
+    if (trace_get_flags(get(root, sym(trace))) & TRACE_OTHER) {
         rprintf("read program complete: %p ", root);
-        rprintf("gitversion: %s ", gitversion);
+        rprintf("gitversion: %s\n", gitversion);
 
         /* XXX - disable this until we can be assured that print_root
            won't go haywire on a large manifest... */

@@ -278,7 +278,7 @@ static boolean get_static_ip6_config(tuple t, struct netif *n, const char *ifnam
 void init_network_iface(tuple root) {
     struct netif *n;
     struct netif *default_iface = 0;
-    boolean trace = get(root, sym(trace)) != 0;
+    boolean trace = !!(trace_get_flags(get(root, sym(trace))) & TRACE_OTHER);
 
     lwip_lock();
     /* NETIF_FOREACH traverses interfaces in reverse order...so go by index */

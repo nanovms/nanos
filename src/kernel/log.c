@@ -1,11 +1,40 @@
 #include <kernel.h>
-#include <log.h>
 #include <storage.h>
 
 #define KLOG_BUF_SIZE       KLOG_DUMP_SIZE
 #define KLOG_BUF_SIZE_MASK  (KLOG_BUF_SIZE - 1)
 
 #define KLOG_DUMP_MAGIC "KLOG"
+
+u64 trace_get_flags(value v)
+{
+    u64 flags = 0;
+    if (v && is_string(v)) {
+        buffer b = alloca_wrap((buffer)v);
+        int delim;
+        while (buffer_length(b) > 0) {
+            delim = buffer_strchr(b, ',');
+            u64 end = b->end;
+            if (delim > 0)
+                b->end = b->start + delim;
+            if (delim) {
+                if (!buffer_strcmp(b, "all"))
+                    return -1ull;
+                if (!buffer_strcmp(b, "threadrun"))
+                    flags |= TRACE_THREAD_RUN;
+                else if (!buffer_strcmp(b, "pf"))
+                    flags |= TRACE_PAGE_FAULT;
+                else
+                    flags |= TRACE_OTHER;
+                if (delim < 0)
+                    break;
+                b->end = end;
+            }
+            buffer_consume(b, delim + 1);
+        }
+    }
+    return flags;
+}
 
 declare_closure_struct(2, 1, void, klog_load_sh,
     klog_dump, dest, status_handler, sh,

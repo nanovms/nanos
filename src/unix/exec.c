@@ -222,7 +222,7 @@ closure_function(1, 1, boolean, trace_notify,
                  process, p,
                  value, v)
 {
-    bound(p)->trace = !!v;      /* allow any value for true */
+    bound(p)->trace = trace_get_flags(v);
     return true;
 }
 
