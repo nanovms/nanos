@@ -10,29 +10,44 @@
 #define set_plic_bit(r, i) do { u32 off = ((i)/32)*sizeof(u32); write_plic(r+off, read_plic(r+off)|(1<<((i)%32))); } while(0)
 #define clear_plic_bit(r, i) do { u32 off = ((i)/32)*sizeof(u32); write_plic(r+off, read_plic(r+off)&~(1<<((i)%32))); } while(0)
 
+static inline u64 context_from_hartid(u64 hartid)
+{
+    return (hartid << 1) + 1;
+}
+
 void plic_disable_int(int irq)
 {
-    clear_plic_bit(PLIC_ENABLE_C1, irq);
+    for (int cpuid = 0; cpuid < present_processors; cpuid++) {
+        cpuinfo ci = cpuinfo_from_id(cpuid);
+        clear_plic_bit(PLIC_ENABLE(context_from_hartid(ci->m.hartid)), irq);
+    }
 }
 
 void plic_enable_int(int irq)
 {
-    set_plic_bit(PLIC_ENABLE_C1, irq);
+    for (int cpuid = 0; cpuid < present_processors; cpuid++) {
+        cpuinfo ci = cpuinfo_from_id(cpuid);
+        set_plic_bit(PLIC_ENABLE(context_from_hartid(ci->m.hartid)), irq);
+    }
 }
 
 void plic_clear_pending_int(int irq)
 {
-    boolean en = read_plic_bit(PLIC_ENABLE_C1, irq);
-    if (!en)
-        set_plic_bit(PLIC_ENABLE_C1, irq);
-    u32 v;
-    while ((v = read_plic(PLIC_CLAIM_C1))) {
-        write_plic(PLIC_CLAIM_C1, v);
-        if (v == irq)
-            break;
+    for (int cpuid = 0; cpuid < present_processors; cpuid++) {
+        cpuinfo ci = cpuinfo_from_id(cpuid);
+        u64 context = context_from_hartid(ci->m.hartid);
+        boolean en = read_plic_bit(PLIC_ENABLE(context), irq);
+        if (!en)
+            set_plic_bit(PLIC_ENABLE(context), irq);
+        u32 v;
+        while ((v = read_plic(PLIC_CLAIM(context)))) {
+            write_plic(PLIC_CLAIM(context), v);
+            if (v == irq)
+                break;
+        }
+        if (!en)
+            clear_plic_bit(PLIC_ENABLE(context), irq);
     }
-    if (!en)
-        clear_plic_bit(PLIC_ENABLE_C1, irq);
 }
 
 void plic_set_int_priority(int irq, u32 pri)
@@ -40,9 +55,9 @@ void plic_set_int_priority(int irq, u32 pri)
     write_plic_irq(PLIC_PRIORITY, irq, pri);
 }
 
-void plic_set_c1_threshold(u32 thresh)
+void plic_set_threshold(u64 hartid, u32 thresh)
 {
-    write_plic(PLIC_THRESH_C1, thresh);
+    write_plic(PLIC_THRESH(context_from_hartid(hartid)), thresh);
 }
 
 boolean plic_int_is_pending(int irq)
@@ -52,12 +67,12 @@ boolean plic_int_is_pending(int irq)
 
 u64 plic_dispatch_int(void)
 {
-    return read_plic(PLIC_CLAIM_C1);
+    return read_plic(PLIC_CLAIM(context_from_hartid(current_cpu()->m.hartid)));
 }
 
 void plic_eoi(int irq)
 {
-    write_plic(PLIC_CLAIM_C1, irq);
+    write_plic(PLIC_CLAIM(context_from_hartid(current_cpu()->m.hartid)), irq);
 }
 
 void init_plic()
@@ -65,9 +80,5 @@ void init_plic()
 }
 
 void msi_format(u32 *address, u32 *data, int vector)
-{
-}
-
-void send_ipi(u64 cpu, u8 vector)
 {
 }

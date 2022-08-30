@@ -35,7 +35,7 @@ struct virtio_rng {
     virtqueue requestq;
     struct entropy_buf ebufs[2];
     u8 ebuf_idx;
-    boolean initialized;
+    u32 initialized;
 } virtio_rng;
 
 /* no lock, single consumer thanks to rng mutex */
@@ -65,7 +65,7 @@ define_closure_function(1, 1, void, ebuf_fill_complete,
     bound(ebuf)->offset = 0;
     bound(ebuf)->len = len;
     bound(ebuf)->filling = false;
-    if (compare_and_swap_boolean(&virtio_rng.initialized, false, true)) {
+    if (compare_and_swap_32(&virtio_rng.initialized, false, true)) {
         random_reseed();
     }
 }

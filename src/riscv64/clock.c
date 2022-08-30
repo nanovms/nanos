@@ -43,7 +43,7 @@ closure_function(0, 1, void, riscv_deadline_timer,
     u64 tv = mmio_read_64(mmio_base_addr(CLINT) + CLINT_MTIME);
     tv += (interval*CLINT_TIMEBASE_FREQ) >> 32; 
     /* Must set via ecall and not mmio or else opensbi won't trap the timer */
-    supervisor_ecall(SBI_SETTIME, tv);
+    supervisor_ecall_1(SBI_EXT_0_1_SET_TIMER, tv);
 }
 
 closure_function(0, 0, void, riscv_timer_percpu_init)

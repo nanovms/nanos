@@ -36,6 +36,24 @@ symbol intern_u64(u64 u)
     return intern(b);
 }
 
+static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
+
+#ifndef ROL
+#define ROL(x, y) (((x) << y) | (x) >> (64 - (y)))
+#endif
+
+static u64 intern_hash_u64()
+{
+    u64 s0 = s[0];
+    u64 s1 = s[1];
+    u64 result = s0 + s1;
+
+    s1 ^= s0;
+    s[0] = ROL(s0, 55) ^ s1 ^ (s1 << 14); // a, b
+    s[1] = ROL(s1, 36); // c
+    return result;
+}
+
 symbol intern(string name)
 {
     symbol s;
@@ -49,7 +67,7 @@ symbol intern(string name)
         s = allocate(sheap, sizeof(struct symbol));
         if (s == INVALID_ADDRESS)
             goto alloc_fail;
-        s->k = random_u64();
+        s->k = intern_hash_u64();
         s->s = b;
         table_set(symbols, b, s);
     }

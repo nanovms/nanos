@@ -96,14 +96,6 @@ void vm_reset(void)
 u64 total_processors = 1;
 u64 present_processors = 1;
 
-void start_secondary_cores(kernel_heaps kh)
-{
-}
-
-void count_cpus_present(void)
-{
-}
-
 static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");

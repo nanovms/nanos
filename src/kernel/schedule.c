@@ -102,7 +102,7 @@ static void migrate_from_self(cpuinfo ci, u64 first_cpu, u64 ncpus)
 static inline boolean update_timer(void)
 {
     timestamp next = kernel_timers->next_expiry;
-    if (!compare_and_swap_boolean(&kernel_timers->update, true, false))
+    if (!compare_and_swap_32(&kernel_timers->update, true, false))
         return false;
     s64 delta = next - now(CLOCK_ID_MONOTONIC_RAW);
     timestamp timeout = delta > (s64)kernel_timers->min ? MIN(delta, kernel_timers->max) : kernel_timers->min;

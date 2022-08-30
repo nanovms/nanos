@@ -16,8 +16,6 @@
 #define DEV_BASE_PCIE_MMIO    0x40000000
 #define DEV_BASE_PCIE_PIO     0x03000000
 
-#define SBI_SETTIME           0
-
 #define SYSCON_POWEROFF       0x5555
 #define SYSCON_POWEROFF_FAIL  0x3333
 #define SYSCON_REBOOT         0x7777
@@ -30,4 +28,6 @@
 void early_debug(const char *s);
 void early_debug_u64(u64 n);
 void early_dump(void *p, unsigned long length);
+
+#include "sbi_ecall_interface.h"
 #endif

@@ -243,7 +243,7 @@ static inline u64 *pte_lookup_ptr(u64 table, u64 vaddr, int offset)
         return page_from_pte(*l ## level) | (vaddr & MASK(PT_SHIFT_L ## level)); \
     }
 
-static inline physical physical_and_pte_from_virtual(u64 xt, pte *e)
+static inline physical __physical_and_pte_from_virtual_locked(u64 xt, pte *e)
 {
     _pfv_level(tablebase, xt, 0);
     _pfv_check_leaf(0, xt, e);
@@ -258,7 +258,7 @@ static inline physical physical_and_pte_from_virtual(u64 xt, pte *e)
 
 static inline physical __physical_from_virtual_locked(void *x)
 {
-    return physical_and_pte_from_virtual(u64_from_pointer(x), 0);
+    return __physical_and_pte_from_virtual_locked(u64_from_pointer(x), 0);
 }
 
 physical physical_from_virtual(void *x);

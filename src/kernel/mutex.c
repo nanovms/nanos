@@ -43,7 +43,7 @@ static inline cpuinfo mutex_get_next(mutex m, cpuinfo ci, cpuinfo prev)
 
            If we're unlocking ci and at the end of the list, then this is just
            a simple removal. */
-        if (m->mcs_tail == ci &&
+        if (((volatile mutex)m)->mcs_tail == ci &&
             compare_and_swap_64((u64*)&m->mcs_tail, u64_from_pointer(ci),
                                 u64_from_pointer(prev)))
             return 0;
@@ -51,7 +51,7 @@ static inline cpuinfo mutex_get_next(mutex m, cpuinfo ci, cpuinfo prev)
         /* If a spin waiter has latched onto us, exchange its next with
            null. This is necessary to keep step A spinning until the node
            being removed gets a new prev link. */
-        if (ci->mcs_next) {
+        if (*(volatile cpuinfo *)&ci->mcs_next) {
             cpuinfo next = pointer_from_u64(atomic_swap_64((u64*)&ci->mcs_next, 0));
             if (next)
                 return next;
@@ -89,7 +89,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     u64 sleeps = 0;
 #endif
     /* not preemptable (could become option on allocate) */
-    if (m->turn == ctx)
+    if (((volatile mutex)m)->turn == ctx)
         halt("%s: lock already held - cpu %d, mutex %p, ctx %p, ra %p\n", __func__,
              ci->id, m, ctx, __builtin_return_address(0));
 
@@ -141,8 +141,8 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
        step A: first undo the setting of prev->mcs_next (unless we are handed
        the lock in the meantime), thus making prev spin wait in
        mutex_get_next() for a valid next pointer */
-    while (prev->mcs_next != ci || !compare_and_swap_64((u64*)&prev->mcs_next,
-                                                        u64_from_pointer(ci), 0)) {
+    while (((volatile cpuinfo)prev)->mcs_next != ci ||
+           !compare_and_swap_64((u64*)&prev->mcs_next, u64_from_pointer(ci), 0)) {
         /* unlock might hand us the lock */
         if (!ci->mcs_waiting) {
             compiler_barrier(); /* load aquire */
@@ -203,7 +203,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     while (spins_remain-- > 0) {
         if (m->turn == 0 && compare_and_swap_64((u64*)&m->turn, 0, u64_from_pointer(ctx))) {
             if (on_mcs)
-                mcs_unlock(m, ci);
+                mcs_unlock(m, current_cpu());
 #ifdef LOCK_STATS
             LOCKSTATS_RECORD_LOCK(m->s, true, spins, sleeps);
 #endif
@@ -218,7 +218,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
 
     /* we cannot reschedule while holding the mcs lock, so join waiters */
     if (on_mcs) {
-        mcs_unlock(m, ci);
+        mcs_unlock(m, current_cpu());
         on_mcs = false;
         goto wait;
     }
@@ -271,6 +271,7 @@ void mutex_unlock(mutex m)
     next->waiting_on = 0;
 
     /* cover race between enqueue and context_suspend() */
+    compiler_barrier();
     while (!frame_is_full(next->frame))
         kern_pause();
 

@@ -36,8 +36,8 @@ typedef struct timerqueue {
     thunk service;
     timestamp min;
     timestamp max;
-    boolean service_scheduled;  /* CAS */
-    boolean update;             /* CAS; timer re-programming needed */
+    u32 service_scheduled;  /* CAS */
+    u32 update;             /* CAS; timer re-programming needed */
     const char *name;
 } *timerqueue;
 
