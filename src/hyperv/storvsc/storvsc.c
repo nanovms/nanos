@@ -688,14 +688,34 @@ closure_function(5, 0, void, storvsc_scsi_io_done,
 static void storvsc_io(struct storvsc_disk *sd, u8 cmd, void *buf, range blocks, status_handler sh)
 {
     struct storvsc_softc *sc = sd->sc;
-    struct storvsc_hcb *r = storvsc_hcb_alloc(sc, sd->target, sd->lun, cmd);
-    struct scsi_cdb_readwrite_16 *cdb = (struct scsi_cdb_readwrite_16 *)r->cdb;
-    cdb->opcode = cmd;
+    merge m = 0;
     u32 nblocks = range_span(blocks);
-    cdb->addr = htobe64(blocks.start);
-    cdb->length = htobe32(nblocks);
-    r->completion = closure(sc->general, storvsc_scsi_io_done, sh, buf, nblocks * sd->block_size, sd, r);
-    storvsc_action_io_queued(sc, r, sd->target, sd->lun, buf, nblocks * sd->block_size);
+    u64 len = nblocks * sd->block_size;
+    u64 first_page = u64_from_pointer(buf) >> PAGELOG;
+    u64 last_page = u64_from_pointer(buf + len - 1) >> PAGELOG;
+    if (last_page - first_page + 1 > STORVSC_DATA_SEGCNT_MAX) {
+        m = allocate_merge(sc->general, sh);
+        sh = apply_merge(m);
+    }
+    do {
+        struct storvsc_hcb *r = storvsc_hcb_alloc(sc, sd->target, sd->lun, cmd);
+        struct scsi_cdb_readwrite_16 *cdb = (struct scsi_cdb_readwrite_16 *)r->cdb;
+        cdb->opcode = cmd;
+        cdb->addr = htobe64(blocks.start);
+        u64 max_len = pointer_from_u64((first_page + STORVSC_DATA_SEGCNT_MAX) << PAGELOG) - buf;
+        nblocks = MIN(nblocks, max_len / sd->block_size);
+        cdb->length = htobe32(nblocks);
+        len = nblocks * sd->block_size;
+        r->completion = closure(sc->general, storvsc_scsi_io_done, m ? apply_merge(m) : sh,
+                                buf, len, sd, r);
+        storvsc_action_io_queued(sc, r, sd->target, sd->lun, buf, len);
+        buf += len;
+        first_page = u64_from_pointer(buf) >> PAGELOG;
+        blocks.start += nblocks;
+        nblocks = range_span(blocks);
+    } while (nblocks > 0);
+    if (m)
+        apply(sh, STATUS_OK);
 }
 
 closure_function(1, 3, void, storvsc_write,
