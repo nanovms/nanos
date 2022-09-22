@@ -1,4 +1,7 @@
 #!/bin/bash
+# set version to whatever release is
+# if ARM is set build ARM
+# assumes a target root of arm-root
 
 smoke_test()
 {
@@ -90,7 +93,7 @@ else
 fi
 fi
 
-version=0.1.41
+version=0.1.42
 plat="$(uname -s | awk '{print tolower($0)}')"
 
 tgz="nanos-release-$plat-$version.tar.gz"
@@ -99,7 +102,19 @@ hash="nanos-release-$plat-$version.md5"
 rm "$tgz"
 rm "$hash"
 
-version="$version" make release
+if [[ -n "${ARM}" ]]; then
+  echo "building for arm"
+  NANOS_TARGET_ROOT=arm-root
+  echo $NANOS_TARGET_ROOT
+  version="$version" PLATFORM=virt make release
+
+  mv release/"$tgz" release/"nanos-release-$plat-$version-virt.tar.gz"
+
+  tgz="nanos-release-$plat-$version-virt.tar.gz"
+  hash="nanos-release-$plat-$version-virt.md5"
+else
+  version="$version" make release
+fi
 
 gsutil cp release/"$tgz" gs://nanos/release/"$version"/"$tgz"
 gsutil setacl public-read gs://nanos/release/"$version"/"$tgz"
