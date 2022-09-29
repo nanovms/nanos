@@ -340,21 +340,29 @@ boolean create_special_file(const char *path, spec_file_open open, u64 size)
 
 void register_special_files(process p)
 {
+    filesystem fs = p->root_fs;
+    tuple self_exe;
     heap h = heap_locked((kernel_heaps)p->uh);
 
-    fs_status fss = filesystem_mkdirpath(p->root_fs, 0, "/proc/self", true);
+    fs_status fss = filesystem_get_node(&fs, p->cwd, "/proc/self/exe", false, false, false,
+        &self_exe, 0);
     if (fss == FS_STATUS_OK) {
-        value program = get(p->process_root, sym(program));
-        assert(program);
-        buffer b = allocate_buffer(h, buffer_length(program) + 2);
-        assert(b != INVALID_ADDRESS);
-        /* glibc expects exe path to be absolute */
-        if (peek_char(program) != '/')
-            assert(buffer_write_byte(b, '/'));
-        assert(push_buffer(b, program));
-        assert(buffer_write_byte(b, '\0')); /* append string terminator character */
-        filesystem_symlink(p->cwd_fs, p->cwd, "/proc/self/exe", buffer_ref(b, 0));
-        deallocate_buffer(b);
+        filesystem_put_node(fs, self_exe);
+    } else {
+        fss = filesystem_mkdirpath(p->root_fs, 0, "/proc/self", true);
+        if ((fss == FS_STATUS_OK) || (fss == FS_STATUS_EXIST)) {
+            value program = get(p->process_root, sym(program));
+            assert(program);
+            buffer b = allocate_buffer(h, buffer_length(program) + 2);
+            assert(b != INVALID_ADDRESS);
+            /* glibc expects exe path to be absolute */
+            if (peek_char(program) != '/')
+                assert(buffer_write_byte(b, '/'));
+            assert(push_buffer(b, program));
+            assert(buffer_write_byte(b, '\0')); /* append string terminator character */
+            filesystem_symlink(p->cwd_fs, p->cwd, "/proc/self/exe", buffer_ref(b, 0));
+            deallocate_buffer(b);
+        }
     }
 
     for (int i = 0; i < sizeof(special_files) / sizeof(special_files[0]); i++) {
