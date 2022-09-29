@@ -584,7 +584,7 @@ boolean parse_size(const char *str, long long *size)
     return true;
 }
 
-tuple cmdline_tuple;
+vector cmdline_tuples;
 
 closure_function(0, 1, void, cmdline_tuple_finish,
                  void *, v)
@@ -593,7 +593,7 @@ closure_function(0, 1, void, cmdline_tuple_finish,
         rprintf("parsed cmdline value is not a tuple: %v\n", v);
         exit(EXIT_FAILURE);
     }
-    cmdline_tuple = v;
+    vector_push(cmdline_tuples, v);
 }
 
 closure_function(0, 1, void, cmdline_tuple_err,
@@ -623,6 +623,8 @@ int main(int argc, char **argv)
     boolean empty_fs = false;
     const char *uefi_loader = NULL;
     heap h = init_process_runtime();
+    cmdline_tuples = allocate_vector(h, 4);
+    assert(cmdline_tuples != INVALID_ADDRESS);
 
     while ((c = getopt(argc, argv, "eb:k:l:r:s:u:t:")) != EOF) {
         switch (c) {
@@ -730,14 +732,15 @@ int main(int argc, char **argv)
     mkfs_write_status = closure(h, mkfs_write_handler);
 
     if (root && !empty_fs) {
-        /* apply commandline tuple to root, if any */
-        if (cmdline_tuple) {
-            iterate(cmdline_tuple, stack_closure(cmdline_tuple_each));
-            deallocate_value(cmdline_tuple);
-            cmdline_tuple = 0;
+        /* apply commandline tuples to root */
+        value v;
+        vector_foreach(cmdline_tuples, v) {
+            iterate(v, stack_closure(cmdline_tuple_each));
+            deallocate_value(v);
         }
+        deallocate_vector(cmdline_tuples);
 
-        value v = get(root, sym(imagesize));
+        v = get(root, sym(imagesize));
         if (v) {
             set(root, sym(imagesize), 0); /* consume it, kernel doesn't need it */
             push_u8((buffer)v, 0);

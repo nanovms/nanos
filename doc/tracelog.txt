@@ -1,9 +1,12 @@
+The Nanos Tracelog
+==================
+
 Nanos contains a general-purpose tracing facility for instrumenting code
 throughout the kernel. While the ftrace facility is designed to profile
 function execution times, the tracelog records discrete entries of formatted
-text accompanied by a timestamp, node (cpu) number, tag symbol to be used as a
-handle, and optional attributes which allow tracing only entries that match a
-given set of rules.
+text accompanied by a timestamp, a node (cpu) number, a tag symbol to be used
+as a handle, and optional attributes which may be matched upon in order to
+select which entries are stored in the tracelog.
 
 The tracelog was designed to minimize the cost of adding trace entries. Each
 cpu has a dedicated trace buffer, avoiding the need to take a lock when adding
@@ -30,16 +33,16 @@ built across multiple tprintf (or vtprintf) invocations; the trace entry is
 terminated on a print ending with a newline. As such, each trace entry *must*
 be terminated with a newline to be properly recorded.
 
-As mentioned above, the collate task is scheduled to run as a result of either
-a tracelog buffer nearing capacity or a request for up-to-date trace data
-being received. It merges the individual cpu trace buffers that are first
-pruned off of the cpuinfos (via a CAS with a fresh buffer), producing a linked
-list of trace entries that may be finally consumed when the trace data is
-downloaded. While the potential exists for keeping trace data resident in the
-kernel and performing operations on that data in situ, the functionality is
-currently limited to bulk downloading the trace data via a crude http
-interface intended to be used with utilities like curl or wget. Trace data is
-deleted as it is downloaded.
+As mentioned above, the collate task is scheduled to run as a result of a
+tracelog buffer nearing capacity, a request for up-to-date trace data (e.g. an
+http request for tracelog data was received), or a collate timer expiring
+(used to periodically collate and sync pending tracelog data to a file, if
+configured). It merges the individual cpu trace buffers that are first pruned
+off of the cpuinfos (via a CAS with a fresh buffer), producing a linked list
+of trace entries that may be finally consumed when the trace data is
+downloaded. Collated trace data may be retrieved via a bulk download over http
+(which consumes trace data as it is downloaded) or by spooling data to a file
+on the root disk image.
 
 Tracelog support is built by specifying TRACE=tracelog on the make command
 line. Tracing for individual parts of the kernel (enumerated in
@@ -55,18 +58,25 @@ runs Nanos with tracing everywhere in the kernel, while
 
 runs with only scheduling and pagefault traces enabled.
 
+Tracelog manifest options
+-------------------------
+
 The tracelog facility exposes a few parameters that may be configured within a
 "tracelog" tuple in the root of the manifest:
-
-disable: This flag disables tracing on bootup. This allows the user to
-explicitly enable tracing (e.g. via the http interface, as described below)
-when needed, avoiding the capture of unneeded trace data.
 
 alloc_size: This specifies the size used to allocate new tracelog buffers,
 defaulting to TRACELOG_DEFAULT_BUFFER_SIZE. Increasing the allocation size
 will delay allocation of new buffers. This may be useful when tracing
 timing-sensitive execution that would otherwise be disrupted by the collate
 task and heap allocations for new trace buffers.
+
+disable: This flag disables tracing on bootup. This allows the user to
+explicitly enable tracing (e.g. via the http interface, as described below)
+when needed, avoiding the capture of unneeded trace data.
+
+file: This indicates that collated trace data should be spooled to a file of
+this name in the root filesystem. The presence of this option disables the
+HTTP interface.
 
 trace_tags: The presence of this tuple will cause trace entries to be recorded
 only if they match specified tags and attributes. Each attribute of this tuple
@@ -91,7 +101,8 @@ Note that the tracelog configuration tuple is not parsed until after the
 filesystem is mounted, so any trace entries recorded prior this point will not
 have such filters applied.
 
-Retrieving tracelog data:
+Retrieving tracelog data via the HTTP interface
+-----------------------------------------------
 
 An HTTP interface allows the tracelog to be retrieved as bulk data using a
 program like curl or wget.
@@ -122,3 +133,32 @@ There are some URI variants which allow control of tracing:
 tracelog/enable - turns on tracing
 tracelog/disable - turns off tracing
 tracelog/clear - removes trace data stored in the kernel (does not affect enable state)
+
+Tracing to a file
+-----------------
+
+As noted above, the presence of a 'file' attribute in the tracelog tuple
+directs trace output to a file named by the corresponding value. For ease of
+debugging, this attribute may be added to the manifest at build time by using
+the TRACELOG_FILE build option, e.g.:
+
+$ make TARGET=hw TRACE=tracelog DEBUG=sched TRACELOG_FILE=foo run
+
+The trace data from execution will be left in the file named 'foo' in the root
+disk image. This file may be copied out of the image using the 'copylog' make
+target, as such:
+
+$ make TRACELOG_FILE=foo copylog
+
+This will copy the trace file to the output directory:
+
+$ head -5 output/foo
+[0.302190, 0, sched] runloop from kernel c: 0  a1: 0 b:0  r:0  t:0
+[0.302193, 0, sched] set platform timer: delta 11f1acfd, timeout 11f1acfd
+[0.302197, 0, sched] sleep
+[0.302213, 0, sched] runloop from interrupt c: 0  a1: 170 b:0  r:0  t:0
+[0.302214, 0, sched]  run: virtio_scsi_request_complete arg0: 0x874
+
+Note that subsequent runs of the Nanos image will append to, not replace, the
+specified tracelog file.
+

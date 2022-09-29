@@ -157,6 +157,9 @@ ifeq ($(TRACE),tracelog)
 CFLAGS+= -DCONFIG_TRACELOG
 SRCS-kernel.elf+= \
 	$(SRCDIR)/kernel/tracelog.c
+ifneq ($(TRACELOG_FILE),)
+TRACELOG_MKFS_OPTS="-t (tracelog:(file:$(TRACELOG_FILE)))"
+endif
 endif
 
 ifeq ($(MANAGEMENT),telnet)
@@ -260,7 +263,7 @@ ifeq ($(IMAGE),)
 endif
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(IMAGE)
+	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(TRACELOG_MKFS_OPTS) $(IMAGE)
 
 release: mkfs kernel
 	$(Q) $(RM) -r release

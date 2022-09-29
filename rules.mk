@@ -90,11 +90,14 @@ SED=		sed
 TR=		tr
 SORT=		sort
 STRIP=		$(CROSS_COMPILE)strip
+SYNC=		sync
 TAR=		tar
 OBJCOPY=	$(CROSS_COMPILE)objcopy
 OBJDUMP=	$(CROSS_COMPILE)objdump
 RM=		rm -f
+RMDIR=		rmdir
 TOUCH=		touch
+UMOUNT=		umount
 XXD=		xxd
 
 # gcov

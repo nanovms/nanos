@@ -86,7 +86,7 @@ distclean: clean
 ##############################################################################
 # tests
 
-.PHONY: test-all test test-noaccel
+.PHONY: test-all test test-noaccel copylog
 
 contgen mkfs tfs-fuse:
 	$(Q) $(MAKE) -C tools $@
@@ -116,6 +116,18 @@ run-noaccel: contgen image
 
 kernel.dis: contgen image
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel.dis
+
+copylog: tfs-fuse
+	$(Q) $(MKDIR) -p $(OUTDIR)/_mnt
+	$(Q) $(OUTDIR)/tools/bin/tfs-fuse $(OUTDIR)/_mnt $(OUTDIR)/image/disk.raw
+	$(Q) $(CP) -p $(OUTDIR)/_mnt/$(TRACELOG_FILE) $(OUTDIR)/$(TRACELOG_FILE)
+	$(Q) $(SYNC)
+	$(Q) $(UMOUNT) $(OUTDIR)/_mnt
+	$(Q) $(RMDIR) $(OUTDIR)/_mnt
+
+ifneq ($(TRACELOG_FILE),)
+CLEANFILES+=	$(OUTDIR)/$(TRACELOG_FILE)
+endif
 
 ##############################################################################
 # VMware

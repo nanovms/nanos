@@ -1,6 +1,8 @@
 #include <kernel.h>
 #include <http.h>
 #include <net.h>
+#include <pagecache.h>
+#include <tfs.h>
 
 //#define TRACELOG_DEBUG
 #ifdef TRACELOG_DEBUG
@@ -18,11 +20,16 @@
                                             TRACELOG_ENTRY_SIZE)
 #define TRACELOG_COLLATE_SPIN_TIMEOUT      (1ull << 27)
 #define TRACELOG_MAX_FREE_BYTES            (TRACELOG_DEFAULT_BUFFER_SIZE * 16)
+#define TRACELOG_COLLATE_TIMER_PERIOD_SEC  1
+#define TRACELOG_FILE_WRITE_THRESHOLD      PAGESIZE
 
 declare_closure_struct(2, 0, void, tracelog_send_http_chunk,
                        buffer_handler, out, buffer, relative_uri);
 
 declare_closure_struct(0, 0, void, tracelog_collator);
+
+declare_closure_struct(0, 2, void, tracelog_collate_timer_func,
+                       u64, expiry, u64, overruns);
 
 struct tracelog {
     heap h;
@@ -35,6 +42,11 @@ struct tracelog {
     closure_struct(tracelog_collator, collator);
     closure_struct(tracelog_send_http_chunk, send_http_chunk);
     http_listener http_listener;
+    fsfile logfile;
+    sg_io fs_write;
+    bytes file_offset;
+    struct timer collate_timer;
+    closure_struct(tracelog_collate_timer_func, collate_timer_func);
     boolean collator_scheduled;
     boolean disabled;
 } tracelog;
@@ -76,6 +88,23 @@ static inline void schedule_collator(void)
 {
     if (!atomic_swap_boolean(&tracelog.collator_scheduled, true))
         async_apply_bh((thunk)&tracelog.collator);
+}
+
+static inline void schedule_collator_timer(void)
+{
+    tracelog_debug("%s\n", __func__);
+    register_timer(kernel_timers, &tracelog.collate_timer, CLOCK_ID_MONOTONIC,
+                   seconds(TRACELOG_COLLATE_TIMER_PERIOD_SEC), false, 0,
+                   (timer_handler)&tracelog.collate_timer_func);
+}
+
+define_closure_function(0, 2, void, tracelog_collate_timer_func,
+                        u64, expiry, u64, overruns)
+{
+    if (overruns != timer_disabled) {
+        schedule_collator();
+        schedule_collator_timer();
+    }
 }
 
 static inline tracelog_buffer get_tracelog_buffer(cpuinfo ci)
@@ -307,6 +336,80 @@ static void release_tracelog_buffer_locked(tracelog_buffer tb)
     refcount_release(&tb->refcount);
 }
 
+closure_function(4, 1, void, tracelog_file_write_complete,
+                 sg_list, sg, buffer, b, status_handler, complete, boolean, flushing,
+                 status, s)
+{
+    if (!is_ok(s))
+        msg_err("failed to %s tracelog: %v\n", bound(flushing) ? "flush" : "write to", s);
+    if (bound(flushing)) {
+        async_apply_status_handler(bound(complete), s);
+        closure_finish();
+        return;
+    }
+    deallocate_buffer(bound(b));
+    deallocate_sg_list(bound(sg));
+    if (bound(complete)) {
+        bound(flushing) = true;
+        fsfile_flush(tracelog.logfile, false, (status_handler)closure_self());
+    } else {
+        closure_finish();
+    }
+}
+
+static void tracelog_buffer_fill_locked(buffer b, bytes threshold)
+{
+    list_foreach(&tracelog.collated_entries, l) {
+        tracelog_entry te = struct_from_list(l, tracelog_entry, l);
+        bprintf(b, "[%T, %d, %v", te->t, te->cpu, te->tag);
+        if (te->attrs)
+            bprintf(b, " %v", te->attrs);
+        bprintf(b, "] %s", te->str);
+        list_delete(l);
+        release_tracelog_buffer_locked(te->tb);
+        if (buffer_length(b) > threshold)
+            break;
+    }
+}
+
+/* mutex held */
+static void tracelog_file_write(status_handler complete)
+{
+    tracelog_debug("%s\n", __func__);
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS)
+        goto fail;
+    buffer b = allocate_buffer(tracelog.h, TRACELOG_FILE_WRITE_THRESHOLD);
+    if (b == INVALID_ADDRESS)
+        goto fail_dealloc_sg;
+    tracelog_buffer_fill_locked(b, TRACELOG_FILE_WRITE_THRESHOLD);
+    bytes size = buffer_length(b);
+    sg_buf sgb = sg_list_tail_add(sg, size);
+    if (sgb == INVALID_ADDRESS)
+        goto fail_dealloc_buf;
+    sgb->buf = buffer_ref(b, 0);
+    sgb->size = size;
+    sgb->offset = 0;
+    sgb->refcount = 0;
+    status_handler sh = closure(tracelog.h, tracelog_file_write_complete, sg, b, complete, false);
+    if (sh == INVALID_ADDRESS)
+        goto fail_dealloc_buf;
+
+    /* advance file offset here in case next write starts before this completes */
+    range r = irangel(tracelog.file_offset, size);
+    fetch_and_add(&tracelog.file_offset, size);
+    apply(tracelog.fs_write, sg, r, sh);
+    return;
+  fail_dealloc_buf:
+    deallocate_buffer(b);
+  fail_dealloc_sg:
+    deallocate_sg_list(sg);
+  fail:
+    msg_err("%s: out of memory\n", __func__);
+    if (complete)
+        async_apply_status_handler(complete, timm("status", "out of memory"));
+}
+
 static boolean tracelog_entry_compare(void *za, void *zb)
 {
     buffer ba = &((tracelog_buffer)za)->b;
@@ -319,7 +422,7 @@ static boolean tracelog_entry_compare(void *za, void *zb)
     return ((tracelog_entry)buffer_ref(ba, 0))->t > ((tracelog_entry)buffer_ref(bb, 0))->t;
 }
 
-static void tracelog_collate(void)
+static void tracelog_collate(status_handler complete)
 {
     pqueue pq = allocate_pqueue(tracelog.h, tracelog_entry_compare);
     assert(pq != INVALID_ADDRESS);
@@ -370,6 +473,10 @@ static void tracelog_collate(void)
         reserve_tracelog_buffer(tb);
         pqueue_insert(pq, tb);
     }
+    if (tracelog.logfile)
+        tracelog_file_write(complete);
+    else if (complete)
+        async_apply_status_handler(complete, STATUS_OK);
     mutex_unlock(tracelog.m);
     deallocate_pqueue(pq);
 }
@@ -378,7 +485,7 @@ define_closure_function(0, 0, void, tracelog_collator)
 {
     tracelog_debug("%s\n", __func__);
     tracelog.collator_scheduled = false;
-    tracelog_collate();
+    tracelog_collate(0);
 }
 
 #define catch_err(s) do {if (!is_ok(s)) msg_err("tracelog: failed to send HTTP response: %v\n", (s));} while(0)
@@ -433,17 +540,7 @@ static boolean tracelog_do_http_get(buffer_handler out, buffer relative_uri)
     tracelog_debug("%s\n", __func__);
     buffer b = allocate_buffer(tracelog.h, TRACELOG_HTTP_CHUNK_MAXSIZE);
     mutex_lock(tracelog.m);
-    list_foreach(&tracelog.collated_entries, l) {
-        tracelog_entry te = struct_from_list(l, tracelog_entry, l);
-        bprintf(b, "[%T, %d, %v", te->t, te->cpu, te->tag);
-        if (te->attrs)
-            bprintf(b, " %v", te->attrs);
-        bprintf(b, "] %s", te->str);
-        list_delete(l);
-        release_tracelog_buffer_locked(te->tb);
-        if (buffer_length(b) > TRACELOG_HTTP_CHUNK_THRESHOLD)
-            break;
-    }
+    tracelog_buffer_fill_locked(b, TRACELOG_HTTP_CHUNK_THRESHOLD);
     boolean more = !list_empty(&tracelog.collated_entries);
     mutex_unlock(tracelog.m);
     if (buffer_length(b) > 0)
@@ -482,7 +579,7 @@ closure_function(0, 3, void, tracelog_http_request,
                 tracelog.disabled = true;
                 tracelog_send_http_simple_result(handler, "tracelog disabled");
             } else if (buffer_compare_with_cstring(relative_uri, "clear")) {
-                tracelog_collate();
+                tracelog_collate(0);
                 tracelog_clear();
                 tracelog_send_http_simple_result(handler, "tracelog cleared");
             } else {
@@ -490,7 +587,7 @@ closure_function(0, 3, void, tracelog_http_request,
             }
             break;
         }
-        tracelog_collate();
+        tracelog_collate(0);
         tracelog_send_http_chunked_response(handler);
         if (tracelog_do_http_get(handler, relative_uri)) {
             init_closure(&tracelog.send_http_chunk, tracelog_send_http_chunk, handler, relative_uri);
@@ -524,11 +621,48 @@ static void init_tracelog_http_listener(void)
     }
 }
 
+closure_function(0, 2, void, tracelog_shutdown_handler,
+                 int, status, merge, m)
+{
+    tracelog_debug("%s\n", __func__);
+    tracelog_collate(apply_merge(m));
+    closure_finish();
+}
+
+static void init_tracelog_file_writer(value v)
+{
+    tuple file;
+    fsfile fsf;
+
+    if (!is_string(v)) {
+        msg_err("invalid tracelog filename: %v\n", v);
+        return;
+    }
+    filesystem fs = get_root_fs();
+    tuple root = filesystem_getroot(fs);
+    fs_status s = filesystem_get_node(&fs, inode_from_tuple(root),
+                                      buffer_to_cstring((buffer)v),
+                                      true, true, false, &file, &fsf);
+    if (s != FS_STATUS_OK) {
+        msg_err("failed to open tracelog file: %s\n", string_from_fs_status(s));
+        return;
+    }
+    filesystem_put_node(fs, file);
+    tracelog.logfile = fsf;
+    tracelog.fs_write = fsfile_get_writer(tracelog.logfile);
+    tracelog.file_offset = fsfile_get_length(tracelog.logfile); /* append */
+    add_shutdown_completion(closure(tracelog.h, tracelog_shutdown_handler));
+    schedule_collator_timer();
+    rprintf("tracelog file opened, offset %ld\n", tracelog.file_offset);
+}
+
 void init_tracelog_config(tuple root)
 {
     tuple tl = get(root, sym(tracelog));
-    if (!tl)
+    if (!tl) {
+        init_tracelog_http_listener();
         return;
+    }
 
     if (get(tl, sym(disable))) {
         /* don't trace on startup */
@@ -541,6 +675,11 @@ void init_tracelog_config(tuple root)
         tracelog.alloc_size = alloc_size;
 
     tracelog.trace_tags = get_tuple(tl, sym(trace_tags));
+    value v = get(tl, sym(file));
+    if (v)
+        init_tracelog_file_writer(v);
+    else
+        init_tracelog_http_listener();
 }
 
 void init_tracelog(heap h)
@@ -556,6 +695,7 @@ void init_tracelog(heap h)
     init_closure(&tracelog.collator, tracelog_collator);
     tracelog.collator_scheduled = false;
     tracelog.disabled = false;
+    init_closure(&tracelog.collate_timer_func, tracelog_collate_timer_func);
     
     for (int i = 0; i < total_processors; i++) {
         tracelog_buffer b = allocate_tracelog_buffer_locked(); /* don't need lock here */
@@ -563,5 +703,7 @@ void init_tracelog(heap h)
         cpuinfo ci = cpuinfo_from_id(i);
         ci->tracelog_buffer = b;
     }
-    init_tracelog_http_listener();
+    tracelog.logfile = 0;
+    tracelog.fs_write = 0;
+    tracelog.file_offset = 0;
 }
