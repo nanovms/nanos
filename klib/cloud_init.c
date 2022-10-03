@@ -133,26 +133,23 @@ define_closure_function(2, 1, void, cloud_download_done,
     apply(bound(complete), s);
 }
 
-closure_function(3, 2, void, cloud_download_save_complete,
-                 value, v, buffer, content, status_handler, sh,
+closure_function(2, 2, void, cloud_download_save_complete,
+                 buffer, content, status_handler, sh,
                  status, s, bytes, len)
 {
-    value v = bound(v);
-    if (!v)
-        deallocate_buffer(bound(content));
+    deallocate_buffer(bound(content));
     apply(bound(sh), s);
     closure_finish();
 }
 
-closure_function(5, 1, void, cloud_download_save,
-                 buffer, content, bytes *, content_len, fsfile, f, bytes *, received, status_handler, sh,
+closure_function(4, 1, void, cloud_download_save,
+                 bytes *, content_len, fsfile, f, bytes *, received, merge, m,
                  value, v)
 {
-    status_handler sh = bound(sh);
+    status_handler sh = apply_merge(bound(m));
     status s;
     buffer content;
-    if (v) {
-        /* This is the beginning of the HTTP response from the server, parsed by the HTTP parser. */
+    if (*bound(received) == 0) {
         tuple start_line = get_tuple(v, sym(start_line));
         buffer status_code = get(start_line, sym(1));
         if (!status_code || (buffer_length(status_code) < 1) || (byte(status_code, 0) != '2')) {
@@ -167,24 +164,13 @@ closure_function(5, 1, void, cloud_download_save,
                 goto error;
             }
         }
-        content = get(v, sym(content));
-    } else {
-        /* This is a chunk of the body of the HTTP response from the server. */
-        bytes len = buffer_length(bound(content));
-        content = allocate_buffer(cloud_heap, len);
-        if (content != INVALID_ADDRESS) {
-            runtime_memcpy(buffer_ref(content, 0), buffer_ref(bound(content), 0), len);
-            buffer_produce(content, len);
-        } else {
-            content = 0;
-        }
     }
-    if (content) {
-        io_status_handler io_sh = closure(cloud_heap, cloud_download_save_complete, v, content, sh);
+    content = clone_buffer(cloud_heap, get(v, sym(content)));
+    if (content != INVALID_ADDRESS) {
+        io_status_handler io_sh = closure(cloud_heap, cloud_download_save_complete, content, sh);
         if (io_sh == INVALID_ADDRESS) {
             s = timm("result", "%s: failed to allocate I/O status handler", __func__);
-            if (!v)
-                deallocate_buffer(content);
+            deallocate_buffer(content);
             goto error;
         }
         bytes len = buffer_length(content);
@@ -193,30 +179,31 @@ closure_function(5, 1, void, cloud_download_save,
         *bound(received) += len;
         return;
     } else {
-        s = timm("result", "%s: no HTTP content", __func__);
+        s = timm("result", "%s: failed to copy content", __func__);
     }
   error:
     *bound(content_len) = (bytes)-1;    /* special value that indicates error */
     apply(sh, s);
 }
 
-closure_function(7, 1, boolean, cloud_download_recv,
-                 cloud_download_cfg, cfg, buffer_handler, out, value_handler, vh, bytes, content_len, bytes, received, status_handler, sh, merge, m,
+closure_function(6, 1, boolean, cloud_download_recv,
+                 cloud_download_cfg, cfg, buffer_handler, out, buffer_handler, parser, bytes, content_len, bytes, received, status_handler, sh,
                  buffer, data)
 {
     cloud_download_cfg cfg = bound(cfg);
     status_handler sh = bound(sh);
+    status s = STATUS_OK;
     if (data) {
-        if (!bound(m)) {
+        if (bound(parser) == INVALID_ADDRESS) {
             /* This is the first chunk of data received after connection establishment. */
             fsfile f = fsfile_open_or_create(cfg->file_path);
             if (!f) {
-                rprintf("%s: failed to open file '%b'\n", __func__, cfg->file_path);
+                s = timm("result", "%s: failed to open file '%b'", __func__, cfg->file_path);
                 goto error;
             }
             fs_status fss = fsfile_truncate(f, 0);
             if (fss != FS_STATUS_OK) {
-                rprintf("%s: failed to truncate file '%b' (%d)\n",
+                s = timm("result", "%s: failed to truncate file '%b' (%d)",
                     __func__, cfg->file_path, fss);
                 goto error;
             }
@@ -224,55 +211,59 @@ closure_function(7, 1, boolean, cloud_download_recv,
             /* Now that the file has been truncated, any download/save error will be fatal. */
             cfg->optional = false;
 
-            bound(m) = allocate_merge(cloud_heap, sh);
-            sh = bound(sh) = apply_merge(bound(m));
-            bound(vh) = closure(cloud_heap, cloud_download_save, 0, &bound(content_len), f,
-                &bound(received), apply_merge(bound(m)));
-            if (bound(vh) == INVALID_ADDRESS) {
-                rprintf("%s: failed to allocate value handler\n", __func__);
+            merge m = allocate_merge(cloud_heap, sh);
+            sh = bound(sh) = apply_merge(m);
+            value_handler vh = closure(cloud_heap, cloud_download_save, &bound(content_len), f,
+                                       &bound(received), m);
+            if (vh == INVALID_ADDRESS) {
+                s = timm("result", "%s: failed to allocate value handler", __func__);
                 goto error;
             }
-            buffer_handler parser = allocate_http_parser(cloud_heap, bound(vh));
-            if (parser != INVALID_ADDRESS) {
-                status s = apply(parser, data);
-                if (!is_ok(s)) {
-                    rprintf("%s: failed to parse HTTP response %v\n", __func__, s);
-                    timm_dealloc(s);
-                    goto error;
-                }
-            } else {
-                rprintf("%s: failed to allocate HTTP parser\n", __func__);
+            bound(parser) = allocate_http_parser(cloud_heap, vh);
+            if (bound(parser) == INVALID_ADDRESS) {
+                s = timm("result", "%s: failed to allocate HTTP parser", __func__);
+                deallocate_closure(vh);
                 goto error;
             }
-        } else {
-            closure_member(cloud_download_save, bound(vh), content) = data;
-            apply_merge(bound(m));
-            apply(bound(vh), 0);
         }
+    }
+    if (bound(parser) != INVALID_ADDRESS) {
+        s = apply(bound(parser), data);
+        if (!is_ok(s)) {
+            bound(parser) = INVALID_ADDRESS;    /* the parser deallocated itself */
+            if (sh) {
+                s = timm_up(s, "result", "%s: failed to parse HTTP response\n", __func__);
+                goto error;
+            } else {
+                timm_dealloc(s);
+            }
+        }
+    }
+    if (data) {
         bytes content_len = bound(content_len);
         if ((content_len == (bytes)-1) || ((content_len > 0) && (bound(received) >= content_len))) {
             apply(bound(out), 0);   /* close connection */
             return true;
         }
     } else {  /* connection closed */
-        bytes content_len = bound(content_len);
-        status s;
-        if (content_len == (bytes)-1)
-            s = STATUS_OK;  /* error status has been set by cloud_download_save() */
-        else if (bound(received) == 0)
-            s = timm("result", "empty file %b", cfg->file_path);
-        else if (bound(received) < content_len)
-            s = timm("result", "incomplete file %b (%ld/%ld)", cfg->file_path,
-                bound(received), content_len);
-        else
-            s = STATUS_OK;
-        apply(sh, s);
-        if (bound(vh) != INVALID_ADDRESS)
-            deallocate_closure(bound(vh));
+        if (sh && (s == STATUS_OK)) {
+            bytes content_len = bound(content_len);
+            if (content_len == (bytes)-1)
+                ;   /* error status has been set by cloud_download_save() */
+            else if (bound(received) == 0)
+                s = timm("result", "empty file %b", cfg->file_path);
+            else if (bound(received) < content_len)
+                s = timm("result", "incomplete file %b (%ld/%ld)", cfg->file_path,
+                         bound(received), content_len);
+        }
+        if (sh)
+            apply(sh, s);
         closure_finish();
     }
     return false;
   error:
+    apply(sh, s);
+    bound(sh) = 0;  /* so that it's not applied again after the connection is closed */
     apply(bound(out), 0);   /* close connection */
     return true;
 }
@@ -304,7 +295,7 @@ closure_function(1, 1, input_buffer_handler, cloud_download_ch,
     status s = http_request(cloud_heap, out, HTTP_REQUEST_METHOD_GET, req, 0);
     deallocate_value(req);
     if (is_ok(s)) {
-        in = closure(cloud_heap, cloud_download_recv, cfg, out, INVALID_ADDRESS, 0, 0, sh, 0);
+        in = closure(cloud_heap, cloud_download_recv, cfg, out, INVALID_ADDRESS, 0, 0, sh);
         if (in == INVALID_ADDRESS)
             apply(sh, timm("result", "%s: failed to allocate buffer handler", __func__));
     } else {
