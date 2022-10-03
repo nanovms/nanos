@@ -15,6 +15,7 @@ declare_closure_struct(1, 1, boolean, tls_in_handler,
 declare_closure_struct(1, 1, status, tls_out_handler,
                        struct tls_conn *, conn,
                        buffer, b);
+declare_closure_struct(0, 0, void, tls_conn_free);
 
 typedef struct tls_conn {
     mbedtls_ssl_context ssl;
@@ -30,6 +31,8 @@ typedef struct tls_conn {
         tls_open,
         tls_closing,
     } state;
+    struct refcount refcount;
+    closure_struct(tls_conn_free, free);
 } *tls_conn;
 
 static struct {
@@ -56,8 +59,7 @@ static void tls_close(tls_conn conn)
         conn->out = 0;
         apply(out, 0);  /* close underlying TCP connection */
     } else {
-        mbedtls_ssl_free(&conn->ssl);
-        deallocate(tls.h, conn, sizeof(*conn));
+        refcount_release(&conn->refcount);
     }
 }
 
@@ -133,6 +135,7 @@ define_closure_function(1, 1, boolean, tls_in_handler,
                         buffer, b)
 {
     tls_conn conn = bound(conn);
+    refcount_reserve(&conn->refcount);
     if (!b) {   /* underlying TCP connection closed */
         conn->out = 0;
         goto conn_close;
@@ -159,7 +162,8 @@ define_closure_function(1, 1, boolean, tls_in_handler,
             if (ret > 0) {
                 buffer_produce(b, ret);
                 if (conn->app_in) {
-                    apply(conn->app_in, b);
+                    if (apply(conn->app_in, b))
+                        break;  /* application requested connection shutdown */
                 }
                 buffer_clear(b);
             } else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
@@ -169,7 +173,7 @@ define_closure_function(1, 1, boolean, tls_in_handler,
             }
             if (conn->outgoing && (tls_out_internal(conn, 0) < 0))
                 /* An error happened and the connection has been closed. */
-                return true;
+                break;
         } while ((ret > 0) && conn->app_in);
         break;
     case tls_closing:
@@ -179,8 +183,11 @@ define_closure_function(1, 1, boolean, tls_in_handler,
         break;
     }
     conn->incoming = 0;
-    return false;
+    boolean conn_closed = conn->out == 0;
+    refcount_release(&conn->refcount);
+    return conn_closed;
   conn_close:
+    refcount_release(&conn->refcount);
     tls_close(conn);
     return true;
 }
@@ -203,6 +210,13 @@ define_closure_function(1, 1, input_buffer_handler, tls_conn_handler,
   conn_close:
     tls_close(conn);
     return 0;
+}
+
+define_closure_function(0, 0, void, tls_conn_free)
+{
+    tls_conn conn = struct_from_field(closure_self(), tls_conn, free);
+    mbedtls_ssl_free(&conn->ssl);
+    deallocate(tls.h, conn, sizeof(*conn));
 }
 
 int tls_set_cacert(void *cert, u64 len)
@@ -232,6 +246,7 @@ int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
     conn->app_ch = ch;
     conn->app_in = 0;
     conn->incoming = conn->outgoing = 0;
+    init_refcount(&conn->refcount, 1, init_closure(&conn->free, tls_conn_free));
     status s = direct_connect(tls.h, addr, port,
         init_closure(&conn->ch, tls_conn_handler, conn));
     if (!is_ok(s)) {
