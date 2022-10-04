@@ -965,7 +965,7 @@ static void pagecache_commit_dirty_node(pagecache_node pn, status_handler comple
     boolean busy = pn->committing;
     if (busy)
         assert(enqueue(pn->dirty_commits, sh));
-    else
+    else if (b)
         pn->committing = true;
     pagecache_unlock_node(pn);
     if (!busy && sh)
