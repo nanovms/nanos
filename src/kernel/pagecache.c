@@ -1099,6 +1099,7 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
                 if (!success)
                     break;
                 read_sg = 0;
+                sgb = 0;
             }
         } else {
             /* This page needs to be fetched: add it to read_sg. */
