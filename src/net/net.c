@@ -336,6 +336,11 @@ void init_network_iface(tuple root) {
 
     if (default_iface) {
         netif_set_default(default_iface);
+
+        /* Set a default DNS server for any kernel (or klib) code that may need to resolve host
+         * names. The DNS server can be overwritten via DHCP. */
+        ip_addr_t dns_server = IPADDR4_INIT_BYTES(1, 1, 1, 1);
+        dns_setserver(0, &dns_server);
     } else {
         rprintf("NET: no network interface found\n");
     }
