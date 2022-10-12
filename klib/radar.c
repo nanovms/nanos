@@ -71,10 +71,29 @@ static void telemetry_crash_report(void);
 static void telemetry_boot(void);
 static void telemetry_stats_send(void);
 
+closure_function(2, 0, void, telemetry_connect,
+                 ip_addr_t, addr, connection_handler, ch)
+{
+    connection_handler ch = bound(ch);
+    if (tls_connect(&bound(addr), RADAR_PORT, ch) < 0)
+        apply(ch, 0);
+    closure_finish();
+}
+
 static void telemetry_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
-    if (!ipaddr)
+    connection_handler ch = callback_arg;
+    if (!ipaddr) {
         rprintf("Radar: failed to look up server hostname\n");
+        goto error;
+    }
+    thunk t = closure(telemetry.h, telemetry_connect, *ipaddr, ch);
+    if (t != INVALID_ADDRESS) {
+        async_apply(t);
+        return;
+    }
+error:
+    apply(ch, 0);
 }
 
 define_closure_function(0, 2, void, retry_timer_func,
@@ -191,21 +210,22 @@ closure_function(3, 1, input_buffer_handler, telemetry_ch,
 boolean telemetry_send(const char *url, buffer data, value_handler vh)
 {
     connection_handler ch;
+    ch = closure(telemetry.h, telemetry_ch, url, data, vh);
+    if (ch == INVALID_ADDRESS)
+        return false;
     ip_addr_t radar_addr;
     lwip_lock();
-    err_t err = dns_gethostbyname(RADAR_HOSTNAME, &radar_addr, telemetry_dns_cb, 0);
+    err_t err = dns_gethostbyname(RADAR_HOSTNAME, &radar_addr, telemetry_dns_cb, ch);
     lwip_unlock();
     switch (err) {
     case ERR_OK:
-        ch = closure(telemetry.h, telemetry_ch, url, data, vh);
-        if (ch == INVALID_ADDRESS)
-            break;
         if (tls_connect(&radar_addr, RADAR_PORT, ch) == 0)
             return true;
-        else
-            deallocate_closure(ch);
         break;
+    case ERR_INPROGRESS:
+        return true;
     }
+    deallocate_closure(ch);
     return false;
 }
 

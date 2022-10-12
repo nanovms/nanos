@@ -262,8 +262,20 @@ static void cw_metrics_send(const ip_addr_t *server)
         timm_dealloc(s);
 }
 
+closure_function(1, 0, void, cw_metrics_send_async,
+                 ip_addr_t, addr)
+{
+    cw_metrics_send(&bound(addr));
+    closure_finish();
+}
+
 static void cw_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
+    if (ipaddr) {
+        thunk t = closure(cw.h, cw_metrics_send_async, *ipaddr);
+        if (t != INVALID_ADDRESS)
+            async_apply(t);
+    }
 }
 
 define_closure_function(0, 2, void, cw_metrics_timer_handler,

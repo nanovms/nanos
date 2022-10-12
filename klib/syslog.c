@@ -199,34 +199,6 @@ static void syslog_dns_failure(void)
     syslog.dns_req_next = kern_now(CLOCK_ID_MONOTONIC) + syslog.dns_backoff;
 }
 
-static void syslog_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
-{
-    if (ipaddr)
-        syslog.server_ip = *ipaddr;
-    else
-        syslog_dns_failure();
-    syslog.dns_in_progress = false;
-}
-
-static void syslog_server_resolve(void)
-{
-    if (syslog.dns_in_progress || (kern_now(CLOCK_ID_MONOTONIC) < syslog.dns_req_next))
-        return;
-    lwip_lock();
-    err_t err = dns_gethostbyname(syslog.server, &syslog.server_ip, syslog_dns_cb, 0);
-    lwip_unlock();
-    switch (err) {
-    case ERR_OK:
-        break;
-    case ERR_INPROGRESS:
-        syslog.dns_in_progress = true;
-        break;
-    default:
-        syslog_dns_failure();
-        break;
-    }
-}
-
 static void syslog_set_hdr_len(void)
 {
     struct netif *n = netif_get_default();
@@ -237,16 +209,8 @@ static void syslog_set_hdr_len(void)
             runtime_strlen(syslog.local_ip) + 1;
 }
 
-static void syslog_udp_flush(void)
+static void syslog_udp_send(void)
 {
-    syslog_server_resolve();
-    if (ip_addr_isany_val(syslog.server_ip))
-        return;
-    if (!syslog.hdr_len) {
-        syslog_set_hdr_len();
-        if (!syslog.hdr_len)
-            return;
-    }
     syslog_lock();
     list_foreach(&syslog.udp_msgs, e) {
         syslog_udp_msg msg = struct_from_list(e, syslog_udp_msg, l);
@@ -267,12 +231,46 @@ static void syslog_udp_flush(void)
          * header. */
         *(char *)(pbuf->payload + syslog.hdr_len - 1) = ' ';
 
-        lwip_lock();
         udp_sendto(syslog.udp_pcb, pbuf, &syslog.server_ip, syslog.server_port);
         pbuf_free(pbuf);
-        lwip_unlock();
     }
     syslog_unlock();
+}
+
+static void syslog_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+{
+    if (ipaddr) {
+        syslog.server_ip = *ipaddr;
+        syslog_udp_send();
+    } else {
+        syslog_dns_failure();
+    }
+    syslog.dns_in_progress = false;
+}
+
+static void syslog_udp_flush(void)
+{
+    if (!syslog.hdr_len) {
+        syslog_set_hdr_len();
+        if (!syslog.hdr_len)
+            return;
+    }
+    if (syslog.dns_in_progress || (kern_now(CLOCK_ID_MONOTONIC) < syslog.dns_req_next))
+        return;
+    lwip_lock();
+    err_t err = dns_gethostbyname(syslog.server, &syslog.server_ip, syslog_dns_cb, 0);
+    switch (err) {
+    case ERR_OK:
+        syslog_udp_send();
+        break;
+    case ERR_INPROGRESS:
+        syslog.dns_in_progress = true;
+        break;
+    default:
+        syslog_dns_failure();
+        break;
+    }
+    lwip_unlock();
 }
 
 static void syslog_udp_free(struct pbuf *p)
@@ -438,7 +436,6 @@ int init(status_handler complete)
         syslog.file_offset = fsfile_get_length(syslog.fsf); /* append to existing contents */
     }
     if (syslog.server) {
-        syslog_server_resolve();
         tuple env = get_environment();
         syslog.program = get(env, sym(IMAGE_NAME));
         if (!syslog.program)
