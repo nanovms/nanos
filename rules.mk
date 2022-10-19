@@ -235,17 +235,28 @@ DEPS-$1=	$$(patsubst %.o,%.d,$$(OBJS-$1))
 $1: $$(PROG-$1)
 
 ifneq ($$(OBJS-$1),)
+ifeq ($(DEBUG_STRIP),)
 $$(PROG-$1): $$(OBJS-$1)
 	@$(MKDIR) $$(dir $$@)
 	$$(call cmd,ld)
 ifeq ($1,kernel.elf)
 	$(call cmd,mvdis)
 endif
+else
+$$(PROG-$1).dbg: $$(OBJS-$1)
+	@$(MKDIR) $$(dir $$@)
+	$$(call cmd,ld)
+$$(PROG-$1): $$(PROG-$1).dbg
+	$$(call cmd,strip)
+endif
 endif
 
 DEPFILES+=	$$(DEPS-$1)
 GENHEADERS+=	$$(GENHEADERS-$1)
 CLEANFILES+=	$$(PROG-$1) $$(OBJS-$1) $$(DEPS-$1) $$(GENHEADERS-$1)
+ifneq ($(DEBUG_STRIP),)
+CLEANFILES+=	$$(PROG-$1).dbg
+endif
 CLEANDIRS+=	$(OBJDIR)/bin $(OBJDIR)/src $$(OBJDIRS-$1)
 endef
 

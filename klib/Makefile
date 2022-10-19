@@ -138,6 +138,9 @@ all: klib-syms $(ADDITIONAL_PROGRAMS)
 
 KLIB_SYMS= $(OBJDIR)/klib-syms.lds
 
+DEBUG_STRIP= y
+STRIPFLAGS= -g
+
 include ../rules.mk
 
 msg_add_syms=	KLIB_SYMS	$@
