@@ -485,8 +485,6 @@ static inline void __attribute__((always_inline)) context_release(context ctx)
 static inline void __attribute__((always_inline)) context_pause(context ctx)
 {
     context_debug("%s: ctx %p\n", __func__, ctx);
-    if (shutting_down)
-        return;
     if (ctx->pause)
         ctx->pause(ctx);
 }
@@ -495,10 +493,9 @@ static inline void __attribute__((always_inline)) context_resume(context ctx)
 {
     context_debug("%s: ctx %p\n", __func__, ctx);
     cpuinfo ci = current_cpu();
-    if (!shutting_down)
-        context_acquire(ctx, ci);
+    context_acquire(ctx, ci);
     set_current_context(ci, ctx);
-    if (!shutting_down && ctx->resume)
+    if (ctx->resume)
         ctx->resume(ctx);
 }
 

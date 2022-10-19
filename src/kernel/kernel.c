@@ -210,7 +210,7 @@ void __attribute__((noreturn)) context_switch_finish(context prev, context next,
         cpuinfo ci = current_cpu();
         set_current_context(ci, next);
         context_release(prev);
-        if (!shutting_down && next->resume)
+        if (next->resume)
             next->resume(next);
     }
     ((void (*)(u64, u64))a)(arg0, arg1);
