@@ -3,6 +3,8 @@
 #include <lwip.h>
 #include <socket.h>
 
+#define TUN_MINOR   200
+
 /* ioctl requests */
 #define TUNSETIFF   0x400454ca
 #define TUNGETIFF   0x800454d2
@@ -441,7 +443,7 @@ int init(status_handler complete)
     spec_file_open open = closure(tun_heap, tun_open);
     if (open == INVALID_ADDRESS)
         return KLIB_INIT_FAILED;
-    if (create_special_file("/dev/net/tun", open, 0)) {
+    if (create_special_file("/dev/net/tun", open, 0, makedev(MISC_MAJOR, TUN_MINOR))) {
         return KLIB_INIT_OK;
     } else {
         deallocate_closure(open);

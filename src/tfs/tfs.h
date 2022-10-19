@@ -57,6 +57,9 @@ void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim);
 #define filesystem_update_mtime(fs, t) \
     filesystem_set_mtime(fs, t, now(CLOCK_ID_REALTIME))
 
+u64 filesystem_get_rdev(filesystem fs, tuple t);
+void filesystem_set_rdev(filesystem fs, tuple t, u64 rdev);
+
 u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64);
 u64 fsfile_get_blocks(fsfile f);    /* returns the number of allocated blocks */

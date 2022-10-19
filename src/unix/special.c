@@ -324,14 +324,17 @@ closure_function(1, 1, sysreturn, special_open,
     return ret;
 }
 
-boolean create_special_file(const char *path, spec_file_open open, u64 size)
+boolean create_special_file(const char *path, spec_file_open open, u64 size, u64 rdev)
 {
     tuple entry = allocate_tuple();
     if (entry == INVALID_ADDRESS)
         return false;
     set(entry, sym(special), open);
     set(entry, sym(special_alloc_size), pointer_from_u64(size));
-    fs_status s = filesystem_mkentry(get_root_fs(), 0, path, entry, false, true);
+    filesystem fs = get_root_fs();
+    if (rdev)
+        filesystem_set_rdev(fs, entry, rdev);
+    fs_status s = filesystem_mkentry(fs, 0, path, entry, false, true);
     if (s == FS_STATUS_OK)
         return true;
     deallocate_value(entry);
@@ -371,7 +374,7 @@ void register_special_files(process p)
         /* create special file */
         spec_file_open open = closure(h, special_open, sf);
         assert(open != INVALID_ADDRESS);
-        assert(create_special_file(sf->path, open, sf->alloc_size));
+        assert(create_special_file(sf->path, open, sf->alloc_size, 0));
     }
 
     filesystem_mkdirpath(p->root_fs, 0, "/sys/devices/system/cpu/cpu0", false);

@@ -14,6 +14,7 @@
 #define S_ISGID  0002000
 #define S_ISVTX  0001000
 
+#define MISC_MAJOR              10
 #define UNIX98_PTY_SLAVE_MAJOR  136
 
 #define makedev(major, minor)   (((minor) & 0xff) | (((major) & 0xfff) << 8) |  \

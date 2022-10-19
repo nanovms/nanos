@@ -172,6 +172,19 @@ void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim)
     filesystem_set_time(fs, t, sym(mtime), tim);
 }
 
+u64 filesystem_get_rdev(filesystem fs, tuple t)
+{
+    u64 rdev = 0;
+    get_u64(t, sym(rdev), &rdev);
+    return rdev;
+}
+
+void filesystem_set_rdev(filesystem fs, tuple t, u64 rdev)
+{
+    value rdev_val = value_from_u64(fs->h, rdev);
+    set(t, sym(rdev), rdev_val);
+}
+
 void fixup_directory(tuple parent, tuple dir);
 
 closure_function(1, 2, boolean, fixup_directory_each,

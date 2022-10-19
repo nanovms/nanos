@@ -1478,12 +1478,14 @@ static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s
         s->st_mode = S_IFDIR | 0777;
         break;
     case FDESC_TYPE_STDIO:
+        s->st_mode = S_IFCHR;
         /* Describing stdout as a pseudo-tty makes glibc apply line buffering (instead of full
          * buffering) when the process writes to stdout. */
         s->st_rdev = makedev(UNIX98_PTY_SLAVE_MAJOR, 0);
-        /* fall through */
+        break;
     case FDESC_TYPE_SPECIAL:
         s->st_mode = S_IFCHR;   /* assuming only character devs now */
+        s->st_rdev = filesystem_get_rdev(fs, n);
         break;
     case FDESC_TYPE_SOCKET:
         s->st_mode = S_IFSOCK;
