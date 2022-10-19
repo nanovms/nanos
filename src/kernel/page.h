@@ -45,6 +45,9 @@ static inline void update_map_flags(u64 vaddr, u64 length, pageflags flags)
     update_map_flags_with_complete(vaddr, length, flags, 0);
 }
 
+/* overwrite any existing mappings in the virtual address range */
+void remap(u64 v, physical p, u64 length, pageflags flags);
+
 void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 void unmap(u64 virtual, u64 length);

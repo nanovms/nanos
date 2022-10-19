@@ -132,6 +132,8 @@ typedef struct io_rings {
     u32 pad;    /* for 8-byte alignment */
 } *io_rings;
 
+declare_closure_struct(0, 2, sysreturn, iour_mmap,
+                       vmap, vm, u64, offset);
 declare_closure_struct(1, 2, sysreturn, iour_close,
                        struct io_uring *, iour,
                        thread, t, io_completion, completion);
@@ -139,7 +141,6 @@ declare_closure_struct(1, 2, sysreturn, iour_close,
 typedef struct io_uring {
     struct fdesc f;    /* must be first */
     heap h;
-    heap vh;
     u32 sq_mask, sq_entries;
     u32 cq_mask, cq_entries;
     io_rings rings;
@@ -147,7 +148,7 @@ typedef struct io_uring {
     struct io_uring_cqe *cqes;
     struct io_uring_sqe *sqes;
     u64 phys;
-    io_rings user_rings;
+    closure_struct(iour_mmap, mmap);
     closure_struct(iour_close, close);
     struct iovec *bufs;
     u32 buf_count;
@@ -233,9 +234,7 @@ static void iour_release(io_uring iour)
     if (iour->buf_count)
         deallocate(iour->h, iour->bufs, sizeof(struct iovec) * iour->buf_count);
     u64 alloc_size = IOUR_ALLOC_SIZE(iour);
-    unmap(u64_from_pointer(iour->user_rings), alloc_size);
     release_fdesc(&iour->f);
-    deallocate(iour->vh, iour->user_rings, alloc_size);
     deallocate(iour->h, iour->rings, alloc_size);
     io_completion completion = iour->shutdown_completion;
     deallocate(iour->h, iour, sizeof(*iour));
@@ -249,6 +248,38 @@ static void iour_timer_remove(io_uring iour, iour_timer t)
         deallocate(iour->h, t, sizeof(*t));
         fetch_and_add(&iour->noncancelable_ops, -1);
     }
+}
+
+define_closure_function(0, 2, sysreturn, iour_mmap,
+                        vmap, vm, u64, offset)
+{
+    u64 len = range_span(vm->node.r);
+    iour_debug("len %ld, flags 0x%x, offset 0x%x", len, vm->flags, offset);
+    io_uring iour = struct_from_field(closure_self(), io_uring, mmap);
+    u64 region_offset;
+    switch (offset) {
+    case IORING_OFF_SQ_RING:
+    case IORING_OFF_CQ_RING:
+        if (len > IOUR_REGION1_SIZE(iour))
+            return -EINVAL;
+        region_offset = 0;
+        break;
+    case IORING_OFF_SQES:
+        if (len > IOUR_REGION2_SIZE(iour))
+            return -EINVAL;
+        region_offset = IOUR_REGION1_SIZE(iour);
+        break;
+    default:
+        return -EINVAL;
+    }
+    if (vm->flags & VMAP_FLAG_EXEC)
+        return -EACCES;
+    u64 virt = vm->node.r.start;
+    remap(virt, physical_from_virtual(iour->rings) + region_offset, len,
+          pageflags_from_vmflags(vm->flags));
+    vm->allowed_flags |= VMAP_FLAG_WRITABLE | VMAP_FLAG_READABLE;
+
+    return virt;
 }
 
 closure_function(3, 1, sysreturn, iour_close_bh,
@@ -379,18 +410,12 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     iour->cq_entries = params->cq_entries;
     iour->cq_mask = iour->cq_entries - 1;
 
-    iour->vh = current->p->virtual;
     u64 alloc_size = IOUR_ALLOC_SIZE(iour);
     iour_debug("allocating %ld bytes", alloc_size);
     iour->rings = (io_rings)allocate(h, alloc_size);
     if (iour->rings == INVALID_ADDRESS) {
         ret = -ENOMEM;
         goto err1;
-    }
-    iour->user_rings = (io_rings)allocate(iour->vh, alloc_size);
-    if (iour->user_rings == INVALID_ADDRESS) {
-        ret = -ENOMEM;
-        goto err2;
     }
     iour->sq_array = (u32 *)((u8 *)iour->rings + sizeof(struct io_rings));
     iour->cqes = (struct io_uring_cqe *)((u8 *)iour->sq_array +
@@ -411,6 +436,7 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     iour->shutdown = false;
     iour->shutdown_completion = 0;
     init_fdesc(h, &iour->f, FDESC_TYPE_IORING);
+    iour->f.mmap = init_closure(&iour->mmap, iour_mmap);
     iour->f.close = init_closure(&iour->close, iour_close, iour);
     if (iour->f.close == INVALID_ADDRESS) {
         ret = -ENOMEM;
@@ -440,38 +466,10 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     runtime_memset((u8 *)params->cq_off.resv, 0, sizeof(params->cq_off.resv));
     return ret;
 err3:
-    deallocate(iour->vh, iour->user_rings, alloc_size);
-err2:
     deallocate(h, iour->rings, alloc_size);
 err1:
     deallocate(h, iour, sizeof(*iour));
     return ret;
-}
-
-sysreturn io_uring_mmap(fdesc desc, u64 len, pageflags mapflags, u64 offset)
-{
-    iour_debug("len %ld, flags 0x%x, offset 0x%x", len, mapflags.w, offset);
-    io_uring iour = (io_uring)desc;
-    u64 region_offset;
-    switch (offset) {
-    case IORING_OFF_SQ_RING:
-    case IORING_OFF_CQ_RING:
-        if (len > IOUR_REGION1_SIZE(iour))
-            return -EINVAL;
-        region_offset = 0;
-        break;
-    case IORING_OFF_SQES:
-        if (len > IOUR_REGION2_SIZE(iour))
-            return -EINVAL;
-        region_offset = IOUR_REGION1_SIZE(iour);
-        break;
-    default:
-        return -EINVAL;
-    }
-    u64 virt = u64_from_pointer(iour->user_rings) + region_offset;
-    map(virt, physical_from_virtual(iour->rings) + region_offset, len,
-        mapflags);
-    return virt;
 }
 
 simple_closure_function(1, 2, void, iour_efd_complete,

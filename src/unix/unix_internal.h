@@ -13,12 +13,11 @@
 
 #define VMAP_FLAG_MMAP     0x0010
 #define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
-#define VMAP_FLAG_PREALLOC 0x0040
 
 #define VMAP_MMAP_TYPE_MASK       0x0f00
 #define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
 #define VMAP_MMAP_TYPE_FILEBACKED 0x0200
-#define VMAP_MMAP_TYPE_IORING     0x0400
+#define VMAP_MMAP_TYPE_CUSTOM     0x0400
 
 #define ACCESS_PERM_READ    VMAP_FLAG_READABLE
 #define ACCESS_PERM_WRITE   VMAP_FLAG_WRITABLE
@@ -379,6 +378,7 @@ typedef struct fdesc {
     sg_file_io sg_read, sg_write;
     closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
+    closure_type(mmap, sysreturn, struct vmap *vm, u64 offset);
     closure_type(close, sysreturn, thread t, io_completion completion);
     closure_type(edge_trigger_handler, u64, u64 events, u64 lastevents);
     closure_struct(fdesc_io_complete, io_complete);
@@ -418,15 +418,15 @@ typedef struct vmap {
     u32 allowed_flags;
     pagecache_node cache_node;
     u64 node_offset;
-    fsfile fsf;
+    fdesc fd;
 } *vmap;
 
-#define ivmap(__f, __af, __o, __fsf) (struct vmap) {        \
+#define ivmap(__f, __af, __o, __c, __fd) (struct vmap) {    \
     .flags = __f,                                   \
     .allowed_flags = __f | __af,                    \
     .node_offset = __o,                             \
-    .cache_node = __fsf ? fsfile_get_cachenode(__fsf) : 0,  \
-    .fsf = __fsf,                                   \
+    .cache_node = __c,                              \
+    .fd = __fd,                                     \
 }
 typedef closure_type(vmap_handler, void, vmap);
 
@@ -962,7 +962,6 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
 sysreturn io_destroy(aio_context_t ctx_id);
 
 sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params);
-sysreturn io_uring_mmap(fdesc desc, u64 len, pageflags mapflags, u64 offset);
 sysreturn io_uring_enter(int fd, unsigned int to_submit,
                          unsigned int min_complete, unsigned int flags,
                          sigset_t *sig);

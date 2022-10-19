@@ -74,18 +74,10 @@ define_closure_function(1, 2, void, fdesc_io_complete,
 
 void init_fdesc(heap h, fdesc f, int type)
 {
-    f->read = 0;
-    f->write = 0;
-    f->sg_read = 0;
-    f->sg_write = 0;
-    f->close = 0;
-    f->events = 0;
-    f->edge_trigger_handler = 0;
+    zero(f, sizeof(*f));
     init_closure(&f->io_complete, fdesc_io_complete, f);
-    f->ioctl = 0;
     f->refcnt = 1;
     f->type = type;
-    f->flags = 0;
     f->ns = allocate_notify_set(h);
     spin_lock_init(&f->lock);
 }
@@ -136,7 +128,7 @@ const char *string_from_mmap_type(int type)
 {
     return type == VMAP_MMAP_TYPE_ANONYMOUS ? "anonymous" :
         (type == VMAP_MMAP_TYPE_FILEBACKED ? "filebacked" :
-         (type == VMAP_MMAP_TYPE_IORING ? "io_uring" : "unknown"));
+         "unknown");
 }
 
 #define format_protection_violation(vaddr, ctx, vm, str)        \
