@@ -50,6 +50,9 @@
 #define PCIPI_STORAGE_NVME  0x02
 
 #define PCIC_DISPLAY 0x03
+#define PCIS_VGA        0x00
+#define PCIS_XGA        0x01
+#define PCIS_3D         0x02
 
 #define PCIC_BRIDGE 0x06
 #define PCIS_BRIDGE_PCI 0x04

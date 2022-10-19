@@ -175,7 +175,7 @@ closure_function(2, 1, boolean, vga_pci_probe,
                  heap, general, heap, virtual,
                  pci_dev, _d)
 {
-    if (pci_get_class(_d) != PCIC_DISPLAY)
+    if ((pci_get_class(_d) != PCIC_DISPLAY) || (pci_get_subclass(_d) != PCIS_VGA))
         return false;
 
     vga_debug("%s: VGA PCI\n", __func__);
