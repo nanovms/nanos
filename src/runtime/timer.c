@@ -40,8 +40,7 @@ void register_timer(timerqueue tq, timer t, clock_id id,
     timer_lock(tq);
     pqueue_insert(tq->pq, t);
     timer next = pqueue_peek(tq->pq);
-    if (next)
-        refresh_timer_update_locked(tq, next);
+    refresh_timer_update_locked(tq, next);
     timer_unlock(tq);
     timer_debug("register timer: %p, expiry %T, interval %T, handler %p\n", t, t->expiry, interval, n);
 }
@@ -90,7 +89,7 @@ void timer_service(timerqueue tq, timestamp here)
 
     timer_debug("timer_service enter for heap \"%s\" at %T\n", tq->name, here);
     timer_lock(tq);
-    while ((t = pqueue_peek(tq->pq)) && (delta = here - timer_expiry(t), delta >= 0)) {
+    while (((t = pqueue_peek(tq->pq)) != INVALID_ADDRESS) && (delta = here - timer_expiry(t), delta >= 0)) {
         pqueue_pop(tq->pq);
         assert(t->active && t->queued);
         boolean interval = t->interval != 0;
@@ -122,8 +121,7 @@ void timer_service(timerqueue tq, timestamp here)
             }
         }
     }
-    if (t)
-        refresh_timer_update_locked(tq, t);
+    refresh_timer_update_locked(tq, t);
     timer_unlock(tq);
 }
 
@@ -159,6 +157,7 @@ timerqueue allocate_timerqueue(heap h, const char *name)
 #ifdef KERNEL
     spin_lock_init(&tq->lock);
     tq->service_scheduled = tq->update = false;
+    tq->empty = true;
     tq->next_expiry = 0;
     tq->service = 0;
     tq->min = tq->max = 0;
