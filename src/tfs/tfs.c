@@ -1363,8 +1363,9 @@ closure_function(1, 2, boolean, file_unlink_each,
 /* Called with fs locked, returns with fs unlocked. */
 static void file_unlink(filesystem fs, tuple t)
 {
-    fsfile f = fsfile_from_node(fs, t);
-    table_set(fs->files, t, 0);
+    fsfile f = table_remove(fs->files, t);
+    if (f == INVALID_ADDRESS)   /* directory entry other than regular file */
+        f = 0;
     if (f) {
         f->md = 0;
     }

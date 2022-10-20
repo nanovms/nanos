@@ -116,6 +116,16 @@ static void resize_table(table t, int buckets)
     table_paranoia(t, "resize");
 }
 
+static void table_remove_internal(table t, entry *e)
+{
+    assert(t->count > 0);
+    t->count--;
+    entry z = *e;
+    *e = (*e)->next;
+    table_paranoia(t, "remove");
+    deallocate(t->eh, z, sizeof(struct entry));
+}
+
 void *table_find(table t, void *c)
 {
     assert(t);
@@ -135,12 +145,7 @@ void table_set(table t, void *c, void *v)
     for (; *e; e = &(*e)->next) {
         if (((*e)->k == k) && t->equals_function((*e)->c, c)) {
             if (v == EMPTY) {
-                assert(t->count > 0);
-                t->count--;
-                entry z = *e;
-                *e = (*e)->next;
-                table_paranoia(t, "remove");
-                deallocate(t->eh, z, sizeof(struct entry));
+                table_remove_internal(t, e);
             } else {
                 (*e)->v = v;
             }
@@ -166,6 +171,19 @@ void table_set(table t, void *c, void *v)
             table_paranoia(t, "add, no resize");
         }
     }
+}
+
+void *table_remove(table t, void *c)
+{
+    key k = t->key_function(c);
+    for (entry *e = t->entries + position(t->buckets, k); *e; e = &(*e)->next) {
+        if (((*e)->k == k) && t->equals_function((*e)->c, c)) {
+            void *v = (*e)->v;
+            table_remove_internal(t, e);
+            return v;
+        }
+    }
+    return EMPTY;
 }
 
 int table_elements(table t)

@@ -22,6 +22,7 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
     u64 heap_occupancy = heap_allocated(h);
     table t = allocate_table(h, key_function, pointer_equal);
     u64 count;
+    u64 val;
 
     table_validate(t, "basic_table_tests: alloc");
 
@@ -98,8 +99,21 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
         return false;
     }
 
+    val = u64_from_pointer(table_remove(t, (pointer_from_u64(1))));
+    if (val != 2) {
+        msg_err("invalid element %ld removed, should be 2\n", val);
+        return false;
+    }
+    table_validate(t, "basic_table_tests: after table_remove()");
+    count = table_elements(t);
+    if (count != n_elem - 2) {
+        msg_err("invalid table_elements() %ld after table_remove(), should be %ld\n",
+                count, n_elem - 2);
+        return false;
+    }
+
     /* Remove the rest: first forward (skimming off top of each bucket) */
-    for (count = 1; count < (n_elem / 2); count++)
+    for (count = 2; count < (n_elem / 2); count++)
         table_set(t, (void *)count, 0);
 
     table_validate(t, "basic_table_tests: after remove forward");

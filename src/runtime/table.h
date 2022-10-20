@@ -29,6 +29,9 @@ void *table_find(table t, void *c);
 void table_set(table t, void *c, void *v);
 void table_clear(table t);
 
+/* Returns the value being removed if found, 0 otherwise. */
+void *table_remove(table t, void *c);
+
 #define eZ(x,y) ((entry) x)->y
 
 #define table_foreach(__t, __k, __v)\
