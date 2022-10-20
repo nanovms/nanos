@@ -20,7 +20,8 @@
 enum protocol_type {
     SOCK_STREAM  = 1,    /* stream (connection) socket	*/
     SOCK_DGRAM   = 2,    /* datagram (conn.less) socket	*/
-    SOCK_RAW     = 3     /* raw socket			*/
+    SOCK_RAW     = 3,    /* raw socket			*/
+    SOCK_SEQPACKET = 5,
 };
 
 #define SOCK_TYPE_MASK	0xf

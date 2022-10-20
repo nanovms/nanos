@@ -322,6 +322,13 @@ static void uds_dgram_test(void)
     test_assert(accept(s1, (struct sockaddr *) &server_addr, &addr_len) == -1);
     test_assert(errno == EOPNOTSUPP);
 
+    /* Try to connect a STREAM socket to a DGRAM socket. */
+    s2 = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(s2 >= 0);
+    test_assert(connect(s2, (struct sockaddr *) &server_addr, addr_len) == -1);
+    test_assert(errno == EPROTOTYPE);
+    test_assert(close(s2) == 0);
+
     s2 = socket(AF_UNIX, SOCK_DGRAM, 0);
     test_assert(s2 >= 0);
     test_assert(bind(s2, (struct sockaddr *) &client_addr, addr_len) == 0);
@@ -367,6 +374,143 @@ static void uds_dgram_test(void)
     test_assert(close(s2) == 0);
     test_assert(unlink(SERVER_SOCKET_PATH) == 0);
     test_assert(unlink(CLIENT_SOCKET_PATH) == 0);
+}
+
+static void *uds_seqpacket_server(void *arg)
+{
+    int fd = (long) arg;
+    struct sockaddr_un addr;
+    socklen_t addr_len = sizeof(addr);
+    int client_fd;
+    uint8_t readBuf[SMALLBUF_SIZE];
+
+    client_fd = accept(fd, (struct sockaddr *) &addr, &addr_len);
+    test_assert(client_fd >= 0);
+    test_assert(addr_len == sizeof(addr.sun_family));
+    test_assert(addr.sun_family == AF_UNIX);
+
+    test_assert(recv(client_fd, readBuf, SMALLBUF_SIZE / 2, 0) == SMALLBUF_SIZE / 2);
+    for (int i = 0; i < SMALLBUF_SIZE / 2; i++) {
+        test_assert(readBuf[i] == i);
+    }
+    test_assert(recv(client_fd, readBuf, SMALLBUF_SIZE, 0) == 1);
+    test_assert(readBuf[0] == 0);
+
+    /* zero-length packet */
+    test_assert(recv(client_fd, readBuf, SMALLBUF_SIZE, 0) == 0);
+
+    usleep(100 * 1000); /* to make the sender block */
+    for (int j = 0; j < DGRAM_COUNT; j++)
+        test_assert(recv(client_fd, readBuf, SMALLBUF_SIZE, 0) == SMALLBUF_SIZE);
+
+    usleep(100 * 1000); /* to make the sender block */
+    test_assert(close(client_fd) == 0);
+    return NULL;
+}
+
+static void uds_seqpacket_test(void)
+{
+    int s1, s2;
+    struct sockaddr_un addr;
+    socklen_t addr_len = sizeof(addr);
+    struct sockaddr_un ret_addr;
+    struct stat s;
+    pthread_t pt;
+    uint8_t writeBuf[SMALLBUF_SIZE];
+    int i;
+    ssize_t nbytes;
+    struct pollfd fds;
+
+    s1 = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+    test_assert(s1 >= 0);
+    addr.sun_family = AF_UNIX;
+
+    test_assert((bind(s1, NULL, addr_len) == -1) && (errno == EFAULT));
+    test_assert((bind(s1, (struct sockaddr *) &addr, 0) == -1) && (errno == EINVAL));
+
+    strcpy(addr.sun_path, "/nonexistent/socket");
+    test_assert((bind(s1, (struct sockaddr *) &addr, addr_len) == -1) && (errno == ENOENT));
+    test_assert((connect(s1, (struct sockaddr *) &addr, addr_len) == -1) && (errno == ENOENT));
+
+    strcpy(addr.sun_path, "unixsocket");
+    test_assert((bind(s1, (struct sockaddr *) &addr, addr_len) == -1) && (errno == EADDRINUSE));
+    test_assert(connect(s1, (struct sockaddr *) &addr, addr_len) == -1);
+    test_assert(errno == ECONNREFUSED);
+
+    strcpy(addr.sun_path, SERVER_SOCKET_PATH);
+    test_assert(bind(s1, (struct sockaddr *) &addr, addr_len) == 0);
+    test_assert(stat(SERVER_SOCKET_PATH, &s) == 0);
+    test_assert((s.st_mode & S_IFMT) == S_IFSOCK);
+    test_assert(getsockname(s1, (struct sockaddr *) &ret_addr, &addr_len) == 0);
+    test_assert(addr_len == offsetof(struct sockaddr_un, sun_path) + sizeof(SERVER_SOCKET_PATH));
+    test_assert(!strcmp(addr.sun_path, ret_addr.sun_path));
+    test_assert((bind(s1, (struct sockaddr *) &addr, addr_len) == -1) && (errno == EADDRINUSE));
+
+    /* Try to connect a STREAM socket to a SEQPACKET socket. */
+    s2 = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(s2 >= 0);
+    test_assert((connect(s2, (struct sockaddr *) &addr, addr_len) == -1) && (errno == EPROTOTYPE));
+    test_assert(close(s2) == 0);
+
+    s2 = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+    test_assert(s2 >= 0);
+    test_assert((bind(s2, (struct sockaddr *) &addr, addr_len) == -1) && (errno == EADDRINUSE));
+    test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == -1);
+    test_assert(errno == ECONNREFUSED);
+
+    test_assert((accept(s1, (struct sockaddr *) &addr, &addr_len) == -1) && (errno == EINVAL));
+
+    fds.fd = s2;
+    fds.events = POLLIN | POLLOUT | POLLHUP;
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents & POLLHUP));
+
+    test_assert(listen(s1, 1) == 0);
+    test_assert(pthread_create(&pt, NULL, uds_seqpacket_server, (void *)(long) s1) == 0);
+
+    test_assert(sendto(s2, writeBuf, sizeof(writeBuf), 0, (struct sockaddr *)&addr,
+        addr_len) == -1);
+    test_assert(errno == ENOTCONN);
+    test_assert((send(s2, writeBuf, sizeof(writeBuf), 0) == -1) && (errno == ENOTCONN));
+
+    test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == 0);
+    test_assert((connect(s2, (struct sockaddr *) &addr, addr_len) == -1) && (errno == EISCONN));
+
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents == POLLOUT));
+
+    for (int i = 0; i < SMALLBUF_SIZE; i++) {
+        writeBuf[i] = i;
+    }
+    test_assert(send(s2, writeBuf, SMALLBUF_SIZE, 0) == SMALLBUF_SIZE);
+    test_assert(send(s2, writeBuf, 1, 0) == 1);
+
+    /* zero-length packet */
+    test_assert(send(s2, writeBuf, 0, 0) == 0);
+
+    /* wakeup after blocking send */
+    for (i = 0; i < DGRAM_COUNT; i++)
+        test_assert(send(s2, writeBuf, SMALLBUF_SIZE, 0) == SMALLBUF_SIZE);
+
+    /* close receiving socket (in the server thread) during blocking send */
+    while (1) {
+        nbytes = send(s2, writeBuf, 1, 0);
+        if (nbytes != 1) {
+            test_assert(nbytes == -1);
+            break;
+        }
+    }
+
+    test_assert(pthread_join(pt, NULL) == 0);
+
+    test_assert((poll(&fds, 1, -1) == 1) && (fds.revents & POLLHUP));
+    test_assert(recv(s2, writeBuf, 1, 0) == 0);
+    test_assert((send(s2, writeBuf, 1, 0) == -1) && (errno == EPIPE));
+
+    test_assert(close(s1) == 0);
+    test_assert(connect(s2, (struct sockaddr *) &addr, addr_len) == -1);
+    test_assert(errno == ECONNREFUSED);
+
+    test_assert(close(s2) == 0);
+    test_assert(unlink(SERVER_SOCKET_PATH) == 0);
 }
 
 static sem_t sem;
@@ -459,6 +603,7 @@ int main(int argc, char **argv)
 {
     uds_stream_test();
     uds_dgram_test();
+    uds_seqpacket_test();
     uds_nonblocking_test();
     printf("Unix domain socket tests OK\n");
     return EXIT_SUCCESS;

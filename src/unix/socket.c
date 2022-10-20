@@ -57,6 +57,23 @@ define_closure_function(1, 0, void, sharedbuf_free,
     sharedbuf_deallocate(bound(shb));
 }
 
+static boolean unixsock_type_is_supported(int type)
+{
+    switch (type & SOCK_TYPE_MASK) {
+    case SOCK_STREAM:
+    case SOCK_DGRAM:
+    case SOCK_SEQPACKET:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static boolean unixsock_is_conn_oriented(unixsock s)
+{
+    return (s->sock.type != SOCK_DGRAM);
+}
+
 define_closure_function(1, 2, boolean, unixsock_event_handler,
                         unixsock, s,
                         u64, events, void *, arg)
@@ -127,7 +144,7 @@ static void unixsock_dealloc(unixsock s)
     deallocate_queue(s->data);
     s->data = 0;
     unixsock_unlock(s);
-    unixsock peer = (s->sock.type == SOCK_STREAM) ? s->peer : 0;
+    unixsock peer = unixsock_is_conn_oriented(s) ? s->peer : 0;
     if (peer) {
         unixsock_lock(peer);
         blockq bq = peer->data ? peer->sock.rxbq : 0;
@@ -176,7 +193,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
     sysreturn rv;
 
     unixsock_lock(s);
-    boolean disconnected = (s->sock.type == SOCK_STREAM) && !(s->peer && s->peer->data);
+    boolean disconnected = unixsock_is_conn_oriented(s) && !(s->peer && s->peer->data);
     boolean read_done = false;
     if ((flags & BLOCKQ_ACTION_NULLIFY) && !disconnected) {
         rv = -ERESTARTSYS;
@@ -215,10 +232,10 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
         rv += xfer;
         length -= xfer;
         s->sock.rx_len -= xfer;
-        if (!buffer_length(b) || (s->sock.type == SOCK_DGRAM)) {
+        if (!buffer_length(b) || (s->sock.type != SOCK_STREAM)) {
             assert(dequeue(s->data) == shb);
+            s->sock.rx_len -= buffer_length(b);
             if (s->sock.type == SOCK_DGRAM) {
-                s->sock.rx_len -= buffer_length(b);
                 struct sockaddr_un *from_addr = bound(from_addr);
                 socklen_t *from_length = bound(from_length);
                 if (from_addr && from_length) {
@@ -264,7 +281,7 @@ static sysreturn unixsock_write_check(unixsock s, u64 len)
 {
     if ((s->sock.type == SOCK_STREAM) && (len == 0))
         return 0;
-    if ((s->sock.type == SOCK_DGRAM) && (len > UNIXSOCK_BUF_MAX_SIZE))
+    if ((s->sock.type != SOCK_STREAM) && (len > UNIXSOCK_BUF_MAX_SIZE))
         return -EMSGSIZE;
     return 1;   /* any value > 0 will do */
 }
@@ -340,7 +357,7 @@ closure_function(7, 1, sysreturn, unixsock_write_bh,
         goto out;
     }
     if (!dest->data) {
-        rv = (s->sock.type == SOCK_STREAM) ? -EPIPE : -ECONNREFUSED;
+        rv = unixsock_is_conn_oriented(s) ? -EPIPE : -ECONNREFUSED;
         goto out;
     }
 
@@ -447,7 +464,7 @@ closure_function(1, 1, u32, unixsock_events,
             unixsock_unlock(s);
             unixsock_lock(peer);
             if (!peer->data)
-                events |= (s->sock.type == SOCK_STREAM) ?
+                events |= unixsock_is_conn_oriented(s) ?
                           (EPOLLIN | EPOLLOUT | EPOLLHUP) : EPOLLOUT;
             else if ((peer->sock.rx_len < so_rcvbuf) && !queue_full(peer->data))
                 events |= EPOLLOUT;
@@ -456,7 +473,7 @@ closure_function(1, 1, u32, unixsock_events,
             return events;
         } else {
             events |= EPOLLOUT;
-            if (s->sock.type == SOCK_STREAM)
+            if (unixsock_is_conn_oriented(s))
                 events |= EPOLLHUP;
         }
     }
@@ -558,6 +575,7 @@ static sysreturn unixsock_listen(struct sock *sock, int backlog)
     unixsock_lock(s);
     switch (sock->type) {
     case SOCK_STREAM:
+    case SOCK_SEQPACKET:
         if (!s->conn_q) {
             s->conn_q = allocate_queue(sock->h, backlog);
             if (s->conn_q == INVALID_ADDRESS) {
@@ -634,31 +652,27 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
     rv = lookup_socket(&listener, unixaddr->sun_path);
     if (rv != 0)
         goto out;
-    switch (s->sock.type) {
-    case SOCK_STREAM: {
-        blockq_action ba = contextual_closure(connect_bh, s, current, listener);
-        if (ba == INVALID_ADDRESS) {
-            rv = -ENOMEM;
-            break;
-        }
-        return blockq_check(listener->sock.txbq, current, ba, false);
+    if (listener->sock.type != s->sock.type) {
+        rv = -EPROTOTYPE;
+        goto out;
     }
-    default:
-        if (listener->sock.type == s->sock.type) {
-            unixsock_lock(s);
-            if (s->notify_handle != INVALID_ADDRESS)
-                notify_remove(s->peer->sock.f.ns, s->notify_handle, false);
-            unixsock_disconnect(s);
-            s->notify_handle = notify_add(listener->sock.f.ns, EPOLLOUT | EPOLLERR | EPOLLHUP,
-                init_closure(&s->event_handler, unixsock_event_handler, s));
-            if (s->notify_handle == INVALID_ADDRESS)
-                rv = -ENOMEM;
-            else
-                unixsock_conn_internal(s, listener);
-            unixsock_unlock(s);
-        } else {
-            rv = -EPROTOTYPE;
-        }
+    if (unixsock_is_conn_oriented(s)) {
+        blockq_action ba = contextual_closure(connect_bh, s, current, listener);
+        if (ba == INVALID_ADDRESS)
+            rv = -ENOMEM;
+        return blockq_check(listener->sock.txbq, current, ba, false);
+    } else {
+        unixsock_lock(s);
+        if (s->notify_handle != INVALID_ADDRESS)
+            notify_remove(s->peer->sock.f.ns, s->notify_handle, false);
+        unixsock_disconnect(s);
+        s->notify_handle = notify_add(listener->sock.f.ns, EPOLLOUT | EPOLLERR | EPOLLHUP,
+                                      init_closure(&s->event_handler, unixsock_event_handler, s));
+        if (s->notify_handle == INVALID_ADDRESS)
+            rv = -ENOMEM;
+        else
+            unixsock_conn_internal(s, listener);
+        unixsock_unlock(s);
     }
 out:
     if (listener)
@@ -719,7 +733,7 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
 {
     unixsock s = (unixsock) sock;
     sysreturn rv;
-    if (s->sock.type != SOCK_STREAM) {
+    if (!unixsock_is_conn_oriented(s)) {
         rv = -EOPNOTSUPP;
         goto out;
     }
@@ -775,7 +789,8 @@ sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
     unixsock s = (unixsock) sock;
     unixsock dest;
     sysreturn rv;
-    if (dest_addr || addrlen) {
+    /* Linux ignores destination address in SEQPACKET sockets. */
+    if ((sock->type != SOCK_SEQPACKET) && (dest_addr || addrlen)) {
         if (sock->type == SOCK_STREAM) {
             if (s->peer)
                 rv = -EISCONN;
@@ -962,10 +977,8 @@ sysreturn unixsock_open(int type, int protocol) {
     heap h = heap_locked((kernel_heaps)uh);
     unixsock s;
 
-    if (((type & SOCK_TYPE_MASK) != SOCK_STREAM) &&
-            ((type & SOCK_TYPE_MASK) != SOCK_DGRAM)) {
+    if (!unixsock_type_is_supported(type))
         return -ESOCKTNOSUPPORT;
-    }
     s = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK);
     if (!s) {
         return -ENOMEM;
@@ -981,10 +994,8 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
     if (domain != AF_UNIX) {
         return set_syscall_error(current, EAFNOSUPPORT);
     }
-    if (((type & SOCK_TYPE_MASK) != SOCK_STREAM) &&
-            ((type & SOCK_TYPE_MASK) != SOCK_DGRAM)) {
+    if (!unixsock_type_is_supported(type))
         return -ESOCKTNOSUPPORT;
-    }
     if (!validate_user_memory(sv, 2 * sizeof(int), true)) {
         return -EFAULT;
     }
