@@ -101,6 +101,11 @@ int main(int argc, char **argv)
     int fd;
     struct stat s;
 
+    if ((unlink("") != -1) || (errno != ENOENT)) {
+        printf("empty path unlink test failed\n");
+        exit(EXIT_FAILURE);
+    }
+
     test_unlink("/file");
 
     if (mkdir("/dir", 0) < 0) {

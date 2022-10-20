@@ -2226,6 +2226,8 @@ int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *
     int nbytes;
     int err;
 
+    if (*f == '\0') /* an empty path should result in FS_STATUS_NOENT */
+        t = 0;
     while ((y = *f)) {
         if (y == '/') {
             if (buffer_length(a)) {

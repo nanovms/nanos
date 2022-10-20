@@ -118,7 +118,7 @@ void *terminus(void *k)
          * pthread_exit() to abort the program when this thread is interrupted in the middle of
          * exit() and another thread calls pthread_exit(). As a workaround, sleep before calling
          * exit(), so that the other threads have a chance to run (and terminate cleanly). */
-        usleep(1);
+        usleep(8);
 
         exit(0);
     }
