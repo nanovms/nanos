@@ -99,12 +99,12 @@ static void migrate_from_self(cpuinfo ci, u64 first_cpu, u64 ncpus)
     }
 }
 
-static inline boolean update_timer(void)
+static inline boolean update_timer(timestamp here)
 {
     timestamp next = kernel_timers->next_expiry;
     if (!compare_and_swap_32(&kernel_timers->update, true, false))
         return false;
-    s64 delta = next - now(CLOCK_ID_MONOTONIC_RAW);
+    s64 delta = next - here;
     timestamp timeout = delta > (s64)kernel_timers->min ? MIN(delta, kernel_timers->max) : kernel_timers->min;
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
     current_cpu()->last_timer_update = next + timeout - delta;
@@ -179,7 +179,8 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     /* should be a list of per-runloop checks - also low-pri background */
     mm_service();
 
-    boolean timer_updated = update_timer();
+    timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
+    boolean timer_updated = update_timer(here);
 
     if (!shutting_down) {
         sched_task t = sched_dequeue(&ci->thread_queue);
@@ -224,9 +225,8 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
                    kernel_timers->max into the future. Taking the place of a
                    true time quantum per thread, this acts to prevent a thread
                    from running for too long and starving out other threads. */
-                timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
                 s64 timeout = ci->last_timer_update - here;
-                if ((timeout < 0) || (timeout > kernel_timers->max)) {
+                if (kernel_timers->empty || (timeout > (s64)kernel_timers->max)) {
                     sched_debug("setting CPU scheduler timer\n");
                     set_platform_timer(kernel_timers->max);
                     ci->last_timer_update = here + kernel_timers->max;
