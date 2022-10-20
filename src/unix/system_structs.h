@@ -17,6 +17,9 @@
 #define MISC_MAJOR              10
 #define UNIX98_PTY_SLAVE_MAJOR  136
 
+#define MAJOR(rdev)   ((((rdev) & 0xfff00) >> 8) | ((rdev) >> 32))
+#define MINOR(rdev)   (((rdev) & 0xff) | (((rdev) & 0xfff00000) >> 12))
+
 #define makedev(major, minor)   (((minor) & 0xff) | (((major) & 0xfff) << 8) |  \
     ((u64)((minor) & ~0xff) << 12) | ((u64)((major) & ~0xfff) << 32))
 
@@ -72,7 +75,9 @@ typedef struct iovec {
 #define ELOOP           40              /* Too many symbolic links */
 #define ENOPROTOOPT     42              /* Protocol not available */
 
+#define ENODATA         61		/* No data available */
 #define ETIME           62		/* Timer expired */
+#define EOVERFLOW       75		/* Value too large for defined data type */
 #define EBADFD          77		/* File descriptor in bad state */
 #define EDESTADDRREQ    89		/* Destination address required */
 #define EMSGSIZE        90		/* Message too long */
@@ -137,6 +142,13 @@ struct flock {
 #define F_RDLCK         0
 #define F_WRLCK         1
 #define F_UNLCK         2
+
+#define IOC_NR(req)     ((req) & 0x000000ff)
+#define IOC_TYPE(req)   (((req) & 0x0000ff00) >> 8)
+#define IOC_SIZE(req)   (((req) & 0x3fff0000) >> 16)
+
+#define IOC_READ    0x80000000
+#define IOC_WRITE   0x40000000
 
 #define FIONREAD        0x541b
 #define FIONBIO         0x5421

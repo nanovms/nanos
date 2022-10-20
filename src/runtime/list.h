@@ -27,6 +27,12 @@ static inline boolean list_empty(struct list * head)
     return (head->next == head);
 }
 
+/* a singular list is a list containing a single element */
+static inline boolean list_singular(struct list *head)
+{
+    return (head->next != head) && (head->next == head->prev);
+}
+
 /* XXX fix, this isn't used right */
 static inline struct list * list_get_next(struct list * head)
 {
@@ -64,6 +70,14 @@ static inline void list_insert_before(struct list * pos,
     new->next = pos;
     pos->prev->next = new;
     pos->prev = new;
+}
+
+static inline void list_replace(struct list *old, struct list *new)
+{
+    new->next = old->next;
+    new->next->prev = new;
+    new->prev = old->prev;
+    new->prev->next = new;
 }
 
 static inline struct list *list_begin(struct list *head)
@@ -104,9 +118,6 @@ static inline void list_move(struct list *dest, struct list *src)
         list_init(dest);
         return;
     }
-    dest->next = src->next;
-    dest->next->prev = dest;
-    dest->prev = src->prev;
-    dest->prev->next = dest;
+    list_replace(src, dest);
     list_init(src); /* make it an empty list */
 }

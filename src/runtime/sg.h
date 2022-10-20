@@ -63,6 +63,8 @@ static inline sg_buf sg_list_head_remove(sg_list sg)
     return sgb;
 }
 
+#define sg_list_length(sg)  (buffer_length((sg)->b) / sizeof(struct sg_buf))
+
 #define sg_list_foreach(sg, sgb) \
     for (sg_buf sgb = buffer_ref((sg)->b, 0); sgb != buffer_end((sg)->b); sgb++)
 

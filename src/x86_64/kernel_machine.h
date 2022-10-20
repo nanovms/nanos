@@ -207,6 +207,9 @@ extern void write_xmsr(u64, u64);
 #define mov_to_cr(__x, __y) asm volatile("mov %0,%%"__x : : "a"(__y) : "memory");
 #define mov_from_cr(__x, __y) asm volatile("mov %%"__x", %0" : "=a"(__y) : : "memory");
 
+/* CPUID level 1 (EDX) */
+#define CPUID_PAT   (1 << 16)
+
 /* CPUID level 7 (EBX) */
 #define CPUID_FSGSBASE  (1 << 0)
 

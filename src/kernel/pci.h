@@ -18,6 +18,7 @@
 /* PCI config register */
 #define PCIR_VENDOR     0x00
 #define PCIR_DEVICE     0x02
+#define PCIR_STATUS     0x06
 #define PCIR_REVID      0x08
 #define PCIR_PROG_IF    0x09
 #define PCIR_SUBCLASS   0x0a
@@ -37,6 +38,7 @@
 #define PCIR_MEMLIMIT1_2 0x28
 #define PCIR_IOBASEL_1  0x1c
 #define PCIR_IOLIMITL_1 0x1d
+#define PCIR_SUBS_VND   0x2c
 #define PCIR_SUBDEV_0   0x2e
 #define PCIR_IOBASEH_1  0x30
 #define PCIR_IOLIMITH_1 0x32
@@ -105,6 +107,11 @@ static inline u16 pci_get_subdevice(pci_dev dev)
     return pci_cfgread(dev, PCIR_SUBDEV_0, 2);
 }
 
+static inline u16 pci_get_subsystem_vendor(pci_dev dev)
+{
+    return pci_cfgread(dev, PCIR_SUBS_VND, 2);
+}
+
 static inline u8 pci_get_revid(pci_dev dev)
 {
     return pci_cfgread(dev, PCIR_REVID, 1);
@@ -170,6 +177,7 @@ u64 pci_bar_read_8(struct pci_bar *b, u64 offset);
 void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val);
 
 /* Capability Identification Numbers */
+#define PCIY_MSI    0x05
 #define PCIY_VENDOR 0x09
 #define PCIY_MSIX 0x11
 

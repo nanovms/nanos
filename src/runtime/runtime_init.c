@@ -123,6 +123,7 @@ void init_runtime(heap general, heap safe)
     register_format('p', format_pointer, 0);
     register_format('x', format_number, 1);
     register_format('d', format_number, 1);
+    register_format('u', format_number, 1);
     register_format('s', format_cstring, 0);
     register_format('b', format_buffer, 0);
     register_format('n', format_spaces, 0);
