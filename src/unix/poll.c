@@ -741,15 +741,17 @@ closure_function(3, 1, sysreturn, select_bh,
     return syscall_return(t, rv);
 }
 
-static inline epoll select_get_epoll(void)
+static inline epoll thread_get_epoll(enum epoll_type epoll_type)
 {
     thread t = current;
     thread_lock(t);
     epoll e = t->select_epoll;
     if (!e) {
-        e = epoll_alloc_internal(EPOLL_TYPE_SELECT);
+        e = epoll_alloc_internal(epoll_type);
         if (e != INVALID_ADDRESS)
             t->select_epoll = e;
+    } else {
+        e->epoll_type = epoll_type;
     }
     thread_unlock(t);
     return e;
@@ -766,7 +768,7 @@ static sysreturn select_internal(int nfds,
         (exceptfds && !validate_user_memory(exceptfds, set_bytes, true)))
         return -EFAULT;
 
-    epoll e = select_get_epoll();
+    epoll e = thread_get_epoll(EPOLL_TYPE_SELECT);
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
     epoll_blocked wt = alloc_epoll_blocked(e);
@@ -959,14 +961,13 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
 {
     if (!validate_user_memory(fds, sizeof(struct pollfd) * nfds, true))
         return -EFAULT;
-    epoll e = select_get_epoll();
+    epoll e = thread_get_epoll(EPOLL_TYPE_POLL);
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
     epoll_blocked w = alloc_epoll_blocked(e);
     if (w == INVALID_ADDRESS)
         return -ENOMEM;
     epoll_debug("epoll nfds %ld, new blocked %p, timeout %d\n", nfds, w, timeout);
-    e->epoll_type = EPOLL_TYPE_POLL;
     w->poll_fds = wrap_buffer(e->h, fds, nfds * sizeof(struct pollfd));
     w->poll_retcount = 0;
 
