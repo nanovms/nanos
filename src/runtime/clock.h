@@ -75,8 +75,12 @@ static inline timestamp now(clock_id id)
             return t;
         s64 last_raw = __vdso_dat->last_raw;
         s64 interval = t - last_raw;
-        t += clock_freq_adjust(interval);
         assert(t >= last_raw);
+        t += clock_freq_adjust(interval);
+        if (t < last_raw) {
+            msg_err("t(%T) < last_raw(%T) after freq adjust (%f)\n", t, last_raw, __vdso_dat->base_freq);
+            t = last_raw;
+        }
         switch (id) {
         case CLOCK_ID_REALTIME:
         case CLOCK_ID_REALTIME_COARSE:
