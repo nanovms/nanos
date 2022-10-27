@@ -15,6 +15,7 @@ BSS_RO_AFTER_INIT static kernel_heaps klib_kh;
 BSS_RO_AFTER_INIT static filesystem klib_fs;
 BSS_RO_AFTER_INIT static tuple klib_root;
 BSS_RO_AFTER_INIT static id_heap klib_heap;
+BSS_RO_AFTER_INIT static vector klib_loaded;
 
 closure_function(1, 1, boolean, klib_elf_walk,
                  klib, kl,
@@ -76,7 +77,7 @@ static int klib_initialize(klib kl, status_handler sh)
 }
 
 closure_function(3, 1, status, load_klib_complete,
-                 const char *, name, klib_handler, complete, status_handler, sh,
+                 buffer, name, klib_handler, complete, status_handler, sh,
                  buffer, b)
 {
     heap h = heap_locked(klib_kh);
@@ -87,9 +88,7 @@ closure_function(3, 1, status, load_klib_complete,
     kl->mappings = allocate_rangemap(h);
     assert(kl->mappings != INVALID_ADDRESS);
 
-    int namelen = MIN(runtime_strlen(bound(name)), KLIB_MAX_NAME - 1);
-    runtime_memcpy(kl->name, bound(name), namelen);
-    kl->name[namelen] = '\0';
+    kl->name = clone_buffer(h, bound(name));
     kl->elf = b;
 
     klib_debug("%s: klib %p, read length %ld\n", __func__, kl, buffer_length(b));
@@ -126,12 +125,12 @@ closure_function(1, 1, void, load_klib_failed,
     closure_finish();
 }
 
-void load_klib(const char *name, klib_handler complete, status_handler sh)
+void load_klib(buffer name, klib_handler complete, status_handler sh)
 {
     klib_debug("%s: \"%s\", complete %p (%F)\n", __func__, name, complete, complete);
     assert(klib_root && klib_fs);
     heap h = heap_locked(klib_kh);
-    tuple md = resolve_path(klib_root, split(h, alloca_wrap_buffer(name, runtime_strlen(name)), '/'));
+    tuple md = resolve_path(klib_root, split(h, name, '/'));
     if (!md) {
         apply(complete, INVALID_ADDRESS, KLIB_LOAD_FAILED);
     } else {
@@ -187,6 +186,7 @@ closure_function(4, 2, void, autoload_klib_complete,
     case KLIB_INIT_OK: {
         klib_debug("%p: ingesting elf symbols\n", kl);
         add_elf_syms(kl->elf, kl->load_range.start);
+        vector_push(klib_loaded, kl);
 
         /* Retry initialization of klibs with missing dependencies. */
         u64 qlen = queue_length(retry_klibs);
@@ -227,10 +227,29 @@ closure_function(3, 2, boolean, autoload_klib_each,
             bound(retry_klibs), sh, 0);
         assert(kl_complete != INVALID_ADDRESS);
         filesystem_read_entire(klib_fs, v, (heap)heap_linear_backed(klib_kh),
-                               closure(h, load_klib_complete, "auto", kl_complete, sh),
+                               closure(h, load_klib_complete, symbol_string(s), kl_complete, sh),
                                closure(h, load_klib_failed, kl_complete));
     }
     return true;
+}
+
+void print_loaded_klibs(void)
+{
+    klib kl;
+    rputs("\nloaded klibs: ");
+    if (klib_loaded) {
+        vector_foreach(klib_loaded, kl) {
+            buffer_print(kl->name);
+            rputs("@0x");
+            print_u64(kl->load_range.start);
+            rputs("/0x");
+            buffer r = little_stack_buffer(16);
+            print_number(r, range_span(kl->load_range), 16, 0);
+            buffer_print(r);
+            rputs(" ");
+        }
+    }
+    rputs("\n");
 }
 
 void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler complete)
@@ -244,6 +263,8 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
     heap h = heap_locked(kh);
     klib_kh = kh;
     klib_fs = (filesystem)fs;
+    klib_loaded = allocate_vector(heap_general(kh), 4);
+    assert(klib_loaded != INVALID_ADDRESS);
 
     extern u8 END;
     u64 klib_heap_start = pad(u64_from_pointer(&END), PAGESIZE_2M);

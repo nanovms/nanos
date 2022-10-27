@@ -52,6 +52,8 @@ void print_frame_trace(u64 *fp)
         print_u64_with_sym(*rap);
         rputs("\n");
     }
+
+    print_loaded_klibs();
 }
 
 void print_frame_trace_from_here(void)
