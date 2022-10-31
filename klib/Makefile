@@ -168,6 +168,7 @@ ELF_TARGET=     -target x86_64-elf
 CFLAGS+=        $(ELF_TARGET)
 LD=             x86_64-elf-ld
 OBJDUMP=        x86_64-elf-objdump
+STRIP=          x86_64-elf-strip
 else
 LD=             $(CROSS_COMPILE)ld
 endif
