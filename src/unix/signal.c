@@ -109,12 +109,13 @@ void thread_clone_sigmask(thread dest, thread src)
     set_signal_mask(dest, get_signal_mask(src));
 }
 
-static queued_signal sigstate_dequeue_signal(sigstate ss, int signum)
+static queued_signal sigstate_dequeue_signal_locked(sigstate ss, int signum)
 {
     /* dequeue siginfo */
     list head = sigstate_get_sighead(ss, signum);
     list l = list_get_next(head);
-    assert(l);
+    if (!l)
+        return INVALID_ADDRESS;
     queued_signal qs = struct_from_list(l, queued_signal, l);
     list_delete(l);
 #ifdef SIGNAL_DEBUG
@@ -144,7 +145,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask)
         u64 mask = mask_from_sig(signum);
         ss = (sigstate_get_pending(&t->signals) & mask) ? &t->signals : &t->p->signals;
         spin_lock(&ss->ss_lock);
-        qs = sigstate_dequeue_signal(ss, signum);
+        qs = sigstate_dequeue_signal_locked(ss, signum);
         spin_unlock(&ss->ss_lock);
         if (qs != INVALID_ADDRESS)
             break;

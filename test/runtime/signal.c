@@ -1479,6 +1479,40 @@ void test_nested_handling(void)
     assert(test_nested_count == TEST_NESTED_LEVELS);
 }
 
+static void sigusr1_handler(int signo)
+{
+    if (signo != SIGUSR1)
+        fail_perror("  childtid: caught non SIGUSR1 signal %d\n", signo);
+}
+
+void *smp_thread(void *a)
+{
+    volatile int *r = a;
+    pid_t pid = getpid();
+    while (*r)
+        kill(pid, SIGUSR1);
+    return 0;
+}
+
+#define NTHREADS 4
+void test_smp_sig_handling(void)
+{
+    pthread_t t[NTHREADS];
+    int running = true;
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = sigusr1_handler;
+    assert(sigaction(SIGUSR1, &sa, 0) == 0);
+
+    for (int i = 0; i < NTHREADS; i++)
+        pthread_create(&t[i], 0, smp_thread, &running);
+    sleep(1);
+    running = false;
+    for (int i = 0; i < NTHREADS; i++)
+        pthread_join(t[i], 0);
+}
+
 int main(int argc, char * argv[])
 {
 #ifdef __x86_64__
@@ -1514,6 +1548,8 @@ int main(int argc, char * argv[])
     test_sigsetjmp();
 
     test_nested_handling();
+
+    test_smp_sig_handling();
 
     printf("signal test passed\n");
 }
