@@ -499,6 +499,7 @@ typedef struct process {
     id_heap           posix_timer_ids;
     vector            posix_timers; /* unix_timer by timerid */
     vector            itimers;      /* unix_timer by ITIMER_ type */
+    timestamp         utime, stime;
     id_heap           aio_ids;
     vector            aio;
     u8                trace;
@@ -856,6 +857,8 @@ void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
 boolean thread_attempt_interrupt(thread t);
 
+void cputime_update(thread t, timestamp delta, boolean is_utime);
+
 static inline boolean validate_process_memory(process p, const void *a, bytes length, boolean write)
 {
     return vmap_validate_range(p, irangel(u64_from_pointer(a), length), write ? VMAP_FLAG_WRITABLE : 0);
@@ -911,6 +914,7 @@ static inline void syscall_accumulate_stime(syscall_context sc)
     if (t) {
         timestamp dt = now(CLOCK_ID_MONOTONIC_RAW) - sc->start_time;
         fetch_and_add(&t->stime, dt);
+        cputime_update(sc->t, dt, false);
     }
     sc->start_time = 0;
 }

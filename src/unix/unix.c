@@ -415,6 +415,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->posix_timer_ids = create_id_heap(locked, locked, 0, U32_MAX, 1, false);
     p->posix_timers = allocate_vector(locked, 8);
     p->itimers = allocate_vector(locked, 3);
+    p->utime = p->stime = 0;
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);
     p->trace = 0;
@@ -433,31 +434,14 @@ void process_get_cwd(process p, filesystem *cwd_fs, inode *cwd)
     process_unlock(p);
 }
 
-closure_function(2, 1, boolean, count_thread_time,
-                 timestamp *, ts, boolean, is_utime,
-                 rbnode, n)
-{
-    thread t = struct_from_field(n, thread, n);
-    *bound(ts) += bound(is_utime) ? t->utime : t->stime;
-    return true;
-}
-
 timestamp proc_utime(process p)
 {
-    timestamp utime = 0;
-    spin_lock(&p->threads_lock);
-    rbtree_traverse(p->threads, RB_INORDER, stack_closure(count_thread_time, &utime, true));
-    spin_unlock(&p->threads_lock);
-    return utime;
+    return p->utime;
 }
 
 timestamp proc_stime(process p)
 {
-    timestamp stime = 0;
-    spin_lock(&p->threads_lock);
-    rbtree_traverse(p->threads, RB_INORDER, stack_closure(count_thread_time, &stime, false));
-    spin_unlock(&p->threads_lock);
-    return stime;
+    return p->stime;
 }
 
 timestamp thread_utime(thread t)
@@ -468,6 +452,12 @@ timestamp thread_utime(thread t)
 timestamp thread_stime(thread t)
 {
     return t->stime;
+}
+
+void cputime_update(thread t, timestamp delta, boolean is_utime)
+{
+    process p = t->p;
+    fetch_and_add(is_utime ? &p->utime : &p->stime, delta);
 }
 
 define_closure_function(0, 1, u64, unix_mem_cleaner,

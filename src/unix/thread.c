@@ -216,6 +216,7 @@ static void thread_cputime_update(thread t)
         t->utime += diff;
         t->task.runtime = diff;
         t->start_time = 0;
+        cputime_update(t, diff, true);
     }
 }
 
