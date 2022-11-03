@@ -907,8 +907,11 @@ static inline sysreturn syscall_return(thread t, sysreturn val)
 static inline void syscall_accumulate_stime(syscall_context sc)
 {
     assert(sc->start_time != 0);
-    timestamp dt = now(CLOCK_ID_MONOTONIC_RAW) - sc->start_time;
-    fetch_and_add(&sc->t->stime, dt);
+    thread t = sc->t;
+    if (t) {
+        timestamp dt = now(CLOCK_ID_MONOTONIC_RAW) - sc->start_time;
+        fetch_and_add(&t->stime, dt);
+    }
     sc->start_time = 0;
 }
 
@@ -920,10 +923,12 @@ static inline void __attribute__((noreturn)) syscall_finish(boolean exit)
     thread t = sc->t;
     t->syscall = 0;
     context_release_refcount(&sc->context);
-    if (exit)
+    if (exit) {
         thread_release(t);      /* void frame return reference */
-    else
+        sc->t = 0;
+    } else {
         schedule_thread(t);
+    }
     kern_yield();
 }
 
