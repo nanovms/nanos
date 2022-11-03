@@ -273,6 +273,8 @@ declare_closure_struct(2, 2, void, blockq_thread_timeout,
                        blockq, bq, struct thread *, t,
                        u64, expiry, u64, overruns);
 
+declare_closure_struct(0, 0, timestamp, thread_now);
+
 typedef struct thread {
     struct context context;
 
@@ -328,6 +330,8 @@ typedef struct thread {
     int last_syscall;
     timestamp syscall_enter_ts;
     u64 syscall_time;
+    closure_struct(thread_now, now);
+    timerqueue cpu_timers;
 
     /* signals pending and saved state */
     struct sigstate signals;
@@ -346,6 +350,11 @@ typedef struct thread {
     tuple tracelog_attrs;
 #endif
 } *thread;
+
+static inline timestamp thread_cputime(thread t)
+{
+    return t->utime + t->stime;
+}
 
 #define thread_lock(t)      spin_lock(&(t)->lock)
 #define thread_unlock(t)    spin_unlock(&(t)->lock)
@@ -466,6 +475,7 @@ typedef struct file *file;
 
 struct syscall;
 
+declare_closure_struct(0, 0, timestamp, process_now);
 typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
     int               pid;
@@ -500,12 +510,19 @@ typedef struct process {
     vector            posix_timers; /* unix_timer by timerid */
     vector            itimers;      /* unix_timer by ITIMER_ type */
     timestamp         utime, stime;
+    closure_struct(process_now, now);
+    timerqueue        cpu_timers;
     id_heap           aio_ids;
     vector            aio;
     u8                trace;
     boolean           trap;         /* do not run threads when set */
     struct spinlock   lock; /* generic lock for struct members without a specific lock */
 } *process;
+
+static inline timestamp proc_cputime(process p)
+{
+    return p->utime + p->stime;
+}
 
 #define process_lock(p)     spin_lock(&(p)->lock)
 #define process_unlock(p)   spin_unlock(&(p)->lock)
@@ -856,6 +873,8 @@ void thread_sleep_uninterruptible(thread t) __attribute__((noreturn));
 void thread_yield(void) __attribute__((noreturn));
 void thread_wakeup(thread);
 boolean thread_attempt_interrupt(thread t);
+
+timerqueue thread_get_cpu_timer_queue(thread t);
 
 void cputime_update(thread t, timestamp delta, boolean is_utime);
 

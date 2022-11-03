@@ -25,11 +25,16 @@ static boolean timer_compare(void *za, void *zb)
     return timer_expiry((timer)za) > timer_expiry((timer)zb);
 }
 
+static boolean timer_compare_simple(void *za, void *zb)
+{
+    return ((timer)za)->expiry > ((timer)zb)->expiry;
+}
+
 void register_timer(timerqueue tq, timer t, clock_id id,
                     timestamp val, boolean absolute, timestamp interval, timer_handler n)
 {
     t->id = id;
-    t->expiry = absolute ? val : now(id) + val;
+    t->expiry = absolute ? val : timerqueue_now(tq, t) + val;
     t->interval = interval;
     t->absolute = absolute;
     assert(!t->queued);
@@ -75,7 +80,7 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain)
     }
 
     if (remain) {
-        timestamp n = now(t->id);
+        timestamp n = timerqueue_now(tq, t);
         *remain = x > n ? x - n : 0;
     }
     return true;
@@ -89,7 +94,8 @@ void timer_service(timerqueue tq, timestamp here)
 
     timer_debug("timer_service enter for heap \"%s\" at %T\n", tq->name, here);
     timer_lock(tq);
-    while (((t = pqueue_peek(tq->pq)) != INVALID_ADDRESS) && (delta = here - timer_expiry(t), delta >= 0)) {
+    while (((t = pqueue_peek(tq->pq)) != INVALID_ADDRESS) &&
+           (delta = here - timerqueue_expiry(tq, t), delta >= 0)) {
         pqueue_pop(tq->pq);
         assert(t->active && t->queued);
         boolean interval = t->interval != 0;
@@ -103,7 +109,7 @@ void timer_service(timerqueue tq, timestamp here)
         t->queued = false;
         timer_unlock(tq);
         timer_debug("timer %p: expiry %T, overruns %ld, delta %T, apply handler %p (%F)\n",
-                    t, timer_expiry(t), overruns, delta, t->handler, t->handler);
+                    t, timerqueue_expiry(tq, t), overruns, delta, t->handler, t->handler);
         apply(t->handler, t->expiry, overruns);
         timer_lock(tq);
         if (interval) {
@@ -144,15 +150,16 @@ void timer_adjust_end(timerqueue tq, pqueue_element_handler h)
     timer_unlock(tq);
 }
 
-timerqueue allocate_timerqueue(heap h, const char *name)
+timerqueue allocate_timerqueue(heap h, clock_now now, const char *name)
 {
     timerqueue tq = allocate(h, sizeof(struct timerqueue));
-    tq->pq = allocate_pqueue(h, timer_compare);
+    tq->pq = allocate_pqueue(h, now ? timer_compare_simple : timer_compare);
     if (tq->pq == INVALID_ADDRESS) {
         deallocate(h, tq, sizeof(struct timerqueue));
         return INVALID_ADDRESS;
     }
     tq->h = h;
+    tq->now = now;
     tq->name = name;
 #ifdef KERNEL
     spin_lock_init(&tq->lock);
@@ -163,6 +170,12 @@ timerqueue allocate_timerqueue(heap h, const char *name)
     tq->min = tq->max = 0;
 #endif
     return tq;
+}
+
+void deallocate_timerqueue(timerqueue tq)
+{
+    deallocate_pqueue(tq->pq);
+    deallocate(tq->h, tq, sizeof(struct timerqueue));
 }
 
 s64 rtime(s64 *result)

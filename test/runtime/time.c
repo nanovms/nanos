@@ -36,10 +36,16 @@
 #define SECOND_NSEC 1000000000ull
 #define SECOND_USEC 1000000ull
 #define N_INTERVALS 5
+/* with CPU time timers, test short intervals only (otherwise tests would take too long) */
+#define N_INTERVALS_CPUTIME 3
 #define N_CLOCKS 2
+#define N_CLOCKS_CPUTIME    2
 
 static unsigned long long test_intervals[N_INTERVALS] = { 1, 1000, 1000000, SECOND_NSEC, 2 * SECOND_NSEC };
 static clockid_t test_clocks[N_CLOCKS] = { CLOCK_MONOTONIC, CLOCK_REALTIME };
+static clockid_t test_clocks_with_cputime[N_CLOCKS + N_CLOCKS_CPUTIME] = {
+    CLOCK_MONOTONIC, CLOCK_REALTIME, CLOCK_PROCESS_CPUTIME_ID, CLOCK_THREAD_CPUTIME_ID,
+};
 
 static inline void timespec_from_nsec(struct timespec *ts, unsigned long long nsec)
 {
@@ -540,8 +546,9 @@ static void posix_timers_sighandler(int sig, siginfo_t *si, void *ucontext)
 
 void test_posix_timers(void)
 {
-    int ntests = N_CLOCKS * N_INTERVALS * 2 /* one shot, periodic */ * 2 /* absolute, relative */;
-    struct timer_test tests[N_CLOCKS][N_INTERVALS][2][2];
+    int ntests = (N_CLOCKS * N_INTERVALS + N_CLOCKS_CPUTIME * N_INTERVALS_CPUTIME) *
+            2 /* one shot, periodic */ * 2 /* absolute, relative */;
+    struct timer_test tests[N_CLOCKS + N_CLOCKS_CPUTIME][N_INTERVALS][2][2];
 
     timetest_msg("testing interface\n");
     int rv = syscall(SYS_timer_create, CLOCK_MONOTONIC, 0, 0);
@@ -585,13 +592,13 @@ void test_posix_timers(void)
 
     timetest_msg("starting signal test\n");
     int id = 0;
-    for (int i = 0; i < N_CLOCKS; i++) {
-        for (int j = 0; j < N_INTERVALS; j++) {
+    for (int i = 0; i < N_CLOCKS + N_CLOCKS_CPUTIME; i++) {
+        for (int j = 0; j < ((i < N_CLOCKS) ? N_INTERVALS : N_INTERVALS_CPUTIME); j++) {
             for (int k = 0; k < 2; k++) {
                 for (int l = 0; l < 2; l++) {
                     struct timer_test *test = &tests[i][j][k][l];
                     test->test_id = id++;
-                    test->clock = test_clocks[i];
+                    test->clock = test_clocks_with_cputime[i];
                     test->nsec = test_intervals[j];
                     test->overruns = k == 0 ? 1 : 3 /* XXX */;
                     test->absolute = l;
@@ -623,11 +630,12 @@ void test_posix_timers(void)
         fail_perror("sigprocmask");
 }
 
-/* XXX only ITIMER_REAL right now */
-#define N_WHICH 1
+/* XXX only ITIMER_REAL and ITIMER_PROF right now */
+#define N_WHICH 2
 
-/* add clock ids here when we support prof and vt */
-clockid_t itimer_clockids[N_WHICH] = { CLOCK_REALTIME };
+static int itimer_types[N_WHICH] = { ITIMER_REAL, ITIMER_PROF };
+static int itimer_signals[N_WHICH] = { SIGALRM, SIGPROF };
+clockid_t itimer_clockids[N_WHICH] = { CLOCK_REALTIME, CLOCK_PROCESS_CPUTIME_ID };
 volatile int itimer_expect, itimer_which;
 volatile struct timespec itimer_finished;
 
@@ -635,14 +643,14 @@ static void itimers_sighandler(int sig, siginfo_t *si, void *ucontext)
 {
     assert(si);
     timetest_debug("sig %d, si->errno %d, si->code %d\n", sig, si->si_errno, si->si_code);
-    assert(sig == SIGALRM);
+    assert(sig == itimer_signals[itimer_which]);
     assert(sig == si->si_signo);
     assert(si->si_code == SI_KERNEL);
     if (itimer_expect > 0) {
         if (itimer_expect == 1) {
             struct itimerval itv;
             memset(&itv, 0, sizeof(struct itimerval));
-            if (syscall(SYS_setitimer, itimer_which, &itv, 0 /* XXX check old val */) < 0)
+            if (syscall(SYS_setitimer, itimer_types[itimer_which], &itv, 0 /* XXX check old val */) < 0)
                 fail_perror("setitimer");
             if (clock_gettime(itimer_clockids[itimer_which], (struct timespec*)&itimer_finished) < 0)
                 fail_perror("clock_gettime");
@@ -682,9 +690,14 @@ void test_itimers(void)
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = itimers_sighandler;
     sa.sa_flags |= SA_SIGINFO;
-    rv = sigaction(SIGALRM, &sa, 0);
-    if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+    for (int i = 0; i < N_WHICH; i++) {
+        rv = syscall(SYS_getitimer, itimer_types[i], &itv);
+        if (rv < 0)
+            fail_perror("test_itimers: getitimer (%d)", i);
+        rv = sigaction(itimer_signals[i], &sa, 0);
+        if (rv < 0)
+            fail_perror("test_itimers: sigaction (%d)", i);
+    }
 
     sigset_t ss;
     sigemptyset(&ss);
@@ -695,7 +708,8 @@ void test_itimers(void)
 
     timetest_msg("starting itimer test\n");
     for (int i = 0; i < N_WHICH; i++) {
-        for (int j = 1 /* skip 1ns */; j < N_INTERVALS; j++) {
+        for (int j = 1 /* skip 1ns */;
+             j < ((itimer_types[i] == ITIMER_REAL) ? N_INTERVALS : N_INTERVALS_CPUTIME); j++) {
             for (int k = 0; k < 2; k++) {
                 struct timespec start;
                 timeval_from_nsec(&itv.it_value, test_intervals[j]);
@@ -707,7 +721,7 @@ void test_itimers(void)
                 itimer_expect = overruns;
                 if (clock_gettime(itimer_clockids[i], &start) < 0)
                     fail_perror("clock_gettime");
-                if (syscall(SYS_setitimer, i, &itv, 0 /* XXX check old val */) < 0)
+                if (syscall(SYS_setitimer, itimer_types[i], &itv, 0 /* XXX check old val */) < 0)
                     fail_perror("setitimer");
                 while (itimer_expect > 0)
                     usleep(50000); /* XXX ugh ... also need timeout */

@@ -379,6 +379,12 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     return true;
 }
 
+define_closure_function(0, 0, timestamp, process_now)
+{
+    process p = struct_from_field(closure_self(), process, now);
+    return proc_cputime(p);
+}
+
 process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
     kernel_heaps kh = (kernel_heaps)uh;
@@ -416,6 +422,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->posix_timers = allocate_vector(locked, 8);
     p->itimers = allocate_vector(locked, 3);
     p->utime = p->stime = 0;
+    p->cpu_timers = allocate_timerqueue(locked, init_closure(&p->now, process_now), "cpu time");
+    assert(p->cpu_timers != INVALID_ADDRESS);
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);
     p->trace = 0;
@@ -456,8 +464,11 @@ timestamp thread_stime(thread t)
 
 void cputime_update(thread t, timestamp delta, boolean is_utime)
 {
+    if (t->cpu_timers)
+        timer_service(t->cpu_timers, thread_cputime(t));
     process p = t->p;
     fetch_and_add(is_utime ? &p->utime : &p->stime, delta);
+    timer_service(p->cpu_timers, proc_cputime(p));
 }
 
 define_closure_function(0, 1, u64, unix_mem_cleaner,

@@ -34,6 +34,14 @@ typedef struct timerqueue {
     pqueue pq;
     timestamp next_expiry;      /* adjusted */
     thunk service;
+
+    /* If non-null, it is used to get the current timestamp (which does not depend on a timer id
+     * because all timers are of the same type and their expiry value is given by the 'expiry' timer
+     * struct field).
+     * If null, a timer id determines both its current timestamp (retrieved by calling the global
+     * now() function) and its expiry value (retrieved via the timer_expiry() function). */
+    clock_now now;
+
     timestamp min;
     timestamp max;
     u32 service_scheduled;  /* CAS */
@@ -83,8 +91,7 @@ void register_timer(timerqueue tq, timer t, clock_id id,
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 #endif
 
-/* Convert to monotonic raw. Not clear yet how to map process and thread
-   times to monotonic scale. Should the process have its own timer heap? */
+/* Convert to monotonic raw. Only used for system time (not for process or thread CPU time). */
 static inline timestamp timer_expiry(timer t)
 {
     timestamp expiry = t->expiry;
@@ -113,9 +120,19 @@ static inline timestamp timer_expiry(timer t)
     return expiry;
 }
 
-static inline void timer_get_remaining(timer t, timestamp *remain, timestamp *interval)
+static inline timestamp timerqueue_now(timerqueue tq, timer t)
 {
-    timestamp tnow = now(t->id);
+    return (tq->now ? apply(tq->now) : now(t->id));
+}
+
+static inline timestamp timerqueue_expiry(timerqueue tq, timer t)
+{
+    return (tq->now ? t->expiry : timer_expiry(t));
+}
+
+static inline void timer_get_remaining(timerqueue tq, timer t, timestamp *remain, timestamp *interval)
+{
+    timestamp tnow = timerqueue_now(tq, t);
     *remain = t->expiry > tnow ? t->expiry - tnow : 0;
     *interval = t->interval;
 }
@@ -126,7 +143,7 @@ static inline void refresh_timer_update_locked(timerqueue tq, timer next)
         tq->empty = true;
         return;
     }
-    timestamp n = timer_expiry(next);
+    timestamp n = timerqueue_expiry(tq, next);
     if (n != tq->next_expiry)
         tq->next_expiry = n;
     tq->empty = false;
@@ -146,7 +163,8 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain);
 
 typedef closure_type(timer_select, boolean, timer);
 
-timerqueue allocate_timerqueue(heap h, const char *name);
+timerqueue allocate_timerqueue(heap h, clock_now now, const char *name);
+void deallocate_timerqueue(timerqueue tq);
 void timer_service(timerqueue tq, timestamp here);
 void timer_reorder(timerqueue tq);
 

@@ -262,7 +262,7 @@ closure_function(0, 0, void, global_shutdown)
 void init_scheduler(heap h)
 {
     /* timer init */
-    kernel_timers = allocate_timerqueue(h, "runloop");
+    kernel_timers = allocate_timerqueue(h, 0, "runloop");
     assert(kernel_timers != INVALID_ADDRESS);
     kernel_timers->min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     kernel_timers->max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);

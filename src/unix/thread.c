@@ -374,10 +374,31 @@ boolean thread_attempt_interrupt(thread t)
     return success;
 }
 
+define_closure_function(0, 0, timestamp, thread_now)
+{
+    thread t = struct_from_field(closure_self(), thread, now);
+    return thread_cputime(t);
+}
+
+timerqueue thread_get_cpu_timer_queue(thread t)
+{
+    thread_lock(t);
+    if (!t->cpu_timers) {
+        timerqueue tq = allocate_timerqueue(heap_locked((kernel_heaps)&t->uh),
+                                            init_closure(&t->now, thread_now), t->name);
+        if (tq != INVALID_ADDRESS)
+            t->cpu_timers = tq;
+    }
+    thread_unlock(t);
+    return t->cpu_timers;
+}
+
 define_closure_function(1, 0, void, free_thread,
                         thread, t)
 {
     thread t = bound(t);
+    if (t->cpu_timers)
+        deallocate_timerqueue(t->cpu_timers);
     deallocate_bitmap(t->affinity);
     deallocate_notify_set(t->signalfds);
     /* XXX only free tids from non-leader threads. Leader threads will
@@ -452,6 +473,7 @@ thread create_thread(process p, u64 tid)
     t->utime = t->stime = 0;
     t->start_time = 0;
     t->last_syscall = -1;
+    t->cpu_timers = 0;
 
     list_init(&t->l_faultwait);
     spin_lock_init(&t->lock);

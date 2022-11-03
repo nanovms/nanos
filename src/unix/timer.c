@@ -40,6 +40,7 @@ typedef struct unix_timer {
     int type;
     boolean interval;
     clock_id cid;
+    timerqueue tq;
     struct timer t;
     u64 overruns;
     struct spinlock lock;
@@ -82,7 +83,7 @@ define_closure_function(1, 0, void, unix_timer_free,
     deallocate(unix_timer_heap, bound(ut), sizeof(struct unix_timer));
 }
 
-static unix_timer allocate_unix_timer(int type, clock_id cid)
+static unix_timer allocate_unix_timer(int type, timerqueue tq, clock_id cid)
 {
     unix_timer ut = allocate(unix_timer_heap, sizeof(struct unix_timer));
     if (ut == INVALID_ADDRESS)
@@ -90,6 +91,7 @@ static unix_timer allocate_unix_timer(int type, clock_id cid)
     ut->p = current->p;
     ut->type = type;
     ut->interval = false;
+    ut->tq = tq;
     ut->cid = cid;
     init_timer(&ut->t);
     ut->overruns = 0;
@@ -115,7 +117,7 @@ static void itimerspec_from_timer(unix_timer ut, struct itimerspec *i)
 {
     timestamp remain = 0, interval = 0;
     if (timer_is_active(&ut->t))
-        timer_get_remaining(&ut->t, &remain, &interval);
+        timer_get_remaining(ut->tq, &ut->t, &remain, &interval);
     timespec_from_time(&i->it_value, remain);
     timespec_from_time(&i->it_interval, interval);
 }
@@ -124,14 +126,14 @@ static void itimerval_from_timer(unix_timer ut, struct itimerval *i)
 {
     timestamp remain = 0, interval = 0;
     if (timer_is_active(&ut->t))
-        timer_get_remaining(&ut->t, &remain, &interval);
+        timer_get_remaining(ut->tq, &ut->t, &remain, &interval);
     timeval_from_time(&i->it_value, remain);
     timeval_from_time(&i->it_interval, interval);
 }
 
 static inline void remove_unix_timer(unix_timer ut)
 {
-    remove_timer(kernel_timers, &ut->t, 0);
+    remove_timer(ut->tq, &ut->t, 0);
 }
 
 define_closure_function(1, 2, void, timerfd_timer_expire,
@@ -344,7 +346,7 @@ sysreturn timerfd_create(int clockid, int flags)
     if (flags & ~(TFD_NONBLOCK | TFD_CLOEXEC))
         return -EINVAL;
 
-    unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_TIMERFD, clockid);
+    unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_TIMERFD, kernel_timers, clockid);
     if (ut == INVALID_ADDRESS)
         return -ENOMEM;
 
@@ -471,7 +473,7 @@ sysreturn timer_settime(u32 timerid, int flags,
     if (interval != 0)
         ut->interval = true;
     reserve_unix_timer(ut);
-    register_timer(kernel_timers, &ut->t, ut->cid, tinit, absolute, interval,
+    register_timer(ut->tq, &ut->t, ut->cid, tinit, absolute, interval,
                    init_closure(&ut->info.posix.timer_expire, posix_timer_expire, ut));
     rv = 0;
   out:
@@ -525,15 +527,11 @@ sysreturn timer_delete(u32 timerid) {
 
 sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
 {
-    if (clockid == CLOCK_PROCESS_CPUTIME_ID ||
-        clockid == CLOCK_THREAD_CPUTIME_ID) {
-        msg_err("%s: clockid %d not implemented\n", __func__);
-        return -EOPNOTSUPP;
-    }
-
     if (clockid != CLOCK_REALTIME &&
         clockid != CLOCK_MONOTONIC &&
         clockid != CLOCK_BOOTTIME &&
+        clockid != CLOCK_PROCESS_CPUTIME_ID &&
+        clockid != CLOCK_THREAD_CPUTIME_ID &&
         clockid != CLOCK_REALTIME_ALARM &&
         clockid != CLOCK_BOOTTIME_ALARM)
         return -EINVAL;
@@ -567,7 +565,21 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
         }
     }
 
-    unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, clockid);
+    timerqueue tq;
+    switch (clockid) {
+    case CLOCK_PROCESS_CPUTIME_ID:
+        tq = p->cpu_timers;
+        break;
+    case CLOCK_THREAD_CPUTIME_ID:
+        tq = thread_get_cpu_timer_queue(current);
+        if (!tq)
+            goto err_nomem;
+        break;
+    default:
+        tq = kernel_timers;
+        break;
+    }
+    unix_timer ut = allocate_unix_timer(UNIX_TIMER_TYPE_POSIX, tq, clockid);
     if (ut == INVALID_ADDRESS)
         goto err_nomem;
     spin_lock(&ut->lock);
@@ -615,10 +627,10 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
 
 sysreturn getitimer(int which, struct itimerval *curr_value)
 {
-    if (which == ITIMER_VIRTUAL || which == ITIMER_PROF) {
-        msg_err("timer type %d not yet supported\n");
+    if (which == ITIMER_VIRTUAL) {
+        msg_err("timer type %d not yet supported\n", which);
         return -EOPNOTSUPP;
-    } else if (which != ITIMER_REAL) {
+    } else if ((which != ITIMER_REAL) && (which != ITIMER_PROF)) {
         return -EINVAL;
     }
 
@@ -683,7 +695,7 @@ static sysreturn setitimer_internal(unix_timer ut,
     if (interval != 0)
         ut->interval = true;
     reserve_unix_timer(ut);
-    register_timer(kernel_timers, &ut->t, CLOCK_ID_MONOTONIC, tinit, false, interval,
+    register_timer(ut->tq, &ut->t, CLOCK_ID_MONOTONIC, tinit, false, interval,
                    init_closure(&ut->info.itimer.timer_expire, itimer_expire, ut));
     rv = 0;
   out:
@@ -695,7 +707,9 @@ static unix_timer unix_timer_from_itimer_index(process p, int which)
 {
     unix_timer ut = vector_get(p->itimers, which);
     if (!ut) {
-        ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER, CLOCK_ID_MONOTONIC);
+        ut = allocate_unix_timer(UNIX_TIMER_TYPE_ITIMER,
+                                 (which == ITIMER_REAL) ? kernel_timers : p->cpu_timers,
+                                 CLOCK_ID_MONOTONIC);
         if (ut == INVALID_ADDRESS)
             return ut;
         ut->info.itimer.which = which;
@@ -721,11 +735,6 @@ static unix_timer unix_timer_from_itimer_index(process p, int which)
 sysreturn setitimer(int which, const struct itimerval *new_value,
                     struct itimerval *old_value)
 {
-    /* XXX: ITIMER_PROF should account only for CPU time spent by the process (both user and system
-     * time), but is currently treated like ITIMER_REAL.
-     * A possible method to account for CPU time might be to create a timer heap per clock domain
-     * (in this case timer heaps attached to the process itself). We are presently limited by all
-     * timers mapping to monotonic system time. */
     if (which == ITIMER_VIRTUAL) {
         msg_err("timer type %d not yet supported\n", which);
         if (new_value) {
