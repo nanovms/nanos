@@ -10,20 +10,23 @@
 #define kvm_debug(x)
 #endif
 
-#define KVM_CPUID_SIGNATURE 0x40000000
+#define KVM_CPUID_BASE      0x40000000
+#define KVM_CPUID_END       0x40000200
+
+#define KVM_CPUID_SIGNATURE 0
 #define KVM_SIGNATURE_0     0x4b4d564b
 #define KVM_SIGNATURE_1     0x564b4d56
 #define KVM_SIGNATURE_2     0x0000004d
-#define KVM_CPUID_FEATURES  0x40000001
+#define KVM_CPUID_FEATURES  1
 #define KVM_MSR_SYSTEM_TIME 0x4b564d01
 #define KVM_MSR_WALL_CLOCK  0x4b564d00
 
-static boolean probe_kvm_pvclock(kernel_heaps kh)
+static boolean probe_kvm_pvclock(kernel_heaps kh, u32 cpuid_fn)
 {
     kvm_debug("probing for KVM pvclock...");
     heap backed = (heap)heap_page_backed(kh);
     u32 v[4];
-    cpuid(KVM_CPUID_FEATURES, 0, v);
+    cpuid(cpuid_fn + KVM_CPUID_FEATURES, 0, v);
     if ((v[0] & (1 << 3)) == 0) {
         kvm_debug("no pvclock detected");
         return false;
@@ -48,17 +51,18 @@ static boolean probe_kvm_pvclock(kernel_heaps kh)
 boolean kvm_detect(kernel_heaps kh)
 {
     kvm_debug("probing for KVM...");
+    u32 fn;
     u32 v[4];
-    cpuid(KVM_CPUID_SIGNATURE, 0, v);
-    if (!(v[1] == KVM_SIGNATURE_0 && v[2] == KVM_SIGNATURE_1 && v[3] == KVM_SIGNATURE_2)) {
-        kvm_debug("no KVM signature match");
-        return false;
+    for (fn = KVM_CPUID_BASE; fn < KVM_CPUID_END; fn += 0x100) {
+        cpuid(fn + KVM_CPUID_SIGNATURE, 0, v);
+        if (v[1] == KVM_SIGNATURE_0 && v[2] == KVM_SIGNATURE_1 && v[3] == KVM_SIGNATURE_2 &&
+            v[0] >= fn + KVM_CPUID_FEATURES) {
+            break;
+        }
     }
-    if (v[0] != KVM_CPUID_FEATURES) {
-        msg_err("found signature but unrecognized features cpuid 0x%lx; check KVM version?", v[0]);
+    if (fn == KVM_CPUID_END)
         return false;
-    }
-    if (!probe_kvm_pvclock(kh)) {
+    if (!probe_kvm_pvclock(kh, fn)) {
         msg_err("unable to probe pvclock\n");
         return false;
     }
