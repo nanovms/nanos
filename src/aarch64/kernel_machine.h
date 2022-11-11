@@ -158,7 +158,10 @@
 #define SCTLR_EL1_M       U64_FROM_BIT(0) /* MMU enable */
 
 #define SPSR_I U64_FROM_BIT(7)
+#define SPSR_SS  U64_FROM_BIT(21)
 #define SPSR_TCO U64_FROM_BIT(25)
+
+#define MDSCR_EL1_SS    U64_FROM_BIT(0)     /* software step enable */
 
 #ifndef __ASSEMBLY__
 /* interrupt control */
@@ -400,6 +403,17 @@ static inline void frame_set_stack_top(context_frame f, void *st)
 static inline void frame_reset_stack(context_frame f)
 {
     f[FRAME_SP] = f[FRAME_STACK_TOP];
+}
+
+static inline void frame_enable_stepping(context_frame f)
+{
+    f[FRAME_ESR_SPSR] |= SPSR_SS;
+    write_psr(MDSCR_EL1, read_psr(MDSCR_EL1) | MDSCR_EL1_SS);
+}
+
+static inline void frame_disable_stepping(context_frame f)
+{
+    write_psr(MDSCR_EL1, read_psr(MDSCR_EL1) & ~MDSCR_EL1_SS);
 }
 
 static inline boolean validate_frame_ptr(u64 *fp)

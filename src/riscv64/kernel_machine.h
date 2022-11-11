@@ -300,6 +300,14 @@ static inline void frame_reset_stack(context_frame f)
     f[FRAME_SP] = f[FRAME_STACK_TOP];
 }
 
+static inline void frame_enable_stepping(context_frame f)
+{
+}
+
+static inline void frame_disable_stepping(context_frame f)
+{
+}
+
 static inline boolean validate_frame_ptr(u64 *fp)
 {
     if (!validate_virtual(fp - 1, sizeof(u64)) ||

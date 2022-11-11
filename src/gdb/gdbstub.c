@@ -10,6 +10,16 @@
 
 static int sigval;
 
+static inline void clear_thread_stepping(thread t)
+{
+    frame_disable_stepping(thread_frame(t));
+}
+
+static inline void set_thread_stepping(thread t)
+{
+    frame_enable_stepping(thread_frame(t));
+}
+
 static void reset_parser(gdb g)
 {
     g->checksum =0;

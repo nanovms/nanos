@@ -7,18 +7,6 @@ static inline int computeSignal (context_frame frame)
     return(signalmap[exceptionVector]);
 }
 
-static inline void clear_thread_stepping(thread t)
-{
-    thread_frame(t)[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_TRAP);
-    thread_frame(t)[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_RESUME);
-}
-
-static inline void set_thread_stepping(thread t)
-{
-    thread_frame(t)[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_RESUME);
-    thread_frame(t)[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_TRAP);
-}
-
 /* XXX This is a hack. The numbering of the registers is based on
  * xml files describing the registers. For reference, see
  * https://github.com/bminor/binutils-gdb/tree/master/gdb/features/i386

@@ -432,6 +432,18 @@ static inline void frame_reset_stack(context_frame f)
     f[FRAME_RSP] = f[FRAME_STACK_TOP];
 }
 
+static inline void frame_enable_stepping(context_frame f)
+{
+    f[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_RESUME);
+    f[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_TRAP);
+}
+
+static inline void frame_disable_stepping(context_frame f)
+{
+    f[FRAME_EFLAGS] &= ~U64_FROM_BIT(EFLAG_TRAP);
+    f[FRAME_EFLAGS] |= U64_FROM_BIT(EFLAG_RESUME);
+}
+
 static inline boolean validate_frame_ptr(u64 *fp)
 {
     if (!validate_virtual(fp, sizeof(u64)) ||
