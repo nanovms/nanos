@@ -3,6 +3,7 @@
 #include <gdb.h>
 #include <symtab.h>
 #include <filesystem.h>
+#include <ltrace.h>
 
 //#define EXEC_DEBUG
 #ifdef EXEC_DEBUG
@@ -304,6 +305,12 @@ process exec_elf(buffer ex, process kp)
         exec_debug("ingesting symbols...\n");
         add_elf_syms(ex, load_offset);
         exec_debug("...done\n");
+    }
+
+    value ltrace = get(proc->process_root, sym(ltrace));
+    if (ltrace) {
+        exec_debug("initializing ltrace...\n");
+        ltrace_init(ltrace, ex, load_offset);
     }
 
     register_root_notify(sym(trace), closure(heap_locked(kh), trace_notify, proc));

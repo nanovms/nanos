@@ -3,6 +3,7 @@
 #include <gdb.h>
 #include <filesystem.h>
 #include <drivers/console.h>
+#include <ltrace.h>
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
@@ -204,10 +205,12 @@ define_closure_function(1, 1, context, unix_fault_handler,
             errmsg = "Illegal instruction in kernel mode";
             goto bug;
         }
-    } else if (is_breakpoint(ctx->frame)) {
+    } else if (is_trap(ctx->frame)) {
         if (current_cpu()->state == cpu_user) {
-            pf_debug("breakpoint in user mode, rip 0x%lx", fault_pc);
-            deliver_fault_signal(SIGTRAP, t, fault_pc, TRAP_BRKPT);
+            pf_debug("trap in user mode, rip 0x%lx", fault_pc);
+            if (!ltrace_handle_trap(ctx->frame))
+                deliver_fault_signal(SIGTRAP, t, fault_pc,
+                                     is_breakpoint(ctx->frame) ? TRAP_BRKPT : TRAP_TRACE);
             schedule_thread(t);
             return 0;
         } else {

@@ -228,10 +228,12 @@ typedef struct {
 #define DT_RELAENT  9
 #define DT_JMPREL   23
 
+#define SHT_PROGBITS 1
 #define SHT_SYMTAB 2/* symbol table section */
 #define SHT_STRTAB 3/* string table section */
 #define SHT_RELA   4
 #define SHT_DYNAMIC 6
+#define SHT_NOBITS  8
 #define SHT_DYNSYM  11
 
 #define foreach_phdr(__e, __p)\
@@ -248,10 +250,12 @@ typedef closure_type(elf_loader, void, u64 /* offset */, u64 /* length */, void 
                      status_handler);
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
 typedef closure_type(elf_sym_resolver, void *, const char *);
+char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset);
 void elf_symbols(buffer elf, elf_sym_handler each);
 boolean elf_dyn_parse(buffer elf, Elf64_Shdr **symtab, Elf64_Shdr **strtab, Elf64_Rela **reltab,
                       int *relcount);
 boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver);
+boolean elf_plt_get(buffer elf, u64 *addr, u64 *offset, u64 *size);
 void walk_elf(buffer elf, range_handler rh);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
 void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh);

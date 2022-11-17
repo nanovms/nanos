@@ -45,6 +45,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/linear_backed_heap.c \
 	$(SRCDIR)/kernel/locking_heap.c \
 	$(SRCDIR)/kernel/log.c \
+	$(SRCDIR)/kernel/ltrace.c \
 	$(SRCDIR)/kernel/mutex.c \
 	$(SRCDIR)/kernel/page.c \
 	$(SRCDIR)/kernel/page_backed_heap.c \
@@ -156,6 +157,7 @@ AFLAGS+=-I$(ARCHDIR)
 
 CFLAGS+=$(KERNCFLAGS) -DKERNEL -DSMP_ENABLE -O3 -march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18 -fno-pic
 CFLAGS+=-Wno-address # lwIP build sadness
+CFLAGS+=-DCONFIG_LTRACE
 CFLAGS+=$(INCLUDES)
 
 # Enable tracing by specifying TRACE=ftrace on command line

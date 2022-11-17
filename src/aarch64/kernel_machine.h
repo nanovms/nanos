@@ -45,6 +45,7 @@
 #define ESR_EC_DATA_ABRT      0x25
 #define ESR_EC_SP_ALIGN_FAULT 0x26
 #define ESR_EC_SERROR_INT     0x2f
+#define ESR_EC_SS             0x32
 #define ESR_EC_BRK            0x3c
 
 #define ESR_IL        U64_FROM_BIT(25)
@@ -351,6 +352,13 @@ static inline boolean is_breakpoint(context_frame f)
     return false;
 }
 
+static inline boolean is_trap(context_frame f)
+{
+    u64 esr = esr_from_frame(f);
+    u32 ec = field_from_u64(esr, ESR_EC);
+    return (ec == ESR_EC_SS) || (ec == ESR_EC_BRK);
+}
+
 static inline boolean is_illegal_instruction(context_frame f)
 {
     u64 esr = esr_from_frame(f);
@@ -403,6 +411,11 @@ static inline void frame_set_stack_top(context_frame f, void *st)
 static inline void frame_reset_stack(context_frame f)
 {
     f[FRAME_SP] = f[FRAME_STACK_TOP];
+}
+
+static inline void frame_set_insn_ptr(context_frame f, u64 ip)
+{
+    f[FRAME_ELR] = ip;
 }
 
 static inline void frame_enable_stepping(context_frame f)

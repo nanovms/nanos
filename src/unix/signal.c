@@ -1,5 +1,6 @@
 #include <unix_internal.h>
 #include <ftrace.h>
+#include <ltrace.h>
 
 //#define SIGNAL_DEBUG
 #ifdef SIGNAL_DEBUG
@@ -1153,6 +1154,8 @@ boolean dispatch_signals(thread t)
         default_signal_action(t, &qs);
         assert(0); // should not get here
     }
+
+    ltrace_signal(si->si_signo);
 
     /* apply signal mask for handler */
     t->signal_mask |= mask_from_sig(signum) | sa->sa_mask.sig[0];

@@ -250,6 +250,11 @@ static inline boolean is_breakpoint(context_frame f)
     return SCAUSE_CODE(f[FRAME_CAUSE]) == TRAP_E_BREAKPOINT;
 }
 
+static inline boolean is_trap(context_frame f)
+{
+    return is_breakpoint(f);
+}
+
 static inline boolean is_illegal_instruction(context_frame f)
 {
     return SCAUSE_CODE(f[FRAME_CAUSE]) == TRAP_E_ILLEGAL_INST;
@@ -298,6 +303,11 @@ static inline void frame_set_stack_top(context_frame f, void *st)
 static inline void frame_reset_stack(context_frame f)
 {
     f[FRAME_SP] = f[FRAME_STACK_TOP];
+}
+
+static inline void frame_set_insn_ptr(context_frame f, u64 ip)
+{
+    f[FRAME_PC] = ip;
 }
 
 static inline void frame_enable_stepping(context_frame f)

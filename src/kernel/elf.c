@@ -12,7 +12,7 @@
 #define elf_debug(x, ...)
 #endif
 
-static char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
+char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
 {
     char * str = buffer_ref(elf, string_section->sh_offset + offset);
     char * end = buffer_ref(elf, string_section->sh_offset + string_section->sh_size);
@@ -188,6 +188,45 @@ boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
                                                  buffer_ref(elf, symtab->sh_offset),
                                                  symtab->sh_size / symtab->sh_entsize, strtab,
                                                  resolver));
+}
+
+boolean elf_plt_get(buffer elf, u64 *addr, u64 *offset, u64 *size)
+{
+    Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(elf, 0);
+    void *elf_end = buffer_end(elf);
+    Elf64_Shdr *section_names = buffer_ref(elf, e->e_shoff + e->e_shstrndx * e->e_shentsize);
+    ELF_CHECK_PTR(section_names, Elf64_Shdr);
+    if (elf_string(elf, section_names, section_names->sh_size) > (char*)elf_end)
+        goto out_elf_fail;
+    Elf64_Shdr *plt_section = 0;
+    char *name;
+    foreach_shdr(e, s) {
+        switch (s->sh_type) {
+        case SHT_PROGBITS:
+        case SHT_NOBITS:
+            name = elf_string(elf, section_names, s->sh_name);
+            if (!name)
+                goto out_elf_fail;
+            if ((name[0] == '.') && (name[1] == 'p') && (name[2] == 'l') && (name[3] == 't')) {
+                ELF_CHECK_PTR(s, Elf64_Shdr);
+                elf_debug("%s: found section %s\n", __func__, name);
+                if (!plt_section) {
+                    plt_section = s;
+                    *addr = s->sh_addr;
+                    *offset = s->sh_offset;
+                    *size = s->sh_size;
+                    elf_debug("  address 0x%lx, offset 0x%lx, size 0x%lx\n", *addr, *offset, *size);
+                } else if (s->sh_addr == plt_section->sh_addr + *size) {
+                    *size += s->sh_size;
+                    elf_debug("  size expanded to 0x%lx\n", *size);
+                }
+            }
+            break;
+        }
+    }
+    return (plt_section != 0);
+  out_elf_fail:
+    return false;
 }
 
 void walk_elf(buffer elf, range_handler rh)
