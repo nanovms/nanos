@@ -249,6 +249,8 @@ typedef closure_type(elf_loader, void, u64 /* offset */, u64 /* length */, void 
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
 typedef closure_type(elf_sym_resolver, void *, const char *);
 void elf_symbols(buffer elf, elf_sym_handler each);
+boolean elf_dyn_parse(buffer elf, Elf64_Shdr **symtab, Elf64_Shdr **strtab, Elf64_Rela **reltab,
+                      int *relcount);
 boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver);
 void walk_elf(buffer elf, range_handler rh);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
@@ -257,7 +259,8 @@ void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler 
 /* Architecture-specific */
 typedef closure_type(elf_sym_relocator, boolean, Elf64_Rela *);
 void elf_apply_relocate_add(buffer elf, Elf64_Shdr *s, u64 offset);
-boolean elf_apply_relocate_syms(buffer elf, Elf64_Shdr *s, elf_sym_relocator relocator);
+boolean elf_apply_relocate_syms(buffer elf, Elf64_Rela *reltab, int relcount,
+                                elf_sym_relocator relocator);
 
 static inline void elf_apply_relocs(buffer elf, u64 offset)
 {

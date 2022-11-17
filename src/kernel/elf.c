@@ -93,7 +93,8 @@ closure_function(6, 1, boolean, elf_sym_relocate,
     return true;
 }
 
-boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
+boolean elf_dyn_parse(buffer elf, Elf64_Shdr **symtab, Elf64_Shdr **strtab, Elf64_Rela **reltab,
+                      int *relcount)
 {
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(elf, 0);
     void *elf_end = buffer_end(elf);
@@ -107,6 +108,8 @@ boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
             break;
         }
     }
+    *symtab = *strtab = 0;
+    *reltab = 0;
     if (!dyn)
         return true;
 
@@ -125,7 +128,8 @@ boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
             break;
         case DT_RELA:
         case DT_JMPREL:
-            reltab_offset = dyn->d_un.d_ptr;
+            if (!reltab_offset || (dyn->d_un.d_ptr < reltab_offset))
+                reltab_offset = dyn->d_un.d_ptr;
             break;
         }
         dyn++;
@@ -133,38 +137,57 @@ boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
     if (!symtab_offset || !strtab_offset || !reltab_offset)
         return true;
 
-    /* Look for the section headers of the tables referenced in the dynamic section */
-    Elf64_Shdr *symtab = 0, *strtab = 0, *reltab = 0;
+    /* Look for the section headers of the tables referenced in the dynamic section. If there are
+     * multiple relocation sections, merge them so they appear as a single relocation table.*/
+    Elf64_Shdr *rel_section = 0;
     foreach_shdr(e, s) {
         switch (s->sh_type) {
         case SHT_DYNSYM:
-            if (s->sh_offset == symtab_offset)
-                symtab = s;
+            if (s->sh_addr == symtab_offset)
+                *symtab = s;
             break;
         case SHT_STRTAB:
-            if (s->sh_offset == strtab_offset)
-                strtab = s;
+            if (s->sh_addr == strtab_offset)
+                *strtab = s;
             break;
         case SHT_RELA:
-            if (s->sh_offset == reltab_offset)
-                reltab = s;
+            ELF_CHECK_PTR(s, Elf64_Shdr);
+            assert(s->sh_entsize == sizeof(Elf64_Rela));
+            if (s->sh_addr == reltab_offset) {
+                rel_section = s;
+                *reltab = buffer_ref(elf, s->sh_offset);
+                *relcount = s->sh_size / sizeof(Elf64_Rela);
+            } else if (rel_section && (s->sh_addr == rel_section->sh_addr + rel_section->sh_size)) {
+                *relcount += s->sh_size / sizeof(Elf64_Rela);
+            }
             break;
         }
     }
-    if (!symtab || !strtab || !reltab)
+    if (!*symtab || !*strtab || !*reltab)
         goto out_elf_fail;
 
-    ELF_CHECK_PTR(symtab, Elf64_Shdr);
-    ELF_CHECK_PTR(strtab, Elf64_Shdr);
-    ELF_CHECK_PTR(reltab, Elf64_Shdr);
-    return elf_apply_relocate_syms(elf, reltab,
-                                   stack_closure(elf_sym_relocate, elf, load_addr,
-                                                 buffer_ref(elf, symtab_offset),
-                                                 symtab->sh_size / symtab->sh_entsize, strtab,
-                                                 resolver));
+    ELF_CHECK_PTR(*symtab, Elf64_Shdr);
+    ELF_CHECK_PTR(*strtab, Elf64_Shdr);
+    return true;
   out_elf_fail:
     msg_err("failed to parse elf, len %d\n", buffer_length(elf));
     return false;
+}
+
+boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
+{
+    Elf64_Shdr *symtab, *strtab;
+    Elf64_Rela *reltab;
+    int relcount;
+    if (!elf_dyn_parse(elf, &symtab, &strtab, &reltab, &relcount))
+        return false;
+    if (!symtab || !strtab || !reltab)
+        return true;
+    return elf_apply_relocate_syms(elf, reltab, relcount,
+                                   stack_closure(elf_sym_relocate, elf, load_addr,
+                                                 buffer_ref(elf, symtab->sh_offset),
+                                                 symtab->sh_size / symtab->sh_entsize, strtab,
+                                                 resolver));
 }
 
 void walk_elf(buffer elf, range_handler rh)
