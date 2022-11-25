@@ -60,6 +60,7 @@ typedef struct vnet {
     vtdev dev;
     u16 port;
     caching_heap rxbuffers;
+    caching_heap txhandlers;
     closure_struct(vnet_mem_cleaner, mem_cleaner);
     bytes net_header_len;
     int rxbuflen;
@@ -102,7 +103,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     for (struct pbuf * q = p; q != NULL; q = q->next)
         vqmsg_push(vn->txq, m, physical_from_virtual(q->payload), q->len, false);
 
-    vqmsg_commit(vn->txq, m, closure(vn->dev->general, tx_complete, p));
+    vqmsg_commit(vn->txq, m, closure((heap)vn->txhandlers, tx_complete, p));
     
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
@@ -307,6 +308,8 @@ static void virtio_net_attach(vtdev dev)
     virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
     vn->rxbuffers = allocate_objcache(h, (heap)contiguous, vn->rxbuflen + sizeof(struct xpbuf),
                                       PAGESIZE_2M, true);
+    vn->txhandlers = allocate_objcache(h, (heap)contiguous, sizeof(closure_struct_type(tx_complete)),
+                                      PAGESIZE, true);
     mm_register_mem_cleaner(init_closure(&vn->mem_cleaner, vnet_mem_cleaner));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
