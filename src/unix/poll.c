@@ -75,7 +75,7 @@ struct epoll {
     enum epoll_type epoll_type;
     closure_struct(epoll_free, free);
     heap h;
-    struct spinlock fds_lock;
+    struct rw_spinlock fds_lock;
     vector events;              /* epollfds indexed by fd */
     int nfds;
     bitmap fds;                 /* fds being watched / epollfd registered */
@@ -103,7 +103,7 @@ static epoll epoll_alloc_internal(int epoll_type)
     list_init(&e->blocked_head);
     init_refcount(&e->refcount, 1, init_closure(&e->free, epoll_free, e));
     spin_lock_init(&e->blocked_lock);
-    spin_lock_init(&e->fds_lock);
+    spin_rw_lock_init(&e->fds_lock);
     e->h = epoll_heap;
     e->events = allocate_vector(e->h, 8);
     if (e->events == INVALID_ADDRESS)
@@ -273,13 +273,13 @@ static boolean register_epollfd(epollfd efd)
 
 static void epoll_release_epollfds(epoll e)
 {
-    spin_lock(&e->fds_lock);
+    spin_wlock(&e->fds_lock);
     bitmap_foreach_set(e->fds, fd) {
         epollfd efd = vector_get(e->events, fd);
         assert(efd != 0 && efd != INVALID_ADDRESS);
         release_epollfd(efd);
     }
-    spin_unlock(&e->fds_lock);
+    spin_wunlock(&e->fds_lock);
 }
 
 void epoll_finish(epoll e)
@@ -527,7 +527,7 @@ sysreturn epoll_wait(int epfd,
     w->user_events->end = 0;
     spin_unlock(&w->lock);
 
-    spin_lock(&e->fds_lock);
+    spin_rlock(&e->fds_lock);
     bitmap_foreach_set(e->fds, fd) {
         epollfd efd = vector_get(e->events, fd);
         assert(efd);
@@ -543,7 +543,7 @@ sysreturn epoll_wait(int epfd,
             check_fdesc(efd, w);
         spin_unlock(&efd->lock);
     }
-    spin_unlock(&e->fds_lock);
+    spin_runlock(&e->fds_lock);
 
     timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
     return blockq_check_timeout(w->t->thread_bq, current,
@@ -646,7 +646,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
     /* XXX verify that fd is not an epoll instance*/
     epoll e = resolve_fd(current->p, epfd);
-    spin_lock(&e->fds_lock);
+    spin_wlock(&e->fds_lock);
     switch(op) {
     case EPOLL_CTL_ADD:
         rv = epoll_add_fd(e, fd, event->events, event->data);
@@ -664,7 +664,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
         msg_err("unknown op %d\n", op);
         rv = -EINVAL;
     }
-    spin_unlock(&e->fds_lock);
+    spin_wunlock(&e->fds_lock);
 
     fdesc_put(&e->f);
     return rv;
@@ -788,7 +788,7 @@ static sysreturn select_internal(int nfds,
     wt->wset = writefds ? bitmap_wrap(e->h, writefds, nfds) : 0;
     wt->eset = exceptfds ? bitmap_wrap(e->h, exceptfds, nfds) : 0;
 
-    spin_lock(&e->fds_lock);
+    spin_wlock(&e->fds_lock);
     bitmap_extend(e->fds, nfds - 1);
     u64 dummy = 0;
     u64 * rp = readfds ? readfds : &dummy;
@@ -874,7 +874,7 @@ static sysreturn select_internal(int nfds,
         if (exceptfds)
             ep++;
     }
-    spin_unlock(&e->fds_lock);
+    spin_wunlock(&e->fds_lock);
   check_timeout:
     return blockq_check_timeout(wt->t->thread_bq, current,
                                 contextual_closure(select_bh, wt, current, timeout), false,
@@ -971,7 +971,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     w->poll_fds = wrap_buffer(e->h, fds, nfds * sizeof(struct pollfd));
     w->poll_retcount = 0;
 
-    spin_lock(&e->fds_lock);
+    spin_wlock(&e->fds_lock);
     bitmap remove_efds = bitmap_clone(e->fds); /* efds to remove */
     for (int i = 0; i < nfds; i++) {
         struct pollfd *pfd = fds + i;
@@ -1032,7 +1032,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         assert(efd != INVALID_ADDRESS);
         release_epollfd(efd);
     }
-    spin_unlock(&e->fds_lock);
+    spin_wunlock(&e->fds_lock);
     deallocate_bitmap(remove_efds);
 
     return blockq_check_timeout(w->t->thread_bq, current,
