@@ -194,3 +194,10 @@ static inline u64 usec_from_timestamp(timestamp t)
     return (sec * MILLION) +
         ((truncate_seconds(t) * MILLION) / TIMESTAMP_SECOND);
 }
+
+static inline u64 msec_from_timestamp(timestamp t)
+{
+    u64 sec = sec_from_timestamp(t);
+    return (sec * THOUSAND) +
+        ((truncate_seconds(t) * THOUSAND) / TIMESTAMP_SECOND);
+}

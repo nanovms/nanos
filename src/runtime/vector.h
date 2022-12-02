@@ -45,6 +45,19 @@ static inline void *vector_delete(vector v, int offset)
     return res;
 }
 
+static inline int vector_delete_range(vector v, int start, int end)
+{
+    bytes start_offset = v->start + start * sizeof(void *);
+    bytes end_offset = v->start + end * sizeof(void *);
+    end_offset = MIN(end_offset, v->end);
+    if (end_offset <= start_offset)
+        return 0;
+    if (end_offset < v->end)
+        runtime_memcpy(v->contents + start_offset, v->contents + end_offset, v->end - end_offset);
+    v->end -= end_offset - start_offset;
+    return (end_offset - start_offset) / sizeof(void *);
+}
+
 static inline vector allocate_vector(heap h, int length)
 {
     return allocate_buffer(h, length * sizeof (void *));

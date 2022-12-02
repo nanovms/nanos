@@ -111,6 +111,20 @@ boolean basic_test(heap h)
         goto fail;
     }
 
+    if ((vector_delete_range(v, n - 20, n) != 2) ||
+        (vector_delete_range(v, n - 10, n) != 0))  {
+        msg = "delete_range: wrong result";
+        goto fail;
+    }
+    if (vector_length(v) != n - 20) {
+        msg = "delete_range: wrong vector length";
+        goto fail;
+    }
+    if ((long)vector_get(v, n - 21) != (n - 3)) {
+        msg = "delete_range: content mismatch";
+        goto fail;
+    }
+
     deallocate_vector(v);
     v = allocate_vector(h, 1);
     vector_foreach(v, x) {
