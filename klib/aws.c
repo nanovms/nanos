@@ -377,6 +377,16 @@ static boolean aws_create_signing_key(heap h, const char *region, const char *se
     return true;
 }
 
+void aws_req_set_date(tuple req, buffer b)
+{
+    u64 seconds = sec_from_timestamp(kern_now(CLOCK_ID_REALTIME));
+    struct tm tm;
+    gmtime_r(&seconds, &tm);
+    bprintf(b, "%d%02d%02dT%02d%02d%02dZ", 1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday,
+            tm.tm_hour, tm.tm_min, tm.tm_sec);
+    set(req, sym(x-amz-date), b);
+}
+
 buffer aws_req_sign(heap h, const char *region, const char *service, const char *method,
                     tuple req, buffer body, const char *access_key, const char *secret)
 {

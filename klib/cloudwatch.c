@@ -98,6 +98,59 @@ define_closure_function(1, 1, void, cw_aws_cred_handler,
     apply(bound(complete), s);
 }
 
+static boolean cw_aws_req_send(const char *service, const char *target, tuple req, buffer body,
+                               buffer_handler out)
+{
+    set(req, sym(x-amz-target), alloca_wrap_cstring(target));
+    buffer auth = aws_req_sign(cw.h, cw.region, service, "POST", req, body,
+                               cw.access_key, cw.secret);
+    if (!auth)
+        return false;
+    set(req, sym(Authorization), auth);
+    set(req, sym(x-amz-security-token), alloca_wrap_cstring(cw.token));
+    status s = http_request(cw.h, out, HTTP_REQUEST_METHOD_POST, req, body);
+    boolean success = is_ok(s);
+    if (!success)
+        timm_dealloc(s);
+    deallocate_buffer(auth);
+    return success;
+}
+
+closure_function(2, 0, void, cw_send_async,
+                 void *, sender, ip_addr_t, addr)
+{
+    void (*sender)(const ip_addr_t *server) = bound(sender);
+    sender(ip_addr_isany(&bound(addr)) ? 0 : &bound(addr));
+    closure_finish();
+}
+
+static void cw_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+{
+    void (*sender)(const ip_addr_t *server) = callback_arg;
+    thunk t = closure(cw.h, cw_send_async, sender, ipaddr ? *ipaddr : ip_addr_any);
+    if (t != INVALID_ADDRESS)
+        async_apply(t);
+    else
+        msg_err("failed to allocate closure\n");
+}
+
+static void cw_connect(const char *server, void (*handler)(const ip_addr_t *server))
+{
+    ip_addr_t cw_host;
+    lwip_lock();
+    err_t err = dns_gethostbyname(server, &cw_host, cw_dns_cb, handler);
+    lwip_unlock();
+    switch (err) {
+    case ERR_OK:
+        cw_dns_cb(server, &cw_host, handler);
+        break;
+    case ERR_INPROGRESS:
+        break;
+    default:
+        cw_dns_cb(server, 0, handler);
+    }
+}
+
 closure_function(1, 2, void, cw_aws_setup_retry,
                  struct timer, t,
                  u64, expiry, u64, overruns)
@@ -117,8 +170,9 @@ define_closure_function(1, 1, void, cw_aws_setup_complete,
         rsnprintf(cw.servername, sizeof(cw.servername), CLOUDWATCH_SERVICE_NAME ".%s.amazonaws.com",
                   cw.region);
         bound(retry_backoff) = seconds(1);
-        register_timer(kernel_timers, &cw.metrics_timer, CLOCK_ID_MONOTONIC, 0, false,
-                       cw.metrics_interval, (timer_handler)&cw.metrics_timer_handler);
+        if (cw.metrics_interval)
+            register_timer(kernel_timers, &cw.metrics_timer, CLOCK_ID_MONOTONIC, 0, false,
+                           cw.metrics_interval, (timer_handler)&cw.metrics_timer_handler);
     } else {
         msg_err("setup failed: %v\n", s);
         timm_dealloc(s);
@@ -210,14 +264,7 @@ define_closure_function(0, 1, input_buffer_handler, cw_metrics_conn_handler,
         return INVALID_ADDRESS;
     set(req, sym(url), alloca_wrap_cstring("/"));
     set(req, sym(host), alloca_wrap_cstring(cw.hostname));
-    set(req, sym(x-amz-target), alloca_wrap_cstring("GraniteServiceVersion20100801.PutMetricData"));
-    u64 seconds = sec_from_timestamp(kern_now(CLOCK_ID_REALTIME));
-    struct tm tm;
-    gmtime_r(&seconds, &tm);
-    buffer timestamp = little_stack_buffer(16);
-    bprintf(timestamp, "%d%02d%02dT%02d%02d%02dZ", 1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday,
-            tm.tm_hour, tm.tm_min, tm.tm_sec);
-    set(req, sym(x-amz-date), timestamp);
+    aws_req_set_date(req, little_stack_buffer(16));
     set(req, sym(content-type), alloca_wrap_cstring("application/json"));
     set(req, sym(content-encoding), alloca_wrap_cstring("amz-1.0"));
     boolean success = false;
@@ -237,18 +284,8 @@ define_closure_function(0, 1, input_buffer_handler, cw_metrics_conn_handler,
     cw_metrics_add_percent(body, false, "mem_used_percent", used * 100 / total);
     if (!buffer_write_cstring(body, "]}"))
         goto req_done;
-    buffer auth = aws_req_sign(cw.h, cw.region, CLOUDWATCH_SERVICE_NAME, "POST", req, body,
-                               cw.access_key, cw.secret);
-    if (auth) {
-        set(req, sym(Authorization), auth);
-        set(req, sym(x-amz-security-token), alloca_wrap_cstring(cw.token));
-        status s = http_request(cw.h, out, HTTP_REQUEST_METHOD_POST, req, body);
-        if (is_ok(s))
-            success = true;
-        else
-            timm_dealloc(s);
-        deallocate_buffer(auth);
-    }
+    success = cw_aws_req_send(CLOUDWATCH_SERVICE_NAME,
+                              "GraniteServiceVersion20100801.PutMetricData", req, body, out);
   req_done:
     if (!success)
         deallocate_buffer(body);
@@ -261,25 +298,11 @@ define_closure_function(0, 1, input_buffer_handler, cw_metrics_conn_handler,
 
 static void cw_metrics_send(const ip_addr_t *server)
 {
-    status s = direct_connect(cw.h, (ip_addr_t *)server, 80,
-                              (connection_handler)&cw.metrics_conn_handler);
-    if (!is_ok(s))
-        timm_dealloc(s);
-}
-
-closure_function(1, 0, void, cw_metrics_send_async,
-                 ip_addr_t, addr)
-{
-    cw_metrics_send(&bound(addr));
-    closure_finish();
-}
-
-static void cw_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
-{
-    if (ipaddr) {
-        thunk t = closure(cw.h, cw_metrics_send_async, *ipaddr);
-        if (t != INVALID_ADDRESS)
-            async_apply(t);
+    if (server) {
+        status s = direct_connect(cw.h, (ip_addr_t *)server, 80,
+                                  (connection_handler)&cw.metrics_conn_handler);
+        if (!is_ok(s))
+            timm_dealloc(s);
     }
 }
 
@@ -288,12 +311,7 @@ define_closure_function(0, 2, void, cw_metrics_timer_handler,
 {
     if (overruns == timer_disabled)
         return;
-    ip_addr_t cw_host;
-    lwip_lock();
-    err_t err = dns_gethostbyname(cw.servername, &cw_host, cw_dns_cb, 0);
-    lwip_unlock();
-    if (err == ERR_OK)
-        cw_metrics_send(&cw_host);
+    cw_connect(cw.servername, cw_metrics_send);
 }
 
 int init(status_handler complete)
