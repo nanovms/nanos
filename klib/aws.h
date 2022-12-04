@@ -1,5 +1,6 @@
 #define AWS_ERR_TOKEN_EXPIRED   "ExpiredTokenException"
 
+boolean aws_metadata_available(void);
 void aws_metadata_get(heap h, const char *uri, buffer_handler handler);
 
 static inline void aws_region_get(heap h, buffer_handler handler)

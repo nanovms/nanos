@@ -136,7 +136,12 @@ define_closure_function(1, 1, void, cw_aws_setup_complete,
 
 static boolean cw_aws_setup(void)
 {
-    merge m = allocate_merge(cw.h, (status_handler)&cw.aws_setup_complete);
+    status_handler completion = (status_handler)&cw.aws_setup_complete;
+    if (!aws_metadata_available()) {
+        apply(completion, timm("result", "AWS metadata not available"));
+        return true;
+    }
+    merge m = allocate_merge(cw.h, completion);
     status_handler complete = apply_merge(m);
     buffer_handler handler = closure(cw.h, cw_aws_metadata_handler, "region", cw.region,
                                      sizeof(cw.region), apply_merge(m));

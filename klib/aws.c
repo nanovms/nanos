@@ -7,6 +7,8 @@
 #include <mbedtls/md.h>
 #include <mbedtls/sha256.h>
 
+#define AWS_MD_SERVER   IPADDR4_INIT_BYTES(169, 254, 169, 254)
+
 #define AWS_CRED_URI    "/latest/meta-data/iam/security-credentials"
 #define AWS_HASH_ALGO   "AWS4-HMAC-SHA256"
 #define AWS_REQ         "aws4_request"
@@ -106,9 +108,18 @@ closure_function(3, 1, input_buffer_handler, aws_metadata_ch,
     return INVALID_ADDRESS;
 }
 
+boolean aws_metadata_available(void)
+{
+    ip_addr_t md_server = AWS_MD_SERVER;
+    lwip_lock();
+    boolean result = (ip_route(&ip_addr_any, &md_server) != 0);
+    lwip_unlock();
+    return result;
+}
+
 void aws_metadata_get(heap h, const char *uri, buffer_handler handler)
 {
-    ip_addr_t md_server = IPADDR4_INIT_BYTES(169, 254, 169, 254);
+    ip_addr_t md_server = AWS_MD_SERVER;
     connection_handler ch = closure(h, aws_metadata_ch, h, uri, handler);
     if (ch != INVALID_ADDRESS) {
         status s = direct_connect(h, &md_server, 80, ch);
