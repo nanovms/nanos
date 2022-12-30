@@ -819,6 +819,7 @@ struct io_uring_params {
 #define SO_LINGER       13
 #define SO_REUSEPORT    15
 #define SO_ACCEPTCONN   30
+#define SO_PROTOCOL     38
 
 #define IPV6_V6ONLY     26
 
