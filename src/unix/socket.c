@@ -783,6 +783,50 @@ static sysreturn unixsock_setsockopt(struct sock *sock, int level,
     return rv;
 }
 
+static sysreturn unixsock_getsockopt(struct sock *sock, int level,
+                                     int optname, void *optval, socklen_t *optlen)
+{
+    sysreturn rv;
+    union {
+        int val;
+        struct linger {
+            int l_onoff;
+            int l_linger;
+        } linger;
+    } ret_optval;
+    int ret_optlen;
+
+    switch (level) {
+    case SOL_SOCKET:
+        switch (optname) {
+        case SO_TYPE:
+            ret_optval.val = sock->type;
+            ret_optlen = sizeof(ret_optval.val);
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
+    default:
+        goto unimplemented;
+    }
+    if (optval && optlen) {
+        ret_optlen = MIN(*optlen, ret_optlen);
+        runtime_memcpy(optval, &ret_optval, ret_optlen);
+        *optlen = ret_optlen;
+    }
+
+    rv = 0;
+    goto out;
+unimplemented:
+    msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
+            sock->fd, level, optname);
+    rv = -ENOPROTOOPT;
+out:
+    socket_release(sock);
+    return rv;
+}
+
 sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
         struct sockaddr *dest_addr, socklen_t addrlen)
 {
@@ -947,6 +991,7 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->sock.accept4 = unixsock_accept4;
     s->sock.getsockname = unixsock_getsockname;
     s->sock.setsockopt = unixsock_setsockopt;
+    s->sock.getsockopt = unixsock_getsockopt;
     s->sock.sendto = unixsock_sendto;
     s->sock.recvfrom = unixsock_recvfrom;
     s->sock.sendmsg = unixsock_sendmsg;

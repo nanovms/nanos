@@ -29,6 +29,14 @@
     } \
 } while (0)
 
+static void test_getsockopt(int fd, int type)
+{
+    int opt;
+    socklen_t optlen = sizeof(int);
+    test_assert(getsockopt(fd, SOL_SOCKET, SO_TYPE, &opt, &optlen) == 0);
+    test_assert(opt == type);
+}
+
 static void *uds_stream_server(void *arg)
 {
     int fd = (long) arg;
@@ -124,6 +132,7 @@ static void uds_stream_test(void)
     test_assert(s1 >= 0);
     addr.sun_family = AF_UNIX;
 
+    test_getsockopt(s1, SOCK_STREAM);
     test_assert((bind(s1, NULL, addr_len) == -1) && (errno == EFAULT));
     test_assert(bind(s1, (struct sockaddr *) &addr, 0) == -1);
     test_assert(errno == EINVAL);
@@ -314,6 +323,7 @@ static void uds_dgram_test(void)
 
     s1 = socket(AF_UNIX, SOCK_DGRAM, 0);
     test_assert(s1 >= 0);
+    test_getsockopt(s1, SOCK_DGRAM);
     client_addr.sun_family = server_addr.sun_family = AF_UNIX;
     strcpy(client_addr.sun_path, CLIENT_SOCKET_PATH);
     strcpy(server_addr.sun_path, SERVER_SOCKET_PATH);
