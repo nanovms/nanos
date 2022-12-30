@@ -1230,6 +1230,12 @@ sysreturn socket(int domain, int type, int protocol)
     switch (domain) {
     case AF_INET:
     case AF_INET6:
+        /* Validate protocol/type combination */
+        if (protocol) {
+            if ((type == SOCK_STREAM && protocol != IP_PROTO_TCP) ||
+                (type == SOCK_DGRAM && protocol != IP_PROTO_UDP))
+                return -EPROTONOSUPPORT;
+        }
         break;
     case AF_UNIX:
         return unixsock_open(type, protocol);
@@ -2241,6 +2247,10 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         }
         case SO_REUSEPORT:
             ret_optval.val = 0;
+            ret_optlen = sizeof(ret_optval.val);
+            break;
+        case SO_PROTOCOL:
+            ret_optval.val = s->sock.type == SOCK_STREAM ? IP_PROTO_TCP : IP_PROTO_UDP;
             ret_optlen = sizeof(ret_optval.val);
             break;
         default:
