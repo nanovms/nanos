@@ -94,6 +94,7 @@ enum tcp_socket_state {
 enum udp_socket_state {
     UDP_SOCK_UNDEFINED = 0,
     UDP_SOCK_CREATED = 1,
+    UDP_SOCK_SHUTDOWN = 2,
 };
 
 typedef struct netsock {
@@ -399,7 +400,8 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
 	      s->sock.fd, t->tid, iov, length, flags, bqflags, err);
     assert(s->sock.type == SOCK_STREAM || s->sock.type == SOCK_DGRAM);
 
-    if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) {
+    if ((s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) || 
+            (s->sock.type == SOCK_DGRAM && s->info.udp.state == UDP_SOCK_SHUTDOWN)) {
         rv = 0;
         goto out_unlock;
     }
@@ -774,7 +776,7 @@ closure_function(1, 6, sysreturn, socket_write,
 /* socket configuration controls; not netsock specific, but reliant on lwIP calls */
 sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
 {
-    net_debug("sock %d, request 0x%x\n", s->sock.fd, request);
+    net_debug("sock %d, request 0x%x\n", s->fd, request);
     switch (request) {
     case SIOCGIFNAME: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
@@ -1091,12 +1093,19 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
         netsock_check_loop();
         break;
     case SOCK_DGRAM:
+        if (shut_rx)
+            s->info.udp.state = UDP_SOCK_SHUTDOWN;
         rv = -ENOTCONN;
         goto out;
     }
     
     rv = 0;
   out:
+    /* Wake up any blockers waiting on the socket */
+    if (shut_rx)
+        blockq_flush(sock->rxbq);
+    if (shut_tx)
+        blockq_flush(sock->txbq);
     socket_release(sock);
     return rv;
 }

@@ -318,6 +318,41 @@ static void netsock_test_connclosed(void)
     test_assert(close(fd) == 0);
 }
 
+static void *netsock_test_udpblock(void *arg)
+{
+    int fd;
+    struct sockaddr_in addr;
+    const int port = 1237;
+    u8 buf[1];
+    fd = (int)(long)arg;
+
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(recv(fd, &buf, 1, 0) == 0);
+    return 0;
+}
+
+static void netsock_test_udpshutdown(void)
+{
+    pthread_t pt;
+    int ret;
+    struct timespec ts;
+    int fd;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+    ret = pthread_create(&pt, NULL, netsock_test_udpblock, (void *)(long)fd);
+    /* allow time for the child thread to block on recv */
+    usleep(1000 * 50);
+    shutdown(fd, SHUT_RDWR);
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 1;
+    test_assert(pthread_timedjoin_np(pt, (void *)&ret, &ts) == 0);
+    test_assert(close(fd) == 0);
+}
+
 static void *netsock_test_nonblocking_connect_thread(void *arg)
 {
     int port = (long)arg;
@@ -645,6 +680,7 @@ int main(int argc, char **argv)
     netsock_test_basic(SOCK_DGRAM);
     netsock_test_fionread();
     netsock_test_connclosed();
+    netsock_test_udpshutdown();
     netsock_test_nonblocking_connect();
     netsock_test_peek();
     netsock_test_rcvbuf();
