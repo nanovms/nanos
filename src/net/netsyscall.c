@@ -1132,11 +1132,11 @@ sysreturn shutdown(int sockfd, int how)
 }
 
 static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
-			    const ip_addr_t * addr, u16 port)
+                            struct ip_globals *ip_data, u16 port)
 {
     netsock s = z;
 #ifdef NETSYSCALL_DEBUG
-    u8 *n = (u8 *)addr;
+    u8 *n = (u8 *)(&ip_data->current_iphdr_src);
 #endif
     net_debug("sock %d, pcb %p, buf %p, src addr %d.%d.%d.%d, port %d\n",
 	      s->sock.fd, pcb, p, n[0], n[1], n[2], n[3], port);
@@ -1150,7 +1150,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	struct udp_entry * e = allocate(s->sock.h, sizeof(*e));
 	assert(e != INVALID_ADDRESS);
 	e->pbuf = p;
-	runtime_memcpy(&e->raddr, addr, sizeof(ip_addr_t));
+	runtime_memcpy(&e->raddr, &ip_data->current_iphdr_src, sizeof(ip_addr_t));
 	e->rport = port;
 	assert(enqueue(s->incoming, e));
 	s->sock.rx_len += p->tot_len;

@@ -540,7 +540,7 @@ static boolean sanity_checks(ntp_server server, struct ntp_packet *p)
 
 /* called with lwIP lock held */
 static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
-                      const ip_addr_t *addr, u16 port)
+                      struct ip_globals *ip_data, u16 port)
 {
     ntp.query_ongoing = false;
     struct ntp_packet *pkt = p->payload;
@@ -550,6 +550,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
         success = false;
         goto done;
     }
+    const ip_addr_t *addr = &ip_data->current_iphdr_src;
     ntp_lock();
     if (ntp.current_server >= 0) {
         ntp_server server = vector_get(ntp.servers, ntp.current_server);
