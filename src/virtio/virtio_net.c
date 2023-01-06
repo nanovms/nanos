@@ -185,33 +185,27 @@ closure_function(1, 1, void, input,
     xpbuf x = bound(x);
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
-    if (x != NULL) {
-        struct virtio_net_hdr *hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
-        boolean err = false;
-        len -= vn->net_header_len;
-        assert(len <= x->p.pbuf.len);
-        x->p.pbuf.tot_len = x->p.pbuf.len = len;
-        x->p.pbuf.payload += vn->net_header_len;
-        if (hdr->flags & VIRTIO_NET_HDR_F_NEEDS_CSUM) {
-            if (hdr->csum_start + hdr->csum_offset <= len - sizeof(u16)) {
-                u16 csum = vnet_csum(x->p.pbuf.payload + hdr->csum_start,
-                    len - hdr->csum_start);
-                *(u16 *)(x->p.pbuf.payload + hdr->csum_start +
-                        hdr->csum_offset) = csum;
-            } else
-                err = true;
+    struct virtio_net_hdr *hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
+    boolean err = false;
+    len -= vn->net_header_len;
+    assert(len <= x->p.pbuf.len);
+    x->p.pbuf.tot_len = x->p.pbuf.len = len;
+    x->p.pbuf.payload += vn->net_header_len;
+    if (hdr->flags & VIRTIO_NET_HDR_F_NEEDS_CSUM) {
+        if (hdr->csum_start + hdr->csum_offset <= len - sizeof(u16)) {
+            u16 csum = vnet_csum(x->p.pbuf.payload + hdr->csum_start, len - hdr->csum_start);
+            *(u16 *)(x->p.pbuf.payload + hdr->csum_start + hdr->csum_offset) = csum;
+        } else {
+            err = true;
         }
-        if (!err) {
-            lwip_lock();
-            err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
-            lwip_unlock();
-        }
-        if (err) {
-            receive_buffer_release(&x->p.pbuf);
-        }
-    } else {
-        rprintf("virtio null\n");
     }
+    if (!err) {
+        lwip_lock();
+        err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
+        lwip_unlock();
+    }
+    if (err)
+        receive_buffer_release(&x->p.pbuf);
     // we need to get a signal from the device side that there was
     // an underrun here to open up the window
     post_receive(vn);
