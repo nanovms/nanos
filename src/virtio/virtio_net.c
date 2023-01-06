@@ -72,10 +72,13 @@ typedef struct vnet {
     void *empty; // just a mac..fix, from pre-heap days
 } *vnet;
 
+declare_closure_struct(0, 1, void, vnet_input,
+                       u64, len);
 typedef struct xpbuf
 {
     struct pbuf_custom p;
     vnet vn;
+    closure_struct(vnet_input, input);
 } *xpbuf;
 
 
@@ -176,13 +179,12 @@ static u16 vnet_csum(u8 *buf, u64 len)
     return ~s3;
 }
 
-closure_function(1, 1, void, input,
-                 xpbuf, x,
-                 u64, len)
+define_closure_function(0, 1, void, vnet_input,
+                        u64, len)
 {
     virtio_net_debug("%s: len %ld\n", __func__, len);
 
-    xpbuf x = bound(x);
+    xpbuf x = struct_from_field(closure_self(), xpbuf, input);
     vnet vn= x->vn;
     // under what conditions does a virtio queue give us zero?
     struct virtio_net_hdr *hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
@@ -209,7 +211,6 @@ closure_function(1, 1, void, input,
     // we need to get a signal from the device side that there was
     // an underrun here to open up the window
     post_receive(vn);
-    closure_finish();
 }
 
 
@@ -236,7 +237,7 @@ static void post_receive(vnet vn)
         vqmsg_push(vn->rxq, m, phys, vn->net_header_len, true);
         vqmsg_push(vn->rxq, m, phys + vn->net_header_len, vn->rxbuflen - vn->net_header_len, true);
     }
-    vqmsg_commit(vn->rxq, m, closure(vn->dev->general, input, x));
+    vqmsg_commit(vn->rxq, m, init_closure(&x->input, vnet_input));
 }
 
 define_closure_function(0, 1, u64, vnet_mem_cleaner,
