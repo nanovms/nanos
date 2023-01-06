@@ -2201,30 +2201,25 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         int val;
         struct linger linger;
     } ret_optval;
-    int ret_optlen;
+    int ret_optlen = sizeof(ret_optval.val);
 
     switch (level) {
     case SOL_SOCKET:
         switch (optname) {
         case SO_TYPE:
             ret_optval.val = s->sock.type;
-            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_ERROR:
             ret_optval.val = -lwip_to_errno(get_and_clear_lwip_error(s));
-            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_SNDBUF:
             ret_optval.val = (s->sock.type == SOCK_STREAM) ? TCP_SND_BUF : 0;
-            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_RCVBUF:
             ret_optval.val = so_rcvbuf;
-            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_PRIORITY:
             ret_optval.val = 0; /* default value in Linux */
-            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_LINGER:
             ret_optval.linger.l_onoff = 0;
@@ -2233,7 +2228,6 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             break;
         case SO_ACCEPTCONN:
             ret_optval.val = (s->sock.type == SOCK_STREAM) && (s->info.tcp.state == TCP_SOCK_LISTENING);
-            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_REUSEADDR:
         case SO_KEEPALIVE:
@@ -2250,17 +2244,14 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
                 rv = -EINVAL;
                 goto out;
             }
-            ret_optlen = sizeof(ret_optval.val);
             lwip_unlock();
             break;
         }
         case SO_REUSEPORT:
             ret_optval.val = 0;
-            ret_optlen = sizeof(ret_optval.val);
             break;
         case SO_PROTOCOL:
             ret_optval.val = s->sock.type == SOCK_STREAM ? IP_PROTO_TCP : IP_PROTO_UDP;
-            ret_optlen = sizeof(ret_optval.val);
             break;
         default:
             goto unimplemented;
@@ -2274,7 +2265,6 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
                 ret_optval.val = tcp_nagle_disabled(s->info.tcp.lw);
             else
                 ret_optval.val = ((s->info.tcp.flags & TF_NODELAY) != 0);
-            ret_optlen = sizeof(ret_optval.val);
             lwip_unlock();
             break;
         default:
@@ -2285,7 +2275,6 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         switch (optname) {
         case IPV6_V6ONLY:
             ret_optval.val = s->ipv6only;
-            ret_optlen = sizeof(ret_optval.val);
             break;
         default:
             goto unimplemented;
