@@ -2258,6 +2258,10 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         }
         break;
     case SOL_TCP:
+        if (s->sock.type != SOCK_STREAM) {
+            rv = -EOPNOTSUPP;
+            goto out;
+        }
         switch (optname) {
         case TCP_NODELAY:
             lwip_lock();
@@ -2266,6 +2270,17 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             else
                 ret_optval.val = ((s->info.tcp.flags & TF_NODELAY) != 0);
             lwip_unlock();
+            break;
+        case TCP_MAXSEG:
+            lwip_lock();
+            if (s->info.tcp.lw && (s->info.tcp.state != TCP_SOCK_LISTENING))
+                ret_optval.val = s->info.tcp.lw->mss;
+            else
+                ret_optval.val = TCP_MSS;
+            lwip_unlock();
+            break;
+        case TCP_FASTOPEN:
+            ret_optval.val = 0; /* TCP Fast Open is not supported */
             break;
         default:
             goto unimplemented;

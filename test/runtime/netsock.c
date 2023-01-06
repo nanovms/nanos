@@ -122,6 +122,7 @@ static void netsock_test_basic(int sock_type)
         test_assert(setsockopt(tx_fd, IPPROTO_TCP, TCP_NODELAY, &val, len) == 0);
 
         test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
+        test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_MAXSEG, &val, &len) == 0 && val > 0);
         test_assert(close(fd) == 0);
     } else {
         netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 1);
