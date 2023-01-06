@@ -111,10 +111,12 @@ closure_function(3, 1, input_buffer_handler, aws_metadata_ch,
 boolean aws_metadata_available(void)
 {
     ip_addr_t md_server = AWS_MD_SERVER;
-    lwip_lock();
-    boolean result = (ip_route(&ip_addr_any, &md_server) != 0);
-    lwip_unlock();
-    return result;
+    struct netif *n = ip_route(&ip_addr_any, &md_server);
+    if (n) {
+        netif_unref(n);
+        return true;
+    }
+    return false;
 }
 
 void aws_metadata_get(heap h, const char *uri, buffer_handler handler)

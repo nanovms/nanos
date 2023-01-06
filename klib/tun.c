@@ -126,9 +126,7 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         struct tun_pi pi;
         if (len < sizeof(pi)) {
             ret = -EINVAL;
-            lwip_lock();
             pbuf_free(p);
-            lwip_unlock();
             goto out;
         }
         if (len < p->tot_len + sizeof(pi))
@@ -149,10 +147,8 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         len -= sizeof(pi);
     }
     ret = MIN(len, p->tot_len);
-    lwip_lock();
     pbuf_copy_partial(p, dest, ret, 0);
     pbuf_free(p);
-    lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:
@@ -198,9 +194,7 @@ closure_function(1, 6, sysreturn, tun_write,
         src += sizeof(struct tun_pi);
         len -= sizeof(struct tun_pi);
     }
-    lwip_lock();
     struct pbuf *p = pbuf_alloc(PBUF_LINK, len, PBUF_POOL);
-    lwip_unlock();
     if (!p)
         return io_complete(completion, t, -ENOMEM);
     u64 copied = 0;
@@ -210,9 +204,7 @@ closure_function(1, 6, sysreturn, tun_write,
         copied += q->len;
         q = q->next;
     } while (q);
-    lwip_lock();
     tun->netif.input(p, &tun->netif);
-    lwip_unlock();
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
     return io_complete(completion, t, len);
@@ -277,13 +269,14 @@ closure_function(1, 2, sysreturn, tun_ioctl,
         }
         if ((ifreq->ifr.ifr_flags & ~TUN_TYPE_MASK) & ~(IFF_NO_PI | IFF_MULTI_QUEUE))
             return -EINVAL;
-        lwip_lock();
         struct netif *netif = netif_find(ifreq->ifr_name);
-        lwip_unlock();
         if (netif) {
-            if (netif->output != tun_if_output)
+            boolean is_tun = (netif->output == tun_if_output);
+            if (is_tun)
+                tun = netif->state;
+            netif_unref(netif);
+            if (!is_tun)
                 return -EINVAL;
-            tun = netif->state;
         } else {
             tun = allocate(tun_heap, sizeof(struct tun));
             if (tun == INVALID_ADDRESS)
@@ -301,14 +294,12 @@ closure_function(1, 2, sysreturn, tun_ioctl,
             ip4_addr_t netmask = (ip4_addr_t){0};
             boolean bringup = false;
             get_tun_config(tun->netif.name, &ipaddr, &netmask, &bringup);
-            lwip_lock();
             netif_add(&tun->netif, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, netif_input);
             netif_name_cpy(ifreq->ifr_name, &tun->netif);
             list_init(&tun->files);
             tun->next_tx = tf;
             if (bringup)
                 netif_set_up(&tun->netif);
-            lwip_unlock();
         }
         spin_lock(&tun->lock);
         list_push_back(&tun->files, &tf->l);
@@ -358,9 +349,7 @@ closure_function(1, 2, sysreturn, tun_close,
         list_delete(&tf->l);
         if (list_empty(&tun->files)) {
             spin_unlock(&tun->lock);
-            lwip_lock();
             netif_remove(&tun->netif);
-            lwip_unlock();
             deallocate(tun_heap, tun, sizeof(struct tun_file));
             tun = 0;
         } else if (tun->next_tx == tf) {

@@ -60,11 +60,11 @@ define_closure_function(1, 0, void, direct_receive_service,
         if (!dc->receive_bh) {
             input_buffer_handler bh = apply(d->new, (buffer_handler)&dc->send_bh);
             if (bh == INVALID_ADDRESS) {
-                lwip_lock();
+                tcp_lock(dc->p);
                 tcp_arg(dc->p, 0);
                 tcp_close(dc->p);
+                tcp_unlock(dc->p);
                 boolean done = direct_conn_closed(dc);
-                lwip_unlock();
                 if (done)
                     return;
                 continue;
@@ -78,20 +78,19 @@ define_closure_function(1, 0, void, direct_receive_service,
                 break;
             if (p) {
                 boolean done = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
-                lwip_lock();
-                if (!done)
+                if (!done) {
+                    tcp_lock(dc->p);
                     tcp_recved(dc->p, p->len);
+                    tcp_unlock(dc->p);
+                }
                 pbuf_free(p);
-                lwip_unlock();
                 if (done) {
                     if (client)
                         return;
                     break;
                 }
             } else {
-                lwip_lock();
                 boolean done = direct_conn_closed(dc);
-                lwip_unlock();
                 if (done)
                     return;
                 break;
@@ -106,10 +105,8 @@ static direct direct_alloc(heap h, connection_handler ch)
     direct d = allocate(h, sizeof(struct direct));
     if (d == INVALID_ADDRESS)
         return d;
-    lwip_lock();
     d->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
     if (!d->p) {
-        lwip_unlock();
         msg_err("PCB creation failed\n");
         deallocate(h, d, sizeof(struct direct));
         return INVALID_ADDRESS;
@@ -121,7 +118,7 @@ static direct direct_alloc(heap h, connection_handler ch)
     d->receive_service_scheduled = 0;
     d->new = ch;
     tcp_arg(d->p, d);
-    lwip_unlock();
+    tcp_ref(d->p);
     return d;
 }
 
@@ -129,8 +126,11 @@ static direct direct_alloc(heap h, connection_handler ch)
 static void direct_dealloc(direct d)
 {
     if (d->p) {
+        tcp_lock(d->p);
         tcp_arg(d->p, 0);
         tcp_close(d->p);
+        tcp_unlock(d->p);
+        tcp_unref(d->p);
     }
     deallocate(d->h, d, sizeof(struct direct));
 }
@@ -142,6 +142,7 @@ static boolean direct_conn_closed(direct_conn dc)
         apply(dc->receive_bh, 0);
     direct d = dc->d;
     boolean client = (dc->p == d->p);
+    tcp_unref(dc->p);
     list_delete(&dc->l);
     deallocate(dc->d->h, dc, sizeof(struct direct_conn));
     if (client) {
@@ -156,13 +157,13 @@ static void direct_conn_send_internal(direct_conn dc, qbuf q, boolean lwip_locke
     direct_debug("dc %p\n", dc);
     list next;
 
+    if (!lwip_locked)
+        tcp_lock(dc->p);
     /* It appears TCP_EVENT_SENT is only called from tcp_input. If in
        the future it could ever be invoked as a result of a call to
        tcp_write or tcp_output, this will need to be revised to avoid
        deadlock. */
     spin_lock(&dc->send_lock);
-    if (!lwip_locked)
-        lwip_lock();
     if (q)
         list_insert_before(&dc->sendq_head, &q->l);
     while ((next = list_get_next(&dc->sendq_head))) {
@@ -172,6 +173,8 @@ static void direct_conn_send_internal(direct_conn dc, qbuf q, boolean lwip_locke
             direct_debug("connection close by sender\n");
             tcp_arg(dc->p, 0);
             tcp_close(dc->p);
+            if (!lwip_locked)
+                tcp_unlock(dc->p);
             list_delete(&q->l);
             deallocate(dc->d->h, q, sizeof(struct qbuf));
             direct_conn_closed(dc);
@@ -208,10 +211,11 @@ static void direct_conn_send_internal(direct_conn dc, qbuf q, boolean lwip_locke
             deallocate(dc->d->h, q, sizeof(struct qbuf));
         }
     }
-    if (!lwip_locked)
-        lwip_unlock();
-    if (dc)
+    if (dc) {
         spin_unlock(&dc->send_lock);
+        if (!lwip_locked)
+            tcp_unlock(dc->p);
+    }
 }
 
 static err_t direct_conn_sent(void *arg, struct tcp_pcb *pcb, u16 len)
@@ -272,7 +276,6 @@ static void direct_conn_err(void *z, err_t err)
     dc->pending_err = err;
 }
 
-/* lwIP locked on entry */
 static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
 {
     direct_conn dc = allocate(d->h, sizeof(struct direct_conn));
@@ -288,6 +291,7 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     if (dc->receive_queue == INVALID_ADDRESS)
         goto fail_dealloc;
     dc->pending_err = ERR_OK;
+    tcp_ref(pcb);
     tcp_arg(pcb, dc);
     tcp_err(pcb, direct_conn_err);
     tcp_recv(pcb, direct_conn_input);
@@ -335,20 +339,19 @@ status listen_port(heap h, u16 port, connection_handler c)
         op = "allocate";
         goto fail;
     }
-    lwip_lock();
     err = tcp_bind(d->p, IP_ANY_TYPE, port);
     if (err != ERR_OK) {
         op = "tcp_bind";
         goto fail_unlock_dealloc;
     }
+    tcp_unref(d->p);
     d->p = tcp_listen(d->p);
+    tcp_ref(d->p);
     tcp_err(d->p, direct_listen_err);
     tcp_accept(d->p, direct_accept);
-    lwip_unlock();
     return s;
   fail_unlock_dealloc:
     direct_dealloc(d);
-    lwip_unlock();
   fail:
     s = timm("result", "%s: %s failed", __func__, op);
     if (err != ERR_OK)
@@ -379,13 +382,13 @@ status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch)
     direct d = direct_alloc(h, ch);
     if (d == INVALID_ADDRESS)
         return timm("result", "%s: alloc failed", __func__);
-    lwip_lock();
+    tcp_lock(d->p);
     tcp_err(d->p, direct_connect_err);
     err_t err = tcp_connect(d->p, addr, port, direct_connect_complete);
+    tcp_unlock(d->p);
     if (err != ERR_OK) {
         direct_dealloc(d);
         s = timm("result", "connect failed (%d)", err);
     }
-    lwip_unlock();
     return s;
 }

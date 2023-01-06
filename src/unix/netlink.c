@@ -299,6 +299,14 @@ typedef struct nlsock {
 #define nl_lock(s)      spin_lock(&(s)->sock.f.lock)
 #define nl_unlock(s)    spin_unlock(&(s)->sock.f.lock)
 
+typedef struct nl_rtm_netif_priv {
+    nlsock s;
+    struct nlmsghdr *hdr;
+    int if_index;
+    struct netif *netif_default;
+    boolean found;
+} *nl_rtm_netif_priv;
+
 static void nl_enqueue(nlsock s, void *msg, u64 msg_len)
 {
     if ((s->sock.rx_len + msg_len < so_rcvbuf) && enqueue(s->data, msg)) {
@@ -387,7 +395,8 @@ enum {
     RTMSG_TYPE_GW
 };
 
-static void nl_enqueue_rtmsg(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, struct netif *netif, int rmtype)
+static void nl_enqueue_rtmsg(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, struct netif *netif,
+                             struct netif *netif_default, int rmtype)
 {
     int resp_len;
     boolean is_default = netif_default == netif;
@@ -508,6 +517,53 @@ static void nl_enqueue_error(nlsock s, struct nlmsghdr *msg, int errno)
     nl_enqueue(s, hdr, errmsg_len);
 }
 
+static boolean nl_rtm_getlink(struct netif *n, void *priv)
+{
+    nl_rtm_netif_priv data = priv;
+    nlsock s = data->s;
+    nl_enqueue_ifinfo(s, RTM_NEWLINK, NLM_F_MULTI, data->hdr->nlmsg_seq, s->addr.nl_pid, n);
+    return false;
+}
+
+static boolean nl_rtm_getlink_single(struct netif *n, void *priv)
+{
+    nl_rtm_netif_priv data = priv;
+    if (netif_get_index(n) == data->if_index) {
+        nlsock s = data->s;
+        nl_enqueue_ifinfo(s, RTM_NEWLINK, 0, data->hdr->nlmsg_seq, s->addr.nl_pid, n);
+        data->found = true;
+        return true;
+    }
+    return false;
+}
+
+static boolean nl_rtm_getaddr(struct netif *n, void *priv)
+{
+    nl_rtm_netif_priv data = priv;
+    nlsock s = data->s;
+    nl_enqueue_ifaddr(s, RTM_NEWADDR, NLM_F_MULTI, data->hdr->nlmsg_seq, s->addr.nl_pid, n,
+                      *netif_ip4_addr(n), *netif_ip4_netmask(n));
+    return false;
+}
+
+static boolean nl_rtm_getroute(struct netif *n, void *priv)
+{
+    /* No loopback reporting for main table. */
+    if (n->name[0] == 'l' && n->name[1] == 'o')
+        return false;
+
+    nl_rtm_netif_priv data = priv;
+    nlsock s = data->s;
+    struct nlmsghdr *hdr = data->hdr;
+    struct netif *n_default = data->netif_default;
+    if (!ip4_addr_cmp(ip_2_ip4(&n->gw), IP4_ADDR_ANY4))
+        nl_enqueue_rtmsg(s, RTM_NEWROUTE, NLM_F_MULTI, hdr->nlmsg_seq, s->addr.nl_pid, n, n_default,
+                         RTMSG_TYPE_GW);
+    nl_enqueue_rtmsg(s, RTM_NEWROUTE, NLM_F_MULTI, hdr->nlmsg_seq, s->addr.nl_pid, n, n_default,
+                     RTMSG_TYPE_IF);
+    return false;
+}
+
 static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
 {
     int errno = 0;
@@ -519,11 +575,11 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
             break;
         }
         if (hdr->nlmsg_flags & NLM_F_DUMP) {
-            lwip_lock();
-            for (struct netif *netif = netif_list; netif; netif = netif->next)
-                nl_enqueue_ifinfo(s, RTM_NEWLINK, NLM_F_MULTI, hdr->nlmsg_seq, s->addr.nl_pid,
-                    netif);
-            lwip_unlock();
+            struct nl_rtm_netif_priv priv = {
+                .s = s,
+                .hdr = hdr,
+            };
+            netif_iterate(nl_rtm_getlink, &priv);
             nl_enqueue_done(s, hdr);
         } else {    /* Return a single entry. */
             struct ifinfomsg *ifi = (struct ifinfomsg *)NLMSG_DATA(hdr);
@@ -531,16 +587,14 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
                 errno = EINVAL;
                 break;
             }
-            struct netif *netif = 0;
-            lwip_lock();
-            for (netif = netif_list; netif; netif = netif->next) {
-                if (netif_get_index(netif) == ifi->ifi_index) {
-                    nl_enqueue_ifinfo(s, RTM_NEWLINK, 0, hdr->nlmsg_seq, s->addr.nl_pid, netif);
-                    break;
-                }
-            }
-            lwip_unlock();
-            if (!netif)
+            struct nl_rtm_netif_priv priv = {
+                .s = s,
+                .hdr = hdr,
+                .if_index = ifi->ifi_index,
+                .found = false,
+            };
+            netif_iterate(nl_rtm_getlink_single, &priv);
+            if (!priv.found)
                 errno = EINVAL;
         }
         break;
@@ -552,11 +606,11 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
         if (hdr->nlmsg_flags & NLM_F_DUMP) {
             u8 af = msg->rtgen_family;
             if (af != AF_INET6) {   /* retrieve IPv4 addresses */
-                lwip_lock();
-                for (struct netif *netif = netif_list; netif; netif = netif->next)
-                    nl_enqueue_ifaddr(s, RTM_NEWADDR, NLM_F_MULTI, hdr->nlmsg_seq, s->addr.nl_pid,
-                        netif, *netif_ip4_addr(netif), *netif_ip4_netmask(netif));
-                lwip_unlock();
+                struct nl_rtm_netif_priv priv = {
+                    .s = s,
+                    .hdr = hdr,
+                };
+                netif_iterate(nl_rtm_getaddr, &priv);
             }
             nl_enqueue_done(s, hdr);
         } else {
@@ -574,18 +628,14 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
         if (hdr->nlmsg_flags & NLM_F_DUMP) {
             /* Presently only reporting IPv4 routes on the "main" table. */
             if (af != AF_INET6) {
-                lwip_lock();
-                for (struct netif *netif = netif_list; netif; netif = netif->next) {
-                    /* No loopback reporting for main table. */
-                    if (netif->name[0] == 'l' && netif->name[1] == 'o')
-                        continue;
-                    if (!ip4_addr_cmp(ip_2_ip4(&netif->gw), IP4_ADDR_ANY4))
-                        nl_enqueue_rtmsg(s, RTM_NEWROUTE, NLM_F_MULTI, hdr->nlmsg_seq,
-                                         s->addr.nl_pid, netif, RTMSG_TYPE_GW);
-                    nl_enqueue_rtmsg(s, RTM_NEWROUTE, NLM_F_MULTI, hdr->nlmsg_seq,
-                                     s->addr.nl_pid, netif, RTMSG_TYPE_IF);
-                }
-                lwip_unlock();
+                struct nl_rtm_netif_priv priv = {
+                    .s = s,
+                    .hdr = hdr,
+                    .netif_default = netif_get_default(),
+                };
+                netif_iterate(nl_rtm_getroute, &priv);
+                if (priv.netif_default)
+                    netif_unref(priv.netif_default);
             }
             nl_enqueue_done(s, hdr);
         } else {
@@ -1037,8 +1087,6 @@ void netlink_init(void)
     netlink.sockets = allocate_vector(h, 8);
     assert(netlink.sockets != INVALID_ADDRESS);
     spin_lock_init(&netlink.lock);
-    lwip_lock();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, nl_lwip_ext_callback);
-    lwip_unlock();
 }

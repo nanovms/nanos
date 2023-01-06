@@ -275,13 +275,11 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
     if (ret != 0)
         return timm("err", "err");
 
-    lwip_lock();
     netif_add(hn->netif,
               0, 0, 0,
               hn,
               vmxif_init,
               ethernet_input);
-    lwip_unlock();
 
     mm_register_mem_cleaner(init_closure(&hn->mem_cleaner, hn_mem_cleaner));
     netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x", __func__,
@@ -411,9 +409,7 @@ netvsc_recv(struct hv_device *device_ctx, netvsc_packet *packet)
             vaddr + packet->page_buffers[i].gpa_ofs);
     }
 
-    lwip_lock();
     err_enum_t err = hn->netif->input((struct pbuf *)x, hn->netif);
-    lwip_unlock();
     if (err != ERR_OK) {
         msg_err("netvsc: rx drop by stack, err %d\n", err);
         receive_buffer_release((struct pbuf *)x);

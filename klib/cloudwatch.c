@@ -174,9 +174,7 @@ static void cw_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_
 static void cw_connect(const char *server, void (*handler)(const ip_addr_t *server))
 {
     ip_addr_t cw_host;
-    lwip_lock();
     err_t err = dns_gethostbyname(server, &cw_host, cw_dns_cb, handler);
-    lwip_unlock();
     switch (err) {
     case ERR_OK:
         cw_dns_cb(server, &cw_host, handler);

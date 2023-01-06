@@ -262,11 +262,9 @@ static void ena_init_io_rings(struct ena_adapter *adapter)
 static void ena_txring_flush(struct ena_ring *tx_ring)
 {
     struct pbuf *p;
-    lwip_lock();
     while ((p = dequeue(tx_ring->br)) != INVALID_ADDRESS) {
         pbuf_free(p);
     }
-    lwip_unlock();
 }
 
 static void ena_free_io_ring_resources(struct ena_adapter *adapter, unsigned int qid)
@@ -371,12 +369,10 @@ static void ena_free_tx_resources(struct ena_adapter *adapter, int qid)
     /* Flush buffer ring */
     ena_txring_flush(tx_ring);
 
-    lwip_lock();
     for (int i = 0; i < tx_ring->ring_size; i++) {
         pbuf_free(tx_ring->tx_buffer_info[i].mbuf);
         tx_ring->tx_buffer_info[i].mbuf = NULL;
     }
-    lwip_unlock();
     ENA_RING_MTX_UNLOCK(tx_ring);
 
     /* And free allocated memory. */
@@ -489,12 +485,10 @@ static void ena_free_rx_resources(struct ena_adapter *adapter, unsigned int qid)
 {
     struct ena_ring *rx_ring = &adapter->rx_ring[qid];
 
-    lwip_lock();
     for (int i = 0; i < rx_ring->ring_size; i++) {
         pbuf_free(rx_ring->rx_buffer_info[i].mbuf);
         rx_ring->rx_buffer_info[i].mbuf = NULL;
     }
-    lwip_unlock();
 
     /* free allocated memory */
     deallocate(adapter->general, rx_ring->rx_buffer_info,
@@ -555,9 +549,7 @@ static inline int ena_alloc_rx_mbuf(struct ena_adapter *adapter, struct ena_ring
     if (unlikely(rx_info->mbuf != NULL))
         return 0;
 
-    lwip_lock();
     rx_info->mbuf = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
-    lwip_unlock();
     if (unlikely(rx_info->mbuf == 0)) {
         rx_ring->rx_stats.mjum_alloc_fail++;
         return ENA_COM_NO_MEM;
@@ -645,14 +637,12 @@ static void ena_free_rx_bufs(struct ena_adapter *adapter, unsigned int qid)
     struct ena_ring *rx_ring = &adapter->rx_ring[qid];
     unsigned int i;
 
-    lwip_lock();
     for (i = 0; i < rx_ring->ring_size; i++) {
         struct ena_rx_buffer *rx_info = &rx_ring->rx_buffer_info[i];
 
         if (rx_info->mbuf != NULL)
             ena_free_rx_mbuf(adapter, rx_ring, rx_info);
     }
-    lwip_unlock();
 }
 
 /**
@@ -694,7 +684,6 @@ static void ena_free_tx_bufs(struct ena_adapter *adapter, unsigned int qid)
     struct ena_ring *tx_ring = &adapter->tx_ring[qid];
 
     ENA_RING_MTX_LOCK(tx_ring);
-    lwip_lock();
     for (int i = 0; i < tx_ring->ring_size; i++) {
         struct ena_tx_buffer *tx_info = &tx_ring->tx_buffer_info[i];
 
@@ -713,7 +702,6 @@ static void ena_free_tx_bufs(struct ena_adapter *adapter, unsigned int qid)
         pbuf_free(tx_info->mbuf);
         tx_info->mbuf = NULL;
     }
-    lwip_unlock();
     ENA_RING_MTX_UNLOCK(tx_ring);
 }
 
@@ -1378,11 +1366,8 @@ int ena_up(struct ena_adapter *adapter)
         goto err_create_queues_with_backoff;
     }
 
-    if (ENA_FLAG_ISSET(ENA_FLAG_LINK_UP, adapter)) {
-        lwip_lock();
+    if (ENA_FLAG_ISSET(ENA_FLAG_LINK_UP, adapter))
         netif_set_link_up(&adapter->ifp);
-        lwip_unlock();
-    }
 
     rc = ena_up_complete(adapter);
     if (unlikely(rc != 0))
@@ -1437,9 +1422,7 @@ static int ena_setup_ifnet(struct ena_adapter *adapter,
                            struct ena_com_dev_get_features_ctx *feat)
 {
     runtime_memcpy(adapter->ifp.hwaddr, feat->dev_attr.mac_addr, ETHARP_HWADDR_LEN);
-    lwip_lock();
     netif_add(&adapter->ifp, 0, 0, 0, adapter, ena_init, ethernet_input);
-    lwip_unlock();
 
     return 0;
 }
@@ -1807,9 +1790,7 @@ void ena_destroy_device(struct ena_adapter *adapter, bool graceful)
     if (!ENA_FLAG_ISSET(ENA_FLAG_DEVICE_RUNNING, adapter))
         return;
 
-    lwip_lock();
     netif_set_link_down(ifp);
-    lwip_unlock();
 
     dev_up = ENA_FLAG_ISSET(ENA_FLAG_DEV_UP, adapter);
     if (dev_up)
@@ -1896,11 +1877,8 @@ int ena_restore_device(struct ena_adapter *adapter)
 
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_ONGOING_RESET, adapter);
     /* Make sure we don't have a race with AENQ Links state handler */
-    if (ENA_FLAG_ISSET(ENA_FLAG_LINK_UP, adapter)) {
-        lwip_lock();
+    if (ENA_FLAG_ISSET(ENA_FLAG_LINK_UP, adapter))
         netif_set_link_up(ifp);
-        lwip_unlock();
-    }
 
     rc = ena_enable_msix_and_set_admin_interrupts(adapter);
     if (rc != 0) {
@@ -1988,11 +1966,8 @@ define_closure_function(1, 0, void, ena_link_up_task,
     struct netif *ifp = &bound(adapter)->ifp;
     ena_trace(NULL, ENA_INFO, "link UP task\n");
     ENA_FLAG_SET_ATOMIC(ENA_FLAG_LINK_UP, bound(adapter));
-    if (!ENA_FLAG_ISSET(ENA_FLAG_ONGOING_RESET, bound(adapter))) {
-        lwip_lock();
+    if (!ENA_FLAG_ISSET(ENA_FLAG_ONGOING_RESET, bound(adapter)))
         netif_set_link_up(ifp);
-        lwip_unlock();
-    }
 }
 
 define_closure_function(1, 0, void, ena_link_down_task,
@@ -2000,9 +1975,7 @@ define_closure_function(1, 0, void, ena_link_down_task,
 {
     struct netif *ifp = &bound(adapter)->ifp;
     ena_trace(NULL, ENA_INFO, "link DOWN task\n");
-    lwip_lock();
     netif_set_link_down(ifp);
-    lwip_unlock();
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_LINK_UP, bound(adapter));
 }
 

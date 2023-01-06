@@ -1701,15 +1701,15 @@ sysreturn uname(struct utsname *v)
         v->nodename[length] = '\0';
     } else {
         v->nodename[0] = 0;
-        lwip_lock();
+        struct netif *netif_default = netif_get_default();
         if (netif_default) {
             /* Derive nodename from the IP address of the default network interface. */
             const ip4_addr_t *addr = netif_ip4_addr(netif_default);
             if (!ip4_addr_isany_val(*addr))
                 rsnprintf(v->nodename, sizeof(v->nodename), "%d-%d-%d-%d",
                           ip4_addr1(addr), ip4_addr2(addr), ip4_addr3(addr), ip4_addr4(addr));
+            netif_unref(netif_default);
         }
-        lwip_unlock();
         if (!v->nodename[0])
             runtime_memcpy(v->nodename, sysname, sizeof(sysname));
     }

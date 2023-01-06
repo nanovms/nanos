@@ -52,10 +52,12 @@ typedef struct gcp_log_entry {
 static boolean gcp_instance_md_available(void)
 {
     ip_addr_t md_server = GCP_MD_SERVER_ADDR;
-    lwip_lock();
-    boolean result = (ip_route(&ip_addr_any, &md_server) != 0);
-    lwip_unlock();
-    return result;
+    struct netif *n = ip_route(&ip_addr_any, &md_server);
+    if (n) {
+        netif_unref(n);
+        return true;
+    }
+    return false;
 }
 
 closure_function(1, 1, void, gcp_project_id_vh,
@@ -354,9 +356,7 @@ static void gcp_log_dns_cb(const char *name, const ip_addr_t *addr, void *cb_arg
 static void gcp_log_connect(void)
 {
     ip_addr_t addr;
-    lwip_lock();
     err_t err = dns_gethostbyname(GCP_LOG_SERVER_NAME, &addr, gcp_log_dns_cb, 0);
-    lwip_unlock();
     switch (err) {
     case ERR_OK:
         gcp_log_dns_cb(GCP_LOG_SERVER_NAME, &addr, 0);

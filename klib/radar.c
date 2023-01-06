@@ -214,9 +214,7 @@ boolean telemetry_send(const char *url, buffer data, value_handler vh)
     if (ch == INVALID_ADDRESS)
         return false;
     ip_addr_t radar_addr;
-    lwip_lock();
     err_t err = dns_gethostbyname(RADAR_HOSTNAME, &radar_addr, telemetry_dns_cb, ch);
-    lwip_unlock();
     switch (err) {
     case ERR_OK:
         if (tls_connect(&radar_addr, RADAR_PORT, ch) == 0)
@@ -354,19 +352,22 @@ static void telemetry_boot(void)
     if (vh == INVALID_ADDRESS) {
         goto err_free_buf;
     }
-    lwip_lock();      /* ipaddr_ntoa is not reentrant */
-    bprintf(b, "{\"privateIP\":\"%s\"", ipaddr_ntoa(&netif->ip_addr));
-    lwip_unlock();
+    char addr[40];
+    ipaddr_ntoa_r(&netif->ip_addr, addr, sizeof(addr));
+    bprintf(b, "{\"privateIP\":\"%s\"", addr);
     telemetry_print_env(b);
     buffer_write_cstring(b, "}\r\n");
     if (!telemetry_send("/api/v1/boots", b, vh)) {
         deallocate_closure(vh);
         goto err_free_buf;
     }
+    netif_unref(netif);
     return;
   err_free_buf:
     deallocate_buffer(b);
   error:
+    if (netif)
+        netif_unref(netif);
     telemetry_retry();
 }
 

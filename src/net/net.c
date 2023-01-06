@@ -11,7 +11,6 @@
 #define IFF_MULTICAST   (1 << 12)
 
 BSS_RO_AFTER_INIT static heap lwip_heap;
-BSS_RO_AFTER_INIT mutex lwip_mutex;
 
 declare_closure_struct(0, 2, void, net_timeout_handler, u64, expiry, u64, overruns);
 
@@ -55,13 +54,10 @@ closure_function(2, 2, void, dispatch_lwip_timer,
 #ifdef LWIP_DEBUG
     lwip_debug("dispatching timer for %s\n", bound(name));
 #endif
-    if (overruns == timer_disabled) {
+    if (overruns == timer_disabled)
         closure_finish();
-    } else {
-        lwip_lock();
+    else
         bound(handler)();
-        lwip_unlock();
-    }
 }
 
 void sys_timeouts_init(void)
@@ -108,8 +104,12 @@ static boolean netif_ready(struct netif *n)
 
 static void check_netif_ready(struct netif *netif)
 {
-    if (netif_ready(netif))
-        remove_timer(kernel_timers, &net.timeout, 0);
+    struct netif *default_n = netif_get_default();
+    if (default_n) {
+        if ((!netif || (netif == default_n)) && netif_ready(default_n))
+            remove_timer(kernel_timers, &net.timeout, 0);
+        netif_unref(default_n);
+    }
 }
 
 static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
@@ -120,8 +120,7 @@ static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
     if (reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) {
         u8 *n = (u8 *)&netif->ip_addr;
         rprintf("%s: assigned %d.%d.%d.%d\n", ifname, n[0], n[1], n[2], n[3]);
-        if (netif_get_default() == netif)
-            check_netif_ready(netif);
+        check_netif_ready(netif);
     }
     if ((reason & LWIP_NSC_IPV6_ADDR_STATE_CHANGED) &&
             (netif_ip6_addr_state(netif, args->ipv6_addr_state_changed.addr_index) & IP6_ADDR_VALID))
@@ -176,11 +175,6 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len)
     return 0;
 }
 
-struct netif *netif_get_default(void)
-{
-    return netif_default;
-}
-
 u16 ifflags_from_netif(struct netif *netif)
 {
     u16 flags = 0;
@@ -199,13 +193,10 @@ u16 ifflags_from_netif(struct netif *netif)
     return flags;
 }
 
-/* do not call with lwIP lock held */
 boolean ifflags_to_netif(struct netif *netif, u16 flags)
 {
-    lwip_lock();
     u16 diff = ifflags_from_netif(netif) ^ flags;
     if (diff & ~(IFF_UP | IFF_RUNNING)) { /* attempt to modify read-only flags */
-        lwip_unlock();
         return false;
     }
     if (flags & IFF_UP)
@@ -216,7 +207,6 @@ boolean ifflags_to_netif(struct netif *netif, u16 flags)
         netif_set_link_up(netif);
     else
         netif_set_link_down(netif);
-    lwip_unlock();
     return true;
 }
 
@@ -315,9 +305,7 @@ void ip4_when_ready(status_handler complete, timestamp timeout)
     net.ip4_complete = complete;
     register_timer(kernel_timers, &net.timeout, CLOCK_ID_MONOTONIC,
         timeout, false, 0, init_closure(&net.timeout_handler, net_timeout_handler));
-    struct netif *n;
-    if ((n = netif_get_default()))
-        check_netif_ready(n);
+    check_netif_ready(0);
 }
 
 void init_network_iface(tuple root) {
@@ -325,11 +313,12 @@ void init_network_iface(tuple root) {
     struct netif *default_iface = 0;
     boolean trace = !!(trace_get_flags(get(root, sym(trace))) & TRACE_OTHER);
 
-    lwip_lock();
     /* NETIF_FOREACH traverses interfaces in reverse order...so go by index */
     for (int i = 1; (n = netif_get_by_index(i)); i++) {
-        if (netif_is_loopback(n))
+        if (netif_is_loopback(n)) {
+            netif_unref(n);
             continue;
+        }
 
         char ifname[4];
         netif_name_cpy(ifname, n);
@@ -377,6 +366,7 @@ void init_network_iface(tuple root) {
                 rprintf("NET: starting DHCPv6 for interface %s\n", ifname);
             dhcp6_enable_stateful(n);
         }
+        netif_unref(n);
     }
 
     if (default_iface) {
@@ -389,7 +379,6 @@ void init_network_iface(tuple root) {
     } else {
         rprintf("NET: no network interface found\n");
     }
-    lwip_unlock();
 }
 
 extern void lwip_init();
@@ -401,12 +390,11 @@ void init_net(kernel_heaps kh)
     bytes pagesize = is_low_memory_machine(kh) ?
                      U64_FROM_BIT(MAX_LWIP_ALLOC_ORDER + 1) : PAGESIZE_2M;
     lwip_heap = allocate_mcache(h, backed, 5, MAX_LWIP_ALLOC_ORDER, pagesize);
-    lwip_mutex = allocate_mutex(h, LWIP_LOCK_SPIN_ITERATIONS);
-    assert(lwip_mutex != INVALID_ADDRESS);
+    assert(lwip_heap != INVALID_ADDRESS);
+    lwip_heap = locking_heap_wrapper(h, lwip_heap);
+    assert(lwip_heap != INVALID_ADDRESS);
     init_timer(&net.timeout);
-    lwip_lock();
     lwip_init();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, lwip_ext_callback);
-    lwip_unlock();
 }

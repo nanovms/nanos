@@ -1,3 +1,8 @@
+/* guard against double include of header file */
+#ifndef KMEM_BASE
+#include <kernel.h>
+#endif
+
 #define NO_SYS 1
 #define LWIP_SOCKET 0
 #define LWIP_NETCONN 0
@@ -48,6 +53,9 @@
 #define LWIP_NO_LIMITS_H 1
 #define LWIP_NO_CTYPE_H 1
 
+/* Must be a type on which atomic operations are supported by the CPU. */
+#define LWIP_PBUF_REF_T u32_t
+
 #define LWIP_CHKSUM_ALGORITHM   3
 
 #define LWIP_WND_SCALE 1
@@ -94,6 +102,7 @@ typedef short s16_t;
 typedef signed char s8_t;
 typedef u16_t uint16_t;
 typedef void *sys_prot_t;
+typedef struct spinlock sys_lock_t;
 typedef u64_t ptrdiff_t;
 typedef unsigned long mem_ptr_t;
 
@@ -107,6 +116,16 @@ typedef unsigned long mem_ptr_t;
 #define X32_F "8x"
 #define SZT_F "d"
 
+#define SYS_ARCH_LOCK_INIT  spin_lock_init
+#define SYS_ARCH_LOCK       spin_lock
+#define SYS_ARCH_UNLOCK     spin_unlock
+#define SYS_ARCH_TRYLOCK    spin_try
+
+#define SYS_ARCH_INC(var, val) __sync_fetch_and_add(&(var), val)
+#define SYS_ARCH_DEC(var, val) __sync_fetch_and_add(&(var), -(val))
+
+#define SYS_PAUSE   kern_pause
+
 // some ifdef rot
 #define API_MSG_M_DEF(m)                m
 #define API_MSG_M_DEF_C(t, m)           t m
@@ -116,14 +135,7 @@ struct tcpip_api_call_data
 {
 };
 
-static inline sys_prot_t sys_arch_protect(void)
-{
-    return 0;
-}
-
-static inline void sys_arch_unprotect(sys_prot_t x)
-{
-}
+#define SYS_LIGHTWEIGHT_PROT    0
 
 typedef unsigned long long time; 
 extern void lwip_debug(char * format, ...);

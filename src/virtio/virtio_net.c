@@ -86,9 +86,7 @@ closure_function(1, 1, void, tx_complete,
                  struct pbuf *, p,
                  u64, len)
 {
-    lwip_lock();
     pbuf_free(bound(p));
-    lwip_unlock();
     closure_finish();
 }
 
@@ -201,11 +199,8 @@ define_closure_function(0, 1, void, vnet_input,
             err = true;
         }
     }
-    if (!err) {
-        lwip_lock();
+    if (!err)
         err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
-        lwip_unlock();
-    }
     if (err)
         receive_buffer_release(&x->p.pbuf);
     // we need to get a signal from the device side that there was
@@ -220,7 +215,6 @@ static void post_receive(vnet vn)
     assert(x != INVALID_ADDRESS);
     x->vn = vn;
     x->p.custom_free_function = receive_buffer_release;
-    /* no lwip lock necessary */
     pbuf_alloced_custom(PBUF_RAW,
                         vn->rxbuflen,
                         PBUF_REF,
@@ -319,13 +313,11 @@ static void virtio_net_attach(vtdev dev)
     vn->n->state = vn;
     // initialization complete
     vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
-    lwip_lock();
     netif_add(vn->n,
               0, 0, 0, 
               vn,
               virtioif_init,
               ethernet_input);
-    lwip_unlock();
 }
 
 closure_function(2, 1, boolean, vtpci_net_probe,

@@ -26,9 +26,6 @@ static void netconsole_write(void *_d, const char *s, bytes count)
        If so, the pbuf_alloc should be happening elsewhere (e.g. background
        task and queued to free list) */
     assert(!in_interrupt());
-    boolean lock = !mutex_is_acquired(lwip_mutex);
-    if (lock)
-        lwip_lock();
     while (count > 0) {
         bytes len = MIN(count, MAX_PAYLOAD);
         struct pbuf *pb = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
@@ -40,16 +37,12 @@ static void netconsole_write(void *_d, const char *s, bytes count)
         count -= len;
         off += len;
     }
-    if (lock)
-        lwip_unlock();
 }
 
 static void netconsole_config(void *_d, tuple r)
 {
     netconsole_driver nd = _d;
-    lwip_lock();
     nd->pcb = udp_new();
-    lwip_unlock();
     if (!nd->pcb) {
         msg_err("failed to allocate pcb\n");
         return;

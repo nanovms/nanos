@@ -295,13 +295,9 @@ static timestamp slew_compensate(timestamp raw)
     return raw + (ntp.offset - fpmul(ntp.slew_freq, raw - ntp.slew_start));
 }
 
-static void ntp_query(ntp_server server, boolean lwip_locked)
+static void ntp_query(ntp_server server)
 {
-    if (!lwip_locked)
-        lwip_lock();
     struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, sizeof(struct ntp_packet), PBUF_RAM);
-    if (!lwip_locked)
-        lwip_unlock();
     if (p == 0)
         return;
     struct ntp_packet *pkt = p->payload;
@@ -312,16 +308,12 @@ static void ntp_query(ntp_server server, boolean lwip_locked)
     timestamp_to_ntptime(slew_compensate(kern_now(CLOCK_ID_REALTIME)), &t);
     runtime_memcpy(&pkt->transmit_ts, &t, sizeof(t));
     runtime_memcpy(&server->last_originate_time, &t, sizeof(t));
-    if (!lwip_locked)
-        lwip_lock();
     err_t err = udp_sendto(ntp.pcb, p, &server->ip_addr, server->port);
     if (err != ERR_OK) {
         rprintf("%s: failed to send request: %d\n", __func__, err);
         ntp_query_complete(false);
     }
     pbuf_free(p);
-    if (!lwip_locked)
-        lwip_unlock();
     ntp.query_ongoing = true;
     ntp_schedule_query();
 }
@@ -695,7 +687,7 @@ static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback
     if (ipaddr) {
         ntp_server server = callback_arg;
         server->ip_addr = *ipaddr;
-        ntp_query(server, true);
+        ntp_query(server);
     } else {
         rprintf("%s: failed to resolve hostname %s\n", __func__, name);
         ntp_query_complete(false);
@@ -704,11 +696,9 @@ static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback
 
 static boolean ntp_resolve_and_query(ntp_server server)
 {
-    lwip_lock();
     err_t err = dns_gethostbyname(server->addr, &server->ip_addr, ntp_dns_cb, server);
-    lwip_unlock();
     if (err == ERR_OK) {
-        ntp_query(server, false);
+        ntp_query(server);
     } else if (err != ERR_INPROGRESS) {
         rprintf("%s: failed to resolve hostname %s: %d\n", __func__, server->addr, err);
         return false;
@@ -905,15 +895,12 @@ int init(status_handler complete)
         }
         ntp.max_base_freq = PPM_SCALE(ppm);
     }
-    lwip_lock();
     ntp.pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
     if (!ntp.pcb) {
-        lwip_unlock();
         rprintf("NTP: failed to create PCB\n");
         return KLIB_INIT_FAILED;
     }
     udp_recv(ntp.pcb, ntp_input, 0);
-    lwip_unlock();
     init_closure(&ntp.query_func, ntp_query_func);
     init_closure(&ntp.slew_complete_func, ntp_slew_complete_func);
     init_closure(&ntp.raw_update_func, ntp_raw_update_func);

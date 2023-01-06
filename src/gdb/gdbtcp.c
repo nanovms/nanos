@@ -42,7 +42,6 @@ void init_tcp_gdb(heap h, process p, u16 port)
 {
     tcpgdb g = (tcpgdb) allocate(h, sizeof(struct tcpgdb));
     assert(g != INVALID_ADDRESS);
-    lwip_lock();
     g->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
     // XXX threads lock taken here...shouldn't be issue but validate
     g->input = init_gdb(h, p, closure(h, gdb_send, g));
@@ -50,5 +49,4 @@ void init_tcp_gdb(heap h, process p, u16 port)
     g->p = tcp_listen(g->p);
     tcp_arg(g->p, g);
     tcp_accept(g->p, gdb_accept);
-    lwip_unlock();
 }

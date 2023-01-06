@@ -205,6 +205,7 @@ static void syslog_set_hdr_len(void)
     if (!n)
         return;
     ipaddr_ntoa_r(&n->ip_addr, syslog.local_ip, sizeof(syslog.local_ip));
+    netif_unref(n);
     syslog.hdr_len = syslog.max_hdr_len - sizeof(syslog.local_ip) +
             runtime_strlen(syslog.local_ip) + 1;
 }
@@ -257,7 +258,6 @@ static void syslog_udp_flush(void)
     }
     if (syslog.dns_in_progress || (kern_now(CLOCK_ID_MONOTONIC) < syslog.dns_req_next))
         return;
-    lwip_lock();
     err_t err = dns_gethostbyname(syslog.server, &syslog.server_ip, syslog_dns_cb, 0);
     switch (err) {
     case ERR_OK:
@@ -270,7 +270,6 @@ static void syslog_udp_flush(void)
         syslog_dns_failure();
         break;
     }
-    lwip_unlock();
 }
 
 static void syslog_udp_free(struct pbuf *p)
@@ -443,9 +442,7 @@ int init(status_handler complete)
         syslog.max_hdr_len = 1 + sizeof(__XSTRING(SYSLOG_PRIORITY)) + sizeof(SYSLOG_VERSION) +
                 sizeof("YYYY-MM-ddThh:mm:ss.uuuuuuZ") + sizeof(syslog.local_ip) +
                 buffer_length(syslog.program) + 7;
-        lwip_lock();
         syslog.udp_pcb = udp_new();
-        lwip_unlock();
         if (!syslog.udp_pcb) {
             rprintf("syslog: unable to create UDP PCB\n");
             return KLIB_INIT_FAILED;

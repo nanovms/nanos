@@ -395,12 +395,10 @@ define_closure_function(0, 0, void, gve_link_status_handler)
     gve adapter = struct_from_field(closure_self(), gve, link_status_handler);
     u32 status = pci_bar_read_4(&adapter->reg_bar, GVE_REG_DEVICE_STATUS);
     gve_debug("link status handler, status 0x%x", status);
-    lwip_lock();
     if (status & GVE_DEVICE_STATUS_LINK_STATUS)
         netif_set_link_up(&adapter->net_if);
     else
         netif_set_link_down(&adapter->net_if);
-    lwip_unlock();
 }
 
 define_closure_function(0, 0, void, gve_mgmt_irq)
@@ -546,7 +544,6 @@ define_closure_function(0, 0, void, gve_rx_service)
         u32 qpl_offset = be64toh(rx->data[rx->tail & rx->mask]);
         void *payload = rx->qpl_base + qpl_offset + GVE_RX_PADDING;
         length -= GVE_RX_PADDING;
-        lwip_lock();
         struct pbuf *p;
         if (qpl_offset == qpl_index * PAGESIZE) {
             p = &rx->pbufs[qpl_index];
@@ -560,14 +557,12 @@ define_closure_function(0, 0, void, gve_rx_service)
                 pbuf_take(p, payload, length);
             } else {
                 msg_err("failed to allocate pbuf\n");
-                lwip_unlock();
                 continue;
             }
         }
         err_t err = net_if->input(p, net_if);
         if (err != ERR_OK)
             pbuf_free(p);
-        lwip_unlock();
     }
     if (rx->head - rx->tail <= (rx->mask + 1) / 2)
         gve_rx_fill(rx);
@@ -837,9 +832,7 @@ closure_function(2, 1, boolean, gve_probe,
     adapter->pdev = d;
     if (gve_init(adapter)) {
         gve_debug("registering network interface");
-        lwip_lock();
         netif_add(&adapter->net_if, 0, 0, 0, adapter, gve_if_init, ethernet_input);
-        lwip_unlock();
         thunk t = (thunk)&adapter->link_status_handler;
         apply(t);
         return true;

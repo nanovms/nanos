@@ -339,9 +339,7 @@ static void cloud_download(connection_handler ch)
     runtime_memcpy(host, buffer_ref(&cfg->server_host, 0), host_len);
     host[host_len] = '\0';                                \
     ip_addr_t addr;
-    lwip_lock();
     err_t err = dns_gethostbyname(host, &addr, cloud_download_dns_cb, ch);
-    lwip_unlock();
     switch (err) {
     case ERR_OK:
         s = cloud_download_connect(&addr, ch);
