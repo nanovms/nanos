@@ -91,7 +91,7 @@ void *lwip_allocate(u64 size)
     /* To maintain the malloc/free interface with mcache, allocations must stay
        within the range of objcaches and not fall back to parent allocs. */
     assert(size <= U64_FROM_BIT(MAX_LWIP_ALLOC_ORDER));
-    void *p = allocate_zero(lwip_heap, size);
+    void *p = allocate(lwip_heap, size);
     return ((p != INVALID_ADDRESS) ? p : 0);
 }
 
