@@ -11,7 +11,9 @@
 
 #define BUF_LEN 10
 
-#define SENDFILE_DEBUG
+#define SENDFILE_COUNT  8
+
+//#define SENDFILE_DEBUG
 #ifdef SENDFILE_DEBUG
 #define sf_dbg(fmt, args...)	printf("[%s]" fmt , __func__, ##args)
 #else
@@ -29,7 +31,7 @@
 int main(int argc, char *argv[])
 {
     int ret;
-    int i;
+    int i, j;
     int fd_in;
     int fd_out;
     char buf[BUF_LEN];
@@ -85,44 +87,52 @@ int main(int argc, char *argv[])
             ret, errno);
 
     sf_dbg("IN fd %d OUT fd %d\n", fd_in, fd_out);
-    memset(buf, 0, sizeof(buf));
     lseek(fd_out, 0, SEEK_SET);
-    if (read(fd_out, cmp_buf, sizeof(cmp_buf)) != sizeof(cmp_buf))
-        sf_err_goto(err_fop, "Error in reading out file\n");
-
     sf_dbg("Previous contents:\n");
-    for (i = 0; i < sizeof(cmp_buf) - 1; i++)
-    	sf_dbg("outfile[%d] = 0x%02x\n", i+1, cmp_buf[i]);
+    for (j = 0; j < SENDFILE_COUNT; j++) {
+        if (read(fd_out, cmp_buf, sizeof(cmp_buf)) != sizeof(cmp_buf))
+            sf_err_goto(err_fop, "Error in reading out file\n");
+        for (i = 0; i < sizeof(cmp_buf); i++)
+            sf_dbg("outfile[%d] = 0x%02x\n", j * BUF_LEN + i, cmp_buf[i]);
+    }
 
     lseek(fd_in, 0, SEEK_SET);
-    ret = read(fd_in, buf, sizeof(buf));
-    if (ret != sizeof(buf)) 
-    	sf_err_goto(err_fop, "Error reading. read %d of %d\n", ret, BUF_LEN);
-
     sf_dbg("Replaced with:\n");
-    for (i = 0; i < sizeof(buf) - 1; i++)
-    	sf_dbg("infile[%d] = 0x%02x\n", i+1, buf[i]);
+    for (j = 0; j < SENDFILE_COUNT; j++) {
+        ret = read(fd_in, buf, sizeof(buf));
+        if (ret != sizeof(buf))
+            sf_err_goto(err_fop, "Error reading. read %d of %d\n", ret, BUF_LEN);
+        for (i = 0; i < sizeof(buf); i++)
+            sf_dbg("infile[%d] = 0x%02x\n", j * BUF_LEN + i, buf[i]);
+    }
 
     if (memcmp(buf, cmp_buf, sizeof(buf)) == 0)
         sf_err_goto(err_fop, "Initial contents similar. replace output file.\n");
 
     lseek(fd_out, 0, SEEK_SET);
     lseek(fd_in, 0, SEEK_SET);
-    ret = sendfile(fd_out, fd_in, NULL, BUF_LEN);
-    if (ret != BUF_LEN)
-	    sf_err_goto(err_fop, "sendfile error %d. wrote %d of %d\n", errno, ret, BUF_LEN);
+    for (j = 0; j < SENDFILE_COUNT; j++) {
+        ret = sendfile(fd_out, fd_in, NULL, BUF_LEN);
+        if (ret != BUF_LEN)
+            sf_err_goto(err_fop, "sendfile error %d. wrote %d of %d\n", errno, ret, BUF_LEN);
+    }
     	
     printf("sendfile() success. validating contents\n");
+    lseek(fd_in, 0, SEEK_SET);
     lseek(fd_out, 0,  SEEK_SET);
-    memset(cmp_buf, 0, sizeof(cmp_buf));
-    ret = read(fd_out, cmp_buf, sizeof(cmp_buf));
-
     sf_dbg("New file contents:\n");
-    for (i = 0; i < sizeof(cmp_buf) - 1; i++)
-	    sf_dbg("buf[%d] = 0x%02x\n", i+1, cmp_buf[i]);
-
-    if (memcmp(buf, cmp_buf, sizeof(buf)) != 0)
-        sf_err_goto(err_fop, "sendfile() failed!!\n");
+    for (j = 0; j < SENDFILE_COUNT; j++) {
+        ret = read(fd_in, buf, sizeof(buf));
+        if (ret != sizeof(buf))
+            sf_err_goto(err_fop, "Error reading from IN, read %d of %d\n", ret, BUF_LEN);
+        ret = read(fd_out, cmp_buf, sizeof(cmp_buf));
+        if (ret != sizeof(buf))
+            sf_err_goto(err_fop, "Error reading from OUT, read %d of %d\n", ret, BUF_LEN);
+        for (i = 0; i < sizeof(cmp_buf); i++)
+            sf_dbg("buf[%d] = 0x%02x\n", j * BUF_LEN + i, cmp_buf[i]);
+        if (memcmp(buf, cmp_buf, sizeof(buf)) != 0)
+            sf_err_goto(err_fop, "sendfile() failed!!\n");
+    }
 
     close(fd_out);
     close(fd_in);
