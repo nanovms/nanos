@@ -28,6 +28,18 @@ void vtdev_cfg_write_1(vtdev dev, u64 offset, u8 value)
     }
 }
 
+u16 vtdev_cfg_read_2(vtdev dev, u64 offset)
+{
+    switch (dev->transport) {
+    case VTIO_TRANSPORT_MMIO:
+        return vtmmio_get_u16((vtmmio)dev, VTMMIO_OFFSET_CONFIG + offset);
+    case VTIO_TRANSPORT_PCI:
+        return pci_bar_read_2(&((vtpci)dev)->device_config, offset);
+    default:
+        return 0;
+    }
+}
+
 u32 vtdev_cfg_read_4(vtdev dev, u64 offset)
 {
     switch (dev->transport) {
@@ -90,6 +102,17 @@ status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, struct virtq
         return vtpci_alloc_virtqueue((vtpci)dev, name, idx, result);
     default:
         return timm("status", "unknown transport %d", dev->transport);
+    }
+}
+
+void virtio_set_vq_affinity(vtdev dev, int idx, bitmap affinity)
+{
+    switch (dev->transport) {
+    case VTIO_TRANSPORT_PCI:
+        vtpci_set_vq_affinity((vtpci)dev, idx, affinity);
+        break;
+    default:
+        break;
     }
 }
 

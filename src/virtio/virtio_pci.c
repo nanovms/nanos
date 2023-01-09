@@ -296,6 +296,14 @@ status vtpci_alloc_virtqueue(vtpci dev,
     return STATUS_OK;
 }
 
+void vtpci_set_vq_affinity(vtpci dev, int idx, bitmap affinity)
+{
+    if (dev->msix_enabled) {
+        int msi_slot = idx + 1;
+        pci_set_msix_affinity(dev->dev, msi_slot, affinity);
+    }
+}
+
 closure_function(2, 0, void, vtpci_config_change_msix_irq,
                  vtpci, dev, thunk, handler)
 {

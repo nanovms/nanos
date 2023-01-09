@@ -121,6 +121,14 @@ u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp)
     return _pci_find_cap(dev, cap, pci_cfgread(dev, cp + PCICAP_NEXTPTR, 1));
 }
 
+static void pci_setup_msix_slot(u64 slot_addr, u32 address, u32 data)
+{
+    mmio_write_32(slot_addr + (sizeof(u32) * 0), address);
+    mmio_write_32(slot_addr + (sizeof(u32) * 1), 0);
+    mmio_write_32(slot_addr + (sizeof(u32) * 2), data);
+    mmio_write_32(slot_addr + (sizeof(u32) * 3), 0);
+}
+
 int pci_get_msix_count(pci_dev dev)
 {
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
@@ -174,11 +182,17 @@ u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
     u64 slot_addr = pci_msix_table_slot_addr(dev, msi_slot);
     pci_debug("   vector %d, address 0x%x, data 0x%x, table slot addr 0x%lx\n",
               vector, address, data, slot_addr);
-    mmio_write_32(slot_addr + (sizeof(u32) * 0), address);
-    mmio_write_32(slot_addr + (sizeof(u32) * 1), 0);
-    mmio_write_32(slot_addr + (sizeof(u32) * 2), data);
-    mmio_write_32(slot_addr + (sizeof(u32) * 3), 0);
+    pci_setup_msix_slot(slot_addr, address, data);
     return vector;
+}
+
+void pci_set_msix_affinity(pci_dev dev, int msi_slot, bitmap affinity)
+{
+    u64 slot_addr = pci_msix_table_slot_addr(dev, msi_slot);
+    int v = msi_get_vector(mmio_read_32(slot_addr + sizeof(u32) * 2));
+    u32 address, data;
+    msi_format_affinity(&address, &data, v, affinity);
+    pci_setup_msix_slot(slot_addr, address, data);
 }
 
 void pci_teardown_msix(pci_dev dev, int msi_slot)

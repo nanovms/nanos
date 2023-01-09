@@ -747,6 +747,7 @@ void init_clock(void);
 void process_bhqueue();
 
 void msi_format(u32 *address, u32 *data, int vector);
+void msi_format_affinity(u32 *address, u32 *data, int vector, bitmap affinity);
 int msi_get_vector(u32 data);
 
 u64 allocate_ipi_interrupt(void);

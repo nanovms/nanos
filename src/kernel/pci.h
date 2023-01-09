@@ -194,6 +194,7 @@ int pci_get_msix_count(pci_dev dev);
 int pci_enable_msix(pci_dev dev);
 void pci_enable_io_and_memory(pci_dev dev);
 u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
+void pci_set_msix_affinity(pci_dev dev, int msi_slot, bitmap affinity);
 void pci_teardown_msix(pci_dev dev, int msi_slot);
 void pci_disable_msix(pci_dev dev);
 void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name);

@@ -47,6 +47,8 @@ typedef struct vtmmio_dev {
     *(volatile u8 *)((dev)->vbase + offset) = value; \
 } while (0)
 
+#define vtmmio_get_u16(dev, offset) (*((volatile u16 *)((dev)->vbase + offset)))
+
 #define vtmmio_get_u32(dev, offset) (*((volatile u32 *)((dev)->vbase + offset)))
 
 #define vtmmio_set_u32(dev, offset, value)  do {    \

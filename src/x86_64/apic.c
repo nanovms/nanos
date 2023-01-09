@@ -104,6 +104,22 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
+void msi_format_affinity(u32 *address, u32 *data, int vector, bitmap affinity)
+{
+    u64 destination = bitmap_range_get_first(affinity, 0, 256);
+    if (destination == INVALID_PHYSICAL)
+        destination = 0;
+    destination = apicid_from_cpuid(destination);
+    u32 dm = 0;
+    u32 rh = 0;
+    *address = (0xfeeu << 20) | (destination << 12) | (rh << 3) | (dm << 2);
+
+    u32 mode = 0;
+    u32 level = 0;
+    u32 trigger = 0;
+    *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
+}
+
 int msi_get_vector(u32 data)
 {
     return (data & 0xff);
