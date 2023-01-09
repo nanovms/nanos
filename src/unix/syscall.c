@@ -479,6 +479,19 @@ static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
     return rv;
 }
 
+static boolean check_file_read(file f, u64 offset, sysreturn *rv)
+{
+    if (fdesc_type(&f->f) == FDESC_TYPE_DIRECTORY)
+        *rv = -EISDIR;
+    else if (!f->fsf)
+        *rv = -EBADF;
+    else if (offset >= f->length)
+        *rv = 0;
+    else
+        return true;
+    return false;
+}
+
 static void begin_file_read(thread t, file f)
 {
     tuple md = filesystem_get_meta(f->fs, f->n);
@@ -518,17 +531,15 @@ closure_function(2, 6, sysreturn, file_read,
                  void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
 {
     file f = bound(f);
-    if (fdesc_type(&f->f) == FDESC_TYPE_DIRECTORY)
-        return io_complete(completion, t, -EISDIR);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
-    if (offset >= f->length) {
-        return io_complete(completion, t, 0);
-    }
+    sysreturn rv;
+    if (!check_file_read(f, offset, &rv))
+        return io_complete(completion, t, rv);
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
@@ -574,6 +585,9 @@ closure_function(2, 6, sysreturn, file_sg_read,
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
+    sysreturn rv;
+    if (!check_file_read(f, offset, &rv))
+        return io_complete(completion, t, rv);
     begin_file_read(t, f);
     apply(f->fs_read, sg, irangel(offset, length),
           contextual_closure(file_sg_read_complete, t, f, sg, is_file_offset, completion));
@@ -601,9 +615,8 @@ static void file_write_complete_internal(thread t, file f, u64 len,
 {
     sysreturn rv;
     if (is_ok(s)) {
-        /* if regular file, update length */
-        if (f->fsf)
-            f->length = fsfile_get_length(f->fsf);
+        /* update length */
+        f->length = fsfile_get_length(f->fsf);
         if (is_file_offset)
             f->offset += len;
         rv = len;
@@ -646,6 +659,8 @@ closure_function(2, 6, sysreturn, file_write,
                __func__, f, src, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
+    if (!f->fsf)
+        return io_complete(completion, t, -EBADF);
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
@@ -701,6 +716,10 @@ closure_function(2, 6, sysreturn, file_sg_write,
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                len, f->length);
+    if (!f->fsf) {
+        rv = -EBADF;
+        goto out;
+    }
     status_handler sg_complete = contextual_closure(file_sg_write_complete, t, f, len,
                                                     is_file_offset, completion, false);
     if (sg_complete == INVALID_ADDRESS) {
@@ -893,8 +912,8 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     init_fdesc(h, &f->f, type);
     f->f.flags = flags;
     f->fs = fs;
+    f->fsf = fsf;
     if (type == FDESC_TYPE_REGULAR) {
-        f->fsf = fsf;
         f->fs_read = fsfile_get_reader(fsf);
         assert(f->fs_read);
         f->fs_write = fsfile_get_writer(fsf);
