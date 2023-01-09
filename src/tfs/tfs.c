@@ -1531,7 +1531,8 @@ closure_function(1, 1, boolean, free_extent,
 }
 
 fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boolean nofollow,
-                              boolean create, boolean exclusive, tuple *n, fsfile *f)
+                              boolean create, boolean exclusive, boolean truncate, tuple *n,
+                              fsfile *f)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
     if (!cwd_t)
@@ -1577,10 +1578,13 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
 
         }
     } else {
-        if (exclusive)
+        if (exclusive) {
             fss = FS_STATUS_EXIST;
-        else
+        } else {
             fsf = fsfile_from_node(*fs, t);
+            if (fsf && truncate)
+                fss = filesystem_truncate_locked(*fs, fsf, 0);
+        }
     }
   out:
     if (fss == FS_STATUS_OK) {

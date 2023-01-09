@@ -442,7 +442,7 @@ static int open_internal(const char *name, int flags, int mode)
 
     fsfile fsf;
     fs_status fss = filesystem_get_node(&rootfs, cwd_inode, name, !!(flags & O_NOFOLLOW),
-        !!(flags & O_CREAT), !!(flags & O_EXCL), &n, &fsf);
+        !!(flags & O_CREAT), !!(flags & O_EXCL), !!(flags & O_TRUNC), &n, &fsf);
     ret = rv_from_fs_status(fss);
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
         filesystem_put_node(rootfs, n);

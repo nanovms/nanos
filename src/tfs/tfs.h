@@ -111,7 +111,8 @@ fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
         boolean persistent);
 fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path);
 fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boolean nofollow,
-                              boolean create, boolean exclusive, tuple *n, fsfile *f);
+                              boolean create, boolean exclusive, boolean truncate, tuple *n,
+                              fsfile *f);
 void filesystem_put_node(filesystem fs, tuple n);
 tuple filesystem_get_meta(filesystem fs, inode n);
 void filesystem_put_meta(filesystem fs, tuple n);

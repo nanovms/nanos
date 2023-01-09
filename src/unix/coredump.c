@@ -228,15 +228,10 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
     shutting_down = true;
     wakeup_or_interrupt_cpu_all();
 
-    fsfile f = fsfile_open_or_create(alloca_wrap_cstring(CORE_PATH));
+    fsfile f = fsfile_open_or_create(alloca_wrap_cstring(CORE_PATH), true);
     if (f == INVALID_ADDRESS) {
         core_debug("failed to open core file\n");
         s = timm("result", "no core generated: failed to open core file");
-        goto error;
-    }
-    if (fsfile_truncate(f, 0) != FS_STATUS_OK) {
-        core_debug("failed to truncate core file\n");
-        s = timm("result", "no core generated: failed to truncate core file");
         goto error;
     }
 

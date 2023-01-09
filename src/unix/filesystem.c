@@ -77,7 +77,7 @@ fs_status filesystem_chdir(process p, const char *path)
     filesystem fs = p->cwd_fs;
     fs_status fss;
     tuple n;
-    fss = filesystem_get_node(&fs, p->cwd, path, false, false, false, &n, 0);
+    fss = filesystem_get_node(&fs, p->cwd, path, false, false, false, false, &n, 0);
     if (fss != FS_STATUS_OK)
         goto out;
     if (!is_dir(n)) {
@@ -151,7 +151,7 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
         return -EFAULT;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
-    fs_status fss = filesystem_get_node(&fs, cwd, filename, false, false, false, &t, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, filename, false, false, false, false, &t, 0);
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
@@ -217,7 +217,7 @@ sysreturn statfs(const char *path, struct statfs *buf)
         rv = -EFAULT;
         goto out;
     }
-    fs_status fss = filesystem_get_node(&fs, cwd, path, true, false, false, &t, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, path, true, false, false, false, &t, 0);
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
     } else {
@@ -355,7 +355,7 @@ void file_release(file f)
 }
 
 /* file_path is treated as an absolute path. */
-fsfile fsfile_open_or_create(buffer file_path)
+fsfile fsfile_open_or_create(buffer file_path, boolean truncate)
 {
     tuple file;
     fsfile fsf;
@@ -371,7 +371,8 @@ fsfile fsfile_open_or_create(buffer file_path)
             return 0;
         file_str[separator] = '/';
     }
-    s = filesystem_get_node(&fs, inode_from_tuple(root), file_str, true, true, false, &file, &fsf);
+    s = filesystem_get_node(&fs, inode_from_tuple(root), file_str, true, true, false, truncate,
+                            &file, &fsf);
     if (s == FS_STATUS_OK) {
         filesystem_put_node(fs, file);
         return fsf;

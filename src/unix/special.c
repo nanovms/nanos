@@ -347,7 +347,7 @@ void register_special_files(process p)
     tuple self_exe;
     heap h = heap_locked((kernel_heaps)p->uh);
 
-    fs_status fss = filesystem_get_node(&fs, p->cwd, "/proc/self/exe", false, false, false,
+    fs_status fss = filesystem_get_node(&fs, p->cwd, "/proc/self/exe", false, false, false, false,
         &self_exe, 0);
     if (fss == FS_STATUS_OK) {
         filesystem_put_node(fs, self_exe);

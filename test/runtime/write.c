@@ -386,6 +386,21 @@ void truncate_test(const char *prog)
     }
     close(fd);
 
+    fd = open("new_file", O_RDWR | O_TRUNC);
+    if (fd < 0) {
+        perror("open(O_TRUNC)");
+        exit(EXIT_FAILURE);
+    }
+    if (fstat(fd, &s) < 0) {
+        perror("fstat");
+        goto out_fail;
+    }
+    if (s.st_size != 0) {
+        printf("O_TRUNC test failed (file size %ld)\n", s.st_size);
+        goto out_fail;
+    }
+    close(fd);
+
     fd = open("new_file", O_RDONLY);
     if (fd < 0) {
         perror("open");

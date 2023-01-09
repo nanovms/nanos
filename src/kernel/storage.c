@@ -143,7 +143,7 @@ static void volume_mount(volume v, buffer mount_point)
     tuple root = filesystem_getroot(storage.root_fs);
     tuple mount_dir_t;
     fs_status fss = filesystem_get_node(&fs, inode_from_tuple(root), cmount_point,
-        false, false, false, &mount_dir_t, 0);
+        false, false, false, false, &mount_dir_t, 0);
     if (fss != FS_STATUS_OK) {
         msg_err("mount point %s not found\n", cmount_point);
         return;

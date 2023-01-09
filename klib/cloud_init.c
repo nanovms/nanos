@@ -105,7 +105,7 @@ static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
         return KLIB_INIT_FAILED;
     }
     parsed_cfg->optional = parsed_cfg->done = false;
-    fsfile f = fsfile_open_or_create(parsed_cfg->file_path);
+    fsfile f = fsfile_open_or_create(parsed_cfg->file_path, false);
     if (!f) {
         rprintf("cloud_init: download destination file '%b' cannot be created\n",
             parsed_cfg->file_path);
@@ -196,15 +196,9 @@ closure_function(6, 1, boolean, cloud_download_recv,
     if (data) {
         if (bound(parser) == INVALID_ADDRESS) {
             /* This is the first chunk of data received after connection establishment. */
-            fsfile f = fsfile_open_or_create(cfg->file_path);
+            fsfile f = fsfile_open_or_create(cfg->file_path, true);
             if (!f) {
                 s = timm("result", "%s: failed to open file '%b'", __func__, cfg->file_path);
-                goto error;
-            }
-            fs_status fss = fsfile_truncate(f, 0);
-            if (fss != FS_STATUS_OK) {
-                s = timm("result", "%s: failed to truncate file '%b' (%d)",
-                    __func__, cfg->file_path, fss);
                 goto error;
             }
 

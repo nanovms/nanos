@@ -797,11 +797,11 @@ static int dt_from_tuple(tuple n)
 
 static inline fs_status node_from_user_path(filesystem *fs, inode cwd, const char *path,
                                             boolean nofollow, boolean create, boolean exclusive,
-                                            tuple *n, fsfile *f)
+                                            boolean truncate, tuple *n, fsfile *f)
 {
     if (!fault_in_user_string(path))
         return FS_STATUS_FAULT;
-    return filesystem_get_node(fs, cwd, path, nofollow, create, exclusive, n, f);
+    return filesystem_get_node(fs, cwd, path, nofollow, create, exclusive, truncate, n, f);
 }
 
 sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
@@ -815,7 +815,8 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
 
     fsfile fsf;
     fs_status fss = node_from_user_path(&fs, cwd, name, !!(flags & O_NOFOLLOW),
-                                        !!(flags & O_CREAT), !!(flags & O_EXCL), &n, &fsf);
+                                        !!(flags & O_CREAT), !!(flags & O_EXCL),
+                                        !!(flags & O_TRUNC), &n, &fsf);
     ret = sysreturn_from_fs_status(fss);
     if (ret == -EFAULT)
         return ret;
@@ -898,6 +899,8 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
         type = file_type_from_tuple(n);
         if (type == FDESC_TYPE_REGULAR) {
             assert(fsf);
+            if (flags & O_TRUNC)
+                truncate_file_maps(current->p, fsf, 0);
             length = fsfile_get_length(fsf);
         }
     }
@@ -1305,7 +1308,7 @@ sysreturn truncate(const char *path, long length)
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fsfile fsf;
-    fs_status fss = node_from_user_path(&fs, cwd, path, false, false, false, &t, &fsf);
+    fs_status fss = node_from_user_path(&fs, cwd, path, false, false, false, false, &t, &fsf);
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
@@ -1425,7 +1428,7 @@ sysreturn fdatasync(int fd)
 static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname, int mode)
 {
     tuple m = 0;
-    fs_status fss = node_from_user_path(&fs, cwd, pathname, false, false, false, &m, 0);
+    fs_status fss = node_from_user_path(&fs, cwd, pathname, false, false, false, false, &m, 0);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
     u32 perms = file_meta_perms(current->p, m);
@@ -1585,7 +1588,7 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
     if (!fault_in_user_memory(buf, sizeof(struct stat), VMAP_FLAG_WRITABLE, 0))
         return -EFAULT;
 
-    fs_status fss = node_from_user_path(&fs, cwd, name, !follow, false, false, &n, &fsf);
+    fs_status fss = node_from_user_path(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
 
@@ -1863,7 +1866,7 @@ static sysreturn readlink_internal(filesystem fs, inode cwd, const char *pathnam
         return set_syscall_error(current, EFAULT);
     }
     tuple n;
-    fs_status fss = node_from_user_path(&fs, cwd, pathname, true, false, false, &n, 0);
+    fs_status fss = node_from_user_path(&fs, cwd, pathname, true, false, false, false, &n, 0);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
     sysreturn rv;

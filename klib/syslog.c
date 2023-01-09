@@ -93,7 +93,7 @@ static void syslog_file_rotate(void)
 
     if (ret == 0) {
         /* Continue logging on a new file. */
-        fsfile file = fsfile_open_or_create(syslog.file_path);
+        fsfile file = fsfile_open_or_create(syslog.file_path, true);
         syslog.file_offset = 0;
         syslog.fs_write = fsfile_get_writer(file);
     } else {
@@ -427,7 +427,7 @@ int init(status_handler complete)
         return KLIB_INIT_FAILED;
     }
     if (syslog.file_path) {
-        syslog.fsf = fsfile_open_or_create(syslog.file_path);
+        syslog.fsf = fsfile_open_or_create(syslog.file_path, false);
         if (!syslog.fsf) {
             rprintf("cannot create syslog output file\n");
             return KLIB_INIT_FAILED;
