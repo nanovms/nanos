@@ -26,6 +26,7 @@ typedef struct cloud_download_cfg {
     buffer file_path;
     boolean optional;   /* if true, a download error is not fatal */
     boolean done;
+    buffer auth_header;
     closure_struct(cloud_download_done, complete);
 } *cloud_download_cfg;
 
@@ -117,6 +118,7 @@ static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
         else
             parsed_cfg->done = true;
     }
+    parsed_cfg->auth_header = get(config, sym(auth));
     return KLIB_INIT_OK;
 }
 
@@ -285,6 +287,7 @@ closure_function(1, 1, input_buffer_handler, cloud_download_ch,
     }
     set(req, sym(url), &cfg->server_path);
     set(req, sym(Host), &cfg->server_host);
+    set(req, sym(Authorization), cfg->auth_header);
     set(req, sym(Connection), alloca_wrap_cstring("close"));
     status s = http_request(cloud_heap, out, HTTP_REQUEST_METHOD_GET, req, 0);
     deallocate_value(req);
