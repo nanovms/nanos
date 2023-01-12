@@ -1074,11 +1074,20 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
     }
     switch (s->sock.type) {
     case SOCK_STREAM:
+        lwip_lock();
         if (s->info.tcp.state != TCP_SOCK_OPEN) {
+            lwip_unlock();
             rv = -ENOTCONN;
             goto out;
         }
-        lwip_lock();
+        struct tcp_pcb *tcp_lw = s->info.tcp.lw;
+
+        /* Determine whether TX or RX has been shut down during previous calls to this function. */
+        if (!shut_rx && tcp_is_flag_set(tcp_lw, TF_RXCLOSED))
+            shut_rx = 1;
+        if (!shut_tx && (tcp_lw->state != ESTABLISHED) && (tcp_lw->state != CLOSE_WAIT))
+            shut_tx = 1;
+
         if (shut_rx && shut_tx) {
             tcp_arg(s->info.tcp.lw, 0);
         }
