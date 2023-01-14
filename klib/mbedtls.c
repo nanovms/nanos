@@ -95,15 +95,24 @@ static int tls_out_internal(tls_conn conn, buffer b)
 {
     if (!b)
         b = conn->outgoing;
-    int ret = mbedtls_ssl_write(&conn->ssl, buffer_ref(b, 0), buffer_length(b));
-    if (ret > 0) {
+    u64 len = buffer_length(b);
+    int ret = 0;
+    while (len > 0) {
+        ret = mbedtls_ssl_write(&conn->ssl, buffer_ref(b, 0), len);
+        if (ret <= 0) {
+            if ((ret == MBEDTLS_ERR_SSL_WANT_READ) || (ret == MBEDTLS_ERR_SSL_WANT_WRITE)) {
+                ret = 0;
+            } else if (ret < 0) {
+                tls_close(conn);
+                deallocate_buffer(b);
+                return -1;
+            }
+            break;
+        }
         buffer_consume(b, ret);
-    } else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
-        tls_close(conn);
-        deallocate_buffer(b);
-        return -1;
+        len -= ret;
     }
-    if (buffer_length(b) == 0) {
+    if (len == 0) {
         deallocate_buffer(b);
         if (b == conn->outgoing)
             conn->outgoing = 0;
