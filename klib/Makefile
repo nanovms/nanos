@@ -4,6 +4,7 @@ MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 PROGRAMS= \
 	cloud_init \
 	cloudwatch \
+	gcp \
 	ntp \
 	radar \
 	syslog \
@@ -17,6 +18,9 @@ SRCS-cloud_init= \
 SRCS-cloudwatch= \
 	$(CURDIR)/aws.c \
 	$(CURDIR)/cloudwatch.c \
+
+SRCS-gcp= \
+	$(CURDIR)/gcp.c \
 
 SRCS-ntp= \
 	$(CURDIR)/ntp.c \
