@@ -68,14 +68,15 @@ static inline timestamp now(clock_id id)
     u64 gen;
     do {
         gen = __vdso_dat->vdso_gen & ~1ull;
+        s64 last_raw = __vdso_dat->last_raw;
+        read_barrier();
 #endif
         t = apply(platform_monotonic_now);
 #if defined(KERNEL) || defined(BUILD_VDSO)
         if (id == CLOCK_ID_MONOTONIC_RAW)
             return t;
-        s64 last_raw = __vdso_dat->last_raw;
-        s64 interval = t - last_raw;
         assert(t >= last_raw);
+        s64 interval = t - last_raw;
         t += clock_freq_adjust(interval);
         if (t < last_raw) {
             msg_err("t(%T) < last_raw(%T) after freq adjust (%f)\n", t, last_raw, __vdso_dat->base_freq);
