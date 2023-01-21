@@ -259,7 +259,6 @@ process exec_elf(buffer ex, process kp)
                     vector v = split(heap_locked(kh), libPaths, ':');
                     buffer i;
                     vector_foreach(v, i) {
-                            exec_debug("pt_intrep 3.0\n");
                         /* null entries ("//") are skipped in path */
                         if (buffer_length(i) == 0)
                             continue;
