@@ -248,9 +248,38 @@ process exec_elf(buffer ex, process kp)
     foreach_phdr(e, p) {
         if (p->p_type == PT_INTERP) {
             char *n = (void *)e + p->p_offset;
-            interp = resolve_path(root, split(heap_locked(kh), alloca_wrap_buffer(n, runtime_strlen(n)), '/'));
-            if (!interp) 
-                halt("couldn't find program interpreter %s\n", n);
+            vector interp_vec = split(heap_locked(kh), alloca_wrap_buffer(n, runtime_strlen(n)), '/');
+            interp = resolve_path(root, interp_vec);
+            if (!interp)  {
+                // check if LD_LIBRARY_PATH is set and interpreter exists in one
+                // of the given paths (separated by colon)
+                buffer libPaths = get(get_environment(), sym(LD_LIBRARY_PATH));
+                if (libPaths) {
+                    char* intrep_name = vector_get(interp_vec, vector_length(interp_vec) - 1);
+                    vector v = split(heap_locked(kh), libPaths, ':');
+                    buffer i;
+                    vector_foreach(v, i) {
+                            exec_debug("pt_intrep 3.0\n");
+                        /* null entries ("//") are skipped in path */
+                        if (buffer_length(i) == 0)
+                            continue;
+
+                        vector vec = allocate_vector(heap_locked(kh), 10);
+                        vector_push(vec, i);
+                        vector_push(vec, intrep_name);
+
+                        i = join(heap_locked(kh), vec, '/');
+                        interp = resolve_path(root, split(heap_locked(kh), i, '/'));
+                        if (interp)  {
+                            break;
+                        }
+                    }
+                }
+
+                if (!interp)  {
+                    halt("couldn't find program interpreter %s\n", n);
+                }
+            }
         } else if (p->p_type == PT_LOAD) {
             if (p->p_vaddr < load_range.start)
                 load_range.start = p->p_vaddr;
@@ -335,4 +364,3 @@ process exec_elf(buffer ex, process kp)
     start_process(t, entry);
     return proc;    
 }
-
