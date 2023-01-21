@@ -253,10 +253,10 @@ process exec_elf(buffer ex, process kp)
             if (!interp)  {
                 // check if LD_LIBRARY_PATH is set and interpreter exists in one
                 // of the given paths (separated by colon)
-                buffer libPaths = get(get_environment(), sym(LD_LIBRARY_PATH));
-                if (libPaths) {
+                buffer lib_paths = get(get_environment(), sym(LD_LIBRARY_PATH));
+                if (lib_paths) {
                     char* intrep_name = vector_get(interp_vec, vector_length(interp_vec) - 1);
-                    vector v = split(heap_locked(kh), libPaths, ':');
+                    vector v = split(heap_locked(kh), lib_paths, ':');
                     buffer i;
                     vector_foreach(v, i) {
                         /* null entries ("//") are skipped in path */
