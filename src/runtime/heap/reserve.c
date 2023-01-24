@@ -6,7 +6,10 @@
 #include <management.h>
 
 typedef struct reservelock {
-    struct heap h;
+    union {
+        struct heap h;
+        struct backed_heap bh;
+    };
     heap parent;
     heap meta;
     bytes reserved;
@@ -89,6 +92,20 @@ static value reservelock_management(heap h)
     return n;
 }
 
+void *reservelock_alloc_map(backed_heap bh, bytes len, u64 *phys)
+{
+    reservelock rl = (reservelock)bh;
+    if (heap_free(rl->parent) < rl->reserved + len)
+        return INVALID_ADDRESS;
+    return alloc_map((backed_heap)rl->parent, len, phys);
+}
+
+void reservelock_dealloc_unmap(backed_heap bh, void *virt, u64 phys, bytes len)
+{
+    reservelock rl = (reservelock)bh;
+    dealloc_unmap((backed_heap)rl->parent, virt, phys, len);
+}
+
 heap reserve_heap_wrapper(heap meta, heap parent, bytes reserved)
 {
     reservelock rl = allocate(meta, sizeof(*rl));
@@ -109,3 +126,12 @@ heap reserve_heap_wrapper(heap meta, heap parent, bytes reserved)
     return (heap)rl;
 }
 
+backed_heap reserve_backed_heap_wrapper(heap meta, backed_heap parent, bytes reserved)
+{
+    reservelock rl = (reservelock)reserve_heap_wrapper(meta, (heap)parent, reserved);
+    if (rl == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    rl->bh.alloc_map = reservelock_alloc_map;
+    rl->bh.dealloc_unmap = reservelock_dealloc_unmap;
+    return (backed_heap)rl;
+}

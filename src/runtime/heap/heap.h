@@ -60,6 +60,7 @@ boolean objcache_validate(heap h);
 heap objcache_from_object(u64 obj, bytes parent_pagesize);
 heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize);
 heap reserve_heap_wrapper(heap meta, heap parent, bytes reserved);
+backed_heap reserve_backed_heap_wrapper(heap meta, backed_heap parent, bytes reserved);
 
 // really internals
 
