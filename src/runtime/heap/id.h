@@ -21,6 +21,7 @@ typedef struct id_heap {
 id_heap create_id_heap(heap meta, heap map, u64 base, u64 length, bytes pagesize, boolean locking);
 id_heap create_id_heap_backed(heap meta, heap map, heap parent, bytes pagesize, boolean locking);
 id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking); /* id heap with no ranges */
+id_heap clone_id_heap(id_heap source);
 boolean id_heap_range_foreach(id_heap i, range_handler rh);
 #define destroy_id_heap(__h) destroy_heap(&(__h)->h)
 #define id_heap_add_range(__h, __b, __l) ((__h)->add_range(__h, __b, __l))

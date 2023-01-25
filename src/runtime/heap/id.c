@@ -465,6 +465,47 @@ boolean id_heap_range_foreach(id_heap i, range_handler rh)
                                  stack_closure(node_foreach_handler, rh, page_order(i)));
 }
 
+#ifdef KERNEL
+id_heap clone_id_heap(id_heap source)
+{
+    heap h = source->meta;
+    id_heap i = allocate(h, id_size());
+    if (i == INVALID_ADDRESS)
+        return INVALID_ADDRESS;
+    boolean locking = source->h.alloc == id_alloc_locking;
+    runtime_memcpy(i, source, sizeof(struct id_heap));
+    if (locking)
+        spin_lock_init(id_lock(i));
+    i->ranges = allocate_rangemap(h);
+    if (i->ranges == INVALID_ADDRESS)
+        goto fail_dealloc;
+    rangemap_foreach(source->ranges, n) {
+        id_range r = struct_from_field(n, id_range, n);
+        id_range s = allocate(h, sizeof(struct id_range));
+        if (s == INVALID_ADDRESS)
+            goto fail_dealloc_ranges;
+        s->b = bitmap_clone(r->b);
+        if (s->b == INVALID_ADDRESS)
+            goto fail_dealloc_ranges;
+        runtime_memcpy(s->next_bit, r->next_bit, sizeof(r->next_bit));
+        s->n.r = r->n.r;
+        assert(rangemap_insert(i->ranges, &s->n));
+    }
+    i->mgmt = 0;                /* regenerate */
+    return i;
+  fail_dealloc_ranges:
+    rangemap_foreach(i->ranges, n) {
+        id_range r = struct_from_field(n, id_range, n);
+        rangemap_remove_node(i->ranges, n);
+        deallocate_bitmap(r->b);
+        deallocate(h, r, sizeof(*r));
+    }
+  fail_dealloc:
+    deallocate(h, i, id_size());
+    return INVALID_ADDRESS;
+}
+#endif
+
 id_heap allocate_id_heap(heap meta, heap map, bytes pagesize, boolean locking)
 {
     assert((pagesize & (pagesize-1)) == 0); /* pagesize is power of 2 */
