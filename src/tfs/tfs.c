@@ -850,7 +850,7 @@ static fs_status fill_gap(fsfile f, sg_list sg, range blocks, merge m, u64 *edge
 {
     tfs_debug("   %s: writing new extent blocks %R\n", __func__, blocks);
     extent ex;
-    fs_status fss = create_extent(f->fs, blocks, false, &ex);
+    fs_status fss = create_extent(f->fs, blocks, m ? false : true, &ex);
     if (fss != FS_STATUS_OK)
         return fss;
     blocks = ex->node.r;
