@@ -864,12 +864,19 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
     status_handler sh = apply_merge(m);
     u64 committing = 0;
     pagecache_lock_node(pn);
+    u64 limit = pn->length;
     while (buffer_length(dirty) > 0 && committing < COMMIT_LIMIT) {
         range *rp = buffer_ref(dirty, 0);
+        if (rp->start >= limit) {
+            buffer_consume(dirty, sizeof(range));
+            continue;
+        }
+        rp->end = MIN(rp->end, limit);
         sg_list sg = allocate_sg_list();
         if (sg == INVALID_ADDRESS) {
             msg_err("unable to allocate sg list\n");
-            s = timm("result", "unable to allocate sg list");
+            if (committing == 0)
+                s = timm("result", "unable to allocate sg list");
             break;
         }
         u64 start = rp->start;
@@ -890,6 +897,8 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
                 sgb = sg_list_tail_add(sg, len);
                 if (sgb == INVALID_ADDRESS) {
                     msg_err("sgbuf alloc fail\n");
+                    if (committing == 0)
+                        s = timm("result", "unable to allocate sg buffer");
                     r.end = start;
                     break;
                 }
@@ -924,8 +933,6 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
         apply(pn->fs_write, sg, r,
               closure(pc->h, pagecache_commit_complete, pc, first_page, page_count, sg, apply_merge(m)));
     }
-    if (committing == 0)
-        s = timm("result", "%s: unable to perform i/o", __func__);
     pagecache_unlock_node(pn);
     apply(sh, s);
 }

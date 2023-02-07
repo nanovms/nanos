@@ -1210,6 +1210,31 @@ static void filebacked_test(heap h)
     *(uint64_t *)p = 0; /* random access to file-backed memory */
     __munmap(p, PAGESIZE);
 
+    printf("** testing mmapped file length\n");
+    fd = open(".", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        handle_err("open tmpfile");
+    rv = ftruncate(fd, PAGESIZE / 2);
+    if (rv < 0)
+        handle_err("ftruncate tmpfile");
+    p = mmap(NULL, PAGESIZE, PROT_WRITE, MAP_SHARED, fd, 0);
+    if (p == (void *)-1ull)
+        handle_err("mmap tmpfile");
+    *(uint64_t *)(p + PAGESIZE / 2) = 0; /* access to file-backed memory past file length */
+    rv = fsync(fd);
+    if (rv < 0)
+        handle_err("fsync tmpfile");
+    struct stat st;
+    rv = fstat(fd, &st);
+    if (rv < 0)
+        handle_err("fstat tmpfile");
+    if (st.st_size != PAGESIZE / 2) {
+        printf("   file size changed to %ld following write to mmapped memory\n", st.st_size);
+        exit(EXIT_FAILURE);
+    }
+    __munmap(p, PAGESIZE);
+    close(fd);
+
     printf("** all file-backed tests passed\n");
 }
 
