@@ -187,7 +187,6 @@ static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int
             pagelist_move(&pc->new, &pc->writing, pp);
             refcount_release(&pp->node->refcount);
         } else {
-            assert(old_state == PAGECACHE_PAGESTATE_READING);
             pagelist_enqueue(&pc->new, pp);
         }
         break;
@@ -257,12 +256,12 @@ static boolean realloc_pagelocked(pagecache pc, pagecache_page pp)
     return true;
 }
 
-static sg_buf pagecache_add_sgb(pagecache pc, pagecache_page pp, sg_list sg)
+static sg_buf pagecache_add_sgb(pagecache_page pp, sg_list sg, u64 size)
 {
-    sg_buf sgb = sg_list_tail_add(sg, cache_pagesize(pc));
+    sg_buf sgb = sg_list_tail_add(sg, size);
     assert(sgb != INVALID_ADDRESS);
     sgb->buf = pp->kvirt;
-    sgb->size = cache_pagesize(pc);
+    sgb->size = size;
     sgb->offset = 0;
     sgb->refcount = 0;
     return sgb;
@@ -329,6 +328,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
 {
     pagecache_volume pv = pn->pv;
     pagecache pc = pv->pc;
+    range r;
 
     pagecache_lock_state(pc);
     pagecache_debug("%s: pn %p, pp %p, m %p, state %d\n", __func__, pn, pp, m, page_state(pp));
@@ -350,23 +350,35 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
         /* fall through */
     case PAGECACHE_PAGESTATE_ALLOC:
         if (m) {
-            enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
-            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
+            r = range_intersection(byte_range_from_page(pc, pp),
+                                   irangel(0, pad(pn->length, U64_FROM_BIT(pv->block_order))));
+            if (range_span(r)) {
+                enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
+                change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
+            } else {
+                zero(pp->kvirt, cache_pagesize(pc));
+                change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
+            }
             pp->refcount++;
+        } else {
+            r = irange(0, 0);
         }
         pagecache_unlock_state(pc);
 
-        if (m) {
+        if (range_span(r)) {
             /* issue page reads */
-            range r = byte_range_from_page(pc, pp);
             pagecache_debug("   pc %p, pp %p, r %R, reading...\n", pc, pp, r);
             sg_list sg = allocate_sg_list();
             assert(sg != INVALID_ADDRESS);
-            pagecache_add_sgb(pc, pp, sg);
+            u64 read_size = range_span(r);
+            if (read_size < cache_pagesize(pc))
+                zero(pp->kvirt + read_size, cache_pagesize(pc) - read_size);
+            pagecache_add_sgb(pp, sg, read_size);
             apply(pn->fs_read, sg, r,
                   closure(pc->h, pagecache_read_page_complete, pc, pp, sg));
+            return false;
         }
-        return false;
+        return true;
     case PAGECACHE_PAGESTATE_ACTIVE:
         /* move to bottom of active list */
         list_delete(&pp->l);
@@ -664,10 +676,6 @@ closure_function(1, 3, void, pagecache_write_sg,
         return;
     }
 
-    /* extend node length if writing past current end */
-    if (q.end > pn->length)
-        pn->length = q.end;
-
     u64 start_offset = q.start & MASK(pc->page_order);
     u64 end_offset = q.end & MASK(pc->page_order);
     range r = range_rshift(q, pc->page_order);
@@ -729,7 +737,6 @@ closure_function(1, 3, void, pagecache_write_sg,
                 u64 len = U64_FROM_BIT(pc->page_order) - page_offset;
                 pagecache_debug("   zero unaligned end, i %R, page offset 0x%lx, len 0x%lx\n",
                                 i, page_offset, len);
-                assert(i.end == pn->length);
                 zero(pp->kvirt + page_offset, len);
             }
         }
@@ -741,6 +748,11 @@ closure_function(1, 3, void, pagecache_write_sg,
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
         pagecache_unlock_state(pc);
     }
+
+    /* extend node length if writing past current end */
+    if (q.end > pn->length)
+        pn->length = q.end;
+
     pagecache_unlock_node(pn);
     apply(sh, STATUS_OK);
 }
@@ -1101,7 +1113,7 @@ static boolean pagecache_node_fetch_sg(pagecache pc, pagecache_node pn, range r,
 {
     status_handler fetch_sh = apply_merge(m);
     status_handler fetch_complete = closure(pc->h, pagecache_node_fetch_complete, pc,
-        pp, range_span(r) >> pc->page_order, sg, fetch_sh);
+        pp, range_span(range_rshift_pad(r, pc->page_order)), sg, fetch_sh);
     if (fetch_complete == INVALID_ADDRESS) {
         apply(fetch_sh, timm("result", "failed to allocate fetch completion"));
         return false;
@@ -1120,6 +1132,7 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     struct pagecache_page k;
     if (q.end > pn->length)
         q.end = pn->length;
+    u64 read_limit = pad(pn->length, U64_FROM_BIT(pn->pv->block_order));
     k.state_offset = q.start >> pc->page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> pc->page_order;
     pagecache_lock_node(pn);
@@ -1164,14 +1177,20 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
                 read_pp = pp;
                 read_r = range_lshift(irangel(page_offset(pp), 0), pc->page_order);
             }
+            u64 read_max = read_limit - (pi << pc->page_order);
+            u64 read_size = cache_pagesize(pc);
+            if (read_size > read_max) {
+                zero(pp->kvirt + read_max, read_size - read_max);
+                read_size = read_max;
+            }
             if (sgb && (sgb->buf + sgb->size == pp->kvirt)) {
-                sgb->size += cache_pagesize(pc);
-                read_sg->count += cache_pagesize(pc);
+                sgb->size += read_size;
+                read_sg->count += read_size;
             } else {
-                sgb = pagecache_add_sgb(pc, pp, read_sg);
+                sgb = pagecache_add_sgb(pp, read_sg, read_size);
             }
             pp->refcount++;
-            read_r.end += cache_pagesize(pc);
+            read_r.end += read_size;
         }
         if (ph)
             apply(ph, pp);
