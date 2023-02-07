@@ -14,8 +14,8 @@ typedef struct volume {
     struct list l;
     u8 uuid[UUID_LEN];
     char label[VOLUME_LABEL_MAX_LEN];
-    storage_req_handler req_handler;
-    u64 size;
+    void *priv;
+    fs_init_handler init_handler;
     int attach_id;
     boolean mounting;
     filesystem fs;
@@ -122,7 +122,7 @@ closure_function(2, 2, void, volume_link,
         msg_err("cannot mount filesystem: %v\n", s);
     }
     v->mounting = false;
-    if (!v->fs)
+    if (!v->fs && (fs != INVALID_ADDRESS))
         filesystem_release(fs);
     closure_finish();
     timm_dealloc(s);
@@ -163,8 +163,7 @@ static void volume_mount(volume v, buffer mount_point)
     }
     storage_debug("mounting volume%s at %s", readonly ? " readonly" : "", cmount_point);
     v->mounting = true;
-    create_filesystem(storage.h, SECTOR_SIZE, v->size, v->req_handler, readonly,
-                      0 /* no label */, complete);
+    apply(v->init_handler, readonly, complete);
 }
 
 static void storage_io_sg(block_io op, sg_list sg, range blocks, status_handler completion)
@@ -269,7 +268,7 @@ closure_function(1, 2, boolean, volume_add_mount_each,
     return true;
 }
 
-boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size, int attach_id)
+boolean volume_add(u8 *uuid, char *label, void *priv, fs_init_handler init_handler, int attach_id)
 {
     storage_debug("new volume (%ld bytes)", size);
     volume v = allocate(storage.h, sizeof(*v));
@@ -277,8 +276,8 @@ boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 s
         return false;
     runtime_memcpy(v->uuid, uuid, UUID_LEN);
     runtime_memcpy(v->label, label, VOLUME_LABEL_MAX_LEN);
-    v->req_handler = req_handler;
-    v->size = size;
+    v->priv = priv;
+    v->init_handler = init_handler;
     v->attach_id = attach_id;
     v->mounting = false;
     v->fs = 0;
@@ -360,14 +359,14 @@ void storage_iterate(volume_handler vh)
     storage_unlock();
 }
 
-void storage_detach(storage_req_handler req_handler, thunk complete)
+void storage_detach(void *priv, thunk complete)
 {
     storage_debug("%s", __func__);
     volume vol = 0;
     storage_lock();
     list_foreach(&storage.volumes, e) {
         volume v = struct_from_list(e, volume, l);
-        if (v->req_handler == req_handler) {
+        if (v->priv == priv) {
             list_delete(&v->l);
             vol = v;
             notify_mount_change_locked();
