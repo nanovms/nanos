@@ -317,7 +317,8 @@ closure_function(3, 1, void, pagecache_read_page_complete,
     closure_finish();
 }
 
-/* The page refcount is incremented (unless a free page could not be re-allocated). */
+/* The page refcount is incremented (unless the page is not filled and either a read request is not
+ * ongoing, or the merge argument is null). */
 static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page pp, merge m)
 {
     pagecache_volume pv = pn->pv;
@@ -329,8 +330,8 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
     case PAGECACHE_PAGESTATE_READING:
         if (m) {
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
+            pp->refcount++;
         }
-        pp->refcount++;
         pagecache_unlock_state(pc);
         return false;
     case PAGECACHE_PAGESTATE_FREE:
@@ -345,8 +346,8 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
         if (m) {
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_READING);
+            pp->refcount++;
         }
-        pp->refcount++;
         pagecache_unlock_state(pc);
 
         if (m) {
