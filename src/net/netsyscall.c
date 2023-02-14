@@ -355,21 +355,21 @@ static inline s64 lwip_to_errno(s8 err)
     switch (err) {
     case ERR_OK: return 0;
     case ERR_MEM: return -ENOMEM;
-    case ERR_BUF: return -ENOMEM;
-    case ERR_TIMEOUT: return -ENOMEM;
-    case ERR_RTE: return -ENOMEM;
-    case ERR_INPROGRESS: return -EAGAIN;
+    case ERR_BUF: return -ENOBUFS;
+    case ERR_TIMEOUT: return -EAGAIN;
+    case ERR_RTE: return -EHOSTUNREACH;
+    case ERR_INPROGRESS: return -EINPROGRESS;
     case ERR_VAL: return -EINVAL;
     case ERR_WOULDBLOCK: return -EAGAIN;
-    case ERR_USE: return -EBUSY;
+    case ERR_USE: return -EADDRINUSE;
     case ERR_ALREADY: return -EALREADY;
     case ERR_ISCONN: return -EISCONN;
     case ERR_CONN: return -ENOTCONN;
     case ERR_IF: return -EINVAL;
-    case ERR_ABRT: return -EINVAL;
+    case ERR_ABRT: return -ECONNABORTED;
     case ERR_RST: return -ECONNRESET;
-    case ERR_CLSD: return -EPIPE;
-    case ERR_ARG: return -EINVAL;
+    case ERR_CLSD: return -ENOTCONN;
+    case ERR_ARG: return -EIO;
     }
     return -EINVAL;		/* XXX unknown - check return value */
 }
