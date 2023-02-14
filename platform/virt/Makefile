@@ -60,8 +60,9 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/net/net.c \
 	$(SRCDIR)/net/netsyscall.c \
 	$(RUNTIME) \
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/fs/fs.c \
+	$(SRCDIR)/fs/tfs.c \
+	$(SRCDIR)/fs/tlog.c \
 	$(SRCDIR)/unix/aio.c \
 	$(SRCDIR)/unix/blockq.c \
 	$(SRCDIR)/unix/coredump.c \
@@ -144,7 +145,7 @@ INCLUDES=\
 	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/net \
 	-I$(SRCDIR)/runtime \
-	-I$(SRCDIR)/tfs \
+	-I$(SRCDIR)/fs \
 	-I$(SRCDIR)/unix \
 	-I$(SRCDIR)/unix_process \
 	-I$(SRCDIR)/xen/public \
@@ -218,8 +219,9 @@ UEFI_SRCS= \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/tuple.c \
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/fs/fs.c \
+	$(SRCDIR)/fs/tfs.c \
+	$(SRCDIR)/fs/tlog.c \
 
 UEFI_OBJDIR=    $(BOOT_OBJDIR)/uefi
 UEFI_OBJS=      $(patsubst $(SRCDIR)/%.c,$(UEFI_OBJDIR)/%.o,$(UEFI_SRCS)) \
@@ -229,7 +231,7 @@ UEFI_DEPS=      $(patsubst %.o,%.d,$(UEFI_OBJS))
 UEFI_CFLAGS=    -Wall -Werror -fpic -fshort-wchar -O3 -std=gnu11 \
 	-ffreestanding -DBOOT -DUEFI $(call cc-option, -mno-outline-atomics, "") \
 	-I$(SRCDIR) -I$(SRCDIR)/aarch64 -I$(SRCDIR)/boot -I$(SRCDIR)/kernel \
-	-I$(SRCDIR)/runtime -I$(SRCDIR)/tfs -I$(PLATFORMDIR) -I$(OBJDIR)
+	-I$(SRCDIR)/runtime -I$(SRCDIR)/fs -I$(PLATFORMDIR) -I$(OBJDIR)
 UEFI_LDFLAGS=   -nostdlib -shared -Bsymbolic -T $(SRCDIR)/aarch64/uefi.lds
 
 DEPFILES+=      $(VDSO_DEPS) $(UEFI_DEPS)

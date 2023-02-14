@@ -88,7 +88,7 @@ fs_status filesystem_chdir(process p, const char *path)
             filesystem_reserve(fs);
             p->cwd_fs = fs;
         }
-        p->cwd = inode_from_tuple(n);
+        p->cwd = fs->get_inode(fs, n);
         fss = FS_STATUS_OK;
     }
     filesystem_put_node(fs, n);
@@ -393,7 +393,7 @@ fsfile fsfile_open_or_create(buffer file_path, boolean truncate)
             return 0;
         file_str[separator] = '/';
     }
-    s = filesystem_get_node(&fs, inode_from_tuple(root), file_str, true, true, false, truncate,
+    s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_str, true, true, false, truncate,
                             &file, &fsf);
     if (s == FS_STATUS_OK) {
         filesystem_put_node(fs, file);

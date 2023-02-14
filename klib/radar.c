@@ -3,7 +3,7 @@
 #include <lwip.h>
 #include <pagecache.h>
 #include <storage.h>
-#include <tfs/tfs.h>
+#include <fs.h>
 #include <tls.h>
 
 #define RADAR_HOSTNAME  "radar.relayered.net"

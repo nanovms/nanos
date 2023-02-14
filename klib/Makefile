@@ -200,7 +200,7 @@ INCLUDES= \
 	-I$(SRCDIR)/net \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/unix \
-	-I$(SRCDIR)/tfs \
+	-I$(SRCDIR)/fs \
 	-I$(PLATFORMDIR)
 
 DEFINES= \

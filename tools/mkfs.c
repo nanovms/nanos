@@ -376,7 +376,8 @@ closure_function(4, 2, void, fsc,
     deallocate_buffer(b);
     rprintf("\n");
 
-    filesystem_write_tuple(fs, md);
+    tfs tfs = (struct tfs *)fs;
+    filesystem_write_tuple(tfs, md);
     vector i;
     buffer off = 0;
     vector_foreach(worklist, i) {
@@ -384,7 +385,7 @@ closure_function(4, 2, void, fsc,
         buffer contents = get_file_contents(h, bound(target_root), vector_get(i, 1));
         if (contents) {
             if (buffer_length(contents) > 0) {
-                fsfile fsf = allocate_fsfile(fs, f);
+                fsfile fsf = (fsfile)allocate_fsfile(tfs, f);
                 filesystem_write_linear(fsf, buffer_ref(contents, 0), irangel(0, buffer_length(contents)),
                                         ignore_io_status);
                 deallocate_buffer(contents);
@@ -392,8 +393,8 @@ closure_function(4, 2, void, fsc,
                 if (!off)
                     off = wrap_buffer_cstring(h, "0");
                 /* make an empty file */
-                filesystem_write_eav(fs, f, sym(extents), allocate_tuple());
-                filesystem_write_eav(fs, f, sym(filelength), off);
+                filesystem_write_eav(tfs, f, sym(extents), allocate_tuple());
+                filesystem_write_eav(tfs, f, sym(filelength), off);
             }
         }
     }

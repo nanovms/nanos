@@ -5,7 +5,7 @@
     if (*(__path) == '/') { \
         __fs = p->root_fs;              \
         filesystem_reserve(__fs);       \
-        cwd = inode_from_tuple(filesystem_getroot(__fs));   \
+        cwd = (__fs)->get_inode(__fs, filesystem_getroot(__fs));    \
     } else if (__dirfd == AT_FDCWD) { \
         process_get_cwd(p, &__fs, &cwd);    \
     } else { \

@@ -37,8 +37,8 @@ static const char *tfs_magic = "NVMTFS";
 typedef struct log *log;
 typedef struct log_ext *log_ext;
 
-#define tlog_lock(tl)       filesystem_lock((tl)->fs)
-#define tlog_unlock(tl)     filesystem_unlock((tl)->fs)
+#define tlog_lock(tl)       filesystem_lock(&(tl)->fs->fs)
+#define tlog_unlock(tl)     filesystem_unlock(&(tl)->fs->fs)
 
 #ifdef KERNEL
 
@@ -55,7 +55,7 @@ typedef struct log_ext *log_ext;
 #endif
 
 declare_closure_struct(3, 3, void, log_storage_op,
-                       filesystem, fs, u64, start_sector, boolean, write,
+                       tfs, fs, u64, start_sector, boolean, write,
                        sg_list, sg, range, q, status_handler, sh)
 declare_closure_struct(1, 0, void, log_ext_free,
                        log_ext, ext);
@@ -80,7 +80,7 @@ declare_closure_struct(1, 0, void, log_free,
 
 struct log {
     heap h;
-    filesystem fs;
+    tfs fs;
     table dictionary;
     u64 total_entries, obsolete_entries;
     rangemap extensions;
@@ -104,10 +104,10 @@ struct log {
 };
 
 define_closure_function(3, 3, void, log_storage_op,
-                        filesystem, fs, u64, start_sector, boolean, write,
+                        tfs, fs, u64, start_sector, boolean, write,
                         sg_list, sg, range, q, status_handler, sh)
 {
-    int order = bound(fs)->blocksize_order;
+    int order = bound(fs)->fs.blocksize_order;
     assert((q.start & MASK(order)) == 0);
     assert((range_span(q) & MASK(order)) == 0);
     range blocks = range_add(range_rshift(q, order), bound(start_sector));
@@ -129,7 +129,7 @@ define_closure_function(1, 0, void, log_ext_free,
 
 static log_ext open_log_extension(log tl, range sectors)
 {
-    u64 size_bytes = range_span(sectors) << tl->fs->blocksize_order;
+    u64 size_bytes = range_span(sectors) << tl->fs->fs.blocksize_order;
     log_ext ext = allocate(tl->h, sizeof(struct log_ext));
     if (ext == INVALID_ADDRESS)
         return ext;
@@ -187,7 +187,7 @@ define_closure_function(1, 0, void, log_free,
 
 #endif
 
-static log log_new(heap h, filesystem fs)
+static log log_new(heap h, tfs fs)
 {
     tlog_debug("new log: heap %p, fs %p\n", h, fs);
     log tl = allocate(h, sizeof(struct log));
@@ -219,7 +219,7 @@ static log log_new(heap h, filesystem fs)
     }
     init_refcount(&tl->refcount, 1, init_closure(&tl->free, log_free, tl));
 #endif
-    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
+    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->fs.blocksize_order);
     tl->current = open_log_extension(tl, sectors);
     if (tl->current == INVALID_ADDRESS) {
 #ifndef TLOG_READ_ONLY
@@ -275,15 +275,15 @@ closure_function(4, 1, void, flush_log_extension_complete,
 static void flush_log_extension(log_ext ext, boolean release, status_handler complete)
 {
     refcount_reserve(&ext->refcount);
-    filesystem fs = ext->tl->fs;
+    tfs fs = ext->tl->fs;
     buffer b = ext->staging;
     tlog_ext_lock(ext);
     dump_staging(ext);
     push_u8(b, END_OF_LOG);
     assert(buffer_length(b) > 0); /* END_OF_LOG, at least */
-    assert((b->start & MASK(fs->blocksize_order)) == 0);
-    u64 write_bytes = pad(buffer_length(b), fs_blocksize(fs));
-    assert(write_bytes <= bytes_from_sectors(fs, range_span(ext->sectors)));
+    assert((b->start & MASK(fs->fs.blocksize_order)) == 0);
+    u64 write_bytes = pad(buffer_length(b), fs_blocksize(&fs->fs));
+    assert(write_bytes <= bytes_from_sectors(&fs->fs, range_span(ext->sectors)));
 
     sg_list sg = allocate_sg_list();
     assert(sg != INVALID_ADDRESS);
@@ -301,7 +301,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
     if (!release) {
         b->end -= 1;                /* next write removes END_OF_LOG */
         tlog_debug("log ext offset was %d (end %d)\n", b->start, b->end);
-        b->start = b->end & ~MASK(fs->blocksize_order); /* next storage write starting here */
+        b->start = b->end & ~MASK(fs->fs.blocksize_order); /* next storage write starting here */
         tlog_debug("log ext offset now %d\n", b->start);
         assert(b->end >= b->start);
     }
@@ -310,7 +310,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
 
 static log_ext log_ext_new(log tl)
 {
-    filesystem fs = tl->fs;
+    tfs fs = tl->fs;
     u64 ext_size = filesystem_log_blocks(fs);
     u64 ext_offset;
     if (!filesystem_reserve_log_space(fs, &fs->next_new_log_offset, &ext_offset, ext_size))
@@ -364,7 +364,7 @@ log_ext log_extend(log tl, u64 size, status_handler sh) {
     tlog_debug("log_extend: tl %p, size 0x%lx\n", tl, size);
 
     /* allocate new log and write with end of log */
-    size >>= tl->fs->blocksize_order;
+    size >>= tl->fs->fs.blocksize_order;
     u64 offset;
     if (!filesystem_reserve_log_space(tl->fs, &tl->fs->next_extend_log_offset, &offset, size)) {
         apply(sh, timm("result", "failed to extend log"));
@@ -389,7 +389,7 @@ log_ext log_extend(log tl, u64 size, status_handler sh) {
 
 static inline u64 log_size(log_ext ext)
 {
-    return bytes_from_sectors(ext->tl->fs, range_span(ext->sectors));
+    return bytes_from_sectors(&ext->tl->fs->fs, range_span(ext->sectors));
 }
 
 static inline boolean log_write_internal(log tl, merge m)
@@ -476,8 +476,8 @@ closure_function(2, 1, void, log_switch_complete,
     tlog_debug("%s: status %v\n", __func__, s);
     log old_tl = bound(old_tl);
     log new_tl = bound(new_tl);
-    filesystem fs = old_tl->fs;
-    filesystem_lock(fs);
+    tfs fs = old_tl->fs;
+    filesystem_lock(&fs->fs);
     log to_be_used, to_be_destroyed;
     if (is_ok(s)) {
         to_be_used = new_tl;
@@ -503,7 +503,7 @@ closure_function(2, 1, void, log_switch_complete,
     }
 
     run_flush_completions(old_tl, s);
-    filesystem_unlock(fs);
+    filesystem_unlock(&fs->fs);
 
     refcount_release(&to_be_destroyed->refcount);
     timm_dealloc(s);
@@ -548,8 +548,8 @@ void log_flush(log tl, status_handler completion)
         (tl->total_entries <= TFS_LOG_COMPACT_RATIO * tl->obsolete_entries)) {
         tlog_debug("%ld obsolete entries out of %ld, starting log compaction\n",
             tl->obsolete_entries, tl->total_entries);
-        filesystem fs = tl->fs;
-        log new_tl = log_new(fs->h, fs);
+        tfs fs = tl->fs;
+        log new_tl = log_new(fs->fs.h, fs);
         if (new_tl == INVALID_ADDRESS)
             return;
         log_ext new_ext = log_ext_new(new_tl);
@@ -597,7 +597,7 @@ closure_function(1, 2, void, log_flush_timer_expired,
 static void log_set_dirty(log tl)
 {
     if (tl->dirty) {
-        if (buffer_length(tl->tuple_staging) >= bytes_from_sectors(tl->fs,
+        if (buffer_length(tl->tuple_staging) >= bytes_from_sectors(&tl->fs->fs,
                 range_span(tl->current->sectors)) / 2)
             log_flush(tl, 0);
         return;
@@ -613,7 +613,7 @@ static void log_set_dirty(log tl)
 {
     tl->dirty = true;
     if (buffer_length(tl->tuple_staging) >=
-            bytes_from_sectors(tl->fs, range_span(tl->current->sectors))) {
+            bytes_from_sectors(&tl->fs->fs, range_span(tl->current->sectors))) {
         log_flush(tl, 0);
     }
 }
@@ -812,9 +812,9 @@ closure_function(4, 1, void, log_read_complete,
     b->start = 0;
     tlog_debug("   log parse finished, end now at %d\n", b->end);
 
-    tl->fs->root = (tuple)table_find(tl->dictionary, pointer_from_u64(1));
+    tl->fs->fs.root = (tuple)table_find(tl->dictionary, pointer_from_u64(1));
 
-    if (!tl->fs->ro) {
+    if (!tl->fs->fs.ro) {
         /* Reverse pairs in dictionary so that we can use it for writing
            the next log segment. */
         table newdict = allocate_table(tl->h, identity_key, pointer_equal);
@@ -845,7 +845,7 @@ static void log_read(log tl, status_handler sh)
         apply(sh, timm("result", "failed to allocate sg list"));
         return;
     }
-    range r = irangel(0, bytes_from_sectors(tl->fs, range_span(ext->sectors)));
+    range r = irangel(0, bytes_from_sectors(&tl->fs->fs, range_span(ext->sectors)));
     u64 length = range_span(r);
     sg_buf sgb = sg_list_tail_add(sg, length);
     sgb->buf = buffer_ref(ext->staging, 0);
@@ -867,11 +867,11 @@ boolean filesystem_probe(u8 *first_sector, u8 *uuid, char *label)
     return success;
 }
 
-log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
+log log_create(heap h, tfs fs, boolean initialize, status_handler sh)
 {
     tlog_debug("log_create: heap %p, fs %p, sh %p\n", h, fs, sh);
 #ifndef TLOG_READ_ONLY
-    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
+    range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->fs.blocksize_order);
     if (!filesystem_reserve_storage(fs, sectors)) {
         msg_err("failed to reserve sectors in allocation map");
         return INVALID_ADDRESS;
@@ -886,7 +886,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
 #ifdef TLOG_READ_ONLY
         halt("no tlog write support\n");
 #else
-        fs->root = allocate_tuple();
+        fs->fs.root = allocate_tuple();
         buffer uuid = alloca_wrap_buffer(fs->uuid, UUID_LEN);
         random_buffer(uuid);
         log_ext init_ext = tl->current;

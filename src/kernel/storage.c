@@ -1,7 +1,7 @@
 #include <kernel.h>
 #include <pagecache.h>
 #include <storage.h>
-#include <tfs.h>
+#include <fs.h>
 
 //#define STORAGE_DEBUG
 #ifdef STORAGE_DEBUG
@@ -142,13 +142,13 @@ static void volume_mount(volume v, buffer mount_point)
     filesystem fs = storage.root_fs;
     tuple root = filesystem_getroot(storage.root_fs);
     tuple mount_dir_t;
-    fs_status fss = filesystem_get_node(&fs, inode_from_tuple(root), cmount_point,
+    fs_status fss = filesystem_get_node(&fs, fs->get_inode(fs, root), cmount_point,
         false, false, false, false, &mount_dir_t, 0);
     if (fss != FS_STATUS_OK) {
         msg_err("mount point %s not found\n", cmount_point);
         return;
     }
-    inode mount_dir = inode_from_tuple(mount_dir_t);
+    inode mount_dir = fs->get_inode(fs, mount_dir_t);
     boolean ok = (fs == storage.root_fs) && (mount_dir_t != root) && children(mount_dir_t);
     filesystem_put_node(fs, mount_dir_t);
     if (!ok) {

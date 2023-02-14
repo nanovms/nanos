@@ -367,11 +367,6 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
     return thread_maybe_sleep_uninterruptible(current);
 }
 
-static boolean is_special(tuple n)
-{
-    return get(n, sym(special)) ? true : false;
-}
-
 closure_function(9, 1, void, sendfile_bh,
                  fdesc, in, fdesc, out, long *, offset, sg_list, sg, sg_buf, cur_buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
                  sysreturn, rv)
@@ -972,11 +967,8 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
         f->fs_write = fsfile_get_writer(fsf);
         assert(f->fs_write);
         f->fadv = POSIX_FADV_NORMAL;
-        fsfile_reserve(fsf);
-        if (flags & O_TMPFILE)
-            fsfile_release(fsf);
     }
-    f->n = inode_from_tuple(n);
+    f->n = fs->get_inode(fs, n);
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
 
@@ -1023,6 +1015,8 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     ret = fd;
   out:
     filesystem_put_node(fs, n);
+    if ((ret < 0) && fsf)
+        fsfile_release(fsf);
     return ret;
 }
 
@@ -1196,7 +1190,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
 
 static int try_write_dirent(void *dirp, boolean dirent64, char *p,
         int *read_sofar, int *written_sofar, u64 *f_offset,
-        unsigned int *count, tuple n)
+        unsigned int *count, filesystem fs, tuple n)
 {
     int len = runtime_strlen(p);
     *read_sofar += len;
@@ -1213,14 +1207,14 @@ static int try_write_dirent(void *dirp, boolean dirent64, char *p,
             // include the entry in the buffer
             if (dirent64) {
                 struct linux_dirent64 *dp = dirp;
-                dp->d_ino = u64_from_pointer(n);
+                dp->d_ino = fs->get_inode(fs, n);
                 dp->d_reclen = reclen;
                 runtime_memcpy(dp->d_name, p, len + 1);
                 dp->d_off = reclen + *written_sofar;
                 dp->d_type = dt_from_tuple(n);
             } else {
                 struct linux_dirent *dp = dirp;
-                dp->d_ino = u64_from_pointer(n);
+                dp->d_ino = fs->get_inode(fs, n);
                 dp->d_reclen = reclen;
                 runtime_memcpy(dp->d_name, p, len);
                 zero(dp->d_name + len, reclen - (((void *)dp->d_name) - dirp) - len - 1);
@@ -1237,8 +1231,8 @@ static int try_write_dirent(void *dirp, boolean dirent64, char *p,
     return 0;
 }
 
-closure_function(7, 2, boolean, getdents_each,
-                 file, f, void **, dirp, boolean, dirent64, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r,
+closure_function(8, 2, boolean, getdents_each,
+                 file, f, void **, dirp, boolean, dirent64, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r, filesystem, fs,
                  value, k, value, v)
 {
     assert(is_symbol(k));
@@ -1246,7 +1240,7 @@ closure_function(7, 2, boolean, getdents_each,
     char *p = cstring(symbol_string(k), tmpbuf);
     *bound(r) = try_write_dirent(*bound(dirp), bound(dirent64), p,
                                  bound(read_sofar), bound(written_sofar), &bound(f)->offset, bound(count),
-                                 v);
+                                 bound(fs), v);
     if (*bound(r) < 0)
         return false;
 
@@ -1273,7 +1267,7 @@ static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boole
     int r = 0;
     int read_sofar = 0, written_sofar = 0;
     binding_handler h = stack_closure(getdents_each, f, &dirp, dirent64,
-                                      &read_sofar, &written_sofar, &count, &r);
+                                      &read_sofar, &written_sofar, &count, &r, f->fs);
     symbol parent_sym = sym_this("..");
     if (apply(h, sym_this("."), md) && apply(h, parent_sym, get_tuple(md, parent_sym)))
         iterate(c, h);
@@ -1364,23 +1358,22 @@ sysreturn truncate(const char *path, long length)
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
-    } else {
-        if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE)) {
-            rv = -EACCES;
-        } else if (is_dir(t)) {
-            rv = -EISDIR;
-        } else if (!fsf) {
-            rv = -EINVAL;
-        } else {
-            fsfile_reserve(fsf);
-            rv = 0;
-        }
-        filesystem_put_node(fs, t);
+        goto out;
     }
-    if (rv == 0) {
+    if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE))
+        rv = -EACCES;
+    else if (is_dir(t))
+        rv = -EISDIR;
+    else if (!fsf)
+        rv = -EINVAL;
+    else
+        rv = 0;
+    filesystem_put_node(fs, t);
+    if (rv == 0)
         rv = truncate_internal(fs, fsf, 0, length);
+    if (fsf)
         fsfile_release(fsf);
-    }
+  out:
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1576,7 +1569,6 @@ static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s
         s->st_mode = S_IFLNK;
         break;
     }
-    s->st_ino = u64_from_pointer(n);
     if (type == FDESC_TYPE_REGULAR) {
         if (f) {
             s->st_size = fsfile_get_length(f);
@@ -1585,6 +1577,7 @@ static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s
         s->st_blksize = PAGESIZE;   /* "preferred" block size for efficient filesystem I/O */
     }
     if (n) {
+        s->st_ino = fs->get_inode(fs, n);
         struct timespec ts;
         timespec_from_time(&ts, filesystem_get_atime(fs, n));
         s->st_atime = ts.tv_sec;
@@ -1646,6 +1639,8 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
 
     fill_stat(file_type_from_tuple(n), fs, fsf, n, buf);
     filesystem_put_node(fs, n);
+    if (fsf)
+        fsfile_release(fsf);
     thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx",
                buf->st_ino, buf->st_mode, buf->st_size);
     return 0;
@@ -2060,7 +2055,7 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
 sysreturn fs_rename(buffer oldpath, buffer newpath)
 {
     filesystem fs = get_root_fs();
-    inode root = inode_from_tuple(filesystem_getroot(fs));
+    inode root = fs->get_inode(fs, filesystem_getroot(fs));
     return sysreturn_from_fs_status(filesystem_rename(fs, root, buffer_to_cstring(oldpath),
         fs, root, buffer_to_cstring(newpath), false));
 }

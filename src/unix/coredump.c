@@ -178,8 +178,8 @@ closure_function(2, 1, void, dump_complete,
     closure_finish();
 }
 
-closure_function(7, 1, void, dump_write_complete,
-                 sg_io, write, sg_list, sg, Elf64_Phdr *, phdr, Elf64_Phdr *, phdr_end, buffer, b, status_handler, completion, u64, limit_remain,
+closure_function(8, 1, void, dump_write_complete,
+                 fsfile, f, sg_io, write, sg_list, sg, Elf64_Phdr *, phdr, Elf64_Phdr *, phdr_end, buffer, b, status_handler, completion, u64, limit_remain,
                  status, s)
 {
     u64 limit_remain = bound(limit_remain);
@@ -199,6 +199,7 @@ closure_function(7, 1, void, dump_write_complete,
         deallocate_buffer(bound(b));
         core_debug("calling final completion\n");
         apply(bound(completion), s);
+        fsfile_release(bound(f));
         closure_finish();
     } else {
         add_to_sgl(sg, pointer_from_u64(phdr->p_vaddr), phdr->p_memsz);
@@ -375,7 +376,7 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
         wlen = limit_remain;
     limit_remain -= wlen;
     apply(write, sg, irangel(0, wlen),
-        closure(h, dump_write_complete, write, sg, phdr_begin, phdr_end, bhdr, completion, limit_remain));
+        closure(h, dump_write_complete, f, write, sg, phdr_begin, phdr_end, bhdr, completion, limit_remain));
     return;
 error:
     apply(complete, s);
