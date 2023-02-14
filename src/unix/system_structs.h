@@ -83,6 +83,7 @@ typedef struct iovec {
 #define EMSGSIZE        90		/* Message too long */
 #define EPROTOTYPE      91		/* Wrong protocol type for socket */
 #define EOPNOTSUPP      95		/* Operation not supported */
+#define ECONNABORTED    103             /* Software caused connection abort */
 #define EISCONN         106
 #define ENOTCONN        107
 #define ETIMEDOUT       110             /* Connection timed out */
