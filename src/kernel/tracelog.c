@@ -642,7 +642,7 @@ static void init_tracelog_file_writer(value v)
     tuple root = filesystem_getroot(fs);
     fs_status s = filesystem_get_node(&fs, inode_from_tuple(root),
                                       buffer_to_cstring((buffer)v),
-                                      true, true, false, &file, &fsf);
+                                      true, true, false, false, &file, &fsf);
     if (s != FS_STATUS_OK) {
         msg_err("failed to open tracelog file: %s\n", string_from_fs_status(s));
         return;
