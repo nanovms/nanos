@@ -53,6 +53,14 @@ closure_function(5, 1, status, read_program_complete,
     }
     closure_member(program_start, bound(start), elf) = b;
     storage_when_ready(apply_merge(bound(m)));
+    value v;
+    if ((v = get(root, sym(exec_wait_for_ip4_secs)))) {
+        u64 ts;
+        if (u64_from_value(v, &ts))
+            ip4_when_ready(apply_merge(bound(m)), seconds(ts));
+        else
+            rprintf("exec_wait_for_ip4_secs has invalid time, ignoring\n");
+    }
     apply(bound(completion), STATUS_OK);
     closure_finish();
     return STATUS_OK;
