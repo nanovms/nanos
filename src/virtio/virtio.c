@@ -52,15 +52,15 @@ void vtdev_cfg_write_4(vtdev dev, u64 offset, u32 value)
     }
 }
 
-void vtdev_cfg_read_mem(vtdev dev, void *dest, bytes len)
+void vtdev_cfg_read_mem(vtdev dev, u64 offset, void *dest, bytes len)
 {
     switch (dev->transport) {
     case VTIO_TRANSPORT_MMIO:
-        runtime_memcpy(dest, ((vtmmio)dev)->vbase + VTMMIO_OFFSET_CONFIG, len);
+        runtime_memcpy(dest, ((vtmmio)dev)->vbase + VTMMIO_OFFSET_CONFIG + offset, len);
         break;
     case VTIO_TRANSPORT_PCI:
         for (int i = 0; i < len; i++)
-            *((u8 *)dest + i) = pci_bar_read_1(&((vtpci)dev)->device_config, i);
+            *((u8 *)dest + i) = pci_bar_read_1(&((vtpci)dev)->device_config, offset + i);
         break;
     default:
         break;
