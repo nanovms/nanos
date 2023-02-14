@@ -15,11 +15,19 @@
 #define filesystem_lock(fs)         spin_lock(&(fs)->lock)
 #define filesystem_unlock(fs)       spin_unlock(&(fs)->lock)
 
+#define fs_storage_lock_init(fs)    spin_lock_init(&(fs)->lock)
+#define fs_storage_lock(fs)         spin_lock(&(fs)->storage_lock)
+#define fs_storage_unlock(fs)       spin_unlock(&(fs)->storage_lock)
+
 #else
 
 #define filesystem_lock_init(fs)
 #define filesystem_lock(fs)         ((void)fs)
 #define filesystem_unlock(fs)       ((void)fs)
+
+#define fs_storage_lock_init(fs)
+#define fs_storage_lock(fs)         ((void)fs)
+#define fs_storage_unlock(fs)       ((void)fs)
 
 #endif
 
@@ -54,6 +62,7 @@ typedef struct filesystem {
     tuple root;
 #ifdef KERNEL
     struct spinlock lock;
+    struct spinlock storage_lock;
 #endif
     struct refcount refcount;
     closure_struct(fs_sync, sync);

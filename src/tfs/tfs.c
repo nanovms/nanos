@@ -255,13 +255,16 @@ closure_function(2, 1, boolean, fs_storage_alloc,
 u64 filesystem_allocate_storage(filesystem fs, u64 nblocks)
 {
     if (fs->storage) {
+        fs_storage_lock(fs);
         u64 start_block;
         int result = rangemap_range_find_gaps(fs->storage,
                                               irange(0, fs->size >> fs->blocksize_order),
                                               stack_closure(fs_storage_alloc,
                                                             nblocks, &start_block));
-        if ((result == RM_ABORT) &&
-            rangemap_insert_range(fs->storage, irangel(start_block, nblocks)))
+        boolean success = (result == RM_ABORT) &&
+                          rangemap_insert_range(fs->storage, irangel(start_block, nblocks));
+        fs_storage_unlock(fs);
+        if (success)
             return start_block;
     }
     return INVALID_PHYSICAL;
@@ -270,17 +273,23 @@ u64 filesystem_allocate_storage(filesystem fs, u64 nblocks)
 boolean filesystem_reserve_storage(filesystem fs, range blocks)
 {
     if (fs->storage) {
-        if (rangemap_range_intersects(fs->storage, blocks))
-            return false;
-        return rangemap_insert_range(fs->storage, blocks);
+        fs_storage_lock(fs);
+        boolean success = !rangemap_range_intersects(fs->storage, blocks) &&
+                          rangemap_insert_range(fs->storage, blocks);
+        fs_storage_unlock(fs);
+        return success;
     }
     return true;
 }
 
 boolean filesystem_free_storage(filesystem fs, range blocks)
 {
-    if (fs->storage)
-        return rangemap_insert_hole(fs->storage, blocks);
+    if (fs->storage) {
+        fs_storage_lock(fs);
+        boolean success = rangemap_insert_hole(fs->storage, blocks);
+        fs_storage_unlock(fs);
+        return success;
+    }
     return true;
 }
 
@@ -1298,10 +1307,10 @@ void filesystem_alloc(fsfile f, long offset, long len,
         status = filesystem_truncate_locked(fs, f, end);
     }
 done:
+    filesystem_unlock(fs);
     deallocate_rangemap(new_rm, (status == FS_STATUS_OK ?
                                  stack_closure(assert_no_node) :
                                  stack_closure(destroy_extent_node, fs)));
-    filesystem_unlock(fs);
     apply(completion, f, status);
 }
 
@@ -1386,7 +1395,7 @@ closure_function(1, 2, boolean, file_unlink_each,
     return true;
 }
 
-/* Called with fs locked, returns with fs unlocked. */
+/* Called with fs locked. */
 static void file_unlink(filesystem fs, tuple t)
 {
     fsfile f = table_remove(fs->files, t);
@@ -1394,6 +1403,7 @@ static void file_unlink(filesystem fs, tuple t)
         f = 0;
     if (f) {
         f->md = 0;
+        refcount_release(&f->refcount);
     }
     fs_notify_release(t, false);
 
@@ -1403,10 +1413,6 @@ static void file_unlink(filesystem fs, tuple t)
         destruct_dir_entry(t);
     else
         iterate(t, stack_closure(file_unlink_each, t));
-
-    filesystem_unlock(fs);  /* the fsfile deallocator needs to acquire the lock */
-    if (f)
-        refcount_release(&f->refcount);
 }
 
 fs_status do_mkentry(filesystem fs, tuple parent, const char *name, tuple entry,
@@ -1727,11 +1733,9 @@ fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean 
     if (fss == FS_STATUS_OK) {
         fs_notify_delete(t, parent, name);
         file_unlink(fs, t);
-        goto release;
     }
   out:
     filesystem_unlock(fs);
-  release:
     filesystem_release(fs);
     return fss;
 }
@@ -1824,14 +1828,11 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
         s = fs_set_dir_entry(oldfs, oldparent, old_s, 0);
     if (s == FS_STATUS_OK) {
         fs_notify_move(old, oldparent, old_s, newparent, new_s);
-        if (new) {
+        if (new)
             file_unlink(newfs, new);
-            goto release;
-        }
     }
   out:
     filesystem_unlock(fs_to_unlock);
-  release:
     filesystem_release(oldfs);
     if (newfs)
         filesystem_release(newfs);
@@ -1932,10 +1933,7 @@ define_closure_function(1, 1, void, fsf_sync_complete,
         timm_dealloc(s);
     }
     fsfile f = bound(f);
-    filesystem fs = f->fs;
-    filesystem_lock(fs);
     deallocate_fsfile(f->fs, f, stack_closure(free_extent, f->fs));
-    filesystem_unlock(fs);
 }
 
 closure_function(1, 0, void, free_extents,
@@ -2071,6 +2069,7 @@ void create_filesystem(heap h,
 #ifndef TFS_READ_ONLY
     fs->storage = allocate_rangemap(h);
     assert(fs->storage != INVALID_ADDRESS);
+    fs_storage_lock_init(fs);
     fs->temp_log = 0;
     init_refcount(&fs->refcount, 1, init_closure(&fs->sync, fs_sync, fs));
     fs->sync_complete = 0;
@@ -2171,8 +2170,10 @@ closure_function(1, 1, boolean, fs_storage_usedblocks,
 u64 fs_usedblocks(filesystem fs)
 {
     u64 used_blocks = 0;
+    fs_storage_lock(fs);
     rangemap_range_lookup(fs->storage, irange(0, fs->size >> fs->blocksize_order),
                           stack_closure(fs_storage_usedblocks, &used_blocks));
+    fs_storage_unlock(fs);
     return used_blocks;
 }
 
