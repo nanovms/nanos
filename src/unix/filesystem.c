@@ -494,3 +494,8 @@ void fs_notify_release(tuple t, boolean unmounted)
         set(t, sym(watches), 0);
     }
 }
+
+boolean fs_file_is_busy(filesystem fs, tuple md)
+{
+    return (get_tuple(md, sym(watches)) != 0);
+}

@@ -50,6 +50,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/net/net.c \
 	$(SRCDIR)/net/netsyscall.c \
 	$(RUNTIME) \
+	$(SRCDIR)/fs/9p.c \
 	$(SRCDIR)/fs/fs.c \
 	$(SRCDIR)/fs/tfs.c \
 	$(SRCDIR)/fs/tlog.c \
@@ -78,6 +79,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/unix/vdso.c \
 	$(SRCDIR)/unix/pipe.c \
 	$(SRCDIR)/virtio/virtio.c \
+	$(SRCDIR)/virtio/virtio_9p.c \
 	$(SRCDIR)/virtio/virtio_balloon.c \
 	$(SRCDIR)/virtio/virtio_mmio.c \
 	$(SRCDIR)/virtio/virtio_net.c \
@@ -419,6 +421,9 @@ MACHINE_TYPE=	pc # no AHCI support yet
 QEMU_STORAGE+=	-device ide-hd,bus=ide.0,drive=hd0
 else
 $(error Unsupported STORAGE=$(STORAGE))
+endif
+ifneq ($(VIRTFS),)
+QEMU_STORAGE+= -virtfs local,path=$(VIRTFS),mount_tag=1,security_model=none,id=hd1
 endif
 ifeq ($(MACHINE_TYPE),q35)
 PCI_BUS=	pcie.0
