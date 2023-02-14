@@ -1928,7 +1928,7 @@ define_closure_function(1, 1, void, fsf_sync_complete,
                         status, s)
 {
     if (!is_ok(s)) {
-        msg_err("failed to sync page cache node: %v\n", s);
+        msg_err("failed to purge page cache node: %v\n", s);
         timm_dealloc(s);
     }
     fsfile f = bound(f);
@@ -1942,7 +1942,7 @@ closure_function(1, 0, void, free_extents,
                  fsfile, f)
 {
     fsfile f = bound(f);
-    pagecache_sync_node(f->cache_node, init_closure(&f->sync_complete, fsf_sync_complete, f));
+    pagecache_purge_node(f->cache_node, init_closure(&f->sync_complete, fsf_sync_complete, f));
 }
 
 #endif /* !TFS_READ_ONLY */

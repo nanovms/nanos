@@ -1080,6 +1080,50 @@ void pagecache_sync_node(pagecache_node pn, status_handler complete)
     pagecache_scan_node(pn);
     pagecache_commit_dirty_node(pn, complete);
 }
+
+closure_function(1, 1, boolean, purge_range_handler,
+                 pagecache_node, pn,
+                 rmnode, n)
+{
+    pagecache_node pn = bound(pn);
+    pagecache pc = pn->pv->pc;
+    int page_order = pc->page_order;
+    u64 page_size = U64_FROM_BIT(page_order);
+    u64 node_offset = n->r.start;
+    pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> page_order);
+    do {
+        if (page_state(pp) == PAGECACHE_PAGESTATE_DIRTY) {
+            change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_ALLOC);
+            pagecache_page_release_locked(pc, pp, false);
+            refcount_release(&pn->refcount);
+        }
+        node_offset += page_size;
+        pp = (pagecache_page)rbnode_get_next((rbnode)pp);
+    } while (node_offset < n->r.end);
+    rangemap_remove_range(&pn->dirty, n);
+    return true;
+}
+
+/* Wait for completion of in-progress writes to disk, discard any other dirty ranges, then call
+ * status handler. */
+void pagecache_purge_node(pagecache_node pn, status_handler complete)
+{
+    pagecache_debug("%s: pn %p, complete %F\n", __func__, pn, complete);
+    pagecache_lock_node(pn);
+    pagecache_lock_state(pn->pv->pc);
+    destruct_rangemap(&pn->dirty, stack_closure(purge_range_handler, pn));
+    pagecache_unlock_state(pn->pv->pc);
+    pagecache_lock_volume(pn->pv);
+    if (list_inserted(&pn->l))
+        list_delete(&pn->l);
+    pagecache_unlock_volume(pn->pv);
+    boolean busy = pn->committing;
+    if (busy && complete)
+        assert(enqueue(pn->dirty_commits, complete));
+    pagecache_unlock_node(pn);
+    if (!busy && complete)
+        apply(complete, STATUS_OK);
+}
 #endif /* !PAGECACHE_READ_ONLY */
 
 typedef closure_type(pp_handler, void, pagecache_page);
