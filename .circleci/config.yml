@@ -127,7 +127,6 @@ jobs:
           environment:
             NANOS_TARGET_ROOT: ~/project/target-root
           command: make
-      - run: brew upgrade python
       - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-396.0.0-darwin-x86_64.tar.gz
       - run: tar xzf google-cloud-cli*.tar.gz
       - run: ./google-cloud-sdk/install.sh -q
