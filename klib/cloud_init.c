@@ -53,6 +53,21 @@ typedef struct cloud_download_file {
     closure_struct(cloud_download_file_cleanup, cleanup);
 } *cloud_download_file;
 
+declare_closure_struct(1, 1, void, cloud_download_setenv,
+                       status *, s,
+                       value, v);
+declare_closure_struct(2, 2, boolean, cloud_download_env_recv,
+                       buffer_handler, parser, status, s,
+                       buffer_handler, out, buffer, data);
+declare_closure_struct(0, 0, void, cloud_download_env_cleanup);
+typedef struct cloud_download_env_cfg {
+    struct cloud_download_cfg download;
+    vector attribute_path;
+    closure_struct(cloud_download_setenv, setenv);
+    closure_struct(cloud_download_env_recv, recv);
+    closure_struct(cloud_download_env_cleanup, cleanup);
+} *cloud_download_env;
+
 static heap cloud_heap;
 
 static enum cloud cloud_detect(void)
@@ -481,6 +496,136 @@ static int cloud_download_file_parse(tuple config, vector tasks)
     return KLIB_INIT_OK;
 }
 
+closure_function(1, 2, boolean, cloud_download_env_each,
+                 tuple, env,
+                 value, k, value, v)
+{
+    if (is_string(v)) {
+        buffer b = clone_buffer(cloud_heap, v);
+        if (b == INVALID_ADDRESS)
+            return false;
+        set(bound(env), k, b);
+    }
+    return true;
+}
+
+closure_function(2, 1, void, cloud_download_env_set,
+                 cloud_download_env, cfg, status *, result,
+                 void *, v)
+{
+    tuple env = v;
+    vector attr_path = bound(cfg)->attribute_path;
+    if (attr_path) {
+        string attr;
+        vector_foreach(attr_path, attr) {
+            if (buffer_length(attr) == 0)
+                continue;
+            env = get_tuple(env, intern(attr));
+            if (!env) {
+                *bound(result) = timm("result", "download_env: invalid JSON attribute '%b'", attr);
+                goto out;
+            }
+        }
+    }
+    if (!iterate(env, stack_closure(cloud_download_env_each, get_environment())))
+        *bound(result) = timm("result", "failed to set environment variables");
+  out:
+    destruct_tuple(v, true);
+}
+
+closure_function(1, 1, void, cloud_download_env_err,
+                 status *, result,
+                 string, data)
+{
+    if (*bound(result) == STATUS_OK)
+        *bound(result) = timm("result", "failed to parse JSON: %b", data);
+}
+
+define_closure_function(1, 1, void, cloud_download_setenv,
+                        status *, s,
+                        value, v)
+{
+    cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, setenv);
+    tuple start_line = get_tuple(v, sym(start_line));
+    buffer status_code = get(start_line, sym(1));
+    if (!status_code || (buffer_length(status_code) < 1) || (byte(status_code, 0) != '2')) {
+        /* HTTP status code 2xx not found */
+        *bound(s) = timm("result", "cloud_init download_env: unexpected server response %v",
+                         start_line);
+        goto done;
+    }
+    status *s = bound(s);
+    parser p = json_parser(cloud_heap, stack_closure(cloud_download_env_set, cfg, s),
+                           stack_closure(cloud_download_env_err, s));
+    p = parser_feed(p, get_string(v, sym(content)));
+    p = apply(p, CHARACTER_INVALID);
+    json_parser_free(p);
+  done:
+    cfg->download.done = true;
+}
+
+define_closure_function(2, 2, boolean, cloud_download_env_recv,
+                        buffer_handler, parser, status, s,
+                        buffer_handler, out, buffer, data)
+{
+    cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, recv);
+    if (data && (bound(parser) == INVALID_ADDRESS)) {
+        value_handler vh = init_closure(&cfg->setenv, cloud_download_setenv, &bound(s));
+        bound(parser) = allocate_http_parser(cloud_heap, vh);
+        if (bound(parser) == INVALID_ADDRESS) {
+            bound(s) = timm("result", "%s: failed to allocate HTTP parser", __func__);
+            goto close_conn;
+        }
+    }
+    if (bound(parser) != INVALID_ADDRESS) {
+        status s = apply(bound(parser), data);
+        if (data && cfg->download.done)
+            goto close_conn;
+        if (!is_ok(s)) {
+            bound(parser) = INVALID_ADDRESS;    /* the parser deallocated itself */
+            bound(s) = timm_up(s, "result", "%s: failed to parse HTTP response", __func__);
+            if (data)
+                goto close_conn;
+        }
+    }
+    if (!data) {    /* connection closed */
+        status_handler sh = (status_handler)&cfg->download.complete;
+        apply(sh, bound(s));
+    }
+    return false;
+  close_conn:
+    apply(out, 0);   /* close connection */
+    return true;
+}
+
+define_closure_function(0, 0, void, cloud_download_env_cleanup)
+{
+    cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, cleanup);
+    deallocate(cloud_heap, cfg, sizeof(*cfg));
+}
+
+static int cloud_download_env_parse(tuple config, vector tasks)
+{
+    cloud_download_env cfg = allocate(cloud_heap, sizeof(*cfg));
+    assert(cfg != INVALID_ADDRESS);
+    download_recv recv = init_closure(&cfg->recv, cloud_download_env_recv,
+                                      INVALID_ADDRESS, STATUS_OK);
+    thunk cleanup = init_closure(&cfg->cleanup, cloud_download_env_cleanup);
+    vector_push(tasks, init_closure(&cfg->download.task, cloud_download_task, recv, cleanup));
+    int ret = cloud_download_parse(config, &cfg->download);
+    if (ret != KLIB_INIT_OK)
+        return ret;
+    value path = get(config, sym(path));
+    if (path) {
+        if (!is_string(path)) {
+            rprintf("download_env: invalid path %v\n", path);
+            return KLIB_INIT_FAILED;
+        }
+        cfg->attribute_path = split(cloud_heap, path, '/');
+    }
+    return KLIB_INIT_OK;
+}
+
 int init(status_handler complete)
 {
     cloud_heap = heap_locked(get_kernel_heaps());
@@ -512,6 +657,14 @@ int init(status_handler complete)
         ret = cloud_init_parse_vector(download, cloud_download_file_parse, tasks);
         if (ret != KLIB_INIT_OK) {
             rprintf("invalid cloud_init download configuration\n");
+            goto error;
+        }
+    }
+    tuple download_env = get(config, sym(download_env));
+    if (download_env) {
+        ret = cloud_init_parse_vector(download_env, cloud_download_env_parse, tasks);
+        if (ret != KLIB_INIT_OK) {
+            rprintf("invalid cloud_init download_env configuration\n");
             goto error;
         }
     }
