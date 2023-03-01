@@ -29,6 +29,11 @@ if (strncmp(s1, s2, strlen(s2)) != 0) {                         \
     test_assert(errors_count == 0); \
 } while (0)
 
+#define test_assert_json_incomplete() do {                                  \
+    test_assert(errors_count == 1);                                         \
+    test_strings_equal(last_error->contents, "unexpected end of input");    \
+} while (0)
+
 tuple root;
 closure_function(1, 1, void, finish,
                  heap, h,
@@ -41,6 +46,7 @@ int errors_count = 0;
 string last_error;
 
 parser tuple_p;
+parser json_p;
 
 closure_function(1, 1, void, perr,
                  heap, h,
@@ -62,7 +68,8 @@ void parse_string(heap h, parser p, char *str)
     }
 
     buffer b = wrap_buffer_cstring(h, str);
-    parser_feed(p, b);
+    p = parser_feed(p, b);
+    apply(p, CHARACTER_INVALID);    /* signal end of input */
     /* deallocate_buffer(b); */
 }
 
@@ -79,6 +86,7 @@ void parse_string(heap h, parser p, char *str)
     boolean _check_##name(heap h)
 
 #define TUPLE_PARSE_TEST(name, str) PARSE_TEST(name, tuple_p, str)
+#define JSON_PARSE_TEST(name, str) PARSE_TEST(name, json_p, str)
 
 TUPLE_PARSE_TEST(empty_string_test, "")
 {
@@ -477,9 +485,291 @@ TUPLE_PARSE_TEST(single_closing_vector_bracket_test, "]")
     return true;
 }
 
+JSON_PARSE_TEST(json_whitespace_test, " {\n\"\ra\t\" :\n\"\rb\t\" ,\n\"c\":{\r\"d\":\"e\"\t} }\n")
+{
+    test_no_errors();
+    test_assert((root != NULL) && (tuple_count(root) == 2));
+
+    string s = get_string(root, sym_this("\ra\t"));
+    test_assert(s != NULL);
+    test_strings_equal(s->contents, "\rb\t");
+
+    tuple t = get_tuple(root, sym_this("c"));
+    test_assert((t != NULL) && (tuple_count(t) == 1));
+    s = get_string(t, sym_this("d"));
+    test_assert(s != NULL);
+    test_strings_equal(s->contents, "e");
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_objstart_test, "a")
+{
+    test_assert(errors_count == 1);
+    test_strings_equal(last_error->contents, "unexpected character a");
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_obj_test, "{")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_name_test, "{\"")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_name_test1, "{\"a")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_missing_value_test, "{\"a\":")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_separator_test, "{\"a\";{}}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_separator_test1, "{\"a\":{};\"b\":{}}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_stringvalue_test, "{\"a\":\"")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_stringvalue_test1, "{\"a\":\"b")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_numbervalue_test, "{\"a\":-")
+{
+    test_assert(errors_count == 1);
+    test_strings_equal(last_error->contents, "no digits found");
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_numbervalue_test1, "{\"a\":0.")
+{
+    test_assert(errors_count == 1);
+    test_strings_equal(last_error->contents, "no digits found");
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_numbervalue_test, "{\"a\":0..}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_booleanvalue_test, "{\"a\":truu}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_array_test, "{\"a\":[")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_array_test, "{\"a\":[{}b]}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_arrayelem_test, "{\"a\":[b]}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_incomplete_objvalue_test, "{\"a\":{")
+{
+    test_assert_json_incomplete();
+    return true;
+}
+
+JSON_PARSE_TEST(json_longstring_test, "{\"abcdefghijklmnopqrstuvwxyz0123456789\":"
+                                      "\"0123456789abcdefghijklmnopqrstuvwxyz\"}")
+{
+    test_no_errors();
+    test_assert((root != NULL) && (tuple_count(root) == 1));
+
+    string s = get_string(root, sym_this("abcdefghijklmnopqrstuvwxyz0123456789"));
+    test_assert(s != NULL);
+    test_strings_equal(s->contents, "0123456789abcdefghijklmnopqrstuvwxyz");
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_name_test, "{a:{}}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_empty_name_test, "{\"\":{}}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_value_test, "{\"a\":}}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_last_attr_test, "{\"a\":{\"b\":\"c\"},\"d\":\"e\",\"f\"}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_invalid_last_separator_test, "{\"a\":{\"b\":\"c\"},\"d\":\"e\"-\"f\":{}}")
+{
+    test_assert(errors_count > 0);
+    return true;
+}
+
+JSON_PARSE_TEST(json_empty_obj_test, "{}")
+{
+    test_no_errors();
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_numbervalue_test, "{\"a\":1}")
+{
+    test_no_errors();
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_numbervalue_test1, "{\"a\":1.2}")
+{
+    test_no_errors();
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_numbervalue_test2, "{\"a\":-2.3}")
+{
+    test_no_errors();
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_booleanvalue_test, "{\"a\":true}")
+{
+    test_no_errors();
+    /* the parser discards boolean-valued attributes */
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_booleanvalue_test1, "{\"a\":false}")
+{
+    test_no_errors();
+    /* the parser discards boolean-valued attributes */
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_booleanvalue_test2, "{\"a\":[true,false]}")
+{
+    test_no_errors();
+    /* the parser discards array-valued attributes */
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_nullvalue_test, "{\"a\":null}")
+{
+    test_no_errors();
+    /* the parser discards null-valued attributes */
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_empty_array_test, "{\"a\":[]}")
+{
+    test_no_errors();
+    /* the parser discards boolean-valued attributes */
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_array_test, "{\"a\":[\"b\",{\"c\":{}},0]}")
+{
+    test_no_errors();
+    /* the parser discards array-valued attributes */
+    test_assert((root != NULL) && (tuple_count(root) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_nested_test, "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{}}}}}}}}\n")
+{
+    test_no_errors();
+    tuple t = root;
+    char attr_name[2];
+    strcpy(attr_name, "a");
+    for (int i = 0; i < 7; i++) {
+        test_assert((t != NULL) && (tuple_count(t) == 1));
+        t = get_tuple(t, sym_this(attr_name));
+        attr_name[0] = attr_name[0] + 1;
+    }
+    test_assert((t != NULL) && (tuple_count(t) == 0));
+
+    destruct_tuple(root, true);
+    return true;
+}
+
 void init (heap h)
 {
     tuple_p = value_parser(h, closure(h, finish, h), closure(h, perr, h));
+    json_p = json_parser(h, closure(h, finish, h), closure(h, perr, h));
 }
 
 typedef boolean (*test_func)(heap h);
@@ -520,6 +810,42 @@ test_func TESTS[] = {
     //crashing tests
     /* single_closing_tuple_bracket_test, */
     /* single_closing_vector_bracket_test, */
+
+    json_whitespace_test,
+    json_invalid_objstart_test,
+    json_incomplete_obj_test,
+    json_incomplete_name_test,
+    json_incomplete_name_test1,
+    json_missing_value_test,
+    json_invalid_separator_test,
+    json_invalid_separator_test1,
+    json_incomplete_stringvalue_test,
+    json_incomplete_stringvalue_test1,
+    json_incomplete_numbervalue_test,
+    json_incomplete_numbervalue_test1,
+    json_invalid_numbervalue_test,
+    json_invalid_booleanvalue_test,
+    json_incomplete_array_test,
+    json_invalid_array_test,
+    json_invalid_arrayelem_test,
+    json_incomplete_objvalue_test,
+    json_longstring_test,
+    json_invalid_name_test,
+    json_empty_name_test,
+    json_invalid_value_test,
+    json_invalid_last_attr_test,
+    json_invalid_last_separator_test,
+    json_empty_obj_test,
+    json_numbervalue_test,
+    json_numbervalue_test1,
+    json_numbervalue_test2,
+    json_booleanvalue_test,
+    json_booleanvalue_test1,
+    json_booleanvalue_test2,
+    json_nullvalue_test,
+    json_empty_array_test,
+    json_array_test,
+    json_nested_test,
 
     NULL
 };

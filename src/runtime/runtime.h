@@ -236,6 +236,8 @@ typedef closure_type(parse_error, void, buffer);
 typedef closure_type(parse_finish, void, void *);
 parser tuple_parser(heap h, parse_finish c, parse_error err);
 parser value_parser(heap h, parse_finish c, parse_error err);
+parser json_parser(heap h, parse_finish c, parse_error err);
+void json_parser_free(parser p);
 parser parser_feed (parser p, buffer b);
 
 /* RNG */
