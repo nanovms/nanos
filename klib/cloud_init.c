@@ -14,6 +14,18 @@ enum cloud {
     CLOUD_UNKNOWN
 };
 
+enum cloud_init_task_op {
+    CLOUD_INIT_TASK_OP_START,
+    CLOUD_INIT_TASK_OP_DELETE,
+};
+
+typedef closure_type(cloud_init_task, void, enum cloud_init_task_op, void *);
+
+typedef closure_type(download_recv, boolean, buffer_handler, buffer);
+
+declare_closure_struct(2, 2, void, cloud_download_task,
+                       download_recv, recv, thunk, cleanup,
+                       int, op, void *, arg);
 declare_closure_struct(2, 1, void, cloud_download_done,
                        struct cloud_download_cfg *, cfg, status_handler, complete,
                        status, s);
@@ -23,12 +35,23 @@ typedef struct cloud_download_cfg {
     u16 server_port;
     struct buffer server_path;
     boolean tls;
-    buffer file_path;
     boolean optional;   /* if true, a download error is not fatal */
     boolean done;
     buffer auth_header;
+    closure_struct(cloud_download_task, task);
     closure_struct(cloud_download_done, complete);
 } *cloud_download_cfg;
+
+declare_closure_struct(4, 2, boolean, cloud_download_file_recv,
+                       buffer_handler, parser, bytes, content_len, bytes, received, status_handler, sh,
+                       buffer_handler, out, buffer, data);
+declare_closure_struct(0, 0, void, cloud_download_file_cleanup);
+typedef struct cloud_download_file {
+    struct cloud_download_cfg download;
+    buffer file_path;
+    closure_struct(cloud_download_file_recv, recv);
+    closure_struct(cloud_download_file_cleanup, cleanup);
+} *cloud_download_file;
 
 static heap cloud_heap;
 
@@ -40,6 +63,24 @@ static enum cloud cloud_detect(void)
     if (!runtime_strcmp(chassis_asset_tag, AZURE_CHASSIS))
         return CLOUD_AZURE;
     return CLOUD_UNKNOWN;
+}
+
+static int cloud_init_parse_vector(tuple config, int (*parse_each)(tuple, vector), vector tasks)
+{
+    if (!is_tuple(config))
+        return KLIB_INIT_FAILED;
+    int num_entries;
+    for (num_entries = 0; get(config, intern_u64(num_entries)); num_entries++)
+        ;
+    for (int i = 0; i < num_entries; i++) {
+        value v = get(config, intern_u64(i));
+        if (!is_tuple(v))
+            return KLIB_INIT_FAILED;
+        int ret = parse_each(v, tasks);
+        if (ret != KLIB_INIT_OK)
+            return ret;
+    }
+    return KLIB_INIT_OK;
 }
 
 static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
@@ -96,28 +137,7 @@ static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
         parsed_cfg->server_host.end = parsed_cfg->server_host.start + host_end;
     }
     parsed_cfg->server_host.wrapped = true;
-    parsed_cfg->file_path = get(config, sym(dest));
-    if (!parsed_cfg->file_path) {
-        rprintf("cloud_init: missing download destination in %v\n", config);
-        return KLIB_INIT_FAILED;
-    }
-    if (!is_string(parsed_cfg->file_path)) {
-        rprintf("cloud_init: invalid download destination %v\n", parsed_cfg->file_path);
-        return KLIB_INIT_FAILED;
-    }
     parsed_cfg->optional = parsed_cfg->done = false;
-    fsfile f = fsfile_open_or_create(parsed_cfg->file_path, false);
-    if (!f) {
-        rprintf("cloud_init: download destination file '%b' cannot be created\n",
-            parsed_cfg->file_path);
-        return KLIB_INIT_FAILED;
-    }
-    if (fsfile_get_length(f) > 0) {
-        if (get(config, sym(overwrite)))
-            parsed_cfg->optional = true;
-        else
-            parsed_cfg->done = true;
-    }
     parsed_cfg->auth_header = get(config, sym(auth));
     return KLIB_INIT_OK;
 }
@@ -131,8 +151,9 @@ define_closure_function(2, 1, void, cloud_download_done,
         timm_dealloc(s);
         s = STATUS_OK;
     }
-    deallocate(cloud_heap, cfg, sizeof(struct cloud_download_cfg));
     apply(bound(complete), s);
+    cloud_init_task task = (cloud_init_task)&cfg->task;
+    apply(task, CLOUD_INIT_TASK_OP_DELETE, 0);
 }
 
 closure_function(2, 2, void, cloud_download_save_complete,
@@ -188,11 +209,11 @@ closure_function(4, 1, void, cloud_download_save,
     apply(sh, s);
 }
 
-closure_function(6, 1, boolean, cloud_download_recv,
-                 cloud_download_cfg, cfg, buffer_handler, out, buffer_handler, parser, bytes, content_len, bytes, received, status_handler, sh,
-                 buffer, data)
+define_closure_function(4, 2, boolean, cloud_download_file_recv,
+                        buffer_handler, parser, bytes, content_len, bytes, received, status_handler, sh,
+                        buffer_handler, out, buffer, data)
 {
-    cloud_download_cfg cfg = bound(cfg);
+    cloud_download_file cfg = struct_from_field(closure_self(), cloud_download_file, recv);
     status_handler sh = bound(sh);
     status s = STATUS_OK;
     if (data) {
@@ -205,7 +226,7 @@ closure_function(6, 1, boolean, cloud_download_recv,
             }
 
             /* Now that the file has been truncated, any download/save error will be fatal. */
-            cfg->optional = false;
+            cfg->download.optional = false;
 
             merge m = allocate_merge(cloud_heap, sh);
             sh = bound(sh) = apply_merge(m);
@@ -228,7 +249,7 @@ closure_function(6, 1, boolean, cloud_download_recv,
         if (!is_ok(s)) {
             bound(parser) = INVALID_ADDRESS;    /* the parser deallocated itself */
             if (sh) {
-                s = timm_up(s, "result", "%s: failed to parse HTTP response\n", __func__);
+                s = timm_up(s, "result", "%s: failed to parse HTTP response", __func__);
                 goto error;
             } else {
                 timm_dealloc(s);
@@ -238,7 +259,7 @@ closure_function(6, 1, boolean, cloud_download_recv,
     if (data) {
         bytes content_len = bound(content_len);
         if ((content_len == (bytes)-1) || ((content_len > 0) && (bound(received) >= content_len))) {
-            apply(bound(out), 0);   /* close connection */
+            apply(out, 0);  /* close connection */
             return true;
         }
     } else {  /* connection closed */
@@ -260,14 +281,27 @@ closure_function(6, 1, boolean, cloud_download_recv,
   error:
     apply(sh, s);
     bound(sh) = 0;  /* so that it's not applied again after the connection is closed */
-    apply(bound(out), 0);   /* close connection */
+    apply(out, 0);  /* close connection */
     return true;
+}
+
+define_closure_function(0, 0, void, cloud_download_file_cleanup)
+{
+    cloud_download_file cfg = struct_from_field(closure_self(), cloud_download_file, cleanup);
+    deallocate(cloud_heap, cfg, sizeof(*cfg));
 }
 
 static boolean cloud_download_retry(connection_handler ch);
 
-closure_function(1, 1, input_buffer_handler, cloud_download_ch,
-                 cloud_download_cfg, cfg,
+closure_function(2, 1, boolean, cloud_download_recv,
+                 download_recv, recv, buffer_handler, out,
+                 buffer, data)
+{
+    return apply(bound(recv), bound(out), data);
+}
+
+closure_function(2, 1, input_buffer_handler, cloud_download_ch,
+                 cloud_download_cfg, cfg, download_recv, recv,
                  buffer_handler, out)
 {
     cloud_download_cfg cfg = bound(cfg);
@@ -292,7 +326,7 @@ closure_function(1, 1, input_buffer_handler, cloud_download_ch,
     status s = http_request(cloud_heap, out, HTTP_REQUEST_METHOD_GET, req, 0);
     deallocate_value(req);
     if (is_ok(s)) {
-        in = closure(cloud_heap, cloud_download_recv, cfg, out, INVALID_ADDRESS, 0, 0, sh);
+        in = closure(cloud_heap, cloud_download_recv, bound(recv), out);
         if (in == INVALID_ADDRESS)
             apply(sh, timm("result", "%s: failed to allocate buffer handler", __func__));
     } else {
@@ -384,22 +418,67 @@ static boolean cloud_download_retry(connection_handler ch)
     return true;
 }
 
-static void cloud_download_start(cloud_download_cfg cfg, status_handler sh)
+static void cloud_download_start(cloud_download_cfg cfg, download_recv recv, status_handler sh)
 {
-    cloud_download_cfg cfg_copy = allocate(cloud_heap, sizeof(*cfg_copy));
-    if (cfg_copy == INVALID_ADDRESS) {
-        apply(sh, timm("result", "%s: failed to allocate configuration", __func__));
-        return;
-    }
-    runtime_memcpy(cfg_copy, cfg, sizeof(*cfg_copy));
-    init_closure(&cfg_copy->complete, cloud_download_done, cfg_copy, sh);
-    connection_handler ch = closure(cloud_heap, cloud_download_ch, cfg_copy);
+    init_closure(&cfg->complete, cloud_download_done, cfg, sh);
+    connection_handler ch = closure(cloud_heap, cloud_download_ch, cfg, recv);
     if (ch == INVALID_ADDRESS) {
-        deallocate(cloud_heap, cfg_copy, sizeof(*cfg_copy));
         apply(sh, timm("result", "%s: failed to allocate connection handler", __func__));
         return;
     }
     cloud_download(ch);
+}
+
+define_closure_function(2, 2, void, cloud_download_task,
+                        download_recv, recv, thunk, cleanup,
+                        int, op, void *, arg)
+{
+    cloud_download_cfg cfg = struct_from_field(closure_self(), cloud_download_cfg, task);
+    switch (op) {
+    case CLOUD_INIT_TASK_OP_START:
+        cloud_download_start(cfg, bound(recv), arg);
+        break;
+    case CLOUD_INIT_TASK_OP_DELETE:
+        apply(bound(cleanup));
+        break;
+    }
+}
+
+static int cloud_download_file_parse(tuple config, vector tasks)
+{
+    cloud_download_file parsed_cfg = allocate(cloud_heap, sizeof(*parsed_cfg));
+    assert(parsed_cfg != INVALID_ADDRESS);
+    status_handler sh = (status_handler)&parsed_cfg->download.complete;
+    download_recv recv = init_closure(&parsed_cfg->recv, cloud_download_file_recv,
+                                      INVALID_ADDRESS, 0, 0, sh);
+    thunk cleanup = init_closure(&parsed_cfg->cleanup, cloud_download_file_cleanup);
+    vector_push(tasks, init_closure(&parsed_cfg->download.task, cloud_download_task,
+                                    recv, cleanup));
+    int ret = cloud_download_parse(config, &parsed_cfg->download);
+    if (ret != KLIB_INIT_OK)
+        return ret;
+    parsed_cfg->file_path = get(config, sym(dest));
+    if (!parsed_cfg->file_path) {
+        rprintf("cloud_init: missing download destination in %v\n", config);
+        return KLIB_INIT_FAILED;
+    }
+    if (!is_string(parsed_cfg->file_path)) {
+        rprintf("cloud_init: invalid download destination %v\n", parsed_cfg->file_path);
+        return KLIB_INIT_FAILED;
+    }
+    fsfile f = fsfile_open_or_create(parsed_cfg->file_path, false);
+    if (!f) {
+        rprintf("cloud_init: download destination file '%b' cannot be created\n",
+            parsed_cfg->file_path);
+        return KLIB_INIT_FAILED;
+    }
+    if (fsfile_get_length(f) > 0) {
+        if (get(config, sym(overwrite)))
+            parsed_cfg->download.optional = true;
+        else
+            parsed_cfg->download.done = true;
+    }
+    return KLIB_INIT_OK;
 }
 
 int init(status_handler complete)
@@ -425,33 +504,36 @@ int init(status_handler complete)
         rprintf("invalid cloud_init configuration\n");
         return KLIB_INIT_FAILED;
     }
+    vector tasks = allocate_vector(cloud_heap, 8);
+    assert(tasks != INVALID_ADDRESS);
+    int ret;
     tuple download = get(config, sym(download));
     if (download) {
-        if (!is_tuple(download)) {
+        ret = cloud_init_parse_vector(download, cloud_download_file_parse, tasks);
+        if (ret != KLIB_INIT_OK) {
             rprintf("invalid cloud_init download configuration\n");
-            return KLIB_INIT_FAILED;
+            goto error;
         }
-        int num_entries;
-        for (num_entries = 0; get(download, intern_u64(num_entries)); num_entries++)
-            ;
-        struct cloud_download_cfg cfg[num_entries];
-        for (int i = 0; i < num_entries; i++) {
-            value d = get(download, intern_u64(i));
-            if (!is_tuple(d)) {
-                rprintf("invalid cloud_init download configuration\n");
-                return KLIB_INIT_FAILED;
-            }
-            int ret = cloud_download_parse(d, &cfg[i]);
-            if (ret != KLIB_INIT_OK)
-                return ret;
-        }
+    }
+    cloud_init_task task;
+    if (vector_length(tasks) != 0) {
         merge m = allocate_merge(cloud_heap, complete);
         complete = apply_merge(m);
-        for (int i = 0; i < num_entries; i++)
-            if (!cfg[i].done)
-                cloud_download_start(&cfg[i], apply_merge(m));
+        vector_foreach(tasks, task) {
+            apply(task, CLOUD_INIT_TASK_OP_START, apply_merge(m));
+        }
         apply(complete, STATUS_OK);
-        return KLIB_INIT_IN_PROGRESS;
+        ret = KLIB_INIT_IN_PROGRESS;
+    } else {
+        ret = KLIB_INIT_OK;
     }
-    return KLIB_INIT_OK;
+  out:
+    deallocate_vector(tasks);
+    return ret;
+  error:
+    vector_foreach(tasks, task) {
+        apply(task, CLOUD_INIT_TASK_OP_DELETE, 0);
+    }
+    ret = KLIB_INIT_FAILED;
+    goto out;
 }
