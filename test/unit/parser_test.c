@@ -40,40 +40,47 @@ closure_function(1, 1, void, finish,
 int errors_count = 0;
 string last_error;
 
-parser p;
+parser tuple_p;
 
-closure_function(0, 1, void, perr,
+closure_function(1, 1, void, perr,
+                 heap, h,
                  string, s)
 {
     errors_count++;
-    last_error = s; // TODO: copy string here
+    if (last_error)
+        deallocate_buffer(last_error);
+    last_error = clone_buffer(bound(h), s);
 }
 
-void parse_tuple_string(heap h, char *str)
+void parse_string(heap h, parser p, char *str)
 {
     root = NULL;
     errors_count = 0;
-    last_error = NULL;
+    if (last_error) {
+        deallocate_buffer(last_error);
+        last_error = NULL;
+    }
 
     buffer b = wrap_buffer_cstring(h, str);
     parser_feed(p, b);
     /* deallocate_buffer(b); */
 }
 
-#define PARSE_TEST(name, str) \
+#define PARSE_TEST(name, p, str) \
     boolean _check_##name(heap h); \
 \
     boolean name(heap h) \
     { \
-        parse_tuple_string(h, str); \
+        parse_string(h, p, str); \
 \
         return !_check_##name(h); \
     } \
 \
     boolean _check_##name(heap h)
 
+#define TUPLE_PARSE_TEST(name, str) PARSE_TEST(name, tuple_p, str)
 
-PARSE_TEST(empty_string_test, "")
+TUPLE_PARSE_TEST(empty_string_test, "")
 {
     test_no_errors();
     test_assert(root == NULL);
@@ -81,7 +88,7 @@ PARSE_TEST(empty_string_test, "")
 }
 
 
-PARSE_TEST(empty_tuple_test, "()")
+TUPLE_PARSE_TEST(empty_tuple_test, "()")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -90,7 +97,7 @@ PARSE_TEST(empty_tuple_test, "()")
     return true;
 }
 
-PARSE_TEST(empty_tuple_with_whitespaces_test, " ( ) ")
+TUPLE_PARSE_TEST(empty_tuple_with_whitespaces_test, " ( ) ")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -98,7 +105,7 @@ PARSE_TEST(empty_tuple_with_whitespaces_test, " ( ) ")
     return true;
 }
 
-PARSE_TEST(empty_vector_test, "[]")
+TUPLE_PARSE_TEST(empty_vector_test, "[]")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -106,7 +113,7 @@ PARSE_TEST(empty_vector_test, "[]")
     return true;
 }
 
-PARSE_TEST(empty_vector_with_whitespaces_test, " [ ] ")
+TUPLE_PARSE_TEST(empty_vector_with_whitespaces_test, " [ ] ")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -114,14 +121,14 @@ PARSE_TEST(empty_vector_with_whitespaces_test, " [ ] ")
     return true;
 }
 
-PARSE_TEST(all_is_comment_test, "#[]")
+TUPLE_PARSE_TEST(all_is_comment_test, "#[]")
 {
     test_no_errors();
     test_assert(root == NULL);
     return true;
 }
 
-PARSE_TEST(partial_comment_test, "#[]\n()")
+TUPLE_PARSE_TEST(partial_comment_test, "#[]\n()")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -129,7 +136,7 @@ PARSE_TEST(partial_comment_test, "#[]\n()")
     return true;
 }
 
-PARSE_TEST(tuple_simple_test, "(key:value)")
+TUPLE_PARSE_TEST(tuple_simple_test, "(key:value)")
 {
     test_no_errors();
 
@@ -144,7 +151,7 @@ PARSE_TEST(tuple_simple_test, "(key:value)")
     return true;
 }
 
-PARSE_TEST(tuple_simple_spaced_test, " ( key : value ) ")
+TUPLE_PARSE_TEST(tuple_simple_spaced_test, " ( key : value ) ")
 {
     test_no_errors();
 
@@ -159,7 +166,7 @@ PARSE_TEST(tuple_simple_spaced_test, " ( key : value ) ")
     return true;
 }
 
-PARSE_TEST(vector_simple_test, "[val1]")
+TUPLE_PARSE_TEST(vector_simple_test, "[val1]")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -172,7 +179,7 @@ PARSE_TEST(vector_simple_test, "[val1]")
     return true;
 }
 
-PARSE_TEST(tuple_2elements_test, "(key1:value1 key2:value2)")
+TUPLE_PARSE_TEST(tuple_2elements_test, "(key1:value1 key2:value2)")
 {
     test_no_errors();
 
@@ -192,7 +199,7 @@ PARSE_TEST(tuple_2elements_test, "(key1:value1 key2:value2)")
     return true;
 }
 
-PARSE_TEST(vector_2elements_test, "[val1 val2]")
+TUPLE_PARSE_TEST(vector_2elements_test, "[val1 val2]")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -209,7 +216,7 @@ PARSE_TEST(vector_2elements_test, "[val1 val2]")
     return true;
 }
 
-PARSE_TEST(whitespace_after_last_vector_value_test, "[val ]")
+TUPLE_PARSE_TEST(whitespace_after_last_vector_value_test, "[val ]")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -226,7 +233,7 @@ PARSE_TEST(whitespace_after_last_vector_value_test, "[val ]")
     return true;
 }
 
-PARSE_TEST(tuple_nested_tuple_test, "(key:(key2:value2))")
+TUPLE_PARSE_TEST(tuple_nested_tuple_test, "(key:(key2:value2))")
 {
     test_no_errors();
 
@@ -245,7 +252,7 @@ PARSE_TEST(tuple_nested_tuple_test, "(key:(key2:value2))")
     return true;
 }
 
-PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
+TUPLE_PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
 {
     test_no_errors();
 
@@ -264,7 +271,7 @@ PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
     return true;
 }
 
-PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
+TUPLE_PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
 {
     test_no_errors();
 
@@ -283,7 +290,7 @@ PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
     return true;
 }
 
-PARSE_TEST(vector_nested_vector_test, "[[value2]]")
+TUPLE_PARSE_TEST(vector_nested_vector_test, "[[value2]]")
 {
     test_no_errors();
 
@@ -302,7 +309,7 @@ PARSE_TEST(vector_nested_vector_test, "[[value2]]")
     return true;
 }
 
-PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
+TUPLE_PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
 {
     test_no_errors();
 
@@ -317,7 +324,7 @@ PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
     return true;
 }
 
-PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
+TUPLE_PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
 {
     test_no_errors();
 
@@ -332,7 +339,7 @@ PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
     return true;
 }
 
-PARSE_TEST(quoted_tuple_name_value_test, "(\"key\":\"value\")")
+TUPLE_PARSE_TEST(quoted_tuple_name_value_test, "(\"key\":\"value\")")
 {
     test_no_errors();
 
@@ -347,7 +354,7 @@ PARSE_TEST(quoted_tuple_name_value_test, "(\"key\":\"value\")")
     return true;
 }
 
-PARSE_TEST(spaced_quoted_tuple_name_value_test, "( \"key\" : \"value\" )")
+TUPLE_PARSE_TEST(spaced_quoted_tuple_name_value_test, "( \"key\" : \"value\" )")
 {
     test_no_errors();
 
@@ -362,7 +369,7 @@ PARSE_TEST(spaced_quoted_tuple_name_value_test, "( \"key\" : \"value\" )")
     return true;
 }
 
-PARSE_TEST(quoted_spaced_tuple_value_test, "(key:\"hello value\")")
+TUPLE_PARSE_TEST(quoted_spaced_tuple_value_test, "(key:\"hello value\")")
 {
     test_no_errors();
 
@@ -377,7 +384,7 @@ PARSE_TEST(quoted_spaced_tuple_value_test, "(key:\"hello value\")")
     return true;
 }
 
-PARSE_TEST(quoted_spaced_tuple_name_test, "(\"hello key\":value)")
+TUPLE_PARSE_TEST(quoted_spaced_tuple_name_test, "(\"hello key\":value)")
 {
     test_no_errors();
 
@@ -392,7 +399,7 @@ PARSE_TEST(quoted_spaced_tuple_name_test, "(\"hello key\":value)")
     return true;
 }
 
-PARSE_TEST(quoted_spaced_tuple_name_value_test, "(\"hello key\":\"hello value\")")
+TUPLE_PARSE_TEST(quoted_spaced_tuple_name_value_test, "(\"hello key\":\"hello value\")")
 {
     test_no_errors();
 
@@ -407,7 +414,7 @@ PARSE_TEST(quoted_spaced_tuple_name_value_test, "(\"hello key\":\"hello value\")
     return true;
 }
 
-PARSE_TEST(quoted_vector_value_test, "[\"value\"]")
+TUPLE_PARSE_TEST(quoted_vector_value_test, "[\"value\"]")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -420,7 +427,7 @@ PARSE_TEST(quoted_vector_value_test, "[\"value\"]")
     return true;
 }
 
-PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
+TUPLE_PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -433,7 +440,7 @@ PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
     return true;
 }
 
-PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"\"]")
+TUPLE_PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"\"]")
 {
     test_no_errors();
     test_assert(root != NULL);
@@ -446,7 +453,7 @@ PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"\"]")
     return true;
 }
 
-PARSE_TEST(unknown_terminal_test, "(key:value()")
+TUPLE_PARSE_TEST(unknown_terminal_test, "(key:value()")
 {
     test_assert(errors_count == 1);
     test_strings_equal(last_error->contents, "unknown property discriminator 40");
@@ -454,7 +461,7 @@ PARSE_TEST(unknown_terminal_test, "(key:value()")
     return true;
 }
 
-PARSE_TEST(single_closing_tuple_bracket_test, ")")
+TUPLE_PARSE_TEST(single_closing_tuple_bracket_test, ")")
 {
     test_assert(errors_count == 1);
     test_strings_equal(last_error->contents, "unknown property discriminator 40");
@@ -462,7 +469,7 @@ PARSE_TEST(single_closing_tuple_bracket_test, ")")
     return true;
 }
 
-PARSE_TEST(single_closing_vector_bracket_test, "]")
+TUPLE_PARSE_TEST(single_closing_vector_bracket_test, "]")
 {
     test_assert(errors_count == 1);
     test_strings_equal(last_error->contents, "unknown property discriminator 40");
@@ -472,7 +479,7 @@ PARSE_TEST(single_closing_vector_bracket_test, "]")
 
 void init (heap h)
 {
-    p = value_parser(h, closure(h, finish, h), closure(h, perr));
+    tuple_p = value_parser(h, closure(h, finish, h), closure(h, perr, h));
 }
 
 typedef boolean (*test_func)(heap h);
