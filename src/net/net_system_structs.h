@@ -33,6 +33,21 @@ enum protocol_type {
 #define AF_INET6    10
 #define AF_NETLINK  16
 
+#define SIOCGIFNAME    0x8910
+#define SIOCGIFCONF    0x8912
+#define SIOCGIFFLAGS   0x8913
+#define SIOCSIFFLAGS   0x8914
+#define SIOCGIFADDR    0x8915
+#define SIOCSIFADDR    0x8916
+#define SIOCGIFNETMASK 0x891b
+#define SIOCSIFNETMASK 0x891c
+#define SIOCGIFMETRIC  0x891d
+#define SIOCSIFMETRIC  0x891e
+#define SIOCGIFMTU     0x8921
+#define SIOCSIFMTU     0x8922
+#define SIOCGIFINDEX   0x8933
+#define SIOCDIFADDR    0x8936
+
 /* ARP protocol HARDWARE identifiers */
 #define ARPHRD_ETHER    1
 #define ARPHRD_LOOPBACK 772

@@ -803,6 +803,7 @@ struct io_uring_params {
 };
 
 /* Socket option levels */
+#define IPPROTO_IP      0
 #define SOL_SOCKET      1
 #define SOL_TCP         6
 #define IPPROTO_IPV6    41
@@ -819,10 +820,30 @@ struct io_uring_params {
 #define SO_PRIORITY     12
 #define SO_LINGER       13
 #define SO_REUSEPORT    15
+#define SO_TIMESTAMP    29
 #define SO_ACCEPTCONN   30
 #define SO_PROTOCOL     38
 
+#define IP_TOS              1
+#define IP_TTL              2
+#define IP_OPTIONS          4
+#define IP_MINTTL           21
+#define IP_MULTICAST_IF     32
+#define IP_MULTICAST_TTL    33
+#define IP_MULTICAST_LOOP   34
+#define IP_ADD_MEMBERSHIP   35
+#define IP_DROP_MEMBERSHIP  36
+
+#define IPV6_UNICAST_HOPS   16
+#define IPV6_MULTICAST_IF   17
+#define IPV6_MULTICAST_HOPS 18
+#define IPV6_MULTICAST_LOOP 19
 #define IPV6_V6ONLY     26
+#define IPV6_RECVPKTINFO    49
+#define IPV6_RECVHOPLIMIT   51
+#define IPV6_USE_MIN_MTU    63
+#define IPV6_TCLASS         67
+#define IPV6_MINHOPCOUNT    73
 
 /* eventfd flags */
 #define EFD_CLOEXEC     O_CLOEXEC

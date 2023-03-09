@@ -18,18 +18,6 @@
 #define net_debug(x, ...)
 #endif
 
-#define SIOCGIFNAME    0x8910
-#define SIOCGIFCONF    0x8912
-#define SIOCGIFFLAGS   0x8913
-#define SIOCSIFFLAGS   0x8914
-#define SIOCGIFADDR    0x8915
-#define SIOCSIFADDR    0x8916
-#define SIOCGIFNETMASK 0x891B
-#define SIOCSIFNETMASK 0x891C
-#define SIOCGIFMTU     0x8921
-#define SIOCSIFMTU     0x8922
-#define SIOCGIFINDEX   0x8933
-
 #define MTU_MAX (32 * KB)
 
 #define resolve_socket(__p, __fd) ({fdesc f = resolve_fd(__p, __fd); \
@@ -56,11 +44,6 @@ struct sockaddr_in6 {
     u32 sin6_flowinfo;
     struct in6_addr sin6_addr;
     u32 sin6_scope_id;
-};
-
-struct mmsghdr {
-    struct msghdr msg_hdr;
-    unsigned int msg_len;
 };
 
 struct ifconf {

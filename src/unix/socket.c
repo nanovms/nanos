@@ -12,11 +12,6 @@ declare_closure_struct(1, 2, boolean, unixsock_event_handler,
 declare_closure_struct(1, 0, void, unixsock_free,
     struct unixsock *, s);
 
-struct sockaddr_un {
-    u16 sun_family;
-    char sun_path[108];
-};
-
 typedef struct sharedbuf {
     buffer b;
     struct refcount refcount;

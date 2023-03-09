@@ -8,6 +8,11 @@ struct sockaddr_storage {
     u8 ss_data[126];
 };
 
+struct sockaddr_un {
+    u16 sun_family;
+    char sun_path[108];
+};
+
 typedef u32 socklen_t;
 
 struct msghdr {
@@ -18,6 +23,11 @@ struct msghdr {
     void *msg_control;
     u64 msg_controllen;
     int msg_flags;
+};
+
+struct mmsghdr {
+    struct msghdr msg_hdr;
+    unsigned int msg_len;
 };
 
 #define IFNAMSIZ    16
