@@ -98,7 +98,7 @@ test test-noaccel: image
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst fs_full futex futexrobust getdents getrandom hw hwg hws inotify io_uring ktest mkdir mmap netlink netsock pipe readv rename sendfile signal sigoverflow socketpair syslog time unlink thread_test tlbshootdown tun unixsocket vsyscall write writev
+RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst fs_full futex futexrobust getdents getrandom hw hwg hws inotify io_uring ktest mkdir mmap netlink netsock pipe readv rename sandbox sendfile signal sigoverflow socketpair syslog time unlink thread_test tlbshootdown tun unixsocket vsyscall write writev
 
 .PHONY: runtime-tests runtime-tests-noaccel
 

@@ -30,6 +30,7 @@ PROGRAMS= \
 	pipe \
 	readv \
 	rename \
+	sandbox \
 	sendfile \
 	sigoverflow \
 	signal \
@@ -189,6 +190,11 @@ LDFLAGS-rename=		-static
 
 SRCS-sendfile=		$(CURDIR)/sendfile.c
 LDFLAGS-sendfile=	-static
+
+SRCS-sandbox= \
+	$(CURDIR)/sandbox.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-sandbox=	-static
 
 SRCS-sigoverflow= \
 	$(CURDIR)/sigoverflow.c \

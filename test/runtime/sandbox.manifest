@@ -1,0 +1,16 @@
+(
+    boot:(
+          children:(
+                    klib:(children:(
+                            sandbox:(contents:(host:output/klib/bin/sandbox))
+                        ))
+                    )
+          )
+    children:(
+        sandbox:(contents:(host:output/test/runtime/bin/sandbox))
+    )
+    program:/sandbox
+    klibs:bootfs
+    environment:()
+    sandbox:(pledge:() unveil:())
+)

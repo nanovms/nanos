@@ -8,6 +8,7 @@ PROGRAMS= \
 	gcp \
 	ntp \
 	radar \
+	sandbox \
 	syslog \
 	tls \
 	tun \
@@ -31,6 +32,11 @@ SRCS-ntp= \
 
 SRCS-radar= \
 	$(CURDIR)/radar.c \
+
+SRCS-sandbox= \
+	$(CURDIR)/pledge.c \
+	$(CURDIR)/sandbox.c \
+	$(CURDIR)/unveil.c \
 
 SRCS-syslog= \
 	$(CURDIR)/syslog.c \

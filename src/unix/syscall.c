@@ -2792,6 +2792,13 @@ void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *n
     m[n].flags = flags;
 }
 
+void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)())
+{
+    sysreturn (*ret)() = m[n].handler;
+    m[n].handler = f;
+    return ret;
+}
+
 static struct trace_set {
     char *name;
     u64 flag;

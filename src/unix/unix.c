@@ -378,8 +378,6 @@ closure_function(0, 1, u32, std_input_events,
     return 0;
 }
 
-extern struct syscall *linux_syscalls;
-
 static boolean create_stdfiles(unix_heaps uh, process p)
 {
     heap h = heap_locked((kernel_heaps)uh);

@@ -189,6 +189,7 @@ typedef struct syscall_context {
 
 syscall_context allocate_syscall_context(cpuinfo ci);
 
+extern struct syscall * const linux_syscalls;
 extern io_completion syscall_io_complete;
 extern io_completion io_completion_ignore;
 
@@ -802,6 +803,7 @@ boolean setup_sigframe(thread t, int signum, struct siginfo *si);
 void restore_ucontext(struct ucontext * uctx, thread t);
 
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name, u64 flags);
+void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)());
 
 #define register_syscall(m, n, f, fl) _register_syscall(m, SYS_##n, f, #n, fl)
 
