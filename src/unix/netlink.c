@@ -693,8 +693,8 @@ static sysreturn nl_write_internal(nlsock s, void * src, u64 len)
     return (sysreturn)offset;
 }
 
-closure_function(7, 1, sysreturn, nl_read_bh,
-                 nlsock, s, thread, t, void *, dest, u64, length, struct msghdr *, msg, int, flags, io_completion, completion,
+closure_function(9, 1, sysreturn, nl_read_bh,
+                 nlsock, s, thread, t, void *, dest, u64, length, struct msghdr *, msg, int, flags, struct sockaddr *, from, socklen_t *, from_len, io_completion, completion,
                  u64, bqflags)
 {
     nlsock s = bound(s);
@@ -723,6 +723,20 @@ closure_function(7, 1, sysreturn, nl_read_bh,
     if (!dest) {
         iov = msg->msg_iov;
         length = msg->msg_iovlen;
+        msg->msg_controllen = 0;
+        msg->msg_flags = 0;
+    }
+    struct sockaddr *from = bound(from);
+    socklen_t *from_len = bound(from_len);
+    if (from_len) {
+        if (from && (*from_len >= sizeof(struct sockaddr_nl))) {
+            struct sockaddr_nl *addr = (struct sockaddr_nl *)from;
+            addr->nl_family = AF_NETLINK;
+            addr->nl_pad = 0;
+            addr->nl_pid = NL_PID_KERNEL;
+            addr->nl_groups = 0;
+        }
+        *from_len = sizeof(struct sockaddr_nl);
     }
     u64 dest_len;
     do {
@@ -784,7 +798,7 @@ closure_function(1, 6, sysreturn, nl_read,
 {
     nl_debug("read len %ld", length);
     nlsock s = bound(s);
-    blockq_action ba = contextual_closure(nl_read_bh, s, current, dest, length, 0, 0, completion);
+    blockq_action ba = contextual_closure(nl_read_bh, s, current, dest, length, 0, 0, 0, 0, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
     return blockq_check(s->sock.rxbq, current, ba, false);
@@ -920,21 +934,11 @@ static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
 {
     nl_debug("recvfrom: len %ld, flags 0x%x", len, flags);
     nlsock s = (nlsock)sock;
-    blockq_action ba = contextual_closure(nl_read_bh, s, current, buf, len, 0, flags,
+    blockq_action ba = contextual_closure(nl_read_bh, s, current, buf, len, 0, flags, src_addr, addrlen,
                                           (io_completion)&sock->f.io_complete);
     if (ba == INVALID_ADDRESS) {
         socket_release(sock);
         return -ENOMEM;
-    }
-    if (addrlen) {
-        if (src_addr && (*addrlen >= sizeof(struct sockaddr_nl))) {
-            struct sockaddr_nl *addr = (struct sockaddr_nl *)src_addr;
-            addr->nl_family = AF_NETLINK;
-            addr->nl_pad = 0;
-            addr->nl_pid = NL_PID_KERNEL;
-            addr->nl_groups = 0;
-        }
-        *addrlen = sizeof(struct sockaddr_nl);
     }
     return blockq_check(s->sock.rxbq, current, ba, false);
 }
@@ -968,19 +972,10 @@ static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags, bo
     nl_debug("recvmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
     nlsock s = (nlsock)sock;
     thread t = current;
-    blockq_action ba = contextual_closure(nl_read_bh, s, t, 0, 0, msg, flags, completion);
+    blockq_action ba = contextual_closure(nl_read_bh, s, t, 0, 0, msg, flags,
+                                          msg->msg_name, &msg->msg_namelen, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, t, -ENOMEM);
-    if (msg->msg_name && (msg->msg_namelen >= sizeof(struct sockaddr_nl))) {
-        struct sockaddr_nl *addr = msg->msg_name;
-        addr->nl_family = AF_NETLINK;
-        addr->nl_pad = 0;
-        addr->nl_pid = NL_PID_KERNEL;
-        addr->nl_groups = 0;
-    }
-    msg->msg_namelen = sizeof(struct sockaddr_nl);
-    msg->msg_controllen = 0;
-    msg->msg_flags = 0;
     return blockq_check(s->sock.rxbq, t, ba, in_bh);
 }
 
