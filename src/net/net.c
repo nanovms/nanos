@@ -11,6 +11,7 @@
 #define IFF_MULTICAST   (1 << 12)
 
 BSS_RO_AFTER_INIT static heap lwip_heap;
+BSS_RO_AFTER_INIT int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *input_netif);
 
 declare_closure_struct(0, 2, void, net_timeout_handler, u64, expiry, u64, overruns);
 

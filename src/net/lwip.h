@@ -25,3 +25,5 @@ boolean ifflags_to_netif(struct netif *netif, u16 flags); /* do not call with lw
 void netif_name_cpy(char *dest, struct netif *netif);
 
 #define netif_is_loopback(netif)    (((netif)->name[0] == 'l') && ((netif)->name[1] == 'o'))
+
+extern int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *input_netif);

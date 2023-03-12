@@ -93,6 +93,9 @@ typedef unsigned long size_t;
 
 #define LWIP_STATS  0
 
+#define LWIP_HOOK_IP4_INPUT net_ip_input_hook
+#define LWIP_HOOK_IP6_INPUT net_ip_input_hook
+
 typedef unsigned long u64_t;
 typedef unsigned u32_t;
 typedef int s32_t;
@@ -189,3 +192,13 @@ static inline void *calloc(size_t n, size_t s)
     return x;
 }
 
+struct pbuf;
+struct netif;
+
+static inline int net_ip_input_hook(struct pbuf *pbuf, struct netif *input_netif)
+{
+    extern int (*net_ip_input_filter)(struct pbuf *, struct netif *);
+    if (net_ip_input_filter && !net_ip_input_filter(pbuf, input_netif))
+        return 1;
+    return 0;
+}
