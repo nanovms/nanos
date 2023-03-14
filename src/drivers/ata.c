@@ -201,8 +201,6 @@ static boolean ata_set_lba(struct ata *dev, u64 lba, u64 nsectors)
 
     if (dev->command_sets & ATA_CS_LBA48) {
         assert(nsectors <= 65536);
-        if (nsectors == 65536)
-            nsectors = 0;
         ata_out8(dev, ATA_COUNT, nsectors >> 8);
         ata_out8(dev, ATA_COUNT, nsectors);
         ata_out8(dev, ATA_CYL_MSB, lba >> 40);
@@ -213,7 +211,7 @@ static boolean ata_set_lba(struct ata *dev, u64 lba, u64 nsectors)
         ata_out8(dev, ATA_SECTOR, lba);
         ata_out8(dev, ATA_DRIVE, ATA_D_LBA | ATA_DEV(dev->unit));
     } else {
-        assert(nsectors <= 255);
+        assert(nsectors <= 256);
         ata_out8(dev, ATA_COUNT, nsectors);
         ata_out8(dev, ATA_CYL_MSB, lba >> 16);
         ata_out8(dev, ATA_CYL_LSB, lba >> 8);
