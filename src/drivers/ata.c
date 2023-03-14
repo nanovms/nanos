@@ -392,3 +392,8 @@ u64 ata_get_capacity(struct ata *dev)
 {
     return dev->capacity;
 }
+
+u64 ata_get_io_max_blocks(struct ata *dev)
+{
+    return (dev->command_sets & ATA_CS_LBA48) ? U64_FROM_BIT(16) : U64_FROM_BIT(8);
+}

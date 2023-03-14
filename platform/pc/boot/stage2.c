@@ -113,10 +113,8 @@ closure_function(1, 1, void, stage2_bios_read,
     apply(req->completion, STATUS_OK);
 }
 
-#define MAX_BLOCK_IO_SIZE (64 * 1024)
-
-closure_function(2, 1, void, stage2_ata_read,
-                 struct ata *, dev, u64, offset,
+closure_function(3, 1, void, stage2_ata_read,
+                 struct ata *, dev, u64, offset, u64, io_max_blocks,
                  storage_req, req)
 {
     if (req->op != STORAGE_OP_READSG)
@@ -135,7 +133,7 @@ closure_function(2, 1, void, stage2_ata_read,
     merge m = allocate_merge(h, req->completion);
     status_handler k = apply_merge(m);
     while (blocks.start < blocks.end) {
-        u64 span = MIN(range_span(blocks), MAX_BLOCK_IO_SIZE >> SECTOR_OFFSET);
+        u64 span = MIN(range_span(blocks), bound(io_max_blocks));
         sg_buf sgb = sg_list_head_peek(sg);
         void *dest = sgb->buf + sgb->offset;
         span = MIN(span, sg_buf_len(sgb) >> SECTOR_OFFSET);
@@ -181,7 +179,7 @@ static storage_req_handler get_stage2_disk_read(heap general, u64 fs_offset)
         return closure(general, stage2_bios_read, fs_offset);
     }
 
-    return closure(general, stage2_ata_read, dev, fs_offset);
+    return closure(general, stage2_ata_read, dev, fs_offset, ata_get_io_max_blocks(dev));
 }
 
 closure_function(0, 1, void, fail,

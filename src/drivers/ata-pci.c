@@ -82,6 +82,7 @@ declare_closure_struct(1, 0, void, ata_pci_service,
 typedef struct ata_pci {
     heap h;
     struct ata *ata;
+    u64 io_max_blocks;
     struct prd *prdt;   /* physical region descriptor table */
     u64 prdt_phys;
     struct pci_bar bmr; /* bus master register */
@@ -160,9 +161,10 @@ static boolean ata_pci_service_req(ata_pci apci, ata_pci_req req)
     ata_debug("%s: %R %v\n", __func__, req->remain, req->s);
     if (!is_ok(req->s))
         goto done;
-    u64 byte_count = range_span(req->remain) * SECTOR_SIZE;
-    if (byte_count == 0)
+    u64 block_count = MIN(range_span(req->remain), apci->io_max_blocks);
+    if (block_count == 0)
         goto done;
+    u64 byte_count = block_count * SECTOR_SIZE;
     u64 buf_phys;
     int prd_count = 0;
     while (byte_count > 0 && prd_count < PRDT_ENTRIES) {
@@ -186,8 +188,7 @@ static boolean ata_pci_service_req(ata_pci apci, ata_pci_req req)
     }
     if (prd_count > 0) {
         apci->prdt[prd_count - 1].ctrl = PRD_LAST_ENTRY;
-        range blocks = irange(req->remain.start,
-            req->remain.end - byte_count / SECTOR_SIZE);
+        range blocks = irangel(req->remain.start, block_count);
         ata_debug("%s: starting DMA for %R\n", __func__, blocks);
         pci_bar_write_4(&apci->bmr, ATA_BMR_PRDT(ATA_PRIMARY), apci->prdt_phys);
         if (!ata_io_cmd_dma(apci->ata, req->write, blocks)) {
@@ -202,8 +203,21 @@ static boolean ata_pci_service_req(ata_pci apci, ata_pci_req req)
     }
 
     /* Couldn't use DMA, fall back to PIO. */
-    apply(req->write ? apci->pio_write : apci->pio_read, req->buf, req->remain,
-            req->sh);
+    block_io bio = req->write ? apci->pio_write : apci->pio_read;
+    if (range_span(req->remain) <= apci->io_max_blocks) {
+        apply(bio, req->buf, req->remain, req->sh);
+    } else {
+        merge m = allocate_merge(apci->h, req->sh);
+        status_handler sh = apply_merge(m);
+        do {
+            range blocks = irangel(req->remain.start, block_count);
+            apply(bio, req->buf, blocks, apply_merge(m));
+            req->buf += block_count << SECTOR_OFFSET;
+            req->remain.start += block_count;
+            block_count = MIN(range_span(req->remain), apci->io_max_blocks);
+        } while (block_count > 0);
+        apply(sh, STATUS_OK);
+    }
     return true;
 
 done:
@@ -312,6 +326,7 @@ closure_function(3, 1, boolean, ata_pci_probe,
     dev->prdt = pointer_from_u64(u64_from_pointer(dev->prdt) + align_offset);
 
     dev->h = general;
+    dev->io_max_blocks = ata_get_io_max_blocks(dev->ata);
     pci_bar_init(d, &dev->bmr, 4, 0, -1);
     pci_set_bus_master(d);
     list_init(&dev->reqs);

@@ -4,6 +4,7 @@ struct ata *ata_alloc(heap general);
 void ata_dealloc(struct ata *);
 boolean ata_probe(struct ata *);
 u64 ata_get_capacity(struct ata *);
+u64 ata_get_io_max_blocks(struct ata *dev);
 
 /* ATA commands (from sys/sys/ata.h) */
 #define ATA_NOP                         0x00    /* NOP */
