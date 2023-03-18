@@ -183,17 +183,17 @@ static boolean log_output(pqueue pq, buffer b)
 #define catch_err(s) do {if (!is_ok(s)) msg_err("lockstat: failed to send HTTP response: %v\n", (s));} while(0)
 
 static void
-lockstats_send_http_response(buffer_handler handler, buffer b)
+lockstats_send_http_response(http_responder handler, buffer b)
 {
     catch_err(send_http_response(handler, timm("ContentType", "text/html"), b));
 }
 
-static inline void lockstats_send_http_chunked_response(buffer_handler handler)
+static inline void lockstats_send_http_chunked_response(http_responder handler)
 {
     catch_err(send_http_chunked_response(handler, timm("ContentType", "text/html")));
 }
 
-static inline void lockstats_send_http_error(buffer_handler handler, const char *status, const char *msg)
+static inline void lockstats_send_http_error(http_responder handler, const char *status, const char *msg)
 {
     buffer b = aprintf(lockstats_heap, "<html><head><title>%s %s</title></head>"
                        "<body><h1>%s</h1></body></html>\r\n", status, msg, msg);
@@ -201,25 +201,25 @@ static inline void lockstats_send_http_error(buffer_handler handler, const char 
 }
 
 static void
-lockstats_send_http_uri_not_found(buffer_handler handler)
+lockstats_send_http_uri_not_found(http_responder handler)
 {
     lockstats_send_http_error(handler, "404", "Not Found");
 }
 
 static void
-lockstats_send_http_no_method(buffer_handler handler, http_method method)
+lockstats_send_http_no_method(http_responder handler, http_method method)
 {
     lockstats_send_http_error(handler, "501", "Not Implemented");
 }
 
 static void
-lockstats_send_http_internal_error(buffer_handler handler, http_method method)
+lockstats_send_http_internal_error(http_responder handler, http_method method)
 {
     lockstats_send_http_error(handler, "500", "Internal Server Error");
 }
 
 static void
-lockstats_do_http_get_log_chunked(buffer_handler out)
+lockstats_do_http_get_log_chunked(http_responder out)
 {
     pqueue pq = log_collate_and_sort();
     if (pq == INVALID_ADDRESS) {
@@ -240,7 +240,7 @@ lockstats_do_http_get_log_chunked(buffer_handler out)
 }
 
 closure_function(0, 3, void, lockstats_http_request,
-                 http_method, method, buffer_handler, handler, value, val)
+                 http_method, method, http_responder, handler, value, val)
 {
     string relative_uri;
     relative_uri = get_string(val, sym(relative_uri));
@@ -310,7 +310,7 @@ void lockstats_init(kernel_heaps kh)
     cpuinfo ci;
     vector_foreach(cpuinfos, ci) {
         ci->lock_stats_table = allocate_table_preallocated(h, backed, identity_key, pointer_equal, LOCKSTATS_PREALLOC);
-        ci->lock_stats_heap = allocate_objcache_preallocated(h, backed,
+        ci->lock_stats_heap = (heap)allocate_objcache_preallocated(h, backed,
             sizeof(struct lock_stats), PAGESIZE, LOCKSTATS_PREALLOC, true);
     }
     int ret = init_http_listener();

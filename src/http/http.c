@@ -1,6 +1,10 @@
 #include <runtime.h>
 #include <http.h>
 
+#define HTTP_VER(x, y) (((x)<<16)|((y)&MASK(16)))
+#define HTTP_MAJ(v) ((v)>>16)
+#define HTTP_MIN(v) ((v)&MASK(16))
+
 #define STATE_INIT 0
 #define STATE_START_LINE 1
 #define STATE_HEADER 2
@@ -17,6 +21,13 @@ typedef struct http_parser {
     value_handler each;
     u64 content_length;
 } *http_parser;
+
+struct http_responder {
+    heap h;
+    buffer_handler out;
+    u32 http_version;
+    boolean keepalive;
+};
 
 closure_function(3, 2, boolean, each_header,
                  buffer, dest, symbol, ignore, boolean, dealloc,
@@ -64,11 +75,15 @@ status http_request(heap h, buffer_handler bh, http_method method, tuple headers
     return s;
 }
 
-static status send_http_headers(buffer_handler out, tuple t)
+static status send_http_headers(http_responder out, tuple t)
 {
     status s;
+    if (out->keepalive && out->http_version <= HTTP_VER(1,0))
+        set(t, sym(connection), aprintf(out->h, "keep-alive"));
+    else if (!out->keepalive && out->http_version >= HTTP_VER(1,1))
+        set(t, sym(connection), aprintf(out->h, "close"));
     buffer d = allocate_buffer(transient, 128);
-    bprintf(d, "HTTP/1.1 ");
+    bprintf(d, "HTTP/%d.%d ", HTTP_MAJ(out->http_version), HTTP_MIN(out->http_version));
     symbol ss = sym(status);
     string sstr = get_string(t, ss);
     if (sstr)
@@ -81,7 +96,7 @@ static status send_http_headers(buffer_handler out, tuple t)
     deallocate_value(t);
     bprintf(d, "\r\n");
 
-    s = apply(out, d);
+    s = apply(out->out, d);
     if (!is_ok(s)) {
         deallocate_buffer(d);
         return timm_up(s, "%s failed to send", __func__);
@@ -90,7 +105,7 @@ static status send_http_headers(buffer_handler out, tuple t)
 }
 
 /* consumes c, c == 0 indicates terminate */
-status send_http_chunk(buffer_handler out, buffer c)
+status send_http_chunk(http_responder out, buffer c)
 {
     if (c)
         assert(!buffer_is_wrapped(c));
@@ -99,7 +114,7 @@ status send_http_chunk(buffer_handler out, buffer c)
     buffer d = allocate_buffer(transient, 32);
     int len = c ? buffer_length(c) : 0;
     bprintf(d, "%x\r\n", len);
-    s = apply(out, d);
+    s = apply(out->out, d);
     if (!is_ok(s))
         goto out_fail;
 
@@ -107,10 +122,11 @@ status send_http_chunk(buffer_handler out, buffer c)
         c = allocate_buffer(transient, 2);
 
     bprintf(c, "\r\n");
-    s = apply(out, c);
+    s = apply(out->out, c);
     if (!is_ok(s))
         goto out_fail;
-
+    if (len == 0 && !out->keepalive)
+        apply(out->out, 0);
     /* could support trailers... */
     return s;
   out_fail:
@@ -119,7 +135,7 @@ status send_http_chunk(buffer_handler out, buffer c)
 }
 
 /* consumes t */
-status send_http_chunked_response(buffer_handler out, tuple t)
+status send_http_chunked_response(http_responder out, tuple t)
 {
     set(t, sym(Transfer-Encoding), aprintf(transient, "chunked"));
     status s = send_http_headers(out, t);
@@ -129,7 +145,7 @@ status send_http_chunked_response(buffer_handler out, tuple t)
 }
 
 /* consumes t and c */
-status send_http_response(buffer_handler out, tuple t, buffer c)
+status send_http_response(http_responder out, tuple t, buffer c)
 {
     if (c) {
         assert(!buffer_is_wrapped(c));
@@ -141,12 +157,14 @@ status send_http_response(buffer_handler out, tuple t, buffer c)
         goto out_fail;
 
     if (c) {
-        s = apply(out, c);
+        s = apply(out->out, c);
         if (!is_ok(s)) {
             deallocate_buffer(c);
             goto out_fail;
         }
     }
+    if (!out->keepalive)
+        apply(out->out, 0);
     return STATUS_OK;
   out_fail:
     return timm_up(s, "%s failed to send", __func__);
@@ -327,15 +345,72 @@ typedef struct http_listener {
     struct list registrants;
 } *http_listener;
 
+/* consumes the buffer */
+static void get_http_ver(buffer b, u32 *ver)
+{
+    u64 ma, mi;
+    *ver = HTTP_VER(1, 1);
+    if (buffer_strstr(b, "HTTP/") != 0)
+        return;
+    buffer_consume(b, 5);
+    if (!parse_int(b, 10, &ma))
+        return;
+    if (pop_u8(b) != '.')
+        return;
+    if (!parse_int(b, 10, &mi))
+        return;
+    *ver = HTTP_VER(ma, mi);
+}
+
+closure_function(2, 2, boolean, find_header,
+                 value *, pv, const char *, m,
+                 value, k, value, v)
+{
+    if (!is_symbol(k) && !is_string(v))
+        return true;
+    if (buffer_compare_with_cstring_ci(symbol_string(k), bound(m))) {
+        *bound(pv) = v;
+        return false;
+    }
+    return true;
+}
+
+static void check_keepalive(http_responder hr, tuple v)
+{
+    if (hr->http_version < HTTP_VER(1, 1))
+        hr->keepalive = false;
+    else
+        hr->keepalive = true;
+    value conn;
+    if (iterate(v, stack_closure(find_header, &conn, "Connection")))
+        return;
+    if (buffer_compare_with_cstring_ci(conn, "close"))
+        hr->keepalive = false;
+    else if (buffer_compare_with_cstring_ci(conn, "keep-alive")) {
+        hr->keepalive = true;
+    }
+}
+
+/* XXX need refcount of outstanding http handlers for safe dealloc */
 closure_function(2, 1, void, each_http_request,
-                 http_listener, hl, buffer_handler, out,
+                 http_listener, hl, struct http_responder, hr,
                  value, v)
 {
     http_method method;
     http_listener hl = bound(hl);
+    http_responder hr = &bound(hr);
     vector vsl = vector_from_tuple(hl->h, get(v, sym(start_line)));
     if (!vsl || vsl == INVALID_ADDRESS)
         goto not_found;
+
+    buffer ver = vector_get(vsl, 2);
+    if (ver) {
+        get_http_ver(ver, &hr->http_version);
+        if (hr->http_version > HTTP_VER(1, 1))
+            goto bad_ver;
+
+        check_keepalive(hr, v);
+    }
 
     buffer mb = vector_get(vsl, 0);
     for (method = 0; method < HTTP_REQUEST_METHODS; method++) {
@@ -355,7 +430,7 @@ closure_function(2, 1, void, each_http_request,
     if (buffer_length(uri) == 1) {
         if (!hl->default_handler)
             goto not_found;
-        apply(hl->default_handler, method, bound(out), v);
+        apply(hl->default_handler, method, hr, v);
         return;
     }
 
@@ -390,13 +465,21 @@ closure_function(2, 1, void, each_http_request,
         deallocate_buffer(rel_uri);
 
     if (match) {
-        apply(match->each, method, bound(out), v);
+        apply(match->each, method, hr, v);
         return;
     }
   not_found:
-    send_http_response(bound(out), timm("status", "404 Not Found"),
+    send_http_response(hr, timm("status", "404 Not Found"),
                        aprintf(hl->h, "<html><head><title>404 Not Found</title></head>"
                                "<body><h1>Not Found</h1></body></html>\r\n"));
+    return;
+  bad_ver:
+    if (vsl != INVALID_ADDRESS)
+        deallocate_vector(vsl);
+    send_http_response(hr, timm("status", "505 HTTP Version Not Supported"),
+                       aprintf(hl->h, "<html><head><title>505 HTTP Version Not Supported</title></head>"
+                               "<body><h1>Use HTTP/1.1</h1></body></html>\r\n"));
+
 }
 
 closure_function(1, 1, boolean, http_ibh,
@@ -417,7 +500,12 @@ closure_function(1, 1, input_buffer_handler, each_http_connection,
                  buffer_handler, out)
 {
     http_listener hl = bound(hl);
-    buffer_handler parser = allocate_http_parser(hl->h, closure(hl->h, each_http_request, hl, out));
+    struct http_responder hr;
+    hr.h = hl->h;
+    hr.keepalive = true;
+    hr.out = out;
+    hr.http_version = HTTP_VER(1, 1);
+    buffer_handler parser = allocate_http_parser(hl->h, closure(hl->h, each_http_request, hl, hr));
     if (parser == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     input_buffer_handler ibh = closure(hl->h, http_ibh, parser);
