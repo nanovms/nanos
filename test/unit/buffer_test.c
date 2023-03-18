@@ -59,6 +59,8 @@ boolean basic_tests(heap h)
     test_assert(buffer_set_capacity(b, b->length) == b->length);
     buffer_set_capacity(b, 3 * b->length);
     test_assert(buffer_compare_with_cstring(b, test_str));
+    test_assert(buffer_compare_with_cstring_ci(b, test_str));
+    test_assert(buffer_compare_with_cstring_ci(b, "THIS IS A TEST STRING"));
 
     test_assert(buffer_strcmp(b, test_str) == 0);
     test_assert(buffer_memcmp(b, test_str, sizeof(test_str)) < 0);

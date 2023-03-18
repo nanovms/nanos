@@ -12,6 +12,10 @@ struct buffer {
 
 #define buffer_assert(x) assert(x)
 
+/* ascii string helpers */
+#define isupper(a) (((u8)(a)-(u8)'A') < 26)
+#define tolower(a) (isupper(a) ? ((a) | 0x20) : (a))
+
 static inline void init_buffer(buffer b, bytes s, boolean wrapped, heap h, void *contents)
 {
     b->start = 0;
@@ -364,6 +368,18 @@ static inline boolean buffer_compare_with_cstring(buffer b, const char *x)
     int len = buffer_length(b);
     for (int i = 0; i < len; i++) {
         if (byte(b, i) != (u8)x[i])
+            return false;
+        if (x[i] == '\0')       /* must terminate */
+            return i == len - 1;
+    }
+    return x[len] == '\0';
+}
+
+static inline boolean buffer_compare_with_cstring_ci(buffer b, const char *x)
+{
+    int len = buffer_length(b);
+    for (int i = 0; i < len; i++) {
+        if (tolower(byte(b, i)) != tolower((u8)x[i]))
             return false;
         if (x[i] == '\0')       /* must terminate */
             return i == len - 1;
