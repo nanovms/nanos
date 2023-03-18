@@ -1599,7 +1599,7 @@ format_usage_buffer(void)
 }
 
 static void
-ftrace_send_http_chunked_response(buffer_handler handler)
+ftrace_send_http_chunked_response(http_responder handler)
 {
     status s;
 
@@ -1609,7 +1609,7 @@ ftrace_send_http_chunked_response(buffer_handler handler)
 }
 
 static void
-ftrace_send_http_response(buffer_handler handler, buffer b)
+ftrace_send_http_response(http_responder handler, buffer b)
 {
     status s;
 
@@ -1619,7 +1619,7 @@ ftrace_send_http_response(buffer_handler handler, buffer b)
 }
 
 static void
-ftrace_send_http_uri_not_found(buffer_handler handler)
+ftrace_send_http_uri_not_found(http_responder handler)
 {
     status s;
 
@@ -1632,7 +1632,7 @@ ftrace_send_http_uri_not_found(buffer_handler handler)
 }
 
 static void
-ftrace_send_http_no_method(buffer_handler handler, http_method method)
+ftrace_send_http_no_method(http_responder handler, http_method method)
 {
     status s;
 
@@ -1645,7 +1645,7 @@ ftrace_send_http_no_method(buffer_handler handler, http_method method)
 }
 
 static void
-ftrace_send_http_server_error(buffer_handler handler)
+ftrace_send_http_server_error(http_responder handler)
 {
     status s;
 
@@ -1660,7 +1660,7 @@ ftrace_send_http_server_error(buffer_handler handler)
 
 static boolean
 __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace_printer * p,
-                                  boolean local_printer, buffer_handler out)
+                                  boolean local_printer, http_responder out)
 {
     sysreturn ret;
     ret = routine->get_fn(p);
@@ -1717,7 +1717,7 @@ send_http_chunk_failed:
 /* simultaneous requests might present issues, so ... don't do them?? */
 closure_function(4, 2, void, __ftrace_send_http_chunk,
                  struct ftrace_routine *, routine, struct ftrace_printer *, p,
-                 boolean, local_printer, buffer_handler, out,
+                 boolean, local_printer, http_responder, out,
                  u64, expiry, u64, overruns)
 {
     if (overruns != timer_disabled &&
@@ -1731,7 +1731,7 @@ closure_function(4, 2, void, __ftrace_send_http_chunk,
 }
 
 static void
-__ftrace_do_http_method(buffer_handler out, struct ftrace_routine * routine,
+__ftrace_do_http_method(http_responder out, struct ftrace_routine * routine,
                         boolean is_put, buffer put_data)
 {
     sysreturn ret;
@@ -1802,21 +1802,21 @@ internal_err:
 }
 
 static void
-ftrace_do_http_get(buffer_handler handler, struct ftrace_routine * routine)
+ftrace_do_http_get(http_responder handler, struct ftrace_routine * routine)
 {
     __ftrace_do_http_method(handler, routine, false, 0);
 }
 
 
 static void
-ftrace_do_http_put(buffer_handler handler, struct ftrace_routine * routine,
+ftrace_do_http_put(http_responder handler, struct ftrace_routine * routine,
                    buffer put_data)
 {
     __ftrace_do_http_method(handler, routine, true, put_data);
 }
 
 closure_function(0, 3, void, ftrace_http_request,
-                 http_method, method, buffer_handler, handler, value, val)
+                 http_method, method, http_responder, handler, value, val)
 {
     buffer relative_uri;
     struct ftrace_routine * routine;

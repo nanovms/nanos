@@ -13,21 +13,23 @@ typedef enum {
 
 typedef closure_type(http_response, void, tuple);
 
+typedef struct http_responder *http_responder;
+
 buffer_handler allocate_http_parser(heap h, value_handler each);
 // just format the buffer?
 status http_request(heap h, buffer_handler bh, http_method method,
                     tuple headers, buffer body);
-status send_http_response(buffer_handler out,
+status send_http_response(http_responder out,
                           tuple t,
                           buffer c);
-status send_http_chunk(buffer_handler out, buffer c);
-status send_http_chunked_response(buffer_handler out, tuple t);
-status send_http_response(buffer_handler out, tuple t, buffer c);
+status send_http_chunk(http_responder out, buffer c);
+status send_http_chunked_response(http_responder out, tuple t);
+status send_http_response(http_responder out, tuple t, buffer c);
 
 extern const char * const http_request_methods[];
 
 typedef struct http_listener *http_listener;
-typedef closure_type(http_request_handler, void, http_method, buffer_handler, value);
+typedef closure_type(http_request_handler, void, http_method, http_responder, value);
 
 void http_register_uri_handler(http_listener hl, const char *uri, http_request_handler each);
 void http_register_default_handler(http_listener hl, http_request_handler each);
