@@ -1,9 +1,11 @@
 //#define SOCKET_USER_EPOLL_DEBUG
 
 #include <runtime.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 //#include <stdlib.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -491,6 +493,8 @@ closure_function(4, 0, void, accepting,
     socklen_t len = sizeof(struct sockaddr_in);
     int s = accept(bound(c), (struct sockaddr *)&where, &len);
     if (s < 0 ) halt("accept %s\n", strerror(errno));
+    int en = 1;
+    setsockopt(s, SOL_TCP, TCP_NODELAY, &en, sizeof(en));
     register_conn_descriptor(h, n, s, bound(nc));
 }
 
