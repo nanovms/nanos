@@ -9,13 +9,12 @@ typedef struct notifier {
 #define notifier_reset_fd(n, f) ((n)->reset_fd(n, f))
 #define notifier_spin(n) ((n)->spin(n));
 
-typedef closure_type(new_connection, buffer_handler, buffer_handler);
 void connection(heap h,
 		notifier n,
                 buffer target,
-                new_connection c,
+                connection_handler c,
                 status_handler failure);
-void listen_port(heap h, notifier n, u16 port, new_connection);
+void listen_port(heap h, notifier n, u16 port, connection_handler);
 notifier create_select_notifier(heap h);
 notifier create_poll_notifier(heap h);
 notifier create_epoll_notifier(heap h);

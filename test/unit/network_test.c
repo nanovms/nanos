@@ -62,7 +62,18 @@ closure_function(7, 1, void, value_in,
 
 heap make_tiny_heap(heap parent);
 
-closure_function(5, 1, buffer_handler, newconn,
+closure_function(1, 1, boolean, ibh_parser_wrap,
+                 buffer_handler, bh,
+                 buffer, b)
+{
+    status s = apply(bound(bh), b);
+    if (s != STATUS_OK) {
+        timm_dealloc(s);
+    }
+    return false;
+}
+
+closure_function(5, 1, input_buffer_handler, newconn,
                  heap, h, thunk, newconn, stats, s, tuple, t, status_handler, sth,
                  buffer_handler, out)
 {
@@ -76,8 +87,8 @@ closure_function(5, 1, buffer_handler, newconn,
     send_request(c, s, out, t);
     send_request(c, s, out, t);
     send_request(c, s, out, t);
-    return allocate_http_parser(c, closure(c, value_in, c, out, count, bound(sth), bound(newconn), s, t));
-
+    buffer_handler bh = allocate_http_parser(c, closure(c, value_in, c, out, count, bound(sth), bound(newconn), s, t));
+    return closure(c, ibh_parser_wrap, bh);
 }
 
 closure_function(8, 0, void, startconn,

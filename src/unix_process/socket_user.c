@@ -55,7 +55,7 @@ typedef struct conn_handler {
     descriptor f;
     closure_struct(connection_input, in);
     closure_struct(connection_output, out);
-    buffer_handler bh;
+    input_buffer_handler bh;
 } *conn_handler;
 
 static inline void select_bitmaps_init(heap h, select_bitmaps * b)
@@ -471,7 +471,7 @@ define_closure_function(0, 1, status, connection_output,
     return STATUS_OK;           /* pff */
 }
 
-static void register_conn_descriptor(heap h, notifier n, descriptor f, new_connection nc)
+static void register_conn_descriptor(heap h, notifier n, descriptor f, connection_handler nc)
 {
     conn_handler ch = allocate(h, sizeof(*ch));
     assert(ch != INVALID_ADDRESS);
@@ -483,7 +483,7 @@ static void register_conn_descriptor(heap h, notifier n, descriptor f, new_conne
 }
 
 closure_function(4, 0, void, accepting,
-                 heap, h, notifier, n, descriptor, c, new_connection, nc)
+                 heap, h, notifier, n, descriptor, c, connection_handler, nc)
 {
     heap h = bound(h);
     notifier n = bound(n);
@@ -496,7 +496,7 @@ closure_function(4, 0, void, accepting,
 
 
 closure_function(4, 0, void, connection_start,
-                 heap, h, descriptor, s, notifier, n, new_connection, c)
+                 heap, h, descriptor, s, notifier, n, connection_handler, c)
 {
     heap h = bound(h);
     descriptor s = bound(s);
@@ -511,7 +511,7 @@ closure_function(4, 0, void, connection_start,
 void connection(heap h,
                 notifier n,
                 buffer target,
-                new_connection c,
+                connection_handler c,
                 status_handler failure)
 {
     struct sockaddr_in where;
@@ -533,7 +533,7 @@ void connection(heap h,
 
 
 // should rety with asynch completion
-void listen_port(heap h, notifier n, u16 port, new_connection nc)
+void listen_port(heap h, notifier n, u16 port, connection_handler nc)
 {
     struct sockaddr_in where;
 
