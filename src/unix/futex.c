@@ -393,14 +393,16 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
     thread_log(current, "get_robust_list syscall for pid %d", pid);
 
     thread t = 0;
-    if (pid == 0)
+    if (pid == 0) {
         t = current;
-    else
+    } else {
         t = thread_from_tid(current->p, pid);
-    if (t == INVALID_ADDRESS)
-        return -ESRCH;
+        if (t == INVALID_ADDRESS)
+            return -ESRCH;
+    }
     *hp = t->robust_list;
-    thread_release(t);
+    if (pid != 0)
+        thread_release(t);
     *len = sizeof(**hp);
     return 0;
 }
