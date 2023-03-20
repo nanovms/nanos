@@ -1015,8 +1015,10 @@ sysreturn dup2(int oldfd, int newfd)
             process_lock(p);
             assert(vector_set(p->files, newfd, f));
             process_unlock(p);
-            if (fetch_and_add(&newf->refcnt, -2) == 2)
-                apply(newf->close, current, io_completion_ignore);
+            if (fetch_and_add(&newf->refcnt, -2) == 2) {
+                if (newf->close)
+                    apply(newf->close, current, io_completion_ignore);
+            }
         } else {
             newfd = allocate_fd_gte(p, newfd, f);
             if (newfd == INVALID_PHYSICAL) {
