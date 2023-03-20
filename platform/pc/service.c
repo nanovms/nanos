@@ -230,6 +230,7 @@ void start_secondary_cores(kernel_heaps kh)
 
 void count_cpus_present(void)
 {
+    present_processors = 1;
 }
 #endif
 
