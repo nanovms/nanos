@@ -358,7 +358,7 @@ static int kernel_map_virtual(region *temp_pages_r) {
     u64 *pdt = 0;
     *temp_pages_r = 0;
     for_regions(r) {
-        if ((r->type = REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
+        if ((r->type == REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
                 (r->base + r->length > KERNEL_BASE_PHYS)) {
             /* This is the memory region where the kernel has been loaded: adjust the region
              * boundaries so that the memory occupied by the kernel code does not appear as free
