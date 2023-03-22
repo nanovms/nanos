@@ -2247,9 +2247,10 @@ sysreturn sched_getaffinity(int pid, u64 cpusetsize, u64 *mask)
     if (!validate_user_memory(mask, cpusetsize, true))
         return set_syscall_error(current, EFAULT);
     thread t;
-    if (!(t = lookup_thread(pid)) ||
-        (64 * (cpusetsize / sizeof(u64)) < total_processors))
-            return set_syscall_error(current, EINVAL);                    
+    if (64 * (cpusetsize / sizeof(u64)) < total_processors)
+        return set_syscall_error(current, EINVAL);
+    if (!(t = lookup_thread(pid)))
+        return set_syscall_error(current, EINVAL);
     cpusetsize = pad(total_processors, 64) / 8;
     thread_lock(t);
     runtime_memcpy(mask, bitmap_base(t->affinity), cpusetsize);
