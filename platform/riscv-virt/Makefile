@@ -141,7 +141,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR) -march=rv64gc -mabi=lp64d
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3 -march=rv64gc -mabi=lp64d -fno-pic
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3 -fno-pic
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 

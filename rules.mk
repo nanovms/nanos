@@ -122,10 +122,15 @@ KERNCFLAGS+=    -mno-sse \
 endif
 
 ifeq ($(ARCH),aarch64)
+KERNCFLAGS+=	-march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18
 OUTLINE_ATOMICS=	$(shell $(CC) --help=target | grep -c outline-atomics)
 ifneq ($(OUTLINE_ATOMICS),0)
 KERNCFLAGS+=	-mno-outline-atomics
 endif
+endif
+
+ifeq ($(ARCH),riscv64)
+KERNCFLAGS+=	-march=rv64gc -mabi=lp64d
 endif
 
 KERNCFLAGS+=	-fno-omit-frame-pointer
