@@ -105,7 +105,7 @@ struct filesystem {
     void (*destroy_fs)(filesystem fs);
     tuple root;
 #ifdef KERNEL
-    struct spinlock lock;
+    struct mutex lock;
 #endif
     struct refcount refcount;
     closure_struct(fs_sync, sync);
@@ -148,9 +148,9 @@ static inline u64 sector_from_offset(filesystem fs, bytes b)
 
 #ifdef KERNEL
 
-#define filesystem_lock_init(fs)    spin_lock_init(&(fs)->lock)
-#define filesystem_lock(fs)         spin_lock(&(fs)->lock)
-#define filesystem_unlock(fs)       spin_unlock(&(fs)->lock)
+#define filesystem_lock_init(fs)    mutex_init(&(fs)->lock, 0)
+#define filesystem_lock(fs)         mutex_lock(&(fs)->lock)
+#define filesystem_unlock(fs)       mutex_unlock(&(fs)->lock)
 
 #else
 

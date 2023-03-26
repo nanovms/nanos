@@ -11,6 +11,8 @@ typedef struct mutex {
 #endif
 } *mutex;
 
+void mutex_init(mutex m, u64 spin_iterations);
+
 boolean mutex_try_lock(mutex ql);
 
 void mutex_lock(mutex ql);

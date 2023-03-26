@@ -1109,7 +1109,7 @@ fs_status filesystem_clear_socket(filesystem fs, inode n)
 
 fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child)
 {
-    spin_lock_2(&parent->lock, &child->lock);
+    filesystem_lock(parent);
     tuple mount_dir_t = parent->get_meta(parent, mount_dir);
     fs_status fss;
     if (!mount_dir_t) {
@@ -1133,14 +1133,13 @@ fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child)
     set(mount_dir_t, sym(mount), mount);
     fss = FS_STATUS_OK;
   out:
-    filesystem_unlock(child);
     filesystem_unlock(parent);
     return fss;
 }
 
 void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, thunk complete)
 {
-    spin_lock_2(&parent->lock, &child->lock);
+    filesystem_lock(parent);
     tuple mount_dir_t = parent->get_meta(parent, mount_dir);
     if (mount_dir_t) {
         tuple mount = get_tuple(mount_dir_t, sym(mount));
@@ -1148,7 +1147,6 @@ void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, th
         destruct_tuple(mount, true);
     }
     child->sync_complete = complete;
-    filesystem_unlock(child);
     filesystem_unlock(parent);
     filesystem_release(child);
 }
