@@ -679,12 +679,10 @@ closure_function(1, 3, void, pagecache_write_sg,
     u64 start_offset = q.start & MASK(pc->page_order);
     u64 end_offset = q.end & MASK(pc->page_order);
     range r = range_rshift(q, pc->page_order);
-    pagecache_lock_node(pn);
     /* attempt to reserve disk space for the write */
     if (pn->fs_reserve && sg) {
         status ss;
         if ((ss = apply(pn->fs_reserve, q)) != STATUS_OK) {
-            pagecache_unlock_node(pn);
             apply(completion, ss);
             return;
         }
@@ -701,6 +699,7 @@ closure_function(1, 3, void, pagecache_write_sg,
     merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish, pn, q,
                                             q.start >> pc->page_order, sg, completion, ctx));
     status_handler sh = apply_merge(m);
+    pagecache_lock_node(pn);
 
     /* initiate reads for rmw start and/or end */
     if (start_offset != 0) {
