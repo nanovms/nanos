@@ -478,8 +478,6 @@ static inline void __attribute__((always_inline)) context_acquire(context ctx, c
 
 static inline void __attribute__((always_inline)) context_release(context ctx)
 {
-    if (shutting_down)
-        return;
     if (ctx->active_cpu == -1u)
         halt("%s: already paused c %p, type %d\n", __func__, ctx, ctx->type);
     assert(ctx->active_cpu == current_cpu()->id); /* XXX tmp for bringup */
@@ -538,8 +536,7 @@ context_switch_and_branch(context ctx, void * a, u64 arg0, u64 arg1)
                   __func__, prev, ctx, a, arg0, arg1);
     if (ctx != prev) {
         context_pause(prev);
-        if (!shutting_down)
-            context_acquire(ctx, ci);
+        context_acquire(ctx, ci);
     }
     switch_stack_5(frame_get_stack_top(ctx->frame), context_switch_finish, prev, ctx, a, arg0, arg1);
     while(1);                   /* kill warning */
