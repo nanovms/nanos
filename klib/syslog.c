@@ -58,6 +58,7 @@ static struct {
     buffer program;
     char *server;
     boolean dns_in_progress;
+    boolean arp_init;
     timestamp dns_backoff;
     timestamp dns_req_next;
     ip_addr_t server_ip;
@@ -212,21 +213,21 @@ static void syslog_set_hdr_len(void)
 
 static void syslog_udp_send(void)
 {
+    u64 msg_count = 0;
     syslog_lock();
     list_foreach(&syslog.udp_msgs, e) {
         syslog_udp_msg msg = struct_from_list(e, syslog_udp_msg, l);
         list_delete(e);
-        syslog.udp_msg_count--;
-        u64 seconds = sec_from_timestamp(msg->t);
+        u64 secs = sec_from_timestamp(msg->t);
         struct tm tm;
-        gmtime_r(&seconds, &tm);
+        gmtime_r(&secs, &tm);
         struct pbuf *pbuf = &msg->p.pbuf;
         pbuf_remove_header(pbuf, syslog.max_hdr_len - syslog.hdr_len);
         rsnprintf(pbuf->payload, syslog.hdr_len,
             "<" __XSTRING(SYSLOG_PRIORITY) ">" SYSLOG_VERSION
             " %d-%02d-%02dT%02d:%02d:%02d.%06dZ %s %b - - -",
             1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
-            usec_from_timestamp(msg->t) - seconds * MILLION, syslog.local_ip, syslog.program);
+            usec_from_timestamp(msg->t) - secs * MILLION, syslog.local_ip, syslog.program);
 
         /* Replace the string terminator inserted by rsnprintf() with the last character of the
          * header. */
@@ -234,8 +235,21 @@ static void syslog_udp_send(void)
 
         udp_sendto(syslog.udp_pcb, pbuf, &syslog.server_ip, syslog.server_port);
         pbuf_free(pbuf);
+        msg_count++;
+        if (syslog.arp_init && (msg_count == ARP_QUEUE_LEN)) {
+            /* Limit the number of packets sent in the initial batch, when an ARP query is likely
+             * needed to resolve the destination MAC address in the LAN (outgoing packets need to be
+             * queued until an ARP response is received). */
+            if (!list_empty(&syslog.udp_msgs) && !timer_is_active(&syslog.flush_timer))
+                register_timer(kernel_timers, &syslog.flush_timer, CLOCK_ID_MONOTONIC,
+                               SYSLOG_FLUSH_INTERVAL, false, 0, (timer_handler)&syslog.flush);
+            break;
+        }
     }
+    syslog.udp_msg_count -= msg_count;
     syslog_unlock();
+    if (syslog.arp_init)
+        syslog.arp_init = false;
 }
 
 static void syslog_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
@@ -448,6 +462,7 @@ int init(status_handler complete)
             return KLIB_INIT_FAILED;
         }
         list_init(&syslog.udp_msgs);
+        syslog.arp_init = true;
     }
     init_timer(&syslog.flush_timer);
     init_closure(&syslog.flush, syslog_timer_func);
