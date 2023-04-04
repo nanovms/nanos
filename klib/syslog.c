@@ -38,6 +38,8 @@ typedef struct syslog_udp_msg {
 
 declare_closure_struct(0, 2, void, syslog_timer_func,
                        u64, expiry, u64, overruns);
+declare_closure_struct(0, 2, void, syslog_shutdown_completion,
+                       int, status, merge, m)
 
 #define syslog_lock()   u64 _irqflags = spin_lock_irq(&syslog.lock)
 #define syslog_unlock() spin_unlock_irq(&syslog.lock, _irqflags)
@@ -55,6 +57,7 @@ static struct {
     sg_buf file_sgb;
     struct timer flush_timer;
     closure_struct(syslog_timer_func, flush);
+    closure_struct(syslog_shutdown_completion, shutdown);
     buffer program;
     char *server;
     boolean dns_in_progress;
@@ -94,18 +97,20 @@ static void syslog_file_rotate(void)
 
     if (ret == 0) {
         /* Continue logging on a new file. */
-        fsfile file = fsfile_open_or_create(syslog.file_path, true);
+        syslog.fsf = fsfile_open_or_create(syslog.file_path, true);
         syslog.file_offset = 0;
-        syslog.fs_write = fsfile_get_writer(file);
+        syslog.fs_write = fsfile_get_writer(syslog.fsf);
     } else {
         syslog.fs_write = 0;    /* stop logging */
     }
 }
 
-closure_function(3, 1, void, syslog_file_write_complete,
-                 void *, buf, u64, len, sg_list, sg,
+closure_function(4, 1, void, syslog_file_write_complete,
+                 void *, buf, u64, len, sg_list, sg, status_handler, complete,
                  status, s)
 {
+    fsfile f = syslog.fsf;
+    status_handler complete = bound(complete);
     if (is_ok(s)) {
         fetch_and_add(&syslog.file_offset, bound(len));
         if (syslog.file_offset >= syslog.file_max_size) {
@@ -124,15 +129,21 @@ closure_function(3, 1, void, syslog_file_write_complete,
             if (unlock)
                 spin_unlock(&syslog.lock);
         }
-    } else {
+    } else if (!complete) {
         timm_dealloc(s);
     }
     deallocate(syslog.h, bound(buf), SYSLOG_BUF_LEN);
     deallocate_sg_list(bound(sg));
     closure_finish();
+    if (complete) {
+        if (is_ok(s))
+            pagecache_sync_node(fsfile_get_cachenode(f), complete);
+        else
+            apply(complete, s);
+    }
 }
 
-static void syslog_file_flush(void)
+static void syslog_file_flush(status_handler complete)
 {
     syslog_lock();
     sg_list sg = syslog.file_sg;
@@ -140,7 +151,8 @@ static void syslog_file_flush(void)
         syslog.file_sg = 0;
         u64 len = syslog.file_sgb->offset;
         status_handler sh =
-                closure(syslog.h, syslog_file_write_complete, syslog.file_sgb->buf, len, sg);
+                closure(syslog.h, syslog_file_write_complete, syslog.file_sgb->buf, len, sg,
+                        complete);
         if (sh != INVALID_ADDRESS) {
             syslog.file_sgb->offset = 0;
             apply(syslog.fs_write, sg, irangel(syslog.file_offset, len), sh);
@@ -148,7 +160,11 @@ static void syslog_file_flush(void)
             /* Discard logged data. */
             deallocate(syslog.h, syslog.file_sgb->buf, SYSLOG_BUF_LEN);
             deallocate_sg_list(sg);
+            if (complete)
+                apply(complete, timm("result", "failed to allocate completion"));
         }
+    } else if (complete) {
+        apply(complete, STATUS_OK);
     }
     syslog_unlock();
 }
@@ -186,7 +202,7 @@ static void syslog_file_write(const char *s, bytes count)
                                   (timer_handler)&syslog.flush);
         }
     } else {
-        syslog_file_flush();
+        syslog_file_flush(0);
         syslog_file_write(s, count);
     }
 }
@@ -327,9 +343,16 @@ define_closure_function(0, 2, void, syslog_timer_func,
                         u64, expiry, u64, overruns)
 {
     if (overruns != timer_disabled) {
-        syslog_file_flush();
+        syslog_file_flush(0);
         syslog_udp_flush();
     }
+}
+
+define_closure_function(0, 2, void, syslog_shutdown_completion,
+                        int, status, merge, m)
+{
+    syslog_file_flush(apply_merge(m));
+    syslog_udp_flush();
 }
 
 closure_function(2, 2, boolean, syslog_cfg,
@@ -466,6 +489,7 @@ int init(status_handler complete)
     }
     init_timer(&syslog.flush_timer);
     init_closure(&syslog.flush, syslog_timer_func);
+    add_shutdown_completion(init_closure(&syslog.shutdown, syslog_shutdown_completion));
     syslog.driver.write = syslog_write;
     syslog.driver.name = "syslog";
     syslog.driver.disabled = false;
