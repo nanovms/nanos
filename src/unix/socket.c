@@ -136,7 +136,7 @@ static void unixsock_disconnect(unixsock s)
     }
 }
 
-static unixsock unixsock_alloc(heap h, int type, u32 flags);
+static unixsock unixsock_alloc(heap h, int type, u32 flags, boolean alloc_fd);
 
 /* Called with lock acquired, returns with lock released. */
 static void unixsock_dealloc(unixsock s)
@@ -498,10 +498,8 @@ closure_function(1, 2, sysreturn, unixsock_close,
     if (s->conn_q) {
         /* Deallocate any sockets in the connection queue. */
         unixsock child;
-        while ((child = dequeue(s->conn_q)) != INVALID_ADDRESS) {
-            unixsock_lock(child);
-            unixsock_dealloc(child);
-        }
+        while ((child = dequeue(s->conn_q)) != INVALID_ADDRESS)
+            apply(child->sock.f.close, 0, io_completion_ignore);
 
         deallocate_queue(s->conn_q);
         s->conn_q = 0;
@@ -623,7 +621,7 @@ closure_function(3, 1, sysreturn, connect_bh,
         unixsock_unlock(s);
         return blockq_block_required(bound(t), bqflags);
     }
-    unixsock peer = unixsock_alloc(s->sock.h, s->sock.type, 0);
+    unixsock peer = unixsock_alloc(s->sock.h, s->sock.type, 0, false);
     if (!peer) {
         rv = -ENOMEM;
         goto out;
@@ -705,6 +703,14 @@ closure_function(5, 1, sysreturn, accept_bh,
         }
         return blockq_block_required(t, bqflags);
     }
+
+    child->sock.fd = allocate_fd(current->p, child);
+    if (child->sock.fd == INVALID_PHYSICAL) {
+        apply(child->sock.f.close, 0, io_completion_ignore);
+        rv = -ENFILE;
+        goto out;
+    }
+
     if (empty) {
         fdesc_notify_events(&s->sock.f);
     }
@@ -962,7 +968,7 @@ sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags, boo
     return io_complete(completion, current, rv);
 }
 
-static unixsock unixsock_alloc(heap h, int type, u32 flags)
+static unixsock unixsock_alloc(heap h, int type, u32 flags, boolean alloc_fd)
 {
     unixsock s = allocate(h, sizeof(*s));
     if (s == INVALID_ADDRESS) {
@@ -1004,10 +1010,14 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags)
     s->notify_handle = INVALID_ADDRESS;
     init_closure(&s->free, unixsock_free, s);
     init_refcount(&s->refcount, 1, (thunk)&s->free);
-    s->sock.fd = allocate_fd(current->p, s);
-    if (s->sock.fd == INVALID_PHYSICAL) {
-        apply(s->sock.f.close, 0, io_completion_ignore);
-        return 0;
+    if (alloc_fd) {
+        s->sock.fd = allocate_fd(current->p, s);
+        if (s->sock.fd == INVALID_PHYSICAL) {
+            apply(s->sock.f.close, 0, io_completion_ignore);
+            return 0;
+        }
+    } else {
+        s->sock.fd = -1;
     }
     return s;
 err_socket:
@@ -1024,7 +1034,7 @@ sysreturn unixsock_open(int type, int protocol) {
 
     if (!unixsock_type_is_supported(type))
         return -ESOCKTNOSUPPORT;
-    s = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK);
+    s = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK, true);
     if (!s) {
         return -ENOMEM;
     }
@@ -1044,11 +1054,11 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
     if (!validate_user_memory(sv, 2 * sizeof(int), true)) {
         return -EFAULT;
     }
-    s1 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK);
+    s1 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK, true);
     if (!s1) {
         return -ENOMEM;
     }
-    s2 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK);
+    s2 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK, true);
     if (!s2) {
         unixsock_dealloc(s1);
         return -ENOMEM;
