@@ -108,10 +108,10 @@ closure_function(3, 1, parser, terminal,
 }
 
 closure_function(3, 1, parser, value_complete,
-                 tuple, t, symbol, name, parser, check,
+                 value, e, symbol, name, parser, check,
                  void *, v)
 {
-    set(bound(t), bound(name), v);
+    set(bound(e), bound(name), v);
     parser c = bound(check);
     closure_finish();
     return c;
@@ -140,7 +140,7 @@ closure_function(4, 1, parser, is_end_of_tuple,
                  character, in);
 
 closure_function(5, 1, parser, is_end_of_vector,
-                 heap, h, completion, c, tuple, t, err_internal, e, u64 *, index,
+                 heap, h, completion, c, vector, v, err_internal, e, u64 *, index,
                  character, in);
 
 closure_function(3, 1, parser, parse_value_string,
@@ -166,7 +166,7 @@ closure_function(3, 1, parser, parse_value,
         i= allocate(h, sizeof(u64));
         assert(i != INVALID_ADDRESS);
         *i = 0;
-        p = ignore_whitespace(h, (parser)closure(h, is_end_of_vector, h, c, allocate_tuple(), err, i));
+        p = ignore_whitespace(h, (parser)closure(h, is_end_of_vector, h, c, allocate_tagged_vector(8), err, i));
         break;
     default:
         q = ignore_whitespace(h, (parser)closure(h, parse_value_string, h, c, allocate_buffer(h, 8)));
@@ -243,12 +243,12 @@ static parser is_end_of_vector(struct _closure_is_end_of_vector *__self, charact
     heap h = bound(h);
     // keep index also
     if (in != ']') {
-        completion vc = closure(h, value_complete, bound(t), intern_u64(*bound(index)), (parser)closure_self());
+        completion vc = closure(h, value_complete, bound(v), intern_u64(*bound(index)), (parser)closure_self());
         (*bound(index))++;
         // doesnt handle whitespace before end
         return apply(ignore_whitespace(h, (parser)closure(h, parse_value, h, vc, bound(e))), in);
     }
-    parser p = apply(bound(c), bound(t));
+    parser p = apply(bound(c), bound(v));
     closure_finish();
     return p;
 }

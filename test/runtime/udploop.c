@@ -15,8 +15,6 @@ void fail(char * s)
     exit(EXIT_FAILURE);
 }
 
-tuple parse_arguments(heap h, int argc, char **argv);
-
 int main(int argc, char ** argv)
 {
     heap h = init_process_runtime();

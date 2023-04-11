@@ -2853,7 +2853,7 @@ closure_function(1, 1, boolean, notrace_notify,
                  value, v)
 {
     notrace_configure(bound(p), false);
-    if (is_tuple(v))
+    if (is_tuple(v) || is_vector(v))
         iterate(v, stack_closure(notrace_each, bound(p), true));
     return true;
 }
@@ -2863,7 +2863,7 @@ closure_function(1, 1, boolean, tracelist_notify,
                  value, v)
 {
     notrace_configure(bound(p), true);
-    if (is_tuple(v))
+    if (is_tuple(v) || is_vector(v))
         iterate(v, stack_closure(notrace_each, bound(p), false));
     return true;
 }

@@ -552,10 +552,10 @@ int init(status_handler complete)
         rprintf("invalid firewall configuration\n");
         return KLIB_INIT_FAILED;
     }
-    tuple rules = get(config, sym(rules));
+    value rules = get(config, sym(rules));
     if (!rules)
         return KLIB_INIT_OK;
-    if (!is_tuple(rules)) {
+    if (!(is_tuple(rules) || is_vector(rules))) {
         rprintf("invalid firewall rules\n");
         return KLIB_INIT_FAILED;
     }

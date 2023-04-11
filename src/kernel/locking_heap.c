@@ -58,20 +58,23 @@ static bytes heaplock_total(heap h)
 
 closure_function(1, 1, value, heaplock_get,
                  heaplock, hl,
-                 symbol, s)
+                 value, a)
 {
+    if (!is_symbol(a))
+        return 0;
     lock_heap(bound(hl));
-    value v = get(bound(hl)->parent_mgmt, s);
+    value v = get(bound(hl)->parent_mgmt, a);
     unlock_heap(bound(hl));
     return v;
 }
 
 closure_function(1, 2, void, heaplock_set,
                  heaplock, hl,
-                 symbol, s, value, v)
+                 value, a, value, v)
 {
+    assert(is_symbol(a));
     lock_heap(bound(hl));
-    set(bound(hl)->parent_mgmt, s, v);
+    set(bound(hl)->parent_mgmt, a, v);
     unlock_heap(bound(hl));
 }
 

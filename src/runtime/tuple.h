@@ -2,8 +2,8 @@ union tuple;
 typedef union tuple *tuple;
 
 typedef closure_type(tuple_generator, tuple);
-typedef closure_type(tuple_get, value, symbol);
-typedef closure_type(tuple_set, void, symbol, value);
+typedef closure_type(tuple_get, value, value);
+typedef closure_type(tuple_set, void, value, value);
 typedef closure_type(binding_handler, boolean, value, value);
 typedef closure_type(tuple_iterate, boolean, binding_handler);
 
@@ -18,16 +18,16 @@ union tuple {
     struct function_tuple f;
 };
 
-value get(value e, symbol a);
-void set(value e, symbol a, value v);
+value get(value e, value a);
+void set(value e, value a, value v);
 boolean iterate(value e, binding_handler h);
 
 void init_tuples(heap theap);
 int tuple_count(tuple t);
 symbol tuple_get_symbol(tuple t, value v);
 tuple allocate_tuple();
-void destruct_tuple(tuple t, boolean recursive);
-void deallocate_value(tuple t);
+void destruct_value(value v, boolean recursive);
+void deallocate_value(value t);
 
 void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total);
 
@@ -53,10 +53,17 @@ static inline boolean is_string(value v)
     return tagof(v) == tag_unknown; // XXX tag_string
 }
 
+static inline boolean is_vector(value v)
+{
+    return tagof(v) == tag_vector;
+}
+
 // seriously reconsider types allowed in tuples.. in particular simple
 // ints have an anambiguous translation back and forth to strings (?)
 static inline boolean u64_from_value(value v, u64 *result)
 {
+    if (!is_string(v))
+        return false;
     return parse_int(alloca_wrap((buffer)v), 10, result);
 }
 
@@ -69,7 +76,7 @@ static inline value value_from_u64(heap h, u64 n)
 
 static inline value value_rewrite_u64(value v, u64 n)
 {
-    assert(!is_tuple(v));
+    assert(is_string(v));
     buffer_clear((buffer)v);
     print_number((buffer)v, n, 10, 0);
     return v;
@@ -93,11 +100,18 @@ static inline tuple get_tuple(value e, symbol a)
     return (v && is_tuple(v)) ? v : 0;
 }
 
+/* get and validate that result is a vector type */
+static inline vector get_vector(value e, symbol a)
+{
+    value v = get(e, a);
+    return (v && is_vector(v)) ? v : 0;
+}
+
 /* TODO - change to validate string tag type */
 static inline string get_string(value e, symbol a)
 {
     value v = get(e, a);
-    return (v && tagof(v) == tag_unknown) ? v : 0;
+    return (v && is_string(v)) ? v : 0;
 }
 
 /* TODO - change to validate number type */
@@ -118,4 +132,11 @@ static inline boolean get_u64(value e, symbol a, u64 *result)
 static inline boolean is_null_string(value v)
 {
     return is_string(v) && buffer_length(v) == 0;
+}
+
+static inline boolean u64_from_attribute(value a, u64 *x)
+{
+    if (is_symbol(a))
+        return parse_int(alloca_wrap(symbol_string(a)), 10, x);
+    return false;
 }

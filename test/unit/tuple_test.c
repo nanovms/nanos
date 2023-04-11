@@ -33,9 +33,7 @@ boolean all_tests(heap h)
     for(u8 i = 0; i < COUNT_ELM; i++){
         vector_push(v1, wrap_buffer_cstring(h, tst[i]));
     }
-    tuple t2 = tuple_from_vector(v1);
-    test_assert(tuple_count(t2) == COUNT_ELM);//rprintf("%v\n", t2);
-    destruct_tuple(t2, true);
+    test_assert(vector_length(v1) == COUNT_ELM);//rprintf("%v\n", t2);
     deallocate_vector(v1);
 
     // value <-> U64
@@ -56,17 +54,17 @@ boolean all_tests(heap h)
 
     // get symbol associated to a value
     symbol sym1 = sym(tuple_test1), sym2 = sym(tuple_test2);
-    test_assert(tuple_get_symbol(t1, t2) == 0);
-    set(t1, sym1, t2);
-    test_assert(tuple_get_symbol(t1, t2) == sym1);
-    set(t1, sym2, t2);
-    test_assert((tuple_get_symbol(t1, t2) == sym1) || (tuple_get_symbol(t1, t2) == sym2));
+    test_assert(tuple_get_symbol(t1, val) == 0);
+    set(t1, sym1, val);
+    test_assert(tuple_get_symbol(t1, val) == sym1);
+    set(t1, sym2, val);
+    test_assert((tuple_get_symbol(t1, val) == sym1) || (tuple_get_symbol(t1, val) == sym2));
     set(t1, sym1, 0);
     set(t1, sym2, 0);
 
     failure = false;
 fail:
-    destruct_tuple(t1, true);
+    destruct_value(t1, true);
     return failure;
 }
 
@@ -108,10 +106,10 @@ boolean encode_decode_test(heap h)
     test_assert(!get(t4, intern_u64(1)));
     test_assert((total_entries == 2) && (obsolete_entries == 2));
 
-    destruct_tuple(t4, true);
+    destruct_value(t4, true);
     failure = false;
 fail:
-    destruct_tuple(t3, true);
+    destruct_value(t3, true);
     return failure;
 }
 
@@ -216,10 +214,10 @@ boolean encode_decode_lengthy_test(heap h)
     test_assert((total_entries == 1000) && (obsolete_entries == 0));
     test_assert(tuple_count(t4) == 1000);
 
-    destruct_tuple(t4, true);
+    destruct_value(t4, true);
     failure = false;
 fail:
-    destruct_tuple(t3, true);
+    destruct_value(t3, true);
     return failure;
 }
 

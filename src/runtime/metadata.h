@@ -1,37 +1,5 @@
 #include <stringtok.h>
 
-static inline vector vector_from_tuple(heap h, tuple n)
-{
-    if (!n)
-        return 0;
-
-    vector r = allocate_vector(h, 100); //table_elements(n));
-    if (r == INVALID_ADDRESS)
-        return r;
-
-    void *x;
-    for (int i = 0; (x = get(n, intern_u64(i))); i++)
-        vector_push(r, x);
-    
-    return r;
-}
-
-// destructive
-static inline tuple tuple_from_vector(vector v)
-{
-    void *p;
-    int i = 0;
-    tuple t = allocate_tuple();
-    if (t == INVALID_ADDRESS)
-        return t;
-
-    // reversal?
-    while ((p = vector_pop(v))) 
-        set(t, intern_u64(i++), p);
-
-    return t;
-}
-
 static inline tuple resolve_path(tuple n, vector v)
 {
     buffer i;

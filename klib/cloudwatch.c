@@ -199,7 +199,7 @@ closure_function(1, 1, void, cw_logstream_vh,
                  value, v)
 {
     bound(parsed) = true;
-    tuple resp = get_tuple(v, sym(start_line));
+    value resp = get(v, sym(start_line));
     if (resp) {
         buffer word;
         for (u64 i = 0; (word = get(resp, intern_u64(i))); i++)
@@ -325,7 +325,7 @@ closure_function(1, 1, void, cw_loggroup_vh,
                  value, v)
 {
     bound(parsed) = true;
-    tuple resp = get_tuple(v, sym(start_line));
+    value resp = get(v, sym(start_line));
     if (resp) {
         buffer word;
         for (u64 i = 0; (word = get(resp, intern_u64(i))); i++)

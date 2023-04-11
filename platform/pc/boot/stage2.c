@@ -338,6 +338,7 @@ void centry()
     init_runtime(&working_heap, &working_heap);
     init_tuples(allocate_tagged_region(&working_heap, tag_table_tuple));
     init_symbols(allocate_tagged_region(&working_heap, tag_symbol), &working_heap);
+    init_vectors(allocate_tagged_region(&working_heap, tag_vector), &working_heap);
     init_sg(&working_heap);
     init_extra_prints();
     stage2_debug("%s\n", __func__);

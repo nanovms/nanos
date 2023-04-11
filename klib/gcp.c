@@ -180,7 +180,7 @@ closure_function(1, 1, void, gcp_access_token_vh,
                  status_handler, sh,
                  value, v)
 {
-    tuple resp = get_tuple(v, sym(start_line));
+    value resp = get(v, sym(start_line));
     buffer status_code = get(resp, intern_u64(1));
     buffer content = get(v, sym(content));
     status s;
@@ -516,7 +516,7 @@ static void gcp_log_pending_delete(void)
 define_closure_function(0, 1, void, gcp_log_vh,
                         value, v)
 {
-    tuple resp = get_tuple(v, sym(start_line));
+    value resp = get(v, sym(start_line));
     buffer status_code = get(resp, intern_u64(1));
     if (status_code) {
         if (!buffer_strcmp(status_code, "200")) {
@@ -789,7 +789,7 @@ define_closure_function(0, 1, boolean, gcp_metrics_in_handler,
 define_closure_function(0, 1, void, gcp_metrics_value_handler,
                         value, v)
 {
-    tuple resp = get_tuple(v, sym(start_line));
+    value resp = get(v, sym(start_line));
     buffer status_code = get(resp, intern_u64(1));
     if (status_code) {
         if (!buffer_strcmp(status_code, "401")) {

@@ -384,7 +384,7 @@ closure_function(1, 2, boolean, file_unlink_each,
                  value, k, value, v)
 {
     if (is_tuple(v) && get(v, sym(no_encode))) {
-        destruct_tuple(v, true);
+        destruct_value(v, true);
         set(bound(t), k, 0);
     }
     return true;
@@ -395,7 +395,7 @@ static void file_unlink(tuple t, boolean destruct_md)
     fs_notify_release(t, false);
     set(t, sym_this(".."), 0);
     if (destruct_md)
-        destruct_tuple(t, true);
+        destruct_value(t, true);
     else
         iterate(t, stack_closure(file_unlink_each, t));
 }
@@ -421,7 +421,7 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
     set(dir, sym(children), allocate_tuple());
     fss = fs_create_dir_entry(fs, parent, name, dir, 0);
     if (fss != FS_STATUS_OK)
-        destruct_tuple(dir, true);
+        destruct_value(dir, true);
   out:
     filesystem_unlock(fs);
     filesystem_release(fs);
@@ -450,7 +450,7 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
             buffer name = alloca_wrap_cstring(filename_from_path(path));
             fss = fs_create_dir_entry(*fs, parent, name, t, f);
             if (fss != FS_STATUS_OK)
-                destruct_tuple(t, true);
+                destruct_value(t, true);
         }
     } else if (fss == FS_STATUS_OK) {
         if (exclusive) {
@@ -526,7 +526,7 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
     string name = alloca_wrap_cstring(filename_from_path(path));
     fss = fs_create_dir_entry(fs, parent, name, link, 0);
     if (fss != FS_STATUS_OK)
-        destruct_tuple(link, true);
+        destruct_value(link, true);
   out:
     filesystem_unlock(fs);
     filesystem_release(fs);
@@ -1064,7 +1064,7 @@ fs_status filesystem_mk_socket(filesystem *fs, inode cwd, const char *path, void
         goto out;
     }
   err:
-    destruct_tuple(sock, true);
+    destruct_value(sock, true);
   out:
     filesystem_unlock(*fs);
     filesystem_release(*fs);
@@ -1152,7 +1152,7 @@ void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, th
     if (mount_dir_t) {
         tuple mount = get_tuple(mount_dir_t, sym(mount));
         set(mount_dir_t, sym(mount), 0);
-        destruct_tuple(mount, true);
+        destruct_value(mount, true);
     }
     child->sync_complete = complete;
     filesystem_unlock(parent);

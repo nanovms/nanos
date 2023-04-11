@@ -17,7 +17,7 @@ closure_function(2, 1, void, aws_metadata_recv,
                  buffer_handler, handler, boolean *, done,
                  value, v)
 {
-    tuple resp = get_tuple(v, sym(start_line));
+    value resp = get(v, sym(start_line));
     buffer content = 0;
     if (resp) {
         buffer word;

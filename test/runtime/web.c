@@ -12,9 +12,6 @@ closure_function(1, 3, void, each_request,
                        aprintf(bound(h), "unibooty!"));
 }
 
-// no good place to put this
-tuple parse_arguments(heap h, int argc, char **argv);
-
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();

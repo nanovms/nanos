@@ -115,9 +115,6 @@ closure_function(1, 1, void, finished,
     exit(0);
 }
 
-// no good place to put this
-tuple parse_arguments(heap h, int argc, char **argv);
-
 u64 extract_u64_with_default(tuple t, symbol n, u64 otherwise)
 {
     u64 result;
@@ -131,7 +128,7 @@ int main(int argc, char **argv)
 {
     heap h = init_process_runtime();    
     tuple t = parse_arguments(h, argc, argv);
-    value unassoc = get(t, sym(unassociated));
+    vector unassoc = get_vector(t, sym(unassociated));
     if (!unassoc) {
         halt("must provide target\n");
     }
@@ -143,7 +140,7 @@ int main(int argc, char **argv)
 #else
 	create_poll_notifier(h);
 #endif
-    buffer target = vector_pop(vector_from_tuple(h, unassoc));
+    buffer target = vector_pop(unassoc);
     thunk *newconn = allocate(h, sizeof(thunk));
     // there are other solutions for y
 

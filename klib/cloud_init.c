@@ -80,15 +80,13 @@ static enum cloud cloud_detect(void)
     return CLOUD_UNKNOWN;
 }
 
-static int cloud_init_parse_vector(tuple config, int (*parse_each)(tuple, vector), vector tasks)
+static int cloud_init_parse_vector(value config, int (*parse_each)(tuple, vector), vector tasks)
 {
-    if (!is_tuple(config))
+    if (!(is_tuple(config) || is_vector(config)))
         return KLIB_INIT_FAILED;
-    int num_entries;
-    for (num_entries = 0; get(config, intern_u64(num_entries)); num_entries++)
-        ;
-    for (int i = 0; i < num_entries; i++) {
-        value v = get(config, intern_u64(i));
+    /* allow parsing either tuple or vector for backward compatibility with older ops/tfs... */
+    value v;
+    for (int i = 0; (v = get(config, intern_u64(i))); i++) {
         if (!is_tuple(v))
             return KLIB_INIT_FAILED;
         int ret = parse_each(v, tasks);
@@ -190,7 +188,7 @@ closure_function(4, 1, void, cloud_download_save,
     status s;
     buffer content;
     if (*bound(received) == 0) {
-        tuple start_line = get_tuple(v, sym(start_line));
+        value start_line = get(v, sym(start_line));
         buffer status_code = get(start_line, sym(1));
         if (!status_code || (buffer_length(status_code) < 1) || (byte(status_code, 0) != '2')) {
             /* HTTP status code 2xx not found. */
@@ -535,7 +533,7 @@ closure_function(2, 1, void, cloud_download_env_set,
     if (!iterate(env, stack_closure(cloud_download_env_each, get_environment())))
         *bound(result) = timm("result", "failed to set environment variables");
   out:
-    destruct_tuple(v, true);
+    destruct_value(v, true);
 }
 
 closure_function(1, 1, void, cloud_download_env_err,
@@ -551,7 +549,7 @@ define_closure_function(1, 1, void, cloud_download_setenv,
                         value, v)
 {
     cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, setenv);
-    tuple start_line = get_tuple(v, sym(start_line));
+    value start_line = get(v, sym(start_line));
     buffer status_code = get(start_line, sym(1));
     if (!status_code || (buffer_length(status_code) < 1) || (byte(status_code, 0) != '2')) {
         /* HTTP status code 2xx not found */
@@ -659,7 +657,7 @@ int init(status_handler complete)
     vector tasks = allocate_vector(cloud_heap, 8);
     assert(tasks != INVALID_ADDRESS);
     int ret;
-    tuple download = get(config, sym(download));
+    value download = get(config, sym(download));
     if (download) {
         ret = cloud_init_parse_vector(download, cloud_download_file_parse, tasks);
         if (ret != KLIB_INIT_OK) {
@@ -667,7 +665,7 @@ int init(status_handler complete)
             goto error;
         }
     }
-    tuple download_env = get(config, sym(download_env));
+    value download_env = get(config, sym(download_env));
     if (download_env) {
         ret = cloud_init_parse_vector(download_env, cloud_download_env_parse, tasks);
         if (ret != KLIB_INIT_OK) {

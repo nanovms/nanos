@@ -34,7 +34,7 @@ if (strncmp(s1, s2, strlen(s2)) != 0) {                         \
     test_strings_equal(last_error->contents, "unexpected end of input");    \
 } while (0)
 
-tuple root;
+value root;
 closure_function(1, 1, void, finish,
                  heap, h,
                  void *, v)
@@ -117,7 +117,8 @@ TUPLE_PARSE_TEST(empty_vector_test, "[]")
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 0);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 0);
     return true;
 }
 
@@ -125,7 +126,8 @@ TUPLE_PARSE_TEST(empty_vector_with_whitespaces_test, " [ ] ")
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 0);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 0);
     return true;
 }
 
@@ -178,7 +180,8 @@ TUPLE_PARSE_TEST(vector_simple_test, "[val1]")
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 1);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 1);
 
     buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
@@ -211,7 +214,8 @@ TUPLE_PARSE_TEST(vector_2elements_test, "[val1 val2]")
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 2);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 2);
 
     buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
@@ -228,7 +232,8 @@ TUPLE_PARSE_TEST(whitespace_after_last_vector_value_test, "[val ]")
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 2);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 2);
 
     buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
@@ -265,7 +270,8 @@ TUPLE_PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
     test_no_errors();
 
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 1);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 1);
 
     tuple v1 = get_tuple(root, intern_u64(0));
     test_assert(v1 != NULL);
@@ -286,9 +292,10 @@ TUPLE_PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    tuple v1 = get_tuple(root, intern(wrap_buffer_cstring(h, "key")));
+    value v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
     test_assert(v1 != NULL);
-    test_assert(tuple_count(v1) == 1);
+    test_assert(is_vector(v1));
+    test_assert(vector_length(v1) == 1);
 
     buffer v2 = get_string(v1, intern_u64(0));
     test_assert(v2 != NULL);
@@ -303,11 +310,13 @@ TUPLE_PARSE_TEST(vector_nested_vector_test, "[[value2]]")
     test_no_errors();
 
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 1);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 1);
 
-    tuple v1 = get_tuple(root, intern_u64(0));
+    value v1 = get(root, intern_u64(0));
     test_assert(v1 != NULL);
-    test_assert(tuple_count(v1) == 1);
+    test_assert(is_vector(v1));
+    test_assert(vector_length(v1) == 1);
 
     buffer v2 = get_string(v1, intern_u64(0));
     test_assert(v2 != NULL);
@@ -426,7 +435,8 @@ TUPLE_PARSE_TEST(quoted_vector_value_test, "[\"value\"]")
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 1);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 1);
 
     buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
@@ -439,7 +449,8 @@ TUPLE_PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 1);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 1);
 
     buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
@@ -452,7 +463,8 @@ TUPLE_PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"
 {
     test_no_errors();
     test_assert(root != NULL);
-    test_assert(tuple_count(root) == 1);
+    test_assert(is_vector(root));
+    test_assert(vector_length(root) == 1);
 
     buffer v1 = get_string(root, intern_u64(0));
     test_assert(v1 != NULL);
@@ -500,7 +512,7 @@ JSON_PARSE_TEST(json_whitespace_test, " {\n\"\ra\t\" :\n\"\rb\t\" ,\n\"c\":{\r\"
     test_assert(s != NULL);
     test_strings_equal(s->contents, "e");
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -619,7 +631,7 @@ JSON_PARSE_TEST(json_longstring_test, "{\"abcdefghijklmnopqrstuvwxyz0123456789\"
     test_assert(s != NULL);
     test_strings_equal(s->contents, "0123456789abcdefghijklmnopqrstuvwxyz");
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -658,7 +670,7 @@ JSON_PARSE_TEST(json_empty_obj_test, "{}")
     test_no_errors();
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -667,7 +679,7 @@ JSON_PARSE_TEST(json_numbervalue_test, "{\"a\":1}")
     test_no_errors();
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -676,7 +688,7 @@ JSON_PARSE_TEST(json_numbervalue_test1, "{\"a\":1.2}")
     test_no_errors();
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -685,7 +697,7 @@ JSON_PARSE_TEST(json_numbervalue_test2, "{\"a\":-2.3}")
     test_no_errors();
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -695,7 +707,7 @@ JSON_PARSE_TEST(json_booleanvalue_test, "{\"a\":true}")
     /* the parser discards boolean-valued attributes */
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -705,7 +717,7 @@ JSON_PARSE_TEST(json_booleanvalue_test1, "{\"a\":false}")
     /* the parser discards boolean-valued attributes */
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -715,7 +727,7 @@ JSON_PARSE_TEST(json_booleanvalue_test2, "{\"a\":[true,false]}")
     /* the parser discards array-valued attributes */
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -725,7 +737,7 @@ JSON_PARSE_TEST(json_nullvalue_test, "{\"a\":null}")
     /* the parser discards null-valued attributes */
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -735,7 +747,7 @@ JSON_PARSE_TEST(json_empty_array_test, "{\"a\":[]}")
     /* the parser discards boolean-valued attributes */
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -745,7 +757,7 @@ JSON_PARSE_TEST(json_array_test, "{\"a\":[\"b\",{\"c\":{}},0]}")
     /* the parser discards array-valued attributes */
     test_assert((root != NULL) && (tuple_count(root) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 
@@ -762,7 +774,7 @@ JSON_PARSE_TEST(json_nested_test, "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"
     }
     test_assert((t != NULL) && (tuple_count(t) == 0));
 
-    destruct_tuple(root, true);
+    destruct_value(root, true);
     return true;
 }
 

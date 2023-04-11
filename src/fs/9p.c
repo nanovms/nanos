@@ -68,7 +68,7 @@ static void p9_md_cleanup(tuple md)
         }
         set(md, parent_sym, 0);
     }
-    destruct_tuple(md, true);
+    destruct_value(md, true);
 }
 
 static u32 p9_fid_new(p9fs fs)

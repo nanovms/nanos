@@ -175,20 +175,15 @@ static void reset_parser(http_parser p)
     p->state = STATE_INIT;
     p->header = allocate_tuple();
     p->word = allocate_buffer(p->h, 10);
-    p->start_line = allocate_vector(p->h, 3);
+    p->start_line = allocate_tagged_vector(3);
     p->content_length = 0;
 }
 
 static void cleanup_parser(http_parser p)
 {
-    buffer word;
-    vector_foreach(p->start_line, word) {
-        deallocate_buffer(word);
-    }
-    deallocate_vector(p->start_line);
     if (p->word != INVALID_ADDRESS)
         deallocate_buffer(p->word);
-    destruct_tuple(p->header, true);
+    destruct_value(p->header, true);
 }
 
 static void deallocate_parser(http_parser p)
@@ -206,7 +201,6 @@ closure_function(1, 1, status, http_recv,
                  buffer, b)
 {
     http_parser p = bound(p);
-    tuple start_line;
 
     /* content may be delimited by close rather than content length */
     if (!b) {
@@ -289,14 +283,7 @@ closure_function(1, 1, status, http_recv,
         return STATUS_OK;
 
   content_finish:
-    // XXX change from vector to tuple
-    start_line = allocate_tuple();
-    for (u64 i = 0; i < vector_length(p->start_line); i++) {
-        buffer a = vector_get(p->start_line, i);
-        set(start_line, intern_u64(i), a);
-    }
-    set(p->header, sym(start_line), start_line);
-    vector_clear(p->start_line);
+    set(p->header, sym(start_line), p->start_line);
     set(p->header, sym(content), p->word);
     p->word = INVALID_ADDRESS;
     apply(p->each, p->header);
@@ -399,7 +386,7 @@ closure_function(2, 1, void, each_http_request,
     http_method method;
     http_listener hl = bound(hl);
     http_responder hr = &bound(hr);
-    vector vsl = vector_from_tuple(hl->h, get(v, sym(start_line)));
+    vector vsl = get_vector(v, sym(start_line));
     if (!vsl || vsl == INVALID_ADDRESS)
         goto not_found;
 
