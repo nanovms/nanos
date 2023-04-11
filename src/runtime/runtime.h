@@ -2,9 +2,6 @@
 #include <config.h>
 #include <machine.h>
 #include <attributes.h>
-#if !defined(BOOT) && !defined(KERNEL)
-#include <unix_process_runtime.h>
-#endif
 
 typedef u8 boolean;
 typedef u32 character;
@@ -198,6 +195,7 @@ typedef struct flush_entry *flush_entry;
 #define tag_symbol         (2ull) /* struct symbol */
 #define tag_table_tuple    (3ull) /* table-based tuple */
 #define tag_function_tuple (4ull) /* backed tuple; struct function_tuple */
+#define tag_vector         (5ull) /* struct vector */
 #define tag_max            (6ull)
 
 #include <symbol.h>
@@ -313,3 +311,7 @@ static inline void deallocate_closure(void *p)
 }
 
 #define closure_finish() do { deallocate_closure(__self); __self = 0; } while(0)
+
+#if !defined(BOOT) && !defined(KERNEL)
+#include <unix_process_runtime.h>
+#endif

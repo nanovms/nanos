@@ -91,6 +91,11 @@ static inline void *vector_pop(vector v)
     return *((void **)(v->contents + v->end));
 }
 
+static inline void vector_consume(vector v, int n)
+{
+    buffer_consume(v, n * sizeof(void *));
+}
+
 static inline vector split(heap h, buffer source, char divider)
 {
     vector result = allocate_vector(h, 10);
@@ -150,3 +155,8 @@ static inline vector build_vector_internal(heap h, ...)
 }
 
 #define build_vector(_h, ...) build_vector_internal(_h, __VA_ARGS__, INVALID_PHYSICAL)                       
+
+void init_vectors(heap h, heap init);
+
+vector allocate_tagged_vector(int length);
+

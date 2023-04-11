@@ -20,20 +20,18 @@ void fail(char * s)
     exit(EXIT_FAILURE);
 }
 
-tuple parse_arguments(heap h, int argc, char **argv);
-
 int main(int argc, char ** argv)
 {
     heap h = init_process_runtime();
     tuple t = parse_arguments(h, argc, argv);
-    value unassoc = get(t, sym(unassociated));
+    vector unassoc = get_vector(t, sym(unassociated));
     if (!unassoc)
         halt("specify target as <ip addr>:<port>\n");
     boolean terminate = get(t, sym(terminate)) != 0;
 
     char sbuf[BUFLEN], rbuf[BUFLEN];
 
-    buffer target = vector_pop(vector_from_tuple(h, unassoc));
+    buffer target = vector_pop(unassoc);
     u32 daddr;
     u16 dport;
     parse_v4_address_and_port(target, &daddr, &dport);

@@ -182,6 +182,7 @@ heap init_process_runtime()
     init_runtime(h, h);
     init_tuples(allocate_tagged_region(h, tag_table_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
+    init_vectors(allocate_tagged_region(h, tag_vector), h);
     init_sg(h);
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);
@@ -218,14 +219,14 @@ tuple parse_arguments(heap h, int argc, char **argv)
                 tag = 0;
             } else {
                 if (!unassociated) {
-                    unassociated = allocate_vector(h, 10);
+                    unassociated = allocate_tagged_vector(10);
                 }
                 vector_push(unassociated, b);
             }
         }
     }
     if (unassociated)
-        set(t, sym(unassociated), tuple_from_vector(unassociated));
+        set(t, sym(unassociated), unassociated);
 
     return t;
 }

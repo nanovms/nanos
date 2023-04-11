@@ -823,10 +823,11 @@ int init(status_handler complete)
         return KLIB_INIT_FAILED;
     }
     heap h = heap_locked(get_kernel_heaps());
-    tuple servers = get_tuple(root, sym(ntp_servers));
+    value servers = get(root, sym(ntp_servers));
     int server_count;
     if (servers) {
-        server_count = tuple_count(servers);
+        server_count = is_tuple(servers) ? tuple_count(servers) :
+            is_vector(servers) ? vector_length(servers) : 0;
         if (server_count == 0) {
             servers = 0;
             server_count = 1;

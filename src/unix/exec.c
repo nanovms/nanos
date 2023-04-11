@@ -46,6 +46,19 @@ closure_function(5, 2, boolean, environment_each,
     return true;
 }
 
+closure_function(1, 2, boolean, fill_arguments_each,
+                 vector, r,
+                 value, a, value, v)
+{
+    u64 i;
+    if (!u64_from_attribute(a, &i)) {
+        msg_err("arguments attribute %v is not an index\n", a);
+        return false;
+    }
+    vector_set(bound(r), i, v);
+    return true;
+}
+
 static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         u64 va, tuple process_root, boolean aslr)
 {
@@ -73,10 +86,21 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     u64 *randbuf = s;
 
     // argv ASCIIZ strings
-    vector arguments = vector_from_tuple(transient, get(process_root, sym(arguments)));
-    if (!arguments)
-        arguments = allocate_vector(transient, 1);
-
+    value arg_value = get(process_root, sym(arguments));
+    vector arguments;
+    if (is_vector(arg_value)) {
+        arguments = arg_value;
+    } else {
+        if (is_tuple(arg_value)) {
+            arguments = allocate_vector(transient, tuple_count(arg_value));
+            if (!iterate(arg_value, stack_closure(fill_arguments_each, arguments)))
+                halt("failed to parse program arguments\n");
+        } else if (!arg_value) {
+            arguments = allocate_vector(transient, 1);
+        } else {
+            halt("program arguments must be a vector or tuple\n");
+        }
+    }
     if (vector_length(arguments) == 0) {
         value p = get(process_root, sym(program));
         assert(p);
@@ -87,7 +111,8 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     buffer a;
     int argv_len = 0;
     vector_foreach(arguments, a) {
-        argv_len += buffer_length(a) + 1;
+        if (a)
+            argv_len += buffer_length(a) + 1;
     }
     s -= pad(argv_len, STACK_ALIGNMENT) >> 3;
     check_s(s, as);
@@ -95,6 +120,8 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     char * sp = (char *) s;
     p->saved_args_begin = sp;
     vector_foreach(arguments, a) {
+        if (!a)
+            continue;
         int len = buffer_length(a);
         runtime_memcpy(sp, buffer_ref(a, 0), len);
         sp[len] = '\0';
@@ -102,7 +129,8 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         sp += len + 1;
     }
     p->saved_args_end = sp;
-    deallocate_vector(arguments);
+    if (arguments != arg_value)
+        deallocate_vector(arguments);
 
     // envp ASCIIZ strings
     char **envp = 0;

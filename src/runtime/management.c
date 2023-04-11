@@ -170,7 +170,7 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
                  void *, p)
 {
     handle_request(p, bound(out));
-    destruct_tuple(p, true);
+    destruct_value(p, true);
 }
 
 closure_function(1, 1, void, mgmt_tuple_parse_error,
@@ -189,7 +189,7 @@ void management_reset(void)
 #ifdef KERNEL
     remove_timer(kernel_timers, &management.t, 0);
     if (management.timer_req) {
-        destruct_tuple(management.timer_req, true);
+        destruct_value(management.timer_req, true);
         management.timer_req = 0;
     }
 #endif
@@ -236,26 +236,29 @@ typedef struct tuple_notifier {
 
 closure_function(1, 1, value, tuple_notifier_get,
                  tuple_notifier, tn,
-                 symbol, s)
+                 value, a)
 {
     get_value_notify n;
-    if (bound(tn)->get_notifys && (n = table_find(bound(tn)->get_notifys, s)))
+    if (!is_symbol(a))
+        return 0;
+    if (bound(tn)->get_notifys && (n = table_find(bound(tn)->get_notifys, a)))
         return apply(n);
     else
-        return get(bound(tn)->parent, s); /* transparent */
+        return get(bound(tn)->parent, a); /* transparent */
 }
 
 closure_function(1, 2, void, tuple_notifier_set,
                  tuple_notifier, tn,
-                 symbol, s, value, v)
+                 value, a, value, v)
 {
+    assert(is_symbol(a));
     /* check for notify */
-    set_value_notify vh = table_find(bound(tn)->set_notifys, s);
+    set_value_notify vh = table_find(bound(tn)->set_notifys, a);
     if (vh) {
         if (!apply(vh, v))
             return;             /* setting of value not allowed */
     }
-    set(bound(tn)->parent, s, v);
+    set(bound(tn)->parent, a, v);
 }
 
 closure_function(2, 2, boolean, tuple_notifier_iterate_each,

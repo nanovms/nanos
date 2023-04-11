@@ -506,7 +506,7 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
         symbol offs = intern_u64(ex->node.r.start);
         fs_status s = filesystem_write_eav(fs, extents, offs, e, false);
         if (s != FS_STATUS_OK) {
-            destruct_tuple(e, true);
+            destruct_value(e, true);
             return s;
         }
         set(extents, offs, e);
@@ -1075,7 +1075,7 @@ static tuple cleanup_directory(tuple n)
 static void destruct_dir_entry(tuple n)
 {
     cleanup_directory(n);
-    destruct_tuple(n, true);
+    destruct_value(n, true);
 }
 
 static boolean tfs_file_unlink(tfs fs, tuple t)

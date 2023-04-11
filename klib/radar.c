@@ -246,8 +246,8 @@ closure_function(0, 1, void, telemetry_crash_recv,
                  value, v)
 {
     if (v) {
-        tuple resp = get(v, sym(start_line));
-        if (resp && is_tuple(resp)) {
+        value resp = get(v, sym(start_line));
+        if (resp) {
             buffer word;
             for (u64 i = 0; (word = get(resp, intern_u64(i))); i++)
                 if (buffer_strstr(word, "OK") == 0) {

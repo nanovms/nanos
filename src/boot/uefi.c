@@ -253,6 +253,7 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
     init_runtime(&general, &general);
     init_tuples(allocate_tagged_region(&general, tag_table_tuple));
     init_symbols(allocate_tagged_region(&general, tag_symbol), &general);
+    init_vectors(allocate_tagged_region(&general, tag_vector), &general);
     init_sg(&general);
     struct uefi_arch_options options;
     uefi_arch_setup(&general, &aligned_heap, &options);

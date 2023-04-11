@@ -539,7 +539,7 @@ define_closure_function(0, 1, parser, json_obj_parse,
     err_string = little_stack_buffer(32);
     bprintf(err_string, "unexpected character %c", in);
   error:
-    destruct_tuple(p->obj, true);
+    destruct_value(p->obj, true);
     next = apply(p->p.e, err_string);
     deallocate(p->p.h, p, sizeof(*p));
     return next;
@@ -561,7 +561,7 @@ define_closure_function(0, 1, parser, json_obj_attr_error,
                         buffer, err)
 {
     json_obj_p p = struct_from_field(closure_self(), json_obj_p, e);
-    destruct_tuple(p->obj, true);
+    destruct_value(p->obj, true);
     parser next = apply(p->p.e, err);
     deallocate(p->p.h, p, sizeof(*p));
     return next;

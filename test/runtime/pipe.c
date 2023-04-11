@@ -14,9 +14,6 @@
 #define handle_error(msg) \
        do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
-// no good place to put this
-table parse_arguments(heap h, int argc, char **argv);
-
 int __pipe(int fildes[2])
 {
     return syscall(SYS_pipe2, fildes, 0);
@@ -209,7 +206,6 @@ int main(int argc, char **argv)
     struct pollfd pfd;
 
     heap h = init_process_runtime();
-    parse_arguments(h, argc, argv);
 
     status = __pipe(fds);
     if (status == -1)

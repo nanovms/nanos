@@ -77,9 +77,9 @@ static boolean _symptr_compare(void *a, void *b)
     return buffer_lt(symbol_string(s2), symbol_string(s1));
 }
 
-static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth);
+static void print_value_internal(buffer dest, value v, table *visited, s32 indent, s32 depth);
 
-static void print_tuple_internal(buffer b, tuple t, table* visited, s32 indent, s32 depth)
+static void print_tuple_internal(buffer b, tuple t, table *visited, s32 indent, s32 depth)
 {
     /* This is a little heavy, but we don't have a sorted iterate. */
     pqueue pq = allocate_pqueue(transient, _symptr_compare);
@@ -119,6 +119,31 @@ static void print_tuple_internal(buffer b, tuple t, table* visited, s32 indent, 
     deallocate_pqueue(pq);
 }
 
+closure_function(6, 2, boolean, print_vector_each,
+                 buffer, b, vector, vec, table *, visited, s32, indent, s32, depth, boolean *, sub,
+                 value, a, value, v)
+{
+    buffer b = bound(b);
+    if (*bound(sub)) {
+        if (bound(indent) >= 0)
+            bprintf(b, "\n%n", bound(indent));
+        else
+            bprintf(b, " ");
+    } else {
+        *bound(sub) = true;
+    }
+    print_value_internal(b, v, bound(visited), bound(indent), bound(depth));
+    return true;
+}
+
+static void print_vector_internal(buffer b, vector v, table *visited, s32 indent, s32 depth)
+{
+    bprintf(b, "[");
+    boolean sub = false;
+    iterate(v, stack_closure(print_vector_each, b, v, visited, indent < 0 ? indent : indent + 1, depth, &sub));
+    bprintf(b, "]");
+}
+
 /* Ideally, we would have types distinguishing text-only and binary buffers,
    facilitating UTF8 handling. For now, squelch output on non-printable ASCII. */
 
@@ -131,9 +156,9 @@ static boolean is_binary_buffer(buffer b)
     return false;
 }
 
-static void print_value_internal(buffer dest, value v, table* visited, s32 indent, s32 depth)
+static void print_value_internal(buffer dest, value v, table *visited, s32 indent, s32 depth)
 {
-    if (is_tuple(v)) {
+    if (is_tuple(v) || is_vector(v)) {
         if (!*visited) {
             *visited = allocate_table(transient, identity_key, pointer_equal);
             assert(visited != INVALID_ADDRESS);
@@ -146,10 +171,14 @@ static void print_value_internal(buffer dest, value v, table* visited, s32 inden
             value wrapped = get_tuple(v, sym(/wrapped));
             if (wrapped)
                 table_set(*visited, wrapped, (void *)1);
-            if (depth > 0)
-                print_tuple_internal(dest, v, visited, indent, depth - 1);
-            else
+            if (depth > 0) {
+                if (is_tuple(v))
+                    print_tuple_internal(dest, v, visited, indent, depth - 1);
+                else
+                    print_vector_internal(dest, v, visited, indent, depth - 1);
+            } else {
                 bprintf(dest, "<pruned>");
+            }
         }
     } else if (is_symbol(v)) {
         bprintf(dest, "%b", symbol_string((symbol)v));

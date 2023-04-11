@@ -1018,7 +1018,7 @@ closure_function(4, 2, boolean, xen_probe_id_each,
     if ((state == XenbusStateUnknown) || (state == XenbusStateClosed)) {
         xen_debug("removing device/%b/%b", bound(name), symbol_string(k));
         set(bound(parent), k, 0);
-        destruct_tuple(v, true);
+        destruct_value(v, true);
         return true;
     }
     u64 id;
