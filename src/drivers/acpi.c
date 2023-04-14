@@ -271,7 +271,7 @@ static ACPI_STATUS acpi_ged_res_probe(ACPI_RESOURCE *resource, void *context)
     switch (resource->Type) {
     case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
         if (resource->Data.ExtendedIrq.InterruptCount == 1) {
-            int gsi = resource->Data.ExtendedIrq.Interrupts[0];
+            int gsi = resource->Data.ExtendedIrq.u.Interrupts[0];
             char ev_name[5];
             ACPI_HANDLE event;
             ACPI_STATUS rv;
@@ -374,7 +374,7 @@ static ACPI_STATUS acpi_mmio_res_handler(ACPI_RESOURCE *resource, void *context)
         break;
     case ACPI_RESOURCE_TYPE_EXTENDED_IRQ:
         if (resource->Data.ExtendedIrq.InterruptCount == 1)
-            dev->irq = resource->Data.ExtendedIrq.Interrupts[0];
+            dev->irq = resource->Data.ExtendedIrq.u.Interrupts[0];
         break;
     }
     return AE_OK;

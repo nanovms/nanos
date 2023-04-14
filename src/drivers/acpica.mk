@@ -122,6 +122,7 @@ ACPICA= \
 	$(ACPICA_SRCDIR)/utilities/utalloc.c \
 	$(ACPICA_SRCDIR)/utilities/utascii.c \
 	$(ACPICA_SRCDIR)/utilities/utbuffer.c \
+	$(ACPICA_SRCDIR)/utilities/utcksum.c \
 	$(ACPICA_SRCDIR)/utilities/utclib.c \
 	$(ACPICA_SRCDIR)/utilities/utcopy.c \
 	$(ACPICA_SRCDIR)/utilities/utdecode.c \

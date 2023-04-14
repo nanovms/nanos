@@ -1,6 +1,6 @@
 diff -ur a/source/components/utilities/utdelete.c b/source/components/utilities/utdelete.c
---- a/source/components/utilities/utdelete.c	2021-12-06 12:25:49.767092507 +0100
-+++ b/source/components/utilities/utdelete.c	2021-12-06 12:18:32.027074617 +0100
+--- a/source/components/utilities/utdelete.c	2023-04-14 08:20:44.358636205 +0000
++++ b/source/components/utilities/utdelete.c	2023-04-14 08:48:09.900455422 +0000
 @@ -533,7 +533,6 @@
      UINT16                  OriginalCount;
      UINT16                  NewCount = 0;
@@ -17,7 +17,7 @@ diff -ur a/source/components/utilities/utdelete.c b/source/components/utilities/
          break;
  
      case REF_DECREMENT:
-@@ -606,7 +604,6 @@
+@@ -607,7 +605,6 @@
          {
              AcpiUtDeleteInternalObj (Object);
          }
@@ -25,7 +25,7 @@ diff -ur a/source/components/utilities/utdelete.c b/source/components/utilities/
          break;
  
      default:
-@@ -624,8 +621,8 @@
+@@ -625,8 +622,8 @@
      if (NewCount > ACPI_MAX_REFERENCE_COUNT)
      {
          ACPI_WARNING ((AE_INFO,
@@ -37,9 +37,9 @@ diff -ur a/source/components/utilities/utdelete.c b/source/components/utilities/
  }
  
 diff -ur a/source/components/utilities/utresrc.c b/source/components/utilities/utresrc.c
---- a/source/components/utilities/utresrc.c	2021-12-06 12:25:49.779092507 +0100
-+++ b/source/components/utilities/utresrc.c	2021-12-06 12:21:30.991081931 +0100
-@@ -295,7 +295,7 @@
+--- a/source/components/utilities/utresrc.c	2023-04-14 08:20:44.358636205 +0000
++++ b/source/components/utilities/utresrc.c	2023-04-14 08:01:19.554124568 +0000
+@@ -298,7 +298,7 @@
  {
      ACPI_STATUS             Status;
      UINT8                   *EndAml;
@@ -49,9 +49,9 @@ diff -ur a/source/components/utilities/utresrc.c b/source/components/utilities/u
      UINT32                  Offset = 0;
      UINT8                   EndTag[2] = {0x79, 0x00};
 diff -ur a/source/include/platform/acenv.h b/source/include/platform/acenv.h
---- a/source/include/platform/acenv.h
-+++ b/source/include/platform/acenv.h
-@@ -305,66 +305,8 @@
+--- a/source/include/platform/acenv.h	2023-04-14 08:20:44.366636286 +0000
++++ b/source/include/platform/acenv.h	2023-04-14 08:01:24.454331485 +0000
+@@ -305,68 +305,8 @@
  
  #endif
  
@@ -108,6 +108,8 @@ diff -ur a/source/include/platform/acenv.h b/source/include/platform/acenv.h
 -#elif defined(_AED_EFI) || defined(_GNU_EFI) || defined(_EDK2_EFI)
 -#include "acefi.h"
 -
+-#elif defined(__ZEPHYR__)
+-#include "aczephyr.h"
 -#else
 -
 -/* Unknown environment */
@@ -119,8 +121,8 @@ diff -ur a/source/include/platform/acenv.h b/source/include/platform/acenv.h
  
  
 diff -ur a/source/include/platform/acgcc.h b/source/include/platform/acgcc.h
---- a/source/include/platform/acgcc.h	2021-12-06 12:25:49.791092508 +0100
-+++ b/source/include/platform/acgcc.h	2021-12-06 11:54:11.487014927 +0100
+--- a/source/include/platform/acgcc.h	2023-04-14 08:20:44.366636286 +0000
++++ b/source/include/platform/acgcc.h	2023-04-14 08:03:10.018821762 +0000
 @@ -152,6 +152,8 @@
  #ifndef __ACGCC_H__
  #define __ACGCC_H__
@@ -131,8 +133,8 @@ diff -ur a/source/include/platform/acgcc.h b/source/include/platform/acgcc.h
   * Use compiler specific <stdarg.h> is a good practice for even when
   * -nostdinc is specified (i.e., ACPI_USE_STANDARD_HEADERS undefined.
 diff -ur a/source/include/platform/aclinux.h b/source/include/platform/aclinux.h
---- b/source/include/platform/aclinux.h	2021-12-06 12:25:49.791092508 +0100
-+++ b/source/include/platform/aclinux.h	2021-12-06 12:04:35.495040429 +0100
+--- a/source/include/platform/aclinux.h	2023-04-14 08:20:44.366636286 +0000
++++ b/source/include/platform/aclinux.h	2023-04-14 08:06:05.694409819 +0000
 @@ -164,7 +164,6 @@
  
  /* Common (in-kernel/user-space) ACPICA configuration */
@@ -141,7 +143,7 @@ diff -ur a/source/include/platform/aclinux.h b/source/include/platform/aclinux.h
  #define ACPI_USE_DO_WHILE_0
  #define ACPI_IGNORE_PACKAGE_RESOLUTION_ERRORS
  
-@@ -302,7 +301,7 @@
+@@ -307,7 +306,7 @@
  
  #else /* !__KERNEL__ */
  
@@ -149,5 +151,4 @@ diff -ur a/source/include/platform/aclinux.h b/source/include/platform/aclinux.h
 +#define ACPI_NO_ERROR_MESSAGES
  
  #ifdef ACPI_USE_STANDARD_HEADERS
- #include <unistd.h>
-
+ #include <stddef.h>
