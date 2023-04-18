@@ -32,6 +32,16 @@ static inline heap allocate_tagged_region(heap h, u64 tag)
     return (heap)ta;
 }
 
+static inline __attribute__((always_inline)) u8 is_immediate(value v)
+{
+    return ((word)v & 1) != 0;
+}
+
+static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
+{
+    return ((word)v & 0x3) == 1;
+}
+
 static inline value tag(void *v, value_tag tval)
 {
     *((u8 *)v-1) = tval;
@@ -40,5 +50,7 @@ static inline value tag(void *v, value_tag tval)
 
 static inline value_tag tagof(value v)
 {
+    if (is_immediate_integer(v))
+        return tag_integer;
     return *((u8 *)v-1);
 }

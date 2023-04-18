@@ -13,18 +13,33 @@
 #define KMEM_BASE   0xffff800000000000ull
 #define USER_LIMIT  0x0000800000000000ull
 
+static inline __attribute__((always_inline)) u8 is_immediate(value v)
+{
+    return ((word)v & 1) != 0;
+}
+
+static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
+{
+    return ((word)v & 0x3) == 1;
+}
+
 #ifdef KERNEL
 
 #define VA_TAG_BASE   KMEM_BASE
 #define VA_TAG_OFFSET 38
 #define VA_TAG_WIDTH  8
 
+/* not for immediates */
 static inline __attribute__((always_inline)) void *tag(void* v, value_tag t) {
     return pointer_from_u64(VA_TAG_BASE | (((u64)t) << VA_TAG_OFFSET) | u64_from_pointer(v));
 }
 
 static inline __attribute__((always_inline)) value_tag tagof(void* v) {
-    return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
+    u64 x = u64_from_pointer(v);
+    /* only ints now, bit 1 reserved for future immediate types */
+    if (is_immediate_integer(v))
+        return tag_integer;
+    return (x >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
 }
 
 #else
@@ -37,6 +52,8 @@ static inline void *tag(void *v, u8 tval)
 
 static inline u8 tagof(void *v)
 {
+    if (is_immediate_integer(v))
+        return tag_integer;
     return *((u8 *)v-1);
 }
 
@@ -46,6 +63,29 @@ static inline u8 tagof(void *v)
 #define PAGELOG     12
 #define PAGESIZE    U64_FROM_BIT(PAGELOG)
 #define PAGEMASK    MASK(PAGELOG)
+
+/* to appease UBSAN */
+#define _IMMASK ((word)-1ull >> 2)
+
+static inline __attribute__((always_inline)) void *tagged_immediate_unsigned(word n)
+{
+    return (void*)(((n & _IMMASK) << 2) | 1);
+}
+
+static inline __attribute__((always_inline)) void *tagged_immediate_signed(sword n)
+{
+    return (void*)(((n & _IMMASK) << 2) | 1);
+}
+
+static inline __attribute__((always_inline)) u64 u64_from_tagged_immediate(void *v)
+{
+    return (word)v >> 2;
+}
+
+static inline __attribute__((always_inline)) s64 s64_from_tagged_immediate(void *v)
+{
+    return (sword)v >> 2;
+}
 
 static inline __attribute__((always_inline)) void compiler_barrier(void)
 {

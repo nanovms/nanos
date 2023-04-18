@@ -26,6 +26,15 @@ void print_number(buffer s, u64 x, int base, int pad)
     push_u8(s, hex_digits[r]);
 }
 
+void print_signed_number(buffer s, s64 x, int base, int pad)
+{
+    if (x < 0) {
+        push_u8(s, '-');
+        x = -x;
+    }
+    print_number(s, x, base, pad);
+}
+
 static void format_pointer(buffer dest, struct formatter_state *s, vlist *a)
 {
     push_u8(dest, '0');

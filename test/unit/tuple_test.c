@@ -24,7 +24,7 @@ boolean all_tests(heap h)
     tuple t1 = allocate_tuple();
     for(u8 i = 0; i < COUNT_ELM; i++){
         buffer b1 = wrap_buffer_cstring(h, tst[i]);
-        set(t1, intern_u64(i), b1);
+        set(t1, value_from_u64(i), b1);
     }
     test_assert(tuple_count(t1) == COUNT_ELM);//rprintf("%v\n", t1);
 
@@ -36,16 +36,61 @@ boolean all_tests(heap h)
     test_assert(vector_length(v1) == COUNT_ELM);//rprintf("%v\n", t2);
     deallocate_vector(v1);
 
-    // value <-> U64
+    // value <-> u64
     u64 u1 = 777;
-    value val = value_from_u64(h, u1);
+    value val = value_from_u64(u1);//rprintf("u1 val %v\n", val);
     u64 u2;
     test_assert(u64_from_value(val, &u2));
     test_assert(u1 == u2);//rprintf("u1=%d,u2=%d\n",u1, u2);
 
+    // value <-> s64
+    s64 s1 = -777;
+    val = value_from_s64(s1);//rprintf("s1 val %v\n", val);
+    s64 s2;
+    test_assert(s64_from_value(val, &s2));
+    test_assert(s1 == s2);//rprintf("s1=%d,s2=%d\n",s1, s2);
+
+    // value rewrites
+    val = value_from_u64(u1);
+    u1 = 888;
+    val = value_rewrite_u64(val, u1);
+    test_assert(u64_from_value(val, &u2));
+    test_assert(u1 == u2);
+
+    val = value_from_s64(s1);
+    s1 = -888;
+    val = value_rewrite_s64(val, s1);
+    test_assert(s64_from_value(val, &s2));
+    test_assert(s1 == s2);
+
+    // test range limits
+    u1 = -1ull;
+    val = value_from_u64(u1);//rprintf("u1 val %v\n", val);
+    test_assert(!is_immediate_integer(val));
+    test_assert(u64_from_value(val, &u2));
+    test_assert(u1 == u2);//rprintf("u1=%d,u2=%d\n",u1, u2);
+
+    u1 = IMM_UINT_MAX;
+    val = value_from_u64(u1);//rprintf("u1 val %v\n", val);
+    test_assert(is_immediate_integer(val));
+    test_assert(u64_from_value(val, &u2));
+    test_assert(u1 == u2);//rprintf("u1=%d,u2=%d\n",u1, u2);
+
+    s1 = S64_MIN;
+    val = value_from_s64(s1);//rprintf("s1 val %v\n", val);
+    test_assert(!is_immediate_integer(val));
+    test_assert(s64_from_value(val, &s2));
+    test_assert(s1 == s2);//rprintf("s1=%d,s2=%d\n",s1, s2);
+
+    s1 = IMM_SINT_MIN;
+    val = value_from_s64(s1);//rprintf("s1 val %v\n", val);
+    test_assert(is_immediate_integer(val));
+    test_assert(s64_from_value(val, &s2));
+    test_assert(s1 == s2);//rprintf("s1=%d,s2=%d\n",s1, s2);
+
     // tuple find
     for (u64 j1 = 0; j1 < COUNT_ELM; j1++){
-        value v2 = get(t1, intern_u64(j1)); // XXX get string or int
+        value v2 = get(t1, value_from_u64(j1)); // XXX get string or int
         u64 j2;
         test_assert(u64_from_value(v2, &j2));
         u64 j3 = j1 * 10;
@@ -75,7 +120,7 @@ boolean encode_decode_test(heap h)
     // encode
     buffer b3 = allocate_buffer(h, 128);
     tuple t3 = allocate_tuple();
-    set(t3, intern_u64(1), wrap_buffer_cstring(h, "200"));
+    set(t3, value_from_u64(1), value_from_u64(200));
 
     table tdict1 = allocate_table(h, identity_key, pointer_equal);
     u64 total_entries = 0;
@@ -106,6 +151,25 @@ boolean encode_decode_test(heap h)
     test_assert(!get(t4, intern_u64(1)));
     test_assert((total_entries == 2) && (obsolete_entries == 2));
 
+    // test signed ints
+    set(t3, integer_key(1), value_from_s64(-3));
+    total_entries = 0;
+    table_clear(tdict1);
+    encode_tuple(b3, tdict1, t3, &total_entries);
+    test_assert(buffer_length(b3) > 0);
+    test_assert(total_entries == 1);
+
+    // decode
+    total_entries = 0;
+    obsolete_entries = 0;
+    table_clear(tdict1);
+    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries);
+
+    test_assert((total_entries == 1) && (obsolete_entries == 0));
+    buffer_clear(buf);
+    bprintf(buf, "%v", t4);
+    test_assert(strncmp(buf->contents, "(1:-3)", buffer_length(buf)) == 0);
+
     destruct_value(t4, true);
     failure = false;
 fail:
@@ -121,9 +185,9 @@ boolean encode_decode_reference_test(heap h)
     buffer b3 = allocate_buffer(h, 128);
     tuple t3 = allocate_tuple();
     tuple t33 = allocate_tuple();
-    set(t33, intern_u64(1), wrap_buffer_cstring(h, "200"));
-    set(t3, intern_u64(1), t33);
-    set(t3, intern_u64(2), t33);
+    set(t33, value_from_u64(1), wrap_buffer_cstring(h, "200"));
+    set(t3, value_from_u64(1), t33);
+    set(t3, value_from_u64(2), t33);
 
     table tdict1 = allocate_table(h, identity_key, pointer_equal);
     u64 total_entries = 0;
@@ -194,7 +258,7 @@ boolean encode_decode_lengthy_test(heap h)
     tuple t3 = allocate_tuple();
     for (int i=0; i<1000; ++i)
     {
-        set(t3, intern_u64(i), wrap_buffer_cstring(h, "100"));
+        set(t3, value_from_u64(i), wrap_buffer_cstring(h, "100"));
     }
 
     table tdict1 = allocate_table(h, identity_key, pointer_equal);

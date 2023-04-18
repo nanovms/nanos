@@ -391,7 +391,7 @@ closure_function(4, 2, void, fsc,
                 deallocate_buffer(contents);
             } else {
                 if (!off)
-                    off = wrap_buffer_cstring(h, "0");
+                    off = value_from_u64(0);
                 /* make an empty file */
                 filesystem_write_eav(tfs, f, sym(extents), allocate_tuple(), false);
                 filesystem_write_eav(tfs, f, sym(filelength), off, false);

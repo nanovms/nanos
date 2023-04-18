@@ -162,7 +162,7 @@ static inline boolean parse_signed_int(buffer b, u32 base, s64 *result)
     pop_u8(b);
   }
 
-  if (!parse_int(b, base, (u64 *)result) || *result < 0)
+  if (!parse_int(b, base, (u64 *)result))
     return false;
   *result *= sign;
   return true;

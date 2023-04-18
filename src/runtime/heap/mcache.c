@@ -287,7 +287,7 @@ closure_function(2, 0, value, mcache_get_free,
 }
 
 #define register_stat(m, n, t, name)                                    \
-    v = value_from_u64(m->meta, 0);                                     \
+    v = value_from_u64(0);                                              \
     s = sym(name);                                                      \
     set(t, s, v);                                                       \
     tuple_notifier_register_get_notify(n, s, closure(m->meta, mcache_get_ ##name, m, v));

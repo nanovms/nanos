@@ -104,6 +104,8 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     /* mmu init complete; unmap temporary identity map */
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     bytes pagesize = is_low_memory_machine() ? PAGESIZE : PAGESIZE_2M;
+    init_integers(locking_heap_wrapper(heap_general(kh),
+                  allocate_tagged_region(kh, tag_integer, pagesize)));
     init_tuples(locking_heap_wrapper(heap_general(kh),
                 allocate_tagged_region(kh, tag_table_tuple, pagesize)));
     init_symbols(allocate_tagged_region(kh, tag_symbol, pagesize), heap_locked(kh));

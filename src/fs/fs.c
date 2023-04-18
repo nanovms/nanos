@@ -128,7 +128,7 @@ static inline void filesystem_set_time(filesystem fs, tuple t, symbol s,
         timestamp tim)
 {
     timestamp cur_time = 0;
-    value time_val = get_number(t, s);
+    value time_val = get(t, s);
     if (time_val) {
         u64_from_value(time_val, &cur_time);
     }
@@ -136,7 +136,7 @@ static inline void filesystem_set_time(filesystem fs, tuple t, symbol s,
         if (time_val) {
             deallocate_value(time_val);
         }
-        time_val = value_from_u64(fs->h, tim);
+        time_val = value_from_u64(tim);
         assert(time_val);
         set(t, s, time_val);
     }
@@ -161,7 +161,7 @@ u64 filesystem_get_rdev(filesystem fs, tuple t)
 
 void filesystem_set_rdev(filesystem fs, tuple t, u64 rdev)
 {
-    value rdev_val = value_from_u64(fs->h, rdev);
+    value rdev_val = value_from_u64(rdev);
     set(t, sym(rdev), rdev_val);
 }
 

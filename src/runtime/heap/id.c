@@ -426,7 +426,7 @@ closure_function(2, 0, value, id_get_free,
 }
 
 #define register_stat(i, n, t, name)                                    \
-    v = value_from_u64(i->meta, 0);                                     \
+    v = value_from_u64(0);                                              \
     s = sym(name);                                                      \
     set(t, s, v);                                                       \
     tuple_notifier_register_get_notify(n, s, closure(i->meta, id_get_ ##name, i, v));

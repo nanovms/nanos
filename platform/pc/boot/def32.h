@@ -9,6 +9,7 @@ typedef u32 bytes;
 
 // not sure if we keep word, sizeof(word) == sizeof(void **), so I guess its uintptr_t
 typedef u32 word;
+typedef s32 sword;
 
 #define U16_MAX 0xFFFF
 #define S16_MAX ((s16)(U16_MAX >> 1))
@@ -21,6 +22,11 @@ typedef u32 word;
 #define U64_MAX (~0ull)
 #define S64_MAX ((s64)(U64_MAX >> 1))
 #define S64_MIN (-S64_MAX - 1)
+
+#define IMM_UINT_MAX (1ul << (32 - 2 /* encoding */ - 1 /* no sign */))
+#define IMM_UINT_MIN (0)
+#define IMM_SINT_MAX ((s32)IMM_UINT_MAX)
+#define IMM_SINT_MIN (((s32)(1ul << 31)) >> 2) /* sign extend */
 
 typedef void *value;
 typedef u8 value_tag;

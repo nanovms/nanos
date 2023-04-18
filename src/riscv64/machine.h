@@ -9,6 +9,7 @@ typedef signed long long s64;
 typedef __uint128_t u128;
 
 typedef u64 word;
+typedef s64 sword;
 typedef u64 bytes;
 
 #define U16_MAX 0xFFFF
@@ -22,6 +23,11 @@ typedef u64 bytes;
 #define U64_MAX (~0ull)
 #define S64_MAX ((s64)(U64_MAX >> 1))
 #define S64_MIN (-S64_MAX - 1)
+
+#define IMM_UINT_MAX (1ull << (64 - 2 /* encoding */ - 1 /* no sign */))
+#define IMM_UINT_MIN (0)
+#define IMM_SINT_MAX ((s64)IMM_UINT_MAX)
+#define IMM_SINT_MIN (((s64)(1ull << 63)) >> 2) /* sign extend */
 
 #define USER_VA_TAG_OFFSET 56
 #define USER_VA_TAG_WIDTH  8
@@ -103,6 +109,16 @@ typedef u8 value_tag;
 #define PAGESIZE    U64_FROM_BIT(PAGELOG)
 #define PAGEMASK    MASK(PAGELOG)
 
+static inline __attribute__((always_inline)) u8 is_immediate(value v)
+{
+    return ((word)v & 1) != 0;
+}
+
+static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
+{
+    return ((word)v & 0x3) == 1;
+}
+
 #ifdef KERNEL
 #define KMEM_BASE        0xffff800000000000ull
 #define USER_LIMIT       0x0000800000000000ull  /* 4-level page tables -> 48-bit addresses */
@@ -115,8 +131,12 @@ static inline __attribute__((always_inline)) value tag(void *v, value_tag t) {
                             u64_from_pointer(v));
 }
 
-static inline __attribute__((always_inline)) value_tag tagof(value v) {
-    return (u64_from_pointer(v) >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
+static inline __attribute__((always_inline)) value_tag tagof(void* v) {
+    u64 x = u64_from_pointer(v);
+    /* only ints now, bit 1 reserved for future immediate types */
+    if (is_immediate_integer(v))
+        return tag_integer;
+    return (x >> VA_TAG_OFFSET) & ((1ull << VA_TAG_WIDTH) - 1);
 }
 
 #else
@@ -129,6 +149,8 @@ static inline void *tag(void *v, u8 tval)
 
 static inline u8 tagof(void *v)
 {
+    if (is_immediate_integer(v))
+        return tag_integer;
     return *((u8 *)v-1);
 }
 
@@ -155,6 +177,29 @@ static inline __attribute__((always_inline)) u64 lsb(u64 x)
         if ((x>>i) & 1)
             return i;
     return -1ull;
+}
+
+/* to appease UBSAN */
+#define _IMMASK (-1ull >> 2)
+
+static inline __attribute__((always_inline)) void *tagged_immediate_unsigned(word n)
+{
+    return (void*)(((n & _IMMASK) << 2) | 1);
+}
+
+static inline __attribute__((always_inline)) void *tagged_immediate_signed(sword n)
+{
+    return (void*)(((n & _IMMASK) << 2) | 1);
+}
+
+static inline __attribute__((always_inline)) u64 u64_from_tagged_immediate(void *v)
+{
+    return (u64)v >> 2;
+}
+
+static inline __attribute__((always_inline)) s64 s64_from_tagged_immediate(void *v)
+{
+    return (s64)v >> 2;
 }
 
 static inline __attribute__((always_inline)) void compiler_barrier(void)

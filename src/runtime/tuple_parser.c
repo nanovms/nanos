@@ -108,10 +108,10 @@ closure_function(3, 1, parser, terminal,
 }
 
 closure_function(3, 1, parser, value_complete,
-                 value, e, symbol, name, parser, check,
+                 value, e, value, a, parser, check,
                  void *, v)
 {
-    set(bound(e), bound(name), v);
+    set(bound(e), bound(a), v);
     parser c = bound(check);
     closure_finish();
     return c;
@@ -243,7 +243,7 @@ static parser is_end_of_vector(struct _closure_is_end_of_vector *__self, charact
     heap h = bound(h);
     // keep index also
     if (in != ']') {
-        completion vc = closure(h, value_complete, bound(v), intern_u64(*bound(index)), (parser)closure_self());
+        completion vc = closure(h, value_complete, bound(v), integer_key(*bound(index)), (parser)closure_self());
         (*bound(index))++;
         // doesnt handle whitespace before end
         return apply(ignore_whitespace(h, (parser)closure(h, parse_value, h, vc, bound(e))), in);
