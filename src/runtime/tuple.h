@@ -22,6 +22,7 @@ value get(value e, value a);
 void set(value e, value a, value v);
 boolean iterate(value e, binding_handler h);
 
+void init_integers(heap iheap);
 void init_tuples(heap theap);
 int tuple_count(tuple t);
 symbol tuple_get_symbol(tuple t, value v);
@@ -36,6 +37,9 @@ void *decode_value(heap h, table dictionary, buffer source, u64 *total,
                    u64 *obsolete);
 void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
                 u64 *obsolete);
+
+value indirect_integer_from_u64(u64 n);
+value indirect_integer_from_s64(s64 n);
 
 static inline boolean is_tuple(value v)
 {
@@ -58,27 +62,74 @@ static inline boolean is_vector(value v)
     return tagof(v) == tag_vector;
 }
 
-// seriously reconsider types allowed in tuples.. in particular simple
-// ints have an anambiguous translation back and forth to strings (?)
+static inline boolean is_untyped(value v)
+{
+    return tagof(v) == tag_unknown;
+}
+
+static inline boolean is_integer(value v)
+{
+    return tagof(v) == tag_integer;
+}
+
 static inline boolean u64_from_value(value v, u64 *result)
 {
-    if (!is_string(v))
+    if (is_immediate_integer(v)) {
+        *result = u64_from_tagged_immediate(v);
+        return true;
+    }
+    if (!(is_string(v) || is_integer(v) || is_untyped(v)))
         return false;
     return parse_int(alloca_wrap((buffer)v), 10, result);
 }
 
-static inline value value_from_u64(heap h, u64 n)
+static inline boolean s64_from_value(value v, s64 *result)
 {
-    value result = allocate_buffer(h, 10);
-    print_number((buffer)result, n, 10, 0);
-    return result;
+    if (is_immediate_integer(v)) {
+        *result = s64_from_tagged_immediate(v);
+        return true;
+    }
+    if (!(is_string(v) || is_integer(v) || is_untyped(v)))
+        return false;
+    return parse_signed_int(alloca_wrap((buffer)v), 10, result);
+}
+
+static inline value value_from_u64(u64 n)
+{
+    if (n > IMM_UINT_MAX)
+        return indirect_integer_from_u64(n);
+    return tagged_immediate_unsigned(n);
+}
+
+static inline value value_from_s64(s64 n)
+{
+    if (n > IMM_SINT_MAX || n < IMM_SINT_MIN)
+        return indirect_integer_from_s64(n);
+    return tagged_immediate_signed(n);
+}
+
+static inline value integer_key(u64 n)
+{
+    return value_from_u64(n);
 }
 
 static inline value value_rewrite_u64(value v, u64 n)
 {
-    assert(is_string(v));
+    if (is_immediate_integer(v))
+        return tagged_immediate_unsigned(n);
+    assert(is_string(v) || is_integer(v) || is_untyped(v));
     buffer_clear((buffer)v);
     print_number((buffer)v, n, 10, 0);
+    return v;
+}
+
+static inline value value_rewrite_s64(value v, s64 n)
+{
+    if (is_immediate_integer(v))
+        return tagged_immediate_signed(n);
+    assert(is_string(v) || is_integer(v) || is_untyped(v));
+    buffer_clear((buffer)v);
+    print_signed_number((buffer)v, n, 10, 0);
     return v;
 }
 
@@ -114,18 +165,12 @@ static inline string get_string(value e, symbol a)
     return (v && is_string(v)) ? v : 0;
 }
 
-/* TODO - change to validate number type */
-static inline string get_number(value e, symbol a)
-{
-    return get_string(e, a);
-}
-
 static inline boolean get_u64(value e, symbol a, u64 *result)
 {
-    string s = get_number(e, a);
-    if (!s)
+    value v = get(e, a);
+    if (!v)
         return false;
-    return u64_from_value(s, result);
+    return u64_from_value(v, result);
 }
 
 /* really just for parser output */
@@ -134,9 +179,22 @@ static inline boolean is_null_string(value v)
     return is_string(v) && buffer_length(v) == 0;
 }
 
-static inline boolean u64_from_attribute(value a, u64 *x)
+static inline symbol sym_from_attribute(value a)
 {
     if (is_symbol(a))
+        return a;
+    u64 x;
+    if (u64_from_value(a, &x))
+        return intern_u64(x);
+    return 0;
+}
+
+static inline boolean u64_from_attribute(value a, u64 *x)
+{
+    /* must check if immediate first; if so, tagof not valid boot targets */
+    if (is_immediate_integer(a))
+        return u64_from_value(a, x);
+    if (is_symbol(a) || is_integer(a))
         return parse_int(alloca_wrap(symbol_string(a)), 10, x);
     return false;
 }

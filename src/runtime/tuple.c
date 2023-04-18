@@ -8,33 +8,66 @@
 #endif
 
 BSS_RO_AFTER_INIT static heap theap;
+BSS_RO_AFTER_INIT static heap iheap;
 
 // use runtime tags directly?
-#define type_buffer 0
-#define type_tuple 1
-#define type_vector 2
+#define type_buffer  0
+#define type_tuple   1
+#define type_vector  2
+#define type_integer 3
 
 #define immediate 1
 #define reference 0
+
+const char *tag_names[tag_max] = {
+    "unknown",
+    "string",
+    "symbol",
+    "table-backed tuple",
+    "function-backed tuple",
+    "vector",
+    "integer"
+};
+
+static inline void validate_tag_type(const char * fn, value v, u16 tag)
+{
+    if (tag >= tag_max)
+        halt("%s: value %p has invalid tag type %d\n", fn, v, tag);
+}
+
+value indirect_integer_from_u64(u64 n)
+{
+    buffer result = allocate_buffer(iheap, 10);
+    print_number(result, n, 10, 0);
+    return (value)result;
+}
+
+value indirect_integer_from_s64(s64 n)
+{
+    buffer result = allocate_buffer(iheap, 10);
+    print_signed_number(result, n, 10, 0);
+    return (value)result;
+}
 
 value get(value e, value a)
 {
     u16 tag = tagof(e);
     tuple t = (tuple)e;
+    validate_tag_type(__func__, e, tag);
+
     switch (tag) {
     case tag_table_tuple:
-        return is_symbol(a) ? table_find(&t->t, a) : 0;
+        return (a = sym_from_attribute(a)) ? table_find(&t->t, a) : 0;
     case tag_function_tuple:
         return apply(t->f.g, a);
     case tag_vector: {
         u64 i;
-        if (!is_symbol(a) ||
-            !parse_int(alloca_wrap(symbol_string(a)), 10, &i))
-            return 0;
-        return vector_get((vector)e, i);
+        if (u64_from_attribute(a, &i))
+            return vector_get((vector)e, i);
+        return 0;
     }
     default:
-        assert(0);
+        halt("cannot get from %s value (e %p, a %p)\n", tag_names[tag], e, a);
     }
 }
 
@@ -42,9 +75,11 @@ void set(value e, value a, value v)
 {
     u16 tag = tagof(e);
     tuple t = (tuple)e;
+    validate_tag_type(__func__, e, tag);
+
     switch (tag) {
     case tag_table_tuple:
-        assert(is_symbol(a));
+        assert(a = sym_from_attribute(a));
         table_set(&t->t, a, v);
         break;
     case tag_function_tuple:
@@ -52,12 +87,12 @@ void set(value e, value a, value v)
         break;
     case tag_vector: {
         u64 i;
-        assert(is_symbol(a) && parse_int(alloca_wrap(symbol_string(a)), 10, &i));
+        assert(u64_from_attribute(a, &i));
         vector_set((vector)e, i, v);
         break;
     }
     default:
-        assert(0);
+        halt("cannot set on %s value (e %p, a %p, v %p)\n", tag_names[tag], e, a, v);
     }
 }
 
@@ -65,6 +100,7 @@ boolean iterate(value e, binding_handler h)
 {
     u16 tag = tagof(e);
     tuple t = (tuple)e;
+    validate_tag_type(__func__, e, tag);
     switch (tag) {
     case tag_table_tuple:
         table_foreach(&t->t, a, v) {
@@ -77,13 +113,13 @@ boolean iterate(value e, binding_handler h)
     case tag_vector: {
         for (int i = 0; i < vector_length((vector)e); i++) {
             value v = vector_get((vector)e, i);
-            if (!apply(h, intern_u64(i), v))
+            if (!apply(h, integer_key(i), v))
                 return false;
         }
         return true;
     }
     default:
-        assert(0);
+        halt("cannot iterate on %s value (e %p, h %p)\n", tag_names[tag], e, h);
     }
 }
 
@@ -107,7 +143,7 @@ int tuple_count(tuple t)
         apply(t->f.i, stack_closure(tuple_count_each, &count));
         return count;
     default:
-        assert(0);
+        halt("%s: t %p is not a tuple (tag %d)\n", __func__, t, tag);
     }
 }
 
@@ -312,9 +348,14 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
             v = pop_indirect_value(dictionary, source);
         }
         for (int i = 0; i < len; i++)
-            set_new_value(v, intern_u64(i), h, dictionary, source, total, obsolete);
+            set_new_value(v, integer_key(i), h, dictionary, source, total, obsolete);
         tuple_debug("decode_value: decoded vector %v\n", v);
         return v;
+    } else if (type == type_integer) {
+        assert(imm == immediate);
+        s64 n = (s64)pop_varint(source);
+        tuple_debug("decode_value: decoded integer %ld\n", n);
+        return value_from_s64(n);
     } else {
         if (len == 0)
             return 0;
@@ -349,6 +390,7 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
 
 static void encode_tuple_internal(buffer dest, table dictionary, tuple t, u64 *total, table visited);
 static void encode_vector_internal(buffer dest, table dictionary, vector v, u64 *total, table visited);
+static void encode_integer(buffer dest, s64 x);
 static void encode_value_internal(buffer dest, table dictionary, value v, u64 *total, table visited)
 {
     if (!v) {
@@ -357,6 +399,10 @@ static void encode_value_internal(buffer dest, table dictionary, value v, u64 *t
         encode_tuple_internal(dest, dictionary, (tuple)v, total, visited);
     } else if (is_vector(v)) {
         encode_vector_internal(dest, dictionary, (vector)v, total, visited);
+    } else if (is_integer(v)) {
+        s64 x;
+        assert(s64_from_value(v, &x));
+        encode_integer(dest, x);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
         assert(push_buffer(dest, (buffer)v));
@@ -470,7 +516,6 @@ closure_function(4, 2, boolean, encode_vector_each,
                  buffer, dest, table, dictionary, u64 *, total, table, visited,
                  value, a, value, v)
 {
-    assert(is_symbol(a));
     tuple_debug("   a %v, v %p, tag %d\n", a, v, tagof(v));
     if (no_encode(v))
         v = 0;                  /* must retain order - encode null instead? */
@@ -502,6 +547,14 @@ static void encode_vector_internal(buffer dest, table dictionary, vector v, u64 
     }
 }
 
+/* we encode everything as a signed integer, as unsigned ints are capped at IMM_UINT_MAX */
+void encode_integer(buffer dest, s64 x)
+{
+    tuple_debug("%s: dest %p, x %ld\n", __func__, dest, x);
+    push_header(dest, immediate, type_integer, 0);
+    push_varint(dest, (u64)x);
+}
+
 void deallocate_value(value v)
 {
     value_tag tag = tagof(v);
@@ -522,9 +575,18 @@ void deallocate_value(value v)
     case tag_vector:
         deallocate_vector((vector)v);
         break;
+    case tag_integer:
+        if (!is_immediate(v))
+            deallocate_buffer((buffer)v);
+        break;
     default:
         halt("%s: unknown tag type %d\n", __func__, tag);
     }
+}
+
+void init_integers(heap h)
+{
+    iheap = h;
 }
 
 void init_tuples(heap h)

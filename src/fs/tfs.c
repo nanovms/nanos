@@ -66,21 +66,9 @@ void fixup_directory(tuple parent, tuple n)
     set(n, sym_this(".."), parent);
 }
 
-static inline boolean ingest_parse_int(tuple value, symbol s, u64 * i)
+static inline boolean ingest_parse_int(tuple e, symbol a, u64 * i)
 {
-    buffer b = get(value, s);
-    // XXX type
-    /* bark, because these shouldn't really happen */
-    if (!b) {
-        msg_err("value missing %b\n", symbol_string(s));
-        return false;
-    }
-
-    /* XXX gross, but we're having issues with too many allocas in stage2 */
-    bytes start = b->start;
-    boolean retval = parse_int(b, 10, i);
-    b->start = start;
-    return retval;
+    return get_u64(e, a, i);
 }
 
 static inline extent allocate_extent(heap h, range file_blocks, range storage_blocks)
@@ -212,7 +200,7 @@ static boolean enumerate_dir_entries(tfs fs, tuple t)
         if (f == INVALID_ADDRESS)
             return false;
         table_set(fs->files, t, f);
-        string filelength = get(t, sym(filelength));
+        value filelength = get(t, sym(filelength));
         u64 len;
         if (filelength && u64_from_value(filelength, &len))
             fsfile_set_length(&f->f, len);
@@ -408,7 +396,7 @@ fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean clean
 static fs_status tfs_truncate(filesystem fs, fsfile f, u64 len)
 {
     if (f->md) {
-        value v = value_from_u64(fs->h, len);
+        value v = value_from_u64(len);
         if (v == INVALID_ADDRESS)
             return FS_STATUS_NOMEM;
         symbol l = sym(filelength);
@@ -482,7 +470,6 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
     tuple md = f->f.md;
     if (md) {
         tfs fs = tfs_from_file(f);
-        heap h = fs->fs.h;
         tuple extents;
         symbol a = sym(extents);
         if (!(extents = get_tuple(md, a))) {
@@ -498,9 +485,9 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
         // XXX encode this as an immediate bitstring
         tuple e = allocate_tuple();
         ex->md = e;
-        set(e, sym(offset), value_from_u64(h, ex->start_block));
-        set(e, sym(length), value_from_u64(h, range_span(ex->node.r)));
-        set(e, sym(allocated), value_from_u64(h, ex->allocated));
+        set(e, sym(offset), value_from_u64(ex->start_block));
+        set(e, sym(length), value_from_u64(range_span(ex->node.r)));
+        set(e, sym(allocated), value_from_u64(ex->allocated));
         if (ex->uninited == INVALID_ADDRESS)
             set(e, sym(uninited), null_value);
         symbol offs = intern_u64(ex->node.r.start);
@@ -705,7 +692,7 @@ static fs_status update_extent(tfsfile f, extent ex, symbol l, u64 val)
 {
     if (f->f.md) {
         assert(ex->md);
-        value v = value_from_u64(f->f.fs->h, val);
+        value v = value_from_u64(val);
         fs_status s = filesystem_write_eav(tfs_from_file(f), ex->md, l, v, false);
         if (s != FS_STATUS_OK)
             return s;

@@ -244,6 +244,8 @@ static void __attribute__((noinline)) init_service_new_stack()
     early_init_debug("in init_service_new_stack");
     init_page_tables((heap)heap_linear_backed(kh));
     bytes pagesize = is_low_memory_machine() ? PAGESIZE : PAGESIZE_2M;
+    init_integers(locking_heap_wrapper(heap_general(kh),
+                  allocate_tagged_region(kh, tag_integer, pagesize)));
     init_tuples(locking_heap_wrapper(heap_general(kh),
                 allocate_tagged_region(kh, tag_table_tuple, pagesize)));
     init_symbols(allocate_tagged_region(kh, tag_symbol, pagesize), heap_locked(kh));

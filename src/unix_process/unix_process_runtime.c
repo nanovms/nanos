@@ -180,6 +180,7 @@ heap init_process_runtime()
     platform_monotonic_now = closure(h, unix_now);
     init_random(h);
     init_runtime(h, h);
+    init_integers(allocate_tagged_region(h, tag_integer));
     init_tuples(allocate_tagged_region(h, tag_table_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
     init_vectors(allocate_tagged_region(h, tag_vector), h);

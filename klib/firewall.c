@@ -562,7 +562,7 @@ int init(status_handler complete)
     list_init(&firewall.rules);
     value rule_spec;
     heap h = heap_locked(get_kernel_heaps());
-    for (int i = 0; (rule_spec = get(rules, intern_u64(i))); i++) {
+    for (int i = 0; (rule_spec = get(rules, integer_key(i))); i++) {
         if (!firewall_create_rule(h, rule_spec))
             goto err_dealloc_rules;
     }

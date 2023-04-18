@@ -249,7 +249,7 @@ closure_function(0, 1, void, telemetry_crash_recv,
         value resp = get(v, sym(start_line));
         if (resp) {
             buffer word;
-            for (u64 i = 0; (word = get(resp, intern_u64(i))); i++)
+            for (u64 i = 0; (word = get(resp, integer_key(i))); i++)
                 if (buffer_strstr(word, "OK") == 0) {
                     telemetry.dump_done = true;
                     break;

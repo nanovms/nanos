@@ -238,10 +238,10 @@ closure_function(1, 1, value, tuple_notifier_get,
                  tuple_notifier, tn,
                  value, a)
 {
+    symbol s;
     get_value_notify n;
-    if (!is_symbol(a))
-        return 0;
-    if (bound(tn)->get_notifys && (n = table_find(bound(tn)->get_notifys, a)))
+    if (bound(tn)->get_notifys &&
+        ((s = sym_from_attribute(a)) && (n = table_find(bound(tn)->get_notifys, s))))
         return apply(n);
     else
         return get(bound(tn)->parent, a); /* transparent */
@@ -251,10 +251,11 @@ closure_function(1, 2, void, tuple_notifier_set,
                  tuple_notifier, tn,
                  value, a, value, v)
 {
-    assert(is_symbol(a));
     /* check for notify */
-    set_value_notify vh = table_find(bound(tn)->set_notifys, a);
-    if (vh) {
+    set_value_notify vh;
+    symbol s = sym_from_attribute(a);
+    assert(s);
+    if ((vh = table_find(bound(tn)->set_notifys, s))) {
         if (!apply(vh, v))
             return;             /* setting of value not allowed */
     }
@@ -263,10 +264,11 @@ closure_function(1, 2, void, tuple_notifier_set,
 
 closure_function(2, 2, boolean, tuple_notifier_iterate_each,
                  tuple_notifier, tn, binding_handler, h,
-                 value, s, value, v)
+                 value, a, value, v)
 {
     get_value_notify n;
-    assert(is_symbol(s));
+    symbol s = sym_from_attribute(a);
+    assert(s);
     if (bound(tn)->get_notifys && (n = table_find(bound(tn)->get_notifys, s)))
         v = apply(n);
     return apply(bound(h), s, v);

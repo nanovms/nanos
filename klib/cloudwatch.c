@@ -202,7 +202,7 @@ closure_function(1, 1, void, cw_logstream_vh,
     value resp = get(v, sym(start_line));
     if (resp) {
         buffer word;
-        for (u64 i = 0; (word = get(resp, intern_u64(i))); i++)
+        for (u64 i = 0; (word = get(resp, integer_key(i))); i++)
             if (buffer_strstr(word, "OK") == 0)
                 goto success;
     }
@@ -328,7 +328,7 @@ closure_function(1, 1, void, cw_loggroup_vh,
     value resp = get(v, sym(start_line));
     if (resp) {
         buffer word;
-        for (u64 i = 0; (word = get(resp, intern_u64(i))); i++)
+        for (u64 i = 0; (word = get(resp, integer_key(i))); i++)
             if (buffer_strstr(word, "OK") == 0)
                 goto success;
     }

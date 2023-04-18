@@ -181,7 +181,7 @@ closure_function(1, 1, void, gcp_access_token_vh,
                  value, v)
 {
     value resp = get(v, sym(start_line));
-    buffer status_code = get(resp, intern_u64(1));
+    buffer status_code = get(resp, integer_key(1));
     buffer content = get(v, sym(content));
     status s;
     if (!status_code || buffer_strcmp(status_code, "200")) {
@@ -517,7 +517,7 @@ define_closure_function(0, 1, void, gcp_log_vh,
                         value, v)
 {
     value resp = get(v, sym(start_line));
-    buffer status_code = get(resp, intern_u64(1));
+    buffer status_code = get(resp, integer_key(1));
     if (status_code) {
         if (!buffer_strcmp(status_code, "200")) {
             gcp_log_pending_delete();
@@ -790,7 +790,7 @@ define_closure_function(0, 1, void, gcp_metrics_value_handler,
                         value, v)
 {
     value resp = get(v, sym(start_line));
-    buffer status_code = get(resp, intern_u64(1));
+    buffer status_code = get(resp, integer_key(1));
     if (status_code) {
         if (!buffer_strcmp(status_code, "401")) {
             /* The access token must have expired: renew it. */

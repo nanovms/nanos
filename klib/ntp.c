@@ -839,7 +839,7 @@ int init(status_handler complete)
     assert(ntp.servers != INVALID_ADDRESS);
     if (servers) {
         string server;
-        for (int i = 0; (server = get_string(servers, intern_u64(i))); i++) {
+        for (int i = 0; (server = get_string(servers, integer_key(i))); i++) {
             if (!ntp_server_parse(h, server)) {
                 rprintf("NTP: invalid server '%b'\n", server);
                 return KLIB_INIT_FAILED;

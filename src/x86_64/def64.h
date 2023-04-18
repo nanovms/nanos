@@ -9,6 +9,7 @@ typedef long long s64;
 typedef __uint128_t u128;
 
 typedef u64 word;
+typedef s64 sword;
 typedef u64 bytes;
 
 #define U16_MAX 0xFFFF
@@ -22,6 +23,11 @@ typedef u64 bytes;
 #define U64_MAX (~0ull)
 #define S64_MAX ((s64)(U64_MAX >> 1))
 #define S64_MIN (-S64_MAX - 1)
+
+#define IMM_UINT_MAX (1ull << (64 - 2 /* encoding */ - 1 /* no sign */))
+#define IMM_UINT_MIN (0)
+#define IMM_SINT_MAX ((s64)IMM_UINT_MAX)
+#define IMM_SINT_MIN (((s64)(1ull << 63)) >> 2) /* sign extend */
 
 typedef void *value;
 typedef u8 value_tag;

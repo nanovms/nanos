@@ -68,8 +68,8 @@ closure_function(2, 0, value, reservelock_get_free,
     return value_rewrite_u64(bound(v), heap_free((heap)bound(rl)));
 }
 
-#define register_stat(rl, n, t, name)                                    \
-    v = value_from_u64(rl->meta, 0);                                     \
+#define register_stat(rl, n, t, name)                                   \
+    v = value_from_u64(0);                                              \
     s = sym(name);                                                      \
     set(t, s, v);                                                       \
     tuple_notifier_register_get_notify(n, s, closure(rl->meta, reservelock_get_ ##name, rl, v));

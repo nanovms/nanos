@@ -21,7 +21,7 @@ closure_function(2, 1, void, aws_metadata_recv,
     buffer content = 0;
     if (resp) {
         buffer word;
-        for (u64 i = 0; (word = get(resp, intern_u64(i))); i++)
+        for (u64 i = 0; (word = get(resp, integer_key(i))); i++)
             if (!buffer_strcmp(word, "OK")) {
                 content = get(v, sym(content));
                 break;

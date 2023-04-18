@@ -86,7 +86,7 @@ static int cloud_init_parse_vector(value config, int (*parse_each)(tuple, vector
         return KLIB_INIT_FAILED;
     /* allow parsing either tuple or vector for backward compatibility with older ops/tfs... */
     value v;
-    for (int i = 0; (v = get(config, intern_u64(i))); i++) {
+    for (int i = 0; (v = get(config, integer_key(i))); i++) {
         if (!is_tuple(v))
             return KLIB_INIT_FAILED;
         int ret = parse_each(v, tasks);
@@ -189,7 +189,7 @@ closure_function(4, 1, void, cloud_download_save,
     buffer content;
     if (*bound(received) == 0) {
         value start_line = get(v, sym(start_line));
-        buffer status_code = get(start_line, sym(1));
+        buffer status_code = get(start_line, integer_key(1));
         if (!status_code || (buffer_length(status_code) < 1) || (byte(status_code, 0) != '2')) {
             /* HTTP status code 2xx not found. */
             s = timm("result", "%s: unexpected server response %v", __func__, start_line);
@@ -550,7 +550,7 @@ define_closure_function(1, 1, void, cloud_download_setenv,
 {
     cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, setenv);
     value start_line = get(v, sym(start_line));
-    buffer status_code = get(start_line, sym(1));
+    buffer status_code = get(start_line, integer_key(1));
     if (!status_code || (buffer_length(status_code) < 1) || (byte(status_code, 0) != '2')) {
         /* HTTP status code 2xx not found */
         *bound(s) = timm("result", "cloud_init download_env: unexpected server response %v",
