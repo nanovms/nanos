@@ -360,7 +360,7 @@ static boolean is_special(tuple n)
 }
 
 closure_function(9, 2, void, sendfile_bh,
-                 fdesc, in, fdesc, out, int *, offset, sg_list, sg, sg_buf, cur_buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
+                 fdesc, in, fdesc, out, long *, offset, sg_list, sg, sg_buf, cur_buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
                  thread, t, sysreturn, rv)
 {
     thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
@@ -440,7 +440,7 @@ out_complete:
 #define SENDFILE_READ_MAX (64 * KB)
 
 /* requires infile to have sg_read method - so sendfile from special files isn't supported */
-static sysreturn sendfile(int out_fd, int in_fd, int *offset, bytes count)
+static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
 {
     thread_log(current, "%s: out %d, in %d, offset %p, *offset %d, count %ld",
                __func__, out_fd, in_fd, offset, offset ? *offset : 0, count);
