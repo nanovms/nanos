@@ -1,5 +1,3 @@
-#define PAGEMASK MASK(PAGELOG)
-
 #define PAGE_L0_3_DESC_VALID                      0x1
 #define PAGE_L0_2_DESC_TABLE                      0x2 /* vs block */
 #define PAGE_L1_4K_BLOCK_DESC_OUT_ADDR_SHIFT      30

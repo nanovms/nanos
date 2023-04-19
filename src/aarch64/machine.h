@@ -23,6 +23,10 @@ typedef u64 bytes;
 #define S64_MAX ((s64)(U64_MAX >> 1))
 #define S64_MIN (-S64_MAX - 1)
 
+#define PAGELOG     12
+#define PAGESIZE    U64_FROM_BIT(PAGELOG)
+#define PAGEMASK    MASK(PAGELOG)
+
 #define USER_VA_TAG_OFFSET 56
 #define USER_VA_TAG_WIDTH  8
 

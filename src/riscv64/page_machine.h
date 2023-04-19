@@ -1,5 +1,3 @@
-#define PAGEMASK MASK(PAGELOG)
-
 extern u64 tablebase;
 
 static inline u64 get_pagetable_base(u64 vaddr)

@@ -1374,15 +1374,7 @@ boolean fault_in_user_memory(const void *buf, bytes length,
         return false;
 
     /* Fault in non-present pages by touching each page in buffer */
-    u64 addr = u64_from_pointer(buf);
-    volatile u8 *bp = pointer_from_u64(addr & ~PAGEMASK),
-        *end = pointer_from_u64(pad((addr + length), PAGESIZE));
-    while (bp < end) {
-        /* We always support reading regardless of flags... */
-        (void)*bp;
-        bp += PAGESIZE;
-    }
-    memory_barrier();
+    touch_memory(buf, length);
     return true;
 }
 

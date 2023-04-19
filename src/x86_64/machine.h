@@ -43,6 +43,10 @@ static inline u8 tagof(void *v)
 #endif
 #endif
 
+#define PAGELOG     12
+#define PAGESIZE    U64_FROM_BIT(PAGELOG)
+#define PAGEMASK    MASK(PAGELOG)
+
 static inline __attribute__((always_inline)) void compiler_barrier(void)
 {
     asm volatile("" ::: "memory");

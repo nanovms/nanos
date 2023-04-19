@@ -19,8 +19,6 @@ typedef u64 timestamp;
 #define INVALID_PHYSICAL ((u64)infinity)
 #define INVALID_ADDRESS ((void *)infinity)
 
-#define PAGELOG 12
-#define PAGESIZE U64_FROM_BIT(PAGELOG)
 #define PAGELOG_2M 21
 #define PAGESIZE_2M U64_FROM_BIT(PAGELOG_2M)
 
@@ -107,6 +105,18 @@ static inline void console(const char *s)
 static inline void zero(void *x, bytes length)
 {
     runtime_memset(x, 0, length);
+}
+
+static inline void touch_memory(const void *x, bytes length)
+{
+    u64 addr = u64_from_pointer(x);
+    volatile u8 *bp = pointer_from_u64(addr & ~PAGEMASK),
+        *end = pointer_from_u64(pad((addr + length), PAGESIZE));
+    while (bp < end) {
+        (void)*bp;
+        bp += PAGESIZE;
+    }
+    memory_barrier();
 }
 
 typedef struct heap *heap;

@@ -99,6 +99,10 @@ __bswap64(u64 _x)
 typedef void *value;
 typedef u8 value_tag;
 
+#define PAGELOG     12
+#define PAGESIZE    U64_FROM_BIT(PAGELOG)
+#define PAGEMASK    MASK(PAGELOG)
+
 #ifdef KERNEL
 #define KMEM_BASE        0xffff800000000000ull
 #define USER_LIMIT       0x0000800000000000ull  /* 4-level page tables -> 48-bit addresses */
