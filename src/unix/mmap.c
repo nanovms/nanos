@@ -103,6 +103,8 @@ define_closure_function(1, 1, void, pending_fault_complete,
     rbtree_remove_node(&p->pending_faults, &pf->n);
     list_insert_after(&mmap_info.pf_freelist, &pf->l_free);
     spin_unlock_irq(&p->faulting_lock, flags);
+    if (!is_ok(s))
+        timm_dealloc(s);
 }
 
 static pending_fault new_pending_fault_locked(process p, u64 addr)
@@ -157,9 +159,12 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
 
 static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
 {
+    status_handler completion = (status_handler)&pf->complete;
     if (new_zeroed_pages(vaddr & ~MASK(PAGELOG), PAGESIZE, pageflags_from_vmflags(vm->flags),
-                         (status_handler)&pf->complete) == INVALID_PHYSICAL)
+                         completion) == INVALID_PHYSICAL) {
+        apply(completion, timm("result", "out of memory"));
         return false;
+    }
     count_minor_fault();
     return true;
 }
@@ -207,8 +212,10 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
 
     u64 padlen = pad(pagecache_get_node_length(vm->cache_node), PAGESIZE);
     pf_debug("   map length 0x%lx\n", padlen);
+    status_handler completion = (status_handler)&pf->complete;
     if (node_offset >= padlen) {
         pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", padlen);
+        apply(completion, timm("result", "out of range page"));
         deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
         if (is_thread_context(ctx))
             goto sched_thread_return;
@@ -220,8 +227,7 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
              vm->node.r.start, node_offset);
     }
 
-    if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags,
-                                     (status_handler)&pf->complete)) {
+    if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags, completion)) {
         pf_debug("   immediate completion\n");
         count_minor_fault();
         if (is_thread_context(ctx))
