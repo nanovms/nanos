@@ -39,6 +39,10 @@ static void pt_test_update_flags(heap vh, heap ph)
         ((u8 *)v)[size - 1] = 0;
         assert(traverse_ptes(v, size, stack_closure(pt_test_entry_handler, true)));
 
+        /* back to read-only mapping */
+        update_map_flags(v, size, ro_flags);
+        assert(traverse_ptes(v, size, stack_closure(pt_test_entry_handler, false)));
+
         unmap(v, size);
         deallocate_u64(ph, p, size);
         vector_push(virt, pointer_from_u64(v));

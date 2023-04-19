@@ -46,7 +46,7 @@ SECTIONS
             *(.sbss)
             *(.sbss.*)
         }
-        .bss ALIGN(8): AT(ADDR(.bss) - LOAD_OFFSET)
+        .bss ALIGN(4096): AT(ADDR(.bss) - LOAD_OFFSET)
         {
             bss_ro_after_init_start = .;
             *(.bss.ro_after_init)

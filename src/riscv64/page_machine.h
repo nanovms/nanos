@@ -21,7 +21,7 @@ static inline u64 get_pagetable_base(u64 vaddr)
 #define PAGE_DIRTY      U64_FROM_BIT(7)
 #define PAGE_NO_BLOCK   U64_FROM_BIT(8) // RSW[0]
 #define PAGE_DEFAULT_PERMISSIONS (PAGE_READABLE)
-#define PAGE_PROT_FLAGS (PAGE_USER | PAGE_READABLE)
+#define PAGE_PROT_FLAGS (PAGE_USER | PAGE_EXEC | PAGE_WRITABLE)
 
 #define PAGE_FLAGS_MASK 0x3ff
 
