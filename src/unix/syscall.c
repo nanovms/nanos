@@ -521,6 +521,7 @@ closure_function(7, 1, void, file_read_complete,
         sg_list_release(sg);
         deallocate_sg_list(sg);
         rv = sysreturn_from_fs_status_value(s);
+        timm_dealloc(s);
     }
     apply(bound(completion), bound(t), rv);
     closure_finish();
