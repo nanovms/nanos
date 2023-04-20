@@ -47,12 +47,14 @@ boolean setup_sigframe(thread t, int signum, struct siginfo *si)
     sp = sp & ~15;
 
     /* create space for rt_sigframe */
-    if ((sp = grow_and_validate_stack(t, sp, pad(sizeof(struct rt_sigframe), 16))) == INVALID_PHYSICAL)
-        return false;
+    sp -= pad(sizeof(struct rt_sigframe), 16);
 
     /* setup sigframe for user sig trampoline */
     struct rt_sigframe *frame = (struct rt_sigframe *)sp;
 
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
+        return false;
     setup_ucontext(&frame->uc, t);
     setup_ucontext_fpsimd(&frame->uc, t);   // XXX should only be sometimes
 
@@ -64,6 +66,7 @@ boolean setup_sigframe(thread t, int signum, struct siginfo *si)
         f[FRAME_A1] = 0;
         f[FRAME_A2] = 0;
     }
+    context_clear_err(ctx);
     f[FRAME_SP] = sp;
 
     /* setup regs for signal handler */

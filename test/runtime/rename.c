@@ -9,6 +9,8 @@
 
 #include "runtime.h"
 
+#define FAULT_ADDR  ((void *)0xBADF0000)
+
 #define test_assert(expr) do { \
     if (!(expr)) { \
         printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
@@ -60,6 +62,8 @@ static void test_renameat(int olddirfd, int newdirfd)
     int fd = openat(olddirfd, "file1", O_CREAT, S_IRWXU);
     test_assert(fd >= 0);
     close(fd);
+    test_assert((renameat(olddirfd, FAULT_ADDR, newdirfd, "file2") < 0) && (errno == EFAULT));
+    test_assert((renameat(olddirfd, "file1", newdirfd, FAULT_ADDR) < 0) && (errno == EFAULT));
     test_assert(renameat(olddirfd, "file1", newdirfd, "file2") == 0);
     test_assert((fstatat(olddirfd, "file1", &s, 0) < 0) && (errno == ENOENT));
     test_assert(fstatat(newdirfd, "file2", &s, 0) == 0);
@@ -82,6 +86,10 @@ static void test_renameat2(int olddirfd, int newdirfd)
             RENAME_NOREPLACE | RENAME_EXCHANGE) < 0) && (errno == EINVAL));
     test_assert((syscall(SYS_renameat2, olddirfd, "file", newdirfd, "dir",
             (unsigned int)-1) < 0) && (errno == EINVAL));
+    test_assert(syscall(SYS_renameat2, olddirfd, FAULT_ADDR, newdirfd, "dir", 0) < 0);
+    test_assert(errno == EFAULT);
+    test_assert(syscall(SYS_renameat2, olddirfd, "file", newdirfd, FAULT_ADDR, 0) < 0);
+    test_assert(errno == EFAULT);
     test_assert(syscall(SYS_renameat2, olddirfd, "file", newdirfd, "dir",
             RENAME_EXCHANGE) == 0);
     test_assert((fstatat(olddirfd, "file", &s, 0) == 0) &&

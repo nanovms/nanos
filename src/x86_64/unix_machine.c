@@ -108,8 +108,7 @@ static void setup_ucontext(struct ucontext *uctx, thread t, void *fpstate)
 
 static u64 setup_ucontext_fpstate(void **fpstate, thread t, u64 rsp)
 {
-    if ((rsp = grow_and_validate_stack(t, rsp, pad(extended_frame_size, 16))) == INVALID_PHYSICAL)
-        return rsp;
+    rsp -= pad(extended_frame_size, 16);
     *fpstate = pointer_from_u64(rsp);
     runtime_memcpy(*fpstate, frame_extended(t->context.frame), extended_frame_size);
     return rsp;
@@ -132,9 +131,11 @@ boolean setup_sigframe(thread t, int signum, struct siginfo *si)
     /* avoid redzone */
     rsp = (rsp & ~15) - 128;
 
-    void *fpstate;
-    if ((rsp = setup_ucontext_fpstate(&fpstate, t, rsp)) == INVALID_PHYSICAL)
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
         return false;
+    void *fpstate;
+    rsp = setup_ucontext_fpstate(&fpstate, t, rsp);
 
     /* Create space for rt_sigframe. Note that we are actually aligning to 8
        but not 16 bytes; the ABI requires that stacks are aligned to 16 before
@@ -142,9 +143,7 @@ boolean setup_sigframe(thread t, int signum, struct siginfo *si)
        call, which would have pushed a return address. The function prologue
        typically pushes the frame pointer on the stack, thus re-aligning to 16
        before executing the function body. */
-    rsp = grow_and_validate_stack(t, rsp, pad(sizeof(struct rt_sigframe), 16) + 8); /* ra offset */
-    if (rsp == INVALID_PHYSICAL)
-        return false;
+    rsp -= pad(sizeof(struct rt_sigframe), 16) + 8; /* ra offset */
 
     /* setup sigframe for user sig trampoline */
     struct rt_sigframe *frame = (struct rt_sigframe *)rsp;
@@ -160,6 +159,7 @@ boolean setup_sigframe(thread t, int signum, struct siginfo *si)
     /* setup regs for signal handler */
     f[FRAME_RIP] = u64_from_pointer(sa->sa_handler);
     f[FRAME_RDI] = signum;
+    context_clear_err(ctx);
     return true;
 }
 

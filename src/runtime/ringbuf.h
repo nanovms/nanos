@@ -25,6 +25,11 @@ static inline void ringbuf_consume(ringbuf b, bytes len)
     b->start += len;
 }
 
+static inline void ringbuf_unconsume(ringbuf b, bytes len)
+{
+    b->start -= len;
+}
+
 static inline bytes ringbuf_space(ringbuf b)
 {
     return b->length - buffer_length(b);

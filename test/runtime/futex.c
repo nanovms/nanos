@@ -333,6 +333,34 @@ static void *futex_wake_op_test_thread(void *arg)
     return NULL;
 } 
 
+static boolean futex_fault_test(void)
+{
+    const void *fault_addr = (void *)0xbadf0000;
+    int ret;
+
+    ret = syscall(SYS_futex, fault_addr, FUTEX_WAIT, 0, 0, NULL, 0);
+    if ((ret != -1) || (errno != EFAULT)) {
+        printf("FUTEX_WAIT fault test error (%d %d)\n", ret, errno);
+        return false;
+    }
+    ret = syscall(SYS_futex, fault_addr, FUTEX_CMP_REQUEUE, 0, 0, NULL, 0);
+    if ((ret != -1) || (errno != EFAULT)) {
+        printf("FUTEX_CMP_REQUEUE fault test error (%d %d)\n", ret, errno);
+        return false;
+    }
+    ret = syscall(SYS_futex, fault_addr, FUTEX_WAKE_OP, 0, 0, NULL, 0);
+    if ((ret != -1) || (errno != EFAULT)) {
+        printf("FUTEX_WAKE_OP fault test error (%d %d)\n", ret, errno);
+        return false;
+    }
+    ret = syscall(SYS_futex, fault_addr, FUTEX_WAIT_BITSET, 0, 0, NULL, 0xffffffff);
+    if ((ret != -1) || (errno != EFAULT)) {
+        printf("FUTEX_WAIT_BITSET fault test error (%d %d)\n", ret, errno);
+        return false;
+    }
+    return true;
+}
+
 /* Method to run all tests */
 boolean basic_test() 
 {
@@ -403,6 +431,9 @@ boolean basic_test()
     else
         printf("wake_op test 2: passed\n");
     
+    if (!futex_fault_test())
+        num_failed++;
+
     if (num_failed > 0)
         return false;
     return true;

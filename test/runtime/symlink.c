@@ -8,6 +8,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define FAULT_ADDR  ((void *)0xBADF0000)
+
 #define test_assert(expr) do { \
     if (!(expr)) { \
         printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
@@ -27,8 +29,15 @@ int main(int argc, char **argv)
     test_assert(readlink("link", buf, sizeof(buf)) == -1);
     test_assert(errno == ENOENT);
 
+    test_assert((symlink(FAULT_ADDR, "link") == -1) && (errno == EFAULT));
+    test_assert((symlink("target", FAULT_ADDR) == -1) && (errno == EFAULT));
+    test_assert((symlinkat(FAULT_ADDR, AT_FDCWD, "link") == -1) && (errno == EFAULT));
+    test_assert((symlinkat("target", AT_FDCWD, FAULT_ADDR) == -1) && (errno == EFAULT));
+
     test_assert(symlink("target", "link") == 0);
     test_assert((symlink("target", "link") == -1) && (errno == EEXIST));
+    test_assert((readlink("link", FAULT_ADDR, 1) == -1) && (errno == EFAULT));
+    test_assert((readlinkat(AT_FDCWD, "link", FAULT_ADDR, 1) == -1) && (errno == EFAULT));
     memset(buf, 0, sizeof(buf));
     test_assert((readlink("link", buf, 1) == 1) && (buf[0] == 't'));
     test_assert((readlinkat(AT_FDCWD, "link", buf, 1) == 1) && (buf[0] == 't'));

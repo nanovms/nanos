@@ -127,14 +127,15 @@ closure_function(2, 2, void, fs_op_complete,
 static sysreturn symlink_internal(filesystem fs, inode cwd, const char *path,
         const char *target)
 {
-    if (!fault_in_user_string(path) || !fault_in_user_string(target)) {
-        return set_syscall_error(current, EFAULT);
-    }
+    if (!fault_in_user_string(target))
+        return -EFAULT;
     return sysreturn_from_fs_status(filesystem_symlink(fs, cwd, path, target));
 }
 
 sysreturn symlink(const char *target, const char *linkpath)
 {
+    if (!fault_in_user_string(linkpath))
+        return -EFAULT;
     thread_log(current, "symlink %s -> %s", linkpath, target);
     filesystem cwd_fs;
     inode cwd;
@@ -180,27 +181,41 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
 
 sysreturn utime(const char *filename, const struct utimbuf *times)
 {
-    if (times && !validate_user_memory(times, sizeof(struct utimbuf), false))
-        return -EFAULT;
+    context ctx;
+    if (times) {
+        ctx = get_current_context(current_cpu());
+        if (!validate_user_memory(times, sizeof(struct utimbuf), false) || context_set_err(ctx))
+            return -EFAULT;
+    }
     timestamp atime = times ? seconds(times->actime) : now(CLOCK_ID_REALTIME);
     timestamp mtime = times ? seconds(times->modtime) : now(CLOCK_ID_REALTIME);
+    if (times)
+        context_clear_err(ctx);
     return utime_internal(filename, atime, mtime);
 }
 
 sysreturn utimes(const char *filename, const struct timeval times[2])
 {
-    if (times && !validate_user_memory(times, 2 * sizeof(struct timeval), false))
-        return -EFAULT;
+    context ctx;
+    if (times) {
+        ctx = get_current_context(current_cpu());
+        if (!validate_user_memory(times, 2 * sizeof(struct timeval), false) || context_set_err(ctx))
+            return -EFAULT;
+    }
     /* Sub-second precision is not supported. */
     timestamp atime =
             times ? time_from_timeval(&times[0]) : now(CLOCK_ID_REALTIME);
     timestamp mtime =
             times ? time_from_timeval(&times[1]) : now(CLOCK_ID_REALTIME);
+    if (times)
+        context_clear_err(ctx);
     return utime_internal(filename, atime, mtime);
 }
 
 static sysreturn statfs_internal(filesystem fs, tuple t, struct statfs *buf)
 {
+    if (!fault_in_user_memory(buf, sizeof(struct statfs), true))
+        return -EFAULT;
     runtime_memset((u8 *) buf, 0, sizeof(*buf));
     if (fs) {
         buf->f_bsize = fs_blocksize(fs);
@@ -225,8 +240,7 @@ sysreturn statfs(const char *path, struct statfs *buf)
     filesystem cwd_fs = fs;
     tuple t = 0;
     sysreturn rv;
-    if (!fault_in_user_string(path) ||
-        !fault_in_user_memory(buf, sizeof(struct statfs), VMAP_FLAG_WRITABLE, 0)) {
+    if (!fault_in_user_string(path)) {
         rv = -EFAULT;
         goto out;
     }
@@ -259,14 +273,9 @@ sysreturn fstatfs(int fd, struct statfs *buf)
     }
     tuple t = 0;
     sysreturn rv;
-    if (!fault_in_user_memory(buf, sizeof(struct statfs), VMAP_FLAG_WRITABLE, 0)) {
-        rv = -EFAULT;
-        goto out;
-    }
     if (f)
         t = filesystem_get_meta(f->fs, f->n);
     rv = statfs_internal(f ? f->fs : 0, t, buf);
-  out:
     fdesc_put(desc);
     if (t)
         filesystem_put_meta(f->fs, t);

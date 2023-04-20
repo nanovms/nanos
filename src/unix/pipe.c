@@ -157,7 +157,12 @@ closure_function(4, 1, sysreturn, pipe_read_bh,
         return blockq_block_required((unix_context)ctx, flags);
     }
 
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto unlock;
+    }
     buffer_read(b, bound(dest), rv);
+    context_clear_err(ctx);
 
     // If we have consumed all of the buffer, reset it. This might prevent future writes to allocte new buffer
     // in buffer_write/buffer_extend. Can improve things until a proper circular buffer is available
@@ -224,8 +229,13 @@ closure_function(4, 1, sysreturn, pipe_write_bh,
     }
 
     u64 real_length = MIN(length, avail);
-    assert(buffer_write(b, bound(dest), real_length));
-    rv = real_length;
+    if (!context_set_err(ctx)) {
+        assert(buffer_write(b, bound(dest), real_length));
+        context_clear_err(ctx);
+        rv = real_length;
+    } else {
+        rv = -EFAULT;
+    }
   unlock:
     pipe_unlock(p);
     if (avail == length)

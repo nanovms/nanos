@@ -40,6 +40,7 @@ typedef struct kernel_context {
     closure_struct(kernel_context_return, kernel_return);
     closure_struct(free_kernel_context, free);
     u64 size;
+    u64 err_frame[ERR_FRAME_SIZE];  /* must contain all callee-saved registers */
 } *kernel_context;
 
 void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q);
@@ -554,6 +555,21 @@ static inline void __attribute__((always_inline)) context_switch(context ctx)
         context_resume(ctx);
         context_release(prev);
     }
+}
+
+__attribute__((returns_twice)) boolean err_frame_save(context_frame err_f);
+void err_frame_apply(context_frame err_f, context_frame f);
+
+#define context_set_err(ctx)    err_frame_save(((kernel_context)(ctx))->err_frame)
+
+static inline boolean context_err_is_set(context ctx)
+{
+    return (((kernel_context)ctx)->err_frame[ERR_FRAME_FULL] != 0);
+}
+
+static inline void context_clear_err(context ctx)
+{
+    ((kernel_context)ctx)->err_frame[ERR_FRAME_FULL] = 0;
 }
 
 static inline void use_fault_handler(fault_handler h)

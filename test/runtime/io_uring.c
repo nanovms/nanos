@@ -424,6 +424,7 @@ static void iour_test_basic(void)
 {
     struct iour iour;
     struct io_uring_params params;
+    void *fault_addr;
     int fd;
     struct io_uring_probe *probe;
     const int probe_ops = IORING_OP_WRITE + 1;
@@ -453,6 +454,15 @@ static void iour_test_basic(void)
     test_assert(errno == EINVAL);
 
     params.cq_entries = 8;
+
+    /* io_uring_setup() with read-only params */
+    fault_addr = mmap(0, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    test_assert(fault_addr != MAP_FAILED);
+    memcpy(fault_addr, &params, sizeof(params));
+    test_assert(mprotect(fault_addr, PAGESIZE, PROT_READ) == 0);
+    test_assert((syscall(SYS_io_uring_setup, 1, fault_addr) == -1) && (errno == EFAULT));
+    munmap(fault_addr, PAGESIZE);
+
     fd = syscall(SYS_io_uring_setup, 1, &params);
     test_assert((fd > 0) && (params.cq_entries == 8));
 
@@ -1169,10 +1179,14 @@ static void iour_test_register_files(void)
     cqe = iour_get_cqe(&iour);
     test_assert(cqe && (cqe->user_data == 0) && (cqe->res == -EBADF));
 
+    update.offset = 0;
+    update.fds = NULL;  /* invalid fd array */
+    ret = syscall(SYS_io_uring_register, iour.fd, IORING_REGISTER_FILES_UPDATE, &update, 1);
+    test_assert((ret == -1) && (errno == EFAULT));
+
     fds[0] = 0;
     fds[1] = -1;    /* unregister fd */
     fds[2] = 0xdeadbeef;    /* invalid fd */
-    update.offset = 0;
     update.fds = fds;
     ret = syscall(SYS_io_uring_register, iour.fd, IORING_REGISTER_FILES_UPDATE,
         &update, 3);

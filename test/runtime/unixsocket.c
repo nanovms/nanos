@@ -609,12 +609,91 @@ static void uds_nonblocking_test(void)
     test_assert(unlink(SERVER_SOCKET_PATH) == 0);
 }
 
+static void *uds_fault_test_thread(void *arg)
+{
+    int fd;
+    struct sockaddr_un addr;
+
+    fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(fd >= 0);
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, SERVER_SOCKET_PATH);
+    connect(fd, (struct sockaddr *) &addr, sizeof(addr));
+    close(fd);
+    return NULL;
+}
+
+static void uds_fault_test(void)
+{
+    int s1, s2;
+    struct sockaddr_un addr;
+    socklen_t len = sizeof(addr);
+    uint8_t buf[64];
+    void *fault_addr = (void *)0xbadf0000;
+    struct msghdr msg;
+    pthread_t pt;
+
+    s1 = socket(AF_UNIX, SOCK_DGRAM, 0);
+    test_assert(s1 >= 0);
+
+    test_assert((bind(s1, fault_addr, len) == -1) && (errno == EFAULT));
+
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, SERVER_SOCKET_PATH);
+    test_assert(bind(s1, (struct sockaddr *) &addr, len) == 0);
+    s2 = socket(AF_UNIX, SOCK_DGRAM, 0);
+    test_assert(s2 >= 0);
+
+    test_assert((sendto(s2, buf, sizeof(buf), 0, fault_addr, len) == -1) && (errno == EFAULT));
+
+    test_assert((connect(s2, fault_addr, len) == -1) && (errno == EFAULT));
+    test_assert(connect(s2, (struct sockaddr *)&addr, len) == 0);
+
+    test_assert((write(s2, fault_addr, 1) == -1) && (errno == EFAULT));
+
+    test_assert(write(s2, buf, sizeof(buf)) == sizeof(buf));
+    test_assert((read(s1, fault_addr, 1) == -1) && (errno == EFAULT));
+
+    test_assert(write(s2, buf, sizeof(buf)) == sizeof(buf));
+    test_assert((recvmsg(s1, fault_addr, 0) == -1) && (errno == EFAULT));
+
+    msg.msg_iov = fault_addr;
+    msg.msg_iovlen = 1;
+    msg.msg_namelen = 0;
+    msg.msg_controllen = 0;
+    test_assert(write(s2, buf, sizeof(buf)) == sizeof(buf));
+    test_assert((recvmsg(s1, &msg, 0) == -1) && (errno == EFAULT));
+
+    test_assert(write(s2, buf, sizeof(buf)) == sizeof(buf));
+    test_assert(recvfrom(s1, buf, sizeof(buf), 0, (struct sockaddr *)&addr, fault_addr) == -1);
+    test_assert(errno == EFAULT);
+
+    test_assert((getsockopt(s1, SOL_SOCKET, SO_TYPE, fault_addr, &len) == -1) && (errno == EFAULT));
+
+    close(s1);
+    close(s2);
+    unlink(SERVER_SOCKET_PATH);
+
+    s1 = socket(AF_UNIX, SOCK_STREAM, 0);
+    test_assert(s1 >= 0);
+    addr.sun_family = AF_UNIX;
+    strcpy(addr.sun_path, SERVER_SOCKET_PATH);
+    test_assert((bind(s1, (struct sockaddr *) &addr, len) == 0) && (listen(s1, 1) == 0));
+    test_assert(pthread_create(&pt, NULL, uds_fault_test_thread, NULL) == 0);
+    test_assert((accept(s1, fault_addr, &len) == -1) && (errno == EFAULT));
+    test_assert(pthread_join(pt, NULL) == 0);
+
+    close(s1);
+    unlink(SERVER_SOCKET_PATH);
+}
+
 int main(int argc, char **argv)
 {
     uds_stream_test();
     uds_dgram_test();
     uds_seqpacket_test();
     uds_nonblocking_test();
+    uds_fault_test();
     printf("Unix domain socket tests OK\n");
     return EXIT_SUCCESS;
 }

@@ -48,18 +48,15 @@ struct epoll_blocked {
     closure_struct(epoll_blocked_free, free);
     union {
         buffer user_events;
-        struct {
-            buffer poll_fds;
-            u64 poll_retcount;
-        };
+        buffer poll_fds;
         struct {
             int nfds;
             bitmap rset;
             bitmap wset;
             bitmap eset;
-            u64 retcount;
         };
     };
+    sysreturn retval;
     struct list blocked_list;
 };
 
@@ -385,6 +382,10 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
         /* Borrow the thread's fault handler prior to touching user memory. */
         use_fault_handler(w->t->context.fault_handler);
     }
+    if (context_set_err(ctx)) {
+        w->retval = -EFAULT;
+        goto out;
+    }
     struct epoll_event *e, *end;
     e = buffer_ref(w->user_events, 0);
     end = buffer_ref(w->user_events, w->user_events->end);
@@ -401,6 +402,8 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
     w->user_events->end += sizeof(struct epoll_event);
   reported:
     epoll_debug("   epoll_event %p, data 0x%lx, events 0x%x\n", e, e->data, e->events);
+    context_clear_err(ctx);
+  out:
     if (is_kernel_context(ctx))
         clear_fault_handler();
     spin_unlock(&w->lock);
@@ -473,6 +476,11 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
 
     epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, event count %d\n",
                 w, t->tid, timeout, flags, eventcount);
+
+    if (w->retval) {
+        rv = w->retval;
+        goto out_wakeup;
+    }
 
     if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || eventcount) {
         rv = eventcount;
@@ -624,14 +632,14 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     epoll_debug("epoll fd %d, op %d, fd %d\n", epfd, op, fd);
 
     /* A valid event pointer is required for all operations but EPOLL_CTL_DEL */
-    if ((op != EPOLL_CTL_DEL) && !validate_user_memory(event, sizeof(struct epoll_event), false)) {
-        return set_syscall_error(current, EFAULT);
-    }
-
-    /* EPOLLEXCLUSIVE not yet implemented */
-    if (event && (event->events & EPOLLEXCLUSIVE)) {
-        msg_err("add: EPOLLEXCLUSIVE not supported\n");
-        return set_syscall_error(current, EINVAL);
+    if (op != EPOLL_CTL_DEL) {
+        if (!fault_in_user_memory(event, sizeof(struct epoll_event), false))
+            return -EFAULT;
+        /* EPOLLEXCLUSIVE not yet implemented */
+        if (event->events & EPOLLEXCLUSIVE) {
+            msg_err("EPOLLEXCLUSIVE not supported\n");
+            return -EINVAL;
+        }
     }
 
     sysreturn rv;
@@ -681,6 +689,11 @@ static inline void select_notify(epollfd efd, epoll_blocked w, u64 events)
         return;
     int count = 0;
     spin_lock(&w->lock);
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        w->retval = -EFAULT;
+        goto out;
+    }
     if (w->rset && (events & POLLFDMASK_READ)) {
         if (!bitmap_test_and_set_atomic(w->rset, efd->fd, 1))
             count++;
@@ -693,9 +706,12 @@ static inline void select_notify(epollfd efd, epoll_blocked w, u64 events)
         if (!bitmap_test_and_set_atomic(w->eset, efd->fd, 1))
             count++;
     }
+    context_clear_err(ctx);
+  out:
+    if (w->retval >= 0)
+        w->retval += count;
     spin_unlock(&w->lock);
-    if (count > 0) {
-        fetch_and_add(&w->retcount, count);
+    if (w->retval) {
         epoll_debug("   event on %d, events 0x%x\n", efd->fd, events);
         blockq_wake_one(w->t->thread_bq);
     }
@@ -710,12 +726,12 @@ closure_function(3, 1, sysreturn, select_bh,
     epoll_blocked w = bound(w);
     timestamp timeout = bound(timeout);
     epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, retcount %ld\n",
-                w, t->tid, timeout, flags, w->retcount);
+                w, t->tid, timeout, flags, w->retval);
 
     spin_lock(&w->lock);
-    if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->retcount) {
+    if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->retval) {
         /* XXX error checking? */
-        rv = w->retcount;
+        rv = w->retval;
         goto out_wakeup;
     }
 
@@ -763,9 +779,9 @@ static sysreturn select_internal(int nfds,
                                  const sigset_t * sigmask)
 {
     u64 set_bytes = pad(nfds, 64) / 8;
-    if ((readfds && !validate_user_memory(readfds, set_bytes, true)) ||
-        (writefds && !validate_user_memory(writefds, set_bytes, true)) ||
-        (exceptfds && !validate_user_memory(exceptfds, set_bytes, true)))
+    if ((readfds && !fault_in_user_memory(readfds, set_bytes, true)) ||
+        (writefds && !fault_in_user_memory(writefds, set_bytes, true)) ||
+        (exceptfds && !fault_in_user_memory(exceptfds, set_bytes, true)))
         return -EFAULT;
 
     epoll e = thread_get_epoll(EPOLL_TYPE_SELECT);
@@ -776,7 +792,6 @@ static sysreturn select_internal(int nfds,
         return -ENOMEM;
     wt->nfds = nfds;
     wt->rset = wt->wset = wt->eset = 0;
-    wt->retcount = 0;
 
     epoll_debug("nfds %d, readfds %p, writefds %p, exceptfds %p\n"
                 "   epoll_blocked %p, timeout %d\n", nfds, readfds, writefds, exceptfds,
@@ -909,14 +924,21 @@ static inline void poll_notify(epollfd efd, epoll_blocked w, u64 events)
         spin_unlock(&w->lock);
         return;
     }
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        w->retval = -EFAULT;
+        goto out;
+    }
     struct pollfd *pfd = buffer_ref(w->poll_fds, efd->data * sizeof(struct pollfd));
-    if (pfd->revents == 0) {
+    if ((pfd->revents == 0) && (w->retval >= 0)) {
         /* Only increment if we're not amending an entry. */
-        assert(fetch_and_add(&w->poll_retcount, 1) <
+        assert(w->retval++ <
                (w->poll_fds->length / sizeof(struct pollfd)));
     }
     pfd->revents = events;
     epoll_debug("   event on %d (%d), events 0x%x\n", efd->fd, pfd->fd, pfd->revents);
+    context_clear_err(ctx);
+  out:
     spin_unlock(&w->lock);
     blockq_wake_one(w->t->thread_bq);
 }
@@ -930,12 +952,12 @@ closure_function(3, 1, sysreturn, poll_bh,
     epoll_blocked w = bound(w);
     timestamp timeout = bound(timeout);
     epoll_debug("w %p on tid %d, timeout %ld, flags 0x%lx, poll_retcount %d\n",
-                w, t->tid, timeout, flags, w->poll_retcount);
+                w, t->tid, timeout, flags, w->retval);
 
     spin_lock(&w->lock);
-    if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->poll_retcount) {
+    if (!timeout || (flags & BLOCKQ_ACTION_TIMEDOUT) || w->retval) {
         /* XXX error checking? */
-        rv = w->poll_retcount;
+        rv = w->retval;
         goto out_wakeup;
     }
 
@@ -969,7 +991,6 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         return -ENOMEM;
     epoll_debug("epoll nfds %ld, new blocked %p, timeout %d\n", nfds, w, timeout);
     w->poll_fds = wrap_buffer(e->h, fds, nfds * sizeof(struct pollfd));
-    w->poll_retcount = 0;
 
     spin_wlock(&e->fds_lock);
     bitmap remove_efds = bitmap_clone(e->fds); /* efds to remove */

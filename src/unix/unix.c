@@ -88,6 +88,32 @@ void release_fdesc(fdesc f)
     deallocate_notify_set(f->ns);
 }
 
+boolean copy_from_user(const void *uaddr, void *kaddr, u64 len)
+{
+    if (!validate_user_memory(uaddr, len, false))
+        return false;
+    context ctx = get_current_context(current_cpu());
+    if (!context_set_err(ctx)) {
+        runtime_memcpy(kaddr, uaddr, len);
+        context_clear_err(ctx);
+        return true;
+    }
+    return false;
+}
+
+boolean copy_to_user(void *uaddr, const void *kaddr, u64 len)
+{
+    if (!validate_user_memory(uaddr, len, true))
+        return false;
+    context ctx = get_current_context(current_cpu());
+    if (!context_set_err(ctx)) {
+        runtime_memcpy(uaddr, kaddr, len);
+        context_clear_err(ctx);
+        return true;
+    }
+    return false;
+}
+
 void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
 {
     struct siginfo s = {
@@ -226,7 +252,7 @@ define_closure_function(0, 1, context, unix_fault_handler,
                SEGV rather than a panic. */
             pf_debug("no vmap found");
             if (!user)
-                goto bug;
+                goto error;
             deliver_fault_signal(SIGSEGV, t, vaddr, SEGV_MAPERR);
 
             /* schedule this thread to either run signal handler or terminate */
@@ -253,7 +279,7 @@ define_closure_function(0, 1, context, unix_fault_handler,
                 schedule_thread(t);
                 return 0;
             }
-            goto bug;
+            goto error;
         }
 
         if (do_demand_page(p, ctx, vaddr, vm))
@@ -277,6 +303,13 @@ define_closure_function(0, 1, context, unix_fault_handler,
     }
 #endif
 
+error:
+    if (context_err_is_set(ctx)) {
+        kernel_context kc = (kernel_context)ctx;
+        err_frame_apply(kc->err_frame, ctx->frame);
+        context_clear_err(ctx);
+        return ctx;
+    }
 bug:
     // panic handling in a more central location?
     console_force_unlock();
@@ -320,11 +353,17 @@ closure_function(1, 2, sysreturn, std_close,
 closure_function(0, 6, sysreturn, stdout,
                  void*, d, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
-    console_write(d, length);
-    klog_write(d, length);
+    sysreturn rv;
+    if (fault_in_user_memory(d, length, false)) {
+        console_write(d, length);
+        klog_write(d, length);
+        rv = length;
+    } else {
+        rv = -EFAULT;
+    }
     if (completion)
-        apply(completion, length);
-    return length;
+        apply(completion, rv);
+    return rv;
 }
 
 closure_function(0, 1, u32, std_output_events,

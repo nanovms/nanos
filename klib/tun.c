@@ -123,6 +123,11 @@ closure_function(4, 1, sysreturn, tun_read_bh,
     }
     void * dest = bound(dest);
     u64 len = bound(len);
+    if (context_set_err(ctx)) {
+        ret = -EFAULT;
+        pbuf_free(p);
+        goto out;
+    }
     if (!(tun->flags & IFF_NO_PI)) {
         struct tun_pi pi;
         if (len < sizeof(pi)) {
@@ -149,6 +154,7 @@ closure_function(4, 1, sysreturn, tun_read_bh,
     }
     ret = MIN(len, p->tot_len);
     pbuf_copy_partial(p, dest, ret, 0);
+    context_clear_err(ctx);
     pbuf_free(p);
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
@@ -200,11 +206,16 @@ closure_function(1, 6, sysreturn, tun_write,
         return io_complete(completion, -ENOMEM);
     u64 copied = 0;
     struct pbuf *q = p;
+    if (context_set_err(ctx)) {
+        pbuf_free(p);
+        return io_complete(completion, -EFAULT);
+    }
     do {
         runtime_memcpy(q->payload, src + copied, q->len);
         copied += q->len;
         q = q->next;
     } while (q);
+    context_clear_err(ctx);
     tun->netif.input(p, &tun->netif);
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
@@ -258,7 +269,7 @@ closure_function(1, 2, sysreturn, tun_ioctl,
     switch (request) {
     case TUNSETIFF: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
+        if (!fault_in_user_memory(ifreq, sizeof(struct ifreq), true))
             return -EFAULT;
         if (tun)
             return -EINVAL;
@@ -313,20 +324,23 @@ closure_function(1, 2, sysreturn, tun_ioctl,
         if (!tun)
             return -EBADFD;
         struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
+        context ctx = get_current_context(current_cpu());
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true) || context_set_err(ctx))
             return -EFAULT;
         netif_name_cpy(ifreq->ifr_name, &tun->netif);
         ifreq->ifr.ifr_flags = tun->flags;
+        context_clear_err(ctx);
         break;
     }
     case TUNSETQUEUE: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
+        short flags;
+        if (!get_user_value(&ifreq->ifr.ifr_flags, &flags))
             return -EFAULT;
-        if ((ifreq->ifr.ifr_flags & ~(IFF_ATTACH_QUEUE|IFF_DETACH_QUEUE)) ||
-                (ifreq->ifr.ifr_flags ^ (IFF_ATTACH_QUEUE|IFF_DETACH_QUEUE)) == 0)
+        if ((flags & ~(IFF_ATTACH_QUEUE|IFF_DETACH_QUEUE)) ||
+            (flags ^ (IFF_ATTACH_QUEUE|IFF_DETACH_QUEUE)) == 0)
             return -EINVAL;
-        if (ifreq->ifr.ifr_flags == IFF_ATTACH_QUEUE)
+        if (flags == IFF_ATTACH_QUEUE)
             tf->attached = true;
         else
             tf->attached = false;

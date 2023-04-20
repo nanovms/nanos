@@ -173,6 +173,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     clock_id clkid = (futex_op & FUTEX_CLOCK_REALTIME) ? CLOCK_ID_REALTIME :
             CLOCK_ID_MONOTONIC;
 
+    context ctx = get_current_context(current_cpu());
     switch (op) {
     case FUTEX_WAIT: {
         if (futex_verbose)
@@ -181,20 +182,26 @@ sysreturn futex(int *uaddr, int futex_op, int val,
 
         sysreturn rv;
         futex_lock(f);
-        if (*uaddr != val)
+        if (context_set_err(ctx))
+            rv = -EFAULT;
+        else if (*uaddr != val)
             rv = -EAGAIN;
         else
             rv = blockq_check_timeout(f->bq,
                                       contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, false);
         futex_unlock(f);
+        if (rv != -EFAULT)
+            context_clear_err(ctx);
         return rv;
     }
 
     case FUTEX_WAKE: {
-        if (futex_verbose)
+        if (futex_verbose && !context_set_err(ctx)) {
             thread_log(current, "futex_wake [%ld %p %d] %d",
                 current->tid, uaddr, *uaddr, val);
+            context_clear_err(ctx);
+        }
         futex_lock(f);
         int nr_woken = futex_wake_many(f, val);
         futex_unlock(f);
@@ -207,12 +214,18 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         if (!validate_user_memory(uaddr2, sizeof(int), false))
             return set_syscall_error(current, EFAULT);
 
-        if (futex_verbose)
+        if (futex_verbose && !context_set_err(ctx)) {
             thread_log(current, "futex_cmp_requeue [%ld %p %d] val: %d val2: %d uaddr2: %p %d val3: %d",
                        current->tid, uaddr, *uaddr, val, val2, uaddr2, *uaddr2, val3);
+            context_clear_err(ctx);
+        }
 
         sysreturn rv;
         futex_lock(f);
+        if (context_set_err(ctx)) {
+            rv = -EFAULT;
+            goto cmp_requeue_done;
+        }
         if (*uaddr != val3) {
             rv = -EAGAIN;
             goto cmp_requeue_done;
@@ -235,6 +248,8 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         rv = woken + requeued;
       cmp_requeue_done:
         futex_unlock(f);
+        if (rv != -EFAULT)
+            context_clear_err(ctx);
         return rv;
     }
 
@@ -248,15 +263,21 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         if (!validate_user_memory(uaddr2, sizeof(int), true))
             return set_syscall_error(current, EFAULT);
 
-        if (futex_verbose) {
+        if (futex_verbose && !context_set_err(ctx)) {
             thread_log(current, "futex_wake_op: [%ld %p %d] %p %d %d %d %d",
                 current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
+            context_clear_err(ctx);
         }
 
         struct futex *f2 = soft_create_futex(current->p, u64_from_pointer(uaddr2));
         if (f2 == INVALID_ADDRESS)
             return -ENOMEM;
+        boolean fault = false;
         spin_lock_2(&f->lock, &f2->lock);
+        if (context_set_err(ctx)) {
+            fault = true;
+            goto wake_op_done;
+        }
         oldval = *(int *) uaddr2;
         
         switch (op) {
@@ -266,6 +287,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         case FUTEX_OP_ANDN:  *uaddr2 &= ~oparg; break;
         case FUTEX_OP_XOR:   *uaddr2 ^= oparg; break;
         }
+        context_clear_err(ctx);
 
         wake1 = futex_wake_many(f, val);
         
@@ -284,25 +306,32 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             wake2 = futex_wake_many(f2, val2);
         }
 
+      wake_op_done:
         futex_unlock(f2);
         futex_unlock(f);
-        return set_syscall_return(current, wake1 + wake2);
+        return fault ? -EFAULT : wake1 + wake2;
     }
 
     case FUTEX_WAIT_BITSET: {
-        if (futex_verbose)
+        if (futex_verbose && !context_set_err(ctx)) {
             thread_log(current, "futex_wait_bitset [%ld %p %d] %d 0x%ld %d",
                 current->tid, uaddr, *uaddr, val, val2, val3);
+            context_clear_err(ctx);
+        }
 
         sysreturn rv;
         futex_lock(f);
-        if (*uaddr != val)
+        if (context_set_err(ctx))
+            rv = -EFAULT;
+        else if (*uaddr != val)
             rv = -EAGAIN;
         else
             rv = blockq_check_timeout(f->bq,
                                       contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, true);
         futex_unlock(f);
+        if (rv != -EFAULT)
+            context_clear_err(ctx);
         return rv;
     }
 
@@ -358,14 +387,15 @@ void wake_robust_list(process p, void *head)
     int *uaddr;
 
     /* must be very careful accessing the head as well as the list */
-    if (!validate_process_memory(p, h, sizeof(*h), false))
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
         return;
 
     /* XXX could keep a list of futexes and wake them at the end
      * to let threads acquire multiple locks without blocking */
     if (h->list_op_pending) {
         uaddr = FUTEX_KEY_ADDR(h->list_op_pending, h->futex_offset);
-        if (validate_process_memory(p, uaddr, sizeof(*uaddr), true)) {
+        if (validate_user_memory(uaddr, sizeof(*uaddr), true)) {
             *uaddr |= FUTEX_OWNER_DIED;
             futex_wake_many_by_uaddr(p, uaddr, 1);
         }
@@ -373,21 +403,21 @@ void wake_robust_list(process p, void *head)
 
     for (l = h->list; (void *)l != (void *)h; l = l->next) {
         uaddr = FUTEX_KEY_ADDR(l, h->futex_offset);
-        if (!validate_process_memory(p, l, sizeof(*l), false))
+        if (!validate_user_memory(l, sizeof(*l), false))
             break;
-        if (!validate_process_memory(p, uaddr, sizeof(*uaddr), true))
+        if (!validate_user_memory(uaddr, sizeof(*uaddr), true))
             break;
         *uaddr |= FUTEX_OWNER_DIED;
         futex_wake_many_by_uaddr(p, uaddr, 1);
     }
+    context_clear_err(ctx);
 }
 
 sysreturn get_robust_list(int pid, void *head, u64 *len)
 {
     struct robust_list_head **hp = head;
-    if (!validate_process_memory(current->p, hp, sizeof(*hp), true))
-        return -EFAULT;
-    if (!validate_process_memory(current->p, len, sizeof(*len), true))
+    if (!validate_user_memory(hp, sizeof(*hp), true) ||
+        !validate_user_memory(len, sizeof(*len), true))
         return -EFAULT;
 
     thread_log(current, "get_robust_list syscall for pid %d", pid);
@@ -400,10 +430,14 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
         if (t == INVALID_ADDRESS)
             return -ESRCH;
     }
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
+        return -EFAULT;
     *hp = t->robust_list;
     if (pid != 0)
         thread_release(t);
     *len = sizeof(**hp);
+    context_clear_err(ctx);
     return 0;
 }
 

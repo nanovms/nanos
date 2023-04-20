@@ -1492,6 +1492,42 @@ void test_smp_sig_handling(void)
         pthread_join(t[i], 0);
 }
 
+static void test_fault(void)
+{
+    sigset_t ss;
+    union sigval sv;
+    siginfo_t info;
+    int fd;
+
+    assert((syscall(SYS_rt_sigpending, BAD_LOAD, 8) == -1) && (errno == EFAULT));
+    assert((syscall(SYS_rt_sigaction, SIGUSR1, NULL, BAD_LOAD, 8) == -1) && (errno == EFAULT));
+    assert((syscall(SYS_rt_sigaction, SIGUSR1, BAD_LOAD, NULL, 8) == -1) && (errno == EFAULT));
+    assert(syscall(SYS_rt_sigprocmask, SIG_BLOCK, (sigset_t *)BAD_LOAD, NULL, 8) == -1);
+    assert(errno == EFAULT);
+    assert((sigprocmask(SIG_BLOCK, NULL, (sigset_t *)BAD_LOAD) == -1) && (errno == EFAULT));
+    assert((sigsuspend((sigset_t *)BAD_LOAD) == -1) && (errno == EFAULT));
+    assert((sigaltstack((stack_t *)BAD_LOAD, NULL) == -1) && (errno == EFAULT));
+    assert((sigaltstack(NULL, (stack_t *)BAD_LOAD) == -1) && (errno == EFAULT));
+    assert(syscall(SYS_rt_sigqueueinfo, __getpid(), SIGRTMIN, BAD_LOAD) == -1);
+    assert(errno == EFAULT);
+
+    sigemptyset(&ss);
+    sigaddset(&ss, SIGRTMIN);
+    assert(sigprocmask(SIG_BLOCK, &ss, 0) == 0);
+    assert(sigqueue(__getpid(), SIGRTMIN, sv) == 0);
+    assert((sigwaitinfo(&ss, (siginfo_t *)BAD_LOAD) == -1) && (errno == EFAULT));
+    assert((sigtimedwait(&ss, &info, (struct timespec *)BAD_LOAD) == -1) && (errno == EFAULT));
+
+    assert((signalfd(-1, (sigset_t *)BAD_LOAD, 0) == -1) && (errno == EINVAL));
+    fd = signalfd(-1, &ss, 0);
+    assert(fd >= 0);
+    assert((signalfd(fd, (sigset_t *)BAD_LOAD, 0) == -1) && (errno == EINVAL));
+    assert(sigqueue(__getpid(), SIGRTMIN, sv) == 0);
+    assert(read(fd, (void *)BAD_LOAD, sizeof(struct signalfd_siginfo)) == -1);
+    assert(errno == EFAULT);
+    close(fd);
+}
+
 int main(int argc, char * argv[])
 {
 #ifdef __x86_64__
@@ -1529,6 +1565,8 @@ int main(int argc, char * argv[])
     test_nested_handling();
 
     test_smp_sig_handling();
+
+    test_fault();
 
     printf("signal test passed\n");
 }

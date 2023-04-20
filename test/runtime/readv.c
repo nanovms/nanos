@@ -84,6 +84,35 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    void *fault_addr = (void *)0xbadf0000;
+    fd = open(fault_addr, O_RDWR);
+    if ((fd != -1) || (errno != EFAULT)) {
+        printf("open with faulting buffer test failed (%d, %d)\n", fd, errno);
+        exit(EXIT_FAILURE);
+    }
+    fd = open("hello", O_RDWR);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+    rv = read(fd, fault_addr, 1);
+    if ((rv != -1) || (errno != EFAULT)) {
+        printf("read with faulting buffer test failed (%d, %d)\n", rv, errno);
+        exit(EXIT_FAILURE);
+    }
+    rv = readv(fd, fault_addr, 1);
+    if ((rv != -1) || (errno != EFAULT)) {
+        printf("readv with faulting iov test failed (%d, %d)\n", rv, errno);
+        exit(EXIT_FAILURE);
+    }
+    iovs[0].iov_base = fault_addr;
+    rv = readv(fd, iovs, 3);
+    if ((rv != -1) || (errno != EFAULT)) {
+        printf("readv with faulting iov_base test failed (%d, %d)\n", rv, errno);
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+
     printf("readv test PASSED\n");
 
     return EXIT_SUCCESS;

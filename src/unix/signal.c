@@ -374,11 +374,9 @@ sysreturn rt_sigpending(u64 *set, u64 sigsetsize)
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    if (!validate_user_memory(set, sigsetsize, true))
-        return -EFAULT;
-
     u64 pending = get_all_pending_signals(current);
-    *set = pending;
+    if (!set_user_value(set, pending))
+        return -EFAULT;
     sig_debug("= 0x%lx\n", pending);
     return 0;
 }
@@ -431,18 +429,17 @@ sysreturn rt_sigaction(int signum,
     sigaction sa = sigaction_from_sig(t, signum);
 
     if (oldact) {
-        if (validate_user_memory(oldact, sizeof(struct sigaction), true)) {
-            process_lock(t->p);
-            runtime_memcpy(oldact, sa, sizeof(struct sigaction));
-            process_unlock(t->p);
-        } else
+        process_lock(t->p);
+        boolean ok = copy_to_user(oldact, sa, sizeof(struct sigaction));
+        process_unlock(t->p);
+        if (!ok)
             return -EFAULT;
     }
 
     if (!act)
         return 0;
 
-    if (!validate_user_memory(act, sizeof(struct sigaction), false))
+    if (!fault_in_user_memory(act, sizeof(struct sigaction), false))
         return -EFAULT;
 
     if (signum == SIGKILL || signum == SIGSTOP)
@@ -486,24 +483,24 @@ sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
         return -EINVAL;
 
     if (oldset) {
-        if (validate_user_memory(oldset, sigsetsize, true))
-            *oldset = get_signal_mask(current);
-        else
+        u64 mask = get_signal_mask(current);
+        if (!set_user_value(oldset, mask))
             return -EFAULT;
     }
 
     if (set) {
-        if (!validate_user_memory(set, sigsetsize, false))
+        u64 mask;
+        if (!get_user_value(set, &mask))
             return -EFAULT;
         switch (how) {
         case SIG_BLOCK:
-            block_signals(current, *set);
+            block_signals(current, mask);
             break;
         case SIG_UNBLOCK:
-            unblock_signals(current, *set);
+            unblock_signals(current, mask);
             break;
         case SIG_SETMASK:
-            set_signal_mask(current, *set);
+            set_signal_mask(current, mask);
             break;
         default:
             return -EINVAL;
@@ -534,15 +531,16 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
 
-    if (!validate_user_memory(mask, sigsetsize, false))
+    u64 new_mask;
+    if (!get_user_value(mask, &new_mask))
         return -EFAULT;
 
     thread t = current;
     u64 saved_mask = get_signal_mask(t);
-    sig_debug("tid %d, *mask 0x%lx, saved_mask\n", t->tid, *mask, saved_mask);
+    sig_debug("tid %d, *mask 0x%lx, saved_mask\n", t->tid, new_mask, saved_mask);
     blockq_action ba = contextual_closure(rt_sigsuspend_bh, t);
     t->saved_signal_mask = saved_mask;
-    set_signal_mask(t, *mask);
+    set_signal_mask(t, new_mask);
     return blockq_check(t->thread_bq, ba, false);
 }
 
@@ -557,8 +555,9 @@ static boolean thread_is_on_altsigstack(thread t)
 sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
 {
     thread t = current;
+    context ctx = get_current_context(current_cpu());
     if (oss) {
-        if (!validate_user_memory(oss, sizeof(stack_t), true))
+        if (!validate_user_memory(oss, sizeof(stack_t), true) || context_set_err(ctx))
             return -EFAULT;
         if (t->signal_stack) {
             oss->ss_sp = t->signal_stack;
@@ -567,30 +566,35 @@ sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
         } else {
             oss->ss_flags = SS_DISABLE;
         }
+        context_clear_err(ctx);
     }
     // it doesn't seem possible to re-enable without setting
     // a new stack....so we think this is a valid interpretation
     if (ss) {
-        if (!validate_user_memory(ss, sizeof(stack_t), false)) {
-            return -EFAULT;
-        }
         if (thread_is_on_altsigstack(t)) {
             return -EPERM;
         }
+        if (!validate_user_memory(ss, sizeof(stack_t), false) || context_set_err(ctx))
+            return -EFAULT;
+        sysreturn rv;
         if (ss->ss_flags & SS_DISABLE) {
             t->signal_stack = 0;
+            rv = 0;
         } else if (!validate_user_memory(ss->ss_sp, ss->ss_size, true)) {
-            return -EFAULT;
+            rv = -EFAULT;
         } else {
             if (ss->ss_flags) { /* unknown flags */
-                return -EINVAL;
+                rv = -EINVAL;
+            } else if (ss->ss_size < MINSIGSTKSZ) {
+                rv = -ENOMEM;
+            } else {
+                t->signal_stack = ss->ss_sp;
+                t->signal_stack_length = ss->ss_size;
+                rv = 0;
             }
-            if (ss->ss_size < MINSIGSTKSZ) {
-                return -ENOMEM;
-            }
-            t->signal_stack = ss->ss_sp;
-            t->signal_stack_length = ss->ss_size;
         }
+        context_clear_err(ctx);
+        return rv;
     }
     return 0;
 }
@@ -647,14 +651,18 @@ sysreturn kill(int pid, int sig)
 
 static inline sysreturn sigqueueinfo_sanitize_args(int tgid, int sig, siginfo_t *uinfo)
 {
-    if (!validate_user_memory(uinfo, sizeof(siginfo_t), true))
-        return -EFAULT;
-
     if (tgid != current->p->pid)
         return -ESRCH;
 
     if (sig < 0 || sig > NSIG)
         return -EINVAL;
+
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(uinfo, sizeof(siginfo_t), true) || context_set_err(ctx))
+        return -EFAULT;
+    touch_memory(uinfo, sizeof(siginfo_t));
+    uinfo->si_signo = sig;
+    context_clear_err(ctx);
 
     if (sig == 0)
         return 0;               /* always permitted */
@@ -672,7 +680,6 @@ sysreturn rt_sigqueueinfo(int tgid, int sig, siginfo_t *uinfo)
     sysreturn rv = sigqueueinfo_sanitize_args(tgid, sig, uinfo);
     if (rv <= 0)
         return rv;
-    uinfo->si_signo = sig;
     deliver_signal_to_process(current->p, uinfo);
     return 0;
 }
@@ -689,7 +696,6 @@ sysreturn rt_tgsigqueueinfo(int tgid, int tid, int sig, siginfo_t *uinfo)
     if ((t = thread_from_tid(current->p, tid)) == INVALID_ADDRESS)
         return -ESRCH;
 
-    uinfo->si_signo = sig;
     deliver_signal_to_thread(t, uinfo);
     thread_release(t);
     return 0;
@@ -725,7 +731,7 @@ sysreturn pause(void)
 }
 
 closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
-                 thread, t, u64, interest, siginfo_t *, info, const struct timespec *, timeout,
+                 thread, t, u64, interest, siginfo_t *, info, boolean, polling,
                  u64, flags)
 {
     thread t = bound(t);
@@ -743,8 +749,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
     queued_signal qs = dequeue_signal(t, ~interest);
     if (qs == INVALID_ADDRESS) {
         if (!blocked) {
-            const struct timespec * ts = bound(timeout);
-            if (ts && ts->tv_sec == 0 && ts->tv_nsec == 0) {
+            if (bound(polling)) {
                 closure_finish();
                 return set_syscall_error(t, EAGAIN); /* poll */
             }
@@ -756,9 +761,10 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
             rv = nullify ? -EINTR : blockq_block_required(&t->syscall->uc, flags);
         }
     } else {
-        if (bound(info))
-            runtime_memcpy(bound(info), &qs->si, sizeof(struct siginfo));
-        rv = qs->si.si_signo;
+        if (bound(info) && !copy_to_user(bound(info), &qs->si, sizeof(struct siginfo)))
+            rv = -EFAULT;
+        else
+            rv = qs->si.si_signo;
         free_queued_signal(qs);
     }
 
@@ -771,12 +777,17 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
     if (!validate_user_memory(set, sigsetsize, false) ||
-        (info && !validate_user_memory(info, sizeof(siginfo_t), true)) ||
         (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false)))
         return -EFAULT;
-    sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, *set, info, timeout);
-    blockq_action ba = contextual_closure(rt_sigtimedwait_bh, current, *set, info, timeout);
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
+        return -EFAULT;
+    u64 interest = *set;
+    sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, interest, info, timeout);
     timestamp t = timeout ? time_from_timespec(timeout) : 0;
+    context_clear_err(ctx);
+    boolean polling = timeout && (t == 0);
+    blockq_action ba = contextual_closure(rt_sigtimedwait_bh, current, interest, info, polling);
     return blockq_check_timeout(current->thread_bq, ba, false, CLOCK_ID_MONOTONIC, t, false);
 }
 
@@ -871,13 +882,21 @@ closure_function(6, 1, sysreturn, signalfd_read_bh,
             break;
         }
         sig_debug("   sig %d, errno %d, code %d\n", qs->si.si_signo, qs->si.si_errno, qs->si.si_code);
-        signalfd_siginfo_fill(info, qs);
+        if (!context_set_err(ctx)) {
+            signalfd_siginfo_fill(info, qs);
+            context_clear_err(ctx);
+        } else {
+            rv = -EFAULT;
+        }
         free_queued_signal(qs);
+        if (rv)
+            break;
         info++;
         ninfos++;
     }
 
-    rv = ninfos * sizeof(struct signalfd_siginfo);
+    if (rv == 0)
+        rv = ninfos * sizeof(struct signalfd_siginfo);
     sig_debug("   %d infos, %ld bytes\n", ninfos, rv);
   out:
     if (t) {
@@ -959,6 +978,10 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     signal_fd sfd = allocate(h, sizeof(struct signal_fd));
     if (sfd == INVALID_ADDRESS)
         goto err_mem;
+    if (!get_user_value(mask, &sfd->mask)) {
+        deallocate(h, sfd, sizeof(*sfd));
+        return -EINVAL;
+    }
 
     sfd->h = h;
     init_fdesc(h, &sfd->f, FDESC_TYPE_SIGNALFD);
@@ -967,7 +990,6 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     if (sfd->bq == INVALID_ADDRESS)
         goto err_mem_bq;
 
-    sfd->mask = *mask;
     init_closure(&sfd->notify, signalfd_notify);
 
     sfd->f.flags = flags;
@@ -996,9 +1018,6 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
         (flags & ~(SFD_CLOEXEC | SFD_NONBLOCK))) 
         return -EINVAL;
 
-    if (!validate_user_memory(mask, sigsetsize, false))
-        return -EFAULT;
-
     if (fd == -1)
         return allocate_signalfd(mask, flags);
 
@@ -1009,7 +1028,10 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
     }
 
     /* update mask */
-    sfd->mask = *mask;
+    if (!get_user_value(mask, &sfd->mask)) {
+        fdesc_put(&sfd->f);
+        return -EINVAL;
+    }
     fdesc_put(&sfd->f);
     return fd;
 }

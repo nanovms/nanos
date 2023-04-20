@@ -91,3 +91,20 @@ https://developer.arm.com/cache-speculation-vulnerability-firmware-specification
 #define FRAME_FPSR          64
 #define FRAME_FPCR          65
 #define FRAME_EXTENDED_MAX  66
+
+#define ERR_FRAME_X19   0
+#define ERR_FRAME_X20   1
+#define ERR_FRAME_X21   2
+#define ERR_FRAME_X22   3
+#define ERR_FRAME_X23   4
+#define ERR_FRAME_X24   5
+#define ERR_FRAME_X25   6
+#define ERR_FRAME_X26   7
+#define ERR_FRAME_X27   8
+#define ERR_FRAME_X28   9
+#define ERR_FRAME_X29   10
+#define ERR_FRAME_X30   11
+#define ERR_FRAME_SP    12
+#define ERR_FRAME_SIZE  13
+
+#define ERR_FRAME_FULL  ERR_FRAME_X30

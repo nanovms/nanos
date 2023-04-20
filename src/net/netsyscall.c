@@ -422,13 +422,18 @@ struct udp_entry {
 static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
                                        io_completion completion, u64 bqflags)
 {
-    netsock_lock(s);
-
     context ctx = get_current_context(current_cpu());
     sysreturn rv = 0;
-    err_t err = get_lwip_error(s);
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto out;
+    }
     iovec iov = msg->msg_iov;
     u64 length = msg->msg_iovlen;
+    context_clear_err(ctx);
+
+    netsock_lock(s);
+    err_t err = get_lwip_error(s);
     struct tcp_pcb *tcp_lw = 0;
     boolean notify = false;
     net_debug("sock %d, ctx %p, iov %p, len %ld, flags 0x%x, bqflags 0x%lx, lwip err %d\n",
@@ -467,6 +472,13 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
         return blockq_block_required((unix_context)ctx, bqflags);
     }
 
+    u64 xfer_total = 0;
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto rx_done;
+    }
+    msg->msg_controllen = 0;
+    msg->msg_flags = 0;
     sockaddr src_addr = msg->msg_name;
     if (src_addr) {
         socklen_t *addrlen = &msg->msg_namelen;
@@ -480,7 +492,6 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
     }
 
     u64 iov_offset = 0;
-    u64 xfer_total = 0;
     u32 pbuf_idx = 0;
     if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK)) {
         tcp_lw = s->info.tcp.lw;
@@ -534,12 +545,15 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
                 notify = true;  /* reset a triggered EPOLLIN condition */
         }
     } while(s->sock.type == SOCK_STREAM && length > 0 && p != INVALID_ADDRESS); /* XXX simplify expression */
+    context_clear_err(ctx);
 
-    if (s->sock.type == SOCK_STREAM)
-        /* Calls to tcp_recved() may have enqueued new packets in the loopback interface. */
-        netsock_check_loop();
-
-    rv = xfer_total;
+  rx_done:
+    if (xfer_total) {
+        if (s->sock.type == SOCK_STREAM)
+            /* Calls to tcp_recved() may have enqueued new packets in the loopback interface. */
+            netsock_check_loop();
+        rv = xfer_total;
+    }
   out_unlock:
     if (notify)
         netsock_notify_events(s);
@@ -553,6 +567,7 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
         }
         tcp_unref(tcp_lw);
     }
+  out:
     net_debug("   completion %p, rv %ld\n", completion, rv);
     apply(completion, rv);
     return rv;
@@ -571,12 +586,27 @@ closure_function(7, 1, sysreturn, sock_read_bh,
         .msg_iov = &iov,
         .msg_iovlen = 1,
     };
-    if (msg.msg_name)
-        msg.msg_namelen = *bound(addrlen);
-    sysreturn rv = sock_read_bh_internal(bound(s), &msg, bound(flags), bound(completion), flags);
+    context ctx = get_current_context(current_cpu());
+    sysreturn rv = 0;
+    if (msg.msg_name) {
+        if (!context_set_err(ctx)) {
+            msg.msg_namelen = *bound(addrlen);
+            context_clear_err(ctx);
+        } else {
+            rv = -EFAULT;
+        }
+    }
+    if (!rv)
+        rv = sock_read_bh_internal(bound(s), &msg, bound(flags), bound(completion), flags);
+    else
+        apply(bound(completion), rv);
     if (rv != BLOCKQ_BLOCK_REQUIRED) {
-        if (msg.msg_name)
-            *bound(addrlen) = msg.msg_namelen;
+        if ((rv > 0) && msg.msg_name) {
+            if (!context_set_err(ctx)) {
+                *bound(addrlen) = msg.msg_namelen;
+                context_clear_err(ctx);
+            }
+        }
         closure_finish();
     }
     return rv;
@@ -671,6 +701,11 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         }
     }
     sg_list sg = bound(sg);
+    if (context_set_err(ctx)) {
+        if (rv == 0)
+            rv = -EFAULT;
+        goto write_done;
+    }
 
     /* Figure actual length and flags */
     u64 n;
@@ -710,6 +745,8 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         }
         break;
     }
+    context_clear_err(ctx);
+  write_done:
     if (err == ERR_OK) {
         /* XXX prob add a flag to determine whether to continuously
            post data, e.g. if used by send/sendto... */
@@ -742,9 +779,13 @@ static sysreturn socket_write_udp(netsock s, void *source, sg_list sg, u64 lengt
 {
     ip_addr_t ipaddr;
     u16 port = 0;
+    context ctx = get_current_context(current_cpu());
     if (dest_addr) {
+        if (context_set_err(ctx))
+            return -EFAULT;
         sysreturn ret = sockaddr_to_addrport(s, dest_addr, addrlen,
             &ipaddr, &port);
+        context_clear_err(ctx);
         if (ret)
             return ret;
     }
@@ -763,10 +804,16 @@ static sysreturn socket_write_udp(netsock s, void *source, sg_list sg, u64 lengt
         msg_err("failed to allocate pbuf for udp_send()\n");
         return -ENOBUFS;
     }
+    if (context_set_err(ctx)) {
+        netsock_unlock(s);
+        pbuf_free(pbuf);
+        return -EFAULT;
+    }
     if (source)
         runtime_memcpy(pbuf->payload, source, length);
     else
         sg_copy_to_buf(pbuf->payload, sg, length);
+    context_clear_err(ctx);
     if (dest_addr)
         err = udp_sendto(s->info.udp.lw, pbuf, &ipaddr, port);
     else
@@ -842,18 +889,124 @@ static boolean siocgifconf_get_len(struct netif *n, void *priv)
     return false;
 }
 
+typedef struct siocgifconf_priv {
+    struct ifconf *ifconf;
+    sysreturn rv;
+} *siocgifconf_priv;
+
 static boolean siocgifconf_populate(struct netif *n, void *priv)
 {
     if (netif_is_up(n) && netif_is_link_up(n) && !ip4_addr_isany(netif_ip4_addr(n))) {
-        struct ifconf *ifconf = priv;
+        siocgifconf_priv ifconf_priv = priv;
+        struct ifconf *ifconf = ifconf_priv->ifconf;
+        context ctx = get_current_context(current_cpu());
+        if (context_set_err(ctx)) {
+            ifconf_priv->rv = -EFAULT;
+            return true;
+        }
         int iface = ifconf->ifc_len / sizeof(struct ifreq);
         netif_name_cpy(ifconf->ifc.ifc_req[iface].ifr_name, n);
         struct sockaddr_in *addr = (struct sockaddr_in *)&ifconf->ifc.ifc_req[iface].ifr.ifr_addr;
         addr->family = AF_INET;
         runtime_memcpy(&addr->address, netif_ip4_addr(n), sizeof(ip4_addr_t));
         ifconf->ifc_len += sizeof(struct ifreq);
+        context_clear_err(ctx);
     }
     return false;
+}
+
+typedef sysreturn (*socket_ifreq_handler)(struct ifreq *ifreq, struct netif *netif);
+
+static sysreturn socket_ifreq(struct ifreq *ifreq, boolean set, socket_ifreq_handler handler)
+{
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(ifreq, sizeof(struct ifreq), !set) || context_set_err(ctx))
+        return -EFAULT;
+    struct netif *netif = netif_find(ifreq->ifr_name);
+    context_clear_err(ctx);
+    if (!netif)
+        return -ENODEV;
+    sysreturn rv;
+    if (!context_set_err(ctx)) {
+        rv = handler(ifreq, netif);
+        context_clear_err(ctx);
+    } else {
+        rv = -EFAULT;
+    }
+    netif_unref(netif);
+    return rv;
+}
+
+static sysreturn socket_get_flags(struct ifreq *ifreq, struct netif *netif)
+{
+    ifreq->ifr.ifr_flags = ifflags_from_netif(netif);
+    return 0;
+}
+
+static sysreturn socket_set_flags(struct ifreq *ifreq, struct netif *netif)
+{
+    return ifflags_to_netif(netif, ifreq->ifr.ifr_flags) ? 0 : -EINVAL;
+}
+
+static sysreturn socket_get_addr(struct ifreq *ifreq, struct netif *netif)
+{
+    struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_addr;
+    addr->family = AF_INET;
+    runtime_memcpy(&addr->address, netif_ip4_addr(netif), sizeof(ip4_addr_t));
+    return 0;
+}
+
+static sysreturn socket_set_addr(struct ifreq *ifreq, struct netif *netif)
+{
+    struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_addr;
+    if (addr->family != AF_INET)
+        return -EINVAL;
+    ip4_addr_t lwip_addr = {
+        .addr = addr->address,
+    };
+    netif_set_ipaddr(netif, &lwip_addr);
+    return 0;
+}
+
+static sysreturn socket_get_netmask(struct ifreq *ifreq, struct netif *netif)
+{
+    struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_netmask;
+    addr->family = AF_INET;
+    runtime_memcpy(&addr->address, netif_ip4_netmask(netif), sizeof(ip4_addr_t));
+    return 0;
+}
+
+static sysreturn socket_set_netmask(struct ifreq *ifreq, struct netif *netif)
+{
+    struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_netmask;
+    if (addr->family != AF_INET)
+        return -EINVAL;
+    ip4_addr_t lwip_addr = {
+        .addr = addr->address,
+    };
+    netif_set_netmask(netif, &lwip_addr);
+    return 0;
+}
+
+static sysreturn socket_get_mtu(struct ifreq *ifreq, struct netif *netif)
+{
+    ifreq->ifr.ifr_mtu = netif->mtu;
+    return 0;
+}
+
+static sysreturn socket_set_mtu(struct ifreq *ifreq, struct netif *netif)
+{
+    int mtu = ifreq->ifr.ifr_mtu;
+    if ((mtu <= 0) || (mtu > MTU_MAX))
+        return -EINVAL;
+    netif->mtu = mtu;
+    return 0;
+}
+
+static sysreturn socket_get_index(struct ifreq *ifreq, struct netif *netif)
+{
+    ifreq->ifr.ifr_ivalue = netif->num;
+    return 0;
 }
 
 /* socket configuration controls; not netsock specific, but reliant on lwIP calls */
@@ -863,152 +1016,62 @@ sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
     switch (request) {
     case SIOCGIFNAME: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
+        context ctx = get_current_context(current_cpu());
+        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true) || context_set_err(ctx))
             return -EFAULT;
         struct netif *netif = netif_get_by_index(ifreq->ifr.ifr_ivalue);
-        ifreq->ifr_name[IFNAMSIZ-1] = '\0';
-        netif_name_cpy(ifreq->ifr_name, netif);
+        context_clear_err(ctx);
+        if (!netif)
+            return -ENODEV;
+        sysreturn rv;
+        if (!context_set_err(ctx)) {
+            netif_name_cpy(ifreq->ifr_name, netif);
+            context_clear_err(ctx);
+            rv = 0;
+        } else {
+            rv = -EFAULT;
+        }
         netif_unref(netif);
-        return 0;
+        return rv;
     }
     case SIOCGIFCONF: {
         struct ifconf *ifconf = varg(ap, struct ifconf *);
-        if (!validate_user_memory(ifconf, sizeof(struct ifconf), true))
+        context ctx = get_current_context(current_cpu());
+        if (!validate_user_memory(ifconf, sizeof(struct ifconf), true) || context_set_err(ctx))
             return -EFAULT;
-        if (ifconf->ifc.ifc_req == NULL) {
-            ifconf->ifc_len = 0;
+        ifconf->ifc_len = 0;
+        boolean get_len = (ifconf->ifc.ifc_req == NULL);
+        context_clear_err(ctx);
+        if (get_len) {
             netif_iterate(siocgifconf_get_len, ifconf);
+            return 0;
+        } else {
+            struct siocgifconf_priv priv = {
+                .ifconf = ifconf,
+                .rv = 0,
+            };
+            netif_iterate(siocgifconf_populate, &priv);
+            return priv.rv;
         }
-        else {
-            ifconf->ifc_len = 0;
-            netif_iterate(siocgifconf_populate, ifconf);
-        }
-        return 0;
     }
-    case SIOCGIFFLAGS: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif) {
-            return -ENODEV;
-        }
-        ifreq->ifr.ifr_flags = ifflags_from_netif(netif);
-        netif_unref(netif);
-        return 0;
-    }
-    case SIOCSIFFLAGS: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif)
-            return -ENODEV;
-        boolean success = ifflags_to_netif(netif, ifreq->ifr.ifr_flags);
-        netif_unref(netif);
-        return (success ? 0 : -EINVAL);
-    }
-    case SIOCGIFADDR: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif) {
-            return -ENODEV;
-        }
-        struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_addr;
-        addr->family = AF_INET;
-        runtime_memcpy(&addr->address, netif_ip4_addr(netif),
-                sizeof(ip4_addr_t));
-        netif_unref(netif);
-        return 0;
-    }
-    case SIOCSIFADDR: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif)
-            return -ENODEV;
-        struct sockaddr_in *addr = (struct sockaddr_in *)&ifreq->ifr.ifr_addr;
-        if (addr->family != AF_INET)
-            return -EINVAL;
-        ip4_addr_t lwip_addr = {
-                .addr = addr->address,
-        };
-        netif_set_ipaddr(netif, &lwip_addr);
-        netif_unref(netif);
-        return 0;
-    }
-    case SIOCGIFNETMASK: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif) {
-            return -ENODEV;
-        }
-        struct sockaddr_in *addr =
-                (struct sockaddr_in *)&ifreq->ifr.ifr_netmask;
-        addr->family = AF_INET;
-        runtime_memcpy(&addr->address, netif_ip4_netmask(netif),
-                sizeof(ip4_addr_t));
-        netif_unref(netif);
-        return 0;
-    }
-    case SIOCSIFNETMASK: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif)
-            return -ENODEV;
-        struct sockaddr_in *addr =
-                (struct sockaddr_in *)&ifreq->ifr.ifr_netmask;
-        if (addr->family != AF_INET)
-            return -EINVAL;
-        ip4_addr_t lwip_addr = {
-                .addr = addr->address,
-        };
-        netif_set_netmask(netif, &lwip_addr);
-        netif_unref(netif);
-        return 0;
-    }
-    case SIOCGIFMTU: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif)
-            return -ENODEV;
-        ifreq->ifr.ifr_mtu = netif->mtu;
-        netif_unref(netif);
-        return 0;
-    }
-    case SIOCSIFMTU: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), false))
-            return -EFAULT;
-        if ((ifreq->ifr.ifr_mtu <= 0) || (ifreq->ifr.ifr_mtu > MTU_MAX))
-            return -EINVAL;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif)
-            return -ENODEV;
-        netif->mtu = ifreq->ifr.ifr_mtu;
-        netif_unref(netif);
-        return 0;
-    }
-    case SIOCGIFINDEX: {
-        struct ifreq *ifreq = varg(ap, struct ifreq *);
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true))
-            return -EFAULT;
-        struct netif *netif = netif_find(ifreq->ifr_name);
-        if (!netif)
-            return -ENODEV;
-        ifreq->ifr.ifr_ivalue = netif->num;
-        netif_unref(netif);
-        return 0;
-    }
+    case SIOCGIFFLAGS:
+        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_flags);
+    case SIOCSIFFLAGS:
+        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_flags);
+    case SIOCGIFADDR:
+        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_addr);
+    case SIOCSIFADDR:
+        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_addr);
+    case SIOCGIFNETMASK:
+        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_netmask);
+    case SIOCSIFNETMASK:
+        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_netmask);
+    case SIOCGIFMTU:
+        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_mtu);
+    case SIOCSIFMTU:
+        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_mtu);
+    case SIOCGIFINDEX:
+        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_index);
     default:
         return ioctl_generic(&s->f, request, ap);
     }
@@ -1022,8 +1085,7 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
     net_debug("sock %d, request 0x%x\n", s->sock.fd, request);
     switch (request) {
     case FIONREAD: {
-        int *nbytes = varg(ap, int *);
-        *nbytes = 0;
+        int nbytes = 0;
         netsock_lock(s);
         void *p = queue_peek(s->incoming);
         if (p != INVALID_ADDRESS) {
@@ -1042,11 +1104,13 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
                 break;
             }
             while (buf) {
-                *nbytes += (int)buf->len;
+                nbytes += (int)buf->len;
                 buf = buf->next;
             }
         }
         netsock_unlock(s);
+        if (!set_user_value(varg(ap, int *), nbytes))
+            return -EFAULT;
         return 0;
     }
     default:
@@ -1384,8 +1448,14 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr,
-        &port);
+    sysreturn ret;
+    context ctx = get_current_context(current_cpu());
+    if (!context_set_err(ctx)) {
+        ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr, &port);
+        context_clear_err(ctx);
+    } else {
+        ret = -EFAULT;
+    }
     if (ret)
         goto out;
     if ((s->sock.domain == AF_INET6) && ip6_addr_isany(&ipaddr.u_addr.ip6) &&
@@ -1587,8 +1657,14 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
     netsock s = (netsock) sock;
     ip_addr_t ipaddr;
     u16 port;
-    sysreturn ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr,
-        &port);
+    sysreturn ret;
+    context ctx = get_current_context(current_cpu());
+    if (!context_set_err(ctx)) {
+        ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr, &port);
+        context_clear_err(ctx);
+    } else {
+        ret = -EFAULT;
+    }
     if (ret)
         goto out;
     netsock_lock(s);
@@ -1743,7 +1819,11 @@ closure_function(6, 1, void, sendmmsg_complete,
     if (rv < 0)
         goto out;
     struct mmsghdr *hdr = &bound(msgvec)[bound(index)];
-    hdr->msg_len = rv;
+    int msg_len = rv;
+    if (!set_user_value(&hdr->msg_len, msg_len)) {
+        rv = -EFAULT;
+        goto out;
+    }
     bound(index)++;
     if (bound(index) < bound(vlen)) {
         enqueue(runqueue, &bound(next));
@@ -1819,9 +1899,12 @@ static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
 sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 		   struct sockaddr *src_addr, socklen_t *addrlen)
 {
+    /* Use a dummy value for the address length, instead of reading it from addrlen (the value
+     * pointed to by addrlen might change before this syscall completes). */
     if (src_addr && (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-                     !validate_user_memory(src_addr, *addrlen, true)))
+                     !validate_user_memory(src_addr, PAGESIZE, true)))
         return -EFAULT;
+
     struct sock *sock = resolve_socket(current->p, sockfd);
     net_debug("sock %d, type %d, thread %ld, buf %p, len %ld\n", sock->fd,
             sock->type, current->tid, buf, len);
@@ -1843,8 +1926,6 @@ static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
         rv = (s->info.tcp.state == TCP_SOCK_UNDEFINED) ? 0 : -ENOTCONN;
         goto out;
     }
-    msg->msg_controllen = 0;
-    msg->msg_flags = 0;
     blockq_action ba = contextual_closure(recvmsg_bh, s, msg, flags, completion);
     return blockq_check(sock->rxbq, ba, in_bh);
   out:
@@ -1875,7 +1956,11 @@ closure_function(6, 1, void, recvmmsg_complete,
         goto out;
     struct mmsghdr *msgvec = bound(msgvec);
     struct mmsghdr *hdr = &msgvec[bound(index)];
-    hdr->msg_len = rv;
+    int msg_len = rv;
+    if (!set_user_value(&hdr->msg_len, msg_len)) {
+        rv = -EFAULT;
+        goto out;
+    }
     bound(index)++;
     if (bound(index) < bound(vlen)) {
         if (bound(flags) & MSG_WAITFORONE)
@@ -2049,9 +2134,20 @@ closure_function(5, 1, sysreturn, accept_bh,
         return blockq_block_required((unix_context)ctx, bqflags);   /* block */
     }
 
+    if (bound(addr) &&
+        (!fault_in_memory(bound(addrlen), sizeof(socklen_t)) ||
+         !fault_in_memory(bound(addr), *bound(addrlen)))) {
+        rv = -EFAULT;
+        goto out;
+    }
     netsock_lock(child);
     child->sock.f.flags |= bound(flags);
     if (bound(addr)) {
+        if (context_set_err(ctx)) {
+            netsock_unlock(child);
+            rv = -EFAULT;
+            goto out;
+        }
         if (child->info.tcp.state == TCP_SOCK_OPEN)
             remote_sockaddr(child, bound(addr), bound(addrlen));
         else
@@ -2059,6 +2155,7 @@ closure_function(5, 1, sysreturn, accept_bh,
              * peer. */
             addrport_to_sockaddr(child->sock.domain, (ip_addr_t *)IP_ADDR_ANY, 0,
                 bound(addr), bound(addrlen));
+        context_clear_err(ctx);
     }
 
     /* report falling edge in case of edge trigger */
@@ -2120,9 +2217,13 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
 {
     net_debug("sock %d, addr %p, addrlen %p, flags %x\n", sockfd, addr, addrlen,
             flags);
+
+    /* Use a dummy value for the address length, instead of reading it from addrlen (the value
+     * pointed to by addrlen might change before this syscall completes). */
     if (addr && (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-                 !validate_user_memory(addr, *addrlen, true)))
+                 !validate_user_memory(addr, PAGESIZE, true)))
         return -EFAULT;
+
     struct sock *sock = resolve_socket(current->p, sockfd);
     if (!sock->accept4) {
         socket_release(sock);
@@ -2179,8 +2280,8 @@ static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, s
 sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
     net_debug("sock %d, addr %p, addrlen %p\n", sockfd, addr, addrlen);
-    if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-        !validate_user_memory(addr, *addrlen, true))
+    if (!fault_in_user_memory(addrlen, sizeof(socklen_t), true) ||
+        !fault_in_user_memory(addr, *addrlen, true))
         return -EFAULT;
     struct sock *sock = resolve_socket(current->p, sockfd);
     if (!sock->getsockname) {
@@ -2192,8 +2293,8 @@ sysreturn getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 
 sysreturn getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
-    if (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-        !validate_user_memory(addr, *addrlen, true))
+    if (!fault_in_user_memory(addrlen, sizeof(socklen_t), true) ||
+        !fault_in_user_memory(addr, *addrlen, true))
         return -EFAULT;
     struct sock *sock = resolve_socket(current->p, sockfd);
     sysreturn rv = 0;
@@ -2216,16 +2317,16 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                                     int optname, void *optval, socklen_t optlen)
 {
     netsock s = (netsock)sock;
+    int int_optval;
     sysreturn rv;
     switch (level) {
     case IPPROTO_IPV6:
         switch (optname) {
         case IPV6_V6ONLY:
-            if (optlen != sizeof(int)) {
-                rv = -EINVAL;
+            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            if (rv)
                 goto out;
-            }
-            s->ipv6only = *((int *)optval);
+            s->ipv6only = int_optval;
             break;
         default:
             goto unimplemented;
@@ -2236,16 +2337,15 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
         case SO_REUSEADDR:
         case SO_KEEPALIVE:
         case SO_BROADCAST:
-            if (optlen != sizeof(int)) {
-                rv = -EINVAL;
+            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            if (rv)
                 goto out;
-            }
             u8 so_option = (optname == SO_REUSEADDR ? SOF_REUSEADDR :
                             (optname == SO_KEEPALIVE ? SOF_KEEPALIVE : SOF_BROADCAST));
             if (s->sock.type == SOCK_STREAM) {
                 struct tcp_pcb *tcp_lw = netsock_tcp_get(s);
                 if (tcp_lw) {
-                    if (*((int *)optval))
+                    if (int_optval)
                         ip_set_option(tcp_lw, so_option);
                     else
                         ip_reset_option(tcp_lw, so_option);
@@ -2256,7 +2356,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                 }
             } else if (s->sock.type == SOCK_DGRAM) {
                 netsock_lock(s);
-                if (*((int *)optval))
+                if (int_optval)
                     ip_set_option(s->info.udp.lw, so_option);
                 else
                     ip_reset_option(s->info.udp.lw, so_option);
@@ -2272,24 +2372,27 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
     case SOL_TCP:
         switch (optname) {
         case TCP_NODELAY:
-            if ((optlen != sizeof(int)) || (s->sock.type != SOCK_STREAM)) {
+            if ((s->sock.type != SOCK_STREAM)) {
                 rv = -EINVAL;
                 goto out;
             }
+            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            if (rv)
+                goto out;
             netsock_lock(s);
             struct tcp_pcb *tcp_lw = s->info.tcp.lw;
             if (tcp_lw && (s->info.tcp.state != TCP_SOCK_LISTENING)) {
                 tcp_ref(tcp_lw);
                 netsock_unlock(s);
                 tcp_lock(tcp_lw);
-                if (*((int *)optval))
+                if (int_optval)
                     tcp_nagle_disable(tcp_lw);
                 else
                     tcp_nagle_enable(tcp_lw);
                 tcp_unlock(tcp_lw);
                 tcp_unref(tcp_lw);
             } else {
-                if (*((int *)optval))
+                if (int_optval)
                     s->info.tcp.flags |= TF_NODELAY;
                 else
                     s->info.tcp.flags &= ~TF_NODELAY;
@@ -2425,13 +2528,7 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         rv = -EOPNOTSUPP;
         goto out;
     }
-    if (optval && optlen) {
-        ret_optlen = MIN(*optlen, ret_optlen);
-        runtime_memcpy(optval, &ret_optval, ret_optlen);
-        *optlen = ret_optlen;
-    }
-
-    rv = 0;
+    rv = sockopt_copy_to_user(optval, optlen, &ret_optval, ret_optlen);
     goto out;
 unimplemented:
     msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
@@ -2444,8 +2541,6 @@ out:
 
 sysreturn setsockopt(int sockfd, int level, int optname, void *optval, socklen_t optlen)
 {
-    if (!validate_user_memory(optval, optlen, false))
-        return -EFAULT;
     struct sock *sock = resolve_socket(current->p, sockfd);
     if (!sock->setsockopt) {
         socket_release(sock);
@@ -2456,9 +2551,6 @@ sysreturn setsockopt(int sockfd, int level, int optname, void *optval, socklen_t
 
 sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
 {
-    if (!validate_user_memory(optlen, sizeof(socklen_t), true) ||
-            !validate_user_memory(optval, *optlen, true))
-        return -EFAULT;
     struct sock *sock = resolve_socket(current->p, sockfd);
     if (!sock->getsockopt) {
         socket_release(sock);

@@ -113,6 +113,43 @@ static void test_basic(void)
     freeifaddrs(ifaddr);
 }
 
+static void test_fault(void)
+{
+    int fd;
+    struct sockaddr_nl nladdr;
+    socklen_t len;
+    struct nlmsghdr nlh;
+    uint8_t buf[512];
+    void *fault_addr = (void *)0xbadf0000;
+
+    fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    test_assert(fd >= 0);
+    test_assert(bind(fd, (struct sockaddr *)fault_addr, sizeof(nladdr)) == -1);
+    test_assert(errno == EFAULT);
+    test_assert(close(fd) == 0);
+
+    fd = netlink_open(&nladdr, 0);
+    test_assert((write(fd, fault_addr, sizeof(nlh)) == -1) && (errno == EFAULT));
+
+    nlh.nlmsg_type = -1;    /* invalid header type, should generate an error message */
+    nlh.nlmsg_flags = NLM_F_REQUEST;
+    nlh.nlmsg_pid = nladdr.nl_pid;
+    nlh.nlmsg_seq = 1;
+    nlh.nlmsg_len = sizeof(nlh);
+    test_assert(write(fd, &nlh, sizeof(nlh)) == sizeof(nlh));
+    test_assert((read(fd, fault_addr, sizeof(nlh)) == -1) && (errno == EFAULT));
+
+    test_assert(write(fd, &nlh, sizeof(nlh)) == sizeof(nlh));
+    len = sizeof(nladdr);
+    test_assert((recvfrom(fd, buf, sizeof(buf), 0, fault_addr, &len) == -1) && (errno == EFAULT));
+
+    test_assert(write(fd, &nlh, sizeof(nlh)) == sizeof(nlh));
+    test_assert(recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&nladdr, fault_addr) == -1);
+    test_assert(errno == EFAULT);
+
+    test_assert(close(fd) == 0);
+}
+
 static void test_bind(void)
 {
     int fd, fd1;
@@ -402,6 +439,7 @@ static void test_getroute(int family)
 int main(int argc, char *argv[])
 {
     test_basic();
+    test_fault();
     test_bind();
     test_getlink();
     test_getaddr();

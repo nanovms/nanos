@@ -89,6 +89,7 @@ static void test_wait()
     int efd;
     int fd;
     struct epoll_event event;
+    void *fault_addr = (void *)0xbadf0000;
 
     efd = epoll_create1(0);
     test_assert(efd >= 0);
@@ -98,6 +99,8 @@ static void test_wait()
     test_assert(epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event) == 0);
     test_assert(epoll_wait(efd, &event, 1, -1) == 1);
     test_assert((event.data.fd == fd) && (event.events == EPOLLOUT));
+
+    test_assert((epoll_wait(efd, fault_addr, 1, -1) == -1) && (errno == EFAULT));
 
     /* Close the writable file descriptor and verify that no more EPOLLOUT events are reported. */
     close(fd);

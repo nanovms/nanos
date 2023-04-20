@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -16,7 +17,10 @@
 
 #include <runtime.h>
 
+#define FAULT_ADDR  ((void *)0xBADF0000)
+
 #define NETSOCK_TEST_BASIC_PORT 1233
+#define NETSOCK_TEST_FAULT_PORT 1237
 
 #define NETSOCK_TEST_FIO_COUNT  8
 
@@ -76,6 +80,7 @@ static void netsock_test_basic(int sock_type)
     int fd, tx_fd;
     struct pollfd pfd;
     struct sockaddr_in addr;
+    socklen_t addr_len;
     pthread_t pt;
     int ret;
     struct timespec start, end, elapsed;
@@ -132,6 +137,10 @@ static void netsock_test_basic(int sock_type)
         test_assert(write(tx_fd, &ret, sizeof(ret)) < 0 && errno == EDESTADDRREQ);
         test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
     }
+    addr_len = sizeof(addr);
+    test_assert((getpeername(tx_fd, FAULT_ADDR, &addr_len) == -1) && (errno == EFAULT));
+    test_assert((getpeername(tx_fd, &addr, FAULT_ADDR) == -1) && (errno == EFAULT));
+    test_assert((write(tx_fd, FAULT_ADDR, sizeof(tx_buf)) == -1) && (errno == EFAULT));
     test_assert((recv(tx_fd, tx_buf, sizeof(tx_buf), MSG_DONTWAIT) == -1) && (errno == EAGAIN));
     test_assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
     do {
@@ -675,6 +684,161 @@ static void netsock_test_msg(int sock_type)
         test_assert(close(listen_fd) == 0);
 }
 
+static void *netsock_test_fault_udp_thread(void *arg)
+{
+    int fd;
+    struct sockaddr_in addr;
+    u8 buf[8];
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+    test_assert(connect(fd, (struct sockaddr *)FAULT_ADDR, sizeof(addr)) == -1);
+    test_assert(errno == EFAULT);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(NETSOCK_TEST_FAULT_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    usleep(1000 * 10);  /* wait for the main thread to block */
+    test_assert(munmap(arg, PAGESIZE) == 0);
+    test_assert(write(fd, buf, sizeof(buf)) == sizeof(buf));
+    close(fd);
+    return NULL;
+}
+
+static int netsock_test_fault_udp_setup(pthread_t *pt, void **fault_addr)
+{
+    int fd;
+    struct sockaddr_in addr;
+
+    *fault_addr = mmap(0, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    test_assert(*fault_addr != MAP_FAILED);
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(NETSOCK_TEST_FAULT_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert((bind(fd, (struct sockaddr *)FAULT_ADDR, sizeof(addr)) == -1) && (errno == EFAULT));
+    test_assert(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(pthread_create(pt, NULL, netsock_test_fault_udp_thread, *fault_addr) == 0);
+    return fd;
+}
+
+static void *netsock_test_fault_tcp_thread(void *arg)
+{
+    int fd;
+    struct sockaddr_in addr;
+
+    fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    test_assert(fd > 0);
+    usleep(1000 * 10);  /* wait for the main thread to block */
+    test_assert(munmap(arg, PAGESIZE) == 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(NETSOCK_TEST_FAULT_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    close(fd);
+    return NULL;
+}
+
+static void netsock_test_fault(void)
+{
+    int fd;
+    void *fault_addr;
+    u8 buf[KB];
+    struct iovec iov;
+    struct msghdr *msg;
+    struct mmsghdr *mmsg;
+    struct sockaddr_in addr;
+    socklen_t len;
+    pthread_t pt;
+    struct ifconf ifconf;
+
+    /* recvmsg()/sendmsg() with faulting struct msghdr */
+    fd = netsock_test_fault_udp_setup(&pt, &fault_addr);
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+    msg = fault_addr;
+    memset(msg, 0, sizeof(*msg));
+    msg->msg_iov = &iov;
+    msg->msg_iovlen = 1;
+    test_assert((recvmsg(fd, msg, 0) == -1) && (errno == EFAULT));
+    test_assert(pthread_join(pt, NULL) == 0);
+    test_assert((sendmsg(fd, msg, 0) == -1) && (errno == EFAULT));
+    close(fd);
+
+    /* recvmmsg()/sendmmsg() with faulting struct mmsghdr */
+    fd = netsock_test_fault_udp_setup(&pt, &fault_addr);
+    mmsg = fault_addr;
+    mmsg->msg_hdr.msg_iov = &iov;
+    mmsg->msg_hdr.msg_iovlen = 1;
+    test_assert((recvmmsg(fd, mmsg, 1, 0, NULL) == -1) && (errno == EFAULT));
+    test_assert(pthread_join(pt, NULL) == 0);
+    test_assert((sendmmsg(fd, mmsg, 1, 0) == -1) && (errno == EFAULT));
+    close(fd);
+
+    /* read() with faulting buffer */
+    fd = netsock_test_fault_udp_setup(&pt, &fault_addr);
+    test_assert((read(fd, fault_addr, PAGESIZE) == -1) && (errno == EFAULT));
+    test_assert(pthread_join(pt, NULL) == 0);
+    close(fd);
+
+    /* recvfrom()/sendto() with faulting address */
+    fd = netsock_test_fault_udp_setup(&pt, &fault_addr);
+    len = sizeof(addr);
+    test_assert((recvfrom(fd, buf, sizeof(buf), 0, fault_addr, &len) == -1) && (errno == EFAULT));
+    test_assert(pthread_join(pt, NULL) == 0);
+    test_assert(sendto(fd, buf, sizeof(buf), 0, fault_addr, sizeof(addr)) == -1);
+    test_assert(errno == EFAULT);
+    close(fd);
+
+    /* recvfrom() with faulting address length */
+    fd = netsock_test_fault_udp_setup(&pt, &fault_addr);
+    *(socklen_t *)fault_addr = sizeof(addr);
+    test_assert((recvfrom(fd, buf, sizeof(buf), 0, &addr, fault_addr) == -1) && (errno == EFAULT));
+    test_assert(pthread_join(pt, NULL) == 0);
+
+    test_assert((ioctl(fd, SIOCGIFCONF, fault_addr) == -1) && (errno == EFAULT));
+    ifconf.ifc_len = sizeof(struct ifreq);
+    ifconf.ifc_req = fault_addr;
+    test_assert((ioctl(fd, SIOCGIFCONF, &ifconf) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCGIFNAME, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCGIFFLAGS, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCSIFFLAGS, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCGIFADDR, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCSIFADDR, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCGIFNETMASK, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCSIFNETMASK, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCGIFMTU, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCSIFMTU, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, SIOCGIFINDEX, fault_addr) == -1) && (errno == EFAULT));
+    test_assert((ioctl(fd, FIONREAD, fault_addr) == -1) && (errno == EFAULT));
+    len = sizeof(addr);
+    test_assert((getsockname(fd, fault_addr, &len) == -1) && (errno == EFAULT));
+    test_assert((getsockname(fd, &addr, fault_addr) == -1) && (errno == EFAULT));
+    test_assert(setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, fault_addr, sizeof(int)) == -1);
+    test_assert(errno == EFAULT);
+    len = sizeof(int);
+    test_assert((getsockopt(fd, SOL_SOCKET, SO_TYPE, fault_addr, &len) == -1) && (errno == EFAULT));
+
+    close(fd);
+
+    /* accept() with faulting address */
+    fault_addr = mmap(0, PAGESIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    test_assert(fault_addr != MAP_FAILED);
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(NETSOCK_TEST_FAULT_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(listen(fd, 1) == 0);
+    test_assert(pthread_create(&pt, NULL, netsock_test_fault_tcp_thread, fault_addr) == 0);
+    len = sizeof(addr);
+    test_assert((accept(fd, fault_addr, &len) == -1) && (errno == EFAULT));
+    test_assert(pthread_join(pt, NULL) == 0);
+    close(fd);
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -688,6 +852,7 @@ int main(int argc, char **argv)
     netsock_test_netconf();
     netsock_test_msg(SOCK_STREAM);
     netsock_test_msg(SOCK_DGRAM);
+    netsock_test_fault();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }

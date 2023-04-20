@@ -312,6 +312,46 @@ context_suspend:
         mov rdi, rbx
         jmp context_suspend_finish      ; finish in C
 .end:
+
+global_func err_frame_save
+err_frame_save:
+        mov [rdi+ERR_FRAME_RBX*8], rbx
+        mov [rdi+ERR_FRAME_RBP*8], rbp
+        mov [rdi+ERR_FRAME_R12*8], r12
+        mov [rdi+ERR_FRAME_R13*8], r13
+        mov [rdi+ERR_FRAME_R14*8], r14
+        mov [rdi+ERR_FRAME_R15*8], r15
+        mov rax, rsp
+        add rax, 8
+        mov [rdi+ERR_FRAME_RSP*8], rax
+        mov rax, [rsp]
+        mov [rdi+ERR_FRAME_RIP*8], rax
+        mov rax, 0
+        ret
+.end:
+
+global_func err_frame_apply
+err_frame_apply:
+        mov rax, [rdi+ERR_FRAME_RBX*8]
+        mov [rsi+FRAME_RBX*8], rax
+        mov rax, [rdi+ERR_FRAME_RBP*8]
+        mov [rsi+FRAME_RBP*8], rax
+        mov rax, [rdi+ERR_FRAME_R12*8]
+        mov [rsi+FRAME_R12*8], rax
+        mov rax, [rdi+ERR_FRAME_R13*8]
+        mov [rsi+FRAME_R13*8], rax
+        mov rax, [rdi+ERR_FRAME_R14*8]
+        mov [rsi+FRAME_R14*8], rax
+        mov rax, [rdi+ERR_FRAME_R15*8]
+        mov [rsi+FRAME_R15*8], rax
+        mov rax, [rdi+ERR_FRAME_RSP*8]
+        mov [rsi+FRAME_RSP*8], rax
+        mov rax, [rdi+ERR_FRAME_RIP*8]
+        mov [rsi+FRAME_RIP*8], rax
+        mov rax, 1			; return value for context_set_err()
+        mov [rsi+FRAME_RAX*8], rax
+        ret
+.end:
         
 global_func read_msr
 read_msr:

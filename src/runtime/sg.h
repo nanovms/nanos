@@ -95,5 +95,10 @@ u64 sg_copy_to_buf(void *target, sg_list sg, u64 length);
 u64 sg_copy_to_buf_and_release(void *dest, sg_list src, u64 limit);
 u64 sg_move(sg_list dest, sg_list src, u64 n);
 u64 sg_zero_fill(sg_list sg, u64 n);
-void sg_fault_in(sg_list sg, u64 n);
 sg_io sg_wrapped_block_reader(block_io bio, int block_order, heap backed);
+
+#ifdef KERNEL
+boolean sg_fault_in(sg_list sg, u64 n);
+#else
+#define sg_fault_in(sg, n)  true
+#endif

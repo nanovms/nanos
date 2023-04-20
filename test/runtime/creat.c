@@ -63,6 +63,14 @@ void check(const char *path, int expect)
 
 int main(int argc, char **argv)
 {
+    int fd;
+
+    fd = creat((char *)0xbadf0000, 0);
+    if ((fd != -1) || (errno != EFAULT)) {
+        printf("creat() with faulting path failed (%d, %d)\n", fd, errno);
+        exit(EXIT_FAILURE);
+    }
+
     check("/creat", 0);
     _creat("/test", 0, 0);
     check("/test", 0);

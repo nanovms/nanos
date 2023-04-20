@@ -1,4 +1,5 @@
 #define resolve_dir(__fs, __dirfd, __path) ({ \
+    if (!fault_in_user_string(__path)) return -EFAULT;  \
     inode cwd; \
     process p = current->p; \
     if (*(__path) == '/') { \

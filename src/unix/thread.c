@@ -11,9 +11,6 @@ sysreturn gettid()
 
 sysreturn set_tid_address(int *a)
 {
-    /* man page says this always succeeds, but... */
-    if (a && !validate_user_memory(a, sizeof(int), true))
-        return set_syscall_error(current, EFAULT);
     current->clear_tid = a;
     return current->tid;
 }
@@ -22,9 +19,6 @@ sysreturn set_tid_address(int *a)
 sysreturn arch_prctl(int code, unsigned long addr)
 {    
     thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
-    if ((code == ARCH_GET_FS || code == ARCH_GET_GS) &&
-        !validate_user_memory((void *)addr, sizeof(u64), true))
-        return set_syscall_error(current, EFAULT);
 
     /* just validate the word at base */
     if ((code == ARCH_SET_FS || code == ARCH_SET_GS) &&
@@ -39,10 +33,12 @@ sysreturn arch_prctl(int code, unsigned long addr)
         thread_frame(current)[FRAME_FSBASE] = addr;
         return 0;
     case ARCH_GET_FS:
-	*(u64 *) addr = thread_frame(current)[FRAME_FSBASE];
+        if (!set_user_value((u64 *)addr, thread_frame(current)[FRAME_FSBASE]))
+            return -EFAULT;
         break;
     case ARCH_GET_GS:
-	*(u64 *) addr = thread_frame(current)[FRAME_GSBASE];
+        if (!set_user_value((u64 *)addr, thread_frame(current)[FRAME_GSBASE]))
+            return -EFAULT;
         break;
     default:
         return set_syscall_error(current, EINVAL);
@@ -84,10 +80,16 @@ static sysreturn clone_internal(struct clone_args_internal *args)
      f[SYSCALL_FRAME_SP] = (u64)stack + stack_size;
      if (flags & CLONE_SETTLS)
 	  set_tls(f, args->tls);
+     context ctx = get_current_context(current_cpu());
+     if (context_set_err(ctx)) {
+         exit_thread(t);
+         return -EFAULT;
+     }
      if (flags & CLONE_PARENT_SETTID)
 	  *(args->parent_tid) = t->tid;
      if (flags & CLONE_CHILD_SETTID)
 	  *(args->child_tid) = t->tid;
+     context_clear_err(ctx);
      if (flags & CLONE_CHILD_CLEARTID)
 	  t->clear_tid = args->child_tid;
      t->syscall = 0;
@@ -132,6 +134,9 @@ sysreturn clone3(struct clone_args *args, bytes size)
      if (!validate_user_memory(args, size, false))
           return -EFAULT;
 
+     context ctx = get_current_context(current_cpu());
+     if (context_set_err(ctx))
+         return -EFAULT;
      struct clone_args_internal argsi = {
           .flags = args->flags,
           .child_tid = (int *)args->child_tid,
@@ -140,6 +145,7 @@ sysreturn clone3(struct clone_args *args, bytes size)
           .stack_size = args->stack_size,
           .tls = args->tls
      };
+     context_clear_err(ctx);
 
      return clone_internal(&argsi);
 }
@@ -517,8 +523,9 @@ void exit_thread(thread t)
     sigstate_flush_queue(&t->signals);
 
     if (t->clear_tid) {
-        *t->clear_tid = 0;
-        futex_wake_one_by_uaddr(t->p, t->clear_tid); /* ignore errors */
+        int val = 0;
+        if (set_user_value(t->clear_tid, val))
+            futex_wake_one_by_uaddr(t->p, t->clear_tid);    /* ignore errors */
     }
 
     if (t->select_epoll)

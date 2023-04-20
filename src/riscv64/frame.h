@@ -114,3 +114,20 @@
 #define FRAME_FCSR          32
 #define FRAME_EXTENDED_MAX  33
 
+#define ERR_FRAME_S0    0
+#define ERR_FRAME_S1    1
+#define ERR_FRAME_S2    2
+#define ERR_FRAME_S3    3
+#define ERR_FRAME_S4    4
+#define ERR_FRAME_S5    5
+#define ERR_FRAME_S6    6
+#define ERR_FRAME_S7    7
+#define ERR_FRAME_S8    8
+#define ERR_FRAME_S9    9
+#define ERR_FRAME_S10   10
+#define ERR_FRAME_S11   11
+#define ERR_FRAME_RA    12
+#define ERR_FRAME_SP    13
+#define ERR_FRAME_SIZE  14
+
+#define ERR_FRAME_FULL  ERR_FRAME_RA

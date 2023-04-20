@@ -685,11 +685,17 @@ void deallocate_fd(process p, int fd);
 
 void init_vdso(process p);
 
+boolean copy_from_user(const void *uaddr, void *kaddr, u64 len);
+boolean copy_to_user(void *uaddr, const void *kaddr, u64 len);
+
+#define get_user_value(addr, val_p) copy_from_user(addr, val_p, sizeof(*(val_p)))
+#define set_user_value(addr, val)   copy_to_user(addr, &(val), sizeof(val))
+
 boolean validate_user_memory_permissions(process p, const void *buf, bytes length,
                                          u64 required_flags, u64 disallowed_flags);
 
-boolean fault_in_user_memory(const void *buf, bytes length,
-                             u64 required_flags, u64 disallowed_flags);
+boolean fault_in_memory(const void *buf, bytes length);
+boolean fault_in_user_memory(const void *buf, bytes length, boolean writable);
 
 void mmap_process_init(process p, tuple root);
 
@@ -1071,7 +1077,7 @@ static inline boolean fault_in_user_string(const char *name)
 {
     u64 a = u64_from_pointer(name);
     while (fault_in_user_memory(pointer_from_u64(a & ~PAGEMASK),
-                                PAGESIZE, VMAP_FLAG_READABLE, 0)) {
+                                PAGESIZE, false)) {
         u64 lim = (a & ~PAGEMASK) + PAGESIZE;
         while (a < lim) {
             if (*(u8*)pointer_from_u64(a++) == '\0')
@@ -1098,11 +1104,18 @@ static inline boolean iov_to_sg(sg_list sg, struct iovec *iov, int iovlen)
     return true;
 }
 
-static inline void sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
+static inline boolean sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
 {
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        sg_list_release(sg);
+        return false;
+    }
     for (int i = 0; i < iovlen; i++)
         if (sg_copy_to_buf(iov[i].iov_base, sg, iov[i].iov_len) == 0)
             break;
+    context_clear_err(ctx);
+    return true;
 }
 
 static inline void check_syscall_context_replace(cpuinfo ci, context ctx)

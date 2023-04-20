@@ -134,6 +134,11 @@ int main(int argc, char *argv[])
             sf_err_goto(err_fop, "sendfile() failed!!\n");
     }
 
+    lseek(fd_in, 0, SEEK_SET);
+    ret = sendfile(fd_out, fd_in, (long *)0xbadf0000, BUF_LEN);
+    if ((ret != -1) || (errno != EFAULT))
+        sf_err_goto(err_fop, "sendfile with faulting offset test failed (%d, %d)\n", ret, errno);
+
     close(fd_out);
     close(fd_in);
 

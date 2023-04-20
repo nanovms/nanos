@@ -23,6 +23,8 @@
 #define BUFLEN 256
 #define DEFAULT_BULK_SIZE (20 << 20) /* 20M */
 
+#define FAULT_ADDR  ((void *)0xBADF0000)
+
 static char *str = "I'm staying. Finishing my coffee. Enjoying my coffee.";
 
 #define _READ(b, l)                             \
@@ -135,6 +137,12 @@ void basic_write_test()
     if (s.st_blocks < 1) {
         printf("invalid number of allocated blocks: %ld\n", s.st_blocks);
         goto out_fail;
+    }
+
+    rv = write(fd, FAULT_ADDR, 4096);
+    if ((rv != -1) || (errno != EFAULT)) {
+        printf("write with faulting buffer: rv %ld, errno %d\n", rv, errno);
+        exit(EXIT_FAILURE);
     }
 
     rv = syncfs(fd);
@@ -304,6 +312,11 @@ void truncate_test(const char *prog)
     ssize_t rv;
     struct stat s;
 
+    rv = truncate(FAULT_ADDR, 0);
+    if ((rv != -1) || (errno != EFAULT)) {
+        printf("truncate() with faulting path failed (%ld, %d)\n", rv, errno);
+        exit(EXIT_FAILURE);
+    }
     int fd = open("new_file", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("open");

@@ -8,6 +8,12 @@ KERNEL_INDEX_OFF = (((KERNEL_BASE>>30)&0x1ff) * 8)
 ROOT_PT_ADDR = KERNEL_PHYS - 0x1000
 KERN_PT_ADDR = KERNEL_PHYS - 0x2000
 
+.macro global_func name
+        .global \name
+        .type \name STT_FUNC
+        .size \name, \name\().end - \name
+        .endm
+
 .macro  start_setup
         // disable interrupts and FPU
         csrw CSR_IE, zero
@@ -304,3 +310,57 @@ context_suspend:
         mv a0, t0
         j context_suspend_finish
 
+global_func err_frame_save
+err_frame_save:
+        sd s0, ERR_FRAME_S0*8(a0)
+        sd s1, ERR_FRAME_S1*8(a0)
+        sd s2, ERR_FRAME_S2*8(a0)
+        sd s3, ERR_FRAME_S3*8(a0)
+        sd s4, ERR_FRAME_S4*8(a0)
+        sd s5, ERR_FRAME_S5*8(a0)
+        sd s6, ERR_FRAME_S6*8(a0)
+        sd s7, ERR_FRAME_S7*8(a0)
+        sd s8, ERR_FRAME_S8*8(a0)
+        sd s9, ERR_FRAME_S9*8(a0)
+        sd s10, ERR_FRAME_S10*8(a0)
+        sd s11, ERR_FRAME_S11*8(a0)
+        sd ra, ERR_FRAME_RA*8(a0)
+        sd sp, ERR_FRAME_SP*8(a0)
+        li a0, 0
+        ret
+err_frame_save.end:
+
+global_func err_frame_apply
+err_frame_apply:
+        ld t0, ERR_FRAME_S0*8(a0)
+        sd t0, FRAME_S0*8(a1)
+        ld t0, ERR_FRAME_S1*8(a0)
+        sd t0, FRAME_S1*8(a1)
+        ld t0, ERR_FRAME_S2*8(a0)
+        sd t0, FRAME_S2*8(a1)
+        ld t0, ERR_FRAME_S3*8(a0)
+        sd t0, FRAME_S3*8(a1)
+        ld t0, ERR_FRAME_S4*8(a0)
+        sd t0, FRAME_S4*8(a1)
+        ld t0, ERR_FRAME_S5*8(a0)
+        sd t0, FRAME_S5*8(a1)
+        ld t0, ERR_FRAME_S6*8(a0)
+        sd t0, FRAME_S6*8(a1)
+        ld t0, ERR_FRAME_S7*8(a0)
+        sd t0, FRAME_S7*8(a1)
+        ld t0, ERR_FRAME_S8*8(a0)
+        sd t0, FRAME_S8*8(a1)
+        ld t0, ERR_FRAME_S9*8(a0)
+        sd t0, FRAME_S9*8(a1)
+        ld t0, ERR_FRAME_S10*8(a0)
+        sd t0, FRAME_S10*8(a1)
+        ld t0, ERR_FRAME_S11*8(a0)
+        sd t0, FRAME_S11*8(a1)
+        ld t0, ERR_FRAME_RA*8(a0)
+        sd t0, FRAME_PC*8(a1)
+        ld t0, ERR_FRAME_SP*8(a0)
+        sd t0, FRAME_SP*8(a1)
+        li t0, 1    // return value for context_set_err()
+        sd t0, FRAME_A0*8(a1)
+        ret
+err_frame_apply.end:

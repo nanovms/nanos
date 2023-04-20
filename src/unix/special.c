@@ -146,7 +146,11 @@ static sysreturn mounts_read(file f, void *dest, u64 length, u64 offset)
         return -ENOMEM;
     }
     storage_iterate(stack_closure(mounts_handler, b));
-    length = buffer_read_at(b, offset, dest, length);
+    context ctx = get_current_context(current_cpu());
+    if (!context_set_err(ctx))
+        length = buffer_read_at(b, offset, dest, length);
+    else
+        length = -EFAULT;
     deallocate_buffer(b);
     return length;
 }
@@ -181,7 +185,11 @@ static sysreturn maps_read(file f, void *dest, u64 length, u64 offset)
         return -ENOMEM;
     }
     vmap_iterator(current->p, stack_closure(maps_handler, b));
-    length = buffer_read_at(b, offset, dest, length);
+    context ctx = get_current_context(current_cpu());
+    if (!context_set_err(ctx))
+        length = buffer_read_at(b, offset, dest, length);
+    else
+        length = -EFAULT;
     deallocate_buffer(b);
     return length;
 }
@@ -222,8 +230,14 @@ closure_function(2, 6, sysreturn, spec_read,
     file f = bound(f);
     sysreturn nr;
     if (sf->read) {
+        context ctx = get_current_context(current_cpu());
         boolean is_file_offset = (offset == infinity);
-        nr = sf->read(f, dest, len, is_file_offset ? f->offset : offset);
+        if (!context_set_err(ctx)) {
+            nr = sf->read(f, dest, len, is_file_offset ? f->offset : offset);
+            context_clear_err(ctx);
+        } else {
+            nr = -EFAULT;
+        }
         if ((nr > 0) && is_file_offset)
             f->offset += nr;
     } else {

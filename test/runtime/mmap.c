@@ -690,6 +690,11 @@ static void mincore_test(void)
         (unsigned long)addr);
     __mincore(addr, PAGESIZE, vec, expected);
 
+    if ((mincore(addr, PAGESIZE, NULL) != -1) || (errno != EFAULT)) {
+        fprintf(stderr, "mincore fault test failed\n");
+        exit(EXIT_FAILURE);
+    }
+
     /* test something recently mmap'd/munmap'd */
     {
         addr = mmap(NULL, PAGESIZE, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE,

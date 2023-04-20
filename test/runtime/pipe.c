@@ -172,6 +172,36 @@ void blocking_test(heap h, int * fds)
     printf("blocking test passed\n");
 }
 
+static void fault_test(void)
+{
+    int fds[2];
+    int status;
+    u8 buf[64];
+    void *fault_addr = (void *)0xbadf0000;
+
+    if ((__pipe(fault_addr) != -1) || (errno != EFAULT)) {
+        printf("pipe with faulting buffer error\n");
+        exit(EXIT_FAILURE);
+    }
+    status = __pipe(fds);
+    if (status == -1)
+        handle_error("pipe");
+    if ((write(fds[1], fault_addr, 1) != -1) || (errno != EFAULT)) {
+        printf("write with faulting buffer error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (write(fds[1], buf, sizeof(buf)) < 0)
+        handle_error("write");
+    if ((read(fds[0], fault_addr, 1) != -1) || (errno != EFAULT)) {
+        printf("read with faulting buffer error\n");
+        exit(EXIT_FAILURE);
+    }
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
 int main(int argc, char **argv)
 {
     int fds[2] = {0,0};
@@ -202,5 +232,6 @@ int main(int argc, char **argv)
     }
 
     close(fds[0]);
+    fault_test();
     return(EXIT_SUCCESS);
 }

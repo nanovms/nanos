@@ -89,6 +89,11 @@ define_closure_function(1, 1, void, pending_fault_complete,
             thread t = (thread)ctx;
             deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
             schedule_thread(t);
+        } else if (context_err_is_set(ctx)) {
+            kernel_context kc = (kernel_context)ctx;
+            err_frame_apply(kc->err_frame, ctx->frame);
+            context_clear_err(ctx);
+            context_schedule_return(ctx);
         } else {
             halt("unhandled demand page failure for context type %d\n", ctx->type);
         }
@@ -707,7 +712,7 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     length = pad(length, PAGESIZE);
     nr_pgs = length >> PAGELOG;
 
-    if (!validate_user_memory(vec, nr_pgs, true))
+    if (!fault_in_user_memory(vec, nr_pgs, true))
         return -EFAULT;
 
     /* -ENOMEM if any unmapped gaps in range */
@@ -1234,7 +1239,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     /* as man page suggests, ignore MAP_POPULATE if MAP_NONBLOCK is specified */
     if ((flags & (MAP_POPULATE | MAP_NONBLOCK)) == MAP_POPULATE && (prot & PROT_READ)) {
         vmap_debug("   faulting in %R\n", q);
-        fault_in_user_memory(pointer_from_u64(q.start), len, 0, 0);
+        fault_in_user_memory(pointer_from_u64(q.start), len, false);
     }
     ret = q.start;
   out:
@@ -1339,16 +1344,28 @@ boolean validate_user_memory_permissions(process p, const void *buf, bytes lengt
     return res == RM_MATCH;
 }
 
-boolean fault_in_user_memory(const void *buf, bytes length,
-                             u64 required_flags, u64 disallowed_flags)
+boolean fault_in_memory(const void *buf, bytes length)
 {
-    if (!validate_user_memory_permissions(current->p, buf, length, required_flags,
-                                          disallowed_flags))
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
         return false;
-
     /* Fault in non-present pages by touching each page in buffer */
     touch_memory(buf, length);
+    context_clear_err(ctx);
     return true;
+}
+
+boolean fault_in_user_memory(const void *buf, bytes length, boolean writable)
+{
+    if (writable) {
+        if (!validate_user_memory_permissions(current->p, buf, length, VMAP_FLAG_WRITABLE, 0))
+            return false;
+    } else {
+        if (!validate_user_memory(buf, length, false))
+            return false;
+    }
+
+    return fault_in_memory(buf, length);
 }
 
 void mmap_process_init(process p, tuple root)

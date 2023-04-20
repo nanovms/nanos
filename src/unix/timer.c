@@ -113,13 +113,18 @@ static inline void release_unix_timer(unix_timer ut)
     refcount_release(&ut->refcount);
 }
 
-static void itimerspec_from_timer(unix_timer ut, struct itimerspec *i)
+static boolean itimerspec_from_timer(unix_timer ut, struct itimerspec *i)
 {
     timestamp remain = 0, interval = 0;
     if (timer_is_active(&ut->t))
         timer_get_remaining(ut->tq, &ut->t, &remain, &interval);
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(i, sizeof(struct itimerspec), true) || context_set_err(ctx))
+        return false;
     timespec_from_time(&i->it_value, remain);
     timespec_from_time(&i->it_interval, interval);
+    context_clear_err(ctx);
+    return true;
 }
 
 static void itimerval_from_timer(unix_timer ut, struct itimerval *i)
@@ -182,9 +187,12 @@ sysreturn timerfd_settime(int fd, int flags,
     if (flags & ~(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET))
         return -EINVAL;
 
-    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false) ||
-            (old_value && !validate_user_memory(old_value, sizeof(struct itimerspec), true)))
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false) || context_set_err(ctx))
         return -EFAULT;
+    timestamp tinit = time_from_timespec(&new_value->it_value);
+    timestamp interval = time_from_timespec(&new_value->it_interval);
+    context_clear_err(ctx);
 
     unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
     spin_lock(&timer_cancel_lock);  /* to avoid lock inversion with unix timer lock */
@@ -195,8 +203,9 @@ sysreturn timerfd_settime(int fd, int flags,
         goto out;
     }
 
-    if (old_value) {
-        itimerspec_from_timer(ut, old_value);
+    if (old_value && !itimerspec_from_timer(ut, old_value)) {
+        rv = -EFAULT;
+        goto out;
     }
 
     ut->info.timerfd.canceled = false;
@@ -214,11 +223,8 @@ sysreturn timerfd_settime(int fd, int flags,
     remove_unix_timer(ut);
     ut->overruns = 0;
 
-    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_nsec == 0)
+    if (tinit == 0)
         goto out;
-
-    timestamp tinit = time_from_timespec(&new_value->it_value);
-    timestamp interval = time_from_timespec(&new_value->it_interval);
     boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
     timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
                 ut->cid, tinit, absolute, interval);
@@ -236,16 +242,13 @@ sysreturn timerfd_settime(int fd, int flags,
 
 sysreturn timerfd_gettime(int fd, struct itimerspec *curr_value)
 {
-    if (!validate_user_memory(curr_value, sizeof(struct itimerspec), true))
-        return -EFAULT;
-
     sysreturn rv = 0;
     unix_timer ut = resolve_fd(current->p, fd); /* macro, may return EBADF */
     spin_lock(&ut->lock);
     if (ut->f.type != FDESC_TYPE_TIMERFD)
         rv = -EINVAL;
     else
-        itimerspec_from_timer(ut, curr_value);
+        rv = itimerspec_from_timer(ut, curr_value) ? 0 : -EFAULT;
     spin_unlock(&ut->lock);
     fdesc_put(&ut->f);
     return rv;
@@ -287,8 +290,13 @@ closure_function(4, 1, sysreturn, timerfd_read_bh,
         spin_unlock(&ut->lock);
         return blockq_block_required((unix_context)ctx, flags);
     }
-    *(u64*)bound(dest) = overruns;
-    ut->overruns = 0;
+    if (!context_set_err(ctx)) {
+        *(u64*)bound(dest) = overruns;
+        context_clear_err(ctx);
+        ut->overruns = 0;
+    } else {
+        rv = -EFAULT;
+    }
   out:
     spin_unlock(&ut->lock);
     timer_debug("   -> returning %ld\n", rv);
@@ -443,8 +451,13 @@ sysreturn timer_settime(u32 timerid, int flags,
     /* Linux doesn't validate flags? */
     if (!validate_user_memory(new_value, sizeof(struct itimerspec), false))
         return -EINVAL;         /* usually EFAULT, but linux gives EINVAL */
-    if (old_value && !validate_user_memory(old_value, sizeof(struct itimerspec), true))
+
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
         return -EFAULT;
+    timestamp tinit = time_from_timespec(&new_value->it_value);
+    timestamp interval = time_from_timespec(&new_value->it_interval);
+    context_clear_err(ctx);
 
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
@@ -452,20 +465,18 @@ sysreturn timer_settime(u32 timerid, int flags,
     spin_lock(&ut->lock);
     sysreturn rv;
 
-    if (old_value) {
-        itimerspec_from_timer(ut, old_value);
+    if (old_value && !itimerspec_from_timer(ut, old_value)) {
+        rv = -EFAULT;
+        goto out;
     }
 
     remove_unix_timer(ut);
     ut->overruns = 0;
 
-    if (new_value->it_value.tv_sec == 0 && new_value->it_value.tv_nsec == 0) {
+    if (tinit == 0) {
         rv = 0;
         goto out;
     }
-
-    timestamp tinit = time_from_timespec(&new_value->it_value);
-    timestamp interval = time_from_timespec(&new_value->it_interval);
 
     boolean absolute = (flags & TFD_TIMER_ABSTIME) != 0;
     timer_debug("register timer: cid %d, init value %T, absolute %d, interval %T\n",
@@ -482,17 +493,14 @@ sysreturn timer_settime(u32 timerid, int flags,
 }
 
 sysreturn timer_gettime(u32 timerid, struct itimerspec *curr_value) {
-    if (!validate_user_memory(curr_value, sizeof(struct itimerspec), true))
-        return -EFAULT;
-
     unix_timer ut = posix_timer_from_timerid(timerid);
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
 
     spin_lock(&ut->lock);
-    itimerspec_from_timer(ut, curr_value);
+    boolean ok = itimerspec_from_timer(ut, curr_value);
     spin_unlock(&ut->lock);
-    return 0;
+    return ok ? 0 : -EFAULT;
 }
 
 sysreturn timer_getoverrun(u32 timerid) {
@@ -536,13 +544,13 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
         clockid != CLOCK_BOOTTIME_ALARM)
         return -EINVAL;
 
-    if (!validate_user_memory(timerid, sizeof(u32), true))
+    if (!fault_in_user_memory(timerid, sizeof(u32), true))
         return -EFAULT;
 
     process p = current->p;
     thread recipient = INVALID_ADDRESS; /* default to process */
     if (sevp) {
-        if (!validate_user_memory(sevp, sizeof(struct sigevent), false))
+        if (!fault_in_user_memory(sevp, sizeof(struct sigevent), false))
             return -EFAULT;
         switch (sevp->sigev_notify) {
         case SIGEV_NONE:
@@ -638,15 +646,29 @@ sysreturn getitimer(int which, struct itimerval *curr_value)
         return -EFAULT;
 
     unix_timer ut = vector_get(current->p->itimers, which);
+    context ctx = get_current_context(current_cpu());
+    sysreturn rv;
     if (ut) {
         spin_lock(&ut->lock);
-        itimerval_from_timer(ut, curr_value);
+        if (!context_set_err(ctx)) {
+            itimerval_from_timer(ut, curr_value);
+            context_clear_err(ctx);
+            rv = 0;
+        } else {
+            rv = -EFAULT;
+        }
         spin_unlock(&ut->lock);
     } else {
-        curr_value->it_value.tv_sec = curr_value->it_interval.tv_sec = 0;
-        curr_value->it_value.tv_usec = curr_value->it_interval.tv_usec = 0;
+        if (!context_set_err(ctx)) {
+            curr_value->it_value.tv_sec = curr_value->it_interval.tv_sec = 0;
+            curr_value->it_value.tv_usec = curr_value->it_interval.tv_usec = 0;
+            context_clear_err(ctx);
+            rv = 0;
+        } else {
+            rv = -EFAULT;
+        }
     }
-    return 0;
+    return rv;
 }
 
 define_closure_function(1, 2, void, itimer_expire,
@@ -737,21 +759,19 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
 {
     if (which == ITIMER_VIRTUAL) {
         msg_err("timer type %d not yet supported\n", which);
-        if (new_value) {
-            msg_err("   (it_value %T, it_interval %T)\n",
-                    time_from_timeval(&new_value->it_value),
-                    time_from_timeval(&new_value->it_interval));
-        }
         return -EOPNOTSUPP;
     } else if ((which != ITIMER_REAL) && (which != ITIMER_PROF)) {
         return -EINVAL;
     }
 
-    if (new_value && (new_value->it_value.tv_usec > USEC_LIMIT ||
-                      new_value->it_interval.tv_usec > USEC_LIMIT))
-        return -EINVAL;
+    if (new_value) {
+        if (!fault_in_user_memory(new_value, sizeof(struct itimerval), false))
+            return -EFAULT;
+        if (new_value->it_value.tv_usec > USEC_LIMIT || new_value->it_interval.tv_usec > USEC_LIMIT)
+            return -EINVAL;
+    }
 
-    if (old_value && !validate_user_memory(old_value, sizeof(struct itimerval), true))
+    if (old_value && !fault_in_user_memory(old_value, sizeof(struct itimerval), true))
         return -EFAULT;
 
     process p = current->p;

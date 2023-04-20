@@ -14,6 +14,8 @@
 #define BUF_SIZE        8192
 #define SMALLBUF_SIZE   256
 
+#define FAULT_ADDR  ((void *)0xBADF0000)
+
 #define test_assert(expr) do { \
     if (!(expr)) { \
         printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
@@ -49,14 +51,21 @@ static void aio_test_readwrite(void)
     aio_context_t ioc = 0;
     uint8_t read_buf[BUF_SIZE], write_buf[BUF_SIZE];
     struct iocb iocb;
-    struct iocb *iocbp = &iocb;
+    struct iocb *iocbp;
     struct io_event evt;
 
     fd = open("file_rw", O_RDWR | O_CREAT, S_IRWXU);
     test_assert(fd > 0);
     test_assert(syscall(SYS_io_setup, 1, &ioc) == 0);
 
+    test_assert((syscall(SYS_io_submit, ioc, 1, FAULT_ADDR) == -1) && (errno == EFAULT));
+    iocbp = FAULT_ADDR;
+    test_assert((syscall(SYS_io_submit, ioc, 1, &iocbp) == -1) && (errno == EFAULT));
+    iocbp = &iocb;
     test_assert(syscall(SYS_io_submit, ioc, 0, &iocbp) == 0);
+
+    test_assert(syscall(SYS_io_getevents, ioc, 1, 1, &evt, FAULT_ADDR) == -1);
+    test_assert(errno == EFAULT);
 
     iocb_setup_pwrite(&iocb, fd, NULL, BUF_SIZE, 0);
     test_assert(syscall(SYS_io_submit, ioc, 1, &iocbp) == -1);
@@ -90,6 +99,11 @@ static void aio_test_readwrite(void)
     for (int i = 0; i < BUF_SIZE; i++) {
         test_assert(read_buf[i] == (i & 0xFF));
     }
+
+    iocb_setup_pread(&iocb, fd, read_buf, BUF_SIZE, 0);
+    test_assert(syscall(SYS_io_submit, ioc, 1, &iocbp) == 1);
+    test_assert(syscall(SYS_io_getevents, ioc, 1, 1, FAULT_ADDR, NULL) == -1);
+    test_assert(errno == EFAULT);
 
     test_assert(syscall(SYS_io_destroy, ioc) == 0);
 
@@ -225,6 +239,7 @@ int main(int argc, char **argv)
     aio_context_t ioc = 0;
 
     test_assert((syscall(SYS_io_setup, 1, NULL) == -1) && (errno == EFAULT));
+    test_assert((syscall(SYS_io_setup, 1, FAULT_ADDR) == -1) && (errno == EFAULT));
     test_assert((syscall(SYS_io_setup, 0, &ioc) == -1) && (errno == EINVAL));
 
     /* Call io_destroy() with an invalid AIO context. */

@@ -22,6 +22,8 @@
 #define TUN_PEER_ADDR   (TUN_ADDR + 1)
 #define TUN_PEER_PORT   1234
 
+#define FAULT_ADDR ((void *)0xBADF0000)
+
 #define test_assert(expr) do { \
     if (!(expr)) { \
         printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
@@ -48,6 +50,7 @@ static int tun_setup(int flags, char *ifname)
     test_assert((write(tun_fd, &dummy_buf, sizeof(dummy_buf)) == -1) && (errno == EBADFD));
 
     test_assert((ioctl(tun_fd, TUNSETIFF, NULL) == -1) && (errno == EFAULT));
+    test_assert((ioctl(tun_fd, TUNSETIFF, FAULT_ADDR) == -1) && (errno == EFAULT));
     memset(&ifr, 0, sizeof(ifr));
     strcpy(ifr.ifr_name, ifname);
     ifr.ifr_flags = flags;
@@ -136,6 +139,13 @@ static void tun_test_basic(void)
     test_assert(read(tun_fd, buf, sizeof(buf)) == mtu);
     for (int i = 0; i < pkt_len; i++)
         test_assert(buf[hdr_len + i] == (uint8_t)i);
+
+    /* Try to operate on tun_fd using an invalid buffer. */
+    test_assert(send(sock_fd, buf, pkt_len, 0) == pkt_len);
+    test_assert((read(tun_fd, FAULT_ADDR, PAGESIZE) == -1) && (errno == EFAULT));
+    test_assert((write(tun_fd, FAULT_ADDR, PAGESIZE) == -1) && (errno == EFAULT));
+    test_assert((ioctl(tun_fd, TUNGETIFF, FAULT_ADDR) == -1) && (errno == EFAULT));
+    test_assert((ioctl(tun_fd, TUNSETQUEUE, FAULT_ADDR) == -1) && (errno == EFAULT));
 
     /* Swap source and destination, and receive an MTU-sized packet. */
     ip_hdr->saddr = htonl(TUN_PEER_ADDR);

@@ -53,6 +53,11 @@ closure_function(4, 1, sysreturn, efd_read_bh,
         }
         return blockq_block_required((unix_context)ctx, flags);
     }
+    if (context_set_err(ctx)) {
+        efd_unlock(efd);
+        rv = -EFAULT;
+        goto out;
+    }
     if (efd->flags & EFD_SEMAPHORE) {
         u64 readVal = 1;
 
@@ -63,6 +68,7 @@ closure_function(4, 1, sysreturn, efd_read_bh,
         runtime_memcpy(bound(buf), &efd->counter, sizeof(efd->counter));
         efd->counter = 0;
     }
+    context_clear_err(ctx);
     efd->io_event = true;
     efd_unlock(efd);
     blockq_wake_one(efd->write_bq);
@@ -99,7 +105,12 @@ closure_function(4, 1, sysreturn, efd_write_bh,
     }
 
     context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto out;
+    }
     runtime_memcpy(&counter, bound(buf), sizeof(counter));
+    context_clear_err(ctx);
     efd_lock(efd);
     if (counter > (EFD_COUNTER_MAX - efd->counter)) {
         efd_unlock(efd);

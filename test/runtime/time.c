@@ -793,6 +793,78 @@ void test_alarm(void)
     timetest_msg("test passed; delta %lld nsec\n", delta);
 }
 
+static void test_fault(void)
+{
+    void *fault_addr = (void *)0xbadf0000;
+    int fd;
+    struct itimerspec ts;
+    struct itimerval tv;
+    timer_t timerid;
+
+    fd = timerfd_create(CLOCK_MONOTONIC, 0);
+    if (fd < 0)
+        fail_perror("timerfd_create");
+
+    if ((timerfd_gettime(fd, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("timerfd_gettime() with faulting address test failed\n");
+    if ((timerfd_settime(fd, 0, fault_addr, NULL) != -1) || (errno != EFAULT))
+        fail_error("timerfd_settime() with faulting new value test failed\n");
+    memset(&ts, 0, sizeof(ts));
+    if ((timerfd_settime(fd, 0, &ts, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("timerfd_settime() with faulting old value test failed\n");
+
+    ts.it_value.tv_nsec = 1;
+    if (timerfd_settime(fd, 0, &ts, NULL) < 0)
+        fail_perror("timerfd_settime()");
+    if ((read(fd, fault_addr, sizeof(unsigned long)) != -1) || (errno != EFAULT))
+        fail_error("timerfd read() with faulting buffer test failed\n");
+
+    close(fd);
+
+    if ((syscall(SYS_timer_create, CLOCK_MONOTONIC, NULL, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("timer_create() with faulting timerid test failed\n");
+    if ((syscall(SYS_timer_create, CLOCK_MONOTONIC, fault_addr, &timerid) != -1) ||
+        (errno != EFAULT))
+        fail_error("timer_create() with faulting sigevent test failed\n");
+
+    if (timer_create(CLOCK_MONOTONIC, NULL, &timerid) < 0)
+        fail_perror("timer_create()");
+    if ((timer_gettime(timerid, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("timer_gettime() with faulting address test failed\n");
+    if ((timer_settime(timerid, 0, fault_addr, NULL) != -1) || (errno != EFAULT))
+        fail_error("timer_settime() with faulting new value test failed\n");
+    ts.it_value.tv_sec = 1;
+    if ((timer_settime(timerid, 0, &ts, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("timer_settime() with faulting old value test failed\n");
+    timer_delete(timerid);
+
+    if ((getitimer(ITIMER_REAL, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("getitimer() with faulting address test failed\n");
+    if ((setitimer(ITIMER_REAL, fault_addr, NULL) != -1) || (errno != EFAULT))
+        fail_error("setitimer() with faulting new value test failed\n");
+    memset(&tv, 0, sizeof(tv));
+    if ((setitimer(ITIMER_REAL, &tv, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("setitimer() with faulting old value test failed\n");
+
+    if ((syscall(SYS_gettimeofday, fault_addr, NULL) != -1) || (errno != EFAULT))
+        fail_error("gettimeofday() with faulting address test failed\n");
+    if ((syscall(SYS_settimeofday, fault_addr, NULL) != -1) || (errno != EFAULT))
+        fail_error("settimeofday() with faulting address test failed\n");
+    if ((syscall(SYS_times, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("times() with faulting address test failed\n");
+    if ((clock_gettime(CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("clock_gettime() with faulting address test failed\n");
+    if ((syscall(SYS_clock_settime, CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("clock_settime() with faulting address test failed\n");
+    if ((clock_getres(CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
+        fail_error("clock_getres() with faulting address test failed\n");
+
+    if ((nanosleep(fault_addr, NULL) != -1) || (errno != EFAULT))
+        fail_error("nanosleep() with faulting address test failed\n");
+    if (clock_nanosleep(CLOCK_MONOTONIC, 0, fault_addr, NULL) != EFAULT)
+        fail_error("clock_nanosleep() with faulting address test failed\n");
+}
+
 static void test_settime(void)
 {
     struct timespec n;
@@ -887,6 +959,7 @@ int main(int argc, char *argv[])
     test_cputime();
     test_getres();
     test_alarm();
+    test_fault();
     if (opt_settime)
         test_settime();
     printf("time test passed\n");

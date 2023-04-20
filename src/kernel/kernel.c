@@ -127,6 +127,7 @@ void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q
     void *stack_top = ((void *)kc) + size - STACK_ALIGNMENT;
     frame_set_stack_top(c->frame, stack_top);
     kc->size = size;
+    context_clear_err(c);
 }
 
 kernel_context allocate_kernel_context(cpuinfo ci)

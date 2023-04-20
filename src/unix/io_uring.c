@@ -380,7 +380,7 @@ static void iour_rings_init(io_uring iour)
 
 sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
 {
-    if (!validate_user_memory(params, sizeof(*params), true))
+    if (!fault_in_user_memory(params, sizeof(*params), false))
         return -EFAULT;
     iour_debug("entries %d, flags 0x%x, CQ entries %d", entries, params->flags,
                params->cq_entries);
@@ -388,14 +388,15 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
             (params->flags & ~IORING_SETUP_CQSIZE) || params->resv[0] ||
             params->resv[1] || params->resv[2] || params->resv[3])
         return -EINVAL;
-    params->sq_entries = U64_FROM_BIT(find_order(entries));
+    u32 sq_entries, cq_entries;
+    sq_entries = U64_FROM_BIT(find_order(entries));
     if (params->flags & IORING_SETUP_CQSIZE) {
-        if ((params->cq_entries < params->sq_entries) ||
+        if ((params->cq_entries < sq_entries) ||
                 (params->cq_entries > IOUR_CQ_ENTRIES_MAX))
             return -EINVAL;
-        params->cq_entries = U64_FROM_BIT(find_order(params->cq_entries));
+        cq_entries = U64_FROM_BIT(find_order(params->cq_entries));
     } else
-        params->cq_entries = 2 * params->sq_entries;    /* Linux does that */
+        cq_entries = 2 * sq_entries;    /* Linux does that */
 
     sysreturn ret;
     kernel_heaps kh = get_kernel_heaps();
@@ -405,9 +406,9 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
         return -ENOMEM;
     }
     iour->h = h;
-    iour->sq_entries = params->sq_entries;
+    iour->sq_entries = sq_entries;
     iour->sq_mask = iour->sq_entries - 1;
-    iour->cq_entries = params->cq_entries;
+    iour->cq_entries = cq_entries;
     iour->cq_mask = iour->cq_entries - 1;
 
     u64 alloc_size = IOUR_ALLOC_SIZE(iour);
@@ -438,17 +439,13 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     init_fdesc(h, &iour->f, FDESC_TYPE_IORING);
     iour->f.mmap = init_closure(&iour->mmap, iour_mmap);
     iour->f.close = init_closure(&iour->close, iour_close, iour);
-    if (iour->f.close == INVALID_ADDRESS) {
-        ret = -ENOMEM;
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        ret = -EFAULT;
         goto err3;
     }
-    ret = allocate_fd(current->p, iour);
-    if (ret == INVALID_PHYSICAL) {
-        apply(iour->f.close, 0, io_completion_ignore);
-        return -EMFILE;
-    }
-    iour_debug("fd %d", ret);
     params->features = IORING_FEAT_SINGLE_MMAP | IORING_FEAT_RW_CUR_POS;
+    params->sq_entries = sq_entries;
     params->sq_off.head = offsetof(io_rings, sq_head);
     params->sq_off.tail = offsetof(io_rings, sq_tail);
     params->sq_off.ring_mask = offsetof(io_rings, sq_mask);
@@ -457,6 +454,7 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     params->sq_off.dropped = offsetof(io_rings, sq_dropped);
     params->sq_off.array = (u8 *)iour->sq_array - (u8 *)iour->rings;
     runtime_memset((u8 *)params->sq_off.resv, 0, sizeof(params->sq_off.resv));
+    params->cq_entries = cq_entries;
     params->cq_off.head = offsetof(io_rings, cq_head);
     params->cq_off.tail = offsetof(io_rings, cq_tail);
     params->cq_off.ring_mask = offsetof(io_rings, cq_mask);
@@ -464,6 +462,13 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     params->cq_off.overflow = offsetof(io_rings, cq_overflow);
     params->cq_off.cqes = (u8 *)iour->cqes - (u8 *)iour->rings;
     runtime_memset((u8 *)params->cq_off.resv, 0, sizeof(params->cq_off.resv));
+    context_clear_err(ctx);
+    ret = allocate_fd(current->p, iour);
+    if (ret == INVALID_PHYSICAL) {
+        apply(iour->f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
+    iour_debug("fd %d", ret);
     return ret;
 err3:
     deallocate(h, iour->rings, alloc_size);
@@ -827,7 +832,7 @@ static int iour_register_files_update(io_uring iour, int *fds,
     iour_debug("count %d, offset %d", count, offset);
     if ((count == 0) || (count > IOUR_FILES_MAX) || (offset >= IOUR_FILES_MAX))
         return -EINVAL;
-    if (!validate_user_memory(fds, sizeof(fds[0]) * count, false))
+    if (!fault_in_user_memory(fds, sizeof(fds[0]) * count, false))
         return -EFAULT;
     sysreturn ret;
     iour_lock(iour);
@@ -1110,7 +1115,8 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         rv = -EINVAL;
         goto out;
     }
-    if (sig && !validate_user_memory(sig, sizeof(*sig), false)) {
+    u64 sigmask;
+    if (sig && !get_user_value(sig, &sigmask)) {
         rv = -EFAULT;
         goto out;
     }
@@ -1162,7 +1168,7 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         }
         if (sig) {
             iour->sigmask = current->signal_mask;
-            current->signal_mask = (*(u64 *)sig);
+            current->signal_mask = sigmask;
             bh->sig_set = true;
         } else
             bh->sig_set = false;
@@ -1317,6 +1323,9 @@ static sysreturn iour_register_probe(struct io_uring_probe *probe,
                                      unsigned int op_count)
 {
     iour_debug("op_count %d", op_count);
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
+        return -EFAULT;
     probe->last_op = IORING_OP_LAST - 1;
     if (op_count > IORING_OP_LAST)
         op_count = IORING_OP_LAST;
@@ -1336,6 +1345,7 @@ static sysreturn iour_register_probe(struct io_uring_probe *probe,
             probe->ops[IORING_OP_FILES_UPDATE].flags =
             probe->ops[IORING_OP_READ].flags =
             probe->ops[IORING_OP_WRITE].flags = IO_URING_OP_SUPPORTED;
+    context_clear_err(ctx);
     return 0;
 }
 
@@ -1359,14 +1369,14 @@ sysreturn io_uring_register(int fd, unsigned int opcode, void *arg,
             rv = iour_unregister_buffers(iour);
         break;
     case IORING_REGISTER_FILES:
-        if (!validate_user_memory(arg, sizeof(s32) * nr_args, false))
+        if (!fault_in_user_memory(arg, sizeof(s32) * nr_args, false))
             rv = -EFAULT;
         else
             rv = iour_register_files(iour, (s32 *)arg, nr_args);
         break;
     case IORING_REGISTER_FILES_UPDATE: {
         struct io_uring_files_update *fu = (struct io_uring_files_update *)arg;
-        if (!validate_user_memory(fu, sizeof(*fu), false))
+        if (!fault_in_user_memory(fu, sizeof(*fu), false))
             rv = -EFAULT;
         else if (fu->resv)
             rv = -EINVAL;
@@ -1381,15 +1391,17 @@ sysreturn io_uring_register(int fd, unsigned int opcode, void *arg,
             rv = iour_unregister_files(iour);
         break;
     case IORING_REGISTER_EVENTFD:
-    case IORING_REGISTER_EVENTFD_ASYNC:
-        if (!validate_user_memory(arg, sizeof(int), false))
+    case IORING_REGISTER_EVENTFD_ASYNC: {
+        int efd;
+        if (!get_user_value(arg, &efd))
             rv = -EFAULT;
         else if (nr_args != 1)
             rv = -EINVAL;
         else
-            rv = iour_register_eventfd(iour, *((int *)arg),
+            rv = iour_register_eventfd(iour, efd,
                 opcode == IORING_REGISTER_EVENTFD_ASYNC);
         break;
+    }
     case IORING_UNREGISTER_EVENTFD:
         if (arg || nr_args)
             rv = -EINVAL;

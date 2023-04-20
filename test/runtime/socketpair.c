@@ -18,6 +18,7 @@ static void basic_test(void)
 {
     ssize_t nbytes, total;
     int fd[2];
+    void *fault_addr = (void *)0xbadf0000;
     int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
 
     if (ret < 0) {
@@ -61,6 +62,12 @@ static void basic_test(void)
     }
     close(fd[0]);
     close(fd[1]);
+
+    ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fault_addr);
+    if ((ret != -1) || (errno != EFAULT)) {
+        printf("socketpair fault test failed (%d, %d)\n", ret, errno);
+        exit(EXIT_FAILURE);
+    }
 }
 
 static void hangup_test(void)

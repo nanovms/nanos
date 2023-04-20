@@ -144,11 +144,17 @@ u64 sg_copy_to_buf_and_release(void *target, sg_list sg, u64 n)
     return n - remain;
 }
 
-/* touch n bytes from sg, without consuming the SG list or its buffers */
-void sg_fault_in(sg_list sg, u64 n)
+#ifdef KERNEL
+
+/* Touch n bytes from sg, without consuming the SG list or its buffers, and return whether the
+ * buffers being accessed point to valid memory. */
+boolean sg_fault_in(sg_list sg, u64 n)
 {
     sg_buf sgb;
     u64 sgb_index = 0;
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
+        return false;
     while (n > 0 && (sgb = sg_list_peek_at(sg, sgb_index)) != INVALID_ADDRESS) {
         s64 len = MIN(n, sg_buf_len(sgb));
         n -= len;
@@ -160,7 +166,11 @@ void sg_fault_in(sg_list sg, u64 n)
         }
         sgb_index++;
     }
+    context_clear_err(ctx);
+    return true;
 }
+
+#endif
 
 sg_list allocate_sg_list(void)
 {

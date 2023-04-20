@@ -664,7 +664,10 @@ static sysreturn nl_check_dest(struct sockaddr *addr, socklen_t addrlen)
 
         if (addrlen < sizeof(*nl_addr))
             return -EINVAL;
-        if (nl_addr->nl_pid != NL_PID_KERNEL)
+        u32 pid;
+        if (!get_user_value(&nl_addr->nl_pid, &pid))
+            return -EFAULT;
+        if (pid != NL_PID_KERNEL)
             return -EPERM;
     }
     return 0;
@@ -675,21 +678,39 @@ static sysreturn nl_write_internal(nlsock s, void * src, u64 len)
     nl_debug("write_internal: len %ld", len);
     struct nlmsghdr *hdr;
     u64 offset = 0;
+    buffer kbuf = allocate_buffer(s->sock.h, sizeof(struct nlmsghdr));
+    if (kbuf == INVALID_ADDRESS)
+        return -ENOMEM;
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        if (offset == 0)
+            offset = -EFAULT;
+        goto out;
+    }
     while (offset + sizeof(*hdr) <= len) {
         hdr = (struct nlmsghdr *)(src + offset);
-        if ((u64_from_pointer(hdr) & (NLMSG_ALIGNMENT - 1)) || (len - offset < hdr->nlmsg_len))
-            break;  /* Refuse to process unaligned or incomplete messages. */
+        if (len - offset < hdr->nlmsg_len)
+            break;  /* Refuse to process incomplete messages. */
         nl_debug(" msg len %d, type %d, flags 0x%x, seq %d, pid %d", hdr->nlmsg_len,
                  hdr->nlmsg_type, hdr->nlmsg_flags, hdr->nlmsg_seq, hdr->nlmsg_pid);
         if (hdr->nlmsg_len < sizeof(*hdr))
             break;
+        buffer_clear(kbuf);
+        if (!buffer_write(kbuf, hdr, hdr->nlmsg_len)) {
+            if (offset == 0)
+                offset = -ENOMEM;
+            break;
+        }
         switch (s->family) {
         case NETLINK_ROUTE:
-            nl_route_msg(s, hdr);
+            nl_route_msg(s, buffer_ref(kbuf, 0));
             break;
         }
         offset += MIN(NLMSG_ALIGN(hdr->nlmsg_len), len - offset);
     }
+    context_clear_err(ctx);
+  out:
+    deallocate_buffer(kbuf);
     return (sysreturn)offset;
 }
 
@@ -721,6 +742,12 @@ closure_function(8, 1, sysreturn, nl_read_bh,
     struct iovec *iov = 0;
     u64 iov_len = 0;
     void *iov_buf;
+    if (context_set_err(ctx)) {
+        if (rv == 0)
+            rv = -EFAULT;
+        deallocate(s->sock.h, hdr, hdr->nlmsg_len);
+        goto unlock;
+    }
     if (!dest) {
         iov = msg->msg_iov;
         length = msg->msg_iovlen;
@@ -785,6 +812,7 @@ closure_function(8, 1, sysreturn, nl_read_bh,
             break;
         dequeue(s->data);
     } while (dest_len > 0);
+    context_clear_err(ctx);
 unlock:
     nl_unlock(s);
 out:
@@ -866,7 +894,15 @@ static sysreturn nl_bind(struct sock *sock, struct sockaddr *addr, socklen_t add
     nlsock s = (nlsock)sock;
     sysreturn rv;
     struct sockaddr_nl *nl_addr = (struct sockaddr_nl *)addr;
-    if ((addrlen != sizeof(*nl_addr)) || (nl_addr->nl_family != AF_NETLINK)) {
+    if (addrlen != sizeof(*nl_addr)) {
+        rv = -EINVAL;
+        goto out;
+    }
+    if (!fault_in_memory(addr, addrlen)) {
+        rv = -EFAULT;
+        goto out;
+    }
+    if (nl_addr->nl_family != AF_NETLINK) {
         rv = -EINVAL;
         goto out;
     }

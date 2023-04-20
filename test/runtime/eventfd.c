@@ -165,6 +165,30 @@ static void blocking_write_test(int fd)
     }
 }
 
+static void fault_test(int fd)
+{
+    void *fault_addr = (void *)0xbadf0000;
+    ssize_t nbytes;
+
+    nbytes = write(fd, fault_addr, sizeof(writtenVal));
+    if ((nbytes != -1) || (errno != EFAULT)) {
+        printf("eventfd fault test write error (%ld, %d)\n", nbytes, errno);
+        exit(EXIT_FAILURE);
+    }
+
+    writtenVal = 1;
+    nbytes = write(fd, &writtenVal, sizeof(writtenVal));
+    if (nbytes != sizeof(writtenVal)) {
+        printf("eventfd fault test write error (%ld, %d)\n", nbytes, errno);
+        exit(EXIT_FAILURE);
+    }
+    nbytes = read(fd, fault_addr, sizeof(readVal));
+    if ((nbytes != -1) || (errno != EFAULT)) {
+        printf("eventfd fault test read error (%ld, %d)\n", nbytes, errno);
+        exit(EXIT_FAILURE);
+    }
+}
+
 static void nonblocking_test(int fd)
 {
     ssize_t nbytes;
@@ -258,6 +282,7 @@ int main(int argc, char **argv)
     basic_test(fd);
     blocking_read_test(fd);
     blocking_write_test(fd);
+    fault_test(fd);
     close(fd);
     fd = eventfd(0, EFD_NONBLOCK);
     if (fd < 0) {

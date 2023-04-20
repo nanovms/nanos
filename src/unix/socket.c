@@ -213,6 +213,13 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
         return blockq_block_required((unix_context)ctx, flags);
     }
     rv = 0;
+    if (context_set_err(ctx)) {
+        if (rv == 0)
+            rv = -EFAULT;
+        else
+            read_done = true;
+        goto out;
+    }
     do {
         buffer b = shb->b;
         u64 xfer = MIN(buffer_length(b), length);
@@ -234,8 +241,6 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
         length -= xfer;
         s->sock.rx_len -= xfer;
         if (!buffer_length(b) || (s->sock.type != SOCK_STREAM)) {
-            assert(dequeue(s->data) == shb);
-            s->sock.rx_len -= buffer_length(b);
             if (s->sock.type == SOCK_DGRAM) {
                 struct sockaddr_un *from_addr = bound(from_addr);
                 socklen_t *from_length = bound(from_length);
@@ -244,6 +249,8 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
                     *from_length = __builtin_offsetof(struct sockaddr_un, sun_path) + runtime_strlen(from_addr->sun_path) + 1;
                 }
             }
+            assert(dequeue(s->data) == shb);
+            s->sock.rx_len -= buffer_length(b);
             sharedbuf_release(shb);
             shb = queue_peek(s->data);
             if (shb == INVALID_ADDRESS) { /* no more data available to read */
@@ -251,6 +258,7 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
             }
         }
     } while ((s->sock.type == SOCK_STREAM) && (length > 0));
+    context_clear_err(ctx);
     read_done = true;
 out:
     unixsock_unlock(s);
@@ -296,6 +304,7 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
         return -EAGAIN;
     }
 
+    context ctx = get_current_context(current_cpu());
     sysreturn rv = 0;
     do {
         u64 xfer = MIN(UNIXSOCK_BUF_MAX_SIZE, length);
@@ -310,6 +319,12 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
         }
         if (from && from->sock.type == SOCK_DGRAM)
             runtime_memcpy(&shb->from_addr, &from->local_addr, sizeof(struct sockaddr_un));
+        if (context_set_err(ctx)) {
+            sharedbuf_deallocate(shb);
+            if (rv == 0)
+                rv = -EFAULT;
+            break;
+        }
         if (src) {
             assert(buffer_write(shb->b, src, xfer));
             src = (u8 *) src + xfer;
@@ -318,6 +333,7 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
             assert(len == xfer);
             buffer_produce(shb->b, xfer);
         }
+        context_clear_err(ctx);
         assert(enqueue(dest->data, shb));
         dest->sock.rx_len += xfer;
         rv += xfer;
@@ -536,6 +552,11 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         goto out;
     }
 
+    if (!fault_in_memory(addr, addrlen)) {
+        ret = -EFAULT;
+        goto out;
+    }
+
     /* Ensure that the NULL-terminated path string fits in unixaddr->sun_path
      * (add terminator character if not found). */
     int term;
@@ -650,7 +671,10 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
 
     struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
     unixsock listener = 0;
-    rv = lookup_socket(&listener, unixaddr->sun_path);
+    if (!fault_in_user_string(unixaddr->sun_path))
+        rv = -EFAULT;
+    else
+        rv = lookup_socket(&listener, unixaddr->sun_path);
     if (rv != 0)
         goto out;
     if (listener->sock.type != s->sock.type) {
@@ -720,6 +744,11 @@ closure_function(5, 1, sysreturn, accept_bh,
     child->sock.f.flags |= bound(flags);
     rv = child->sock.fd;
     if (addr) {
+        context ctx = get_current_context(current_cpu());
+        if (context_set_err(ctx)) {
+            rv = -EFAULT;
+            goto out;
+        }
         socklen_t *addrlen = bound(addrlen);
         socklen_t actual_len = sizeof(child->peer->local_addr.sun_family);
         if (child->peer->local_addr.sun_path[0]) {  /* pathname socket */
@@ -728,6 +757,7 @@ closure_function(5, 1, sysreturn, accept_bh,
         runtime_memcpy(addr, &child->peer->local_addr,
                 MIN(*addrlen, actual_len));
         *addrlen = actual_len;
+        context_clear_err(ctx);
     }
     unixsock_notify_writer(s);
 out:
@@ -819,13 +849,7 @@ static sysreturn unixsock_getsockopt(struct sock *sock, int level,
     default:
         goto unimplemented;
     }
-    if (optval && optlen) {
-        ret_optlen = MIN(*optlen, ret_optlen);
-        runtime_memcpy(optval, &ret_optval, ret_optlen);
-        *optlen = ret_optlen;
-    }
-
-    rv = 0;
+    rv = sockopt_copy_to_user(optval, optlen, &ret_optval, ret_optlen);
     goto out;
 unimplemented:
     msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
@@ -860,7 +884,10 @@ sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
             goto out;
         }
         struct sockaddr_un daddr;
-        runtime_memcpy(&daddr, dest_addr, sizeof(daddr));
+        if (!copy_from_user(dest_addr, &daddr, sizeof(daddr))) {
+            rv = -EFAULT;
+            goto out;
+        }
         if (daddr.sun_family != AF_UNIX) {
             rv = -EINVAL;
             goto out;
@@ -938,7 +965,8 @@ closure_function(4, 1, void, recvmsg_complete,
                  sysreturn, rv)
 {
     sg_list sg = bound(sg);
-    sg_to_iov(sg, bound(iov), bound(iovlen));
+    if ((rv > 0) && !sg_to_iov(sg, bound(iov), bound(iovlen)))
+        rv = -EFAULT;
     deallocate_sg_list(sg);
     apply(bound(completion), rv);
     closure_finish();
@@ -1055,9 +1083,8 @@ sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
     }
     if (!unixsock_type_is_supported(type))
         return -ESOCKTNOSUPPORT;
-    if (!validate_user_memory(sv, 2 * sizeof(int), true)) {
+    if (!fault_in_user_memory(sv, 2 * sizeof(int), true))
         return -EFAULT;
-    }
     s1 = unixsock_alloc(h, type & SOCK_TYPE_MASK, type & ~SOCK_TYPE_MASK, true);
     if (!s1) {
         return -ENOMEM;

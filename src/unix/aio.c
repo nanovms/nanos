@@ -61,10 +61,10 @@ static struct aio *aio_alloc(process p, kernel_heaps kh, unsigned int *id)
     return aio;
 }
 
-static inline struct aio *aio_from_ring(process p, aio_ring ring)
+static inline struct aio *aio_from_ring_id(process p, unsigned int id)
 {
     process_lock(p);
-    struct aio *aio = vector_get(p->aio, ring->id);
+    struct aio *aio = vector_get(p->aio, id);
     refcount_reserve(&aio->refcount);
     process_unlock(p);
     return aio;
@@ -85,7 +85,7 @@ define_closure_function(1, 0, void, aio_free,
 
 sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
 {
-    if (!validate_user_memory(ctx_idp, sizeof(aio_context_t), true)) {
+    if (!fault_in_user_memory(ctx_idp, sizeof(aio_context_t), true)) {
         return -EFAULT;
     }
     if (nr_events == 0) {
@@ -199,18 +199,28 @@ static unsigned int aio_avail_events(struct aio *aio)
 
 static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb, context ctx)
 {
-    if (!validate_user_memory(iocb, sizeof(struct iocb), false)) {
+    if (!validate_user_memory(iocb, sizeof(struct iocb), false) || context_set_err(ctx))
         return -EFAULT;
-    }
     thread_log(current, "%s: fd %d, op %d", __func__, iocb->aio_fildes,
             iocb->aio_lio_opcode);
 
     if (iocb->aio_reserved1 || iocb->aio_reserved2 || !iocb->aio_buf ||
             (iocb->aio_flags & ~AIO_KNOWN_FLAGS)) {
+        context_clear_err(ctx);
         return -EINVAL;
     }
 
-    fdesc f = resolve_fd(current->p, iocb->aio_fildes);
+    fdesc f = fdesc_get(current->p, iocb->aio_fildes);
+    if (!f) {
+        context_clear_err(ctx);
+        return -EBADF;
+    }
+    int res_fd;
+    if (iocb->aio_flags & IOCB_FLAG_RESFD)
+        res_fd = iocb->aio_resfd;
+    else
+        res_fd = AIO_RESFD_INVALID;
+    context_clear_err(ctx);
     aio_lock(aio);
     if (aio->ongoing_ops >= aio_avail_events(aio) - 1) {
         aio_unlock(aio);
@@ -219,17 +229,16 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb, context ctx)
     }
     aio->ongoing_ops++;
     aio_unlock(aio);
-    int res_fd;
-    if (iocb->aio_flags & IOCB_FLAG_RESFD) {
-        res_fd = iocb->aio_resfd;
-    } else {
-        res_fd = AIO_RESFD_INVALID;
-    }
     process_context pc = INVALID_ADDRESS;
-    io_completion completion = closure(heap_locked(aio->kh), aio_complete, aio, f,
-            iocb->aio_data, (u64) iocb, res_fd);
+    io_completion completion = INVALID_ADDRESS;
     refcount_reserve(&aio->refcount);
     sysreturn rv;
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto error;
+    }
+    completion = closure(heap_locked(aio->kh), aio_complete, aio, f, iocb->aio_data, (u64)iocb,
+                         res_fd);
     if (completion == INVALID_ADDRESS) {
         rv = -ENOMEM;
         goto error;
@@ -266,8 +275,11 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb, context ctx)
         rv = -EINVAL;
         goto error;
     }
+    context_clear_err(ctx);
     return 0;
 error:
+    if (rv != -EFAULT)
+        context_clear_err(ctx);
     aio_lock(aio);
     aio->ongoing_ops--;
     aio_unlock(aio);
@@ -283,19 +295,26 @@ error:
 sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
 {
     struct aio *aio;
+    context ctx = get_current_context(current_cpu());
     if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
-        !validate_user_memory(iocbpp, sizeof(struct iocb *) * nr, false)) {
+        !validate_user_memory(iocbpp, sizeof(struct iocb *) * nr, false) ||
+        context_set_err(ctx))
         return -EFAULT;
-    }
-    if (!(aio = aio_from_ring(current->p, ctx_id))) {
+    aio = aio_from_ring_id(current->p, ctx_id->id);
+    context_clear_err(ctx);
+    if (!aio)
         return -EINVAL;
-    }
-    cpuinfo ci = current_cpu();
-    syscall_context sc = (syscall_context)get_current_context(ci);
-    assert(is_syscall_context(&sc->uc.kc.context));
     int io_ops;
     for (io_ops = 0; io_ops < nr; io_ops++) {
-        sysreturn rv = iocb_enqueue(aio, iocbpp[io_ops], &sc->uc.kc.context);
+        struct iocb *iocbp;
+        sysreturn rv;
+        if (!context_set_err(ctx)) {
+            iocbp = iocbpp[io_ops];
+            context_clear_err(ctx);
+            rv = iocb_enqueue(aio, iocbp, ctx);
+        } else  {
+            rv = -EFAULT;
+        }
         if (rv) {
             if (io_ops == 0) {
                 io_ops = rv;
@@ -334,6 +353,10 @@ closure_function(6, 1, sysreturn, io_getevents_bh,
         tail = 0;
     }
     context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto out;
+    }
     while (head != tail) {
         if (events) {
             runtime_memcpy(&events[aio->copied_evts], &ring->events[head],
@@ -346,6 +369,7 @@ closure_function(6, 1, sysreturn, io_getevents_bh,
             break;
         }
     }
+    context_clear_err(ctx);
     ring->head = head;
     ring->tail = tail;
     if ((aio->copied_evts < bound(min_nr)) && (timeout != 0) &&
@@ -366,17 +390,17 @@ out:
 sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
         struct io_event *events, struct timespec *timeout)
 {
+    context ctx = get_current_context(current_cpu());
     if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
         !validate_user_memory(events, sizeof(struct io_event) * nr, true) ||
-        (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false))) {
+        (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false)) ||
+        context_set_err(ctx))
         return -EFAULT;
-    }
-    struct aio *aio;
-    if ((nr <= 0) || (nr < min_nr) ||
-            !(aio = aio_from_ring(current->p, ctx_id))) {
-        return -EINVAL;
-    }
+    struct aio *aio = aio_from_ring_id(current->p, ctx_id->id);
     timestamp ts = timeout ? time_from_timespec(timeout) : infinity;
+    context_clear_err(ctx);
+    if ((nr <= 0) || (nr < min_nr) || !aio)
+        return -EINVAL;
     aio_lock(aio);
     aio->copied_evts = 0;
     aio->bq = current->thread_bq;
@@ -428,10 +452,9 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh)
 
 sysreturn io_destroy(aio_context_t ctx_id)
 {
-    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false)) {
+    unsigned int id;
+    if (!get_user_value(&ctx_id->id, &id))
         return -EFAULT;
-    }
-    unsigned int id = ctx_id->id;
     process p = current->p;
     process_lock(p);
     struct aio *aio = vector_get(p->aio, id);

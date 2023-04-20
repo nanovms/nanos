@@ -362,6 +362,13 @@ int main(int argc, char **argv)
     fd = OPEN(TEST_DIR "/test", O_DIRECTORY, 0);
     check2(fd, TEST_DIR "/test/subdir/test_newfile", "subdir/test_newfile", 0);
     _fchdir(fd);
+
+    r = syscall(SYS_mkdirat, fd, (void *)0xbadf0000, DEFAULT_MODE);
+    if ((r != -1) || (errno != EFAULT)) {
+        printf("ERROR - mkdirat() with faulting string (%d, %d)\n", r, errno);
+        exit(EXIT_FAILURE);
+    }
+
     close(fd);
     listdir("test", ".");
 

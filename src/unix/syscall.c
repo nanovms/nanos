@@ -38,11 +38,15 @@ boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
 {
     if (!validate_user_memory(iov, sizeof(struct iovec) * len, false))
         return false;
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
+        return false;
     for (u64 i = 0; i < len; i++) {
         if ((iov[i].iov_len != 0) &&
                 !validate_user_memory(iov[i].iov_base, iov[i].iov_len, write))
             return false;
     }
+    context_clear_err(ctx);
     return true;
 }
 
@@ -158,7 +162,8 @@ closure_function(4, 1, void, iov_read_complete,
     thread_log(current, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
                rv);
     if (rv > 0) {
-        sg_to_iov(sg, bound(iov), bound(iovcnt));
+        if (!sg_to_iov(sg, bound(iov), bound(iovcnt)))
+            rv = -EFAULT;
     }
     deallocate_sg_list(sg);
     apply(completion, rv);
@@ -403,8 +408,16 @@ closure_function(9, 1, void, sendfile_bh,
            redo the io methods so that the file_op_complete* only
            happens at the end of the chain, using only status_handlers
            (io_status_handler for linear) in the middle */
-        if (bound(offset))
-            *bound(offset) += rv;
+        if (bound(offset)) {
+            context ctx = get_current_context(current_cpu());
+            if (!context_set_err(ctx)) {
+                *bound(offset) += rv;
+                context_clear_err(ctx);
+            } else {
+                rv = -EFAULT;
+                goto out_complete;
+            }
+        }
         bound(cur_buf) = sg_list_head_remove(bound(sg)); /* initial dequeue */
         assert(bound(cur_buf) != INVALID_ADDRESS);
         bound(cur_buf)->offset = 0; /* offset for our use */
@@ -454,8 +467,15 @@ static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
 {
     thread_log(current, "%s: out %d, in %d, offset %p, *offset %d, count %ld",
                __func__, out_fd, in_fd, offset, offset ? *offset : 0, count);
-    if (offset && !validate_user_memory(offset, sizeof(int), true))
-        return -EFAULT;
+    u64 read_offset;
+    if (offset) {
+        if (!get_user_value(offset, &read_offset))
+            return -EFAULT;
+        if ((s64)read_offset < 0)
+            return -EINVAL;
+    } else {
+        read_offset = infinity;
+    }
     fdesc infile = resolve_fd(current->p, in_fd);
     fdesc outfile = fdesc_get(current->p, out_fd);
     if (!outfile) {
@@ -482,7 +502,7 @@ static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
     io_completion read_complete = closure(heap_locked(get_kernel_heaps()), sendfile_bh, infile, outfile,
                                           offset, sg, 0, n, 0, 0, false);
     context ctx = get_current_context(current_cpu());
-    apply(infile->sg_read, sg, n, offset ? *offset : infinity, ctx, false, read_complete);
+    apply(infile->sg_read, sg, n, read_offset, ctx, false, read_complete);
     return get_syscall_return(current);
   out:
     fdesc_put(infile);
@@ -522,6 +542,9 @@ closure_function(6, 1, void, file_read_complete,
     thread_log(t, "%s: status %v", __func__, s);
     sysreturn rv;
     sg_list sg = bound(sg);
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx))
+        s = timm("result", "invalid user memory", "fsstatus", "%d", FS_STATUS_FAULT);
     if (is_ok(s)) {
         file f = bound(f);
         u64 count = sg_copy_to_buf_and_release(bound(dest), sg, bound(limit));
@@ -535,6 +558,8 @@ closure_function(6, 1, void, file_read_complete,
         rv = sysreturn_from_fs_status_value(s);
         timm_dealloc(s);
     }
+    if (rv != -EFAULT)
+        context_clear_err(ctx);
     apply(bound(completion), rv);
     closure_finish();
 }
@@ -839,7 +864,7 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     buffer b = 0;
 
     fsfile fsf;
-    fs_status fss = node_from_user_path(&fs, cwd, name, !!(flags & O_NOFOLLOW),
+    fs_status fss = filesystem_get_node(&fs, cwd, name, !!(flags & O_NOFOLLOW),
                                         !!(flags & O_CREAT), !!(flags & O_EXCL),
                                         !!(flags & O_TRUNC), &n, &fsf);
     ret = sysreturn_from_fs_status(fss);
@@ -1004,6 +1029,8 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
 #ifdef __x86_64__
 sysreturn open(const char *name, int flags, int mode)
 {
+    if (!fault_in_user_string(name))
+        return -EFAULT;
     thread_log(current, "open: \"%s\", flags %x, mode %x", name, flags, mode);
     filesystem cwd_fs;
     inode cwd;
@@ -1096,12 +1123,10 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn mkdirat(int dirfd, char *pathname, int mode)
 {
-    if (!fault_in_user_string(pathname))
-        return -EFAULT;
-    thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname, dirfd, mode);
     filesystem fs;
     inode cwd;
     cwd = resolve_dir(fs, dirfd, pathname);
+    thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname, dirfd, mode);
 
     sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(fs, cwd, pathname));
     filesystem_release(fs);
@@ -1110,6 +1135,8 @@ sysreturn mkdirat(int dirfd, char *pathname, int mode)
 
 sysreturn creat(const char *pathname, int mode)
 {
+    if (!fault_in_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "creat: \"%s\", mode 0x%x", pathname, mode);
     filesystem cwd_fs;
     inode cwd;
@@ -1232,7 +1259,7 @@ static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boole
     file f = resolve_fd(current->p, fd);
     tuple md = 0;
     sysreturn rv;
-    if (!fault_in_user_memory(dirp, count, VMAP_FLAG_WRITABLE, 0)) {
+    if (!fault_in_user_memory(dirp, count, true)) {
         rv = -EFAULT;
         goto out;
     }
@@ -1326,9 +1353,6 @@ static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, long lengt
 
 sysreturn truncate(const char *path, long length)
 {
-    if (!validate_user_string(path))
-        return -EFAULT;
-    thread_log(current, "%s \"%s\" %d", __func__, path, length);
     tuple t;
     filesystem fs;
     inode cwd;
@@ -1336,6 +1360,7 @@ sysreturn truncate(const char *path, long length)
     filesystem cwd_fs = fs;
     fsfile fsf;
     fs_status fss = node_from_user_path(&fs, cwd, path, false, false, false, false, &t, &fsf);
+    thread_log(current, "%s \"%s\" %d", __func__, path, length);
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
@@ -1455,7 +1480,7 @@ sysreturn fdatasync(int fd)
 static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname, int mode)
 {
     tuple m = 0;
-    fs_status fss = node_from_user_path(&fs, cwd, pathname, false, false, false, false, &m, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, pathname, false, false, false, false, &m, 0);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
     u32 perms = file_meta_perms(current->p, m);
@@ -1471,6 +1496,8 @@ static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname,
 
 sysreturn access(const char *pathname, int mode)
 {
+    if (!fault_in_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "access: \"%s\", mode %d", pathname, mode);
     filesystem cwd_fs;
     inode cwd;
@@ -1482,9 +1509,9 @@ sysreturn access(const char *pathname, int mode)
 
 sysreturn faccessat(int dirfd, const char *pathname, int mode)
 {
-    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname, mode);
     filesystem fs;
     inode cwd = resolve_dir(fs, dirfd, pathname);
+    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname, mode);
     sysreturn rv = access_internal(fs, cwd, pathname, mode);
     filesystem_release(fs);
     return rv;
@@ -1571,14 +1598,12 @@ static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s
 static sysreturn fstat(int fd, struct stat *s)
 {
     thread_log(current, "fd %d, stat %p", fd, s);
-    if (!validate_user_memory(s, sizeof(struct stat), true))
-        return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     filesystem fs;
     tuple n;
     fsfile fsf = 0;
     sysreturn rv = 0;
-    if (!fault_in_user_memory(s, sizeof(struct stat), VMAP_FLAG_WRITABLE, 0)) {
+    if (!fault_in_user_memory(s, sizeof(struct stat), true)) {
         rv = -EFAULT;
         goto out;
     }
@@ -1612,10 +1637,10 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
     tuple n;
     fsfile fsf;
 
-    if (!fault_in_user_memory(buf, sizeof(struct stat), VMAP_FLAG_WRITABLE, 0))
+    if (!fault_in_user_memory(buf, sizeof(struct stat), true))
         return -EFAULT;
 
-    fs_status fss = node_from_user_path(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
+    fs_status fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
 
@@ -1630,6 +1655,8 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
 
 static sysreturn stat_cwd(const char *name, boolean follow, struct stat *buf)
 {
+    if (!fault_in_user_string(name))
+        return -EFAULT;
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -1653,10 +1680,6 @@ static sysreturn lstat(const char *name, struct stat *buf)
 
 static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags)
 {
-    if (!validate_user_string(name) ||
-        !validate_user_memory(s, sizeof(struct stat), true))
-        return -EFAULT;
-
     // if relative, but AT_EMPTY_PATH set, works just like fstat()
     if (flags & AT_EMPTY_PATH)
         return fstat(dfd, s);
@@ -1718,7 +1741,7 @@ sysreturn uname(struct utsname *v)
         "riscv64";
 #endif
 
-    if (!validate_user_memory(v, sizeof(struct utsname), true))
+    if (!fault_in_user_memory(v, sizeof(struct utsname), true))
         return -EFAULT;
 
     runtime_memcpy(v->sysname, sysname, sizeof(sysname));
@@ -1768,33 +1791,38 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
 {
     thread_log(current, "getrlimit: resource %d, rlim %p", resource, rlim);
 
-    if (!validate_user_memory(rlim, sizeof(struct rlimit), true))
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(rlim, sizeof(struct rlimit), true) || context_set_err(ctx))
         return -EFAULT;
 
+    sysreturn rv = 0;
     switch (resource) {
     case RLIMIT_DATA:
         /* not entirely accurate, but a reasonable approximation */
         rlim->rlim_cur = rlim->rlim_max =
                 heap_total(&heap_physical(get_kernel_heaps())->h);
-        return 0;
+        break;
     case RLIMIT_STACK:
         rlim->rlim_cur = 2*1024*1024;
         rlim->rlim_max = 2*1024*1024;
-        return 0;
+        break;
     case RLIMIT_CORE:
         rlim->rlim_cur = rlim->rlim_max = 0;    // core dump not supported
-        return 0;
+        break;
     case RLIMIT_NOFILE:
         // we .. .dont really have one?
         rlim->rlim_cur = 65536;
         rlim->rlim_max = 65536;
-        return 0;
+        break;
     case RLIMIT_AS:
         rlim->rlim_cur = rlim->rlim_max = heap_total(current->p->virtual);
-        return 0;
+        break;
+    default:
+        rv = -EINVAL;
     }
 
-    return set_syscall_error(current, EINVAL);
+    context_clear_err(ctx);
+    return rv;
 }
 
 sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struct rlimit *old_limit)
@@ -1803,8 +1831,6 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
         pid, resource, new_limit, old_limit);
 
     if (old_limit) {
-        if (!validate_user_memory(old_limit, sizeof(struct rlimit), true))
-            return -EFAULT;
         sysreturn ret = getrlimit(resource, old_limit);
         if (ret < 0)
             return ret;
@@ -1817,9 +1843,11 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 static sysreturn getrusage(int who, struct rusage *usage)
 {
     thread_log(current, "%s: who %d", __func__, who);
-    if (!validate_user_memory(usage, sizeof(*usage), true))
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(usage, sizeof(*usage), true) || context_set_err(ctx))
         return -EFAULT;
     zero(usage, sizeof(*usage));
+    sysreturn rv = 0;
     switch (who) {
         case RUSAGE_SELF:
             timeval_from_time(&usage->ru_utime, proc_utime(current->p));
@@ -1833,14 +1861,15 @@ static sysreturn getrusage(int who, struct rusage *usage)
             timeval_from_time(&usage->ru_stime, thread_stime(current));
             break;
         default:
-            return -EINVAL;
+            rv = -EINVAL;
     }
-    return 0;
+    context_clear_err(ctx);
+    return rv;
 }
 
 static sysreturn getcwd(char *buf, u64 length)
 {
-    if (!fault_in_user_memory(buf, length, VMAP_FLAG_WRITABLE, 0))
+    if (!fault_in_user_memory(buf, length, true))
         return -EFAULT;
     process p = current->p;
     int cwd_len = file_get_path(p->cwd_fs, p->cwd, buf, length);
@@ -1889,11 +1918,11 @@ static sysreturn brk(void *addr)
 static sysreturn readlink_internal(filesystem fs, inode cwd, const char *pathname, char *buf,
         u64 bufsiz)
 {
-    if (!fault_in_user_memory(buf, bufsiz, VMAP_FLAG_WRITABLE, 0)) {
+    if (!fault_in_user_memory(buf, bufsiz, true)) {
         return set_syscall_error(current, EFAULT);
     }
     tuple n;
-    fs_status fss = node_from_user_path(&fs, cwd, pathname, true, false, false, false, &n, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, pathname, true, false, false, false, &n, 0);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
     sysreturn rv;
@@ -1913,6 +1942,8 @@ static sysreturn readlink_internal(filesystem fs, inode cwd, const char *pathnam
 
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 {
+    if (!fault_in_user_string(pathname))
+        return -EFAULT;
     thread_log(current, "readlink: \"%s\"", pathname);
     filesystem cwd_fs;
     inode cwd;
@@ -1947,14 +1978,12 @@ sysreturn unlink(const char *pathname)
 
 sysreturn unlinkat(int dirfd, const char *pathname, int flags)
 {
-    if (!fault_in_user_string(pathname))
-        return -EFAULT;
-    thread_log(current, "unlinkat %d %s 0x%x", dirfd, pathname, flags);
     if (flags & ~AT_REMOVEDIR) {
         return set_syscall_error(current, EINVAL);
     }
     filesystem fs;
     inode cwd = resolve_dir(fs, dirfd, pathname);
+    thread_log(current, "unlinkat %d %s 0x%x", dirfd, pathname, flags);
     sysreturn rv;
     rv = sysreturn_from_fs_status(filesystem_delete(fs, cwd, pathname, !!(flags & AT_REMOVEDIR)));
     filesystem_release(fs);
@@ -1991,13 +2020,10 @@ sysreturn rename(const char *oldpath, const char *newpath)
 sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
         const char *newpath)
 {
-    if (!fault_in_user_string(oldpath) || !fault_in_user_string(newpath))
-        return -EFAULT;
-    thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath,
-            newdirfd, newpath);
     filesystem oldfs, newfs;
     inode oldwd = resolve_dir(oldfs, olddirfd, oldpath);
     inode newwd = resolve_dir(newfs, newdirfd, newpath);
+    thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath, newdirfd, newpath);
     sysreturn rv = sysreturn_from_fs_status(filesystem_rename(oldfs, oldwd, oldpath,
         newfs, newwd, newpath, false));
     filesystem_release(oldfs);
@@ -2008,10 +2034,6 @@ sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
 sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
         const char *newpath, unsigned int flags)
 {
-    if (!fault_in_user_string(oldpath) || !fault_in_user_string(newpath))
-        return -EFAULT;
-    thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd,
-            oldpath, newdirfd, newpath, flags);
     if ((flags & ~(RENAME_EXCHANGE | RENAME_NOREPLACE)) ||
             ((flags & RENAME_EXCHANGE) && (flags & RENAME_NOREPLACE))) {
         return set_syscall_error(current, EINVAL);
@@ -2019,6 +2041,8 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
     filesystem oldfs, newfs;
     inode oldwd = resolve_dir(oldfs, olddirfd, oldpath);
     inode newwd = resolve_dir(newfs, newdirfd, newpath);
+    thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd, oldpath,
+               newdirfd, newpath, flags);
     fs_status fss;
     if (flags & RENAME_EXCHANGE) {
         fss = filesystem_exchange(oldfs, oldwd, oldpath, newfs, newwd, newpath);
@@ -2084,10 +2108,9 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
         break;
     case F_GETLK:
         if (arg) {
-            if (!validate_user_memory(pointer_from_u64(arg), sizeof(struct flock), true))
+            s16 l_type = F_UNLCK;
+            if (!set_user_value(&((struct flock *)arg)->l_type, l_type))
                 rv = -EFAULT;
-            else
-                ((struct flock *)arg)->l_type = F_UNLCK;
         }
         break;
     case F_SETLK:
@@ -2134,11 +2157,11 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap)
 {
     switch (request) {
     case FIONBIO: {
-        int *opt = varg(ap, int *);
-        if (!validate_user_memory(opt, sizeof(int), false))
+        int opt;
+        if (!get_user_value(varg(ap, int *), &opt))
             return -EFAULT;
         fdesc_lock(f);
-        if (*opt) {
+        if (opt) {
             f->flags |= O_NONBLOCK;
         }
         else {
@@ -2214,7 +2237,7 @@ void exit(int code)
 
 sysreturn pipe2(int fds[2], int flags)
 {
-    if (!validate_user_memory(fds, 2 * sizeof(int), true))
+    if (!fault_in_user_memory(fds, 2 * sizeof(int), true))
         return set_syscall_error(current, EFAULT);
     if (flags & ~(O_CLOEXEC | O_NONBLOCK))
         return set_syscall_error(current, EINVAL);
@@ -2252,7 +2275,7 @@ static thread lookup_thread(int pid)
 
 sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
 {
-    if (!validate_user_memory(mask, cpusetsize, false))
+    if (!fault_in_user_memory(mask, cpusetsize, false))
         return set_syscall_error(current, EFAULT);
     thread t;
     if (!(t = lookup_thread(pid)))
@@ -2269,7 +2292,7 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
 
 sysreturn sched_getaffinity(int pid, u64 cpusetsize, u64 *mask)
 {
-    if (!validate_user_memory(mask, cpusetsize, true))
+    if (!fault_in_user_memory(mask, cpusetsize, true))
         return set_syscall_error(current, EFAULT);
     thread t;
     if (64 * (cpusetsize / sizeof(u64)) < total_processors)
@@ -2287,9 +2310,12 @@ sysreturn sched_getaffinity(int pid, u64 cpusetsize, u64 *mask)
 sysreturn capget(cap_user_header_t hdrp, cap_user_data_t datap)
 {
     if (datap) {
-        if (!validate_user_memory(datap, sizeof(struct user_cap_data), true))
+        context ctx = get_current_context(current_cpu());
+        if (!validate_user_memory(datap, sizeof(struct user_cap_data), true) ||
+            context_set_err(ctx))
             return -EFAULT;
         zero(datap, sizeof(*datap));
+        context_clear_err(ctx);
     }
     return 0;
 }
@@ -2301,15 +2327,13 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 
     switch (option) {
     case PR_SET_NAME:
-        if (!validate_user_string((void *)arg2))
+        if (!copy_from_user((void *)arg2, current->name, sizeof(current->name)))
             return -EFAULT;
-        runtime_memcpy(current->name, (void *) arg2, sizeof(current->name));
         current->name[sizeof(current->name) - 1] = '\0';
         break;
     case PR_GET_NAME:
-        if (!validate_user_memory((void *)arg2, sizeof(current->name), true))
+        if (!copy_to_user((void *)arg2, current->name, sizeof(current->name)))
             return -EFAULT;
-        runtime_memcpy((void *) arg2, current->name, sizeof(current->name));
         break;
     }
 
@@ -2318,7 +2342,8 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 
 sysreturn sysinfo(struct sysinfo *info)
 {
-    if (!validate_user_memory(info, sizeof(struct sysinfo), true))
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(info, sizeof(struct sysinfo), true) || context_set_err(ctx))
         return set_syscall_error(current, EFAULT);
 
     kernel_heaps kh = get_kernel_heaps();
@@ -2329,6 +2354,7 @@ sysreturn sysinfo(struct sysinfo *info)
     info->freeram = info->totalram < allocated ? 0 : info->totalram - allocated;
     info->procs = 1;
     info->mem_unit = 1;
+    context_clear_err(ctx);
     return 0;
 }
 
@@ -2340,14 +2366,17 @@ sysreturn umask(int mask)
 sysreturn getcpu(unsigned int *cpu, unsigned int *node, void *tcache)
 {
     cpuinfo ci = current_cpu();
+    context ctx = get_current_context(ci);
     if ((cpu != 0 && !validate_user_memory(cpu, sizeof *cpu, true)) ||
-            (node != 0 && !validate_user_memory(node, sizeof *node, true)))
+        (node != 0 && !validate_user_memory(node, sizeof *node, true)) ||
+        context_set_err(ctx))
         return -EFAULT;
     if (cpu)
         *cpu = ci->id;
     /* XXX to do */
     if (node)
         *node = 0;
+    context_clear_err(ctx);
     return 0;
 }
 

@@ -8,6 +8,8 @@
 #include <string.h>
 #include <sys/vfs.h>
 
+#define FAULT_ADDR  ((void *)0xBADF0000)
+
 static void test_unlink(const char *path)
 {
     struct stat s;
@@ -31,6 +33,11 @@ static void test_unlink(const char *path)
 static void test_unlinkat(int dirfd)
 {
     struct stat s;
+
+    if ((unlinkat(dirfd, FAULT_ADDR, 0) != -1) || (errno != EFAULT)) {
+        printf("unlinkat test with faulting path failed\n");
+        exit(EXIT_FAILURE);
+    }
 
     int fd = openat(dirfd, "file", O_CREAT, S_IRWXU);
     if (fd < 0) {
@@ -101,6 +108,10 @@ int main(int argc, char **argv)
     int fd;
     struct stat s;
 
+    if ((unlink(FAULT_ADDR) != -1) || (errno != EFAULT)) {
+        printf("unlink test with faulting path failed\n");
+        exit(EXIT_FAILURE);
+    }
     if ((unlink("") != -1) || (errno != ENOENT)) {
         printf("empty path unlink test failed\n");
         exit(EXIT_FAILURE);

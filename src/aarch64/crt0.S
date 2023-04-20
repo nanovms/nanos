@@ -2,6 +2,12 @@
 #include <frame.h>
 #include <kernel_machine.h>
         
+.macro global_func name
+        .global \name
+        .type \name STT_FUNC
+        .size \name, \name\().end - \name
+        .endm
+
 .macro  frame_save el ex
         /* In the kernel, x18 always points to cpuinfo. */
 
@@ -270,6 +276,42 @@ frame_restore_fpsimd:
         msr     fpcr, x1
 1:
         ret
+
+global_func err_frame_save
+err_frame_save:
+        stp     x19, x20, [x0, #(ERR_FRAME_X19 * 8)]
+        stp     x21, x22, [x0, #(ERR_FRAME_X21 * 8)]
+        stp     x23, x24, [x0, #(ERR_FRAME_X23 * 8)]
+        stp     x25, x26, [x0, #(ERR_FRAME_X25 * 8)]
+        stp     x27, x28, [x0, #(ERR_FRAME_X27 * 8)]
+        stp     x29, x30, [x0, #(ERR_FRAME_X29 * 8)]
+        mov     x1, sp
+        str     x1, [x0, #(ERR_FRAME_SP * 8)]
+        mov     x0, #0
+        ret
+err_frame_save.end:
+
+global_func err_frame_apply
+err_frame_apply:
+        ldp     x2, x3, [x0, #(ERR_FRAME_X19 * 8)]
+        stp     x2, x3, [x1, #(FRAME_X19 * 8)]
+        ldp     x2, x3, [x0, #(ERR_FRAME_X21 * 8)]
+        stp     x2, x3, [x1, #(FRAME_X21 * 8)]
+        ldp     x2, x3, [x0, #(ERR_FRAME_X23 * 8)]
+        stp     x2, x3, [x1, #(FRAME_X23 * 8)]
+        ldp     x2, x3, [x0, #(ERR_FRAME_X25 * 8)]
+        stp     x2, x3, [x1, #(FRAME_X25 * 8)]
+        ldp     x2, x3, [x0, #(ERR_FRAME_X27 * 8)]
+        stp     x2, x3, [x1, #(FRAME_X27 * 8)]
+        ldp     x2, x3, [x0, #(ERR_FRAME_X29 * 8)]
+        str     x2, [x1, #(FRAME_X29 * 8)]
+        str     x3, [x1, #(FRAME_ELR * 8)]
+        ldr     x2, [x0, #(ERR_FRAME_SP * 8)]
+        str     x2, [x1, #(FRAME_SP * 8)]
+        mov     x0, #1  /* return value for context_set_err() */
+        str     x0, [x1, #(FRAME_X0 * 8)]
+        ret
+err_frame_apply.end:
 
         .globl angel_shutdown
         .globl angel_shutdown_trap

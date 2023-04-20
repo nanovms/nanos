@@ -42,3 +42,15 @@
 #define FRAME_SAVED_RAX  29
 #define FRAME_EXTENDED   30
 #define FRAME_SIZE       31
+
+#define ERR_FRAME_RBX   0
+#define ERR_FRAME_RBP   1
+#define ERR_FRAME_R12   2
+#define ERR_FRAME_R13   3
+#define ERR_FRAME_R14   4
+#define ERR_FRAME_R15   5
+#define ERR_FRAME_RSP   6
+#define ERR_FRAME_RIP   7
+#define ERR_FRAME_SIZE  8
+
+#define ERR_FRAME_FULL  ERR_FRAME_RIP

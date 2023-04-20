@@ -19,6 +19,7 @@ typedef void *nanos_thread;
 
 #include <pagecache.h>
 #include <pagecache_internal.h>
+#include <tfs.h>
 
 #if defined(PAGECACHE_DEBUG)
 #ifdef KERNEL
@@ -539,8 +540,21 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
     status_handler completion = bound(completion);
 
     pagecache_debug("%s: pn %p, q %R, sg %p, status %v\n", __func__, pn, q, sg, s);
-    pagecache_lock_node(pn);
+    u64 offset = (bound(pi) == (q.start >> page_order)) ? (q.start & MASK(page_order)) : 0;
+#ifdef KERNEL
+    context saved_ctx = 0;
+    if (is_ok(s) && sg) {
+        /* Prevent page faults while spinlocks are held */
+        saved_ctx = bound(saved_ctx);
+        use_fault_handler(saved_ctx->fault_handler);
+        if (!sg_fault_in(sg, q.end - (bound(pi) << page_order) - offset)) {
+            s = timm("result", "invalid user memory", "fsstatus", "%d", FS_STATUS_FAULT);
+            clear_fault_handler();
+        }
+    }
+#endif
     if (!is_ok(s)) {
+        pagecache_lock_node(pn);
         pagecache_lock_state(pc);
         for (int i = bound(pi); i < end; i++)  {
             pagecache_page pp = page_lookup_nodelocked(pn, i);
@@ -554,21 +568,13 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
         goto exit;
     }
 
-    pagecache_page pp = page_lookup_nodelocked(pn, bound(pi));
-
     /* copy data to the page cache */
-    u64 offset = (bound(pi) == (q.start >> page_order)) ? (q.start & MASK(page_order)) : 0;
     range r = irange(q.start & ~MASK(block_order), q.end);
-#ifdef KERNEL
-    context saved_ctx = bound(saved_ctx);
-    if (saved_ctx)
-        use_fault_handler(saved_ctx->fault_handler);
-#endif
+    pagecache_lock_node(pn);
+    pagecache_page pp = page_lookup_nodelocked(pn, bound(pi));
     do {
         assert(pp != INVALID_ADDRESS && page_offset(pp) == bound(pi));
         u64 copy_len = MIN(q.end - (bound(pi) << page_order), cache_pagesize(pc)) - offset;
-        if (sg)
-            sg_fault_in(sg, copy_len);  /* to prevent page faults while the state lock is held */
         pagecache_lock_state(pc);
         if (page_state(pp) == PAGECACHE_PAGESTATE_READING) {
             /* A read request occurred in the middle of this write: postpone the completion of this

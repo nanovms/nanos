@@ -87,6 +87,7 @@ closure_function(4, 1, sysreturn, inotify_read_bh,
         }
         return BLOCKQ_BLOCK_REQUIRED;
     }
+    context ctx = get_current_context(current_cpu());
     void *buf = bound(buf);
     u64 length = bound(length);
     boolean empty = false;
@@ -100,17 +101,28 @@ closure_function(4, 1, sysreturn, inotify_read_bh,
         bytes event_len = sizeof(event) + event.len;
         if (length < event_len)
             break;
+        if (context_set_err(ctx)) {
+            if (rv == 0)
+                rv = -EFAULT;
+            break;
+        }
         runtime_memcpy(buf, &event, sizeof(event));
+        context_clear_err(ctx);
         ringbuf_consume(b, sizeof(event));
         buf += sizeof(event);
-        length -= sizeof(event);
-        rv += sizeof(event);
         if (event.len) {
+            if (context_set_err(ctx)) {
+                ringbuf_unconsume(b, sizeof(event));
+                if (rv == 0)
+                    rv = -EFAULT;
+                break;
+            }
             ringbuf_read(b, buf, event.len);
+            context_clear_err(ctx);
             buf += event.len;
-            length -= event.len;
-            rv += event.len;
         }
+        length -= event_len;
+        rv += event_len;
     }
     inotify_unlock(in);
     if (rv == 0)
@@ -149,12 +161,11 @@ define_closure_function(0, 2, sysreturn, inotify_ioctl,
     inotify in = struct_from_field(closure_self(), inotify, ioctl);
     switch (request) {
     case FIONREAD: {
-        int *nbytes = varg(ap, int *);
-        if (!validate_user_memory(nbytes, sizeof(int), true))
-            return -EFAULT;
         inotify_lock(in);
-        *nbytes = ringbuf_length(in->event_buf);
+        int nbytes = ringbuf_length(in->event_buf);
         inotify_unlock(in);
+        if (!set_user_value(varg(ap, int *), nbytes))
+            return -EFAULT;
         return 0;
     }
     default:

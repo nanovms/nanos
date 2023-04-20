@@ -78,6 +78,8 @@ int main(int argc, char **argv)
 
     test_access_mode(fd);
 
+    test_lk(fd, F_GETLK, (void *)0xbadf0000, EFAULT);
+
     lock.l_type   = F_WRLCK;
     lock.l_start  = 0;
     lock.l_whence = SEEK_SET;
