@@ -30,17 +30,19 @@ void tprintf(symbol tag, tuple attrs, const char *format, ...);
 #endif
 
 /* per-cpu info, saved contexts and stacks */
-declare_closure_struct(1, 0, void, kernel_context_return,
-                       struct kernel_context *, kc);
+declare_closure_struct(0, 0, void, kernel_context_return);
 
-declare_closure_struct(3, 0, void, free_kernel_context,
-                       struct kernel_context *, kc, cpuinfo, orig_ci, boolean, queued);
+declare_closure_struct(2, 0, void, free_kernel_context,
+                       queue, free_ctx_q, boolean, queued);
 
 typedef struct kernel_context {
     struct context context;
     closure_struct(kernel_context_return, kernel_return);
     closure_struct(free_kernel_context, free);
+    u64 size;
 } *kernel_context;
+
+void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q);
 
 #include <management.h>
 #include <page.h>
@@ -85,6 +87,7 @@ struct cpuinfo {
     /* multiple producers, single consumer */
     queue free_kernel_contexts;
     queue free_syscall_contexts;
+    queue free_process_contexts;
 #ifdef CONFIG_FTRACE
     int graph_idx;
     struct ftrace_graph_entry * graph_stack;
@@ -571,14 +574,17 @@ static inline void clear_fault_handler(void)
 // XXX enable this later after checking existing uses of transient
 // #define transient (get_current_context(current_cpu())->transient)
 
+#define closure_from_context(__ctx, __name, ...) ({                                             \
+            heap __h = (__ctx)->transient_heap;                                                 \
+            struct _closure_##__name * __n = allocate(__h, sizeof(struct _closure_##__name));   \
+            __closure((u64_from_pointer(__ctx) |                                                \
+                       (CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH | CLOSURE_COMMON_CTX_IS_CONTEXT)), \
+                      __n, sizeof(struct _closure_##__name), __name, ##__VA_ARGS__);})
+
 #define contextual_closure(__name, ...) ({                              \
             context __ctx = get_current_context(current_cpu());         \
             context_debug("contextual_closure(%s, ...) ctx %p type %d\n", #__name, __ctx, __ctx->type); \
-            heap __h = __ctx->transient_heap;                           \
-            struct _closure_##__name * __n = allocate(__h, sizeof(struct _closure_##__name)); \
-            __closure((u64_from_pointer(__ctx) |                        \
-                       (CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH | CLOSURE_COMMON_CTX_IS_CONTEXT)), \
-                      __n, sizeof(struct _closure_##__name), __name, ##__VA_ARGS__);}) 
+            closure_from_context(__ctx, __name, ##__VA_ARGS__);})
 
 #define contextual_closure_alloc(__name, __var) \
     do {                                                                \
@@ -613,6 +619,12 @@ static inline context context_from_closure(void *p)
     struct _closure_common *c = p + sizeof(void *); /* skip __apply */
     return (c->ctx & CLOSURE_COMMON_CTX_IS_CONTEXT) ?
         pointer_from_u64(c->ctx & ~CLOSURE_COMMON_CTX_FLAGS_MASK) : 0;
+}
+
+static inline void closure_set_context(void *p, context ctx)
+{
+    struct _closure_common *c = p + sizeof(void *); /* skip __apply */
+    c->ctx = u64_from_pointer(ctx) | CLOSURE_COMMON_CTX_IS_CONTEXT;
 }
 
 static inline void count_minor_fault(void)

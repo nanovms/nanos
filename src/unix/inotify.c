@@ -14,13 +14,13 @@ struct inotify_event {
 } __attribute__((packed));
 
 declare_closure_struct(0, 6, sysreturn, inotify_read,
-                       void *, buf, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion);
+                       void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion);
 declare_closure_struct(0, 1, u32, inotify_events,
                        thread, t);
 declare_closure_struct(0, 2, sysreturn, inotify_ioctl,
                        unsigned long, request, vlist, ap);
 declare_closure_struct(0, 2, sysreturn, inotify_close,
-                       thread, t, io_completion, completion);
+                       context, ctx, io_completion, completion);
 
 typedef struct inotify {
     struct fdesc f; /* must be first */
@@ -66,8 +66,8 @@ static sysreturn inotify_resolve_fd(int fd, inotify *in)
     return 0;
 }
 
-closure_function(5, 1, sysreturn, inotify_read_bh,
-                 inotify, in, thread, t, void *, buf, u64, length, io_completion, completion,
+closure_function(4, 1, sysreturn, inotify_read_bh,
+                 inotify, in, void *, buf, u64, length, io_completion, completion,
                  u64, flags)
 {
     inotify in = bound(in);
@@ -118,19 +118,19 @@ closure_function(5, 1, sysreturn, inotify_read_bh,
     else if (empty)
         notify_dispatch(in->f.ns, 0);
 out:
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 define_closure_function(0, 6, sysreturn, inotify_read,
-                       void *, buf, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                       void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     inotify in = struct_from_field(closure_self(), inotify, read);
-    blockq_action ba = contextual_closure(inotify_read_bh, in, t, buf, length, completion);
+    blockq_action ba = closure_from_context(ctx, inotify_read_bh, in, buf, length, completion);
     if (ba == INVALID_ADDRESS)
-        return io_complete(completion, t, -ENOMEM);
-    return blockq_check(in->bq, t, ba, bh);
+        return io_complete(completion, -ENOMEM);
+    return blockq_check(in->bq, ba, bh);
 }
 
 define_closure_function(0, 1, u32, inotify_events,
@@ -163,7 +163,7 @@ define_closure_function(0, 2, sysreturn, inotify_ioctl,
 }
 
 define_closure_function(0, 2, sysreturn, inotify_close,
-                        thread, t, io_completion, completion)
+                        context, ctx, io_completion, completion)
 {
     inotify in = struct_from_field(closure_self(), inotify, close);
     inotify_lock(in);

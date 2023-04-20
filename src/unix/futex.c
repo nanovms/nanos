@@ -52,9 +52,9 @@ static struct futex * soft_create_futex(process p, u64 key)
     return f;
 }
 
-static thread futex_wake_one(struct futex * f)
+static unix_context futex_wake_one(struct futex * f)
 {
-    thread t = blockq_wake_one(f->bq);
+    unix_context t = blockq_wake_one(f->bq);
     if (t != INVALID_ADDRESS)
         return t;
     kern_pause();
@@ -70,7 +70,7 @@ static int futex_wake_many(struct futex * f, int val)
     int nr_woken;
 
     for (nr_woken = 0; nr_woken < val; nr_woken++) {
-        thread w = futex_wake_one(f);
+        unix_context w = futex_wake_one(f);
         if (w == INVALID_ADDRESS)
             break;
     }
@@ -184,7 +184,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         if (*uaddr != val)
             rv = -EAGAIN;
         else
-            rv = blockq_check_timeout(f->bq, current,
+            rv = blockq_check_timeout(f->bq,
                                       contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, false);
         futex_unlock(f);
@@ -299,7 +299,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         if (*uaddr != val)
             rv = -EAGAIN;
         else
-            rv = blockq_check_timeout(f->bq, current,
+            rv = blockq_check_timeout(f->bq,
                                       contextual_closure(futex_bh, f, current, ts),
                                       false, clkid, ts, true);
         futex_unlock(f);

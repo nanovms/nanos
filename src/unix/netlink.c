@@ -693,8 +693,8 @@ static sysreturn nl_write_internal(nlsock s, void * src, u64 len)
     return (sysreturn)offset;
 }
 
-closure_function(9, 1, sysreturn, nl_read_bh,
-                 nlsock, s, thread, t, void *, dest, u64, length, struct msghdr *, msg, int, flags, struct sockaddr *, from, socklen_t *, from_len, io_completion, completion,
+closure_function(8, 1, sysreturn, nl_read_bh,
+                 nlsock, s, void *, dest, u64, length, struct msghdr *, msg, int, flags, struct sockaddr *, from, socklen_t *, from_len, io_completion, completion,
                  u64, bqflags)
 {
     nlsock s = bound(s);
@@ -706,6 +706,7 @@ closure_function(9, 1, sysreturn, nl_read_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
+    context ctx = get_current_context(current_cpu());
     nl_lock(s);
     struct nlmsghdr *hdr = dequeue(s->data);
     if (hdr == INVALID_ADDRESS) {
@@ -714,7 +715,7 @@ closure_function(9, 1, sysreturn, nl_read_bh,
             goto unlock;
         }
         nl_unlock(s);
-        return blockq_block_required(bound(t), bqflags);;
+        return blockq_block_required((unix_context)ctx, bqflags);
     }
     rv = 0;
     struct iovec *iov = 0;
@@ -787,33 +788,33 @@ closure_function(9, 1, sysreturn, nl_read_bh,
 unlock:
     nl_unlock(s);
 out:
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 closure_function(1, 6, sysreturn, nl_read,
                  nlsock, s,
-                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     nl_debug("read len %ld", length);
     nlsock s = bound(s);
-    blockq_action ba = contextual_closure(nl_read_bh, s, current, dest, length, 0, 0, 0, 0, completion);
+    blockq_action ba = closure_from_context(ctx, nl_read_bh, s, dest, length, 0, 0, 0, 0, completion);
     if (ba == INVALID_ADDRESS)
-        return io_complete(completion, t, -ENOMEM);
-    return blockq_check(s->sock.rxbq, current, ba, false);
+        return io_complete(completion, -ENOMEM);
+    return blockq_check(s->sock.rxbq, ba, false);
 }
 
 closure_function(1, 6, sysreturn, nl_write,
                  nlsock, s,
-                 void *, src, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                 void *, src, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     nl_debug("write len %ld", length);
     nlsock s = bound(s);
     nl_lock(s);
     sysreturn rv = nl_write_internal(s, src, length);
     nl_unlock(s);
-    return io_complete(completion, t, rv);
+    return io_complete(completion, rv);
 }
 
 closure_function(1, 1, u32, nl_events,
@@ -829,7 +830,7 @@ closure_function(1, 1, u32, nl_events,
 
 closure_function(1, 2, sysreturn, nl_close,
                  nlsock, s,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     nlsock s = bound(s);
     nl_debug("close, pid %d", s->addr.nl_pid);
@@ -857,7 +858,7 @@ closure_function(1, 2, sysreturn, nl_close,
         deallocate_u64((heap)netlink.pids, s->addr.nl_pid, 1);
     spin_unlock(&netlink.lock);
     deallocate(s->sock.h, s, sizeof(*s));
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
 static sysreturn nl_bind(struct sock *sock, struct sockaddr *addr, socklen_t addrlen)
@@ -926,7 +927,8 @@ static sysreturn nl_sendto(struct sock *sock, void *buf, u64 len, int flags,
         socket_release(sock);
         return rv;
     }
-    return apply(sock->f.write, buf, len, 0, current, false, (io_completion)&sock->f.io_complete);
+    context ctx = get_current_context(current_cpu());
+    return apply(sock->f.write, buf, len, 0, ctx, false, (io_completion)&sock->f.io_complete);
 }
 
 static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
@@ -934,13 +936,13 @@ static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
 {
     nl_debug("recvfrom: len %ld, flags 0x%x", len, flags);
     nlsock s = (nlsock)sock;
-    blockq_action ba = contextual_closure(nl_read_bh, s, current, buf, len, 0, flags, src_addr, addrlen,
+    blockq_action ba = contextual_closure(nl_read_bh, s, buf, len, 0, flags, src_addr, addrlen,
                                           (io_completion)&sock->f.io_complete);
     if (ba == INVALID_ADDRESS) {
         socket_release(sock);
         return -ENOMEM;
     }
-    return blockq_check(s->sock.rxbq, current, ba, false);
+    return blockq_check(s->sock.rxbq, ba, false);
 }
 
 static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int flags, boolean in_bh,
@@ -963,7 +965,7 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
     nl_unlock(s);
     rv = (written > 0) ? written : rv;
   out:
-    return io_complete(completion, current, rv);
+    return io_complete(completion, rv);
 }
 
 static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
@@ -971,12 +973,11 @@ static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags, bo
 {
     nl_debug("recvmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
     nlsock s = (nlsock)sock;
-    thread t = current;
-    blockq_action ba = contextual_closure(nl_read_bh, s, t, 0, 0, msg, flags,
+    blockq_action ba = contextual_closure(nl_read_bh, s, 0, 0, msg, flags,
                                           msg->msg_name, &msg->msg_namelen, completion);
     if (ba == INVALID_ADDRESS)
-        return io_complete(completion, t, -ENOMEM);
-    return blockq_check(s->sock.rxbq, t, ba, in_bh);
+        return io_complete(completion, -ENOMEM);
+    return blockq_check(s->sock.rxbq, ba, in_bh);
 }
 
 static void nl_lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,

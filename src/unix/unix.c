@@ -65,12 +65,12 @@ void deallocate_fd(process p, int fd)
     process_unlock(p);
 }
 
-define_closure_function(1, 2, void, fdesc_io_complete,
+define_closure_function(1, 1, void, fdesc_io_complete,
                         struct fdesc *, f,
-                        thread, t, sysreturn, rv)
+                        sysreturn, rv)
 {
     fdesc_put(bound(f));
-    apply(syscall_io_complete, t, rv);
+    apply(syscall_io_complete, rv);
 }
 
 void init_fdesc(heap h, fdesc f, int type)
@@ -148,46 +148,39 @@ const char *string_from_mmap_type(int type)
 static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
 {
     /* vmap found, with protection violation set --> send prot violation */
-    if (is_protection_fault(ctx->frame)) {
-        u64 flags = VMAP_FLAG_MMAP | VMAP_FLAG_WRITABLE;
-        if (is_write_fault(ctx->frame) && (vm->flags & flags) == flags &&
-            (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
-            /* copy on write */
-            u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
-            u64 node_offset = vm->node_offset + (vaddr_aligned - vm->node.r.start);
-            pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
-                     vaddr, vm->cache_node, node_offset);
-            if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
-                                            pageflags_from_vmflags(vm->flags)))
-                halt("cannot get physical page for vaddr 0x%lx, ctx %p; OOM\n", vaddr, ctx);
-            return true;
-        }
+    u64 flags = VMAP_FLAG_MMAP | VMAP_FLAG_WRITABLE;
+    if (is_write_fault(ctx->frame) && (vm->flags & flags) == flags &&
+        (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
+        /* copy on write */
+        u64 vaddr_aligned = vaddr & ~MASK(PAGELOG);
+        u64 node_offset = vm->node_offset + (vaddr_aligned - vm->node.r.start);
+        pf_debug("copy-on-write for private map: vaddr 0x%lx, node %p, node_offset 0x%lx\n",
+                 vaddr, vm->cache_node, node_offset);
+        if (!pagecache_node_do_page_cow(vm->cache_node, node_offset, vaddr_aligned,
+                                        pageflags_from_vmflags(vm->flags)))
+            halt("cannot get physical page for vaddr 0x%lx, ctx %p; OOM\n", vaddr, ctx);
+        return true;
+    }
 
-        if (is_thread_context(ctx)) {
-            pf_debug(format_protection_violation(vaddr, ctx, vm, ""));
-            deliver_fault_signal(SIGSEGV, current, vaddr, SEGV_ACCERR);
-        } else {
-            /* Until we can differentiate between faults caused by a bad
-               buffer supplied by userspace and genuine kernel bugs, assume
-               the later. */
-            halt(format_protection_violation(vaddr, ctx, vm, " from kernel access"));
-        }
+    if (is_thread_context(ctx)) {
+        pf_debug(format_protection_violation(vaddr, ctx, vm, ""));
+        deliver_fault_signal(SIGSEGV, (thread)ctx, vaddr, SEGV_ACCERR);
         return true;
     }
     return false;
 }
 
-define_closure_function(1, 1, context, unix_fault_handler,
-                        thread, t,
+define_closure_function(0, 1, context, unix_fault_handler,
                         context, ctx)
 {
-    thread t = bound(t);
     const char *errmsg = 0;
     u64 fault_pc = frame_fault_pc(ctx->frame);
-    boolean user = is_usermode_fault(ctx->frame);
+    boolean user = (current_cpu()->state == cpu_user);
+    process p = struct_from_field(closure_self(), process, fault_handler);
+    thread t = user ? (thread)ctx : 0;
 
     if (is_div_by_zero(ctx->frame)) {
-        if (current_cpu()->state == cpu_user) {
+        if (user) {
             deliver_fault_signal(SIGFPE, t, fault_pc, FPE_INTDIV);
             schedule_thread(t);
             return 0;
@@ -196,7 +189,7 @@ define_closure_function(1, 1, context, unix_fault_handler,
             goto bug;
         }
     } else if (is_illegal_instruction(ctx->frame)) {
-        if (current_cpu()->state == cpu_user) {
+        if (user) {
             pf_debug("invalid opcode fault in user mode, rip 0x%lx", fault_pc);
             deliver_fault_signal(SIGILL, t, fault_pc, ILL_ILLOPC);
             schedule_thread(t);
@@ -206,7 +199,7 @@ define_closure_function(1, 1, context, unix_fault_handler,
             goto bug;
         }
     } else if (is_trap(ctx->frame)) {
-        if (current_cpu()->state == cpu_user) {
+        if (user) {
             pf_debug("trap in user mode, rip 0x%lx", fault_pc);
             if (!ltrace_handle_trap(ctx->frame))
                 deliver_fault_signal(SIGTRAP, t, fault_pc,
@@ -220,8 +213,8 @@ define_closure_function(1, 1, context, unix_fault_handler,
     } else if (is_page_fault(ctx->frame)) {
         u64 vaddr = frame_fault_address(ctx->frame);
         vmap vm;
-        if (vaddr >= MIN(t->p->mmap_min_addr, PAGESIZE) && vaddr < USER_LIMIT)
-            vm = vmap_from_vaddr(t->p, vaddr);
+        if (vaddr >= MIN(p->mmap_min_addr, PAGESIZE) && vaddr < USER_LIMIT)
+            vm = vmap_from_vaddr(p, vaddr);
         else
             vm = INVALID_ADDRESS;
         pf_debug("page fault, vaddr 0x%lx, vmap %p, ctx %p, type %d, pc 0x%lx",
@@ -232,15 +225,8 @@ define_closure_function(1, 1, context, unix_fault_handler,
                there's a chance that a true kernel bug might materialize as a
                SEGV rather than a panic. */
             pf_debug("no vmap found");
-            if (is_syscall_context(ctx)) {
-                thread_log(t, "fault on user page 0x%lx from within syscall; "
-                           "abandoning syscall context\n", vaddr);
-                orphan_syscall_context(current_cpu(), (syscall_context)ctx);
-                t->syscall_abandoned = true;
-            } else if (is_kernel_context(ctx)) {
-                errmsg = "Page fault for user memory within kernel context";
+            if (!user)
                 goto bug;
-            }
             deliver_fault_signal(SIGSEGV, t, vaddr, SEGV_MAPERR);
 
             /* schedule this thread to either run signal handler or terminate */
@@ -260,18 +246,21 @@ define_closure_function(1, 1, context, unix_fault_handler,
             goto bug;
         }
 
-        if (handle_protection_fault(ctx, vaddr, vm)) {
-            if (!is_thread_context(ctx))
-                return ctx;   /* direct return */
-            schedule_thread(t);
-            return 0;
+        if (is_protection_fault(ctx->frame)) {
+            if (handle_protection_fault(ctx, vaddr, vm)) {
+                if (!is_thread_context(ctx))
+                    return ctx;   /* direct return */
+                schedule_thread(t);
+                return 0;
+            }
+            goto bug;
         }
 
-        if (do_demand_page(t, ctx, vaddr, vm))
+        if (do_demand_page(p, ctx, vaddr, vm))
             return ctx;   /* direct return */
-        else if (current_cpu()->state == cpu_user) {
+        else if (user) {
             pf_debug("demand page failed user mode, rip 0x%lx", fault_pc);
-            deliver_fault_signal(SIGBUS, t, vaddr, SI_KERNEL);
+            deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
             schedule_thread(t);
             return 0;
         }
@@ -279,7 +268,7 @@ define_closure_function(1, 1, context, unix_fault_handler,
     /* XXX arch dep */
 #ifdef __x86_64__
     else if (ctx->frame[FRAME_VECTOR] == 13) {
-        if (current_cpu()->state == cpu_user) {
+        if (user) {
             pf_debug("general protection fault in user mode, rip 0x%lx", fault_pc);
             deliver_fault_signal(SIGSEGV, t, 0, SI_KERNEL);
             schedule_thread(t);
@@ -296,7 +285,7 @@ bug:
     dump_context(ctx);
     ctx->frame[FRAME_FULL] = false;
 
-    if (t && t->p && get(t->p->process_root, sym(fault))) {
+    if (get(p->process_root, sym(fault))) {
         rputs("TODO: in-kernel gdb needs revisiting\n");
 //        init_tcp_gdb(heap_locked(get_kernel_heaps()), p, 9090);
 //        thread_sleep_uninterruptible();
@@ -307,34 +296,34 @@ bug:
 
 void init_thread_fault_handler(thread t)
 {
-    t->context.fault_handler = init_closure(&t->fault_handler, unix_fault_handler, t);
+    t->context.fault_handler = (fault_handler)&t->p->fault_handler;
 }
 
 closure_function(0, 6, sysreturn, dummy_read,
-                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
-    thread_log(t, "%s: dest %p, length %ld, offset_arg %ld",
+    thread_log(current, "%s: dest %p, length %ld, offset_arg %ld",
 	       __func__, dest, length, offset_arg);
     if (completion)
-        apply(completion, t, 0);
+        apply(completion, 0);
     return 0;
 }
 
 closure_function(1, 2, sysreturn, std_close,
                  file, f,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     unix_cache_free(get_unix_heaps(), file, bound(f));
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
 closure_function(0, 6, sysreturn, stdout,
-                 void*, d, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                 void*, d, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     console_write(d, length);
     klog_write(d, length);
     if (completion)
-        apply(completion, t, length);
+        apply(completion, length);
     return length;
 }
 
@@ -382,6 +371,52 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     return true;
 }
 
+void init_unix_context(unix_context uc, int type, int size, queue free_ctx_q)
+{
+    init_kernel_context(&uc->kc, type, size, free_ctx_q);
+    blockq_thread_init(uc);
+}
+
+static void process_context_pause(context ctx)
+{
+    process_context pc = (process_context)ctx;
+    process p = pc->p;
+    fetch_and_add(&p->stime, now(CLOCK_ID_MONOTONIC_RAW) - pc->start_time);
+    timer_service(p->cpu_timers, proc_cputime(p));
+    context_release_refcount(ctx);
+}
+
+static void process_context_resume(context ctx)
+{
+    process_context pc = (process_context)ctx;
+    pc->start_time = now(CLOCK_ID_MONOTONIC_RAW);
+    context_reserve_refcount(ctx);
+}
+
+process_context get_process_context(void)
+{
+    thread t = current;
+    if (!t)
+        return INVALID_ADDRESS;
+    cpuinfo ci = current_cpu();
+    process_context pc = dequeue_single(ci->free_process_contexts);
+    if (pc != INVALID_ADDRESS) {
+        refcount_set_count(&pc->uc.kc.context.refcount, 1);
+        return pc;
+    }
+    pc = allocate((heap)heap_linear_backed(get_kernel_heaps()), PROCESS_CONTEXT_SIZE);
+    if (pc == INVALID_ADDRESS)
+        return pc;
+    init_unix_context(&pc->uc, CONTEXT_TYPE_PROCESS, PROCESS_CONTEXT_SIZE,
+                      ci->free_process_contexts);
+    pc->p = t->p;
+    context c = &pc->uc.kc.context;
+    c->pause = process_context_pause;
+    c->resume = process_context_resume;
+    c->fault_handler = (fault_handler)&pc->p->fault_handler;
+    return pc;
+}
+
 define_closure_function(0, 0, timestamp, process_now)
 {
     process p = struct_from_field(closure_self(), process, now);
@@ -418,6 +453,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
     init_threads(p);
+    init_closure(&p->fault_handler, unix_fault_handler);
     p->syscalls = linux_syscalls;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
@@ -526,7 +562,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     vector_foreach(cpuinfos, ci) {
         syscall_context sc = allocate_syscall_context(ci);
         assert(sc != INVALID_ADDRESS);
-        ci->m.syscall_context = &sc->context;
+        ci->m.syscall_context = &sc->uc.kc.context;
     }
 
     /* XXX remove once we have http PUT support */

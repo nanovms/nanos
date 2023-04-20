@@ -124,14 +124,14 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
 
 closure_function(1, 2, sysreturn, pipe_close,
                  pipe_file, pf,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     pipe_dealloc_end(bound(pf)->pipe, bound(pf));
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
-closure_function(5, 1, sysreturn, pipe_read_bh,
-                 pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
+closure_function(4, 1, sysreturn, pipe_read_bh,
+                 pipe_file, pf, void *, dest, u64, length, io_completion, completion,
                  u64, flags)
 {
     pipe_file pf = bound(pf);
@@ -142,6 +142,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
         goto out;
     }
 
+    context ctx = get_current_context(current_cpu());
     pipe_lock(pf->pipe);
     buffer b = pf->pipe->data;
     rv = MIN(buffer_length(b), bound(length));
@@ -153,7 +154,7 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
             goto unlock;
         }
         pipe_unlock(pf->pipe);
-        return blockq_block_required(bound(t), flags);
+        return blockq_block_required((unix_context)ctx, flags);
     }
 
     buffer_read(b, bound(dest), rv);
@@ -172,26 +173,26 @@ closure_function(5, 1, sysreturn, pipe_read_bh,
     if (rv > 0)
         pipe_notify_writer(pf, EPOLLOUT);
   out:
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 closure_function(1, 6, sysreturn, pipe_read,
                  pipe_file, pf,
-                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     pipe_file pf = bound(pf);
 
     if (length == 0)
-        return io_complete(completion, t, 0);
+        return io_complete(completion, 0);
 
-    blockq_action ba = contextual_closure(pipe_read_bh, pf, t, dest, length, completion);
-    return blockq_check(pf->bq, t, ba, bh);
+    blockq_action ba = closure_from_context(ctx, pipe_read_bh, pf, dest, length, completion);
+    return blockq_check(pf->bq, ba, bh);
 }
 
-closure_function(5, 1, sysreturn, pipe_write_bh,
-                 pipe_file, pf, thread, t, void *, dest, u64, length, io_completion, completion,
+closure_function(4, 1, sysreturn, pipe_write_bh,
+                 pipe_file, pf, void *, dest, u64, length, io_completion, completion,
                  u64, flags)
 {
     sysreturn rv = 0;
@@ -205,6 +206,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     u64 length = bound(length);
     pipe p = pf->pipe;
     buffer b = p->data;
+    context ctx = get_current_context(current_cpu());
     pipe_lock(p);
     u64 avail = p->max_size - buffer_length(b);
 
@@ -218,7 +220,7 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
             goto unlock;
         }
         pipe_unlock(p);
-        return blockq_block_required(bound(t), flags);
+        return blockq_block_required((unix_context)ctx, flags);
     }
 
     u64 real_length = MIN(length, avail);
@@ -231,21 +233,21 @@ closure_function(5, 1, sysreturn, pipe_write_bh,
     if (rv > 0)
         pipe_notify_reader(pf, EPOLLIN);
   out:
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 closure_function(1, 6, sysreturn, pipe_write,
                  pipe_file, pf,
-                 void *, dest, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     if (length == 0)
-        return io_complete(completion, t, 0);
+        return io_complete(completion, 0);
 
     pipe_file pf = bound(pf);
-    blockq_action ba = contextual_closure(pipe_write_bh, pf, t, dest, length, completion);
-    return blockq_check(pf->bq, t, ba, bh);
+    blockq_action ba = closure_from_context(ctx, pipe_write_bh, pf, dest, length, completion);
+    return blockq_check(pf->bq, ba, bh);
 }
 
 closure_function(1, 1, u32, pipe_read_events,

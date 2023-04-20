@@ -31,8 +31,8 @@ closure_function(1, 2, u64, efd_edge_handler,
     return lastevents;
 }
 
-closure_function(5, 1, sysreturn, efd_read_bh,
-                 struct efd *, efd, thread, t, void *, buf, u64, length, io_completion, completion,
+closure_function(4, 1, sysreturn, efd_read_bh,
+                 struct efd *, efd, void *, buf, u64, length, io_completion, completion,
                  u64, flags)
 {
     struct efd *efd = bound(efd);
@@ -43,6 +43,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
         goto out;
     }
 
+    context ctx = get_current_context(current_cpu());
     efd_lock(efd);
     if (efd->counter == 0) {
         efd_unlock(efd);
@@ -50,7 +51,7 @@ closure_function(5, 1, sysreturn, efd_read_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return blockq_block_required(bound(t), flags);
+        return blockq_block_required((unix_context)ctx, flags);
     }
     if (efd->flags & EFD_SEMAPHORE) {
         u64 readVal = 1;
@@ -67,26 +68,25 @@ closure_function(5, 1, sysreturn, efd_read_bh,
     blockq_wake_one(efd->write_bq);
     fdesc_notify_events(&efd->f);
 out:
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 closure_function(1, 6, sysreturn, efd_read,
                  struct efd *, efd,
-                 void *, buf, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, buf, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     if (length < sizeof(u64)) {
-        return io_complete(completion, t, -EINVAL);
+        return io_complete(completion, -EINVAL);
     }
 
-    blockq_action ba = contextual_closure(efd_read_bh, bound(efd), t, buf, length,
-                                          completion);
-    return blockq_check(bound(efd)->read_bq, t, ba, bh);
+    blockq_action ba = closure_from_context(ctx, efd_read_bh, bound(efd), buf, length, completion);
+    return blockq_check(bound(efd)->read_bq, ba, bh);
 }
 
-closure_function(5, 1, sysreturn, efd_write_bh,
-                 struct efd *, efd, thread, t, void *, buf, u64, length, io_completion, completion,
+closure_function(4, 1, sysreturn, efd_write_bh,
+                 struct efd *, efd, void *, buf, u64, length, io_completion, completion,
                  u64, flags)
 {
     struct efd *efd = bound(efd);
@@ -98,6 +98,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
         goto out;
     }
 
+    context ctx = get_current_context(current_cpu());
     runtime_memcpy(&counter, bound(buf), sizeof(counter));
     efd_lock(efd);
     if (counter > (EFD_COUNTER_MAX - efd->counter)) {
@@ -106,7 +107,7 @@ closure_function(5, 1, sysreturn, efd_write_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return blockq_block_required(bound(t), flags);
+        return blockq_block_required((unix_context)ctx, flags);
     }
     efd->counter += counter;
     efd->io_event = true;
@@ -114,22 +115,21 @@ closure_function(5, 1, sysreturn, efd_write_bh,
     blockq_wake_one(efd->read_bq);
     fdesc_notify_events(&efd->f);
 out:
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 closure_function(1, 6, sysreturn, efd_write,
                  struct efd *, efd,
-                 void *, buf, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                 void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     if (length < sizeof(u64)) {
-        return io_complete(completion, t, -EINVAL);
+        return io_complete(completion, -EINVAL);
     }
 
-    blockq_action ba = contextual_closure(efd_write_bh, bound(efd), t, buf, length,
-                                          completion);
-    return blockq_check(bound(efd)->write_bq, t, ba, bh);
+    blockq_action ba = closure_from_context(ctx, efd_write_bh, bound(efd), buf, length, completion);
+    return blockq_check(bound(efd)->write_bq, ba, bh);
 }
 
 closure_function(1, 1, u32, efd_events,
@@ -149,7 +149,7 @@ closure_function(1, 1, u32, efd_events,
 
 closure_function(1, 2, sysreturn, efd_close,
                  struct efd *, efd,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     struct efd *efd = bound(efd);
     deallocate_blockq(efd->read_bq);
@@ -160,7 +160,7 @@ closure_function(1, 2, sysreturn, efd_close,
     deallocate_closure(efd->f.close);
     release_fdesc(&efd->f);
     deallocate(efd->h, efd, sizeof(*efd));
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
 int do_eventfd2(unsigned int count, int flags)

@@ -62,10 +62,10 @@ void print_frame_trace_from_here(void)
     print_frame_trace(get_current_fp());
 }
 
-define_closure_function(3, 0, void, free_kernel_context,
-                        kernel_context, kc, cpuinfo, orig_ci, boolean, queued)
+define_closure_function(2, 0, void, free_kernel_context,
+                        queue, free_ctx_q, boolean, queued)
 {
-    kernel_context kc = bound(kc);
+    kernel_context kc = struct_from_field(closure_self(), kernel_context, free);
 
     /* The final release may happen while running in the context (and on the
        context stack), so defer the return to free list until after the
@@ -78,8 +78,8 @@ define_closure_function(3, 0, void, free_kernel_context,
     }
 
     bound(queued) = false;
-    if (!enqueue(bound(orig_ci)->free_kernel_contexts, kc))
-        deallocate((heap)heap_linear_backed(get_kernel_heaps()), kc, KERNEL_CONTEXT_SIZE);
+    if (!enqueue(bound(free_ctx_q), kc))
+        deallocate((heap)heap_linear_backed(get_kernel_heaps()), kc, kc->size);
 }
 
 static void kernel_context_pause(context c)
@@ -98,10 +98,9 @@ static void kernel_context_schedule_return(context c)
     async_apply_bh((thunk)&kc->kernel_return);
 }
 
-define_closure_function(1, 0, void, kernel_context_return,
-                        struct kernel_context *, kc)
+define_closure_function(0, 0, void, kernel_context_return)
 {
-    kernel_context kc = bound(kc);
+    kernel_context kc = struct_from_field(closure_self(), kernel_context, kernel_return);
     context_frame f = kc->context.frame;
     context_switch(&kc->context);
     assert(kc->context.refcount.c > 1);
@@ -112,6 +111,24 @@ define_closure_function(1, 0, void, kernel_context_return,
 
 static void kernel_context_pre_suspend(context ctx);
 
+void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q)
+{
+    context c = &kc->context;
+    init_context(c, type);
+    init_refcount(&c->refcount, 1, init_closure(&kc->free, free_kernel_context,
+                                                free_ctx_q, false));
+    c->pause = kernel_context_pause;
+    c->resume = kernel_context_resume;
+    c->schedule_return = kernel_context_schedule_return;
+    c->pre_suspend = kernel_context_pre_suspend;
+    init_closure(&kc->kernel_return, kernel_context_return);
+    c->fault_handler = 0;
+    c->transient_heap = heap_locked(get_kernel_heaps());
+    void *stack_top = ((void *)kc) + size - STACK_ALIGNMENT;
+    frame_set_stack_top(c->frame, stack_top);
+    kc->size = size;
+}
+
 kernel_context allocate_kernel_context(cpuinfo ci)
 {
     build_assert((KERNEL_CONTEXT_SIZE & (KERNEL_CONTEXT_SIZE - 1)) == 0);
@@ -119,19 +136,7 @@ kernel_context allocate_kernel_context(cpuinfo ci)
                                  KERNEL_CONTEXT_SIZE);
     if (kc == INVALID_ADDRESS)
         return kc;
-    context c = &kc->context;
-    init_context(c, CONTEXT_TYPE_KERNEL);
-    init_refcount(&c->refcount, 1, init_closure(&kc->free, free_kernel_context,
-                                                kc, ci, false));
-    c->pause = kernel_context_pause;
-    c->resume = kernel_context_resume;
-    c->schedule_return = kernel_context_schedule_return;
-    c->pre_suspend = kernel_context_pre_suspend;
-    init_closure(&kc->kernel_return, kernel_context_return, kc);
-    c->fault_handler = 0;
-    c->transient_heap = heap_locked(get_kernel_heaps());
-    void *stack_top = ((void *)kc) + KERNEL_CONTEXT_SIZE - STACK_ALIGNMENT;
-    frame_set_stack_top(c->frame, stack_top);
+    init_kernel_context(kc, CONTEXT_TYPE_KERNEL, KERNEL_CONTEXT_SIZE, ci->free_kernel_contexts);
     return kc;
 }
 
@@ -173,6 +178,8 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
     assert(ci->free_kernel_contexts != INVALID_ADDRESS);
     ci->free_syscall_contexts = allocate_queue(backed, FREE_SYSCALL_CONTEXT_QUEUE_SIZE);
     assert(ci->free_syscall_contexts != INVALID_ADDRESS);
+    ci->free_process_contexts = allocate_queue(backed, FREE_PROCESS_CONTEXT_QUEUE_SIZE);
+    assert(ci->free_process_contexts != INVALID_ADDRESS);
     ci->cpu_queue = allocate_queue(backed, CPU_QUEUE_SIZE);
     assert(ci->cpu_queue != INVALID_ADDRESS);
     ci->last_timer_update = 0;

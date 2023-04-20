@@ -291,12 +291,12 @@ void epoll_finish(epoll e)
 
 closure_function(1, 2, sysreturn, epoll_close,
                  epoll, e,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     epoll e = bound(e);
     release_fdesc(&e->f);
     epoll_finish(e);
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
 sysreturn epoll_create(int flags)
@@ -486,7 +486,7 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
     spin_unlock(&w->lock);
 
     epoll_debug("  continue blocking\n");
-    return blockq_block_required(bound(t), flags);
+    return blockq_block_required(&bound(t)->syscall->uc, flags);
   out_wakeup:
     unwrap_buffer(w->e->h, w->user_events);
     w->user_events = 0;
@@ -546,7 +546,7 @@ sysreturn epoll_wait(int epfd,
     spin_runlock(&e->fds_lock);
 
     timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
-    return blockq_check_timeout(w->t->thread_bq, current,
+    return blockq_check_timeout(w->t->thread_bq,
                                 contextual_closure(epoll_wait_bh, w, current,
                                 (timeout < 0) ? infinity : ts), false,
                                 CLOCK_ID_MONOTONIC, ts, false);
@@ -725,7 +725,7 @@ closure_function(3, 1, sysreturn, select_bh,
     }
     spin_unlock(&w->lock);
 
-    return blockq_block_required(t, flags);
+    return blockq_block_required(&t->syscall->uc, flags);
   out_wakeup:
     if (w->rset)
         bitmap_unwrap(w->rset);
@@ -876,7 +876,7 @@ static sysreturn select_internal(int nfds,
     }
     spin_wunlock(&e->fds_lock);
   check_timeout:
-    return blockq_check_timeout(wt->t->thread_bq, current,
+    return blockq_check_timeout(wt->t->thread_bq,
                                 contextual_closure(select_bh, wt, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
@@ -945,7 +945,7 @@ closure_function(3, 1, sysreturn, poll_bh,
     }
     spin_unlock(&w->lock);
 
-    return blockq_block_required(t, flags);
+    return blockq_block_required(&t->syscall->uc, flags);
   out_wakeup:
     unwrap_buffer(w->e->h, w->poll_fds);
     w->poll_fds = 0;
@@ -1035,7 +1035,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     spin_wunlock(&e->fds_lock);
     deallocate_bitmap(remove_efds);
 
-    return blockq_check_timeout(w->t->thread_bq, current,
+    return blockq_check_timeout(w->t->thread_bq,
                                 contextual_closure(poll_bh, w, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }

@@ -526,7 +526,7 @@ closure_function(1, 1, sysreturn, rt_sigsuspend_bh,
     }
 
     sig_debug("-> block\n");
-    return blockq_block_required(t, flags);
+    return blockq_block_required(&t->syscall->uc, flags);
 }
 
 sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
@@ -543,7 +543,7 @@ sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
     blockq_action ba = contextual_closure(rt_sigsuspend_bh, t);
     t->saved_signal_mask = saved_mask;
     set_signal_mask(t, *mask);
-    return blockq_check(t->thread_bq, t, ba, false);
+    return blockq_check(t->thread_bq, ba, false);
 }
 
 static boolean thread_is_on_altsigstack(thread t)
@@ -713,7 +713,7 @@ closure_function(1, 1, sysreturn, pause_bh,
     }
 
     sig_debug("-> block\n");
-    return blockq_block_required(t, flags);
+    return blockq_block_required(&t->syscall->uc, flags);
 }
 
 /* aarch64: may be invoked directly from ppoll(2) */
@@ -721,7 +721,7 @@ sysreturn pause(void)
 {
     sig_debug("tid %d\n", current->tid);
     blockq_action ba = contextual_closure(pause_bh, current);
-    return blockq_check(current->thread_bq, current, ba, false);
+    return blockq_check(current->thread_bq, ba, false);
 }
 
 closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
@@ -753,7 +753,7 @@ closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
             return BLOCKQ_BLOCK_REQUIRED;
         } else {
             /* XXX record spurious wakeups? */
-            rv = nullify ? -EINTR : blockq_block_required(t, flags);
+            rv = nullify ? -EINTR : blockq_block_required(&t->syscall->uc, flags);
         }
     } else {
         if (bound(info))
@@ -777,16 +777,18 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
     sig_debug("tid %d, interest 0x%lx, info %p, timeout %p\n", current->tid, *set, info, timeout);
     blockq_action ba = contextual_closure(rt_sigtimedwait_bh, current, *set, info, timeout);
     timestamp t = timeout ? time_from_timespec(timeout) : 0;
-    return blockq_check_timeout(current->thread_bq, current, ba, false, CLOCK_ID_MONOTONIC, t, false);
+    return blockq_check_timeout(current->thread_bq, ba, false, CLOCK_ID_MONOTONIC, t, false);
 }
 
+declare_closure_struct(0, 2, boolean, signalfd_notify,
+                       u64, events, void *, t);
 typedef struct signal_fd {
     struct fdesc f; /* must be first */
     int fd;
     heap h;
     blockq bq;
     u64 mask;
-    notify_entry n;
+    closure_struct(signalfd_notify, notify);
 } *signal_fd;
 
 static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs)
@@ -823,8 +825,13 @@ static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs
     }
 }
 
-closure_function(5, 1, sysreturn, signalfd_read_bh,
-                 signal_fd, sfd, thread, t, void *, dest, u64, length, io_completion, completion,
+static void signalfd_update_siginterest(thread t)
+{
+    sigstate_set_interest(&t->p->signals, notify_get_eventmask_union(t->signalfds));
+}
+
+closure_function(6, 1, sysreturn, signalfd_read_bh,
+                 signal_fd, sfd, thread, t, notify_entry, n, void *, dest, u64, length, io_completion, completion,
                  u64, flags)
 {
     signal_fd sfd = bound(sfd);
@@ -837,7 +844,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
     sysreturn rv = 0;
 
     sig_debug("fd %d, buf %p, length %ld, tid %d, flags 0x%lx\n",
-              sfd->fd, info, bound(length), t->tid, flags);
+              sfd->fd, info, bound(length), t ? t->tid : -1, flags);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         assert(blocked);
@@ -845,6 +852,9 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
         sig_debug("   -> EINTR\n");
         goto out;
     }
+    context ctx = get_current_context(current_cpu());
+    if (!t)
+        return blockq_block_required((unix_context)ctx, flags);
 
     while (ninfos < max_infos) {
         queued_signal qs = dequeue_signal(t, ~sfd->mask);
@@ -856,7 +866,7 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
                     goto out;
                 }
                 sig_debug("   -> block\n");
-                return blockq_block_required(t, flags);
+                return blockq_block_required((unix_context)ctx, flags);
             }
             break;
         }
@@ -870,19 +880,33 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
     rv = ninfos * sizeof(struct signalfd_siginfo);
     sig_debug("   %d infos, %ld bytes\n", ninfos, rv);
   out:
-    apply(bound(completion), t, rv);
+    if (t) {
+        notify_remove(t->signalfds, bound(n), false);
+        signalfd_update_siginterest(t);
+    }
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 closure_function(1, 6, sysreturn, signalfd_read,
                  signal_fd, sfd,
-                 void *, buf, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, buf, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     signal_fd sfd = bound(sfd);
-    sig_debug("fd %d, buf %p, length %ld, tid %d, bh %d\n", sfd->fd, buf, length, t->tid, bh);
-    blockq_action ba = contextual_closure(signalfd_read_bh, sfd, t, buf, length, completion);
-    return blockq_check(sfd->bq, t, ba, bh);
+    thread t = current;
+    sig_debug("fd %d, buf %p, length %ld, tid %d, bh %d\n", sfd->fd, buf, length, t ? t->tid : -1, bh);
+    notify_entry n;
+    if (t) {
+        n = notify_add(t->signalfds, sfd->mask, (event_handler)&sfd->notify);
+        if (!n)
+            return io_complete(completion, -ENOMEM);
+        signalfd_update_siginterest(t);
+    } else {
+        n = 0;
+    }
+    blockq_action ba = closure_from_context(ctx, signalfd_read_bh, sfd, t, n, buf, length, completion);
+    return blockq_check(sfd->bq, ba, bh);
 }
 
 closure_function(1, 1, u32, signalfd_events,
@@ -894,28 +918,24 @@ closure_function(1, 1, u32, signalfd_events,
 
 closure_function(1, 2, sysreturn, signalfd_close,
                  signal_fd, sfd,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     signal_fd sfd = bound(sfd);
     deallocate_blockq(sfd->bq);
-    notify_remove(current->signalfds, sfd->n, true);
     deallocate_closure(sfd->f.read);
     deallocate_closure(sfd->f.events);
     deallocate_closure(sfd->f.close);
     release_fdesc(&sfd->f);
     deallocate(sfd->h, sfd, sizeof(struct signal_fd));
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
-closure_function(1, 2, boolean, signalfd_notify,
-                 signal_fd, sfd,
-                 u64, events, void *, t)
+define_closure_function(0, 2, boolean, signalfd_notify,
+                        u64, events, void *, t)
 {
-    signal_fd sfd = bound(sfd);
-    if (events == NOTIFY_EVENTS_RELEASE) {
+    signal_fd sfd = struct_from_field(closure_self(), signal_fd, notify);
+    if (events == NOTIFY_EVENTS_RELEASE)
         sig_debug("%d released\n", sfd->fd);
-        closure_finish();
-    }
 
     if ((events & sfd->mask) == 0) {
         sig_debug("%d spurious notify\n", sfd->fd);
@@ -923,15 +943,13 @@ closure_function(1, 2, boolean, signalfd_notify,
     }
 
     /* null thread on notify set release (thread dealloc) */
-    if (t)
-        blockq_wake_one_for_thread(sfd->bq, t, false);
+    if (t) {
+        syscall_context ctx = ((thread)t)->syscall;
+        if (ctx)
+            blockq_wake_one_for_thread(sfd->bq, &ctx->uc, false);
+    }
     notify_dispatch_for_thread(sfd->f.ns, EPOLLIN, t);
     return false;
-}
-
-static void signalfd_update_siginterest(thread t)
-{
-    sigstate_set_interest(&t->p->signals, notify_get_eventmask_union(t->signalfds));
 }
 
 static sysreturn allocate_signalfd(const u64 *mask, int flags)
@@ -950,9 +968,7 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
         goto err_mem_bq;
 
     sfd->mask = *mask;
-    sfd->n = notify_add(current->signalfds, sfd->mask, closure(h, signalfd_notify, sfd));
-    if (!sfd->n)
-        goto err_mem_notify;
+    init_closure(&sfd->notify, signalfd_notify);
 
     sfd->f.flags = flags;
     sfd->f.read = closure(h, signalfd_read, sfd);
@@ -966,10 +982,7 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     }
     sig_debug("allocate_signalfd: %d\n", fd);
     sfd->fd = fd;
-    signalfd_update_siginterest(current);
     return sfd->fd;
-  err_mem_notify:
-    deallocate_blockq(sfd->bq);
   err_mem_bq:
     deallocate(h, sfd, sizeof(*sfd));
   err_mem:
@@ -997,8 +1010,6 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
 
     /* update mask */
     sfd->mask = *mask;
-    notify_entry_update_eventmask(sfd->n, sfd->mask);
-    signalfd_update_siginterest(current);
     fdesc_put(&sfd->f);
     return fd;
 }
@@ -1091,9 +1102,9 @@ static void default_signal_action(thread t, queued_signal qs)
         rprintf("\n*** Thread context:\n");
         dump_context(&t->context);
     }
-    if (t->syscall && frame_is_full(t->syscall->context.frame)) {
+    if (t->syscall && frame_is_full(t->syscall->uc.kc.context.frame)) {
         rprintf("\n*** Syscall context:\n");
-        dump_context(&t->syscall->context);
+        dump_context(&t->syscall->uc.kc.context);
     }
     thread_log(t, fate);
     halt_with_code(VM_EXIT_SIGNAL(signum), "%s\n", fate);

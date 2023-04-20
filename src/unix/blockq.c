@@ -49,10 +49,10 @@
 /* This applies a blockq action after it has been removed from the waiters
    list. If the action cannot wake the thread and must continue blocking, it
    needs to re-add itself to the queue (and reinstate any remaining timeout). */
-static void blockq_apply(blockq bq, thread t, u64 bq_flags)
+static void blockq_apply(blockq bq, unix_context t, u64 bq_flags)
 {
-    blockq_debug("bq %p (\"%s\") tid:%ld %s %s %s\n",
-                 bq, blockq_name(bq), t->tid,
+    blockq_debug("bq %p (\"%s\") ctx %p %s %s %s\n",
+                 bq, blockq_name(bq), t,
                  (bq_flags & BLOCKQ_ACTION_BLOCKED) ? "blocked " : "",
                  (bq_flags & BLOCKQ_ACTION_NULLIFY) ? "nullify " : "",
                  (bq_flags & BLOCKQ_ACTION_TIMEDOUT) ? "timedout" : "");
@@ -62,13 +62,13 @@ static void blockq_apply(blockq bq, thread t, u64 bq_flags)
 }
 
 /* A blockq_thread timed out. */
-define_closure_function(2, 2, void, blockq_thread_timeout,
-                        blockq, bq, thread, t,
+define_closure_function(1, 2, void, blockq_thread_timeout,
+                        blockq, bq,
                         u64, expiry, u64, overruns)
 {
     blockq bq = bound(bq);
-    thread t = bound(t);
-    blockq_debug("bq %p (\"%s\") tid %d\n", bq, blockq_name(bq), t->tid);
+    unix_context t = struct_from_field(closure_self(), unix_context, bq_timeout_func);
+    blockq_debug("bq %p (\"%s\") ctx %p\n", bq, blockq_name(bq), t);
     if (overruns != timer_disabled) {
         /* Use bq->lock to protect t->bq_timer_pending. */
         blockq_lock(bq);
@@ -82,7 +82,7 @@ define_closure_function(2, 2, void, blockq_thread_timeout,
 }
 
 /* Called with bq and thread locks taken, returns with them released. */
-static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_flags)
+static inline boolean blockq_wake_internal_locked(blockq bq, unix_context t, u64 bq_flags)
 {
     boolean timer_pending = t->bq_timer_pending;
     if (timer_pending) {
@@ -102,8 +102,8 @@ static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_fl
         goto unlock_fail;
     }
     list_delete(&t->bq_l);
-    if (bq_flags & BLOCKQ_ACTION_NULLIFY)
-        t->interrupting_syscall = true;
+    if ((bq_flags & BLOCKQ_ACTION_NULLIFY) && is_syscall_context(&t->kc.context))
+        ((syscall_context)t)->t->interrupting_syscall = true;
     thread_unlock(t);
     blockq_unlock(bq);
     blockq_apply(bq, t, bq_flags);
@@ -121,13 +121,13 @@ static inline boolean blockq_wake_internal_locked(blockq bq, thread t, u64 bq_fl
    action will always wake a thread on a call in blocked state, it can be
    assumed the returned thread was awoken (e.g. futex_bh) */
 
-thread blockq_wake_one(blockq bq)
+unix_context blockq_wake_one(blockq bq)
 {
     blockq_debug("%p (\"%s\") \n", bq, blockq_name(bq));
     blockq_lock(bq);
     list l = list_get_next(&bq->waiters_head);
     if (l) {
-        thread t = struct_from_list(l, thread, bq_l);
+        unix_context t = struct_from_list(l, unix_context, bq_l);
         thread_lock(t);
         blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED);
         return t;
@@ -143,9 +143,9 @@ thread blockq_wake_one(blockq bq)
     return INVALID_ADDRESS;
 }
 
-boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify)
+boolean blockq_wake_one_for_thread(blockq bq, unix_context t, boolean nullify)
 {
-    thread_log(current, "%s: tid %d", __func__, t->tid);
+    thread_log(current, "%s: ctx %p", __func__, t);
     blockq_lock(bq);
     thread_lock(t);
     if (t->blocked_on != bq) {
@@ -157,7 +157,7 @@ boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify)
                                        (nullify ? BLOCKQ_ACTION_NULLIFY : 0));
 }
 
-void blockq_resume_blocking(blockq bq, thread t)
+void blockq_resume_blocking(blockq bq, unix_context t)
 {
     blockq_lock(bq);
     list_insert_before(&bq->waiters_head, &t->bq_l);
@@ -171,16 +171,16 @@ void blockq_resume_blocking(blockq bq, thread t)
     blockq_unlock(bq);
 }
 
-sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh,
+sysreturn blockq_check_timeout(blockq bq, blockq_action a, boolean in_bh,
                                clock_id clkid, timestamp timeout, boolean absolute)
 {
-    assert(t);
     assert(a);
     assert(!(in_bh && timeout)); /* no timeout checks in bh */
-    assert(is_contextual_closure(a));
+    unix_context t = (unix_context)context_from_closure(a);
+    assert(t);
 
-    blockq_debug("%p \"%s\", tid %ld, action %p (%F), timeout %ld, clock_id %d\n",
-                 bq, blockq_name(bq), t->tid, a, a, timeout, clkid);
+    blockq_debug("%p \"%s\", ctx %p, action %p (%F), timeout %ld, clock_id %d\n",
+                 bq, blockq_name(bq), t, a, a, timeout, clkid);
 
     /* The wake flag senses whether a wakeup occurred between invoking the
        blockq_action and queueing the waiting thread. We cannot simply take
@@ -223,7 +223,7 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
         t->bq_timer_pending = true;
         t->bq_clkid = clkid;
         register_timer(kernel_timers, &t->bq_timer, clkid, timeout, absolute, 0,
-                       init_closure(&t->bq_timeout_func, blockq_thread_timeout, bq, t));
+                       init_closure(&t->bq_timeout_func, blockq_thread_timeout, bq));
     } else {
         t->bq_timer_pending = false;
     }
@@ -239,8 +239,8 @@ sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_
     if (wake)
         blockq_wake_one(bq);
 
-    /* if we're either in bh or a non-current thread is invoking this, return now */
-    if (in_bh || (current != t))
+    /* if we're in bh, return now */
+    if (in_bh)
         return BLOCKQ_BLOCK_REQUIRED;
 
     thread_sleep_interruptible();  /* no return */
@@ -262,7 +262,7 @@ void blockq_flush(blockq bq)
             blockq_unlock(bq);
             return;
         }
-        thread t = struct_from_list(l, thread, bq_l);
+        unix_context t = struct_from_list(l, unix_context, bq_l);
         thread_lock(t);
         blockq_wake_internal_locked(bq, t, BLOCKQ_ACTION_BLOCKED | BLOCKQ_ACTION_NULLIFY);
     } while (1);
@@ -275,7 +275,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handle
     list_foreach(&src->waiters_head, l) {
         if (transferred >= n)
             break;
-        thread t = struct_from_list(l, thread, bq_l);
+        unix_context t = struct_from_list(l, unix_context, bq_l);
         thread_lock(t);
         assert(t->blocked_on == src);
         boolean timer_pending = t->bq_timer_pending;
@@ -298,7 +298,7 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handle
         if (timer_pending && remain > 0) {
             register_timer(kernel_timers, &t->bq_timer, id, remain, false, 0,
                            init_closure(&t->bq_timeout_func, blockq_thread_timeout,
-                                        dest, t));
+                                        dest));
         } else {
             t->bq_timer_pending = false;
         }
@@ -310,14 +310,16 @@ int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handle
     return transferred;
 }
 
-void blockq_thread_init(thread t)
+void blockq_thread_init(unix_context t)
 {
+    t->blocked_on = 0;
     t->bq_timer_pending = false;
     t->bq_clkid = 0;
     t->bq_remain_at_wake = 0;
     init_timer(&t->bq_timer);
     t->bq_action = 0;
     t->bq_l.prev = t->bq_l.next = 0;
+    spin_lock_init(&t->lock);
 }
 
 define_closure_function(1, 0, void, free_blockq,

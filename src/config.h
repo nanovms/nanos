@@ -13,6 +13,7 @@
 /* contexts with embedded stacks */
 #define KERNEL_CONTEXT_SIZE  (32 * KB)
 #define SYSCALL_CONTEXT_SIZE (32 * KB)
+#define PROCESS_CONTEXT_SIZE (32 * KB)
 
 #define PAGE_INVAL_QUEUE_LENGTH  4096
 
@@ -29,6 +30,7 @@
 /* size of free context queues */
 #define FREE_KERNEL_CONTEXT_QUEUE_SIZE  8
 #define FREE_SYSCALL_CONTEXT_QUEUE_SIZE 8
+#define FREE_PROCESS_CONTEXT_QUEUE_SIZE 8
 
 /* per-cpu queue */
 #define CPU_QUEUE_SIZE 512

@@ -85,19 +85,13 @@ define_closure_function(1, 1, void, pending_fault_complete,
             continue;
         }
 
-        thread t;
         if (is_thread_context(ctx)) {
-            t = (thread)ctx;
-        } else if (is_syscall_context(ctx)) {
-            /* TODO syscall cleanup, like below */
-            t = ((syscall_context)ctx)->t;
+            thread t = (thread)ctx;
+            deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
+            schedule_thread(t);
         } else {
-            /* TODO We need to be able to reach the thread context
-               associated with the faulting kernel code here... */
             halt("unhandled demand page failure for context type %d\n", ctx->type);
         }
-        deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
-        schedule_thread(t);
     }
     vector_clear(pf->dependents);
     rbtree_remove_node(&p->pending_faults, &pf->n);
@@ -169,17 +163,15 @@ static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
     return true;
 }
 
-define_closure_function(5, 0, void, thread_demand_file_page,
-                        pending_fault, pf, vmap, vm, u64, node_offset, u64, page_addr, pageflags, flags)
+static void demand_file_page(pending_fault pf, vmap vm, u64 node_offset, u64 page_addr,
+                             pageflags flags)
 {
-    pending_fault pf = bound(pf);
-    vmap vm = bound(vm);
     pagecache_node pn = vm->cache_node;
     pf_debug("%s: pending_fault %p, node_offset 0x%lx, page_addr 0x%lx\n",
-             __func__, pf, bound(node_offset), pf->addr);
-    pagecache_map_page(pn, bound(node_offset), pf->addr, bound(flags),
+             __func__, pf, node_offset, pf->addr);
+    pagecache_map_page(pn, node_offset, pf->addr, flags,
                        (status_handler)&pf->complete);
-    range ra = irange(bound(node_offset) + PAGESIZE,
+    range ra = irange(node_offset + PAGESIZE,
         vm->node_offset + range_span(vm->node.r));
     if (range_valid(ra)) {
         if (range_span(ra) > FILE_READAHEAD_DEFAULT)
@@ -188,17 +180,17 @@ define_closure_function(5, 0, void, thread_demand_file_page,
     }
 }
 
-static void demand_page_suspend_context(thread t, pending_fault pf, context ctx)
+static void demand_page_suspend_context(pending_fault pf, context ctx)
 {
-    pf_debug("%s: tid %d, pf %p, ctx %p (%d), switch to %p\n", __func__,
-             t->tid, pf, ctx, ctx->type, current_cpu()->m.kernel_context);
+    pf_debug("%s: pf %p, ctx %p (%d), switch to %p\n", __func__,
+             pf, ctx, ctx->type, current_cpu()->m.kernel_context);
 
     /* We get away with this because we are on the exception handler stack. */
     context_pre_suspend(ctx);
     context_switch(current_cpu()->m.kernel_context);
 }
 
-static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr, pending_fault pf)
+static boolean demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr, pending_fault pf)
 {
     pageflags flags = pageflags_from_vmflags(vm->flags);
     u64 page_addr = vaddr & ~PAGEMASK;
@@ -214,46 +206,30 @@ static boolean demand_filebacked_page(thread t, context ctx, vmap vm, u64 vaddr,
     pf_debug("   map length 0x%lx\n", padlen);
     status_handler completion = (status_handler)&pf->complete;
     if (node_offset >= padlen) {
-        pf_debug("   extends past map limit 0x%lx; sending SIGBUS...\n", padlen);
+        pf_debug("   extends past map limit 0x%lx\n", padlen);
         apply(completion, timm("result", "out of range page"));
-        deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
-        if (is_thread_context(ctx))
-            goto sched_thread_return;
-        /* It would be more graceful to let the kernel fault pass (perhaps using a dummy
-           or zero page) and eventually deliver the SIGBUS to the offending thread. For now,
-           assume this is an unrecoverable error and exit here. */
-        halt("%s: file-backed access in kernel mode outside of map range, "
-             "node %p (start 0x%lx), offset 0x%lx\n", __func__, vm->cache_node,
-             vm->node.r.start, node_offset);
+        return false;
     }
 
     if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags, completion)) {
         pf_debug("   immediate completion\n");
         count_minor_fault();
-        if (is_thread_context(ctx))
-            goto sched_thread_return;
         return true;
     }
 
     /* page not filled - schedule a page fill for this thread */
-    init_closure(&t->demand_file_page, thread_demand_file_page,
-                 pf, vm, node_offset, page_addr, flags);
-    demand_page_suspend_context(t, pf, ctx);
-    u64 saved_flags = spin_lock_irq(&t->p->faulting_lock);
+    demand_page_suspend_context(pf, ctx);
+    u64 saved_flags = spin_lock_irq(&p->faulting_lock);
     vector_push(pf->dependents, ctx);
-    spin_unlock_irq(&t->p->faulting_lock, saved_flags);
+    spin_unlock_irq(&p->faulting_lock, saved_flags);
 
     /* no need to reserve context; we're on exception/int stack */
-    async_apply_bh((thunk)&t->demand_file_page);
+    demand_file_page(pf, vm, node_offset, page_addr, flags);
     count_major_fault();
-    return false;
-  sched_thread_return:
-    context_switch(current_cpu()->m.kernel_context);
-    context_schedule_return(ctx);
-    return false;
+    kern_yield();
 }
 
-boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
+boolean do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
 {
     u64 page_addr = vaddr & ~PAGEMASK;
 
@@ -269,14 +245,13 @@ boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
              vaddr, vm->flags);
     pf_debug("   vmap %p, context %p\n", vm, ctx);
 
-    process p = t->p;
     u64 flags = spin_lock_irq(&p->faulting_lock);
     pending_fault pf = find_pending_fault_locked(p, page_addr);
     if (pf) {
         pf_debug("   found pending_fault %p\n", pf);
         vector_push(pf->dependents, ctx);
         spin_unlock_irq(&p->faulting_lock, flags);
-        demand_page_suspend_context(t, pf, ctx);
+        demand_page_suspend_context(pf, ctx);
         count_minor_fault(); /* XXX not precise...stash pt type in faulting thread? */
     } else {
         pf = new_pending_fault_locked(p, page_addr);
@@ -287,9 +262,7 @@ boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm)
         case VMAP_MMAP_TYPE_ANONYMOUS:
             return demand_anonymous_page(pf, vm, vaddr);
         case VMAP_MMAP_TYPE_FILEBACKED:
-            if (demand_filebacked_page(t, ctx, vm, vaddr, pf))
-                return true;
-            break;
+            return demand_filebacked_page(p, ctx, vm, vaddr, pf);
         default:
             halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
         }

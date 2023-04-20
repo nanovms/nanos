@@ -66,22 +66,6 @@ typedef struct thread *thread;
 thread create_thread(process, u64 tid);
 void exit_thread(thread);
 
-declare_closure_struct(3, 0, void, free_syscall_context,
-                       struct syscall_context *, sc, cpuinfo, orig_ci, boolean, queued);
-declare_closure_struct(1, 0, void, syscall_context_return,
-                       struct syscall_context *, sc);
-
-typedef struct syscall_context {
-    struct context context;
-    thread t;                   /* corresponding thread */
-    timestamp start_time;
-    int call;                   /* syscall number */
-    closure_struct(syscall_context_return, syscall_return);
-    closure_struct(free_syscall_context, free);
-} *syscall_context;
-
-syscall_context allocate_syscall_context(cpuinfo ci);
-
 // Taken from the manual pages
 // License: http://man7.org/linux/man-pages/man2/getdents.2.license.html
 struct linux_dirent {
@@ -163,19 +147,54 @@ typedef struct unix_heaps {
 #define SYSRETURN_CONTINUE_BLOCKING SYSRETURN_INVALID
 #define BLOCKQ_BLOCK_REQUIRED       SYSRETURN_INVALID
 
-typedef closure_type(io_completion, void, thread t, sysreturn rv);
+typedef closure_type(io_completion, void, sysreturn rv);
 typedef closure_type(blockq_action, sysreturn, u64 flags);
 typedef closure_type(blockq_action_handler, void, blockq_action action);
 
 struct blockq;
 typedef struct blockq * blockq;
 
+declare_closure_struct(1, 2, void, blockq_thread_timeout,
+                       blockq, bq,
+                       u64, expiry, u64, overruns);
+typedef struct unix_context {
+    struct kernel_context kc;
+    blockq blocked_on;  /* blockq context is waiting on, INVALID_ADDRESS for uninterruptible */
+    boolean bq_timer_pending;
+    struct timer bq_timer;
+    clock_id bq_clkid;
+    timestamp bq_remain_at_wake;    /* remaining time at timer removal */
+    closure_struct(blockq_thread_timeout, bq_timeout_func);
+    blockq_action bq_action;    /* action to check for wake, timeout or abort */
+    struct list bq_l;           /* embedding on blockq->waiters_head */
+    struct spinlock lock;
+} *unix_context;
+
+void init_unix_context(unix_context uc, int type, int size, queue free_ctx_q);
+
+typedef struct process_context {
+    struct unix_context uc;
+    process p;
+    timestamp start_time;
+} *process_context;
+
+process_context get_process_context(void);
+
+typedef struct syscall_context {
+    struct unix_context uc;
+    thread t;                   /* corresponding thread */
+    timestamp start_time;
+    int call;                   /* syscall number */
+} *syscall_context;
+
+syscall_context allocate_syscall_context(cpuinfo ci);
+
 extern io_completion syscall_io_complete;
 extern io_completion io_completion_ignore;
 
-static inline sysreturn io_complete(io_completion completion, thread t,
+static inline sysreturn io_complete(io_completion completion,
                                     sysreturn rv) {
-    apply(completion, t, rv);
+    apply(completion, rv);
     return rv;
 }
 
@@ -196,7 +215,7 @@ struct blockq {
 
 blockq allocate_blockq(heap h, char * name);
 void deallocate_blockq(blockq bq);
-void blockq_thread_init(thread t);
+void blockq_thread_init(unix_context t);
 
 static inline void blockq_reserve(blockq bq)
 {
@@ -213,16 +232,16 @@ static inline const char * blockq_name(blockq bq)
     return bq->name;
 }
 
-thread blockq_wake_one(blockq bq);
-boolean blockq_wake_one_for_thread(blockq bq, thread t, boolean nullify);
+unix_context blockq_wake_one(blockq bq);
+boolean blockq_wake_one_for_thread(blockq bq, unix_context t, boolean nullify);
 void blockq_flush(blockq bq);
-sysreturn blockq_check_timeout(blockq bq, thread t, blockq_action a, boolean in_bh, 
+sysreturn blockq_check_timeout(blockq bq, blockq_action a, boolean in_bh,
                                clock_id id, timestamp timeout, boolean absolute);
 int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handler handler);
 
-static inline sysreturn blockq_check(blockq bq, thread t, blockq_action a, boolean in_bh)
+static inline sysreturn blockq_check(blockq bq, blockq_action a, boolean in_bh)
 {
-    return blockq_check_timeout(bq, t, a, in_bh, 0, 0, false);
+    return blockq_check_timeout(bq, a, in_bh, 0, 0, false);
 }
 
 /* pending and masked signals for a given thread or process */
@@ -258,20 +277,11 @@ declare_closure_struct(1, 0, void, thread_return,
                        thread, t);
 declare_closure_struct(1, 0, void, free_thread,
                        thread, t);
-declare_closure_struct(1, 1, context, unix_fault_handler,
-                       thread, t,
-                       context, frame);
-declare_closure_struct(5, 0, void, thread_demand_file_page,
-                       pending_fault, pf, struct vmap *, vm, u64, node_offset, u64, page_addr, pageflags, flags);
 
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
 
 #define thread_frame(t) ((t)->context.frame)
-
-declare_closure_struct(2, 2, void, blockq_thread_timeout,
-                       blockq, bq, struct thread *, t,
-                       u64, expiry, u64, overruns);
 
 declare_closure_struct(0, 0, timestamp, thread_now);
 
@@ -294,8 +304,6 @@ typedef struct thread {
 
     closure_struct(free_thread, free);
     closure_struct(thread_return, thread_return);
-    closure_struct(unix_fault_handler, fault_handler);
-    closure_struct(thread_demand_file_page, demand_file_page);
 
     epoll select_epoll;
     int *clear_tid;
@@ -305,22 +313,8 @@ typedef struct thread {
     /* set by set_robust_list syscall */
     void *robust_list;
 
-    /* blockq data */
-    boolean bq_timer_pending;
-    struct timer bq_timer;       /* timer for this item */
-    clock_id bq_clkid;
-    timestamp bq_remain_at_wake; /* remaining time at timer removal */
-
-    closure_struct(blockq_thread_timeout, bq_timeout_func);
-    blockq_action bq_action;  /* action to check for wake, timeout or abort */
-    struct list bq_l;         /* embedding on blockq->waiters_head */
-
-    /* blockq thread is waiting on, INVALID_ADDRESS for uninterruptible */
-    blockq blocked_on;
-
     /* set by syscall_return(); used to detect if blocking is necessary */
     boolean syscall_complete;
-    boolean syscall_abandoned;
 
     /* for waiting on thread-specific conditions rather than a resource */
     blockq thread_bq;
@@ -359,9 +353,11 @@ static inline timestamp thread_cputime(thread t)
 #define thread_lock(t)      spin_lock(&(t)->lock)
 #define thread_unlock(t)    spin_unlock(&(t)->lock)
 
-typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, thread t,
+struct vmap;
+
+typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, context ctx,
         boolean bh, io_completion completion);
-typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, thread t,
+typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, context ctx,
         boolean bh, io_completion completion);
 
 #define FDESC_TYPE_REGULAR      1
@@ -378,9 +374,9 @@ typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, 
 #define FDESC_TYPE_IORING      12
 #define FDESC_TYPE_INOTIFY     13
 
-declare_closure_struct(1, 2, void, fdesc_io_complete,
+declare_closure_struct(1, 1, void, fdesc_io_complete,
                        struct fdesc *, f,
-                       thread, t, sysreturn, rv);
+                       sysreturn, rv);
 
 typedef struct fdesc {
     file_io read, write;
@@ -388,7 +384,7 @@ typedef struct fdesc {
     closure_type(events, u32, thread);
     closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
     closure_type(mmap, sysreturn, struct vmap *vm, u64 offset);
-    closure_type(close, sysreturn, thread t, io_completion completion);
+    closure_type(close, sysreturn, context ctx, io_completion completion);
     closure_type(edge_trigger_handler, u64, u64 events, u64 lastevents);
     closure_struct(fdesc_io_complete, io_complete);
 
@@ -456,9 +452,9 @@ static inline sysreturn set_syscall_error(thread t, s32 val)
     return (sysreturn)-val;
 }
 
-void blockq_resume_blocking(blockq bq, thread t);
+void blockq_resume_blocking(blockq bq, unix_context t);
 
-static inline sysreturn blockq_block_required(thread t, u64 bq_flags)
+static inline sysreturn blockq_block_required(unix_context t, u64 bq_flags)
 {
     if (bq_flags & BLOCKQ_ACTION_BLOCKED)
         blockq_resume_blocking(t->blocked_on, t);
@@ -475,6 +471,8 @@ typedef struct file *file;
 
 struct syscall;
 
+declare_closure_struct(0, 1, context, unix_fault_handler,
+                       context, frame);
 declare_closure_struct(0, 0, timestamp, process_now);
 typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
@@ -489,7 +487,7 @@ typedef struct process {
     tuple             process_root;
     inode             cwd;
     table             futices;
-    fault_handler     handler;
+    closure_struct(unix_fault_handler, fault_handler);
     rbtree            threads;
     struct spinlock   threads_lock;
     struct syscall   *syscalls;
@@ -858,7 +856,7 @@ boolean unix_timers_init(unix_heaps uh);
 
 extern sysreturn syscall_ignore();
 u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete);
-boolean do_demand_page(thread t, context ctx, u64 vaddr, vmap vm);
+boolean do_demand_page(process p, context ctx, u64 vaddr, vmap vm);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
 boolean vmap_validate_range(process p, range q, u32 flags);
@@ -890,17 +888,26 @@ static inline boolean validate_process_memory(process p, const void *a, bytes le
 
 static inline boolean thread_in_interruptible_sleep(thread t)
 {
-    return t->blocked_on && t->blocked_on != INVALID_ADDRESS;
+    if (!t->syscall)
+        return false;
+    unix_context ctx = &t->syscall->uc;
+    return ctx->blocked_on && ctx->blocked_on != INVALID_ADDRESS;
 }
 
 static inline boolean thread_in_uninterruptible_sleep(thread t)
 {
-    return t->blocked_on == INVALID_ADDRESS;
+    if (!t->syscall)
+        return false;
+    unix_context ctx = &t->syscall->uc;
+    return ctx->blocked_on == INVALID_ADDRESS;
 }
 
 static inline boolean thread_is_runnable(thread t)
 {
-    return t->blocked_on == 0;
+    if (!t->syscall)
+        return true;
+    unix_context ctx = &t->syscall->uc;
+    return ctx->blocked_on == 0;
 }
 
 static inline sysreturn thread_maybe_sleep_uninterruptible(thread t)
@@ -925,7 +932,7 @@ static inline sysreturn syscall_return(thread t, sysreturn val)
     t->syscall_complete = true;
     if (do_syscall_stats)
         count_syscall(t, val);
-    if (t->blocked_on)
+    if (t->syscall && t->syscall->uc.blocked_on)
         thread_wakeup(t);
     thread_unlock(t);
     return val;
@@ -947,10 +954,10 @@ static inline void syscall_accumulate_stime(syscall_context sc)
 static inline void __attribute__((noreturn)) syscall_finish(boolean exit)
 {
     syscall_context sc = (syscall_context)get_current_context(current_cpu());
-    assert(is_syscall_context(&sc->context));
+    assert(is_syscall_context(&sc->uc.kc.context));
     thread t = sc->t;
     t->syscall = 0;
-    context_release_refcount(&sc->context);
+    context_release_refcount(&sc->uc.kc.context);
     if (exit) {
         thread_release(t);      /* void frame return reference */
         sc->t = 0;
@@ -961,7 +968,7 @@ static inline void __attribute__((noreturn)) syscall_finish(boolean exit)
 }
 
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
-            boolean blocking, io_completion completion);
+            context ctx, boolean blocking, io_completion completion);
 
 static inline u64 iov_total_len(struct iovec *iov, int iovcnt)
 {
@@ -1112,13 +1119,6 @@ static inline void check_syscall_context_replace(cpuinfo ci, context ctx)
         }
         ci->m.syscall_context = ctx;
     }
-}
-
-static inline void orphan_syscall_context(cpuinfo ci, syscall_context sc)
-{
-    check_syscall_context_replace(ci, &sc->context);
-    sc->call = -1;             /* orphaned */
-    count_syscall_save(sc->t);
 }
 
 static inline void __attribute__((noreturn)) syscall_yield(void)

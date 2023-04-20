@@ -37,7 +37,7 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
     }
 
     if (!(flags & BLOCKQ_ACTION_TIMEDOUT) && elapsed < bound(interval))
-        return blockq_block_required(t, flags);
+        return blockq_block_required(&t->syscall->uc, flags);
   out:
     closure_finish();
     return syscall_return(t, rv);
@@ -54,7 +54,7 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
     timestamp interval = time_from_timespec(req);
     timestamp tnow = now(CLOCK_ID_MONOTONIC);
     thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, tnow);
-    return blockq_check_timeout(current->thread_bq, current,
+    return blockq_check_timeout(current->thread_bq,
                                 contextual_closure(nanosleep_bh, current, tnow,
                                                    CLOCK_ID_MONOTONIC, interval, rem), false,
                                 CLOCK_ID_MONOTONIC, interval, false);
@@ -85,7 +85,7 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
     thread_log(current, "clock_nanosleep: clock id %d, flags 0x%x, req %p (%T) rem %p, now %T",
                id, flags, req, treq, rem, tnow);
 
-    return blockq_check_timeout(current->thread_bq, current,
+    return blockq_check_timeout(current->thread_bq,
                                 contextual_closure(nanosleep_bh, current, tnow, id, treq, rem), false,
                                 id, treq, (flags & TIMER_ABSTIME) != 0);
 }

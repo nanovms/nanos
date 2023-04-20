@@ -215,10 +215,10 @@ static const special_file special_files[] = {
 
 closure_function(2, 6, sysreturn, spec_read,
                  const special_file *, sf, file, f,
-                 void *, dest, u64, len, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, len, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     const special_file *sf = bound(sf);
-    thread_log(t, "spec_read: %s", sf->path);
+    thread_log(current, "spec_read: %s", sf->path);
     file f = bound(f);
     sysreturn nr;
     if (sf->read) {
@@ -229,15 +229,15 @@ closure_function(2, 6, sysreturn, spec_read,
     } else {
         nr = 0;
     }
-    return io_complete(completion, t, nr);
+    return io_complete(completion, nr);
 }
 
 closure_function(2, 6, sysreturn, spec_write,
                  const special_file *, sf, file, f,
-                 void *, dest, u64, len, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, len, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     const special_file *sf = bound(sf);
-    thread_log(t, "spec_write: %s", sf->path);
+    thread_log(current, "spec_write: %s", sf->path);
     file f = bound(f);
     sysreturn nr;
     if (sf->write) {
@@ -248,7 +248,7 @@ closure_function(2, 6, sysreturn, spec_write,
     } else {
         nr = 0;
     }
-    return io_complete(completion, t, nr);
+    return io_complete(completion, nr);
 }
 
 closure_function(2, 1, u32, spec_events,
@@ -264,7 +264,7 @@ closure_function(2, 1, u32, spec_events,
 
 closure_function(2, 2, sysreturn, spec_close,
                  const special_file *, sf, file, f,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     const special_file *sf = bound(sf);
     thread_log(current, "spec_close: %s", sf->path);
@@ -279,7 +279,7 @@ closure_function(2, 2, sysreturn, spec_close,
     deallocate_closure(f->f.events);
     deallocate_closure(f->f.close);
     file_release(f);
-    return io_complete(completion, t, ret);
+    return io_complete(completion, ret);
 }
 
 closure_function(1, 1, sysreturn, special_open,

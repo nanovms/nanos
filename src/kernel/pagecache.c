@@ -655,8 +655,6 @@ closure_function(1, 3, void, pagecache_write_sg,
     context ctx;
 #ifdef KERNEL
     ctx = get_current_context(current_cpu());
-    if (!is_syscall_context(ctx))
-        ctx = 0;
 #else
     ctx = 0;
 #endif

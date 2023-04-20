@@ -101,8 +101,8 @@ static err_t tun_if_init(struct netif *netif)
     return ERR_OK;
 }
 
-closure_function(5, 1, sysreturn, tun_read_bh,
-                 tun_file, tf, void *, dest, u64, len, thread, t, io_completion, completion,
+closure_function(4, 1, sysreturn, tun_read_bh,
+                 tun_file, tf, void *, dest, u64, len, io_completion, completion,
                  u64, flags)
 {
     tun_file tf = bound(tf);
@@ -112,13 +112,14 @@ closure_function(5, 1, sysreturn, tun_read_bh,
         ret = -ERESTARTSYS;
         goto out;
     }
+    context ctx = get_current_context(current_cpu());
     struct pbuf *p = dequeue(tf->pq);
     if (p == INVALID_ADDRESS) {
         if (tf->f->f.flags & O_NONBLOCK) {
             ret = -EAGAIN;
             goto out;
         }
-        return blockq_block_required(bound(t), flags);
+        return blockq_block_required((unix_context)ctx, flags);
     }
     void * dest = bound(dest);
     u64 len = bound(len);
@@ -152,7 +153,7 @@ closure_function(5, 1, sysreturn, tun_read_bh,
     if (!(tun->flags & IFF_NO_PI))
         ret += sizeof(struct tun_pi);
   out:
-    apply(bound(completion), bound(t), ret);
+    apply(bound(completion), ret);
     if (queue_empty(tf->pq))
         notify_events(&tf->f->f);
     closure_finish();
@@ -161,34 +162,34 @@ closure_function(5, 1, sysreturn, tun_read_bh,
 
 closure_function(1, 6, sysreturn, tun_read,
                  tun_file, tf,
-                 void *, dest, u64, len, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, len, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     tun_file tf = bound(tf);
     tun tun = tf->tun;
     if (!tun)
-        return io_complete(completion, t, -EBADFD);
-    blockq_action ba = contextual_closure(tun_read_bh, tf, dest, len, t, completion);
+        return io_complete(completion, -EBADFD);
+    blockq_action ba = closure_from_context(ctx, tun_read_bh, tf, dest, len, completion);
     if (ba == INVALID_ADDRESS)
-        return io_complete(completion, t, -ENOMEM);
-    return blockq_check(tf->bq, t, ba, bh);
+        return io_complete(completion, -ENOMEM);
+    return blockq_check(tf->bq, ba, bh);
 }
 
 closure_function(1, 6, sysreturn, tun_write,
                  tun_file, tf,
-                 void *, src, u64, len, u64, offset, thread, t, boolean, bh, io_completion, completion)
+                 void *, src, u64, len, u64, offset, context, ctx, boolean, bh, io_completion, completion)
 {
     tun_file tf = bound(tf);
     tun tun = tf->tun;
     if (!tun)
-        return io_complete(completion, t, -EBADFD);
+        return io_complete(completion, -EBADFD);
     if (tun->flags & IFF_NO_PI) {
         if (len == 0)
-            return io_complete(completion, t, -EINVAL);
+            return io_complete(completion, -EINVAL);
     } else {
         if (len < sizeof(struct tun_pi))
-            return io_complete(completion, t, -EINVAL);
+            return io_complete(completion, -EINVAL);
         if (len == sizeof(struct tun_pi))
-            return io_complete(completion, t, len);
+            return io_complete(completion, len);
 
         /* Discard packet information. */
         src += sizeof(struct tun_pi);
@@ -196,7 +197,7 @@ closure_function(1, 6, sysreturn, tun_write,
     }
     struct pbuf *p = pbuf_alloc(PBUF_LINK, len, PBUF_POOL);
     if (!p)
-        return io_complete(completion, t, -ENOMEM);
+        return io_complete(completion, -ENOMEM);
     u64 copied = 0;
     struct pbuf *q = p;
     do {
@@ -207,7 +208,7 @@ closure_function(1, 6, sysreturn, tun_write,
     tun->netif.input(p, &tun->netif);
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
-    return io_complete(completion, t, len);
+    return io_complete(completion, len);
 }
 
 closure_function(1, 1, u32, tun_events,
@@ -339,7 +340,7 @@ closure_function(1, 2, sysreturn, tun_ioctl,
 
 closure_function(1, 2, sysreturn, tun_close,
                  tun_file, tf,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     tun_file tf = bound(tf);
     tun tun = tf->tun;
@@ -367,7 +368,7 @@ closure_function(1, 2, sysreturn, tun_close,
     deallocate_closure(f->f.close);
     file_release(f);
     deallocate(tun_heap, tf, sizeof(struct tun_file));
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
 closure_function(0, 1, sysreturn, tun_open,

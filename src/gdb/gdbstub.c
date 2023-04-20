@@ -55,7 +55,6 @@ closure_function(1, 1, context, gdb_handle_exception,
     assert(g->t);
     sigval = computeSignal(ctx->frame);
     if (sigval == 0) {
-        // XXX this always uses the first thread's fault handler, should be specific to the thread
         fault_handler fh = pointer_from_u64(g->fault_handler);
         return apply(fh, ctx);
     }
@@ -142,7 +141,7 @@ static boolean extra_info(gdb g, buffer in, string out)
         return true;
     }
     // XXX is there a better way to communicate status?
-    if (t->blocked_on)
+    if (t->syscall && t->syscall->uc.blocked_on)
         mem2hex(out, "Blocked", strlen("Blocked"));
     else
         mem2hex(out, "Runnable", strlen("Runnable"));
@@ -176,7 +175,7 @@ closure_function(0, 1, boolean, sched_thread,
     /* XXX this assumes the thread isn't currently running or already scheduled
        and is kind of racey with unblocking */
     thread t = struct_from_field(n, thread, n);
-    if (!t->blocked_on)
+    if (!t->syscall)
         schedule_thread(t);
     return true;
 }
@@ -580,8 +579,7 @@ buffer_handler init_gdb(heap h,
     spin_lock(&p->threads_lock);
     g->t = struct_from_field(rbtree_find_first(p->threads), thread, n);
     spin_unlock(&p->threads_lock);
-    // XXX assumes both frames of all threads share same fault handler 
-    g->fault_handler = g->t->context.fault_handler;
+    g->fault_handler = (fault_handler)&p->fault_handler;
     gdb_fh = closure(h, gdb_handle_exception, g);
     gdb_check_fault_handler(g->t);
     reset_parser(g);

@@ -46,12 +46,11 @@ boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
     return true;
 }
 
-declare_closure_struct(2, 2, void, iov_op_each_complete,
+declare_closure_struct(2, 1, void, iov_op_each_complete,
                        int, iovcnt, struct iov_progress *, progress,
-                       thread, t, sysreturn, rv);
+                       sysreturn, rv);
 
-declare_closure_struct(2, 0, void, iov_bh,
-                       struct iov_progress *, p, thread, t);
+declare_closure_struct(0, 0, void, iov_bh);
 
 struct iov_progress {
     heap h;
@@ -64,12 +63,13 @@ struct iov_progress {
     int curr;
     u64 curr_offset;
     u64 total_len;
+    context ctx;
     io_completion completion;
     closure_struct(iov_op_each_complete, each_complete);
     closure_struct(iov_bh, bh);
 };
 
-static void iov_op_each(struct iov_progress *p, thread t)
+static void iov_op_each(struct iov_progress *p)
 {
     struct iovec *iov = p->iov;
     file_io op = p->write ? p->f->write : p->f->read;
@@ -77,23 +77,24 @@ static void iov_op_each(struct iov_progress *p, thread t)
     p->blocking = false;
 
     /* Issue the next request. */
-    thread_log(t, "   op: curr %d, offset %ld, @ %p, len %ld, blocking %d",
+    thread_log(current, "   op: curr %d, offset %ld, @ %p, len %ld, blocking %d",
                p->curr, p->curr_offset, iov[p->curr].iov_base + p->curr_offset,
                iov[p->curr].iov_len - p->curr_offset, blocking);
     apply(op, iov[p->curr].iov_base + p->curr_offset,
-          iov[p->curr].iov_len - p->curr_offset, p->file_offset, t, !blocking,
+          iov[p->curr].iov_len - p->curr_offset, p->file_offset, p->ctx, !blocking,
           (io_completion)&p->each_complete);
 }
 
-define_closure_function(2, 2, void, iov_op_each_complete,
+define_closure_function(2, 1, void, iov_op_each_complete,
                  int, iovcnt, struct iov_progress *, progress,
-                 thread, t, sysreturn, rv)
+                 sysreturn, rv)
 {
     io_completion c;
     int iovcnt = bound(iovcnt);
     struct iov_progress *p = bound(progress);
     fdesc f = p->f;
     boolean write = p->write;
+    thread t = current;
     thread_log(t, "%s: rv %ld, curr %d, iovcnt %d", __func__, rv, p->curr, iovcnt);
 
     file_io op = write ? f->write : f->read;
@@ -130,7 +131,7 @@ define_closure_function(2, 2, void, iov_op_each_complete,
 
     if (!p->initialized) {
         p->initialized = true;
-        iov_op_each(p, t);
+        iov_op_each(p);
     } else {
         if (p->file_offset != infinity)
             p->file_offset += rv;
@@ -140,47 +141,46 @@ define_closure_function(2, 2, void, iov_op_each_complete,
   out_complete:
     c = p->completion;
     deallocate(p->h, p, sizeof(*p));
-    apply(c, t, rv);
+    apply(c, rv);
 }
 
-define_closure_function(2, 0, void, iov_bh,
-                        struct iov_progress *, p, thread, t)
+define_closure_function(0, 0, void, iov_bh)
 {
-    iov_op_each(bound(p), bound(t));
+    iov_op_each(struct_from_field(closure_self(), struct iov_progress *, bh));
 }
 
-closure_function(4, 2, void, iov_read_complete,
+closure_function(4, 1, void, iov_read_complete,
                  sg_list, sg, struct iovec *, iov, int, iovcnt, io_completion, completion,
-                 thread, t, sysreturn, rv)
+                 sysreturn, rv)
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
-    thread_log(t, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
+    thread_log(current, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
                rv);
     if (rv > 0) {
         sg_to_iov(sg, bound(iov), bound(iovcnt));
     }
     deallocate_sg_list(sg);
-    apply(completion, t, rv);
+    apply(completion, rv);
     closure_finish();
 }
 
-closure_function(2, 2, void, iov_write_complete,
+closure_function(2, 1, void, iov_write_complete,
                  sg_list, sg, io_completion, completion,
-                 thread, t, sysreturn, rv)
+                 sysreturn, rv)
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
-    thread_log(t, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
+    thread_log(current, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
                rv);
     sg_list_release(sg);
     deallocate_sg_list(sg);
-    apply(completion, t, rv);
+    apply(completion, rv);
     closure_finish();
 }
 
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
-            boolean blocking, io_completion completion)
+            context ctx, boolean blocking, io_completion completion)
 {
     sysreturn rv;
     if ((write && !fdesc_is_writable(f)) || (!write && !fdesc_is_readable(f))) {
@@ -213,7 +213,7 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
                 completion);
         }
         apply(write ? f->sg_write : f->sg_read, sg, iov_total_len(iov, iovcnt),
-                offset, current, !blocking, iov_complete);
+                offset, ctx, !blocking, iov_complete);
         return;
     }
     struct iov_progress *p = allocate(h, sizeof(struct iov_progress));
@@ -231,15 +231,17 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     p->curr = 0;
     p->curr_offset = 0;
     p->total_len = 0;
+    p->ctx = ctx;
     p->completion = completion;
-    contextual_closure_init(iov_bh, &p->bh, p, current);
+    init_closure(&p->bh, iov_bh);
+    closure_set_context(&p->bh, ctx);
     init_closure(&p->each_complete, iov_op_each_complete, iovcnt,
         p);
     io_completion each = (io_completion)&p->each_complete;
-    apply(each, current, 0);
+    apply(each, 0);
     return;
 out:
-    apply(completion, current, rv);
+    apply(completion, rv);
 }
 
 sysreturn read(int fd, u8 *dest, bytes length)
@@ -258,7 +260,8 @@ sysreturn read(int fd, u8 *dest, bytes length)
     }
 
     /* use (and update) file offset */
-    return apply(f->read, dest, length, infinity, current, false, (io_completion)&f->io_complete);
+    context ctx = get_current_context(current_cpu());
+    return apply(f->read, dest, length, infinity, ctx, false, (io_completion)&f->io_complete);
 
   out:
     fdesc_put(f);
@@ -281,7 +284,8 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
     }
 
     /* use given offset with no file offset update */
-    return apply(f->read, dest, length, offset, current, false, (io_completion)&f->io_complete);
+    context ctx = get_current_context(current_cpu());
+    return apply(f->read, dest, length, offset, ctx, false, (io_completion)&f->io_complete);
 
   out:
     fdesc_put(f);
@@ -297,7 +301,8 @@ sysreturn readv(int fd, struct iovec *iov, int iovcnt)
         fdesc_put(f);
         return -EISDIR;
     }
-    iov_op(f, false, iov, iovcnt, infinity, true, (io_completion)&f->io_complete);
+    context ctx = get_current_context(current_cpu());
+    iov_op(f, false, iov, iovcnt, infinity, ctx, true, (io_completion)&f->io_complete);
     return thread_maybe_sleep_uninterruptible(current);
 }
 
@@ -317,7 +322,8 @@ sysreturn write(int fd, u8 *body, bytes length)
     }
 
     /* use (and update) file offset */
-    return apply(f->write, body, length, infinity, current, false, (io_completion)&f->io_complete);
+    context ctx = get_current_context(current_cpu());
+    return apply(f->write, body, length, infinity, ctx, false, (io_completion)&f->io_complete);
 
   out:
     fdesc_put(f);
@@ -339,7 +345,8 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
         goto out;
     }
 
-    return apply(f->write, body, length, offset, current, false, (io_completion)&f->io_complete);
+    context ctx = get_current_context(current_cpu());
+    return apply(f->write, body, length, offset, ctx, false, (io_completion)&f->io_complete);
   out:
     fdesc_put(f);
     return rv;
@@ -350,7 +357,8 @@ sysreturn writev(int fd, struct iovec *iov, int iovcnt)
     if (!validate_iovec(iov, iovcnt, false))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
-    iov_op(f, true, iov, iovcnt, infinity, true, (io_completion)&f->io_complete);
+    context ctx = get_current_context(current_cpu());
+    iov_op(f, true, iov, iovcnt, infinity, ctx, true, (io_completion)&f->io_complete);
     return thread_maybe_sleep_uninterruptible(current);
 }
 
@@ -359,10 +367,11 @@ static boolean is_special(tuple n)
     return get(n, sym(special)) ? true : false;
 }
 
-closure_function(9, 2, void, sendfile_bh,
+closure_function(9, 1, void, sendfile_bh,
                  fdesc, in, fdesc, out, long *, offset, sg_list, sg, sg_buf, cur_buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
-                 thread, t, sysreturn, rv)
+                 sysreturn, rv)
 {
+    thread t = current;
     thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
                __func__, bound(readlen), bound(written), bound(bh), rv);
 
@@ -421,7 +430,8 @@ closure_function(9, 2, void, sendfile_bh,
     void *buf = bound(cur_buf)->buf + bound(cur_buf)->offset;
     u32 n = sg_buf_len(bound(cur_buf));
     thread_log(t, "   writing %d bytes from %p", n, buf);
-    apply(bound(out)->write, buf, n, infinity, t, true, (io_completion)closure_self());
+    context ctx = get_current_context(current_cpu());
+    apply(bound(out)->write, buf, n, infinity, ctx, true, (io_completion)closure_self());
     return;
 out_complete:
     sg_list_release(bound(sg));
@@ -471,7 +481,8 @@ static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
     u64 n = MIN(count, SENDFILE_READ_MAX);
     io_completion read_complete = closure(heap_locked(get_kernel_heaps()), sendfile_bh, infile, outfile,
                                           offset, sg, 0, n, 0, 0, false);
-    apply(infile->sg_read, sg, n, offset ? *offset : infinity, current, false, read_complete);
+    context ctx = get_current_context(current_cpu());
+    apply(infile->sg_read, sg, n, offset ? *offset : infinity, ctx, false, read_complete);
     return get_syscall_return(current);
   out:
     fdesc_put(infile);
@@ -492,7 +503,7 @@ static boolean check_file_read(file f, u64 offset, sysreturn *rv)
     return false;
 }
 
-static void begin_file_read(thread t, file f)
+static void begin_file_read(file f)
 {
     tuple md = filesystem_get_meta(f->fs, f->n);
     if (md) {
@@ -503,17 +514,18 @@ static void begin_file_read(thread t, file f)
     }
 }
 
-closure_function(7, 1, void, file_read_complete,
-                 thread, t, sg_list, sg, void *, dest, u64, limit, file, f, boolean, is_file_offset, io_completion, completion,
+closure_function(6, 1, void, file_read_complete,
+                 sg_list, sg, void *, dest, u64, limit, file, f, boolean, is_file_offset, io_completion, completion,
                  status, s)
 {
-    thread_log(bound(t), "%s: status %v", __func__, s);
+    thread t = current;
+    thread_log(t, "%s: status %v", __func__, s);
     sysreturn rv;
     sg_list sg = bound(sg);
     if (is_ok(s)) {
         file f = bound(f);
         u64 count = sg_copy_to_buf_and_release(bound(dest), sg, bound(limit));
-        thread_log(bound(t), "   read count %ld", count);
+        thread_log(t, "   read count %ld", count);
         if (bound(is_file_offset)) /* vs specified offset (pread) */
             f->offset += count;
         rv = count;
@@ -523,43 +535,48 @@ closure_function(7, 1, void, file_read_complete,
         rv = sysreturn_from_fs_status_value(s);
         timm_dealloc(s);
     }
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
 }
 
 closure_function(2, 6, sysreturn, file_read,
                  file, f, fsfile, fsf,
-                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     file f = bound(f);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread t = current;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
     sysreturn rv;
     if (!check_file_read(f, offset, &rv))
-        return io_complete(completion, t, rv);
+        return io_complete(completion, rv);
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
-        return io_complete(completion, t, -ENOMEM);
+        return io_complete(completion, -ENOMEM);
     }
-    begin_file_read(t, f);
-    apply(f->fs_read, sg, irangel(offset, length),
-          contextual_closure(file_read_complete, t, sg, dest, length,
-                             f, is_file_offset, completion));
+    status_handler sh = closure_from_context(ctx, file_read_complete, sg, dest, length, f,
+                                             is_file_offset, completion);
+    if (sh == INVALID_ADDRESS) {
+        deallocate_sg_list(sg);
+        return io_complete(completion, -ENOMEM);
+    }
+    begin_file_read(f);
+    apply(f->fs_read, sg, irangel(offset, length), sh);
     file_readahead(f, offset, length);
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
-closure_function(5, 1, void, file_sg_read_complete,
-                 thread, t, file, f, sg_list, sg, boolean, is_file_offset, io_completion, completion,
+closure_function(4, 1, void, file_sg_read_complete,
+                 file, f, sg_list, sg, boolean, is_file_offset, io_completion, completion,
                  status, s)
 {
-    thread_log(bound(t), "%s: status %v", __func__, s);
+    thread_log(current, "%s: status %v", __func__, s);
     sysreturn rv;
     if (is_ok(s)) {
        u64 length = bound(sg)->count;
@@ -570,35 +587,36 @@ closure_function(5, 1, void, file_sg_read_complete,
     } else {
         rv = -EIO;
     }
-    apply(bound(completion), bound(t), rv);
+    apply(bound(completion), rv);
     closure_finish();
 }
 
 closure_function(2, 6, sysreturn, file_sg_read,
                  file, f, fsfile, fsf,
-                 sg_list, sg, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 sg_list, sg, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     file f = bound(f);
 
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread t = current;
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
     sysreturn rv;
     if (!check_file_read(f, offset, &rv))
-        return io_complete(completion, t, rv);
-    begin_file_read(t, f);
+        return io_complete(completion, rv);
+    begin_file_read(f);
     apply(f->fs_read, sg, irangel(offset, length),
-          contextual_closure(file_sg_read_complete, t, f, sg, is_file_offset, completion));
+          closure_from_context(ctx, file_sg_read_complete, f, sg, is_file_offset, completion));
     file_readahead(f, offset, length);
 
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
-static void begin_file_write(thread t, file f, u64 len)
+static void begin_file_write(file f, u64 len)
 {
     if (len > 0) {
         tuple md = filesystem_get_meta(f->fs, f->n);
@@ -610,7 +628,7 @@ static void begin_file_write(thread t, file f, u64 len)
     }
 }
 
-static void file_write_complete_internal(thread t, file f, u64 len,
+static void file_write_complete_internal(file f, u64 len,
                                          boolean is_file_offset,
                                          io_completion completion, status s)
 {
@@ -625,15 +643,15 @@ static void file_write_complete_internal(thread t, file f, u64 len,
         rv = sysreturn_from_fs_status_value(s);
         timm_dealloc(s);
     }
-    apply(completion, t, rv);
+    apply(completion, rv);
 }
 
-closure_function(7, 1, void, file_write_complete,
-                 thread, t, file, f, sg_list, sg, u64, length, boolean, is_file_offset, io_completion, completion, boolean, flush,
+closure_function(6, 1, void, file_write_complete,
+                 file, f, sg_list, sg, u64, length, boolean, is_file_offset, io_completion, completion, boolean, flush,
                  status, s)
 {
     if (!bound(flush)) {
-        thread_log(bound(t), "%s: f %p, sg, %p, completion %F, status %v",
+        thread_log(current, "%s: f %p, sg, %p, completion %F, status %v",
                    __func__, bound(f), bound(sg), bound(completion), s);
         sg_list_release(bound(sg));
         deallocate_sg_list(bound(sg));
@@ -644,52 +662,57 @@ closure_function(7, 1, void, file_write_complete,
             return;
         }
     }
-    file_write_complete_internal(bound(t), bound(f), bound(length),
+    file_write_complete_internal(bound(f), bound(length),
                                  bound(is_file_offset), bound(completion), s);
     closure_finish();
 }
 
 closure_function(2, 6, sysreturn, file_write,
                  file, f, fsfile, fsf,
-                 void *, src, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, src, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     file f = bound(f);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread t = current;
     thread_log(t, "%s: f %p, src %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, src, offset, is_file_offset ? "file" : "specified",
                length, f->length);
 
     if (!f->fsf)
-        return io_complete(completion, t, -EBADF);
+        return io_complete(completion, -EBADF);
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
-        return io_complete(completion, t, -ENOMEM);
+        return io_complete(completion, -ENOMEM);
     }
     sg_buf sgb = sg_list_tail_add(sg, length);
     if (sgb == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg buf");
-        deallocate_sg_list(sg);
-        return io_complete(completion, t, -ENOMEM);
+        goto no_mem;
     }
     sgb->buf = src;
     sgb->size = length;
     sgb->offset = 0;
     sgb->refcount = 0;
 
-    begin_file_write(t, f, length);
-    apply(f->fs_write, sg, irangel(offset, length),
-          contextual_closure(file_write_complete, t, f, sg, length, is_file_offset, completion, false));
+    status_handler sh = closure_from_context(ctx, file_write_complete, f, sg, length,
+                                             is_file_offset, completion, false);
+    if (sh == INVALID_ADDRESS)
+        goto no_mem;
+    begin_file_write(f, length);
+    apply(f->fs_write, sg, irangel(offset, length), sh);
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
+  no_mem:
+    deallocate_sg_list(sg);
+    return io_complete(completion, -ENOMEM);
 }
 
-closure_function(6, 1, void, file_sg_write_complete,
-                 thread, t, file, f, u64, len, boolean, is_file_offset, io_completion, completion, boolean, flush,
+closure_function(5, 1, void, file_sg_write_complete,
+                 file, f, u64, len, boolean, is_file_offset, io_completion, completion, boolean, flush,
                  status, s)
 {
-    thread t = bound(t);
     file f = bound(f);
     if (!bound(flush) && (f->f.flags & O_DSYNC)) {
         bound(flush) = true;
@@ -698,22 +721,23 @@ closure_function(6, 1, void, file_sg_write_complete,
     }
     u64 len = bound(len);
     io_completion completion = bound(completion);
-    thread_log(t, "%s: f %p, len %ld, completion %F, status %v",
+    thread_log(current, "%s: f %p, len %ld, completion %F, status %v",
                __func__, f, len, completion, s);
-    file_write_complete_internal(t, f, len, bound(is_file_offset), completion,
+    file_write_complete_internal(f, len, bound(is_file_offset), completion,
                                  s);
     closure_finish();
 }
 
 closure_function(2, 6, sysreturn, file_sg_write,
                  file, f, fsfile, fsf,
-                 sg_list, sg, u64, len, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 sg_list, sg, u64, len, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     file f = bound(f);
     sysreturn rv;
 
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
+    thread t = current;
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
                len, f->length);
@@ -721,22 +745,22 @@ closure_function(2, 6, sysreturn, file_sg_write,
         rv = -EBADF;
         goto out;
     }
-    status_handler sg_complete = contextual_closure(file_sg_write_complete, t, f, len,
-                                                    is_file_offset, completion, false);
+    status_handler sg_complete = closure_from_context(ctx, file_sg_write_complete, f, len,
+                                                      is_file_offset, completion, false);
     if (sg_complete == INVALID_ADDRESS) {
         rv = -ENOMEM;
         goto out;
     }
-    begin_file_write(t, f, len);
+    begin_file_write(f, len);
     apply(f->fs_write, sg, irangel(offset, len), sg_complete);
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
   out:
-    return io_complete(completion, t, rv);
+    return io_complete(completion, rv);
 }
 
 closure_function(2, 2, sysreturn, file_close,
                  file, f, fsfile, fsf,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     file f = bound(f);
     tuple md = filesystem_get_meta(f->fs, f->n);
@@ -755,7 +779,7 @@ closure_function(2, 2, sysreturn, file_close,
     deallocate_closure(f->f.events);
     deallocate_closure(f->f.close);
     file_release(f);
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
 closure_function(1, 1, u32, file_events,
@@ -1018,7 +1042,7 @@ sysreturn dup2(int oldfd, int newfd)
             process_unlock(p);
             if (fetch_and_add(&newf->refcnt, -2) == 2) {
                 if (newf->close)
-                    apply(newf->close, current, io_completion_ignore);
+                    apply(newf->close, get_current_context(current_cpu()), io_completion_ignore);
             }
         } else {
             newfd = allocate_fd_gte(p, newfd, f);
@@ -2025,7 +2049,7 @@ sysreturn close(int fd)
 
     if (fetch_and_add(&f->refcnt, -2) == 2) {
         if (f->close)
-            return apply(f->close, current, syscall_io_complete);
+            return apply(f->close, get_current_context(current_cpu()), syscall_io_complete);
         msg_err("no close handler for fd %d\n", fd);
     }
 
@@ -2455,34 +2479,13 @@ void count_syscall(thread t, sysreturn rv)
 
 static boolean debugsyscalls;
 
-define_closure_function(3, 0, void, free_syscall_context,
-                        syscall_context, sc, cpuinfo, orig_ci, boolean, queued)
-{
-    syscall_context sc = bound(sc);
-    cpuinfo ci = current_cpu();
-
-    /* The final release may happen while running in the context, but adding
-       it to the free queue at once creates the possibility that another cpu
-       will start running on its stack (in syscall entry). This defers the
-       enqueueing to runloop, following the context being switched out. */
-    if (!bound(queued)) {
-        bound(queued) = true;
-        assert(enqueue_irqsafe(ci->cpu_queue, closure_self()));
-        return;
-    }
-
-    bound(queued) = false;
-    if (!enqueue(bound(orig_ci)->free_syscall_contexts, sc))
-        deallocate((heap)heap_linear_backed(get_kernel_heaps()), sc, SYSCALL_CONTEXT_SIZE);
-}
-
 static void syscall_context_pause(context ctx)
 {
     syscall_context sc = (syscall_context)ctx;
     syscall_accumulate_stime(sc);
     if (sc->call >= 0)
         count_syscall_save(sc->t);
-    context_release_refcount(&sc->context);
+    context_release_refcount(ctx);
 }
 
 static void syscall_context_resume(context ctx)
@@ -2493,32 +2496,12 @@ static void syscall_context_resume(context ctx)
     sc->start_time = here == 0 ? 1 : here;
     if (sc->call >= 0)
         count_syscall_resume(sc->t);
-    context_reserve_refcount(&sc->context);
-}
-
-static void syscall_context_schedule_return(context ctx)
-{
-    syscall_context sc = (syscall_context)ctx;
-    thread t = sc->t;
-    assert(t);
-    assert(t->syscall == sc); // XXX bringup
-    async_apply_bh((thunk)&sc->syscall_return);
+    context_reserve_refcount(ctx);
 }
 
 static void syscall_context_pre_suspend(context ctx)
 {
     check_syscall_context_replace(current_cpu(), ctx);
-}
-
-define_closure_function(1, 0, void, syscall_context_return,
-                        syscall_context, sc)
-{
-    syscall_context sc = bound(sc);
-    context_frame f = sc->context.frame;
-    context_switch(&sc->context);
-    context_release_refcount(&sc->context);
-    assert(frame_is_full(f));
-    frame_return(f);
 }
 
 syscall_context allocate_syscall_context(cpuinfo ci)
@@ -2528,19 +2511,12 @@ syscall_context allocate_syscall_context(cpuinfo ci)
                                   SYSCALL_CONTEXT_SIZE);
     if (sc == INVALID_ADDRESS)
         return sc;
-    context c = &sc->context;
-    init_context(c, CONTEXT_TYPE_SYSCALL);
-    init_refcount(&c->refcount, 1, init_closure(&sc->free, free_syscall_context,
-                                                sc, ci, false));
+    context c = &sc->uc.kc.context;
+    init_unix_context(&sc->uc, CONTEXT_TYPE_SYSCALL, SYSCALL_CONTEXT_SIZE,
+                      ci->free_syscall_contexts);
     c->pause = syscall_context_pause;
     c->resume = syscall_context_resume;
-    c->schedule_return = syscall_context_schedule_return;
     c->pre_suspend = syscall_context_pre_suspend;
-    init_closure(&sc->syscall_return, syscall_context_return, sc);
-    c->fault_handler = 0;
-    sc->context.transient_heap = heap_locked(get_kernel_heaps());
-    void *stack_top = ((void *)sc) + SYSCALL_CONTEXT_SIZE - STACK_ALIGNMENT;
-    frame_set_stack_top(c->frame, stack_top);
     return sc;
 }
 
@@ -2561,16 +2537,17 @@ void syscall_handler(thread t)
     set_syscall_return(t, -ENOSYS);
 
     syscall_context sc = (syscall_context)get_current_context(ci);
-    assert(is_syscall_context(&sc->context));
+    context ctx = &sc->uc.kc.context;
+    assert(is_syscall_context(ctx));
     sc->t = t;
-    sc->context.fault_handler = t->context.fault_handler;
+    ctx->fault_handler = t->context.fault_handler;
     sc->start_time = 0;
     sc->call = call;
-    assert(sc->context.refcount.c == 1);
+    assert(ctx->refcount.c == 1);
     t->syscall = sc;
     context_pause(&t->context);
     context_release(&t->context);
-    context_resume(&sc->context);
+    context_resume(ctx);
 
     if (shutting_down)
         goto out;
@@ -2598,11 +2575,11 @@ void syscall_handler(thread t)
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     if (h) {
         t->syscall_complete = false;
-        context_reserve_refcount(&sc->context);
+        context_reserve_refcount(ctx);
         sysreturn rv = h(arg0, f[SYSCALL_FRAME_ARG1], f[SYSCALL_FRAME_ARG2],
                          f[SYSCALL_FRAME_ARG3], f[SYSCALL_FRAME_ARG4], f[SYSCALL_FRAME_ARG5]);
-        assert(sc->context.refcount.c > 1); // XXX tmp
-        context_release_refcount(&sc->context);
+        assert(ctx->refcount.c > 1);
+        context_release_refcount(ctx);
         set_syscall_return(t, rv);
         if (do_syscall_stats)
             count_syscall(t, rv);
@@ -2634,9 +2611,10 @@ boolean syscall_notrace(process p, int syscall)
 // to find it.
 BSS_RO_AFTER_INIT void (*syscall)(thread t);
 
-closure_function(0, 2, void, syscall_io_complete_cfn,
-                 thread, t, sysreturn, rv)
+closure_function(0, 1, void, syscall_io_complete_cfn,
+                 sysreturn, rv)
 {
+    thread t = ((syscall_context)get_current_context(current_cpu()))->t;
     syscall_return(t, rv);
 }
 
@@ -2658,8 +2636,8 @@ closure_function(0, 1, status, hostname_done,
     return STATUS_OK;
 }
 
-closure_function(0, 2, void, io_complete_ignore,
-                 thread, t, sysreturn, rv)
+closure_function(0, 1, void, io_complete_ignore,
+                 sysreturn, rv)
 {
 }
 

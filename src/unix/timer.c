@@ -251,17 +251,16 @@ sysreturn timerfd_gettime(int fd, struct itimerspec *curr_value)
     return rv;
 }
 
-closure_function(5, 1, sysreturn, timerfd_read_bh,
-                 unix_timer, ut, void *, dest, u64, length, thread, t, io_completion, completion,
+closure_function(4, 1, sysreturn, timerfd_read_bh,
+                 unix_timer, ut, void *, dest, u64, length, io_completion, completion,
                  u64, flags)
 {
     unix_timer ut = bound(ut);
-    thread t = bound(t);
     boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
     sysreturn rv = sizeof(u64);
 
-    timer_debug("ut %p, dest %p, length %ld, tid %d, flags 0x%lx\n",
-                ut, bound(dest), bound(length), t->tid, flags);
+    timer_debug("ut %p, dest %p, length %ld, flags 0x%lx\n",
+                ut, bound(dest), bound(length), flags);
 
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         assert(blocked);
@@ -277,6 +276,7 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
         goto out;
     }
 
+    context ctx = get_current_context(current_cpu());
     u64 overruns = ut->overruns;
     if (overruns == 0) {
         if (!blocked && (ut->f.flags & TFD_NONBLOCK)) {
@@ -285,29 +285,29 @@ closure_function(5, 1, sysreturn, timerfd_read_bh,
         }
         timer_debug("   -> block\n");
         spin_unlock(&ut->lock);
-        return blockq_block_required(t, flags);
+        return blockq_block_required((unix_context)ctx, flags);
     }
     *(u64*)bound(dest) = overruns;
     ut->overruns = 0;
   out:
     spin_unlock(&ut->lock);
     timer_debug("   -> returning %ld\n", rv);
-    apply(bound(completion), t, rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 closure_function(1, 6, sysreturn, timerfd_read,
                  unix_timer, ut,
-                 void *, dest, u64, length, u64, offset_arg, thread, t, boolean, bh, io_completion, completion)
+                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     if (length < sizeof(u64))
-        return io_complete(completion, t, -EINVAL);
+        return io_complete(completion, -EINVAL);
     unix_timer ut = bound(ut);
-    timer_debug("ut %p, dest %p, length %ld, tid %d, bh %d, completion %p\n",
-                ut, dest, length, t->tid, bh, completion);
-    blockq_action ba = contextual_closure(timerfd_read_bh, ut, dest, length, t, completion);
-    return blockq_check(ut->info.timerfd.bq, t, ba, bh);
+    timer_debug("ut %p, dest %p, length %ld, ctx %p, bh %d, completion %p\n",
+                ut, dest, length, ctx, bh, completion);
+    blockq_action ba = closure_from_context(ctx, timerfd_read_bh, ut, dest, length, completion);
+    return blockq_check(ut->info.timerfd.bq, ba, bh);
 }
 
 closure_function(1, 1, u32, timerfd_events,
@@ -319,7 +319,7 @@ closure_function(1, 1, u32, timerfd_events,
 
 closure_function(1, 2, sysreturn, timerfd_close,
                  unix_timer, ut,
-                 thread, t, io_completion, completion)
+                 context, ctx, io_completion, completion)
 {
     unix_timer ut = bound(ut);
     spin_lock(&ut->lock);
@@ -331,7 +331,7 @@ closure_function(1, 2, sysreturn, timerfd_close,
     release_fdesc(&ut->f);
     spin_unlock(&ut->lock);
     release_unix_timer(ut);
-    return io_complete(completion, t, 0);
+    return io_complete(completion, 0);
 }
 
 sysreturn timerfd_create(int clockid, int flags)

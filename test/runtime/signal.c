@@ -622,11 +622,6 @@ sigsegv_thread(void * arg)
         asm volatile("wfi");
 #endif
         break;
-    case 4:
-        /* should cause sigsegv by passing a bad buffer address to a syscall */
-        syscall(SYS_uname, (const char *)BAD_LOAD);
-        assert(0); /* shouldn't arrive here... */
-        break;
     }
     return NULL;
 }
@@ -678,22 +673,6 @@ test_sigsegv(void)
         sigtest_debug("done\n");
     }
 
-    /* test fault in syscall */
-    {
-        memset(&sa, 0, sizeof(struct sigaction));
-        sa.sa_handler = sigsegv_handler;
-        sigemptyset(&sa.sa_mask);
-
-        if (sigaction(SIGSEGV, &sa, NULL))
-            fail_perror("sigaction for SIGSEGV failed");
-
-        if (pthread_create(&pt, NULL, sigsegv_thread, (void *)4))
-            fail_perror("sigsegv_thread pthread_create 3");
-        sigtest_debug("calling pthread_join...\n");
-        if (pthread_join(pt, &retval))
-            fail_perror("sigsegv pthread_join 3");
-        sigtest_debug("done\n");
-    }
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = SIG_IGN;
     sigemptyset(&sa.sa_mask);

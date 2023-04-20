@@ -90,7 +90,6 @@ static sysreturn clone_internal(struct clone_args_internal *args)
 	  *(args->child_tid) = t->tid;
      if (flags & CLONE_CHILD_CLEARTID)
 	  t->clear_tid = args->child_tid;
-     t->blocked_on = 0;
      t->syscall = 0;
      f[FRAME_FULL] = true;
      thread_reserve(t);
@@ -269,16 +268,7 @@ define_closure_function(1, 0, void, thread_return,
     //ftrace_thread_switch(old, t);    /* ftrace needs to know about the switch event */
 
     thread_lock(t);
-    if (t->syscall_abandoned) {
-        /* TODO: This will likely leak resources allocated by the abandoned
-           syscall. Such leakage could be addressed by making use of
-           per-syscall transient heaps. */
-        assert(t->syscall);
-        context_release_refcount(&t->syscall->context); /* in lieu of syscall_finish() */
-        t->syscall_abandoned = false;
-    }
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
-    assert(t->blocked_on == 0);
     t->syscall = 0;
 
     /* If we migrated to a new CPU, remain on its thread queue. */
@@ -299,16 +289,21 @@ define_closure_function(1, 0, void, thread_return,
 
 void thread_sleep_interruptible(void)
 {
-    thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(current->blocked_on));
-    ftrace_thread_switch(current, 0);
-    count_syscall_save(current);
-    syscall_yield();
+    unix_context ctx = (unix_context)get_current_context(current_cpu());
+    thread_log(current, "sleep interruptible (on \"%s\")", blockq_name(ctx->blocked_on));
+    if (is_syscall_context(&ctx->kc.context)) {
+        thread t = ((syscall_context)ctx)->t;
+        ftrace_thread_switch(t, 0);
+        count_syscall_save(t);
+        syscall_yield();
+    } else {
+        kern_yield();
+    }
 }
 
 void thread_sleep_uninterruptible(thread t)
 {
-    assert(!t->blocked_on);
-    t->blocked_on = INVALID_ADDRESS;
+    t->syscall->uc.blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
     ftrace_thread_switch(t, 0);
     count_syscall_save(t);
@@ -319,7 +314,6 @@ void thread_sleep_uninterruptible(thread t)
 void thread_yield(void)
 {
     thread_log(current, "yield %d, RIP=0x%lx", current->tid, thread_frame(current)[SYSCALL_FRAME_PC]);
-    assert(!current->blocked_on);
     current->syscall = 0;
     set_syscall_return(current, 0);
     syscall_finish(false);
@@ -330,16 +324,18 @@ void thread_yield(void)
    point pause and release are called and the context is placed on a free list. */
 void thread_wakeup(thread t)
 {
-    thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
-            t->blocked_on ? (t->blocked_on != INVALID_ADDRESS ? blockq_name(t->blocked_on) : "uninterruptible") :
-            "(null)", thread_frame(t)[SYSCALL_FRAME_PC]);
     cpuinfo ci = current_cpu();
-    context sc = get_current_context(ci);
-    assert(is_syscall_context(sc));
-    assert(t->blocked_on);
-    t->blocked_on = 0;
+    context ctx = get_current_context(ci);
+    assert(is_syscall_context(ctx));
+    syscall_context sc = (syscall_context)ctx;
+    blockq bq = sc->uc.blocked_on;
+    assert(bq);
+    thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
+               bq != INVALID_ADDRESS ? blockq_name(bq) : "uninterruptible",
+               thread_frame(t)[SYSCALL_FRAME_PC]);
+    sc->uc.blocked_on = 0;
     t->syscall = 0;
-    context_release_refcount(sc);
+    context_release_refcount(ctx);
     schedule_thread(t);
 }
 
@@ -352,6 +348,7 @@ void thread_reenqueue(thread t)
 boolean thread_attempt_interrupt(thread t)
 {
     thread_log(current, "%s: tid %d", __func__, t->tid);
+    unix_context ctx;
     blockq bq;
     boolean success = false;
     thread_lock(t);
@@ -359,7 +356,8 @@ boolean thread_attempt_interrupt(thread t)
         thread_log(current, "   uninterruptible or already running");
         bq = 0;
     } else {
-        bq = t->blocked_on;
+        ctx = &t->syscall->uc;
+        bq = ctx->blocked_on;
         blockq_reserve(bq);
     }
     thread_unlock(t);
@@ -367,7 +365,7 @@ boolean thread_attempt_interrupt(thread t)
     /* flush pending blockq */
     if (bq) {
         thread_log(current, "   attempting to interrupt blocked thread %d", t->tid);
-        if (blockq_wake_one_for_thread(bq, t, true))
+        if (blockq_wake_one_for_thread(bq, ctx, true))
             success = true;
         blockq_release(bq);
     }
@@ -462,10 +460,7 @@ thread create_thread(process p, u64 tid)
     if (t->affinity == INVALID_ADDRESS)
         goto fail_affinity;
     bitmap_range_check_and_set(t->affinity, 0, total_processors, false, true);
-    t->blocked_on = 0;
     t->syscall_complete = false;
-    t->syscall_abandoned = false;
-    blockq_thread_init(t);
     init_sigstate(&t->signals);
     t->signal_mask = 0;
     t->saved_signal_mask = -1ull;
@@ -520,9 +515,6 @@ void exit_thread(thread t)
 
     /* dequeue signals for thread */
     sigstate_flush_queue(&t->signals);
-
-    /* A thread can only be terminated by itself. */
-    assert(t->blocked_on == 0);
 
     if (t->clear_tid) {
         *t->clear_tid = 0;
