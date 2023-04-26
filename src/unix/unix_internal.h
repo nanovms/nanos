@@ -586,13 +586,18 @@ static inline u32 anon_perms(process p)
 
 static inline u32 file_meta_perms(process p, tuple m)
 {
+    u32 perms;
     if (proc_is_exec_protected(p)) {
         if (m && get(m, sym(exec)))
-            return (ACCESS_PERM_READ | ACCESS_PERM_EXEC);
+            perms = ACCESS_PERM_READ | ACCESS_PERM_EXEC;
         else
-            return (ACCESS_PERM_READ | ACCESS_PERM_WRITE);
+            perms = ACCESS_PERM_READ | ACCESS_PERM_WRITE;
+    } else {
+        perms = ACCESS_PERM_ALL;
     }
-    return ACCESS_PERM_ALL;
+    if ((perms & ACCESS_PERM_WRITE) && m && get(m, sym(readonly)))
+        perms &= ~ACCESS_PERM_WRITE;
+    return perms;
 }
 
 static inline u32 file_perms(process p, file f)

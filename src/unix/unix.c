@@ -575,6 +575,8 @@ void program_set_perms(tuple root, tuple prog)
 {
     if (get(root, sym(exec_protection)))
         set(prog, sym(exec), null_value);
+    else if (!get(root, sym(program_overwrite)))
+        set(prog, sym(readonly), null_value);
 }
 
 static void dump_heap_stats(buffer b, const char *name, heap h)
