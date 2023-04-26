@@ -571,6 +571,12 @@ out:
     return INVALID_ADDRESS;
 }
 
+void program_set_perms(tuple root, tuple prog)
+{
+    if (get(root, sym(exec_protection)))
+        set(prog, sym(exec), null_value);
+}
+
 static void dump_heap_stats(buffer b, const char *name, heap h)
 {
     bytes allocated = heap_allocated(h);

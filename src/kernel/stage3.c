@@ -174,8 +174,7 @@ closure_function(6, 0, void, startup,
     value p = get(root, sym(program));
     assert(p);
     tuple pro = resolve_path(root, split(general, p, '/'));
-    if (get(root, sym(exec_protection)))
-        set(pro, sym(exec), null_value);  /* set executable flag */
+    program_set_perms(root, pro);
     init_network_iface(root);
     filesystem_read_entire(fs, pro, (heap)heap_page_backed(kh), pg, closure(general, read_program_fail));
     closure_finish();
