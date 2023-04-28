@@ -610,7 +610,7 @@ closure_function(1, 6, sysreturn, socket_read,
 }
 
 closure_function(6, 1, sysreturn, socket_write_tcp_bh,
-                 netsock, s, void *, buf, iovec, iov, u64, length, int, flags, io_completion, completion,
+                 netsock, s, void *, buf, sg_list, sg, u64, length, int, flags, io_completion, completion,
                  u64, bqflags)
 {
     netsock s = bound(s);
@@ -670,30 +670,34 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
             return blockq_block_required(t, bqflags); /* block again */
         }
     }
-    iovec iov = bound(iov);
-    struct iovec iov_internal;
-    if (!iov) {
-        iov = &iov_internal;
-        iov->iov_base = buf;
-        iov->iov_len = remain;
-        remain = 1;
-    }
+    sg_list sg = bound(sg);
 
     /* Figure actual length and flags */
     u64 n;
-    for (u64 i = 0; i < remain; i++) {
+    while (remain) {
         u8 apiflags = TCP_WRITE_FLAG_COPY;
-        n = iov[i].iov_len;
+        if (sg) {
+            sg_buf sgb = sg_list_head_peek(sg);
+            buf = sgb->buf + sgb->offset;
+            n = sg_buf_len(sgb);
+            if (sg_list_peek_at(sg, 1) != INVALID_ADDRESS)
+                apiflags |= TCP_WRITE_FLAG_MORE;
+        } else {
+            n = remain;
+        }
         if (avail < rv + n) {
             n = avail - rv;
             apiflags |= TCP_WRITE_FLAG_MORE;
-        } else if (i < remain) {
-            apiflags |= TCP_WRITE_FLAG_MORE;
         }
 
-        err = tcp_write(tcp_lw, iov[i].iov_base, n, apiflags);
+        err = tcp_write(tcp_lw, buf, n, apiflags);
         if (err == ERR_OK) {
+            if (sg)
+                sg_consume(sg, n);
             rv += n;
+            if (rv == avail)
+                break;
+            remain -= n;
             continue;
         }
         if (err == ERR_MEM) {
@@ -733,7 +737,7 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
     return rv;
 }
 
-static sysreturn socket_write_udp(netsock s, void *source, iovec iov, u64 length,
+static sysreturn socket_write_udp(netsock s, void *source, sg_list sg, u64 length,
                                   struct sockaddr *dest_addr, socklen_t addrlen)
 {
     ip_addr_t ipaddr;
@@ -753,22 +757,16 @@ static sysreturn socket_write_udp(netsock s, void *source, iovec iov, u64 length
         return -EDESTADDRREQ;
     }
 
-    struct iovec iov_internal;
-    if (!iov) {
-        iov = &iov_internal;
-        iov->iov_base = source;
-        iov->iov_len = length;
-        length = 1;
-    }
-    u64 total_len = iov_total_len(iov, length);
-    struct pbuf *pbuf = pbuf_alloc(PBUF_TRANSPORT, total_len, PBUF_RAM);
+    struct pbuf *pbuf = pbuf_alloc(PBUF_TRANSPORT, length, PBUF_RAM);
     if (!pbuf) {
         netsock_unlock(s);
         msg_err("failed to allocate pbuf for udp_send()\n");
         return -ENOBUFS;
     }
-    for (u64 i = 0, offset = 0; i < length; offset += iov[i].iov_len, i++)
-        runtime_memcpy(pbuf->payload + offset, iov[i].iov_base, iov[i].iov_len);
+    if (source)
+        runtime_memcpy(pbuf->payload, source, length);
+    else
+        sg_copy_to_buf(pbuf->payload, sg, length);
     if (dest_addr)
         err = udp_sendto(s->info.udp.lw, pbuf, &ipaddr, port);
     else
@@ -780,10 +778,10 @@ static sysreturn socket_write_udp(netsock s, void *source, iovec iov, u64 length
         return lwip_to_errno(err);
     }
     netsock_check_loop();
-    return total_len;
+    return length;
 }
 
-static sysreturn socket_write_internal(struct sock *sock, void *source, iovec iov,
+static sysreturn socket_write_internal(struct sock *sock, void *source, sg_list sg,
                                        u64 length, int flags,
                                        struct sockaddr *dest_addr, socklen_t addrlen,
                                        boolean bh, io_completion completion)
@@ -802,11 +800,11 @@ static sysreturn socket_write_internal(struct sock *sock, void *source, iovec io
             rv = 0;
             goto out;
         }
-        blockq_action ba = contextual_closure(socket_write_tcp_bh, s, source, iov, length, flags,
+        blockq_action ba = contextual_closure(socket_write_tcp_bh, s, source, sg, length, flags,
                                               completion);
         return blockq_check(sock->txbq, t, ba, bh);
     } else if (sock->type == SOCK_DGRAM) {
-        rv = socket_write_udp(s, source, iov, length, dest_addr, addrlen);
+        rv = socket_write_udp(s, source, sg, length, dest_addr, addrlen);
     } else {
 	msg_err("socket type %d unsupported\n", sock->type);
 	rv = -EINVAL;
@@ -1676,14 +1674,40 @@ sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
     return sock->sendto(sock, buf, len, flags, dest_addr, addrlen);
 }
 
+closure_function(2, 2, void, netsock_sendmsg_complete,
+                 sg_list, sg, io_completion, completion,
+                 thread, t, sysreturn, rv)
+{
+    sg_list sg = bound(sg);
+    deallocate_sg_list(sg);
+    apply(bound(completion), t, rv);
+    closure_finish();
+}
+
 static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg, int flags,
                                  boolean in_bh, io_completion completion)
 {
+    thread t = current;
     sysreturn rv = sendto_prepare(s, flags);
     if (rv < 0)
-        return io_complete(completion, current, rv);
-    return socket_write_internal(s, 0, msg->msg_iov, msg->msg_iovlen, flags,
-                                 msg->msg_name, msg->msg_namelen, in_bh, completion);
+        goto out;
+    sg_list sg = allocate_sg_list();
+    if (sg == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
+    io_completion complete = closure(s->h, netsock_sendmsg_complete, sg, completion);
+    if (complete == INVALID_ADDRESS)
+        goto err_dealloc_sg;
+    if (!iov_to_sg(sg, msg->msg_iov, msg->msg_iovlen))
+        goto err_dealloc_sg;
+    return socket_write_internal(s, 0, sg, sg->count, flags,
+                                 msg->msg_name, msg->msg_namelen, in_bh, complete);
+  err_dealloc_sg:
+    deallocate_sg_list(sg);
+    rv = -ENOMEM;
+  out:
+    return io_complete(completion, t, rv);
 }
 
 sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
