@@ -825,6 +825,15 @@ closure_function(1, 6, sysreturn, socket_write,
     return socket_write_internal(s, source, 0, length, 0, 0, 0, bh, completion);
 }
 
+closure_function(1, 6, sysreturn, socket_sg_write,
+                 netsock, s,
+                 sg_list, sg, u64, length, u64, offset, thread, t, boolean, bh, io_completion, completion)
+{
+    struct sock *s = (struct sock *)bound(s);
+    net_debug("sock %d, type %d, length %ld, offset %ld\n", s->fd, s->type, length, offset);
+    return socket_write_internal(s, 0, sg, length, 0, 0, 0, bh, completion);
+}
+
 static boolean siocgifconf_get_len(struct netif *n, void *priv)
 {
     if (netif_is_up(n) && netif_is_link_up(n) && !ip4_addr_isany(netif_ip4_addr(n))) {
@@ -1215,6 +1224,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
         goto err_sock_init;
     s->sock.f.read = closure(h, socket_read, s);
     s->sock.f.write = closure(h, socket_write, s);
+    s->sock.f.sg_write = closure(h, socket_sg_write, s);
     s->sock.f.close = closure(h, socket_close, s);
     s->sock.f.events = closure(h, socket_events, s);
     s->sock.f.ioctl = closure(h, netsock_ioctl, s);
