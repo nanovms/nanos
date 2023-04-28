@@ -27,6 +27,8 @@ void file_readahead(file f, u64 offset, u64 len);
 
 fs_status filesystem_chdir(process p, const char *path);
 
+void filesystem_update_relatime(filesystem fs, tuple md);
+
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
 
