@@ -91,7 +91,7 @@ typedef struct vmxnet3_pci {
     struct pbuf *currpkt_head, *currpkt_tail;
 } *vmxnet3_pci;
 
-#define VMXNET3_RX_MAXSEGSIZE		((1 << 14) - 1)
+#define VMXNET3_RX_MAXSEGSIZE		((1 << 13) - sizeof(struct xpbuf))
 
 /*
  * Predetermined size of the multicast MACs filter table. If the
