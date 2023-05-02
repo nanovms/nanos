@@ -551,8 +551,6 @@ void vmxnet3_receive(vmxnet3 vdev, struct list *l)
                 goto next;
             }
 
-            vmxnet3_newbuf(vdev, rid);
-
             m->tot_len = length;
             m->len = length;
 
@@ -560,8 +558,6 @@ void vmxnet3_receive(vmxnet3 vdev, struct list *l)
         } else {
             assert(rxd->btype == VMXNET3_BTYPE_BODY);
             assert(dev->currpkt_head != NULL);
-
-            vmxnet3_newbuf(vdev, rid);
 
             m->len = length;
             dev->currpkt_head->tot_len += length;
@@ -573,6 +569,7 @@ void vmxnet3_receive(vmxnet3 vdev, struct list *l)
             list_insert_before(l, &((struct xpbuf*)dev->currpkt_head)->l);
             dev->currpkt_head = dev->currpkt_tail = NULL;
         }
+        vmxnet3_newbuf(vdev, rid);
 
 next:
         if (rxq->vxrxq_rs->update_rxhead) {
