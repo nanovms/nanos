@@ -316,6 +316,7 @@ process exec_elf(buffer ex, process kp)
     register_root_notify(sym(trace), closure(heap_locked(kh), trace_notify, proc));
 
     if (interp) {
+        program_set_perms(root, interp);
         exec_debug("reading interp...\n");
         filesystem_read_entire(fs, interp, (heap)heap_page_backed(kh),
                                closure(heap_locked(kh), load_interp_complete, t, kh),

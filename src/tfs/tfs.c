@@ -1588,7 +1588,6 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
     }
   out:
     if (fss == FS_STATUS_OK) {
-        filesystem_update_atime(*fs, t);
         *n = t;
         if (f)
             *f = fsf;

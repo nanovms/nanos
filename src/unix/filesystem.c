@@ -97,6 +97,19 @@ fs_status filesystem_chdir(process p, const char *path)
     return fss;
 }
 
+void filesystem_update_relatime(filesystem fs, tuple md)
+{
+    timestamp here = now(CLOCK_ID_REALTIME);
+    timestamp atime = filesystem_get_atime(fs, md);
+    boolean update;
+    if (here > atime + seconds(24 * 60 * 60))
+        update = true;
+    else
+        update = (atime <= filesystem_get_mtime(fs, md));
+    if (update)
+        filesystem_set_atime(fs, md, here);
+}
+
 closure_function(2, 2, void, fs_op_complete,
                  thread, t, file, f,
                  fsfile, fsf, fs_status, s)

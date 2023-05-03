@@ -9,6 +9,8 @@ void process_get_cwd(process p, filesystem *cwd_fs, inode *cwd);
 thread create_thread(process p, u64 tid);
 process exec_elf(buffer ex, process kernel_process);
 
+void program_set_perms(tuple root, tuple prog);
+
 void dump_mem_stats(buffer b);
 
 void coredump_set_limit(u64 s);

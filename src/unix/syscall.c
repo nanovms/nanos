@@ -497,7 +497,7 @@ static void begin_file_read(thread t, file f)
     tuple md = filesystem_get_meta(f->fs, f->n);
     if (md) {
         if ((f->length > 0) && !(f->f.flags & O_NOATIME))
-            filesystem_update_atime(f->fs, md);
+            filesystem_update_relatime(f->fs, md);
         fs_notify_event(md, IN_ACCESS);
         filesystem_put_meta(f->fs, md);
     }
@@ -1226,7 +1226,7 @@ static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boole
     if (apply(h, sym_this("."), md) && apply(h, parent_sym, get_tuple(md, parent_sym)))
         iterate(c, h);
     fs_notify_event(md, IN_ACCESS);
-    filesystem_update_atime(f->fs, md);
+    filesystem_update_relatime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
         rv = -EINVAL;
