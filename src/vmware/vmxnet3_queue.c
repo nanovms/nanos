@@ -134,7 +134,7 @@ void vmxnet3_rx_queues_alloc(vmxnet3_pci dev)
     // alignment
     assert((u64)dev->rx_desc_mem == pad((u64)dev->rx_desc_mem, VMXNET_ALIGN_QUEUES_DESC));
 
-    u64 rx_compdesc_size = sizeof(struct vmxnet3_rxcompdesc) * VMXNET3_MAX_RX_NDESC * VMXNET3_DEF_RX_QUEUES;
+    u64 rx_compdesc_size = sizeof(struct vmxnet3_rxcompdesc) * VMXNET3_MAX_RX_NCOMPDESC * VMXNET3_DEF_RX_QUEUES;
     dev->rx_compdesc_mem = allocate_zero(dev->contiguous, rx_compdesc_size);
     assert(dev->rx_compdesc_mem != INVALID_ADDRESS);
     // alignment
