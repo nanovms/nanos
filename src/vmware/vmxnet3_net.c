@@ -503,7 +503,7 @@ void vmxnet3_receive(vmxnet3 vdev, struct list *l)
             break;
         read_barrier();
 
-        assert(rxcd->qid <= 2);
+        assert(rxcd->qid < VMXNET3_RXRINGS_PERQ);
 
         if (++rxc->vxcr_next == rxc->vxcr_ndesc) {
             rxc->vxcr_next = 0;
