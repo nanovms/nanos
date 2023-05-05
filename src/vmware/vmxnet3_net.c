@@ -101,13 +101,13 @@ void init_vmxnet3_driver_shared(vmxnet3_pci dev)
 
     vmx_ds->vmxnet3_revision = VMXNET3_REVISION;
     vmx_ds->upt_version = VMXNET3_UPT_VERSION;
-    vmx_ds->upt_features = UPT1_F_CSUM | UPT1_F_LRO;
+    vmx_ds->upt_features = 0;
     vmx_ds->driver_data = physical_from_virtual(dev);
     assert(vmx_ds->driver_data != INVALID_PHYSICAL);
     vmx_ds->driver_data_len = sizeof(struct vmxnet3);
     // queue_shared & queue_shared_len are in
     // vmxnet3_queues_shared_alloc()
-    vmx_ds->mtu = 1500;
+    vmx_ds->mtu = VMXNET3_RX_MAXSEGSIZE - sizeof(struct eth_hdr);
     vmx_ds->nrxsg_max = VMXNET3_MAX_RX_SEGS;
     vmx_ds->ntxqueue = VMXNET3_DEF_TX_QUEUES;
     vmx_ds->nrxqueue = VMXNET3_DEF_RX_QUEUES;
@@ -216,7 +216,7 @@ static err_t vmxif_init(struct netif *netif)
         __func__,
         netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
         netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
-    netif->mtu = 1500;
+    netif->mtu = vn->dev->vmx_ds->mtu;
 
     /* device capabilities */
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
