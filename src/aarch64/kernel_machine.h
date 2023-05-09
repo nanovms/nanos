@@ -150,6 +150,7 @@
 #define SCTLR_EL1_WXN     U64_FROM_BIT(19) /* write implies execute never */
 #define SCTLR_EL1_nTWE    U64_FROM_BIT(18) /* no trap on WFE */
 #define SCTLR_EL1_nTWI    U64_FROM_BIT(16) /* no trap on WFI */
+#define SCTLR_EL1_UCT     U64_FROM_BIT(15) /* no trap on CTR_EL0 access */
 #define SCTLR_EL1_I       U64_FROM_BIT(12) /* instruction cacheability (no effect) */
 #define SCTLR_EL1_CP15BEN U64_FROM_BIT(5) /* memory barrier enable from EL0 */
 #define SCTLR_EL1_SA0     U64_FROM_BIT(4) /* SP alignment fault enable for EL0 */
