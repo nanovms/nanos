@@ -120,7 +120,9 @@ define_closure_function(1, 0, void, log_ext_free,
     if (ext->staging)
         deallocate_buffer(ext->staging);
     heap h = ext->tl->h;
+#ifndef TLOG_READ_ONLY
     refcount_release(&ext->tl->refcount);
+#endif
     deallocate(h, ext, sizeof(struct log_ext));
 }
 
@@ -149,8 +151,8 @@ static log_ext open_log_extension(log tl, range sectors)
         rmnode_init(n, sectors);
         rangemap_insert(tl->extensions, n);
     }
-#endif
     refcount_reserve(&tl->refcount);
+#endif
     return ext;
 #ifndef TLOG_READ_ONLY
   fail_dealloc_staging:
