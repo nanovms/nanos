@@ -373,7 +373,14 @@ install_gdt64_and_tss:
         mov [rdi + 8], eax ; base [63:32]
         sub rdi, rdx	; calculate offset of TSS descriptor in GDT
         ltr di
-        ret
+        mov rax, 0x10   ; assumes kernel data segment is at offset 0x10
+        mov ss, rax
+        mov ds, rax
+        mov es, rax
+        pop rax
+        push 0x08       ; assumes kernel code segment is at offset 0x08
+        push rax
+        o64 retf
 .end:
 
 ;; hypercall page used by xen and hyper-v
