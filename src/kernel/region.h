@@ -17,6 +17,8 @@ typedef struct region *region;
 #define REGION_KERNIMAGE         13 /* location of kernel elf image loaded by stage2 */
 #define REGION_RECLAIM           14 /* areas to be unmapped and reclaimed in stage3 (only stage2 stack presently) */
 #define REGION_SMBIOS            15 /* SMBIOS entry point */
+#define REGION_RSDP              16 /* location of the ACPI RSDP */
+
 
 static inline region create_region(u64 base, u64 length, int type)
 {

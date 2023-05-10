@@ -249,8 +249,12 @@ static void __attribute__((noinline)) init_service_new_stack()
     init_symbols(allocate_tagged_region(kh, tag_symbol, pagesize), heap_locked(kh));
 
     for_regions(e) {
-        if (e->type == REGION_SMBIOS) {
+        switch (e->type) {
+        case REGION_SMBIOS:
             smbios_entry_point = e->base;
+            break;
+        case REGION_RSDP:
+            acpi_save_rsdp(e->base);
             break;
         }
     }

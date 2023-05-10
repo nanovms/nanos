@@ -13,6 +13,8 @@
 
 #define acpi_heap   heap_locked(get_kernel_heaps())
 
+BSS_RO_AFTER_INIT static u64 saved_rsdp;
+
 closure_function(2, 0, void, acpi_irq,
                  ACPI_OSD_HANDLER, service_routine, void *, context)
 {
@@ -22,7 +24,6 @@ closure_function(2, 0, void, acpi_irq,
 
 static u64 find_rsdp_internal(u64 va, u64 len)
 {
-    assert((va & MASK(4)) == 0);
     for (u64 i = va; i < va + len; i += 16) {
         acpi_rsdp rsdp = pointer_from_u64(i);
         if (runtime_memcmp(&rsdp->sig, "RSD PTR ", sizeof(rsdp->sig)) != 0)
@@ -48,6 +49,18 @@ static u64 find_rsdp(kernel_heaps kh)
 
     va = allocate_u64(vh, BIOS_SEARCH_LENGTH);
     assert(va != INVALID_PHYSICAL);
+
+    if (saved_rsdp) {
+        u64 mapstart = saved_rsdp & ~PAGEMASK;
+        u64 maplen = pad(saved_rsdp + sizeof(struct acpi_rsdp), PAGESIZE) - mapstart;
+        map(va, mapstart, maplen, pageflags_memory());
+        rsdp = find_rsdp_internal(va + (saved_rsdp & PAGEMASK), 16);
+        unmap(va, maplen);
+        if (rsdp != INVALID_PHYSICAL) {
+            rsdp = saved_rsdp;
+            goto out;
+        }
+    }
 
     /* Search BIOS ROM */
     map(va, BIOS_SEARCH_ADDR, BIOS_SEARCH_LENGTH, pageflags_memory());
@@ -79,6 +92,11 @@ out:
         acpi_debug("%s: could not find valid RSDP", __func__);
     }
     return rsdp;
+}
+
+void acpi_save_rsdp(u64 rsdp)
+{
+    saved_rsdp = rsdp;
 }
 
 /* OS services layer */

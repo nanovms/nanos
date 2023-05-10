@@ -83,10 +83,10 @@ void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer
     rsvd_mem_add(irangel(kern_base, kern_len));
     for (int i = 0; i < system_table->number_of_table_entries; i++) {
         efi_configuration_table table = &system_table->configuration_table[i];
-        if (!runtime_memcmp(&table->guid, &uefi_smbios_table, sizeof(table->guid))) {
+        if (!runtime_memcmp(&table->guid, &uefi_smbios_table, sizeof(table->guid)))
             create_region(u64_from_pointer(table->table), SMBIOS_EP_SIZE, REGION_SMBIOS);
-            break;
-        }
+        else if (!runtime_memcmp(&table->guid, &uefi_acpi20_table, sizeof(table->guid)))
+            create_region(u64_from_pointer(table->table), sizeof(u64), REGION_RSDP);
     }
     struct uefi_mem_map map;
     uefi_exit_bs(&map);
