@@ -84,7 +84,7 @@ jobs:
           name: copy build artifacts
           command: |
             shopt -s extglob
-            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.tar.gz
       - run: rm -r temp
@@ -139,7 +139,7 @@ jobs:
           name: copy build artifacts
           command: |
             shopt -s extglob
-            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-darwin.tar.gz * && gsutil cp nanos-nightly-darwin.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-darwin.tar.gz
       - run: rm -r temp
@@ -191,7 +191,7 @@ jobs:
           name: copy build artifacts
           command: |
             shopt -s extglob
-            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && cp output/tools/bin/mkfs temp/ && cp output/tools/bin/dump temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux-virt.tar.gz * && gsutil cp nanos-nightly-linux-virt.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.tar.gz
       - run: rm -r temp
