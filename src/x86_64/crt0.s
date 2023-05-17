@@ -414,6 +414,10 @@ bits 32
         mov dword [edx + esi], ecx
         or dword [edx + esi], 0x83
         mov dword [edx + esi + 4], 0
+        ; set stack pointer to INITIAL_MAP_SIZE, and map stack memory
+        mov esp, 0xa000
+        mov dword [edx], 0x83
+        mov dword [edx + 4], 0
         ; map kernel code
         mov dword [edx + 8], 0x200000 | 0x83
         mov dword [edx + 12], 0
