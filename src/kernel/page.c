@@ -512,6 +512,15 @@ physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, statu
     return p - length;
 }
 
+/* Set up a mapping, like the map() function but without acquiring the page table lock; this
+ * function is meant to be called by init code, when there is only one CPU running. */
+void map_nolock(u64 v, physical p, u64 length, pageflags flags)
+{
+    range r = irangel(v, pad(length, PAGESIZE));
+    u64 *table_ptr = pointer_from_pteaddr(get_pagetable_base(v));
+    map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, 0);
+}
+
 void remap(u64 v, physical p, u64 length, pageflags flags)
 {
     range r = irangel(v, pad(length, PAGESIZE));

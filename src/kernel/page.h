@@ -38,6 +38,8 @@ static inline void map(u64 v, physical p, u64 length, pageflags flags)
     map_with_complete(v, p, length, flags, 0);
 }
 
+void map_nolock(u64 v, physical p, u64 length, pageflags flags);
+
 void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete);
 
 static inline void update_map_flags(u64 vaddr, u64 length, pageflags flags)

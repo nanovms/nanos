@@ -89,14 +89,14 @@ void init_mmu(range init_pt, u64 vtarget)
     page_init_debug("kernel_size ");
     page_init_debug_u64(kernel_size);
     page_init_debug("\n");
-    map(KERNEL_BASE, KERNEL_PHYS, kernel_size, pageflags_writable(pageflags_exec(pageflags_memory())));
+    map_nolock(KERNEL_BASE, KERNEL_PHYS, kernel_size, pageflags_writable(pageflags_exec(pageflags_memory())));
 #endif
 
     page_init_debug("map devices\n");
-    map(DEVICE_BASE, 0, DEV_MAP_SIZE, pageflags_writable(pageflags_device()));
+    map_nolock(DEVICE_BASE, 0, DEV_MAP_SIZE, pageflags_writable(pageflags_device()));
 
     page_init_debug("map temporary identity mapping\n");
-    map(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
+    map_nolock(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
 
     enable_mmu(vtarget);
 }
