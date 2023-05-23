@@ -163,6 +163,26 @@ jobs:
           command: |
             make PLATFORM=virt runtime-tests-noaccel
 
+      - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+      - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+      - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
+
+      - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
+      - run: gcloud config set project ${GOOGLE_PROJECT_ID}
+      - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
+
+      - run:
+          name: copy build artifacts
+          command: |
+            shopt -s extglob
+            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+
+      - run: echo "export COMMIT_ID="`git rev-parse --short=7 HEAD` >> $BASH_ENV
+      - run: cd temp && tar cvzf ../nanos-release-linux-virt-${COMMIT_ID}.tar.gz *
+      - run: gsutil cp nanos-release-linux-virt-${COMMIT_ID}.tar.gz gs://nanos/release/${COMMIT_ID}/
+      - run: gsutil setmeta -h "Custom-Time:`date -Iseconds`" gs://nanos/release/${COMMIT_ID}/*
+      - run: gsutil acl ch -u AllUsers:R gs://nanos/release/${COMMIT_ID}/*
+
   nightly-build-virt:
     docker:
       - image: cimg/go:1.20.0
@@ -192,6 +212,7 @@ jobs:
           command: |
             shopt -s extglob
             mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+
       - run: cd temp && tar cvzf nanos-nightly-linux-virt.tar.gz * && gsutil cp nanos-nightly-linux-virt.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.tar.gz
       - run: rm -r temp
