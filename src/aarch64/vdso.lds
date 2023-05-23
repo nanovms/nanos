@@ -13,6 +13,10 @@ SECTIONS
     .gnu.version_d : { *(.gnu.version_d) } : text
     .gnu.version_r : { *(.gnu.version_r) } : text
 
+    .plt : { *(.plt) } : text
+    .got : { *(.got) } : text
+    .got.plt : { *(.got.plt) } : text
+
     /* The presence of eh_frame_hdr in vdso - and presumably incomplete CFI
        directives - was leading libgcc to spin endlessly when unwinding after
        a sigcancel_handler. The nuances of this process are murky (see the

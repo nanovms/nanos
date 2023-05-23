@@ -13,6 +13,11 @@ SECTIONS
     .gnu.version_d : { *(.gnu.version_d) } : text
     .gnu.version_r : { *(.gnu.version_r) } : text
 
+    .plt : { *(.plt) } : text
+    .rela.dyn : { *(.rela.dyn) } : text
+    .got : { *(.got) } : text
+    .got.plt : { *(.got.plt) } : text
+
     .eh_frame_hdr : { *(.eh_frame_hdr) } : eh_frame_hdr : text
     .eh_frame : { *(.eh_frame) } : text
     .text : { *(.text*) } : text
