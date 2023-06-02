@@ -179,10 +179,6 @@ closure_function(2, 2, void, fsstarted,
     config_console(root);
 }
 
-/* This is very simplistic and uses a fixed drain threshold. This
-   should also take all cached data in system into account. For now we
-   just pick on the single pagecache... */
-
 #ifdef MM_DEBUG
 #define mm_debug(x, ...) do {tprintf(sym(mm), 0, x, ##__VA_ARGS__);} while(0)
 #else
@@ -235,11 +231,15 @@ boolean mm_register_mem_cleaner(mem_cleaner cleaner)
 void mm_service(void)
 {
     heap phys = (heap)heap_physical(init_heaps);
-    u64 free = heap_free(phys);
+    u64 total = heap_total(phys);
+    u64 free = total - heap_allocated(phys);
+    u64 threshold = total >> MEM_CLEAN_THRESHOLD_SHIFT;
+    if (threshold < MEM_CLEAN_THRESHOLD)
+        threshold = MEM_CLEAN_THRESHOLD;
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__,
              heap_total(phys), heap_allocated(phys), free);
-    if (free < MEM_CLEAN_THRESHOLD) {
-        u64 clean_bytes = MEM_CLEAN_THRESHOLD - free;
+    if (free < threshold) {
+        u64 clean_bytes = threshold - free;
         u64 cleaned = mm_clean(clean_bytes);
         if (cleaned > 0)
             mm_debug("   cleaned %ld / %ld requested...\n", cleaned, clean_bytes);
