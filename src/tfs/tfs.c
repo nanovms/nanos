@@ -913,8 +913,10 @@ static fs_status extend(fsfile f, extent ex, sg_list sg, range blocks, merge m, 
     range r = irangel(ex->node.r.end, free);
     if (blocks.end > r.end) {
         filesystem fs = f->fs;
-        range new = irange(ex->start_block + ex->allocated,
-                           MIN(ex->start_block + blocks.end, fs->size >> fs->blocksize_order));
+        range new = irangel(ex->start_block + ex->allocated, blocks.end - r.end);
+        u64 limit = fs->size >> fs->blocksize_order;
+        if (new.end > limit)
+            new.end = limit;
         if (range_span(new) && filesystem_reserve_storage(fs, new)) {
             fs_status s = update_extent_allocated(f, ex, ex->allocated + range_span(new));
             if (s == FS_STATUS_OK) {
