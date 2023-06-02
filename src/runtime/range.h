@@ -30,6 +30,7 @@ typedef closure_type(range_handler, boolean, range);
 boolean rangemap_insert(rangemap rm, rmnode n);
 boolean rangemap_reinsert(rangemap rm, rmnode n, range k);
 boolean rangemap_insert_range(rangemap rm, range r);
+boolean rangemap_insert_hole(rangemap rm, range r);
 void rangemap_remove_range(rangemap rm, rmnode n);
 rmnode rangemap_lookup(rangemap rm, u64 point);
 rmnode rangemap_lookup_at_or_next(rangemap rm, u64 point);

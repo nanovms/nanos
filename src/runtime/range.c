@@ -90,6 +90,39 @@ boolean rangemap_insert_range(rangemap rm, range r)
     return true;
 }
 
+/* If the hole is in the middle of the range of a node, splits the node in two.
+ * Returns false if the hole is not contained in any existing node or if a new node cannot be
+ * allocated.
+ */
+boolean rangemap_insert_hole(rangemap rm, range r)
+{
+    struct rmnode k = {
+        .r = r,
+    };
+    rangemap_foreach_of_range(rm, curr, &k) {
+        if ((curr->r.start > r.start) || (curr->r.end < r.end))
+            return false;
+        if (curr->r.start < r.start) {
+            if (curr->r.end > r.end) {
+                rmnode n = allocate(rm->h, sizeof(*n));
+                if (n == INVALID_ADDRESS)
+                    return false;
+                rmnode_init(n, irange(r.end, curr->r.end));
+                rangemap_reinsert(rm, curr, irange(curr->r.start, r.start));
+                rangemap_insert(rm, n);
+            } else {
+                rangemap_reinsert(rm, curr, irange(curr->r.start, r.start));
+            }
+        } else if (curr->r.end > r.end) {
+            rangemap_reinsert(rm, curr, irange(r.end, curr->r.end));
+        } else {
+            rangemap_remove_range(rm, curr);
+        }
+        return true;
+    }
+    return false;
+}
+
 void rangemap_remove_range(rangemap rm, rmnode n)
 {
     rangemap_remove_node(rm, n);

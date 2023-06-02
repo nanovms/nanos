@@ -32,7 +32,7 @@ declare_closure_struct(1, 1, void, fs_free,
                        status, s);
 
 typedef struct filesystem {
-    id_heap storage;
+    rangemap storage;
     u64 size;
     heap h;
     int blocksize_order;

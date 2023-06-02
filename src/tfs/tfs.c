@@ -241,24 +241,46 @@ static inline extent allocate_extent(heap h, range file_blocks, range storage_bl
 #define uninited_unlock(u)
 #endif
 
+closure_function(2, 1, boolean, fs_storage_alloc,
+                 u64, nblocks, u64 *, start_block,
+                 range, r)
+{
+    if (range_span(r) >= bound(nblocks)) {
+        *bound(start_block) = r.start;
+        return false;
+    }
+    return true;
+}
+
 u64 filesystem_allocate_storage(filesystem fs, u64 nblocks)
 {
-    if (fs->storage)
-        return allocate_u64((heap)fs->storage, nblocks);
+    if (fs->storage) {
+        u64 start_block;
+        int result = rangemap_range_find_gaps(fs->storage,
+                                              irange(0, fs->size >> fs->blocksize_order),
+                                              stack_closure(fs_storage_alloc,
+                                                            nblocks, &start_block));
+        if ((result == RM_ABORT) &&
+            rangemap_insert_range(fs->storage, irangel(start_block, nblocks)))
+            return start_block;
+    }
     return INVALID_PHYSICAL;
 }
 
 boolean filesystem_reserve_storage(filesystem fs, range blocks)
 {
-    if (fs->storage)
-        return id_heap_set_area(fs->storage, blocks.start, range_span(blocks), true, true);
+    if (fs->storage) {
+        if (rangemap_range_intersects(fs->storage, blocks))
+            return false;
+        return rangemap_insert_range(fs->storage, blocks);
+    }
     return true;
 }
 
 boolean filesystem_free_storage(filesystem fs, range blocks)
 {
     if (fs->storage)
-        return id_heap_set_area(fs->storage, blocks.start, range_span(blocks), true, false);
+        return rangemap_insert_hole(fs->storage, blocks);
     return true;
 }
 
@@ -2047,7 +2069,7 @@ void create_filesystem(heap h,
     fs->pv = pagecache_allocate_volume(size, fs->blocksize_order);
     assert(fs->pv != INVALID_ADDRESS);
 #ifndef TFS_READ_ONLY
-    fs->storage = create_id_heap(h, h, 0, size >> fs->blocksize_order, 1, false);
+    fs->storage = allocate_rangemap(h);
     assert(fs->storage != INVALID_ADDRESS);
     fs->temp_log = 0;
     init_refcount(&fs->refcount, 1, init_closure(&fs->sync, fs_sync, fs));
@@ -2079,6 +2101,14 @@ closure_function(1, 1, boolean, dealloc_extent_node,
     return true;
 }
 
+closure_function(1, 1, boolean, fs_storage_destroy,
+                 heap, h,
+                 rmnode, n)
+{
+    deallocate(bound(h), n, sizeof(*n));
+    return false;
+}
+
 /* If the filesystem is not read-only, this function can only be called after flushing any pending
  * writes. */
 void destroy_filesystem(filesystem fs)
@@ -2094,7 +2124,7 @@ void destroy_filesystem(filesystem fs)
         destruct_dir_entry(fs->root);
     pagecache_dealloc_volume(fs->pv);
     deallocate_table(fs->files);
-    destroy_id_heap(fs->storage);
+    deallocate_rangemap(fs->storage, stack_closure(fs_storage_destroy, fs->h));
     deallocate(fs->h, fs, sizeof(*fs));
 }
 
@@ -2127,17 +2157,28 @@ u64 fs_blocksize(filesystem fs)
 
 u64 fs_totalblocks(filesystem fs)
 {
-    return fs->storage->total;
+    return fs->size >> fs->blocksize_order;
+}
+
+closure_function(1, 1, boolean, fs_storage_usedblocks,
+                 u64 *, used_blocks,
+                 rmnode, n)
+{
+    *bound(used_blocks) += range_span(n->r);
+    return true;
 }
 
 u64 fs_usedblocks(filesystem fs)
 {
-    return fs->storage->allocated;
+    u64 used_blocks = 0;
+    rangemap_range_lookup(fs->storage, irange(0, fs->size >> fs->blocksize_order),
+                          stack_closure(fs_storage_usedblocks, &used_blocks));
+    return used_blocks;
 }
 
 u64 fs_freeblocks(filesystem fs)
 {
-    return heap_free((heap)fs->storage);
+    return fs_totalblocks(fs) - fs_usedblocks(fs);
 }
 
 BSS_RO_AFTER_INIT static struct {
