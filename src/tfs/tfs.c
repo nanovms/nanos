@@ -627,6 +627,8 @@ static fs_status create_extent(filesystem fs, range blocks, boolean uninited, ex
 
     range storage_blocks = irangel(start_block, nblocks);
     tfs_debug("   storage_blocks %R\n", storage_blocks);
+    if ((nblocks < range_span(blocks)))
+        blocks.end = blocks.start + nblocks;
     *ex = allocate_extent(h, blocks, storage_blocks);
     if (*ex == INVALID_ADDRESS)
         return FS_STATUS_NOMEM;
