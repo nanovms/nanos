@@ -359,7 +359,7 @@ netvsc_m_append(hn_softc_t *hn, xpbuf m0, int len, uint8_t *cp)
         xpbuf n = receive_buffer_alloc(hn);
 
         struct pbuf* np = &n->p.pbuf;
-        np->len = MIN(sizeof(struct xpbuf) + hn->rxbuflen, remainder);
+        np->len = MIN(hn->rxbuflen, remainder);
         np->tot_len = np->len;
         m0->p.pbuf.tot_len += np->len;
         runtime_memcpy(np->payload, cp, np->len);
