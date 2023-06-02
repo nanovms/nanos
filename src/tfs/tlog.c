@@ -93,8 +93,12 @@ struct log {
     vector flush_completions;
     boolean dirty;
     boolean flushing;
-    boolean compacting;
-    boolean failed;             /* unrecoverable log failure */
+    enum {
+        TLOG_STATE_INIT,
+        TLOG_STATE_LINKED,
+        TLOG_STATE_COMPACTING,
+        TLOG_STATE_FAILED,      /* unrecoverable log failure */
+    } state;
     struct refcount refcount;
     closure_struct(log_free, free);
 };
@@ -213,8 +217,6 @@ static log log_new(heap h, filesystem fs)
     if (tl->extensions == INVALID_ADDRESS) {
         goto fail_dealloc_completions;
     }
-    tl->compacting = false;
-    tl->failed = false;
     init_refcount(&tl->refcount, 1, init_closure(&tl->free, log_free, tl));
 #endif
     range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->blocksize_order);
@@ -481,10 +483,10 @@ closure_function(2, 1, void, log_switch_complete,
         to_be_used = new_tl;
         to_be_destroyed = old_tl;
     } else {
-        old_tl->compacting = false;
         to_be_used = old_tl;
         to_be_destroyed = new_tl;
     }
+    to_be_used->state = TLOG_STATE_LINKED;
     filesystem_log_rebuild_done(fs, to_be_used);
     if (is_ok(s))
         table_foreach(old_tl->dictionary, k, v) {
@@ -511,7 +513,7 @@ closure_function(2, 1, void, log_switch_complete,
 void log_flush(log tl, status_handler completion)
 {
     tlog_debug("%s: log %p, completion %p, dirty %d\n", __func__, tl, completion, tl->dirty);
-    if (!tl->dirty && !tl->compacting) {
+    if (!tl->dirty && (tl->state != TLOG_STATE_COMPACTING)) {
         if (completion)
 #ifdef KERNEL
             async_apply_status_handler(completion, STATUS_OK);
@@ -522,7 +524,7 @@ void log_flush(log tl, status_handler completion)
     }
     if (completion)
         vector_push(tl->flush_completions, completion);
-    if (tl->flushing || tl->compacting)
+    if (tl->flushing || (tl->state == TLOG_STATE_COMPACTING))
         return;
 #ifdef KERNEL
     remove_timer(kernel_timers, &tl->flush_timer, 0);
@@ -535,14 +537,14 @@ void log_flush(log tl, status_handler completion)
     /* If we're unable to commit the entire tuple_staging buffer, record an
        unrecoverable failure in the log, but flush the current extension. */
     if (!log_write_internal(tl, m))
-        tl->failed = true;
+        tl->state = TLOG_STATE_FAILED;
 
     /* completion merge will close out with the flush; compaction is independent */
     tlog_unlock(tl);    /* to allow flush completion to run synchronously */
     flush_log_extension(tl->current, false, sh);
     tlog_lock(tl);
 
-    if (!tl->failed && !tl->compacting && (tl->obsolete_entries >= TFS_LOG_COMPACT_OBSOLETE) &&
+    if ((tl->state == TLOG_STATE_LINKED) && (tl->obsolete_entries >= TFS_LOG_COMPACT_OBSOLETE) &&
         (tl->total_entries <= TFS_LOG_COMPACT_RATIO * tl->obsolete_entries)) {
         tlog_debug("%ld obsolete entries out of %ld, starting log compaction\n",
             tl->obsolete_entries, tl->total_entries);
@@ -564,7 +566,8 @@ void log_flush(log tl, status_handler completion)
         log_extension_init(new_tl->current);
         log_extension_init(new_ext);
         new_tl->current = new_ext;
-        tl->compacting = true;
+        tl->state = TLOG_STATE_COMPACTING;
+        new_tl->state = TLOG_STATE_INIT;
         filesystem_log_rebuild(fs, new_tl, rebuild_complete);
         return;
   fail_log_dealloc_closure:
@@ -620,27 +623,27 @@ boolean log_write_eav(log tl, tuple e, symbol a, value v)
 {
     tlog_debug("log_write_eav: tl %p, e %p, a %b, v %p\n", tl, e, symbol_string(a), v);
     u64 len = buffer_length(tl->tuple_staging);
-    if (tl->failed || len >= TFS_LOG_MAX_TUPLE_STAGING_BYTES)
+    if ((tl->state == TLOG_STATE_FAILED) || len >= TFS_LOG_MAX_TUPLE_STAGING_BYTES)
         return false;
     encode_eav(tl->tuple_staging, tl->dictionary, e, a, v, &tl->obsolete_entries);
     tl->total_entries++;
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
-    return !tl->failed;
+    return (tl->state != TLOG_STATE_FAILED);
 }
 
 boolean log_write(log tl, tuple t)
 {
     tlog_debug("log_write: tl %p, t %p\n", tl, t);
     u64 len = buffer_length(tl->tuple_staging);
-    if (tl->failed || len >= TFS_LOG_MAX_TUPLE_STAGING_BYTES)
+    if ((tl->state == TLOG_STATE_FAILED) || len >= TFS_LOG_MAX_TUPLE_STAGING_BYTES)
         return false;
     encode_tuple(tl->tuple_staging, tl->dictionary, t, &tl->total_entries);
     len = buffer_length(tl->tuple_staging) - len;
     vector_push(tl->encoding_lengths, (void *)len);
     log_set_dirty(tl);
-    return !tl->failed;
+    return (tl->state != TLOG_STATE_FAILED);
 }
 
 #endif /* !TLOG_READ_ONLY */
@@ -877,6 +880,7 @@ log log_create(heap h, filesystem fs, boolean initialize, status_handler sh)
     log tl = log_new(h, fs);
     if (tl == INVALID_ADDRESS)
         return tl;
+    tl->state = TLOG_STATE_LINKED;
     fs->tl = tl;
     if (initialize) {
 #ifdef TLOG_READ_ONLY
