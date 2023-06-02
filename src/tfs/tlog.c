@@ -120,9 +120,6 @@ define_closure_function(1, 0, void, log_ext_free,
     if (ext->staging)
         deallocate_buffer(ext->staging);
     heap h = ext->tl->h;
-#ifndef TLOG_READ_ONLY
-    refcount_release(&ext->tl->refcount);
-#endif
     deallocate(h, ext, sizeof(struct log_ext));
 }
 
@@ -151,7 +148,6 @@ static log_ext open_log_extension(log tl, range sectors)
         rmnode_init(n, sectors);
         rangemap_insert(tl->extensions, n);
     }
-    refcount_reserve(&tl->refcount);
 #endif
     return ext;
 #ifndef TLOG_READ_ONLY
@@ -467,6 +463,7 @@ closure_function(1, 1, void, log_flush_complete,
     run_flush_completions(bound(tl), s);
     bound(tl)->flushing = false;
     tlog_unlock(bound(tl));
+    refcount_release(&bound(tl)->refcount);
     closure_finish();
 }
 
@@ -531,6 +528,7 @@ void log_flush(log tl, status_handler completion)
     remove_timer(kernel_timers, &tl->flush_timer, 0);
 #endif
     tl->flushing = true;
+    refcount_reserve(&tl->refcount);
     merge m = allocate_merge(tl->h, closure(tl->h, log_flush_complete, tl));
     status_handler sh = apply_merge(m);
 
