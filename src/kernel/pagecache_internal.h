@@ -30,6 +30,7 @@ typedef struct pagecache {
     heap contiguous;
     heap physical;
     heap completions;
+    heap pp_heap;
 
     void *zero_page;            /* for zero-fill dma */
 

@@ -122,6 +122,11 @@ static inline void pagecache_lock_node(pagecache_node pn)
     spin_lock(&pn->pages_lock);
 }
 
+static inline boolean pagecache_trylock_node(pagecache_node pn)
+{
+    return spin_try(&pn->pages_lock);
+}
+
 static inline void pagecache_unlock_node(pagecache_node pn)
 {
     spin_unlock(&pn->pages_lock);
@@ -135,6 +140,7 @@ static inline void pagecache_unlock_node(pagecache_node pn)
 #define pagecache_lock_volume(pv)
 #define pagecache_unlock_volume(pv)
 #define pagecache_lock_node(pn)
+#define pagecache_trylock_node(pn)  true
 #define pagecache_unlock_node(pn)
 #endif
 
@@ -383,7 +389,22 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
 
 #endif
 
-static void pagecache_page_release_locked(pagecache pc, pagecache_page pp)
+static void pagecache_page_delete_locked(pagecache pc, pagecache_page pp)
+{
+    pagecache_node pn = pp->node;
+
+    /* Don't lock the node unconditionally, to avoid deadlock if another thread is trying to
+     * acquire the pagecache lock after locking the node. */
+    if (!pagecache_trylock_node(pn))
+        return;
+
+    rbtree_remove_node(&pn->pages, &pp->rbnode);
+    pagecache_unlock_node(pn);
+    pagelist_remove(&pc->free, pp);
+    deallocate(pc->pp_heap, pp, sizeof(*pp));
+}
+
+static void pagecache_page_release_locked(pagecache pc, pagecache_page pp, boolean full_delete)
 {
     if (--pp->refcount > 0)
         return;
@@ -398,6 +419,8 @@ static void pagecache_page_release_locked(pagecache pc, pagecache_page pp)
     u64 pre = fetch_and_add(&pc->total_pages, -1);
     assert(pre > 0);
     pagecache_debug("%s: total pages now %ld\n", __func__, pre - 1);
+    if (full_delete)
+        pagecache_page_delete_locked(pc, pp);
 }
 
 define_closure_function(2, 0, void, pagecache_page_read_release,
@@ -405,7 +428,7 @@ define_closure_function(2, 0, void, pagecache_page_read_release,
 {
     pagecache pc = bound(pc);
     pagecache_lock_state(pc);
-    pagecache_page_release_locked(pc, bound(pp));
+    pagecache_page_release_locked(pc, bound(pp), true);
     pagecache_unlock_state(pc);
 }
 
@@ -418,7 +441,7 @@ static pagecache_page allocate_page_nodelocked(pagecache_node pn, u64 offset)
     if (p == INVALID_ADDRESS)
         return INVALID_ADDRESS;
 
-    pagecache_page pp = allocate(pc->h, sizeof(struct pagecache_page));
+    pagecache_page pp = allocate(pc->pp_heap, sizeof(struct pagecache_page));
     if (pp == INVALID_ADDRESS)
         goto fail_dealloc_contiguous;
 
@@ -460,8 +483,8 @@ static u64 evict_from_list_locked(pagecache pc, struct pagelist *pl, u64 pages)
         pagecache_debug("%s: list %s, release pp %p - %R, state %d, count %ld\n", __func__,
                         pl == &pc->new ? "new" : "active", pp, byte_range_from_page(pc, pp),
                         page_state(pp), pp->refcount);
-        pagecache_page_release_locked(pc, pp);
         pp->evicted = true;
+        pagecache_page_release_locked(pc, pp, true);
         evicted++;
     }
     return evicted;
@@ -560,7 +583,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
         for (int i = bound(pi); i < end; i++)  {
             pagecache_page pp = page_lookup_nodelocked(pn, i);
             if (pp != INVALID_ADDRESS)
-                pagecache_page_release_locked(pc, pp);
+                pagecache_page_release_locked(pc, pp, false);
         }
         pagecache_unlock_state(pc);
         pagecache_unlock_node(pn);
@@ -596,7 +619,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
              * evicted while still dirty. */
             change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_DIRTY);
         else
-            pagecache_page_release_locked(pc, pp);
+            pagecache_page_release_locked(pc, pp, false);
         pagecache_unlock_state(pc);
         offset = 0;
         bound(pi)++;
@@ -735,6 +758,13 @@ static u64 evict_pages_locked(pagecache pc, u64 pages)
     return evicted;
 }
 
+static void pagecache_delete_pages_locked(pagecache pc)
+{
+    list_foreach(&pc->free.l, l) {
+        pagecache_page_delete_locked(pc, struct_from_list(l, pagecache_page, l));
+    }
+}
+
 u64 pagecache_drain(u64 drain_bytes)
 {
     pagecache pc = global_pagecache;
@@ -751,7 +781,12 @@ u64 pagecache_drain(u64 drain_bytes)
         pages *= 2;
     } while (drained < drain_bytes);
     balance_page_lists_locked(pc);
+    if (drained < drain_bytes)
+        pagecache_delete_pages_locked(pc);
     pagecache_unlock_state(pc);
+    if (drained < drain_bytes)
+        drained += cache_drain((caching_heap)pc->pp_heap, drain_bytes - drained,
+                               PAGECACHE_PAGES_RETAIN * sizeof(struct pagecache_page));
     if (drained < drain_bytes)
         drained += cache_drain((caching_heap)pc->completions, drain_bytes - drained,
                                PAGECACHE_COMPLETIONS_RETAIN * sizeof(struct page_completion));
@@ -813,7 +848,7 @@ closure_function(5, 1, void, pagecache_commit_complete,
 
         /* release the page, unless its state has been set back to DIRTY due to a write error */
         if (is_ok(s) || (page_state(pp) != PAGECACHE_PAGESTATE_DIRTY))
-            pagecache_page_release_locked(pc, pp);
+            pagecache_page_release_locked(pc, pp, false);
 
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     } while (--page_count > 0);
@@ -1051,7 +1086,7 @@ closure_function(5, 1, void, pagecache_node_fetch_complete,
         change_page_state_locked(pc, pp,
             is_ok(s) ? PAGECACHE_PAGESTATE_NEW : PAGECACHE_PAGESTATE_ALLOC);
         pagecache_page_queue_completions_locked(pc, pp, s);
-        pagecache_page_release_locked(pc, pp);
+        pagecache_page_release_locked(pc, pp, false);
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
     pagecache_unlock_state(pc);
@@ -1366,7 +1401,7 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     runtime_memcpy(pointer_from_u64(vaddr), pp->kvirt, cache_pagesize(pc));
     pagecache_unlock_node(pn);
     pagecache_lock_state(pc);
-    pagecache_page_release_locked(pc, pp);
+    pagecache_page_release_locked(pc, pp, true);
     pagecache_unlock_state(pc);
     return true;
 }
@@ -1458,7 +1493,7 @@ closure_function(4, 3, boolean, pagecache_unmap_page_nodelocked,
             /* shared or cow */
             assert(pp->refcount >= 1);
             pagecache_lock_state(pc);
-            pagecache_page_release_locked(pc, pp);
+            pagecache_page_release_locked(pc, pp, false);
             pagecache_unlock_state(pc);
         } else {
             /* private copy: free physical page */
@@ -1515,12 +1550,12 @@ closure_function(1, 1, boolean, pagecache_page_release,
     pagecache_page pp = struct_from_list(n, pagecache_page, rbnode);
     pagecache_lock_state(pc);
     if (!pp->evicted)
-        pagecache_page_release_locked(pc, pp);
+        pagecache_page_release_locked(pc, pp, false);
     /* a pagecache node being released means no outstanding page references are possible */
     assert(page_state(pp) == PAGECACHE_PAGESTATE_FREE);
     pagelist_remove(&pc->free, pp);
     pagecache_unlock_state(pc);
-    deallocate(pc->h, pp, sizeof(*pp));
+    deallocate(pc->pp_heap, pp, sizeof(*pp));
     return true;
 }
 
@@ -1691,10 +1726,14 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     pc->completions = (heap)allocate_objcache(general, contiguous, sizeof(struct page_completion),
                                               PAGESIZE, true);
     assert(pc->completions != INVALID_ADDRESS);
+    pc->pp_heap = (heap)allocate_objcache(general, contiguous, sizeof(struct pagecache_page),
+                                          PAGESIZE, true);
+    assert(pc->pp_heap != INVALID_ADDRESS);
     spin_lock_init(&pc->state_lock);
     spin_lock_init(&pc->global_lock);
 #else
     pc->completions = general;
+    pc->pp_heap = general;
 #endif
     page_list_init(&pc->free);
     page_list_init(&pc->new);
