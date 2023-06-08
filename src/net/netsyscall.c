@@ -97,6 +97,12 @@ typedef struct netsock {
 	    enum udp_socket_state state;
 	} udp;
     } info;
+    closure_struct(file_io, read);
+    closure_struct(file_io, write);
+    closure_struct(sg_file_io, sg_write);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_ioctl, ioctl);
+    closure_struct(fdesc_close, close);
 } *netsock;
 
 #define netsock_lock(s)     spin_lock(&(s)->sock.f.lock)
@@ -186,11 +192,10 @@ static u32 netsock_events_locked(netsock s)
     return rv;
 }
 
-closure_function(1, 1, u32, socket_events,
-                 netsock, s,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, socket_events,
+                   thread t /* ignore */)
 {
-    netsock s = bound(s);
+    netsock s = struct_from_field(closure_self(), netsock, events);
     netsock_lock(s);
     u32 events = netsock_events_locked(s);
     netsock_unlock(s);
@@ -606,11 +611,10 @@ closure_function(4, 1, sysreturn, recvmsg_bh,
     return rv;
 }
 
-closure_function(1, 6, sysreturn, socket_read,
-                 netsock, s,
-                 void *, dest, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, socket_read,
+                   void *dest, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
-    netsock s = bound(s);
+    netsock s = struct_from_field(closure_self(), netsock, read);
     net_debug("sock %d, type %d, ctx %p, dest %p, length %ld, offset %ld\n",
               s->sock.fd, s->sock.type, ctx, dest, length, offset);
     if (s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN)
@@ -844,21 +848,21 @@ out:
     return rv;
 }
 
-closure_function(1, 6, sysreturn, socket_write,
-                 netsock, s,
-                 void *, source, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, socket_write,
+                   void *source, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
-    struct sock *s = (struct sock *) bound(s);
+    netsock ns = struct_from_field(closure_self(), netsock, write);
+    struct sock *s = &ns->sock;
     net_debug("sock %d, type %d, ctx %p, source %p, length %ld, offset %ld\n",
               s->fd, s->type, ctx, source, length, offset);
     return socket_write_internal(s, source, 0, length, 0, 0, 0, ctx, bh, completion);
 }
 
-closure_function(1, 6, sysreturn, socket_sg_write,
-                 netsock, s,
-                 sg_list, sg, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(sg_file_io, sysreturn, socket_sg_write,
+                   sg_list sg, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
-    struct sock *s = (struct sock *)bound(s);
+    netsock ns = struct_from_field(closure_self(), netsock, sg_write);
+    struct sock *s = &ns->sock;
     net_debug("sock %d, type %d, length %ld, offset %ld\n", s->fd, s->type, length, offset);
     return socket_write_internal(s, 0, sg, length, 0, 0, 0, ctx, bh, completion);
 }
@@ -1060,11 +1064,10 @@ sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
     }
 }
 
-closure_function(1, 2, sysreturn, netsock_ioctl,
-                 netsock, s,
-                 unsigned long, request, vlist, ap)
+closure_func_basic(fdesc_ioctl, sysreturn, netsock_ioctl,
+                   unsigned long request, vlist ap)
 {
-    netsock s = bound(s);
+    netsock s = struct_from_field(closure_self(), netsock, ioctl);
     net_debug("sock %d, request 0x%x\n", s->sock.fd, request);
     switch (request) {
     case FIONREAD: {
@@ -1104,11 +1107,10 @@ closure_function(1, 2, sysreturn, netsock_ioctl,
 /* Must fit in a u8_t, because it may be used as backlog value for tcp_listen_with_backlog(). */
 #define SOCK_QUEUE_LEN 255
 
-closure_function(1, 2, sysreturn, socket_close,
-                 netsock, s,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, socket_close,
+                   context ctx, io_completion completion)
 {
-    netsock s = bound(s);
+    netsock s = struct_from_field(closure_self(), netsock, close);
     net_debug("sock %d, type %d\n", s->sock.fd, s->sock.type);
     struct tcp_pcb *tcp_lw;
     switch (s->sock.type) {
@@ -1130,11 +1132,6 @@ closure_function(1, 2, sysreturn, socket_close,
         break;
     }
     deallocate_queue(s->incoming);
-    deallocate_closure(s->sock.f.read);
-    deallocate_closure(s->sock.f.write);
-    deallocate_closure(s->sock.f.close);
-    deallocate_closure(s->sock.f.events);
-    deallocate_closure(s->sock.f.ioctl);
     socket_deinit(&s->sock);
     unix_cache_free(s->p->uh, socket, s);
     return io_complete(completion, 0);
@@ -1268,12 +1265,12 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     heap h = heap_locked((kernel_heaps)p->uh);
     if (socket_init(p, h, af, type, flags, &s->sock) < 0)
         goto err_sock_init;
-    s->sock.f.read = closure(h, socket_read, s);
-    s->sock.f.write = closure(h, socket_write, s);
-    s->sock.f.sg_write = closure(h, socket_sg_write, s);
-    s->sock.f.close = closure(h, socket_close, s);
-    s->sock.f.events = closure(h, socket_events, s);
-    s->sock.f.ioctl = closure(h, netsock_ioctl, s);
+    s->sock.f.read = init_closure_func(&s->read, file_io, socket_read);
+    s->sock.f.write = init_closure_func(&s->write, file_io, socket_write);
+    s->sock.f.sg_write = init_closure_func(&s->sg_write, sg_file_io, socket_sg_write);
+    s->sock.f.close = init_closure_func(&s->close, fdesc_close, socket_close);
+    s->sock.f.events = init_closure_func(&s->events, fdesc_events, socket_events);
+    s->sock.f.ioctl = init_closure_func(&s->ioctl, fdesc_ioctl, netsock_ioctl);
     s->p = p;
 
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
