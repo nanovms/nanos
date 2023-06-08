@@ -683,6 +683,7 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
                 rv = -EAGAIN;
                 goto out;
             }
+            tcp_unref(tcp_lw);
             net_debug(" send buf full, sleep\n");
             return blockq_block_required((unix_context)ctx, bqflags);
         }
@@ -755,6 +756,7 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
   out_unlock:
     netsock_unlock(s);
   out:
+    tcp_unref(tcp_lw);
     closure_finish();
     net_debug("   completion %p, rv %ld\n", completion, rv);
     apply(completion, rv);
@@ -1124,6 +1126,7 @@ closure_func_basic(fdesc_close, sysreturn, socket_close,
             tcp_close(tcp_lw);
             tcp_arg(tcp_lw, 0);
             netsock_tcp_put(tcp_lw);
+            tcp_unref(tcp_lw);
             netsock_check_loop();
         }
         break;
