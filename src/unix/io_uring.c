@@ -132,12 +132,6 @@ typedef struct io_rings {
     u32 pad;    /* for 8-byte alignment */
 } *io_rings;
 
-declare_closure_struct(0, 2, sysreturn, iour_mmap,
-                       vmap, vm, u64, offset);
-declare_closure_struct(1, 2, sysreturn, iour_close,
-                       struct io_uring *, iour,
-                       context, ctx, io_completion, completion);
-
 typedef struct io_uring {
     struct fdesc f;    /* must be first */
     heap h;
@@ -148,8 +142,8 @@ typedef struct io_uring {
     struct io_uring_cqe *cqes;
     struct io_uring_sqe *sqes;
     u64 phys;
-    closure_struct(iour_mmap, mmap);
-    closure_struct(iour_close, close);
+    closure_struct(fdesc_mmap, mmap);
+    closure_struct(fdesc_close, close);
     struct iovec *bufs;
     u32 buf_count;
     fdesc *files;
@@ -250,8 +244,8 @@ static void iour_timer_remove(io_uring iour, iour_timer t)
     }
 }
 
-define_closure_function(0, 2, sysreturn, iour_mmap,
-                        vmap, vm, u64, offset)
+closure_func_basic(fdesc_mmap, sysreturn, iour_mmap,
+                   vmap vm, u64 offset)
 {
     u64 len = range_span(vm->node.r);
     iour_debug("len %ld, flags 0x%x, offset 0x%x", len, vm->flags, offset);
@@ -309,11 +303,10 @@ out:
     return rv;
 }
 
-define_closure_function(1, 2, sysreturn, iour_close,
-                        io_uring, iour,
-                        context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, iour_close,
+                   context ctx, io_completion completion)
 {
-    io_uring iour = bound(iour);
+    io_uring iour = struct_from_field(closure_self(), io_uring, close);
     iour_debug("iour %p", iour);
 
     iour_lock(iour);
@@ -437,8 +430,8 @@ sysreturn io_uring_setup(unsigned int entries, struct io_uring_params *params)
     iour->shutdown = false;
     iour->shutdown_completion = 0;
     init_fdesc(h, &iour->f, FDESC_TYPE_IORING);
-    iour->f.mmap = init_closure(&iour->mmap, iour_mmap);
-    iour->f.close = init_closure(&iour->close, iour_close, iour);
+    iour->f.mmap = init_closure_func(&iour->mmap, fdesc_mmap, iour_mmap);
+    iour->f.close = init_closure_func(&iour->close, fdesc_close, iour_close);
     context ctx = get_current_context(current_cpu());
     if (context_set_err(ctx)) {
         ret = -EFAULT;

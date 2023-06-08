@@ -358,8 +358,27 @@ struct vmap;
 
 typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, context ctx,
         boolean bh, io_completion completion);
+declare_closure_struct(0, 6, sysreturn, file_io,
+                       void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion);
 typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, context ctx,
         boolean bh, io_completion completion);
+declare_closure_struct(0, 6, sysreturn, sg_file_io,
+                       sg_list, sg, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion);
+typedef closure_type(fdesc_events, u32, thread t);
+declare_closure_struct(0, 1, u32, fdesc_events,
+                       thread, t);
+typedef closure_type(fdesc_ioctl, sysreturn, unsigned long request, vlist ap);
+declare_closure_struct(0, 2, sysreturn, fdesc_ioctl,
+                       unsigned long, request, vlist, ap);
+typedef closure_type(fdesc_mmap, sysreturn, struct vmap *vm, u64 offset);
+declare_closure_struct(0, 2, sysreturn, fdesc_mmap,
+                       struct vmap *, vm, u64, offset);
+typedef closure_type(fdesc_close, sysreturn, context ctx, io_completion completion);
+declare_closure_struct(0, 2, sysreturn, fdesc_close,
+                       context, ctx, io_completion, completion);
+typedef closure_type(fdesc_et_handler, u64, u64 events, u64 lastevents);
+declare_closure_struct(0, 2, u64, fdesc_et_handler,
+                       u64, events, u64, lastevents);
 
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
@@ -382,11 +401,11 @@ declare_closure_struct(1, 1, void, fdesc_io_complete,
 typedef struct fdesc {
     file_io read, write;
     sg_file_io sg_read, sg_write;
-    closure_type(events, u32, thread);
-    closure_type(ioctl, sysreturn, unsigned long request, vlist ap);
-    closure_type(mmap, sysreturn, struct vmap *vm, u64 offset);
-    closure_type(close, sysreturn, context ctx, io_completion completion);
-    closure_type(edge_trigger_handler, u64, u64 events, u64 lastevents);
+    fdesc_events events;
+    fdesc_ioctl ioctl;
+    fdesc_mmap mmap;
+    fdesc_close close;
+    fdesc_et_handler edge_trigger_handler;
     closure_struct(fdesc_io_complete, io_complete);
 
     u64 refcnt;

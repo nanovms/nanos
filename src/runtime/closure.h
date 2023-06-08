@@ -43,6 +43,8 @@ struct _closure_common {
 
 #define init_closure(__p, __name, ...)                                  \
     __closure(0, (__p), sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
+#define init_closure_func(__p, __name, __func, ...)                     \
+    __closure(0, (__p), sizeof(struct _closure_##__name), __func, ##__VA_ARGS__)
 
 #define closure_struct_type(__name)     struct _closure_##__name
 #define closure_struct(__name, __field) struct _closure_##__name __field;
@@ -67,6 +69,18 @@ struct _closure_common {
 #define define_closure_function(nl, nr, ...)            \
     __closure_function_declare(nl, nr)(__VA_ARGS__)     \
     __closure_define(nl, nr)(__VA_ARGS__)
+
+/* a basic closure has a struct without any closure-specific fields */
+#define closure_func_basic(__name, __ret, __func, ...)                              \
+    static __ret __func(struct _closure_##__name *__self, ##__VA_ARGS__);           \
+    static __name _fill_##__func(u64 ctx, struct _closure_##__name *p, bytes s) {   \
+        p->__apply = __func;                                                        \
+        p->__c.name = #__func;                                                      \
+        p->__c.ctx = ctx;                                                           \
+        p->__c.size = s;                                                            \
+        return (__name)p;                                                           \
+    }                                                                               \
+    static __ret __func(struct _closure_##__name *__self, ##__VA_ARGS__)
 
 /* use this for closures allocated and filled separately */
 #define simple_closure_function(nl, nr, ...)            \

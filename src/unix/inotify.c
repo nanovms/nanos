@@ -13,21 +13,12 @@ struct inotify_event {
     char name[];
 } __attribute__((packed));
 
-declare_closure_struct(0, 6, sysreturn, inotify_read,
-                       void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion);
-declare_closure_struct(0, 1, u32, inotify_events,
-                       thread, t);
-declare_closure_struct(0, 2, sysreturn, inotify_ioctl,
-                       unsigned long, request, vlist, ap);
-declare_closure_struct(0, 2, sysreturn, inotify_close,
-                       context, ctx, io_completion, completion);
-
 typedef struct inotify {
     struct fdesc f; /* must be first */
-    closure_struct(inotify_read, read);
-    closure_struct(inotify_events, events);
-    closure_struct(inotify_ioctl, ioctl);
-    closure_struct(inotify_close, close);
+    closure_struct(file_io, read);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_ioctl, ioctl);
+    closure_struct(fdesc_close, close);
     heap h;
     struct list watches;
     int watch_count;
@@ -135,8 +126,8 @@ out:
     return rv;
 }
 
-define_closure_function(0, 6, sysreturn, inotify_read,
-                       void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, inotify_read,
+                   void *buf, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     inotify in = struct_from_field(closure_self(), inotify, read);
     blockq_action ba = closure_from_context(ctx, inotify_read_bh, in, buf, length, completion);
@@ -145,8 +136,8 @@ define_closure_function(0, 6, sysreturn, inotify_read,
     return blockq_check(in->bq, ba, bh);
 }
 
-define_closure_function(0, 1, u32, inotify_events,
-                        thread, t)
+closure_func_basic(fdesc_events, u32, inotify_events,
+                   thread t)
 {
     inotify in = struct_from_field(closure_self(), inotify, events);
     inotify_lock(in);
@@ -155,8 +146,8 @@ define_closure_function(0, 1, u32, inotify_events,
     return empty ? 0 : EPOLLIN;
 }
 
-define_closure_function(0, 2, sysreturn, inotify_ioctl,
-                        unsigned long, request, vlist, ap)
+closure_func_basic(fdesc_ioctl, sysreturn, inotify_ioctl,
+                   unsigned long request, vlist ap)
 {
     inotify in = struct_from_field(closure_self(), inotify, ioctl);
     switch (request) {
@@ -173,8 +164,8 @@ define_closure_function(0, 2, sysreturn, inotify_ioctl,
     }
 }
 
-define_closure_function(0, 2, sysreturn, inotify_close,
-                        context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, inotify_close,
+                   context ctx, io_completion completion)
 {
     inotify in = struct_from_field(closure_self(), inotify, close);
     inotify_lock(in);
@@ -308,10 +299,10 @@ sysreturn inotify_init1(int flags)
         goto nomem;
     }
     init_fdesc(h, &in->f, FDESC_TYPE_INOTIFY);
-    in->f.read = init_closure(&in->read, inotify_read);
-    in->f.events = init_closure(&in->events, inotify_events);
-    in->f.ioctl = init_closure(&in->ioctl, inotify_ioctl);
-    in->f.close = init_closure(&in->close, inotify_close);
+    in->f.read = init_closure_func(&in->read, file_io, inotify_read);
+    in->f.events = init_closure_func(&in->events, fdesc_events, inotify_events);
+    in->f.ioctl = init_closure_func(&in->ioctl, fdesc_ioctl, inotify_ioctl);
+    in->f.close = init_closure_func(&in->close, fdesc_close, inotify_close);
     in->f.flags = flags & (O_NONBLOCK | O_CLOEXEC);
     in->h = h;
     list_init(&in->watches);
