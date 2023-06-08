@@ -10,16 +10,20 @@ struct efd {
     blockq read_bq, write_bq;
     u64 counter;
     boolean io_event;
+    closure_struct(file_io, read);
+    closure_struct(file_io, write);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_close, close);
+    closure_struct(fdesc_et_handler, et_handler);
 };
 
 #define efd_lock(efd)   spin_lock(&(efd)->f.lock)
 #define efd_unlock(efd) spin_unlock(&(efd)->f.lock)
 
-closure_function(1, 2, u64, efd_edge_handler,
-                 struct efd *, efd,
-                u64, events, u64, lastevents)
+closure_func_basic(fdesc_et_handler, u64, efd_edge_handler,
+                   u64 events, u64 lastevents)
 {
-    struct efd *efd = bound(efd);
+    struct efd *efd = struct_from_field(closure_self(), struct efd *, et_handler);
     efd_lock(efd);
 
     /* A read or a write acts as an edge */
@@ -79,16 +83,16 @@ out:
     return rv;
 }
 
-closure_function(1, 6, sysreturn, efd_read,
-                 struct efd *, efd,
-                 void *, buf, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, efd_read,
+                   void *buf, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
     if (length < sizeof(u64)) {
         return io_complete(completion, -EINVAL);
     }
 
-    blockq_action ba = closure_from_context(ctx, efd_read_bh, bound(efd), buf, length, completion);
-    return blockq_check(bound(efd)->read_bq, ba, bh);
+    struct efd *efd = struct_from_field(closure_self(), struct efd *, read);
+    blockq_action ba = closure_from_context(ctx, efd_read_bh, efd, buf, length, completion);
+    return blockq_check(efd->read_bq, ba, bh);
 }
 
 closure_function(4, 1, sysreturn, efd_write_bh,
@@ -131,23 +135,23 @@ out:
     return rv;
 }
 
-closure_function(1, 6, sysreturn, efd_write,
-                 struct efd *, efd,
-                 void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, efd_write,
+                 void *buf, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     if (length < sizeof(u64)) {
         return io_complete(completion, -EINVAL);
     }
 
-    blockq_action ba = closure_from_context(ctx, efd_write_bh, bound(efd), buf, length, completion);
-    return blockq_check(bound(efd)->write_bq, ba, bh);
+    struct efd *efd = struct_from_field(closure_self(), struct efd *, write);
+    blockq_action ba = closure_from_context(ctx, efd_write_bh, efd, buf, length, completion);
+    return blockq_check(efd->write_bq, ba, bh);
 }
 
-closure_function(1, 1, u32, efd_events,
-                 struct efd *, efd,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, efd_events,
+                   thread t /* ignore */)
 {
-    u64 counter = bound(efd)->counter;
+    struct efd *efd = struct_from_field(closure_self(), struct efd *, events);
+    u64 counter = efd->counter;
     u32 events = 0;
     if (counter != 0) {
         events |= EPOLLIN;
@@ -158,17 +162,12 @@ closure_function(1, 1, u32, efd_events,
     return events;
 }
 
-closure_function(1, 2, sysreturn, efd_close,
-                 struct efd *, efd,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, efd_close,
+                   context ctx, io_completion completion)
 {
-    struct efd *efd = bound(efd);
+    struct efd *efd = struct_from_field(closure_self(), struct efd *, close);
     deallocate_blockq(efd->read_bq);
     deallocate_blockq(efd->write_bq);
-    deallocate_closure(efd->f.read);
-    deallocate_closure(efd->f.write);
-    deallocate_closure(efd->f.events);
-    deallocate_closure(efd->f.close);
     release_fdesc(&efd->f);
     deallocate(efd->h, efd, sizeof(*efd));
     return io_complete(completion, 0);
@@ -191,11 +190,11 @@ int do_eventfd2(unsigned int count, int flags)
 
     init_fdesc(h, &efd->f, FDESC_TYPE_EVENTFD);
     efd->f.flags = O_RDWR;
-    efd->f.read = closure(h, efd_read, efd);
-    efd->f.write = closure(h, efd_write, efd);
-    efd->f.events = closure(h, efd_events, efd);
-    efd->f.close = closure(h, efd_close, efd);
-    efd->f.edge_trigger_handler = closure(h, efd_edge_handler, efd);
+    efd->f.read = init_closure_func(&efd->read, file_io, efd_read);
+    efd->f.write = init_closure_func(&efd->write, file_io, efd_write);
+    efd->f.events = init_closure_func(&efd->events, fdesc_events, efd_events);
+    efd->f.close = init_closure_func(&efd->close, fdesc_close, efd_close);
+    efd->f.edge_trigger_handler = init_closure_func(&efd->et_handler, fdesc_et_handler, efd_edge_handler);
     efd->h = h;
     efd->flags = flags;
 
