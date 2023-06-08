@@ -235,7 +235,7 @@ closure_function(1, 1, u32, tun_events,
     return events;
 }
 
-static void get_tun_config(char *name, ip4_addr_t *ipaddr, ip4_addr_t *netmask, boolean *bringup)
+static void get_tun_config(char *name, ip4_addr_t *ipaddr, ip4_addr_t *netmask, u64 *mtu, boolean *bringup)
 {
     if (!tun_cfg)
         return;
@@ -254,6 +254,12 @@ static void get_tun_config(char *name, ip4_addr_t *ipaddr, ip4_addr_t *netmask, 
         char *nm = buffer_to_cstring(nmb);
         if (!ip4addr_aton(nm, netmask) || !ip4_addr_netmask_valid(netmask->addr)) {
             rprintf("tun: invalid netmask %s\n", nm);
+        }
+    }
+    if (get_u64(cfg, sym(mtu), mtu)) {
+        if (*mtu >= U64_FROM_BIT(16)) {
+            rprintf("tun: invalid mtu %ld; ignored\n", *mtu);
+            *mtu = 0;
         }
     }
 
@@ -305,11 +311,14 @@ closure_function(1, 2, sysreturn, tun_ioctl,
             ip4_addr_t ipaddr = (ip4_addr_t){0};
             ip4_addr_t netmask = (ip4_addr_t){0};
             boolean bringup = false;
-            get_tun_config(tun->netif.name, &ipaddr, &netmask, &bringup);
+            u64 mtu = 0;
+            get_tun_config(tun->netif.name, &ipaddr, &netmask, &mtu, &bringup);
             netif_add(&tun->netif, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, netif_input);
             netif_name_cpy(ifreq->ifr_name, &tun->netif);
             list_init(&tun->files);
             tun->next_tx = tf;
+            if (mtu > 0)
+                tun->netif.mtu = mtu;
             if (bringup)
                 netif_set_up(&tun->netif);
         }
