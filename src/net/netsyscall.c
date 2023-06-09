@@ -1254,7 +1254,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
     }
 }
 
-static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
+static int allocate_sock(process p, int af, int type, u32 flags, boolean alloc_fd, netsock *rs)
 {
     netsock s;
     int fd;
@@ -1296,10 +1296,14 @@ static int allocate_sock(process p, int af, int type, u32 flags, netsock *rs)
     s->sock.shutdown = netsock_shutdown;
     s->ipv6only = 0;
     set_lwip_error(s, ERR_OK);
-    fd = s->sock.fd = allocate_fd(p, s);
-    if (fd == INVALID_PHYSICAL) {
-        apply(s->sock.f.close, 0, io_completion_ignore);
-        return -EMFILE;
+    if (alloc_fd) {
+        fd = s->sock.fd = allocate_fd(p, s);
+        if (fd == INVALID_PHYSICAL) {
+            apply(s->sock.f.close, 0, io_completion_ignore);
+            return -ENFILE;
+        }
+    } else {
+        fd = 0;
     }
     *rs = s;
     return fd;
@@ -1315,7 +1319,7 @@ err_sock:
 static int allocate_tcp_sock(process p, int af, struct tcp_pcb *pcb, u32 flags)
 {
     netsock s;
-    int fd = allocate_sock(p, af, SOCK_STREAM, flags, &s);
+    int fd = allocate_sock(p, af, SOCK_STREAM, flags, true, &s);
     if (fd >= 0) {
 	s->info.tcp.lw = pcb;
 	s->info.tcp.flags = pcb->flags;
@@ -1328,7 +1332,7 @@ static int allocate_tcp_sock(process p, int af, struct tcp_pcb *pcb, u32 flags)
 static int allocate_udp_sock(process p, int af, struct udp_pcb *pcb, u32 flags)
 {
     netsock s;
-    int fd = allocate_sock(p, af, SOCK_DGRAM, flags, &s);
+    int fd = allocate_sock(p, af, SOCK_DGRAM, flags, true, &s);
     if (fd >= 0) {
         s->info.udp.lw = pcb;
         s->info.udp.state = UDP_SOCK_CREATED;
@@ -2010,14 +2014,16 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
         return err;               /* lwIP doesn't care */
     }
 
-    int fd = allocate_tcp_sock(s->p, s->sock.domain, lw, 0);
-    if (fd < 0) {
-       err = ERR_MEM;
-       goto unlock_out;
+    netsock sn;
+    int rv = allocate_sock(s->p, s->sock.domain, SOCK_STREAM, 0, false, &sn);
+    if (rv < 0) {
+        err = ERR_MEM;
+        goto unlock_out;
     }
 
-    net_debug("new fd %d, pcb %p\n", fd, lw);
-    netsock sn = (netsock)fdesc_get(s->p, fd);
+    net_debug("new socket %p, pcb %p\n", sn, lw);
+    sn->info.tcp.lw = lw;
+    tcp_ref(lw);
     sn->info.tcp.state = TCP_SOCK_OPEN;
     set_lwip_error(s, ERR_OK);
     tcp_arg(lw, sn);
@@ -2091,6 +2097,7 @@ closure_function(5, 1, sysreturn, accept_bh,
 {
     netsock s = bound(s);
     thread t = bound(t);
+    netsock child = INVALID_ADDRESS;
     sysreturn rv = 0;
 
     err_t err = get_lwip_error(s);
@@ -2108,7 +2115,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     }
 
     context ctx = get_current_context(current_cpu());
-    netsock child = dequeue(s->incoming);
+    child = dequeue(s->incoming);
     if (child == INVALID_ADDRESS) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
@@ -2162,9 +2169,14 @@ closure_function(5, 1, sysreturn, accept_bh,
         tcp_unref(tcp_lw);
     }
 
-    rv = child->sock.fd;
-    fdesc_put(&child->sock.f);
+    rv = allocate_fd(child->p, child);
+    if (rv == INVALID_PHYSICAL)
+        rv = -ENFILE;
+    else
+        child->sock.fd = rv;
   out:
+    if ((rv < 0) && (child != INVALID_ADDRESS))
+        apply(child->sock.f.close, 0, io_completion_ignore);
     syscall_return(t, rv);
 
     socket_release(&s->sock);
