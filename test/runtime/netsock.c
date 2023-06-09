@@ -62,6 +62,14 @@ static void *netsock_test_basic_thread(void *arg)
         test_assert(rx >= 0);
     } while (rx > 0);
     test_assert(close(fd) == 0);
+    if (sock_type == SOCK_STREAM) {
+        /* Create a new connection to the server, to test resource deallocation for the new
+         * connection when the server socket is closed without an accept() call. */
+        fd = socket(AF_INET, sock_type, 0);
+        test_assert(fd > 0);
+        test_assert(connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+        test_assert(close(fd) == 0);
+    }
     return NULL;
 }
 
@@ -128,7 +136,6 @@ static void netsock_test_basic(int sock_type)
 
         test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
         test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_MAXSEG, &val, &len) == 0 && val > 0);
-        test_assert(close(fd) == 0);
     } else {
         netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 1);
         netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 0);
@@ -154,8 +161,11 @@ static void netsock_test_basic(int sock_type)
     printf("%s(%d): transmitted %d bytes in %ld.%.9ld seconds (%lld KB/s)\n", __func__, sock_type,
            tx_total, elapsed.tv_sec, elapsed.tv_nsec, (1000000000ull / KB) * tx_total / ns);
     test_assert(close(tx_fd) == 0);
-    if (sock_type == SOCK_STREAM)
+    if (sock_type == SOCK_STREAM) {
         test_assert(pthread_join(pt, NULL) == 0);
+        /* close() should clean up a pending connection that has not been accept()ed */
+        test_assert(close(fd) == 0);
+    }
 }
 
 static void *netsock_test_fionread_thread(void *arg)

@@ -1134,6 +1134,21 @@ closure_func_basic(fdesc_close, sysreturn, socket_close,
         udp_remove(s->info.udp.lw);
         break;
     }
+    void *p;
+    while ((p = dequeue(s->incoming)) != INVALID_ADDRESS) {
+        switch (s->sock.type) {
+        case SOCK_STREAM:
+            if (s->info.tcp.state == TCP_SOCK_LISTENING)
+                apply(((netsock)p)->sock.f.close, 0, io_completion_ignore);
+            else
+                pbuf_free((struct pbuf *)p);
+            break;
+        case SOCK_DGRAM:
+            pbuf_free(((struct udp_entry *)p)->pbuf);
+            deallocate(s->sock.h, p, sizeof(struct udp_entry));
+            break;
+        }
+    }
     deallocate_queue(s->incoming);
     socket_deinit(&s->sock);
     unix_cache_free(s->p->uh, socket, s);
