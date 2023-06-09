@@ -72,11 +72,6 @@ jobs:
             PATH=$HOME/.ops/bin:$PATH
             make test-noaccel
 
-      - run:
-          command: |
-            if [[ ! -v GCLOUD_SERVICE_KEY ]]; then
-              circleci-agent step halt
-            fi
       - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
       - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
@@ -167,6 +162,11 @@ jobs:
             NANOS_TARGET_ROOT: ~/project/target-root
           command: |
             make PLATFORM=virt runtime-tests-noaccel
+      - run:
+          command: |
+            if [[ ! -v GCLOUD_SERVICE_KEY ]]; then
+              circleci-agent step halt
+            fi
 
       - run: echo "deb http://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
