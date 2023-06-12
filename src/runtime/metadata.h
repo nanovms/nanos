@@ -1,5 +1,3 @@
-#include <stringtok.h>
-
 static inline tuple resolve_path(tuple n, vector v)
 {
     buffer i;

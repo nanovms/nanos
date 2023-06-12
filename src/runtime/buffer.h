@@ -174,11 +174,6 @@ static inline void unwrap_buffer(heap h, buffer b)
     deallocate(h, b, sizeof(struct buffer));
 }
 
-static inline buffer wrap_buffer_cstring(heap h, char *x)
-{
-    return wrap_buffer(h, x, runtime_strlen(x));
-}
-
 buffer allocate_buffer(heap h, bytes length);
 
 
@@ -231,15 +226,6 @@ static inline buffer clone_buffer(heap h, buffer b)
 boolean buffer_append(buffer b,
                    const void *body,
                    bytes length);
-
-static inline buffer buffer_cstring(heap h, const char *x)
-{
-    int len = runtime_strlen(x);
-    buffer b = allocate_buffer(h, len);
-    buffer_assert(b != INVALID_ADDRESS);
-    buffer_assert(buffer_append(b, x, len));
-    return b;
-}
 
 // little endian variants
 #define WRITE_BE(bits)                                          \

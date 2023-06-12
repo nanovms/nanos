@@ -111,6 +111,8 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     init_symbols(allocate_tagged_region(kh, tag_symbol, pagesize), heap_locked(kh));
     heap vh = allocate_tagged_region(kh, tag_vector, pagesize);
     init_vectors(locking_heap_wrapper(heap_general(kh), vh), heap_locked(kh));
+    heap sh = allocate_tagged_region(kh, tag_string, pagesize);
+    init_strings(locking_heap_wrapper(heap_general(kh), sh), heap_locked(kh));
     init_management(allocate_tagged_region(kh, tag_function_tuple, pagesize), heap_general(kh));
     init_debug("calling runtime init\n");
     kernel_runtime_init(kh);

@@ -194,6 +194,8 @@ static void print_value_internal(buffer dest, value v, table *visited, s32 inden
             assert(u64_from_value(v, &x));
             bprintf(dest, "%lu", x);
         }
+    } else if (is_string(v)) {
+        bprintf(dest, "%b", v);
     } else {
         buffer b = (buffer)v;
         if (is_binary_buffer(b))

@@ -212,6 +212,7 @@ typedef closure_type(thunk, void);
 #include <list.h>
 #include <bitmap.h>
 #include <tuple.h>
+#include <runtime_string.h>
 #include <status.h>
 #include <pqueue.h>
 #include <rbtree.h>

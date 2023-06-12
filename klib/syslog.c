@@ -411,7 +411,8 @@ closure_function(2, 2, boolean, syslog_cfg,
             return false;
         }
     } else if (s == sym(file_rotate)) {
-        if (!is_string(v) || !u64_from_value(v, &syslog.file_rotate)) {
+        if (!(is_string(v) || is_integer(v)) ||
+            !u64_from_value(v, &syslog.file_rotate)) {
             rprintf("invalid syslog file rotate count\n");
             return false;
         } else if (syslog.file_rotate > SYSLOG_FILE_ROTATE_MAX) {
@@ -434,7 +435,8 @@ closure_function(2, 2, boolean, syslog_cfg,
         syslog.server[len] = '\0';
     } else if (s == sym(server_port)) {
         u64 port;
-        if (!is_string(v) || !u64_from_value(v, &port) || (port > U16_MAX)) {
+        if (!(is_string(v) || is_integer(v)) ||
+            !u64_from_value(v, &port) || (port > U16_MAX)) {
             rprintf("invalid syslog port\n");
             return false;
         }

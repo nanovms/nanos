@@ -863,7 +863,7 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     }
 
     if (do_missing_files) {
-        b = buffer_cstring(h, name);
+        b = string_from_cstring(name);
         assert(b != INVALID_ADDRESS);
         b = buffer_basename(b);
     }

@@ -515,14 +515,14 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
     }
     if ((fss != FS_STATUS_NOENT) || !parent)
         goto out;
-    buffer target_b = allocate_buffer(fs->h, target_len);
-    if (target_b == INVALID_ADDRESS) {
+    string target_s = allocate_string(target_len);
+    if (target_s == INVALID_ADDRESS) {
         fss = FS_STATUS_NOMEM;
         goto out;
     }
-    buffer_write(target_b, target, target_len);
+    buffer_write(target_s, target, target_len);
     tuple link = fs_new_entry(fs);
-    set(link, sym(linktarget), target_b);
+    set(link, sym(linktarget), target_s);
     string name = alloca_wrap_cstring(filename_from_path(path));
     fss = fs_create_dir_entry(fs, parent, name, link, 0);
     if (fss != FS_STATUS_OK)

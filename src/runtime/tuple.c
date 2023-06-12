@@ -10,11 +10,11 @@
 BSS_RO_AFTER_INIT static heap theap;
 BSS_RO_AFTER_INIT static heap iheap;
 
-// use runtime tags directly?
-#define type_buffer  0
+#define type_buffer  0          /* untyped storage */
 #define type_tuple   1
 #define type_vector  2
 #define type_integer 3
+#define type_string  4
 
 #define immediate 1
 #define reference 0
@@ -212,7 +212,7 @@ void timm_dealloc(tuple t)
 }
 
 // header: immediate(1)
-//         type(2)
+//         type(3)
 //         varint encoded unsigned
 // no error path
 static u64 pop_header(buffer f, boolean *imm, u8 *type)
@@ -220,20 +220,17 @@ static u64 pop_header(buffer f, boolean *imm, u8 *type)
     u8 a = pop_u8(f);
     tuple_debug("pop %x\n", a);
     *imm = a>>7;    
-    *type = (a>>5) & 0x3;
+    *type = (a>>4) & 0x7;
     
-    u64 len = a & 0x0f;
-    if (a & (1<<4)) {
+    u64 len = a & 0x7;
+    if (a & (1<<3)) {
         do {
             a = pop_u8(f);
             tuple_debug("pop %x extra\n", a);
             len = (len<<7) | (a & 0x7f);
         } while(a & 0x80);
     }
-    tuple_debug("header: %s %s %lx\n",
-        (*imm) ? "immediate" : "reference",
-        (*type) ? "tuple" : "buffer",
-        len);
+    tuple_debug("header: %s type %d len %lx\n", (*imm) ? "immediate" : "reference", *type, len);
     return len;
 }
 
@@ -243,24 +240,20 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     int bits = msb(length) + 1;
     int words = 0;
     // (imm type ext) 
-    if (bits > 4)
-        words = ((bits - 4) + (7 - 1)) / 7;
+    if (bits > 3)
+        words = ((bits - 3) + (7 - 1)) / 7;
     assert(buffer_extend(b, words + 1));
 
-    tuple_debug("push header: %s %s decimal length:0x%lx bits:%d words:%d\n",
-                imm ? "immediate" : "reference",
-                type ? "tuple" : "buffer",
-                length,
-                bits,
-                words);
-    assert(type < 4);
-    u8 first = (imm << 7) | (type << 5) | (((words)?1:0)<<4) | (length >> (words * 7));
+    tuple_debug("push header: %s type %d length:0x%lx bits:%d words:%d\n",
+                imm ? "immediate" : "reference", type, length, bits, words);
+    assert(type < 8);
+    u8 first = (imm << 7) | (type << 4) | (((words)?1:0)<<3) | (length >> (words * 7));
     tuple_debug("push %x\n", first);
     push_u8(b, first);
 
     int i = words;
     while (i-- > 0) {
-        u8 v =  ((length >> (i * 7)) & 0x7f) | (i ? 0x80 : 0);
+        u8 v = ((length >> (i * 7)) & 0x7f) | (i ? 0x80 : 0);
         tuple_debug("push %x extra\n", v);
         push_u8(b, v);
     }
@@ -360,12 +353,33 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
             return value_from_s64(-(s64)n);
         else
             return value_from_u64(n);
+    } else if (type == type_string) {
+        if (len == 0)
+            return 0;
+        string s;
+        if (imm == immediate) {
+            s = allocate_string(len);
+            assert(buffer_write(s, buffer_ref(source, 0), len));
+            source->start += len;
+        } else {
+            s = table_find(dictionary, pointer_from_u64(len));
+            // XXX not halt - fix error handling
+            if (!s)
+                halt("indirect string not found: 0x%lx, offset %d\n", len, source->start);
+        }
+        return s;
     } else {
         if (len == 0)
             return 0;
         buffer b;
         if (imm == immediate) {
-            // doesn't seem like we should always need to take a copy in all cases
+            if (len == 1 && *(u8*)buffer_ref(source, 0) == '\0') {
+                source->start++;
+                return null_value;
+            }
+            // XXX fallback to string if old tfs
+            rprintf("%s: warning: untyped buffer, len %ld, offset %d: %X\n",
+                    __func__, len, source->start, alloca_wrap_buffer(buffer_ref(source, 0), len));
             b = allocate_buffer(h, len);
             assert(buffer_write(b, buffer_ref(source, 0), len));
             source->start += len;
@@ -392,6 +406,12 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
     }
 }
 
+static void encode_string(buffer dest, string s)
+{
+    push_header(dest, immediate, type_string, buffer_length(s));
+    assert(push_buffer(dest, s));
+}
+
 static void encode_tuple_internal(buffer dest, table dictionary, tuple t, u64 *total, table visited);
 static void encode_vector_internal(buffer dest, table dictionary, vector v, u64 *total, table visited);
 static void encode_integer(buffer dest, value v);
@@ -405,7 +425,14 @@ static void encode_value_internal(buffer dest, table dictionary, value v, u64 *t
         encode_vector_internal(dest, dictionary, (vector)v, total, visited);
     } else if (is_integer(v)) {
         encode_integer(dest, v);
+    } else if (tagof(v) == tag_string /* not untyped */) {
+        encode_string(dest, (string)v);
     } else {
+        if (v != null_value) {
+            rprintf("%s: untyped value %v, len %d, from %p\n", __func__, v,
+                    buffer_length((buffer)v), __builtin_return_address(0));
+            print_frame_trace_from_here();
+        }
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
         assert(push_buffer(dest, (buffer)v));
     }
@@ -574,6 +601,9 @@ void deallocate_value(value v)
     case tag_unknown:
         /* untyped buffer or string */
         deallocate_buffer((buffer)v);
+        break;
+    case tag_string:
+        deallocate_string((string)v);
         break;
     case tag_symbol:
         /* no safe way to dealloc symbols yet */
