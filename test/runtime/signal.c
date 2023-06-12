@@ -590,7 +590,7 @@ sigsegv_handler(int signo)
 static void * 
 sigsegv_thread(void * arg)
 {
-    int *v;
+    int * volatile v;
     child_tid = syscall(SYS_gettid);
     switch ((long)arg) {
     case 0:
