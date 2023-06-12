@@ -9,7 +9,6 @@ PHDRS
     text PT_LOAD FLAGS(5);          /* R E */
     rodata PT_LOAD FLAGS(4);        /* R */
     data PT_LOAD FLAGS(6);          /* RW */
-    stack PT_GNU_STACK FLAGS(7);    /* RWE */
     note PT_NOTE FLAGS(4);          /* R */
 }
 
