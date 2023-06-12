@@ -43,7 +43,7 @@ vmbus_ic_negomsg(struct vmbus_ic_softc *sc, void *data, int *dlen0,
 {
 	struct vmbus_icmsg_negotiate *nego;
 	int i, cnt, dlen = *dlen0, error;
-	uint32_t sel_fw_ver, sel_msg_ver;
+	uint32_t sel_fw_ver = 0, sel_msg_ver;
 	bool has_fw_ver, has_msg_ver;
 
 	/*
