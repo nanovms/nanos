@@ -52,9 +52,10 @@ static inline boolean is_symbol(value v)
     return tagof(v) == tag_symbol;
 }
 
+/* need to allow untyped buffers until we drop support for old encodings */
 static inline boolean is_string(value v)
 {
-    return tagof(v) == tag_unknown; // XXX tag_string
+    return tagof(v) == tag_string || tagof(v) == tag_unknown;
 }
 
 static inline boolean is_vector(value v)
@@ -72,13 +73,14 @@ static inline boolean is_integer(value v)
     return tagof(v) == tag_integer;
 }
 
+/* we're lax about typing here as these are sometimes used on alloca-wrapped buffers */
 static inline boolean u64_from_value(value v, u64 *result)
 {
     if (is_immediate_integer(v)) {
         *result = u64_from_tagged_immediate(v);
         return true;
     }
-    if (!(is_string(v) || is_integer(v) || is_untyped(v)))
+    if (!(is_string(v) || is_integer(v)))
         return false;
     return parse_int(alloca_wrap((buffer)v), 10, result);
 }
@@ -89,7 +91,7 @@ static inline boolean s64_from_value(value v, s64 *result)
         *result = s64_from_tagged_immediate(v);
         return true;
     }
-    if (!(is_string(v) || is_integer(v) || is_untyped(v)))
+    if (!(is_string(v) || is_integer(v)))
         return false;
     return parse_signed_int(alloca_wrap((buffer)v), 10, result);
 }
@@ -98,7 +100,7 @@ static inline boolean is_signed_integer_value(value v)
 {
     if (is_immediate_integer(v))
         return s64_from_tagged_immediate(v) < 0;
-    if (!(is_string(v) || is_integer(v) || is_untyped(v)))
+    if (!(is_string(v) || is_integer(v)))
         return false;
     return is_signed_int_string((buffer)v);
 }
@@ -126,7 +128,7 @@ static inline value value_rewrite_u64(value v, u64 n)
 {
     if (is_immediate_integer(v))
         return tagged_immediate_unsigned(n);
-    assert(is_string(v) || is_integer(v) || is_untyped(v));
+    assert(is_string(v) || is_integer(v));
     buffer_clear((buffer)v);
     print_number((buffer)v, n, 10, 0);
     return v;
@@ -136,7 +138,7 @@ static inline value value_rewrite_s64(value v, s64 n)
 {
     if (is_immediate_integer(v))
         return tagged_immediate_signed(n);
-    assert(is_string(v) || is_integer(v) || is_untyped(v));
+    assert(is_string(v) || is_integer(v));
     buffer_clear((buffer)v);
     print_signed_number((buffer)v, n, 10, 0);
     return v;

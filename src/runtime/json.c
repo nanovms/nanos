@@ -1,7 +1,7 @@
 #include <runtime.h>
 
 typedef closure_type(parse_finish_internal, parser, void *);
-typedef closure_type(parse_error_internal, parser, buffer);
+typedef closure_type(parse_error_internal, parser, string);
 
 struct parser_common {
     heap h;
@@ -14,7 +14,7 @@ declare_closure_struct(0, 1, parser, json_string_parse,
 typedef struct json_string_p {
     struct parser_common p;
     closure_struct(json_string_parse, parse);
-    buffer b;
+    string s;
     boolean escape;
 } *json_string_p;
 
@@ -49,7 +49,7 @@ declare_closure_struct(0, 1, parser, json_value_parse,
 declare_closure_struct(0, 1, parser, json_value_complete,
                        void *, result);
 declare_closure_struct(0, 1, parser, json_value_error,
-                       buffer, err);
+                       string, err);
 typedef struct json_value_p {
     struct parser_common p;
     closure_struct(json_value_parse, parse);
@@ -64,7 +64,7 @@ declare_closure_struct(0, 1, parser, json_attr_name_complete,
 declare_closure_struct(0, 1, parser, json_attr_value_complete,
                        void *, result);
 declare_closure_struct(0, 1, parser, json_attr_error,
-                       buffer, err);
+                       string, err);
 typedef struct json_attr_p {
     struct parser_common p;
     closure_struct(json_attr_parse, parse);
@@ -72,7 +72,7 @@ typedef struct json_attr_p {
     closure_struct(json_attr_value_complete, value_c);
     closure_struct(json_attr_error, e);
     tuple parent_obj;
-    buffer name;
+    string name;
     enum {
         JSON_ATTR_STATE_NAME,
         JSON_ATTR_STATE_VALUE,
@@ -84,7 +84,7 @@ declare_closure_struct(0, 1, parser, json_obj_parse,
 declare_closure_struct(0, 1, parser, json_obj_attr_complete,
                        void *, result);
 declare_closure_struct(0, 1, parser, json_obj_attr_error,
-                       buffer, err);
+                       string, err);
 typedef struct json_obj_p {
     struct parser_common p;
     closure_struct(json_obj_parse, parse);
@@ -102,7 +102,7 @@ declare_closure_struct(0, 1, parser, json_array_parse,
 declare_closure_struct(0, 1, parser, json_array_elem_complete,
                        void *, result);
 declare_closure_struct(0, 1, parser, json_array_elem_error,
-                       buffer, err);
+                       string, err);
 typedef struct json_array_p {
     struct parser_common p;
     closure_struct(json_array_parse, parse);
@@ -119,7 +119,7 @@ declare_closure_struct(0, 1, parser, json_parse,
 declare_closure_struct(0, 1, parser, json_complete,
                        void *, result);
 declare_closure_struct(0, 1, parser, json_error,
-                       buffer, err);
+                       string, err);
 typedef struct json_p {
     heap h;
     parse_finish finish;
@@ -161,23 +161,23 @@ define_closure_function(0, 1, parser, json_string_parse,
                         character, in)
 {
     json_string_p p = struct_from_field(closure_self(), json_string_p, parse);
-    buffer b = p->b;
+    string s = p->s;
     if (in == CHARACTER_INVALID) {
         parser next = apply(p->p.e, alloca_wrap_cstring("unexpected end of input"));
-        deallocate_buffer(b);
+        deallocate_buffer(s);
         deallocate(p->p.h, p, sizeof(*p));
         return next;
     }
     if (!p->escape) {
         if (in == '\"') {
-            parser next = apply(p->p.c, b);
+            parser next = apply(p->p.c, s);
             deallocate(p->p.h, p, sizeof(*p));
             return next;
         }
         if (in == '\\')
             p->escape = true;
         else
-            push_character(b, in);
+            push_character(s, in);
     } else {
         switch (in) {
         case 'n':
@@ -196,7 +196,7 @@ define_closure_function(0, 1, parser, json_string_parse,
             in = '\f';
             break;
         }
-        push_character(b, in);
+        push_character(s, in);
         p->escape = false;
     }
     return (parser)closure_self();
@@ -207,8 +207,8 @@ static parser json_string_parser(heap h, parse_finish_internal c, parse_error_in
     json_string_p p = allocate(h, sizeof(*p));
     if (p == INVALID_ADDRESS)
         return INVALID_ADDRESS;
-    p->b = allocate_buffer(h, 8);
-    if (p->b == INVALID_ADDRESS) {
+    p->s = allocate_string(8);
+    if (p->s == INVALID_ADDRESS) {
         deallocate(h, p, sizeof(*p));
         return INVALID_ADDRESS;
     }

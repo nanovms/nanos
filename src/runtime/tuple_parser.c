@@ -1,7 +1,7 @@
 #include <runtime.h>
 // synthesize the parser
 typedef closure_type(completion, parser, void *);
-typedef closure_type(err_internal, parser, buffer);
+typedef closure_type(err_internal, parser, string);
 
 typedef table charset;
 
@@ -66,43 +66,43 @@ static parser ignore_whitespace(heap h, parser next)
 }
 
 closure_function(3, 1, parser, escaped_character,
-                 heap, h, buffer, b, parser, next,
+                 heap, h, string, s, parser, next,
                  character, in)
 {
     parser n = bound(next);
-    push_character(bound(b), in);
+    push_character(bound(s), in);
     closure_finish();
     return n;
 }
 
 closure_function(3, 1, parser, quoted_string,
-                 heap, h, completion, c, buffer, b,
+                 heap, h, completion, c, string, s,
                  character, in)
 {
     if (in == '"') {
         completion c = bound(c);
-        buffer b = bound(b);
+        string s = bound(s);
         closure_finish();
-        return apply(c, b);
+        return apply(c, s);
     } else if (in == '\\') {
-        return (parser)closure(bound(h), escaped_character, bound(h), bound(b), (parser)closure_self());
+        return (parser)closure(bound(h), escaped_character, bound(h), bound(s), (parser)closure_self());
     }
-    push_character(bound(b), in);
+    push_character(bound(s), in);
     return (parser)closure_self();
 }
 
 
 closure_function(3, 1, parser, terminal,
-                 completion, c, charset, final, buffer, b,
+                 completion, c, charset, final, string, s,
                  character, in)
 {
     if (member(bound(final), in)) {
         // apply(apply(x)) calls x twice
-        parser p = apply(bound(c), bound(b));
+        parser p = apply(bound(c), bound(s));
         closure_finish();
         return apply(p, in);
     } else {
-        push_character(bound(b), in);
+        push_character(bound(s), in);
         return (parser)closure_self();
     }
 }
@@ -144,7 +144,7 @@ closure_function(5, 1, parser, is_end_of_vector,
                  character, in);
 
 closure_function(3, 1, parser, parse_value_string,
-                 heap, h, completion, c, buffer, b,
+                 heap, h, completion, c, string, s,
                  character, in);
 
 // leaky; no finite lifespan
@@ -169,7 +169,7 @@ closure_function(3, 1, parser, parse_value,
         p = ignore_whitespace(h, (parser)closure(h, is_end_of_vector, h, c, allocate_tagged_vector(8), err, i));
         break;
     default:
-        q = ignore_whitespace(h, (parser)closure(h, parse_value_string, h, c, allocate_buffer(h, 8)));
+        q = ignore_whitespace(h, (parser)closure(h, parse_value_string, h, c, allocate_string(32)));
         p = apply(q, in);
     }
     return p;
@@ -206,15 +206,15 @@ closure_function(4, 1, parser, name_complete,
 }
 
 closure_function(3, 1, parser, parse_name,
-                 heap, h, completion, c, buffer, b,
+                 heap, h, completion, c, string, s,
                  character, in)
 {
     heap h = bound(h);
     parser p;
     if (in == '"') {
-        p = (parser)closure(h, quoted_string, h, bound(c), bound(b));
+        p = (parser)closure(h, quoted_string, h, bound(c), bound(s));
     } else {
-        parser q = (parser)closure(h, terminal, bound(c), name_terminal, bound(b));
+        parser q = (parser)closure(h, terminal, bound(c), name_terminal, bound(s));
         p = apply(q, in);
     }
     closure_finish();
@@ -234,7 +234,7 @@ static parser is_end_of_tuple(struct _closure_is_end_of_tuple *__self, character
     assert(p != INVALID_ADDRESS);
     parser cew = ignore_whitespace(h, (parser)closure_self());
     completion nc = closure(h, name_complete, h, bound(t), cew, bound(e));
-    *p = ignore_whitespace(h, (parser)closure(h, parse_name, h, nc, allocate_buffer(h, 100)));
+    *p = ignore_whitespace(h, (parser)closure(h, parse_name, h, nc, allocate_string(32)));
     return apply(*p, in);
 }
 
@@ -257,9 +257,9 @@ static parser parse_value_string(struct _closure_parse_value_string *__self, cha
 {
     heap h = bound(h);
     if (in == '"')
-        return (parser)closure(h, quoted_string, h, bound(c), bound(b));
+        return (parser)closure(h, quoted_string, h, bound(c), bound(s));
 
-    return (parser)apply(closure(h, terminal, bound(c), value_terminal, bound(b)), in);
+    return (parser)apply(closure(h, terminal, bound(c), value_terminal, bound(s)), in);
 }
 
 // leaks; no end condition to free on
@@ -271,9 +271,9 @@ closure_function(0, 1, parser, kill,
 
 closure_function(2, 1, parser, bridge_err,
                  heap, h, parse_error, error,
-                 buffer, b)
+                 string, s)
 {
-    apply(bound(error), b);
+    apply(bound(error), s);
     return (parser)closure(bound(h), kill);
 }
 
@@ -317,9 +317,9 @@ parser value_parser(heap h, parse_finish c, parse_error err)
     return (*p = ignore_whitespace(h, (parser)closure(h, parse_value, h, bc, k)));
 }
 
-parser parser_feed(parser p, buffer b)
+parser parser_feed(parser p, string s)
 {
-    string_foreach(i, b) {
+    string_foreach(i, s) {
         p = apply(p, i);
     }
     return p;

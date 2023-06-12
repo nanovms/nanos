@@ -67,7 +67,7 @@ void parse_string(heap h, parser p, char *str)
         last_error = NULL;
     }
 
-    buffer b = wrap_buffer_cstring(h, str);
+    buffer b = wrap_string_cstring(str);
     p = parser_feed(p, b);
     apply(p, CHARACTER_INVALID);    /* signal end of input */
     /* deallocate_buffer(b); */
@@ -153,7 +153,7 @@ TUPLE_PARSE_TEST(tuple_simple_test, "(key:value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -168,7 +168,7 @@ TUPLE_PARSE_TEST(tuple_simple_spaced_test, " ( key : value ) ")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -197,12 +197,12 @@ TUPLE_PARSE_TEST(tuple_2elements_test, "(key1:value1 key2:value2)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 2);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key1")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key1")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value1");
     deallocate_buffer(v1);
 
-    buffer v2 = get_string(root, intern(wrap_buffer_cstring(h, "key2")));
+    buffer v2 = get_string(root, intern(wrap_string_cstring("key2")));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -253,11 +253,11 @@ TUPLE_PARSE_TEST(tuple_nested_tuple_test, "(key:(key2:value2))")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    tuple v1 = get_tuple(root, intern(wrap_buffer_cstring(h, "key")));
+    tuple v1 = get_tuple(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get_string(v1, intern(wrap_buffer_cstring(h, "key2")));
+    buffer v2 = get_string(v1, intern(wrap_string_cstring("key2")));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -277,7 +277,7 @@ TUPLE_PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get_string(v1, intern(wrap_buffer_cstring(h, "key2")));
+    buffer v2 = get_string(v1, intern(wrap_string_cstring("key2")));
     test_assert(v2 != NULL);
     test_strings_equal(v2->contents, "value2");
     deallocate_buffer(v2);
@@ -292,7 +292,7 @@ TUPLE_PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    value v1 = get(root, intern(wrap_buffer_cstring(h, "key")));
+    value v1 = get(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_assert(is_vector(v1));
     test_assert(vector_length(v1) == 1);
@@ -333,7 +333,7 @@ TUPLE_PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -348,7 +348,7 @@ TUPLE_PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -363,7 +363,7 @@ TUPLE_PARSE_TEST(quoted_tuple_name_value_test, "(\"key\":\"value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -378,7 +378,7 @@ TUPLE_PARSE_TEST(spaced_quoted_tuple_name_value_test, "( \"key\" : \"value\" )")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -393,7 +393,7 @@ TUPLE_PARSE_TEST(quoted_spaced_tuple_value_test, "(key:\"hello value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "hello value");
     deallocate_buffer(v1);
@@ -408,7 +408,7 @@ TUPLE_PARSE_TEST(quoted_spaced_tuple_name_test, "(\"hello key\":value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "hello key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("hello key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "value");
     deallocate_buffer(v1);
@@ -423,7 +423,7 @@ TUPLE_PARSE_TEST(quoted_spaced_tuple_name_value_test, "(\"hello key\":\"hello va
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_buffer_cstring(h, "hello key")));
+    buffer v1 = get_string(root, intern(wrap_string_cstring("hello key")));
     test_assert(v1 != NULL);
     test_strings_equal(v1->contents, "hello value");
     deallocate_buffer(v1);

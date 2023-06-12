@@ -424,7 +424,7 @@ static void cw_log_setup(void)
 {
     spin_lock(&cw.lock);
     if (!cw.log_stream) {
-        cw.log_stream = wrap_buffer_cstring(cw.h, cw.hostname);
+        cw.log_stream = wrap_string_cstring(cw.hostname);
         assert(cw.log_stream != INVALID_ADDRESS);
     }
     if (!cw.log_inited) {
@@ -560,7 +560,7 @@ define_closure_function(0, 1, input_buffer_handler, cw_metrics_conn_handler,
     u64 cached = pagecache_get_occupancy();
     u64 available = free + cached;
     u64 used = total - available;
-    buffer body = buffer_cstring(cw.h, "{\"Namespace\":\"CWAgent\",\"MetricData\":[");
+    string body = string_from_cstring("{\"Namespace\":\"CWAgent\",\"MetricData\":[");
     cw_metrics_add_bytes(body, true, "mem_available", available);
     cw_metrics_add_percent(body, false, "mem_available_percent", available * 100 / total);
     cw_metrics_add_bytes(body, false, "mem_cached", cached);

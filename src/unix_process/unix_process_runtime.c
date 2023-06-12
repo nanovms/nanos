@@ -184,6 +184,7 @@ heap init_process_runtime()
     init_tuples(allocate_tagged_region(h, tag_table_tuple));
     init_symbols(allocate_tagged_region(h, tag_symbol), h);
     init_vectors(allocate_tagged_region(h, tag_vector), h);
+    init_strings(allocate_tagged_region(h, tag_string), h);
     init_sg(h);
     init_extra_prints();
     signal(SIGPIPE, SIG_IGN);
@@ -210,19 +211,19 @@ tuple parse_arguments(heap h, int argc, char **argv)
     vector unassociated = 0;
     symbol tag = 0;
     for (int i = 1; i<argc; i++) {
-        buffer b = wrap_buffer_cstring(h, argv[i]);
+        string s = wrap_string_cstring(argv[i]);
         if (*argv[i] == '-') {
-            b->start++;
-            tag = intern(b);
+            s->start++;
+            tag = intern(s);
         } else {
             if (tag) {
-                set(t, tag, b);
+                set(t, tag, s);
                 tag = 0;
             } else {
                 if (!unassociated) {
                     unassociated = allocate_tagged_vector(10);
                 }
-                vector_push(unassociated, b);
+                vector_push(unassociated, s);
             }
         }
     }

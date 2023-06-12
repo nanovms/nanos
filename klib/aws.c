@@ -193,7 +193,7 @@ closure_function(2, 1, status, aws_iam_role_get,
         msg_err("no IAM role associated to instance\n");
         goto error;
     }
-    buffer uri = buffer_cstring(h, AWS_CRED_URI);
+    buffer uri = string_from_cstring(AWS_CRED_URI);
     push_u8(uri, '/');
     if (!push_buffer(uri, data)) {
         msg_err("failed to build URI\n");

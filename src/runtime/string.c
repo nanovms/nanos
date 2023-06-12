@@ -1,5 +1,7 @@
 #include <runtime.h>
 
+static heap stringheap;
+
 char *
 runtime_strchr (const char *string, int _c)
 {
@@ -73,4 +75,28 @@ runtime_strcmp (const char *string1, const char *string2)
     }
 
     return *(const unsigned char *)string1 - *(const unsigned char *)string2;
+}
+
+string wrap_string(void *body, bytes length)
+{
+    string new = allocate(stringheap, sizeof(struct buffer));
+    if (new == INVALID_ADDRESS)
+        return new;
+    new->contents = body;
+    new->start = 0;
+    new->h = stringheap;
+    new->end = length;
+    new->length = length;
+    new->wrapped = true;
+    return new;
+}
+
+string allocate_string(bytes size)
+{
+    return allocate_buffer(stringheap, size);
+}
+
+void init_strings(heap h, heap init)
+{
+    stringheap = h;
 }

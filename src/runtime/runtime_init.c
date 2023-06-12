@@ -120,7 +120,6 @@ static void format_spaces(buffer dest, struct formatter_state *s, vlist *a)
 }
 
 // maybe the same?
-BSS_RO_AFTER_INIT heap errheap;
 BSS_RO_AFTER_INIT heap transient;
 
 // init linker sets would clean up the platform dependency, if you link
@@ -139,7 +138,6 @@ void init_runtime(heap general, heap safe)
     register_format('c', format_character, 0);
     ignore = closure(general, ignore_body);
     ignore_status = (void*)ignore;
-    errheap = safe;
     null_value = wrap_buffer(general, "", 1);
 }
 

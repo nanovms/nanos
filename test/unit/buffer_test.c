@@ -85,12 +85,12 @@ boolean basic_tests(heap h)
     test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("..")), ".."));
 
     /* Create and then deallocate a wrapped buffer. */
-    deallocate_buffer(wrap_buffer_cstring(h, test_str));
+    deallocate_buffer(wrap_string_cstring(test_str));
 
     /*
-     * Validate wrap_buffer_cstring initialization, and contents
+     * Validate wrap_string_cstring initialization, and contents
      */
-    wb = wrap_buffer_cstring(h, test_str);
+    wb = wrap_string_cstring(test_str);
     // Note, compiler adds a '\0' to array so sizeof array will be 1 more than string
     test_assert(buffer_length(wb) == (sizeof(test_str) - 1));
     test_assert(strcmp(buffer_ref(wb,0),test_str) == 0);

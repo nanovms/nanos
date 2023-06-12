@@ -23,7 +23,7 @@ boolean all_tests(heap h)
     // check count
     tuple t1 = allocate_tuple();
     for(u8 i = 0; i < COUNT_ELM; i++){
-        buffer b1 = wrap_buffer_cstring(h, tst[i]);
+        buffer b1 = wrap_string_cstring(tst[i]);
         set(t1, value_from_u64(i), b1);
     }
     test_assert(tuple_count(t1) == COUNT_ELM);//rprintf("%v\n", t1);
@@ -31,7 +31,7 @@ boolean all_tests(heap h)
     // from vector
     vector v1 = allocate_vector(h, COUNT_ELM);
     for(u8 i = 0; i < COUNT_ELM; i++){
-        vector_push(v1, wrap_buffer_cstring(h, tst[i]));
+        vector_push(v1, wrap_string_cstring(tst[i]));
     }
     test_assert(vector_length(v1) == COUNT_ELM);//rprintf("%v\n", t2);
     deallocate_vector(v1);
@@ -231,7 +231,7 @@ boolean encode_decode_reference_test(heap h)
     buffer b3 = allocate_buffer(h, 128);
     tuple t3 = allocate_tuple();
     tuple t33 = allocate_tuple();
-    set(t33, value_from_u64(1), wrap_buffer_cstring(h, "200"));
+    set(t33, value_from_u64(1), wrap_string_cstring("200"));
     set(t3, value_from_u64(1), t33);
     set(t3, value_from_u64(2), t33);
 
@@ -304,7 +304,7 @@ boolean encode_decode_lengthy_test(heap h)
     tuple t3 = allocate_tuple();
     for (int i=0; i<1000; ++i)
     {
-        set(t3, value_from_u64(i), wrap_buffer_cstring(h, "100"));
+        set(t3, value_from_u64(i), wrap_string_cstring("100"));
     }
 
     table tdict1 = allocate_table(h, identity_key, pointer_equal);
