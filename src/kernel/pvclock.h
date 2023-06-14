@@ -17,5 +17,5 @@ struct pvclock_wall_clock {
 
 u64 pvclock_now_ns(void);
 boolean init_tsc_deadline_timer(clock_timer *ct, thunk *per_cpu_init);
-void init_pvclock(heap h, struct pvclock_vcpu_time_info *pvclock);
+void init_pvclock(heap h, struct pvclock_vcpu_time_info *pvclock, struct pvclock_wall_clock *wc);
 physical pvclock_get_physaddr(void);

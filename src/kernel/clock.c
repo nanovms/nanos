@@ -94,6 +94,7 @@ void clock_reset_rtc(timestamp wallclock_now)
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
     notify_unix_timers_of_rtc_change();
     timer_adjust_begin(kernel_timers);
+    __vdso_dat->rtc_offset = wallclock_now - now(CLOCK_ID_MONOTONIC_RAW);
     reset_clock_vdso_dat();
     timer_adjust_end(kernel_timers, stack_closure(timer_adjust_handler, wallclock_now - n));
 }

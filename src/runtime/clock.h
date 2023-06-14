@@ -109,8 +109,6 @@ void rtc_settimeofday(u64 seconds);
 #if defined(KERNEL) || defined(BUILD_VDSO)
 static inline void reset_clock_vdso_dat()
 {
-    u64 rt = rtc_gettimeofday();
-    __vdso_dat->rtc_offset = rt ? (rt << 32) - apply(platform_monotonic_now) : 0;
     __vdso_dat->last_raw = 0;
     __vdso_dat->base_freq = 0;
     __vdso_dat->slew_freq = 0;
@@ -120,11 +118,17 @@ static inline void reset_clock_vdso_dat()
 }
 #endif
 
-static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id)
+static inline void register_platform_clock_now(clock_now cn, vdso_clock_id id, timestamp rtc_offset)
 {
     platform_monotonic_now = cn;
 #if defined(KERNEL) || defined(BUILD_VDSO)
     __vdso_dat->clock_src = id;
+    if (!rtc_offset) {
+        u64 rt = rtc_gettimeofday();
+        if (rt)
+            rtc_offset = (rt << 32) - apply(platform_monotonic_now);
+    }
+    __vdso_dat->rtc_offset = rtc_offset;
     reset_clock_vdso_dat();
 #endif
 }

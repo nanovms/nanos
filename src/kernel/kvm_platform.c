@@ -36,7 +36,9 @@ static boolean probe_kvm_pvclock(kernel_heaps kh, u32 cpuid_fn)
     assert(vc != INVALID_ADDRESS);
     zero(vc, sizeof(struct pvclock_vcpu_time_info));
     kvm_debug("before write msr");
-    write_msr(KVM_MSR_SYSTEM_TIME, physical_from_virtual(vc) | /* enable */ 1);
+    physical vc_phys = physical_from_virtual(vc);
+    write_msr(KVM_MSR_SYSTEM_TIME, vc_phys | /* enable */ 1);
+    write_msr(KVM_MSR_WALL_CLOCK, vc_phys + sizeof(*vc));
     memory_barrier();
     kvm_debug("after write msr");
     if (vc->system_time == 0) {
@@ -44,7 +46,7 @@ static boolean probe_kvm_pvclock(kernel_heaps kh, u32 cpuid_fn)
         msg_err("kvm pvclock probe failed: detected kvm pvclock, but system_time == 0\n");
         return false;
     }
-    init_pvclock(heap_general(kh), vc);
+    init_pvclock(heap_general(kh), vc, (struct pvclock_wall_clock *)(vc + 1));
     return true;
 }
 

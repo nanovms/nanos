@@ -252,7 +252,7 @@ hyperv_detect(kernel_heaps kh) {
     }
 
     hyperv_init_clock();
-    register_platform_clock_now(closure(hyperv_info.general, hyperv_clock_now), 0);
+    register_platform_clock_now(closure(hyperv_info.general, hyperv_clock_now), 0, 0);
 
     clock_timer ct;
     thunk per_cpu_init;

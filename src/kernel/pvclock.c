@@ -5,6 +5,19 @@
 BSS_RO_AFTER_INIT static heap pvclock_heap;
 BSS_RO_AFTER_INIT static volatile struct pvclock_vcpu_time_info *vclock;
 
+static timestamp pvclock_get_rtc_offset(volatile struct pvclock_wall_clock *wc)
+{
+    u32 version;
+    timestamp rtc_offset;
+    do {
+        version = wc->version & ~1;
+        read_barrier();
+        rtc_offset = seconds(wc->sec) + nanoseconds(wc->nsec);
+        read_barrier();
+    } while (version != wc->version);
+    return rtc_offset;
+}
+
 u64 pvclock_now_ns(void)
 {
     return vdso_pvclock_now_ns(vclock);
@@ -15,12 +28,13 @@ closure_function(0, 0, timestamp, pvclock_now)
     return nanoseconds(pvclock_now_ns());
 }
 
-void init_pvclock(heap h, struct pvclock_vcpu_time_info *vti)
+void init_pvclock(heap h, struct pvclock_vcpu_time_info *vti, struct pvclock_wall_clock *wc)
 {
     assert(vti);
     vclock = vti;
     pvclock_heap = h;
-    register_platform_clock_now(closure(h, pvclock_now), VDSO_CLOCK_PVCLOCK);
+    register_platform_clock_now(closure(h, pvclock_now), VDSO_CLOCK_PVCLOCK,
+                                pvclock_get_rtc_offset(wc));
 }
 
 physical pvclock_get_physaddr(void)

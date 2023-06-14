@@ -70,7 +70,7 @@ boolean init_tsc_timer(kernel_heaps kh)
     u64 tsc_scaling = tsc_calibrate();
     if (tsc_scaling) {
         register_platform_clock_now(closure(heap_general(kh), tsc_now, tsc_scaling),
-                                    VDSO_CLOCK_TSC_STABLE);
+                                    VDSO_CLOCK_TSC_STABLE, 0);
         thunk percpu_init;
         boolean success = init_lapic_timer(&platform_timer, &percpu_init);
         if (success)

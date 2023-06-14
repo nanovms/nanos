@@ -520,7 +520,8 @@ boolean xen_detect(kernel_heaps kh)
     register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer), closure(xen_info.h, xen_per_cpu_init, shared_info_phys));
 
     /* register pvclock (feature verified above) */
-    init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time);
+    init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time,
+                 (struct pvclock_wall_clock *)&xen_info.shared_info->wc_version);
 
     xen_debug("unmasking xenstore event channel");
     spin_lock_init(&xen_info.xenstore_lock);
