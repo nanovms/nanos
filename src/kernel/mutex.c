@@ -229,6 +229,22 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
     goto acquire;
 }
 
+void mutex_init(mutex m, u64 spin_iterations)
+{
+    m->spin_iterations = spin_iterations;
+    m->turn = 0;
+    m->mcs_tail = 0;
+    m->mcs_spinouts = 0;
+    m->acquire_spinouts = 0;
+    spin_lock_init(&m->waiters_lock);
+    list_init(&m->waiters);
+#ifdef LOCK_STATS
+    m->s.type = LOCK_TYPE_MUTEX;
+    m->s.acq_time = 0;
+    m->s.trace_hash = 0;
+#endif
+}
+
 boolean mutex_try_lock(mutex m)
 {
     return mutex_lock_internal(m, false);
@@ -286,17 +302,6 @@ mutex allocate_mutex(heap h, u64 spin_iterations)
     if (m == INVALID_ADDRESS)
         return m;
 
-    m->spin_iterations = spin_iterations;
-    m->turn = 0;
-    m->mcs_tail = 0;
-    m->mcs_spinouts = 0;
-    m->acquire_spinouts = 0;
-    spin_lock_init(&m->waiters_lock);
-    list_init(&m->waiters);
-#ifdef LOCK_STATS
-    m->s.type = LOCK_TYPE_MUTEX;
-    m->s.acq_time = 0;
-    m->s.trace_hash = 0;
-#endif
+    mutex_init(m, spin_iterations);
     return m;
 }

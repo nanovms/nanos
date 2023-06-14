@@ -171,11 +171,12 @@ define_closure_function(2, 1, void, cloud_download_done,
     apply(task, CLOUD_INIT_TASK_OP_DELETE, 0);
 }
 
-closure_function(2, 2, void, cloud_download_save_complete,
-                 buffer, content, status_handler, sh,
+closure_function(3, 2, void, cloud_download_save_complete,
+                 fsfile, f, buffer, content, status_handler, sh,
                  status, s, bytes, len)
 {
     deallocate_buffer(bound(content));
+    fsfile_release(bound(f));
     apply(bound(sh), s);
     closure_finish();
 }
@@ -184,6 +185,7 @@ closure_function(4, 1, void, cloud_download_save,
                  bytes *, content_len, fsfile, f, bytes *, received, merge, m,
                  value, v)
 {
+    fsfile f = bound(f);
     status_handler sh = apply_merge(bound(m));
     status s;
     buffer content;
@@ -205,15 +207,14 @@ closure_function(4, 1, void, cloud_download_save,
     }
     content = clone_buffer(cloud_heap, get(v, sym(content)));
     if (content != INVALID_ADDRESS) {
-        io_status_handler io_sh = closure(cloud_heap, cloud_download_save_complete, content, sh);
+        io_status_handler io_sh = closure(cloud_heap, cloud_download_save_complete, f, content, sh);
         if (io_sh == INVALID_ADDRESS) {
             s = timm("result", "%s: failed to allocate I/O status handler", __func__);
             deallocate_buffer(content);
             goto error;
         }
         bytes len = buffer_length(content);
-        filesystem_write_linear(bound(f), buffer_ref(content, 0),
-            irangel(*bound(received), len), io_sh);
+        filesystem_write_linear(f, buffer_ref(content, 0), irangel(*bound(received), len), io_sh);
         *bound(received) += len;
         return;
     } else {
@@ -221,6 +222,7 @@ closure_function(4, 1, void, cloud_download_save,
     }
   error:
     *bound(content_len) = (bytes)-1;    /* special value that indicates error */
+    fsfile_release(f);
     apply(sh, s);
 }
 
@@ -249,12 +251,14 @@ define_closure_function(4, 2, boolean, cloud_download_file_recv,
                                        &bound(received), m);
             if (vh == INVALID_ADDRESS) {
                 s = timm("result", "%s: failed to allocate value handler", __func__);
+                fsfile_release(f);
                 goto error;
             }
             bound(parser) = allocate_http_parser(cloud_heap, vh);
             if (bound(parser) == INVALID_ADDRESS) {
                 s = timm("result", "%s: failed to allocate HTTP parser", __func__);
                 deallocate_closure(vh);
+                fsfile_release(f);
                 goto error;
             }
         }
@@ -493,6 +497,7 @@ static int cloud_download_file_parse(tuple config, vector tasks)
         else
             parsed_cfg->download.done = true;
     }
+    fsfile_release(f);
     return KLIB_INIT_OK;
 }
 

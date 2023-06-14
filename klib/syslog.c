@@ -94,6 +94,7 @@ static void syslog_file_rotate(void)
     /* Rename the current log file by adding a ".1" extension to the file name. */
     byte(old_file, path_len + 1) = '1';
     sysreturn ret = fs_rename(syslog.file_path, old_file);
+    fsfile_release(syslog.fsf);
 
     if (ret == 0) {
         /* Continue logging on a new file. */
@@ -121,10 +122,12 @@ closure_function(4, 1, void, syslog_file_write_complete,
                 syslog_file_rotate();
             } else {
                 /* Delete old logs instead of rotating. */
-                if (fsfile_truncate(syslog.fsf, 0) == FS_STATUS_OK)
+                if (fsfile_truncate(syslog.fsf, 0) == FS_STATUS_OK) {
                     syslog.file_offset = 0;
-                else
+                } else {
+                    fsfile_release(syslog.fsf);
                     syslog.fs_write = 0;    /* stop logging */
+                }
             }
             if (unlock)
                 spin_unlock(&syslog.lock);

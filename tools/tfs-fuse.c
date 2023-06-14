@@ -429,6 +429,7 @@ closure_function(2, 0, void, file_close,
     deallocate_closure(f->f.read);
     deallocate_closure(f->f.write);
     deallocate_closure(f->f.close);
+    fsfile_release(f->fsf);
     deallocate(h, f, sizeof(struct file));
 }
 
@@ -483,13 +484,16 @@ static int open_internal(const char *name, int flags, int mode)
         f->fs_write = fsfile_get_writer(fsf);
         assert(f->fs_write);
     }
-    f->n = inode_from_tuple(n);
+    f->n = rootfs->get_inode(rootfs, n);
     f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
 out:
     filesystem_put_node(rootfs, n);
-    if (ret)
+    if (ret) {
+        if (fsf)
+            fsfile_release(fsf);
         return ret;
+    }
     return fd;
 }
 

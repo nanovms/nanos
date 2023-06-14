@@ -25,15 +25,16 @@ SRCS-stage2.elf= \
 	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/serial.c \
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c
+	$(SRCDIR)/fs/fs.c \
+	$(SRCDIR)/fs/tfs.c \
+	$(SRCDIR)/fs/tlog.c
 
 CFLAGS+=	$(KERNCFLAGS) -Os -DBOOT -DPAGE_USE_FLUSH -fno-pic
 CFLAGS+= \
 	-I$(CURDIR) \
 	-I$(SRCDIR) \
 	-I$(SRCDIR)/boot \
-	-I$(SRCDIR)/tfs \
+	-I$(SRCDIR)/fs \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/x86_64
@@ -73,8 +74,9 @@ SRCS-uefi= \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/tuple.c \
-	$(SRCDIR)/tfs/tfs.c \
-	$(SRCDIR)/tfs/tlog.c \
+	$(SRCDIR)/fs/fs.c \
+	$(SRCDIR)/fs/tfs.c \
+	$(SRCDIR)/fs/tlog.c \
 	$(SRCDIR)/x86_64/elf64.c \
 	$(SRCDIR)/x86_64/page.c \
 	$(SRCDIR)/x86_64/uefi.c \
@@ -89,7 +91,7 @@ CFLAGS-uefi= \
 	-Wall -Werror -fpic -fshort-wchar -mno-red-zone -mno-avx -O3 -std=gnu11 \
 	-ffreestanding \
 	-I$(SRCDIR) -I$(SRCDIR)/boot -I$(SRCDIR)/kernel -I$(SRCDIR)/runtime \
-	-I$(SRCDIR)/tfs -I$(SRCDIR)/x86_64 -I$(OBJDIR) \
+	-I$(SRCDIR)/fs -I$(SRCDIR)/x86_64 -I$(OBJDIR) \
 	-DBOOT -DUEFI -DEFIAPI="__attribute__((ms_abi))"
 LDLAGS-uefi= -nostdlib -shared -Bsymbolic -T $(SRCDIR)/x86_64/uefi.lds
 

@@ -252,7 +252,7 @@ static err_t virtioif_init(struct netif *netif)
     netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
-    vtdev_cfg_read_mem(vn->dev, netif->hwaddr, ETHER_ADDR_LEN);
+    vtdev_cfg_read_mem(vn->dev, 0, netif->hwaddr, ETHER_ADDR_LEN);
     virtio_net_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
         __func__,
         netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],

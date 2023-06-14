@@ -11,6 +11,7 @@ u64 pagecache_get_node_length(pagecache_node pn);
 void pagecache_node_finish_pending_writes(pagecache_node pn, status_handler complete);
 
 void pagecache_sync_node(pagecache_node pn, status_handler complete);
+void pagecache_purge_node(pagecache_node pn, status_handler complete);
 
 void pagecache_sync_volume(pagecache_volume pv, status_handler complete);
 

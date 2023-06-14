@@ -483,7 +483,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     }
     filesystem_reserve(fs); /* because it hosts the current working directory */
     p->root_fs = p->cwd_fs = fs;
-    p->cwd = inode_from_tuple(root);
+    p->cwd = fs->get_inode(fs, root);
     p->process_root = root;
     p->fdallocator = create_id_heap(locked, locked, 0, infinity, 1, false);
     p->files = allocate_vector(locked, 64);
