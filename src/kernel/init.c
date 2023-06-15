@@ -175,7 +175,7 @@ closure_function(2, 2, void, fsstarted,
     closure_finish();
     symbol booted = sym(booted);
     if (!get(root, booted))
-        filesystem_write_eav(fs, root, booted, null_value);
+        filesystem_write_eav((tfs)fs, root, booted, null_value);
     config_console(root);
 }
 
@@ -291,6 +291,15 @@ static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u6
                       closure(h, fsstarted, mbr, req_handler));
 }
 
+closure_function(2, 2, void, volume_fs_init,
+                 storage_req_handler, req_handler, u64, length,
+                 boolean, readonly, filesystem_complete, complete)
+{
+    create_filesystem(heap_locked(init_heaps), SECTOR_SIZE, bound(length), bound(req_handler),
+                      readonly, 0 /* no label */, complete);
+    closure_finish();
+}
+
 closure_function(4, 1, void, mbr_read,
                  u8 *, mbr, storage_req_handler, req_handler, u64, length, int, attach_id,
                  status, s)
@@ -305,10 +314,17 @@ closure_function(4, 1, void, mbr_read,
     if (!rootfs_part) {
         u8 uuid[UUID_LEN];
         char label[VOLUME_LABEL_MAX_LEN];
-        if (filesystem_probe(mbr, uuid, label))
-            volume_add(uuid, label, bound(req_handler), bound(length), bound(attach_id));
-        else
+        if (filesystem_probe(mbr, uuid, label)) {
+            storage_req_handler req_handler = bound(req_handler);
+            fs_init_handler fs_init = closure(heap_locked(init_heaps), volume_fs_init, req_handler,
+                                              bound(length));
+            if (fs_init != INVALID_ADDRESS)
+                volume_add(uuid, label, req_handler, fs_init, bound(attach_id));
+            else
+                msg_err("failed to allocate closure, skipping volume\n");
+        } else {
             init_debug("unformatted storage device, ignoring");
+        }
         deallocate((heap)heap_linear_backed(init_heaps), mbr, PAGESIZE);
     } else {
         /* The on-disk kernel log dump section is immediately before the first partition. */

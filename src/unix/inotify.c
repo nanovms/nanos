@@ -356,10 +356,11 @@ sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
     }
     mask |= IN_IGNORED | IN_ISDIR | IN_Q_OVERFLOW | IN_UNMOUNT;
     inotify_watch watch = 0;
+    inode ino = fs->get_inode(fs, n);
     inotify_lock(in);
     list_foreach(&in->watches, e) {
         inotify_watch w = struct_from_field(e, inotify_watch, l);
-        if (w->n == inode_from_tuple(n)) {
+        if (w->n == ino) {
             notify_entry_update_eventmask(w->ne,
                 (mask & IN_MASK_ADD) ? (notify_entry_get_eventmask(w->ne) | mask) : mask);
             watch = w;
@@ -384,7 +385,7 @@ sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
             watch->wd = in->next_wd++;
             if (in->next_wd < 0)
                 in->next_wd = 0;    /* negative watch descriptors are not allowed */
-            watch->n = inode_from_tuple(n);
+            watch->n = ino;
             list_push_back(&in->watches, &watch->l);
         } else {
             deallocate(in->h, watch, sizeof(*watch));

@@ -1,3 +1,4 @@
+void init_virtio_9p(kernel_heaps kh);
 void init_virtio_balloon(kernel_heaps kh);
 void init_virtio_blk(kernel_heaps kh, storage_attach a);
 void init_virtio_network(kernel_heaps kh);

@@ -92,10 +92,13 @@ declare_closure_struct(2, 1, void, storage_simple_req_handler,
 storage_req_handler storage_init_req_handler(closure_ref(storage_simple_req_handler, handler),
                                              block_io read, block_io write);
 
+typedef closure_type(fs_init_complete, void, struct filesystem *, status);
+typedef closure_type(fs_init_handler, void, boolean, fs_init_complete);
+
 void init_volumes(heap h);
 void storage_set_root_fs(struct filesystem *root_fs);
 void storage_set_mountpoints(tuple mounts);
-boolean volume_add(u8 *uuid, char *label, storage_req_handler req_handler, u64 size, int attach_id);
+boolean volume_add(u8 *uuid, char *label, void *priv, fs_init_handler init_handler, int attach_id);
 void storage_when_ready(status_handler complete);
 void storage_sync(status_handler sh);
 
@@ -105,7 +108,7 @@ u64 storage_get_mountpoint(tuple root, struct filesystem **fs);
 typedef closure_type(volume_handler, void, u8 *, const char *, struct filesystem *, u64);
 void storage_iterate(volume_handler vh);
 
-void storage_detach(storage_req_handler req_handler, thunk complete);
+void storage_detach(void *priv, thunk complete);
 typedef closure_type(mount_notification_handler, void, u64);
 void storage_register_mount_notify(mount_notification_handler nh);
 void storage_unregister_mount_notify(mount_notification_handler nh);

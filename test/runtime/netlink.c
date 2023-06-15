@@ -270,34 +270,36 @@ static void test_getaddr(void)
     struct ifaddrmsg *ifa;
     int ret;
 
-    fd = netlink_open(&nladdr, 0);
-    nladdr.nl_pid = 0;
-    memset(&req, '\0', sizeof(req));
-    req.nlh.nlmsg_len = sizeof(req);
-    req.nlh.nlmsg_type = RTM_GETADDR;
-    req.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
-    req.nlh.nlmsg_pid = nladdr.nl_pid;
-    req.nlh.nlmsg_seq = 2;
-    iov.iov_base = buf;
-    msg.msg_name = &nladdr;
-    msg.msg_namelen =  sizeof(nladdr);
-    msg.msg_iov = &iov;
-    msg.msg_iovlen = 1;
-    msg.msg_control = NULL;
-    msg.msg_controllen = 0;
-    msg.msg_flags = 0;
-
-    req.msg.rtgen_family = AF_INET;
-    memcpy(iov.iov_base, &req, sizeof(req));
-    iov.iov_len = sizeof(req);
-    ret = sendmsg(fd, &msg, 0);
-    test_assert(ret == sizeof(req));
-    iov.iov_len = sizeof(buf);
-    recv_resp(fd, &msg, sizeof(struct ifaddrmsg), RTM_NEWADDR, NLM_F_MULTI);
-    ifa = (struct ifaddrmsg *)NLMSG_DATA(buf);
-    test_assert(ifa->ifa_family == AF_INET);
-
-    test_assert(close(fd) == 0);
+    const int afs[3] = { AF_INET, AF_INET6, AF_UNSPEC };
+    for (int i = 0; i < 3; i++) {
+        fd = netlink_open(&nladdr, 0);
+        nladdr.nl_pid = 0;
+        memset(&req, '\0', sizeof(req));
+        req.nlh.nlmsg_len = sizeof(req);
+        req.nlh.nlmsg_type = RTM_GETADDR;
+        req.nlh.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
+        req.nlh.nlmsg_pid = nladdr.nl_pid;
+        req.nlh.nlmsg_seq = 2;
+        iov.iov_base = buf;
+        msg.msg_name = &nladdr;
+        msg.msg_namelen = sizeof(nladdr);
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = NULL;
+        msg.msg_controllen = 0;
+        msg.msg_flags = 0;
+        req.msg.rtgen_family = afs[i];
+        memcpy(iov.iov_base, &req, sizeof(req));
+        iov.iov_len = sizeof(req);
+        ret = sendmsg(fd, &msg, 0);
+        test_assert(ret == sizeof(req));
+        iov.iov_len = sizeof(buf);
+        recv_resp(fd, &msg, sizeof(struct ifaddrmsg), RTM_NEWADDR, NLM_F_MULTI);
+        ifa = (struct ifaddrmsg *)NLMSG_DATA(buf);
+        test_assert(afs[i] != AF_UNSPEC ? (ifa->ifa_family == afs[i]) :
+                    (ifa->ifa_family == AF_INET || ifa->ifa_family == AF_INET6));
+        test_assert(close(fd) == 0);
+    }
 
     fd = netlink_open(&nladdr, 0);
     ret = send(fd, &req, sizeof(req), 0);

@@ -605,6 +605,8 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
         init_pvscsi(kh, sa);
         init_nvme(kh, sa);
         init_ata_pci(kh, sa);
+
+        init_virtio_9p(kh);
     }
 
     /* misc / platform */

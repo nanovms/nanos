@@ -359,10 +359,10 @@ static void nl_enqueue_ifinfo(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
 }
 
 static void nl_enqueue_ifaddr(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, struct netif *netif,
-                              ip4_addr_t addr, ip4_addr_t netmask)
+                              int family, void *addr, int addr_len, int prefix_len)
 {
     int resp_len = NLMSG_ALIGN(sizeof(struct nlmsghdr) + sizeof(struct ifaddrmsg) +
-        RTA_SPACE(sizeof(ip4_addr_t)) + RTA_SPACE(sizeof(netif->name) + 2));
+        RTA_SPACE(addr_len) + RTA_SPACE(sizeof(netif->name) + 2));
     struct nlmsghdr *hdr = allocate(s->sock.h, resp_len);
     if (hdr == INVALID_ADDRESS) {
         msg_err("failed to allocate message\n");
@@ -374,20 +374,34 @@ static void nl_enqueue_ifaddr(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
     hdr->nlmsg_seq = seq;
     hdr->nlmsg_pid = pid;
     struct ifaddrmsg *ifa = (struct ifaddrmsg *)NLMSG_DATA(hdr);
-    ifa->ifa_family = AF_INET;
-    ifa->ifa_prefixlen = 32 - lsb(ntohl(netmask.addr));
+    ifa->ifa_family = family;
+    ifa->ifa_prefixlen = prefix_len;
     ifa->ifa_flags = 0;
     ifa->ifa_scope = netif_is_loopback(netif) ? RT_SCOPE_HOST : RT_SCOPE_UNIVERSE;
     ifa->ifa_index = netif_get_index(netif);
     struct rtattr *rta = (void*)ifa + NLMSG_ALIGN(sizeof(*ifa));
-    rta->rta_len = RTA_LENGTH(sizeof(ip4_addr_t));
+    rta->rta_len = RTA_LENGTH(addr_len);
     rta->rta_type = IFA_ADDRESS;
-    runtime_memcpy(RTA_DATA(rta), &addr, sizeof(addr));
+    runtime_memcpy(RTA_DATA(rta), addr, addr_len);
     rta = RTA_NEXT(rta);
     rta->rta_len = RTA_LENGTH(sizeof(netif->name) + 2);
     rta->rta_type = IFA_LABEL;
     netif_name_cpy(RTA_DATA(rta), netif);
     nl_enqueue(s, hdr, resp_len);
+}
+
+static inline void nl_enqueue_ifaddr4(nlsock s, u16 type, u16 flags, u32 seq, u32 pid,
+                                      struct netif *netif, ip4_addr_t addr, ip4_addr_t netmask)
+{
+    nl_enqueue_ifaddr(s, type, flags, seq, pid, netif, AF_INET, &addr, sizeof(ip4_addr_t),
+                      32 - lsb(ntohl(netmask.addr)));
+}
+
+static inline void nl_enqueue_ifaddr6(nlsock s, u16 type, u16 flags, u32 seq, u32 pid,
+                                      struct netif *netif, ip6_addr_t addr)
+{
+    nl_enqueue_ifaddr(s, type, flags, seq, pid, netif, AF_INET6, &addr.addr, sizeof(addr.addr),
+                      netif_is_loopback(netif) ? 128 : 64);
 }
 
 enum {
@@ -541,8 +555,17 @@ static boolean nl_rtm_getaddr(struct netif *n, void *priv)
 {
     nl_rtm_netif_priv data = priv;
     nlsock s = data->s;
-    nl_enqueue_ifaddr(s, RTM_NEWADDR, NLM_F_MULTI, data->hdr->nlmsg_seq, s->addr.nl_pid, n,
-                      *netif_ip4_addr(n), *netif_ip4_netmask(n));
+    nl_enqueue_ifaddr4(s, RTM_NEWADDR, NLM_F_MULTI, data->hdr->nlmsg_seq, s->addr.nl_pid, n,
+                       *netif_ip4_addr(n), *netif_ip4_netmask(n));
+    return false;
+}
+
+static boolean nl_rtm_getaddr6(struct netif *n, void *priv)
+{
+    nl_rtm_netif_priv data = priv;
+    nlsock s = data->s;
+    nl_enqueue_ifaddr6(s, RTM_NEWADDR, NLM_F_MULTI, data->hdr->nlmsg_seq, s->addr.nl_pid, n,
+                       *netif_ip6_addr(n, 0));
     return false;
 }
 
@@ -605,12 +628,19 @@ static void nl_route_req(nlsock s, struct nlmsghdr *hdr)
             break;
         if (hdr->nlmsg_flags & NLM_F_DUMP) {
             u8 af = msg->rtgen_family;
-            if (af != AF_INET6) {   /* retrieve IPv4 addresses */
+            if (af == AF_INET || af == AF_UNSPEC) {   /* retrieve IPv4 addresses */
                 struct nl_rtm_netif_priv priv = {
                     .s = s,
                     .hdr = hdr,
                 };
                 netif_iterate(nl_rtm_getaddr, &priv);
+            }
+            if (af == AF_INET6 || af == AF_UNSPEC) {  /* IPv6 */
+                struct nl_rtm_netif_priv priv = {
+                    .s = s,
+                    .hdr = hdr,
+                };
+                netif_iterate(nl_rtm_getaddr6, &priv);
             }
             nl_enqueue_done(s, hdr);
         } else {
@@ -1040,7 +1070,7 @@ static void nl_lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
                 if ((reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) &&
                         !ip4_addr_isany(ip_2_ip4(args->ipv4_changed.old_address))) {
                     nl_lock(s);
-                    nl_enqueue_ifaddr(s, RTM_DELADDR, 0, 0, NL_PID_KERNEL, netif,
+                    nl_enqueue_ifaddr4(s, RTM_DELADDR, 0, 0, NL_PID_KERNEL, netif,
                         args->ipv4_changed.old_address->u_addr.ip4,
                         (reason & LWIP_NSC_IPV4_NETMASK_CHANGED) ?
                                 *ip_2_ip4(args->ipv4_changed.old_netmask) :
@@ -1049,7 +1079,7 @@ static void nl_lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
                 }
                 if (!ip4_addr_isany(netif_ip4_addr(netif))) {
                     nl_lock(s);
-                    nl_enqueue_ifaddr(s, RTM_NEWADDR, 0, 0, NL_PID_KERNEL, netif,
+                    nl_enqueue_ifaddr4(s, RTM_NEWADDR, 0, 0, NL_PID_KERNEL, netif,
                         *netif_ip4_addr(netif), *netif_ip4_netmask(netif));
                     nl_unlock(s);
                 }

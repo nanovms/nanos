@@ -39,7 +39,7 @@ static filesystem get_cwd_fs(int dirfd, const char *path, inode *cwd)
     if (*path == '/') {
         fs = p->root_fs;
         filesystem_reserve(fs);
-        *cwd = inode_from_tuple(filesystem_getroot(fs));
+        *cwd = fs->get_inode(fs, filesystem_getroot(fs));
     } else if (dirfd == AT_FDCWD) {
         process_get_cwd(p, &fs, cwd);
     } else {
@@ -76,7 +76,7 @@ static unveil_dir unveil_new_dir(filesystem fs, tuple md, u64 perms)
     if (dir == INVALID_ADDRESS)
         return 0;
     dir->fs = fs;
-    dir->ino = inode_from_tuple(md);
+    dir->ino = fs->get_inode(fs, md);
     dir->perms = perms;
     dir->dir_entries = 0;
     table_set(unv.dirs, dir, dir);
@@ -87,7 +87,7 @@ static unveil_dir unveil_find_dir(filesystem fs, tuple md)
 {
     struct unveil_dir d = {
         .fs = fs,
-        .ino = inode_from_tuple(md),
+        .ino = fs->get_inode(fs, md),
     };
     return table_find(unv.dirs, &d);
 }
@@ -259,7 +259,7 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, buffer pat
                 filesystem_put_node(fs, n);
                 break;
             }
-            inode ino = inode_from_tuple(n);
+            inode ino = fs->get_inode(fs, n);
             filesystem_put_node(fs, n);
             fss = filesystem_get_node(&fs, ino, "..", true, false, false, false, &n, 0);
         } while (fss == FS_STATUS_OK);
@@ -507,7 +507,7 @@ static boolean unveil_unlinkat(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4,
         if (fss == FS_STATUS_OK) {
             struct unveil_dir d = {
                 .fs = fs,
-                .ino = inode_from_tuple(n),
+                .ino = fs->get_inode(fs, n),
             };
             spin_wlock(&unv.lock);
             unveil_dir dir = table_remove(unv.dirs, &d);
