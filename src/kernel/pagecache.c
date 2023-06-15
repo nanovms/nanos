@@ -822,7 +822,11 @@ static void pagecache_finish_pending_writes(pagecache pc, pagecache_volume pv, p
         }
     }
     pagecache_unlock_state(pc);
+#ifdef KERNEL
+    async_apply_status_handler(complete, STATUS_OK);
+#else
     apply(complete, STATUS_OK);
+#endif
 }
 
 #ifdef KERNEL
