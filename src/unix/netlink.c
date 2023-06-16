@@ -564,8 +564,12 @@ static boolean nl_rtm_getaddr6(struct netif *n, void *priv)
 {
     nl_rtm_netif_priv data = priv;
     nlsock s = data->s;
-    nl_enqueue_ifaddr6(s, RTM_NEWADDR, NLM_F_MULTI, data->hdr->nlmsg_seq, s->addr.nl_pid, n,
-                       *netif_ip6_addr(n, 0));
+    for (int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+        if (!ip6_addr_isinvalid(netif_ip6_addr_state(n, i))) {
+            nl_enqueue_ifaddr6(s, RTM_NEWADDR, NLM_F_MULTI, data->hdr->nlmsg_seq, s->addr.nl_pid, n,
+                               *netif_ip6_addr(n, i));
+        }
+    }
     return false;
 }
 
