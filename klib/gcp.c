@@ -10,7 +10,7 @@
 #define GCP_LOG_SERVER_NAME "logging.googleapis.com"
 #define GCP_LOG_MAX_ENTRIES 8192
 
-declare_closure_struct(1, 1, void, gcp_log_setup_complete,
+declare_closure_struct(1, 1, void, gcp_setup_complete,
                        timestamp, retry_backoff,
                        status, s);
 declare_closure_struct(0, 2, void, gcp_log_timer_handler,
@@ -25,7 +25,7 @@ declare_closure_struct(0, 1, void, gcp_log_vh,
 static struct gcp {
     heap h;
     struct console_driver log_driver;
-    closure_struct(gcp_log_setup_complete, log_setup_complete);
+    closure_struct(gcp_setup_complete, setup_complete);
     buffer auth_hdr;
     buffer project_id;
     boolean log_inited;
@@ -268,9 +268,9 @@ static void gcp_log_send_async(void)
                        (timer_handler)&gcp.log_timer_handler);
 }
 
-static void gcp_log_setup(void)
+static void gcp_setup(void)
 {
-    status_handler completion = (status_handler)&gcp.log_setup_complete;
+    status_handler completion = (status_handler)&gcp.setup_complete;
     if (!gcp_instance_md_available()) {
         apply(completion, timm("result", "GCP instance metadata not available"));
         return;
@@ -279,31 +279,33 @@ static void gcp_log_setup(void)
     status_handler sh = apply_merge(m);
     if (!gcp.project_id)
         gcp_project_id_get(apply_merge(m));
-    if (!gcp.log_id)
+    if (gcp.log_entries && !gcp.log_id)
         gcp_hostname_get(apply_merge(m));
     gcp_access_token_get(apply_merge(m));
     apply(sh, STATUS_OK);
 }
 
-closure_function(1, 2, void, gcp_log_setup_retry,
+closure_function(1, 2, void, gcp_setup_retry,
                  struct timer, t,
                  u64, expiry, u64, overruns)
 {
     if (overruns != timer_disabled)
-        gcp_log_setup();
+        gcp_setup();
     closure_finish();
 }
 
-define_closure_function(1, 1, void, gcp_log_setup_complete,
+define_closure_function(1, 1, void, gcp_setup_complete,
                         timestamp, retry_backoff,
                         status, s)
 {
     if (is_ok(s)) {
         bound(retry_backoff) = seconds(1);
-        spin_lock(&gcp.lock);
-        gcp.log_inited = true;
-        gcp_log_send_async();
-        spin_unlock(&gcp.lock);
+        if (gcp.log_entries) {
+            spin_lock(&gcp.lock);
+            gcp.log_inited = true;
+            gcp_log_send_async();
+            spin_unlock(&gcp.lock);
+        }
     } else {
         timestamp retry_backoff = bound(retry_backoff);
 
@@ -318,53 +320,39 @@ define_closure_function(1, 1, void, gcp_log_setup_complete,
             bound(retry_backoff) <<= 1;
         struct timer t = {0};
         init_timer(&t);
-        timer_handler setup_retry = closure(gcp.h, gcp_log_setup_retry, t);
+        timer_handler setup_retry = closure(gcp.h, gcp_setup_retry, t);
         if (setup_retry != INVALID_ADDRESS)
-            register_timer(kernel_timers, &closure_member(gcp_log_setup_retry, setup_retry, t),
+            register_timer(kernel_timers, &closure_member(gcp_setup_retry, setup_retry, t),
                            CLOCK_ID_MONOTONIC, retry_backoff, false, 0, setup_retry);
     }
 }
 
-closure_function(1, 0, void, gcp_log_connect_to,
-                 ip_addr_t, addr)
+static void gcp_dns_cb(const char *name, const ip_addr_t *addr, void *cb_arg)
 {
-    if (tls_connect(&bound(addr), 443, (connection_handler)&gcp.log_conn_handler) < 0) {
-        msg_err("failed to connect to log server\n");
-        spin_lock(&gcp.lock);
-        gcp_log_send_async();
-        spin_unlock(&gcp.lock);
-    }
-    closure_finish();
-}
-
-static void gcp_log_dns_cb(const char *name, const ip_addr_t *addr, void *cb_arg)
-{
+    connection_handler ch = cb_arg;
     if (addr) {
-        thunk t = closure(gcp.h, gcp_log_connect_to, *addr);
-        if (t != INVALID_ADDRESS)
-            async_apply(t);
-        else
-            msg_err("failed to allocate closure\n");
+        if (tls_connect((ip_addr_t *)addr, 443, ch) < 0) {
+            msg_err("failed to connect to server %s\n", name);
+            apply(ch, 0);
+        }
     } else {
-        msg_err("failed to resolve log server name\n");
-        spin_lock(&gcp.lock);
-        gcp_log_send_async();
-        spin_unlock(&gcp.lock);
+        msg_err("failed to resolve server name %s\n", name);
+        apply(ch, 0);
     }
 }
 
-static void gcp_log_connect(void)
+static void gcp_connect(const char *server, connection_handler ch)
 {
     ip_addr_t addr;
-    err_t err = dns_gethostbyname(GCP_LOG_SERVER_NAME, &addr, gcp_log_dns_cb, 0);
+    err_t err = dns_gethostbyname(server, &addr, gcp_dns_cb, ch);
     switch (err) {
     case ERR_OK:
-        gcp_log_dns_cb(GCP_LOG_SERVER_NAME, &addr, 0);
+        gcp_dns_cb(server, &addr, ch);
         break;
     case ERR_INPROGRESS:
         break;
     default:
-        gcp_log_dns_cb(GCP_LOG_SERVER_NAME, 0, 0);
+        gcp_dns_cb(server, 0, ch);
     }
 }
 
@@ -406,7 +394,7 @@ define_closure_function(0, 1, void, gcp_log_vh,
             gcp_log_pending_delete();
         } else if (!buffer_strcmp(status_code, "401")) {
             /* The access token must have expired: renew it. */
-            gcp_log_setup();
+            gcp_setup();
         } else {
             msg_err("unexpected response %v\n", v);
             gcp_log_pending_delete();
@@ -558,7 +546,7 @@ define_closure_function(0, 2, void, gcp_log_timer_handler,
     if (overruns == timer_disabled)
         return;
     if (gcp.log_inited)
-        gcp_log_connect();
+        gcp_connect(GCP_LOG_SERVER_NAME, (connection_handler)&gcp.log_conn_handler);
 }
 
 int init(status_handler complete)
@@ -572,9 +560,9 @@ int init(status_handler complete)
     gcp.h = heap_locked(get_kernel_heaps());
     gcp.auth_hdr = allocate_buffer(gcp.h, 2 * KB);
     assert(gcp.auth_hdr != INVALID_ADDRESS);
+    boolean config_empty = true;
     tuple logging = get_tuple(gcp_config, sym(logging));
     if (logging) {
-        init_closure(&gcp.log_setup_complete, gcp_log_setup_complete, seconds(1));
         gcp.log_id = get_string(logging, sym(log_id));
         gcp.log_entries = allocate_vector(gcp.h, GCP_LOG_MAX_ENTRIES);
         assert(gcp.log_entries != INVALID_ADDRESS);
@@ -586,7 +574,11 @@ int init(status_handler complete)
         gcp.log_driver.write = gcp_log_write;
         gcp.log_driver.name = "gcp";
         attach_console_driver(&gcp.log_driver);
-        gcp_log_setup();
+        config_empty = false;
+    }
+    if (!config_empty) {
+        init_closure(&gcp.setup_complete, gcp_setup_complete, seconds(1));
+        gcp_setup();
     }
     return KLIB_INIT_OK;
 }
