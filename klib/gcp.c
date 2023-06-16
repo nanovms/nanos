@@ -3,12 +3,15 @@
 #include <http.h>
 #include <lwip.h>
 #include <mktime.h>
+#include <pagecache.h>
 #include <tls.h>
 
 #define GCP_MD_SERVER_ADDR  IPADDR4_INIT_BYTES(169, 254, 169, 254)
 
 #define GCP_LOG_SERVER_NAME "logging.googleapis.com"
 #define GCP_LOG_MAX_ENTRIES 8192
+
+#define GCP_METRICS_SERVER_NAME "monitoring.googleapis.com"
 
 declare_closure_struct(1, 1, void, gcp_setup_complete,
                        timestamp, retry_backoff,
@@ -21,6 +24,14 @@ declare_closure_struct(0, 1, boolean, gcp_log_in_handler,
                        buffer, data);
 declare_closure_struct(0, 1, void, gcp_log_vh,
                        value, v);
+declare_closure_struct(0, 2, void, gcp_metrics_timer_handler,
+                       u64, expiry, u64, overruns);
+declare_closure_struct(0, 1, input_buffer_handler, gcp_metrics_conn_handler,
+                       buffer_handler, out)
+declare_closure_struct(0, 1, boolean, gcp_metrics_in_handler,
+                       buffer, data);
+declare_closure_struct(0, 1, void, gcp_metrics_value_handler,
+                       value, v);
 
 static struct gcp {
     heap h;
@@ -28,6 +39,8 @@ static struct gcp {
     closure_struct(gcp_setup_complete, setup_complete);
     buffer auth_hdr;
     buffer project_id;
+    buffer zone;
+    buffer instance_id;
     boolean log_inited;
     buffer log_id;
     vector log_entries;
@@ -40,6 +53,16 @@ static struct gcp {
     boolean log_resp_recved;
     closure_struct(gcp_log_vh, log_vh);
     buffer_handler log_resp_parser;
+    timestamp metrics_interval;
+    buffer metrics_url;
+    boolean metrics_pending;
+    struct timer metrics_timer;
+    closure_struct(gcp_metrics_timer_handler, metrics_timer_handler);
+    closure_struct(gcp_metrics_conn_handler, metrics_conn_handler);
+    buffer_handler metrics_out;
+    closure_struct(gcp_metrics_in_handler, metrics_in_handler);
+    buffer_handler metrics_resp_parser;
+    closure_struct(gcp_metrics_value_handler, metrics_value_handler);
     struct spinlock lock;
 } gcp;
 
@@ -67,7 +90,23 @@ closure_function(1, 1, void, gcp_project_id_vh,
     gcp.project_id = clone_buffer(gcp.h, get(v, sym(content)));
     status s;
     if (gcp.project_id != INVALID_ADDRESS) {
-        s = STATUS_OK;
+        if (gcp.metrics_interval) {
+            /* Allocate a buffer large enough to contain the fixed strings concatenated with the
+             * project ID. */
+            gcp.metrics_url = allocate_buffer(gcp.h, 24 + buffer_length(gcp.project_id));
+            if (gcp.metrics_url != INVALID_ADDRESS) {
+                buffer_write_cstring(gcp.metrics_url, "/v3/projects/");
+                push_buffer(gcp.metrics_url, gcp.project_id);
+                buffer_write_cstring(gcp.metrics_url, "/timeSeries");
+                s = STATUS_OK;
+            } else {
+                deallocate_buffer(gcp.project_id);
+                gcp.project_id = 0;
+                s = timm("result", "failed to allocate metrics URL buffer");
+            }
+        } else {
+            s = STATUS_OK;
+        }
     } else {
         gcp.project_id = 0;
         s = timm("result", "failed to allocate project ID buffer");
@@ -86,6 +125,53 @@ closure_function(1, 1, void, gcp_hostname_vh,
     } else {
         gcp.log_id = 0;
         s = timm("result", "failed to allocate log ID buffer");
+    }
+    apply(bound(sh), s);
+}
+
+closure_function(1, 1, void, gcp_zone_vh,
+                 status_handler, sh,
+                 value, v)
+{
+    buffer content = get(v, sym(content));
+    status s;
+
+    /* content is in the following format: projects/PROJECT_NUM/zones/ZONE */
+    int offset = buffer_strstr(content, "/zones/");
+    if (offset < 0) {
+        s = timm("result", "unknown zone format '%b'", content);
+        goto out;
+    }
+    offset += sizeof("/zones/") - 1;
+    int length = buffer_length(content) - offset;
+    if (length == 0) {
+        s = timm("result", "empty zone");
+        goto out;
+    }
+
+    gcp.zone = allocate_buffer(gcp.h, length);
+    if (gcp.zone != INVALID_ADDRESS) {
+        buffer_write(gcp.zone, buffer_ref(content, offset), length);
+        s = STATUS_OK;
+    } else {
+        gcp.zone = 0;
+        s = timm("result", "failed to allocate zone buffer");
+    }
+  out:
+    apply(bound(sh), s);
+}
+
+closure_function(1, 1, void, gcp_instance_id_vh,
+                 status_handler, sh,
+                 value, v)
+{
+    gcp.instance_id = clone_buffer(gcp.h, get(v, sym(content)));
+    status s;
+    if (gcp.instance_id != INVALID_ADDRESS) {
+        s = STATUS_OK;
+    } else {
+        gcp.instance_id = 0;
+        s = timm("result", "failed to allocate instance ID buffer");
     }
     apply(bound(sh), s);
 }
@@ -242,6 +328,40 @@ static void gcp_hostname_get(status_handler sh)
     gcp_instance_md_get(ch, sh);
 }
 
+static void gcp_zone_get(status_handler sh)
+{
+    value_handler vh = closure(gcp.h, gcp_zone_vh, sh);
+    if (vh == INVALID_ADDRESS) {
+        apply(sh, timm("result", "failed to allocate zone value handler"));
+        return;
+    }
+    connection_handler ch = closure(gcp.h, gcp_instance_md_ch,
+                                    "/computeMetadata/v1/instance/zone", vh, sh);
+    if (ch == INVALID_ADDRESS) {
+        deallocate_closure(vh);
+        apply(sh, timm("result", "failed to allocate zone connection handler"));
+        return;
+    }
+    gcp_instance_md_get(ch, sh);
+}
+
+static void gcp_instance_id_get(status_handler sh)
+{
+    value_handler vh = closure(gcp.h, gcp_instance_id_vh, sh);
+    if (vh == INVALID_ADDRESS) {
+        apply(sh, timm("result", "failed to allocate instance ID value handler"));
+        return;
+    }
+    connection_handler ch = closure(gcp.h, gcp_instance_md_ch,
+                                    "/computeMetadata/v1/instance/id", vh, sh);
+    if (ch == INVALID_ADDRESS) {
+        deallocate_closure(vh);
+        apply(sh, timm("result", "failed to allocate instance ID connection handler"));
+        return;
+    }
+    gcp_instance_md_get(ch, sh);
+}
+
 static void gcp_access_token_get(status_handler sh)
 {
     value_handler vh = closure(gcp.h, gcp_access_token_vh, sh);
@@ -281,6 +401,12 @@ static void gcp_setup(void)
         gcp_project_id_get(apply_merge(m));
     if (gcp.log_entries && !gcp.log_id)
         gcp_hostname_get(apply_merge(m));
+    if (gcp.metrics_interval) {
+        if (!gcp.zone)
+            gcp_zone_get(apply_merge(m));
+        if (!gcp.instance_id)
+            gcp_instance_id_get(apply_merge(m));
+    }
     gcp_access_token_get(apply_merge(m));
     apply(sh, STATUS_OK);
 }
@@ -306,6 +432,9 @@ define_closure_function(1, 1, void, gcp_setup_complete,
             gcp_log_send_async();
             spin_unlock(&gcp.lock);
         }
+        if (gcp.metrics_interval && !timer_is_active(&gcp.metrics_timer))
+            register_timer(kernel_timers, &gcp.metrics_timer, CLOCK_ID_MONOTONIC, 0, false,
+                           gcp.metrics_interval, (timer_handler)&gcp.metrics_timer_handler);
     } else {
         timestamp retry_backoff = bound(retry_backoff);
 
@@ -549,6 +678,131 @@ define_closure_function(0, 2, void, gcp_log_timer_handler,
         gcp_connect(GCP_LOG_SERVER_NAME, (connection_handler)&gcp.log_conn_handler);
 }
 
+define_closure_function(0, 2, void, gcp_metrics_timer_handler,
+                        u64, expiry, u64, overruns)
+{
+    if ((overruns == timer_disabled) || gcp.metrics_pending)
+        return;
+    gcp.metrics_pending = true;
+    gcp_connect(GCP_METRICS_SERVER_NAME, (connection_handler)&gcp.metrics_conn_handler);
+}
+
+static void gcp_metrics_add_memory(buffer body, boolean first, const char *type, const char *state,
+                                   u64 value, const char *interval)
+{
+    bprintf(body, "%s{\"resource\":{\"type\":\"gce_instance\""
+                  ",\"labels\":{\"zone\":\"%b\",\"instance_id\":\"%b\"}}"
+                  ",\"metric\":{\"type\":\"agent.googleapis.com/memory/%s\""
+                  ",\"labels\":{\"state\":\"%s\"}}"
+                  ",\"points\":[{\"value\":{\"doubleValue\":%ld},\"interval\":%s}]}",
+                  first ? "" : ",", gcp.zone, gcp.instance_id, type, state, value, interval);
+}
+
+static boolean gcp_metrics_post(void)
+{
+    tuple req = allocate_tuple();
+    if (req == INVALID_ADDRESS)
+        return false;
+    set(req, sym(url), gcp.metrics_url);
+    set(req, sym(Connection), alloca_wrap_cstring("close"));
+    set(req, sym(Authorization), gcp.auth_hdr);
+    set(req, sym(Host), alloca_wrap_cstring(GCP_METRICS_SERVER_NAME));
+    buffer app_json = alloca_wrap_cstring("application/json");
+    set(req, sym(Accept), app_json);
+    set(req, sym(Content-Type), app_json);
+    boolean success = false;
+    buffer body = allocate_buffer(gcp.h, 2 * KB);
+    if (body == INVALID_ADDRESS)
+        goto req_dealloc;
+    heap phys = (heap)heap_physical(get_kernel_heaps());
+    u64 total = heap_total(phys);
+    u64 free = total - heap_allocated(phys);
+    u64 cached = pagecache_get_occupancy();
+    u64 used = total - free - cached;
+    u64 seconds = sec_from_timestamp(kern_now(CLOCK_ID_REALTIME));
+    struct tm tm;
+    gmtime_r(&seconds, &tm);
+    char interval[40];
+    rsnprintf(interval, sizeof(interval), "{\"endTime\":\"%d-%02d-%02dT%02d:%02d:%02dZ\"}",
+              1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    buffer_write_cstring(body, "{\"timeSeries\":[");
+    gcp_metrics_add_memory(body, true, "bytes_used", "cached", cached, interval);
+    gcp_metrics_add_memory(body, false, "bytes_used", "free", free, interval);
+    gcp_metrics_add_memory(body, false, "bytes_used", "used", used, interval);
+    gcp_metrics_add_memory(body, false, "percent_used", "cached", cached * 100 / total, interval);
+    gcp_metrics_add_memory(body, false, "percent_used", "free", free * 100 / total, interval);
+    gcp_metrics_add_memory(body, false, "percent_used", "used", used * 100 / total, interval);
+    if (!buffer_write_cstring(body, "]}"))
+        goto req_done;
+    status s = http_request(gcp.h, gcp.metrics_out, HTTP_REQUEST_METHOD_POST, req, body);
+    success = is_ok(s);
+    if (!success) {
+        msg_err("%v\n", s);
+        timm_dealloc(s);
+    }
+  req_done:
+    if (!success)
+        deallocate_buffer(body);
+  req_dealloc:
+    deallocate_value(req);
+    return success;
+}
+
+define_closure_function(0, 1, input_buffer_handler, gcp_metrics_conn_handler,
+                        buffer_handler, out)
+{
+    input_buffer_handler ibh;
+    if (out) {
+        gcp.metrics_out = out;
+        if (gcp_metrics_post())
+            ibh = (input_buffer_handler)&gcp.metrics_in_handler;
+        else
+            ibh = 0;
+    } else {
+        ibh = 0;
+    }
+    if (!ibh)
+        gcp.metrics_pending = false;
+    return ibh;
+}
+
+define_closure_function(0, 1, boolean, gcp_metrics_in_handler,
+                        buffer, data)
+{
+    if (data) {
+        status s = apply(gcp.metrics_resp_parser, data);
+        if (is_ok(s)) {
+            if (!gcp.metrics_out)
+                return true;
+        } else {
+            msg_err("failed to parse response: %v\n", s);
+            timm_dealloc(s);
+            apply(gcp.metrics_out, 0);
+            return true;
+        }
+    } else {    /* connection closed */
+        gcp.metrics_pending = false;
+    }
+    return false;
+}
+
+define_closure_function(0, 1, void, gcp_metrics_value_handler,
+                        value, v)
+{
+    tuple resp = get_tuple(v, sym(start_line));
+    buffer status_code = get(resp, intern_u64(1));
+    if (status_code) {
+        if (!buffer_strcmp(status_code, "401")) {
+            /* The access token must have expired: renew it. */
+            gcp_setup();
+        } else if (buffer_strcmp(status_code, "200")) {
+            msg_err("unexpected response %v\n", v);
+        }
+    }
+    apply(gcp.metrics_out, 0);
+    gcp.metrics_out = 0;    /* signal to input buffer handler that connection is closed */
+}
+
 int init(status_handler complete)
 {
     tuple root = get_root_tuple();
@@ -574,6 +828,30 @@ int init(status_handler complete)
         gcp.log_driver.write = gcp_log_write;
         gcp.log_driver.name = "gcp";
         attach_console_driver(&gcp.log_driver);
+        config_empty = false;
+    }
+    tuple metrics = get_tuple(gcp_config, sym(metrics));
+    if (metrics) {
+        const u64 min_interval = 60;
+        u64 interval;
+        if (get_u64(metrics, sym(interval), &interval)) {
+            if (interval < min_interval) {
+                rprintf("GCP: invalid metrics interval (minimum allowed value %ld seconds)\n",
+                        min_interval);
+                return KLIB_INIT_FAILED;
+            }
+        } else {
+            interval = min_interval;
+        }
+        gcp.metrics_interval = seconds(interval);
+        init_timer(&gcp.metrics_timer);
+        init_closure(&gcp.metrics_timer_handler, gcp_metrics_timer_handler);
+        init_closure(&gcp.metrics_conn_handler, gcp_metrics_conn_handler);
+        init_closure(&gcp.metrics_in_handler, gcp_metrics_in_handler);
+        gcp.metrics_resp_parser = allocate_http_parser(gcp.h,
+                                                       init_closure(&gcp.metrics_value_handler,
+                                                                    gcp_metrics_value_handler));
+        assert(gcp.metrics_resp_parser != INVALID_ADDRESS);
         config_empty = false;
     }
     if (!config_empty) {
