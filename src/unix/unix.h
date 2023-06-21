@@ -8,6 +8,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs);
 void process_get_cwd(process p, filesystem *cwd_fs, inode *cwd);
 thread create_thread(process p, u64 tid);
 process exec_elf(buffer ex, process kernel_process);
+void unix_shutdown(void);
 
 void program_set_perms(tuple root, tuple prog);
 

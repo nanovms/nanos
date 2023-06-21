@@ -644,6 +644,40 @@ out:
     return INVALID_ADDRESS;
 }
 
+closure_function(1, 2, void, shutdown_timeout,
+                 struct timer, shutdown_timer,
+                 u64, expiry, u64, overruns)
+{
+    closure_finish();
+    if (overruns == timer_disabled)
+        return;
+    if (!shutting_down)
+        kernel_shutdown(0);
+}
+
+void unix_shutdown(void)
+{
+    heap h = heap_locked(get_kernel_heaps());
+    /* Skip kernel unix process for shutdown */
+    for (int i = 1; i < MAX_PROCESSES; i++) {
+        process p = processes[i];
+        if (p == 0)
+            continue;
+        struct siginfo *si = allocate_zero(h, sizeof(struct siginfo));
+        if (si == INVALID_ADDRESS) {
+            kernel_shutdown(0);
+            return;
+        }
+        si->si_signo = SIGTERM;
+        deliver_signal_to_process(p, si);
+    }
+    struct timer shutdown_timer = {0};
+    init_timer(&shutdown_timer);
+    timer_handler th = closure(h, shutdown_timeout, shutdown_timer);
+    register_timer(kernel_timers, &closure_member(shutdown_timeout, th, shutdown_timer), 
+        CLOCK_ID_MONOTONIC, seconds(UNIX_SHUTDOWN_TIMEOUT_SECS), false, 0, th);
+}
+
 void program_set_perms(tuple root, tuple prog)
 {
     if (get(root, sym(exec_protection)))

@@ -50,6 +50,8 @@ closure_function(0, 1, void, hv_sync_complete,
     HV_SHUTDOWN();
 }
 
+void unix_shutdown(void);
+
 static void vmbus_shutdown_cb(struct vmbus_channel *chan, void *xsc)
 {
    struct vmbus_ic_softc *sc = xsc;
@@ -115,7 +117,7 @@ static void vmbus_shutdown_cb(struct vmbus_channel *chan, void *xsc)
    vmbus_ic_sendresp(sc, chan, data, dlen, xactid);
 
    if (do_shutdown)
-       kernel_shutdown(0);
+       unix_shutdown();
 }
 
 

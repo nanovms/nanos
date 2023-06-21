@@ -92,6 +92,9 @@
 #define FRAME_TRACE_DEPTH 32
 #define STACK_TRACE_DEPTH 32
 
+/* how long to wait for program to exit on sigterm */
+#define UNIX_SHUTDOWN_TIMEOUT_SECS 30
+
 /* net parameters (not covered by lwipopts.h) */
 
 /* number of iterations to spin for lwip lock acquire before suspending context */
