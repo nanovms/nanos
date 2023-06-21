@@ -1119,14 +1119,16 @@ static void default_signal_action(thread t, queued_signal qs)
         /* ignore */
         return;
     }
-    dump_sig_info(t, qs);
-    if (frame_is_full(t->context.frame)) {
-        rprintf("\n*** Thread context:\n");
-        dump_context(&t->context);
-    }
-    if (t->syscall && frame_is_full(t->syscall->uc.kc.context.frame)) {
-        rprintf("\n*** Syscall context:\n");
-        dump_context(&t->syscall->uc.kc.context);
+    if (signum != SIGTERM) {
+        dump_sig_info(t, qs);
+        if (frame_is_full(t->context.frame)) {
+            rprintf("\n*** Thread context:\n");
+            dump_context(&t->context);
+        }
+        if (t->syscall && frame_is_full(t->syscall->uc.kc.context.frame)) {
+            rprintf("\n*** Syscall context:\n");
+            dump_context(&t->syscall->uc.kc.context);
+        }
     }
     thread_log(t, fate);
     halt_with_code(VM_EXIT_SIGNAL(signum), "%s\n", fate);
