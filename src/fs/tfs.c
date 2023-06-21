@@ -1278,11 +1278,11 @@ static fs_status tfs_rename(filesystem fs, tuple old_parent, string old_name, tu
     }
     tfs tfs = (struct tfs *)fs;
     set(old_md, sym_this(".."), 0);
-    fs_status s = filesystem_write_eav(tfs, new_parent, intern(new_name), old_md);
+    fs_status s = filesystem_write_eav(tfs, children(new_parent), intern(new_name), old_md);
     if (s == FS_STATUS_OK) {
         if (exchange && new_md)
             set(new_md, sym_this(".."), 0);
-        s = filesystem_write_eav(tfs, old_parent, intern(old_name), exchange ? new_md : 0);
+        s = filesystem_write_eav(tfs, children(old_parent), intern(old_name), exchange ? new_md : 0);
     }
     if ((s == FS_STATUS_OK) && !exchange && new_md)
         *destruct_md = tfs_file_unlink(tfs, new_md);
