@@ -51,6 +51,7 @@ status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate);
 status xenbus_watch_state(buffer path, xenstore_watch_handler handler, boolean watch);
 
 status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result);
+status xenstore_read_string(u32 tx_id, buffer path, const char *node, buffer result);
 status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer request, buffer response);
 status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char *format, ...);
 status xenstore_transaction_start(u32 *tx_id);

@@ -27,6 +27,12 @@
 declare_closure_struct(0, 1, void, xen_watch_handler,
                        const char *, path);
 declare_closure_struct(0, 0, void, xen_scan_service);
+declare_closure_struct(0, 1, void, xen_shutdown_watcher,
+                       const char *, path);
+declare_closure_struct(1, 0, void, xen_shutdown_handler,
+                       buffer, b);
+
+status xenstore_watch(buffer path, xenstore_watch_handler handler, boolean watch);
 
 typedef struct xen_platform_info {
     heap    h;                  /* general heap for internal use */
@@ -50,6 +56,8 @@ typedef struct xen_platform_info {
 
     closure_struct(xen_watch_handler, watch_handler);
     closure_struct(xen_scan_service, scan_service);
+    closure_struct(xen_shutdown_watcher, shutdown_watcher);
+    closure_struct(xen_shutdown_handler, shutdown_handler);
     u64 scanning;
 
     /* grant table */
@@ -379,6 +387,33 @@ closure_function(1, 0, void, xen_per_cpu_init,
     xen_setup_vcpu(current_cpu()->id, bound(shared_info_phys));
 }
 
+void unix_shutdown(void);
+
+define_closure_function(1, 0, void, xen_shutdown_handler,
+                 buffer, b)
+{
+    buffer rsp = bound(b);
+    buffer_clear(rsp);
+    u32 txid = 0;
+    status s = xenstore_transaction_start(&txid);
+    if (!is_ok(s))
+        return;
+    s = xenstore_read_string(txid, alloca_wrap_cstring("control"), "shutdown", rsp);
+    if (!is_ok(s) || buffer_length(rsp) == 0)
+        goto out;
+    s = xenstore_sync_printf(txid, alloca_wrap_cstring("control"), "shutdown", "\0");
+out:
+    xenstore_transaction_end(txid, is_ok(s) ? false : true);
+    if (buffer_compare_with_cstring(rsp, "poweroff") || buffer_compare_with_cstring(rsp, "halt"))
+        unix_shutdown();
+}
+
+define_closure_function(0, 1, void, xen_shutdown_watcher,
+                 const char *, path)
+{
+    async_apply_bh((thunk)&xen_info.shutdown_handler);
+}
+
 boolean xen_detect(kernel_heaps kh)
 {
     u32 v[4];
@@ -533,6 +568,10 @@ boolean xen_detect(kernel_heaps kh)
         msg_err("failed to set up grant tables\n");
         goto out_unregister_irq;
     }
+
+    init_closure(&xen_info.shutdown_handler, xen_shutdown_handler, allocate_buffer(xen_info.h, 16));
+    if (!is_ok(xenstore_watch(alloca_wrap_cstring("control/shutdown"), init_closure(&xen_info.shutdown_watcher, xen_shutdown_watcher), true)))
+        msg_err("failed to register shutdown handler\n");
 
     xen_debug("xen initialization complete");
     list_init(&xen_info.driver_list);
@@ -780,14 +819,8 @@ status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char
 
 status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
 {
-    buffer request = allocate_buffer(xen_info.h, 64);
-    assert(push_buffer(request, path));
-    push_u8(request, '/');
-    assert(buffer_write(request, node, runtime_strlen(node)));
-    push_u8(request, 0);
-
     buffer response = allocate_buffer(xen_info.h, 16);
-    status s = xenstore_sync_request(tx_id, XS_READ, request, response);
+    status s = xenstore_read_string(tx_id, path, node, response);
     if (!is_ok(s))
         goto out;
     u64 val;
@@ -796,9 +829,24 @@ status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
         goto out;
     }
     *result = val;
+out:
+    deallocate_buffer(response);
+    return s;
+}
+
+status xenstore_read_string(u32 tx_id, buffer path, const char *node, buffer response)
+{
+    buffer request = allocate_buffer(xen_info.h, 64);
+    assert(push_buffer(request, path));
+    push_u8(request, '/');
+    assert(buffer_write(request, node, runtime_strlen(node)));
+    push_u8(request, 0);
+
+    status s = xenstore_sync_request(tx_id, XS_READ, request, response);
+    if (!is_ok(s))
+        goto out;
   out:
     deallocate_buffer(request);
-    deallocate_buffer(response);
     return s;
 }
 
@@ -821,7 +869,7 @@ status xenstore_watch(buffer path, xenstore_watch_handler handler, boolean watch
 status xenbus_get_state(buffer path, XenbusState *state)
 {
     assert(path);
-    u64 val;
+    u64 val = 0;
     status s = xenstore_read_u64(0, path, "state", &val);
     if (!is_ok(s))
         *state = XenbusStateUnknown;
