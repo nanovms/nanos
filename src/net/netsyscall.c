@@ -677,13 +677,13 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         if (avail == 0) {
           full:
             tcp_unlock(tcp_lw);
+            tcp_unref(tcp_lw);
             if ((bqflags & BLOCKQ_ACTION_BLOCKED) == 0 &&
                 ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT))) {
                 net_debug(" send buf full and non-blocking, return EAGAIN\n");
                 rv = -EAGAIN;
                 goto out;
             }
-            tcp_unref(tcp_lw);
             net_debug(" send buf full, sleep\n");
             return blockq_block_required((unix_context)ctx, bqflags);
         }
@@ -752,11 +752,11 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         }
     }
     tcp_unlock(tcp_lw);
+    tcp_unref(tcp_lw);
     goto out;
   out_unlock:
     netsock_unlock(s);
   out:
-    tcp_unref(tcp_lw);
     closure_finish();
     net_debug("   completion %p, rv %ld\n", completion, rv);
     apply(completion, rv);
