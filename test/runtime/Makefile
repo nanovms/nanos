@@ -1,4 +1,5 @@
 # these are built for the target platform (Linux x86_64)
+DEBUG_STRIP=y
 PROGRAMS= \
 	aio \
 	dup \
