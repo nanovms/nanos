@@ -808,9 +808,9 @@ boolean mm_register_mem_cleaner(mem_cleaner cleaner);
 
 kernel_heaps get_kernel_heaps(void);
 
-static inline boolean is_low_memory_machine(kernel_heaps kh)
+static inline boolean is_low_memory_machine(void)
 {
-    return (heap_total((heap)heap_physical(kh)) < LOW_MEMORY_THRESHOLD);
+    return (heap_total((heap)heap_physical(get_kernel_heaps())) < LOW_MEMORY_THRESHOLD);
 }
 
 struct filesystem *get_root_fs(void);

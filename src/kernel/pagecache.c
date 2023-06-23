@@ -1780,7 +1780,10 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     assert(pagesize == U64_FROM_BIT(pc->page_order));
     pc->h = general;
 #ifdef KERNEL
-    pc->contiguous = (heap)allocate_objcache(general, contiguous, PAGESIZE, PAGESIZE_2M, true);
+    pc->contiguous = (heap)allocate_objcache(general, contiguous, PAGESIZE,
+                                             is_low_memory_machine() ?
+                                             PAGECACHE_LOWMEM_CONTIGUOUS_PAGESIZE :
+                                             PAGESIZE_2M, true);
 #else
     pc->contiguous = contiguous;
 #endif

@@ -17,6 +17,7 @@
 #include <lwip/nd6.h>
 
 #define MAX_LWIP_ALLOC_ORDER 16
+#define MAX_LOWMEM_LWIP_ALLOC_ORDER 11
 
 status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
 

@@ -75,9 +75,10 @@ void init_kernel_heaps(void)
 #endif
     assert(heaps.linear_backed != INVALID_ADDRESS);
 
-    bytes pagesize = is_low_memory_machine(&heaps) ?
-                     U64_FROM_BIT(MAX_MCACHE_ORDER + 1) : PAGESIZE_2M;
-    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.linear_backed, 5, MAX_MCACHE_ORDER,
+    boolean is_lowmem = is_low_memory_machine();
+    int max_mcache_order = is_lowmem ? MAX_LOWMEM_MCACHE_ORDER : MAX_MCACHE_ORDER;
+    bytes pagesize = is_lowmem ? U64_FROM_BIT(max_mcache_order + 1) : PAGESIZE_2M;
+    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.linear_backed, 5, max_mcache_order,
                                     pagesize);
     assert(heaps.general != INVALID_ADDRESS);
 
