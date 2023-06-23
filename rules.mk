@@ -248,6 +248,8 @@ ifeq ($1,kernel.elf)
 	$(call cmd,mvdis)
 endif
 else
+LDFLAGS-$1.dbg= $$(LDFLAGS-$1)
+LIBS-$1.dbg= $$(LIBS-$1)
 $$(PROG-$1).dbg: $$(OBJS-$1)
 	@$(MKDIR) $$(dir $$@)
 	$$(call cmd,ld)
