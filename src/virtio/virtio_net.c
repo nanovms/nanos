@@ -79,7 +79,7 @@ typedef struct xpbuf
     struct pbuf_custom p;
     vnet vn;
     closure_struct(vnet_input, input);
-} *xpbuf;
+} __attribute__((aligned(8))) *xpbuf;
 
 
 closure_function(1, 1, void, tx_complete,
@@ -277,6 +277,12 @@ static err_t virtioif_init(struct netif *netif)
     return ERR_OK;
 }
 
+static inline u64 find_page_size(bytes each, int n)
+{
+    /* extra element to cover objcache meta */
+    return 1ul << find_order(each * (n + 1));
+}
+
 static void virtio_net_attach(vtdev dev)
 {
     //u32 badness = VIRTIO_F_BAD_FEATURE | VIRTIO_NET_F_CSUM | VIRTIO_NET_F_GUEST_CSUM |
@@ -294,11 +300,6 @@ static void virtio_net_attach(vtdev dev)
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
     vn->rxbuflen = pad(vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) +
                        1500, 8);    /* padding to make xpbuf structures aligned to 8 bytes */
-    virtio_net_debug("%s: net_header_len %d, rxbuflen %d\n", __func__, vn->net_header_len, vn->rxbuflen);
-    vn->rxbuffers = allocate_objcache(h, (heap)contiguous, vn->rxbuflen + sizeof(struct xpbuf),
-                                      PAGESIZE_2M, true);
-    vn->txhandlers = allocate_objcache(h, (heap)contiguous, sizeof(closure_struct_type(tx_complete)),
-                                      PAGESIZE, true);
     mm_register_mem_cleaner(init_closure(&vn->mem_cleaner, vnet_mem_cleaner));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
@@ -306,12 +307,22 @@ static void virtio_net_attach(vtdev dev)
     virtio_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
     virtqueue_set_polling(vn->txq, true);
     virtio_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
-    // just need vn->net_header_len contig bytes really
+    bytes rx_allocsize = vn->rxbuflen + sizeof(struct xpbuf);
+    bytes rxbuffers_pagesize = find_page_size(rx_allocsize, virtqueue_entries(vn->rxq));
+    bytes tx_handler_size = sizeof(closure_struct_type(tx_complete));
+    bytes tx_handler_pagesize = find_page_size(tx_handler_size, virtqueue_entries(vn->txq));
+    virtio_net_debug("%s: net_header_len %d, rx_allocsize %d, rxbuffers_pagesize %d "
+                     "tx_handler_size %d tx_handler_pagesize %d\n", __func__, vn->net_header_len,
+                     rx_allocsize, rxbuffers_pagesize, tx_handler_size, tx_handler_pagesize);
+    vn->rxbuffers = allocate_objcache(h, (heap)contiguous, rx_allocsize, rxbuffers_pagesize, true);
+    assert(vn->rxbuffers != INVALID_ADDRESS);
+    vn->txhandlers = allocate_objcache(h, (heap)contiguous, tx_handler_size, tx_handler_pagesize, true);
+    assert(vn->txhandlers != INVALID_ADDRESS);
     vn->empty = alloc_map(contiguous, contiguous->h.pagesize, &vn->empty_phys);
     assert(vn->empty != INVALID_ADDRESS);
-    for (int i = 0; i < vn->net_header_len; i++)  ((u8 *)vn->empty)[i] = 0;
+    for (int i = 0; i < vn->net_header_len; i++)
+        ((u8 *)vn->empty)[i] = 0;
     vn->n->state = vn;
-    // initialization complete
     vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
     netif_add(vn->n,
               0, 0, 0, 
