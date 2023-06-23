@@ -69,6 +69,7 @@
 #define USER_MEMORY_RESERVE (4 * MB)
 #define LOW_MEMORY_THRESHOLD   (64 * MB)
 #define SG_FRAG_BYTE_THRESHOLD (128*KB)
+#define PAGECACHE_LOWMEM_CONTIGUOUS_PAGESIZE (128*KB)
 
 /* don't go below this minimum amount of physical memory when inflating balloon */
 #define BALLOON_MEMORY_MINIMUM (16 * MB)
@@ -81,6 +82,7 @@
 
 /* must be large enough for vendor code that use malloc/free interface */
 #define MAX_MCACHE_ORDER 16
+#define MAX_LOWMEM_MCACHE_ORDER 11
 
 /* ftrace buffer size */
 #define DEFAULT_TRACE_ARRAY_SIZE        (512ULL << 20)
