@@ -2719,8 +2719,6 @@ closure_function(0, 2, void, print_syscall_stats_cfn,
     deallocate_pqueue(pq);
 }
 
-static boolean syscall_defer;
-
 static char *missing_files_exclude[] = {
     "ld.so.cache",
 };
@@ -2855,13 +2853,6 @@ closure_function(0, 1, boolean, debugsyscalls_notify,
     return true;
 }
 
-closure_function(0, 1, boolean, syscall_defer_notify,
-                 value, v)
-{
-    syscall_defer = !!v;
-    return true;
-}
-
 closure_function(1, 1, boolean, notrace_notify,
                  process, p,
                  value, v)
@@ -2886,7 +2877,6 @@ void configure_syscalls(process p)
 {
     heap h = heap_locked(&p->uh->kh);
     register_root_notify(sym(debugsyscalls), closure(h, debugsyscalls_notify));
-    register_root_notify(sym(syscall_defer), closure(h, syscall_defer_notify));
     register_root_notify(sym(notrace), closure(h, notrace_notify, p));
     register_root_notify(sym(tracelist), closure(h, tracelist_notify, p));
 }
