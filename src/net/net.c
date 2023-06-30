@@ -12,7 +12,6 @@
 
 BSS_RO_AFTER_INIT static heap lwip_heap;
 BSS_RO_AFTER_INIT int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *input_netif);
-BSS_RO_AFTER_INIT int lwip_alloc_order;
 
 declare_closure_struct(0, 2, void, net_timeout_handler, u64, expiry, u64, overruns);
 
@@ -86,9 +85,6 @@ void lwip_debug(char * format, ...)
 
 void *lwip_allocate(u64 size)
 {
-    /* To maintain the malloc/free interface with mcache, allocations must stay
-       within the range of objcaches and not fall back to parent allocs. */
-    assert(size <= U64_FROM_BIT(lwip_alloc_order));
     void *p = allocate(lwip_heap, size);
     return ((p != INVALID_ADDRESS) ? p : 0);
 }
@@ -390,7 +386,7 @@ void init_net(kernel_heaps kh)
     heap h = heap_general(kh);
     heap backed = (heap)heap_linear_backed(kh);
     boolean is_lowmem = is_low_memory_machine();
-    lwip_alloc_order = is_lowmem ? MAX_LOWMEM_LWIP_ALLOC_ORDER : MAX_LWIP_ALLOC_ORDER;
+    int lwip_alloc_order = is_lowmem ? MAX_LOWMEM_LWIP_ALLOC_ORDER : MAX_LWIP_ALLOC_ORDER;
     bytes pagesize = is_lowmem ? U64_FROM_BIT(lwip_alloc_order + 1) : PAGESIZE_2M;
     lwip_heap = allocate_mcache(h, backed, 5, lwip_alloc_order, pagesize);
     assert(lwip_heap != INVALID_ADDRESS);

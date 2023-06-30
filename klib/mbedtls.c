@@ -295,13 +295,7 @@ void mbedtls_platform_zeroize( void *buf, size_t len )
 
 void *mbedtls_calloc(size_t n, size_t s)
 {
-    /* To maintain the malloc/free interface with mcache, allocations must stay
-       within the range of objcaches and not fall back to parent allocs. */
     size_t total = n * s;
-    if (total > U64_FROM_BIT(MAX_MCACHE_ORDER)) {
-        rprintf("%s: %ld bytes exceeds max alloc order\n", __func__, total);
-        return 0;
-    }
     void *p = allocate(tls.h, total);
     if (p != INVALID_ADDRESS) {
         runtime_memset(p, 0, total);
