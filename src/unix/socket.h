@@ -93,8 +93,7 @@ struct sock {
 
 #define socket_release(s) fdesc_put(&(s)->f)
 
-static inline int socket_init(process p, heap h, int domain, int type, u32 flags,
-        struct sock *s)
+static inline int socket_init(heap h, int domain, int type, u32 flags, struct sock *s)
 {
     runtime_memset((u8 *) s, 0, sizeof(*s));
     s->rxbq = allocate_blockq(h, "sock receive");

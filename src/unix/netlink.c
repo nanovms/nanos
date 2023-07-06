@@ -1112,7 +1112,7 @@ sysreturn netlink_open(int type, int family)
     nlsock s = allocate(h, sizeof(*s));
     if (s == INVALID_ADDRESS)
         return -ENOMEM;
-    if (socket_init(current->p, h, AF_NETLINK, type, flags, &s->sock) < 0)
+    if (socket_init(h, AF_NETLINK, type, flags, &s->sock) < 0)
         goto err_socket;
     s->data = allocate_queue(h, NL_QUEUE_MAX_LEN);
     if (s->data == INVALID_ADDRESS)

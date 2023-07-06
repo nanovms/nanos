@@ -1005,7 +1005,7 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags, boolean alloc_fd)
         msg_err("failed to allocate data buffer\n");
         goto err_queue;
     }
-    if (socket_init(current->p, h, AF_UNIX, type, flags, &s->sock) < 0) {
+    if (socket_init(h, AF_UNIX, type, flags, &s->sock) < 0) {
         msg_err("failed to initialize socket\n");
         goto err_socket;
     }

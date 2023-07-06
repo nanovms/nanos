@@ -1281,7 +1281,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, boolean alloc_f
     }
 
     heap h = heap_locked((kernel_heaps)p->uh);
-    if (socket_init(p, h, af, type, flags, &s->sock) < 0)
+    if (socket_init(h, af, type, flags, &s->sock) < 0)
         goto err_sock_init;
     s->sock.f.read = init_closure_func(&s->read, file_io, socket_read);
     s->sock.f.write = init_closure_func(&s->write, file_io, socket_write);
