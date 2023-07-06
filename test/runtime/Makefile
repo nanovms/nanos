@@ -2,6 +2,7 @@
 DEBUG_STRIP=y
 PROGRAMS= \
 	aio \
+	aslr \
 	dup \
 	creat \
 	epoll \
@@ -56,6 +57,10 @@ SRCS-aio= \
 	$(CURDIR)/aio.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-aio=	-static
+
+SRCS-aslr= \
+	$(CURDIR)/aslr.c \
+	$(SRCDIR)/unix_process/ssp.c
 
 SRCS-dup= \
 	$(CURDIR)/dup.c \
