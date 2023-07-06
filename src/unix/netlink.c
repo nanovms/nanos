@@ -1097,7 +1097,7 @@ sysreturn netlink_open(int type, int family)
 {
     nl_debug("open: type %d, family %d", type, family);
     int flags = type & ~SOCK_TYPE_MASK;
-    if (flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC))
+    if (flags & ~SOCK_FLAGS_MASK)
         return -EINVAL;
     type &= SOCK_TYPE_MASK;
     if ((type != SOCK_DGRAM) && (type != SOCK_RAW))

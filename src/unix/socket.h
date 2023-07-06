@@ -1,3 +1,5 @@
+#define SOCK_FLAGS_MASK (SOCK_NONBLOCK | SOCK_CLOEXEC)
+
 typedef struct sockaddr {
     u16 family;
     u8 sa_data[14];

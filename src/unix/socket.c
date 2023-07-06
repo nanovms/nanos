@@ -769,7 +769,7 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
         rv = -EOPNOTSUPP;
         goto out;
     }
-    if (!s->conn_q || (flags & ~(SOCK_NONBLOCK|SOCK_CLOEXEC))) {
+    if (!s->conn_q || (flags & ~SOCK_FLAGS_MASK)) {
         rv = -EINVAL;
         goto out;
     }

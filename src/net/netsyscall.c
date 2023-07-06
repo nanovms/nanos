@@ -2210,7 +2210,7 @@ static sysreturn netsock_accept4(struct sock *sock, struct sockaddr *addr,
     }
 
     if ((s->info.tcp.state != TCP_SOCK_LISTENING) ||
-            (flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC))) {
+        (flags & ~SOCK_FLAGS_MASK)) {
         rv = -EINVAL;
         goto out;
     }
