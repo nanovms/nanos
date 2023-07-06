@@ -1105,6 +1105,7 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGXCPU:
     case SIGXFSZ:
         coredump(t, &qs->si, closure(h, after_dump_halt, t, signum));
+        clear_fault_handler();
         runloop();
         return;
 
