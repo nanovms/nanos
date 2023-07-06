@@ -116,6 +116,26 @@ static void resize_table(table t, int buckets)
     table_paranoia(t, "resize");
 }
 
+static void table_insert_internal(table t, key k, entry *e,  void *c, void *v)
+{
+    entry n = allocate(t->eh, sizeof(struct entry));
+    if (n == INVALID_ADDRESS)
+        halt("couldn't allocate table entry\n");
+
+    n->v = v;
+    n->k = k;
+    n->c = c;
+    n->next = 0;
+    *e = n;
+
+    if (t->count++ > t->buckets && t->buckets <= TABLE_MAX_BUCKETS / 2) {
+        resize_table(t, t->buckets*2);
+    } else {
+        /* resize will do a check */
+        table_paranoia(t, "add, no resize");
+    }
+}
+
 static void table_remove_internal(table t, entry *e)
 {
     assert(t->count > 0);
@@ -153,24 +173,22 @@ void table_set(table t, void *c, void *v)
         }
     }
 
-    if (v != EMPTY) {
-        entry n = allocate(t->eh, sizeof(struct entry));
-        if (n == INVALID_ADDRESS)
-            halt("couldn't allocate table entry\n");
+    if (v != EMPTY)
+        table_insert_internal(t, k, e, c, v);
+}
 
-        n->v = v;
-        n->k = k;
-        n->c = c;
-        n->next = 0;
-        *e = n;
-        
-        if (t->count++ > t->buckets && t->buckets <= TABLE_MAX_BUCKETS / 2) {
-            resize_table(t, t->buckets*2);
-        } else {
-            /* resize will do a check */
-            table_paranoia(t, "add, no resize");
-        }
+/* Returns true if the element was not in the table and has been inserted, false if the element is
+ * in the table and has not been replaced. */
+boolean table_set_noreplace(table t, void *c, void *v)
+{
+    key k = t->key_function(c);
+    entry *e;
+    for (e = t->entries + position(t->buckets, k); *e; e = &(*e)->next) {
+        if (((*e)->k == k) && t->equals_function((*e)->c, c))
+            return false;
     }
+    table_insert_internal(t, k, e, c, v);
+    return true;
 }
 
 void *table_remove(table t, void *c)

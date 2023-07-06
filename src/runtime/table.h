@@ -27,6 +27,7 @@ int table_elements(table t);
 void *table_find(table t, void *c);
 //void *table_find_key (table t, void *c, void **kr);
 void table_set(table t, void *c, void *v);
+boolean table_set_noreplace(table t, void *c, void *v);
 void table_clear(table t);
 
 /* Returns the value being removed if found, 0 otherwise. */

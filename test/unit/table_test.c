@@ -83,6 +83,11 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
         return false;
     }
 
+    if (table_set_noreplace(t, pointer_from_u64(n_elem / 2), pointer_from_u64(1))) {
+        msg_err("could replace element %ld\n", n_elem / 2);
+        return false;
+    }
+
     /* Remove one element from the table. */
     table_set(t, 0, 0);
     if (table_find(t, 0)) {
@@ -127,6 +132,16 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
     count = table_elements(t);
     if (count != 0) {
         msg_err("invalid table_elements() %d, should be 0\n");
+        return false;
+    }
+
+    if (!table_set_noreplace(t, pointer_from_u64(0), pointer_from_u64(n_elem))) {
+        msg_err("could not set element at 0\n");
+        return false;
+    }
+    val = u64_from_pointer(table_find(t, pointer_from_u64(0)));
+    if (val != n_elem) {
+        msg_err("unexpected element %ld at 0 after table_set_noreplace()\n", val);
         return false;
     }
 
