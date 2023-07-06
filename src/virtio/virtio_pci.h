@@ -58,7 +58,7 @@ struct vtpci {
     pci_dev dev;
     int regs[VTPCI_REG_MAX];
     bytes notify_offset_multiplier;
-    boolean msix_enabled;
+    heap msix_entries;
 
     struct pci_bar common_config;  // common config
     struct pci_bar notify_config;  // notify config

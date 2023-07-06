@@ -246,6 +246,21 @@ static void vtpci_register_non_msix_config_handler(vtpci dev, thunk handler)
     dev->config_handler = handler;
 }
 
+static status vtpci_setup_msix(vtpci dev, thunk handler, const char *name, int cfg_reg)
+{
+    int msi_slot = allocate_u64(dev->msix_entries, 1);
+    if (msi_slot < 0)
+        return timm("status", "failed to find free MSI-X slot");
+    if (pci_setup_msix(dev->dev, msi_slot, handler, name) == INVALID_PHYSICAL)
+        return timm("status", "failed to allocate MSI-X vector");
+    pci_bar_write_2(&dev->common_config, dev->regs[cfg_reg], msi_slot);
+    int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[cfg_reg]);
+    if (check_idx == msi_slot)
+        return STATUS_OK;
+    else
+        return timm("status", "cannot configure MSI-X vector");
+}
+
 status vtpci_alloc_virtqueue(vtpci dev,
                              const char *name,
                              int idx,
@@ -267,15 +282,11 @@ status vtpci_alloc_virtqueue(vtpci dev,
     if (!is_ok(s))
         return s;
 
-    if (dev->msix_enabled) {
+    if (dev->msix_entries) {
         // setup virtqueue MSI-X interrupt
-        int msi_slot = idx + 1; /* 0 reserved for config change */
-        if (pci_setup_msix(dev->dev, msi_slot, handler, name) == INVALID_PHYSICAL)
-            return timm("status", "failed to allocate MSI-X vector");
-        pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR], msi_slot);
-        int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_QUEUE_MSIX_VECTOR]);
-        if (check_idx != msi_slot)
-            return timm("status", "cannot configure virtqueue MSI-X vector");
+        s = vtpci_setup_msix(dev, handler, name, VTPCI_REG_QUEUE_MSIX_VECTOR);
+        if (!is_ok(s))
+            return s;
     } else {
         vtpci_register_non_msix_queue_handler(dev, handler);
     }
@@ -307,16 +318,12 @@ closure_function(2, 0, void, vtpci_config_change_msix_irq,
 status vtpci_register_config_change_handler(vtpci dev, thunk handler)
 {
     virtio_pci_debug("%s: dev %p, handler %p (%F)\n", __func__, dev, handler, handler);
-    if (dev->msix_enabled) {
+    if (dev->msix_entries) {
         thunk t = closure(dev->virtio_dev.general, vtpci_config_change_msix_irq, dev, handler);
         assert(t != INVALID_ADDRESS);
 
         // XXX vtdev name
-        if (pci_setup_msix(dev->dev, 0, t, "config change") == INVALID_PHYSICAL)
-            return timm("status", "failed to allocate config change MSI-X vector");
-        pci_bar_write_2(&dev->common_config, dev->regs[VTPCI_REG_CONFIG_MSIX_VECTOR], 0);
-        if (pci_bar_read_2(&dev->common_config, dev->regs[VTPCI_REG_CONFIG_MSIX_VECTOR]) != 0)
-            return timm("status", "cannot configure config change MSI-X vector");
+        return vtpci_setup_msix(dev, t, "config change", VTPCI_REG_CONFIG_MSIX_VECTOR);
     } else {
         vtpci_register_non_msix_config_handler(dev, handler);
     }
@@ -335,7 +342,7 @@ static void vtpci_legacy_alloc_resources(vtpci dev)
     pci_bar_init(dev->dev, &dev->common_config, 0, 0, -1);
     runtime_memcpy(&dev->notify_config, &dev->common_config, sizeof(dev->notify_config));
     pci_bar_init(dev->dev, &dev->device_config, 0,
-                 dev->msix_enabled ? VIRTIO_MSI_DEVICE_CONFIG :
+                 dev->msix_entries ? VIRTIO_MSI_DEVICE_CONFIG :
                  VIRTIO_NON_MSI_DEVICE_CONFIG, -1);
 }
 
@@ -401,7 +408,13 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
     virtio_pci_debug("%s: dev %x%s\n", __func__, pci_get_device(d), is_modern ? "is modern" : "");
 
     dev->dev = d;
-    dev->msix_enabled = pci_enable_msix(dev->dev) > 0;
+    int msix_entries = pci_enable_msix(dev->dev);
+    if (msix_entries > 0) {
+        dev->msix_entries = (heap)create_id_heap(h, h, 0, msix_entries, 1, false);
+        assert(dev->msix_entries != INVALID_ADDRESS);
+    } else {
+        dev->msix_entries = 0;
+    }
     if (feature_mask & VIRTIO_F_VERSION_1) {
         vtpci_modern_alloc_resources(dev);
     } else {
