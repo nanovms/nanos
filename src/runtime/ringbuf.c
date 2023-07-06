@@ -1,5 +1,14 @@
 #include <runtime.h>
 
+static void ringbuf_write_at(ringbuf b, bytes dest_offset, const void *src, bytes len)
+{
+    void *dest = b->contents + (dest_offset & (b->length - 1));
+    bytes avail = MIN(len, b->contents + b->length - dest);
+    runtime_memcpy(dest, src, avail);
+    if (avail < len)
+        runtime_memcpy(b->contents, src + avail, len - avail);
+}
+
 boolean ringbuf_read(ringbuf b, void *dest, bytes len)
 {
     if (!ringbuf_peek(b, dest, len))
@@ -24,11 +33,7 @@ boolean ringbuf_write(ringbuf b, const void *src, bytes len)
 {
     if (!ringbuf_extend(b, len))
         return false;
-    void *end = b->contents + (b->end & (b->length - 1));
-    bytes avail = MIN(len, b->contents + b->length - end);
-    runtime_memcpy(end, src, avail);
-    if (avail < len)
-        runtime_memcpy(b->contents, src + avail, len - avail);
+    ringbuf_write_at(b, b->end, src, len);
     ringbuf_produce(b, len);
     return true;
 }
@@ -44,6 +49,14 @@ boolean ringbuf_memset(ringbuf b, u8 c, bytes len)
         runtime_memset(b->contents, c, len - avail);
     ringbuf_produce(b, len);
     return true;
+}
+
+/* Overwrites `len` bytes of buffer contents starting at `offset`; does not change the buffer
+ * length.
+ */
+void ringbuf_overwrite(ringbuf b, bytes offset, const void *src, bytes len)
+{
+    ringbuf_write_at(b, b->start + offset, src, len);
 }
 
 boolean ringbuf_extend(ringbuf b, bytes len)

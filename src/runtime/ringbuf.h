@@ -15,6 +15,8 @@ boolean ringbuf_peek(ringbuf b, void *dest, bytes len);
 boolean ringbuf_write(ringbuf b, const void *src, bytes len);
 boolean ringbuf_memset(ringbuf b, u8 c, bytes len);
 
+void ringbuf_overwrite(ringbuf b, bytes offset, const void *src, bytes len);
+
 static inline void ringbuf_produce(ringbuf b, bytes len)
 {
     b->end += len;

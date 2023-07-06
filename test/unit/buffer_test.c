@@ -324,6 +324,17 @@ boolean ringbuf_tests(heap h)
     test_assert(ringbuf_read(b, &v3, sizeof(v3)) == true);
     test_assert((v3[0] == 0x44) && (v3[1] == 0x44) && (v3[2] == 0x44));
 
+    ringbuf_write(b, &v3, sizeof(v3));
+    v3[0] = 0x11;
+    v3[1] = 0x22;
+    v3[2] = 0x33;
+    ringbuf_overwrite(b, 0, &v3, sizeof(v3));
+    ringbuf_peek(b, &v3, sizeof(v3));
+    test_assert((v3[0] == 0x11) && (v3[1] == 0x22) && (v3[2] == 0x33));
+    ringbuf_overwrite(b, 1, &v3[0], sizeof(v3[0]));
+    ringbuf_read(b, &v3, sizeof(v3));
+    test_assert((v3[0] == 0x11) && (v3[1] == 0x11) && (v3[2] == 0x33));
+
     failure = false;
 
 fail:
