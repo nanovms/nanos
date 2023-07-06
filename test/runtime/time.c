@@ -852,16 +852,16 @@ static void test_fault(void)
         fail_error("settimeofday() with faulting address test failed\n");
     if ((syscall(SYS_times, fault_addr) != -1) || (errno != EFAULT))
         fail_error("times() with faulting address test failed\n");
-    if ((clock_gettime(CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
+    if ((syscall(SYS_clock_gettime, CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
         fail_error("clock_gettime() with faulting address test failed\n");
     if ((syscall(SYS_clock_settime, CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
         fail_error("clock_settime() with faulting address test failed\n");
-    if ((clock_getres(CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
+    if ((syscall(SYS_clock_getres, CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
         fail_error("clock_getres() with faulting address test failed\n");
 
-    if ((nanosleep(fault_addr, NULL) != -1) || (errno != EFAULT))
+    if ((syscall(SYS_nanosleep, fault_addr, NULL) != -1) || (errno != EFAULT))
         fail_error("nanosleep() with faulting address test failed\n");
-    if (clock_nanosleep(CLOCK_MONOTONIC, 0, fault_addr, NULL) != EFAULT)
+    if ((syscall(SYS_clock_nanosleep, CLOCK_MONOTONIC, 0, fault_addr, NULL) != -1) || (errno != EFAULT))
         fail_error("clock_nanosleep() with faulting address test failed\n");
 }
 
