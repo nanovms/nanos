@@ -77,6 +77,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/unix/unix_clock.c \
 	$(SRCDIR)/unix/unix.c \
 	$(SRCDIR)/unix/vdso.c \
+	$(SRCDIR)/unix/vsock.c \
 	$(SRCDIR)/unix/pipe.c \
 	$(SRCDIR)/virtio/virtio.c \
 	$(SRCDIR)/virtio/virtio_9p.c \
@@ -87,6 +88,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/virtio/virtio_rng.c \
 	$(SRCDIR)/virtio/virtio_storage.c \
 	$(SRCDIR)/virtio/virtio_scsi.c \
+	$(SRCDIR)/virtio/virtio_socket.c \
 	$(SRCDIR)/virtio/virtqueue.c \
 	$(SRCDIR)/virtio/scsi.c \
 	$(SRCDIR)/vmware/vmxnet3_net.c \

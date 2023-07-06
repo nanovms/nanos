@@ -365,4 +365,5 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_virtio_balloon(kh);
     init_virtio_rng(kh);
     init_virtio_9p(kh);
+    init_virtio_socket(kh);
 }

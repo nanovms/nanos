@@ -1372,6 +1372,8 @@ sysreturn socket(int domain, int type, int protocol)
         return unixsock_open(type, protocol);
     case AF_NETLINK:
         return netlink_open(type, protocol);
+    case AF_VSOCK:
+        return vsock_open(type, protocol);
     default:
         msg_warn("domain %d not supported\n", domain);
         return -EAFNOSUPPORT;
@@ -2605,5 +2607,6 @@ boolean netsyscall_init(unix_heaps uh, tuple cfg)
     uh->socket_cache = socket_cache;
     net_loop_poll = closure(heap_general(kh), netsock_poll);
     netlink_init();
+    vsock_init();
     return true;
 }

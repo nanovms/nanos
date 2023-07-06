@@ -32,6 +32,7 @@ enum protocol_type {
 #define AF_INET 2
 #define AF_INET6    10
 #define AF_NETLINK  16
+#define AF_VSOCK    40
 
 #define SIOCGIFNAME    0x8910
 #define SIOCGIFCONF    0x8912

@@ -15,6 +15,18 @@ struct sockaddr_un {
     char sun_path[108];
 };
 
+struct sockaddr_vm {
+    u16 svm_family;
+    u16 svm_rsvd;
+    u32 svm_port;
+    u32 svm_cid;
+    u8 svm_zero[4];
+};
+
+#define VMADDR_CID_ANY  (-1U)
+
+#define VMADDR_PORT_ANY (-1U)
+
 typedef u32 socklen_t;
 
 struct msghdr {
@@ -188,5 +200,8 @@ sysreturn unixsock_open(int type, int protocol);
 
 void netlink_init(void);
 sysreturn netlink_open(int type, int family);
+
+void vsock_init(void);
+sysreturn vsock_open(int type, int family);
 
 extern int so_rcvbuf;

@@ -88,6 +88,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/unix/unix.c \
 	$(SRCDIR)/unix/pipe.c \
 	$(SRCDIR)/unix/vdso.c \
+	$(SRCDIR)/unix/vsock.c \
 	$(SRCDIR)/virtio/virtio.c \
 	$(SRCDIR)/virtio/virtio_9p.c \
 	$(SRCDIR)/virtio/virtio_balloon.c \
@@ -96,6 +97,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/virtio/virtio_pci.c \
 	$(SRCDIR)/virtio/virtio_rng.c \
 	$(SRCDIR)/virtio/virtio_scsi.c \
+	$(SRCDIR)/virtio/virtio_socket.c \
 	$(SRCDIR)/virtio/virtio_storage.c \
 	$(SRCDIR)/virtio/virtqueue.c \
 	$(SRCDIR)/virtio/scsi.c \
