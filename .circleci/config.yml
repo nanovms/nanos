@@ -17,6 +17,7 @@ jobs:
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
             make test-noaccel
+      - run: test/extended_tests.py
       - run:
           command: |
             if [[ ! -v GCLOUD_SERVICE_KEY ]]; then
