@@ -16,6 +16,16 @@ typedef struct netconsole_driver {
 #define DEFAULT_IP "10.0.2.2"
 #define DEFAULT_PORT 4444
 
+closure_function(2, 0, void, netconsole_async_write,
+                 netconsole_driver, nd, struct pbuf *, pb)
+{
+    netconsole_driver nd = bound(nd);
+    struct pbuf *pb = bound(pb);
+    udp_sendto(nd->pcb, pb, &nd->dst_ip, nd->port);
+    pbuf_free(pb);
+    closure_finish();
+}
+
 static void netconsole_write(void *_d, const char *s, bytes count)
 {
     netconsole_driver nd = _d;
@@ -32,8 +42,8 @@ static void netconsole_write(void *_d, const char *s, bytes count)
         if (pb == 0)
             break;
         runtime_memcpy(pb->payload, s + off, len);
-        udp_sendto(nd->pcb, pb, &nd->dst_ip, nd->port);
-        pbuf_free(pb);
+        thunk t = closure(nd->h, netconsole_async_write, nd, pb);
+        async_apply(t);
         count -= len;
         off += len;
     }
@@ -81,9 +91,10 @@ static void netconsole_config(void *_d, tuple r)
 
 void netconsole_register(kernel_heaps kh, console_attach a)
 {
-    heap h = heap_general(kh);
+    heap h = heap_locked(kh);
     netconsole_driver nd = allocate_zero(h, sizeof(struct netconsole_driver));
     assert(nd != INVALID_ADDRESS);
+    nd->h = h;
     nd->c.write = netconsole_write;
     nd->c.name = "net";
     nd->c.disabled = true;
