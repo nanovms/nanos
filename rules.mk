@@ -117,8 +117,7 @@ KERNCFLAGS=	-nostdinc \
 		-ffunction-sections
 
 ifeq ($(ARCH),x86_64)
-KERNCFLAGS+=    -mno-sse \
-		-mno-sse2
+KERNCFLAGS+=	-mno-mmx -mno-sse -mno-sse2
 endif
 
 ifeq ($(ARCH),aarch64)
