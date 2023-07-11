@@ -15,13 +15,6 @@
 
 BSS_RO_AFTER_INIT static u64 saved_rsdp;
 
-closure_function(2, 0, void, acpi_irq,
-                 ACPI_OSD_HANDLER, service_routine, void *, context)
-{
-    acpi_debug("irq");
-    bound(service_routine)(bound(context));
-}
-
 static u64 find_rsdp_internal(u64 va, u64 len)
 {
     for (u64 i = va; i < va + len; i += 16) {
@@ -99,6 +92,11 @@ void acpi_save_rsdp(u64 rsdp)
     saved_rsdp = rsdp;
 }
 
+void acpi_register_irq_handler(int irq, thunk t, const char *name)
+{
+    ioapic_register_int(irq, t, name);
+}
+
 /* OS services layer */
 
 ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer(void)
@@ -141,19 +139,4 @@ ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width)
         return AE_BAD_PARAMETER;
     }
     return AE_OK;
-}
-
-UINT32 AcpiOsInstallInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine,
-                                     void *context)
-{
-    thunk irq_handler = closure(acpi_heap, acpi_irq, service_routine, context);
-    if (irq_handler == INVALID_ADDRESS)
-        return AE_NO_MEMORY;
-    ioapic_register_int(interrupt_number, irq_handler, "ACPI");
-    return AE_OK;
-}
-
-ACPI_STATUS AcpiOsRemoveInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine)
-{
-    return AE_NOT_IMPLEMENTED;
 }

@@ -294,7 +294,7 @@ static ACPI_STATUS acpi_ged_res_probe(ACPI_RESOURCE *resource, void *context)
             }
             thunk handler = closure(acpi_heap, acpi_ged_handler, event, gsi);
             assert(handler != INVALID_ADDRESS);
-            register_interrupt(gsi, handler, "acpi-ged");
+            acpi_register_irq_handler(gsi, handler, "acpi-ged");
         }
         break;
     }
@@ -686,4 +686,26 @@ ACPI_THREAD_ID AcpiOsGetThreadId(void)
 ACPI_STATUS AcpiOsEnterSleep(UINT8 sleep_state, UINT32 rega_value, UINT32 regb_value)
 {
     return AE_OK;
+}
+
+closure_function(2, 0, void, acpi_irq,
+                 ACPI_OSD_HANDLER, service_routine, void *, context)
+{
+    acpi_debug("irq");
+    bound(service_routine)(bound(context));
+}
+
+UINT32 AcpiOsInstallInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine,
+                                     void *context)
+{
+    thunk irq_handler = closure(acpi_heap, acpi_irq, service_routine, context);
+    if (irq_handler == INVALID_ADDRESS)
+        return AE_NO_MEMORY;
+    acpi_register_irq_handler(interrupt_number, irq_handler, "ACPI");
+    return AE_OK;
+}
+
+ACPI_STATUS AcpiOsRemoveInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine)
+{
+    return AE_NOT_IMPLEMENTED;
 }

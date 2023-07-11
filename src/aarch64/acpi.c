@@ -3,6 +3,11 @@
 #include <boot/uefi.h>
 #include <drivers/acpi.h>
 
+void acpi_register_irq_handler(int irq, thunk t, const char *name)
+{
+    register_interrupt(irq, t, name);
+}
+
 /* OS services layer */
 
 ACPI_PHYSICAL_ADDRESS AcpiOsGetRootPointer(void)
@@ -44,15 +49,4 @@ ACPI_STATUS AcpiOsWritePort(ACPI_IO_ADDRESS address, UINT32 value, UINT32 width)
         return AE_BAD_PARAMETER;
     }
     return AE_OK;
-}
-
-UINT32 AcpiOsInstallInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine,
-                                     void *context)
-{
-    return AE_NOT_IMPLEMENTED;
-}
-
-ACPI_STATUS AcpiOsRemoveInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER service_routine)
-{
-    return AE_NOT_IMPLEMENTED;
 }
