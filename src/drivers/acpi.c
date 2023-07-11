@@ -222,7 +222,17 @@ static UINT32 acpi_shutdown(void *context)
     return ACPI_INTERRUPT_HANDLED;
 }
 
-closure_function(3, 1, void, acpi_powerdown,
+closure_function(2, 1, void, acpi_powerdown_sleepctrl,
+                 ACPI_TABLE_FADT *, fadt, u8, slp_typ,
+                 int, status)
+{
+    acpi_debug("powerdown");
+    ACPI_STATUS rv = AcpiWrite(ACPI_SLEEPCTRL_SLP_EN | ACPI_SLEEPCTRL_SLP_TYP(bound(slp_typ)), &bound(fadt)->SleepControl);
+    if (ACPI_FAILURE(rv))
+        acpi_debug("failed to write to Sleep Control register: %d", rv);
+}
+
+closure_function(3, 1, void, acpi_powerdown_pm1,
                  ACPI_TABLE_FADT *, fadt, u16, pm1a_slp_typ, u16, pm1b_slp_typ,
                  int, status)
 {
@@ -327,12 +337,25 @@ static void acpi_powerdown_init(kernel_heaps kh)
         return;
     }
     ACPI_OBJECT *obj = retb.Pointer;
-    if ((obj->Package.Count >= 2) && (obj->Package.Elements[0].Type == ACPI_TYPE_INTEGER) &&
-        (obj->Package.Elements[1].Type == ACPI_TYPE_INTEGER)) {
-        vm_halt = closure(heap_general(kh), acpi_powerdown, (ACPI_TABLE_FADT *)fadt,
-                          obj->Package.Elements[0].Integer.Value,
-                          obj->Package.Elements[1].Integer.Value);
-        assert(vm_halt != INVALID_ADDRESS);
+    halt_handler handler = 0;
+    switch (obj->Package.Count) {
+    case 0:
+        break;
+    case 1:
+        if (obj->Package.Elements[0].Type == ACPI_TYPE_INTEGER)
+            handler = closure(heap_general(kh), acpi_powerdown_sleepctrl, (ACPI_TABLE_FADT *)fadt,
+                              obj->Package.Elements[0].Integer.Value);
+        break;
+    default:
+        if ((obj->Package.Elements[0].Type == ACPI_TYPE_INTEGER) &&
+            (obj->Package.Elements[1].Type == ACPI_TYPE_INTEGER))
+            handler = closure(heap_general(kh), acpi_powerdown_pm1, (ACPI_TABLE_FADT *)fadt,
+                              obj->Package.Elements[0].Integer.Value,
+                              obj->Package.Elements[1].Integer.Value);
+    }
+    if (handler) {
+        assert(handler != INVALID_ADDRESS);
+        vm_halt = handler;
     } else {
         acpi_debug("unexpected _S5 object value (%d elements)", obj->Package.Count);
         AcpiPutTable(fadt);

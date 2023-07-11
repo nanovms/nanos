@@ -13,6 +13,10 @@
 #define ACPI_PM1_SLP_TYP(typ)   (typ << 10)
 #define ACPI_PM1_SCI_EN         (1 << 0)
 
+/* Sleep Control Register */
+#define ACPI_SLEEPCTRL_SLP_EN       (1 << 5)
+#define ACPI_SLEEPCTRL_SLP_TYP(typ) ((typ) << 2)
+
 #define ACPI_SCI_IRQ    9
 
 /* MADT controller types */
