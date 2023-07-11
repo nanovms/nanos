@@ -324,7 +324,6 @@ static void acpi_powerdown_init(kernel_heaps kh)
     rv = AcpiEvaluateObjectTyped(NULL, "\\_S5", NULL, &retb, ACPI_TYPE_PACKAGE);
     if (ACPI_FAILURE(rv)) {
         acpi_debug("failed to get _S5 object (%d)", rv);
-        AcpiGetDevices("PNP0C0C", acpi_pwrbtn_probe, NULL, NULL);
         return;
     }
     ACPI_OBJECT *obj = retb.Pointer;
@@ -355,6 +354,7 @@ void init_acpi(kernel_heaps kh)
     }
     acpi_powerdown_init(kh);
     AcpiGetDevices("ACPI0013", acpi_ged_probe, NULL, NULL);
+    AcpiGetDevices("PNP0C0C", acpi_pwrbtn_probe, NULL, NULL);
     rv = AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON, acpi_shutdown, 0);
     if (ACPI_FAILURE(rv))
         acpi_debug("cannot install power button hander: %d", rv);
