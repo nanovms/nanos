@@ -280,7 +280,7 @@ static err_t virtioif_init(struct netif *netif)
 static inline u64 find_page_size(bytes each, int n)
 {
     /* extra element to cover objcache meta */
-    return 1ul << find_order(each * (n + 1));
+    return MIN(1ul << find_order(each * (n + 1)), PAGESIZE_2M);
 }
 
 static void virtio_net_attach(vtdev dev)
@@ -307,6 +307,8 @@ static void virtio_net_attach(vtdev dev)
     virtio_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
     virtqueue_set_polling(vn->txq, true);
     virtio_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
+    virtio_net_debug("%s: rx q entries %d, tx q entries %d\n", __func__,
+                     virtqueue_entries(vn->rxq), virtqueue_entries(vn->txq));
     bytes rx_allocsize = vn->rxbuflen + sizeof(struct xpbuf);
     bytes rxbuffers_pagesize = find_page_size(rx_allocsize, virtqueue_entries(vn->rxq));
     bytes tx_handler_size = sizeof(closure_struct_type(tx_complete));
