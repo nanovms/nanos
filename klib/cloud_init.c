@@ -627,6 +627,8 @@ static int cloud_download_env_parse(tuple config, vector tasks)
             return KLIB_INIT_FAILED;
         }
         cfg->attribute_path = split(cloud_heap, path, '/');
+    } else {
+        cfg->attribute_path = 0;
     }
     return KLIB_INIT_OK;
 }
