@@ -133,7 +133,7 @@ boolean encode_decode_reference_test(heap h)
     encode_tuple(b3, tdict1, t3, &total_entries);
 
     test_assert(buffer_length(b3) > 0);
-    test_assert(total_entries == 4);    /* 2 entries for t3, plus 2 for t33 */
+    test_assert(total_entries == 3);    /* 2 entries for t3, plus 1 for t33 (despite two refs) */
 
     // decode
     total_entries = 0;
@@ -141,16 +141,49 @@ boolean encode_decode_reference_test(heap h)
     table tdict2 = allocate_table(h, identity_key, pointer_equal);
     tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries);
 
-    /* t33 has been encoded twice (because it is associated to 2 different
-     * symbols in t3), and the second encoding obsoletes the first encoding. */
-    test_assert((total_entries == 4) && (obsolete_entries == 1));
+    /* t33 has been encoded once (despite being associated to 2 different symbols in t3) */
+    test_assert((total_entries == 3) && (obsolete_entries == 0));
 
     buffer buf = allocate_buffer(h, 128);
     bprintf(buf, "%v", t4);
-    test_assert((strncmp(buf->contents, "(1:(1:200) 2:<visited>)", buf->length) == 0) ||
-                (strncmp(buf->contents, "(2:(1:200) 1:<visited>)", buf->length) == 0));
+    test_assert((strncmp(buf->contents, "(1:(1:200) 2:<visited>)", buffer_length(buf)) == 0) ||
+                (strncmp(buf->contents, "(2:(1:200) 1:<visited>)", buffer_length(buf)) == 0));
     failure = false;
 fail:
+    return failure;
+}
+
+boolean encode_decode_self_reference_test(heap h)
+
+{
+    boolean failure = true;
+
+    // encode
+    buffer b3 = allocate_buffer(h, 128);
+    tuple t3 = allocate_tuple();
+    set(t3, intern_u64(1), t3);
+
+    table tdict1 = allocate_table(h, identity_key, pointer_equal);
+    u64 total_entries = 0;
+
+    encode_tuple(b3, tdict1, t3, &total_entries);
+
+    test_assert(buffer_length(b3) > 0);
+    test_assert(total_entries == 1);
+
+    // decode
+    total_entries = 0;
+    u64 obsolete_entries = 0;
+    table tdict2 = allocate_table(h, identity_key, pointer_equal);
+    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries);
+
+    test_assert((total_entries == 1) && (obsolete_entries == 0));
+
+    buffer buf = allocate_buffer(h, 128);
+    bprintf(buf, "%v", t4);
+    test_assert((strncmp(buf->contents, "(1:<visited>)", buffer_length(buf)) == 0));
+    failure = false;
+  fail:
     return failure;
 }
 
@@ -199,6 +232,7 @@ int main(int argc, char **argv)
     failure |= all_tests(h);
     failure |= encode_decode_test(h);
     failure |= encode_decode_reference_test(h);
+    failure |= encode_decode_self_reference_test(h);
     failure |= encode_decode_lengthy_test(h);
 
     if (failure) {

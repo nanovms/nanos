@@ -292,14 +292,14 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
     }
 }
 
-void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total);
-void encode_value(buffer dest, table dictionary, value v, u64 *total)
+static void encode_tuple_internal(buffer dest, table dictionary, tuple t, u64 *total, table visited);
+static void encode_value_internal(buffer dest, table dictionary, value v, u64 *total, table visited)
 {
     if (!v) {
         push_header(dest, immediate, type_buffer, 0);
     }
     else if (is_tuple(v)) {
-        encode_tuple(dest, dictionary, (tuple)v, total);
+        encode_tuple_internal(dest, dictionary, (tuple)v, total, visited);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
         assert(push_buffer(dest, (buffer)v));
@@ -308,8 +308,7 @@ void encode_value(buffer dest, table dictionary, value v, u64 *total)
 
 // could close over encoder!
 // these are special cases of a slightly more general scheme
-void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
-                u64 *obsolete)
+void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v, u64 *obsolete)
 {
     // this can be push value really..dont need to assume that its already
     // been rooted - merge these two cases - maybe methodize the tuple interface
@@ -325,9 +324,13 @@ void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
         push_header(dest, immediate, type_tuple, 1);
         srecord(dictionary, e);
     }
+    table visited = allocate_table(transient, identity_key, pointer_equal);
+    assert(visited != INVALID_ADDRESS);
+    table_set(visited, e, (void *)1);
     tuple_debug("   encoding symbol \"%b\" with value %v\n", symbol_string(a), v);
     encode_symbol(dest, dictionary, a);
-    encode_value(dest, dictionary, v, 0);
+    encode_value_internal(dest, dictionary, v, 0, visited);
+    deallocate_table(visited);
     if (obsolete) {
         value old_v = get(e, a);
         if (old_v) {
@@ -352,8 +355,8 @@ closure_function(1, 2, boolean, encode_tuple_count_each,
     return true;
 }
 
-closure_function(3, 2, boolean, encode_tuple_each,
-                 buffer, dest, table, dictionary, u64 *, total,
+closure_function(4, 2, boolean, encode_tuple_each,
+                 buffer, dest, table, dictionary, u64 *, total, table, visited,
                  value, s, value, v)
 {
     assert(is_symbol(s));
@@ -361,18 +364,21 @@ closure_function(3, 2, boolean, encode_tuple_each,
     if (no_encode(v))
         return true;
     encode_symbol(bound(dest), bound(dictionary), s);
-    encode_value(bound(dest), bound(dictionary), v, bound(total));
+    encode_value_internal(bound(dest), bound(dictionary), v, bound(total), bound(visited));
     if (bound(total))
         (*bound(total))++;
     return true;
 }
 
-void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
+static void encode_tuple_internal(buffer dest, table dictionary, tuple t, u64 *total, table visited)
 {
     tuple_debug("%s: dest %p, dictionary %p, tuple %p\n", __func__, dest, dictionary, t);
     u64 d = u64_from_pointer(table_find(dictionary, t));
     u64 count = 0;
-    iterate(t, stack_closure(encode_tuple_count_each, &count));
+
+    if (!(visited && table_find(visited, t)))
+        iterate(t, stack_closure(encode_tuple_count_each, &count));
+
     if (d) {
         push_header(dest, reference, type_tuple, count);
         push_varint(dest, d);
@@ -380,7 +386,27 @@ void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
         push_header(dest, immediate, type_tuple, count);
         srecord(dictionary, t);
     }
-    iterate(t, stack_closure(encode_tuple_each, dest, dictionary, total));
+
+    if (count > 0) {
+        table_set(visited, t, (void *)1);
+        iterate(t, stack_closure(encode_tuple_each, dest, dictionary, total, visited));
+    }
+}
+
+void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total)
+{
+    table visited = allocate_table(transient, identity_key, pointer_equal);
+    assert(visited != INVALID_ADDRESS);
+    encode_tuple_internal(dest, dictionary, t, total, visited);
+    deallocate_table(visited);
+}
+
+void encode_value(buffer dest, table dictionary, value v, u64 *total)
+{
+    table visited = allocate_table(transient, identity_key, pointer_equal);
+    assert(visited != INVALID_ADDRESS);
+    encode_value_internal(dest, dictionary, v, total, visited);
+    deallocate_table(visited);
 }
 
 void deallocate_value(tuple t)
