@@ -372,6 +372,8 @@ closure_function(2, 3, void, filesystem_storage_read,
 }
 
 #ifndef TFS_READ_ONLY
+static tuple cleanup_directory(tuple dir);
+
 fs_status filesystem_write_tuple(tfs fs, tuple t)
 {
     if (fs->fs.ro)
@@ -382,12 +384,22 @@ fs_status filesystem_write_tuple(tfs fs, tuple t)
         return FS_STATUS_NOSPACE;
 }
 
-fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v)
+fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean cleanup)
 {
     if (fs->fs.ro)
         return FS_STATUS_READONLY;
-    if (log_write_eav(fs->tl, t, a, v) &&
-            (!fs->temp_log || log_write_eav(fs->temp_log, t, a, v)))
+    tuple parent = cleanup ? cleanup_directory(v) : 0;
+    boolean success = log_write_eav(fs->tl, t, a, v);
+    if (success && fs->temp_log) {
+        /* The above log_write_eav() call might have started a TFS log rebuild, in which case the
+         * entire directory tree has been fixed up again and we have to do another cleanup. */
+        if (cleanup)
+            cleanup_directory(v);
+        success = log_write_eav(fs->temp_log, t, a, v);
+    }
+    if (cleanup)
+        fixup_directory(parent, v);
+    if (success)
         return FS_STATUS_OK;
     else
         return FS_STATUS_NOSPACE;
@@ -400,7 +412,7 @@ static fs_status tfs_truncate(filesystem fs, fsfile f, u64 len)
         if (v == INVALID_ADDRESS)
             return FS_STATUS_NOMEM;
         symbol l = sym(filelength);
-        fs_status s = filesystem_write_eav((tfs)fs, f->md, l, v);
+        fs_status s = filesystem_write_eav((tfs)fs, f->md, l, v, false);
         if (s != FS_STATUS_OK)
             return s;
         set(f->md, l, v);
@@ -475,7 +487,7 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
         symbol a = sym(extents);
         if (!(extents = get_tuple(md, a))) {
             extents = allocate_tuple();
-            fs_status s = filesystem_write_eav(fs, md, a, extents);
+            fs_status s = filesystem_write_eav(fs, md, a, extents, false);
             if (s != FS_STATUS_OK) {
                 deallocate_value(extents);
                 return s;
@@ -492,7 +504,7 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
         if (ex->uninited == INVALID_ADDRESS)
             set(e, sym(uninited), null_value);
         symbol offs = intern_u64(ex->node.r.start);
-        fs_status s = filesystem_write_eav(fs, extents, offs, e);
+        fs_status s = filesystem_write_eav(fs, extents, offs, e, false);
         if (s != FS_STATUS_OK) {
             destruct_tuple(e, true);
             return s;
@@ -518,7 +530,7 @@ static void remove_extent_from_file(tfsfile f, extent ex)
         tuple extents = get(md, sym(extents));
         assert(extents);
         symbol offs = intern_u64(ex->node.r.start);
-        filesystem_write_eav(tfs_from_file(f), extents, offs, 0);
+        filesystem_write_eav(tfs_from_file(f), extents, offs, 0, false);
         set(extents, offs, 0);
     }
     rangemap_remove_node(f->extentmap, &ex->node);
@@ -618,7 +630,7 @@ static u64 write_extent(tfsfile f, extent ex, sg_list sg, range blocks, merge m)
             assert(ex->md);
             symbol a = sym(uninited);
             tfs_debug("%s: log write %p, %p\n", __func__, ex->md, a);
-            fs_status fss = filesystem_write_eav(fs, ex->md, a, 0);
+            fs_status fss = filesystem_write_eav(fs, ex->md, a, 0, false);
             if (fss != FS_STATUS_OK) {
                 apply(apply_merge(m), timm("result", "failed to write log",
                                            "fsstatus", "%d", fss));
@@ -694,7 +706,7 @@ static fs_status update_extent(tfsfile f, extent ex, symbol l, u64 val)
     if (f->f.md) {
         assert(ex->md);
         value v = value_from_u64(f->f.fs->h, val);
-        fs_status s = filesystem_write_eav(tfs_from_file(f), ex->md, l, v);
+        fs_status s = filesystem_write_eav(tfs_from_file(f), ex->md, l, v, false);
         if (s != FS_STATUS_OK)
             return s;
         value oldval = get(ex->md, l);
@@ -1041,8 +1053,6 @@ void filesystem_dealloc(fsfile f, long offset, long len,
     filesystem_write_sg(f, 0, irangel(offset, len), sh);
 }
 
-static void cleanup_directory(tuple dir);
-
 closure_function(0, 2, boolean, cleanup_directory_each,
                  value, s, value, v)
 {
@@ -1051,12 +1061,15 @@ closure_function(0, 2, boolean, cleanup_directory_each,
     return true;
 }
 
-static void cleanup_directory(tuple n)
+static tuple cleanup_directory(tuple n)
 {
-    set(n, sym_this(".."), 0);
+    tuple parent = table_remove(&n->t, sym(..));
+    if (!parent)
+        return 0;
     tuple c = children(n);
     if (c)
         iterate(c, stack_closure(cleanup_directory_each));
+    return parent;
 }
 
 static void destruct_dir_entry(tuple n)
@@ -1089,7 +1102,7 @@ static fs_status do_mkentry(tfs fs, tuple parent, const char *name, tuple entry,
 
     /* XXX rather than ignore, there should be a wakeup on a sync blockq */
     if (persistent) {
-        s = filesystem_write_eav(fs, c, name_sym, entry);
+        s = filesystem_write_eav(fs, c, name_sym, entry, false);
     } else {
         set(entry, sym(no_encode), null_value);
         s = FS_STATUS_OK;
@@ -1231,7 +1244,7 @@ static fs_status tfs_create(filesystem fs, tuple parent, string name, tuple md, 
             fsfile_reserve(*f);
         }
     }
-    fss = filesystem_write_eav(tfs, children(parent), intern(name), md);
+    fss = filesystem_write_eav(tfs, children(parent), intern(name), md, false);
     if (fss == FS_STATUS_OK) {
         if (!fsf)
             table_set(tfs->files, md, INVALID_ADDRESS);
@@ -1246,7 +1259,7 @@ static fs_status tfs_unlink(filesystem fs, tuple parent, string name, tuple md,
                             boolean *destruct_md)
 {
     tfs tfs = (struct tfs *)fs;
-    fs_status fss = filesystem_write_eav(tfs, children(parent), intern(name), 0);
+    fs_status fss = filesystem_write_eav(tfs, children(parent), intern(name), 0, false);
     if (fss == FS_STATUS_OK) {
         *destruct_md = tfs_file_unlink(tfs, md);
     }
@@ -1277,13 +1290,10 @@ static fs_status tfs_rename(filesystem fs, tuple old_parent, string old_name, tu
             return FS_STATUS_INVAL;
     }
     tfs tfs = (struct tfs *)fs;
-    set(old_md, sym_this(".."), 0);
-    fs_status s = filesystem_write_eav(tfs, children(new_parent), intern(new_name), old_md);
-    if (s == FS_STATUS_OK) {
-        if (exchange && new_md)
-            set(new_md, sym_this(".."), 0);
-        s = filesystem_write_eav(tfs, children(old_parent), intern(old_name), exchange ? new_md : 0);
-    }
+    fs_status s = filesystem_write_eav(tfs, children(new_parent), intern(new_name), old_md, true);
+    if (s == FS_STATUS_OK)
+        s = filesystem_write_eav(tfs, children(old_parent), intern(old_name), exchange ? new_md : 0,
+                                 exchange && new_md);
     if ((s == FS_STATUS_OK) && !exchange && new_md)
         *destruct_md = tfs_file_unlink(tfs, new_md);
     return s;

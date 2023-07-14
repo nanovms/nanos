@@ -176,7 +176,7 @@ closure_function(2, 2, void, fsstarted,
     closure_finish();
     symbol booted = sym(booted);
     if (!get(root, booted))
-        filesystem_write_eav((tfs)fs, root, booted, null_value);
+        filesystem_write_eav((tfs)fs, root, booted, null_value, false);
     config_console(root);
 }
 

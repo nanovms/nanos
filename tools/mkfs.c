@@ -393,8 +393,8 @@ closure_function(4, 2, void, fsc,
                 if (!off)
                     off = wrap_buffer_cstring(h, "0");
                 /* make an empty file */
-                filesystem_write_eav(tfs, f, sym(extents), allocate_tuple());
-                filesystem_write_eav(tfs, f, sym(filelength), off);
+                filesystem_write_eav(tfs, f, sym(extents), allocate_tuple(), false);
+                filesystem_write_eav(tfs, f, sym(filelength), off, false);
             }
         }
     }

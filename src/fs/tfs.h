@@ -25,7 +25,7 @@ fsfile fsfile_from_node(filesystem fs, tuple n);
 tfsfile allocate_fsfile(tfs fs, tuple md);
 
 fs_status filesystem_write_tuple(tfs fs, tuple t);
-fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v);
+fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean cleanup);
 
 fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry,
     boolean persistent, boolean recursive);
