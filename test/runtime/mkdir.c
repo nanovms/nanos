@@ -331,6 +331,7 @@ int main(int argc, char **argv)
     r = open(TEST_DIR "/zip", O_WRONLY | O_CREAT, 0644);
     _mkdirat(r, "zipa", DEFAULT_MODE, ENOTDIR);
     close(r);
+    _mkdirat(STDOUT_FILENO, "zipa", DEFAULT_MODE, ENOTDIR);
     listdir(TEST_DIR "/",TEST_DIR "/");
     listdir(TEST_DIR "/test", TEST_DIR "/test");
 

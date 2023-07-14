@@ -38,6 +38,7 @@ int main(int argc, char **argv)
     test_assert((symlink("target", "link") == -1) && (errno == EEXIST));
     test_assert((readlink("link", FAULT_ADDR, 1) == -1) && (errno == EFAULT));
     test_assert((readlinkat(AT_FDCWD, "link", FAULT_ADDR, 1) == -1) && (errno == EFAULT));
+    test_assert((readlinkat(STDOUT_FILENO, "link", buf, sizeof(buf)) == -1) && (errno == ENOTDIR));
     memset(buf, 0, sizeof(buf));
     test_assert((readlink("link", buf, 1) == 1) && (buf[0] == 't'));
     test_assert((readlinkat(AT_FDCWD, "link", buf, 1) == 1) && (buf[0] == 't'));

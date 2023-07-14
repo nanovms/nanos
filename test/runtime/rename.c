@@ -115,6 +115,8 @@ int main(int argc, char **argv)
     close(fd1);
     test_assert((syscall(SYS_renameat2, fd1, "file", fd2, "file", 0) < 0) &&
             (errno == EBADF));
+    test_assert((syscall(SYS_renameat2, STDOUT_FILENO, "file", fd2, "file", 0) < 0) &&
+                (errno == ENOTDIR));
     close(fd2);
 
     fd2 = open("/dir2/my_file", O_CREAT, S_IRWXU);

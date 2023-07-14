@@ -10,6 +10,10 @@
         process_get_cwd(p, &__fs, &cwd);    \
     } else { \
         file f = resolve_fd(p, __dirfd);    \
+        if (f->f.type != FDESC_TYPE_DIRECTORY) {    \
+            fdesc_put(&f->f);                       \
+            return -ENOTDIR;                        \
+        }                                           \
         __fs = f->fs;               \
         filesystem_reserve(__fs);   \
         cwd = f->n;                 \

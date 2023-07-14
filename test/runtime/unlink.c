@@ -45,6 +45,10 @@ static void test_unlinkat(int dirfd)
         exit(EXIT_FAILURE);
     }
     close(fd);
+    if ((unlinkat(STDOUT_FILENO, "file", 0) != -1) || (errno != ENOTDIR)) {
+        printf("unlinkat test with invalid dir fd failed\n");
+        exit(EXIT_FAILURE);
+    }
     if (unlinkat(dirfd, "file", 0) < 0) {
         perror("unlinkat");
         exit(EXIT_FAILURE);
