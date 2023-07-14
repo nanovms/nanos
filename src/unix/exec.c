@@ -266,7 +266,7 @@ process exec_elf(buffer ex, process kp)
         exec_debug("interp: %p\n", interp);
 
     u64 load_offset = 0;
-    if (e->e_type == ET_DYN && interp) {
+    if (e->e_type == ET_DYN) {
         /* Have some PIE */
         load_offset = DEFAULT_PROG_ADDR;
         if (aslr) {
