@@ -140,7 +140,7 @@ boolean encode_decode_test(heap h)
     table tdict2 = allocate_table(h, identity_key, pointer_equal);
     total_entries = 0;
     u64 obsolete_entries = 0;
-    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries);
+    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries, false);
 
     test_assert((total_entries == 1) && (obsolete_entries == 0));
     buffer buf = allocate_buffer(h, 128);
@@ -153,7 +153,7 @@ boolean encode_decode_test(heap h)
     test_assert(obsolete_entries == 2);
     obsolete_entries = 0;
     test_assert(decode_value(h, tdict2, b3,
-        &total_entries, &obsolete_entries) == t4);
+                             &total_entries, &obsolete_entries, false) == t4);
     test_assert(!get(t4, intern_u64(1)));
     test_assert((total_entries == 2) && (obsolete_entries == 2));
 
@@ -169,7 +169,7 @@ boolean encode_decode_test(heap h)
     total_entries = 0;
     obsolete_entries = 0;
     table_clear(tdict1);
-    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries);
+    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries, false);
 
     test_assert((total_entries == 1) && (obsolete_entries == 0));
     buffer_clear(buf);
@@ -190,7 +190,7 @@ boolean encode_decode_test(heap h)
     total_entries = 0;
     obsolete_entries = 0;
     table_clear(tdict1);
-    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries);
+    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries, false);
 
     test_assert((total_entries == 1) && (obsolete_entries == 0));
     buffer_clear(buf);
@@ -209,7 +209,7 @@ boolean encode_decode_test(heap h)
     total_entries = 0;
     obsolete_entries = 0;
     table_clear(tdict1);
-    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries);
+    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries, false);
 
     test_assert((total_entries == 1) && (obsolete_entries == 0));
     buffer_clear(buf);
@@ -247,7 +247,7 @@ boolean encode_decode_reference_test(heap h)
     total_entries = 0;
     u64 obsolete_entries = 0;
     table tdict2 = allocate_table(h, identity_key, pointer_equal);
-    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries);
+    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries, false);
 
     /* t33 has been encoded once (despite being associated to 2 different symbols in t3) */
     test_assert((total_entries == 3) && (obsolete_entries == 0));
@@ -283,7 +283,7 @@ boolean encode_decode_self_reference_test(heap h)
     total_entries = 0;
     u64 obsolete_entries = 0;
     table tdict2 = allocate_table(h, identity_key, pointer_equal);
-    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries);
+    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries, false);
 
     test_assert((total_entries == 1) && (obsolete_entries == 0));
 
@@ -319,7 +319,7 @@ boolean encode_decode_lengthy_test(heap h)
     total_entries = 0;
     u64 obsolete_entries = 0;
     table tdict2 = allocate_table(h, identity_key, pointer_equal);
-    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries);
+    tuple t4 = decode_value(h, tdict2, b3, &total_entries, &obsolete_entries, false);
 
     test_assert((total_entries == 1000) && (obsolete_entries == 0));
     test_assert(tuple_count(t4) == 1000);
