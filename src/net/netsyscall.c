@@ -2494,6 +2494,9 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         case SO_PROTOCOL:
             ret_optval.val = s->sock.type == SOCK_STREAM ? IP_PROTO_TCP : IP_PROTO_UDP;
             break;
+        case SO_DOMAIN:
+            ret_optval.val = s->sock.domain;
+            break;
         default:
             goto unimplemented;
         }
