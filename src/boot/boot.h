@@ -54,3 +54,5 @@ static inline value_tag tagof(value v)
         return tag_integer;
     return *((u8 *)v-1);
 }
+
+extern heap boot_buffer_heap;
