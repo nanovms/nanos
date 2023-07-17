@@ -328,6 +328,8 @@ static u64 stage2_allocator(heap h, bytes b)
     return result;
 }
 
+heap boot_buffer_heap;
+
 void centry()
 {
     working_heap.alloc = stage2_allocator;
@@ -341,6 +343,9 @@ void centry()
     init_symbols(allocate_tagged_region(&working_heap, tag_symbol), &working_heap);
     init_vectors(allocate_tagged_region(&working_heap, tag_vector), &working_heap);
     init_strings(allocate_tagged_region(&working_heap, tag_string), &working_heap);
+
+    /* given our rewind tag, all values must be tagged - even untyped buffers */
+    boot_buffer_heap = allocate_tagged_region(&working_heap, tag_unknown);
     init_sg(&working_heap);
     init_extra_prints();
     stage2_debug("%s\n", __func__);

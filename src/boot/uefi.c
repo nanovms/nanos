@@ -237,6 +237,8 @@ closure_function(3, 2, void, uefi_bootfs_complete,
     }
 }
 
+heap boot_buffer_heap;
+
 efi_status efi_main(void *image_handle, efi_system_table system_table)
 {
     uefi_image_handle = image_handle;
@@ -256,6 +258,9 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
     init_symbols(allocate_tagged_region(&general, tag_symbol), &general);
     init_vectors(allocate_tagged_region(&general, tag_vector), &general);
     init_strings(allocate_tagged_region(&general, tag_string), &general);
+
+    /* given our rewind tag, all values must be tagged - even untyped buffers */
+    boot_buffer_heap = allocate_tagged_region(&general, tag_unknown);
     init_sg(&general);
     struct uefi_arch_options options;
     uefi_arch_setup(&general, &aligned_heap, &options);

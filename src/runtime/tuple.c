@@ -381,7 +381,15 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
             if (!old_encoding)
                 rprintf("%s: warning: untyped buffer, len %ld, offset %d: %X\n", __func__,
                         len, source->start, alloca_wrap_buffer(buffer_ref(source, 0), len));
-            b = allocate_buffer(h, len);
+
+            /* address a long-standing bug in bootloaders; untyped buffers must be tagged */
+            b = allocate_buffer(
+#ifdef BOOT
+                boot_buffer_heap,
+#else
+                h,
+#endif
+                len);
             assert(buffer_write(b, buffer_ref(source, 0), len));
             source->start += len;
         } else {
