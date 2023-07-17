@@ -64,6 +64,7 @@ struct log_ext {
     log tl;
     buffer staging;
     boolean open;
+    boolean old_encoding;
 
     range sectors;
     closure_struct(log_storage_op, read);
@@ -138,6 +139,7 @@ static log_ext open_log_extension(log tl, range sectors)
     if (ext->staging == INVALID_ADDRESS)
         goto fail_dealloc;
     ext->open = false;
+    ext->old_encoding = false;
     init_closure(&ext->read, log_storage_op, tl->fs, sectors.start, false);
     init_closure(&ext->write, log_storage_op, tl->fs, sectors.start, true);
     ext->sectors = sectors;
@@ -408,7 +410,7 @@ static inline boolean log_write_internal(log tl, merge m)
             assert(buffer_length(tl->tuple_staging) > 0);
             size = log_size(ext);
             u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
-            if (ext->staging->end + min >= size) {
+            if (ext->staging->end + min >= size || ext->old_encoding) {
                 tlog_ext_unlock(ext);
                 status_handler sh = apply_merge(m);
                 ext = log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE, sh);
@@ -648,10 +650,10 @@ boolean log_write(log tl, tuple t)
 
 #endif /* !TLOG_READ_ONLY */
 
-static boolean log_parse_tuple(log tl, buffer b)
+static boolean log_parse_tuple(log tl, buffer b, boolean old_encoding)
 {
     tuple dv = decode_value(tl->h, tl->dictionary, b, &tl->total_entries,
-        &tl->obsolete_entries);
+                            &tl->obsolete_entries, old_encoding);
     if (!is_tuple(dv))
         return false;
     return true;
@@ -664,16 +666,30 @@ static inline void log_tuple_produce(log tl, buffer b, u64 length)
     tl->tuple_bytes_remain -= length;
 }
 
-static status log_hdr_parse(buffer b, boolean first_ext, u64 *length, u8 *uuid,
-                            char *label)
+static status log_hdr_parse(log_ext ext, buffer b, boolean first_ext,
+                            u64 *length, u8 *uuid, char *label)
 {
     if (runtime_memcmp(buffer_ref(b, 0), tfs_magic, TFS_MAGIC_BYTES))
         return timm("result", "tfs magic mismatch");
     buffer_consume(b, TFS_MAGIC_BYTES);
     u64 version = pop_varint(b);
-    if (version != TFS_VERSION)
+    if (version == 0x4) {
+#ifndef BOOT
+        static boolean warn_once;
+        if (!warn_once) {
+            warn_once = true;
+            rprintf("WARNING: old version of TFS found (4); please upgrade ops/mkfs\n");
+        }
+#endif
+        if (ext)
+            ext->old_encoding = true;
+    } else if (version == TFS_VERSION) {
+        if (ext)
+            ext->old_encoding = false;
+    } else {
         return timm("result", "tfs version mismatch (read %ld, build %ld)",
             version, TFS_VERSION);
+    }
     *length = pop_varint(b);
     if (first_ext) {
         buffer_read(b, uuid, UUID_LEN);
@@ -712,7 +728,7 @@ closure_function(4, 1, void, log_read_complete,
     tlog_debug("-> new log extension, checking magic and version\n");
     if (!ext->open) {
         length = 0;
-        s = log_hdr_parse(b, ext->sectors.start == 0, &length, tl->fs->uuid,
+        s = log_hdr_parse(ext, b, ext->sectors.start == 0, &length, tl->fs->uuid,
             tl->fs->label);
         if (!is_ok(s))
             goto out_apply_status;
@@ -770,7 +786,7 @@ closure_function(4, 1, void, log_read_complete,
             }
             if (length == tuple_length) {
                 /* read at once from log staging */
-                log_parse_tuple(tl, b);
+                log_parse_tuple(tl, b, ext->old_encoding);
             } else {
                 /* this tuple is in installments */
                 buffer_clear(tl->tuple_staging);
@@ -789,7 +805,7 @@ closure_function(4, 1, void, log_read_complete,
             tlog_debug("need %ld, available %ld\n", tl->tuple_bytes_remain, length);
             log_tuple_produce(tl, b, length);
             if (tl->tuple_bytes_remain == 0) {
-                log_parse_tuple(tl, tl->tuple_staging);
+                log_parse_tuple(tl, tl->tuple_staging, ext->old_encoding);
                 buffer_clear(tl->tuple_staging);
             }
             break;
@@ -860,7 +876,7 @@ static void log_read(log tl, status_handler sh)
 boolean filesystem_probe(u8 *first_sector, u8 *uuid, char *label)
 {
     u64 len;
-    status s = log_hdr_parse(alloca_wrap_buffer(first_sector, SECTOR_SIZE),
+    status s = log_hdr_parse(0, alloca_wrap_buffer(first_sector, SECTOR_SIZE),
         true, &len, uuid, label);
     boolean success = is_ok(s);
     timm_dealloc(s);

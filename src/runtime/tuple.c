@@ -212,18 +212,18 @@ void timm_dealloc(tuple t)
 }
 
 // header: immediate(1)
-//         type(3)
+//         type(3) (1 if old_encoding)
 //         varint encoded unsigned
 // no error path
-static u64 pop_header(buffer f, boolean *imm, u8 *type)
+static u64 pop_header(buffer f, boolean *imm, u8 *type, boolean old_encoding)
 {
     u8 a = pop_u8(f);
     tuple_debug("pop %x\n", a);
-    *imm = a>>7;    
-    *type = (a>>4) & 0x7;
+    *imm = a>>7;
+    *type = old_encoding ? ((a>>6) & 1) : ((a>>4) & 0x7);
     
-    u64 len = a & 0x7;
-    if (a & (1<<3)) {
+    u64 len = a & (old_encoding ? 0x1f : 0x7);
+    if (a & (old_encoding ? (1<<5) : (1<<3))) {
         do {
             a = pop_u8(f);
             tuple_debug("pop %x extra\n", a);
@@ -259,10 +259,10 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     }
 }
 
-static void set_new_value(value e, value a, heap h, table dictionary, buffer source, u64 *total, u64 *obsolete)
+static void set_new_value(value e, value a, heap h, table dictionary, buffer source, u64 *total, u64 *obsolete, boolean old_encoding)
 {
     tuple_debug("%s: e %p, a %v\n", __func__, e, a);
-    value nv = decode_value(h, dictionary, source, total, obsolete);
+    value nv = decode_value(h, dictionary, source, total, obsolete, old_encoding);
     if (obsolete) {
         value old_v = get(e, a);
         if (old_v) {
@@ -293,11 +293,11 @@ static value pop_indirect_value(table dictionary, buffer source)
 // would be nice to merge into a tuple dest, but it changes the loop and makes
 // it weird in the reference case
 value decode_value(heap h, table dictionary, buffer source, u64 *total,
-                   u64 *obsolete)
+                   u64 *obsolete, boolean old_encoding)
 {
     u8 type;
     boolean imm;
-    u64 len = pop_header(source, &imm, &type);
+    u64 len = pop_header(source, &imm, &type, old_encoding);
     tuple_debug("%s: type %d, imm %d, len %d\n", __func__, type, imm, len);
 
     if (type == type_tuple) {
@@ -314,7 +314,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
         for (int i = 0; i < len ; i++) {
             u8 nametype;
             // nametype is always buffer. can we use that bit?
-            u64 nlen = pop_header(source, &imm, &nametype);
+            u64 nlen = pop_header(source, &imm, &nametype, old_encoding);
             symbol s;
             if (imm) {
                 buffer n = wrap_buffer(transient, buffer_ref(source, 0), nlen);
@@ -326,7 +326,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
                 if (!s)
                     halt("indirect symbol not found: 0x%lx, offset %d\n", nlen, source->start);
             }
-            set_new_value(t, s, h, dictionary, source, total, obsolete);
+            set_new_value(t, s, h, dictionary, source, total, obsolete, old_encoding);
         }
         tuple_debug("decode_value: decoded tuple %v\n", t);
         return t;
@@ -341,7 +341,8 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
             v = pop_indirect_value(dictionary, source);
         }
         for (int i = 0; i < len; i++)
-            set_new_value(v, integer_key(i), h, dictionary, source, total, obsolete);
+            set_new_value(v, integer_key(i), h, dictionary, source, total, obsolete,
+                          old_encoding);
         tuple_debug("decode_value: decoded vector %v\n", v);
         return v;
     } else if (type == type_integer) {
@@ -377,9 +378,9 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
                 source->start++;
                 return null_value;
             }
-            // XXX fallback to string if old tfs
-            rprintf("%s: warning: untyped buffer, len %ld, offset %d: %X\n",
-                    __func__, len, source->start, alloca_wrap_buffer(buffer_ref(source, 0), len));
+            if (!old_encoding)
+                rprintf("%s: warning: untyped buffer, len %ld, offset %d: %X\n", __func__,
+                        len, source->start, alloca_wrap_buffer(buffer_ref(source, 0), len));
             b = allocate_buffer(h, len);
             assert(buffer_write(b, buffer_ref(source, 0), len));
             source->start += len;

@@ -7,7 +7,7 @@
 #include <storage.h>
 #include <tfs.h>
 
-#define TFS_VERSION 0x00000004
+#define TFS_VERSION 0x00000005
 
 typedef struct log *log;
 

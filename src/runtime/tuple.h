@@ -34,7 +34,7 @@ void encode_tuple(buffer dest, table dictionary, tuple t, u64 *total);
 
 // h is for the bodies, the space for symbols and tuples are both implicit
 void *decode_value(heap h, table dictionary, buffer source, u64 *total,
-                   u64 *obsolete);
+                   u64 *obsolete, boolean old_encoding);
 void encode_eav(buffer dest, table dictionary, tuple e, symbol a, value v,
                 u64 *obsolete);
 
