@@ -1135,24 +1135,31 @@ sysreturn creat(const char *pathname, int mode)
 /* small enough to not exhaust entropy resources without scheduling */
 #define GETRANDOM_MAX_BUFLEN (1ull << 20)
 
-static inline void fill_random(void *buf, u64 buflen)
+static inline boolean fill_random(void *buf, u64 buflen)
 {
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        random_buffer_aborted();
+        return false;
+    }
     random_buffer(alloca_wrap_buffer(buf, buflen));
+    context_clear_err(ctx);
+    return true;
 }
 
 closure_function(3, 0, void, getrandom_deferred,
                  void *, buf, u64, buflen, u64, written)
 {
     u64 len = MIN(GETRANDOM_MAX_BUFLEN, bound(buflen) - bound(written));
-    fill_random(bound(buf) + bound(written), len);
-    bound(written) += len;
-    if (bound(written) < bound(buflen)) {
-        async_apply((thunk)closure_self());
-        kern_yield();
-    } else {
-        syscall_return(current, bound(written));
-        closure_finish();
+    if (fill_random(bound(buf) + bound(written), len)) {
+        bound(written) += len;
+        if (bound(written) < bound(buflen)) {
+            async_apply((thunk)closure_self());
+            kern_yield();
+        }
     }
+    syscall_return(current, bound(written));
+    closure_finish();
 }
 
 sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
@@ -1160,14 +1167,12 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     if (!buflen)
         return set_syscall_error(current, EINVAL);
 
-    if (!validate_user_memory(buf, buflen, true))
-        return set_syscall_error(current, EFAULT);
-
     if (flags & ~(GRND_NONBLOCK | GRND_RANDOM))
         return set_syscall_error(current, EINVAL);
 
     u64 n = MIN(GETRANDOM_MAX_BUFLEN, buflen);
-    fill_random(buf, n);
+    if (!validate_user_memory(buf, buflen, true) || !fill_random(buf, n))
+        return -EFAULT;
 
     if (n < buflen) {
         thunk t = contextual_closure(getrandom_deferred, buf, buflen, n);

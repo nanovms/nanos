@@ -158,6 +158,13 @@ u64 random_buffer(buffer b)
     return buffer_length(b);
 }
 
+/* Do any cleanup necessary after a random_buffer() call has been interrupted by an exception when
+ * writing to the supplied buffer. */
+void random_buffer_aborted(void)
+{
+    chacha20_unlock();
+}
+
 void random_reseed(void)
 {
     chacha20_lock();

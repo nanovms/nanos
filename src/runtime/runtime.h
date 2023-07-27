@@ -261,6 +261,7 @@ void get_seed_complete(void *seed, bytes len);
 
 u64 random_u64(void);
 u64 random_buffer(buffer b);
+void random_buffer_aborted(void);
 void random_reseed(void);
 
 typedef struct signature {
