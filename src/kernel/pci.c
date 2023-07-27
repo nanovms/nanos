@@ -408,9 +408,13 @@ void pci_discover()
     pci_dev dev = &_dev;
 
     if ((pci_get_hdrtype(dev) & PCIM_MFDEV) == 0) {
-        pci_debug("%s: single\n", __func__);
-        // single PCI host controller
-        pci_probe_bus(0);
+        /* Assume that 0.0.0 is always a host-to-pci bridge */
+        if (pci_get_class(dev) == PCIC_BRIDGE) {
+            pci_debug("%s: single\n", __func__);
+            // single PCI host controller
+            pci_probe_bus(0);
+        } else
+            pci_debug("%s: no host-to-pci bridge found\n", __func__);
     } else {
         // multiple PCI host controllers
         for (int f = 1; f < 8; f++) {
