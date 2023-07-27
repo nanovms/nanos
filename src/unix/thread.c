@@ -441,7 +441,7 @@ thread create_thread(process p, u64 tid)
     runtime_memcpy(&t->uh, p->uh, sizeof(*p->uh));
     init_refcount(&t->context.refcount, 1, init_closure(&t->free, free_thread, t));
     t->select_epoll = 0;
-    runtime_memset((void *)&t->n, 0, sizeof(struct rbnode));
+    init_rbnode(&t->n);
     t->clear_tid = 0;
     t->name[0] = '\0';
 
