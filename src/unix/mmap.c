@@ -1,4 +1,5 @@
 #include <unix_internal.h>
+#include <storage.h>
 
 //#define VMAP_PARANOIA
 
@@ -50,6 +51,8 @@ static struct {
 
     struct list pf_freelist;
 } mmap_info;
+
+static status demand_anonymous_page(pending_fault pf, context ctx, vmap vm, u64 vaddr);
 
 define_closure_function(0, 2, int, pending_fault_compare,
                         rbnode, a, rbnode, b)
@@ -149,7 +152,7 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
     assert((v & MASK(PAGELOG)) == 0);
     void *m = allocate(mmap_info.linear_backed, length);
     if (m == INVALID_ADDRESS) {
-        msg_err("cannot get physical page; OOM\n");
+        vmap_debug("%s: cannot get physical page\n", __func__);
         return INVALID_PHYSICAL;
     }
     zero(m, length);
@@ -162,11 +165,44 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
     return mapped_p;
 }
 
-static status demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
+static void demand_page_major_fault(pending_fault pf, context ctx)
+{
+    spinlock lock = &pf->p->faulting_lock;
+    spin_lock(lock);
+    vector_push(pf->dependents, ctx);
+    spin_unlock(lock);
+    count_major_fault();
+    context_pre_suspend(ctx);
+}
+
+closure_function(3, 1, void, mmap_anon_page,
+                 pending_fault, pf, vmap, vm, u64, vaddr,
+                 status, s)
+{
+    if (!is_ok(s)) {
+        pf_debug("%s: storage sync failed: %v\n", __func__, s);
+        timm_dealloc(s);
+    }
+    mm_service(false);
+    s = demand_anonymous_page(bound(pf), 0, bound(vm), bound(vaddr));
+    timm_dealloc(s);
+    closure_finish();
+}
+
+static status demand_anonymous_page(pending_fault pf, context ctx, vmap vm, u64 vaddr)
 {
     status_handler completion = (status_handler)&pf->complete;
     if (new_zeroed_pages(vaddr & ~MASK(PAGELOG), PAGESIZE, pageflags_from_vmflags(vm->flags),
                          completion) == INVALID_PHYSICAL) {
+        if (ctx) {
+            status_handler sh = closure(mmap_info.h, mmap_anon_page, pf, vm, vaddr);
+            if (sh != INVALID_ADDRESS) {
+                pf_debug("anonymous page major fault, addr %p\n", pf->addr);
+                demand_page_major_fault(pf, ctx);
+                storage_sync(sh);
+                kern_yield();
+            }
+        }
         apply(completion, timm("result", "out of memory"));
         return timm("result", "out of memory");
     }
@@ -228,15 +264,11 @@ static status demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr,
     }
 
     /* page not filled - schedule a page fill for this thread */
-    u64 saved_flags = spin_lock_irq(&p->faulting_lock);
-    vector_push(pf->dependents, ctx);
-    spin_unlock_irq(&p->faulting_lock, saved_flags);
+    init_closure(&pf->demand_file_page, pending_fault_demand_file_page, vm, node_offset, flags);
+    demand_page_major_fault(pf, ctx);
+    async_apply_bh((thunk)&pf->demand_file_page);
 
     /* no need to reserve context; we're on exception/int stack */
-    init_closure(&pf->demand_file_page, pending_fault_demand_file_page, vm, node_offset, flags);
-    async_apply_bh((thunk)&pf->demand_file_page);
-    count_major_fault();
-    context_pre_suspend(ctx);
     kern_yield();
 }
 
@@ -273,7 +305,7 @@ status do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
             int mmap_type = vm->flags & VMAP_MMAP_TYPE_MASK;
             switch (mmap_type) {
             case VMAP_MMAP_TYPE_ANONYMOUS:
-                return demand_anonymous_page(pf, vm, vaddr);
+                return demand_anonymous_page(pf, ctx, vm, vaddr);
             case VMAP_MMAP_TYPE_FILEBACKED:
                 return demand_filebacked_page(p, ctx, vm, vaddr, pf);
             default:
@@ -284,7 +316,7 @@ status do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
             return demand_filebacked_page(p, ctx, vm, vaddr, pf);
         } else {
             pf_debug("   bss / stack / heap page fault\n");
-            return demand_anonymous_page(pf, vm, vaddr);
+            return demand_anonymous_page(pf, ctx, vm, vaddr);
         }
     }
     context_pre_suspend(ctx);
