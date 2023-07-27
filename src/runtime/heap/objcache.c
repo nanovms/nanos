@@ -100,7 +100,7 @@ static footer objcache_addpage(objcache o)
 {
     page p = allocate_u64(o->parent, page_size(o));
     if (p == INVALID_PHYSICAL) {
-        msg_err("unable to allocate page\n");
+        msg_warn("unable to allocate page\n");
         return 0;
     }
 

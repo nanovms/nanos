@@ -229,7 +229,19 @@ boolean mm_register_mem_cleaner(mem_cleaner cleaner)
     return true;
 }
 
-void mm_service(void)
+closure_function(1, 1, void, mm_service_sync,
+                 context, ctx,
+                 status, s)
+{
+    if (!is_ok(s)) {
+        mm_debug("%s: storage sync failed: %v\n", __func__, s);
+        timm_dealloc(s);
+    }
+    context_schedule_return(bound(ctx));
+    closure_finish();
+}
+
+void mm_service(boolean flush)
 {
     heap phys = (heap)heap_physical(init_heaps);
     u64 total = heap_total(phys);
@@ -244,6 +256,15 @@ void mm_service(void)
         u64 cleaned = mm_clean(clean_bytes);
         if (cleaned > 0)
             mm_debug("   cleaned %ld / %ld requested...\n", cleaned, clean_bytes);
+        if ((cleaned < clean_bytes) && flush) {
+            context ctx = get_current_context(current_cpu());
+            status_handler complete = closure(heap_locked(init_heaps), mm_service_sync, ctx);
+            if (complete != INVALID_ADDRESS) {
+                context_pre_suspend(ctx);
+                storage_sync(complete);
+                context_suspend();
+            }
+        }
     }
 }
 
@@ -384,8 +405,10 @@ void kernel_runtime_init(kernel_heaps kh)
     init_sg(locked);
     list_init(&mm_cleaners);
     spin_lock_init(&mm_lock);
-    init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_linear_backed(kh), PAGECACHE_MEMORY_RESERVE),
-               reserve_heap_wrapper(misc, (heap)heap_physical(kh), PAGECACHE_MEMORY_RESERVE), PAGESIZE);
+    u64 memory_reserve = is_low_memory_machine() ? PAGECACHE_LOWMEM_MEMORY_RESERVE :
+                                                   PAGECACHE_MEMORY_RESERVE;
+    init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_linear_backed(kh), memory_reserve),
+                   reserve_heap_wrapper(misc, (heap)heap_physical(kh), memory_reserve), PAGESIZE);
     mem_cleaner pc_cleaner = closure(misc, mm_pagecache_cleaner);
     assert(pc_cleaner != INVALID_ADDRESS);
     assert(mm_register_mem_cleaner(pc_cleaner));

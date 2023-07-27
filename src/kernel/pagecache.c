@@ -655,6 +655,21 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
 #endif
 }
 
+#ifdef KERNEL
+closure_function(4, 1, void, pagecache_write_sg_next,
+                 sg_io, write, sg_list, sg, range, q, status_handler, completion,
+                 status, s)
+{
+    status_handler completion = bound(completion);
+    pagecache_debug("%s: completion %F, status %v\n", __func__, completion, s);
+    if (s == STATUS_OK)
+        apply(bound(write), bound(sg), bound(q), completion);
+    else
+        apply(completion, s);
+    closure_finish();
+}
+#endif
+
 closure_function(1, 3, void, pagecache_write_sg,
                  pagecache_node, pn,
                  sg_list, sg, range, q, status_handler, completion)
@@ -696,8 +711,13 @@ closure_function(1, 3, void, pagecache_write_sg,
 #endif
 
     /* prepare pages for writing */
-    merge m = allocate_merge(pc->h, closure(pc->h, pagecache_write_sg_finish, pn, q,
-                                            q.start >> pc->page_order, sg, completion, ctx));
+    status_handler finish = closure(pc->h, pagecache_write_sg_finish, pn, q,
+                                    q.start >> pc->page_order, sg, completion, ctx);
+    if (finish == INVALID_ADDRESS) {
+        apply(completion, timm("result", "failed to allocate finish closure"));
+        return;
+    }
+    merge m = allocate_merge(pc->h, finish);
     status_handler sh = apply_merge(m);
     pagecache_lock_node(pn);
 
@@ -716,15 +736,20 @@ closure_function(1, 3, void, pagecache_write_sg,
     }
 
     /* prepare whole pages, blocking for any pending reads */
-    for (u64 pi = r.start; pi < r.end; pi++) {
+    u64 pi;
+    const char *err_msg;
+#ifdef KERNEL
+    boolean mem_cleaned = false;
+  begin:
+#endif
+    err_msg = 0;
+    for (pi = r.start; pi < r.end; pi++) {
         pagecache_page pp = page_lookup_nodelocked(pn, pi);
         if (pp == INVALID_ADDRESS) {
             pp = allocate_page_nodelocked(pn, pi);
             if (pp == INVALID_ADDRESS) {
-                pagecache_unlock_node(pn);
-                const char *err = "failed to allocate pagecache_page";
-                apply(sh, timm("result", err)); /* close out merge, record write error */
-                return;
+                err_msg = "failed to allocate pagecache_page";
+                break;
             }
 
             /* When writing a new page at the end of a node whose length is not page-aligned, zero
@@ -740,8 +765,11 @@ closure_function(1, 3, void, pagecache_write_sg,
             }
         }
         pagecache_lock_state(pc);
-        if (page_state(pp) == PAGECACHE_PAGESTATE_FREE)
-            realloc_pagelocked(pc, pp);
+        if ((page_state(pp) == PAGECACHE_PAGESTATE_FREE) && !realloc_pagelocked(pc, pp)) {
+            pagecache_unlock_state(pc);
+            err_msg = "failed to re-allocate pagecache page";
+            break;
+        }
         pp->refcount++;
         if (page_state(pp) == PAGECACHE_PAGESTATE_READING)
             enqueue_page_completion_statelocked(pc, pp, apply_merge(m));
@@ -753,7 +781,33 @@ closure_function(1, 3, void, pagecache_write_sg,
         pn->length = q.end;
 
     pagecache_unlock_node(pn);
-    apply(sh, STATUS_OK);
+    if (err_msg) {
+#ifdef KERNEL
+        if (!mem_cleaned || (pi != r.start)) {
+            pagecache_debug("   trying to free memory (r %R, pi 0x%lx)\n", r, pi);
+            mm_service(true);
+            mem_cleaned = true;
+            r.start = pi;
+            pagecache_lock_node(pn);
+            goto begin;
+        }
+        start_offset = (pi << pc->page_order) - q.start;
+        if (start_offset > 0) {
+            /* Write pages processed so far, then process remaining pages. */
+            status_handler write_next = closure_from_context(ctx, pagecache_write_sg_next,
+                                                             (sg_io)closure_self(), sg,
+                                                             irange(q.start + start_offset, q.end),
+                                                             completion);
+            if (write_next != INVALID_ADDRESS) {
+                closure_member(pagecache_write_sg_finish, finish, q) = irangel(q.start,
+                                                                               start_offset);
+                closure_member(pagecache_write_sg_finish, finish, completion) = write_next;
+                err_msg = 0;
+            }
+        }
+#endif
+    }
+    apply(sh, err_msg ? timm("result", err_msg) : STATUS_OK);
 }
 
 /* evict pages from new and active lists, then rebalance */
@@ -888,7 +942,11 @@ static void commit_dirty_node_complete(pagecache_node pn, status_handler complet
     if (next != INVALID_ADDRESS)
         apply(next, STATUS_OK);
     if (complete)
+#ifdef KERNEL
+        async_apply_status_handler(complete, s);
+#else
         apply(complete, s);
+#endif
     else if (!is_ok(s))
         timm_dealloc(s);
 }
@@ -1155,19 +1213,13 @@ closure_function(5, 1, void, pagecache_node_fetch_complete,
     closure_finish();
 }
 
-static boolean pagecache_node_fetch_sg(pagecache pc, pagecache_node pn, range r, sg_list sg,
-                                       pagecache_page pp, merge m)
+static void pagecache_node_fetch_sg(pagecache pc, pagecache_node pn, range r, sg_list sg,
+                                    status_handler fetch_complete)
 {
-    status_handler fetch_sh = apply_merge(m);
-    status_handler fetch_complete = closure(pc->h, pagecache_node_fetch_complete, pc,
-        pp, range_span(range_rshift_pad(r, pc->page_order)), sg, fetch_sh);
-    if (fetch_complete == INVALID_ADDRESS) {
-        apply(fetch_sh, timm("result", "failed to allocate fetch completion"));
-        return false;
-    }
+    closure_member(pagecache_node_fetch_complete, fetch_complete, page_count) =
+        range_span(range_rshift_pad(r, pc->page_order));
     pagecache_debug("fetching %R from node %p\n", r, pn);
     apply(pn->fs_read, sg, r, fetch_complete);
-    return true;
 }
 
 static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler ph,
@@ -1182,18 +1234,24 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     u64 read_limit = pad(pn->length, U64_FROM_BIT(pn->pv->block_order));
     k.state_offset = q.start >> pc->page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> pc->page_order;
+#ifdef KERNEL
+    boolean mem_cleaned = false;
+  begin:
+#endif
     pagecache_lock_node(pn);
     pagecache_page pp = (pagecache_page)rbtree_lookup(&pn->pages, &k.rbnode);
     sg_list read_sg = 0;
-    pagecache_page read_pp = 0;
     range read_r;
     sg_buf sgb = 0;
+    const char *err_msg = 0;
+    status_handler fetch_complete = 0;
     pagecache_lock_state(pc);
-    for (u64 pi = k.state_offset; pi < end; pi++) {
+    u64 pi;
+    for (pi = k.state_offset; pi < end; pi++) {
         if (pp == INVALID_ADDRESS || page_offset(pp) > pi) {
             pp = allocate_page_nodelocked(pn, pi);
             if (pp == INVALID_ADDRESS) {
-                apply(apply_merge(m), timm("result", "failed to allocate pagecache_page"));
+                err_msg = "failed to allocate pagecache_page";
                 break;
             }
         }
@@ -1201,27 +1259,34 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
             /* This page does not need to be fetched: fetch pages accumulated so far in read_sg. */
             if (read_sg) {
                 pagecache_unlock_state(pc);
-                boolean success = pagecache_node_fetch_sg(pc, pn, read_r, read_sg, read_pp, m);
+                pagecache_node_fetch_sg(pc, pn, read_r, read_sg, fetch_complete);
                 pagecache_lock_state(pc);
-                if (!success)
-                    break;
                 read_sg = 0;
                 sgb = 0;
             }
         } else {
             /* This page needs to be fetched: add it to read_sg. */
             if (page_state(pp) == PAGECACHE_PAGESTATE_FREE) {
-                apply(apply_merge(m), timm("result", "failed to allocate page"));
+                err_msg = "failed to re-allocate page";
                 break;
             }
             if (!read_sg) {
                 read_sg = allocate_sg_list();
                 if (read_sg == INVALID_ADDRESS) {
-                    apply(apply_merge(m), timm("result", "failed to allocate read SG list"));
+                    err_msg = "failed to allocate read SG list";
                     read_sg = 0;
                     break;
                 }
-                read_pp = pp;
+                status_handler fetch_sh = apply_merge(m);
+                fetch_complete = closure(pc->h, pagecache_node_fetch_complete, pc, pp, 0, read_sg,
+                                         fetch_sh);
+                if (fetch_complete == INVALID_ADDRESS) {
+                    err_msg = "failed to allocate fetch completion";
+                    apply(fetch_sh, STATUS_OK);
+                    deallocate_sg_list(read_sg);
+                    read_sg = 0;
+                    break;
+                }
                 read_r = range_lshift(irangel(page_offset(pp), 0), pc->page_order);
             }
             u64 read_max = read_limit - (pi << pc->page_order);
@@ -1245,9 +1310,23 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     }
     pagecache_unlock_state(pc);
     pagecache_unlock_node(pn);
-    if (read_sg && !pagecache_node_fetch_sg(pc, pn, read_r, read_sg, read_pp, m)) {
-        sg_list_release(read_sg);
-        deallocate_sg_list(read_sg);
+    if (read_sg)
+        pagecache_node_fetch_sg(pc, pn, read_r, read_sg, fetch_complete);
+    if (err_msg) {
+#ifdef KERNEL
+        if (!mem_cleaned || (pi != k.state_offset)) {
+            pagecache_debug("   trying to free memory (r %R, pi 0x%lx)\n",
+                            irange(k.state_offset, end), pi);
+            mm_service(true);
+            mem_cleaned = true;
+            k.state_offset = pi;
+            goto begin;
+        }
+#endif
+        if (k.state_offset == q.start >> pc->page_order) {  /* no pages could be fetched */
+            apply(sh, timm("result", err_msg));
+            return;
+        }
     }
 
     /* finished issuing requests */
@@ -1792,7 +1871,7 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     assert(pc->zero_page != INVALID_ADDRESS);
 
 #ifdef KERNEL
-    pc->completions = (heap)allocate_objcache(general, contiguous, sizeof(struct page_completion),
+    pc->completions = (heap)allocate_objcache(general, general, sizeof(struct page_completion),
                                               PAGESIZE, true);
     assert(pc->completions != INVALID_ADDRESS);
     pc->pp_heap = (heap)allocate_objcache(general, contiguous, sizeof(struct pagecache_page),

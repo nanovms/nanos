@@ -791,7 +791,7 @@ void send_ipi(u64 cpu, u8 vector);
 
 void init_scheduler(heap);
 void init_scheduler_cpus(heap h);
-void mm_service(void);
+void mm_service(boolean flush);
 
 boolean sched_queue_init(sched_queue sq, heap h);
 void sched_enqueue(sched_queue sq, sched_task task);
