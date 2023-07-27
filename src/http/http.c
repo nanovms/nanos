@@ -431,7 +431,7 @@ closure_function(2, 1, void, each_http_request,
         if (!hl->default_handler)
             goto not_found;
         apply(hl->default_handler, method, hr, v);
-        return;
+        goto out;
     }
 
     buffer rel_uri = clone_buffer(hl->h, uri);
@@ -464,11 +464,14 @@ closure_function(2, 1, void, each_http_request,
     else
         deallocate_buffer(rel_uri);
 
-    if (match) {
+    if (match)
         apply(match->each, method, hr, v);
-        return;
-    }
+out:
+    deallocate_vector(vsl);
+    return;
   not_found:
+    if (vsl != INVALID_ADDRESS)
+        deallocate_vector(vsl);
     send_http_response(hr, timm("status", "404 Not Found"),
                        aprintf(hl->h, "<html><head><title>404 Not Found</title></head>"
                                "<body><h1>Not Found</h1></body></html>\r\n"));
