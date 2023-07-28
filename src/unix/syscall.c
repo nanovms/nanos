@@ -1886,11 +1886,6 @@ static sysreturn brk(void *addr)
         if (!validate_user_memory(pointer_from_u64(old_end), alloc, true) ||
             !adjust_process_heap(p, irange(p->heap_base, new_end)))
             goto out;
-        pageflags flags = pageflags_writable(pageflags_noexec(pageflags_user(pageflags_memory())));
-        if (new_zeroed_pages(old_end, alloc, flags, 0) == INVALID_PHYSICAL) {
-            adjust_process_heap(p, irange(p->heap_base, old_end));
-            goto out;
-        }
     }
     p->brk = addr;
   out:

@@ -14,6 +14,7 @@
 #define VMAP_FLAG_MMAP     0x0010
 #define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
 #define VMAP_FLAG_STACK    0x0040
+#define VMAP_FLAG_HEAP     0x0080
 
 #define VMAP_MMAP_TYPE_MASK       0x0f00
 #define VMAP_MMAP_TYPE_ANONYMOUS  0x0100

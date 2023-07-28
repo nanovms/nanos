@@ -301,7 +301,8 @@ process exec_elf(buffer ex, process kp)
     proc->brk = pointer_from_u64(brk);
     proc->heap_base = brk;
     proc->heap_map = allocate_vmap(proc, irange(brk, brk),
-                                   ivmap(VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE, 0, 0, 0, 0));
+                                   ivmap(VMAP_FLAG_HEAP | VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE,
+                                         0, 0, 0, 0));
     assert(proc->heap_map != INVALID_ADDRESS);
     exec_debug("entry %p, brk %p (offset 0x%lx)\n", entry, proc->brk, brk_offset);
 
