@@ -20,6 +20,7 @@ test: build
 CLEANFILES+=	$(OBJDIR)/kernel.img $(OBJDIR)/boot.img
 
 post-clean:
+	$(Q) $(GOMOD) tidy
 	$(Q) $(GOCLEAN)
 	$(Q) $(RM) -rf .staging
 	$(Q) $(RM) -f $(BINARY_NAME) image ../runtime/soop.data
