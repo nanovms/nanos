@@ -238,7 +238,7 @@ boolean do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
 {
     u64 page_addr = vaddr & ~PAGEMASK;
 
-    if ((vm->flags & (VMAP_FLAG_MMAP | VMAP_FLAG_STACK)) == 0) {
+    if ((vm->flags & (VMAP_FLAG_MMAP | VMAP_FLAG_STACK | VMAP_FLAG_HEAP)) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
                 vaddr, vm->flags);
         return false;
@@ -273,7 +273,7 @@ boolean do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
                 halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
             }
         } else {
-            pf_debug("   stack page fault\n");
+            pf_debug("   stack / heap page fault\n");
             return demand_anonymous_page(pf, vm, vaddr);
         }
     }
