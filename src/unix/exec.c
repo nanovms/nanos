@@ -14,21 +14,35 @@
 
 #define DEFAULT_PROG_ADDR       0x400000
 
-#define spush(__s, __w) *((--(__s))) = (u64)(__w)
+static void *stack_prealloc(void *start, u64 size)
+{
+    u64 sphys = allocate_u64((heap)heap_physical(get_kernel_heaps()), size);
+    assert(sphys != INVALID_PHYSICAL);
+    start -= size;
+    exec_debug("stack prealloc at %p, size 0x%lx, phys 0x%lx\n", start, size, sphys);
+    map(u64_from_pointer(start), sphys, size, pageflags_writable(pageflags_default_user()));
+    return start;
+}
 
-#define ppush(__s, __b, __f, ...) ({buffer_clear(__b);\
-            bprintf(__b, __f, __VA_ARGS__);                               \
-            __s -= pad((buffer_length(__b) + 1), STACK_ALIGNMENT) >> 3;   \
-            runtime_memcpy(__s, buffer_ref(__b, 0), buffer_length(__b));  \
-            ((char *)__s)[buffer_length(__b)] = '\0';                     \
-            (char *)__s;})
+#define check_s(__s, __a) do { if ((void*)(__s) < (__a))                \
+            (__a) = stack_prealloc((__a), pad((__a) - (void*)(__s), PAGESIZE)); } while(0);
 
-closure_function(4, 2, boolean, environment_each,
-                 char **, envp, int *, envc, u64 **, s, buffer, b,
+#define spush(__s, __a, __w) do { (__s)--; check_s((__s), (__a)); *(__s) = (u64)(__w); } while(0)
+
+#define ppush(__s, __a, __b, __f, ...) ({buffer_clear(__b);             \
+            bprintf((__b), (__f), __VA_ARGS__);                         \
+            (__s) -= pad((buffer_length(__b) + 1), STACK_ALIGNMENT) >> 3; \
+            check_s((__s), (__a));                                      \
+            runtime_memcpy((__s), buffer_ref((__b), 0), buffer_length(__b)); \
+            ((char *)(__s))[buffer_length(__b)] = '\0';                 \
+            (char *)(__s);})
+
+closure_function(5, 2, boolean, environment_each,
+                 char **, envp, int *, envc, u64 **, s, void **, a, buffer, b,
                  value, n, value, v)
 {
     assert(is_symbol(n));
-    bound(envp)[(*bound(envc))++] = ppush((*bound(s)), bound(b), "%b=%b", symbol_string(n), v);
+    bound(envp)[(*bound(envc))++] = ppush(*bound(s), *bound(a), bound(b), "%b=%b", symbol_string(n), v);
     return true;
 }
 
@@ -44,18 +58,12 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
             get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
 
     p->stack_map = allocate_vmap(p, irangel(stack_start, PROCESS_STACK_SIZE),
-                                 ivmap(VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE, 0, 0, 0, 0));
+                                 ivmap(VMAP_FLAG_STACK | VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE,
+                                       0, 0, 0, 0));
     assert(p->stack_map != INVALID_ADDRESS);
 
-    u64 * s = pointer_from_u64(stack_start);
-    u64 sphys = allocate_u64((heap)heap_physical(get_kernel_heaps()), PROCESS_STACK_SIZE);
-    assert(sphys != INVALID_PHYSICAL);
-
-    exec_debug("stack allocated at %p, size 0x%lx, phys 0x%lx\n", s, PROCESS_STACK_SIZE, sphys);
-    map(u64_from_pointer(s), sphys, PROCESS_STACK_SIZE,
-        pageflags_writable(pageflags_default_user()));
-
-    s += PROCESS_STACK_SIZE >> 3;
+    u64 *s = (pointer_from_u64(stack_start) + PROCESS_STACK_SIZE);
+    void *as = stack_prealloc((void*)s, PROCESS_STACK_PREALLOC_SIZE);
 
     /* 16 bytes of random data for userspace (e.g. SSP guard init) */
     for (int i = 0; i < 2; i++) {
@@ -82,6 +90,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         argv_len += buffer_length(a) + 1;
     }
     s -= pad(argv_len, STACK_ALIGNMENT) >> 3;
+    check_s(s, as);
     int argc = 0;
     char * sp = (char *) s;
     p->saved_args_begin = sp;
@@ -102,12 +111,12 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     if (environment) {
         envp = stack_allocate(tuple_count(environment) * sizeof(u64));
         buffer b = allocate_buffer(transient, 128);
-        iterate(environment, stack_closure(environment_each, envp, &envc, &s, b));
+        iterate(environment, stack_closure(environment_each, envp, &envc, &s, &as, b));
     }
 
     // stack padding
     if ((envc + 1 + argc + 1 + 1) % 2 == 1) {
-        spush(s, 0);
+        spush(s, as, 0);
     }
 
     // auxiliary vector
@@ -129,23 +138,23 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         {AT_SYSINFO_EHDR, p->vdso_base}
     };
     for (int i = 0; i < sizeof(auxp) / sizeof(auxp[0]); i++) {
-        spush(s, auxp[i].val);
-        spush(s, auxp[i].tag);
+        spush(s, as, auxp[i].val);
+        spush(s, as, auxp[i].tag);
     }
     runtime_memcpy(p->saved_aux, s, MIN(sizeof(auxp), sizeof(p->saved_aux)));
 
     // envp
-    spush(s, 0);
+    spush(s, as, 0);
     for (int i = envc - 1; i >= 0; i--)
-        spush(s, envp[i]);
+        spush(s, as, envp[i]);
 
     // argv
-    spush(s, 0);
+    spush(s, as, 0);
     for (int i = argc - 1; i >= 0; i--)
-        spush(s, argv[i]);
+        spush(s, as, argv[i]);
 
     // argc
-    spush(s, argc);
+    spush(s, as, argc);
 
     // stack should be 16-byte aligned
     assert(pad(u64_from_pointer(s), STACK_ALIGNMENT) == u64_from_pointer(s));
