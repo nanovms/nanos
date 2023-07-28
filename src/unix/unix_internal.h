@@ -13,6 +13,7 @@
 
 #define VMAP_FLAG_MMAP     0x0010
 #define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
+#define VMAP_FLAG_STACK    0x0040
 
 #define VMAP_MMAP_TYPE_MASK       0x0f00
 #define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
@@ -37,6 +38,7 @@
 #define PROCESS_VIRTUAL_32BIT_RANGE (irange(2ull * GB, 4ull * GB))
 
 #define PROCESS_STACK_SIZE          (2 * MB)
+#define PROCESS_STACK_PREALLOC_SIZE PAGESIZE
 
 /* restrict the area in which ELF segments can be placed */
 #define PROCESS_ELF_LOAD_END        (3ull * GB) /* 3gb hard upper limit */

@@ -238,7 +238,7 @@ boolean do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
 {
     u64 page_addr = vaddr & ~PAGEMASK;
 
-    if ((vm->flags & VMAP_FLAG_MMAP) == 0) {
+    if ((vm->flags & (VMAP_FLAG_MMAP | VMAP_FLAG_STACK)) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
                 vaddr, vm->flags);
         return false;
@@ -262,14 +262,20 @@ boolean do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
         pf = new_pending_fault_locked(p, page_addr);
         spin_unlock_irq(&p->faulting_lock, flags);
         pf_debug("   new pending_fault %p\n", pf);
-        int mmap_type = vm->flags & VMAP_MMAP_TYPE_MASK;
-        switch (mmap_type) {
-        case VMAP_MMAP_TYPE_ANONYMOUS:
+        if (vm->flags & VMAP_FLAG_MMAP) {
+            int mmap_type = vm->flags & VMAP_MMAP_TYPE_MASK;
+            switch (mmap_type) {
+            case VMAP_MMAP_TYPE_ANONYMOUS:
+                return demand_anonymous_page(pf, vm, vaddr);
+            case VMAP_MMAP_TYPE_FILEBACKED:
+                return demand_filebacked_page(p, ctx, vm, vaddr, pf);
+            default:
+                halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
+            }
+        } else {
+            /* stack page */
+            pf_debug("   stack page fault\n");
             return demand_anonymous_page(pf, vm, vaddr);
-        case VMAP_MMAP_TYPE_FILEBACKED:
-            return demand_filebacked_page(p, ctx, vm, vaddr, pf);
-        default:
-            halt("%s: invalid vmap type %d, flags 0x%lx\n", __func__, mmap_type, vm->flags);
         }
     }
     kern_yield();
