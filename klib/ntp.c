@@ -117,6 +117,8 @@ static struct {
     s64 skew;
     s64 max_corr_freq;
     s64 max_base_freq;
+    timestamp resp_time;
+    int no_resp_warn_time;  /* expressed in minutes */
     struct spinlock lock;
 } ntp;
 
@@ -196,6 +198,8 @@ static void ntp_reset_state(void)
     ntp_lock();
     ntp.current_server = -1;
     ntp_unlock();
+    ntp.resp_time = kern_now(CLOCK_ID_MONOTONIC_RAW);
+    ntp.no_resp_warn_time = U64_FROM_BIT(ntp.query_interval) * NTP_QUERY_ATTEMPTS / 60;
 }
 
 /* Converts pair of whole and fractional integer values to 64-bit fixed point */
@@ -573,6 +577,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
         if (!server)
             goto exit;
     }
+    ntp.resp_time = kern_now(CLOCK_ID_MONOTONIC_RAW);
     timestamp wallclock_now = slew_compensate(kern_now(CLOCK_ID_REALTIME));
     struct ntp_ts t1, t2;
     runtime_memcpy(&t1, &pkt->originate_ts, sizeof(t1));
@@ -712,8 +717,20 @@ define_closure_function(0, 2, void, ntp_query_func,
     if (overruns == timer_disabled)
         return;
     if (ntp.query_ongoing) {
-        rprintf("NTP: failed to receive server response\n", __func__);
+        if ((ntp.current_server < 0) || (ntp.query_errors >= NTP_QUERY_ATTEMPTS)) {
+            timestamp t = kern_now(CLOCK_ID_MONOTONIC_RAW) - ntp.resp_time;
+            if (t >= seconds(ntp.no_resp_warn_time * 60)) {
+                rprintf("NTP: failed to receive any valid server response in the past %d minutes\n",
+                        ntp.no_resp_warn_time);
+                if (ntp.no_resp_warn_time <= 30)
+                    ntp.no_resp_warn_time <<= 1;
+                else
+                    ntp.no_resp_warn_time = 60 * (1 + ntp.no_resp_warn_time / 60);
+            }
+        }
         ntp_query_complete(false);
+    } else {
+        ntp.no_resp_warn_time = U64_FROM_BIT(ntp.query_interval) * NTP_QUERY_ATTEMPTS / 60;
     }
     int current_server = ntp.current_server;
     boolean success;
