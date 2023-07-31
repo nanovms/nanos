@@ -333,6 +333,41 @@ static void inotify_test_overflow(void)
     test_assert(close(fd) == 0);
 }
 
+/* Verify that events are not read from the inotify file descriptor if they are not included in the
+ * event mask of the watch. */
+static void inotify_test_noevents(void)
+{
+    int fd;
+    DIR *dir;
+    int wd;
+    struct inotify_event ev;
+
+    fd = inotify_init1(O_NONBLOCK);
+    test_assert(fd >= 0);
+    wd = inotify_add_watch(fd, INOTIFY_TEST_DIR1, IN_ALL_EVENTS & ~IN_OPEN);
+    test_assert(wd >= 0);
+    dir = opendir(INOTIFY_TEST_DIR1);
+    test_assert(dir != NULL);
+    test_assert((read(fd, &ev, sizeof(ev)) == -1) && (errno == EAGAIN));
+    close(fd);
+
+    fd = inotify_init1(O_NONBLOCK);
+    test_assert(fd >= 0);
+    wd = inotify_add_watch(fd, INOTIFY_TEST_DIR1, IN_ALL_EVENTS & ~IN_ACCESS);
+    test_assert(wd >= 0);
+    readdir(dir);
+    test_assert((read(fd, &ev, sizeof(ev)) == -1) && (errno == EAGAIN));
+    close(fd);
+
+    fd = inotify_init1(O_NONBLOCK);
+    test_assert(fd >= 0);
+    wd = inotify_add_watch(fd, INOTIFY_TEST_DIR1, IN_ALL_EVENTS & ~IN_CLOSE_NOWRITE);
+    test_assert(wd >= 0);
+    closedir(dir);
+    test_assert((read(fd, &ev, sizeof(ev)) == -1) && (errno == EAGAIN));
+    close(fd);
+}
+
 int main(int argc, char* argv[])
 {
     int fd;
@@ -405,6 +440,7 @@ int main(int argc, char* argv[])
     inotify_test_delete();
     inotify_test_oneshot();
     inotify_test_overflow();
+    inotify_test_noevents();
 
     printf("inotify test OK\n");
     unlink(INOTIFY_TEST_LINK);

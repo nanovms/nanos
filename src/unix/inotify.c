@@ -246,7 +246,7 @@ define_closure_function(0, 2, boolean, inotify_event_handler,
                         u64, events, void *, arg)
 {
     boolean rv = false;
-    if (!events)
+    if (!(events & ~IN_ISDIR))
         return rv;
     inotify_watch watch = struct_from_field(closure_self(), inotify_watch, eh);
     inotify in = watch->in;
