@@ -71,6 +71,7 @@
 #define LOW_MEMORY_THRESHOLD   (64 * MB)
 #define SG_FRAG_BYTE_THRESHOLD (128*KB)
 #define PAGECACHE_LOWMEM_CONTIGUOUS_PAGESIZE (128*KB)
+#define PAGECACHE_MAX_SG_ENTRIES    8192
 
 /* don't go below this minimum amount of physical memory when inflating balloon */
 #define BALLOON_MEMORY_MINIMUM (16 * MB)

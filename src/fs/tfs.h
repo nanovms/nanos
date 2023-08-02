@@ -6,6 +6,7 @@ typedef struct tfsfile *tfsfile;
 extern io_status_handler ignore_io_status;
 
 #define MIN_EXTENT_SIZE PAGESIZE
+#define MAX_EXTENT_SIZE (PAGECACHE_MAX_SG_ENTRIES * PAGESIZE)
 #define MIN_EXTENT_ALLOC_SIZE   (1 * MB)
 
 boolean filesystem_probe(u8 *first_sector, u8 *uuid, char *label);

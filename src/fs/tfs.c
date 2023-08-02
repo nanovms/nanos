@@ -426,6 +426,7 @@ static fs_status create_extent(tfs fs, range blocks, boolean uninited, extent *e
     assert(!fs->fs.ro);
     heap h = fs->fs.h;
     u64 nblocks = MAX(range_span(blocks), MIN_EXTENT_SIZE >> fs->fs.blocksize_order);
+    nblocks = MIN(range_span(blocks), MAX_EXTENT_SIZE >> fs->fs.blocksize_order);
 
     tfs_debug("create_extent: blocks %R, uninited %p, nblocks %ld\n", blocks, uninited, nblocks);
     if (!filesystem_reserve_log_space(fs, &fs->next_extend_log_offset, 0, 0) ||
@@ -730,10 +731,11 @@ static fs_status update_extent_length(tfsfile f, extent ex, u64 new_length)
 
 static fs_status extend(tfsfile f, extent ex, sg_list sg, range blocks, merge m, u64 *edge)
 {
+    tfs fs = tfs_from_file(f);
+    blocks.end = MIN(blocks.end, ex->node.r.start + (MAX_EXTENT_SIZE >> fs->fs.blocksize_order));
     u64 free = ex->allocated - range_span(ex->node.r);
     range r = irangel(ex->node.r.end, free);
     if (blocks.end > r.end) {
-        tfs fs = tfs_from_file(f);
         range new = irangel(ex->start_block + ex->allocated, blocks.end - r.end);
         u64 limit = fs->fs.size >> fs->fs.blocksize_order;
         if (new.end > limit)

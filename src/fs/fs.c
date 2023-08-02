@@ -196,18 +196,25 @@ closure_function(5, 1, void, read_entire_complete,
                  status, s)
 {
     buffer b = bound(b);
-    fs_debug("read_entire_complete: status %v, addr %p\n", s, buffer_ref(b, 0));
+    fs_debug("read_entire_complete: status %v, addr %p\n", s, buffer_end(b));
     fsfile f = bound(f);
+    sg_list sg = bound(sg);
     if (is_ok(s)) {
-        u64 len = sg_copy_to_buf_and_release(buffer_ref(bound(b), 0), bound(sg),
-                                             fsfile_get_length(f));
+        u64 copy_len = fsfile_get_length(f) - buffer_length(b);
+        u64 len = sg_copy_to_buf(buffer_end(b), sg, copy_len);
         buffer_produce(b, len);
+        if (len < copy_len) {
+            filesystem_read_sg(f, sg, irangel(buffer_length(b), copy_len - len),
+                               (status_handler)closure_self());
+            return;
+        }
         report_sha256(b);
         apply(bound(bh), b);
     } else {
         deallocate_buffer(b);
         apply(bound(sh), s);
     }
+    deallocate_sg_list(sg);
     closure_finish();
     fsfile_release(f);
 }

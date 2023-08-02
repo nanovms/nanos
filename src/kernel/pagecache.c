@@ -951,12 +951,6 @@ static void commit_dirty_node_complete(pagecache_node pn, status_handler complet
         timm_dealloc(s);
 }
 
-#ifdef KERNEL
-#define COMMIT_LIMIT 32 /* number of SG buffers */
-#else
-#define COMMIT_LIMIT infinity
-#endif
-
 closure_function(3, 1, void, pagecache_commit_dirty_ranges,
                  pagecache_node, pn, buffer, dirty, status_handler, complete,
                  status, s)
@@ -978,7 +972,7 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
     u64 committing = 0;
     pagecache_lock_node(pn);
     u64 limit = pn->length;
-    while (buffer_length(dirty) > 0 && committing < COMMIT_LIMIT) {
+    while (buffer_length(dirty) > 0 && committing < PAGECACHE_MAX_SG_ENTRIES) {
         range *rp = buffer_ref(dirty, 0);
         if (rp->start >= limit) {
             buffer_consume(dirty, sizeof(range));
@@ -1032,7 +1026,7 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
             page_count++;
             start += len;
             pp = (pagecache_page)rbnode_get_next((rbnode)pp);
-            if (committing >= COMMIT_LIMIT && start < r.end) {
+            if (committing >= PAGECACHE_MAX_SG_ENTRIES && start < r.end) {
                 r.end = start;
                 break;
             }
@@ -1234,6 +1228,7 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     u64 read_limit = pad(pn->length, U64_FROM_BIT(pn->pv->block_order));
     k.state_offset = q.start >> pc->page_order;
     u64 end = (q.end + MASK(pc->page_order)) >> pc->page_order;
+    end = MIN(end, k.state_offset + PAGECACHE_MAX_SG_ENTRIES);
 #ifdef KERNEL
     boolean mem_cleaned = false;
   begin:
