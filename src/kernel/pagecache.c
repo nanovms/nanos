@@ -679,12 +679,6 @@ closure_function(1, 3, void, pagecache_write_sg,
     pagecache pc = pv->pc;
     pagecache_debug("%s: node %p, q %R, sg %p, completion %F, from %p\n", __func__,
                     pn, q, sg, completion, __builtin_return_address(0));
-    if (!is_ok(pv->write_error)) {
-        /* From a previous (asynchronous) write failure */
-        pagecache_debug("   pending write error %v\n", __func__, pv->write_error);
-        apply(completion, pv->write_error);
-        return;
-    }
 
     if (range_span(q) == 0) {
         apply(completion, STATUS_OK);
@@ -899,10 +893,6 @@ closure_function(5, 1, void, pagecache_commit_complete,
     pagecache_page pp = bound(first_page);
     sg_list sg = bound(sg);
     pagecache_debug("%s: pp %p, s %v\n", __func__, pp, s);
-    if (!is_ok(s)) {
-        pagecache_debug("%s: write_error now %v\n", __func__, s);
-        pp->node->pv->write_error = s;
-    }
     u64 page_count = bound(page_count);
     pagecache_lock_state(pc);
     do {
@@ -1826,7 +1816,6 @@ pagecache_volume pagecache_allocate_volume(u64 length, int block_order)
 #endif
     pv->length = length;
     pv->block_order = block_order;
-    pv->write_error = STATUS_OK;
     return pv;
 }
 

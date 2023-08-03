@@ -62,7 +62,6 @@ typedef struct pagecache_volume {
     struct list dirty_nodes;    /* head of pagecache_nodes */
     u64 length;                 /* end of volume */
     int block_order;
-    status write_error;         /* pending error from a previous write */
 } *pagecache_volume;
 
 declare_closure_struct(1, 0, void, pagecache_node_queue_free,
