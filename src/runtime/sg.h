@@ -21,24 +21,25 @@ typedef struct sg_buf {
     refcount refcount;          /* reference held for source (e.g. page) */
 } *sg_buf;
 
+typedef struct sg_chunk {
+    struct list l;              /* for free list */
+    u32 start;
+    u32 end;
+    struct sg_chunk *next;
+    struct sg_buf bufs[];
+} *sg_chunk;
+
 /* represents a scatter-gather transaction - global kernel object */
 typedef struct sg_list {
-    buffer b;                   /* buffer (array) of sg_bufs */
+    sg_chunk head;
+    sg_chunk tail;
     word count;                 /* total bytes accumulated */
     struct list l;              /* for free list */
 } *sg_list;
 
 typedef closure_type(sg_io, void, sg_list, range, status_handler);
 
-static inline sg_buf sg_list_tail_add(sg_list sg, word length)
-{
-    if (!buffer_extend(sg->b, sizeof(struct sg_buf)))
-        return INVALID_ADDRESS;
-    void *sgb = buffer_ref(sg->b, buffer_length(sg->b));
-    buffer_produce(sg->b, sizeof(struct sg_buf));
-    fetch_and_add(&sg->count, length);
-    return sgb;
-}
+sg_buf sg_list_tail_add(sg_list sg, word length);
 
 /* Once an sg_buf is removed from the list, it must be later released
    with sg_buf_release. Unremoved items from the list can be released
@@ -46,27 +47,42 @@ static inline sg_buf sg_list_tail_add(sg_list sg, word length)
 
 static inline sg_buf sg_list_peek_at(sg_list sg, u64 index)
 {
-    if (buffer_length(sg->b) < (index + 1) * sizeof(struct sg_buf))
-        return INVALID_ADDRESS;
-    return (sg_buf)buffer_ref(sg->b, index * sizeof(struct sg_buf));
+    sg_chunk c = sg->head;
+    u64 offset = index * sizeof(struct sg_buf);
+    while (c) {
+        if (c->start + offset < c->end)
+            return ((void *)c + c->start + offset);
+        offset -= c->end - c->start;
+        c = c->next;
+    }
+    return INVALID_ADDRESS;
 }
 
-#define sg_list_head_peek(sg)   sg_list_peek_at((sg), 0)
-
-static inline sg_buf sg_list_head_remove(sg_list sg)
+static inline sg_buf sg_list_head_peek(sg_list sg)
 {
-    if (buffer_length(sg->b) < sizeof(struct sg_buf))
+    sg_chunk head = sg->head;
+    if (!head || (head->start == head->end))
         return INVALID_ADDRESS;
-    sg_buf sgb = (sg_buf)buffer_ref(sg->b, 0);
-    fetch_and_add(&sg->count, -(word)sgb->size);
-    buffer_consume(sg->b, sizeof(struct sg_buf));
-    return sgb;
+    return ((void *)head + head->start);
 }
+
+sg_buf sg_list_head_remove(sg_list sg);
 
 #define sg_list_length(sg)  (buffer_length((sg)->b) / sizeof(struct sg_buf))
 
-#define sg_list_foreach(sg, sgb) \
-    for (sg_buf sgb = buffer_ref((sg)->b, 0); sgb != buffer_end((sg)->b); sgb++)
+typedef closure_type(sg_list_handler, boolean, sg_buf);
+
+/* sg bufs cannot be removed from the list while iterating the list */
+static inline void sg_list_iterate(sg_list sg, sg_list_handler h)
+{
+    sg_chunk c = sg->head;
+    while (c) {
+        for (u32 offset = c->start; offset < c->end; offset += sizeof(struct sg_buf))
+            if (!apply(h, (void *)c + offset))
+                return;
+        c = c->next;
+    }
+}
 
 static inline u32 sg_buf_len(sg_buf sgb)
 {

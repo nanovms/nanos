@@ -381,7 +381,7 @@ void kernel_runtime_init(kernel_heaps kh)
     early_debug("kernel_runtime_init\n");
 #endif
     init_runtime(misc, locked);
-    init_sg(locked);
+    init_sg((heap)heap_linear_backed(kh));
     list_init(&mm_cleaners);
     spin_lock_init(&mm_lock);
     init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_linear_backed(kh), PAGECACHE_MEMORY_RESERVE),

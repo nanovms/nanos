@@ -15,6 +15,7 @@
 
 BSS_RO_AFTER_INIT static heap sg_heap;
 static struct list free_sg_lists;
+static struct list free_sg_chunks;
 
 #ifdef KERNEL
 static struct spinlock sg_spinlock;   /* for free list */
@@ -38,9 +39,79 @@ static inline void sg_unlock(void)
 #define sg_unlock()
 #endif
 
+static sg_chunk sg_chunk_alloc(boolean locked)
+{
+    sg_chunk c = INVALID_ADDRESS;
+    if (!locked)
+        sg_lock();
+    list l = list_get_next(&free_sg_chunks);
+    if (l) {
+        list_delete(l);
+        c = struct_from_list(l, sg_chunk, l);
+    }
+    if (!locked)
+        sg_unlock();
+    if (c == INVALID_ADDRESS)
+        c = allocate(sg_heap, PAGESIZE);
+    if (c != INVALID_ADDRESS) {
+        c->start = c->end = offsetof(sg_chunk, bufs);
+        c->next = 0;
+    }
+    return c;
+}
+
+static void sg_chunk_dealloc(sg_chunk c, boolean locked)
+{
+    if (!locked)
+        sg_lock();
+    list_insert_after(&free_sg_chunks, &c->l);
+    if (!locked)
+        sg_unlock();
+}
+
+sg_buf sg_list_tail_add(sg_list sg, word length)
+{
+    sg_chunk tail = sg->tail;
+    if (!tail || (tail->end + sizeof(struct sg_buf) > PAGESIZE)) {
+        tail = sg_chunk_alloc(false);
+        if (tail == INVALID_ADDRESS)
+            return INVALID_ADDRESS;
+        if (sg->tail)
+            sg->tail->next = tail;
+        sg->tail = tail;
+    }
+    sg->count += length;
+    sg_buf sgb = (void *)tail + tail->end;
+    tail->end += sizeof(struct sg_buf);
+    return sgb;
+}
+
+sg_buf sg_list_head_remove(sg_list sg)
+{
+    sg_chunk head = sg->head;
+    if (!head || (head->start == head->end))
+        return INVALID_ADDRESS;
+    sg_buf sgb = (void *)head + head->start;
+    head->start += sizeof(struct sg_buf);
+    sg->count -= sgb->size;
+    if (head->start == head->end) {
+        head = sg->head->next;
+        sg_chunk_dealloc(sg->head, false);
+        sg->head = head;
+    }
+    return sgb;
+}
+
 void sg_consume(sg_list sg, u64 length)
 {
-    sg_list_foreach(sg, sgb) {
+    sg_chunk head;
+    while ((head = sg->head)) {
+        sg_buf sgb = (void *)head + head->start;
+        if (head->start == head->end) {
+            sg->head = head->next;
+            sg_chunk_dealloc(head, false);
+            continue;
+        }
         if (length + sgb->offset >= sgb->size) {
             sg_list_head_remove(sg);
             length -= sg_buf_len(sgb);
@@ -146,26 +217,29 @@ u64 sg_copy_to_buf_and_release(void *target, sg_list sg, u64 n)
 
 #ifdef KERNEL
 
+closure_function(1, 1, boolean, sg_fault_in_each,
+                 u64, n,
+                 sg_buf, sgb)
+{
+    s64 len = MIN(bound(n), sg_buf_len(sgb));
+    bound(n) -= len;
+    volatile u8 *bp = sgb->buf + sgb->offset;
+    while (len > 0) {
+        (void)*bp;
+        bp += PAGESIZE;
+        len -= PAGESIZE;
+    }
+    return true;
+}
+
 /* Touch n bytes from sg, without consuming the SG list or its buffers, and return whether the
  * buffers being accessed point to valid memory. */
 boolean sg_fault_in(sg_list sg, u64 n)
 {
-    sg_buf sgb;
-    u64 sgb_index = 0;
     context ctx = get_current_context(current_cpu());
     if (context_set_err(ctx))
         return false;
-    while (n > 0 && (sgb = sg_list_peek_at(sg, sgb_index)) != INVALID_ADDRESS) {
-        s64 len = MIN(n, sg_buf_len(sgb));
-        n -= len;
-        volatile u8 *bp = sgb->buf + sgb->offset;
-        while (len > 0) {
-            (void)*bp;
-            bp += PAGESIZE;
-            len -= PAGESIZE;
-        }
-        sgb_index++;
-    }
+    sg_list_iterate(sg, stack_closure(sg_fault_in_each, n));
     context_clear_err(ctx);
     return true;
 }
@@ -174,23 +248,31 @@ boolean sg_fault_in(sg_list sg, u64 n)
 
 sg_list allocate_sg_list(void)
 {
+    sg_list sg = INVALID_ADDRESS;
     sg_lock();
     list l = list_get_next(&free_sg_lists);
     if (l) {
         list_delete(l);
-        sg_unlock();
-        return struct_from_list(l, sg_list, l);
+        sg = struct_from_list(l, sg_list, l);
+    } else {
+        void *sg_page = allocate(sg_heap, PAGESIZE);
+        if (sg_page != INVALID_ADDRESS) {
+            for (sg = sg_page + sizeof(*sg); (void *)sg + sizeof(*sg) <= sg_page + PAGESIZE; sg++)
+                list_push_back(&free_sg_lists, &sg->l);
+            sg = sg_page;
+        }
+    }
+    if (sg != INVALID_ADDRESS) {
+        sg->head = sg_chunk_alloc(true);
+        if (sg->head == INVALID_ADDRESS) {
+            list_insert_after(&free_sg_lists, &sg->l);
+            sg = INVALID_ADDRESS;
+        }
     }
     sg_unlock();
-
-    sg_list sg = allocate(sg_heap, sizeof(struct sg_list));
-    if (!sg)
+    if (sg == INVALID_ADDRESS)
         return sg;
-    sg->b = allocate_buffer(sg_heap, sizeof(struct sg_buf) * DEFAULT_SG_FRAGS);
-    if (sg->b == INVALID_ADDRESS) {
-        deallocate(sg_heap, sg, sizeof(struct sg_list));
-        return INVALID_ADDRESS;
-    }
+    sg->tail = sg->head;
     list_init(&sg->l);
     sg->count = 0;
     return sg;
@@ -198,12 +280,9 @@ sg_list allocate_sg_list(void)
 
 void deallocate_sg_list(sg_list sg)
 {
-    buffer_clear(sg->b);
-    /* Recycle extremely large fragment buffers */
-    if (buffer_space(sg->b) > SG_FRAG_BYTE_THRESHOLD)
-        assert(buffer_set_capacity(sg->b, SG_FRAG_BYTE_THRESHOLD) == SG_FRAG_BYTE_THRESHOLD);
-    sg->count = 0;
     sg_lock();
+    if (sg->head)
+        sg_chunk_dealloc(sg->head, true);
     list_insert_after(&free_sg_lists, &sg->l);
     sg_unlock();
 }
@@ -263,5 +342,6 @@ void init_sg(heap h)
     sg_debug("%s\n", __func__);
     sg_heap = h;
     list_init(&free_sg_lists);
+    list_init(&free_sg_chunks);
     sg_lock_init();
 }

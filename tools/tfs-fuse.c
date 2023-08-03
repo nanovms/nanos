@@ -190,6 +190,20 @@ static inline tuple file_get_meta(file f)
     return pointer_from_u64(f->n);
 }
 
+closure_function(4, 1, boolean, req_handle_each,
+                 struct iovec *, iov, u64, total, ssize_t, xfer, int *, iov_count,
+                 sg_buf, sgb)
+{
+    struct iovec *iov = bound(iov) + *bound(iov_count);
+    u64 total = bound(total);
+    iov->iov_base = sgb->buf + sgb->offset;
+    iov->iov_len = MIN(sg_buf_len(sgb), total - bound(xfer));
+    bound(xfer) += iov->iov_len;
+    if ((++(*bound(iov_count)) == IOV_MAX) || (bound(xfer) == total))
+        return false;
+    return true;
+}
+
 closure_function(2, 1, void, req_handle,
                  descriptor, d, u64, fs_offset,
                  storage_req, req)
@@ -213,14 +227,7 @@ closure_function(2, 1, void, req_handle,
         lseek(bound(d), offset, SEEK_SET);
         while (total > 0) {
             iov_count = 0;
-            xfer = 0;
-            sg_list_foreach(sg, sgb) {
-                iov[iov_count].iov_base = sgb->buf + sgb->offset;
-                iov[iov_count].iov_len = MIN(sg_buf_len(sgb), total - xfer);
-                xfer += iov[iov_count].iov_len;
-                if ((++iov_count == IOV_MAX) || (xfer == total))
-                    break;
-            }
+            sg_list_iterate(sg, stack_closure(req_handle_each, iov, total, 0, &iov_count));
             if (write) {
                 xfer = writev(bound(d), iov, iov_count);
                 if (xfer < 0 && errno != EINTR) {

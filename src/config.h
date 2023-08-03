@@ -68,7 +68,6 @@
 #define PAGECACHE_MEMORY_RESERVE (4 * MB)
 #define USER_MEMORY_RESERVE (4 * MB)
 #define LOW_MEMORY_THRESHOLD   (64 * MB)
-#define SG_FRAG_BYTE_THRESHOLD (128*KB)
 #define PAGECACHE_LOWMEM_CONTIGUOUS_PAGESIZE (128*KB)
 
 /* don't go below this minimum amount of physical memory when inflating balloon */
