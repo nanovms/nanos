@@ -527,8 +527,14 @@ closure_function(6, 1, void, file_read_complete,
     sysreturn rv;
     sg_list sg = bound(sg);
     context ctx = get_current_context(current_cpu());
-    if (context_set_err(ctx))
+    if (context_set_err(ctx)) {
+        /* sg_copy_to_buf_and_release() was aborted during a runtime_memcpy(), and the SG buffer
+         * being copied when the fault happened has been removed from the SG list but not released:
+         * release it here. */
+        sg_buf_release(sg_list_peek_at(sg, -1));
+
         s = timm("result", "invalid user memory", "fsstatus", "%d", FS_STATUS_FAULT);
+    }
     if (is_ok(s)) {
         file f = bound(f);
         u64 count = sg_copy_to_buf_and_release(bound(dest), sg, bound(limit));
