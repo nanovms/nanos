@@ -260,11 +260,12 @@ static boolean realloc_pagelocked(pagecache pc, pagecache_page pp)
 static sg_buf pagecache_add_sgb(pagecache_page pp, sg_list sg, u64 size)
 {
     sg_buf sgb = sg_list_tail_add(sg, size);
-    assert(sgb != INVALID_ADDRESS);
-    sgb->buf = pp->kvirt;
-    sgb->size = size;
-    sgb->offset = 0;
-    sgb->refcount = 0;
+    if (sgb != INVALID_ADDRESS) {
+        sgb->buf = pp->kvirt;
+        sgb->size = size;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+    }
     return sgb;
 }
 
@@ -375,7 +376,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
             u64 read_size = range_span(r);
             if (read_size < cache_pagesize(pc))
                 zero(pp->kvirt + read_size, cache_pagesize(pc) - read_size);
-            pagecache_add_sgb(pp, sg, read_size);
+            assert(pagecache_add_sgb(pp, sg, read_size) != INVALID_ADDRESS);
             apply(pn->fs_read, sg, r,
                   closure(pc->h, pagecache_read_page_complete, pc, pp, sg));
             return false;
@@ -1187,7 +1188,7 @@ void pagecache_purge_node(pagecache_node pn, status_handler complete)
 }
 #endif /* !PAGECACHE_READ_ONLY */
 
-typedef closure_type(pp_handler, void, pagecache_page);
+typedef closure_type(pp_handler, boolean, pagecache_page);
 
 closure_function(5, 1, void, pagecache_node_fetch_complete,
                  pagecache, pc, pagecache_page, first_page, u64, page_count, sg_list, sg, status_handler, complete,
@@ -1301,12 +1302,18 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
                 read_sg->count += read_size;
             } else {
                 sgb = pagecache_add_sgb(pp, read_sg, read_size);
+                if (sgb == INVALID_ADDRESS) {
+                    err_msg = "failed to allocate SG buffer";
+                    break;
+                }
             }
             pp->refcount++;
             read_r.end += read_size;
         }
-        if (ph)
-            apply(ph, pp);
+        if (ph && !apply(ph, pp)) {
+            err_msg = "page fetch handler error";
+            break;
+        }
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     }
     pagecache_unlock_state(pc);
@@ -1334,7 +1341,7 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     apply(sh, STATUS_OK);
 }
 
-closure_function(3, 1, void, pagecache_read_pp_handler,
+closure_function(3, 1, boolean, pagecache_read_pp_handler,
                  pagecache, pc, range, q, sg_list, sg,
                  pagecache_page, pp)
 {
@@ -1342,13 +1349,15 @@ closure_function(3, 1, void, pagecache_read_pp_handler,
     range i = range_intersection(bound(q), r);
     u64 length = range_span(i);
     sg_buf sgb = sg_list_tail_add(bound(sg), length);
-    assert(sgb != INVALID_ADDRESS);
+    if (sgb == INVALID_ADDRESS)
+        return false;
     sgb->buf = pp->kvirt + (i.start - r.start);
     sgb->size = length;
     sgb->offset = 0;
     sgb->refcount = &pp->read_refcount;
     if (fetch_and_add(&pp->read_refcount.c, 1) == 0)
         pp->refcount++;
+    return true;
 }
 
 closure_function(1, 3, void, pagecache_read_sg,
