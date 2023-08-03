@@ -896,6 +896,9 @@ closure_function(5, 1, void, pagecache_commit_complete,
     sg_list sg = bound(sg);
     pagecache_debug("%s: pp %p, s %v\n", __func__, pp, s);
     u64 page_count = bound(page_count);
+    pagecache_node pn = pp->node;
+    range r = range_lshift(irangel(page_offset(pp), page_count), pc->page_order);
+    pagecache_lock_node(pn);
     pagecache_lock_state(pc);
     do {
         assert(pp->write_count > 0);
@@ -914,6 +917,9 @@ closure_function(5, 1, void, pagecache_commit_complete,
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
     } while (--page_count > 0);
     pagecache_unlock_state(pc);
+    if (!is_ok(s))
+        pagecache_set_dirty(pn, r);
+    pagecache_unlock_node(pn);
     deallocate_sg_list(sg);
 #ifdef KERNEL
     async_apply_status_handler(bound(sh), s);
@@ -952,7 +958,15 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
     pagecache_volume pv = pn->pv;
     pagecache pc = pv->pc;
 
-    if (!is_ok(s) || buffer_length(dirty) == 0) {
+    if (!is_ok(s)) {
+        pagecache_lock_node(pn);
+        while (buffer_length(dirty) > 0) {
+            pagecache_set_dirty(pn, *(range *)buffer_ref(dirty, 0));
+            buffer_consume(dirty, sizeof(range));
+        }
+        pagecache_unlock_node(pn);
+    }
+    if (buffer_length(dirty) == 0) {
         deallocate_buffer(dirty);
         commit_dirty_node_complete(pn, bound(complete), s);
         closure_finish();
@@ -995,7 +1009,7 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
             } else {
                 sgb = sg_list_tail_add(sg, len);
                 if (sgb == INVALID_ADDRESS) {
-                    msg_err("sgbuf alloc fail\n");
+                    msg_warn("sgbuf alloc fail\n");
                     if (committing == 0)
                         s = timm("result", "unable to allocate sg buffer");
                     r.end = start;
