@@ -402,6 +402,7 @@ void kernel_runtime_init(kernel_heaps kh)
     early_debug("kernel_runtime_init\n");
 #endif
     init_runtime(misc, locked);
+    timm_oom = timm("result", "out of memory");
     init_sg(locked);
     list_init(&mm_cleaners);
     spin_lock_init(&mm_lock);

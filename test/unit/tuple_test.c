@@ -113,6 +113,22 @@ boolean all_tests(heap h)
     set(t1, sym1, 0);
     set(t1, sym2, 0);
 
+    // tuple clone
+    v1 = allocate_vector(h, 1);
+    set(t1, sym(v1), v1);
+    tuple t2 = allocate_tuple();
+    set(t2, sym(b0), wrap_string_cstring(tst[0]));
+    set(t2, sym(b1), wrap_string_cstring(tst[1]));
+    set(t1, sym(t2), t2);
+    tuple t3 = clone_tuple(t1);
+    vector v2 = get(t3, sym(v1));
+    test_assert((v2 != v1) && (vector_length(v2) == vector_length(v1)));
+    val = get(t3, intern_u64(1));
+    test_assert(u64_from_value(val, &u1) && (u1 == 10));
+    tuple t4 = get(t3, sym(t2));
+    test_assert((t4 != t2) && (tuple_count(t4) == tuple_count(t2)));
+    destruct_value(t3, true);
+
     failure = false;
 fail:
     destruct_value(t1, true);

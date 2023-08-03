@@ -27,6 +27,7 @@ void init_tuples(heap theap);
 int tuple_count(tuple t);
 symbol tuple_get_symbol(tuple t, value v);
 tuple allocate_tuple();
+tuple clone_tuple(tuple t);
 void destruct_value(value v, boolean recursive);
 void deallocate_value(value t);
 

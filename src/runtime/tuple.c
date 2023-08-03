@@ -7,6 +7,8 @@
 #define tuple_debug(x, ...)
 #endif
 
+BSS_RO_AFTER_INIT tuple timm_oom;
+
 BSS_RO_AFTER_INIT static heap theap;
 BSS_RO_AFTER_INIT static heap iheap;
 
@@ -185,6 +187,42 @@ tuple allocate_tuple(void)
     return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_table_tuple);
 }
 
+closure_function(1, 2, boolean, clone_tuple_each,
+                 tuple, clone,
+                 value, s, value, v)
+{
+    if (!is_immediate(v) && (v != null_value)) {
+        value_tag tag = tagof(v);
+        switch (tag) {
+        case tag_symbol:
+            break;
+        case tag_table_tuple:
+            v = clone_tuple(v);
+            break;
+        case tag_function_tuple:
+            break;
+        default:
+            v = clone_buffer(((buffer)v)->h, v);
+        }
+        if (v == INVALID_ADDRESS)
+            return false;
+    }
+    set(bound(clone), s, v);
+    return true;
+}
+
+tuple clone_tuple(tuple t)
+{
+    tuple clone = allocate_tuple();
+    if (clone != INVALID_ADDRESS) {
+        if (!iterate(t, stack_closure(clone_tuple_each, clone))) {
+            destruct_value(clone, true);
+            clone = INVALID_ADDRESS;
+        }
+    }
+    return clone;
+}
+
 closure_function(2, 2, boolean, destruct_value_each,
                  value, v, boolean, recursive,
                  value, s, value, v)
@@ -205,9 +243,17 @@ void destruct_value(value v, boolean recursive)
     deallocate_value(v);
 }
 
+tuple timm_clone(tuple t)
+{
+    if ((t == STATUS_OK) || (t == timm_oom))
+        return t;
+    t = clone_tuple(t);
+    return (t != INVALID_ADDRESS) ? t : timm_oom;
+}
+
 void timm_dealloc(tuple t)
 {
-    if (t != STATUS_OK)
+    if ((t != STATUS_OK) && (t != timm_oom))
         destruct_value(t, true);
 }
 

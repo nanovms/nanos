@@ -218,6 +218,7 @@ static void pagecache_page_queue_completions_locked(pagecache pc, pagecache_page
     list_foreach(&pp->bh_completions, l) {
         page_completion c = struct_from_list(l, page_completion, l);
         assert(c->sh != INVALID_ADDRESS && c->sh != 0);
+        s = timm_clone(s);
 #ifdef KERNEL
         async_apply_status_handler(c->sh, s);
 #else
@@ -317,6 +318,7 @@ closure_function(3, 1, void, pagecache_read_page_complete,
     change_page_state_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
     pagecache_page_queue_completions_locked(pc, pp, s);
     pagecache_unlock_state(pc);
+    timm_dealloc(s);
     sg_list_release(bound(sg));
     deallocate_sg_list(bound(sg));
     closure_finish();

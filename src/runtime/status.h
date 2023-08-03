@@ -3,6 +3,8 @@
 typedef tuple status;
 typedef closure_type(status_handler, void, status);
 
+extern tuple timm_oom;
+
 static inline void timm_term(tuple t, char *n, vlist *a)
 {
     symbol k = intern(alloca_wrap_buffer(n, runtime_strlen(n)));
@@ -19,7 +21,8 @@ static inline tuple timm_internal(tuple t, char *first, ...)
     vstart(e, first);
     if (t == STATUS_OK)
         t = allocate_tuple();
-    assert(t != INVALID_ADDRESS);
+    if (t == INVALID_ADDRESS)
+        return timm_oom;
 
     // deal with the mandatory first argument
     if (first != INVALID_ADDRESS) {
@@ -30,6 +33,8 @@ static inline tuple timm_internal(tuple t, char *first, ...)
     }
     return t;
 }
+
+tuple timm_clone(tuple t);
 
 void timm_dealloc(tuple t);
 
