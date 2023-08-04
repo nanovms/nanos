@@ -15,6 +15,9 @@
 #define VMAP_FLAG_SHARED   0x0020 /* vs private; same semantics as unix */
 #define VMAP_FLAG_STACK    0x0040
 #define VMAP_FLAG_HEAP     0x0080
+#define VMAP_FLAG_PROG     0x1000
+#define VMAP_FLAG_BSS      0x2000
+#define VMAP_FLAG_TAIL_BSS 0x4000
 
 #define VMAP_MMAP_TYPE_MASK       0x0f00
 #define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
@@ -271,6 +274,7 @@ declare_closure_struct(1, 1, void, pending_fault_complete,
 typedef struct pending_fault {
     struct rbnode n;            /* must be first */
     u64 addr;
+    u64 bss_start;              /* u16? */
     process p;
     vector dependents;
     struct list l_free;
@@ -445,7 +449,10 @@ typedef struct vmap {
     u32 allowed_flags;
     pagecache_node cache_node;
     u64 node_offset;
-    fdesc fd;
+    union {
+        fdesc fd;
+        u64 bss_offset;
+    };
 } *vmap;
 
 #define ivmap(__f, __af, __o, __c, __fd) (struct vmap) {    \

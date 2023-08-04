@@ -261,49 +261,30 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
     ELF_CHECK_PTR(e, Elf64_Ehdr);
     foreach_phdr(e, p) {
         ELF_CHECK_PTR(p, Elf64_Phdr);
-        if (p->p_type == PT_LOAD) {
-            elf_debug("   PT_LOAD p_vaddr 0x%lx, p_offset 0x%lx, p_filesz 0x%lx\n",
-                      p->p_vaddr, p->p_offset, p->p_filesz);
-            /* determine access permissions */
-            pageflags flags = pageflags_memory();
-            if (p->p_flags & PF_X)
-                flags = pageflags_exec(flags);
-            if (p->p_flags & PF_W)
-                flags = pageflags_writable(flags);
-
-            u64 aligned = p->p_vaddr & (~MASK(PAGELOG));
-            u64 trim_offset = p->p_vaddr & MASK(PAGELOG);
-            u64 src = u64_from_pointer(buffer_ref(elf, p->p_offset)) & ~MASK(PAGELOG);
-            u64 phys = physical_from_virtual(pointer_from_u64(src));
-            s64 bss_size = p->p_memsz - p->p_filesz;
-            if (bss_size < 0)
-                halt("load_elf with p->p_memsz (%ld) < p->p_filesz (%ld)\n",
-                     p->p_memsz, p->p_filesz);
-            u64 bss_start = p->p_vaddr + load_offset + p->p_filesz;
-            u64 ssize = p->p_filesz + trim_offset;
-
-            /* If there is a bss in this segment and it doesn't start on a
-               page boundary, truncate the mapped file data to the page
-               boundary and copy the remainder into the bss mapping. */
-            u64 tail_copy = ssize & MASK(PAGELOG);
-            if (bss_size > 0 && tail_copy != 0)
-                ssize &= ~MASK(PAGELOG);
-
-            elf_debug("      src 0x%lx, phys 0x%lx, bss_size 0x%lx, bss_start 0x%lx\n",
-                      src, phys, bss_size, bss_start);
-            elf_debug("      ssize 0x%lx, tail_copy 0x%lx, flags 0x%lx\n",
-                      ssize, tail_copy, flags);
-
-            if (ssize > 0)
-                apply(mapper, aligned + load_offset, phys, pad(ssize, PAGESIZE), flags);
-
-            if (bss_size > 0) {
-                u64 map_start = bss_start & ~MASK(PAGELOG);
-                u64 va = apply(mapper, map_start, INVALID_PHYSICAL,
-                               pad(tail_copy + bss_size, PAGESIZE), flags);
-                if (tail_copy > 0)
-                    runtime_memcpy(pointer_from_u64(va), pointer_from_u64(src + ssize), tail_copy);
-            }
+        if (p->p_type != PT_LOAD)
+            continue;
+        elf_debug("   PT_LOAD p_vaddr 0x%lx, p_offset 0x%lx, p_filesz 0x%lx\n",
+                  p->p_vaddr, p->p_offset, p->p_filesz);
+        /* determine access permissions */
+        pageflags flags = pageflags_memory();
+        if (p->p_flags & PF_X)
+            flags = pageflags_exec(flags);
+        if (p->p_flags & PF_W)
+            flags = pageflags_writable(flags);
+        if (p->p_memsz < p->p_filesz)
+            halt("load_elf with p->p_memsz (%ld) < p->p_filesz (%ld)\n",
+                 p->p_memsz, p->p_filesz);
+        elf_debug("      apply mapper %F: vaddr 0x%lx, offset 0x%lx, "
+                  "data size 0x%lx, bss size 0x%lx, flags 0x%lx\n",
+                  mapper, p->p_vaddr + load_offset, p->p_offset, p->p_filesz,
+                  p->p_memsz - p->p_filesz, flags);
+        if (!apply(mapper, p->p_vaddr + load_offset, p->p_offset, p->p_filesz,
+                   p->p_memsz - p->p_filesz, flags)) {
+            msg_err("call to mapper %F failed (vaddr 0x%lx, offset 0x%lx, "
+                    "data size 0x%lx, bss size 0x%lx, flags 0x%lx)\n",
+                    mapper, p->p_vaddr + load_offset, p->p_offset, p->p_filesz,
+                    p->p_memsz - p->p_filesz, flags);
+            goto out_elf_fail;
         }
     }
     u64 entry = e->e_entry + load_offset;

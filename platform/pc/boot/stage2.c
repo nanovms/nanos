@@ -93,7 +93,7 @@ closure_function(1, 1, void, stage2_bios_read,
     sg_list sg = req->data;
 
     void *read_buffer = pointer_from_u64(SCRATCH_BASE);
-    stage2_debug("%s: %p <- 0x%lx (0x%lx)\n", __func__, dest, start_sector, nsectors);
+    stage2_debug("%s: sg %p <- 0x%lx (0x%lx)\n", __func__, sg, start_sector, nsectors);
 
     while (nsectors > 0) {
         int read_sectors = MIN(nsectors, SCRATCH_LEN >> SECTOR_OFFSET);
@@ -120,9 +120,9 @@ closure_function(3, 1, void, stage2_ata_read,
     if (req->op != STORAGE_OP_READSG)
         halt("%s: invalid storage op %d\n", __func__, req->op);
     u64 offset = bound(offset);
-    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, offset);
     assert((offset & (SECTOR_SIZE - 1)) == 0);
     range blocks = req->blocks;
+    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, offset);
     u64 ds = offset >> SECTOR_OFFSET;
     blocks.start += ds;
     blocks.end += ds;
@@ -207,22 +207,6 @@ static void setup_page_tables()
 
 static u64 working_saved_base;
 
-closure_function(0, 4, u64, kernel_elf_map,
-                 u64, vaddr, u64, paddr, u64, size, pageflags, flags)
-{
-    stage2_debug("%s: vaddr 0x%lx, paddr 0x%lx, size 0x%lx, flags 0x%lx\n",
-                 __func__, vaddr, paddr, size, flags);
-
-    if (paddr == INVALID_PHYSICAL) {
-        /* bss */
-        paddr = allocate_u64(backed, size);
-        assert(paddr != INVALID_PHYSICAL);
-        zero(pointer_from_u64(paddr), size);
-    }
-    map(vaddr, paddr, size, flags);
-    return paddr;
-}
-
 closure_function(0, 1, status, kernel_read_complete,
                  buffer, kb)
 {
@@ -232,8 +216,7 @@ closure_function(0, 1, status, kernel_read_complete,
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
 
     /* truncate to 32-bit is ok; we'll move it up in setup64 */
-    stage2_debug("%s: load_elf\n", __func__);
-    void *k = load_elf(kb, 0, stack_closure(kernel_elf_map));
+    void *k = load_kernel_elf(kb, backed);
     if (!k) {
         halt("kernel elf parse failed\n");
     }

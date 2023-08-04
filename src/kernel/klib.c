@@ -34,31 +34,64 @@ closure_function(1, 1, boolean, klib_elf_walk,
     return true;
 }
 
-closure_function(1, 4, u64, klib_elf_map,
-                 klib, kl,
-                 u64, vaddr, u64, paddr, u64, size, pageflags, flags)
+static klib_mapping add_klib_mapping(klib kl, u64 vaddr, u64 paddr, u64 size, pageflags flags)
 {
-    klib kl = bound(kl);
-    boolean is_bss = paddr == INVALID_PHYSICAL;
-    if (is_bss) {
-        paddr = allocate_u64((heap)heap_physical(klib_kh), size);
-        assert(paddr != INVALID_PHYSICAL);
-    }
-
     klib_mapping km = allocate(heap_locked(klib_kh), sizeof(struct klib_mapping));
-    assert(km != INVALID_ADDRESS);
+    if (km == INVALID_ADDRESS)
+        return km;
     km->n.r = irangel(vaddr, size);
     km->phys = paddr;
     km->flags = flags;
-
-    klib_debug("%s: kl %s, vaddr 0x%lx, paddr 0x%lx%s, size 0x%lx, flags 0x%lx\n",
-               __func__, kl->name, vaddr, paddr, is_bss ? " (bss)" : "", size, flags.w);
-
+    klib_debug("%s: vaddr 0x%lx, paddr 0x%lx, size 0x%lx, flags 0x%lx\n",
+               __func__, vaddr, paddr, size, flags.w);
     assert(rangemap_insert(kl->mappings, &km->n));
     map(vaddr, paddr, size, flags);
-    if (is_bss)
-        zero(pointer_from_u64(vaddr), size);
-    return vaddr;
+    return km;
+}
+
+closure_function(2, 5, boolean, klib_elf_map,
+                 klib, kl, buffer, b,
+                 u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
+{
+    klib kl = bound(kl);
+    klib_debug("%s: kl %s, vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
+               __func__, kl->name, vaddr, offset, data_size, bss_size, flags);
+    u64 map_start = vaddr & ~PAGEMASK;
+    data_size += vaddr & PAGEMASK;
+
+    u64 tail_copy = bss_size > 0 ? data_size & PAGEMASK : 0;
+    if (tail_copy > 0)
+        data_size -= tail_copy;
+    else
+        data_size = pad(data_size, PAGESIZE);
+
+    offset &= ~PAGEMASK;
+    if (data_size > 0) {
+        u64 paddr = physical_from_virtual(buffer_ref(bound(b), offset));
+        if (add_klib_mapping(kl, map_start, paddr, data_size, flags) == INVALID_ADDRESS)
+            goto alloc_fail;
+        map_start += data_size;
+    }
+    if (bss_size > 0) {
+        u64 maplen = pad(bss_size + tail_copy, PAGESIZE);
+        u64 paddr = allocate_u64((heap)heap_physical(klib_kh), maplen);
+        if (paddr == INVALID_PHYSICAL)
+            goto alloc_fail;
+        if (add_klib_mapping(kl, map_start, paddr, maplen, flags) == INVALID_ADDRESS)
+            goto alloc_fail;
+        if (tail_copy > 0) {
+            void *src = buffer_ref(bound(b), offset + data_size);
+            klib_debug("   tail copy at 0x%lx, %ld bytes, offset 0x%lx, from %p\n",
+                       map_start, tail_copy, data_size, src);
+            runtime_memcpy(pointer_from_u64(map_start), src, tail_copy);
+        }
+        klib_debug("   zero at 0x%lx, len 0x%lx\n", map_start + tail_copy, maplen - tail_copy);
+        zero(pointer_from_u64(map_start + tail_copy), maplen - tail_copy);
+    }
+    return true;
+  alloc_fail:
+    msg_err("failed to allocate klib mapping\n");
+    return false;
 }
 
 closure_function(0, 1, void *, klib_sym_resolve,
@@ -102,7 +135,7 @@ closure_function(3, 1, status, load_klib_complete,
     elf_apply_relocs(b, where);
 
     klib_debug("   loading elf file\n");
-    void *entry = load_elf(b, where, stack_closure(klib_elf_map, kl));
+    void *entry = load_elf(b, where, stack_closure(klib_elf_map, kl, b));
     assert(entry != INVALID_ADDRESS);
 
     klib_debug("   init entry @ %p, first word 0x%lx\n", entry, *(u64*)entry);

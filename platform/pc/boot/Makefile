@@ -3,6 +3,7 @@ PROGRAMS=	stage2.elf
 SRCS-stage2.elf= \
 	$(CURDIR)/stage2.c \
 	$(CURDIR)/service32.s \
+	$(SRCDIR)/boot/elf.c \
 	$(SRCDIR)/drivers/ata.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/page.c \
@@ -59,6 +60,7 @@ msg_objcopy=	OBJCOPY	$@
 cmd_objcopy=	$(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 
 SRCS-uefi= \
+	$(SRCDIR)/boot/elf.c \
 	$(SRCDIR)/boot/uefi.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/page.c \
