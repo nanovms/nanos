@@ -56,3 +56,4 @@ static inline value_tag tagof(value v)
 }
 
 extern heap boot_buffer_heap;
+void *load_kernel_elf(buffer b, heap bss_heap);

@@ -236,6 +236,16 @@ typedef struct {
 #define SHT_NOBITS  8
 #define SHT_DYNSYM  11
 
+/* A minimum amount of file data to read to get the program headers
+
+   glibc uses a rule-of-thumb of 832 bytes for 64-bit executables: 64 bytes
+   for the ELF header, 56 bytes per program header (figure max of 10), plus a
+   208 byte margin for "program notes." However, we observe that reading a 4K
+   page will usually get us the program interpreter path as well as section
+   headers (should we need them for finding symbol and string tables).
+*/
+#define ELF_PROGRAM_LOAD_MIN_SIZE PAGESIZE
+
 #define foreach_phdr(__e, __p)\
     for (int __i = 0; __i< __e->e_phnum; __i++)\
         for (Elf64_Phdr *__p = (void *)__e + __e->e_phoff + (__i * __e->e_phentsize); __p ; __p = 0) \
@@ -245,7 +255,8 @@ typedef struct {
         for (Elf64_Shdr *__s = (void *)__e + __e->e_shoff + (__i * __e->e_shentsize); __s ; __s = 0) \
 
 /* returns virtual address to access map (e.g. vaddr or identity in stage2) */
-typedef closure_type(elf_map_handler, u64, u64 /* vaddr */, u64 /* paddr, -1ull if bss */, u64 /* size */, pageflags /* flags */);
+typedef closure_type(elf_map_handler, boolean, u64 /* vaddr */, u64 /* buffer vaddr or file offset */,
+                     u64 /* data size */, u64 /* bss size */, pageflags /* flags */);
 typedef closure_type(elf_loader, void, u64 /* offset */, u64 /* length */, void * /* dest */,
                      status_handler);
 typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);

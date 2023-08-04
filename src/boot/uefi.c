@@ -123,21 +123,6 @@ static u64 uefi_alloc_aligned(heap h, bytes b)
     return buf;
 }
 
-closure_function(1, 4, u64, uefi_kernel_map,
-                 heap, h,
-                 u64, vaddr, u64, paddr, u64, size, pageflags, flags)
-{
-    uefi_debug("kernel map: vaddr %p, paddr %p, size 0x%lx, flags 0x%lx",
-        vaddr, paddr, size, flags);
-    if (paddr == INVALID_PHYSICAL) { /* bss */
-        paddr = allocate_u64(bound(h), size);
-        assert(paddr != INVALID_PHYSICAL);
-        zero(pointer_from_u64(paddr), size);
-    }
-    map(vaddr, paddr, size, flags);
-    return paddr;
-}
-
 closure_function(1, 2, void, uefi_io_sh,
                  status_handler, sh,
                  status, s, bytes, length)
@@ -169,7 +154,7 @@ closure_function(1, 1, status, uefi_kernel_complete,
                  buffer, b)
 {
     uefi_debug("kernel read complete, loaded at %p", buffer_ref(b, 0));
-    void *kernel_entry = load_elf(b, 0, stack_closure(uefi_kernel_map, bound(h)));
+    void *kernel_entry = load_kernel_elf(b, bound(h));
     if (!kernel_entry)
         halt("UEFI: kernel ELF parse failed\n");
     uefi_debug("starting kernel at %p", kernel_entry);

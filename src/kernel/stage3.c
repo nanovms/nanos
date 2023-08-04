@@ -8,13 +8,18 @@
 #include <storage.h>
 #include <symtab.h>
 #include <virtio/virtio.h>
+#include <elf64.h>
 
-closure_function(2, 1, void, program_start,
-                 buffer, elf, process, kp,
+closure_function(3, 1, void, program_start,
+                 process, kp, string, path, boolean, exec_started,
                  status, s)
 {
     if (!is_ok(s))
-        halt("%s: aborting %v\n", __func__, s);
+        halt("program startup failed %s exec: %v\n", bound(exec_started) ? "on" : "before", s);
+    else if (bound(exec_started)) {
+        closure_finish();
+        return;
+    }
 
     /* Set mapping flags to read-only for data that has been initialized during boot and should not
      * be modified afterwards. */
@@ -26,51 +31,8 @@ closure_function(2, 1, void, program_start,
     update_map_flags(u64_from_pointer(&bss_ro_after_init_start),
                      &bss_ro_after_init_end - &bss_ro_after_init_start,
                      pageflags_memory());
-
-    exec_elf(bound(elf), bound(kp));
-    closure_finish();
-}
-
-closure_function(5, 1, status, read_program_complete,
-                 heap, h, tuple, root, merge, m, status_handler, start, status_handler, completion,
-                 buffer, b)
-{
-    tuple root = bound(root);
-    if (trace_get_flags(get(root, sym(trace))) & TRACE_OTHER) {
-        rprintf("read program complete: %p ", root);
-        rprintf("gitversion: %s\n", gitversion);
-
-        /* XXX - disable this until we can be assured that print_root
-           won't go haywire on a large manifest... */
-#if 0
-        buffer b = allocate_buffer(transient, 64);
-        print_tuple(b, root, 0);
-        buffer_print(b);
-        deallocate_buffer(b);
-        rprintf("\n");
-#endif
-       
-    }
-    closure_member(program_start, bound(start), elf) = b;
-    storage_when_ready(apply_merge(bound(m)));
-    value v;
-    if ((v = get(root, sym(exec_wait_for_ip4_secs)))) {
-        u64 ts;
-        if (u64_from_value(v, &ts))
-            ip4_when_ready(apply_merge(bound(m)), seconds(ts));
-        else
-            rprintf("exec_wait_for_ip4_secs has invalid time, ignoring\n");
-    }
-    apply(bound(completion), STATUS_OK);
-    closure_finish();
-    return STATUS_OK;
-}
-
-closure_function(0, 1, void, read_program_fail,
-                 status, s)
-{
-    closure_finish();
-    halt("read program failed %v\n", s);
+    bound(exec_started) = true;
+    exec_elf(bound(kp), bound(path), (status_handler)closure_self());
 }
 
 /* http debug test */
@@ -135,6 +97,7 @@ static void init_kernel_heaps_management(tuple root)
 closure_function(6, 0, void, startup,
                  kernel_heaps, kh, tuple, root, filesystem, fs, merge, m, status_handler, start, status_handler, completion)
 {
+    status s = STATUS_OK;
     kernel_heaps kh = bound(kh);
     tuple root = bound(root);
     filesystem fs = bound(fs);
@@ -146,13 +109,12 @@ closure_function(6, 0, void, startup,
     /* kernel process is used as a handle for unix */
     process kp = init_unix(kh, root, fs);
     if (kp == INVALID_ADDRESS) {
-	halt("unable to initialize unix instance; halt\n");
+	s = timm("result", "unable to initialize unix instance");
+        goto out;
     }
     status_handler start = bound(start);
     closure_member(program_start, start, kp) = kp;
     heap general = heap_locked(kh);
-    buffer_handler pg = closure(general, read_program_complete, general, root,
-        bound(m), start, bound(completion));
 
     /* register root tuple with management and kick off interfaces, if any */
     init_management_root(root);
@@ -172,20 +134,35 @@ closure_function(6, 0, void, startup,
     if (get(root, sym(readonly_rootfs)))
         filesystem_set_readonly(fs);
     value p = get(root, sym(program));
-    assert(p);
+    assert(p && is_string(p));
     tuple pro = resolve_path(root, split(general, p, '/'));
     if (!pro)
         halt("unable to resolve program path \"%b\"\n", p);
     program_set_perms(root, pro);
     init_network_iface(root);
-    filesystem_read_entire(fs, pro, (heap)heap_page_backed(kh), pg, closure(general, read_program_fail));
+    closure_member(program_start, start, path) = (string)p;
+    if (trace_get_flags(get(root, sym(trace))) & TRACE_OTHER) {
+        rprintf("read program complete: %p ", root);
+        rprintf("gitversion: %s\n", gitversion);
+    }
+    storage_when_ready(apply_merge(bound(m)));
+    value v;
+    if ((v = get(root, sym(exec_wait_for_ip4_secs)))) {
+        u64 ts;
+        if (u64_from_value(v, &ts))
+            ip4_when_ready(apply_merge(bound(m)), seconds(ts));
+        else
+            rprintf("exec_wait_for_ip4_secs has invalid time, ignoring\n");
+    }
+  out:
+    apply(bound(completion), s);
     closure_finish();
 }
 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m)
 {
     heap h = heap_locked(kh);
-    status_handler start = closure(h, program_start, 0, 0);
+    status_handler start = closure(h, program_start, 0, 0, false);
     *m = allocate_merge(h, start);
     return closure(h, startup, kh, root, fs, *m, start, apply_merge(*m));
 }

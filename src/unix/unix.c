@@ -250,8 +250,8 @@ define_closure_function(0, 1, context, unix_fault_handler,
             vm = vmap_from_vaddr(p, vaddr);
         else
             vm = INVALID_ADDRESS;
-        pf_debug("page fault, vaddr 0x%lx, vmap %p, ctx %p, type %d, pc 0x%lx",
-                 vaddr, vm, ctx, ctx->type, fault_pc);
+        pf_debug("page fault, vaddr 0x%lx, vmap %p, ctx %p, type %d, pc 0x%lx, user %d",
+                 vaddr, vm, ctx, ctx->type, fault_pc, user);
         if (vm == INVALID_ADDRESS) {
             /* We're assuming here that an unhandled fault on a user page from
                within a syscall context is actually a program bug - though
