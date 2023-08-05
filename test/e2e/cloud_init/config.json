@@ -1,0 +1,22 @@
+{
+  "Boot": "../../../output/test/e2e/boot.img",
+  "Kernel": "../../../output/test/e2e/kernel.img",
+  "KlibDir": "../../../output/klib/bin",
+  "BaseVolumeSz": "20m",
+  "Klibs": [
+    "cloud_init",
+    "tls"
+  ],
+  "ManifestPassthrough": {
+    "exec_wait_for_ip4_secs": "5",
+    "cloud_init": {
+      "download_env": [
+        {
+          "src": "http://10.0.2.2:8080"
+        }
+      ]
+    },
+    "debug_exit":"t"
+  }
+}
+

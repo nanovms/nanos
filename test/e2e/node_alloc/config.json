@@ -1,0 +1,8 @@
+{
+    "Args": ["alloc.js"],
+    "Boot": "../../../output/test/e2e/boot.img",
+    "Kernel": "../../../output/test/e2e/kernel.img",
+	"ManifestPassthrough": {
+		"debug_exit":"t"
+    }
+}

@@ -13,8 +13,7 @@ Makefile.local
 /test/go/image
 /test/runtime/soop.data
 .ruby
-test/e2e/go/main
-test/e2e/rust/main
+test/e2e/*/main
 
 # Default build directory
 /output

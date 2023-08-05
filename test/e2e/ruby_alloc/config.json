@@ -1,0 +1,12 @@
+{
+    "Args": ["myapp.rb", "-o", "0.0.0.0"],
+    "ENV": {
+        "GEM_HOME": ".ruby"
+    },
+    "Boot": "../../../output/test/e2e/boot.img",
+    "Kernel": "../../../output/test/e2e/kernel.img",
+    "ManifestPassthrough": {
+        "debug_exit":"t",
+        "expected_exit_code":["9", "11"]
+    }
+}
