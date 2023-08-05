@@ -16,6 +16,10 @@
 #define MAX_PROCESSES 2
 process processes[MAX_PROCESSES];
 
+static timestamp oom_last_time;
+static u64 oom_count;
+static struct spinlock oom_lock;
+
 BSS_RO_AFTER_INIT static unix_heaps u_heap;
 
 unix_heaps get_unix_heaps()
@@ -142,6 +146,9 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
         break;
     case SIGTRAP:
         signame = "SIGTRAP";
+        break;
+    case SIGKILL:       /* for terminating out-of-memory */
+        signame = "SIGKILL";
         break;
     default:
         halt("%s: unexpected signal number %d\n", __func__, signo);
@@ -282,13 +289,43 @@ define_closure_function(0, 1, context, unix_fault_handler,
             goto error;
         }
 
-        if (do_demand_page(p, ctx, vaddr, vm))
+        /* In order to prevent the user program from getting stuck in a page fault
+         * oom loop, this code terminates the user program if a emough faults fail
+         * for oom in a short time */
+        status s;
+        if ((s = do_demand_page(p, ctx, vaddr, vm)) == STATUS_OK) {
+            spin_lock(&oom_lock);
+            oom_last_time = 0;
+            oom_count = 0;
+            spin_unlock(&oom_lock);
             return ctx;   /* direct return */
-        else if (user) {
-            pf_debug("demand page failed user mode, rip 0x%lx", fault_pc);
-            deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
+        } else if (user) {
+            pf_debug("demand page failed user mode, rip 0x%lx, reason: %v", fault_pc, s);
+            if (buffer_compare_with_cstring_ci(get(s, sym(result)), "out of memory")) {
+                spin_lock(&oom_lock);
+                timestamp here = now(CLOCK_ID_MONOTONIC);
+                if (here - oom_last_time > seconds(5)) {
+                    oom_last_time = 0;
+                    oom_count = 0;
+                }
+                oom_count++;
+                timestamp last = oom_last_time;
+                oom_last_time = here;
+                spin_unlock(&oom_lock);
+                if (here - last < seconds(1) && oom_count >= 10) {
+                    msg_err("out of memory in multiple page faults; program killed\n");
+                    deliver_fault_signal(SIGKILL, t, vaddr, 0);
+                } else {
+                    deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
+                }
+            } else {
+                deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
+            }
+            timm_dealloc(s);
             schedule_thread(t);
             return 0;
+        } else {
+            timm_dealloc(s);
         }
     }
     /* XXX arch dep */
