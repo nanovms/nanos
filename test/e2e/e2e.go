@@ -2,11 +2,13 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -14,27 +16,29 @@ import (
 	"time"
 )
 
-// AsyncCmdStart runs cmd with asynchronously and returns *exec.Cmd, stdout/stderr as one or err if something blew up
-func AsyncCmdStart(cmd string) (command *exec.Cmd, buffer *bytes.Buffer, err error) {
-	command = exec.Command("/bin/bash", "-c", cmd)
+func AsyncCmdStart(cmd string, timeout time.Duration) (command *exec.Cmd, buffer *bytes.Buffer, ctx context.Context, cancel context.CancelFunc, err error) {
+	if timeout == 0 {
+		timeout = 10 * time.Minute
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	command = exec.CommandContext(ctx, "/bin/bash", "-c", cmd)
 	buffer = &bytes.Buffer{}
 	command.Stdout = buffer
 	command.Stderr = buffer
 	command.SysProcAttr = &syscall.SysProcAttr{}
 	command.SysProcAttr.Setsid = true
+	command.Cancel = func() error {
+		pgid, err := syscall.Getpgid(command.Process.Pid)
+		if err == nil {
+			err = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+		return err
+	}
 	err = command.Start()
 	if err != nil {
-		return command, buffer, err
+		return command, buffer, ctx, cancel, err
 	}
-	return command, buffer, nil
-}
-
-func KillProcess(command *exec.Cmd) {
-	pgid, err := syscall.Getpgid(command.Process.Pid)
-	if err == nil {
-		syscall.Kill(-pgid, syscall.SIGKILL)
-	}
-	command.Wait()
+	return command, buffer, ctx, cancel, nil
 }
 
 func goPrebuild(t *testing.T) {
@@ -43,6 +47,38 @@ func goPrebuild(t *testing.T) {
 		t.Log(effect)
 		t.Fatal(err)
 	}
+}
+
+func stresstestPrebuild(t *testing.T) {
+	goPrebuild(t)
+	effect, err := exec.Command("/bin/bash", "-c", "ops volume create stressdisk -s 32M").CombinedOutput()
+	if err != nil {
+		t.Log(effect)
+		t.Fatal(err)
+	}
+}
+
+func stresstestPostrun(t *testing.T) {
+	effect, err := exec.Command("/bin/bash", "-c", "ops volume delete stressdisk").CombinedOutput()
+	if err != nil {
+		t.Log(effect)
+		t.Fatal(err)
+	}
+}
+
+func cloudPrebuild(t *testing.T) {
+	goPrebuild(t)
+	go func() {
+		srv := &http.Server{Addr: ":8080"}
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintf(w, "{ \"VAR1\":\"Hello world!\" }")
+			srv.Shutdown(context.Background())
+		})
+		err := http.ListenAndServe(":8080", nil)
+		if err != nil {
+			fmt.Println("Error starting cloud_init server", err)
+		}
+	}()
 }
 
 func rubyPrebuild(t *testing.T) {
@@ -75,10 +111,10 @@ func retryRequest(t *testing.T, request string, attempts int, delay time.Duratio
 
 	if attempts--; attempts > 0 {
 		time.Sleep(delay)
-		return retryRequest(t, request, attempts, delay * 2)
+		return retryRequest(t, request, attempts, delay*2)
 	}
 
-	return resp, errors.New("unable to reach server after multiple attempts");
+	return resp, errors.New("unable to reach server after multiple attempts")
 }
 
 func testPackages(t *testing.T) {
@@ -89,9 +125,17 @@ func testPackages(t *testing.T) {
 		request  string
 		elf      string
 		prebuild func(t *testing.T)
+		postrun  func(t *testing.T)
 		skip     bool
 		nocross  bool
+		data     interface{}
 	}{
+		{name: "stressdisk", dir: "stressdisk", elf: "main", prebuild: stresstestPrebuild},
+		{name: "stressdisk_2", dir: "stressdisk", elf: "main", postrun: stresstestPostrun},
+		{name: "node_alloc", pkg: "eyberg/node:20.5.0", dir: "node_alloc"},
+		{name: "ruby_alloc", pkg: "eyberg/ruby:3.0.0", dir: "ruby_alloc"},
+		{name: "python_alloc", pkg: "eyberg/python:3.10.6", dir: "python_alloc"},
+		{name: "cloud_init", dir: "cloud_init", elf: "main", prebuild: cloudPrebuild},
 		{name: "python_3.6.7", pkg: "eyberg/python:3.6.7", dir: "python_3.6.7", request: "http://0.0.0.0:8000"},
 		{name: "node_v11.5.0", pkg: "eyberg/node:v11.5.0", dir: "node_v11.5.0", request: "http://0.0.0.0:8083"},
 		{name: "nginx_1.15.6", pkg: "eyberg/nginx:1.15.6", dir: "nginx_1.15.6", request: "http://0.0.0.0:8084"},
@@ -112,7 +156,7 @@ func testPackages(t *testing.T) {
 					return
 				}
 			}
-                        var execcmd string
+			var execcmd string
 			dir, err := os.Getwd()
 			if err != nil {
 				t.Fatal(err)
@@ -131,31 +175,67 @@ func testPackages(t *testing.T) {
 			} else {
 				execcmd = fmt.Sprintf("ops pkg load %s -c config.json --smp %d", tt.pkg, runtime.NumCPU())
 			}
-			p, buffer, err := AsyncCmdStart(execcmd)
-			defer KillProcess(p)
+			timeout := 120 * time.Second
+			if tt.request != "" {
+				timeout = 0
+			}
+			p, buffer, ctx, _, err := AsyncCmdStart(execcmd, timeout)
 			if err != nil {
-				t.Logf("Output: %v", buffer)
 				t.Fatal(err)
 			}
-			for count := 0; count <= 5; count++ {
-				var resp *http.Response
-				if count == 0 {
-					resp, err = retryRequest(t, tt.request, 5, time.Second * 2)
-				} else {
-					resp, err = http.Get(tt.request)
+			if tt.request == "" {
+				var re *regexp.Regexp
+				var rs string
+				t.Log("Waiting for command to complete...")
+				ps, err := p.Process.Wait()
+				r := ps.ExitCode()
+				if tt.postrun != nil {
+					t.Log("Calling postrun", tt.name)
+					tt.postrun(t)
 				}
 				if err != nil {
-					t.Logf("Output: %v", buffer)
-					t.Fatal(err)
+					goto fatalrun
 				}
-				t.Log("Status code", resp.StatusCode)
-				if resp.StatusCode != 200 {
-					t.Logf("Output: %v", buffer)
-					t.Fatalf("Expected 200 but got %v", resp.StatusCode)
+				if ctx.Err() != nil {
+					err = ctx.Err()
+					goto fatalrun
 				}
-				if resp.ContentLength == 0 {
-					t.Logf("Output: %v", buffer)
-					t.Fatalf("Received empty content")
+				if r != 0 {
+					err = fmt.Errorf("ops exit code %d", r)
+					goto fatalrun
+				}
+				re = regexp.MustCompile("exit status [0-9]+")
+				rs = re.FindString(buffer.String())
+				if rs == "" || rs != "exit status 1" {
+					err = errors.New(rs)
+					goto fatalrun
+				}
+				return
+			fatalrun:
+				t.Logf("Output: %v", buffer.String())
+				t.Fatal(err)
+			} else {
+				defer p.Cancel()
+				for count := 0; count <= 5; count++ {
+					var resp *http.Response
+					if count == 0 {
+						resp, err = retryRequest(t, tt.request, 5, time.Second*2)
+					} else {
+						resp, err = http.Get(tt.request)
+					}
+					if err != nil {
+						t.Logf("Output: %v", buffer)
+						t.Fatal(err)
+					}
+					t.Log("Status code", resp.StatusCode)
+					if resp.StatusCode != 200 {
+						t.Logf("Output: %v", buffer)
+						t.Fatalf("Expected 200 but got %v", resp.StatusCode)
+					}
+					if resp.ContentLength == 0 {
+						t.Logf("Output: %v", buffer)
+						t.Fatalf("Received empty content")
+					}
 				}
 			}
 		})

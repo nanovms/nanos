@@ -1,0 +1,20 @@
+{
+	"BaseVolumeSz": "32m",
+	"Args": [
+		"-f=1",
+		"-s=3",
+		"-t=0",
+		"-d=/tfs_mnt"
+	],
+	"Mounts": {
+		"stressdisk": "tfs_mnt"
+	},
+	"RunConfig": {
+		"Memory": "512M"
+	},
+	"ManifestPassthrough": {
+		"debug_exit":"t"
+	},
+	"Boot": "../../../output/test/e2e/boot.img",
+	"Kernel": "../../../output/test/e2e/kernel.img"
+}
