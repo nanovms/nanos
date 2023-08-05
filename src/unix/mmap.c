@@ -156,16 +156,16 @@ u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete
     return mapped_p;
 }
 
-static boolean demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
+static status demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
 {
     status_handler completion = (status_handler)&pf->complete;
     if (new_zeroed_pages(vaddr & ~MASK(PAGELOG), PAGESIZE, pageflags_from_vmflags(vm->flags),
                          completion) == INVALID_PHYSICAL) {
         apply(completion, timm("result", "out of memory"));
-        return false;
+        return timm("result", "out of memory");
     }
     count_minor_fault();
-    return true;
+    return STATUS_OK;
 }
 
 static void demand_file_page(pending_fault pf, vmap vm, u64 node_offset, u64 page_addr,
@@ -195,7 +195,7 @@ static void demand_page_suspend_context(pending_fault pf, context ctx)
     context_switch(current_cpu()->m.kernel_context);
 }
 
-static boolean demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr, pending_fault pf)
+static status demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr, pending_fault pf)
 {
     pageflags flags = pageflags_from_vmflags(vm->flags);
     u64 page_addr = vaddr & ~PAGEMASK;
@@ -213,13 +213,13 @@ static boolean demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr
     if (node_offset >= padlen) {
         pf_debug("   extends past map limit 0x%lx\n", padlen);
         apply(completion, timm("result", "out of range page"));
-        return false;
+        return timm("result", "out of range page");
     }
 
     if (pagecache_map_page_if_filled(vm->cache_node, node_offset, page_addr, flags, completion)) {
         pf_debug("   immediate completion\n");
         count_minor_fault();
-        return true;
+        return STATUS_OK;
     }
 
     /* page not filled - schedule a page fill for this thread */
@@ -234,14 +234,15 @@ static boolean demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr
     kern_yield();
 }
 
-boolean do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
+status do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
 {
     u64 page_addr = vaddr & ~PAGEMASK;
 
     if ((vm->flags & (VMAP_FLAG_MMAP | VMAP_FLAG_STACK | VMAP_FLAG_HEAP)) == 0) {
         msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
                 vaddr, vm->flags);
-        return false;
+        return timm("result", "vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
+                vaddr, vm->flags);
     }
 
     pf_debug("%s: %s context, %s, vaddr %p, vm flags 0x%02lx,\n", __func__,
