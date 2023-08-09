@@ -50,6 +50,9 @@ void mbedtls_free(void *ptr);
 #ifndef strcmp
 #define strcmp  runtime_strcmp
 #endif
+#ifndef strchr
+#define strchr  runtime_strchr
+#endif
 #ifndef strstr
 #define strstr  runtime_strstr
 #endif
