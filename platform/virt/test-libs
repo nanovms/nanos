@@ -1,1 +1,1 @@
-lib:(children:(aarch64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/aarch64-linux-gnu/libc.so.6)) libpthread.so.0:(contents:(host:/lib/aarch64-linux-gnu/libpthread.so.0)))) ld-linux-aarch64.so.1:(contents:(host:/lib/ld-linux-aarch64.so.1))))
+lib:(children:(aarch64-linux-gnu:(children:(libc.so.6:(contents:(host:/lib/aarch64-linux-gnu/libc.so.6)) libpthread.so.0:(contents:(host:/lib/aarch64-linux-gnu/libpthread.so.0)) libresolv.so.2:(contents:(host:/lib/aarch64-linux-gnu/libresolv.so.2)))) ld-linux-aarch64.so.1:(contents:(host:/lib/ld-linux-aarch64.so.1))))

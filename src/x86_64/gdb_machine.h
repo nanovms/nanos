@@ -17,7 +17,7 @@ static inline int computeSignal (context_frame frame)
 static inline int get_register(u64 num, void *buf, context_frame f)
 {
     /* gp registers plus rip */
-    if (num >= 0 && num < 17) {
+    if (num < 17) {
         *(u64 *)buf = f[num];
         return sizeof(u64);
     } else if (num >= 17 && num < 24) {

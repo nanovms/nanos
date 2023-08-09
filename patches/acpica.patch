@@ -1,3 +1,84 @@
+diff -ur a/source/components/namespace/nsaccess.c b/source/components/namespace/nsaccess.c
+--- a/source/components/namespace/nsaccess.c    2021-12-06 12:25:49.767092507 +0100
++++ b/source/components/namespace/nsaccess.c    2021-12-06 12:18:32.027074617 +0100
+@@ -449,7 +449,9 @@
+     ACPI_NAMESPACE_NODE     *CurrentNode = NULL;
+     ACPI_NAMESPACE_NODE     *ThisNode = NULL;
+     UINT32                  NumSegments;
++#ifdef ACPI_DEBUG_OUTPUT
+     UINT32                  NumCarats;
++#endif
+     ACPI_NAME               SimpleName;
+     ACPI_OBJECT_TYPE        TypeToCheckFor;
+     ACPI_OBJECT_TYPE        ThisSearchType;
+@@ -573,7 +575,9 @@
+              * the parent node for each prefix instance.
+              */
+             ThisNode = PrefixNode;
++#ifdef ACPI_DEBUG_OUTPUT
+             NumCarats = 0;
++#endif
+             while (*Path == (UINT8) AML_PARENT_PREFIX)
+             {
+                 /* Name is fully qualified, no search rules apply */
+@@ -588,7 +592,9 @@
+ 
+                 /* Backup to the parent node */
+ 
++#ifdef ACPI_DEBUG_OUTPUT
+                 NumCarats++;
++#endif
+                 ThisNode = ThisNode->Parent;
+                 if (!ThisNode)
+                 {
+diff -ur a/source/components/tables/tbxfload.c b/source/components/tables/tbxfload.c
+--- a/source/components/tables/tbxfload.c    2021-12-06 12:25:49.767092507 +0100
++++ b/source/components/tables/tbxfload.c    2021-12-06 12:18:32.027074617 +0100
+@@ -259,7 +259,6 @@
+     UINT32                  i;
+     ACPI_TABLE_HEADER       *NewDsdt;
+     ACPI_TABLE_DESC         *Table;
+-    UINT32                  TablesLoaded = 0;
+     UINT32                  TablesFailed = 0;
+ 
+ 
+@@ -322,10 +321,6 @@
+         ACPI_EXCEPTION ((AE_INFO, Status, "[DSDT] table load failed"));
+         TablesFailed++;
+     }
+-    else
+-    {
+-        TablesLoaded++;
+-    }
+ 
+     /* Load any SSDT or PSDT tables. Note: Loop leaves tables locked */
+ 
+@@ -358,23 +353,17 @@
+                 "Table [%4.4s:%8.8s] (id FF) - Table namespace load failed\n\n",
+                 Table->Signature.Ascii, Table->Pointer->OemTableId));
+         }
+-        else
+-        {
+-            TablesLoaded++;
+-        }
+     }
+ 
+     if (!TablesFailed)
+     {
+         ACPI_INFO ((
+-            "%u ACPI AML tables successfully acquired and loaded",
+-            TablesLoaded));
++            "ACPI AML tables successfully acquired and loaded"));
+     }
+     else
+     {
+         ACPI_ERROR ((AE_INFO,
+-            "%u table load failures, %u successful",
+-            TablesFailed, TablesLoaded));
++            "%u table load failures", TablesFailed));
+ 
+         /* Indicate at least one failure */
+ 
 diff -ur a/source/components/utilities/utdelete.c b/source/components/utilities/utdelete.c
 --- a/source/components/utilities/utdelete.c	2021-12-06 12:25:49.767092507 +0100
 +++ b/source/components/utilities/utdelete.c	2021-12-06 12:18:32.027074617 +0100

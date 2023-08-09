@@ -137,9 +137,9 @@ SIZE_CMD=	stat -f %z
 else
 LD=		$(CROSS_COMPILE)ld
 CFLAGS+=	-m32
-CFLAGS-uefi+=	-maccumulate-outgoing-args
 SIZE_CMD=	stat -c %s
 endif
+CFLAGS-uefi+=	$(if $(filter gcc, $(CC)), -maccumulate-outgoing-args)
 
 msg_uefi_as=    AS	$@
 cmd_uefi_as=    $(AS) $(ASDEPFLAGS) $(AFLAGS-uefi) $< -o $@

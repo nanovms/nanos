@@ -3,7 +3,7 @@
 typedef struct breakpoint {
     u32 address;
     boolean assigned;
-    void (*set)();
+    void (*set)(u64 a);
 } *breakpoint;
 
 // there are 7 of these

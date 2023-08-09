@@ -165,15 +165,6 @@ $(OUTDIR)/debug.h: $(OUTDIR)/debug.h.tmp
 
 GENHEADERS+=	$(OUTDIR)/debug.h
 
-TARGET_ROOT=	$(NANOS_TARGET_ROOT)
-GCC_VER=	6
-# crtbegin/crtend for dynamically linked executables
-OBJS_CRTBEGIN_D=-dynamic-linker /lib64/ld-linux-x86-64.so.2 $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/Scrt1.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtbeginS.o
-OBJS_CRTEND_D=	-L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER) -lc $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtendS.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
-# crtbegin/crtend for statically linked executables
-OBJS_CRTBEGIN=	$(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crt1.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtbeginT.o
-OBJS_CRTEND=	-L=/usr/lib/x86_64-linux-gnu -L=/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER) --start-group -lgcc -lgcc_eh -lc --end-group $(TARGET_ROOT)/usr/lib/gcc/x86_64-linux-gnu/$(GCC_VER)/crtend.o $(TARGET_ROOT)/usr/lib/x86_64-linux-gnu/crtn.o
-
 ##############################################################################
 # functions
 
@@ -358,7 +349,6 @@ CLEANFILES+= $(OBJDIR)/kernel.dis.old $(OUTDIR)/debug.h $(OUTDIR)/debug.h.tmp
 # Stack Smashing Protection
 ifeq ($(WITHOUT_SSP),)
 CFLAGS+=	-fstack-protector-strong
-ifneq ($(CC),clang)
 ifneq ($(UNAME_s),Darwin)
 ifeq ($(ARCH),aarch64)
 # XXX SSP on arm not working yet; check flags
@@ -368,7 +358,6 @@ KERNCFLAGS+=	-fstack-protector-all
 else
 KERNCFLAGS+=	-mstack-protector-guard=global \
 		-fno-pic
-endif
 endif
 endif
 endif
