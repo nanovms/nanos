@@ -14,6 +14,10 @@ nor does it have the concept of users or remote administration via ssh.
 
 Read more about the Nanos Charter [here](CHARTER.md).
 
+1. [Getting Started](#getting-started)
+2. [Documentation](#documentation)
+3. [Support](#support)
+
 ### Getting Started
 
 Please use the [ops](https://ops.city) orchestrator to run your applications with Nanos unless you plan on hacking on Nanos itself.
@@ -227,8 +231,13 @@ We run a public mailing list at:
 
   nanos-users@nanovms.com
 
-for general questions. If you'd like more in-depth help reach out to the
-nanovms folks via drift or email engineering.
+for general questions. We also have a [discussion forum](https://forums.nanovms.com/).
+
+# Support
+
+If you'd like more in-depth help reach out to the nanovms folks via drift or email engineering.
 
 If you need something done *now* or want immediate attention to an issue
 NanoVMs offers [paid support plans](https://nanovms.com/services/subscription).
+
+If you need email support you will need to sign up for a support plan.

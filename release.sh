@@ -93,7 +93,7 @@ else
 fi
 fi
 
-version=0.1.42
+version=0.1.46
 plat="$(uname -s | awk '{print tolower($0)}')"
 
 tgz="nanos-release-$plat-$version.tar.gz"
