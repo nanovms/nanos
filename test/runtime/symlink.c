@@ -23,6 +23,7 @@ int main(int argc, char **argv)
     int fd;
     char buf[8];
     char name_too_long[NAME_MAX + 2];
+    char path_too_long[PATH_MAX + 1];
     struct stat s;
     char *cwd;
 
@@ -40,6 +41,23 @@ int main(int argc, char **argv)
     name_too_long[sizeof(name_too_long) - 1] = '\0';
     test_assert((symlink("target", name_too_long) == -1) && (errno == ENAMETOOLONG));
     test_assert((readlink(name_too_long, buf, sizeof(buf)) == -1) && (errno == ENAMETOOLONG));
+
+    memset(path_too_long, '-', sizeof(path_too_long) - 1);
+    path_too_long[sizeof(path_too_long) - 1] = '\0';
+    test_assert((symlink(path_too_long, "link") == -1) && (errno == ENAMETOOLONG));
+
+    path_too_long[sizeof(path_too_long) - 2] = '\0';
+    test_assert(symlink(path_too_long, "link") == 0);
+    fd = open("link", O_RDONLY);
+    test_assert((fd == -1) && (errno == ENAMETOOLONG));
+    test_assert(unlink("link") == 0);
+
+    for (int i = NAME_MAX; i < PATH_MAX - 1; i += NAME_MAX)
+        path_too_long[i] = '/';
+    test_assert(symlink(path_too_long, "link") == 0);
+    fd = open("link", O_RDONLY);
+    test_assert((fd == -1) && (errno == ENOENT));
+    test_assert(unlink("link") == 0);
 
     test_assert(symlink("target", "link") == 0);
     test_assert((symlink("target", "link") == -1) && (errno == EEXIST));

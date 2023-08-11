@@ -501,6 +501,9 @@ void filesystem_put_meta(filesystem fs, tuple n)
 
 fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const char *target)
 {
+    int target_len = runtime_strlen(target);
+    if (target_len >= PATH_MAX)
+        return FS_STATUS_NAMETOOLONG;
     tuple cwd_t = filesystem_get_meta(fs, cwd);
     if (!cwd_t)
         return FS_STATUS_NOENT;
@@ -516,8 +519,14 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
         fss = FS_STATUS_READONLY;
         goto out;
     }
+    buffer target_b = allocate_buffer(fs->h, target_len);
+    if (target_b == INVALID_ADDRESS) {
+        fss = FS_STATUS_NOMEM;
+        goto out;
+    }
+    buffer_write(target_b, target, target_len);
     tuple link = fs_new_entry(fs);
-    set(link, sym(linktarget), buffer_cstring(fs->h, target));
+    set(link, sym(linktarget), target_b);
     string name = alloca_wrap_cstring(filename_from_path(path));
     fss = fs_create_dir_entry(fs, parent, name, link, 0);
     if (fss != FS_STATUS_OK)
@@ -992,7 +1001,7 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
     }
 
     tuple target_t;
-    buffer buf = little_stack_buffer(NAME_MAX + 1);
+    buffer buf = little_stack_buffer(PATH_MAX);
     int hop_count = 0;
     while (true) {
         buffer target_b = linktarget(link);
