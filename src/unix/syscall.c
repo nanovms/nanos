@@ -2419,6 +2419,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, unlinkat, unlinkat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
     register_syscall(map, renameat, renameat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
     register_syscall(map, renameat2, renameat2, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
+    register_syscall(map, utimensat, utimensat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
     register_syscall(map, close, close, SYSCALL_F_SET_DESC);
     register_syscall(map, sched_yield, sched_yield, 0);
     register_syscall(map, brk, brk, SYSCALL_F_SET_MEM);

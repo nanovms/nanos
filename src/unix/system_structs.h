@@ -249,6 +249,9 @@ typedef int clockid_t;
 #define ITIMER_VIRTUAL 1
 #define ITIMER_PROF    2
 
+#define UTIME_NOW   ((1ull << 30) - 1)
+#define UTIME_OMIT  ((1ull << 30) - 2)
+
 struct timespec {
     u64 tv_sec;
     u64 tv_nsec;

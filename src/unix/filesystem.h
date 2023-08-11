@@ -39,6 +39,7 @@ sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
 
 sysreturn utime(const char *filename, const struct utimbuf *times);
 sysreturn utimes(const char *filename, const struct timeval times[2]);
+sysreturn utimensat(int dirfd, const char *filename, const struct timespec times[2], int flags);
 
 sysreturn statfs(const char *path, struct statfs *buf);
 sysreturn fstatfs(int fd, struct statfs *buf);

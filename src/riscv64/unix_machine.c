@@ -220,7 +220,6 @@ void register_other_syscalls(struct syscall *map)
     register_syscall(map, sync_file_range, 0, 0);
     register_syscall(map, vmsplice, 0, 0);
     register_syscall(map, move_pages, 0, 0);
-    register_syscall(map, utimensat, 0, 0);
     register_syscall(map, preadv, 0, 0);
     register_syscall(map, pwritev, 0, 0);
     register_syscall(map, perf_event_open, 0, 0);

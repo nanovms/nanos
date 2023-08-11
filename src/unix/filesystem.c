@@ -212,6 +212,82 @@ sysreturn utimes(const char *filename, const struct timeval times[2])
     return utime_internal(filename, atime, mtime);
 }
 
+static boolean utimens_is_valid(const struct timespec *t)
+{
+    return (t->tv_nsec < BILLION) || (t->tv_nsec == UTIME_NOW) || (t->tv_nsec == UTIME_OMIT);
+}
+
+static timestamp time_from_utimens(const struct timespec *t)
+{
+    if (t->tv_nsec == UTIME_NOW)
+        return now(CLOCK_ID_REALTIME);
+    if (t->tv_nsec == UTIME_OMIT)
+        return infinity;
+    return time_from_timespec(t);
+}
+
+sysreturn utimensat(int dirfd, const char *filename, const struct timespec times[2], int flags)
+{
+    thread_log(current, "%s: dirfd %d, path %p, times %p, flags 0x%x", __func__, dirfd, filename,
+               times, flags);
+    timestamp atime, mtime;
+    if (times) {
+        context ctx = get_current_context(current_cpu());
+        if (!validate_user_memory(times, 2 * sizeof(struct timespec), false) ||
+            context_set_err(ctx))
+            return -EFAULT;
+        if (!utimens_is_valid(&times[0]) || !utimens_is_valid(&times[1]))
+            return -EINVAL;
+        atime = time_from_utimens(&times[0]);
+        mtime = time_from_utimens(&times[1]);
+        context_clear_err(ctx);
+    } else {
+        atime = mtime = now(CLOCK_ID_REALTIME);
+    }
+    if (flags & ~AT_SYMLINK_NOFOLLOW)
+        return -EINVAL;
+    tuple t;
+    filesystem fs, cwd_fs;
+    sysreturn rv;
+    if (filename) {
+        inode cwd = resolve_dir(fs, dirfd, filename);
+        cwd_fs = fs;
+        fs_status fss = filesystem_get_node(&fs, cwd, filename, !!(flags & AT_SYMLINK_NOFOLLOW),
+                                            false, false, false, &t, 0);
+        rv = sysreturn_from_fs_status(fss);
+        if (rv)
+            filesystem_release(cwd_fs);
+    } else {
+        file f = resolve_fd(current->p, dirfd);
+        switch (f->f.type) {
+        case FDESC_TYPE_REGULAR:
+        case FDESC_TYPE_DIRECTORY:
+        case FDESC_TYPE_SYMLINK:
+        case FDESC_TYPE_SOCKET:
+            fs = f->fs;
+            t = filesystem_get_meta(fs, f->n);
+            rv = t ? 0 : -ENOENT;
+            break;
+        default:
+            rv = -EACCES;
+        }
+        fdesc_put(&f->f);
+    }
+    if (rv == 0) {
+        if (atime != infinity)
+            filesystem_set_atime(fs, t, atime);
+        if (mtime != infinity)
+            filesystem_set_mtime(fs, t, mtime);
+        if (filename) {
+            filesystem_put_node(fs, t);
+            filesystem_release(cwd_fs);
+        } else {
+            filesystem_put_meta(fs, t);
+        }
+    }
+    return rv;
+}
+
 static sysreturn statfs_internal(filesystem fs, tuple t, struct statfs *buf)
 {
     if (!fault_in_user_memory(buf, sizeof(struct statfs), true))

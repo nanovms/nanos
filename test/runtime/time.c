@@ -8,11 +8,13 @@
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
+#include <fcntl.h>
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
 #include <signal.h>
 #include <sched.h>
 #include <pthread.h>
+#include <sys/stat.h>
 
 #ifndef TFD_TIMER_CANCEL_ON_SET /* old glibc */
 #define TFD_TIMER_CANCEL_ON_SET (1 << 1)
@@ -793,6 +795,79 @@ void test_alarm(void)
     timetest_msg("test passed; delta %lld nsec\n", delta);
 }
 
+static void test_utime(void)
+{
+    const char *filename = "utime_test";
+    int fd;
+    struct timespec times[2];
+    int rv;
+    int success = 0;
+
+    fd = timerfd_create(CLOCK_MONOTONIC, 0);
+    if (fd < 0)
+        fail_perror("timerfd_create");
+    rv = futimens(fd, NULL);
+    close(fd);
+    if ((rv != -1) || (errno != EACCES))
+        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+    rv = futimens(-1, NULL);
+    if ((rv != -1) || (errno != EBADF))
+        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+    rv = utimensat(-1, filename, NULL, 0);
+    if ((rv != -1) || (errno != EBADF))
+        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+    fd = creat(filename, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        fail_perror("creat(\"%s\")", filename);
+    times[0].tv_nsec = 0;
+    times[1].tv_nsec = 999999999;
+    if (futimens(fd, times) < 0) {
+        timetest_msg("failed at %d (%d)\n", __LINE__, errno);
+        goto close_fd;
+    }
+    times[1].tv_nsec++;
+    rv = futimens(fd, times);
+    if ((rv != -1) || (errno != EINVAL)) {
+        timetest_msg("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        goto close_fd;
+    }
+    times[0].tv_nsec = UTIME_NOW;
+    times[1].tv_nsec = UTIME_OMIT;
+    if (futimens(fd, times) < 0) {
+        timetest_msg("failed at %d (%d)\n", __LINE__, errno);
+        goto close_fd;
+    }
+    if (utimensat(AT_FDCWD, filename, times, 0) < 0) {
+        timetest_msg("failed at %d (%d)\n", __LINE__, errno);
+        goto close_fd;
+    }
+    rv = utimensat(AT_FDCWD, filename, times, -1);  /* invalid flags */
+    if ((rv != -1) || (errno != EINVAL)) {
+        timetest_msg("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        goto close_fd;
+    }
+    rv = utimensat(AT_FDCWD, "foo", times, 0);
+    if ((rv != -1) || (errno != ENOENT)) {
+        timetest_msg("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        goto close_fd;
+    }
+    rv = futimens(fd, (void *)0xbadf0000);
+    if ((rv != -1) || (errno != EFAULT)) {
+        timetest_msg("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        goto close_fd;
+    }
+    if (futimens(fd, NULL) < 0) {
+        timetest_msg("failed at %d (%d)\n", __LINE__, errno);
+        goto close_fd;
+    }
+    success = 1;
+  close_fd:
+    close(fd);
+    unlink(filename);
+    if (!success)
+        exit(EXIT_FAILURE);
+}
+
 static void test_fault(void)
 {
     void *fault_addr = (void *)0xbadf0000;
@@ -959,6 +1034,7 @@ int main(int argc, char *argv[])
     test_cputime();
     test_getres();
     test_alarm();
+    test_utime();
     test_fault();
     if (opt_settime)
         test_settime();
