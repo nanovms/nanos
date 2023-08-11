@@ -438,12 +438,10 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
         fss = filesystem_resolve_cstring(fs, cwd_t, path, &t, &parent);
     else
         fss = filesystem_resolve_cstring_follow(fs, cwd_t, path, &t, &parent);
-    if (fss != FS_STATUS_OK) {
+    if (fss == FS_STATUS_NOENT) {
         if (create) {
-            if (!parent) {
-                fss = FS_STATUS_NOENT;
+            if (!parent)
                 goto out;
-            }
             if ((*fs)->ro) {
                 fss = FS_STATUS_READONLY;
                 goto out;
@@ -454,7 +452,7 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
             if (fss != FS_STATUS_OK)
                 destruct_tuple(t, true);
         }
-    } else {
+    } else if (fss == FS_STATUS_OK) {
         if (exclusive) {
             fss = FS_STATUS_EXIST;
         } else if (is_regular(t) && (f || truncate)) {
@@ -906,14 +904,14 @@ int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *
     }
     tuple p = t;
     buffer a = little_stack_buffer(NAME_MAX);
-    char y;
+    character c;
     int nbytes;
     int err;
 
     if (*f == '\0') /* an empty path should result in FS_STATUS_NOENT */
         t = 0;
-    while ((y = *f)) {
-        if (y == '/') {
+    while ((c = *f)) {
+        if (c == '/') {
             if (buffer_length(a)) {
                 t = lookup_follow(fs, t, a, &p);
                 if (!t) {
@@ -931,11 +929,16 @@ int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *
             }
             f++;
         } else {
-            nbytes = push_utf8_character(a, f);
+            c = utf8_decode((const u8 *)f, &nbytes);
             if (!nbytes) {
                 msg_err("Invalid UTF-8 sequence.\n");
                 err = FS_STATUS_NOENT;
                 p = false;
+                goto done;
+            }
+            if (!push_character(a, c)) {
+                err = FS_STATUS_NAMETOOLONG;
+                t = 0;
                 goto done;
             }
             f += nbytes;

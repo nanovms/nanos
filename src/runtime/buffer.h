@@ -104,7 +104,8 @@ static inline boolean buffer_is_wrapped(buffer b)
 
 static inline bytes buffer_set_capacity(buffer b, bytes len)
 {
-    buffer_assert(!buffer_is_wrapped(b));  /* wrapped buffers can't be resized */
+    if (buffer_is_wrapped(b))   /* wrapped buffers can't be resized */
+        return b->length;
     if (len < b->end - b->start)
         len = b->end - b->start;
     if (len != b->length) {

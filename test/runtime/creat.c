@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +65,7 @@ void check(const char *path, int expect)
 int main(int argc, char **argv)
 {
     int fd;
+    char name_too_long[NAME_MAX + 2];
 
     fd = creat((char *)0xbadf0000, 0);
     if ((fd != -1) || (errno != EFAULT)) {
@@ -76,6 +78,11 @@ int main(int argc, char **argv)
     check("/test", 0);
     _creat("/blurb/test/deep", 0, ENOENT);
     check("/blurb/test/deep", ENOENT);
+
+    memset(name_too_long, '-', sizeof(name_too_long) - 1);
+    name_too_long[sizeof(name_too_long) - 1] = '\0';
+    _creat(name_too_long, 0, ENAMETOOLONG);
+
     printf("test passed\n");
     return EXIT_SUCCESS;
 }

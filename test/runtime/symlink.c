@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #define __USE_GNU
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@ int main(int argc, char **argv)
 {
     int fd;
     char buf[8];
+    char name_too_long[NAME_MAX + 2];
     struct stat s;
     char *cwd;
 
@@ -33,6 +35,11 @@ int main(int argc, char **argv)
     test_assert((symlink("target", FAULT_ADDR) == -1) && (errno == EFAULT));
     test_assert((symlinkat(FAULT_ADDR, AT_FDCWD, "link") == -1) && (errno == EFAULT));
     test_assert((symlinkat("target", AT_FDCWD, FAULT_ADDR) == -1) && (errno == EFAULT));
+
+    memset(name_too_long, '-', sizeof(name_too_long) - 1);
+    name_too_long[sizeof(name_too_long) - 1] = '\0';
+    test_assert((symlink("target", name_too_long) == -1) && (errno == ENAMETOOLONG));
+    test_assert((readlink(name_too_long, buf, sizeof(buf)) == -1) && (errno == ENAMETOOLONG));
 
     test_assert(symlink("target", "link") == 0);
     test_assert((symlink("target", "link") == -1) && (errno == EEXIST));

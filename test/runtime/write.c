@@ -308,6 +308,7 @@ void sync_write_test(void)
 
 void truncate_test(const char *prog)
 {
+    char name_too_long[NAME_MAX + 2];
     unsigned char tmp[BUFLEN];
     ssize_t rv;
     struct stat s;
@@ -317,6 +318,15 @@ void truncate_test(const char *prog)
         printf("truncate() with faulting path failed (%ld, %d)\n", rv, errno);
         exit(EXIT_FAILURE);
     }
+
+    memset(name_too_long, '-', sizeof(name_too_long) - 1);
+    name_too_long[sizeof(name_too_long) - 1] = '\0';
+    rv = truncate(name_too_long, 0);
+    if ((rv != -1) || (errno != ENAMETOOLONG)) {
+        printf("truncate() with name too long failed (%ld, %d)\n", rv, errno);
+        exit(EXIT_FAILURE);
+    }
+
     int fd = open("new_file", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("open");

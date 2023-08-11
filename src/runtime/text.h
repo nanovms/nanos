@@ -85,41 +85,25 @@ static inline character utf8_decode(const u8 *x, int *count)
     return *x;
 }
 
-static inline void push_character(string s, character c)
+static inline boolean push_character(string s, character c)
 {
     if (c<0x80) {
-        buffer_write_byte(s, c);
+        return buffer_write_byte(s, c);
     } else if (c<0x800) {
-        buffer_write_byte(s, 0xc0 | (c>>6));
-        buffer_write_byte(s, 0x80 | (c&0x3f));
+        return buffer_write_byte(s, 0xc0 | (c>>6)) &&
+               buffer_write_byte(s, 0x80 | (c&0x3f));
     } else if (c<0x10000) {
-        buffer_write_byte(s, 0xe0 | (c>>12));
-        buffer_write_byte(s, 0x80 | ((c>>6) & 0x3f));
-        buffer_write_byte(s, 0x80 | (c&0x3f));
+        return buffer_write_byte(s, 0xe0 | (c>>12)) &&
+               buffer_write_byte(s, 0x80 | ((c>>6) & 0x3f)) &&
+               buffer_write_byte(s, 0x80 | (c&0x3f));
     } else if (c<0x110000) {
-        buffer_write_byte(s, 0xf0 | (c>>18));
-        buffer_write_byte(s, 0x80 | ((c>>12)&0x3f));
-        buffer_write_byte(s, 0x80 | ((c>>6)&0x3f));
-        buffer_write_byte(s, 0x80 | (c&0x3f));
+        return buffer_write_byte(s, 0xf0 | (c>>18)) &&
+               buffer_write_byte(s, 0x80 | ((c>>12)&0x3f)) &&
+               buffer_write_byte(s, 0x80 | ((c>>6)&0x3f)) &&
+               buffer_write_byte(s, 0x80 | (c&0x3f));
     }
+    return false;
 }
-
-/**
- * Push an UTF-8 character from a sequence of bytes p and return the
- * number of bytes consumed from p.
- */
-static inline int push_utf8_character(string s, const char *p)
-{
-    int nbytes = 0;
-    u32 crt_char;
-
-    crt_char = utf8_decode((const u8 *)p, &nbytes);
-
-    push_character(s, crt_char);
-
-    return nbytes;
-}
-
 
 // xxx - check
 #define CHARACTER_INVALID 0xfffffffful

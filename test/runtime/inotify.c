@@ -123,6 +123,7 @@ static void inotify_test_basic(int flags, struct inotify_event *expected, const 
 {
     int fd;
     int nbytes;
+    char name_too_long[NAME_MAX + 2];
     int wd[4];
     uint32_t event_mask = IN_ACCESS | IN_CREATE | IN_OPEN | IN_CLOSE | IN_DELETE | IN_MODIFY |
                           IN_MOVE_SELF;
@@ -147,6 +148,9 @@ static void inotify_test_basic(int flags, struct inotify_event *expected, const 
     /* Invalid path name */
     test_assert((inotify_add_watch(fd, NULL, IN_ACCESS) == -1) && (errno == EFAULT));
     test_assert((inotify_add_watch(fd, "abc", IN_ACCESS) == -1) && (errno == ENOENT));
+    memset(name_too_long, '-', sizeof(name_too_long) - 1);
+    name_too_long[sizeof(name_too_long) - 1] = '\0';
+    test_assert((inotify_add_watch(fd, name_too_long, IN_ACCESS) == -1) && (errno == ENAMETOOLONG));
 
     /* Invalid event mask */
     test_assert((inotify_add_watch(fd, INOTIFY_TEST_DIR1, 0) == -1) && (errno == EINVAL));

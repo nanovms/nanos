@@ -3,6 +3,7 @@
 #include <linux/fs.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -101,6 +102,7 @@ static void test_renameat2(int olddirfd, int newdirfd)
 int main(int argc, char **argv)
 {
     int fd1, fd2;
+    char name_too_long[NAME_MAX + 2];
 
     test_rename("/file1", "/file2");
 
@@ -145,6 +147,11 @@ int main(int argc, char **argv)
             (errno == ENOENT));
     test_assert((rename("/my_file", "") < 0) && (errno == ENOENT));
     test_assert((rename("", "/my_file") < 0) && (errno == ENOENT));
+
+    memset(name_too_long, '-', sizeof(name_too_long) - 1);
+    name_too_long[sizeof(name_too_long) - 1] = '\0';
+    test_assert((rename("/my_file", name_too_long) == -1) && (errno == ENAMETOOLONG));
+    test_assert((rename(name_too_long, "foo") == -1) && (errno == ENAMETOOLONG));
 
     printf("Test passed\n");
     return EXIT_SUCCESS;

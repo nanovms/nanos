@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -110,6 +111,7 @@ static void test_tmpfile()
 int main(int argc, char **argv)
 {
     int fd;
+    char name_too_long[NAME_MAX + 2];
     struct stat s;
 
     if ((unlink(FAULT_ADDR) != -1) || (errno != EFAULT)) {
@@ -119,6 +121,17 @@ int main(int argc, char **argv)
     if ((unlink("") != -1) || (errno != ENOENT)) {
         printf("empty path unlink test failed\n");
         exit(EXIT_FAILURE);
+    }
+
+    memset(name_too_long, '-', sizeof(name_too_long) - 1);
+    name_too_long[sizeof(name_too_long) - 1] = '\0';
+    if ((unlink(name_too_long) != -1) || (errno != ENAMETOOLONG)) {
+        printf("name too long unlink test failed\n");
+        return EXIT_FAILURE;
+    }
+    if ((rmdir(name_too_long) != -1) || (errno != ENAMETOOLONG)) {
+        printf("name too long rmdir test failed\n");
+        return EXIT_FAILURE;
     }
 
     test_unlink("/file");

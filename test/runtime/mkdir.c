@@ -335,6 +335,16 @@ int main(int argc, char **argv)
     listdir(TEST_DIR "/",TEST_DIR "/");
     listdir(TEST_DIR "/test", TEST_DIR "/test");
 
+    char name_too_long[NAME_MAX + 2];
+    memset(name_too_long, '-', sizeof(name_too_long) - 1);
+    name_too_long[sizeof(name_too_long) - 1] = '\0';
+    _mkdirat(AT_FDCWD, name_too_long, DEFAULT_MODE, ENAMETOOLONG);
+    r = chdir(name_too_long);
+    if (r != -1 || errno != ENAMETOOLONG) {
+        printf("ERROR - chdir on invalid path didn't return ENAMETOOLONG\n");
+        exit(EXIT_FAILURE);
+    }
+
     _chdir(TEST_DIR);
     _creat("root_newfile", DEFAULT_MODE, 0);
     listdir(TEST_DIR "/",".");
