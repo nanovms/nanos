@@ -71,7 +71,7 @@ define_closure_function(1, 0, void, direct_receive_service,
             }
             dc->receive_bh = bh;
         }
-        boolean client = (dc->p == d->p);
+        boolean client = (d->p == 0);
         while (true) {
             struct pbuf *p = dequeue(dc->receive_queue);
             if (p == INVALID_ADDRESS)
@@ -141,14 +141,12 @@ static boolean direct_conn_closed(direct_conn dc)
     if (dc->receive_bh)
         apply(dc->receive_bh, 0);
     direct d = dc->d;
-    boolean client = (dc->p == d->p);
+    boolean client = (d->p == 0);
     tcp_unref(dc->p);
     list_delete(&dc->l);
     deallocate(dc->d->h, dc, sizeof(struct direct_conn));
-    if (client) {
-        d->p = 0;
+    if (client)
         direct_dealloc(d);
-    }
     return client;
 }
 
@@ -291,7 +289,10 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     if (dc->receive_queue == INVALID_ADDRESS)
         goto fail_dealloc;
     dc->pending_err = ERR_OK;
-    tcp_ref(pcb);
+    if (pcb == d->p)
+        d->p = 0;
+    else
+        tcp_ref(pcb);
     tcp_arg(pcb, dc);
     tcp_err(pcb, direct_conn_err);
     tcp_recv(pcb, direct_conn_input);
