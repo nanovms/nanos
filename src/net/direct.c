@@ -144,7 +144,22 @@ static boolean direct_conn_closed(direct_conn dc)
     boolean client = (d->p == 0);
     tcp_unref(dc->p);
     list_delete(&dc->l);
-    deallocate(dc->d->h, dc, sizeof(struct direct_conn));
+    heap h = dc->d->h;
+    struct list *send_elem;
+    while ((send_elem = list_get_next(&dc->sendq_head))) {
+        qbuf q = struct_from_list(send_elem, qbuf, l);
+        if (q->b)
+            deallocate_buffer(q->b);
+        list_delete(&q->l);
+        deallocate(h, q, sizeof(struct qbuf));
+    }
+    while (!queue_empty(dc->receive_queue)) {
+        struct pbuf *p = dequeue(dc->receive_queue);
+        if (p)
+            pbuf_free(p);
+    }
+    deallocate_queue(dc->receive_queue);
+    deallocate(h, dc, sizeof(struct direct_conn));
     if (client)
         direct_dealloc(d);
     return client;
