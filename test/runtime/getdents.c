@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <dirent.h>     /* Defines DT_* constants */
+#include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
@@ -78,6 +79,7 @@ main(int argc, char *argv[])
     char *dirname = (argc > 1 ? argv[1] : ".");
     struct pollfd pfd;
     long rv;
+    DIR *dir;
 
 #ifdef __x86_64__
     OPEN_DIR(dirname);
@@ -98,5 +100,25 @@ main(int argc, char *argv[])
     }
     DO_GETDENTS(SYS_getdents64, linux_dirent64, d->d_type);
     close(fd);
+
+    dir = opendir(dirname);
+    if (!dir)
+        handle_error("opendir");
+    fd = dirfd(dir);
+    if (fd < 0)
+        handle_error("dirfd");
+    rv = lseek(fd, 1, SEEK_END);
+    if ((rv != -1) || (errno != EINVAL)) {
+        printf("unexpected lseek results (%ld, %d)\n", rv, errno);
+        exit(EXIT_FAILURE);
+    }
+    if (lseek(fd, 0, SEEK_END) < 0)
+        handle_error("lseek");
+    if (readdir(dir) != NULL) {
+        printf("unexpected dir entry after lseek\n");
+        exit(EXIT_FAILURE);
+    }
+    closedir(dir);
+
     exit(EXIT_SUCCESS);
 }

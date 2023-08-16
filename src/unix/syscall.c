@@ -1703,7 +1703,7 @@ sysreturn lseek(int fd, s64 offset, int whence)
             new = f->offset + offset;
             break;
         case SEEK_END:
-            new = f->length + offset;
+            new = (f->fsf ? fsfile_get_length(f->fsf) : S64_MAX) + offset;
             break;
         default:
             new = -1;
