@@ -816,6 +816,9 @@ static void test_utime(void)
     rv = utimensat(-1, filename, NULL, 0);
     if ((rv != -1) || (errno != EBADF))
         fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+    rv = utimes(filename, NULL);
+    if ((rv != -1) || (errno != ENOENT))
+        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
     fd = creat(filename, S_IRUSR | S_IWUSR);
     if (fd < 0)
         fail_perror("creat(\"%s\")", filename);

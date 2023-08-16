@@ -172,9 +172,9 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
     } else {
         filesystem_set_atime(fs, t, actime);
         filesystem_set_mtime(fs, t, modtime);
+        filesystem_put_node(fs, t);
         rv = 0;
     }
-    filesystem_put_node(fs, t);
     filesystem_release(cwd_fs);
     return rv;
 }
