@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <string.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -61,6 +62,19 @@ int main()
     }
     int curpos = rv;
     EXPECT_LONG_EQUAL(startpos + bytes_read, curpos);
+
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN | POLLOUT;
+    rv = poll(&pfd, 1, 0);
+    if (rv != 1) {
+        printf("unexpected poll return value %d\n", rv);
+        exit(EXIT_FAILURE);
+    }
+    if (pfd.revents != (POLLIN | POLLOUT)) {
+        printf("unexpected poll events 0x%x\n", pfd.revents);
+        exit(EXIT_FAILURE);
+    }
 
     if (close(fd) < 0) {
         perror("close");

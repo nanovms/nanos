@@ -3,6 +3,7 @@
 #define __USE_GNU
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,7 @@ int main(int argc, char **argv)
     char buf[8];
     char name_too_long[NAME_MAX + 2];
     char path_too_long[PATH_MAX + 1];
+    struct pollfd pfd;
     struct stat s;
     char *cwd;
 
@@ -81,6 +83,9 @@ int main(int argc, char **argv)
     test_assert((fsync(fd) == -1) && (errno == EBADF));
     test_assert((fdatasync(fd) == -1) && (errno == EBADF));
     test_assert((read(fd, buf, sizeof(buf)) == -1) && (errno == EBADF));
+    pfd.fd = fd;
+    pfd.events = POLLIN | POLLOUT;
+    test_assert((poll(&pfd, 1, 0) == 1) && (pfd.revents == POLLNVAL));
     close(fd);
 
     fd = open("link", O_RDWR | O_NOFOLLOW | O_PATH);

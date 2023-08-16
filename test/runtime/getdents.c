@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <dirent.h>     /* Defines DT_* constants */
 #include <fcntl.h>
+#include <poll.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -75,6 +76,8 @@ main(int argc, char *argv[])
 {
     int fd;
     char *dirname = (argc > 1 ? argv[1] : ".");
+    struct pollfd pfd;
+    long rv;
 
 #ifdef __x86_64__
     OPEN_DIR(dirname);
@@ -82,6 +85,17 @@ main(int argc, char *argv[])
     close(fd);
 #endif
     OPEN_DIR(dirname);
+    pfd.fd = fd;
+    pfd.events = POLLIN | POLLOUT;
+    rv = poll(&pfd, 1, 0);
+    if (rv != 1) {
+        printf("unexpected poll return value %ld on dir fd\n", rv);
+        exit(EXIT_FAILURE);
+    }
+    if (pfd.revents != (POLLIN | POLLOUT)) {
+        printf("unexpected poll events 0x%x on dir fd\n", pfd.revents);
+        exit(EXIT_FAILURE);
+    }
     DO_GETDENTS(SYS_getdents64, linux_dirent64, d->d_type);
     close(fd);
     exit(EXIT_SUCCESS);

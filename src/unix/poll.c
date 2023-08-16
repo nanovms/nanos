@@ -1,5 +1,7 @@
 #include <unix_internal.h>
 
+#define POLL_EXCEPTIONS (EPOLLERR | EPOLLHUP | EPOLLNVAL)
+
 //#define EPOLL_DEBUG
 #ifdef EPOLL_DEBUG
 #define epoll_debug(x, ...) do {tprintf(sym(poll), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -262,7 +264,7 @@ static boolean register_epollfd(epollfd efd)
     refcount_reserve(&efd->refcount); /* registration */
     event_handler eh = closure(efd->e->h, wait_notify, efd);
     epoll_debug("fd %d, eventmask 0x%x, handler %p\n", efd->fd, efd->eventmask, eh);
-    efd->notify_handle = notify_add(f->ns, efd->eventmask | (EPOLLERR | EPOLLHUP), eh);
+    efd->notify_handle = notify_add(f->ns, efd->eventmask | POLL_EXCEPTIONS, eh);
     assert(efd->notify_handle != INVALID_ADDRESS);
     fdesc_put(f);   /* if the file descriptor is deallocated, we will be notified via f->ns */
     return true;
@@ -443,7 +445,7 @@ static void check_fdesc(epollfd efd, epoll_blocked w)
     if (efd->zombie)
         return;
     fdesc f = efd->f;
-    u32 events = apply(f->events, w->t) & (efd->eventmask | (EPOLLERR | EPOLLHUP));
+    u32 events = apply(f->events, w->t) & (efd->eventmask | POLL_EXCEPTIONS);
 
     switch (efd->e->epoll_type) {
     case EPOLL_TYPE_POLL:
@@ -598,7 +600,7 @@ static sysreturn epoll_add_fd(epoll e, int fd, u32 events, u64 data)
     }
 
     epoll_debug("   adding %d, events 0x%x, data 0x%lx\n", fd, events, data);
-    events |= EPOLLERR | EPOLLHUP;
+    events |= POLL_EXCEPTIONS;
     if (efd == INVALID_ADDRESS) {
         if (alloc_epollfd(e, fd, events, data) == INVALID_ADDRESS)
             return -ENOMEM;
@@ -679,8 +681,8 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 }
 
 /* XXX build these out */
-#define POLLFDMASK_READ     (EPOLLIN | EPOLLHUP | EPOLLERR)
-#define POLLFDMASK_WRITE    (EPOLLOUT | EPOLLHUP | EPOLLERR)
+#define POLLFDMASK_READ     (EPOLLIN | POLL_EXCEPTIONS)
+#define POLLFDMASK_WRITE    (EPOLLOUT | POLL_EXCEPTIONS)
 #define POLLFDMASK_EXCEPT   (EPOLLPRI)
 
 static inline void select_notify(epollfd efd, epoll_blocked w, u64 events)

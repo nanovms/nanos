@@ -797,9 +797,14 @@ closure_function(1, 1, u32, file_events,
 {
     file f = bound(f);
     u32 events;
-    /* XXX add nonblocking support */
-    events = f->length < infinity ? EPOLLOUT : 0;
-    events |= f->offset < f->length ? EPOLLIN : EPOLLHUP;
+    switch (fdesc_type(&f->f)) {
+    case FDESC_TYPE_REGULAR:
+    case FDESC_TYPE_DIRECTORY:
+        events = EPOLLIN | EPOLLOUT;
+        break;
+    default:
+        events = EPOLLNVAL;
+    }
     return events;
 }
 
