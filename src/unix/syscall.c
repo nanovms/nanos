@@ -507,11 +507,13 @@ static boolean check_file_read(file f, u64 offset, sysreturn *rv)
     return false;
 }
 
-static void begin_file_read(file f)
+static void begin_file_read(file f, u64 length)
 {
+    if (length == 0)
+        return;
     tuple md = filesystem_get_meta(f->fs, f->n);
     if (md) {
-        if ((f->length > 0) && !(f->f.flags & O_NOATIME))
+        if (!(f->f.flags & O_NOATIME))
             filesystem_update_relatime(f->fs, md);
         fs_notify_event(md, IN_ACCESS);
         filesystem_put_meta(f->fs, md);
@@ -574,7 +576,7 @@ closure_function(2, 6, sysreturn, file_read,
         deallocate_sg_list(sg);
         return io_complete(completion, -ENOMEM);
     }
-    begin_file_read(f);
+    begin_file_read(f, length);
     apply(f->fs_read, sg, irangel(offset, length), sh);
     file_readahead(f, offset, length);
     /* possible direct return in top half */
@@ -616,7 +618,7 @@ closure_function(2, 6, sysreturn, file_sg_read,
     sysreturn rv;
     if (!check_file_read(f, offset, &rv))
         return io_complete(completion, rv);
-    begin_file_read(f);
+    begin_file_read(f, length);
     apply(f->fs_read, sg, irangel(offset, length),
           closure_from_context(ctx, file_sg_read_complete, f, sg, is_file_offset, completion));
     file_readahead(f, offset, length);

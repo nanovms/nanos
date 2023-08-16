@@ -68,6 +68,7 @@ static void *inotify_thread(void *arg)
     fd = open(INOTIFY_TEST_FILE, O_RDWR);   /* IN_OPEN */
     test_assert(write(fd, buf, sizeof(buf)) == sizeof(buf));    /* IN_MODIFY */
     test_assert(lseek(fd, 0, SEEK_SET) == 0);
+    test_assert(read(fd, buf, 0) == 0); /* no event */
     test_assert(read(fd, buf, sizeof(buf)) == sizeof(buf)); /* IN_ACCESS */
     test_assert(ftruncate(fd, 0) == 0); /* IN_MODIFY */
     /* IN_MOVE_SELF */
