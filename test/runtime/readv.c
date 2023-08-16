@@ -63,6 +63,16 @@ int main()
     int curpos = rv;
     EXPECT_LONG_EQUAL(startpos + bytes_read, curpos);
 
+    if (lseek(fd, 0, SEEK_END) < 0) {
+        perror("lseek(end)");
+        exit(EXIT_FAILURE);
+    }
+    rv = readv(fd, iovs, 3);
+    if (rv != 0) {
+        printf("readv at end of file returned %d\n", rv);
+        exit(EXIT_FAILURE);
+    }
+
     struct pollfd pfd;
     pfd.fd = fd;
     pfd.events = POLLIN | POLLOUT;

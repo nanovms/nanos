@@ -500,8 +500,6 @@ static boolean check_file_read(file f, u64 offset, sysreturn *rv)
         *rv = -EISDIR;
     else if (!f->fsf)
         *rv = -EBADF;
-    else if (offset >= f->length)
-        *rv = 0;
     else
         return true;
     return false;
@@ -560,7 +558,7 @@ closure_function(2, 6, sysreturn, file_read,
     thread t = current;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, dest, offset, is_file_offset ? "file" : "specified",
-               length, f->length);
+               length, f->fsf ? fsfile_get_length(f->fsf) : 0);
 
     sysreturn rv;
     if (!check_file_read(f, offset, &rv))
@@ -613,7 +611,7 @@ closure_function(2, 6, sysreturn, file_sg_read,
     thread t = current;
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
-               length, f->length);
+               length, f->fsf ? fsfile_get_length(f->fsf) : 0);
 
     sysreturn rv;
     if (!check_file_read(f, offset, &rv))
@@ -645,8 +643,6 @@ static void file_write_complete_internal(file f, u64 len,
 {
     sysreturn rv;
     if (is_ok(s)) {
-        /* update length */
-        f->length = fsfile_get_length(f->fsf);
         if (is_file_offset)
             f->offset += len;
         rv = len;
@@ -688,7 +684,7 @@ closure_function(2, 6, sysreturn, file_write,
     thread t = current;
     thread_log(t, "%s: f %p, src %p, offset %ld (%s), length %ld, file length %ld",
                __func__, f, src, offset, is_file_offset ? "file" : "specified",
-               length, f->length);
+               length, f->fsf ? fsfile_get_length(f->fsf) : 0);
 
     if (!f->fsf)
         return io_complete(completion, -EBADF);
@@ -751,7 +747,7 @@ closure_function(2, 6, sysreturn, file_sg_write,
     thread t = current;
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
                __func__, f, sg, offset, is_file_offset ? "file" : "specified",
-               len, f->length);
+               len, f->fsf ? fsfile_get_length(f->fsf) : 0);
     if (!f->fsf) {
         rv = -EBADF;
         goto out;
@@ -965,7 +961,6 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
         f->fadv = POSIX_FADV_NORMAL;
     }
     f->n = fs->get_inode(fs, n);
-    f->length = length;
     f->offset = (flags & O_APPEND) ? length : 0;
 
     if (type == FDESC_TYPE_SPECIAL) {
@@ -1005,7 +1000,7 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
         }
         deallocate_buffer(b);
     }
-    thread_log(current, "   fd %d, length %ld, offset %ld", fd, f->length, f->offset);
+    thread_log(current, "   fd %d, length %ld, offset %ld", fd, length, f->offset);
     filesystem_reserve(fs);
     fs_notify_event(n, IN_OPEN);
     ret = fd;
@@ -1333,11 +1328,8 @@ static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, long lengt
     if (length == fsfile_get_length(fsf))
         return 0;
     fs_status s = filesystem_truncate(fs, fsf, length);
-    if (s == FS_STATUS_OK) {
+    if (s == FS_STATUS_OK)
         truncate_file_maps(current->p, fsf, length);
-        if (f)
-            f->length = length;
-    }
     return sysreturn_from_fs_status(s);
 }
 

@@ -118,7 +118,6 @@ closure_function(2, 2, void, fs_op_complete,
     sysreturn ret = sysreturn_from_fs_status(s);
     thread_log(current, "%s: %d", __func__, ret);
 
-    bound(f)->length = fsfile_get_length(fsf);
     fdesc_put(&bound(f)->f);
     syscall_return(t, ret);     /* returns on kernel context */
     closure_finish();

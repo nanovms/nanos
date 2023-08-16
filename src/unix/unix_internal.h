@@ -433,7 +433,6 @@ struct file {
     };
     inode n;                /* filesystem inode number */
     u64 offset;
-    u64 length;
 };
 
 sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap);
