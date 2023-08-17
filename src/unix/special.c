@@ -51,10 +51,13 @@ static sysreturn meminfo_read(file f, void *dest, u64 length, u64 offset)
     u64 total = heap_total(h) / KB;
     u64 free = total - heap_allocated(h) / KB;
     u64 cached = pagecache_get_occupancy() / KB;
-    buffer b = little_stack_buffer(128);
+    buffer b = little_stack_buffer(256);
     bprintf(b, "MemTotal:     %9ld kB\n"
                "MemFree:      %9ld kB\n"
                "MemAvailable: %9ld kB\n"
+               "Buffers:              0 kB\n"
+               "SwapTotal:            0 kB\n"
+               "SwapFree:             0 kB\n"
                "Cached:       %9ld kB\n",
             total, free, free + cached, cached);
     return buffer_read_at(b, offset, dest, length);
