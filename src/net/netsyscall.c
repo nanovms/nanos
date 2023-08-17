@@ -708,8 +708,8 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         } else {
             n = remain;
         }
-        if (avail < rv + n) {
-            n = avail - rv;
+        if (avail < n) {
+            n = avail;
             apiflags |= TCP_WRITE_FLAG_MORE;
         }
 
@@ -717,8 +717,10 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         if (err == ERR_OK) {
             if (sg)
                 sg_consume(sg, n);
+            else
+                buf += n;
             rv += n;
-            if (rv == avail)
+            if ((avail = tcp_sndbuf(tcp_lw)) == 0)
                 break;
             remain -= n;
             continue;
@@ -742,9 +744,8 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         if (err == ERR_OK) {
             net_debug(" tcp_write and tcp_output successful for %ld bytes\n", rv);
             netsock_check_loop();
-            if (rv == avail) {
+            if (avail == 0)
                 fdesc_notify_events(&s->sock.f); /* reset a triggered EPOLLOUT condition */
-            }
         } else {
             net_debug(" tcp_output() lwip error: %d\n", err);
             rv = lwip_to_errno(err);
