@@ -406,6 +406,8 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
     tuple parent;
     fs_status fss = filesystem_resolve_cstring(&fs, cwd_t, path, 0, &parent);
     if ((fss != FS_STATUS_NOENT) || !parent) {
+        if (fss == FS_STATUS_OK)
+            fss = FS_STATUS_EXIST;
         goto out;
     }
     buffer name = little_stack_buffer(NAME_MAX + 1);
