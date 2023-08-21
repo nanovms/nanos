@@ -305,6 +305,7 @@ int main(int argc, char **argv)
     listdir(TEST_DIR "/",TEST_DIR "/");
     listdir(TEST_DIR "/test", TEST_DIR "/test");
     _mkdirat(fd, "subdir2", DEFAULT_MODE, 0); check(TEST_DIR "/test/subdir2");
+    _mkdirat(fd, "subdir2", DEFAULT_MODE, EEXIST);
     listdir(TEST_DIR "/",TEST_DIR "/");
     listdir(TEST_DIR "/test", TEST_DIR "/test");
     _mkdirat(fd, "subdir2/subdir2a", DEFAULT_MODE, 0); check(TEST_DIR "/test/subdir2/subdir2a");

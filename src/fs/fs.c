@@ -366,6 +366,8 @@ tuple fs_new_entry(filesystem fs)
 
 static fs_status fs_create_dir_entry(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
 {
+    if (fs->ro)
+        return FS_STATUS_READONLY;
     fs_status s = fs->create(fs, parent, name, md, f);
     if (s == FS_STATUS_OK) {
         symbol name_sym = intern(name);
@@ -406,6 +408,8 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path)
     tuple parent;
     fs_status fss = filesystem_resolve_cstring(&fs, cwd_t, path, 0, &parent);
     if ((fss != FS_STATUS_NOENT) || !parent) {
+        if (fss == FS_STATUS_OK)
+            fss = FS_STATUS_EXIST;
         goto out;
     }
     buffer name = little_stack_buffer(NAME_MAX + 1);
@@ -442,10 +446,6 @@ fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boole
         if (create) {
             if (!parent)
                 goto out;
-            if ((*fs)->ro) {
-                fss = FS_STATUS_READONLY;
-                goto out;
-            }
             t = fs_new_entry(*fs);
             buffer name = alloca_wrap_cstring(filename_from_path(path));
             fss = fs_create_dir_entry(*fs, parent, name, t, f);
@@ -515,10 +515,6 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const c
     }
     if ((fss != FS_STATUS_NOENT) || !parent)
         goto out;
-    if (fs->ro) {
-        fss = FS_STATUS_READONLY;
-        goto out;
-    }
     buffer target_b = allocate_buffer(fs->h, target_len);
     if (target_b == INVALID_ADDRESS) {
         fss = FS_STATUS_NOMEM;
