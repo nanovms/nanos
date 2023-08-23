@@ -185,9 +185,15 @@ static void print_value_internal(buffer dest, value v, table *visited, s32 inden
     } else if (v == null_value) {
         bprintf(dest, "<null>");
     } else if (is_integer(v)) {
-        s64 x;
-        assert(s64_from_value(v, &x));
-        bprintf(dest, "%ld", x);
+        if (is_signed_integer_value(v)) {
+            s64 x;
+            assert(s64_from_value(v, &x));
+            bprintf(dest, "%ld", x);
+        } else {
+            u64 x;
+            assert(u64_from_value(v, &x));
+            bprintf(dest, "%lu", x);
+        }
     } else {
         buffer b = (buffer)v;
         if (is_binary_buffer(b))

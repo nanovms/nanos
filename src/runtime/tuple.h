@@ -94,6 +94,15 @@ static inline boolean s64_from_value(value v, s64 *result)
     return parse_signed_int(alloca_wrap((buffer)v), 10, result);
 }
 
+static inline boolean is_signed_integer_value(value v)
+{
+    if (is_immediate_integer(v))
+        return s64_from_tagged_immediate(v) < 0;
+    if (!(is_string(v) || is_integer(v) || is_untyped(v)))
+        return false;
+    return is_signed_int_string((buffer)v);
+}
+
 static inline value value_from_u64(u64 n)
 {
     if (n > IMM_UINT_MAX)
