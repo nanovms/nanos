@@ -76,6 +76,12 @@ boolean all_tests(heap h)
     test_assert(u64_from_value(val, &u2));
     test_assert(u1 == u2);//rprintf("u1=%d,u2=%d\n",u1, u2);
 
+    u1 = U64_MAX;
+    val = value_from_u64(u1);//rprintf("u1 val %v\n", val);
+    test_assert(!is_immediate_integer(val));
+    test_assert(u64_from_value(val, &u2));
+    test_assert(u1 == u2);//rprintf("u1=%d,u2=%d\n",u1, u2);
+
     s1 = S64_MIN;
     val = value_from_s64(s1);//rprintf("s1 val %v\n", val);
     test_assert(!is_immediate_integer(val));
@@ -169,6 +175,46 @@ boolean encode_decode_test(heap h)
     buffer_clear(buf);
     bprintf(buf, "%v", t4);
     test_assert(strncmp(buf->contents, "(1:-3)", buffer_length(buf)) == 0);
+
+    destruct_value(t4, true);
+
+    // test min signed
+    set(t3, integer_key(1), value_from_s64(S64_MIN));
+    total_entries = 0;
+    table_clear(tdict1);
+    encode_tuple(b3, tdict1, t3, &total_entries);
+    test_assert(buffer_length(b3) > 0);
+    test_assert(total_entries == 1);
+
+    // decode
+    total_entries = 0;
+    obsolete_entries = 0;
+    table_clear(tdict1);
+    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries);
+
+    test_assert((total_entries == 1) && (obsolete_entries == 0));
+    buffer_clear(buf);
+    bprintf(buf, "%v", t4);
+    test_assert(strncmp(buf->contents, "(1:-9223372036854775808)", buffer_length(buf)) == 0);
+
+    // test max unsigned
+    set(t3, integer_key(1), value_from_u64(U64_MAX));
+    total_entries = 0;
+    table_clear(tdict1);
+    encode_tuple(b3, tdict1, t3, &total_entries);
+    test_assert(buffer_length(b3) > 0);
+    test_assert(total_entries == 1);
+
+    // decode
+    total_entries = 0;
+    obsolete_entries = 0;
+    table_clear(tdict1);
+    t4 = decode_value(h, tdict1, b3, &total_entries, &obsolete_entries);
+
+    test_assert((total_entries == 1) && (obsolete_entries == 0));
+    buffer_clear(buf);
+    bprintf(buf, "%v", t4);
+    test_assert(strncmp(buf->contents, "(1:18446744073709551615)", buffer_length(buf)) == 0);
 
     destruct_value(t4, true);
     failure = false;

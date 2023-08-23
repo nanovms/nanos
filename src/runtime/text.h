@@ -153,11 +153,16 @@ static inline boolean parse_int(buffer b, u32 base, u64 *result)
   return st;
 }
 
+static inline boolean is_signed_int_string(buffer b)
+{
+    return buffer_length(b) > 0 && *(u8 *)buffer_ref(b, 0) == '-';
+}
+
 static inline boolean parse_signed_int(buffer b, u32 base, s64 *result)
 {
   int sign = 1;
 
-  if (buffer_length(b) > 0 && *(u8 *)buffer_ref(b, 0) == '-') {
+  if (is_signed_int_string(b)) {
     sign = -1;
     pop_u8(b);
   }

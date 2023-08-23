@@ -352,10 +352,14 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
         tuple_debug("decode_value: decoded vector %v\n", v);
         return v;
     } else if (type == type_integer) {
+        boolean neg = len > 0;
         assert(imm == immediate);
-        s64 n = (s64)pop_varint(source);
-        tuple_debug("decode_value: decoded integer %ld\n", n);
-        return value_from_s64(n);
+        u64 n = pop_varint(source);
+        tuple_debug("decode_value: decoded integer %s%lu\n", neg ? "-" : "", n);
+        if (neg)
+            return value_from_s64(-(s64)n);
+        else
+            return value_from_u64(n);
     } else {
         if (len == 0)
             return 0;
@@ -390,7 +394,7 @@ void encode_symbol(buffer dest, table dictionary, symbol s)
 
 static void encode_tuple_internal(buffer dest, table dictionary, tuple t, u64 *total, table visited);
 static void encode_vector_internal(buffer dest, table dictionary, vector v, u64 *total, table visited);
-static void encode_integer(buffer dest, s64 x);
+static void encode_integer(buffer dest, value v);
 static void encode_value_internal(buffer dest, table dictionary, value v, u64 *total, table visited)
 {
     if (!v) {
@@ -400,9 +404,7 @@ static void encode_value_internal(buffer dest, table dictionary, value v, u64 *t
     } else if (is_vector(v)) {
         encode_vector_internal(dest, dictionary, (vector)v, total, visited);
     } else if (is_integer(v)) {
-        s64 x;
-        assert(s64_from_value(v, &x));
-        encode_integer(dest, x);
+        encode_integer(dest, v);
     } else {
         push_header(dest, immediate, type_buffer, buffer_length((buffer)v));
         assert(push_buffer(dest, (buffer)v));
@@ -547,16 +549,26 @@ static void encode_vector_internal(buffer dest, table dictionary, vector v, u64 
     }
 }
 
-/* we encode everything as a signed integer, as unsigned ints are capped at IMM_UINT_MAX */
-void encode_integer(buffer dest, s64 x)
+static void encode_integer(buffer dest, value v)
 {
-    tuple_debug("%s: dest %p, x %ld\n", __func__, dest, x);
-    push_header(dest, immediate, type_integer, 0);
-    push_varint(dest, (u64)x);
+    tuple_debug("%s: dest %p, v %v\n", __func__, dest, v);
+    u64 abs;
+    boolean neg = is_signed_integer_value(v);
+    if (neg) {
+        s64 x;
+        assert(s64_from_value(v, &x));
+        abs = -x;
+    } else {
+        assert(u64_from_value(v, &abs));
+    }
+    push_header(dest, immediate, type_integer, neg);
+    push_varint(dest, abs);
 }
 
 void deallocate_value(value v)
 {
+    if (is_immediate(v))
+        return;
     value_tag tag = tagof(v);
     switch (tag) {
     case tag_unknown:
