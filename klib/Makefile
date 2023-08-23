@@ -9,6 +9,7 @@ PROGRAMS= \
 	ntp \
 	radar \
 	sandbox \
+	special_files \
 	syslog \
 	tls \
 	tun \
@@ -37,6 +38,9 @@ SRCS-sandbox= \
 	$(CURDIR)/pledge.c \
 	$(CURDIR)/sandbox.c \
 	$(CURDIR)/unveil.c \
+
+SRCS-special_files= \
+	$(CURDIR)/special_files.c \
 
 SRCS-syslog= \
 	$(CURDIR)/syslog.c \
