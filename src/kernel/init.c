@@ -526,11 +526,10 @@ void vm_exit(u8 code)
         value expected = get(root, sym(expected_exit_code));
         if (expected) {
             u64 expected_code;
-            if ((is_string(expected) || is_integer(expected)) &&
-                u64_from_value(expected, &expected_code) &&
+            if (u64_from_value(expected, &expected_code) &&
                 expected_code == code) {
                 code = 0;               
-            } else if (is_tuple(expected)) {
+            } else if (is_vector(expected)) {
                 for (int i = 0; get_u64(expected, intern_u64(i), &expected_code); i++) {
                     if (expected_code == code) {
                         code = 0;
