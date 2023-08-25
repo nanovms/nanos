@@ -184,7 +184,7 @@ void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val);
 u32 pci_find_cap(pci_dev dev, u8 cap);
 u32 pci_find_next_cap(pci_dev dev, u8 cap, u32 cp);
 
-void pci_bus_set_iomem(int bus, id_heap iomem);
+void pci_bridge_set_iomem(range window, id_heap iomem);
 id_heap pci_bus_get_iomem(int bus);
 void pci_discover();
 void pci_probe_device(pci_dev dev);

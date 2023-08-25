@@ -8,12 +8,13 @@
 # define pci_debug(...) do { } while(0)
 #endif // PCI_DEBUG
 
-typedef struct pci_bus {
+typedef struct pci_bridge {
+    struct rmnode window;
     id_heap iomem;
-} *pci_bus;
+} *pci_bridge;
 
 // use the global nodespace
-BSS_RO_AFTER_INIT static vector pci_buses;
+BSS_RO_AFTER_INIT static rangemap pci_bridges;
 BSS_RO_AFTER_INIT static vector devices;
 BSS_RO_AFTER_INIT static vector drivers;
 static struct spinlock pci_lock;
@@ -222,10 +223,10 @@ static void pci_probe_bus(int bus);
 
 static void pci_parse_iomem(pci_dev dev, boolean allocate)
 {
-    pci_bus bus = vector_get(pci_buses, dev->bus);
-    if (!bus)
+    pci_bridge bridge = (pci_bridge)rangemap_lookup(pci_bridges, dev->bus);
+    if (bridge == INVALID_ADDRESS)
         return;
-    id_heap iomem = bus->iomem;
+    id_heap iomem = bridge->iomem;
     int max_bar;
     switch (pci_get_hdrtype(dev) & PCIM_HDRTYPE) {
     case PCIM_HDRTYPE_NORMAL:
@@ -383,19 +384,21 @@ pci_probe_bus(int bus)
     }
 }
 
-void pci_bus_set_iomem(int bus, id_heap iomem)
+void pci_bridge_set_iomem(range window, id_heap iomem)
 {
-    pci_bus pbus = allocate(pci_buses->h, sizeof(*pbus));
-    assert(pbus != INVALID_ADDRESS);
-    pbus->iomem = iomem;
-    assert(vector_set(pci_buses, bus, pbus));
+    pci_debug("PCI bridge window %R\n", window);
+    pci_bridge bridge = allocate(pci_bridges->h, sizeof(*bridge));
+    assert(bridge != INVALID_ADDRESS);
+    rmnode_init(&bridge->window, window);
+    bridge->iomem = iomem;
+    assert(rangemap_insert(pci_bridges, &bridge->window));
 }
 
 id_heap pci_bus_get_iomem(int bus)
 {
-    pci_bus pbus = vector_get(pci_buses, bus);
-    if (pbus)
-        return pbus->iomem;
+    pci_bridge bridge = (pci_bridge)rangemap_lookup(pci_bridges, bus);
+    if (bridge != INVALID_ADDRESS)
+        return bridge->iomem;
     return 0;
 }
 
@@ -426,14 +429,21 @@ void pci_discover()
                 pci_probe_bus(f);
         }
     }
+    struct rmnode k = {
+        .r = irange(dev->function + 1, PCI_BUSMAX),
+    };
+    rangemap_foreach_of_range(pci_bridges, n, &k) {
+        if (n->r.start >= k.r.start)
+            pci_probe_bus(n->r.start);
+    }
 }
 
 void init_pci(kernel_heaps kh)
 {
     // should use the global node space
     virtual_page = (heap)heap_virtual_page(kh);
-    pci_buses = allocate_vector(heap_general(kh), 1);
-    assert(pci_buses != INVALID_ADDRESS);
+    pci_bridges = allocate_rangemap(heap_general(kh));
+    assert(pci_bridges != INVALID_ADDRESS);
     devices = allocate_vector(heap_general(kh), 8);
     drivers = allocate_vector(heap_general(kh), 8);
     spin_lock_init(&pci_lock);

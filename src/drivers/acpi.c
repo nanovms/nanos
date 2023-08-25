@@ -12,6 +12,11 @@
 
 #define acpi_heap   heap_locked(get_kernel_heaps())
 
+typedef struct acpi_pci_res_ctx {
+    range bridge_window;
+    id_heap iomem;
+} *acpi_pci_res_ctx;
+
 boolean acpi_walk_madt(madt_handler mh)
 {
     ACPI_TABLE_HEADER *madt;
@@ -110,26 +115,26 @@ static void acpi_pci_notify(ACPI_HANDLE device, UINT32 value, void *context)
 
 ACPI_STATUS acpi_pci_res_handler(ACPI_RESOURCE *resource, void *context)
 {
-    id_heap iomem = context;
-    u64 base = 0, len;
-    switch(resource->Type) {
-    case ACPI_RESOURCE_TYPE_ADDRESS32:
-        base = resource->Data.Address32.Address.Minimum +
-               resource->Data.Address32.Address.TranslationOffset;
-        len = resource->Data.Address32.Address.AddressLength;
+    ACPI_RESOURCE_ADDRESS64 a64;
+    if (ACPI_FAILURE(AcpiResourceToAddress64(resource, &a64)))
+        return AE_OK;
+    acpi_pci_res_ctx ctx = context;
+    u64 base, len;
+    switch(a64.ResourceType) {
+    case ACPI_MEMORY_RANGE:
+        base = a64.Address.Minimum + a64.Address.TranslationOffset;
+        len = a64.Address.AddressLength;
+
+        /* Skip low memory addresses, which may be reserved in some platforms (e.g. video memory at
+         * 0xA0000 in the PC platform). */
+        if ((base >= MB) && !(base & MASK(PAGELOG)) && !(len & MASK(PAGELOG)))
+            id_heap_add_range(ctx->iomem, base, len);
+
         break;
-    case ACPI_RESOURCE_TYPE_ADDRESS64:
-        base = resource->Data.Address64.Address.Minimum +
-               resource->Data.Address64.Address.TranslationOffset,
-        len = resource->Data.Address64.Address.AddressLength;
+    case ACPI_BUS_NUMBER_RANGE:
+        ctx->bridge_window = irangel(a64.Address.Minimum, a64.Address.AddressLength);
         break;
     }
-
-    /* Skip low memory addresses, which may be reserved in some platforms (e.g. video memory at
-     * 0xA0000 in the PC platform). */
-    if ((base >= MB) && !(base & MASK(PAGELOG)) && !(len & MASK(PAGELOG)))
-        id_heap_add_range(iomem, base, len);
-
     return AE_OK;
 }
 
@@ -143,9 +148,13 @@ static ACPI_STATUS acpi_device_handler(ACPI_HANDLE object, u32 nesting_level, vo
             acpi_debug("retrieving PCI root bridge resources for %p", object);
             id_heap iomem = allocate_id_heap(acpi_heap, acpi_heap, PAGESIZE, true);
             assert(iomem != INVALID_ADDRESS);
-            rv = AcpiWalkResources(object, METHOD_NAME__CRS, acpi_pci_res_handler, iomem);
+            struct acpi_pci_res_ctx ctx = {
+                    .bridge_window = irange(0, 0),
+                    .iomem = iomem,
+            };
+            rv = AcpiWalkResources(object, METHOD_NAME__CRS, acpi_pci_res_handler, &ctx);
             if (ACPI_SUCCESS(rv))
-                pci_bus_set_iomem(dev_info->Address, iomem);
+                pci_bridge_set_iomem(ctx.bridge_window, iomem);
             else
                 msg_err("cannot retrieve PCI root bridge resources: %d\n", rv);
         }
