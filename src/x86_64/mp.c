@@ -33,6 +33,9 @@ static void (*start_callback)();
 /* CPUID level 7 (ECX) */
 #define CPUID_UMIP  (1<<2)
 
+/* CPUID level 7 (EDX) */
+#define CPUID_IBT   (1<<20)
+
 #define XCR0_SSE (1<<1)
 #define XCR0_AVX (1<<2)
 u8 use_xsave;
@@ -58,6 +61,10 @@ void init_cpu_features()
         cr |= CR4_SMEP;
     if (v[2] & CPUID_UMIP)
         cr |= CR4_UMIP;
+    if (v[3] & CPUID_IBT) {
+        write_msr(S_CET_MSR, CET_ENDBR_EN);
+        cr |= CR4_CET;
+    }
     mov_to_cr("cr4", cr);
     mov_from_cr("cr0", cr);
     cr |= C0_MP | C0_WP;

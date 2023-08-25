@@ -117,7 +117,10 @@ KERNCFLAGS=	-nostdinc \
 		-ffunction-sections
 
 ifeq ($(ARCH),x86_64)
-KERNCFLAGS+=	-mno-mmx -mno-sse -mno-sse2
+# The Indirect Branch Tracking CPU feature is enabled with S_CET.NO_TRACK_EN=0, so disable jump
+# tables in order to prevent the compiler from generating instructions with the NOTRACK prefix
+KERNCFLAGS+=	-mno-mmx -mno-sse -mno-sse2 -fcf-protection=branch -fno-jump-tables \
+
 endif
 
 ifeq ($(ARCH),aarch64)

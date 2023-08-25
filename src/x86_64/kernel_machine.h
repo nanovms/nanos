@@ -29,6 +29,11 @@
 #define USER_CODE32_SELECTOR 0x18
 #define USER_DATA_SELECTOR   0x20
 
+/* Control-flow Enforcement Technology */
+#define U_CET_MSR        0x6a0  /* user mode CET */
+#define S_CET_MSR        0x6a2  /* kernel mode CET */
+#define CET_ENDBR_EN     0x0004
+
 #define TSC_DEADLINE_MSR 0x6e0
 
 #define EFER_MSR         0xc0000080
@@ -61,6 +66,7 @@
 #define CR4_FSGSBASE    (1 << 16)
 #define CR4_OSXSAVE     (1 << 18)
 #define CR4_SMEP        (1 << 20)
+#define CR4_CET         (1 << 23)
 
 #define EFLAG_CARRY                     0
 #define EFLAG_FIXED                     1
