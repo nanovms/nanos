@@ -52,6 +52,7 @@ sysreturn fs_rename(buffer oldpath, buffer newpath);
 
 void file_release(file f);
 
+fsfile fsfile_open(buffer file_path);
 fsfile fsfile_open_or_create(buffer file_path, boolean truncate);
 fs_status fsfile_truncate(fsfile f, u64 len);
 
