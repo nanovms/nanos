@@ -451,7 +451,22 @@ void file_release(file f)
         unix_cache_free(get_unix_heaps(), file, f);
 }
 
-/* file_path is treated as an absolute path. */
+/* file_path is treated as an absolute path for fsfile_open() and fsfile_open_or_create() */
+fsfile fsfile_open(buffer file_path)
+{
+    tuple file;
+    fsfile fsf;
+    filesystem fs = get_root_fs();
+    fs_status s = filesystem_get_node(&fs, fs->get_inode(fs, filesystem_getroot(fs)),
+                                      buffer_to_cstring(file_path),
+                                      true, false, false, false, &file, &fsf);
+    if (s == FS_STATUS_OK) {
+        filesystem_put_node(fs, file);
+        return fsf;
+    }
+    return 0;
+}
+
 fsfile fsfile_open_or_create(buffer file_path, boolean truncate)
 {
     tuple file;
