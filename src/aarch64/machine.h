@@ -45,8 +45,10 @@ typedef u64 bytes;
 #define mask_and_set_field(u, f, v) (clear_field(u, f) | u64_from_field(f, v))
 
 #define DIV(__x, __by, __q, __r) \
-    do { asm("udiv %0, %2, %3; msub %1, %0, %3, %2" :           \
-             "=&r"(__q), "=r"(__r) : "r"(__x), "r"(__by)); } while(0)
+    do { asm("udiv %0, %1, %2" :           \
+            "=r"(__q): "r"(__x), "r"((u64)__by)); \
+        asm("msub %0, %2, %3, %1" :           \
+            "=r"(__r) : "r"(__x), "r"(__q),"r"((u64)__by)); } while(0)
 
 #if 0
 #define ROL(__x, __b)\

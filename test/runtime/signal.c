@@ -1495,7 +1495,7 @@ void test_smp_sig_handling(void)
 static void test_fault(void)
 {
     sigset_t ss;
-    union sigval sv;
+    union sigval sv = {0};
     siginfo_t info;
     int fd;
 
