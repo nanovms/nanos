@@ -1,5 +1,8 @@
 override ARCH=$(shell uname -m)
 override CROSS_COMPILE=
+ifeq ($(shell uname -s),Darwin)
+override CC=cc
+endif
 CONTGEN=$(OBJDIR)/bin/contgen
 PROGRAMS=dump mkfs vdsogen
 ADDITIONAL_PROGRAMS=tfs-fuse

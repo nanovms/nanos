@@ -328,20 +328,41 @@ dummy:
 
 include ../../rules.mk
 
+TARGET_ROOT=	$(NANOS_TARGET_ROOT)
+ifeq ($(UNAME_s),Darwin)
+ifeq ($(ARCH),x86_64)
+GCC_VER=	6
+OBJS_CRTBEGIN_D=-dynamic-linker /lib64/ld-linux-x86-64.so.2
+LD=			x86_64-elf-ld
+else ifeq ($(ARCH),aarch64)
+GCC_VER=	12
+OBJS_CRTBEGIN_D=-dynamic-linker /lib/ld-linux-aarch64.so.1
+LD=			aarch64-linux-ld
+endif
+# crtbegin/crtend for dynamically linked executables
+OBJS_CRTBEGIN_D+= $(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu/Scrt1.o $(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/$(ARCH)-linux-gnu/$(GCC_VER)/crtbeginS.o
+OBJS_CRTEND_D=	-L=/usr/lib/$(ARCH)-linux-gnu -L=/usr/lib/gcc/$(ARCH)-linux-gnu/$(GCC_VER) -lc $(TARGET_ROOT)/usr/lib/gcc/$(ARCH)-linux-gnu/$(GCC_VER)/crtendS.o $(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu/crtn.o
+# crtbegin/crtend for statically linked executables
+OBJS_CRTBEGIN=	$(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu/crt1.o $(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu/crti.o $(TARGET_ROOT)/usr/lib/gcc/$(ARCH)-linux-gnu/$(GCC_VER)/crtbeginT.o
+OBJS_CRTEND=	-L=/usr/lib/$(ARCH)-linux-gnu -L=/usr/lib -L=/lib/$(ARCH)-linux-gnu -L=/lib -L=/usr/lib/gcc/$(ARCH)-linux-gnu/$(GCC_VER) --start-group -lgcc -lgcc_eh -lc --end-group $(TARGET_ROOT)/usr/lib/gcc/$(ARCH)-linux-gnu/$(GCC_VER)/crtend.o $(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu/crtn.o
+endif
+
 ifneq ($(CROSS_COMPILE),)
+LDFLAGS+=	--sysroot=$(TARGET_ROOT)
+ifeq ($(findstring clang,$(COMPILER_VERSION)),clang)
+CFLAGS+=	-target x86_64-elf --sysroot $(TARGET_ROOT) -I $(TARGET_ROOT)/usr/include
+else
 CFLAGS+=	--sysroot $(TARGET_ROOT) -isystem $(TARGET_ROOT)/usr/include -isystem $(TARGET_ROOT)/usr/include/$(ARCH)-linux-gnu
-LDFLAGS+=	--sysroot=$(TARGET_ROOT) -B$(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu
+ifeq ($(CC),$(LD))
+LDFLAGS+=	-B$(TARGET_ROOT)/usr/lib/$(ARCH)-linux-gnu
+endif
+endif
 ifeq ($(ARCH),riscv64)
 LDFLAGS+=	-Wl,--eh-frame-hdr
 endif
-else
 ifeq ($(UNAME_s),Darwin)
-CFLAGS+=	-target x86_64-elf --sysroot $(TARGET_ROOT) -I $(TARGET_ROOT)/usr/include
-LD=		x86_64-elf-ld
-LDFLAGS+=	--sysroot=$(TARGET_ROOT)
 OBJS_BEGIN=	$(OBJS_CRTBEGIN)
 OBJS_END=	$(OBJS_CRTEND)
-GO_ENV=		GOOS=linux GOARCH=amd64
 
 $(PROG-hw): OBJS_BEGIN=$(OBJS_CRTBEGIN_D)
 $(PROG-hw): OBJS_END=$(OBJS_CRTEND_D)
@@ -355,6 +376,8 @@ ifneq ($(CROSS_COMPILE),)
 GO_ENV=		GOOS=linux
 ifeq ($(ARCH),aarch64)
 GO_ENV+=	GOARCH=arm64
+else ifeq ($(ARCH),x86_64)
+GO_ENV+=	GOARCH=amd64
 else
 GO_ENV+=	GOARCH=$(ARCH)
 endif

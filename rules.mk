@@ -9,10 +9,14 @@ VENDORDIR=	$(ROOTDIR)/vendor
 TOOLDIR=	$(OUTDIR)/tools/bin
 PATCHDIR=	$(ROOTDIR)/patches
 UNAME_s=	$(shell uname -s)
+UNAME_m=	$(shell uname -m)
 
 # If no platform is specified, try to guess it from the host architecture.
 ifeq ($(PLATFORM),)
-ARCH?=		$(shell uname -m)
+ARCH?=	$(UNAME_m)
+ifeq ($(ARCH),arm64)
+override ARCH:=		aarch64
+endif
 ifeq ($(ARCH),aarch64)
 PLATFORM?=	virt
 endif
@@ -33,10 +37,14 @@ endif
 ifeq ($(PLATFORM),riscv-virt)
 ARCH?=		riscv64
 endif
-ifneq ($(ARCH),$(shell uname -m))
+ifneq ($(ARCH),$(UNAME_m))
 CROSS_COMPILE?=	$(ARCH)-linux-gnu-
 endif
 endif
+
+ifeq ($(UNAME_s),Darwin)
+CROSS_COMPILE=$(ARCH)-elf-
+endif 
 
 PLATFORMDIR=	$(ROOTDIR)/platform/$(PLATFORM)
 PLATFORMOBJDIR=	$(subst $(ROOTDIR),$(OUTDIR),$(PLATFORMDIR))
@@ -73,15 +81,17 @@ AS=		$(CROSS_COMPILE)as
 ASDEPFLAGS=
 endif
 
-ifneq ($(CROSS_COMPILE),)
+ifeq ($(UNAME_s),Darwin)
+ifeq ($(ARCH),aarch64)
 CC=		$(CROSS_COMPILE)gcc
 else
-ifeq ($(UNAME_s),Darwin)
 CC=		cc
+endif
 else
-CC=		gcc
+CC=		$(CROSS_COMPILE)gcc
 endif
-endif
+
+COMPILER_VERSION := $(shell $(CC) --version)
 
 LD=		$(CC)
 LN=		ln
@@ -122,7 +132,19 @@ endif
 
 ifeq ($(ARCH),aarch64)
 KERNCFLAGS+=	-march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18
+
+# Workaround for GCC 12/13 bug to avoid incorrect pointer analysis https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105523
+CCMAJ=$(shell $(CC) -dumpversion | awk -F. '{print $$1}')
+ifeq ($(CCMAJ),$(filter $(CCMAJ),12 13))
+KERNCFLAGS+=	--param=min-pagesize=0
+endif
+
+# Don't ask clang since it doesn't know --help=target
+ifeq ($(findstring clang,$(COMPILER_VERSION)),clang)
+OUTLINE_ATOMICS=0
+else
 OUTLINE_ATOMICS=	$(shell $(CC) --help=target | grep -c outline-atomics)
+endif
 ifneq ($(OUTLINE_ATOMICS),0)
 KERNCFLAGS+=	-mno-outline-atomics
 endif
