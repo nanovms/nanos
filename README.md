@@ -60,20 +60,38 @@ This installs the correct toolchain and will install an up-to-date qemu.
 It is highly recommended to be running the latest qemu otherwise you
 might run into issues.
 
+For Intel-based Macs:
 ```
 brew update && brew install nasm go wget ent
-brew tap nanovms/homebrew-x86_64-elf
+brew tap nanovms/homebrew-toolchains
 brew install x86_64-elf-binutils
 brew tap nanovms/homebrew-qemu
 brew install nanovms/homebrew-qemu/qemu
 ```
 
+For ARM-based Macs (M1/M2):
+```
+brew update && brew install go wget ent qemu aarch64-elf-gcc aarch64-elf-binutils
+# To build and link runtime tests or aarch64 linux user programs:
+brew tap nanovms/homebrew-toolchains
+brew install aarch64-linux-binutils
+```
+
 Create a Chroot:
 (this isn't absolutely necessary)
+
+For Intel-based Macs:
 ```
 mkdir target-root && cd target-root && wget
 https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
 ```
+
+For ARM-based Macs (M1/M2):
+```
+mkdir target-root && cd target-root && wget
+https://storage.googleapis.com/testmisc/arm64-target-root-new.tar.gz && tar xzf arm64-target-root-new.tar.gz
+```
+
 You should also set the environment variable NANOS_TARGET_ROOT to the path of 
 target-root created above in order to create the example and test images.
 

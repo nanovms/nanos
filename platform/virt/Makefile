@@ -379,8 +379,14 @@ $(UEFI_LOADER):	$(BOOT_OBJDIR)/uefi.so
 	$(call cmd,uefi_objcopy)
 
 LD=             $(CROSS_COMPILE)ld
+ifeq ($(UNAME_s),Darwin)
+REL_OS=		darwin
+QEMU_ACCEL=	-accel $(ACCEL) -cpu host
+ACCEL?=		hvf
+else
 REL_OS=		linux
 QEMU_ACCEL=	-enable-kvm -cpu host
+endif
 
 ##############################################################################
 # run

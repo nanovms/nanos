@@ -181,15 +181,11 @@ $(KLIB_SYMS): $(PROGRAM_BINARIES)
 # delete linker script backup file
 	$(Q) $(RM) $(KLIB_SYMS).bak
 
-ifeq ($(UNAME_s),Darwin)
-ELF_TARGET=     -target x86_64-elf
+ifeq ($(findstring clang,$(COMPILER_VERSION)),clang)
+ELF_TARGET=     -target $(ARCH)-elf
 CFLAGS+=        $(ELF_TARGET)
-LD=             x86_64-elf-ld
-OBJDUMP=        x86_64-elf-objdump
-STRIP=          x86_64-elf-strip
-else
-LD=             $(CROSS_COMPILE)ld
 endif
+LD=             $(CROSS_COMPILE)ld
 
 INCLUDES= \
 	-I$(CURDIR) \

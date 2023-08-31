@@ -1,3 +1,9 @@
+override ARCH=$(shell uname -m)
+override CROSS_COMPILE=
+ifeq ($(shell uname -s),Darwin)
+override CC=cc
+endif
+
 PROGRAMS= \
 	bitmap_test \
 	buffer_test \
