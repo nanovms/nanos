@@ -174,9 +174,13 @@ static status demand_anonymous_page(pending_fault pf, vmap vm, u64 vaddr)
     return STATUS_OK;
 }
 
-static void demand_file_page(pending_fault pf, vmap vm, u64 node_offset, u64 page_addr,
-                             pageflags flags)
+define_closure_function(3, 0, void, pending_fault_demand_file_page,
+                        vmap, vm, u64, node_offset, pageflags, flags)
 {
+    pending_fault pf = struct_from_field(closure_self(), pending_fault, demand_file_page);
+    vmap vm = bound(vm);
+    u64 node_offset = bound(node_offset);
+    pageflags flags = bound(flags);
     pagecache_node pn = vm->cache_node;
     pf_debug("%s: pending_fault %p, node_offset 0x%lx, page_addr 0x%lx, flags 0x%lx\n",
              __func__, pf, node_offset, pf->addr, flags);
@@ -189,16 +193,6 @@ static void demand_file_page(pending_fault pf, vmap vm, u64 node_offset, u64 pag
             ra.end = ra.start + FILE_READAHEAD_DEFAULT;
         pagecache_node_fetch_pages(pn, ra);
     }
-}
-
-static void demand_page_suspend_context(pending_fault pf, context ctx)
-{
-    pf_debug("%s: pf %p, ctx %p (%d), switch to %p\n", __func__,
-             pf, ctx, ctx->type, current_cpu()->m.kernel_context);
-
-    /* We get away with this because we are on the exception handler stack. */
-    context_pre_suspend(ctx);
-    context_switch(current_cpu()->m.kernel_context);
 }
 
 static status demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr, pending_fault pf)
@@ -234,14 +228,15 @@ static status demand_filebacked_page(process p, context ctx, vmap vm, u64 vaddr,
     }
 
     /* page not filled - schedule a page fill for this thread */
-    demand_page_suspend_context(pf, ctx);
     u64 saved_flags = spin_lock_irq(&p->faulting_lock);
     vector_push(pf->dependents, ctx);
     spin_unlock_irq(&p->faulting_lock, saved_flags);
 
     /* no need to reserve context; we're on exception/int stack */
-    demand_file_page(pf, vm, node_offset, page_addr, flags);
+    init_closure(&pf->demand_file_page, pending_fault_demand_file_page, vm, node_offset, flags);
+    async_apply_bh((thunk)&pf->demand_file_page);
     count_major_fault();
+    context_pre_suspend(ctx);
     kern_yield();
 }
 
@@ -269,7 +264,6 @@ status do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
         pf_debug("   found pending_fault %p\n", pf);
         vector_push(pf->dependents, ctx);
         spin_unlock_irq(&p->faulting_lock, flags);
-        demand_page_suspend_context(pf, ctx);
         count_minor_fault(); /* XXX not precise...stash pt type in faulting thread? */
     } else {
         pf = new_pending_fault_locked(p, page_addr);
@@ -293,6 +287,7 @@ status do_demand_page(process p, context ctx, u64 vaddr, vmap vm)
             return demand_anonymous_page(pf, vm, vaddr);
         }
     }
+    context_pre_suspend(ctx);
     kern_yield();
 }
 

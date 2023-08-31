@@ -267,6 +267,8 @@ struct ftrace_graph_entry;
 #include <notify.h>
 
 struct pending_fault;
+declare_closure_struct(3, 0, void, pending_fault_demand_file_page,
+                       struct vmap *, vm, u64, node_offset, pageflags, flags);
 declare_closure_struct(1, 1, void, pending_fault_complete,
                        struct pending_fault *, pf,
                        status, s);
@@ -278,6 +280,7 @@ typedef struct pending_fault {
     process p;
     vector dependents;
     struct list l_free;
+    closure_struct(pending_fault_demand_file_page, demand_file_page);
     closure_struct(pending_fault_complete, complete);
 } *pending_fault;
 
