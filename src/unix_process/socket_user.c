@@ -493,8 +493,10 @@ closure_function(4, 0, void, accepting,
     socklen_t len = sizeof(struct sockaddr_in);
     int s = accept(bound(c), (struct sockaddr *)&where, &len);
     if (s < 0 ) halt("accept %s\n", strerror(errno));
+#ifndef __APPLE__
     int en = 1;
     setsockopt(s, SOL_TCP, TCP_NODELAY, &en, sizeof(en));
+#endif
     register_conn_descriptor(h, n, s, bound(nc));
 }
 

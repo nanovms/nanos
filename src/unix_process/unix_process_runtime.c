@@ -7,7 +7,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
-#ifdef __aarch64__
+#if defined(__aarch64__) && !defined(__APPLE__)
 #include <sys/prctl.h>
 #endif
 
@@ -135,7 +135,7 @@ static u64 tag_alloc(heap h, bytes s)
 
 static heap allocate_tagged_region(heap h, u64 tag)
 {
-#ifdef __aarch64__
+#if defined(__aarch64__) && !defined(__APPLE__)
 #define PR_SET_TAGGED_ADDR_CTRL      55
 #define PR_TAGGED_ADDR_ENABLE        (1UL << 0)
     static boolean abi_init = false;
