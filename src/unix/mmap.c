@@ -175,10 +175,15 @@ static void demand_page_major_fault(pending_fault pf, context ctx)
     context_pre_suspend(ctx);
 }
 
-closure_function(3, 1, void, mmap_anon_page,
-                 pending_fault, pf, vmap, vm, u64, vaddr,
+closure_function(4, 1, void, mmap_anon_page,
+                 boolean, flush_done, pending_fault, pf, vmap, vm, u64, vaddr,
                  status, s)
 {
+    if (!bound(flush_done)) {
+        bound(flush_done) = true;
+        storage_sync((status_handler)closure_self());
+        return;
+    }
     if (!is_ok(s)) {
         pf_debug("%s: storage sync failed: %v\n", __func__, s);
         timm_dealloc(s);
@@ -195,11 +200,11 @@ static status demand_anonymous_page(pending_fault pf, context ctx, vmap vm, u64 
     if (new_zeroed_pages(vaddr & ~MASK(PAGELOG), PAGESIZE, pageflags_from_vmflags(vm->flags),
                          completion) == INVALID_PHYSICAL) {
         if (ctx) {
-            status_handler sh = closure(mmap_info.h, mmap_anon_page, pf, vm, vaddr);
+            status_handler sh = closure(mmap_info.h, mmap_anon_page, false, pf, vm, vaddr);
             if (sh != INVALID_ADDRESS) {
                 pf_debug("anonymous page major fault, addr %p\n", pf->addr);
                 demand_page_major_fault(pf, ctx);
-                storage_sync(sh);
+                async_apply_bh((thunk)sh);
                 kern_yield();
             }
         }
