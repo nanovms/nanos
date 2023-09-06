@@ -9,7 +9,7 @@ extern io_status_handler ignore_io_status;
 #define MAX_EXTENT_SIZE (PAGECACHE_MAX_SG_ENTRIES * PAGESIZE)
 #define MIN_EXTENT_ALLOC_SIZE   (1 * MB)
 
-boolean filesystem_probe(u8 *first_sector, u8 *uuid, char *label);
+status filesystem_probe(u8 *first_sector, u8 *uuid, char *label);
 const char *filesystem_get_label(filesystem fs);
 void filesystem_get_uuid(filesystem fs, u8 *uuid);
 

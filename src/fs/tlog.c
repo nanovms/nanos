@@ -873,14 +873,10 @@ static void log_read(log tl, status_handler sh)
     apply((sg_io)&ext->read, sg, r, tlc);
 }
 
-boolean filesystem_probe(u8 *first_sector, u8 *uuid, char *label)
+status filesystem_probe(u8 *first_sector, u8 *uuid, char *label)
 {
     u64 len;
-    status s = log_hdr_parse(0, alloca_wrap_buffer(first_sector, SECTOR_SIZE),
-        true, &len, uuid, label);
-    boolean success = is_ok(s);
-    timm_dealloc(s);
-    return success;
+    return log_hdr_parse(0, alloca_wrap_buffer(first_sector, SECTOR_SIZE), true, &len, uuid, label);
 }
 
 log log_create(heap h, tfs fs, boolean initialize, status_handler sh)

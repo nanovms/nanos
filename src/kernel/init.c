@@ -336,7 +336,8 @@ closure_function(4, 1, void, mbr_read,
     if (!rootfs_part) {
         u8 uuid[UUID_LEN];
         char label[VOLUME_LABEL_MAX_LEN];
-        if (filesystem_probe(mbr, uuid, label)) {
+        s = filesystem_probe(mbr, uuid, label);
+        if (is_ok(s)) {
             storage_req_handler req_handler = bound(req_handler);
             fs_init_handler fs_init = closure(heap_locked(init_heaps), volume_fs_init, req_handler,
                                               bound(length));
@@ -345,7 +346,8 @@ closure_function(4, 1, void, mbr_read,
             else
                 msg_err("failed to allocate closure, skipping volume\n");
         } else {
-            init_debug("unformatted storage device, ignoring");
+            msg_err("failed to probe filesystem: %v\n", get(s, sym_this("result")));
+            timm_dealloc(s);
         }
         deallocate((heap)heap_linear_backed(init_heaps), mbr, PAGESIZE);
     } else {
