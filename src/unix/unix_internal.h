@@ -896,6 +896,7 @@ boolean unix_timers_init(unix_heaps uh);
 extern sysreturn syscall_ignore();
 u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete);
 status do_demand_page(process p, context ctx, u64 vaddr, vmap vm);
+void demand_page_done(context ctx, u64 vaddr, status s);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
 boolean vmap_validate_range(process p, range q, u32 flags);

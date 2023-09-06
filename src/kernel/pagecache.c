@@ -1598,7 +1598,7 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
                     __func__, pn, node_offset, vaddr, flags, complete, pp);
     if (pp == INVALID_ADDRESS) {
         pagecache_unlock_node(pn);
-        apply(complete, timm("result", "%s: unable to allocate pagecache page", __func__));
+        apply(complete, timm_oom);
         return;
     }
     merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,

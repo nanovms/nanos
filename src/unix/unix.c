@@ -118,6 +118,49 @@ boolean copy_to_user(void *uaddr, const void *kaddr, u64 len)
     return false;
 }
 
+void demand_page_done(context ctx, u64 vaddr, status s)
+{
+    /* In order to prevent the user program from getting stuck in a page fault
+     * oom loop, this code terminates the user program if a emough faults fail
+     * for oom in a short time */
+    if (is_ok(s)) {
+        spin_lock(&oom_lock);
+        oom_last_time = 0;
+        oom_count = 0;
+        spin_unlock(&oom_lock);
+    } else if (is_thread_context(ctx)) {
+        pf_debug("demand page failed user mode, reason: %v", s);
+        thread t = (thread)ctx;
+        if (buffer_compare_with_cstring_ci(get(s, sym(result)), "out of memory")) {
+            spin_lock(&oom_lock);
+            timestamp here = now(CLOCK_ID_MONOTONIC);
+            if (here - oom_last_time > seconds(5)) {
+                oom_last_time = 0;
+                oom_count = 0;
+            }
+            oom_count++;
+            timestamp last = oom_last_time;
+            oom_last_time = here;
+            spin_unlock(&oom_lock);
+            if (here - last < seconds(1) && oom_count >= 10) {
+                msg_err("out of memory in multiple page faults; program killed\n");
+                deliver_fault_signal(SIGKILL, t, vaddr, 0);
+            } else {
+                deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
+            }
+        } else {
+            deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
+        }
+    } else if (context_err_is_set(ctx)) {
+        kernel_context kc = (kernel_context)ctx;
+        err_frame_apply(kc->err_frame, ctx->frame);
+        context_clear_err(ctx);
+    } else {
+        halt("unhandled demand page failure for context type %d\n", ctx->type);
+    }
+    timm_dealloc(s);
+}
+
 void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
 {
     struct siginfo s = {
@@ -289,43 +332,13 @@ define_closure_function(0, 1, context, unix_fault_handler,
             goto error;
         }
 
-        /* In order to prevent the user program from getting stuck in a page fault
-         * oom loop, this code terminates the user program if a emough faults fail
-         * for oom in a short time */
-        status s;
-        if ((s = do_demand_page(p, ctx, vaddr, vm)) == STATUS_OK) {
-            spin_lock(&oom_lock);
-            oom_last_time = 0;
-            oom_count = 0;
-            spin_unlock(&oom_lock);
-            return ctx;   /* direct return */
-        } else if (user) {
-            pf_debug("demand page failed user mode, rip 0x%lx, reason: %v", fault_pc, s);
-            if (buffer_compare_with_cstring_ci(get(s, sym(result)), "out of memory")) {
-                spin_lock(&oom_lock);
-                timestamp here = now(CLOCK_ID_MONOTONIC);
-                if (here - oom_last_time > seconds(5)) {
-                    oom_last_time = 0;
-                    oom_count = 0;
-                }
-                oom_count++;
-                timestamp last = oom_last_time;
-                oom_last_time = here;
-                spin_unlock(&oom_lock);
-                if (here - last < seconds(1) && oom_count >= 10) {
-                    msg_err("out of memory in multiple page faults; program killed\n");
-                    deliver_fault_signal(SIGKILL, t, vaddr, 0);
-                } else {
-                    deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
-                }
-            } else {
-                deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
-            }
-            timm_dealloc(s);
+        status s = do_demand_page(p, ctx, vaddr, vm);
+        demand_page_done(ctx, vaddr, s);
+        if (!is_ok(s) && user) {
             schedule_thread(t);
             return 0;
         } else {
-            timm_dealloc(s);
+            return ctx;   /* direct return */
         }
     }
     /* XXX arch dep */

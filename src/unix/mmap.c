@@ -88,23 +88,8 @@ define_closure_function(1, 1, void, pending_fault_complete,
     vector_foreach(pf->dependents, ctx) {
         pf_debug("   wake ctx %p\n", ctx);
 
-        if (is_ok(s)) {
-            context_schedule_return(ctx);
-            continue;
-        }
-
-        if (is_thread_context(ctx)) {
-            thread t = (thread)ctx;
-            deliver_fault_signal(SIGBUS, t, pf->addr, BUS_ADRERR);
-            schedule_thread(t);
-        } else if (context_err_is_set(ctx)) {
-            kernel_context kc = (kernel_context)ctx;
-            err_frame_apply(kc->err_frame, ctx->frame);
-            context_clear_err(ctx);
-            context_schedule_return(ctx);
-        } else {
-            halt("unhandled demand page failure for context type %d\n", ctx->type);
-        }
+        demand_page_done(ctx, pf->addr, timm_clone(s));
+        context_schedule_return(ctx);
     }
     vector_clear(pf->dependents);
     rbtree_remove_node(&p->pending_faults, &pf->n);
