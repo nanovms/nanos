@@ -330,7 +330,9 @@ void centry()
     /* given our rewind tag, all values must be tagged - even untyped buffers */
     boot_buffer_heap = allocate_tagged_region(&working_heap, tag_unknown);
     init_sg(&working_heap);
+#ifdef STAGE2_DEBUG
     init_extra_prints();
+#endif
     stage2_debug("%s\n", __func__);
 
     /* Validate support for no-exec (NX) bits in ptes. */
