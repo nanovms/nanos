@@ -114,6 +114,11 @@ CLEANDIRS+=     $(OBJDIR)/platform/pc $(OBJDIR)/platform $(OBJDIRS-uefi)
 boot: $(OBJDIR)/boot.img $(OBJDIR)/bootx64.efi
 
 $(OBJDIR)/boot.img: $(OBJDIR)/stage1 $(OBJDIR)/stage2.pad
+ifeq ($(MEMDEBUG),)
+ifeq ($(UBSAN),)
+	$(Q) test `$(SIZE_CMD) $(OBJDIR)/stage2.pad` -le 65536 || ($(ECHO) stage2 exceeds 64KB && exit 1)
+endif
+endif
 	$(call cmd,cat)
 
 $(OBJDIR)/stage1: stage1.s $(OBJDIR)/stage2.pad
