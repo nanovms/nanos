@@ -73,7 +73,7 @@ void print_frame_trace_from_here();
         if (!(x)) {                                 \
             __label__ __here;                       \
             print_frame_trace_from_here();          \
-            __here: halt("assertion " #x " failed at " __FILE__ ":%d (IP %p)  in %s(); halt\n", __LINE__, &&__here, __func__); \
+            __here: halt("assertion " #x " failed at %s:%d (IP %p)  in %s(); halt\n", __FILE__, __LINE__, &&__here, __func__); \
         }                                           \
     } while(0)
 #endif
