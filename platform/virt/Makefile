@@ -409,7 +409,7 @@ QEMU_DISPLAY=	-display none
 QEMU_SERIAL=	-serial stdio
 QEMU_STORAGE=	-drive if=none,id=hd0,format=raw,file=$(IMAGE)
 ifeq ($(STORAGE),virtio-scsi)
-QEMU_STORAGE+=	-device virtio-scsi-device,id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
+QEMU_STORAGE+=	-device virtio-scsi-pci$(STORAGE_BUS),id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
 else ifeq ($(STORAGE),pvscsi)
 QEMU_STORAGE+=	-device pvscsi$(STORAGE_BUS),id=scsi0 -device scsi-hd,bus=scsi0.0,drive=hd0
 else ifeq ($(STORAGE),virtio-blk)
