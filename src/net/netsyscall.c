@@ -993,6 +993,14 @@ static sysreturn socket_set_mtu(struct ifreq *ifreq, struct netif *netif)
     return 0;
 }
 
+static sysreturn socket_get_hwaddr(struct ifreq *ifreq, struct netif *netif)
+{
+    struct sockaddr *addr = &ifreq->ifr.ifr_hwaddr;
+    addr->family = netif_get_type(netif);
+    runtime_memcpy(&addr->sa_data, netif->hwaddr, MIN(netif->hwaddr_len, sizeof(addr->sa_data)));
+    return 0;
+}
+
 static sysreturn socket_get_index(struct ifreq *ifreq, struct netif *netif)
 {
     ifreq->ifr.ifr_ivalue = netif->num;
@@ -1060,6 +1068,8 @@ sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
         return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_mtu);
     case SIOCSIFMTU:
         return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_mtu);
+    case SIOCGIFHWADDR:
+        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_hwaddr);
     case SIOCGIFINDEX:
         return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_index);
     default:

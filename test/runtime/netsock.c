@@ -542,6 +542,8 @@ static void netsock_test_netconf(void)
     memset(&ifr, 0, sizeof(ifr));
     ifr.ifr_ifindex = 1;
     test_assert(ioctl(fd, SIOCGIFNAME, &ifr) == 0);
+    test_assert(ioctl(fd, SIOCGIFHWADDR, &ifr) == 0);
+    close(fd);
 }
 
 static int iov_compare(struct iovec *iov1, unsigned int len1,

@@ -337,7 +337,7 @@ static void nl_enqueue_ifinfo(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
     hdr->nlmsg_pid = pid;
     struct ifinfomsg *ifi = (struct ifinfomsg *)NLMSG_DATA(hdr);
     ifi->ifi_family = AF_UNSPEC;
-    ifi->ifi_type = netif_is_loopback(netif) ? ARPHRD_LOOPBACK : ARPHRD_ETHER;
+    ifi->ifi_type = netif_get_type(netif);
     ifi->ifi_index = netif_get_index(netif);
     ifi->ifi_flags = ifflags_from_netif(netif);
     ifi->ifi_change = (u32)-1;

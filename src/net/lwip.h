@@ -27,4 +27,8 @@ void netif_name_cpy(char *dest, struct netif *netif);
 
 #define netif_is_loopback(netif)    (((netif)->name[0] == 'l') && ((netif)->name[1] == 'o'))
 
+#define netif_get_type(netif)   (netif_is_loopback(netif) ? ARPHRD_LOOPBACK :                   \
+                                 netif_is_flag_set(netif, NETIF_FLAG_ETHARP) ? ARPHRD_ETHER :   \
+                                 ARPHRD_VOID)
+
 extern int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *input_netif);

@@ -46,12 +46,14 @@ enum protocol_type {
 #define SIOCSIFMETRIC  0x891e
 #define SIOCGIFMTU     0x8921
 #define SIOCSIFMTU     0x8922
+#define SIOCGIFHWADDR  0x8927
 #define SIOCGIFINDEX   0x8933
 #define SIOCDIFADDR    0x8936
 
 /* ARP protocol HARDWARE identifiers */
 #define ARPHRD_ETHER    1
 #define ARPHRD_LOOPBACK 772
+#define ARPHRD_VOID     0xFFFF
 
 #define MSG_OOB         0x00000001
 #define MSG_PEEK        0x00000002
