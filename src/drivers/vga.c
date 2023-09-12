@@ -179,6 +179,14 @@ closure_function(2, 1, boolean, vga_pci_probe,
         return false;
 
     vga_debug("%s: VGA PCI\n", __func__);
+    /* Check misc output register to see if display buffer is set up.
+     * This whole byte appears to be 0 on the UEFI systems using GOP that I tested,
+     * but to be safe, just check bit 1, "RAM Enable" 
+     * See http://www.osdever.net/FreeVGA/vga/extreg.htm */
+    if ((in8(0x3cc) & 0x02) == 0) {
+        vga_debug("%s: display buffer not enabled\n", __func__);
+        return false;
+    }
     struct vga_console_driver *d = allocate_zero(bound(general), sizeof(*d));
     assert(d != INVALID_ADDRESS);
     d->c.write = vga_console_write;
