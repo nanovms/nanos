@@ -371,6 +371,17 @@ static void netsock_tcp_put(struct tcp_pcb * tcp_lw)
     tcp_unref(tcp_lw);
 }
 
+static void netsock_tcp_close(netsock s, struct tcp_pcb *tcp_lw)
+{
+    netsock_lock(s);
+    if (s->info.tcp.state != TCP_SOCK_UNDEFINED) {
+        tcp_close(tcp_lw);
+        tcp_arg(tcp_lw, 0);
+        s->info.tcp.state = TCP_SOCK_UNDEFINED;
+    }
+    netsock_unlock(s);
+}
+
 static inline s64 lwip_to_errno(s8 err)
 {
     switch (err) {
@@ -1134,8 +1145,7 @@ closure_func_basic(fdesc_close, sysreturn, socket_close,
          * argument to NULL. */
         tcp_lw = netsock_tcp_get(s);
         if (tcp_lw) {
-            tcp_close(tcp_lw);
-            tcp_arg(tcp_lw, 0);
+            netsock_tcp_close(s, tcp_lw);
             netsock_tcp_put(tcp_lw);
             tcp_unref(tcp_lw);
             netsock_check_loop();
@@ -1197,6 +1207,9 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
             goto out;
         }
         struct tcp_pcb *tcp_lw = s->info.tcp.lw;
+        tcp_ref(tcp_lw);
+        netsock_unlock(s);
+        tcp_lock(tcp_lw);
 
         /* Determine whether TX or RX has been shut down during previous calls to this function. */
         if (!shut_rx && tcp_is_flag_set(tcp_lw, TF_RXCLOSED))
@@ -1204,17 +1217,11 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
         if (!shut_tx && (tcp_lw->state != ESTABLISHED) && (tcp_lw->state != CLOSE_WAIT))
             shut_tx = 1;
 
-        if (shut_rx && shut_tx) {
-            /* Shutting down both TX and RX is equivalent to calling
-             * tcp_close(), so the pcb should not be referenced anymore. */
-            tcp_arg(tcp_lw, 0);
-            s->info.tcp.lw = 0;
-            s->info.tcp.state = TCP_SOCK_UNDEFINED;
-        }
-        tcp_ref(tcp_lw);
-        netsock_unlock(s);
-        tcp_lock(tcp_lw);
-        tcp_shutdown(tcp_lw, shut_rx, shut_tx);
+        if (shut_rx && shut_tx)
+            /* Shutting down both TX and RX is equivalent to calling tcp_close(). */
+            netsock_tcp_close(s, tcp_lw);
+        else
+            tcp_shutdown(tcp_lw, shut_rx, shut_tx);
         tcp_unlock(tcp_lw);
         tcp_unref(tcp_lw);
         netsock_check_loop();
@@ -1528,11 +1535,6 @@ static void lwip_tcp_conn_err(void * z, err_t err) {
     netsock_lock(s);
     s->info.tcp.state = TCP_SOCK_UNDEFINED;
     set_lwip_error(s, err);
-    tcp_unref(s->info.tcp.lw);
-
-    /* Don't try to use the pcb, it may have been deallocated already. */
-    s->info.tcp.lw = 0;
-
     wakeup_sock(s, WAKEUP_SOCK_EXCEPT);
 }
 
