@@ -41,14 +41,14 @@ declare_closure_struct(2, 1, void, klog_load_sh,
     status, s);
 
 static struct {
+    struct klog_dump dump;
     char buf[KLOG_BUF_SIZE];
     bytes count;
     struct spinlock lock;
     u64 disk_offset;
     storage_req_handler disk_handler;
     closure_struct(klog_load_sh, load_sh);
-    struct klog_dump dump;
-} klog;
+} klog __attribute__ ((aligned(SECTOR_SIZE)));
 
 #define klog_lock()     u64 _irqflags = spin_lock_irq(&klog.lock)
 #define klog_unlock()   spin_unlock_irq(&klog.lock, _irqflags)
