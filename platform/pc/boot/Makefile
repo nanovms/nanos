@@ -74,9 +74,11 @@ SRCS-uefi= \
 	$(SRCDIR)/runtime/rbtree.c \
 	$(SRCDIR)/runtime/runtime_init.c \
 	$(SRCDIR)/runtime/sg.c \
+	$(SRCDIR)/runtime/string.c \
 	$(SRCDIR)/runtime/symbol.c \
 	$(SRCDIR)/runtime/table.c \
 	$(SRCDIR)/runtime/tuple.c \
+	$(SRCDIR)/runtime/vector.c \
 	$(SRCDIR)/fs/fs.c \
 	$(SRCDIR)/fs/tfs.c \
 	$(SRCDIR)/fs/tlog.c \
