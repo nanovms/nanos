@@ -163,6 +163,11 @@ void pci_platform_init_bar(pci_dev dev, int bar)
                    dev->bus, dev->slot, dev->function, bar);
     u64 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
     boolean is_io = (base & PCI_BAR_B_TYPE_MASK) == PCI_BAR_IOPORT;
+    u8 flags = base & (is_io ? PCI_BAR_B_IOPORT_MASK : PCI_BAR_B_MEMORY_MASK);
+    if (flags & PCI_BAR_F_64BIT) {
+        u64 base_hi = pci_cfgread(dev, PCIR_BAR(bar + 1), 4);
+        base |= base_hi << 32;
+    }
     if (base & (is_io ? ~PCI_BAR_B_IOPORT_MASK : ~PCI_BAR_B_MEMORY_MASK))
         return; /* BAR configured by BIOS */
     if (is_io) {
@@ -178,8 +183,10 @@ void pci_platform_init_bar(pci_dev dev, int bar)
     base = id_heap_alloc_subrange(iomem,
         pci_bar_size(dev, PCI_BAR_MEMORY, base & PCI_BAR_B_MEMORY_MASK, bar), 0, U64_FROM_BIT(32));
     if (base != INVALID_PHYSICAL) {
-        pci_plat_debug("   allocated base 0x%x\n", base);
+        pci_plat_debug("   allocated base 0x%lx\n", base);
         pci_cfgwrite(dev, PCIR_BAR(bar), 4, base);
+        if (flags & PCI_BAR_F_64BIT)
+            pci_cfgwrite(dev, PCIR_BAR(bar + 1), 4, base >> 32);
     } else {
         msg_err("failed to allocate I/O memory (%d:%d:%d, bar %d)\n",
                 dev->bus, dev->slot, dev->function, bar);
