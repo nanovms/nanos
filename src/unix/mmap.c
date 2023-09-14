@@ -1155,6 +1155,9 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         MAP_GROWSDOWN | MAP_DENYWRITE | MAP_EXECUTABLE | MAP_LOCKED | MAP_NORESERVE |
         MAP_POPULATE | MAP_NONBLOCK | MAP_STACK | MAP_HUGETLB | MAP_SYNC |
         MAP_FIXED_NOREPLACE | MAP_UNINITIALIZED |
+#ifdef __x86_64__
+        MAP_32BIT |
+#endif
         (HUGETLB_FLAG_ENCODE_MASK << HUGETLB_FLAG_ENCODE_SHIFT);
     int unknown_flags = flags & ~valid_flags;
     if (unknown_flags) {
