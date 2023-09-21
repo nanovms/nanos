@@ -52,7 +52,7 @@ static void netconsole_write(void *_d, const char *s, bytes count)
 static void netconsole_config(void *_d, tuple r)
 {
     netconsole_driver nd = _d;
-    nd->pcb = udp_new();
+    nd->pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
     if (!nd->pcb) {
         msg_err("failed to allocate pcb\n");
         return;
