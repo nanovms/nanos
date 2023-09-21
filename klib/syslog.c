@@ -484,7 +484,7 @@ int init(status_handler complete)
         syslog.max_hdr_len = 1 + sizeof(__XSTRING(SYSLOG_PRIORITY)) + sizeof(SYSLOG_VERSION) +
                 sizeof("YYYY-MM-ddThh:mm:ss.uuuuuuZ") + sizeof(syslog.local_ip) +
                 buffer_length(syslog.program) + 7;
-        syslog.udp_pcb = udp_new();
+        syslog.udp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!syslog.udp_pcb) {
             rprintf("syslog: unable to create UDP PCB\n");
             return KLIB_INIT_FAILED;

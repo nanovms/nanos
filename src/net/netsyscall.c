@@ -1423,7 +1423,8 @@ sysreturn socket(int domain, int type, int protocol)
         net_debug("new tcp fd %d, pcb %p\n", fd, p);
         return fd;
     } else if (type == SOCK_DGRAM) {
-        struct udp_pcb *p = udp_new();
+        struct udp_pcb *p = udp_new_ip_type((domain == AF_INET) ?
+                                            IPADDR_TYPE_V4: IPADDR_TYPE_ANY);
         if (!p)
             return -ENOMEM;
 
