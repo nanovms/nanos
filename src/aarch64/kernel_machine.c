@@ -70,6 +70,7 @@ void cpu_init(int cpu)
     cpuinfo ci = cpuinfo_from_id(cpu);
     register u64 a = u64_from_pointer(ci);
     asm volatile("mov x18, %0; msr tpidr_el1, %0" ::"r"(a));
+    write_psr(CNTKCTL_EL1, CNTKCTL_EL1_EL0VCTEN);
 }
 
 void init_cpuinfo_machine(cpuinfo ci, heap backed)

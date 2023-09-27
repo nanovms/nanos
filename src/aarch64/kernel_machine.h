@@ -165,6 +165,8 @@
 
 #define MDSCR_EL1_SS    U64_FROM_BIT(0)     /* software step enable */
 
+#define CNTKCTL_EL1_EL0VCTEN    U64_FROM_BIT(1) /* frequency and virtual counter register access */
+
 #ifndef __ASSEMBLY__
 /* interrupt control */
 static inline void enable_interrupts(void)
