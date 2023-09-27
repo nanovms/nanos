@@ -5,6 +5,8 @@
 #include <mktime.h>
 #include <pagecache.h>
 #include <tls.h>
+#include <storage.h>
+#include <fs.h>
 
 #define GCP_MD_SERVER_ADDR  IPADDR4_INIT_BYTES(169, 254, 169, 254)
 
@@ -54,6 +56,8 @@ static struct gcp {
     closure_struct(gcp_log_vh, log_vh);
     buffer_handler log_resp_parser;
     timestamp metrics_interval;
+    boolean metrics_disk;
+    boolean metrics_disk_include_readonly;
     buffer metrics_url;
     boolean metrics_pending;
     struct timer metrics_timer;
@@ -698,6 +702,51 @@ static void gcp_metrics_add_memory(buffer body, boolean first, const char *type,
                   first ? "" : ",", gcp.zone, gcp.instance_id, type, state, value, interval);
 }
 
+static void gcp_metrics_add_disk(buffer body, boolean first, const char *type, const char *state,
+                                   u64 value, const char *interval, buffer device)
+{
+    bprintf(body, "%s{\"resource\":{\"type\":\"gce_instance\""
+                  ",\"labels\":{\"zone\":\"%b\",\"instance_id\":\"%b\"}}"
+                  ",\"metric\":{\"type\":\"agent.googleapis.com/disk/%s\""
+                  ",\"labels\":{\"device\":\"%b\",\"state\":\"%s\"}}"
+                  ",\"points\":[{\"value\":{\"doubleValue\":%ld},\"interval\":%s}]}",
+                  first ? "" : ",", gcp.zone, gcp.instance_id, type, device, state, value, interval);
+}
+
+closure_function(3, 4, void, gcp_metrics_disk_vh,
+                 buffer, b, const char *, interval, boolean, include_readonly,
+                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
+{
+    if (filesystem_is_readonly(fs) && !bound(include_readonly))
+        return;
+    int block_size = fs_blocksize(fs);
+    u64 total_blocks = fs_totalblocks(fs);
+    u64 free_blocks = fs_freeblocks(fs);
+    u64 percent_used_free = free_blocks * 100 / total_blocks;
+    buffer b = bound(b);
+    const char *interval = bound(interval);
+    buffer device;
+    if (label[0]) {
+        device = alloca_wrap_cstring(label);
+    } else {
+        device = little_stack_buffer(2 * UUID_LEN + 4);
+        print_uuid(device, uuid);
+    }
+    gcp_metrics_add_disk(b, false, "bytes_used", "free", free_blocks * block_size, interval, device);
+    gcp_metrics_add_disk(b, false, "bytes_used", "used", (total_blocks - free_blocks) * block_size, interval, device);
+    gcp_metrics_add_disk(b, false, "percent_used", "free", percent_used_free, interval, device);
+    gcp_metrics_add_disk(b, false, "percent_used", "used", 100 - percent_used_free, interval, device);
+}
+
+closure_function(2, 4, void, gcp_disk_count_vh,
+                 u64 *, count, boolean, include_readonly,
+                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
+{
+    if (filesystem_is_readonly(fs) && !bound(include_readonly))
+        return;
+    (*bound(count))++;
+}
+
 static boolean gcp_metrics_post(void)
 {
     tuple req = allocate_tuple();
@@ -711,7 +760,13 @@ static boolean gcp_metrics_post(void)
     set(req, sym(Accept), app_json);
     set(req, sym(Content-Type), app_json);
     boolean success = false;
-    buffer body = allocate_buffer(gcp.h, 2 * KB);
+    u64 metrics_heap_size_kb = 2; // memory metrics
+    u64 metrics_disk_count = 0;
+    if (gcp.metrics_disk) {
+        storage_iterate(stack_closure(gcp_disk_count_vh, &metrics_disk_count, gcp.metrics_disk_include_readonly));
+        metrics_heap_size_kb += metrics_disk_count * 2; // add disk x 2KiB
+    }
+    buffer body = allocate_buffer(gcp.h, metrics_heap_size_kb * KB);
     if (body == INVALID_ADDRESS)
         goto req_dealloc;
     heap phys = (heap)heap_physical(get_kernel_heaps());
@@ -732,6 +787,8 @@ static boolean gcp_metrics_post(void)
     gcp_metrics_add_memory(body, false, "percent_used", "cached", cached * 100 / total, interval);
     gcp_metrics_add_memory(body, false, "percent_used", "free", free * 100 / total, interval);
     gcp_metrics_add_memory(body, false, "percent_used", "used", used * 100 / total, interval);
+    if (gcp.metrics_disk && metrics_disk_count)
+        storage_iterate(stack_closure(gcp_metrics_disk_vh, body, interval, gcp.metrics_disk_include_readonly));
     if (!buffer_write_cstring(body, "]}"))
         goto req_done;
     status s = http_request(gcp.h, gcp.metrics_out, HTTP_REQUEST_METHOD_POST, req, body);
@@ -844,6 +901,12 @@ int init(status_handler complete)
             interval = min_interval;
         }
         gcp.metrics_interval = seconds(interval);
+        tuple metrics_disk = get_tuple(metrics, sym(disk));
+        if (metrics_disk) {
+            gcp.metrics_disk = true;
+            if (get(metrics_disk, sym(include_readonly)))
+                gcp.metrics_disk_include_readonly = true;
+        }
         init_timer(&gcp.metrics_timer);
         init_closure(&gcp.metrics_timer_handler, gcp_metrics_timer_handler);
         init_closure(&gcp.metrics_conn_handler, gcp_metrics_conn_handler);
