@@ -184,8 +184,8 @@ jobs:
             mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
 
       - run: echo "export COMMIT_ID="`git rev-parse --short=7 HEAD` >> $BASH_ENV
-      - run: cd temp && tar cvzf ../nanos-release-linux-virt-${COMMIT_ID}.tar.gz *
-      - run: gsutil cp nanos-release-linux-virt-${COMMIT_ID}.tar.gz gs://nanos/release/${COMMIT_ID}/
+      - run: cd temp && tar cvzf ../nanos-release-linux-${COMMIT_ID}-virt.tar.gz *
+      - run: gsutil cp nanos-release-linux-${COMMIT_ID}-virt.tar.gz gs://nanos/release/${COMMIT_ID}/
       - run: gsutil setmeta -h "Custom-Time:`date -Iseconds`" gs://nanos/release/${COMMIT_ID}/*
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/${COMMIT_ID}/*
 
