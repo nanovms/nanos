@@ -27,7 +27,7 @@ typedef struct inotify {
     blockq bq;
 } *inotify;
 
-declare_closure_struct(0, 2, boolean, inotify_event_handler,
+declare_closure_struct(0, 2, u64, inotify_event_handler,
                        u64, events, void *, arg);
 
 typedef struct inotify_watch {
@@ -242,10 +242,10 @@ static void inotify_noti_readers(inotify in)
     blockq_wake_one(in->bq);
 }
 
-define_closure_function(0, 2, boolean, inotify_event_handler,
+define_closure_function(0, 2, u64, inotify_event_handler,
                         u64, events, void *, arg)
 {
-    boolean rv = false;
+    u64 rv = 0;
     if (!(events & ~IN_ISDIR))
         return rv;
     inotify_watch watch = struct_from_field(closure_self(), inotify_watch, eh);
@@ -264,7 +264,7 @@ define_closure_function(0, 2, boolean, inotify_event_handler,
         notify_readers = inotify_queue_event(in, watch, events, arg);
         if (notify_entry_get_eventmask(watch->ne) & IN_ONESHOT) {
             notify_readers |= inotify_rm_watch_locked(in, watch, true);
-            rv = true;
+            rv = NOTIFY_RESULT_RELEASE;
         }
     } else {
         notify_readers = inotify_rm_watch_locked(in, watch, true);

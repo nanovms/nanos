@@ -1,12 +1,24 @@
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sched.h>
 #include <string.h>
 #include <stdio.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/eventfd.h>
 #include <errno.h>
+
+/* for old libc versions */
+#ifndef EPOLLEXCLUSIVE
+#define EPOLLEXCLUSIVE  (1 << 28)
+#endif
+
+struct test_epoll {
+    int efd;
+    volatile int wake_count;
+};
 
 #define test_assert(expr) do { \
     if (!(expr)) { \
@@ -230,12 +242,98 @@ void test_eventfd_et()
     close(efd);
 }
 
+static void *epollexclusive_thread(void *arg)
+{
+    struct test_epoll *t = arg;
+    struct epoll_event events;
+
+    test_assert(epoll_wait(t->efd, &events, 1, -1) == 1);
+    test_assert(events.events == EPOLLIN);
+    __atomic_add_fetch(&t->wake_count, 1, __ATOMIC_ACQUIRE);
+    return NULL;
+}
+
+static void wait_excl(struct test_epoll *t, int excl_count, int wake_count)
+{
+    int count;
+
+    do {
+        sched_yield();
+        count = 0;
+        for (int i = 0; i < excl_count; i++)
+            count += t[i].wake_count;
+    } while (count < wake_count);
+}
+
+static void test_epollexclusive(void)
+{
+    const int efd_count = 8;
+    const int excl_count = efd_count / 2;
+    const int thread_count = 8;
+    int evfd;
+    struct test_epoll t[efd_count];
+    struct epoll_event events;
+    pthread_t threads[efd_count * thread_count];
+    int i, j;
+    unsigned long w = 1;
+    int write_count;
+
+    evfd = eventfd(0, 0);
+    test_assert(evfd >= 0);
+    events.data.fd = evfd;
+    for (i = 0; i < efd_count; i++) {
+        t[i].efd = epoll_create1(0);
+        test_assert(t[i].efd >= 0);
+        if (i < excl_count)
+            events.events = EPOLLIN | EPOLLEXCLUSIVE;
+        else
+            events.events = EPOLLIN;
+        test_assert(epoll_ctl(t[i].efd, EPOLL_CTL_ADD, evfd, &events) == 0);
+        t[i].wake_count = 0;
+        for (j = 0; j < thread_count; j++)
+            test_assert(pthread_create(&threads[i * thread_count + j], NULL,
+                                       epollexclusive_thread, &t[i]) == 0);
+    }
+
+    /* make file descriptor readable */
+    test_assert((write(evfd, &w, sizeof(w)) == sizeof(w)));
+    write_count = 1;
+
+    /* verify that all non-exclusive waiters are woken up */
+    for (i = excl_count; i < efd_count; i++) {
+        for (j = 0; j < thread_count; j++)
+            test_assert(pthread_join(threads[i * thread_count + j], NULL) == 0);
+        test_assert(t[i].wake_count == thread_count);
+        close(t[i].efd);
+    }
+
+    /* wait until one exclusive waiter is woken up */
+    wait_excl(t, excl_count, write_count);
+
+    while (write_count < excl_count * thread_count) {
+        /* make file descriptor readable, and wait until one exclusive waiter is woken up */
+        test_assert((write(evfd, &w, sizeof(w)) == sizeof(w)));
+        wait_excl(t, excl_count, ++write_count);
+    }
+
+    /* verify that all exclusive waiters have been woken up */
+    for (i = 0; i < excl_count; i++) {
+        test_assert(t[i].wake_count == thread_count);
+        for (j = 0; j < thread_count; j++)
+            test_assert(pthread_join(threads[i * thread_count + j], NULL) == 0);
+        close(t[i].efd);
+    }
+
+    close(evfd);
+}
+
 int main(int argc, char **argv)
 {
     test_ctl();
     test_wait();
     test_edgetrigger();
     test_eventfd_et();
+    test_epollexclusive();
 
     printf("test passed\n");
     return EXIT_SUCCESS;

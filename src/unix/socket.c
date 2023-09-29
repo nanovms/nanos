@@ -6,7 +6,7 @@
 declare_closure_struct(1, 0, void, sharedbuf_free,
     struct sharedbuf *, shb);
 
-declare_closure_struct(1, 2, boolean, unixsock_event_handler,
+declare_closure_struct(1, 2, u64, unixsock_event_handler,
                        struct unixsock *, s,
                        u64, events, void *, arg);
 declare_closure_struct(1, 0, void, unixsock_free,
@@ -76,7 +76,7 @@ static boolean unixsock_is_conn_oriented(unixsock s)
     return (s->sock.type != SOCK_DGRAM);
 }
 
-define_closure_function(1, 2, boolean, unixsock_event_handler,
+define_closure_function(1, 2, u64, unixsock_event_handler,
                         unixsock, s,
                         u64, events, void *, arg)
 {
@@ -84,7 +84,7 @@ define_closure_function(1, 2, boolean, unixsock_event_handler,
     if (events == NOTIFY_EVENTS_RELEASE)    /* the peer socket is being closed */
         s->notify_handle = INVALID_ADDRESS;
     fdesc_notify_events(&s->sock.f);
-    return false;
+    return 0;
 }
 
 define_closure_function(1, 0, void, unixsock_free,

@@ -2,6 +2,7 @@
 
 struct notify_entry {
     u64 eventmask;
+    u64 flags;
     event_handler eh;
     struct list l;
 };
@@ -29,12 +30,13 @@ void deallocate_notify_set(notify_set s)
     deallocate(s->h, s, sizeof(struct notify_set));
 }
 
-notify_entry notify_add(notify_set s, u64 eventmask, event_handler eh)
+notify_entry notify_add_with_flags(notify_set s, u64 eventmask, u64 flags, event_handler eh)
 {
     notify_entry n = allocate(s->h, sizeof(struct notify_entry));
     if (n == INVALID_ADDRESS)
         return n;
     n->eventmask = eventmask;
+    n->flags = flags;
     n->eh = eh;
     spin_lock(&s->lock);
     list_insert_before(&s->entries, &n->l);
@@ -77,15 +79,21 @@ u64 notify_get_eventmask_union(notify_set s)
 
 void notify_dispatch_with_arg(notify_set s, u64 events, void *arg)
 {
+    boolean consumed = false;
     spin_lock(&s->lock);
     list_foreach(&s->entries, l) {
         notify_entry n = struct_from_list(l, notify_entry, l);
         /* no guarantee that a transition is represented here; event
            handler needs to keep track itself if edge trigger is used */
-        assert(n->eh);
-        if (apply(n->eh, events & n->eventmask, arg)) {
-            list_delete(l);
-            deallocate(s->h, n, sizeof(struct notify_entry));
+        if (!consumed || !(n->flags & NOTIFY_FLAGS_EXCLUSIVE)) {
+            assert(n->eh);
+            u64 ret = apply(n->eh, events & n->eventmask, arg);
+            if (ret & NOTIFY_RESULT_RELEASE) {
+                list_delete(l);
+                deallocate(s->h, n, sizeof(struct notify_entry));
+            }
+            if (ret & NOTIFY_RESULT_CONSUMED)
+                consumed = true;
         }
     }
     spin_unlock(&s->lock);
