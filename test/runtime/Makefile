@@ -76,6 +76,7 @@ SRCS-epoll= \
 	$(CURDIR)/epoll.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-epoll=		-static
+LIBS-epoll=			-lpthread
 
 SRCS-eventfd= \
 	$(CURDIR)/eventfd.c \

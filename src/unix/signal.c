@@ -791,7 +791,7 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
     return blockq_check_timeout(current->thread_bq, ba, false, CLOCK_ID_MONOTONIC, t, false);
 }
 
-declare_closure_struct(0, 2, boolean, signalfd_notify,
+declare_closure_struct(0, 2, u64, signalfd_notify,
                        u64, events, void *, t);
 typedef struct signal_fd {
     struct fdesc f; /* must be first */
@@ -949,7 +949,7 @@ closure_function(1, 2, sysreturn, signalfd_close,
     return io_complete(completion, 0);
 }
 
-define_closure_function(0, 2, boolean, signalfd_notify,
+define_closure_function(0, 2, u64, signalfd_notify,
                         u64, events, void *, t)
 {
     signal_fd sfd = struct_from_field(closure_self(), signal_fd, notify);
@@ -958,7 +958,7 @@ define_closure_function(0, 2, boolean, signalfd_notify,
 
     if ((events & sfd->mask) == 0) {
         sig_debug("%d spurious notify\n", sfd->fd);
-        return false;
+        return 0;
     }
 
     /* null thread on notify set release (thread dealloc) */
@@ -968,7 +968,7 @@ define_closure_function(0, 2, boolean, signalfd_notify,
             blockq_wake_one_for_thread(sfd->bq, &ctx->uc, false);
     }
     notify_dispatch_for_thread(sfd->f.ns, EPOLLIN, t);
-    return false;
+    return 0;
 }
 
 static sysreturn allocate_signalfd(const u64 *mask, int flags)

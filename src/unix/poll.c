@@ -186,11 +186,11 @@ static void release_epollfd(epollfd efd)
 }
 
 static inline void poll_notify(epollfd efd, epoll_blocked w, u64 events);
-static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report);
+static inline boolean epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report);
 static inline void select_notify(epollfd efd, epoll_blocked w, u64 report);
 static inline u32 report_from_notify_events(epollfd efd, u64 notify_events);
 
-closure_function(1, 2, boolean, wait_notify,
+closure_function(1, 2, u64, wait_notify,
                  epollfd, efd,
                  u64, notify_events, void *, t)
 {
@@ -204,24 +204,26 @@ closure_function(1, 2, boolean, wait_notify,
         unregister_epollfd(efd);
         spin_unlock(&efd->lock);
         closure_finish();
-        return false;
+        return 0;
     }
 
     if (efd->zombie || !efd->registered) {
         spin_unlock(&efd->lock);
-        return false;
+        return 0;
     }
 
-    spin_lock(&efd->e->blocked_lock);
-    list l = list_get_next(&efd->e->blocked_head);
-    epoll_blocked w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
     u32 events = (u32)notify_events;
     if (efd->e->epoll_type == EPOLL_TYPE_EPOLL)
         events = report_from_notify_events(efd, events);
+    u64 rv = 0;
+    epoll_blocked w;
+    spin_lock(&efd->e->blocked_lock);
+    list l = list_get_next(&efd->e->blocked_head);
+  notify_blocked:
+    w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
     epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
                 efd->fd, events, w, efd->zombie);
 
-    /* XXX need to do some work to properly dole out to multiple epoll_waits (threads)... */
     if (!w)
         goto out;
 
@@ -233,7 +235,13 @@ closure_function(1, 2, boolean, wait_notify,
         poll_notify(efd, w, events);
         break;
     case EPOLL_TYPE_EPOLL:
-        epoll_wait_notify(efd, w, events);
+        if (epoll_wait_notify(efd, w, events))
+            rv |= NOTIFY_RESULT_CONSUMED;
+        if (!(rv & NOTIFY_RESULT_CONSUMED) || !(efd->eventmask & EPOLLEXCLUSIVE)) {
+            l = l->next;
+            if (l != &efd->e->blocked_head)
+                goto notify_blocked;
+        }
         break;
     case EPOLL_TYPE_SELECT:
         select_notify(efd, w, events);
@@ -244,7 +252,7 @@ closure_function(1, 2, boolean, wait_notify,
 out:
     spin_unlock(&efd->e->blocked_lock);
     spin_unlock(&efd->lock);
-    return false;
+    return rv;
 }
 
 
@@ -263,8 +271,9 @@ static boolean register_epollfd(epollfd efd)
     efd->registered = true;
     refcount_reserve(&efd->refcount); /* registration */
     event_handler eh = closure(efd->e->h, wait_notify, efd);
+    u64 flags = (efd->eventmask & EPOLLEXCLUSIVE) ? NOTIFY_FLAGS_EXCLUSIVE : 0;
     epoll_debug("fd %d, eventmask 0x%x, handler %p\n", efd->fd, efd->eventmask, eh);
-    efd->notify_handle = notify_add(f->ns, efd->eventmask | POLL_EXCEPTIONS, eh);
+    efd->notify_handle = notify_add_with_flags(f->ns, efd->eventmask | POLL_EXCEPTIONS, flags, eh);
     assert(efd->notify_handle != INVALID_ADDRESS);
     fdesc_put(f);   /* if the file descriptor is deallocated, we will be notified via f->ns */
     return true;
@@ -367,17 +376,16 @@ static inline u32 report_from_notify_events(epollfd efd, u64 notify_events)
     return edge_detect ? ~efd->lastevents & events : events;
 }
 
-static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
+static inline boolean epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
 {
     if (report == 0)
-        return;
+        return false;
 
     spin_lock(&w->lock);
     if (!w->user_events || (w->user_events->length - w->user_events->end) <= 0) {
         spin_unlock(&w->lock);
-        /* XXX here we should advance to the next blocked head, probably */
         epoll_debug("   user_events null or full\n");
-        return;
+        return false;
     }
     context ctx = get_current_context(current_cpu());
     if (is_kernel_context(ctx)) {
@@ -417,6 +425,7 @@ static inline void epoll_wait_notify(epollfd efd, epoll_blocked w, u64 report)
     /* now that we've reported these events, update last */
     efd->lastevents |= report;
     blockq_wake_one(w->t->thread_bq);
+    return true;
 }
 
 static epoll_blocked alloc_epoll_blocked(epoll e)
@@ -513,8 +522,6 @@ closure_function(3, 1, sysreturn, epoll_wait_bh,
    - notify on a match only once until condition is reset (EPOLLET)
    - notify once before removing the registration, handled upstream (EPOLLONESHOT)
    - notify only one matching waiter, even across multiple epoll instances (EPOLLEXCLUSIVE)
-     - XXX Not implemented; will require tracking reported events on a per fd - not per
-           registration - basis.
 */
 sysreturn epoll_wait(int epfd,
                      struct epoll_event *events,
@@ -637,11 +644,6 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     if (op != EPOLL_CTL_DEL) {
         if (!fault_in_user_memory(event, sizeof(struct epoll_event), false))
             return -EFAULT;
-        /* EPOLLEXCLUSIVE not yet implemented */
-        if (event->events & EPOLLEXCLUSIVE) {
-            msg_err("EPOLLEXCLUSIVE not supported\n");
-            return -EINVAL;
-        }
     }
 
     sysreturn rv;
