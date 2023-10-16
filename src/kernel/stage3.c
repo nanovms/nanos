@@ -139,21 +139,13 @@ closure_function(6, 0, void, startup,
     if (!pro)
         halt("unable to resolve program path \"%b\"\n", p);
     program_set_perms(root, pro);
-    init_network_iface(root);
+    init_network_iface(root, bound(m));
     closure_member(program_start, start, path) = (string)p;
     if (trace_get_flags(get(root, sym(trace))) & TRACE_OTHER) {
         rprintf("read program complete: %p ", root);
         rprintf("gitversion: %s\n", gitversion);
     }
     storage_when_ready(apply_merge(bound(m)));
-    value v;
-    if ((v = get(root, sym(exec_wait_for_ip4_secs)))) {
-        u64 ts;
-        if (u64_from_value(v, &ts))
-            ip4_when_ready(apply_merge(bound(m)), seconds(ts));
-        else
-            rprintf("exec_wait_for_ip4_secs has invalid time, ignoring\n");
-    }
   out:
     apply(bound(completion), s);
     closure_finish();

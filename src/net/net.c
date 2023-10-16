@@ -15,11 +15,18 @@ BSS_RO_AFTER_INIT int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *in
 
 declare_closure_struct(0, 2, void, net_timeout_handler, u64, expiry, u64, overruns);
 
-static struct {
-    status_handler ip4_complete;
+typedef struct net_complete {
+    struct list l;
+    struct netif *netif;
+    boolean ipv6;
+    status_handler complete;
     struct timer timeout;
     closure_struct(net_timeout_handler, timeout_handler);
-} net;
+} *net_complete;
+
+static struct list net_complete_list;
+
+static struct spinlock net_lock;
 
 /* Pretty silly. LWIP offers lwip_cyclic_timers for use elsewhere, but
    says to use LWIP_ARRAYSIZE(), which isn't possible with an
@@ -95,19 +102,34 @@ void lwip_deallocate(void *x)
     deallocate(lwip_heap, x, -1ull);
 }
 
-static boolean netif_ready(struct netif *n)
+static boolean netif_ready(struct netif *n, boolean ipv6)
 {
-    return !ip_addr_isany(netif_ip_addr4(n));
+    if (!ipv6)
+        return !ip_addr_isany(netif_ip_addr4(n));
+    for (int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++)
+        if ((netif_ip6_addr_state(n, i) & IP6_ADDR_VALID) &&
+            ip6_addr_isglobal(netif_ip6_addr(n, i)))
+            return true;
+    return false;
 }
 
-static void check_netif_ready(struct netif *netif)
+static void check_netif_ready(struct netif *netif, boolean ipv6)
 {
-    struct netif *default_n = netif_get_default();
-    if (default_n) {
-        if ((!netif || (netif == default_n)) && netif_ready(default_n))
-            remove_timer(kernel_timers, &net.timeout, 0);
-        netif_unref(default_n);
+    spin_lock(&net_lock);
+    list_foreach(&net_complete_list, elem) {
+        net_complete c = struct_from_field(elem, net_complete, l);
+        if ((netif == c->netif) && (ipv6 == c->ipv6)) {
+            if (netif_ready(netif, ipv6)) {
+                list_delete(elem);
+                spin_unlock(&net_lock);
+                remove_timer(kernel_timers, &c->timeout, 0);
+                deallocate(lwip_heap, c, sizeof(*c));
+                return;
+            }
+            break;
+        }
     }
+    spin_unlock(&net_lock);
 }
 
 static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
@@ -118,11 +140,13 @@ static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
     if (reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) {
         u8 *n = (u8 *)&netif->ip_addr;
         rprintf("%s: assigned %d.%d.%d.%d\n", ifname, n[0], n[1], n[2], n[3]);
-        check_netif_ready(netif);
+        check_netif_ready(netif, false);
     }
     if ((reason & LWIP_NSC_IPV6_ADDR_STATE_CHANGED) &&
-            (netif_ip6_addr_state(netif, args->ipv6_addr_state_changed.addr_index) & IP6_ADDR_VALID))
+       (netif_ip6_addr_state(netif, args->ipv6_addr_state_changed.addr_index) & IP6_ADDR_VALID)) {
         rprintf("%s: assigned %s\n", ifname, ipaddr_ntoa(args->ipv6_addr_state_changed.address));
+        check_netif_ready(netif, true);
+    }
 }
 
 u32_t lwip_rand(void)
@@ -288,25 +312,45 @@ static boolean get_static_ip6_config(tuple t, struct netif *n, const char *ifnam
 define_closure_function(0, 2, void, net_timeout_handler,
                  u64, expiry, u64, overruns)
 {
-    status_handler sh;
-    sh = net.ip4_complete;
-    net.ip4_complete = 0;
-    if (sh)
-        apply(sh, STATUS_OK);
+    net_complete c = struct_from_field(closure_self(), net_complete, timeout_handler);
+    apply(c->complete, STATUS_OK);
+    if (overruns == timer_disabled)
+        return;
+    spin_lock(&net_lock);
+    if (list_inserted(&c->l)) {
+        list_delete(&c->l);
+        deallocate(lwip_heap, c, sizeof(*c));
+    }
+    spin_unlock(&net_lock);
 }
 
-void ip4_when_ready(status_handler complete, timestamp timeout)
+static void net_complete_cfg(tuple t, symbol opt, struct netif *n, boolean ipv6, merge m)
 {
-    if (timeout == 0 || timeout > seconds(180))
-        timeout = seconds(5);
-    assert(net.ip4_complete == 0);
-    net.ip4_complete = complete;
-    register_timer(kernel_timers, &net.timeout, CLOCK_ID_MONOTONIC,
-        timeout, false, 0, init_closure(&net.timeout_handler, net_timeout_handler));
-    check_netif_ready(0);
+    value v = get(t, opt);
+    if (!v)
+        return;
+    u64 timeout;
+    if (!u64_from_value(v, &timeout)) {
+        rprintf("option '%b' has invalid time, ignoring\n", symbol_string(opt));
+        return;
+    }
+    if (timeout == 0 || timeout > 180)
+        timeout = 5;
+    net_complete c = allocate(lwip_heap, sizeof(*c));
+    assert(c != INVALID_ADDRESS);
+    c->netif = n;
+    c->ipv6 = ipv6;
+    c->complete = apply_merge(m);
+    spin_lock(&net_lock);
+    list_push_back(&net_complete_list, &c->l);
+    init_timer(&c->timeout);
+    register_timer(kernel_timers, &c->timeout, CLOCK_ID_MONOTONIC, seconds(timeout), false, 0,
+                   init_closure(&c->timeout_handler, net_timeout_handler));
+    spin_unlock(&net_lock);
+    check_netif_ready(n, ipv6);
 }
 
-void init_network_iface(tuple root) {
+void init_network_iface(tuple root, merge m) {
     struct netif *n;
     struct netif *default_iface = 0;
     boolean trace = !!(trace_get_flags(get(root, sym(trace))) & TRACE_OTHER);
@@ -364,6 +408,10 @@ void init_network_iface(tuple root) {
                 rprintf("NET: starting DHCPv6 for interface %s\n", ifname);
             dhcp6_enable_stateful(n);
         }
+        if (t) {
+            net_complete_cfg(t, sym_this("exec_wait_for_ip4_secs"), n, false, m);
+            net_complete_cfg(t, sym_this("exec_wait_for_ip6_secs"), n, true, m);
+        }
         netif_unref(n);
     }
 
@@ -392,7 +440,7 @@ void init_net(kernel_heaps kh)
     assert(lwip_heap != INVALID_ADDRESS);
     lwip_heap = locking_heap_wrapper(h, lwip_heap);
     assert(lwip_heap != INVALID_ADDRESS);
-    init_timer(&net.timeout);
+    list_init(&net_complete_list);
     lwip_init();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, lwip_ext_callback);
