@@ -778,6 +778,15 @@ closure_function(1, 1, boolean, vmap_update_protections_validate,
     return true;
 }
 
+static void vmap_set_offsets(vmap to, vmap from, u64 delta)
+{
+    to->node_offset = from->cache_node ? from->node_offset + delta : 0;
+    if (from->flags & VMAP_FLAG_TAIL_BSS) {
+        assert(from->bss_offset > delta);
+        to->bss_offset = from->bss_offset - delta;
+    }
+}
+
 /*
    case 1: !head && !tail
 
@@ -806,13 +815,9 @@ struct vmap altered_vmap_key(vmap match, u32 flags, u64 offset_delta)
     k.flags = flags;
     k.allowed_flags = match->allowed_flags;
     k.cache_node = match->cache_node;
-    k.node_offset = match->cache_node ? match->node_offset + offset_delta : 0;
-    if (flags & VMAP_FLAG_TAIL_BSS) {
-        assert(match->bss_offset > offset_delta);
-        k.bss_offset = match->bss_offset - offset_delta;
-    } else {
+    if (!(flags & VMAP_FLAG_TAIL_BSS))
         k.fd = match->fd;
-    }
+    vmap_set_offsets(&k, match, offset_delta);
     return k;
 }
 
@@ -858,10 +863,9 @@ void vmap_update_protections_intersection(heap h, rangemap pvmap, range q, u32 n
         }
     } else {
         /* move node start back */
-        k = altered_vmap_key(match, match->flags, ri.end - rn.start);
         vmap_assert(rangemap_reinsert(pvmap, &match->node, irange(ri.end, rn.end)));
         struct vmap l = altered_vmap_key(match, newflags, ri.start - rn.start);
-        *match = k;
+        vmap_set_offsets(match, match, ri.end - rn.start);
 
         /* create node for intersection */
         vmap_assert(allocate_vmap_locked(pvmap, ri, l) != INVALID_ADDRESS);
