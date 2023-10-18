@@ -192,15 +192,21 @@ closure_function(2, 1, boolean, vga_pci_probe,
     d->c.write = vga_console_write;
     d->c.name = "vga";
     d->crtc_addr = 0x3d4;
-    d->buffer = allocate(bound(virtual), VGA_BUF_SIZE);
-    d->buffer_size = VGA_BUF_SIZE / sizeof(*d->buffer);
-    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE,
-        pageflags_writable(pageflags_device()));
-    // assume VGA mode 3 upon initialization
+
+    /* Check if device is initialized in VGA mode 3 */
     d->width = 80;
     d->height = 25;
     vga_get_cursor(d, &d->cur_x, &d->cur_y);
     vga_debug("%s: current cursor position: (%d, %d)\n", __func__, d->cur_x, d->cur_y);
+    if ( d->cur_y >= d->height) {
+        deallocate(bound(general), d, sizeof(*d));
+        return false;
+    }
+
+    d->buffer = allocate(bound(virtual), VGA_BUF_SIZE);
+    d->buffer_size = VGA_BUF_SIZE / sizeof(*d->buffer);
+    map(u64_from_pointer(d->buffer), VGA_BUF_BASE, VGA_BUF_SIZE,
+        pageflags_writable(pageflags_device()));
     d->y_offset = 0;
     d->max_lines = d->buffer_size / d->width;
     vga_debug("%s: max buffer lines %d\n", __func__, d->max_lines);
