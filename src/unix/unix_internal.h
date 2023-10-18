@@ -1066,6 +1066,11 @@ sysreturn inotify_rm_watch(int fd, int wd);
 
 int do_eventfd2(unsigned int count, int flags);
 
+typedef struct special_file_wrapper {
+    struct file f;
+    u64 alloc_size;
+} *special_file_wrapper;
+
 typedef closure_type(spec_file_open, sysreturn, file f);
 
 void register_special_files(process p);

@@ -13,11 +13,6 @@ typedef struct special_file {
     u64 alloc_size;
 } special_file;
 
-typedef struct special_file_wrapper {
-    struct file f;
-    u64 alloc_size;
-} *special_file_wrapper;
-
 static sysreturn urandom_read(file f, void *dest, u64 length, u64 offset)
 {
     buffer b = alloca_wrap_buffer(dest, length);
