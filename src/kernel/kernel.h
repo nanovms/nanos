@@ -140,6 +140,17 @@ static inline void spin_unlock(spinlock l)
     *(volatile u64 *)&l->w = 0;
 }
 
+static inline boolean spin_tryrlock(rw_spinlock l)
+{
+    if (*(volatile word *)&l->l.w)
+        return false;
+    fetch_and_add(&l->readers, 1);
+    if (!*(volatile word *)&l->l.w)
+        return true;
+    fetch_and_add(&l->readers, -1);
+    return false;
+}
+
 static inline void spin_rlock(rw_spinlock l)
 {
     while (1) {
@@ -157,6 +168,16 @@ static inline void spin_rlock(rw_spinlock l)
 static inline void spin_runlock(rw_spinlock l)
 {
     fetch_and_add(&l->readers, -1);
+}
+
+static inline boolean spin_trywlock(rw_spinlock l)
+{
+    if (*(volatile word *)&l->readers || !spin_try(&l->l))
+        return false;
+    if (!*(volatile word *)&l->readers)
+        return true;
+    spin_unlock(&l->l);
+    return false;
 }
 
 static inline void spin_wlock(rw_spinlock l)
@@ -197,6 +218,14 @@ static inline void spin_unlock(spinlock l)
     l->w = 0;
 }
 
+static inline boolean spin_tryrlock(rw_spinlock l)
+{
+    if (l->l.w)
+        return false;
+    l->readers++;
+    return true;
+}
+
 static inline void spin_rlock(rw_spinlock l) {
     assert(l->l.w == 0);
     assert(l->readers == 0);
@@ -207,6 +236,14 @@ static inline void spin_runlock(rw_spinlock l) {
     assert(l->readers == 1);
     assert(l->l.w == 0);
     l->readers--;
+}
+
+static inline boolean spin_trywlock(rw_spinlock l)
+{
+    if (l->readers || l->l.w)
+        return false;
+    assert(spin_try(&l->l));
+    return true;
 }
 
 static inline void spin_wlock(rw_spinlock l) {
@@ -222,8 +259,10 @@ static inline void spin_wunlock(rw_spinlock l) {
 #define spin_try(x) (true)
 #define spin_lock(x) ((void)x)
 #define spin_unlock(x) ((void)x)
+#define spin_trywlock(x) (true)
 #define spin_wlock(x) ((void)x)
 #define spin_wunlock(x) ((void)x)
+#define spin_tryrlock(x) (true)
 #define spin_rlock(x) ((void)x)
 #define spin_runlock(x) ((void)x)
 #endif
