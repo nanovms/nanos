@@ -39,6 +39,8 @@ typedef void *nanos_thread;
    queueing a ton with the polled ATA driver. There's only one queue globally anyhow. */
 #define MAX_PAGE_COMPLETION_VECS 16384
 
+#define PAGECACHE_NODE_DIRTY_COMMITS_QUEUE_SIZE 8
+
 BSS_RO_AFTER_INIT static pagecache global_pagecache;
 
 static inline u64 cache_pagesize(pagecache pc)
@@ -1798,7 +1800,7 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
     pn->fs_read = fs_read;
     pn->fs_write = fs_write;
     pn->fs_reserve = fs_reserve;
-    pn->dirty_commits = allocate_queue(h, 8);
+    pn->dirty_commits = allocate_queue(h, PAGECACHE_NODE_DIRTY_COMMITS_QUEUE_SIZE);
     pn->committing = false;
     init_closure(&pn->free, pagecache_node_free, pn);
     init_refcount(&pn->refcount, 1, init_closure(&pn->queue_free, pagecache_node_queue_free, pn));
