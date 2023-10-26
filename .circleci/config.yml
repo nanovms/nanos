@@ -128,7 +128,7 @@ jobs:
           environment:
             NANOS_TARGET_ROOT: ~/project/target-root
           command: make
-      - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-396.0.0-darwin-x86_64.tar.gz
+      - run: curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-452.0.0-darwin-x86_64.tar.gz
       - run: tar xzf google-cloud-cli*.tar.gz
       - run: ./google-cloud-sdk/install.sh -q
       - run: source $HOME/project/google-cloud-sdk/path.bash.inc && echo export PATH=$PATH > $BASH_ENV
