@@ -101,6 +101,36 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    rv = pwritev(fd, iovs, 3, -1);
+    if ((rv != -1) || (errno != EINVAL)) {
+        printf("pwritev with invalid offset returned %ld (errno %d)\n", rv, errno);
+        exit(EXIT_FAILURE);
+    }
+
+    startpos += 10;
+    rv = pwritev(fd, iovs, 3, startpos);
+    if (rv != total_write_len) {
+        printf("Bytes written with pwritev: %ld (expected %d)\n", rv, total_write_len);
+        exit(EXIT_FAILURE);
+    }
+    rv = lseek(fd, 0, SEEK_CUR);
+    if (rv != endpos) {
+        printf("File offset at the end of pwritev: %ld (expected %d)\n", rv, endpos);
+        exit(EXIT_FAILURE);
+    }
+    _LSEEK(startpos, SEEK_SET);
+    _READ(buf, total_write_len);
+    if (rv != total_write_len) {
+        printf("read after pwritev fail: expecting %d bytes, rv: %ld \n", total_write_len, rv);
+        exit(EXIT_FAILURE);
+    }
+    if (strncmp(str, buf, strlen(str))) {
+        printf("pwritev fail: string mismatch\n");
+        buf[rv] = '\0';
+        printf("Expected: \"%s\", actual: \"%s\"\n", str, buf);
+        exit(EXIT_FAILURE);
+    }
+
     close(fd);
 
     fd = open("hello", O_RDONLY);

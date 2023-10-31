@@ -238,6 +238,16 @@ out:
     apply(completion, rv);
 }
 
+static sysreturn iov_internal(int fd, boolean write, struct iovec *iov, int iovcnt, u64 offset)
+{
+    if (!validate_iovec(iov, iovcnt, !write))
+        return -EFAULT;
+    fdesc f = resolve_fd(current->p, fd);
+    context ctx = get_current_context(current_cpu());
+    iov_op(f, write, iov, iovcnt, offset, ctx, true, (io_completion)&f->io_complete);
+    return thread_maybe_sleep_uninterruptible(current);
+}
+
 sysreturn read(int fd, u8 *dest, bytes length)
 {
     if (!validate_user_memory(dest, length, true))
@@ -288,16 +298,14 @@ sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 
 sysreturn readv(int fd, struct iovec *iov, int iovcnt)
 {
-    if (!validate_iovec(iov, iovcnt, true))
-        return -EFAULT;
-    fdesc f = resolve_fd(current->p, fd);
-    if (fdesc_type(f) == FDESC_TYPE_DIRECTORY) {
-        fdesc_put(f);
-        return -EISDIR;
-    }
-    context ctx = get_current_context(current_cpu());
-    iov_op(f, false, iov, iovcnt, infinity, ctx, true, (io_completion)&f->io_complete);
-    return thread_maybe_sleep_uninterruptible(current);
+    return iov_internal(fd, false, iov, iovcnt, infinity);
+}
+
+sysreturn preadv(int fd, struct iovec *iov, int iovcnt, s64 offset)
+{
+    if (offset < 0)
+        return -EINVAL;
+    return iov_internal(fd, false, iov, iovcnt, offset);
 }
 
 sysreturn write(int fd, u8 *body, bytes length)
@@ -348,12 +356,14 @@ sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
 
 sysreturn writev(int fd, struct iovec *iov, int iovcnt)
 {
-    if (!validate_iovec(iov, iovcnt, false))
-        return -EFAULT;
-    fdesc f = resolve_fd(current->p, fd);
-    context ctx = get_current_context(current_cpu());
-    iov_op(f, true, iov, iovcnt, infinity, ctx, true, (io_completion)&f->io_complete);
-    return thread_maybe_sleep_uninterruptible(current);
+    return iov_internal(fd, true, iov, iovcnt, infinity);
+}
+
+sysreturn pwritev(int fd, struct iovec *iov, int iovcnt, s64 offset)
+{
+    if (offset < 0)
+        return -EINVAL;
+    return iov_internal(fd, true, iov, iovcnt, offset);
 }
 
 closure_function(9, 1, void, sendfile_bh,
@@ -2409,6 +2419,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, newfstatat, newfstatat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
     register_syscall(map, readv, readv, SYSCALL_F_SET_DESC);
     register_syscall(map, writev, writev, SYSCALL_F_SET_DESC);
+    register_syscall(map, preadv, preadv, SYSCALL_F_SET_DESC);
+    register_syscall(map, pwritev, pwritev, SYSCALL_F_SET_DESC);
     register_syscall(map, sendfile, sendfile, SYSCALL_F_SET_DESC|SYSCALL_F_SET_NET);
     register_syscall(map, truncate, truncate, SYSCALL_F_SET_FILE);
     register_syscall(map, ftruncate, ftruncate, SYSCALL_F_SET_DESC);

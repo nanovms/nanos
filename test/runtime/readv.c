@@ -63,6 +63,18 @@ int main()
     int curpos = rv;
     EXPECT_LONG_EQUAL(startpos + bytes_read, curpos);
 
+    rv = preadv(fd, iovs, 3, -1);   /* invalid offset */
+    EXPECT_LONG_EQUAL(rv, -1);
+    EXPECT_LONG_EQUAL(errno, EINVAL);
+
+    bytes_read = preadv(fd, iovs, 3, 0);
+    EXPECT_LONG_EQUAL(bytes_read, 12);
+    EXPECT_STRN_EQUAL("pad ", iovs[0].iov_base, 4);
+    EXPECT_STRN_EQUAL("one ", iovs[1].iov_base, 4);
+    EXPECT_STRN_EQUAL("six ", iovs[2].iov_base, 4);
+    rv = lseek(fd, 0, SEEK_CUR);
+    EXPECT_LONG_EQUAL(rv, curpos);
+
     if (lseek(fd, 0, SEEK_END) < 0) {
         perror("lseek(end)");
         exit(EXIT_FAILURE);
