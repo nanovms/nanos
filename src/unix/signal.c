@@ -58,16 +58,6 @@ static inline void unblock_signals(thread t, u64 mask)
     t->signal_mask &= ~mask;
 }
 
-static inline u64 sigstate_get_ignored(sigstate ss)
-{
-    return ss->ignored;
-}
-
-static inline u64 sigstate_set_ignored(sigstate ss, u64 mask)
-{
-    return ss->ignored = normalize_signal_mask(mask);
-}
-
 static inline u64 sigstate_get_interest(sigstate ss)
 {
     return ss->interest;
@@ -176,17 +166,11 @@ void sigstate_flush_queue(sigstate ss)
 void init_sigstate(sigstate ss)
 {
     ss->pending = 0;
-    ss->ignored = mask_from_sig(SIGCHLD) | mask_from_sig(SIGURG) | mask_from_sig(SIGWINCH);
     ss->interest = 0;
 
     spin_lock_init(&ss->ss_lock);
     for(int i = 0; i < NSIG; i++)
         list_init(&ss->heads[i]);
-}
-
-static inline boolean sig_is_ignored(process p, int sig)
-{
-    return (mask_from_sig(sig) & sigstate_get_ignored(&p->signals)) != 0;
 }
 
 static void deliver_signal(sigstate ss, struct siginfo *info)
@@ -282,13 +266,7 @@ void deliver_pending_to_thread(thread t)
 
 void deliver_signal_to_thread(thread t, struct siginfo *info)
 {
-    int sig = info->si_signo;
-    sig_debug("tid %d, sig %d\n", t->tid, sig);
-    if ((sig != SIGSEGV && sig != SIGKILL && sig != SIGSTOP && sig != SIGFPE && sig != SIGILL) &&
-        sig_is_ignored(t->p, sig)) {
-        sig_debug("signal ignored; no queue\n");
-        return;
-    }
+    sig_debug("tid %d, sig %d\n", t->tid, info->si_signo);
 
     assert(t && t != INVALID_ADDRESS);
     /* queue to thread for delivery */
@@ -340,10 +318,6 @@ void deliver_signal_to_process(process p, struct siginfo *info)
     u64 sigword = mask_from_sig(sig);
     assert(p && p != INVALID_ADDRESS);
     sig_debug("pid %d, sig %d\n", p->pid, sig);
-    if (sig_is_ignored(p, sig)) {
-        sig_debug("signal ignored; no queue\n");
-        return;
-    }
 
     /* queue to process for delivery */
     deliver_signal(&p->signals, info);
@@ -384,14 +358,24 @@ sysreturn rt_sigpending(u64 *set, u64 sigsetsize)
 static void check_syscall_restart(thread t, sigaction sa)
 {
     sysreturn rv = get_syscall_return(t);
-    if (rv == -ERESTARTSYS) {
-        if (sa->sa_flags & SA_RESTART) {
-            sig_debug("restarting syscall\n");
-            syscall_restart_arch_fixup(thread_frame(t));
-        } else {
-            sig_debug("interrupted syscall\n");
-            syscall_return(t, -EINTR);
-        }
+    boolean no_handler = (sa->sa_handler == SIG_DFL) || (sa->sa_handler == SIG_IGN);
+    boolean restart;
+    switch (rv) {
+    case -ERESTARTSYS:
+        restart = (sa->sa_flags & SA_RESTART) || no_handler;
+        break;
+    case -ERESTARTNOHAND:
+        restart = no_handler;
+        break;
+    default:
+        return;
+    }
+    if (restart) {
+        sig_debug("restarting syscall\n");
+        syscall_restart_arch_fixup(thread_frame(t));
+    } else {
+        sig_debug("interrupted syscall\n");
+        syscall_return(t, -EINTR);
     }
 }
 
@@ -463,12 +447,6 @@ sysreturn rt_sigaction(int signum,
     }
 #endif
 
-    /* update ignored mask */
-    sigstate ss = &current->p->signals;
-    u64 sigword = mask_from_sig(signum);
-    sigstate_set_ignored(ss, act->sa_handler == SIG_IGN ? sigstate_get_ignored(ss) | sigword :
-                         sigstate_get_ignored(ss) & ~sigword);
-
     sig_debug("installing sigaction: handler %p, sa_mask 0x%lx, sa_flags 0x%lx\n",
               act->sa_handler, act->sa_mask.sig[0], act->sa_flags);
     process_lock(t->p);
@@ -517,13 +495,18 @@ closure_function(1, 1, sysreturn, rt_sigsuspend_bh,
     sig_debug("tid %d, blocked %d, nullify %d\n",
               t->tid, flags & BLOCKQ_ACTION_BLOCKED, flags & BLOCKQ_ACTION_NULLIFY);
 
-    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_effective_signals(t)) {
-        closure_finish();
-        return syscall_return(t, -EINTR);
+    sysreturn rv;
+    if (get_effective_signals(t)) {
+        rv = -EINTR;
+    } else if (flags & BLOCKQ_ACTION_NULLIFY) {
+        rv = -ERESTARTNOHAND;
+    } else {
+        sig_debug("-> block\n");
+        return blockq_block_required(&t->syscall->uc, flags);
     }
 
-    sig_debug("-> block\n");
-    return blockq_block_required(&t->syscall->uc, flags);
+    closure_finish();
+    return syscall_return(t, rv);
 }
 
 sysreturn rt_sigsuspend(const u64 * mask, u64 sigsetsize)
@@ -706,27 +689,11 @@ sysreturn tkill(int tid, int sig)
     return tgkill(1, tid, sig);
 }
 
-closure_function(1, 1, sysreturn, pause_bh,
-                 thread, t,
-                 u64, flags)
-{
-    thread t = bound(t);
-    sig_debug("tid %d, flags 0x%lx\n", t->tid, flags);
-
-    if ((flags & BLOCKQ_ACTION_NULLIFY) || get_effective_signals(t)) {
-        closure_finish();
-        return syscall_return(t, -EINTR);
-    }
-
-    sig_debug("-> block\n");
-    return blockq_block_required(&t->syscall->uc, flags);
-}
-
 /* aarch64: may be invoked directly from ppoll(2) */
 sysreturn pause(void)
 {
     sig_debug("tid %d\n", current->tid);
-    blockq_action ba = contextual_closure(pause_bh, current);
+    blockq_action ba = contextual_closure(rt_sigsuspend_bh, current);
     return blockq_check(current->thread_bq, ba, false);
 }
 
@@ -1168,19 +1135,20 @@ boolean dispatch_signals(thread t)
         /* ignore if returned */
     }
 
+    if (t->interrupting_syscall) {
+        t->interrupting_syscall = false;
+        check_syscall_restart(t, sa);
+    }
     if (handler == SIG_DFL || handler == SIG_IGN) {
         const char *s = "   ignored";
         sig_debug("%s\n", s);
         thread_log(t, s);
+        free_queued_signal(qs);
         return false;
     }
 
     /* set up and switch to the signal context */
     sig_debug("switching to sigframe: tid %d, sig %d, sigaction %p\n", t->tid, signum, sa);
-    if (t->interrupting_syscall) {
-        t->interrupting_syscall = false;
-        check_syscall_restart(t, sa);
-    }
     if (!setup_sigframe(t, signum, si)) {
         /* force an uncatchable SIGSEGV */
         sig_debug("failed to setup sigframe for tid %d\n", t->tid);

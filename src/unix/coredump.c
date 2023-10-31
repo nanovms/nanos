@@ -128,7 +128,7 @@ static boolean add_thread_status(buffer b, thread t, struct siginfo *si)
     prs->pr_info.si_code = si->si_code;
     prs->pr_info.si_errno = si->si_errno;
     prs->pr_sigpend = t->signals.pending;
-    prs->pr_sighold = t->signals.ignored; // XXX is this right?
+    prs->pr_sighold = t->signal_mask;
     prs->pr_cursig = si->si_signo;
     prs->pr_pid = t->tid;
     prs->pr_ppid = t->p->pid;

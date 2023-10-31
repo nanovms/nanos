@@ -102,6 +102,7 @@ typedef struct iovec {
 #define ECANCELED       125             /* Used for timer cancel on RTC shift */
 
 #define ERESTARTSYS     512
+#define ERESTARTNOHAND  514
 
 #define O_RDONLY	00000000
 #define O_WRONLY	00000001

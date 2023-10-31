@@ -255,7 +255,6 @@ static inline sysreturn blockq_check(blockq bq, blockq_action a, boolean in_bh)
 typedef struct sigstate {
     /* these should be bitmaps, but time is of the essence, and presently NSIG=64 */
     u64         pending;        /* pending and not yet dispatched */
-    u64         ignored;        /* mask of signals set to SIG_IGN */
     u64         interest;       /* signals of interest, regardless of mask or ignored */
     struct spinlock   ss_lock;
     struct list heads[NSIG];

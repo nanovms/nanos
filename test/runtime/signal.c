@@ -929,6 +929,19 @@ static void * test_rt_sigtimedwait_child(void *arg)
         fail_perror("rt_sigtimedwait 4");
     }
 
+    /* test delivery of ignored signal */
+    sigtest_debug("blocking, raising and then waiting for ignored signal...\n");
+    sigaddset(&ss, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &ss, 0);
+    raise(SIGCHLD);
+    rv = sigwait(&ss, &si.si_signo);
+    if (rv) {
+        fail_error("sigwait error %d\n", rv);
+    }
+    if (si.si_signo != SIGCHLD) {
+        fail_error("sigwait returned unexpected signal number %d\n", si.si_signo);
+    }
+
     /* test timeout */
     t.tv_sec = 1;
     sigtest_debug("calling rt_sigtimedwait to test one second timeout...\n");
@@ -1093,6 +1106,19 @@ static void * test_signalfd_child(void *arg)
     int nfds = epoll_wait(epfd, rev, 2, 0);
     if (nfds != 0)
         fail_error("epoll_wait test with no signal events failed (rv = %d)\n", nfds);
+
+    sigtest_debug("   test delivery of ignored signal...\n");
+    sigaddset(&ss, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &ss, 0);
+    rv = signalfd(fd, &ss, 0);
+    if (rv < 0)
+        fail_perror("signalfd(%d)", fd);
+    raise(SIGCHLD);
+    rv = read(fd, &si, sizeof(struct signalfd_siginfo));
+    if (rv != sizeof(struct signalfd_siginfo))
+        fail_error("read from signalfd returned %d\n", rv);
+    if (si.ssi_signo != SIGCHLD)
+        fail_error("unexpected signal %d read from signalfd\n", si.ssi_signo);
 
     rv = close(fd2);
     if (rv < 0)
