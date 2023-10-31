@@ -404,7 +404,6 @@ define_closure_function(1, 0, void, free_thread,
     if (t->cpu_timers)
         deallocate_timerqueue(t->cpu_timers);
     deallocate_bitmap(t->affinity);
-    deallocate_notify_set(t->signalfds);
     /* XXX only free tids from non-leader threads. Leader threads will
      * need different handling */
     if (t->p->pid != t->tid)
@@ -431,10 +430,6 @@ thread create_thread(process p, u64 tid)
     t->thread_bq = allocate_blockq(h, "thread");
     if (t->thread_bq == INVALID_ADDRESS)
         goto fail_bq;
-
-    t->signalfds = allocate_notify_set(h);
-    if (t->signalfds == INVALID_ADDRESS)
-        goto fail_sfds;
 
     t->p = p;
     t->syscall = 0;
@@ -499,8 +494,6 @@ thread create_thread(process p, u64 tid)
 #endif
     return t;
   fail_affinity:
-    deallocate_notify_set(t->signalfds);
-  fail_sfds:
     deallocate_blockq(t->thread_bq);
   fail_bq:
     destruct_context(&t->context);

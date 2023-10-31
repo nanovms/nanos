@@ -342,7 +342,6 @@ typedef struct thread {
     struct sigstate signals;
     u64 signal_mask;
     u64 saved_signal_mask;      /* for rt_sigsuspend */
-    notify_set signalfds;
     boolean interrupting_syscall;
     void *signal_stack;
     u64 signal_stack_length;
@@ -536,6 +535,7 @@ typedef struct process {
     struct spinlock   faulting_lock;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
+    notify_set        signalfds;
     id_heap           posix_timer_ids;
     vector            posix_timers; /* unix_timer by timerid */
     vector            itimers;      /* unix_timer by ITIMER_ type */

@@ -250,7 +250,7 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
 
 static inline void signalfd_dispatch(thread t, u64 pending)
 {
-    notify_dispatch_for_thread(t->signalfds, pending, t);
+    notify_dispatch_for_thread(t->p->signalfds, pending, t);
 }
 
 void deliver_pending_to_thread(thread t)
@@ -799,6 +799,8 @@ typedef struct signal_fd {
     heap h;
     blockq bq;
     u64 mask;
+    process p;
+    notify_entry n;
     closure_struct(signalfd_notify, notify);
 } *signal_fd;
 
@@ -836,13 +838,13 @@ static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs
     }
 }
 
-static void signalfd_update_siginterest(thread t)
+static void signalfd_update_siginterest(process p)
 {
-    sigstate_set_interest(&t->p->signals, notify_get_eventmask_union(t->signalfds));
+    sigstate_set_interest(&p->signals, notify_get_eventmask_union(p->signalfds));
 }
 
-closure_function(6, 1, sysreturn, signalfd_read_bh,
-                 signal_fd, sfd, thread, t, notify_entry, n, void *, dest, u64, length, io_completion, completion,
+closure_function(5, 1, sysreturn, signalfd_read_bh,
+                 signal_fd, sfd, thread, t, void *, dest, u64, length, io_completion, completion,
                  u64, flags)
 {
     signal_fd sfd = bound(sfd);
@@ -899,10 +901,6 @@ closure_function(6, 1, sysreturn, signalfd_read_bh,
         rv = ninfos * sizeof(struct signalfd_siginfo);
     sig_debug("   %d infos, %ld bytes\n", ninfos, rv);
   out:
-    if (t) {
-        notify_remove(t->signalfds, bound(n), false);
-        signalfd_update_siginterest(t);
-    }
     apply(bound(completion), rv);
     closure_finish();
     return rv;
@@ -915,16 +913,7 @@ closure_function(1, 6, sysreturn, signalfd_read,
     signal_fd sfd = bound(sfd);
     thread t = current;
     sig_debug("fd %d, buf %p, length %ld, tid %d, bh %d\n", sfd->fd, buf, length, t ? t->tid : -1, bh);
-    notify_entry n;
-    if (t) {
-        n = notify_add(t->signalfds, sfd->mask, (event_handler)&sfd->notify);
-        if (!n)
-            return io_complete(completion, -ENOMEM);
-        signalfd_update_siginterest(t);
-    } else {
-        n = 0;
-    }
-    blockq_action ba = closure_from_context(ctx, signalfd_read_bh, sfd, t, n, buf, length, completion);
+    blockq_action ba = closure_from_context(ctx, signalfd_read_bh, sfd, t, buf, length, completion);
     return blockq_check(sfd->bq, ba, bh);
 }
 
@@ -941,6 +930,8 @@ closure_function(1, 2, sysreturn, signalfd_close,
 {
     signal_fd sfd = bound(sfd);
     deallocate_blockq(sfd->bq);
+    notify_remove(sfd->p->signalfds, sfd->n, true);
+    signalfd_update_siginterest(sfd->p);
     deallocate_closure(sfd->f.read);
     deallocate_closure(sfd->f.events);
     deallocate_closure(sfd->f.close);
@@ -990,7 +981,10 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     if (sfd->bq == INVALID_ADDRESS)
         goto err_mem_bq;
 
-    init_closure(&sfd->notify, signalfd_notify);
+    sfd->p = current->p;
+    sfd->n = notify_add(sfd->p->signalfds, sfd->mask, init_closure(&sfd->notify, signalfd_notify));
+    if (sfd->n == INVALID_ADDRESS)
+        goto err_mem_notify;
 
     sfd->f.flags = flags;
     sfd->f.read = closure(h, signalfd_read, sfd);
@@ -1004,7 +998,10 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     }
     sig_debug("allocate_signalfd: %d\n", fd);
     sfd->fd = fd;
+    signalfd_update_siginterest(sfd->p);
     return sfd->fd;
+  err_mem_notify:
+    deallocate_blockq(sfd->bq);
   err_mem_bq:
     deallocate(h, sfd, sizeof(*sfd));
   err_mem:
@@ -1032,6 +1029,8 @@ sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
         fdesc_put(&sfd->f);
         return -EINVAL;
     }
+    notify_entry_update_eventmask(sfd->n, sfd->mask);
+    signalfd_update_siginterest(sfd->p);
     fdesc_put(&sfd->f);
     return fd;
 }

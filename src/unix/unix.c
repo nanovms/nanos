@@ -544,6 +544,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->syscalls = linux_syscalls;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
+    p->signalfds = allocate_notify_set(locked);
+    assert(p->signalfds != INVALID_ADDRESS);
     p->posix_timer_ids = create_id_heap(locked, locked, 0, U32_MAX, 1, false);
     p->posix_timers = allocate_vector(locked, 8);
     p->itimers = allocate_vector(locked, 3);
