@@ -82,8 +82,7 @@ typedef struct pagecache_node {
     struct rbtree pages;
     rangemap shared_maps;       /* shared mappings associated with this node */
     struct rangemap dirty;
-    queue dirty_commits;
-    boolean committing;
+    struct list ops;
     u64 length;
 
     sg_io cache_read;
@@ -95,6 +94,27 @@ typedef struct pagecache_node {
     closure_struct(pagecache_node_queue_free, queue_free);
     struct refcount refcount;   /* count dirty pages before freeing node */
 } *pagecache_node;
+
+struct pagecache_node_op_common {
+    struct list l;
+    enum {
+        PAGECACHE_NODE_OP_COMMIT,
+        PAGECACHE_NODE_OP_COMPLETE,
+    } type;
+};
+
+declare_closure_struct(3, 1, void, pagecache_commit_dirty_ranges,
+                       pagecache_node, pn, buffer, dirty, status_handler, complete,
+                       status, s);
+struct pagecache_node_op_commit {
+    struct pagecache_node_op_common common;
+    closure_struct(pagecache_commit_dirty_ranges, commit);
+};
+
+struct pagecache_node_op_complete {
+    struct pagecache_node_op_common common;
+    status_handler sh;
+};
 
 typedef struct pagecache_shared_map {
     struct rmnode n;            /* pn->shared */

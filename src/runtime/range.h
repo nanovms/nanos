@@ -110,6 +110,11 @@ static inline void rangemap_remove_node(rangemap rm, rmnode n)
     rbtree_remove_node(&(rm->t), &n->n);
 }
 
+static inline u64 rangemap_count(rangemap rm)
+{
+    return rbtree_get_count(&rm->t);
+}
+
 static inline range range_intersection(range a, range b)
 {
     range dest = {MAX(a.start, b.start), MIN(a.end, b.end)};

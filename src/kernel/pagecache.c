@@ -933,10 +933,25 @@ closure_function(5, 1, void, pagecache_commit_complete,
 static void commit_dirty_node_complete(pagecache_node pn, status_handler complete,
                  status s)
 {
+    status_handler next = INVALID_ADDRESS;
     pagecache_lock_node(pn);
-    status_handler next = dequeue(pn->dirty_commits);
-    if (next == INVALID_ADDRESS)
-        pn->committing = false;
+    list_delete(list_begin(&pn->ops));  /* remove the commit operation that just completed */
+    while (!list_empty(&pn->ops)) {
+        struct pagecache_node_op_common *op = struct_from_field(list_begin(&pn->ops),
+                                                                struct pagecache_node_op_common *,
+                                                                l);
+        if (op->type == PAGECACHE_NODE_OP_COMMIT) {
+            next = (status_handler)&((struct pagecache_node_op_commit *)op)->commit;
+            break;
+        } else {    /* completion */
+            list_delete(&op->l);
+            pagecache_unlock_node(pn);
+            struct pagecache_node_op_complete *c = (struct pagecache_node_op_complete *)op;
+            apply(c->sh, timm_clone(s));
+            deallocate(pn->pv->pc->h, c, sizeof(*c));
+            pagecache_lock_node(pn);
+        }
+    }
     pagecache_unlock_node(pn);
     if (next != INVALID_ADDRESS)
         apply(next, STATUS_OK);
@@ -950,9 +965,9 @@ static void commit_dirty_node_complete(pagecache_node pn, status_handler complet
         timm_dealloc(s);
 }
 
-closure_function(3, 1, void, pagecache_commit_dirty_ranges,
-                 pagecache_node, pn, buffer, dirty, status_handler, complete,
-                 status, s)
+define_closure_function(3, 1, void, pagecache_commit_dirty_ranges,
+                        pagecache_node, pn, buffer, dirty, status_handler, complete,
+                        status, s)
 {
     pagecache_node pn = bound(pn);
     buffer dirty = bound(dirty);
@@ -970,7 +985,10 @@ closure_function(3, 1, void, pagecache_commit_dirty_ranges,
     if (buffer_length(dirty) == 0) {
         deallocate_buffer(dirty);
         commit_dirty_node_complete(pn, bound(complete), s);
-        closure_finish();
+        struct pagecache_node_op_commit *op = struct_from_field(closure_self(),
+                                                                struct pagecache_node_op_commit *,
+                                                                commit);
+        deallocate(pc->h, op, sizeof(*op));
         return;
     }
 
@@ -1066,31 +1084,43 @@ static void pagecache_commit_dirty_node(pagecache_node pn, status_handler comple
     pagecache_debug("committing dirty node %p\n", pn);
     pagecache_lock_node(pn);
     heap h = pn->pv->pc->h;
-    buffer b = allocate_buffer(h, sizeof(range));
-    assert(b != INVALID_ADDRESS);
-    if (rangemap_range_lookup(&pn->dirty, irange(0, infinity), stack_closure(dirty_range_handler, &pn->dirty, b)) != RM_MATCH) {
-        deallocate_buffer(b);
-        b = 0;
+    status_handler sh;
+    u64 range_count = rangemap_count(&pn->dirty);
+    boolean busy = !list_empty(&pn->ops);
+    if (range_count != 0) {
+        buffer b = allocate_buffer(h, range_count * sizeof(range));
+        if (b == INVALID_ADDRESS)
+            goto oom;
+        struct pagecache_node_op_commit *op = allocate(h, sizeof(*op));
+        if (op == INVALID_ADDRESS) {
+            deallocate_buffer(b);
+            goto oom;
+        }
+        rangemap_range_lookup(&pn->dirty, irange(0, infinity),
+                              stack_closure(dirty_range_handler, &pn->dirty, b));
+        op->common.type = PAGECACHE_NODE_OP_COMMIT;
+        list_push_back(&pn->ops, &op->common.l);
+        sh = init_closure(&op->commit, pagecache_commit_dirty_ranges, pn, b, complete);
+    } else if ((sh = complete) && busy) {
+        struct pagecache_node_op_complete *op = allocate(h, sizeof(*op));
+        if (op == INVALID_ADDRESS)
+            goto oom;
+        op->common.type = PAGECACHE_NODE_OP_COMPLETE;
+        op->sh = complete;
+        list_push_back(&pn->ops, &op->common.l);
     }
     pagecache_lock_volume(pn->pv);
     if (list_inserted(&pn->l))
         list_delete(&pn->l);
     pagecache_unlock_volume(pn->pv);
-    status_handler sh;
-    if (b) {
-        sh = closure(h, pagecache_commit_dirty_ranges, pn, b, complete);
-        assert(sh != INVALID_ADDRESS);
-    } else  {
-        sh = complete;
-    }
-    boolean busy = pn->committing;
-    if (busy)
-        assert(enqueue(pn->dirty_commits, sh));
-    else if (b)
-        pn->committing = true;
     pagecache_unlock_node(pn);
     if (!busy && sh)
         apply(sh, STATUS_OK);
+    return;
+  oom:
+    pagecache_unlock_node(pn);
+    if (complete)
+        apply(complete, timm_oom);
 }
 
 static void pagecache_commit_dirty_pages(pagecache pc)
@@ -1172,19 +1202,32 @@ void pagecache_purge_node(pagecache_node pn, status_handler complete)
 {
     pagecache_debug("%s: pn %p, complete %F\n", __func__, pn, complete);
     pagecache_lock_node(pn);
-    pagecache_lock_state(pn->pv->pc);
+    pagecache pc = pn->pv->pc;
+    pagecache_lock_state(pc);
     destruct_rangemap(&pn->dirty, stack_closure(purge_range_handler, pn));
-    pagecache_unlock_state(pn->pv->pc);
+    pagecache_unlock_state(pc);
     pagecache_lock_volume(pn->pv);
     if (list_inserted(&pn->l))
         list_delete(&pn->l);
     pagecache_unlock_volume(pn->pv);
-    boolean busy = pn->committing;
-    if (busy && complete)
-        assert(enqueue(pn->dirty_commits, complete));
+    boolean busy = !list_empty(&pn->ops);
+    status s;
+    if (busy && complete) {
+        struct pagecache_node_op_complete *op = allocate(pc->h, sizeof(*op));
+        if (op != INVALID_ADDRESS) {
+            op->common.type = PAGECACHE_NODE_OP_COMPLETE;
+            op->sh = complete;
+            list_push_back(&pn->ops, &op->common.l);
+            complete = 0;
+        } else {
+            s = timm_oom;
+        }
+    } else {
+        s = STATUS_OK;
+    }
     pagecache_unlock_node(pn);
-    if (!busy && complete)
-        apply(complete, STATUS_OK);
+    if (complete)
+        apply(complete, s);
 }
 #endif /* !PAGECACHE_READ_ONLY */
 
@@ -1798,8 +1841,7 @@ pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io
     pn->fs_read = fs_read;
     pn->fs_write = fs_write;
     pn->fs_reserve = fs_reserve;
-    pn->dirty_commits = allocate_queue(h, 8);
-    pn->committing = false;
+    list_init(&pn->ops);
     init_closure(&pn->free, pagecache_node_free, pn);
     init_refcount(&pn->refcount, 1, init_closure(&pn->queue_free, pagecache_node_queue_free, pn));
     return pn;
