@@ -1006,6 +1006,8 @@ static inline void __attribute__((noreturn)) syscall_finish(boolean exit)
     kern_yield();
 }
 
+boolean clockid_get(process p, clockid_t id, boolean timer, clock_id *res, thread *cputime_thread);
+
 void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
             context ctx, boolean blocking, io_completion completion);
 

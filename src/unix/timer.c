@@ -49,6 +49,7 @@ typedef struct unix_timer {
         struct {
             struct siginfo si;
             int id;
+            thread cputime_thread;
             thread recipient;   /* INVALID_ADDRESS means deliver to process */
             struct sigevent sevp;
             closure_struct(posix_timer_expire, timer_expire);
@@ -519,6 +520,8 @@ sysreturn timer_delete(u32 timerid) {
     if (ut == INVALID_ADDRESS)
         return -EINVAL;
     spin_lock(&ut->lock);
+    if (ut->info.posix.cputime_thread != INVALID_ADDRESS)
+        thread_release(ut->info.posix.cputime_thread);
     if (ut->info.posix.recipient != INVALID_ADDRESS)
         thread_release(ut->info.posix.recipient);
     process p = current->p;
@@ -535,51 +538,57 @@ sysreturn timer_delete(u32 timerid) {
 
 sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
 {
-    if (clockid != CLOCK_REALTIME &&
-        clockid != CLOCK_MONOTONIC &&
-        clockid != CLOCK_BOOTTIME &&
-        clockid != CLOCK_PROCESS_CPUTIME_ID &&
-        clockid != CLOCK_THREAD_CPUTIME_ID &&
-        clockid != CLOCK_REALTIME_ALARM &&
-        clockid != CLOCK_BOOTTIME_ALARM)
+    process p = current->p;
+    clock_id cid;
+    thread cputime_thread;
+    if (!clockid_get(p, clockid, true, &cid, &cputime_thread))
         return -EINVAL;
 
-    if (!fault_in_user_memory(timerid, sizeof(u32), true))
-        return -EFAULT;
+    sysreturn rv;
+    if (!fault_in_user_memory(timerid, sizeof(u32), true)) {
+        rv = -EFAULT;
+        goto release_cputime_t;
+    }
 
-    process p = current->p;
     thread recipient = INVALID_ADDRESS; /* default to process */
     if (sevp) {
-        if (!fault_in_user_memory(sevp, sizeof(struct sigevent), false))
-            return -EFAULT;
+        if (!fault_in_user_memory(sevp, sizeof(struct sigevent), false)) {
+            rv = -EFAULT;
+            goto release_cputime_t;
+        }
         switch (sevp->sigev_notify) {
         case SIGEV_NONE:
             break;
         case SIGEV_SIGNAL | SIGEV_THREAD_ID:
             recipient = thread_from_tid(p, sevp->sigev_un.tid);
-            if (recipient == INVALID_ADDRESS)
-                return -EINVAL;
+            if (recipient == INVALID_ADDRESS) {
+                rv = -EINVAL;
+                goto release_cputime_t;
+            }
             /* fall through */
         case SIGEV_SIGNAL:
-            if (sevp->sigev_signo < 1 || sevp->sigev_signo > NSIG)
-                return -EINVAL;
+            if (sevp->sigev_signo < 1 || sevp->sigev_signo > NSIG) {
+                rv = -EINVAL;
+                goto release_cputime_t;
+            }
             break;
         case SIGEV_THREAD:
             /* should never see this, but bark if we do */
             msg_err("%s: SIGEV_THREAD should be handled by libc / nptl\n", __func__);
-            return -EINVAL;
+            /* no break */
         default:
-            return -EINVAL;
+            rv = -EINVAL;
+            goto release_cputime_t;
         }
     }
 
     timerqueue tq;
-    switch (clockid) {
+    switch (cid) {
     case CLOCK_PROCESS_CPUTIME_ID:
         tq = p->cpu_timers;
         break;
     case CLOCK_THREAD_CPUTIME_ID:
-        tq = thread_get_cpu_timer_queue(current);
+        tq = thread_get_cpu_timer_queue(cputime_thread);
         if (!tq)
             goto err_nomem;
         break;
@@ -617,6 +626,8 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
     ut->info.posix.id = id;
     *timerid = id;
     ut->info.posix.sevp = *sevp;
+    ut->info.posix.cputime_thread =
+            (cid == CLOCK_THREAD_CPUTIME_ID) ? cputime_thread : INVALID_ADDRESS;
     ut->info.posix.recipient = recipient;
 
     struct siginfo *si = &ut->info.posix.si;
@@ -630,7 +641,11 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
   err_nomem:
     if (recipient != INVALID_ADDRESS)
         thread_release(recipient);
-    return -ENOMEM;
+    rv = -ENOMEM;
+  release_cputime_t:
+    if (cid == CLOCK_THREAD_CPUTIME_ID)
+        thread_release(cputime_thread);
+    return rv;
 }
 
 sysreturn getitimer(int which, struct itimerval *curr_value)

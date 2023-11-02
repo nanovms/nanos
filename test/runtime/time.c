@@ -210,6 +210,8 @@ static void test_cputime(void)
 {
     struct timespec thread_ts, proc_ts, tmp_ts;
     long long thread_delta, proc_delta;
+    clockid_t cid;
+    int rv;
 
     if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &thread_ts) < 0)
         fail_perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
@@ -233,6 +235,34 @@ static void test_cputime(void)
         if (delta_nsec(&thread_ts, &proc_ts) < 0)
             fail_error("%s: process CPU time < thread CPU time\n", __func__);
     } while ((thread_delta == 0) || (proc_delta == 0));
+
+    rv = clock_getcpuclockid(0xbad0bad, &cid);
+    if (rv != ESRCH)
+        fail_error("clock_getcpuclockid with invalid pid returned %d\n", rv);
+    rv = clock_gettime(~0 << 3, &tmp_ts);
+    if ((rv != -1) || (errno != EINVAL))
+        fail_error("clock_gettime with invalid clock type returned %d (errno %d)\n", rv, errno);
+    rv = clock_gettime((~0xbad0bad << 3) | 0x2, &tmp_ts);
+    if ((rv != -1) || (errno != EINVAL))
+        fail_error("clock_gettime with invalid process id returned %d (errno %d)\n", rv, errno);
+    rv = clock_gettime((~0xbad0bad << 3) | 0x4 | 0x2, &tmp_ts);
+    if ((rv != -1) || (errno != EINVAL))
+        fail_error("clock_gettime with invalid thread id returned %d (errno %d)\n", rv, errno);
+
+    rv = pthread_getcpuclockid(pthread_self(), &cid);
+    if (rv != 0)
+        fail_error("thread_getcpuclockid for the current thread returned %d\n", rv);
+    if (clock_gettime(cid, &thread_ts) < 0)
+        fail_perror("clock_gettime(pthread_getcpuclockid())");
+
+    rv = clock_getcpuclockid(0, &cid);
+    if (rv != 0)
+        fail_error("clock_getcpuclockid for the current process returned %d\n", rv);
+    if (clock_gettime(cid, &proc_ts) < 0)
+        fail_perror("clock_gettime(clock_getcpuclockid())");
+
+    if (delta_nsec(&thread_ts, &proc_ts) < 0)
+        fail_error("process CPU time < thread CPU time\n");
 }
 
 static void test_getres_clk(clockid_t clk_id)
@@ -574,6 +604,34 @@ void test_posix_timers(void)
 
     if (syscall(SYS_timer_delete, dummy_id) < 0)
         fail_perror("timer_delete");
+
+    clockid_t cid;
+    timer_t timer_id;
+    struct itimerspec its;
+
+    rv = clock_getcpuclockid(0, &cid);
+    if (rv != 0 )
+        fail_error("clock_getcpuclockid error %d\n", rv);
+    if (timer_create(cid, 0, &timer_id) < 0)
+        fail_perror("timer_create with process CPU time");
+    rv = timer_gettime(timer_id, &its);
+    if (rv < 0)
+        fail_perror("timer_gettime with process CPU time");
+    rv = timer_delete(timer_id);
+    if (rv < 0)
+        fail_perror("timer_delete with process CPU time");
+
+    rv = pthread_getcpuclockid(pthread_self(), &cid);
+    if (rv != 0 )
+        fail_error("pthread_getcpuclockid error %d (%s)\n", rv, strerror(rv));
+    if (timer_create(cid, 0, &timer_id) < 0)
+        fail_perror("timer_create with thread CPU time");
+    rv = timer_gettime(timer_id, &its);
+    if (rv < 0)
+        fail_perror("timer_gettime with thread CPU time");
+    rv = timer_delete(timer_id);
+    if (rv < 0)
+        fail_perror("timer_delete with thread CPU time");
 
     posix_timers_finished = 0;
 

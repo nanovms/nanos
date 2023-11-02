@@ -253,6 +253,13 @@ typedef int clockid_t;
 #define UTIME_NOW   ((1ull << 30) - 1)
 #define UTIME_OMIT  ((1ull << 30) - 2)
 
+#define CPUCLOCK_PERTHREAD_MASK 0x4
+#define CPUCLOCK_CLOCK_MASK     0x3
+
+#define CPUCLOCK_PROF   0
+#define CPUCLOCK_VIRT   1
+#define CPUCLOCK_SCHED  2
+
 struct timespec {
     u64 tv_sec;
     u64 tv_nsec;

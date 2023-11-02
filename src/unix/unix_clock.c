@@ -1,5 +1,59 @@
 #include <unix_internal.h>
 
+/* Converts a clockid_t value to a clockid enum value: if the id corresponds to a thread CPU time,
+ * looks up the relevant thread, and if found puts a reference to the thread in cputime_thread (if
+ * not null); returns whether the conversion is successful.
+ */
+boolean clockid_get(process p, clockid_t id, boolean timer, clock_id *res, thread *cputime_thread)
+{
+    if (id < 0) {
+        if ((id & CPUCLOCK_CLOCK_MASK) != CPUCLOCK_SCHED)
+            return false;
+        int pid = ~(id >> 3);
+        if (id & CPUCLOCK_PERTHREAD_MASK) {
+            thread t = thread_from_tid(p, pid);
+            if (t == INVALID_ADDRESS)
+                return false;
+            *res = CLOCK_THREAD_CPUTIME_ID;
+            if (cputime_thread)
+                *cputime_thread = t;
+            else
+                thread_release(t);
+        } else {
+            /* we can only have the CPU time for the current process */
+            if (pid != 0)
+                return false;
+            *res = CLOCK_PROCESS_CPUTIME_ID;
+        }
+        return true;
+    }
+    switch(id) {
+    case CLOCK_MONOTONIC_RAW:
+    case CLOCK_REALTIME_COARSE:
+    case CLOCK_MONOTONIC_COARSE:
+        if (timer)
+            return false;
+        break;
+    case CLOCK_REALTIME:
+    case CLOCK_MONOTONIC:
+    case CLOCK_BOOTTIME:
+    case CLOCK_REALTIME_ALARM:
+    case CLOCK_BOOTTIME_ALARM:
+    case CLOCK_PROCESS_CPUTIME_ID:
+        break;
+    case CLOCK_THREAD_CPUTIME_ID:
+        if (cputime_thread) {
+            *cputime_thread = current;
+            thread_reserve(*cputime_thread);
+        }
+        break;
+    default:
+        return false;
+    }
+    *res = id;
+    return true;
+}
+
 sysreturn gettimeofday(struct timeval *tv, void *tz)
 {
     context ctx = get_current_context(current_cpu());
@@ -130,26 +184,24 @@ sysreturn times(struct tms *buf)
 sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 {
     thread_log(current, "clock_gettime: clk_id %d, tp %p", clk_id, tp);
+    process p = current->p;
+    clock_id cid;
+    thread cputime_thread = 0;
+    if (!clockid_get(p, clk_id, false, &cid, &cputime_thread))
+        return -EINVAL;
     timestamp t;
-    switch (clk_id) {
-    case CLOCK_MONOTONIC:
-    case CLOCK_MONOTONIC_COARSE:
-    case CLOCK_MONOTONIC_RAW:
-    case CLOCK_BOOTTIME:
-    case CLOCK_REALTIME:
-    case CLOCK_REALTIME_COARSE:
+    switch (cid) {
+    case CLOCK_PROCESS_CPUTIME_ID:
+        t = proc_utime(p) + proc_stime(p);
+        break;
+    case CLOCK_THREAD_CPUTIME_ID:
+        t = thread_utime(cputime_thread) + thread_stime(cputime_thread);
+        thread_release(cputime_thread);
+        break;
+    default:
         /* We depend on our system clock IDs to match the posix ones... */
         t = now(clk_id);
         break;
-    case CLOCK_PROCESS_CPUTIME_ID:
-        t = proc_utime(current->p) + proc_stime(current->p);
-        break;
-    case CLOCK_THREAD_CPUTIME_ID:
-        t = thread_utime(current) + thread_stime(current);
-        break;
-    default:
-        msg_warn("clock id %d not supported\n", clk_id);
-        return -EINVAL;
     }
     context ctx = get_current_context(current_cpu());
     if (!validate_user_memory(tp, sizeof(struct timespec), true) || context_set_err(ctx))
@@ -179,15 +231,8 @@ sysreturn clock_settime(clockid_t clk_id, const struct timespec *tp)
 
 sysreturn clock_getres(clockid_t clk_id, struct timespec *res)
 {
-    switch (clk_id) {
-    case CLOCK_MONOTONIC:
-    case CLOCK_MONOTONIC_COARSE:
-    case CLOCK_MONOTONIC_RAW:
-    case CLOCK_BOOTTIME:
-    case CLOCK_REALTIME:
-    case CLOCK_REALTIME_COARSE:
-    case CLOCK_PROCESS_CPUTIME_ID:
-    case CLOCK_THREAD_CPUTIME_ID:
+    clock_id cid;
+    if (clockid_get(current->p, clk_id, false, &cid, 0)) {
         if (res) {
             context ctx = get_current_context(current_cpu());
             if (!validate_user_memory(res, sizeof(*res), true) || context_set_err(ctx))
@@ -196,8 +241,7 @@ sysreturn clock_getres(clockid_t clk_id, struct timespec *res)
             res->tv_nsec = 1;
             context_clear_err(ctx);
         }
-        break;
-    default:
+    } else {
         return -EINVAL;
     }
     return 0;
