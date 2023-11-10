@@ -503,6 +503,7 @@ physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, statu
     }
     page_init_debug("map_level done\n");
     pagetable_unlock();
+    flush_tlb(false);
     if (complete)
         apply(complete, STATUS_OK);
 #ifdef PAGE_DUMP_ALL
