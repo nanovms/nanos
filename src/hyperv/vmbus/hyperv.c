@@ -328,5 +328,4 @@ hyperv_probe_devices(storage_attach a, boolean *storvsc_attached)
 void HV_SHUTDOWN(void)
 {
     out16((unsigned int)PM1a_CNT, SLP_TYPa | SLP_EN);
-    while(1);
 }
