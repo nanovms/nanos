@@ -571,8 +571,10 @@ void vm_exit(u8 code)
             machine_halt();
         }
     }
-    if (vm_halt && (!root || !get(root, sym(debug_exit))))
+    if (vm_halt && (!root || !get(root, sym(debug_exit)))) {
         apply(vm_halt, code);
+        machine_halt();
+    }
     vm_shutdown(code);
 }
 
