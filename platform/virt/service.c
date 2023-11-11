@@ -222,21 +222,15 @@ void reclaim_regions(void)
 {
 }
 
-extern filesystem root_fs;
-
-static inline void virt_shutdown(u64 code)
+closure_function(0, 1, void, psci_vm_halt,
+                 int, status)
 {
-    tuple root = get_root_tuple();
-    if (root) {
-        if (!get(root, sym(psci)))
-            angel_shutdown(code);
-    }
     psci_shutdown();
 }
 
 void vm_shutdown(u8 code)
 {
-    virt_shutdown(code);
+    angel_shutdown(code);
     while (1);
 }
 
@@ -372,4 +366,8 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_virtio_rng(kh);
     init_virtio_9p(kh);
     init_virtio_socket(kh);
+    if (!vm_halt) {
+        vm_halt = closure(heap_locked(kh), psci_vm_halt);
+        assert(vm_halt != INVALID_ADDRESS);
+    }
 }
