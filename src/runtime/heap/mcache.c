@@ -56,6 +56,7 @@ u64 mcache_alloc(heap h, bytes b)
             m->fallbacks = allocate_table(m->meta, fallback_key, pointer_equal);
             if (m->fallbacks == INVALID_ADDRESS) {
                 rputs("mcache_alloc: failed to allocate fallbacks table\n");
+                m->fallbacks = 0;
                 return INVALID_PHYSICAL;
             }
         }
