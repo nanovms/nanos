@@ -25,7 +25,7 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize)
     /* reserve area in virtual_huge */
     assert(id_heap_set_area(heap_virtual_huge(kh), tag_base, tag_length, true, true));
 
-    return allocate_mcache(h, backed, 5, find_order(pagesize) - 1, pagesize);
+    return allocate_mcache(h, backed, 5, find_order(pagesize) - 1, pagesize, false);
 }
 
 extern void *trap_handler;

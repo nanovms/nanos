@@ -431,15 +431,7 @@ extern void lwip_init();
 
 void init_net(kernel_heaps kh)
 {
-    heap h = heap_general(kh);
-    heap backed = (heap)heap_linear_backed(kh);
-    boolean is_lowmem = is_low_memory_machine();
-    int lwip_alloc_order = is_lowmem ? MAX_LOWMEM_LWIP_ALLOC_ORDER : MAX_LWIP_ALLOC_ORDER;
-    bytes pagesize = is_lowmem ? U64_FROM_BIT(lwip_alloc_order + 1) : PAGESIZE_2M;
-    lwip_heap = allocate_mcache(h, backed, 5, lwip_alloc_order, pagesize);
-    assert(lwip_heap != INVALID_ADDRESS);
-    lwip_heap = locking_heap_wrapper(h, lwip_heap);
-    assert(lwip_heap != INVALID_ADDRESS);
+    lwip_heap = kh->malloc;
     list_init(&net_complete_list);
     lwip_init();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);

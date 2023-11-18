@@ -847,6 +847,8 @@ boolean mm_register_mem_cleaner(mem_cleaner cleaner);
 
 kernel_heaps get_kernel_heaps(void);
 
+#define heap_malloc()  (get_kernel_heaps()->malloc)
+
 static inline boolean is_low_memory_machine(void)
 {
     return (heap_total((heap)heap_physical(get_kernel_heaps())) < LOW_MEMORY_THRESHOLD);

@@ -27,6 +27,7 @@ typedef struct mcache {
     u64 allocated;
     u64 parent_threshold;
     tuple mgmt;
+    boolean malloc_style;   /* if true, deallocation requests are made without a size argument */
     table fallbacks;
 } *mcache;
 
@@ -51,7 +52,7 @@ u64 mcache_alloc(heap h, bytes b)
     rputs(": ");
 #endif
     if (b > m->parent_threshold) {
-        if (!m->fallbacks) {
+        if (m->malloc_style && !m->fallbacks) {
             m->fallbacks = allocate_table(m->meta, fallback_key, pointer_equal);
             if (m->fallbacks == INVALID_ADDRESS) {
                 rputs("mcache_alloc: failed to allocate fallbacks table\n");
@@ -62,7 +63,8 @@ u64 mcache_alloc(heap h, bytes b)
         u64 a = allocate_u64(m->parent, size);
         if (a != INVALID_PHYSICAL) {
             m->allocated += size;
-            table_set(m->fallbacks, pointer_from_u64(a), pointer_from_u64(b));
+            if (m->fallbacks)
+                table_set(m->fallbacks, pointer_from_u64(a), pointer_from_u64(b));
         }
 #ifdef MCACHE_DEBUG
         rputs("fallback to parent, size ");
@@ -124,37 +126,15 @@ void mcache_dealloc(heap h, u64 a, bytes b)
     mcache m = (mcache)h;
     u64 size = 0;
 
+    if (b != -1ull && b > m->parent_threshold)
+        size = pad(b, m->parent->pagesize);
+
     /* The fallback table tracks allocations that fall back to the parent
        heap. This allows use of a "malloc-style" interface to the mcache in
        which the allocation size is not specified on a deallocate. The cost of
        this is a table insertion when making a fallback allocation and a table
        lookup/removal when deallocating a fallback allocation of a known size,
        or on any deallocation (free) of an unknown size. */
-    if (b != -1ull && b > m->parent_threshold) {
-        if (!m->fallbacks) {
-            rputs("mcache_dealloc: fallbacks table not allocated\n");
-            return;
-        }
-        size = u64_from_pointer(table_remove(m->fallbacks, pointer_from_u64(a)));
-        if (!size) {
-            rputs("mcache_dealloc: address ");
-            print_u64(a);
-            rputs(" (size ");
-            print_u64(b);
-            rputs(") not found in fallback table\n");
-            return;
-        }
-        if (size != b) {
-            rputs("mcache_dealloc: address ");
-            print_u64(a);
-            rputs(" (given size ");
-            print_u64(b);
-            rputs(") does not match alloc size (");
-            print_u64(size);
-            rputs("\n");
-        }
-        size = pad(size, m->parent->pagesize);
-    }
     if (b == -1ull && m->fallbacks) {
         size = u64_from_pointer(table_remove(m->fallbacks, pointer_from_u64(a)));
         if (size > 0)
@@ -318,7 +298,8 @@ static value mcache_management(heap h)
     return n;
 }
 
-heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize)
+heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes pagesize,
+                     boolean malloc_style)
 {
     if (pagesize < parent->pagesize ||
 	((pagesize - 1) & pagesize)) {
@@ -361,6 +342,7 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
     m->allocated = 0;
     m->parent_threshold = U64_FROM_BIT(max_order);
     m->mgmt = 0;
+    m->malloc_style = malloc_style;
     m->fallbacks = 0;
 
     for(int i = 0, order = min_order; order <= max_order; i++, order++) {

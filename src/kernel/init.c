@@ -79,7 +79,7 @@ void init_kernel_heaps(void)
     int max_mcache_order = is_lowmem ? MAX_LOWMEM_MCACHE_ORDER : MAX_MCACHE_ORDER;
     bytes pagesize = is_lowmem ? U64_FROM_BIT(max_mcache_order + 1) : PAGESIZE_2M;
     heaps.general = allocate_mcache(&bootstrap, (heap)heaps.linear_backed, 5, max_mcache_order,
-                                    pagesize);
+                                    pagesize, false);
     assert(heaps.general != INVALID_ADDRESS);
 
     heaps.locked = locking_heap_wrapper(heaps.general, heaps.general);
@@ -97,6 +97,12 @@ void init_kernel_heaps(void)
     heaps.page_backed = allocate_page_backed_heap(heaps.general, (heap)heaps.virtual_page,
                                                   (heap)heaps.physical, PAGESIZE, true);
     assert(heaps.page_backed != INVALID_ADDRESS);
+
+    heaps.malloc = allocate_mcache(heaps.locked, (heap)heaps.linear_backed, 5, max_mcache_order,
+                                   pagesize, true);
+    assert(heaps.malloc != INVALID_ADDRESS);
+    heaps.malloc = locking_heap_wrapper(heaps.general, heaps.malloc);
+    assert(heaps.malloc != INVALID_ADDRESS);
 }
 
 closure_function(2, 1, void, offset_req_handler,

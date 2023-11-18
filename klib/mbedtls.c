@@ -273,7 +273,7 @@ int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
 
 int init(status_handler complete)
 {
-    tls.h = heap_locked(get_kernel_heaps());
+    tls.h = heap_malloc();
     mbedtls_ssl_config_init(&tls.conf);
     mbedtls_ctr_drbg_init(&tls.ctr_drbg);
     mbedtls_entropy_init(&tls.entropy);

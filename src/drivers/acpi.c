@@ -440,13 +440,15 @@ ACPI_STATUS AcpiOsInitialize(void)
 
 void *AcpiOsAllocate(ACPI_SIZE size)
 {
-    void *p = allocate(acpi_heap, size);
+    heap h = heap_malloc();
+    void *p = allocate(h, size);
     return (p != INVALID_ADDRESS) ? p : 0;
 }
 
 void AcpiOsFree(void *memory)
 {
-    deallocate(acpi_heap, memory, -1ull);
+    heap h = heap_malloc();
+    deallocate(h, memory, -1ull);
 }
 
 void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS where, ACPI_SIZE length)

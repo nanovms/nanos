@@ -50,6 +50,10 @@ typedef struct kernel_heaps {
        interrupt handlers are generally discouraged, they should be safe on
        the locked heap. */
     heap locked;
+
+    /* mcache for "malloc-style" allocations, i.e. to be used by vendor code where deallocation
+     * requests are made without a size argument. Protected by spinlock. */
+    heap malloc;
 } *kernel_heaps;
 
 static inline id_heap heap_physical(kernel_heaps heaps)
