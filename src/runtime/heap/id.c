@@ -461,8 +461,9 @@ closure_function(2, 1, boolean, node_foreach_handler,
 
 boolean id_heap_range_foreach(id_heap i, range_handler rh)
 {
-    return rangemap_range_lookup(i->ranges, (range){0, infinity},
-                                 stack_closure(node_foreach_handler, rh, page_order(i)));
+    return (rangemap_range_lookup(i->ranges, (range){0, infinity},
+                                  stack_closure(node_foreach_handler, rh, page_order(i))) ==
+            RM_MATCH);
 }
 
 #ifdef KERNEL
