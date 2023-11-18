@@ -12,6 +12,8 @@ typedef struct linear_backed_heap {
     heap meta;
     id_heap physical;
     bitmap mapped;
+    u64 virt_base;
+    u64 phys_limit;
 } *linear_backed_heap;
 
 #define LINEAR_BACKED_IDX_LIMIT ((LINEAR_BACKED_LIMIT - LINEAR_BACKED_BASE) >> LINEAR_BACKED_PAGELOG)
@@ -24,10 +26,10 @@ static inline u64 linear_backed_base_from_index(linear_backed_heap hb, int index
 static inline u64 linear_backed_alloc_internal(linear_backed_heap hb, bytes size)
 {
     u64 len = pad(size, hb->bh.h.pagesize);
-    u64 p = id_heap_alloc_subrange(hb->physical, len, 0, LINEAR_BACKED_PHYSLIMIT);
+    u64 p = id_heap_alloc_subrange(hb->physical, len, 0, hb->phys_limit);
     if (p == INVALID_PHYSICAL)
         return p;
-    u64 v = virt_from_linear_backed_phys(p);
+    u64 v = p + hb->virt_base;
     linear_backed_debug("%s: size 0x%lx, len 0x%lx, p 0x%lx, v 0x%lx\n",
                         __func__, size, len, p, v);
     return v;
@@ -41,7 +43,7 @@ static u64 linear_backed_alloc(heap h, bytes size)
 static inline void linear_backed_dealloc_internal(linear_backed_heap hb, u64 x, bytes size)
 {
     u64 len = pad(size, hb->bh.h.pagesize);
-    u64 phys = phys_from_linear_backed_virt(x);
+    u64 phys = x - hb->virt_base;
     deallocate_u64((heap)hb->physical, phys, len);
     linear_backed_debug("%s: addr 0x%lx, phys 0x%lx, size 0x%lx, len 0x%lx\n",
                         __func__, x, phys, size, len);
@@ -67,7 +69,7 @@ static void *linear_backed_alloc_map(backed_heap bh, bytes len, u64 *phys)
 {
     u64 a = linear_backed_alloc_internal((linear_backed_heap)bh, len);
     if (phys)
-        *phys = phys_from_linear_backed_virt(a);
+        *phys = a - ((linear_backed_heap)bh)->virt_base;
     return pointer_from_u64(a);
 }
 
@@ -121,7 +123,7 @@ static void linear_backed_init_maps(linear_backed_heap hb)
     id_heap_range_foreach(hb->physical, stack_closure(physmem_range_handler, hb));
 }
 
-backed_heap allocate_linear_backed_heap(heap meta, id_heap physical)
+backed_heap allocate_linear_backed_heap(heap meta, id_heap physical, range mapped_virt)
 {
     linear_backed_heap hb = allocate(meta, sizeof(*hb));
     if (hb == INVALID_ADDRESS)
@@ -136,7 +138,15 @@ backed_heap allocate_linear_backed_heap(heap meta, id_heap physical)
     hb->bh.dealloc_unmap = linear_backed_dealloc_unmap;
     hb->meta = meta;
     hb->physical = physical;
-    hb->mapped = allocate_bitmap(meta, meta, LINEAR_BACKED_IDX_LIMIT);
-    linear_backed_init_maps(hb);
+    if (range_span(mapped_virt)) {
+        hb->mapped = 0;
+        hb->virt_base = mapped_virt.start;
+        hb->phys_limit = range_span(mapped_virt);
+    } else {
+        hb->mapped = allocate_bitmap(meta, meta, LINEAR_BACKED_IDX_LIMIT);
+        linear_backed_init_maps(hb);
+        hb->virt_base = LINEAR_BACKED_BASE;
+        hb->phys_limit = LINEAR_BACKED_PHYSLIMIT;
+    }
     return &hb->bh;
 }

@@ -68,10 +68,9 @@ void init_kernel_heaps(void)
     heaps.physical = init_physical_id_heap(&bootstrap);
     assert(heaps.physical != INVALID_ADDRESS);
 
+    heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical, irange(0, 0));
 #if defined(MEMDEBUG_BACKED) || defined(MEMDEBUG_ALL)
-    heaps.linear_backed = mem_debug_backed(&bootstrap, allocate_linear_backed_heap(&bootstrap, heaps.physical), PAGESIZE_2M, true);
-#else
-    heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical);
+    heaps.linear_backed = mem_debug_backed(&bootstrap, heaps.linear_backed, PAGESIZE_2M, true);
 #endif
     assert(heaps.linear_backed != INVALID_ADDRESS);
 
