@@ -263,7 +263,7 @@ physical physical_from_virtual(void *x);
 #endif
 
 void *bootstrap_page_tables(heap initial);
-#ifdef KERNEL
+#if defined(KERNEL) || defined(UEFI)
 void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
                         u64 *pdpt, u64 *pdt);
 void init_mmu(void);

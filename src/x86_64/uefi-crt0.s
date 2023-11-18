@@ -31,6 +31,15 @@ _start:
     add rsp, 8
     ret
 
+global write_msr
+write_msr:
+    mov rcx, rdi
+    mov rax, rsi
+    mov rdx, rsi
+    shr rdx, 0x20
+    wrmsr
+    ret
+
 ;; The .reloc section contains the fixup table; it must be present and non-emtpy
 ;; even if there are no fixups to be applied
 section .reloc

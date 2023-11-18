@@ -213,9 +213,21 @@ extern void write_xmsr(u64, u64);
 /* CPUID level 7 (EBX) */
 #define CPUID_FSGSBASE  (1 << 0)
 
+/* Extended processor info and feature bits */
+#define CPUID_FN_EXT_PROC_INFO  0x80000001
+/* EDX */
+#define CPUID_PDPE1GB           (1 << 26)
+
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
     asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
+}
+
+static inline u32 cpuid_highest_fn(boolean extended)
+{
+    u32 v[4];
+    cpuid(extended ? 0x80000000 : 0, 0, v);
+    return v[0];
 }
 
 static inline void xsetbv(u32 ecx, u32 eax, u32 edx)

@@ -431,8 +431,7 @@ extern void *READONLY_END;
 static int setup_initmap(region temp_pages_r)
 {
     /* Set up initial mappings in the same way as stage2 does. */
-    /* Enable NXE bit now to avoid page faults when mapping a noexec page. */
-    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
+    init_mmu();
     struct region_heap rh;
     region_heap_init(&rh, PAGESIZE, REGION_PHYSICAL);
     u64 initial_pages_base = allocate_u64(&rh.h, INITIAL_PAGES_SIZE);
@@ -508,7 +507,8 @@ void init_service(u64 rdi, u64 rsi)
     early_init_debug("init_service");
 
     find_initial_pages();
-    init_mmu();
+    if (!pagebase)
+        init_mmu();
     init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
     init_kernel_heaps();
     if (cmdline)

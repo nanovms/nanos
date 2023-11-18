@@ -55,6 +55,7 @@ void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options)
     assert(initial_pages != INVALID_PHYSICAL);
     create_region(initial_pages, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
     rsvd_mem_add(irangel(initial_pages, INITIAL_PAGES_SIZE));
+    init_mmu();
     pgdir = bootstrap_page_tables(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
     map(0, 0, INITIAL_MAP_SIZE, pageflags_writable(pageflags_exec(pageflags_memory())));
     map(PAGES_BASE, initial_pages, INITIAL_PAGES_SIZE, pageflags_writable(pageflags_memory()));

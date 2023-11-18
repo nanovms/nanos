@@ -52,7 +52,7 @@ void *bootstrap_page_tables(heap initial)
     return pgdir;
 }
 
-#ifdef KERNEL
+#if defined(KERNEL) || defined(UEFI)
 void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
                         u64 *pdpt, u64 *pdt)
 {
@@ -82,11 +82,14 @@ void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
 
 void init_mmu(void)
 {
+    u32 cpuid_max = cpuid_highest_fn(true);
     u32 v[4];
     u64 levelmask = 0x18;        /* levels 3 and 4 always supported */
-    cpuid(0x80000001, 0, v);
-    if (v[3] & U64_FROM_BIT(26)) /* 1GB page support */
-        levelmask |= 0x4;
+    if (cpuid_max >= CPUID_FN_EXT_PROC_INFO) {
+        cpuid(CPUID_FN_EXT_PROC_INFO, 0, v);
+        if (v[3] & CPUID_PDPE1GB) /* 1GB page support */
+            levelmask |= 0x4;
+    }
     page_set_allowed_levels(levelmask);
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
     mov_from_cr("cr3", pagebase);
