@@ -17,6 +17,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/drivers/ata-pci.c \
 	$(SRCDIR)/drivers/console.c \
 	$(SRCDIR)/drivers/dmi.c \
+	$(SRCDIR)/drivers/gve.c \
 	$(SRCDIR)/drivers/nvme.c \
 	$(SRCDIR)/drivers/netconsole.c \
 	$(SRCDIR)/drivers/vga.c \

@@ -10,6 +10,7 @@
 #include <drivers/ata-pci.h>
 #include <drivers/console.h>
 #include <drivers/dmi.h>
+#include <drivers/gve.h>
 #include <drivers/nvme.h>
 #include <drivers/vga.h>
 #include <hyperv_platform.h>
@@ -603,6 +604,7 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
         init_virtio_network(kh);
         init_vmxnet3_network(kh);
         init_aws_ena(kh);
+        init_gve(kh);
 
         /* storage */
         init_virtio_blk(kh, sa);
