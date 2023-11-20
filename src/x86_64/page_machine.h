@@ -48,6 +48,11 @@ static inline pageflags pageflags_device(void)
     return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS | PAGE_CACHE_DISABLE};
 }
 
+static inline pageflags pageflags_dma(void)
+{
+    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS | PAGE_WRITABLE};
+}
+
 static inline pageflags pageflags_writable(pageflags flags)
 {
     return (pageflags){.w = flags.w | PAGE_WRITABLE};

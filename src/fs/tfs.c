@@ -1,4 +1,5 @@
 #include <tfs_internal.h>
+#include <dma.h>
 
 //#define TFS_DEBUG
 #if defined(TFS_DEBUG)
@@ -1526,6 +1527,7 @@ void create_filesystem(heap h,
         runtime_memcpy(fs->label, label, label_len);
         fs->label[label_len] = '\0';
     }
+    fs->dma = heap_dma();
     fs->next_extend_log_offset = INVALID_PHYSICAL;
     fs->next_new_log_offset = INVALID_PHYSICAL;
     fs->tl = log_create(h, fs, label != 0, closure(h, log_complete, complete, fs));

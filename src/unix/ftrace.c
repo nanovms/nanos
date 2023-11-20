@@ -1895,7 +1895,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
     cpuinfo ci;
 
     ftrace_heap = heap_locked(&(uh->kh));
-    rbuf_heap = (heap)heap_linear_backed(&(uh->kh));
+    rbuf_heap = (heap)heap_page_backed(&(uh->kh));
 
     cpu_rbufs = allocate_vector(ftrace_heap, total_processors);
     if (cpu_rbufs == INVALID_ADDRESS) {

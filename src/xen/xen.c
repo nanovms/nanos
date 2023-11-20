@@ -184,7 +184,8 @@ static boolean xen_grant_init(kernel_heaps kh)
     gt->n_entries = qs.max_nr_frames * (PAGESIZE / sizeof(grant_entry_v2_t));
 
     /* On our current platforms, this is typically 32 pages / 128kB. */
-    gt->table = allocate_zero((heap)heap_page_backed(kh), qs.max_nr_frames * PAGESIZE);
+    heap table_heap = (heap)heap_linear_backed(kh);
+    gt->table = allocate_zero(table_heap, qs.max_nr_frames * PAGESIZE);
     if (gt->table == INVALID_ADDRESS) {
         msg_err("failed to allocate grant table\n");
         return false;
@@ -229,7 +230,7 @@ static boolean xen_grant_init(kernel_heaps kh)
   fail_dealloc_heap:
     destroy_heap(gt->entry_heap);
   fail_dealloc_table:
-    deallocate((heap)heap_page_backed(kh), gt->table, qs.max_nr_frames * PAGESIZE);
+    deallocate(table_heap, gt->table, qs.max_nr_frames * PAGESIZE);
     return false;
 }
 
@@ -509,7 +510,8 @@ boolean xen_detect(kernel_heaps kh)
     xen_info.xenstore_evtchn = xen_hvm_param.value;
     xen_debug("event channel %ld, allocating and mapping shared info page", xen_info.xenstore_evtchn);
 
-    void *shared_info = allocate_zero((heap)heap_page_backed(kh), PAGESIZE);
+    heap shared_info_heap = (heap)heap_linear_backed(kh);
+    void *shared_info = allocate_zero(shared_info_heap, PAGESIZE);
     assert(shared_info != INVALID_ADDRESS);
     u64 shared_info_phys = physical_from_virtual(shared_info);
     assert(shared_info_phys != INVALID_PHYSICAL);
@@ -580,7 +582,7 @@ boolean xen_detect(kernel_heaps kh)
   out_unregister_irq:
     unregister_interrupt(irq);
   out_dealloc_shared_page:
-    deallocate((heap)heap_page_backed(kh), xen_info.shared_info, PAGESIZE);
+    deallocate(shared_info_heap, xen_info.shared_info, PAGESIZE);
     xen_info.shared_info = 0;
     return false;
 }

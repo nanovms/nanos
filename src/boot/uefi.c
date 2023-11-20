@@ -33,6 +33,7 @@ struct efi_guid uefi_acpi20_table = {
 
 static void *uefi_image_handle;
 static efi_system_table uefi_system_table;
+static struct heap general;
 
 /* UEFI Boot Services */
 #define UBS uefi_system_table->boot_services
@@ -98,6 +99,11 @@ void halt_with_code(u8 code, char *format, ...)
     buffer_print(b);
     UBS->exit(uefi_image_handle, EFI_LOAD_ERROR, 0, 0); /* does not return */
     while(1);   /* to honor "noreturn" attribute */
+}
+
+heap heap_dma(void)
+{
+    return &general;
 }
 
 static u64 uefi_alloc(heap h, bytes b)
@@ -228,7 +234,6 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
 {
     uefi_image_handle = image_handle;
     uefi_system_table = system_table;
-    struct heap general;
     zero(&general, sizeof(general));
     general.alloc = uefi_alloc;
     general.dealloc = uefi_dealloc;

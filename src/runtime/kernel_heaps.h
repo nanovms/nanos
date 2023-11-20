@@ -20,10 +20,9 @@ typedef struct kernel_heaps {
     id_heap virtual_huge;
     id_heap virtual_page;
 
-    /* page_backed heap allocations allocate from both virtual_page and
-       physical, mapping the results together and returning the virtual
-       address. Deallocations remove the mapping and return the spaces to
-       their respective heaps. Accesses are protected by spinlock. */
+    /* page_backed heap allocations allocate from physical, returning the mapped
+       (with writable and no-exec protection) virtual address. Protected by spinlock.
+       Do not use for DMA memory. */
     backed_heap page_backed;
 
     /* The linear_backed heap serves physical allocations via a large, linear
@@ -31,10 +30,8 @@ typedef struct kernel_heaps {
        that is made on initialization. As such, it avoids both allocations
        from a virtual heap and the need to (un)map pages on (de)allocation. It
        uses the largest page mappings provided by the architecture, minimizing
-       TLB use. This heap should be the preferred heap for physically-backed,
-       contiguous allocations, except where per-page allocations, special page
-       protections (as opposed to the default of writable and no-exec) or a
-       dedicated virtual allocation are necessary. */
+       TLB use. This heap should be used for physically-backed, contiguous allocations
+       of DMA memory. */
     backed_heap linear_backed;
 
     /* The general heap is an mcache used for allocations of arbitrary
@@ -43,7 +40,7 @@ typedef struct kernel_heaps {
        interface, deallocations do not require a size (but will
        attempt to verify one if given, so use -1ull to indicate an
        unspecified size). Not protected by spinlock; likely to be replaced by
-       the locked heap. */
+       the locked heap. Do not use for DMA memory. */
     heap general;
 
     /* Like general, but protected by a spinlock. While heap operations from
@@ -54,6 +51,9 @@ typedef struct kernel_heaps {
     /* mcache for "malloc-style" allocations, i.e. to be used by vendor code where deallocation
      * requests are made without a size argument. Protected by spinlock. */
     heap malloc;
+
+    /* mcache for allocations of DMA memory. Protected by spinlock. */
+    heap dma;
 } *kernel_heaps;
 
 static inline id_heap heap_physical(kernel_heaps heaps)

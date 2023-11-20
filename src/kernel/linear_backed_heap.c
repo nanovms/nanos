@@ -87,7 +87,7 @@ static void add_linear_backed_page(linear_backed_heap hb, int index)
         u64 length = U64_FROM_BIT(LINEAR_BACKED_PAGELOG);
         u64 vbase = linear_backed_base_from_index(hb, index);
         u64 pbase = index * length;
-        map(vbase, pbase, length, pageflags_writable(pageflags_memory()));
+        map(vbase, pbase, length, pageflags_dma());
         bitmap_set(hb->mapped, index, 1);
     }
 }

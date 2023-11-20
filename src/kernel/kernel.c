@@ -79,7 +79,7 @@ define_closure_function(2, 0, void, free_kernel_context,
 
     bound(queued) = false;
     if (!enqueue(bound(free_ctx_q), kc))
-        deallocate((heap)heap_linear_backed(get_kernel_heaps()), kc, kc->size);
+        deallocate(heap_locked(get_kernel_heaps()), kc, kc->size);
 }
 
 static void kernel_context_pause(context c)
@@ -133,7 +133,7 @@ void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q
 kernel_context allocate_kernel_context(cpuinfo ci)
 {
     build_assert((KERNEL_CONTEXT_SIZE & (KERNEL_CONTEXT_SIZE - 1)) == 0);
-    kernel_context kc = allocate((heap)heap_linear_backed(get_kernel_heaps()),
+    kernel_context kc = allocate(heap_locked(get_kernel_heaps()),
                                  KERNEL_CONTEXT_SIZE);
     if (kc == INVALID_ADDRESS)
         return kc;

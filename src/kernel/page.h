@@ -18,6 +18,7 @@ typedef struct pageflags {
 } pageflags;
 
 void init_page_initial_map(void *initial_map, range phys);
+range init_page_map_all(id_heap phys, id_heap virt_heap);
 void init_page_tables(heap pageheap);
 
 /* tlb shootdown */
@@ -61,6 +62,11 @@ static inline void unmap_pages(u64 virtual, u64 length)
 }
 
 #include <page_machine.h>
+
+static inline pageflags pageflags_kernel_data(void)
+{
+    return pageflags_writable(pageflags_memory());
+}
 
 /* table traversal */
 typedef closure_type(entry_handler, boolean /* success */, int /* level */,

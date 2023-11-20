@@ -62,7 +62,7 @@ declare_closure_struct(1, 0, void, log_ext_free,
 
 struct log_ext {
     log tl;
-    buffer staging;
+    struct buffer staging;
     boolean open;
     boolean old_encoding;
 
@@ -122,9 +122,9 @@ define_closure_function(1, 0, void, log_ext_free,
                         log_ext, ext)
 {
     log_ext ext = bound(ext);
-    if (ext->staging)
-        deallocate_buffer(ext->staging);
-    heap h = ext->tl->h;
+    log tl = ext->tl;
+    deallocate(tl->fs->dma, ext->staging.contents, ext->staging.length);
+    heap h = tl->h;
     deallocate(h, ext, sizeof(struct log_ext));
 }
 
@@ -135,13 +135,16 @@ static log_ext open_log_extension(log tl, range sectors)
     if (ext == INVALID_ADDRESS)
         return ext;
     ext->tl = tl;
-    ext->staging = allocate_buffer(tl->h, size_bytes);
-    if (ext->staging == INVALID_ADDRESS)
+    tfs fs = tl->fs;
+    heap dma = fs->dma;
+    void *staging = allocate(dma, size_bytes);
+    if (staging == INVALID_ADDRESS)
         goto fail_dealloc;
+    init_buffer(&ext->staging, size_bytes, true, 0, staging);
     ext->open = false;
     ext->old_encoding = false;
-    init_closure(&ext->read, log_storage_op, tl->fs, sectors.start, false);
-    init_closure(&ext->write, log_storage_op, tl->fs, sectors.start, true);
+    init_closure(&ext->read, log_storage_op, fs, sectors.start, false);
+    init_closure(&ext->write, log_storage_op, fs, sectors.start, true);
     ext->sectors = sectors;
     init_refcount(&ext->refcount, 1, init_closure(&ext->free, log_ext_free, ext));
 #ifndef TLOG_READ_ONLY
@@ -158,7 +161,7 @@ static log_ext open_log_extension(log tl, range sectors)
     return ext;
 #ifndef TLOG_READ_ONLY
   fail_dealloc_staging:
-    deallocate_buffer(ext->staging);
+    deallocate(dma, staging, size_bytes);
 #endif
   fail_dealloc:
     deallocate(tl->h, ext, sizeof(struct log_ext));
@@ -278,7 +281,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
 {
     refcount_reserve(&ext->refcount);
     tfs fs = ext->tl->fs;
-    buffer b = ext->staging;
+    buffer b = &ext->staging;
     tlog_ext_lock(ext);
     dump_staging(ext);
     push_u8(b, END_OF_LOG);
@@ -325,13 +328,14 @@ static log_ext log_ext_new(log tl)
 static void log_extension_init(log_ext ext)
 {
     assert(!ext->open);
-    assert(push_buffer(ext->staging, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES)));
-    push_varint(ext->staging, TFS_VERSION);
-    push_varint(ext->staging, range_span(ext->sectors));
+    buffer staging = &ext->staging;
+    assert(push_buffer(staging, alloca_wrap_buffer(tfs_magic, TFS_MAGIC_BYTES)));
+    push_varint(staging, TFS_VERSION);
+    push_varint(staging, range_span(ext->sectors));
     if (ext->sectors.start == 0) {
-        assert(buffer_write(ext->staging, ext->tl->fs->uuid, UUID_LEN));
-        assert(buffer_write_cstring(ext->staging, ext->tl->fs->label));
-        push_u8(ext->staging, '\0');   /* label string terminator */
+        assert(buffer_write(staging, ext->tl->fs->uuid, UUID_LEN));
+        assert(buffer_write_cstring(staging, ext->tl->fs->label));
+        push_u8(staging, '\0');   /* label string terminator */
     }
 }
 
@@ -350,7 +354,7 @@ closure_function(3, 1, void, log_extend_link,
 
     /* add link to close out old extension and commit */
     log_ext old_ext = bound(old_ext);
-    buffer b = old_ext->staging;
+    buffer b = &old_ext->staging;
     push_u8(b, LOG_EXTENSION_LINK);
     push_varint(b, bound(sectors).start);
     push_varint(b, range_span(bound(sectors)));
@@ -409,8 +413,9 @@ static inline boolean log_write_internal(log tl, merge m)
         do {
             assert(buffer_length(tl->tuple_staging) > 0);
             size = log_size(ext);
+            buffer staging = &ext->staging;
             u64 min = TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_MIN_SIZE;
-            if (ext->staging->end + min >= size || ext->old_encoding) {
+            if (staging->end + min >= size || ext->old_encoding) {
                 tlog_ext_unlock(ext);
                 status_handler sh = apply_merge(m);
                 ext = log_extend(tl, TFS_LOG_DEFAULT_EXTENSION_SIZE, sh);
@@ -419,20 +424,20 @@ static inline boolean log_write_internal(log tl, merge m)
                 size = log_size(ext);
                 tlog_ext_lock(ext);
             }
-            assert(ext->staging->end + min < size);
-            u64 avail = size - (ext->staging->end + TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_HEADER_SIZE);
+            assert(staging->end + min < size);
+            u64 avail = size - (staging->end + TFS_EXTENSION_LINK_BYTES + TUPLE_AVAILABLE_HEADER_SIZE);
             u64 length = MIN(avail, remaining);
             if (written == 0) {
-                push_u8(ext->staging, TUPLE_AVAILABLE);
-                push_varint(ext->staging, remaining);
+                push_u8(staging, TUPLE_AVAILABLE);
+                push_varint(staging, remaining);
             } else {
-                push_u8(ext->staging, TUPLE_EXTENDED);
+                push_u8(staging, TUPLE_EXTENDED);
             }
-            push_varint(ext->staging, length);
+            push_varint(staging, length);
 
             /* No graceful way to recover from an alloc failure here, and
                flushing could leave the log extension in a corrupt state. */
-            assert(buffer_write(ext->staging, buffer_ref(tl->tuple_staging, 0), length));
+            assert(buffer_write(staging, buffer_ref(tl->tuple_staging, 0), length));
             buffer_consume(tl->tuple_staging, length);
             remaining -= length;
             written += length;
@@ -720,7 +725,7 @@ closure_function(4, 1, void, log_read_complete,
     }
 
     /* staging is preallocated to size */
-    buffer b = ext->staging;
+    buffer b = &ext->staging;
     buffer_produce(b, bound(length));
     deallocate_sg_list(bound(sg));
     dump_staging(ext);
@@ -864,7 +869,7 @@ static void log_read(log tl, status_handler sh)
     range r = irangel(0, bytes_from_sectors(&tl->fs->fs, range_span(ext->sectors)));
     u64 length = range_span(r);
     sg_buf sgb = sg_list_tail_add(sg, length);
-    sgb->buf = buffer_ref(ext->staging, 0);
+    sgb->buf = buffer_ref(&ext->staging, 0);
     sgb->size = length;
     sgb->offset = 0;
     sgb->refcount = 0;

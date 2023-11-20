@@ -305,7 +305,7 @@ init_http_listener(void)
 void lockstats_init(kernel_heaps kh)
 {
     heap h = heap_general(kh);
-    heap backed = (heap)heap_linear_backed(kh);
+    heap backed = (heap)heap_page_backed(kh);
     lockstats_heap = h;
     cpuinfo ci;
     vector_foreach(cpuinfos, ci) {

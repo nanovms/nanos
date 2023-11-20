@@ -232,6 +232,11 @@ static inline pageflags pageflags_device(void)
             | PAGE_DEFAULT_PERMISSIONS};
 }
 
+static inline pageflags pageflags_dma(void)
+{
+    return (pageflags){.w = pageflags_memory().w & ~PAGE_READONLY};
+}
+
 static inline pageflags pageflags_writable(pageflags flags)
 {
     return (pageflags){.w = flags.w & ~PAGE_READONLY};

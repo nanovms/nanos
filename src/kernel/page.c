@@ -29,8 +29,8 @@ struct spinlock pt_lock;
 static struct {
     range current_phys;
     heap pageheap;
-    void *initial_map;
-    u64 initial_physbase;
+    range pagevirt;
+    u64 physbase;
     u64 levelmask;              /* bitmap of levels allowed to map */
 } pagemem;
 
@@ -42,6 +42,8 @@ physical physical_from_virtual(void *x)
     u64 a = u64_from_pointer(x);
     if (is_linear_backed_address(a))
         return phys_from_linear_backed_virt(a);
+    if (point_in_range(pagemem.pagevirt, a))
+        return pagemem.physbase + a - pagemem.pagevirt.start;
     u64 p;
     pagetable_lock();
     p = __physical_from_virtual_locked(x);
@@ -54,13 +56,8 @@ u64 *pointer_from_pteaddr(u64 pa)
 {
     if (bootstrapping)
         return pointer_from_u64(pa);
-    if (!pagemem.pageheap) {
-        u64 offset = pa - pagemem.initial_physbase;
-        assert(pagemem.initial_map);
-        assert(pa >= pagemem.initial_physbase); /* may legitimately extend past end */
-        return pagemem.initial_map + offset;
-    }
-    return pointer_from_u64(virt_from_linear_backed_phys(pa));
+    u64 offset = pa - pagemem.physbase;
+    return pointer_from_u64(pagemem.pagevirt.start + offset);
 }
 
 void *allocate_table_page(u64 *phys)
@@ -73,17 +70,15 @@ void *allocate_table_page(u64 *phys)
     }
     page_init_debug("allocate_table_page:");
     if (range_span(pagemem.current_phys) == 0) {
-        assert(pagemem.pageheap);
-        page_init_debug(" [new alloc, va: ");
-        u64 va = allocate_u64(pagemem.pageheap, PAGEMEM_ALLOC_SIZE);
-        if (va == INVALID_PHYSICAL) {
+        page_init_debug(" [new alloc, pa: ");
+        u64 pa = allocate_u64(pagemem.pageheap, PAGEMEM_ALLOC_SIZE);
+        if (pa == INVALID_PHYSICAL) {
             msg_err("failed to allocate page table memory\n");
             return INVALID_ADDRESS;
         }
-        page_init_debug_u64(va);
+        page_init_debug_u64(pa);
         page_init_debug("] ");
-        assert(is_linear_backed_address(va));
-        pagemem.current_phys = irangel(phys_from_linear_backed_virt(va), PAGEMEM_ALLOC_SIZE);
+        pagemem.current_phys = irangel(pa, PAGEMEM_ALLOC_SIZE);
     }
 
     *phys = pagemem.current_phys.start;
@@ -549,13 +544,79 @@ void unmap(u64 virtual, u64 length)
     unmap_pages(virtual, length);
 }
 
-/* Unless this is a bootloader build, pageheap must be the huge backed heap. */
+static boolean init_page_map(range phys, range *curr_virt, id_heap virt_heap, pageflags flags)
+{
+    if (phys.end > range_span(*curr_virt)) {
+        u64 alloc = pad(phys.end - range_span(*curr_virt), virt_heap->h.pagesize);
+        if (!id_heap_set_area(virt_heap, curr_virt->end, alloc, true, true))
+            return false;
+        curr_virt->end += alloc;
+    }
+    map(curr_virt->start + phys.start, phys.start, range_span(phys), flags);
+    return true;
+}
+
+closure_function(6, 1, boolean, init_page_map_all_rh,
+                 range *, curr_virt, id_heap, virt_heap, u64, margin, pageflags, flags, u64, last_end, range *, init_pages,
+                 range, r)
+{
+    u64 margin = bound(margin);
+    range phys = irange(r.start & ~(margin - 1), pad(r.end, margin));
+    if (phys.start < bound(last_end)) {
+        phys.start = bound(last_end);
+        if (phys.start == phys.end)
+            return true;
+    }
+    range *curr_virt = bound(curr_virt);
+    id_heap virt_heap = bound(virt_heap);
+    pageflags flags = bound(flags);
+    if (!init_page_map(phys, curr_virt, virt_heap, flags))
+        return false;
+    bound(last_end) = phys.end;
+    range *init_pages = bound(init_pages);
+    range i = range_intersection(phys, *init_pages);
+    if (range_span(i)) {
+        if ((i.start > init_pages->start) &&
+            !init_page_map(irange(init_pages->start, i.start), curr_virt, virt_heap, flags))
+            return false;
+        init_pages->start = i.end;
+    }
+    return true;
+}
+
+range init_page_map_all(id_heap phys, id_heap virt_heap)
+{
+    u64 initial_alloc = virt_heap->h.pagesize;
+    range pagevirt = irangel(allocate_u64((heap)virt_heap, initial_alloc), initial_alloc);
+    u64 margin = GB;
+    pageflags flags = pageflags_kernel_data();
+
+    /* Map all memory in the physical heap, plus the initial pages (which may not be accounted for
+     * in the physical heap). */
+    range init_pages = irange(pagemem.physbase & ~(margin - 1),
+                              pad(pagemem.current_phys.end, margin));
+    id_heap_range_foreach(phys, stack_closure(init_page_map_all_rh, &pagevirt, virt_heap, margin,
+                                              flags, 0, &init_pages));
+    if (range_span(init_pages))
+        assert(init_page_map(init_pages, &pagevirt, virt_heap, flags));
+
+    pagemem.current_phys = irange(0, 0);
+    pagemem.pageheap = (heap)phys;
+    pagemem.pagevirt = pagevirt;
+    pagemem.physbase = 0;
+    return pagevirt;
+}
+
+/* pageheap must be a physical memory heap. */
 void init_page_tables(heap pageheap)
 {
     page_init_debug("init_page_tables: pageheap ");
     page_init_debug_u64(u64_from_pointer(pageheap));
     page_init_debug("\n");
+    pagemem.current_phys = irange(0, 0);
     pagemem.pageheap = pageheap;
+    pagemem.pagevirt = irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT);
+    pagemem.physbase = 0;
 }
 
 void page_set_allowed_levels(u64 levelmask)
@@ -578,7 +639,7 @@ void init_page_initial_map(void *initial_map, range phys)
     spin_lock_init(&pt_lock);
     pagemem.current_phys = phys;
     pagemem.pageheap = 0;
-    pagemem.initial_map = initial_map;
-    pagemem.initial_physbase = phys.start;
+    pagemem.pagevirt = irangel(u64_from_pointer(initial_map), range_span(phys));
+    pagemem.physbase = phys.start;
 }
 #endif

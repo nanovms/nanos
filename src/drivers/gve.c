@@ -218,6 +218,8 @@ struct gve_tx_seg_desc {
 #define GVE_RXF_ERR         htobe16(1 << 11)
 #define GVE_RXF_PKT_CONT    htobe16(1 << 13)
 
+#define GVE_IRQ_DB_COUNT    2   /* one for TX, one for RX */
+
 /* padding added at the beginning of received Ethernet frames */
 #define GVE_RX_PADDING  2
 
@@ -245,7 +247,7 @@ typedef struct gve_tx_queue {
         struct gve_tx_seg_desc seg;
     } *desc;
     u32 *qpl_allocated;
-    struct gve_queue_resources q_res;
+    struct gve_queue_resources *q_res;
 } *gve_tx_queue;
 
 declare_closure_struct(0, 0, void, gve_rx_irq);
@@ -264,7 +266,7 @@ typedef struct gve_rx_queue {
     u32 *irq_db_index;
     closure_struct(gve_rx_irq, irq_handler);
     closure_struct(gve_rx_service, service);
-    struct gve_queue_resources q_res;
+    struct gve_queue_resources *q_res;
 } *gve_rx_queue;
 
 declare_closure_struct(0, 0, void, gve_mgmt_irq);
@@ -281,7 +283,7 @@ typedef struct gve {
     u16 tx_pages_per_qpl, rx_data_slot_cnt;
     u16 num_event_counters;
     u32 *event_counters;
-    struct gve_irq_db irq_db_indices[2];    /* one for TX, one for RX */
+    struct gve_irq_db *irq_db_indices;
     struct gve_tx_queue tx;
     struct gve_rx_queue rx;
     closure_struct(gve_mgmt_irq, mgmt_irq_handler);
@@ -366,6 +368,10 @@ static boolean gve_cfg_device_resources(gve adapter)
     if (adapter->event_counters == INVALID_ADDRESS)
         return false;
 
+    u64 irq_db_size = sizeof(struct gve_irq_db) * GVE_IRQ_DB_COUNT;
+    adapter->irq_db_indices = allocate(adapter->contiguous, irq_db_size);
+    if (adapter->irq_db_indices == INVALID_ADDRESS)
+        goto err;
     struct gve_adminq_command *cmd = gve_adminq_new_cmd(adapter);
     cmd->opcode = htobe32(GVE_ADMINQ_CONFIGURE_DEVICE_RESOURCES);
     cmd->cfg_dev_resources.counter_array = htobe64(physical_from_virtual(adapter->event_counters));
@@ -376,9 +382,12 @@ static boolean gve_cfg_device_resources(gve adapter)
     cmd->cfg_dev_resources.ntfy_blk_msix_base_idx = htobe32(0); /* management vector is last */
     cmd->cfg_dev_resources.queue_format = GVE_GQI_QPL_FORMAT;
     boolean success = gve_adminq_execute_cmd(adapter, cmd);
-    if (!success)
-        deallocate(adapter->contiguous, adapter->event_counters, evt_cnt_size);
-    return success;
+    if (success)
+        return success;
+    deallocate(adapter->contiguous, adapter->irq_db_indices, irq_db_size);
+  err:
+    deallocate(adapter->contiguous, adapter->event_counters, evt_cnt_size);
+    return false;
 }
 
 static void gve_free_device_resources(gve adapter)
@@ -386,6 +395,8 @@ static void gve_free_device_resources(gve adapter)
     struct gve_adminq_command *cmd = gve_adminq_new_cmd(adapter);
     cmd->opcode = htobe32(GVE_ADMINQ_DECONFIGURE_DEVICE_RESOURCES);
     gve_adminq_execute_cmd(adapter, cmd);
+    deallocate(adapter->contiguous, adapter->irq_db_indices,
+               sizeof(struct gve_irq_db) * GVE_IRQ_DB_COUNT);
     deallocate(adapter->contiguous, adapter->event_counters,
                MAX(adapter->num_event_counters * sizeof(u32), PAGESIZE));
 }
@@ -415,7 +426,7 @@ define_closure_function(0, 0, void, gve_mgmt_irq)
 }
 
 static void gve_tx_cleanup(gve_tx_queue tx) {
-    u32 tail = be32toh(tx->adapter->event_counters[be32toh(tx->q_res.counter_index)]);
+    u32 tail = be32toh(tx->adapter->event_counters[be32toh(tx->q_res->counter_index)]);
     gve_debug("TX tail %d -> %d, QPL available %d", tx->tail, tail, tx->qpl_available);
     for (; tx->tail != tail; tx->tail++)
         tx->qpl_available += tx->qpl_allocated[tx->tail & tx->mask];
@@ -479,7 +490,8 @@ err_t gve_linkoutput(struct netif *netif, struct pbuf *p)
     }
     gve_debug("TX head %d, QPL available %d", tx->head, tx->qpl_available);
     write_barrier();
-    pci_bar_write_4(&adapter->db_bar, be32toh(tx->q_res.db_index) * sizeof(u32), htobe32(tx->head));
+    pci_bar_write_4(&adapter->db_bar, be32toh(tx->q_res->db_index) * sizeof(u32),
+                    htobe32(tx->head));
     return ERR_OK;
 }
 
@@ -506,7 +518,7 @@ static void gve_rx_fill(gve_rx_queue rx)
     }
     gve_debug("filled %d slots", slot_count);
     if (slot_count)
-        pci_bar_write_4(&adapter->db_bar, be32toh(rx->q_res.db_index) * sizeof(u32),
+        pci_bar_write_4(&adapter->db_bar, be32toh(rx->q_res->db_index) * sizeof(u32),
                         htobe32(rx->head));
 }
 
@@ -527,7 +539,7 @@ define_closure_function(0, 0, void, gve_rx_service)
     boolean irq_acked = false;
     spin_lock(&rx->lock);
   begin:
-    tail = be32toh(adapter->event_counters[be32toh(rx->q_res.counter_index)]);
+    tail = be32toh(adapter->event_counters[be32toh(rx->q_res->counter_index)]);
     gve_debug("RX tail %d -> %d", rx->tail, tail);
     for (; rx->tail != tail; rx->qpl_available++, rx->tail++) {
         struct gve_rx_desc *desc = &rx->desc[rx->tail & rx->mask];
@@ -654,22 +666,27 @@ static boolean gve_create_tx_queue(gve adapter, gve_tx_queue tx, u32 index)
                                  adapter->tx_desc_cnt * sizeof(*tx->qpl_allocated));
     if (tx->qpl_allocated == INVALID_ADDRESS)
         goto err2;
+    tx->q_res = allocate(adapter->contiguous, sizeof(*tx->q_res));
+    if (tx->q_res == INVALID_ADDRESS)
+        goto err3;
     struct gve_adminq_command *cmd = gve_adminq_new_cmd(adapter);
     cmd->opcode = htobe32(GVE_ADMINQ_CREATE_TX_QUEUE);
     cmd->create_tx_queue.queue_id = htobe32(index);
-    cmd->create_tx_queue.queue_resources_addr = htobe64(physical_from_virtual(&tx->q_res));
+    cmd->create_tx_queue.queue_resources_addr = htobe64(physical_from_virtual(tx->q_res));
     cmd->create_tx_queue.tx_ring_addr = htobe64(physical_from_virtual(tx->desc));
     cmd->create_tx_queue.queue_page_list_id = htobe32(id);
     cmd->create_tx_queue.ntfy_id = htobe32(id);
     boolean success = gve_adminq_execute_cmd(adapter, cmd);
     if (!success)
-        goto err3;
+        goto err4;
     tx->mask = adapter->tx_desc_cnt - 1;
     tx->head = tx->tail = 0;
     tx->qpl_head = 0;
     tx->qpl_available = tx->qpl_size = num_pages * PAGESIZE;
     tx->adapter = adapter;
     return true;
+  err4:
+    deallocate(adapter->contiguous, tx->q_res, sizeof(*tx->q_res));
   err3:
     deallocate(adapter->general, tx->qpl_allocated,
                adapter->tx_desc_cnt * sizeof(*tx->qpl_allocated));
@@ -686,6 +703,7 @@ static void gve_destroy_tx_queue(gve adapter, gve_tx_queue tx, u32 index)
     cmd->opcode = htobe32(GVE_ADMINQ_DESTROY_TX_QUEUE);
     cmd->destroy_tx_queue.queue_id = htobe32(index);
     gve_adminq_execute_cmd(adapter, cmd);
+    deallocate(adapter->contiguous, tx->q_res, sizeof(*tx->q_res));
     deallocate(adapter->general, tx->qpl_allocated,
                adapter->tx_desc_cnt * sizeof(*tx->qpl_allocated));
     deallocate(adapter->contiguous, tx->desc, adapter->tx_desc_cnt * sizeof(*tx->desc));
@@ -709,18 +727,21 @@ static boolean gve_create_rx_queue(gve adapter, gve_rx_queue rx, u32 index)
     rx->data = allocate(adapter->contiguous, adapter->rx_data_slot_cnt * sizeof(*rx->data));
     if (rx->data == INVALID_ADDRESS)
         goto err3;
+    rx->q_res = allocate(adapter->contiguous, sizeof(*rx->q_res));
+    if (rx->q_res == INVALID_ADDRESS)
+        goto err4;
     struct gve_adminq_command *cmd = gve_adminq_new_cmd(adapter);
     cmd->opcode = htobe32(GVE_ADMINQ_CREATE_RX_QUEUE);
     cmd->create_rx_queue.queue_id = cmd->create_rx_queue.index = htobe32(index);
     cmd->create_rx_queue.ntfy_id = htobe32(id);
-    cmd->create_rx_queue.queue_resources_addr = htobe64(physical_from_virtual(&rx->q_res));
+    cmd->create_rx_queue.queue_resources_addr = htobe64(physical_from_virtual(rx->q_res));
     cmd->create_rx_queue.rx_desc_ring_addr = htobe64(physical_from_virtual(rx->desc));
     cmd->create_rx_queue.rx_data_ring_addr = htobe64(physical_from_virtual(rx->data));
     cmd->create_rx_queue.queue_page_list_id = htobe32(id);
     cmd->create_rx_queue.packet_buffer_size = htobe16(PAGESIZE / 2);
     boolean success = gve_adminq_execute_cmd(adapter, cmd);
     if (!success)
-        goto err4;
+        goto err5;
     rx->mask = adapter->rx_desc_cnt - 1;
     rx->head = rx->tail = 0;
     rx->qpl_head = 0;
@@ -738,6 +759,8 @@ static boolean gve_create_rx_queue(gve adapter, gve_rx_queue rx, u32 index)
     spin_lock_init(&rx->lock);
     gve_rx_fill(rx);
     return true;
+  err5:
+    deallocate(adapter->contiguous, rx->q_res, sizeof(*rx->q_res));
   err4:
     deallocate(adapter->contiguous, rx->data, adapter->rx_data_slot_cnt * sizeof(*rx->data));
   err3:

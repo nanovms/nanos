@@ -110,7 +110,7 @@ struct virtio_scsi {
     struct virtqueue *command;
 
     struct virtqueue *eventq;
-    struct virtio_scsi_event events[VIRTIO_SCSI_NUM_EVENTS];
+    struct virtio_scsi_event *events;
 
     struct virtqueue *requestq;
 
@@ -716,8 +716,13 @@ static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_
     vtpci_set_status(s->v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
     // enqueue events
-    for (int i = 0; i < VIRTIO_SCSI_NUM_EVENTS; i++)
-        virtio_scsi_enqueue_event(s, s->events + i, 0);
+    s->events = allocate((heap)page_allocator,
+                         VIRTIO_SCSI_NUM_EVENTS * sizeof(struct virtio_scsi_event));
+    if (s->events != INVALID_ADDRESS)
+        for (int i = 0; i < VIRTIO_SCSI_NUM_EVENTS; i++)
+            virtio_scsi_enqueue_event(s, s->events + i, 0);
+    else
+        msg_err("failed to allocate events\n");
 
     // scan bus
     for (u16 target = 0; target <= s->max_target; target++)

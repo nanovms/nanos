@@ -138,7 +138,7 @@ static void ap_start(void)
 {
     int cpuid = cpuid_from_mpid(read_mpid());
     assert(cpuid >= 0);
-    cpuinfo ci = init_cpuinfo((heap)heap_linear_backed(get_kernel_heaps()), cpuid);
+    cpuinfo ci = init_cpuinfo(heap_locked(get_kernel_heaps()), cpuid);
     assert(ci != INVALID_ADDRESS);
     context_frame f = ci->m.kernel_context->frame;
     switch_stack_1(frame_get_stack_top(f), ap_start_newstack, cpuid);

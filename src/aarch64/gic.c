@@ -290,7 +290,7 @@ boolean dev_irq_enable(u32 dev_id, int vector)
             itt_size = MAX(itt_size, U64_FROM_BIT(8));  /* ensure 256-byte alignment */
             gic_debug("creating ITT with %ld entries (%ld bytes)\n", ite_num, itt_size);
             u64 pa;
-            dev->itt = alloc_map(heap_page_backed(kh), itt_size, &pa);
+            dev->itt = alloc_map(heap_linear_backed(kh), itt_size, &pa);
             if (dev->itt == INVALID_ADDRESS) {
                 deallocate(heap_locked(kh), dev, sizeof(*dev));
                 return false;
@@ -384,6 +384,7 @@ static void init_gits(kernel_heaps kh)
         gic.redist.rdbase = gic.redist.base >> 16;
     else
         gic.redist.rdbase = GICR_TYPER_PROC_NUM(gicr_read_64(TYPER));
+    backed_heap backed = heap_linear_backed(kh);
     u64 pa;
     for (int n = 0; n < 8; n++) {
         u64 base = gits_read_64(BASER(n));
@@ -410,7 +411,7 @@ static void init_gits(kernel_heaps kh)
                       GITS_TABLE_TYPE(base), GITS_TABLE_ENTRY_SIZE(base) + 1, page_size);
             if (GITS_TABLE_TYPE(base) == GITS_TABLE_DEVICES)
                 gic.dev_id_limit = page_size / (GITS_TABLE_ENTRY_SIZE(base) + 1);
-            table = alloc_map(heap_page_backed(kh), page_size, &pa);
+            table = alloc_map(backed, page_size, &pa);
             assert(table != INVALID_ADDRESS);
             zero(table, page_size);
             base = (base & ~GITS_BASE_PA_MASK) | pa;
@@ -421,7 +422,7 @@ static void init_gits(kernel_heaps kh)
     list_init(&gic.devices);
 
     /* Set up the command queue. */
-    gic.its_cmd_queue = alloc_map(heap_page_backed(kh), GIC_CMD_QUEUE_SIZE, &pa);
+    gic.its_cmd_queue = alloc_map(backed, GIC_CMD_QUEUE_SIZE, &pa);
     assert(gic.its_cmd_queue != INVALID_ADDRESS);
     gits_write_64(CBASER, GITS_CBASER_VALID | pa | (GIC_CMD_QUEUE_SIZE / PAGESIZE));
     gits_write_64(CWRITER, 0);
@@ -488,15 +489,16 @@ int init_gic(void)
         /* Set up a page-sized LPI configuration table. */
         gic_msi_vector_num = MAX(gic_msi_vector_num, PAGESIZE); /* 1 byte per LPI */
         kernel_heaps kh = get_kernel_heaps();
+        backed_heap backed = heap_linear_backed(kh);
         u64 pa;
-        gic.lpi_cfg_table = alloc_map(heap_page_backed(kh), PAGESIZE, &pa);
+        gic.lpi_cfg_table = alloc_map(backed, PAGESIZE, &pa);
         assert(gic.lpi_cfg_table != INVALID_ADDRESS);
         zero(gic.lpi_cfg_table, PAGESIZE);
         u64 id_bits = find_order(gic_msi_vector_base + gic_msi_vector_num) - 1;
         gicr_write_64(PROPBASER, pa | id_bits);
 
         /* Set up LPI pending table, which must be aligned to 64 KB. */
-        void *lpi_pending_table = alloc_map(heap_page_backed(kh), 64 * KB, &pa);
+        void *lpi_pending_table = alloc_map(backed, 64 * KB, &pa);
         assert(lpi_pending_table != INVALID_ADDRESS);
         zero(lpi_pending_table, 64 * KB);
         gicr_write_64(PENDBASER, GICR_PENDBASER_PTZ | pa);

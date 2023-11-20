@@ -491,7 +491,7 @@ process_context get_process_context(void)
         refcount_set_count(&pc->uc.kc.context.refcount, 1);
         return pc;
     }
-    pc = allocate((heap)heap_linear_backed(get_kernel_heaps()), PROCESS_CONTEXT_SIZE);
+    pc = allocate(heap_locked(get_kernel_heaps()), PROCESS_CONTEXT_SIZE);
     if (pc == INVALID_ADDRESS)
         return pc;
     init_unix_context(&pc->uc, CONTEXT_TYPE_PROCESS, PROCESS_CONTEXT_SIZE,
@@ -623,7 +623,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     u_heap = uh;
     uh->kh = *kh;
     uh->processes = locking_heap_wrapper(h, (heap)create_id_heap(h, h, 1, 65535, 1, false));
-    uh->file_cache = allocate_objcache(h, (heap)heap_linear_backed(kh), sizeof(struct file),
+    uh->file_cache = allocate_objcache(h, (heap)heap_page_backed(kh), sizeof(struct file),
                                        PAGESIZE, true);
     if (uh->file_cache == INVALID_ADDRESS)
 	goto alloc_fail;

@@ -56,8 +56,7 @@ void sg_consume(sg_list sg, u64 length)
 
 /* TODO clean up redundant parts of loop with macros or static closures */
 
-/* copy content of sg, up to length bytes, into target, releasing consumed buffers */
-u64 sg_copy_to_buf(void *target, sg_list sg, u64 n)
+static u64 sg_copy(void *buf, sg_list sg, u64 n, boolean to_buf)
 {
     sg_buf sgb;
     u64 remain = n;
@@ -65,9 +64,13 @@ u64 sg_copy_to_buf(void *target, sg_list sg, u64 n)
     sg_debug("%s: target %p, sg %p, length 0x%lx, count %ld\n", __func__, target, sg, length, sg->count);
     while (remain > 0 && (sgb = sg_list_head_peek(sg)) != INVALID_ADDRESS) {
         assert(sgb->size > sgb->offset); /* invariant: no null-length bufs */
+        void *sg_buf = sgb->buf + sgb->offset;
         u64 len = MIN(remain, sg_buf_len(sgb));
-        runtime_memcpy(target, sgb->buf + sgb->offset, len);
-        target += len;
+        if (to_buf)
+            runtime_memcpy(buf, sg_buf, len);
+        else
+            runtime_memcpy(sg_buf, buf, len);
+        buf += len;
         sgb->offset += len;
         remain -= len;
         if (sgb->offset < sgb->size)
@@ -76,6 +79,18 @@ u64 sg_copy_to_buf(void *target, sg_list sg, u64 n)
         sg_buf_release(sgb);
     }
     return n - remain;
+}
+
+/* copy content of sg, up to length bytes, into target, releasing consumed buffers */
+u64 sg_copy_to_buf(void *target, sg_list sg, u64 length)
+{
+    return sg_copy(target, sg, length, true);
+}
+
+/* copy content of src, up to length bytes, into sg, releasing consumed buffers */
+u64 sg_copy_from_buf(void *src, sg_list sg, u64 length)
+{
+    return sg_copy(src, sg, length, false);
 }
 
 u64 sg_move(sg_list dest, sg_list src, u64 n)

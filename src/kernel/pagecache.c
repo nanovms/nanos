@@ -17,6 +17,7 @@ typedef void *nanos_thread;
 #define set_current_thread(t)
 #endif
 
+#include <dma.h>
 #include <pagecache.h>
 #include <pagecache_internal.h>
 #include <tfs.h>
@@ -377,7 +378,7 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
             if (read_size < cache_pagesize(pc))
                 zero(pp->kvirt + read_size, cache_pagesize(pc) - read_size);
             assert(pagecache_add_sgb(pp, sg, read_size) != INVALID_ADDRESS);
-            apply(pn->fs_read, sg, r,
+            dma_sg_read(pn->fs_read, sg, r,
                   closure(pc->h, pagecache_read_page_complete, pc, pp, sg));
             return false;
         }
@@ -1062,7 +1063,7 @@ define_closure_function(3, 1, void, pagecache_commit_dirty_ranges,
             rp->start = start;
         if (range_span(r) == 0)
             break;
-        apply(pn->fs_write, sg, r,
+        dma_sg_write(pn->fs_write, sg, r,
               closure(pc->h, pagecache_commit_complete, pc, first_page, page_count, sg, apply_merge(m)));
     }
     pagecache_unlock_node(pn);
@@ -1263,7 +1264,7 @@ static void pagecache_node_fetch_sg(pagecache pc, pagecache_node pn, range r, sg
     closure_member(pagecache_node_fetch_complete, fetch_complete, page_count) =
         range_span(range_rshift_pad(r, pc->page_order));
     pagecache_debug("fetching %R from node %p\n", r, pn);
-    apply(pn->fs_read, sg, r, fetch_complete);
+    dma_sg_read(pn->fs_read, sg, r, fetch_complete);
 }
 
 static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler ph,
@@ -1918,7 +1919,8 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     pc->contiguous = contiguous;
 #endif
     pc->physical = physical;
-    pc->zero_page = allocate_zero(contiguous, pagesize);
+    heap dma = heap_dma();
+    pc->zero_page = allocate_zero(dma, pagesize);
     assert(pc->zero_page != INVALID_ADDRESS);
 
 #ifdef KERNEL

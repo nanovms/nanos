@@ -5,6 +5,7 @@
 #include <tfs.h>
 #include <net.h>
 #include <symtab.h>
+#include <dma.h>
 #include <drivers/console.h>
 #include <serial.h>
 
@@ -32,8 +33,17 @@ static u64 bootstrap_alloc(heap h, bytes length)
 {
     u64 result = bootstrap_base;
     if ((result + length) > bootstrap_limit) {
-        rputs("*** bootstrap heap overflow! ***\n");
-        return INVALID_PHYSICAL;
+        if (!init_heaps) {
+            rputs("*** bootstrap heap overflow! ***\n");
+            return INVALID_PHYSICAL;
+        }
+        heap phys_heap = (heap)init_heaps->physical;
+        u64 alloc = pad(length, phys_heap->pagesize);
+        u64 pa = allocate_u64(phys_heap, alloc);
+        if (pa == INVALID_PHYSICAL)
+            return INVALID_PHYSICAL;
+        map(bootstrap_limit, pa, alloc, pageflags_kernel_data());
+        bootstrap_limit += alloc;
     }
     bootstrap_base += pad(length, 8);   /* ensure 8-byte alignment for the next allocation */
     return result;
@@ -46,14 +56,12 @@ u64 init_bootstrap_heap(u64 phys_length)
 {
     u64 page_count = phys_length >> PAGELOG;
 
-    /* In theory, the bootstrap heap must accommodate 1 bit per physical memory page (as needed by
-     * the id heap bitmap); but due to the way buffer extension works, when a bitmap is extended its
-     * internal buffer doubles its allocated memory, which may need up to double the theoretical
-     * amount of memory; plus, this allocated memory needs to coexist with previously allocated
-     * memory (because deallocation is not implemented); thus, the bootstrap heap needs 4 times the
-     * theoretical amount of memory.
+    /* In theory, when initializing the physical heap, the bootstrap heap must accommodate 1 bit per
+     * physical memory page (as needed by the id heap bitmap); but due to the way buffer extension
+     * works, when an id heap is pre-allocated, its bitmap allocates twice the amount of memory
+     * needed; thus, the bootstrap heap needs twice the theoretical amount of memory.
      * In addition, we need some extra space for various initial allocations. */
-    u64 bootstrap_size = 4 * PAGESIZE + pad(page_count >> 1, PAGESIZE);
+    u64 bootstrap_size = 4 * PAGESIZE + pad(page_count >> 2, PAGESIZE);
 
     bootstrap_limit = BOOTSTRAP_BASE + bootstrap_size;
     return bootstrap_size;
@@ -74,34 +82,72 @@ void init_kernel_heaps(void)
 #endif
     assert(heaps.linear_backed != INVALID_ADDRESS);
 
+    /* Calculate the base value for kernel virtual addresses so that this range doesn't overlap with
+     * the bootstrap heap, even in the worst case where all virtual address space is allocated.
+     * In theory, after the initial allocations the bootstrap heap must accommodate 1 bit per virtual
+     * memory page (as needed by the virtual_page id heap bitmap); but due to the way buffer
+     * extension works, when a bitmap is extended its internal buffer doubles its allocated memory,
+     * which may need up to double the theoretical amount of memory; plus, this allocated memory
+     * needs to coexist with previously allocated memory (because deallocation is not implemented);
+     * thus, the bootstrap heap needs 4 times the theoretical amount of memory. */
+    u64 kmem_base = pad(bootstrap_limit + ((KMEM_LIMIT - bootstrap_limit) >> (PAGELOG + 1)),
+                        HUGE_PAGESIZE);
+    heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, kmem_base,
+                                        KMEM_LIMIT - kmem_base, HUGE_PAGESIZE, true);
+
+    /* Pre-allocate all memory that might be needed for the physical and virtual huge heaps, so that
+     * during runtime all allocations on the bootstrap heap come from a single source protected by a
+     * lock (i.e. the virtual page heap). */
+    id_heap_prealloc(heaps.physical);
+    id_heap_prealloc(heaps.virtual_huge);
+
+    heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap,
+                                               (heap)heaps.virtual_huge, PAGESIZE, true);
+    boolean kernmem_equals_dmamem = (pageflags_kernel_data().w == pageflags_dma().w);
+    if (kernmem_equals_dmamem) {
+        heaps.page_backed = heaps.linear_backed;
+        init_page_tables((heap)heaps.physical);
+    } else {
+        /* The linear_backed heap cannot be used for non-DMA kernel data, thus we need another
+         * linear mapping for the page tables: do this mapping, then use it to create the
+         * page_backed heap. */
+        range mapped_virt = init_page_map_all(heaps.physical, heaps.virtual_huge);
+        heaps.page_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical, mapped_virt);
+#if defined(MEMDEBUG_BACKED) || defined(MEMDEBUG_ALL)
+        heaps.page_backed = mem_debug_backed(&bootstrap, heaps.page_backed, PAGESIZE_2M, true);
+#endif
+    }
+
     boolean is_lowmem = is_low_memory_machine();
     int max_mcache_order = is_lowmem ? MAX_LOWMEM_MCACHE_ORDER : MAX_MCACHE_ORDER;
     bytes pagesize = is_lowmem ? U64_FROM_BIT(max_mcache_order + 1) : PAGESIZE_2M;
-    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.linear_backed, 5, max_mcache_order,
+    heaps.general = allocate_mcache(&bootstrap, (heap)heaps.page_backed, 5, max_mcache_order,
                                     pagesize, false);
     assert(heaps.general != INVALID_ADDRESS);
 
     heaps.locked = locking_heap_wrapper(heaps.general, heaps.general);
     assert(heaps.locked != INVALID_ADDRESS);
 
-    u64 kmem_base = pad(bootstrap_limit, HUGE_PAGESIZE);
-    heaps.virtual_huge = create_id_heap(heaps.general, heaps.locked, kmem_base,
-                                        KMEM_LIMIT - kmem_base, HUGE_PAGESIZE, true);
-    assert(heaps.virtual_huge != INVALID_ADDRESS);
+    if (kernmem_equals_dmamem) {
+        heaps.dma = heaps.locked;
+    } else {
+        heap dma = allocate_mcache(&bootstrap, (heap)heaps.linear_backed, 5, max_mcache_order,
+                                   pagesize, false);
+        heaps.dma = locking_heap_wrapper(&bootstrap, dma);
+    }
 
-    heaps.virtual_page = create_id_heap_backed(heaps.general, heaps.locked,
-                                               (heap)heaps.virtual_huge, PAGESIZE, true);
-    assert(heaps.virtual_page != INVALID_ADDRESS);
-
-    heaps.page_backed = allocate_page_backed_heap(heaps.general, (heap)heaps.virtual_page,
-                                                  (heap)heaps.physical, PAGESIZE, true);
-    assert(heaps.page_backed != INVALID_ADDRESS);
-
+    /* The malloc-style heap is used by the network stack to allocate network packets, thus it must
+     * be backed by a DMA-compatible heap. */
     heaps.malloc = allocate_mcache(heaps.locked, (heap)heaps.linear_backed, 5, max_mcache_order,
                                    pagesize, true);
     assert(heaps.malloc != INVALID_ADDRESS);
     heaps.malloc = locking_heap_wrapper(heaps.general, heaps.malloc);
     assert(heaps.malloc != INVALID_ADDRESS);
+}
+
+heap heap_dma(void)
+{
+    return heaps.dma;
 }
 
 closure_function(2, 1, void, offset_req_handler,
@@ -411,11 +457,12 @@ void kernel_runtime_init(kernel_heaps kh)
     init_runtime(misc, locked);
     timm_oom = timm("result", "out of memory");
     init_sg(locked);
+    dma_init(kh);
     list_init(&mm_cleaners);
     spin_lock_init(&mm_lock);
     u64 memory_reserve = is_low_memory_machine() ? PAGECACHE_LOWMEM_MEMORY_RESERVE :
                                                    PAGECACHE_MEMORY_RESERVE;
-    init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_linear_backed(kh), memory_reserve),
+    init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_page_backed(kh), memory_reserve),
                    reserve_heap_wrapper(misc, (heap)heap_physical(kh), memory_reserve), PAGESIZE);
     mem_cleaner pc_cleaner = closure(misc, mm_pagecache_cleaner);
     assert(pc_cleaner != INVALID_ADDRESS);
@@ -431,7 +478,7 @@ void kernel_runtime_init(kernel_heaps kh)
     shutdown_completions = allocate_vector(locked, SHUTDOWN_COMPLETIONS_SIZE);
 
     init_debug("init_kernel_contexts");
-    init_kernel_contexts((heap)heap_linear_backed(kh));
+    init_kernel_contexts(misc);
 
     init_debug("init_interrupts");
     init_interrupts(kh);

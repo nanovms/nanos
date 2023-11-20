@@ -68,6 +68,8 @@ void read_kernel_syms(void)
 
 void reclaim_regions(void)
 {
+    /* mmu init complete; unmap temporary identity map */
+    unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
 }
 
 static inline void virt_shutdown(u64 code)
@@ -100,9 +102,6 @@ static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
     kernel_heaps kh = get_kernel_heaps();
-    init_page_tables((heap)heap_linear_backed(kh));
-    /* mmu init complete; unmap temporary identity map */
-    unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
     bytes pagesize = is_low_memory_machine() ? PAGESIZE : PAGESIZE_2M;
     init_integers(locking_heap_wrapper(heap_general(kh),
                   allocate_tagged_region(kh, tag_integer, pagesize)));

@@ -259,7 +259,7 @@ closure_function(3, 2, boolean, autoload_klib_each,
         klib_handler kl_complete = closure(h, autoload_klib_complete, bound(pending),
             bound(retry_klibs), sh, 0);
         assert(kl_complete != INVALID_ADDRESS);
-        filesystem_read_entire(klib_fs, v, (heap)heap_linear_backed(klib_kh),
+        filesystem_read_entire(klib_fs, v, (heap)heap_page_backed(klib_kh),
                                closure(h, load_klib_complete, symbol_string(s), kl_complete, sh),
                                closure(h, load_klib_failed, kl_complete));
     }

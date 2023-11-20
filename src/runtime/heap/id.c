@@ -466,6 +466,20 @@ boolean id_heap_range_foreach(id_heap i, range_handler rh)
             RM_MATCH);
 }
 
+closure_function(1, 1, boolean, prealloc_foreach_handler,
+                 id_heap, i,
+                 range, r)
+{
+    return set_area(bound(i), r.start, range_span(r), false, false);
+}
+
+/* Pre-allocate all internal data structures so that no future allocations will be requested from
+ * the meta or map heaps when operating the id heap. */
+boolean id_heap_prealloc(id_heap i)
+{
+    return id_heap_range_foreach(i, stack_closure(prealloc_foreach_handler, i));
+}
+
 #ifdef KERNEL
 id_heap clone_id_heap(id_heap source)
 {

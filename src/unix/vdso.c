@@ -51,7 +51,8 @@ void init_vdso(process p)
 #endif
         if (paddr != INVALID_PHYSICAL) {
             __vdso_dat->pvclock_offset = paddr & PAGEMASK;
-            map(vaddr, paddr & ~PAGEMASK, size, pageflags_noexec(flags));
+            map(vaddr, paddr & ~PAGEMASK, size,
+                pageflags_user(pageflags_readonly(pageflags_dma())));
         }
     }
 

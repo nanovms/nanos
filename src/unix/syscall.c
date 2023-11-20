@@ -2538,7 +2538,7 @@ static void syscall_context_pre_suspend(context ctx)
 syscall_context allocate_syscall_context(cpuinfo ci)
 {
     build_assert((SYSCALL_CONTEXT_SIZE & (SYSCALL_CONTEXT_SIZE - 1)) == 0);
-    syscall_context sc = allocate((heap)heap_linear_backed(get_kernel_heaps()),
+    syscall_context sc = allocate(heap_locked(get_kernel_heaps()),
                                   SYSCALL_CONTEXT_SIZE);
     if (sc == INVALID_ADDRESS)
         return sc;

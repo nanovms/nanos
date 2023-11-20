@@ -16,7 +16,7 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize)
     assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
     u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
     u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
-    heap v = (heap)create_id_heap(h, (heap)heap_linear_backed(kh), tag_base, tag_length, p->pagesize, false);
+    heap v = (heap)create_id_heap(h, h, tag_base, tag_length, p->pagesize, false);
     assert(v != INVALID_ADDRESS);
     heap backed = (heap)allocate_page_backed_heap(h, v, p, p->pagesize, false);
     if (backed == INVALID_ADDRESS)
@@ -98,7 +98,7 @@ void ap_start(u64 hartid)
     u64 cpuid = cpuid_from_hartid(hartid);
     assert(cpuid != INVALID_PHYSICAL);
     assert(cpuid > 0);
-    cpuinfo ci = init_cpuinfo((heap)heap_linear_backed(get_kernel_heaps()), cpuid);
+    cpuinfo ci = init_cpuinfo(heap_locked(get_kernel_heaps()), cpuid);
     assert(ci != INVALID_ADDRESS);
     ci->m.hartid = hartid;
     context_frame f = ci->m.kernel_context->frame;

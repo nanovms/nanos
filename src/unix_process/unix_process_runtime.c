@@ -41,6 +41,7 @@ u64 hw_get_seed()
     return random();
 }
 
+static heap malloc_heap;
 static u64 bytes_allocated;
 
 static u64 allocated(heap h)
@@ -96,8 +97,14 @@ heap malloc_allocator()
     h->allocated = allocated;
     h->total = 0;
     h->management = 0;
+    malloc_heap = h;
     bytes_allocated = 0;
     return h;
+}
+
+heap heap_dma(void)
+{
+    return malloc_heap;
 }
 
 void halt_with_code(u8 code, char *format, ...)

@@ -43,8 +43,7 @@ declare_closure_function(0, 1, boolean, pending_fault_print,
                          rbnode, n);
 static struct {
     heap h;
-    id_heap physical;
-    heap linear_backed;
+    heap virtual_backed;
 
     closure_struct(pending_fault_compare, pf_compare);
     closure_struct(pending_fault_print, pf_print);
@@ -135,18 +134,18 @@ static pending_fault find_pending_fault_locked(process p, u64 addr)
 u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete)
 {
     assert((v & MASK(PAGELOG)) == 0);
-    void *m = allocate(mmap_info.linear_backed, length);
+    void *m = allocate(mmap_info.virtual_backed, length);
     if (m == INVALID_ADDRESS) {
         vmap_debug("%s: cannot get physical page\n", __func__);
         return INVALID_PHYSICAL;
     }
     zero(m, length);
     write_barrier();
-    u64 p = phys_from_linear_backed_virt(u64_from_pointer(m));
+    u64 p = physical_from_virtual(m);
     u64 mapped_p = map_with_complete(v, p, length, flags, complete);
     if (mapped_p != p)
         /* The mapping must have been done in parallel by another CPU. */
-        deallocate(mmap_info.linear_backed, m, length);
+        deallocate(mmap_info.virtual_backed, m, length);
     return mapped_p;
 }
 
@@ -1418,8 +1417,8 @@ void mmap_process_init(process p, tuple root)
     heap h = heap_locked(kh);
     boolean aslr = !get(root, sym(noaslr));
     mmap_info.h = h;
-    mmap_info.physical = heap_physical(kh);
-    mmap_info.linear_backed = reserve_heap_wrapper(h, (heap)heap_linear_backed(kh), USER_MEMORY_RESERVE);
+    mmap_info.virtual_backed = reserve_heap_wrapper(h, (heap)heap_page_backed(kh),
+                                                    USER_MEMORY_RESERVE);
     spin_lock_init(&p->vmap_lock);
     u64 min_addr;
     if (get_u64(root, sym(mmap_min_addr), &min_addr))
