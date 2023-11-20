@@ -33,9 +33,11 @@
 #define PT_SHIFT_L3 21
 #define PT_SHIFT_L4 12
 
+extern u64 page_encr_mask;
+
 static inline pageflags pageflags_memory(void)
 {
-    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS};
+    return (pageflags){.w = PAGE_DEFAULT_PERMISSIONS | page_encr_mask};
 }
 
 static inline pageflags pageflags_memory_writethrough(void)
@@ -144,7 +146,7 @@ static inline boolean pte_is_block_mapping(pte entry)
 
 static inline u64 flags_from_pte(u64 pte)
 {
-    return pte & PAGE_FLAGS_MASK;
+    return pte & (PAGE_FLAGS_MASK | page_encr_mask);
 }
 
 static inline pageflags pageflags_from_pte(pte pte)
@@ -164,7 +166,7 @@ static inline u64 block_pte(u64 phys, u64 flags)
 
 static inline u64 new_level_pte(u64 tp_phys)
 {
-    return tp_phys | PAGE_WRITABLE | PAGE_USER | PAGE_PRESENT;
+    return tp_phys | PAGE_WRITABLE | PAGE_USER | PAGE_PRESENT | page_encr_mask;
 }
 
 static inline boolean flags_has_minpage(u64 flags)
@@ -224,7 +226,7 @@ static inline boolean pte_is_dirty(pte entry)
 static inline u64 page_from_pte(pte p)
 {
     /* page directory pointer base address [51:12] */
-    return p & (MASK(52) & ~PAGEMASK);
+    return p & (MASK(52) & ~PAGEMASK & ~page_encr_mask);
 }
 
 static inline void pt_pte_clean(pteptr pp)

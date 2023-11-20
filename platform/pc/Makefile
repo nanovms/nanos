@@ -24,6 +24,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/gdb/gdbtcp.c \
 	$(SRCDIR)/gdb/gdbutil.c \
 	$(SRCDIR)/http/http.c \
+	$(SRCDIR)/kernel/dma.c \
 	$(SRCDIR)/kernel/elf.c \
 	$(SRCDIR)/kernel/clock.c \
 	$(SRCDIR)/kernel/flush.c \
@@ -185,6 +186,7 @@ AFLAGS+=-I$(ARCHDIR)/
 CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3 -fno-pic -mcmodel=kernel
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=-DCONFIG_LTRACE
+CFLAGS+=-DDMA_BUFFERING	# required by memory encryption
 CFLAGS+=$(INCLUDES)
 
 # Enable tracing by specifying TRACE=ftrace on command line

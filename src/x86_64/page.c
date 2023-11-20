@@ -2,6 +2,9 @@
 
 BSS_RO_AFTER_INIT u64 pagebase;
 
+/* Mask applied to page table entries to enable memory encryption, if supported and enabled */
+BSS_RO_AFTER_INIT u64 page_encr_mask;
+
 void invalidate(u64 page)
 {
     asm volatile("invlpg (%0)" :: "r" ((word)page) : "memory");
@@ -91,6 +94,15 @@ void init_mmu(void)
             levelmask |= 0x4;
     }
     page_set_allowed_levels(levelmask);
+
+    /* Use Secure Encrypted Virtualization (VM memory encryption) if supported and enabled by the
+     * hypervisor. */
+    if (cpuid_max >= CPUID_FN_ENCR_MEM) {
+        cpuid(CPUID_FN_ENCR_MEM, 0, v);
+        if ((v[0] & CPUID_SEV) && (read_msr(SEV_STATUS_MSR) & SEV_ENABLED))
+            page_encr_mask = U64_FROM_BIT(CPUID_SME_C_BIT(v[1]));
+    }
+
     write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_NXE);
     mov_from_cr("cr3", pagebase);
 }

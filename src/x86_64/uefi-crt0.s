@@ -31,6 +31,15 @@ _start:
     add rsp, 8
     ret
 
+global read_msr
+read_msr:
+    mov rcx, rdi
+    mov rax, 0
+    rdmsr
+    shl rdx, 0x20
+    or rax, rdx
+    ret
+
 global write_msr
 write_msr:
     mov rcx, rdi

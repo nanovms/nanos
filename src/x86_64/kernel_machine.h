@@ -49,6 +49,9 @@
 #define KERNEL_GS_MSR    0xc0000102
 #define TSC_AUX_MSR      0xc0000103
 
+#define SEV_STATUS_MSR   0xc0010131
+#define SEV_ENABLED      (1 << 0)
+
 #define C0_MP   0x00000002
 #define C0_EM   0x00000004
 #define C0_WP   0x00010000
@@ -217,6 +220,13 @@ extern void write_xmsr(u64, u64);
 #define CPUID_FN_EXT_PROC_INFO  0x80000001
 /* EDX */
 #define CPUID_PDPE1GB           (1 << 26)
+
+/* Encrypted memory capabilities */
+#define CPUID_FN_ENCR_MEM   0x8000001f
+/* EAX */
+#define CPUID_SEV           (1 << 1)
+/* EBX */
+#define CPUID_SME_C_BIT(v)  ((v) & 0x3f)
 
 static inline void cpuid(u32 fn, u32 ecx, u32 * v)
 {
