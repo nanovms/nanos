@@ -335,7 +335,7 @@ closure_func_basic(file_io, sysreturn, vsock_write,
     return blockq_check(s->sock.txbq, ba, bh);
 }
 
-static u32 vsock_events_connlocked(vsock s)
+static u32 vsock_events_internal(vsock s)
 {
     u32 events;
     vsock_lock(s);
@@ -367,12 +367,7 @@ closure_func_basic(fdesc_events, u32, vsock_events,
                    thread t)
 {
     vsock s = struct_from_field(closure_self(), vsock, events);
-    vsock_connection conn = s->conn;
-    if (conn)
-        vsock_conn_lock(conn);
-    u32 events = vsock_events_connlocked(s);
-    if (conn)
-        vsock_conn_unlock(conn);
+    u32 events = vsock_events_internal(s);
     return events;
 }
 
@@ -872,7 +867,7 @@ vsock_connection vsock_connect_complete(struct vsock_conn_id *conn_id, boolean s
         }
         vsock_unlock(s);
         blockq_wake_one(s->sock.txbq);
-        notify_dispatch(s->sock.f.ns, vsock_events_connlocked(s));
+        notify_dispatch(s->sock.f.ns, vsock_events_internal(s));
     }
     if (success)
         return conn;
@@ -921,7 +916,7 @@ vsock_connection vsock_rx(struct vsock_conn_id *conn_id, void *data, u64 len)
         vsock_unlock(s);
         blockq_wake_one(s->sock.rxbq);
         if (notify)
-            notify_dispatch(s->sock.f.ns, vsock_events_connlocked(s));
+            notify_dispatch(s->sock.f.ns, vsock_events_internal(s));
     }
     return conn;
 }
@@ -931,7 +926,7 @@ void vsock_buf_space_notify(vsock_connection conn, u64 buf_space)
     vsock s = conn->vsock;
     if (s) {
         blockq_wake_one(s->sock.txbq);
-        notify_dispatch(s->sock.f.ns, vsock_events_connlocked(s));
+        notify_dispatch(s->sock.f.ns, vsock_events_internal(s));
     }
 }
 
@@ -950,7 +945,7 @@ vsock_connection vsock_shutdown_request(struct vsock_conn_id *conn_id, int flags
         vsock_unlock(s);
         blockq_wake_one(s->sock.txbq);
         blockq_wake_one(s->sock.rxbq);
-        notify_dispatch(s->sock.f.ns, vsock_events_connlocked(s));
+        notify_dispatch(s->sock.f.ns, vsock_events_internal(s));
     } else {
         *conn_close = true;
     }
@@ -984,7 +979,7 @@ void vsock_conn_reset(struct vsock_conn_id *conn_id)
         blockq_wake_one(s->sock.txbq);
         if (!connect_failed)
             blockq_wake_one(s->sock.rxbq);
-        notify_dispatch(s->sock.f.ns, vsock_events_connlocked(s));
+        notify_dispatch(s->sock.f.ns, vsock_events_internal(s));
     }
     vsock_remove_connection(conn);
     vsock_conn_unlock(conn);
