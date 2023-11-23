@@ -129,4 +129,5 @@ typedef struct vqmsg *vqmsg;
 vqmsg allocate_vqmsg(virtqueue vq);
 void deallocate_vqmsg(virtqueue vq, vqmsg m);
 void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write);
-void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion);
+void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno);
+#define vqmsg_commit(vq, m, completion) vqmsg_commit_seqno(vq, m, completion, 0)

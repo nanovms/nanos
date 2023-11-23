@@ -104,6 +104,7 @@ typedef struct virtqueue {
     u16 last_used_idx;          /* irq only */
     struct list msg_queue;
     struct list free_msgs;
+    u32 msg_seqno;
     struct spinlock lock;
     vqmsg msgs[0];
 } *virtqueue;
@@ -154,12 +155,18 @@ void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
 
 static void virtqueue_fill(virtqueue vq);
 
-void vqmsg_commit(virtqueue vq, vqmsg m, vqfinish completion)
+/* If seqno is non-null, the value it points to is set to a sequence number whose value is
+ * initialized (when the virtqueue is created) to zero and incremented by one each time this
+ * function is called with a nun-null seqno. This allows callers to determine e.g. the order in
+ * which messages are received from a remote peer. */
+void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno)
 {
     m->completion = completion;
     virtqueue_debug_verbose("%s: vq %s, vqmsg %p, completion %p (%F)\n",
                             __func__, vq->name, m, completion, completion);
     u64 irqflags = spin_lock_irq(&vq->lock);
+    if (seqno)
+        *seqno = vq->msg_seqno++;
     list_push_back(&vq->msg_queue, &m->l);
     virtqueue_fill(vq);
     spin_unlock_irq(&vq->lock, irqflags);

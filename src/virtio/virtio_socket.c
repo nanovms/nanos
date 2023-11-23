@@ -61,6 +61,7 @@ typedef struct virtio_sock {
     backed_heap backed;
     vtdev dev;
     virtqueue rxq, txq, eventq;
+    u32 rx_seqno;
     u32 guest_cid;
 } *virtio_sock;
 
@@ -81,6 +82,7 @@ declare_closure_struct(0, 1, void, virtio_sock_rx_complete,
                        u64, len);
 typedef struct virtio_sock_rxbuf {
     virtio_sock vs;
+    u32 seqno;
     closure_struct(virtio_sock_rx_complete, complete);
     u8 data[0];
 } *virtio_sock_rxbuf;
@@ -134,6 +136,7 @@ static boolean virtio_sock_dev_attach(heap general, backed_heap backed, vtdev de
     for (u16 i = 0; i + VIRTIO_SOCK_RX_PACKET_DESCS <= rx_entries; i += VIRTIO_SOCK_RX_PACKET_DESCS)
         if (!virtio_sock_rxq_submit(vs))
             goto err;
+    vs->rx_seqno = 0;
     vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
     vsock_set_transport(vs);
     return true;
@@ -243,9 +246,20 @@ define_closure_function(0, 1, void, virtio_sock_rx_complete,
                         u64, len)
 {
     virtio_sock_rxbuf rxbuf = struct_from_field(closure_self(), virtio_sock_rxbuf, complete);
-    struct virtio_vsock_hdr *hdr = (struct virtio_vsock_hdr *)rxbuf->data;
     virtio_sock vs = rxbuf->vs;
     boolean free_buf = true;
+
+    /* Ensure received messages are processed in the same order as they are received.
+     * This is necessary in order to satisfy the requirements of the stream socket type, which
+     * guarantees delivery of ordered packets. */
+    u32 attempts = 0;
+    while ((volatile u32)vs->rx_seqno != rxbuf->seqno) {
+        if (++attempts == 0)
+            goto out;
+        kern_pause();
+    }
+
+    struct virtio_vsock_hdr *hdr = (struct virtio_vsock_hdr *)rxbuf->data;
     if ((len < sizeof(*hdr)) || (hdr->dst_cid != vs->guest_cid) || (hdr->len != len - sizeof(*hdr)))
         goto out;
     virtio_sock_debug("rx from %ld:%d to :%d, len %d, type %d, op %d, buf_alloc %d, fwd_cnt %d",
@@ -334,6 +348,7 @@ define_closure_function(0, 1, void, virtio_sock_rx_complete,
         vsock_conn_release(&conn->vsock_conn);
     }
   out:
+    vs->rx_seqno++;
     if (free_buf)
         deallocate((heap)vs->backed, rxbuf, VIRTIO_SOCK_RXBUF_SIZE);
     virtio_sock_rxq_submit(vs);
@@ -356,7 +371,8 @@ static boolean virtio_sock_rxq_submit(virtio_sock vs)
     data_offset += sizeof(struct virtio_vsock_hdr);
     vqmsg_push(vq, m, phys + data_offset, VIRTIO_SOCK_RXBUF_SIZE - data_offset, true);
     rxbuf->vs = vs;
-    vqmsg_commit(vq, m, init_closure(&rxbuf->complete, virtio_sock_rx_complete));
+    vqmsg_commit_seqno(vq, m, init_closure(&rxbuf->complete, virtio_sock_rx_complete),
+                       &rxbuf->seqno);
     return true;
 }
 
