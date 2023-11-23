@@ -249,7 +249,7 @@ static log log_new(heap h, tfs fs)
 static void dump_staging(log_ext ext)
 {
 #ifdef TLOG_DEBUG_DUMP
-    buffer b = ext->staging;
+    buffer b = &ext->staging;
     u64 z = b->end;
     rprintf("staging contains:\n");
     for (int i = 0; i < 4; i++) {
@@ -422,6 +422,7 @@ static inline boolean log_write_internal(log tl, merge m)
                 if (ext == INVALID_ADDRESS)
                     return false;
                 size = log_size(ext);
+                staging = &ext->staging;
                 tlog_ext_lock(ext);
             }
             assert(staging->end + min < size);
