@@ -7,6 +7,7 @@
 
 #include <unix_internal.h>
 #include <lwip.h>
+#include <lwip/priv/tcp_priv.h>
 #include <lwip/udp.h>
 #include <net_system_structs.h>
 #include <socket.h>
@@ -2537,8 +2538,20 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
                 ret_optval.val = TCP_MSS;
             netsock_unlock(s);
             break;
+        case TCP_SYNCNT:
+            ret_optval.val = TCP_SYNMAXRTX;
+            break;
+        case TCP_LINGER2:
+            ret_optval.val = TCP_FIN_WAIT_TIMEOUT / THOUSAND;
+            break;
+        case TCP_WINDOW_CLAMP:
+            ret_optval.val = TCP_WND_MAX(s->info.tcp.lw);
+            break;
+        case TCP_CORK:
+        case TCP_DEFER_ACCEPT:
+        case TCP_QUICKACK:
         case TCP_FASTOPEN:
-            ret_optval.val = 0; /* TCP Fast Open is not supported */
+            ret_optval.val = 0; /* unsupported options */
             break;
         default:
             goto unimplemented;
