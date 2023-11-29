@@ -606,7 +606,7 @@ void vm_exit(u8 code)
             u64 expected_code;
             if (u64_from_value(expected, &expected_code) &&
                 expected_code == code) {
-                code = 0;               
+                code = 0;
             } else if (is_vector(expected)) {
                 for (int i = 0; get_u64(expected, intern_u64(i), &expected_code); i++) {
                     if (expected_code == code) {
@@ -616,11 +616,15 @@ void vm_exit(u8 code)
                 }
             }
         }
-        if ((code != 0) && get(root, sym(reboot_on_exit)))
-            vm_reset();
-        if ((code == 0) && get(root, sym(idle_on_exit))) {
-            send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
-            machine_halt();
+        if (!shutting_down) {
+            if ((code != 0) && get(root, sym(reboot_on_exit)))
+                vm_reset();
+            if ((code == 0) && get(root, sym(idle_on_exit))) {
+                send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
+                machine_halt();
+            }
+            if ((code == 0) && get(root, sym(reboot_on_exit_zero)))
+                vm_reset();
         }
     }
     if (vm_halt && (!root || !get(root, sym(debug_exit)))) {
