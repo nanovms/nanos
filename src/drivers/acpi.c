@@ -222,12 +222,10 @@ static UINT32 acpi_sleep(void *context)
     return ACPI_INTERRUPT_HANDLED;
 }
 
-void unix_shutdown(void);
-
 static UINT32 acpi_shutdown(void *context)
 {
     acpi_debug("shutdown");
-    unix_shutdown();
+    kernel_powerdown();
     return ACPI_INTERRUPT_HANDLED;
 }
 

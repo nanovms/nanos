@@ -287,7 +287,7 @@ void irq_handler(void)
     }
 
     /* enqueue interrupted user thread */
-    if (is_thread_context(ctx) && !shutting_down) {
+    if (is_thread_context(ctx) && !(shutting_down & SHUTDOWN_ONGOING)) {
         int_debug("int sched thread %p\n", ctx);
         context_schedule_return(ctx);
     }

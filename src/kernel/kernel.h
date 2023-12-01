@@ -55,7 +55,12 @@ void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q
 #define cpu_interrupt 3
 #define cpu_user 4
 
-extern boolean shutting_down;
+extern u32 shutting_down;
+
+#define SHUTDOWN_POWER   (1<<0) // shutdown triggered externally
+#define SHUTDOWN_ONGOING (1<<1) // process termination already triggered
+
+void kernel_powerdown(void);
 
 typedef struct sched_task {
     thunk t;

@@ -225,10 +225,6 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
     process p = t->p;
     status s = STATUS_OK;
 
-    /* stop running any other user threads */
-    shutting_down = true;
-    wakeup_or_interrupt_cpu_all();
-
     fsfile f = fsfile_open_or_create(alloca_wrap_cstring(CORE_PATH), true);
     if (f == INVALID_ADDRESS) {
         core_debug("failed to open core file\n");

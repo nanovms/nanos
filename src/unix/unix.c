@@ -64,7 +64,7 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
 void deallocate_fd(process p, int fd)
 {
     process_lock(p);
-    assert(vector_set(p->files, fd, 0)); 
+    assert(vector_set(p->files, fd, 0));
     deallocate_u64((heap)p->fdallocator, fd, 1);
     process_unlock(p);
 }
@@ -515,7 +515,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     kernel_heaps kh = (kernel_heaps)uh;
     heap locked = heap_locked(kh);
     process p = allocate(locked, sizeof(struct process));
-    assert(p != INVALID_ADDRESS); 
+    assert(p != INVALID_ADDRESS);
 
     spin_lock_init(&p->lock);
     p->uh = uh;
@@ -703,7 +703,7 @@ closure_function(1, 2, void, shutdown_timeout,
     closure_finish();
     if (overruns == timer_disabled)
         return;
-    if (!shutting_down)
+    if (!(shutting_down & SHUTDOWN_ONGOING))
         kernel_shutdown(0);
 }
 
@@ -726,7 +726,7 @@ void unix_shutdown(void)
     struct timer shutdown_timer = {0};
     init_timer(&shutdown_timer);
     timer_handler th = closure(h, shutdown_timeout, shutdown_timer);
-    register_timer(kernel_timers, &closure_member(shutdown_timeout, th, shutdown_timer), 
+    register_timer(kernel_timers, &closure_member(shutdown_timeout, th, shutdown_timer),
         CLOCK_ID_MONOTONIC, seconds(UNIX_SHUTDOWN_TIMEOUT_SECS), false, 0, th);
 }
 

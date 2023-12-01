@@ -179,7 +179,7 @@ static void deliver_signal(sigstate ss, struct siginfo *info)
     int sig = info->si_signo;
 
     /* Special handling for pending signals */
-    spin_lock(&ss->ss_lock);    
+    spin_lock(&ss->ss_lock);
     if (sigstate_is_pending(ss, sig)) {
         /* If this is a timer event, attempt to find a queued info for
            this timer and update the info (overrun) instead of
@@ -979,7 +979,7 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
 sysreturn signalfd4(int fd, const u64 *mask, u64 sigsetsize, int flags)
 {
     if (sigsetsize != (NSIG / 8) ||
-        (flags & ~(SFD_CLOEXEC | SFD_NONBLOCK))) 
+        (flags & ~(SFD_CLOEXEC | SFD_NONBLOCK)))
         return -EINVAL;
 
     if (fd == -1)
@@ -1020,20 +1020,14 @@ static void dump_sig_info(thread t, queued_signal qs)
     /* can add more siginfo interpretation here... */
 }
 
-closure_function(2, 1, void, after_dump_halt,
-                thread, t, int, signum,
-                status, s)
+closure_function(2, 2, void, coredump_shutdown_handler,
+                 thread, t, struct siginfo *, si,
+                 int, status, merge, m)
 {
-    char *fmt = "signal %d (%v)\n";
-    value st;
-    if (s == STATUS_OK)
-        st = alloca_wrap_cstring("core dumped");
-    else
-        st = get_string(s, sym(result));
-    int signum = bound(signum);
-    thread_log(bound(t), fmt, signum, st);
-    halt_with_code(VM_EXIT_SIGNAL(signum), fmt, signum, st);
-    closure_finish();
+    thread t = bound(t);
+    struct siginfo *si = bound(si);
+    coredump(t, si, apply_merge(m));
+    clear_fault_handler();
 }
 
 static void default_signal_action(thread t, queued_signal qs)
@@ -1070,10 +1064,10 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGTRAP:
     case SIGXCPU:
     case SIGXFSZ:
-        coredump(t, &qs->si, closure(h, after_dump_halt, t, signum));
-        clear_fault_handler();
-        runloop();
-        return;
+        /* core dump */
+        fate = "   core dump";
+        add_shutdown_completion(closure(h, coredump_shutdown_handler, t, &qs->si));
+        break;
 
     case SIGSTOP:
     case SIGTSTP:

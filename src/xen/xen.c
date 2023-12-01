@@ -388,8 +388,6 @@ closure_function(1, 0, void, xen_per_cpu_init,
     xen_setup_vcpu(current_cpu()->id, bound(shared_info_phys));
 }
 
-void unix_shutdown(void);
-
 define_closure_function(1, 0, void, xen_shutdown_handler,
                  buffer, b)
 {
@@ -406,7 +404,7 @@ define_closure_function(1, 0, void, xen_shutdown_handler,
 out:
     xenstore_transaction_end(txid, is_ok(s) ? false : true);
     if (buffer_compare_with_cstring(rsp, "poweroff") || buffer_compare_with_cstring(rsp, "halt"))
-        unix_shutdown();
+        kernel_powerdown();
 }
 
 define_closure_function(0, 1, void, xen_shutdown_watcher,
@@ -1137,4 +1135,3 @@ void register_xen_driver(const char *name, xen_device_probe probe)
     xd->probe = probe;
     list_insert_before(&xen_info.driver_list, &xd->l);
 }
-

@@ -169,7 +169,7 @@ void dump_context(context ctx)
         rputs("\n   address: ");
         print_u64_with_sym(f[FRAME_CR2]);
     }
-    
+
     rputs("\n\n");
     for (int j = 0; j < 24; j++) {
         rputs(register_name(j));
@@ -233,7 +233,7 @@ void common_handler()
             lapic_eoi();
 
         /* enqueue interrupted user thread */
-        if (is_thread_context(ctx) && !shutting_down) {
+        if (is_thread_context(ctx) && !(shutting_down & SHUTDOWN_ONGOING)) {
             int_debug("int sched thread %p\n", ctx);
             context_schedule_return(ctx);
         }
@@ -399,7 +399,7 @@ void init_interrupts(kernel_heaps kh)
     u64 vector_base = u64_from_pointer(&interrupt_vectors);
     for (int i = 0; i < INTERRUPT_VECTOR_START; i++)
         write_idt(i, vector_base + i * interrupt_vector_size, IST_EXCEPTION);
-    
+
     for (int i = INTERRUPT_VECTOR_START; i < n_interrupt_vectors; i++)
         write_idt(i, vector_base + i * interrupt_vector_size, IST_INTERRUPT);
 

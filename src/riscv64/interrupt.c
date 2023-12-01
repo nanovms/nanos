@@ -258,7 +258,7 @@ void trap_interrupt(void)
     }
 
     /* enqueue interrupted user thread */
-    if (is_thread_context(ctx) && !shutting_down) {
+    if (is_thread_context(ctx) && !(shutting_down & SHUTDOWN_ONGOING)) {
         int_debug("int sched %p\n", ctx);
         context_schedule_return(ctx);
     }
@@ -447,4 +447,3 @@ void __attribute__((noreturn)) __stack_chk_fail(void)
     dump_context(ctx);
     vm_exit(VM_EXIT_FAULT);
 }
-

@@ -17,7 +17,7 @@ sysreturn set_tid_address(int *a)
 
 #ifdef __x86_64__
 sysreturn arch_prctl(int code, unsigned long addr)
-{    
+{
     thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
 
     /* just validate the word at base */
@@ -227,7 +227,7 @@ static void thread_cputime_update(thread t)
 
 static void thread_pause(context ctx)
 {
-    if (shutting_down)
+    if (shutting_down & SHUTDOWN_ONGOING)
         return;
     thread t = (thread)ctx;
     context_frame f = thread_frame(t);
@@ -441,7 +441,7 @@ thread create_thread(process p, u64 tid)
     t->name[0] = '\0';
 
     init_thread_fault_handler(t);
-    
+
     t->scheduling_queue = &current_cpu()->thread_queue;
     context_frame f = thread_frame(t);
 #ifdef __x86_64__
@@ -503,7 +503,7 @@ thread create_thread(process p, u64 tid)
     return INVALID_ADDRESS;
 }
 
-NOTRACE 
+NOTRACE
 void exit_thread(thread t)
 {
     thread_log(current, "exit_thread");

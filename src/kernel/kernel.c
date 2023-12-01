@@ -249,6 +249,12 @@ void halt_with_code(u8 code, char *format, ...)
     kernel_shutdown(code);
 }
 
+void unix_shutdown(void);
+void kernel_powerdown(void) {
+    shutting_down |= SHUTDOWN_POWER;
+    unix_shutdown();
+}
+
 #ifndef CONFIG_TRACELOG
 void tprintf(symbol tag, tuple attrs, const char *format, ...)
 {

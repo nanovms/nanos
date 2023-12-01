@@ -12,13 +12,13 @@ static const char * const state_strings_backing[] = {
     "idle",
     "kernel",
     "interrupt",
-    "user",         
+    "user",
 };
 
 const char * const * const state_strings = state_strings_backing;
 BSS_RO_AFTER_INIT static int wakeup_vector;
 BSS_RO_AFTER_INIT int shutdown_vector;
-boolean shutting_down;
+u32 shutting_down = 0;
 
 BSS_RO_AFTER_INIT queue bhqueue;                  /* kernel from interrupt */
 BSS_RO_AFTER_INIT queue runqueue;
@@ -182,7 +182,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     boolean timer_updated = update_timer(here);
 
-    if (!shutting_down) {
+    if (!(shutting_down & SHUTDOWN_ONGOING)) {
         sched_task t = sched_dequeue(&ci->thread_queue);
         if (t == INVALID_ADDRESS) {
             /* Try to steal a thread from an idle CPU (so that it doesn't
@@ -242,11 +242,11 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
        Find cost of sleep / wakeup and consider spinning this check for that interval. */
     if (queue_length(ci->cpu_queue) || queue_length(async_queue_1) ||
         queue_length(bhqueue) || queue_length(runqueue) ||
-        (!shutting_down && !sched_queue_empty(&ci->thread_queue)))
+        (!(shutting_down & SHUTDOWN_ONGOING) && !sched_queue_empty(&ci->thread_queue)))
         goto retry;
 
     kernel_sleep();
-}    
+}
 
 /* non-inlined trampoline target */
 NOTRACE void __attribute__((noreturn)) runloop_target(void)
@@ -280,7 +280,6 @@ void init_scheduler(heap h)
     bhqueue = allocate_queue(h, BHQUEUE_SIZE);
     runqueue = allocate_queue(h, RUNQUEUE_SIZE);
     async_queue_1 = allocate_queue(h, ASYNC_QUEUE_1_SIZE);
-    shutting_down = false;
 }
 
 void init_scheduler_cpus(heap h)
