@@ -548,7 +548,6 @@ closure_function(0, 2, void, storage_shutdown, int, status, merge, m)
     storage_sync(apply_merge(m));
 }
 
-extern boolean shutting_down;
 void __attribute__((noreturn)) kernel_shutdown(int status)
 {
     heap locked = heap_locked(init_heaps);
@@ -557,7 +556,11 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
     status_handler sh = apply_merge(m);
     shutdown_handler h;
 
-    shutting_down = true;
+    /* Set shutting_down to prevent user threads from being scheduled
+     * and then try to interrupt the other cpus back into runloop
+     * so they will idle while running kernel_shutdown */
+    shutting_down |= SHUTDOWN_ONGOING;
+    wakeup_or_interrupt_cpu_all();
 
     if (root_fs)
         vector_push(shutdown_completions,
@@ -606,7 +609,7 @@ void vm_exit(u8 code)
             u64 expected_code;
             if (u64_from_value(expected, &expected_code) &&
                 expected_code == code) {
-                code = 0;               
+                code = 0;
             } else if (is_vector(expected)) {
                 for (int i = 0; get_u64(expected, intern_u64(i), &expected_code); i++) {
                     if (expected_code == code) {
@@ -616,11 +619,13 @@ void vm_exit(u8 code)
                 }
             }
         }
-        if ((code != 0) && get(root, sym(reboot_on_exit)))
-            vm_reset();
-        if ((code == 0) && get(root, sym(idle_on_exit))) {
-            send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
-            machine_halt();
+        if (!(shutting_down & SHUTDOWN_POWER)) {
+            if ((code != 0) && get(root, sym(reboot_on_exit)))
+                vm_reset();
+            if ((code == 0) && get(root, sym(idle_on_exit))) {
+                send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
+                machine_halt();
+            }
         }
     }
     if (vm_halt && (!root || !get(root, sym(debug_exit)))) {

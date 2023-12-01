@@ -2213,11 +2213,6 @@ sysreturn sched_yield()
 
 sysreturn exit_group(int status)
 {
-    /* Set shutting_down to prevent user threads from being scheduled
-     * and then try to interrupt the other cpus back into runloop
-     * so they will idle while running kernel_shutdown */
-    shutting_down = true;
-    wakeup_or_interrupt_cpu_all();
     kernel_shutdown(status);
 }
 
@@ -2278,7 +2273,7 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
         return set_syscall_error(current, EFAULT);
     thread t;
     if (!(t = lookup_thread(pid)))
-            return set_syscall_error(current, EINVAL);                
+            return set_syscall_error(current, EINVAL);
     u64 cpus = pad(MIN(total_processors, 64 * (cpusetsize / sizeof(u64))), 64);
     thread_lock(t);
     runtime_memcpy(bitmap_base(t->affinity), mask, cpus / 8);
@@ -2580,7 +2575,7 @@ void syscall_handler(thread t)
     context_release(&t->context);
     context_resume(ctx);
 
-    if (shutting_down)
+    if (shutting_down & SHUTDOWN_ONGOING)
         goto out;
 
     if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
