@@ -61,7 +61,7 @@ u64 init_bootstrap_heap(u64 phys_length)
      * works, when an id heap is pre-allocated, its bitmap allocates twice the amount of memory
      * needed; thus, the bootstrap heap needs twice the theoretical amount of memory.
      * In addition, we need some extra space for various initial allocations. */
-    u64 bootstrap_size = 4 * PAGESIZE + pad(page_count >> 2, PAGESIZE);
+    u64 bootstrap_size = 8 * PAGESIZE + pad(page_count >> 2, PAGESIZE);
 
     bootstrap_limit = BOOTSTRAP_BASE + bootstrap_size;
     return bootstrap_size;
