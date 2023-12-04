@@ -582,6 +582,39 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
     while(1);
 }
 
+static boolean vm_exit_match(u8 exit_code, tuple config, symbol option, boolean match_on_t)
+{
+    if (!config)
+        return false;
+
+    value config_option = get(config, option);
+    if (!config_option)
+        return false;
+
+    u64 action_code;
+    if (is_string(config_option)) {
+        if (!buffer_strcmp(config_option, "*"))
+           return true;
+
+        boolean neq = false;
+        if (peek_char(config_option) == '!') {
+            neq = true;
+            buffer_consume(config_option, 1);
+        }
+        if (u64_from_value(config_option, &action_code)) {
+            return (((action_code == exit_code) && !neq) ||
+                    ((action_code != exit_code) && neq));
+        }
+    } else if (is_vector(config_option)) {
+        for (int i = 0; get_u64(config_option, intern_u64(i), &action_code); i++) {
+            if (action_code == exit_code)
+                return true;
+        }
+        return false;
+    }
+    return match_on_t;
+}
+
 void vm_exit(u8 code)
 {
 #ifdef SMP_DUMP_FRAME_RETURN_COUNT
@@ -603,29 +636,14 @@ void vm_exit(u8 code)
 #endif
 
     tuple root = get_root_tuple();
-    if (root) {
-        value expected = get(root, sym(expected_exit_code));
-        if (expected) {
-            u64 expected_code;
-            if (u64_from_value(expected, &expected_code) &&
-                expected_code == code) {
-                code = 0;
-            } else if (is_vector(expected)) {
-                for (int i = 0; get_u64(expected, intern_u64(i), &expected_code); i++) {
-                    if (expected_code == code) {
-                        code = 0;
-                        break;
-                    }
-                }
-            }
-        }
-        if (!(shutting_down & SHUTDOWN_POWER)) {
-            if ((code != 0) && get(root, sym(reboot_on_exit)))
-                vm_reset();
-            if ((code == 0) && get(root, sym(idle_on_exit))) {
-                send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
-                machine_halt();
-            }
+    if (vm_exit_match(code, root, sym(expected_exit_code), false))
+        code = 0;
+    if (!(shutting_down & SHUTDOWN_POWER)) {
+        if (vm_exit_match(code, root, sym(reboot_on_exit), code != 0)) {
+            vm_reset();
+        } else if (vm_exit_match(code, root, sym(idle_on_exit), code == 0)) {
+            send_ipi(TARGET_EXCLUSIVE_BROADCAST, shutdown_vector);
+            machine_halt();
         }
     }
     if (vm_halt && (!root || !get(root, sym(debug_exit)))) {
