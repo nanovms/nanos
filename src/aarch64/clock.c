@@ -15,7 +15,9 @@ closure_function(0, 0, timestamp, arm_clock_now)
 {
     u64 t = rdtsc();
     u64 f = cntfrq();
-    return seconds(t / f) | truncate_seconds((t << 32) / f);
+    u64 secs = t / f;
+    u64 frac = t - secs * f;
+    return seconds(secs) | ((frac << 32) / f);
 }
 
 closure_function(0, 1, void, arm_deadline_timer,
