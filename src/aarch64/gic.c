@@ -466,6 +466,7 @@ int init_gic(void)
     case ID_AA64PFR0_EL1_GIC_GICC_SYSREG_NONE:
         break;
     case ID_AA64PFR0_EL1_GIC_GICC_SYSREG_3_0_4_0:
+    case ID_AA64PFR0_EL1_GIC_GICC_SYSREG_4_1:
         gic.v3_iface = true;
         break;
     default:
