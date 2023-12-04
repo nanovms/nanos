@@ -6,7 +6,7 @@ typedef struct ns16550_console {
     u8 *addr;
 } *ns16550_console;
 
-static boolean tx_empty(u8 *addr) {
+static boolean tx_empty(volatile u8 *addr) {
     return *(addr + 5) & 0x20;
 }
 
