@@ -277,6 +277,17 @@ struct ena_com_mmio_read {
     ena_spinlock_t lock;
 };
 
+struct ena_com_phc_info {
+    struct ena_admin_phc_resp *virt_addr;
+    dma_addr_t phys_addr;
+    timestamp block_end;
+    u32 doorbell_offset;
+    u32 expire_timeout_usec;
+    u32 block_timeout_usec;
+    u16 req_id;
+    ena_spinlock_t lock;
+};
+
 struct ena_rss {
     /* Indirect table */
     u16 *host_rss_ind_tbl;
@@ -330,6 +341,7 @@ struct ena_com_dev {
     u16 stats_queue; /* Selected queue for extended statistic dump */
 
     struct ena_com_mmio_read mmio_read;
+    struct ena_com_phc_info phc;
 
     struct ena_rss rss;
     u32 supported_features;
@@ -395,6 +407,12 @@ extern "C" {
  * @return - 0 on success, negative value on failure.
  */
 int ena_com_mmio_reg_read_request_init(struct ena_com_dev *ena_dev);
+
+bool ena_com_phc_supported(struct ena_com_dev *ena_dev);
+int ena_com_phc_init(struct ena_com_dev *ena_dev);
+int ena_com_phc_config(struct ena_com_dev *ena_dev);
+int ena_com_phc_get_timestamp(struct ena_com_dev *ena_dev, u64 *ts);
+void ena_com_phc_destroy(struct ena_com_dev *ena_dev);
 
 /* ena_com_set_mmio_read_mode - Enable/disable the indirect mmio reg read mechanism
  * @ena_dev: ENA communication layer struct

@@ -78,6 +78,7 @@ enum ena_admin_aq_feature_id {
     ENA_ADMIN_AENQ_CONFIG = 26,
     ENA_ADMIN_LINK_CONFIG = 27,
     ENA_ADMIN_HOST_ATTR_CONFIG = 28,
+    ENA_ADMIN_PHC_CONFIG = 29,
     ENA_ADMIN_FEATURES_OPCODE_NUM = 32,
 };
 
@@ -132,6 +133,16 @@ enum ena_admin_get_stats_type {
 enum ena_admin_get_stats_scope {
     ENA_ADMIN_SPECIFIC_QUEUE = 0,
     ENA_ADMIN_ETH_TRAFFIC = 1,
+};
+
+enum ena_admin_phc_feature_version {
+    /* Readless with error_bound */
+    ENA_ADMIN_PHC_FEATURE_VERSION_0 = 0,
+};
+
+enum ena_admin_phc_error_flags {
+    ENA_ADMIN_PHC_ERROR_FLAG_TIMESTAMP   = BIT(0),
+    ENA_ADMIN_PHC_ERROR_FLAG_ERROR_BOUND = BIT(1),
 };
 
 struct ena_admin_aq_common_desc {
@@ -987,6 +998,43 @@ struct ena_admin_queue_ext_feature_desc {
     };
 };
 
+struct ena_admin_feature_phc_desc {
+    /* PHC version as defined in enum ena_admin_phc_feature_version,
+     * used only for GET command as max supported PHC version by the device.
+     */
+    u8 version;
+
+    /* Reserved - MBZ */
+    u8 reserved1[3];
+
+    /* PHC doorbell address as an offset to PCIe MMIO REG BAR,
+     * used only for GET command.
+     */
+    u32 doorbell_offset;
+
+    /* Max time for valid PHC retrieval, passing this threshold will
+     * fail the get-time request and block PHC requests for
+     * block_timeout_usec, used only for GET command.
+     */
+    u32 expire_timeout_usec;
+
+    /* PHC requests block period, blocking starts if PHC request expired
+     * in order to prevent floods on busy device,
+     * used only for GET command.
+     */
+    u32 block_timeout_usec;
+
+    /* Shared PHC physical address (ena_admin_phc_resp),
+     * used only for SET command.
+     */
+    struct ena_common_mem_addr output_address;
+
+    /* Shared PHC Size (ena_admin_phc_resp),
+     * used only for SET command.
+     */
+    u32 output_length;
+};
+
 struct ena_admin_get_feat_resp {
     struct ena_admin_acq_common_desc acq_common_desc;
 
@@ -1016,6 +1064,8 @@ struct ena_admin_get_feat_resp {
         struct ena_admin_feature_intr_moder_desc intr_moderation;
 
         struct ena_admin_ena_hw_hints hw_hints;
+
+        struct ena_admin_feature_phc_desc phc;
 
         struct ena_admin_get_extra_properties_strings_desc extra_properties_strings;
 
@@ -1053,6 +1103,9 @@ struct ena_admin_set_feat_cmd {
 
         /* LLQ configuration */
         struct ena_admin_feature_llq_desc llq;
+
+        /* PHC configuration */
+        struct ena_admin_feature_phc_desc phc;
     } u;
 };
 
@@ -1130,6 +1183,26 @@ struct ena_admin_ena_mmio_req_read_less_resp {
 
     /* value is valid when poll is cleared */
     uint32_t reg_val;
+};
+
+struct ena_admin_phc_resp {
+    /* Request Id, received from DB register */
+    u16 req_id;
+
+    u8 reserved1[6];
+
+    /* PHC timestamp (nsec) */
+    u64 timestamp;
+
+    u8 reserved2[8];
+
+    /* Timestamp error limit (nsec) */
+    u32 error_bound;
+
+    /* Bit field of enum ena_admin_phc_error_flags */
+    u32 error_flags;
+
+    u8 reserved3[32];
 };
 
 /* aq_common_desc */
@@ -1228,6 +1301,8 @@ struct ena_admin_ena_mmio_req_read_less_resp {
 #define ENA_ADMIN_HOST_INFO_RX_BUF_MIRRORING_MASK           BIT(3)
 #define ENA_ADMIN_HOST_INFO_RSS_CONFIGURABLE_FUNCTION_KEY_SHIFT 4
 #define ENA_ADMIN_HOST_INFO_RSS_CONFIGURABLE_FUNCTION_KEY_MASK BIT(4)
+#define ENA_ADMIN_HOST_INFO_PHC_SHIFT                       8
+#define ENA_ADMIN_HOST_INFO_PHC_MASK                        BIT(8)
 
 /* feature_rss_ind_table */
 #define ENA_ADMIN_FEATURE_RSS_IND_TABLE_ONE_ENTRY_UPDATE_MASK BIT(0)

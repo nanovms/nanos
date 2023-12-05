@@ -1600,7 +1600,8 @@ static void ena_config_host_info(struct ena_adapter *adapter)
             (DRV_MODULE_VER_MINOR << ENA_ADMIN_HOST_INFO_MINOR_SHIFT) |
             (DRV_MODULE_VER_SUBMINOR << ENA_ADMIN_HOST_INFO_SUB_MINOR_SHIFT);
     host_info->num_cpus = total_processors;
-    host_info->driver_supported_features = ENA_ADMIN_HOST_INFO_RX_OFFSET_MASK;
+    host_info->driver_supported_features = ENA_ADMIN_HOST_INFO_RX_OFFSET_MASK |
+                                           ENA_ADMIN_HOST_INFO_PHC_MASK;
 
     rc = ena_com_set_host_attributes(ena_dev);
     if (unlikely(rc != 0)) {
@@ -1704,6 +1705,44 @@ err_mmio_read_less:
     ena_com_mmio_reg_read_request_destroy(ena_dev);
 
     return rc;
+}
+
+closure_function(1, 0, timestamp, ena_ptp_clock_now,
+                 struct ena_com_dev *, ena_dev)
+{
+    u64 nsec;
+    int rc = ena_com_phc_get_timestamp(bound(ena_dev), &nsec);
+
+    if (unlikely(rc))
+        return 0;
+    return nanoseconds(nsec);
+}
+
+static int ena_phc_init(struct ena_adapter *adapter)
+{
+    struct ena_com_dev *ena_dev = adapter->ena_dev;
+    int rc;
+
+    if (!ena_com_phc_supported(ena_dev))
+        return ENA_COM_UNSUPPORTED;
+    rc = ena_com_phc_init(ena_dev);
+    if (unlikely(rc))
+        return rc;
+    rc = ena_com_phc_config(ena_dev);
+    if (unlikely(rc))
+        goto err_ena_com_phc_config;
+    ptp_clock_now = closure(adapter->general, ena_ptp_clock_now, ena_dev);
+    if (unlikely(ptp_clock_now == INVALID_ADDRESS))
+        goto err_ena_com_phc_config;
+    return 0;
+err_ena_com_phc_config:
+    ena_com_phc_destroy(ena_dev);
+    return rc;
+}
+
+static void ena_phc_destroy(struct ena_adapter *adapter)
+{
+    ena_com_phc_destroy(adapter->ena_dev);
 }
 
 static int ena_enable_msix_and_set_admin_interrupts(struct ena_adapter *adapter)
@@ -2058,6 +2097,12 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
         goto err_com_free;
     }
 
+    rc = ena_phc_init(adapter);
+    if (unlikely(rc && (rc != ENA_COM_UNSUPPORTED))) {
+        device_printf(d, "failed initializing PHC, error: %d\n", rc);
+        goto err_com_free;
+    }
+
     adapter->keep_alive_timestamp = uptime();
 
     calc_queue_ctx.ena_dev = ena_dev;
@@ -2068,7 +2113,7 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
     rc = ena_calc_io_queue_size(&calc_queue_ctx);
     if (unlikely((rc != 0) || (max_num_io_queues <= 0))) {
         rc = ENA_COM_FAULT;
-        goto err_com_free;
+        goto err_phc_destroy;
     }
 
     adapter->requested_tx_ring_size = calc_queue_ctx.tx_queue_size;
@@ -2131,6 +2176,8 @@ err_msix_free:
     ena_disable_msix(adapter);
 err_io_free:
     ena_free_all_io_rings_resources(adapter);
+err_phc_destroy:
+    ena_phc_destroy(adapter);
 err_com_free:
     ena_com_admin_destroy(ena_dev);
     ena_com_delete_host_info(ena_dev);
