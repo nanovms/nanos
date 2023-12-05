@@ -79,21 +79,20 @@ typedef struct ntp_server {
     struct ntp_ts last_originate_time;
 } *ntp_server;
 
-declare_closure_struct(0, 2, void, ntp_query_func,
-                       u64, expiry, u64, overruns);
 declare_closure_struct(0, 2, void, ntp_slew_complete_func,
                        u64, expiry, u64, overruns);
 declare_closure_struct(0, 2, void, ntp_raw_update_func,
                        u64, expiry, u64, overruns);
 
 static struct {
+    boolean ptp_clock;
     vector servers;
     int current_server;
     struct udp_pcb *pcb;
     struct timer query_timer;
     struct timer slew_timer;
     struct timer raw_update_timer;
-    closure_struct(ntp_query_func, query_func);
+    timer_handler query_func;
     closure_struct(ntp_slew_complete_func, slew_complete_func);
     closure_struct(ntp_raw_update_func, raw_update_func);
     boolean query_ongoing;
@@ -150,7 +149,7 @@ static void ntp_schedule_query(void)
     ntp_lock();
     if (!timer_is_active(&ntp.query_timer))
         register_timer(kernel_timers, &ntp.query_timer, CLOCK_ID_MONOTONIC,
-            seconds(U64_FROM_BIT(ntp.query_interval)), false, 0, (timer_handler)&ntp.query_func);
+            seconds(U64_FROM_BIT(ntp.query_interval)), false, 0, ntp.query_func);
     ntp_unlock();
 }
 
@@ -510,6 +509,105 @@ static s64 get_log_precision(s8 lp)
     return p;
 }
 
+static boolean chrony_new_sample(timestamp t, s64 off, s64 pdelay, s64 pdisp, s64 rdelay, s64 rdisp)
+{
+    insert_sample(t, off, pdelay, pdisp, rdelay, rdisp);
+    if (ntp.nsamples < MIN_SAMPLES)
+        return true;
+    s64 est_off, est_freq, sd, skew;
+    if (!regression(&est_off, &est_freq, &sd, &skew)) {
+        rprintf("%s: regression computation failed\n", __func__);
+        if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS)
+            goto badlimit;
+        return false;
+    }
+    /* if the frequency is out of range then assume bad data or misbehaving clock and clamp */
+    if (ABS(ntp.base_freq + est_freq) > ntp.max_base_freq) {
+        rprintf("%s: freq out of range: %f limit=%f\n", __func__, ABS(ntp.base_freq + est_freq), ntp.max_base_freq);
+        /* if too many bad regressions in a row, then toss everything and start over */
+        if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS) {
+badlimit:
+            rprintf("%s: too many bad regressions; starting over\n", __func__);
+            stop_slew();
+            ntp_reset_state();
+            clock_set_freq(0);
+            return false;
+        }
+        /* otherwise, clamp frequency, use packet offset for now */
+        est_freq = fpclamp(est_freq, -ntp.max_base_freq, ntp.max_base_freq);
+        est_off = off;
+    } else {
+        ntp.bad_regressions = 0;
+    }
+    ntp.offset_sd = sd;
+    ntp.skew = skew;
+
+    timestamp here = kern_now(CLOCK_ID_REALTIME);
+    /* get old compensated time before changes for statistics update later */
+    timestamp here_comp = slew_compensate(here);
+    /* adjust offset with time elapsed since packet reception with new frequency */
+    here += (s64)ntp.offset - fpmul(ntp.slew_freq, here - ntp.slew_start);
+    s64 elapsed = (s64)here - (s64)t;
+    s64 adjoff = est_off + fpmul(elapsed, est_freq);
+
+    /* The regression calculates incremental frequency and offset changes */
+    ntp.base_freq += est_freq;
+    ntp.offset += adjoff;
+    ntp_debug("packet offset=%f est_offset(total)=%f(%f) est_freq(total)=%f(%f) offset_sd=%f skew=%f\n",
+              off, adjoff, ntp.offset, est_freq, ntp.base_freq, ntp.offset_sd, ntp.skew);
+    clock_set_freq(ntp.base_freq);
+
+    s64 step_offset = 0;
+    if (ntp.offset > ntp.reset_threshold || ntp.offset < -ntp.reset_threshold) {
+        clock_step_rtc(ntp.offset);
+        step_offset = ntp.offset;
+        adjoff = 0;
+        ntp.offset = 0;
+    } else {
+        start_slew();
+    }
+    /* Update existing statistics to reflect frequency and offset changes */
+    for (int i = 0; i < ntp.nsamples; i++) {
+        struct ntp_sample *s = get_sample(i);
+        s64 dt = fpmul((here_comp - s->time), est_freq) - adjoff;
+        s->time += dt + step_offset;
+        s->offset += dt - step_offset;
+    }
+    /* Check how closely we're tracking the server and update poll time */
+    s64 jitter = off - est_off;
+    if (ABS(jitter) < fpmul(ntp.offset_sd, i2fp(1,5))) {
+        ntp.jiggle_counter += ntp.query_interval;
+        if ((ntp.jiggle_counter > NTP_JIGGLE_THRESHOLD) && (ntp.query_interval < ntp.pollmax)) {
+            ntp.query_interval++;
+            ntp.jiggle_counter = 0;
+        }
+    } else {
+        ntp.jiggle_counter -= 2 * ntp.query_interval;
+        if ((ntp.jiggle_counter < -NTP_JIGGLE_THRESHOLD) && (ntp.query_interval > ntp.pollmin)) {
+            ntp.query_interval--;
+            ntp.jiggle_counter = 0;
+        }
+    }
+    return true;
+}
+
+closure_function(0, 2, void, ptp_query_func,
+                 u64, expiry, u64, overruns)
+{
+    if (overruns == timer_disabled)
+        return;
+    timestamp ts = apply(ptp_clock_now);
+    boolean success;
+    if (ts) {
+        s64 dispersion = get_log_precision(PTP_CLOCK_PRECISION);
+        success = chrony_new_sample(ts, ts - slew_compensate(kern_now(CLOCK_ID_REALTIME)),
+                                    0, dispersion, 0, dispersion);
+    } else {
+        success = false;
+    }
+    ntp_query_complete(success);
+}
+
 /* some sanity checks from RFC5905 */
 static boolean sanity_checks(ntp_server server, struct ntp_packet *p)
 {
@@ -598,89 +696,8 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
 
     s64 root_delay = ntp_fixed_conv(pkt->root_delay);
     s64 root_disp = ntp_fixed_conv(pkt->root_dispersion);
-    insert_sample(local_avg, offset, delay, disp, delay + root_delay, disp + root_disp);
-
-    if (ntp.nsamples < MIN_SAMPLES) {
-        success = true;
-        goto done;
-    }
-    s64 est_off, est_freq, sd, skew;
-    if (!regression(&est_off, &est_freq, &sd, &skew)) {
-        rprintf("%s: regression computation failed\n", __func__);
-        if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS)
-            goto badlimit;
-        success = false;
-        goto done;
-    }
-    /* if the frequency is out of range then assume bad data or misbehaving clock and clamp */
-    if (ABS(ntp.base_freq + est_freq) > ntp.max_base_freq) {
-        rprintf("%s: freq out of range: %f limit=%f\n", __func__, ABS(ntp.base_freq + est_freq), ntp.max_base_freq);
-        /* if too many bad regressions in a row, then toss everything and start over */
-        if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS) {
-badlimit:
-            rprintf("%s: too many bad regressions; starting over\n", __func__);
-            stop_slew();
-            ntp_reset_state();
-            clock_set_freq(0);
-            success = false;
-            goto done;
-        }
-        /* otherwise, clamp frequency, use packet offset for now */
-        est_freq = fpclamp(est_freq, -ntp.max_base_freq, ntp.max_base_freq);
-        est_off = offset;
-    } else {
-        ntp.bad_regressions = 0;
-    }
-    ntp.offset_sd = sd;
-    ntp.skew = skew;
-
-    timestamp here = kern_now(CLOCK_ID_REALTIME);
-    /* get old compensated time before changes for statistics update later */
-    timestamp here_comp = slew_compensate(here);
-    /* adjust offset with time elapsed since packet reception with new frequency */
-    here += (s64)ntp.offset - fpmul(ntp.slew_freq, here - ntp.slew_start);
-    s64 elapsed = (s64)here - (s64)local_avg;
-    s64 adjoff = est_off + fpmul(elapsed, est_freq);
-
-    /* The regression calculates incremental frequency and offset changes */
-    ntp.base_freq += est_freq;
-    ntp.offset += adjoff;
-    ntp_debug("packet offset=%f est_offset(total)=%f(%f) est_freq(total)=%f(%f) offset_sd=%f skew=%f\n",
-        offset, adjoff, ntp.offset, est_freq, ntp.base_freq, ntp.offset_sd, ntp.skew);
-    clock_set_freq(ntp.base_freq);
-
-    s64 step_offset = 0;
-    if (ntp.offset > ntp.reset_threshold || ntp.offset < -ntp.reset_threshold) {
-        clock_step_rtc(ntp.offset);
-        step_offset = ntp.offset;
-        adjoff = 0;
-        ntp.offset = 0;
-    } else {
-        start_slew();
-    }
-    /* Update existing statistics to reflect frequency and offset changes */
-    for (int i = 0; i < ntp.nsamples; i++) {
-        struct ntp_sample *s = get_sample(i);
-        s64 dt = fpmul((here_comp - s->time), est_freq) - adjoff;
-        s->time += dt + step_offset;
-        s->offset += dt - step_offset;
-    }
-    /* Check how closely we're tracking the server and update poll time */
-    s64 jitter = offset - est_off;
-    if (ABS(jitter) < fpmul(ntp.offset_sd, i2fp(1,5))) {
-        ntp.jiggle_counter += ntp.query_interval;
-        if ((ntp.jiggle_counter > NTP_JIGGLE_THRESHOLD) && (ntp.query_interval < ntp.pollmax)) {
-            ntp.query_interval++;
-            ntp.jiggle_counter = 0;
-        }
-    } else {
-        ntp.jiggle_counter -= 2 * ntp.query_interval;
-        if ((ntp.jiggle_counter < -NTP_JIGGLE_THRESHOLD) && (ntp.query_interval > ntp.pollmin)) {
-            ntp.query_interval--;
-            ntp.jiggle_counter = 0;
-        }
-    }
-    success = true;
+    success = chrony_new_sample(local_avg, offset, delay, disp, delay + root_delay,
+                                disp + root_disp);
   done:
     ntp_query_complete(success);
   exit:
@@ -711,8 +728,8 @@ static boolean ntp_resolve_and_query(ntp_server server)
     return true;
 }
 
-define_closure_function(0, 2, void, ntp_query_func,
-                        u64, expiry, u64, overruns)
+closure_function(0, 2, void, ntp_query_func,
+                 u64, expiry, u64, overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -823,6 +840,32 @@ int init(status_handler complete)
         return KLIB_INIT_FAILED;
     }
     heap h = heap_locked(get_kernel_heaps());
+    value chrony = get(root, sym_this("chrony"));
+    if (chrony) {
+        if (is_tuple(chrony)) {
+            value refclock = get(chrony, sym_this("refclock"));
+            if (refclock) {
+                boolean refclock_ok = is_string(refclock);
+                if (refclock_ok) {
+                    if (!buffer_strcmp(refclock, "ptp")) {
+                        if (ptp_clock_now)
+                            ntp.ptp_clock = true;
+                        else
+                            rprintf("chrony: PTP clock not available, using NTP\n");
+                    } else {
+                        refclock_ok = false;
+                    }
+                }
+                if (!refclock_ok) {
+                    rprintf("chrony: invalid refclock %v\n", refclock);
+                    return KLIB_INIT_FAILED;
+                }
+            }
+        } else  {
+            rprintf("chrony: invalid configuration %v\n", chrony);
+            return KLIB_INIT_FAILED;
+        }
+    }
     value servers = get(root, sym(ntp_servers));
     int server_count;
     if (servers) {
@@ -835,22 +878,24 @@ int init(status_handler complete)
     } else  {
         server_count = 1;
     }
-    ntp.servers = allocate_vector(h, server_count);
-    assert(ntp.servers != INVALID_ADDRESS);
-    if (servers) {
-        string server;
-        for (int i = 0; (server = get_string(servers, integer_key(i))); i++) {
-            if (!ntp_server_parse(h, server)) {
-                rprintf("NTP: invalid server '%b'\n", server);
+    if (!ntp.ptp_clock) {
+        ntp.servers = allocate_vector(h, server_count);
+        assert(ntp.servers != INVALID_ADDRESS);
+        if (servers) {
+            string server;
+            for (int i = 0; (server = get_string(servers, integer_key(i))); i++) {
+                if (!ntp_server_parse(h, server)) {
+                    rprintf("NTP: invalid server '%b'\n", server);
+                    return KLIB_INIT_FAILED;
+                }
+            }
+            if (vector_length(ntp.servers) == 0) {
+                rprintf("NTP: invalid servers %v\n", servers);
                 return KLIB_INIT_FAILED;
             }
+        } else {
+            ntp_server_add(h, alloca_wrap_cstring(NTP_SERVER_DEFAULT), NTP_PORT_DEFAULT);
         }
-        if (vector_length(ntp.servers) == 0) {
-            rprintf("NTP: invalid servers %v\n", servers);
-            return KLIB_INIT_FAILED;
-        }
-    } else {
-        ntp_server_add(h, alloca_wrap_cstring(NTP_SERVER_DEFAULT), NTP_PORT_DEFAULT);
     }
     ntp.pollmin = 4;
     ntp.pollmax = 10;
@@ -913,13 +958,18 @@ int init(status_handler complete)
         }
         ntp.max_base_freq = PPM_SCALE(ppm);
     }
-    ntp.pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
-    if (!ntp.pcb) {
-        rprintf("NTP: failed to create PCB\n");
-        return KLIB_INIT_FAILED;
+    if (ntp.ptp_clock) {
+        ntp.query_func = closure(h, ptp_query_func);
+    } else {
+        ntp.pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (!ntp.pcb) {
+            rprintf("NTP: failed to create PCB\n");
+            return KLIB_INIT_FAILED;
+        }
+        udp_recv(ntp.pcb, ntp_input, 0);
+        ntp.query_func = closure(h, ntp_query_func);
     }
-    udp_recv(ntp.pcb, ntp_input, 0);
-    init_closure(&ntp.query_func, ntp_query_func);
+    assert(ntp.query_func != INVALID_ADDRESS);
     init_closure(&ntp.slew_complete_func, ntp_slew_complete_func);
     init_closure(&ntp.raw_update_func, ntp_raw_update_func);
     spin_lock_init(&ntp.lock);
@@ -928,7 +978,7 @@ int init(status_handler complete)
     init_timer(&ntp.query_timer);
     init_timer(&ntp.slew_timer);
     register_timer(kernel_timers, &ntp.query_timer, CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
-        (timer_handler)&ntp.query_func);
+                   ntp.query_func);
     register_timer(kernel_timers, &ntp.raw_update_timer, CLOCK_ID_MONOTONIC, seconds(CLOCK_RAW_UPDATE_SECONDS), false, 0,
         (timer_handler)&ntp.raw_update_func);
     return KLIB_INIT_OK;

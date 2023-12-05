@@ -28,6 +28,10 @@ typedef enum {
 typedef closure_type(clock_now, timestamp);
 extern clock_now platform_monotonic_now;
 
+#define PTP_CLOCK_PRECISION -9  /* expressed in seconds as power of two */
+
+extern clock_now ptp_clock_now;
+
 #if defined(KERNEL) || defined(BUILD_VDSO)
 #include <vdso.h>
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))

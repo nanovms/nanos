@@ -11,6 +11,8 @@ extern void notify_unix_timers_of_rtc_change(void);
 /* These should happen in pairs such that odd indicates update in-progress */
 #define vdso_update_gen() fetch_and_add((word *)&__vdso_dat->vdso_gen, 1)
 
+BSS_RO_AFTER_INIT clock_now ptp_clock_now;
+
 void kernel_delay(timestamp delta)
 {
     timestamp end = now(CLOCK_ID_MONOTONIC) + delta;
