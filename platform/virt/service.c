@@ -110,9 +110,6 @@ static void add_heap_range_internal(id_heap h, range r, range *remainder)
         r = *remainder;
         *remainder = tmp;
     }
-    r.start = pad(r.start, PAGESIZE_2M);
-    if (r.start >= r.end)
-        return;
     init_debug("adding range [0x");
     init_debug_u64(r.start);
     init_debug(" 0x");
@@ -198,7 +195,7 @@ id_heap init_physical_id_heap(heap h)
         u64 end = base + get_memory_size(pointer_from_u64(DEVICETREE_BLOB_BASE));
         u64 bootstrap_size = init_bootstrap_heap(end - base);
         map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
-        base = pad(base + bootstrap_size, PAGESIZE_2M);
+        base += bootstrap_size;
         init_debug("\nfree base ");
         init_debug_u64(base);
         init_debug("\nend ");

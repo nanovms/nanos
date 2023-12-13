@@ -361,6 +361,27 @@ static boolean alloc_subrange_test(heap h)
     return true;
 }
 
+static boolean alloc_align_test(heap h)
+{
+    const u64 unaligned_base = 0x12345;
+    const u64 heap_size = 0x20000;
+    id_heap id = create_id_heap(h, h, unaligned_base, heap_size, 1, false);
+    if (id == INVALID_ADDRESS) {
+        msg_err("cannot create heap\n");
+        return false;
+    }
+    for (int size = 1; pad(unaligned_base, size) + size <= unaligned_base + heap_size; size <<= 1) {
+        u64 i = allocate_u64((heap)id, size);
+        if (i != pad(unaligned_base, size)) {
+            msg_err("unexpected allocation 0x%lx for size 0x%x\n", i, size);
+            return false;
+        }
+        deallocate_u64((heap)id, i, size);
+    }
+    destroy_heap((heap)id);
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     heap h = init_process_runtime();
@@ -381,6 +402,9 @@ int main(int argc, char **argv)
         goto fail;
 
     if (!alloc_subrange_test(h))
+        goto fail;
+
+    if (!alloc_align_test(h))
         goto fail;
 
     msg_debug("test passed\n");

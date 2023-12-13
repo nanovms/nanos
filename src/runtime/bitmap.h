@@ -1,3 +1,7 @@
+#define BITMAP_WORDLEN_LOG      6
+#define BITMAP_WORDLEN          (1 << BITMAP_WORDLEN_LOG)
+#define BITMAP_WORDMASK         (BITMAP_WORDLEN - 1)
+
 /* XXX keep allocs small for now; rolling heap allocations more than a
    page are b0rked */
 #define ALLOC_EXTEND_BITS	U64_FROM_BIT(12)

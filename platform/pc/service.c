@@ -332,15 +332,10 @@ id_heap init_physical_id_heap(heap h)
     early_init_debug("physical memory:");
     for_regions(e) {
 	if (e->type == REGION_PHYSICAL) {
-	    /* Align for 2M pages */
 	    u64 base = e->base;
-	    u64 end = base + e->length;
-	    u64 page2m_mask = MASK(PAGELOG_2M);
-	    base = (base + page2m_mask) & ~page2m_mask;
-	    end &= ~MASK(PAGELOG);
-	    if (base >= end)
+	    u64 length = e->length;
+	    if (length == 0)
 		continue;
-	    u64 length = end - base;
 #ifdef INIT_DEBUG
 	    early_debug("INIT:  [");
 	    early_debug_u64(base);

@@ -1,7 +1,11 @@
 /* bitmap allocator
 
    Allocations are aligned to next power-of-2 equal or greater than
-   allocation size. This allows a simpler and faster allocation
+   allocation size. For allocations done with bitmap_alloc_within_range(),
+   the above alignment rule applies to the offset from the start argument;
+   for optimal performance, the start argument should be a multiple of
+   BITMAP_WORDLEN for allocation size values greater than (BITMAP_WORDLEN / 2).
+   This allows a simpler and faster allocation
    algorithm, and also has the side-effect of allowing mixed page
    sizes (e.g. 4K + 2M) within the same space.
 
@@ -10,10 +14,6 @@
 */
 
 #include <runtime.h>
-
-#define BITMAP_WORDLEN_LOG      6
-#define BITMAP_WORDLEN          (1 << BITMAP_WORDLEN_LOG)
-#define BITMAP_WORDMASK         (BITMAP_WORDLEN - 1)
 
 static inline u64 * pointer_from_bit(u64 * base, u64 bit)
 {
@@ -121,7 +121,7 @@ static inline u64 bitmap_alloc_internal(bitmap b, u64 nbits, u64 startbit, u64 e
     u64 stride = U64_FROM_BIT(order);
     endbit = MIN(endbit, b->maxbits);
 
-    u64 bit = pad(startbit, stride);
+    u64 bit = startbit;
     if (bit + nbits > endbit)
         return INVALID_PHYSICAL;
 
@@ -189,13 +189,6 @@ boolean bitmap_dealloc(bitmap b, u64 bit, u64 size)
     int order = find_order(size);
     u64 * mapbase = bitmap_base(b);
     assert(mapbase);
-
-    /* XXX maybe error code instead of msg_err... */
-    if (bit & (size - 1)) {
-	msg_err("bitmap %p, bit %ld is not aligned to order %ld\n",
-		b, bit, order);
-	return false;
-    }
 
     if (bit + size > b->maxbits) {
 	msg_err("bitmap %p, bit %ld, order %ld: exceeds bit length %ld\n",

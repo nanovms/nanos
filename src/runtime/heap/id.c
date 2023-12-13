@@ -19,6 +19,7 @@
 typedef struct id_range {
     struct rmnode n;            /* range in pages */
     bitmap b;
+    u64 bitmap_start;
     u64 next_bit[NEXT_BIT_COUNT];   /* for next-fit search */
 } *id_range;
 
@@ -47,7 +48,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     if (length == infinity) {
 	length -= base;
 	/* bitmap will round up to next 64 page boundary, don't wrap */
-	length &= ~((1ull << (page_order(i) + 6)) - 1);
+	length &= ~((1ull << (page_order(i) + BITMAP_WORDLEN_LOG)) - 1);
     }
 
     /* assert only page-sized and non-zero */
@@ -67,11 +68,23 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
         msg_err("%s: range insertion failure; conflict with range %R\n", __func__, ir->n.r);
         goto fail;
     }
-    ir->b = allocate_bitmap(i->meta, i->map, pages);
+
+    /* To optimize performance of bitmap allocations, make the bitmap range start at a
+     * BITMAP_WORDLEN-aligned value, so that the start argument to bitmap_alloc_within_range() is
+     * always aligned to BITMAP_WORDLEN for allocation size values greater than
+     * (BITMAP_WORDLEN / 2). */
+    u64 page_start_mask = page_start & BITMAP_WORDMASK;
+
+    ir->b = allocate_bitmap(i->meta, i->map, pages + page_start_mask);
     if (ir->b == INVALID_ADDRESS) {
         msg_err("%s: failed to allocate bitmap for range %R\n", __func__, ir->n.r);
         goto fail;
     }
+    if (page_start_mask)
+        /* Mark the initial bits (which are not part of the range supplied to this function) as
+         * allocated, to prevent the bitmap from returning these bits during allocations. */
+        bitmap_range_check_and_set(ir->b, 0, page_start_mask, false, true);
+    ir->bitmap_start = page_start & ~BITMAP_WORDMASK;
     zero(ir->next_bit, sizeof(ir->next_bit));
     i->total += length;
     id_debug("added range base 0x%lx, end 0x%lx (length 0x%lx)\n", base, base + length, length);
@@ -109,8 +122,8 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
     /* align search start (but not end, for pages may fit in a
        non-power-of-2 remainder at the end of the range) and remove
        id_range offset */
-    ri.start = pad(ri.start, pages_rounded) - r->n.r.start;
-    ri.end -= r->n.r.start;
+    ri.start = pad(ri.start, pages_rounded) - r->bitmap_start;
+    ri.end -= r->bitmap_start;
     id_debug("after adjust %R\n", ri);
     if (!range_valid(ri) || range_span(ri) < pages) {
         id_debug("range invalid %d, range_span(ri) %ld, pages %ld\n",
@@ -140,7 +153,7 @@ static u64 id_alloc_from_range(id_heap i, id_range r, u64 pages, range subrange)
 
     set_next_bit(r, page_order, bit + pages_rounded);
     i->allocated += pages << page_order(i);
-    u64 result = (r->n.r.start + bit) << page_order(i);
+    u64 result = (r->bitmap_start + bit) << page_order(i);
     id_debug("allocated bit %ld, range page start %ld, returning 0x%lx\n",
              bit, r->n.r.start, result);
     return result;
@@ -178,7 +191,7 @@ closure_function(2, 1, boolean, dealloc_from_range,
     range ri = range_intersection(q, n->r);
     id_range r = (id_range)n;
 
-    int bit = ri.start - n->r.start;
+    int bit = ri.start - r->bitmap_start;
     u64 pages = range_span(ri);
     int order = find_order(pages);
     if (!bitmap_dealloc(r->b, bit, pages)) {
@@ -259,7 +272,7 @@ closure_function(3, 1, boolean, set_intersection,
 {
     range ri = range_intersection(bound(q), n->r);
     id_range r = (id_range)n;
-    int bit = ri.start - n->r.start;
+    int bit = ri.start - r->bitmap_start;
     if (!bitmap_range_check_and_set(r->b, bit, range_span(ri), bound(validate), bound(allocate)))
         return false;
     return true;
@@ -342,7 +355,7 @@ static inline void set_next(id_heap i, bytes count, u64 next)
     rangemap_foreach(i->ranges, n) {
         id_range r = (id_range)n;
         if (point_in_range(r->n.r, next))
-            set_next_bit(r, order, next - r->n.r.start);
+            set_next_bit(r, order, next - r->bitmap_start);
         else if (r->n.r.start > next)
             set_next_bit(r, order, 0);
     }

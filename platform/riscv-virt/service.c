@@ -47,7 +47,7 @@ id_heap init_physical_id_heap(heap h)
     u64 end = PHYSMEM_BASE + mem_size;
     u64 bootstrap_size = init_bootstrap_heap(end - base);
     map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
-    base = pad(base + bootstrap_size, PAGESIZE_2M);
+    base += bootstrap_size;
     init_debug("\nfree base ");
     init_debug_u64(base);
     init_debug("\nend ");
