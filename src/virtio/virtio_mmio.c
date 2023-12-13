@@ -51,7 +51,9 @@ closure_function(1, 1, void, vtmmio_new_dev,
     list_push_back(&vtmmio_devices, &dev->l);
 }
 
-void virtio_mmio_parse(kernel_heaps kh, const char *str, int len)
+closure_function(1, 2, void, vtmmio_cmdline_parse,
+                 kernel_heaps, kh,
+                 const char *, str, int, len)
 {
     buffer b = alloca_wrap_buffer(str, len);
     int optname_len = buffer_strchr(b, '=');
@@ -86,12 +88,13 @@ void virtio_mmio_parse(kernel_heaps kh, const char *str, int len)
             .memsize = memsize,
             .irq = irq,
         };
-        apply(stack_closure(vtmmio_new_dev, kh), &adev);
+        apply(stack_closure(vtmmio_new_dev, bound(kh)), &adev);
     }
 }
 
 void virtio_mmio_enum_devs(kernel_heaps kh)
 {
+    cmdline_consume("virtio_mmio", stack_closure(vtmmio_cmdline_parse, kh));
     acpi_get_vtmmio_devs(stack_closure(vtmmio_new_dev, kh));
 }
 

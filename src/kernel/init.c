@@ -193,6 +193,8 @@ closure_function(2, 2, void, fsstarted,
     wrapped_root = tuple_notifier_wrap(fs_root, true);
     assert(wrapped_root != INVALID_ADDRESS);
     tuple root = (tuple)wrapped_root;
+    boot_params_apply(root);
+    reclaim_regions();  /* for pc: no accessing regions after this point */
     tuple mounts = get_tuple(root, sym(mounts));
     if (mounts)
         storage_set_mountpoints(mounts);
@@ -229,6 +231,107 @@ closure_function(2, 2, void, fsstarted,
     if (!get(root, booted))
         filesystem_write_eav((tfs)fs, fs_root, booted, null_value, false);
     config_console(root);
+}
+
+static char *cmdline_next_option(char *cmdline_start, int cmdline_len, int *opt_len)
+{
+    while (cmdline_len > 0) {
+        if (*cmdline_start == ' ') {
+            cmdline_start++;
+            cmdline_len--;
+        } else {
+            break;
+        }
+    }
+    char *opt_end = runtime_memchr(cmdline_start, ' ', cmdline_len);
+    if (!opt_end)
+        opt_end = cmdline_start + cmdline_len;
+    if (opt_end > cmdline_start) {
+        *opt_len = opt_end - cmdline_start;
+        return cmdline_start;
+    }
+    return 0;
+}
+
+static int cmdline_get_prefix(char *opt_start, int opt_len)
+{
+    char *prefix_end = runtime_memchr(opt_start, '.', opt_len);
+    return (prefix_end ? (prefix_end - opt_start) : 0);
+}
+
+/* Removes consumed options from command line; returns updated command line length. */
+int cmdline_parse(char *cmdline_start, int cmdline_len, const char *opt_name, cmdline_handler h)
+{
+    init_debug("%s (%d): option %s", __func__, cmdline_len, opt_name);
+    char *cmdline_end = cmdline_start + cmdline_len;
+    char *opt_start;
+    int opt_len;
+    int name_len = runtime_strlen(opt_name);
+    char *p = cmdline_start;
+    while ((opt_start = cmdline_next_option(p, cmdline_end - p, &opt_len))) {
+        char *opt_end = opt_start + opt_len;
+        int prefix_len = cmdline_get_prefix(opt_start, opt_len);
+        if ((prefix_len == name_len) && !runtime_memcmp(opt_start, opt_name, prefix_len)) {
+            char *value_start = opt_start + prefix_len + 1;
+            apply(h, value_start, opt_end - value_start);
+
+            /* consume parsed option */
+            runtime_memcpy(opt_start, opt_end, cmdline_end - opt_end);
+            cmdline_len -= opt_len;
+            cmdline_end -= opt_len;
+            p = opt_start;
+        } else {
+            p = opt_end;
+        }
+    }
+    init_debug("%s: updated length %d", __func__, cmdline_len);
+    return cmdline_len;
+}
+
+static void cmdline_apply_option(char *opt_start, int opt_len, value cfg)
+{
+    char *name_end = runtime_memchr(opt_start, '=', opt_len);
+    if (!name_end)
+        return;
+    char *opt_end = opt_start + opt_len;
+    int prefix_len = cmdline_get_prefix(opt_start, opt_len);
+    if (prefix_len && (prefix_len < name_end - opt_start)) {
+        symbol s = intern(alloca_wrap_buffer(opt_start, prefix_len));
+        value child = get(cfg, s);
+        if (!child) {
+            child = allocate_tuple();
+            assert(child != INVALID_ADDRESS);
+            set(cfg, s, child);
+        }
+        if (is_composite(child)) {
+            char *value_start = opt_start + prefix_len + 1;
+            cmdline_apply_option(value_start, opt_end - value_start, child);
+        }
+    } else {
+        char *value_start = name_end + 1;
+        symbol name = intern(alloca_wrap_buffer(opt_start, name_end - opt_start));
+        string val;
+        if (value_start < opt_end) {
+            val = allocate_string(opt_end - value_start);
+            assert(val != INVALID_ADDRESS);
+            buffer_append(val, value_start, opt_end - value_start);
+        } else {
+            val = 0;
+        }
+        set(cfg, name, val);
+    }
+}
+
+void cmdline_apply(char *cmdline_start, int cmdline_len, tuple t)
+{
+    char *opt_start;
+    int opt_len;
+    while ((opt_start = cmdline_next_option(cmdline_start, cmdline_len, &opt_len))) {
+        cmdline_apply_option(opt_start, opt_len, t);
+        char *opt_end = opt_start + opt_len;
+        cmdline_len -= opt_end - cmdline_start;
+        cmdline_start = opt_end;
+    }
 }
 
 #ifdef MM_DEBUG
@@ -481,7 +584,6 @@ void kernel_runtime_init(kernel_heaps kh)
     init_platform_devices(kh);
     init_symtab(kh);
     read_kernel_syms();
-    reclaim_regions();          /* for pc: no accessing regions after this point */
     shutdown_completions = allocate_vector(locked, SHUTDOWN_COMPLETIONS_SIZE);
 
     init_debug("init_kernel_contexts");

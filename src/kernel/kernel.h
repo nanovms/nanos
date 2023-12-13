@@ -5,6 +5,8 @@
 #include <debug.h>
 #endif
 
+typedef closure_type(cmdline_handler, void, const char *, int);
+
 #ifdef KERNEL
 void runloop_target(void) __attribute__((noreturn));
 #endif
@@ -750,6 +752,9 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed);
 void kernel_runtime_init(kernel_heaps kh);
 void read_kernel_syms(void);
 void reclaim_regions(void);
+
+int cmdline_parse(char *cmdline_start, int cmdline_len, const char *opt_name, cmdline_handler h);
+void cmdline_apply(char *cmdline_start, int cmdline_len, tuple t);
 
 boolean breakpoint_insert(heap h, u64 a, u8 type, u8 length, thunk completion);
 boolean breakpoint_remove(heap h, u32 a, thunk completion);

@@ -389,26 +389,6 @@ static inline void jump_to_virtual(void) {
         1: \n");
 }
 
-static void cmdline_parse(const char *cmdline)
-{
-    early_init_debug("parsing cmdline");
-    const char *opt_end, *prefix_end;
-    while (*cmdline) {
-        opt_end = runtime_strchr(cmdline, ' ');
-        if (!opt_end)
-            opt_end = cmdline + runtime_strlen(cmdline);
-        prefix_end = runtime_strchr(cmdline, '.');
-        if (prefix_end && (prefix_end < opt_end)) {
-            int prefix_len = prefix_end - cmdline;
-            if ((prefix_len == sizeof("virtio_mmio") - 1) &&
-                    !runtime_memcmp(cmdline, "virtio_mmio", prefix_len))
-                virtio_mmio_parse(get_kernel_heaps(), prefix_end + 1,
-                    opt_end - (prefix_end + 1));
-        }
-        cmdline = opt_end + 1;
-    }
-}
-
 extern void *READONLY_END;
 
 /* Returns the number of pages have been allocated from the temporary page table region. */
@@ -479,7 +459,6 @@ void init_service(u64 rdi, u64 rsi)
              */
             assert(u64_from_pointer(params) + cmdline_size < MBR_ADDRESS);
             runtime_memcpy(params, cmdline, cmdline_size);
-            params[cmdline_size] = '\0';
             cmdline = (char *)params;
         }
 
@@ -496,7 +475,7 @@ void init_service(u64 rdi, u64 rsi)
     init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
     init_kernel_heaps();
     if (cmdline)
-        cmdline_parse(cmdline);
+        create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
@@ -606,4 +585,24 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
 
     init_virtio_balloon(kh);
     init_virtio_rng(kh);
+}
+
+void cmdline_consume(const char *opt_name, cmdline_handler h)
+{
+    for_regions(e) {
+        if (e->type == REGION_CMDLINE) {
+            e->length = cmdline_parse(pointer_from_u64(e->base), e->length, opt_name, h);
+            return;
+        }
+    }
+}
+
+void boot_params_apply(tuple t)
+{
+    for_regions(e) {
+        if (e->type == REGION_CMDLINE) {
+            cmdline_apply(pointer_from_u64(e->base), e->length, t);
+            return;
+        }
+    }
 }

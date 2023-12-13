@@ -204,3 +204,11 @@ int runtime_memcmp(const void *a, const void *b, bytes len)
     }
     return memcmp_8(a + len - end_len, p_long_b, end_len);
 }
+
+void *runtime_memchr(const void *a, int c, bytes len)
+{
+    for (const char *p = a; len > 0; p++, len--)
+        if (*p == c)
+            return (void *)p;
+    return 0;
+}

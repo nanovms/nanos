@@ -13,6 +13,7 @@ typedef struct region *region;
 #define REGION_PHYSICAL          1 /* available physical memory */
 #define REGION_DEVICE            2 /* e820 physical region configured for i/o */
 #define REGION_INITIAL_PAGES     10 /* for page table allocations in stage2 and early stage3 */
+#define REGION_CMDLINE           11 /* kernel command line */
 #define REGION_FILESYSTEM        12 /* offset on disk for the filesystem, see if we can get disk info from the bios */
 #define REGION_KERNIMAGE         13 /* location of kernel elf image loaded by stage2 */
 #define REGION_RECLAIM           14 /* areas to be unmapped and reclaimed in stage3 (only stage2 stack presently) */

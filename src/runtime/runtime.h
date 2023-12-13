@@ -87,6 +87,7 @@ void runtime_memcpy(void *a, const void *b, bytes len);
 void runtime_memset(u8 *a, u8 b, bytes len);
 
 int runtime_memcmp(const void *a, const void *b, bytes len);
+void *runtime_memchr(const void *a, int c, bytes len);
 
 static inline int runtime_strlen(const char *a)
 {

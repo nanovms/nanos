@@ -135,6 +135,9 @@ static inline void wait_for_interrupt(void)
     disable_interrupts();
 }
 
+#define cmdline_consume(o, h)   (void)(h)
+#define boot_params_apply(t)
+
 /* locking constructs */
 #include <mutex.h>
 
