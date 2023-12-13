@@ -158,7 +158,7 @@ static boolean is_binary_buffer(buffer b)
 
 static void print_value_internal(buffer dest, value v, table *visited, s32 indent, s32 depth)
 {
-    if (is_tuple(v) || is_vector(v)) {
+    if (is_composite(v)) {
         if (!*visited) {
             *visited = allocate_table(transient, identity_key, pointer_equal);
             assert(visited != INVALID_ADDRESS);

@@ -74,6 +74,8 @@ static inline boolean is_integer(value v)
     return tagof(v) == tag_integer;
 }
 
+boolean is_composite(value v);
+
 /* we're lax about typing here as these are sometimes used on alloca-wrapped buffers */
 static inline boolean u64_from_value(value v, u64 *result)
 {

@@ -555,7 +555,7 @@ int init(status_handler complete)
     value rules = get(config, sym(rules));
     if (!rules)
         return KLIB_INIT_OK;
-    if (!(is_tuple(rules) || is_vector(rules))) {
+    if (!is_composite(rules)) {
         rprintf("invalid firewall rules\n");
         return KLIB_INIT_FAILED;
     }

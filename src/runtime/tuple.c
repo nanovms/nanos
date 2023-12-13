@@ -125,6 +125,18 @@ boolean iterate(value e, binding_handler h)
     }
 }
 
+boolean is_composite(value v)
+{
+    switch (tagof(v)) {
+    case tag_table_tuple:
+    case tag_function_tuple:
+    case tag_vector:
+        return true;
+    default:
+        return false;
+    }
+}
+
 closure_function(1, 2, boolean, tuple_count_each,
                  int *, count,
                  value, s, value, v)
@@ -227,7 +239,7 @@ closure_function(2, 2, boolean, destruct_value_each,
                  value, v, boolean, recursive,
                  value, s, value, v)
 {
-    if (is_tuple(v) || is_vector(v)) {
+    if (is_composite(v)) {
         if (bound(recursive))
             destruct_value(v, true);
     } else if (v != null_value) {
@@ -238,7 +250,7 @@ closure_function(2, 2, boolean, destruct_value_each,
 
 void destruct_value(value v, boolean recursive)
 {
-    if (is_tuple(v) || is_vector(v))
+    if (is_composite(v))
         iterate(v, stack_closure(destruct_value_each, v, recursive));
     deallocate_value(v);
 }

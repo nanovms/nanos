@@ -82,7 +82,7 @@ static enum cloud cloud_detect(void)
 
 static int cloud_init_parse_vector(value config, int (*parse_each)(tuple, vector), vector tasks)
 {
-    if (!(is_tuple(config) || is_vector(config)))
+    if (!is_composite(config))
         return KLIB_INIT_FAILED;
     /* allow parsing either tuple or vector for backward compatibility with older ops/tfs... */
     value v;

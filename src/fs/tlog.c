@@ -499,7 +499,7 @@ closure_function(2, 1, void, log_switch_complete,
     if (is_ok(s))
         table_foreach(old_tl->dictionary, k, v) {
             (void)v;
-            if ((is_tuple(k) || is_vector(k)) && !table_find(new_tl->dictionary, k)) {
+            if (is_composite(k) && !table_find(new_tl->dictionary, k)) {
                 tlog_debug("  destroying value %p\n", __func__, k);
                 destruct_value(k, false);
             }
@@ -842,7 +842,7 @@ closure_function(4, 1, void, log_read_complete,
         table newdict = allocate_table(tl->h, identity_key, pointer_equal);
         table_foreach(tl->dictionary, k, v) {
             tlog_debug("   dict swap: k %p, v %p, type %d\n", k, v, tagof(v));
-            assert(is_tuple(v) || is_symbol(v) || is_vector(v));
+            assert(is_composite(v) || is_symbol(v));
             table_set(newdict, v, k);
         }
         deallocate_table(tl->dictionary);

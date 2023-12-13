@@ -155,7 +155,7 @@ closure_function(1, 2, boolean, match_attrs,
     value tv = get(bound(attrs), a);
     if (!tv)
         return false;
-    if (is_tuple(v) || is_vector(v)) {
+    if (is_composite(v)) {
         /* We support either a single value for this attribute or a set of
            acceptable values (as a tuple-encoded vector). */
         boolean match = false;

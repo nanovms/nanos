@@ -613,7 +613,7 @@ static boolean vm_exit_match(u8 exit_code, tuple config, symbol option, boolean 
             return (((action_code == exit_code) && !neq) ||
                     ((action_code != exit_code) && neq));
         }
-    } else if (is_vector(config_option)) {
+    } else if (is_composite(config_option)) {
         for (int i = 0; get_u64(config_option, intern_u64(i), &action_code); i++) {
             if (action_code == exit_code)
                 return true;

@@ -104,7 +104,7 @@ void config_console(tuple root)
     value v = get(root, sym(consoles));
     if (v == 0)
         return;
-    if (!(is_vector(v) || is_tuple(v))) {
+    if (!is_composite(v)) {
         msg_err("consoles config is neither vector nor tuple\n");
         return;
     }
