@@ -296,7 +296,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
     heap h = heap_locked(kh);
     klib_kh = kh;
     klib_fs = (filesystem)fs;
-    klib_loaded = allocate_vector(heap_general(kh), 4);
+    klib_loaded = allocate_vector(h, 4);
     assert(klib_loaded != INVALID_ADDRESS);
 
     extern u8 END;

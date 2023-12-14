@@ -2630,12 +2630,13 @@ boolean netsyscall_init(unix_heaps uh, tuple cfg)
     else
         so_rcvbuf = DEFAULT_SO_RCVBUF;
     kernel_heaps kh = (kernel_heaps)uh;
-    caching_heap socket_cache = allocate_objcache(heap_general(kh), (heap)heap_page_backed(kh),
+    heap h = heap_locked(kh);
+    caching_heap socket_cache = allocate_objcache(h, (heap)heap_page_backed(kh),
                                                   sizeof(struct netsock), PAGESIZE, true);
     if (socket_cache == INVALID_ADDRESS)
 	return false;
     uh->socket_cache = socket_cache;
-    net_loop_poll = closure(heap_general(kh), netsock_poll);
+    net_loop_poll = closure(h, netsock_poll);
     netlink_init();
     vsock_init();
     return true;

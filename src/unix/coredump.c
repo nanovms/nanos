@@ -221,7 +221,7 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
         return;
     }
     u64 doff = 0;
-    heap h = heap_general(get_kernel_heaps());
+    heap h = heap_locked(get_kernel_heaps());
     process p = t->p;
     status s = STATUS_OK;
 
