@@ -243,16 +243,6 @@ static void __attribute__((noinline)) init_service_new_stack()
 {
     kernel_heaps kh = get_kernel_heaps();
     early_init_debug("in init_service_new_stack");
-    bytes pagesize = is_low_memory_machine() ? PAGESIZE : PAGESIZE_2M;
-    init_integers(locking_heap_wrapper(heap_general(kh),
-                  allocate_tagged_region(kh, tag_integer, pagesize)));
-    init_tuples(locking_heap_wrapper(heap_general(kh),
-                allocate_tagged_region(kh, tag_table_tuple, pagesize)));
-    init_symbols(allocate_tagged_region(kh, tag_symbol, pagesize), heap_locked(kh));
-    heap vh = allocate_tagged_region(kh, tag_vector, pagesize);
-    init_vectors(locking_heap_wrapper(heap_general(kh), vh), heap_locked(kh));
-    heap sh = allocate_tagged_region(kh, tag_string, pagesize);
-    init_strings(locking_heap_wrapper(heap_general(kh), sh), heap_locked(kh));
 
     for_regions(e) {
         switch (e->type) {
@@ -265,7 +255,6 @@ static void __attribute__((noinline)) init_service_new_stack()
         }
     }
 
-    init_management(allocate_tagged_region(kh, tag_function_tuple, pagesize), heap_general(kh));
     early_init_debug("init_hwrand");
     init_hwrand();
 

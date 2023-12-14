@@ -798,7 +798,7 @@ void unmap_and_free_phys(u64 virtual, u64 length);
 
 #if !defined(BOOT)
 
-heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize);
+heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize, boolean locking);
 heap locking_heap_wrapper(heap meta, heap parent);
 
 #endif

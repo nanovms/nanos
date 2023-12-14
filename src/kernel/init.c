@@ -448,7 +448,16 @@ void kernel_runtime_init(kernel_heaps kh)
 {
     heap misc = heap_general(kh);
     heap locked = heap_locked(kh);
+    boolean lowmem = is_low_memory_machine();
     init_heaps = kh;
+
+    bytes pagesize = lowmem ? PAGESIZE : PAGESIZE_2M;
+    init_integers(allocate_tagged_region(kh, tag_integer, pagesize, true));
+    init_tuples(allocate_tagged_region(kh, tag_table_tuple, pagesize, true));
+    init_symbols(allocate_tagged_region(kh, tag_symbol, pagesize, false), locked);
+    init_vectors(allocate_tagged_region(kh, tag_vector, pagesize, true), locked);
+    init_strings(allocate_tagged_region(kh, tag_string, pagesize, true), locked);
+    init_management(allocate_tagged_region(kh, tag_function_tuple, pagesize, true), locked);
 
     /* runtime and console init */
 #ifdef INIT_DEBUG
@@ -460,8 +469,7 @@ void kernel_runtime_init(kernel_heaps kh)
     dma_init(kh);
     list_init(&mm_cleaners);
     spin_lock_init(&mm_lock);
-    u64 memory_reserve = is_low_memory_machine() ? PAGECACHE_LOWMEM_MEMORY_RESERVE :
-                                                   PAGECACHE_MEMORY_RESERVE;
+    u64 memory_reserve = lowmem ? PAGECACHE_LOWMEM_MEMORY_RESERVE : PAGECACHE_MEMORY_RESERVE;
     init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_page_backed(kh), memory_reserve),
                    reserve_heap_wrapper(misc, (heap)heap_physical(kh), memory_reserve), PAGESIZE);
     mem_cleaner pc_cleaner = closure(misc, mm_pagecache_cleaner);
