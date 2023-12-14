@@ -533,7 +533,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     }
     filesystem_reserve(fs); /* because it hosts the current working directory */
     p->root_fs = p->cwd_fs = fs;
-    p->cwd = fs->get_inode(fs, root);
+    p->cwd = fs->get_inode(fs, filesystem_getroot(fs));
     p->process_root = root;
     p->fdallocator = create_id_heap(locked, locked, 0, infinity, 1, false);
     p->files = allocate_vector(locked, 64);
@@ -658,7 +658,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     ftrace_enable();
 
     register_special_files(kernel_process);
-    init_syscalls(kernel_process->process_root);
+    init_syscalls(kernel_process);
     register_file_syscalls(linux_syscalls);
 #ifdef NET
     register_net_syscalls(linux_syscalls);

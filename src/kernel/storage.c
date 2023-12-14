@@ -40,7 +40,6 @@ static struct {
 static void notify_mount_change_locked(void);
 
 /* Called with mutex locked. */
-// XXX this won't work with wrapped root...
 static volume storage_get_volume(tuple root)
 {
     list_foreach(&storage.volumes, e) {

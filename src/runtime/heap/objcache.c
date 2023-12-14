@@ -439,7 +439,7 @@ static value objcache_management(heap h)
     symbol s;
     tuple t = timm("type", "objcache", "pagesize", "%d", object_size(o));
     assert(t != INVALID_ADDRESS);
-    tuple_notifier n = tuple_notifier_wrap(t);
+    tuple_notifier n = tuple_notifier_wrap(t, false);
     assert(n != INVALID_ADDRESS);
     register_stat(o, n, t, allocated);
     register_stat(o, n, t, total);

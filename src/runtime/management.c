@@ -215,10 +215,28 @@ tuple allocate_function_tuple(tuple_get g, tuple_set s, tuple_iterate i)
 
 typedef struct tuple_notifier {
     struct function_tuple f;
-    tuple parent;
+    value parent;
     table get_notifys;           /* get_value_notifys */
     table set_notifys;           /* set_value_notifys */
 } *tuple_notifier;
+
+typedef struct tuple_notifier_cow {
+    struct tuple_notifier tn;
+    value parent_copy;
+    struct spinlock lock;
+} *tuple_notifier_cow;
+
+#ifdef KERNEL
+
+#define tn_cow_lock(tn)     spin_lock(&(tn)->lock)
+#define tn_cow_unlock(tn)   spin_unlock(&(tn)->lock)
+
+#else
+
+#define tn_cow_lock(tn)
+#define tn_cow_unlock(tn)
+
+#endif
 
 /* It might be a shade more elegant to make a function-backed value to poll
    dynamic values rather than use a get notifier, and it would avoid the table
@@ -247,6 +265,53 @@ closure_function(1, 1, value, tuple_notifier_get,
         return get(bound(tn)->parent, a); /* transparent */
 }
 
+static boolean tn_init_copy(tuple_notifier_cow tn)
+{
+    if (tn->parent_copy == INVALID_ADDRESS) {
+        if (is_tuple(tn->tn.parent))
+            tn->parent_copy = allocate_tuple();
+        else
+            tn->parent_copy = allocate_tagged_vector(vector_length(tn->tn.parent));
+        if (tn->parent_copy == INVALID_ADDRESS)
+            return false;
+    }
+    return true;
+}
+
+closure_function(1, 1, value, tuple_notifier_cow_get,
+                 tuple_notifier_cow, tn,
+                 value, a)
+{
+    symbol s;
+    tuple_notifier_cow tn_cow = bound(tn);
+    tuple_notifier tn = &tn_cow->tn;
+    get_value_notify n;
+    if (tn->get_notifys && ((s = sym_from_attribute(a)) && (n = table_find(tn->get_notifys, s))))
+        return apply(n);
+    tn_cow_lock(tn_cow);
+    value v;
+    if (tn_cow->parent_copy != INVALID_ADDRESS) {
+        v = get(tn_cow->parent_copy, a);
+        if (v)
+            goto out;
+    }
+    v = get(tn->parent, a);
+    if (is_composite(v)) {
+        if (!tn_init_copy(tn_cow)) {
+            v = 0;
+            goto out;
+        }
+        v = tuple_notifier_wrap(v, true);
+        if (v != INVALID_ADDRESS)
+            set(tn_cow->parent_copy, a, v);
+        else
+            v = 0;
+    }
+  out:
+    tn_cow_unlock(tn_cow);
+    return v;
+}
+
 closure_function(1, 2, void, tuple_notifier_set,
                  tuple_notifier, tn,
                  value, a, value, v)
@@ -260,6 +325,24 @@ closure_function(1, 2, void, tuple_notifier_set,
             return;             /* setting of value not allowed */
     }
     set(bound(tn)->parent, a, v);
+}
+
+closure_function(1, 2, void, tuple_notifier_cow_set,
+                 tuple_notifier_cow, tn,
+                 value, a, value, v)
+{
+    tuple_notifier_cow tn_cow = bound(tn);
+    tuple_notifier tn = &tn_cow->tn;
+    symbol s;
+    set_value_notify n;
+    if (tn->set_notifys && ((s = sym_from_attribute(a))) && (n = table_find(tn->set_notifys, s))) {
+        if (!apply(n, v))
+            return;             /* setting of value not allowed */
+    }
+    tn_cow_lock(tn_cow);
+    if (tn_init_copy(tn_cow))
+        set(tn_cow->parent_copy, a, v);
+    tn_cow_unlock(tn_cow);
 }
 
 closure_function(2, 2, boolean, tuple_notifier_iterate_each,
@@ -279,10 +362,69 @@ closure_function(1, 1, boolean, tuple_notifier_iterate,
                  binding_handler, h)
 {
     /* This assumes that all attributes of interest exist in the parent
-       tuple. Values that are served by get_notifys should still have
-       corresponding entries in the parent tuple if they are to be included in
+       value. Values that are served by get_notifys should still have
+       corresponding entries in the parent value if they are to be included in
        an iterate. */
     return iterate(bound(tn)->parent, stack_closure(tuple_notifier_iterate_each, bound(tn), h));
+}
+
+closure_function(2, 2, boolean, tuple_notifier_cow_iterate_each,
+                 tuple_notifier_cow, tn, binding_handler, h,
+                 value, a, value, v)
+{
+    tuple_notifier_cow tn_cow = bound(tn);
+    tuple_notifier tn = &tn_cow->tn;
+    symbol s = sym_from_attribute(a);
+    get_value_notify n;
+    if (tn->get_notifys && (n = table_find(tn->get_notifys, s))) {
+        v = apply(n);
+    } else {
+        tn_cow_lock(tn_cow);
+        value v_copy;
+        if (tn_cow->parent_copy != INVALID_ADDRESS) {
+            value v_copy = get(tn_cow->parent_copy, a);
+            if (v_copy) {
+                v = v_copy;
+            }
+        } else {
+            v_copy = 0;
+        }
+        if (!v_copy && is_composite(v)) {
+            if (!tn_init_copy(tn_cow))
+                goto error;
+            v = tuple_notifier_wrap(v, true);
+            if (v == INVALID_ADDRESS)
+                goto error;
+            set(tn_cow->parent_copy, a, v);
+        }
+        tn_cow_unlock(tn_cow);
+    }
+    return apply(bound(h), s, v);
+  error:
+    tn_cow_unlock(tn_cow);
+    return false;
+}
+
+closure_function(2, 2, boolean, tuple_notifier_iterate_copy_each,
+                 value, parent, binding_handler, h,
+                 value, a, value, v)
+{
+    if (get(bound(parent), a)) /* value has been handled in parent iterator */
+        return true;
+    return apply(bound(h), sym_from_attribute(a), v);
+}
+
+closure_function(1, 1, boolean, tuple_notifier_cow_iterate,
+                 tuple_notifier_cow, tn,
+                 binding_handler, h)
+{
+    tuple_notifier_cow tn = bound(tn);
+    value parent = tn->tn.parent;
+    if (!iterate(parent, stack_closure(tuple_notifier_cow_iterate_each, tn, h)))
+        return false;
+    if (tn->parent_copy == INVALID_ADDRESS)
+        return true;
+    return iterate(tn->parent_copy, stack_closure(tuple_notifier_iterate_copy_each, parent, h));
 }
 
 closure_function(1, 0, value, tuple_notifier_wrapped,
@@ -307,22 +449,36 @@ void tuple_notifier_register_set_notify(tuple_notifier tn, symbol s, set_value_n
         assert(tn->set_notifys != INVALID_ADDRESS);
     }
     table_set(tn->set_notifys, s, n);
-    value v = get(tn->parent, s);
+    value v = get(tn, s);
     if (v)
         apply(n, v);
 }
 
-tuple_notifier tuple_notifier_wrap(tuple parent)
+tuple_notifier tuple_notifier_wrap(value parent, boolean copy_on_write)
 {
-    tuple_notifier tn = allocate(management.fth, sizeof(struct tuple_notifier));
+    tuple_notifier tn;
+    tuple_notifier_cow tn_cow;
+    if (copy_on_write) {
+        tn_cow = allocate(management.fth, sizeof(struct tuple_notifier_cow));
+        tn = &tn_cow->tn;
+    } else {
+        tn = allocate(management.fth, sizeof(struct tuple_notifier));
+    }
     if (tn == INVALID_ADDRESS)
         return tn;
     tn->parent = parent;
     tn->get_notifys = 0;
     tn->set_notifys = 0;
-    tn->f.g = closure(management.h, tuple_notifier_get, tn);
-    tn->f.s = closure(management.h, tuple_notifier_set, tn);
-    tn->f.i = closure(management.h, tuple_notifier_iterate, tn);
+    tn->f.g = copy_on_write ? closure(management.h, tuple_notifier_cow_get, tn_cow) :
+                              closure(management.h, tuple_notifier_get, tn);
+    tn->f.s = copy_on_write ? closure(management.h, tuple_notifier_cow_set, tn_cow) :
+                              closure(management.h, tuple_notifier_set, tn);
+    tn->f.i = copy_on_write ? closure(management.h, tuple_notifier_cow_iterate, tn_cow) :
+                              closure(management.h, tuple_notifier_iterate, tn);
+    if (copy_on_write) {
+        tn_cow->parent_copy = INVALID_ADDRESS;
+        spin_lock_init(&tn_cow->lock);
+    }
 
     /* The special /wrapped attribute is probed by print_value and friends.
        Since it's not in the parent tuple, it won't show up in an iterate; it's hidden. */

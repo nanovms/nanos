@@ -2753,18 +2753,20 @@ next:
     rprintf("missing_files_end\n");
 }
 
-void init_syscalls(tuple root)
+void init_syscalls(process p)
 {
     heap h = heap_locked(get_kernel_heaps());
     syscall = syscall_handler;
     syscall_io_complete = closure(h, syscall_io_complete_cfn);
     io_completion_ignore = closure(h, io_complete_ignore);
+    filesystem fs = p->root_fs;
     vector hostname_v = split(h, alloca_wrap_cstring("etc/hostname"), '/');
-    tuple hostname_t = resolve_path(root, hostname_v);
+    tuple hostname_t = resolve_path(filesystem_getroot(fs), hostname_v);
     split_dealloc(hostname_v);
     if (hostname_t)
-        filesystem_read_entire(get_root_fs(), hostname_t, h,
+        filesystem_read_entire(fs, hostname_t, h,
                                closure(h, hostname_done), ignore_status);
+    tuple root = p->process_root;
     do_syscall_stats = get(root, sym(syscall_summary)) != 0;
     if (do_syscall_stats) {
         print_syscall_stats = closure(h, print_syscall_stats_cfn);

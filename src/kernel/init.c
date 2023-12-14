@@ -189,10 +189,10 @@ closure_function(2, 2, void, fsstarted,
     root_fs = fs;
     storage_set_root_fs(fs);
 
-    wrapped_root = tuple_notifier_wrap(filesystem_getroot(fs));
+    tuple fs_root = filesystem_getroot(fs);
+    wrapped_root = tuple_notifier_wrap(fs_root, true);
     assert(wrapped_root != INVALID_ADDRESS);
-    // XXX use wrapped_root after root fs is separate
-    tuple root = filesystem_getroot(root_fs);
+    tuple root = (tuple)wrapped_root;
     tuple mounts = get_tuple(root, sym(mounts));
     if (mounts)
         storage_set_mountpoints(mounts);
@@ -227,7 +227,7 @@ closure_function(2, 2, void, fsstarted,
     closure_finish();
     symbol booted = sym(booted);
     if (!get(root, booted))
-        filesystem_write_eav((tfs)fs, root, booted, null_value, false);
+        filesystem_write_eav((tfs)fs, fs_root, booted, null_value, false);
     config_console(root);
 }
 
@@ -331,12 +331,11 @@ filesystem get_root_fs(void)
 
 tuple get_root_tuple(void)
 {
-    return root_fs ? filesystem_getroot(root_fs) : 0;
+    return (tuple)wrapped_root;
 }
 
 void register_root_notify(symbol s, set_value_notify n)
 {
-    // XXX to be restored when root fs tuple is separated from root tuple
     tuple_notifier_register_set_notify(wrapped_root, s, n);
 }
 

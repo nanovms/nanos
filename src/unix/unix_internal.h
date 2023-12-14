@@ -1021,7 +1021,7 @@ static inline u64 iov_total_len(struct iovec *iov, int iovcnt)
 
 #define resolve_fd(__p, __fd) ({void *f ; if (!(f = fdesc_get(__p, __fd))) return set_syscall_error(current, EBADF); f;})
 
-void init_syscalls(tuple root);
+void init_syscalls(process p);
 void init_threads(process p);
 void init_futices(process p);
 
