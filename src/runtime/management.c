@@ -382,7 +382,7 @@ closure_function(2, 2, boolean, tuple_notifier_cow_iterate_each,
         tn_cow_lock(tn_cow);
         value v_copy;
         if (tn_cow->parent_copy != INVALID_ADDRESS) {
-            value v_copy = get(tn_cow->parent_copy, a);
+            v_copy = get(tn_cow->parent_copy, a);
             if (v_copy) {
                 v = v_copy;
             }
