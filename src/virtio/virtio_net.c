@@ -41,6 +41,7 @@
 #include "lwip/ethip6.h"
 #include "lwip/etharp.h"
 #include "lwip/dhcp.h"
+#include "lwip/inet_chksum.h"
 #include "lwip/timeouts.h"
 #include "netif/ethernet.h"
 #include "virtio_internal.h"
@@ -54,6 +55,11 @@
 # define virtio_net_debug(...) do { } while(0)
 #endif // defined(VIRTIO_NET_DEBUG)
 
+#define VIRTIO_NET_DRV_FEATURES \
+    (VIRTIO_NET_F_GUEST_CSUM | VIRTIO_NET_F_MAC | VIRTIO_NET_F_GUEST_TSO4 |         \
+     VIRTIO_NET_F_GUEST_TSO6 | VIRTIO_NET_F_GUEST_ECN | VIRTIO_NET_F_GUEST_UFO |    \
+     VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_ANY_LAYOUT | VIRTIO_F_RING_EVENT_IDX)
+
 declare_closure_struct(0, 1, u64, vnet_mem_cleaner,
                        u64, clean_bytes);
 typedef struct vnet {
@@ -64,6 +70,8 @@ typedef struct vnet {
     closure_struct(vnet_mem_cleaner, mem_cleaner);
     bytes net_header_len;
     int rxbuflen;
+    u32 rx_seqno;
+    struct virtio_net_hdr_mrg_rxbuf *rx_hdr;
     struct netif *n;
     struct virtqueue *txq;
     struct virtqueue *rxq;
@@ -79,6 +87,7 @@ typedef struct xpbuf
     struct pbuf_custom p;
     vnet vn;
     closure_struct(vnet_input, input);
+    u32 seqno;
 } __attribute__((aligned(8))) *xpbuf;
 
 
@@ -129,54 +138,6 @@ static void receive_buffer_release(struct pbuf *p)
 
 static void post_receive(vnet vn);
 
-static u16 vnet_csum(u8 *buf, u64 len)
-{
-    u64 sum = 0;
-    while (len >= sizeof(u64)) {
-        u64 s = *(u64 *)buf;
-        sum += s;
-        if (sum < s)
-            sum++;
-        buf += sizeof(u64);
-        len -= sizeof(u64);
-    }
-    if (len >= sizeof(u32)) {
-        u32 s = *(u32 *)buf;
-        sum += s;
-        if (sum < s)
-            sum++;
-        buf += sizeof(u32);
-        len -= sizeof(u32);
-    }
-    if (len >= sizeof(u16)) {
-        u16 s = *(u16 *)buf;
-        sum += s;
-        if (sum < s)
-            sum++;
-        buf += sizeof(u16);
-        len -= sizeof(u16);
-    }
-    if (len) {
-        u8 s = *buf;
-        sum += s;
-        if (sum < s)
-            sum++;
-    }
-
-    /* Fold down to 16 bits */
-    u32 s1 = sum;
-    u32 s2 = sum >> 32;
-    s1 += s2;
-    if (s1 < s2)
-        s1++;
-    u16 s3 = s1;
-    u16 s4 = s1 >> 16;
-    s3 += s4;
-    if (s3 < s4)
-        s3++;
-    return ~s3;
-}
-
 define_closure_function(0, 1, void, vnet_input,
                         u64, len)
 {
@@ -184,23 +145,94 @@ define_closure_function(0, 1, void, vnet_input,
 
     xpbuf x = struct_from_field(closure_self(), xpbuf, input);
     vnet vn= x->vn;
-    // under what conditions does a virtio queue give us zero?
-    struct virtio_net_hdr *hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
     boolean err = false;
+    struct virtio_net_hdr *hdr;
+    boolean pkt_complete;
+    if (vn->dev->features & VIRTIO_NET_F_MRG_RXBUF) {
+        /* Ensure received messages are processed in the same order as they are received.
+         * This is necessary in order to correctly process packets spread in multiple rx buffers. */
+        u32 attempts = 0;
+        while ((volatile u32)vn->rx_seqno != x->seqno) {
+            if (++attempts == 0) {
+                err = true;
+                goto out;
+            }
+            kern_pause();
+        }
+
+        struct virtio_net_hdr_mrg_rxbuf *saved_hdr = vn->rx_hdr;
+        boolean first_msg = (saved_hdr == 0);
+        if (first_msg) {
+            saved_hdr = (struct virtio_net_hdr_mrg_rxbuf *)x->p.pbuf.payload;
+            if (saved_hdr->num_buffers == 1) {
+                pkt_complete = true;
+            } else {
+                saved_hdr->num_buffers--;
+                vn->rx_hdr = saved_hdr;
+                pkt_complete = false;
+            }
+        } else {
+            xpbuf head_pbuf = ((xpbuf)saved_hdr) - 1;
+            x->p.pbuf.tot_len = x->p.pbuf.len = len;
+            pbuf_cat(&head_pbuf->p.pbuf, &x->p.pbuf);
+            if (--saved_hdr->num_buffers > 0) {
+                pkt_complete = false;
+            } else {
+                hdr = &saved_hdr->hdr;
+                x = head_pbuf;
+                len = head_pbuf->p.pbuf.tot_len;
+                vn->rx_hdr = 0;
+                pkt_complete = true;
+            }
+        }
+        vn->rx_seqno++;
+        if (!first_msg)
+            goto msg_processed;
+    } else {
+        pkt_complete = true;
+    }
+    hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
     len -= vn->net_header_len;
     assert(len <= x->p.pbuf.len);
     x->p.pbuf.tot_len = x->p.pbuf.len = len;
     x->p.pbuf.payload += vn->net_header_len;
+  msg_processed:
+    if (!pkt_complete) {
+        post_receive(vn);
+        return;
+    }
     if (hdr->flags & VIRTIO_NET_HDR_F_NEEDS_CSUM) {
         if (hdr->csum_start + hdr->csum_offset <= len - sizeof(u16)) {
-            u16 csum = vnet_csum(x->p.pbuf.payload + hdr->csum_start, len - hdr->csum_start);
-            *(u16 *)(x->p.pbuf.payload + hdr->csum_start + hdr->csum_offset) = csum;
+            u16 offset = hdr->csum_start;
+            struct pbuf *q = &x->p.pbuf;
+            while (q->len <= offset) {
+                offset -= q->len;
+                q = q->next;
+            }
+            q->payload += offset;
+            q->len -= offset;
+            u16 csum = inet_chksum_pbuf(q);
+            q->payload -= offset;
+            q->len += offset;
+            offset = hdr->csum_start + hdr->csum_offset;
+            q = &x->p.pbuf;
+            while (q->len <= offset) {
+                offset -= q->len;
+                q = q->next;
+            }
+            if (offset + sizeof(csum) <= q->len) {
+                *(u16 *)(q->payload + offset) = csum;
+            } else {
+                *(u8 *)(q->payload + offset) = csum;
+                *(u8 *)q->next->payload = csum >> 8;
+            }
         } else {
             err = true;
         }
     }
     if (!err)
         err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
+  out:
     if (err)
         receive_buffer_release(&x->p.pbuf);
     // we need to get a signal from the device side that there was
@@ -231,7 +263,7 @@ static void post_receive(vnet vn)
         vqmsg_push(vn->rxq, m, phys, vn->net_header_len, true);
         vqmsg_push(vn->rxq, m, phys + vn->net_header_len, vn->rxbuflen - vn->net_header_len, true);
     }
-    vqmsg_commit(vn->rxq, m, init_closure(&x->input, vnet_input));
+    vqmsg_commit_seqno(vn->rxq, m, init_closure(&x->input, vnet_input), &x->seqno);
 }
 
 define_closure_function(0, 1, u64, vnet_mem_cleaner,
@@ -318,6 +350,8 @@ static void virtio_net_attach(vtdev dev)
                      rx_allocsize, rxbuffers_pagesize, tx_handler_size, tx_handler_pagesize);
     vn->rxbuffers = allocate_objcache(h, (heap)contiguous, rx_allocsize, rxbuffers_pagesize, true);
     assert(vn->rxbuffers != INVALID_ADDRESS);
+    vn->rx_seqno = 0;
+    vn->rx_hdr = 0;
     vn->txhandlers = allocate_objcache(h, (heap)contiguous, tx_handler_size, tx_handler_pagesize, true);
     assert(vn->txhandlers != INVALID_ADDRESS);
     vn->empty = alloc_map(contiguous, contiguous->h.pagesize, &vn->empty_phys);
@@ -340,7 +374,7 @@ closure_function(2, 1, boolean, vtpci_net_probe,
     if (!vtpci_probe(d, VIRTIO_ID_NETWORK))
         return false;
     vtpci dev = attach_vtpci(bound(general), bound(page_allocator), d,
-        VIRTIO_NET_F_MAC | VIRTIO_F_ANY_LAYOUT | VIRTIO_F_RING_EVENT_IDX);
+        VIRTIO_NET_DRV_FEATURES);
     virtio_net_attach(&dev->virtio_dev);
     return true;
 }
@@ -354,7 +388,7 @@ closure_function(2, 1, void, vtmmio_net_probe,
             sizeof(struct virtio_net_config)))
         return;
     if (attach_vtmmio(bound(general), bound(page_allocator), d,
-            VIRTIO_NET_F_MAC))
+        VIRTIO_NET_DRV_FEATURES))
         virtio_net_attach(&d->virtio_dev);
 }
 
