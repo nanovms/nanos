@@ -106,6 +106,10 @@ typedef struct netsock {
     closure_struct(fdesc_close, close);
 } *netsock;
 
+/* Mask of TCP flags expressing socket configuration settings (as opposed to flags describing the
+ * current state of a socket). */
+#define SOCK_TCP_CFG_FLAGS   TF_NODELAY
+
 #define netsock_lock(s)     spin_lock(&(s)->sock.f.lock)
 #define netsock_unlock(s)   spin_unlock(&(s)->sock.f.lock)
 
@@ -1356,7 +1360,7 @@ static int allocate_tcp_sock(process p, int af, struct tcp_pcb *pcb, u32 flags)
     int fd = allocate_sock(p, af, SOCK_STREAM, flags, true, &s);
     if (fd >= 0) {
 	s->info.tcp.lw = pcb;
-	s->info.tcp.flags = pcb->flags;
+	s->info.tcp.flags = pcb->flags & SOCK_TCP_CFG_FLAGS;
 	s->info.tcp.state = TCP_SOCK_CREATED;
 	tcp_ref(pcb);
     }
@@ -2196,7 +2200,8 @@ closure_function(5, 1, sysreturn, accept_bh,
     if (tcp_lw) {
         tcp_lock(tcp_lw);
         tcp_backlog_accepted(tcp_lw);
-        tcp_lw->flags = child->info.tcp.flags;
+        tcp_lw->flags = (tcp_lw->flags & ~SOCK_TCP_CFG_FLAGS) |
+                        (child->info.tcp.flags & SOCK_TCP_CFG_FLAGS);
         tcp_unlock(tcp_lw);
         tcp_unref(tcp_lw);
     }
