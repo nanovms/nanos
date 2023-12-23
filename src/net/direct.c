@@ -72,12 +72,26 @@ define_closure_function(1, 0, void, direct_receive_service,
             dc->receive_bh = bh;
         }
         boolean client = (d->p == 0);
+        input_buffer_handler ibh = dc->receive_bh;
         while (true) {
             struct pbuf *p = dequeue(dc->receive_queue);
             if (p == INVALID_ADDRESS)
                 break;
             if (p) {
-                boolean done = apply(dc->receive_bh, alloca_wrap_buffer(p->payload, p->len));
+                buffer b = alloca_wrap_buffer(p->payload, p->len);
+                boolean done = apply(ibh, b);
+                if (!done) {
+                    struct pbuf *q = p->next;
+                    while (q) {
+                        bytes len = q->len;
+                        init_buffer(b, len, true, 0, q->payload);
+                        buffer_produce(b, len);
+                        done = apply(ibh, b);
+                        if (done)
+                            break;
+                        q = q->next;
+                    }
+                }
                 if (!done) {
                     tcp_lock(dc->p);
                     tcp_recved(dc->p, p->len);
