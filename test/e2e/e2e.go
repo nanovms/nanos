@@ -140,7 +140,7 @@ func testPackages(t *testing.T) {
 		{name: "node_v11.5.0", pkg: "eyberg/node:v11.5.0", dir: "node_v11.5.0", request: "http://0.0.0.0:8083"},
 		{name: "nginx_1.15.6", pkg: "eyberg/nginx:1.15.6", dir: "nginx_1.15.6", request: "http://0.0.0.0:8084"},
 		{name: "php_7.3.5", pkg: "eyberg/php:7.3.5", dir: "php_7.3.5", request: "http://0.0.0.0:9501"},
-		{name: "ruby_2.5.1", pkg: "eyberg/ruby:2.5.1", dir: "ruby_2.5.1", request: "http://0.0.0.0:4567", prebuild: rubyPrebuild},
+		{name: "ruby_3.0.0", pkg: "eyberg/ruby:3.0.0", dir: "ruby_3.0.0", request: "http://0.0.0.0:4567", prebuild: rubyPrebuild},
 		{name: "go", dir: "go", request: "http://0.0.0.0:8080", elf: "main", prebuild: goPrebuild},
 		{name: "rust", dir: "rust", request: "http://0.0.0.0:8080", elf: "main", prebuild: rustPrebuild, nocross: true},
 	}
