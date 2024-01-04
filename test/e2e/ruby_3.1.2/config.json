@@ -1,5 +1,5 @@
 {
-    "Args": ["myapp.rb", "-o", "0.0.0.0"],
+    "Args": ["myapp.rb"],
     "Dirs": [".ruby"],
     "ENV": {
         "GEM_HOME": ".ruby"
