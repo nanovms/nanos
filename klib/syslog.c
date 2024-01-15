@@ -358,12 +358,9 @@ define_closure_function(0, 2, void, syslog_shutdown_completion,
     syslog_udp_flush();
 }
 
-closure_function(2, 2, boolean, syslog_cfg,
-                 void *, intern, void *, rprintf,
+closure_function(0, 2, boolean, syslog_cfg,
                  value, s, value, v)
 {
-    symbol (*intern)(string name) = bound(intern);
-    void (*rprintf)(const char *format, ...) = bound(rprintf);
     if (s == sym(file)) {
         if (!is_string(v)) {
             rprintf("invalid syslog file\n");
@@ -463,7 +460,7 @@ int init(status_handler complete)
     syslog.file_rotate = SYSLOG_FILE_ROTATE_DEFAULT;
     syslog.server_port = SYSLOG_UDP_PORT_DEFAULT;
 
-    if (!is_tuple(cfg) || !iterate(cfg, stack_closure(syslog_cfg, intern, rprintf))) {
+    if (!is_tuple(cfg) || !iterate(cfg, stack_closure(syslog_cfg))) {
         rprintf("invalid syslog configuration\n");
         return KLIB_INIT_FAILED;
     }
