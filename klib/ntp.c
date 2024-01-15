@@ -899,7 +899,7 @@ int init(status_handler complete)
     }
     ntp.pollmin = 4;
     ntp.pollmax = 10;
-    value pollmin = get(root, sym_intern(ntp_poll_min, intern));
+    value pollmin = get(root, sym(ntp_poll_min));
     if (pollmin) {
         u64 interval;
         if (!u64_from_value(pollmin, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
@@ -911,7 +911,7 @@ int init(status_handler complete)
         if (interval > ntp.pollmax)
             ntp.pollmax = interval;
     }
-    value pollmax = get(root, sym_intern(ntp_poll_max, intern));
+    value pollmax = get(root, sym(ntp_poll_max));
     if (pollmax) {
         u64 interval;
         if (!u64_from_value(pollmax, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
@@ -929,7 +929,7 @@ int init(status_handler complete)
         }
     }
     ntp.reset_threshold = 0;
-    value reset_thresh = get(root, sym_intern(ntp_reset_threshold, intern));
+    value reset_thresh = get(root, sym(ntp_reset_threshold));
     if (reset_thresh) {
         u64 thresh;
         if (!u64_from_value(reset_thresh, &thresh) || (thresh > 0 && thresh < NTP_RESET_THRESHOLD_MIN)) {
@@ -939,7 +939,7 @@ int init(status_handler complete)
         ntp.reset_threshold = seconds(thresh);
     }
     ntp.max_corr_freq = PPM_SCALE(DEFAULT_MAX_SLEW_PPM);
-    value corr_freq = get(root, sym_intern(ntp_max_slew_ppm, intern));
+    value corr_freq = get(root, sym(ntp_max_slew_ppm));
     if (corr_freq) {
         u64 ppm;
         if (!u64_from_value(corr_freq, &ppm) || (ppm > 0 && ppm < NTP_MAX_SLEW_LIMIT)) {
@@ -949,7 +949,7 @@ int init(status_handler complete)
         ntp.max_corr_freq = PPM_SCALE(ppm);
     }
     ntp.max_base_freq = PPM_SCALE(DEFAULT_MAX_FREQ_PPM);
-    value base_freq = get(root, sym_intern(ntp_max_freq_ppm, intern));
+    value base_freq = get(root, sym(ntp_max_freq_ppm));
     if (base_freq) {
         u64 ppm;
         if (!u64_from_value(base_freq, &ppm) || (ppm > 0 && ppm < NTP_MAX_FREQ_LIMIT)) {
