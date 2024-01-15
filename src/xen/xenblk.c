@@ -505,7 +505,7 @@ closure_function(2, 3, boolean, xenblk_probe,
     heap h = heap_locked(kh);
     xenblk_dev xbd = allocate(h, sizeof(*xbd));
     if (xbd == INVALID_ADDRESS) {
-        msg_err("%s: cannot allocate device structure\n", __func__);
+        msg_err("cannot allocate device structure\n");
         return false;
     }
     xen_dev xd = &xbd->dev;
@@ -513,13 +513,13 @@ closure_function(2, 3, boolean, xenblk_probe,
     xbd->contiguous = (heap)heap_linear_backed(kh);
     status s = xendev_attach(xd, id, frontend, meta);
     if (!is_ok(s)) {
-        msg_err("%s: cannot attach Xen device: %v\n", __func__, s);
+        msg_err("cannot attach Xen device: %v\n", s);
         timm_dealloc(s);
         goto dealloc_xbd;
     }
     xbd->rreqs = allocate_vector(h, XENBLK_RING_SIZE);
     if (xbd->rreqs == INVALID_ADDRESS) {
-        msg_err("%s: cannot allocate request vector\n", __func__);
+        msg_err("cannot allocate request vector\n");
         goto dealloc_xbd;
     }
     list_init(&xbd->pending);
@@ -531,7 +531,7 @@ closure_function(2, 3, boolean, xenblk_probe,
     xbd->meta = meta;
     s = xenblk_enable(xbd);
     if (!is_ok(s)) {
-        msg_err("%s: cannot enable device: %v\n", __func__, s);
+        msg_err("cannot enable device: %v\n", s);
         timm_dealloc(s);
         goto dealloc_reqs;
     }

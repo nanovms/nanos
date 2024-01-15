@@ -756,7 +756,7 @@ int main(int argc, char **argv)
         if (v) {
             char *cdl = buffer_to_cstring((buffer)v);
             if (!parse_size(cdl,  &coredumplimit)) {
-                halt("invalid coredumplimit string \"%s\"\n", cdl);
+                halt("invalid coredumplimit string \"%b\"\n", v);
             }
             if (coredumplimit > img_size)
                 img_size = coredumplimit;

@@ -387,7 +387,7 @@ define_closure_function(3, 3, void, nvme_io,
     nvme n = bound(n);
     u32 namespace = bound(namespace);
     boolean write = bound(write);
-    nvme_debug("[%d] %s %R", namespace, write ? "write" : "read", blocks);
+    nvme_debug("[%d] %c %R", namespace, write ? 'w' : 'r', blocks);
     nvme_ioreq req = nvme_get_ioreq(n);
     if (req == INVALID_ADDRESS) {
         apply(sh, timm("result", "request allocation failed"));

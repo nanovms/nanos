@@ -65,7 +65,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     if (ir == INVALID_ADDRESS)
 	return ir;
     if (!rangemap_insert(i->ranges, &ir->n)) {
-        msg_err("%s: range insertion failure; conflict with range %R\n", __func__, ir->n.r);
+        msg_err("range insertion failure; conflict with range %R\n", ir->n.r);
         goto fail;
     }
 
@@ -77,7 +77,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
 
     ir->b = allocate_bitmap(i->meta, i->map, pages + page_start_mask);
     if (ir->b == INVALID_ADDRESS) {
-        msg_err("%s: failed to allocate bitmap for range %R\n", __func__, ir->n.r);
+        msg_err("failed to allocate bitmap for range %R\n", ir->n.r);
         goto fail;
     }
     if (page_start_mask)

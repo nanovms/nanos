@@ -208,13 +208,13 @@ const char *string_from_mmap_type(int type)
          "unknown");
 }
 
-#define format_protection_violation(vaddr, ctx, vm, str)        \
-    "page_protection_violation%s\naddr 0x%lx, pc 0x%lx, "       \
-    "error %s%s%s vm->flags (%s%s %s%s%s)\n",                   \
-        str, vaddr, frame_fault_pc(ctx->frame),                 \
-        is_write_fault(ctx->frame) ? "W" : "R",                 \
-        is_usermode_fault(ctx->frame) ? "U" : "S",              \
-        is_instruction_fault(ctx->frame) ? "I" : "D",           \
+#define format_protection_violation(vaddr, ctx, vm)             \
+    "page_protection_violation\naddr 0x%lx, pc 0x%lx, "         \
+    "error %c%c%c vm->flags (%s%s %s%s%s)\n",                   \
+        vaddr, frame_fault_pc(ctx->frame),                      \
+        is_write_fault(ctx->frame) ? 'W' : 'R',                 \
+        is_usermode_fault(ctx->frame) ? 'U' : 'S',              \
+        is_instruction_fault(ctx->frame) ? 'I' : 'D',           \
         (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",            \
         string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK), \
         (vm->flags & VMAP_FLAG_READABLE) ? "readable " : "",    \
@@ -239,7 +239,7 @@ static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
     }
 
     if (is_thread_context(ctx)) {
-        pf_debug(format_protection_violation(vaddr, ctx, vm, ""));
+        pf_debug(format_protection_violation(vaddr, ctx, vm));
         deliver_fault_signal(SIGSEGV, (thread)ctx, vaddr, SEGV_ACCERR);
         return true;
     }

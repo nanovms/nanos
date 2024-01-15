@@ -122,7 +122,7 @@ static boolean virtio_rng_attach(heap general, backed_heap backed, vtdev v)
     preferred_get_seed = virtio_rng_get_seed;
     return true;
   fail:
-    rprintf("%s: failed to attach: %v\n", __func__, s);
+    msg_err("failed to attach: %v\n", s);
     return false;
 }
 

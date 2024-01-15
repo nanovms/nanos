@@ -272,8 +272,7 @@ static void xennet_service_tx_ring(xennet_dev xd)
 
             if (tx->status != NETIF_RSP_OKAY) {
                 /* XXX counters */
-                msg_err("%s: cons %d, tx resp id %d, status %d\n",
-                        __func__, cons, tx->id, tx->status);
+                msg_err("cons %d, tx resp id %d, status %d\n", cons, tx->id, tx->status);
             }
 
             xennet_tx_page txp = xennet_get_tx_page(txb, xennet_tx_page_idx_from_id(tx->id));

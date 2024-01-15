@@ -19,7 +19,9 @@ static void scsi_bdump_sense(buffer b, const u8 *sense, int length)
 {
     assert(length >= sizeof(struct scsi_sense_data));
     for (int i = 0; i < sizeof(struct scsi_sense_data); i++) {
-        bprintf(b, "%s%02x", i > 0 ? " " : "", sense[i]);
+        if (i > 0)
+            push_u8(b, ' ');
+        bprintf(b, "%02x", sense[i]);
     }
     struct scsi_sense_data *ssd = (struct scsi_sense_data *) sense;
     bprintf(b, ": KEY %x, ASC/ASCQ %02x/%02x",

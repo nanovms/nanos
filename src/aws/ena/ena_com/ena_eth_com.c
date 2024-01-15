@@ -584,7 +584,7 @@ int ena_com_rx_pkt(struct ena_com_io_cq *io_cq, struct ena_com_io_sq *io_sq,
     /* Update SQ head ptr */
     io_sq->next_to_comp += nb_hw_desc;
 
-    ena_trc_dbg(ena_com_io_cq_to_ena_dev(io_cq), "[%s][QID#%d] Updating SQ head to: %d\n", __func__,
+    ena_trc_dbg(ena_com_io_cq_to_ena_dev(io_cq), "[QID#%d] Updating SQ head to: %d\n",
         io_sq->qid, io_sq->next_to_comp);
 
     /* Get rx flags from the last pkt */
@@ -620,8 +620,7 @@ int ena_com_add_single_rx_desc(struct ena_com_io_sq *io_sq, struct ena_com_buf *
     desc->req_id = req_id;
 
     ena_trc_dbg(ena_com_io_sq_to_ena_dev(io_sq),
-                "[%s] Adding single RX desc, Queue: %d, req_id: %d\n",
-                __func__, io_sq->qid, req_id);
+                "Adding single RX desc, Queue: %d, req_id: %d\n", io_sq->qid, req_id);
 
     desc->buff_addr_lo = (u32) ena_buf->paddr;
     desc->buff_addr_hi = ((ena_buf->paddr & GENMASK_ULL(io_sq->dma_addr_bits - 1, 32)) >> 32);

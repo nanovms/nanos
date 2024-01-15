@@ -391,7 +391,7 @@ static void telemetry_stats_send(void)
 {
     buffer b = allocate_buffer(telemetry.h, 128);
     if (b == INVALID_ADDRESS) {
-        rprintf("%s: failed to allocate buffer\n", __func__);
+        msg_err("failed to allocate buffer\n");
         return;
     }
     bprintf(b, "{\"bootID\":%ld,\"memUsed\":[", telemetry.boot_id);
@@ -402,7 +402,7 @@ static void telemetry_stats_send(void)
     storage_iterate(stack_closure(telemetry_vh, b, 0));
     buffer_write_cstring(b, "]}\r\n");
     if (!telemetry_send("/api/v1/machine-stats", b, 0)) {
-        rprintf("%s: failed to send stats\n", __func__);
+        msg_err("failed to send stats\n");
         deallocate_buffer(b);
     }
 }

@@ -315,5 +315,5 @@ void lockstats_init(kernel_heaps kh)
     }
     int ret = init_http_listener();
     if (ret != 0)
-        rprintf("%s: failed to start http listener\n", __func__);
+        msg_err("failed to start http listener\n");
 }

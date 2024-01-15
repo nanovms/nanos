@@ -376,12 +376,12 @@ printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
     nsec = nsec % THOUSAND;
 
     /* print a symbol to highlight the timescale */
-    printer_write(p, "%s ",
-        (usec >= 100000) ? "@" :
-        (usec >= 10000)  ? "*" :
-        (usec >= 1000)   ? "#" :
-        (usec >= 100)    ? "!" :
-        (usec >= 10)     ? "+" : " "
+    printer_write(p, "%c ",
+        (usec >= 100000) ? '@' :
+        (usec >= 10000)  ? '*' :
+        (usec >= 1000)   ? '#' :
+        (usec >= 100)    ? '!' :
+        (usec >= 10)     ? '+' : ' '
     );
 
     bprintf(b, "%ld.", usec);
@@ -397,11 +397,9 @@ printer_print_duration_usec(struct ftrace_printer * p, timestamp num, u16 width)
     /* truncate the buffer after "width"-3 digits */
     len = buffer_length(b);
     if (len > width - 3)
-        ((char *)buffer_ref(b, width-3))[0] = '\0';
-    else
-        ((char *)buffer_ref(b, len))[0] = '\0';
+        b->end = b->start + width - 3;
 
-    printer_write(p, "%s us", (char *)buffer_ref(b, 0));
+    printer_write(p, "%b us", b);
 
     /* add spaces if needed */
     while (len < width - 3) {
@@ -1667,7 +1665,7 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
 
     /* no real error handling for http get here */
     if (ret < 0) {
-        msg_err("%s: get failed with %d\n", __func__, ret);
+        msg_err("get failed with %d\n", ret);
         return false;
     }
 
@@ -1679,7 +1677,7 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
         /* reset printer for next chunk */
         p->flags &= ~TRACE_FLAG_HEADER;
         if (printer_init(p, p->flags) < 0) {
-            msg_err("%s: printer_init failed (alloc)\n", __func__);
+            msg_err("printer_init failed (alloc)\n");
             return false;
         }
 
@@ -1708,7 +1706,7 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
     return false;
 
 send_http_chunk_failed:
-    msg_err("%s: send_http_chunk failed with %v\n", __func__, s);
+    msg_err("send_http_chunk failed with %v\n", s);
     return false;
 }
 

@@ -972,7 +972,7 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
   err_mem_bq:
     deallocate(h, sfd, sizeof(*sfd));
   err_mem:
-    msg_err("%s: failed to allocate\n", __func__);
+    msg_err("failed to allocate\n");
     return set_syscall_error(current, ENOMEM);
 }
 

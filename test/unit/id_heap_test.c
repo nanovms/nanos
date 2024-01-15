@@ -273,19 +273,19 @@ static boolean alloc_subrange_test(heap h)
 
     /* these should fail */
     if (id_heap_alloc_subrange(id, PAGESIZE, 0, SUBRANGE_TEST_MIN) != INVALID_PHYSICAL) {
-        msg_err("%s: should have failed for lower non-intersecting subrange\n", __func__);
+        msg_err("should have failed for lower non-intersecting subrange\n");
         return false;
     }
 
     if (id_heap_alloc_subrange(id, 1, SUBRANGE_TEST_END - PAGESIZE + 1,
                                SUBRANGE_TEST_END + PAGESIZE) != INVALID_PHYSICAL) {
-        msg_err("%s: should have failed for upper non-intersecting subrange\n", __func__);
+        msg_err("should have failed for upper non-intersecting subrange\n");
         return false;
     }
 
     if (id_heap_alloc_subrange(id, PAGESIZE, SUBRANGE_TEST_MIN + PAGESIZE + 1,
                                SUBRANGE_TEST_MIN + 2 * PAGESIZE + 1) != INVALID_PHYSICAL) {
-        msg_err("%s: should have failed for unaligned subrange\n", __func__);
+        msg_err("should have failed for unaligned subrange\n");
         return false;
     }
 
@@ -299,14 +299,14 @@ static boolean alloc_subrange_test(heap h)
     u64 res;
     for (int i = 0; i < allocs; i++) {
         if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != expect) {
-            msg_err("%s: subrange alloc expected 0x%lx, got 0x%lx\n", __func__, expect, res);
+            msg_err("subrange alloc expected 0x%lx, got 0x%lx\n", expect, res);
             return false;
         }
         pages_remaining--;
         expect += PAGESIZE;
     }
     if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != INVALID_PHYSICAL) {
-        msg_err("%s: superfluous subrange alloc should have failed, got 0x%lx\n", __func__, res);
+        msg_err("superfluous subrange alloc should have failed, got 0x%lx\n", res);
         return false;
     }
 
@@ -319,20 +319,20 @@ static boolean alloc_subrange_test(heap h)
 
     for (int i = 0; i < allocs; i++) {
         if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != expect) {
-            msg_err("%s: multi-page subrange alloc expected 0x%lx, got 0x%lx\n", __func__, expect, res);
+            msg_err("multi-page subrange alloc expected 0x%lx, got 0x%lx\n", expect, res);
             return false;
         }
         pages_remaining -= 3;
         expect += 4 * PAGESIZE;
     }
     if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != INVALID_PHYSICAL) {
-        msg_err("%s: multi-page superfluous subrange alloc should have failed, got 0x%lx\n", __func__, res);
+        msg_err("multi-page superfluous subrange alloc should have failed, got 0x%lx\n", res);
         return false;
     }
 
     /* we should have a remainder page for each 3-page alloc plus the skipped page above */
     if (pages_remaining != allocs + 1) {
-        msg_err("%s: test bug, pages_remaining %d, should be %d\n", pages_remaining, allocs + 1);
+        msg_err("test bug, pages_remaining %d, should be %d\n", pages_remaining, allocs + 1);
         return false;
     }
 
@@ -345,15 +345,14 @@ static boolean alloc_subrange_test(heap h)
             expect = SUBRANGE_TEST_MIN; /* should wrap around and pick up skipped page from above */
 
         if ((res = allocate_u64((heap)id, PAGESIZE)) != expect) {
-            msg_err("%s: remainder alloc returned 0x%lx, should be 0x%lx (iter %d)\n",
-                    __func__, res, expect, i);
+            msg_err("remainder alloc returned 0x%lx, should be 0x%lx (iter %d)\n", res, expect, i);
             return false;
         }
     }
 
     /* we should have exhausted the number space */
     if ((res = allocate_u64((heap)id, PAGESIZE)) != INVALID_PHYSICAL) {
-        msg_err("%s: should have exhausted number space, got 0x%lx\n", __func__, res);
+        msg_err("should have exhausted number space, got 0x%lx\n", res);
         return false;
     }
 

@@ -63,7 +63,7 @@ static void netconsole_config(void *_d, tuple r)
     bytes len = dst_ip ? buffer_length(dst_ip) : runtime_strlen(DEFAULT_IP);
 
     if (len > IPADDR_STRLEN_MAX) {
-        msg_err("%s: ip address too long\n");
+        msg_err("ip address too long\n");
         return;
     }
 
@@ -71,18 +71,18 @@ static void netconsole_config(void *_d, tuple r)
     runtime_memcpy(b, s, len);
     b[len] = 0;
     if (!ipaddr_aton(b, &nd->dst_ip)) {
-        msg_err("%s: failed to translate ip address\n");
+        msg_err("failed to translate ip address\n");
         return;
     }
 
     buffer dst_port = get(r, sym(netconsole_port));
     u64 port = DEFAULT_PORT;
     if (dst_port && !parse_int(dst_port, 10, &port)) {
-        msg_err("%s: failed to parse port\n");
+        msg_err("failed to parse port\n");
         return;
     }
     if (port >= U64_FROM_BIT(16)) {
-        msg_err("%s: port out of range\n");
+        msg_err("port out of range\n");
         return;
     }
     nd->port = (u16)port;

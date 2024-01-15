@@ -256,7 +256,7 @@ static inline s64 fpdiv(s64 dividend, s64 divisor)
     u128 d = ((u128)dividend) << CLOCK_FP_BITS;
     s64 q = div128_64(d, divisor);
     if (q == -1) {
-        rprintf("NTP %s: %f / %f quotient out of range at %p!\n", __func__, dividend, divisor, __builtin_return_address(0));
+        msg_err("%f / %f quotient out of range at %p!\n", dividend, divisor, __builtin_return_address(0));
         q = fpmax;
     }
     if (neg)
@@ -313,7 +313,7 @@ static void ntp_query(ntp_server server)
     runtime_memcpy(&server->last_originate_time, &t, sizeof(t));
     err_t err = udp_sendto(ntp.pcb, p, &server->ip_addr, server->port);
     if (err != ERR_OK) {
-        rprintf("%s: failed to send request: %d\n", __func__, err);
+        msg_err("failed to send request: %d\n", err);
         ntp_query_complete(false);
     }
     pbuf_free(p);
@@ -516,18 +516,18 @@ static boolean chrony_new_sample(timestamp t, s64 off, s64 pdelay, s64 pdisp, s6
         return true;
     s64 est_off, est_freq, sd, skew;
     if (!regression(&est_off, &est_freq, &sd, &skew)) {
-        rprintf("%s: regression computation failed\n", __func__);
+        msg_err("regression computation failed\n");
         if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS)
             goto badlimit;
         return false;
     }
     /* if the frequency is out of range then assume bad data or misbehaving clock and clamp */
     if (ABS(ntp.base_freq + est_freq) > ntp.max_base_freq) {
-        rprintf("%s: freq out of range: %f limit=%f\n", __func__, ABS(ntp.base_freq + est_freq), ntp.max_base_freq);
+        msg_err("freq out of range: %f limit=%f\n", ABS(ntp.base_freq + est_freq), ntp.max_base_freq);
         /* if too many bad regressions in a row, then toss everything and start over */
         if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS) {
 badlimit:
-            rprintf("%s: too many bad regressions; starting over\n", __func__);
+            msg_err("too many bad regressions; starting over\n");
             stop_slew();
             ntp_reset_state();
             clock_set_freq(0);
@@ -640,7 +640,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     struct ntp_packet *pkt = p->payload;
     boolean success;
     if (p->len != sizeof(*pkt)) {
-        rprintf("%s: invalid response length %d\n", __func__, p->len);
+        msg_err("invalid response length %d\n", p->len);
         success = false;
         goto done;
     }
@@ -654,7 +654,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
             goto exit;
         }
         if (!sanity_checks(server, pkt)) {
-            rprintf("%s: packet sanity checks failed; discarded\n", __func__);
+            msg_err("packet sanity checks failed; discarded\n");
             success = false;
             goto done;
         }
@@ -711,7 +711,7 @@ static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback
         server->ip_addr = *ipaddr;
         ntp_query(server);
     } else {
-        rprintf("%s: failed to resolve hostname %s\n", __func__, name);
+        msg_err("failed to resolve hostname %s\n", name);
         ntp_query_complete(false);
     }
 }
@@ -722,7 +722,7 @@ static boolean ntp_resolve_and_query(ntp_server server)
     if (err == ERR_OK) {
         ntp_query(server);
     } else if (err != ERR_INPROGRESS) {
-        rprintf("%s: failed to resolve hostname %s: %d\n", __func__, server->addr, err);
+        msg_err("failed to resolve hostname %s: %d\n", server->addr, err);
         return false;
     }
     return true;

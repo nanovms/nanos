@@ -87,25 +87,21 @@ struct ata {
 static inline u8 ata_in8(struct ata *dev, int reg)
 {
     u8 val = in8(dev->reg_port[reg]);
-    //ata_debug("%s: reg %d: port 0x%x -> 0x%x\n", __func__, reg, dev->reg_port[reg], val);
     return val;
 }
 
 static inline void ata_ins32(struct ata *dev, int reg, void *addr, u32 count)
 {
-    //ata_debug("%s: reg %d: port 0x%x -> %p/%d\n", __func__, reg, dev->reg_port[reg], addr, count);
     ins32(dev->reg_port[reg], addr, count);
 }
 
 static void ata_out8(struct ata *dev, int reg, u8 val)
 {
-    //ata_debug("%s: reg %d: port 0x%x <- 0x%x\n", __func__, reg, dev->reg_port[reg], val);
     out8(dev->reg_port[reg], val);
 }
 
 static void ata_outs32(struct ata *dev, int reg, const void *addr, u32 count)
 {
-    //ata_debug("%s: reg %d: port 0x%x <- %p/%d\n", __func__, reg, dev->reg_port[reg], addr, count);
     outs32(dev->reg_port[reg], addr, count);
 }
 

@@ -574,7 +574,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
             break;
         case SIGEV_THREAD:
             /* should never see this, but bark if we do */
-            msg_err("%s: SIGEV_THREAD should be handled by libc / nptl\n", __func__);
+            msg_err("SIGEV_THREAD should be handled by libc / nptl\n");
             /* no break */
         default:
             rv = -EINVAL;

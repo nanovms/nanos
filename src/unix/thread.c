@@ -499,7 +499,7 @@ thread create_thread(process p, u64 tid)
     destruct_context(&t->context);
     deallocate(h, t, sizeof(struct thread));
   fail:
-    msg_err("%s: failed to allocate\n", __func__);
+    msg_err("failed to allocate\n");
     return INVALID_ADDRESS;
 }
 

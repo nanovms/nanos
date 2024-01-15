@@ -75,7 +75,7 @@ define_closure_function(1, 1, void, pending_fault_complete,
     pending_fault pf = bound(pf);
     pf_debug("%s: page 0x%lx, status %v\n", __func__, pf->addr, s);
     if (!is_ok(s)) {
-        rprintf("%s: page fill failed with %v\n", __func__, s);
+        msg_err("page fill failed with %v\n", s);
     } else if (pf->bss_start > 0) {
         assert(pf->bss_start < PAGESIZE);
         range r = irangel(pf->addr + pf->bss_start, PAGESIZE - pf->bss_start);

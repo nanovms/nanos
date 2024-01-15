@@ -175,7 +175,7 @@ closure_function(2, 1, void, virtio_scsi_event_complete,
 {
     virtio_scsi_event e = bound(e);
     virtio_scsi s = bound(s);
-    virtio_scsi_debug("%s: event 0x%x\n", __func__, e->event);
+    virtio_scsi_debug("event 0x%x\n", e->event);
     if (e->event & VIRTIO_SCSI_EVENT_LOST)
         msg_err("scsi event reported lost due to missing buffers\n");
     switch (e->event & ~VIRTIO_SCSI_EVENT_LOST) {

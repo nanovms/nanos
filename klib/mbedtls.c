@@ -233,7 +233,7 @@ int tls_set_cacert(void *cert, u64 len)
     mbedtls_x509_crt_init(&tls.cacert);
     int ret = mbedtls_x509_crt_parse(&tls.cacert, cert, len);
     if (ret < 0) {
-        rprintf("%s: cannot parse certificate (%d)\n", __func__, ret);
+        msg_err("cannot parse certificate (%d)\n", ret);
         return ret;
     }
     mbedtls_ssl_conf_ca_chain(&tls.conf, &tls.cacert, NULL);
@@ -249,7 +249,7 @@ int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
     mbedtls_ssl_init(&conn->ssl);
     int ret = mbedtls_ssl_setup(&conn->ssl, &tls.conf);
     if (ret) {
-        rprintf("%s: cannot set up SSL context\n", __func__);
+        msg_err("cannot set up SSL context\n");
         goto err_ssl_setup;
     }
     conn->app_ch = ch;

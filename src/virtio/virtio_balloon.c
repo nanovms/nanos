@@ -266,7 +266,7 @@ closure_function(1, 0, void, virtio_balloon_config_change,
 closure_function(0, 1, u64, virtio_balloon_deflater,
                  u64, deflate_bytes)
 {
-    virtio_balloon_debug("%s: deflate of %ld bytes requested\n", __func__, deflate_bytes);
+    virtio_balloon_debug("deflate of %ld bytes requested\n", deflate_bytes);
     u64 deflate = ((deflate_bytes + MASK(VIRTIO_BALLOON_ALLOC_ORDER))
                    >> VIRTIO_BALLOON_ALLOC_ORDER);
     u64 deflated = virtio_balloon_deflate(deflate);
@@ -394,7 +394,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
         virtio_balloon_init_statsq();
     return true;
   fail:
-    rprintf("%s: failed to attach: %v\n", __func__, s);
+    msg_err("failed to attach: %v\n", s);
     return false;
 }
 

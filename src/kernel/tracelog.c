@@ -405,7 +405,7 @@ static void tracelog_file_write(status_handler complete)
   fail_dealloc_sg:
     deallocate_sg_list(sg);
   fail:
-    msg_err("%s: out of memory\n", __func__);
+    msg_err("out of memory\n");
     if (complete)
         async_apply_status_handler(complete, timm("status", "out of memory"));
 }

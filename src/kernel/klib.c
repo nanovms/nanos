@@ -54,7 +54,7 @@ closure_function(2, 5, boolean, klib_elf_map,
                  u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
 {
     klib kl = bound(kl);
-    klib_debug("%s: kl %s, vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
+    klib_debug("%s: kl %b, vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
                __func__, kl->name, vaddr, offset, data_size, bss_size, flags);
     u64 map_start = vaddr & ~PAGEMASK;
     data_size += vaddr & PAGEMASK;

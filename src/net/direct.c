@@ -299,7 +299,7 @@ static void direct_conn_err(void *z, err_t err)
         direct_conn_enqueue(dc, 0);
         return;
     }
-    rprintf("%s: dc %p, err %d\n", __func__, dc, err);
+    msg_err("dc %p, err %d\n", dc, err);
     dc->pending_err = err;
 }
 
@@ -342,7 +342,7 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
 static void direct_listen_err(void *z, err_t err)
 {
     direct d = z;
-    rprintf("%s: d %p, err %d\n", __func__, d, err);
+    msg_err("d %p, err %d\n", d, err);
     /* XXX TODO */
 }
 
