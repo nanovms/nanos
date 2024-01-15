@@ -131,7 +131,7 @@ void demand_page_done(context ctx, u64 vaddr, status s)
     } else if (is_thread_context(ctx)) {
         pf_debug("demand page failed user mode, reason: %v", s);
         thread t = (thread)ctx;
-        if (buffer_compare_with_cstring_ci(get(s, sym(result)), "out of memory")) {
+        if (s == timm_oom) {
             spin_lock(&oom_lock);
             timestamp here = now(CLOCK_ID_MONOTONIC);
             if (here - oom_last_time > seconds(5)) {

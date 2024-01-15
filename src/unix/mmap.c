@@ -192,8 +192,8 @@ static status demand_anonymous_page(pending_fault pf, context ctx, vmap vm, u64 
                 kern_yield();
             }
         }
-        apply(completion, timm("result", "out of memory"));
-        return timm("result", "out of memory");
+        apply(completion, timm_oom);
+        return timm_oom;
     }
     count_minor_fault();
     return STATUS_OK;

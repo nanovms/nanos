@@ -407,7 +407,7 @@ static void tracelog_file_write(status_handler complete)
   fail:
     msg_err("out of memory\n");
     if (complete)
-        async_apply_status_handler(complete, timm("status", "out of memory"));
+        async_apply_status_handler(complete, timm_oom);
 }
 
 static boolean tracelog_entry_compare(void *za, void *zb)
