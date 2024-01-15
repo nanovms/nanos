@@ -530,8 +530,7 @@ void connection(heap h,
     int res = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (res) {
         rprintf("zikkay %d %p\n", res, failure);        
-        apply(failure, timm("errno", "%d", errno,
-                            "errstr", "%s", strerror(errno)));
+        apply(failure, timm("errno", "%d", errno));
     } else {
         register_descriptor_write(h, n, s, closure(h, connection_start, h, s, n, c));
     }

@@ -589,7 +589,8 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
         saved_ctx = bound(saved_ctx);
         use_fault_handler(saved_ctx->fault_handler);
         if (!sg_fault_in(sg, q.end - (bound(pi) << page_order) - offset)) {
-            s = timm("result", "invalid user memory", "fsstatus", "%d", FS_STATUS_FAULT);
+            s = timm("result", "invalid user memory");
+            s = timm_append(s, "fsstatus", "%d", FS_STATUS_FAULT);
             clear_fault_handler();
         }
     }

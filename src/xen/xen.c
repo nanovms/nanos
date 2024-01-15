@@ -761,8 +761,8 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
     }
 
     if (rmsg->type == XS_ERROR) {
-        s = timm("result", "xen store error",
-                 "errno", "%s", buffer_ref(response, 0));
+        s = timm("result", "xen store error");
+        s = timm_append(s, "errno", "%b", response);
         goto out_dealloc;
     }
   out_dealloc:

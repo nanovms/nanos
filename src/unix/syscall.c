@@ -543,7 +543,8 @@ closure_function(6, 1, void, file_read_complete,
          * release it here. */
         sg_buf_release(sg_list_peek_at(sg, -1));
 
-        s = timm("result", "invalid user memory", "fsstatus", "%d", FS_STATUS_FAULT);
+        s = timm("result", "invalid user memory");
+        s = timm_append(s, "fsstatus", "%d", FS_STATUS_FAULT);
     }
     if (is_ok(s)) {
         file f = bound(f);

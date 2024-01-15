@@ -705,7 +705,7 @@ void v9p_read(void *priv, u32 fid, u64 offset, u32 count, void *dest, status_han
     status s;
     struct p9_read *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS) {
-        s = timm("result", "failed to allocate request", "fsstatus", "%d", FS_STATUS_NOMEM);
+        s = timm("result", "failed to allocate request");
         goto error;
     }
     v9p_fill_req_hdr(v9p, xaction, P9_TREAD);
@@ -714,12 +714,12 @@ void v9p_read(void *priv, u32 fid, u64 offset, u32 count, void *dest, status_han
     xaction->req.count = count;
     vqfinish finish = closure(v9p->general, v9p_read_complete, v9p, xaction, phys, complete);
     if (finish == INVALID_ADDRESS) {
-        s = timm("result", "failed to allocate vqfinish", "fsstatus", "%d", FS_STATUS_NOMEM);
+        s = timm("result", "failed to allocate vqfinish");
         goto dealloc_req;
     }
     vqmsg m = allocate_vqmsg(v9p->vq);
     if (m == INVALID_ADDRESS) {
-        s = timm("result", "failed to allocate vqmsg", "fsstatus", "%d", FS_STATUS_NOMEM);
+        s = timm("result", "failed to allocate vqmsg");
         deallocate_closure(finish);
         goto dealloc_req;
     }
@@ -731,6 +731,7 @@ void v9p_read(void *priv, u32 fid, u64 offset, u32 count, void *dest, status_han
   dealloc_req:
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
   error:
+    s = timm_append(s, "fsstatus", "%d", FS_STATUS_NOMEM);
     apply(complete, s);
 }
 
@@ -768,7 +769,7 @@ void v9p_write(void *priv, u32 fid, u64 offset, u32 count, void *src, status_han
     union p9_write_resp *resp;
     struct p9_write_req *req = alloc_map(v9p->backed, sizeof(*req) + sizeof(*resp), &phys);
     if (req == INVALID_ADDRESS) {
-        s = timm("result", "failed to allocate request", "fsstatus", "%d", FS_STATUS_NOMEM);
+        s = timm("result", "failed to allocate request");
         goto error;
     }
     v9p_fill_hdr(v9p, &req->hdr, sizeof(*req) + count, P9_TWRITE);
@@ -777,12 +778,12 @@ void v9p_write(void *priv, u32 fid, u64 offset, u32 count, void *src, status_han
     req->count = count;
     vqfinish finish = closure(v9p->general, v9p_write_complete, v9p, req, phys, complete);
     if (finish == INVALID_ADDRESS) {
-        s = timm("result", "failed to allocate vqfinish", "fsstatus", "%d", FS_STATUS_NOMEM);
+        s = timm("result", "failed to allocate vqfinish");
         goto dealloc_req;
     }
     vqmsg m = allocate_vqmsg(v9p->vq);
     if (m == INVALID_ADDRESS) {
-        s = timm("result", "failed to allocate vqmsg", "fsstatus", "%d", FS_STATUS_NOMEM);
+        s = timm("result", "failed to allocate vqmsg");
         deallocate_closure(finish);
         goto dealloc_req;
     }
@@ -794,5 +795,6 @@ void v9p_write(void *priv, u32 fid, u64 offset, u32 count, void *src, status_han
   dealloc_req:
     dealloc_unmap(v9p->backed, req, phys, sizeof(*req) + sizeof(*resp));
   error:
+    s = timm_append(s, "fsstatus", "%d", FS_STATUS_NOMEM);
     apply(complete, s);
 }

@@ -280,8 +280,8 @@ static value mcache_management(heap h)
         return m->mgmt;
     value v;
     symbol s;
-    tuple t = timm("type", "mcache", "pagesize", "%d", m->h.pagesize);
-    assert(t != INVALID_ADDRESS);
+    tuple t = timm("type", "mcache");
+    t = timm_append(t, "pagesize", "%d", m->h.pagesize);
     tuple_notifier n = tuple_notifier_wrap(t, false);
     assert(n != INVALID_ADDRESS);
     register_stat(m, n, t, allocated);

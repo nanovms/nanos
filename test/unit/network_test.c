@@ -152,7 +152,9 @@ int main(int argc, char **argv)
     merge m = allocate_merge(h, closure(h, finished, s));
 
     zero(s, sizeof(struct stats)); //?
-    tuple req = timm("url", "/", "fizz", "bun", "Host", "tenny");
+    tuple req = timm("url", "/");
+    req = timm_append(req, "fizz", "bun");
+    req = timm_append(req, "Host", "tenny");
     *newconn = (thunk)closure(h, startconn, h, n, m, target, newconn, s, err, req);
     apply(*newconn);
     notifier_spin(n);

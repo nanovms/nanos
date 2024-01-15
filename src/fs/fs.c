@@ -183,7 +183,8 @@ void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler io_
 {
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
-        apply(io_complete, timm("result", "failed to allocate sg list",
+        status s = timm("result", "failed to allocate sg list");
+        apply(io_complete, timm_append(s,
                                 "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
     }
@@ -225,8 +226,10 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
              t, bufheap, c, sh);
     fsfile f;
     fs_status fss = fs->get_fsfile(fs, t, &f);
+    status s;
     if ((fss != FS_STATUS_OK) || !f) {
-        apply(sh, timm("result", "no such file %v", t,
+        s = timm("result", "no such file %v", t);
+        apply(sh, timm_append(s,
                        "fsstatus", "%d", fss));
         return;
     }
@@ -245,7 +248,8 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
                       closure(fs->h, read_entire_complete, sg, c, b, f, sh));
     return;
   alloc_fail:
-    apply(sh, timm("result", "allocation failure",
+    s = timm("result", "allocation failure");
+    apply(sh, timm_append(s,
                    "fsstatus", "%d", FS_STATUS_NOMEM));
     return;
 }
@@ -275,7 +279,8 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
 {
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
-        apply(io_complete, timm("result", "failed to allocate sg list",
+        status s = timm("result", "failed to allocate sg list");
+        apply(io_complete, timm_append(s,
                                 "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
     }
@@ -283,7 +288,8 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
     sg_buf sgb = sg_list_tail_add(sg, length);
     if (sgb == INVALID_ADDRESS) {
         deallocate_sg_list(sg);
-        apply(io_complete, timm("result", "failed to allocate sg buf",
+        status s = timm("result", "failed to allocate sg buf");
+        apply(io_complete, timm_append(s,
                                 "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
     }

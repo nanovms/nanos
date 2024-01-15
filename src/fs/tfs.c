@@ -621,7 +621,8 @@ static u64 write_extent(tfsfile f, extent ex, sg_list sg, range blocks, merge m)
             tfs_debug("%s: log write %p, %p\n", __func__, ex->md, a);
             fs_status fss = filesystem_write_eav(fs, ex->md, a, 0, false);
             if (fss != FS_STATUS_OK) {
-                apply(apply_merge(m), timm("result", "failed to write log",
+                status s = timm("result", "failed to write log");
+                apply(apply_merge(m), timm_append(s,
                                            "fsstatus", "%d", fss));
                 return i.end;
             }
@@ -807,7 +808,8 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
                     tfs_debug("   extent start 0x%lx, limit 0x%lx\n", blocks.start, limit);
                     fss = extend(f, (extent)prev, sg, irange(blocks.start, limit), m, &blocks.start);
                     if (fss != FS_STATUS_OK) {
-                        return timm("result", "unable to extend extent", "fsstatus", "%d", fss);
+                        status s = timm("result", "unable to extend extent");
+                        return timm_append(s, "fsstatus", "%d", fss);
                     }
                 }
 
@@ -816,7 +818,8 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
                     tfs_debug("   fill start 0x%lx, limit 0x%lx\n", blocks.start, limit);
                     fss = fill_gap(f, sg, irange(blocks.start, limit), m, &blocks.start);
                     if (fss != FS_STATUS_OK) {
-                        return timm("result", "unable to create extent", "fsstatus", "%d", fss);
+                        status s = timm("result", "unable to create extent");
+                        return timm_append(s, "fsstatus", "%d", fss);
                     }
                 }
             }
@@ -849,8 +852,10 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
     if (fsfile_get_length(&f->f) < q.end) {
         tfs_debug("   append; update length to %ld\n", q.end);
         fs_status fss = filesystem_truncate_locked(&fs->fs, &f->f, q.end);
-        if (fss != FS_STATUS_OK)
-            return timm("result", "unable to set file length", "fsstatus", "%d", fss);
+        if (fss != FS_STATUS_OK) {
+            status s = timm("result", "unable to set file length");
+            return timm_append(s, "fsstatus", "%d", fss);
+        }
     }
     return STATUS_OK;
 }
@@ -862,8 +867,10 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
     tfs fs = bound(fs);
     tfsfile f = bound(f);
     tfs_debug("%s: file %p range %R\n", __func__, f, q);
-    if (fs->fs.ro)
-       return timm("result", "read-only filesystem", "fsstatus", "%d", FS_STATUS_READONLY);
+    if (fs->fs.ro) {
+        status s = timm("result", "read-only filesystem");
+        return timm_append(s, "fsstatus", "%d", FS_STATUS_READONLY);
+    }
     filesystem_lock(&fs->fs);
     status s = extents_range_handler(fs, f, q, 0, 0);
     filesystem_unlock(&fs->fs);
@@ -880,7 +887,8 @@ closure_function(2, 3, void, filesystem_storage_write,
     tfs_debug("%s: fsfile %p, q %R, sg %p, sg count 0x%lx, complete %F\n", __func__,
               f, q, sg, sg ? sg->count : 0, complete);
     if (fs->fs.ro) {
-        apply(complete, timm("result", "read-only filesystem", "fsstatus", "%d", FS_STATUS_READONLY));
+        status s = timm("result", "read-only filesystem");
+        apply(complete, timm_append(s, "fsstatus", "%d", FS_STATUS_READONLY));
         return;
     }
 
