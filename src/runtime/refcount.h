@@ -18,8 +18,7 @@ static inline void refcount_reserve(refcount r)
 static inline boolean refcount_release(refcount r)
 {
     word n = fetch_and_add(&r->c, (word)-1);
-    if (n < 1)
-        halt("%s: invalid count %ld\n", __func__, n);
+    assert(n > 0);
     if (n == 1) {
         if (r->completion)
             apply(r->completion);
