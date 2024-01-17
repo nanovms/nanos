@@ -34,7 +34,7 @@ void elf_symbols(buffer elf, elf_sym_handler each)
     ELF_CHECK_PTR(elfh, Elf64_Ehdr);
     Elf64_Shdr *section_names = buffer_ref(elf, elfh->e_shoff + elfh->e_shstrndx * elfh->e_shentsize);
     ELF_CHECK_PTR(section_names, Elf64_Shdr);
-    if (elf_string(elf, section_names, section_names->sh_size) > (char*)elf_end)
+    if (section_names->sh_offset + section_names->sh_size > buffer_length(elf))
         goto out_elf_fail;
 
     Elf64_Shdr *symbols =0 , *symbol_strings =0;
@@ -196,7 +196,7 @@ boolean elf_plt_get(buffer elf, u64 *addr, u64 *offset, u64 *size)
     void *elf_end = buffer_end(elf);
     Elf64_Shdr *section_names = buffer_ref(elf, e->e_shoff + e->e_shstrndx * e->e_shentsize);
     ELF_CHECK_PTR(section_names, Elf64_Shdr);
-    if (elf_string(elf, section_names, section_names->sh_size) > (char*)elf_end)
+    if (section_names->sh_offset + section_names->sh_size > buffer_length(elf))
         goto out_elf_fail;
     Elf64_Shdr *plt_section = 0;
     char *name;
