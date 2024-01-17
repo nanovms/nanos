@@ -5,7 +5,7 @@
 
 //#define NETLINK_DEBUG
 #ifdef NETLINK_DEBUG
-#define nl_debug(x, ...) do {tprintf(sym(netlink), 0, x "\n", ##__VA_ARGS__);} while(0)
+#define nl_debug(x, ...) do {tprintf(sym(netlink), 0, ss(x "\n"), ##__VA_ARGS__);} while(0)
 #else
 #define nl_debug(x, ...)
 #endif

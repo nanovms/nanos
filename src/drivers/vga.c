@@ -16,7 +16,7 @@
 #ifdef VGA_DEBUG
 #include "serial.h"
 
-static void vga_debug(const char *format, ...)
+static void vga_debug_sstring(sstring format, ...)
 {
     static char buf[PAGESIZE * 4];
 
@@ -25,13 +25,13 @@ static void vga_debug(const char *format, ...)
 
     vlist a;
     vstart(a, format);
-    buffer f = alloca_wrap_buffer(format, runtime_strlen(format));
-    vbprintf(b, f, &a);
+    vbprintf(b, format, &a);
 
     foreach_character(_, c, b) {
         serial_putchar(c);
     }
 }
+#define vga_debug(fmt, ...) vga_debug_sstring(ss(fmt), ##__VA_ARGS__)
 #else
 #define vga_debug(...) do { } while(0)
 #endif // VGA_DEBUG
@@ -73,13 +73,13 @@ static void vga_get_cursor(struct vga_console_driver *d, int *x, int *y)
 
     *x = off % d->width;
     *y = off / d->width;
-    vga_debug("%s: off = %d: (x, y) = (%d, %d)\n", __func__, off, *x, *y);
+    vga_debug("%s: off = %d: (x, y) = (%d, %d)\n", func_ss, off, *x, *y);
 }
 
 static void vga_set_cursor(struct vga_console_driver *d, int x, int y)
 {
     u16 off = (d->y_offset + y) * d->width + x;
-    vga_debug("%s: (x, y) = (%d, %d): off = %d\n", __func__, x, y, off);
+    vga_debug("%s: (x, y) = (%d, %d): off = %d\n", func_ss, x, y, off);
 
     out8(d->crtc_addr, 14);
     out8(d->crtc_addr + 1, off >> 8);
@@ -90,7 +90,7 @@ static void vga_set_cursor(struct vga_console_driver *d, int x, int y)
 static void vga_set_offset(struct vga_console_driver *d, int y)
 {
     u16 off = y * d->width;
-    vga_debug("%s: y = %d: off = %d\n", __func__, y, off);
+    vga_debug("%s: y = %d: off = %d\n", func_ss, y, off);
 
     out8(d->crtc_addr, 12);
     out8(d->crtc_addr + 1, off >> 8);
@@ -113,7 +113,7 @@ static void vga_newline(struct vga_console_driver *d)
     int add_lines = d->cur_y - d->height + 1;
     d->y_offset += add_lines;
     d->cur_y -= add_lines;
-    vga_debug("%s: add lines %d\n", __func__, add_lines);
+    vga_debug("%s: add lines %d\n", func_ss, add_lines);
 
     // check circular buffer wrapping
     if (d->y_offset + d->cur_y >= d->max_lines) {
@@ -121,7 +121,7 @@ static void vga_newline(struct vga_console_driver *d)
         assert(add_lines < d->height);
         int copy_chars = (d->height - add_lines) * d->width;
         d->y_offset = 0;
-        vga_debug("%s: copy chars %d\n", __func__, copy_chars);
+        vga_debug("%s: copy chars %d\n", func_ss, copy_chars);
         runtime_memcpy(d->buffer, d->buffer + idx, copy_chars * sizeof(*d->buffer));
     }
 
@@ -129,7 +129,7 @@ static void vga_newline(struct vga_console_driver *d)
     int fill_offset = (d->y_offset + d->cur_y) * d->width;
     int fill_chars = add_lines * d->width;
     vga_debug("%s: y_offset %d, cur_y %d, fill offset %d, fill chars %d\n",
-        __func__, d->y_offset, d->cur_y, fill_offset, fill_chars);
+              func_ss, d->y_offset, d->cur_y, fill_offset, fill_chars);
     while (fill_chars--) {
         d->buffer[fill_offset++] = ' ' | (VGA_CONSOLE_ATTR << 8);
     }
@@ -167,7 +167,7 @@ static void vga_console_write(void *_d, const char *s, bytes count)
         }
     }
 
-    vga_debug("%s: new cursor position: (%d, %d)\n", __func__, d->cur_x, d->cur_y);
+    vga_debug("%s: new cursor position: (%d, %d)\n", func_ss, d->cur_x, d->cur_y);
     vga_set_cursor(d, d->cur_x, d->cur_y);
 }
 
@@ -178,26 +178,26 @@ closure_function(2, 1, boolean, vga_pci_probe,
     if ((pci_get_class(_d) != PCIC_DISPLAY) || (pci_get_subclass(_d) != PCIS_VGA))
         return false;
 
-    vga_debug("%s: VGA PCI\n", __func__);
+    vga_debug("%s\n", func_ss);
     /* Check misc output register to see if display buffer is set up.
      * This whole byte appears to be 0 on the UEFI systems using GOP that I tested,
      * but to be safe, just check bit 1, "RAM Enable" 
      * See http://www.osdever.net/FreeVGA/vga/extreg.htm */
     if ((in8(0x3cc) & 0x02) == 0) {
-        vga_debug("%s: display buffer not enabled\n", __func__);
+        vga_debug("%s: display buffer not enabled\n", func_ss);
         return false;
     }
     struct vga_console_driver *d = allocate_zero(bound(general), sizeof(*d));
     assert(d != INVALID_ADDRESS);
     d->c.write = vga_console_write;
-    d->c.name = "vga";
+    d->c.name = ss("vga");
     d->crtc_addr = 0x3d4;
 
     /* Check if device is initialized in VGA mode 3 */
     d->width = 80;
     d->height = 25;
     vga_get_cursor(d, &d->cur_x, &d->cur_y);
-    vga_debug("%s: current cursor position: (%d, %d)\n", __func__, d->cur_x, d->cur_y);
+    vga_debug("%s: current cursor position: (%d, %d)\n", func_ss, d->cur_x, d->cur_y);
     if ( d->cur_y >= d->height) {
         deallocate(bound(general), d, sizeof(*d));
         return false;
@@ -209,7 +209,7 @@ closure_function(2, 1, boolean, vga_pci_probe,
         pageflags_writable(pageflags_device()));
     d->y_offset = 0;
     d->max_lines = d->buffer_size / d->width;
-    vga_debug("%s: max buffer lines %d\n", __func__, d->max_lines);
+    vga_debug("%s: max buffer lines %d\n", func_ss, d->max_lines);
     vga_set_offset(d, d->y_offset);
 
     attach_console_driver(&d->c);

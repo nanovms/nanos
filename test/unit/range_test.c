@@ -134,7 +134,7 @@ boolean basic_test(heap h)
 
   fail:
     deallocate_rangemap(rm, stack_closure(dealloc_test_node, h));
-    msg_err("rangemap basic test failed: %s\n", msg);
+    printf("rangemap basic test failed: %s\n", msg);
     return false;
 }
 

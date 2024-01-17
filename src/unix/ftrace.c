@@ -128,7 +128,7 @@ struct ftrace_printer {
 
 struct ftrace_tracer {
     /* human readable */
-    const char * name;
+    sstring name;
 
     /* trace_fn must be marked as NOTRACE or else you're gonna blow up the call
      * stack and crash
@@ -143,7 +143,7 @@ struct ftrace_tracer {
 
 struct ftrace_routine {
     /* human readable */
-    const char * relative_uri;
+    sstring relative_uri;
 
     /* some routines need a specific printer */
     struct ftrace_printer * printer;
@@ -318,19 +318,21 @@ printer_flush_user(struct ftrace_printer * p, void * buf, u64 len, u64 offset)
 */
 #define printer_write(p, fmt, ...) \
     bprintf(printer_buffer(p), fmt, ##__VA_ARGS__)
+#define printer_write_sstring(p, fmt, ...)  \
+    bprintf_sstring(printer_buffer(p), fmt, ##__VA_ARGS__)
 
 /* right-adjust the str within a width of 'width' characters and
  * print to buffer
  */
 static inline __attribute__((always_inline)) void
-printer_print_right_adjusted(struct ftrace_printer * p, char * str,
+printer_print_right_adjusted(struct ftrace_printer *p, sstring str,
                              u16 width)
 {
-    int len = runtime_strlen(str);
+    int len = str.len;
 
     if (len > width) {
         len = width;
-        str[len] = '\0';
+        str.len = len;
     }
 
     while (len < width) {
@@ -338,10 +340,10 @@ printer_print_right_adjusted(struct ftrace_printer * p, char * str,
         width--;
     }
 
-    printer_write(p, str);
+    printer_write_sstring(p, str);
 }
 
-static inline __attribute__((always_inline)) char *
+static inline __attribute__((always_inline)) sstring
 function_name(unsigned long ip)
 {
     u64 offset, len;
@@ -351,9 +353,9 @@ function_name(unsigned long ip)
 static inline __attribute__((always_inline)) void
 printer_print_sym(struct ftrace_printer * p, unsigned long ip)
 {
-    char * name = function_name(ip);
-    if (name)
-        printer_write(p, name);
+    sstring name = function_name(ip);
+    if (!sstring_is_null(name))
+        printer_write_sstring(p, name);
     else
         printer_write(p, "<< unknown symbol >>");
 }
@@ -616,11 +618,10 @@ function_print_header(struct ftrace_printer * p, struct rbuf * rbuf)
 static void
 function_print_entry(struct ftrace_printer * p, struct rbuf_entry * entry)
 {
-    buffer b = little_stack_buffer(16);
     struct rbuf_entry_function * func = &(entry->func);
-    char * name = (func->sym_name)
-        ? cstring(symbol_string(func->sym_name), b)
-        : "tid";
+    sstring name = (func->sym_name)
+        ? buffer_to_sstring(symbol_string(func->sym_name))
+        : ss("tid");
 
     printer_write(p, " ");
     printer_print_right_adjusted(p, name, TRACE_TASK_WIDTH);
@@ -780,20 +781,20 @@ print_switch_event(struct ftrace_printer * p, struct rbuf_entry_switch * sw)
 {
     /* XXX thread switches are wrong right now so don't print them out yet */
     #if 0
-    char * name_in, * name_out;
-    buffer b = little_stack_buffer(16);
+    sstring name_in, name_out;
+    sstring tid = ss("tid");
 
     name_in = (sw->sym_name_in)
-        ? cstring(symbol_string(sw->sym_name_in), b) : "tid";
+        ? buffer_to_sstring(symbol_string(sw->sym_name_in)) : tid;
     name_out = (sw->sym_name_out)
-        ? cstring(symbol_string(sw->sym_name_out), b) : "tid";
+        ? buffer_to_sstring(symbol_string(sw->sym_name_out)) : tid;
 
     printer_write(p, "------------------------------------------\n");
     printer_write(p, " %d) %s-%d  => %s-%d\n",
         sw->cpu,
-        runtime_strlen(name_out) ? name_out : "tid",
+        name_out,
         sw->tid_out,
-        runtime_strlen(name_in) ? name_in : "tid",
+        name_in,
         sw->tid_in
     );
     printer_write(p, "------------------------------------------\n");
@@ -917,7 +918,7 @@ ftrace_print_rbuf(struct ftrace_printer * p, struct rbuf * rbuf,
 
 #define FTRACE_TRACER(_name, _mcount_toggle, _header_fn, _entry_fn)\
 {\
-    .name = _name,\
+    .name = ss_static_init(_name),\
     .mcount_toggle = _mcount_toggle,\
     .print_header_fn = _header_fn,\
     .print_entry_fn = _entry_fn\
@@ -950,7 +951,7 @@ FTRACE_FN(available_tracers, get)(struct ftrace_printer * p)
 
         if (i)
             printer_write(p, " ");
-        printer_write(p, tracer->name);
+        printer_write_sstring(p, tracer->name);
     }
 
     printer_write(p, "\n");
@@ -1006,16 +1007,9 @@ static sysreturn
 FTRACE_FN(current_tracer, put)(struct ftrace_printer * p)
 {
     int i;
-    char * str;
+    sstring str = buffer_to_sstring(printer_buffer(p));
     int ret;
     struct rbuf *rb;
-
-    str = allocate(ftrace_heap, printer_length(p) + 1);
-    if (str == INVALID_ADDRESS)
-        return -ENOMEM;
-
-    runtime_memcpy(str, buffer_ref(printer_buffer(p), 0), printer_length(p));
-    str[printer_length(p)] = '\0';
 
     for (i = 0; i < FTRACE_NR_TRACERS; i++) {
         struct ftrace_tracer * tracer = &(tracer_list[i]);
@@ -1039,7 +1033,6 @@ FTRACE_FN(current_tracer, put)(struct ftrace_printer * p)
     ret = -EFAULT;
 
 out:
-    deallocate(ftrace_heap, str, printer_length(p) + 1);
     return ret;
 }
 
@@ -1528,7 +1521,7 @@ FTRACE_FN(tracing_on, events)(file f)
 
 #define FTRACE_ROUTINE(a, b, c, d, e, f)\
 {\
-    .relative_uri = a,\
+    .relative_uri = ss_static_init(a),  \
     .init_fn = b,\
     .deinit_fn = c,\
     .get_fn = d,\
@@ -1576,7 +1569,7 @@ ftrace_find_routine(buffer relative_uri, struct ftrace_routine ** routine_p)
     for (i = 0; i < FTRACE_NR_ROUTINES; i++) {
         struct ftrace_routine * routine = &(routine_list[i]);
 
-        if (buffer_compare_with_cstring(relative_uri, routine->relative_uri)) {
+        if (!buffer_compare_with_sstring(relative_uri, routine->relative_uri)) {
             *routine_p = routine;
             return 0;
         }
@@ -1767,7 +1760,7 @@ __ftrace_do_http_method(http_responder out, struct ftrace_routine * routine,
     /* get/put */
     if (is_put) {
         if (put_data)
-            printer_write(p, buffer_ref(put_data, 0));
+            printer_write_sstring(p, buffer_to_sstring(put_data));
         ret = routine->put_fn(p);
         if (ret != 0) {
             if (routine->deinit_fn) {
@@ -1866,7 +1859,7 @@ init_http_listener(void)
 
     http_register_uri_handler(
         ftrace_hl,
-        FTRACE_TRACE_URI,
+        ss(FTRACE_TRACE_URI),
         closure(ftrace_heap, ftrace_http_request)
     );
 

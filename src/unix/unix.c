@@ -7,7 +7,7 @@
 
 //#define PF_DEBUG
 #ifdef PF_DEBUG
-#define pf_debug(x, ...) do {tprintf(sym(fault), 0, "tid %02d " x "\n", \
+#define pf_debug(x, ...) do {tprintf(sym(fault), 0, ss("tid %02d " x "\n"), \
                                      current ? current->tid : -1, ##__VA_ARGS__);} while(0)
 #else
 #define pf_debug(x, ...) thread_trace(current, TRACE_PAGE_FAULT, x, ##__VA_ARGS__);
@@ -173,39 +173,39 @@ void deliver_fault_signal(u32 signo, thread t, u64 vaddr, s32 si_code)
         }
     };
 
-    char *signame = "SIGSEGV";
+    sstring signame;
     switch (signo) {
     case SIGSEGV:
-        signame = "SIGSEGV";
+        signame = ss("SIGSEGV");
         break;
     case SIGBUS:
-        signame = "SIGBUS";
+        signame = ss("SIGBUS");
         break;
     case SIGFPE:
-        signame = "SIGFPE";
+        signame = ss("SIGFPE");
         break;
     case SIGILL:
-        signame = "SIGILL";
+        signame = ss("SIGILL");
         break;
     case SIGTRAP:
-        signame = "SIGTRAP";
+        signame = ss("SIGTRAP");
         break;
     case SIGKILL:       /* for terminating out-of-memory */
-        signame = "SIGKILL";
+        signame = ss("SIGKILL");
         break;
     default:
-        halt("%s: unexpected signal number %d\n", __func__, signo);
+        halt("%s: unexpected signal number %d\n", func_ss, signo);
     }
     pf_debug("delivering %s to thread %d; vaddr 0x%lx si_code %d", signame,
         t->tid, vaddr, si_code);
     deliver_signal_to_thread(t, &s);
 }
 
-const char *string_from_mmap_type(int type)
+sstring string_from_mmap_type(int type)
 {
-    return type == VMAP_MMAP_TYPE_ANONYMOUS ? "anonymous" :
-        (type == VMAP_MMAP_TYPE_FILEBACKED ? "filebacked" :
-         "unknown");
+    return type == VMAP_MMAP_TYPE_ANONYMOUS ? ss("anonymous") :
+           (type == VMAP_MMAP_TYPE_FILEBACKED ? ss("filebacked") :
+            ss("unknown"));
 }
 
 #define format_protection_violation(vaddr, ctx, vm)             \
@@ -215,11 +215,11 @@ const char *string_from_mmap_type(int type)
         is_write_fault(ctx->frame) ? 'W' : 'R',                 \
         is_usermode_fault(ctx->frame) ? 'U' : 'S',              \
         is_instruction_fault(ctx->frame) ? 'I' : 'D',           \
-        (vm->flags & VMAP_FLAG_MMAP) ? "mmap " : "",            \
+        (vm->flags & VMAP_FLAG_MMAP) ? ss("mmap ") : sstring_empty(),           \
         string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK), \
-        (vm->flags & VMAP_FLAG_READABLE) ? "readable " : "",    \
-        (vm->flags & VMAP_FLAG_WRITABLE) ? "writable " : "",    \
-        (vm->flags & VMAP_FLAG_EXEC) ? "executable " : ""
+        (vm->flags & VMAP_FLAG_READABLE) ? ss("readable ") : sstring_empty(),   \
+        (vm->flags & VMAP_FLAG_WRITABLE) ? ss("writable ") : sstring_empty(),   \
+        (vm->flags & VMAP_FLAG_EXEC) ? ss("executable ") : sstring_empty()
 
 static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
 {
@@ -249,7 +249,7 @@ static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
 define_closure_function(0, 1, context, unix_fault_handler,
                         context, ctx)
 {
-    const char *errmsg = 0;
+    sstring errmsg = sstring_empty();
     u64 fault_pc = frame_fault_pc(ctx->frame);
     boolean user = (current_cpu()->state == cpu_user);
     process p = struct_from_field(closure_self(), process, fault_handler);
@@ -261,7 +261,7 @@ define_closure_function(0, 1, context, unix_fault_handler,
             schedule_thread(t);
             return 0;
         } else {
-            errmsg = "Divide by zero occurs in kernel mode";
+            errmsg = ss("Divide by zero occurs in kernel mode");
             goto bug;
         }
     } else if (is_illegal_instruction(ctx->frame)) {
@@ -271,7 +271,7 @@ define_closure_function(0, 1, context, unix_fault_handler,
             schedule_thread(t);
             return 0;
         } else {
-            errmsg = "Illegal instruction in kernel mode";
+            errmsg = ss("Illegal instruction in kernel mode");
             goto bug;
         }
     } else if (is_trap(ctx->frame)) {
@@ -283,7 +283,7 @@ define_closure_function(0, 1, context, unix_fault_handler,
             schedule_thread(t);
             return 0;
         } else {
-            errmsg = "Breakpoint in kernel mode";
+            errmsg = ss("Breakpoint in kernel mode");
             goto bug;
         }
     } else if (is_page_fault(ctx->frame)) {
@@ -312,7 +312,7 @@ define_closure_function(0, 1, context, unix_fault_handler,
 
         if (is_pte_error(ctx->frame)) {
             /* no SEGV on reserved PTEs */
-            errmsg = "bug: pte entries reserved or corrupt";
+            errmsg = ss("bug: pte entries reserved or corrupt");
             dump_page_tables(vaddr, 8);
             goto bug;
         }
@@ -386,7 +386,7 @@ closure_function(0, 6, sysreturn, dummy_read,
                  void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
 {
     thread_log(current, "%s: dest %p, length %ld, offset_arg %ld",
-	       __func__, dest, length, offset_arg);
+               func_ss, dest, length, offset_arg);
     if (completion)
         apply(completion, 0);
     return 0;
@@ -550,7 +550,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->posix_timers = allocate_vector(locked, 8);
     p->itimers = allocate_vector(locked, 3);
     p->utime = p->stime = 0;
-    p->cpu_timers = allocate_timerqueue(locked, init_closure(&p->now, process_now), "cpu time");
+    p->cpu_timers = allocate_timerqueue(locked, init_closure(&p->now, process_now), ss("cpu time"));
     assert(p->cpu_timers != INVALID_ADDRESS);
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);
@@ -738,7 +738,7 @@ void program_set_perms(tuple root, tuple prog)
         set(prog, sym(readonly), null_value);
 }
 
-static void dump_heap_stats(buffer b, const char *name, heap h)
+static void dump_heap_stats(buffer b, sstring name, heap h)
 {
     bytes allocated = heap_allocated(h);
     bytes total = heap_total(h);
@@ -755,12 +755,12 @@ void dump_mem_stats(buffer b)
     unix_heaps uh = get_unix_heaps();
     kernel_heaps kh = &uh->kh;
     bprintf(b, "Kernel heaps:\n");
-    dump_heap_stats(b, "general", heap_general(kh));
-    dump_heap_stats(b, "physical", (heap)heap_physical(kh));
-    dump_heap_stats(b, "virtual huge", (heap)heap_virtual_huge(kh));
-    dump_heap_stats(b, "virtual page", (heap)heap_virtual_page(kh));
+    dump_heap_stats(b, ss("general"), heap_general(kh));
+    dump_heap_stats(b, ss("physical"), (heap)heap_physical(kh));
+    dump_heap_stats(b, ss("virtual huge"), (heap)heap_virtual_huge(kh));
+    dump_heap_stats(b, ss("virtual page"), (heap)heap_virtual_page(kh));
     bprintf(b, "Unix heaps:\n");
-    dump_heap_stats(b, "file cache", (heap)uh->file_cache);
-    dump_heap_stats(b, "pipe cache", (heap)uh->pipe_cache);
-    dump_heap_stats(b, "socket cache", (heap)uh->socket_cache);
+    dump_heap_stats(b, ss("file cache"), (heap)uh->file_cache);
+    dump_heap_stats(b, ss("pipe cache"), (heap)uh->pipe_cache);
+    dump_heap_stats(b, ss("socket cache"), (heap)uh->socket_cache);
 }

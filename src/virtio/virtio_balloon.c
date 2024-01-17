@@ -9,7 +9,7 @@
 //#define VIRTIO_BALLOON_DEBUG
 //#define VIRTIO_BALLOON_VERBOSE
 #ifdef VIRTIO_BALLOON_DEBUG
-#define virtio_balloon_debug(x, ...) do {tprintf(sym(vtbln), 0, x, ##__VA_ARGS__);} while(0)
+#define virtio_balloon_debug(x, ...) do {tprintf(sym(vtbln), 0, ss(x), ##__VA_ARGS__);} while(0)
 #ifdef VIRTIO_BALLOON_VERBOSE
 #define virtio_balloon_verbose virtio_balloon_debug
 #else
@@ -107,7 +107,7 @@ static void update_actual_pages(s64 delta)
 {
     assert(delta > 0 || virtio_balloon.actual_pages >= -delta);
     virtio_balloon.actual_pages += delta;
-    virtio_balloon_verbose("%s: delta %ld, now %ld\n", __func__, delta, virtio_balloon.actual_pages);
+    virtio_balloon_verbose("%s: delta %ld, now %ld\n", func_ss, delta, virtio_balloon.actual_pages);
     vtdev_cfg_write_4(virtio_balloon.dev, VIRTIO_BALLOON_R_ACTUAL,
                       htole32(virtio_balloon.actual_pages));
 }
@@ -117,7 +117,7 @@ closure_function(1, 1, void, inflate_complete,
                  u64, len)
 {
     balloon_page bp = bound(bp);
-    virtio_balloon_verbose("%s: balloon_page %p (phys base 0x%lx)\n", __func__, bp,
+    virtio_balloon_verbose("%s: balloon_page %p (phys base 0x%lx)\n", func_ss, bp,
                            phys_base_from_balloon_page(bp));
     list_insert_after(&virtio_balloon.in_balloon, &bp->l);
     update_actual_pages(VIRTIO_BALLOON_PAGES_PER_ALLOC);
@@ -141,7 +141,7 @@ static balloon_page allocate_balloon_page(void)
 static u64 virtio_balloon_inflate(u64 n_balloon_pages)
 {
     virtqueue vq = virtio_balloon.inflateq;
-    virtio_balloon_debug("%s: n_balloon_pages %d\n", __func__, n_balloon_pages);
+    virtio_balloon_debug("%s: n_balloon_pages %d\n", func_ss, n_balloon_pages);
 
     u64 inflated = 0;
     while (inflated < n_balloon_pages) {
@@ -180,7 +180,7 @@ static u64 virtio_balloon_inflate(u64 n_balloon_pages)
 static void return_balloon_page_memory(balloon_page bp)
 {
     u64 phys_base = phys_base_from_balloon_page(bp);
-    virtio_balloon_verbose("%s: balloon_page %p (phys base 0x%lx)\n", __func__, bp, phys_base);
+    virtio_balloon_verbose("%s: balloon_page %p (phys base 0x%lx)\n", func_ss, bp, phys_base);
     deallocate_u64((heap)virtio_balloon.physical, phys_base, VIRTIO_BALLOON_ALLOC_SIZE);
     virtio_balloon_verbose("   phys heap free: %ld\n", heap_free((heap)virtio_balloon.physical));
 }
@@ -190,7 +190,7 @@ closure_function(1, 1, void, deflate_complete,
                  u64, len)
 {
     balloon_page bp = bound(bp);
-    virtio_balloon_verbose("%s: bp %p, len %ld\n", __func__, bound(bp), len);
+    virtio_balloon_verbose("%s: bp %p, len %ld\n", func_ss, bound(bp), len);
     if (balloon_must_tell_host())
         return_balloon_page_memory(bound(bp));
     list_insert_before(&virtio_balloon.free, &bp->l);
@@ -201,7 +201,7 @@ closure_function(1, 1, void, deflate_complete,
 static u64 virtio_balloon_deflate(u64 n_balloon_pages)
 {
     virtqueue vq = virtio_balloon.deflateq;
-    virtio_balloon_debug("%s: n_balloon_pages %ld\n", __func__, n_balloon_pages);
+    virtio_balloon_debug("%s: n_balloon_pages %ld\n", func_ss, n_balloon_pages);
     u64 deflated = 0;
     while (deflated < n_balloon_pages) {
         list l = list_get_next(&virtio_balloon.in_balloon);
@@ -227,7 +227,7 @@ void virtio_balloon_update(void)
     remove_timer(kernel_timers, &virtio_balloon.retry_timer, 0);
 
     u32 num_pages = le32toh(vtdev_cfg_read_4(virtio_balloon.dev, VIRTIO_BALLOON_R_NUM_PAGES));
-    virtio_balloon_debug("%s: num_pages %d, actual %d\n", __func__, num_pages,
+    virtio_balloon_debug("%s: num_pages %d, actual %d\n", func_ss, num_pages,
                         virtio_balloon.actual_pages);
     s32 delta = num_pages - virtio_balloon.actual_pages;
     if (delta > 0) {
@@ -259,7 +259,7 @@ void virtio_balloon_update(void)
 closure_function(1, 0, void, virtio_balloon_config_change,
                  vtdev, v)
 {
-    virtio_balloon_debug("%s\n", __func__);
+    virtio_balloon_debug("%s\n", func_ss);
     virtio_balloon_update();
 }
 
@@ -301,7 +301,7 @@ closure_function(0, 1, void, virtio_balloon_enqueue_stats,
     /* enqueue one descriptor for device to return upon stats request */
     virtqueue vq = virtio_balloon.statsq;
     assert(vq);
-    virtio_balloon_debug("%s\n", __func__);
+    virtio_balloon_debug("%s\n", func_ss);
 
     virtio_balloon.next_tag = 0;
     write_stat(VIRTIO_BALLOON_S_SWAP_IN, 0);
@@ -327,7 +327,7 @@ static void virtio_balloon_init_statsq(void)
     /* enqueue one descriptor for device to return upon stats request */
     virtqueue vq = virtio_balloon.statsq;
     assert(vq);
-    virtio_balloon_debug("%s\n", __func__);
+    virtio_balloon_debug("%s\n", func_ss);
 
     vqfinish c = closure(virtio_balloon.general, virtio_balloon_enqueue_stats);
     assert(c != INVALID_ADDRESS);
@@ -342,7 +342,7 @@ define_closure_function(0, 2, void, virtio_balloon_timer_task,
                         u64, expiry, u64, overruns)
 {
     if (overruns != timer_disabled) {
-        virtio_balloon_debug("%s\n", __func__);
+        virtio_balloon_debug("%s\n", func_ss);
         virtio_balloon_update();
     }
 }
@@ -366,17 +366,17 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
     status s = virtio_register_config_change_handler(v, t);
     if (!is_ok(s))
         goto fail;
-    s = virtio_alloc_virtqueue(v, "virtio balloon inflateq", 0, &virtio_balloon.inflateq);
+    s = virtio_alloc_virtqueue(v, ss("virtio balloon inflateq"), 0, &virtio_balloon.inflateq);
     if (!is_ok(s))
         goto fail;
-    s = virtio_alloc_virtqueue(v, "virtio balloon deflateq", 1, &virtio_balloon.deflateq);
+    s = virtio_alloc_virtqueue(v, ss("virtio balloon deflateq"), 1, &virtio_balloon.deflateq);
     if (!is_ok(s))
         goto fail;
     if (balloon_has_stats_vq()) {
         virtio_balloon.stats = alloc_map(backed, sizeof(virtio_balloon.stats),
                                          &virtio_balloon.stats_phys);
         assert(virtio_balloon.stats != INVALID_ADDRESS);
-        s = virtio_alloc_virtqueue(v, "virtio balloon statsq", 2, &virtio_balloon.statsq);
+        s = virtio_alloc_virtqueue(v, ss("virtio balloon statsq"), 2, &virtio_balloon.statsq);
         if (!is_ok(s))
             goto fail;
     } else {
@@ -402,7 +402,7 @@ closure_function(3, 1, boolean, vtpci_balloon_probe,
                  heap, general, backed_heap, backed, id_heap, physical,
                  pci_dev, d)
 {
-    virtio_balloon_debug("%s\n", __func__);
+    virtio_balloon_debug("%s\n", func_ss);
     if (!vtpci_probe(d, VIRTIO_ID_BALLOON))
         return false;
 
@@ -415,7 +415,7 @@ closure_function(3, 1, boolean, vtpci_balloon_probe,
 
 void init_virtio_balloon(kernel_heaps kh)
 {
-    virtio_balloon_debug("%s\n", __func__);
+    virtio_balloon_debug("%s\n", func_ss);
     heap h = heap_locked(kh);
     register_pci_driver(closure(h, vtpci_balloon_probe, h, heap_linear_backed(kh), heap_physical(kh)), 0);
 }

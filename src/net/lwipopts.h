@@ -9,6 +9,7 @@
 #define ARP_QUEUEING 1
 //#define LWIP_DEBUG
 #ifdef LWIP_DEBUG
+#define lwip_debug(fmt, ...)    lwip_debug_sstring(ss(fmt), ##__VA_ARGS__)
 #define LWIP_PLATFORM_DIAG(x) do {lwip_debug x;} while(0)
 #define LWIP_DBG_MIN_LEVEL		LWIP_DBG_LEVEL_ALL
 #define ETHARP_DEBUG                    LWIP_DBG_ON
@@ -141,7 +142,7 @@ struct tcpip_api_call_data
 #define SYS_LIGHTWEIGHT_PROT    0
 
 typedef unsigned long long time; 
-extern void lwip_debug(char * format, ...);
+extern void lwip_debug_sstring(sstring format, ...);
 
 #define MEM_LIBC_MALLOC 1
 
@@ -168,21 +169,18 @@ static inline void lwip_free(void *x)
     lwip_deallocate(x);
 }
 
-int lwip_atoi(const char *p);
+int lwip_atoi(sstring p);
 void lwip_memcpy(void *a, const void *b, unsigned long len);
-int lwip_strlen(char *a);
 void lwip_memset(void *x, unsigned char v, unsigned long len);
 int lwip_memcmp(const void *x, const void *y, unsigned long len);
-int lwip_strcmp(const char *x, const char *y);
 int lwip_strncmp(const char *x, const char *y, unsigned long len);
 
 #define memcpy(__a, __b, __c) lwip_memcpy(__a, __b, __c)
 #define memcmp(__a, __b, __c) lwip_memcmp(__a, __b, __c)
 #define memset(__a, __b, __c) lwip_memset((void *)(__a), __b, __c)
 #define memmove(__a, __b, __c) lwip_memcpy(__a, __b, __c)
-#define strlen(__a) lwip_strlen((void *)__a)
 #define strncmp(__a, __b, __c) lwip_strncmp(__a, __b, __c)
-#define strcmp(__a, __b) lwip_strcmp(__a, __b)
+#define strcmp(__a, __b) runtime_strcmp(__a, __b)
 #define atoi(__a) lwip_atoi(__a)
 
 static inline void *calloc(size_t n, size_t s)

@@ -3,7 +3,7 @@
 #include <boot/uefi.h>
 #include <drivers/acpi.h>
 
-void acpi_register_irq_handler(int irq, thunk t, const char *name)
+void acpi_register_irq_handler(int irq, thunk t, sstring name)
 {
     register_interrupt(irq, t, name);
 }

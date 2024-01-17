@@ -72,10 +72,10 @@ static heap cloud_heap;
 
 static enum cloud cloud_detect(void)
 {
-    const char *chassis_asset_tag = dmi_get_string(DMI_CHASSIS_ASSET_TAG);
-    if (!chassis_asset_tag)
+    sstring chassis_asset_tag = dmi_get_string(DMI_CHASSIS_ASSET_TAG);
+    if (sstring_is_null(chassis_asset_tag))
         return CLOUD_UNKNOWN;
-    if (!runtime_strcmp(chassis_asset_tag, AZURE_CHASSIS))
+    if (!runtime_strcmp(chassis_asset_tag, ss(AZURE_CHASSIS)))
         return CLOUD_AZURE;
     return CLOUD_UNKNOWN;
 }
@@ -192,13 +192,13 @@ closure_function(4, 1, void, cloud_download_save,
         buffer status_code = get(start_line, integer_key(1));
         if (!status_code || (buffer_length(status_code) < 1) || (byte(status_code, 0) != '2')) {
             /* HTTP status code 2xx not found. */
-            s = timm("result", "%s: unexpected server response %v", __func__, start_line);
+            s = timm("result", "%s: unexpected server response %v", func_ss, start_line);
             goto error;
         }
         buffer b = get(v, sym(Content-Length));
         if (b) {
             if (!parse_int(b, 10, bound(content_len))) {
-                s = timm("result", "%s: failed to parse content length '%b'", __func__, b);
+                s = timm("result", "%s: failed to parse content length '%b'", func_ss, b);
                 goto error;
             }
         }
@@ -207,7 +207,7 @@ closure_function(4, 1, void, cloud_download_save,
     if (content != INVALID_ADDRESS) {
         io_status_handler io_sh = closure(cloud_heap, cloud_download_save_complete, f, content, sh);
         if (io_sh == INVALID_ADDRESS) {
-            s = timm("result", "%s: failed to allocate I/O status handler", __func__);
+            s = timm("result", "%s: failed to allocate I/O status handler", func_ss);
             deallocate_buffer(content);
             goto error;
         }
@@ -216,7 +216,7 @@ closure_function(4, 1, void, cloud_download_save,
         *bound(received) += len;
         return;
     } else {
-        s = timm("result", "%s: failed to copy content", __func__);
+        s = timm("result", "%s: failed to copy content", func_ss);
     }
   error:
     *bound(content_len) = (bytes)-1;    /* special value that indicates error */
@@ -234,9 +234,9 @@ define_closure_function(4, 2, boolean, cloud_download_file_recv,
     if (data) {
         if (bound(parser) == INVALID_ADDRESS) {
             /* This is the first chunk of data received after connection establishment. */
-            fsfile f = fsfile_open_or_create(cfg->file_path, true);
+            fsfile f = fsfile_open_or_create(buffer_to_sstring(cfg->file_path), true);
             if (!f) {
-                s = timm("result", "%s: failed to open file '%b'", __func__, cfg->file_path);
+                s = timm("result", "%s: failed to open file '%b'", func_ss, cfg->file_path);
                 goto error;
             }
 
@@ -248,13 +248,13 @@ define_closure_function(4, 2, boolean, cloud_download_file_recv,
             value_handler vh = closure(cloud_heap, cloud_download_save, &bound(content_len), f,
                                        &bound(received), m);
             if (vh == INVALID_ADDRESS) {
-                s = timm("result", "%s: failed to allocate value handler", __func__);
+                s = timm("result", "%s: failed to allocate value handler", func_ss);
                 fsfile_release(f);
                 goto error;
             }
             bound(parser) = allocate_http_parser(cloud_heap, vh);
             if (bound(parser) == INVALID_ADDRESS) {
-                s = timm("result", "%s: failed to allocate HTTP parser", __func__);
+                s = timm("result", "%s: failed to allocate HTTP parser", func_ss);
                 deallocate_closure(vh);
                 fsfile_release(f);
                 goto error;
@@ -266,7 +266,7 @@ define_closure_function(4, 2, boolean, cloud_download_file_recv,
         if (!is_ok(s)) {
             bound(parser) = INVALID_ADDRESS;    /* the parser deallocated itself */
             if (sh) {
-                s = timm_up(s, "result", "%s: failed to parse HTTP response", __func__);
+                s = timm_up(s, "result", "%s: failed to parse HTTP response", func_ss);
                 goto error;
             } else {
                 timm_dealloc(s);
@@ -326,14 +326,14 @@ closure_function(2, 1, input_buffer_handler, cloud_download_ch,
     input_buffer_handler in = INVALID_ADDRESS;
     if (!out) {
         if (!cloud_download_retry((connection_handler)closure_self())) {
-            apply(sh, timm("result", "%s: failed to schedule retry", __func__));
+            apply(sh, timm("result", "%s: failed to schedule retry", func_ss));
             goto done;
         }
         return in;
     }
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
-        apply(sh, timm("result", "%s: failed to allocate tuple", __func__));
+        apply(sh, timm("result", "%s: failed to allocate tuple", func_ss));
         goto done;
     }
     set(req, sym(url), &cfg->server_path);
@@ -345,7 +345,7 @@ closure_function(2, 1, input_buffer_handler, cloud_download_ch,
     if (is_ok(s)) {
         in = closure(cloud_heap, cloud_download_recv, bound(recv), out);
         if (in == INVALID_ADDRESS)
-            apply(sh, timm("result", "%s: failed to allocate buffer handler", __func__));
+            apply(sh, timm("result", "%s: failed to allocate buffer handler", func_ss));
     } else {
         apply(sh, s);
     }
@@ -368,7 +368,7 @@ static status cloud_download_connect(ip_addr_t *addr, connection_handler ch)
     }
 }
 
-static void cloud_download_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+static void cloud_download_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     connection_handler ch = (connection_handler)callback_arg;
     status s;
@@ -389,10 +389,7 @@ static void cloud_download(connection_handler ch)
     cloud_download_cfg cfg = closure_member(cloud_download_ch, ch, cfg);
     status_handler sh = (status_handler)&cfg->complete;
     status s;
-    bytes host_len = buffer_length(&cfg->server_host);
-    char host[host_len + 1];
-    runtime_memcpy(host, buffer_ref(&cfg->server_host, 0), host_len);
-    host[host_len] = '\0';                                \
+    sstring host = buffer_to_sstring(&cfg->server_host);
     ip_addr_t addr;
     err_t err;
 
@@ -470,7 +467,7 @@ static void cloud_download_start(cloud_download_cfg cfg, download_recv recv, sta
     init_closure(&cfg->complete, cloud_download_done, cfg, sh);
     connection_handler ch = closure(cloud_heap, cloud_download_ch, cfg, recv);
     if (ch == INVALID_ADDRESS) {
-        apply(sh, timm("result", "%s: failed to allocate connection handler", __func__));
+        apply(sh, timm("result", "%s: failed to allocate connection handler", func_ss));
         return;
     }
     cloud_download(ch);
@@ -513,7 +510,7 @@ static int cloud_download_file_parse(tuple config, vector tasks)
         rprintf("cloud_init: invalid download destination %v\n", parsed_cfg->file_path);
         return KLIB_INIT_FAILED;
     }
-    fsfile f = fsfile_open_or_create(parsed_cfg->file_path, false);
+    fsfile f = fsfile_open_or_create(buffer_to_sstring(parsed_cfg->file_path), false);
     if (!f) {
         rprintf("cloud_init: download destination file '%b' cannot be created\n",
             parsed_cfg->file_path);
@@ -606,7 +603,7 @@ define_closure_function(2, 2, boolean, cloud_download_env_recv,
         value_handler vh = init_closure(&cfg->setenv, cloud_download_setenv, &bound(s));
         bound(parser) = allocate_http_parser(cloud_heap, vh);
         if (bound(parser) == INVALID_ADDRESS) {
-            bound(s) = timm("result", "%s: failed to allocate HTTP parser", __func__);
+            bound(s) = timm("result", "%s: failed to allocate HTTP parser", func_ss);
             goto close_conn;
         }
     }
@@ -616,7 +613,7 @@ define_closure_function(2, 2, boolean, cloud_download_env_recv,
             goto close_conn;
         if (!is_ok(s)) {
             bound(parser) = INVALID_ADDRESS;    /* the parser deallocated itself */
-            bound(s) = timm_up(s, "result", "%s: failed to parse HTTP response", __func__);
+            bound(s) = timm_up(s, "result", "%s: failed to parse HTTP response", func_ss);
             if (data)
                 goto close_conn;
         }

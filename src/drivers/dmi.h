@@ -7,4 +7,4 @@ enum dmi_field {
 
 extern u64 smbios_entry_point;
 
-const char *dmi_get_string(enum dmi_field field);
+sstring dmi_get_string(enum dmi_field field);

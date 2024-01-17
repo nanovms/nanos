@@ -70,22 +70,22 @@ define_closure_function(1, 2, boolean, each_request,
                         buffer_handler, out,
                         value, k, value, args)
 {
-    char *resultstr = 0;
+    sstring resultstr = sstring_null();
     buffer b = allocate_buffer(management.h, 256);
     assert(b != INVALID_ADDRESS);
     if (k == sym(get)) {
         if (!is_tuple(args)) {
-            resultstr = "missing arguments tuple";
+            resultstr = ss("missing arguments tuple");
             goto out;
         }
         string path = get_string(args, sym(path));
         if (!path) {
-            resultstr = "could not parse path attribute";
+            resultstr = ss("could not parse path attribute");
             goto out;
         }
         value target = resolve_tuple_path(management.root, path, 0, 0);
         if (!target) {
-            resultstr = "could not resolve path";
+            resultstr = ss("could not resolve path");
             goto out;
         }
         tuple attrs = timm("indent", "3");
@@ -96,24 +96,24 @@ define_closure_function(1, 2, boolean, each_request,
         deallocate_value(attrs);
     } else if (k == sym(set)) {
         if (!is_tuple(args)) {
-            resultstr = "missing arguments tuple";
+            resultstr = ss("missing arguments tuple");
             goto out;
         }
         string path = get_string(args, sym(path));
         if (!path) {
-            resultstr = "could not parse path attribute";
+            resultstr = ss("could not parse path attribute");
             goto out;
         }
         symbol a = 0;
         tuple parent = 0;
         resolve_tuple_path(management.root, path, &parent, &a);
         if (!parent) {
-            resultstr = "could not resolve path";
+            resultstr = ss("could not resolve path");
             goto out;
         }
         value v = get(args, sym(value));
         if (!v) {
-            resultstr = "value not found";
+            resultstr = ss("value not found");
             goto out;
         }
         if (is_null_string(v))
@@ -127,13 +127,13 @@ define_closure_function(1, 2, boolean, each_request,
         } else if (is_tuple(args)) {
             tuple req = get_tuple(args, sym(request));
             if (!req) {
-                resultstr = "could not parse request";
+                resultstr = ss("could not parse request");
                 goto out;
             }
 
             u64 period;
             if (!get_u64(args, sym(period), &period)) {
-                resultstr = "could not parse period";
+                resultstr = ss("could not parse period");
                 goto out;
             }
 
@@ -150,16 +150,16 @@ define_closure_function(1, 2, boolean, each_request,
                            init_closure(&management.timer_expiry, mgmt_timer_expiry,
                                         bound(out)));
         } else {
-            resultstr = "could not parse timer tuple";
+            resultstr = ss("could not parse timer tuple");
             goto out;
         }
         bprintf(b, "()\n");
 #endif
     } else {
-        resultstr = "unknown command";
+        resultstr = ss("unknown command");
     }
   out:
-    if (resultstr)
+    if (!sstring_is_null(resultstr))
         bprintf(b, "(result:%s)\n", resultstr);
     apply(bound(out), b);
     return true;

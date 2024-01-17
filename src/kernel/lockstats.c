@@ -83,12 +83,17 @@ out:
 
 boolean lockstats_print_u64_with_sym(buffer b, u64 n)
 {
-    char * name;
+    sstring name;
     u64 offset, len;
 
     name = find_elf_sym(n, &offset, &len);
-    bprintf(b, "%p [%s+0x%x]", n, name ? name : "", name ? offset : 0);
-    return name != 0;
+    boolean found = !sstring_is_null(name);
+    if (!found) {
+        name = sstring_empty();
+        offset = 0;
+    }
+    bprintf(b, "%p [%s+0x%x]", n, name, offset);
+    return found;
 }
 
 static boolean stat_sort_reverse(void *a, void *b)
@@ -159,7 +164,7 @@ static boolean log_output(pqueue pq, buffer b)
     while ((s = pqueue_peek(pq)) != INVALID_ADDRESS) {
         buffer_clear(tb);
         bprintf(tb, "%p %s %ld %ld %ld %ld %ld %ld %ld %ld %ld %ld ", s->lock.lock_address,
-            s->lock.type == 0 ? "spin" : "mutex", s->acq,
+            s->lock.type == 0 ? ss("spin") : ss("mutex"), s->acq,
             s->cont, s->tries, s->spins_total,
             s->spins_min, s->spins_max, s->hold_time_total,
             s->hold_time_min, s->hold_time_max, s->sleep_time_total);
@@ -193,7 +198,7 @@ static inline void lockstats_send_http_chunked_response(http_responder handler)
     catch_err(send_http_chunked_response(handler, timm("ContentType", "text/html")));
 }
 
-static inline void lockstats_send_http_error(http_responder handler, const char *status, const char *msg)
+static inline void lockstats_send_http_error(http_responder handler, sstring status, sstring msg)
 {
     buffer b = aprintf(lockstats_heap, "<html><head><title>%s %s</title></head>"
                        "<body><h1>%s</h1></body></html>\r\n", status, msg, msg);
@@ -203,19 +208,19 @@ static inline void lockstats_send_http_error(http_responder handler, const char 
 static void
 lockstats_send_http_uri_not_found(http_responder handler)
 {
-    lockstats_send_http_error(handler, "404", "Not Found");
+    lockstats_send_http_error(handler, ss("404"), ss("Not Found"));
 }
 
 static void
 lockstats_send_http_no_method(http_responder handler, http_method method)
 {
-    lockstats_send_http_error(handler, "501", "Not Implemented");
+    lockstats_send_http_error(handler, ss("501"), ss("Not Implemented"));
 }
 
 static void
 lockstats_send_http_internal_error(http_responder handler, http_method method)
 {
-    lockstats_send_http_error(handler, "500", "Internal Server Error");
+    lockstats_send_http_error(handler, ss("500"), ss("Internal Server Error"));
 }
 
 static void
@@ -253,14 +258,14 @@ closure_function(0, 3, void, lockstats_http_request,
         lockstats_send_http_no_method(handler, method);
         return;
     }
-    if (buffer_compare_with_cstring(relative_uri, "log")) {
+    if (!buffer_strcmp(relative_uri, "log")) {
         lockstats_send_http_chunked_response(handler);
         lockstats_do_http_get_log_chunked(handler);
-    } else if (buffer_compare_with_cstring(relative_uri, "enable")) {
+    } else if (!buffer_strcmp(relative_uri, "enable")) {
         lockstats_send_http_response(handler,
                aprintf(lockstats_heap, "lock profiling enabled\n"));
         record_lock_stats = true;
-    } else if (buffer_compare_with_cstring(relative_uri, "disable")) {
+    } else if (!buffer_strcmp(relative_uri, "disable")) {
         record_lock_stats = false;
         lockstats_send_http_response(handler,
                aprintf(lockstats_heap, "lock profiling disabled\n"));
@@ -282,7 +287,7 @@ init_http_listener(void)
 
     http_register_uri_handler(
         lockstats_hl,
-        LOCKSTATS_URI,
+        ss(LOCKSTATS_URI),
         closure(lockstats_heap, lockstats_http_request)
     );
 

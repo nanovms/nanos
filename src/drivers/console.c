@@ -78,7 +78,7 @@ closure_function(1, 2, boolean, config_console_each,
     case '-':
         list_foreach(&console_drivers, e) {
             struct console_driver *d = struct_from_list(e, struct console_driver *, l);
-            if (!buffer_compare_with_cstring(b, d->name))
+            if (buffer_compare_with_sstring(b, d->name))
                 continue;
             list_delete(e);
             if (op == '-') {

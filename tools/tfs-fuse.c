@@ -28,7 +28,7 @@
 
 //#define TFS_FUSE_DEBUG
 #ifdef TFS_FUSE_DEBUG
-#define tfs_fuse_debug(fmt, ...) rprintf(fmt, ##__VA_ARGS__)
+#define tfs_fuse_debug(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #else
 #define tfs_fuse_debug(fmt, ...)
 #endif
@@ -164,7 +164,8 @@ int resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry, tupl
 {
     if (!f)
         return -EFAULT;
-    return rv_from_fs_status(filesystem_resolve_cstring(fs, cwd, f, entry, parent));
+    sstring f_ss = isstring((char *)f, strlen(f));
+    return rv_from_fs_status(filesystem_resolve_sstring(fs, cwd, f_ss, entry, parent));
 }
 
 int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
@@ -172,7 +173,8 @@ int resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entr
 {
     if (!f)
         return -EFAULT;
-    return rv_from_fs_status(filesystem_resolve_cstring_follow(fs, cwd, f, entry, parent));
+    sstring f_ss = isstring((char *)f, strlen(f));
+    return rv_from_fs_status(filesystem_resolve_sstring_follow(fs, cwd, f_ss, entry, parent));
 }
 
 static int file_type_from_tuple(tuple n)
@@ -225,14 +227,14 @@ closure_function(2, 1, void, req_handle,
                 xfer = writev(bound(d), iov, iov_count);
                 if (xfer < 0 && errno != EINTR) {
                     apply(req->completion,
-                          timm("result", "write error", "error", "%s", strerror(errno)));
+                          timm("result", "write error %s", errno_sstring()));
                     return;
                 }
             } else {
                 xfer = readv(bound(d), iov, iov_count);
                 if (xfer < 0 && errno != EINTR) {
                     apply(req->completion,
-                          timm("result", "read error", "error", "%s", strerror(errno)));
+                          timm("result", "read error %s", errno_sstring()));
                     return;
                 }
                 if (xfer == 0) {
@@ -248,7 +250,7 @@ closure_function(2, 1, void, req_handle,
     case STORAGE_OP_FLUSH:
         break;
     default:
-        halt("%s: invalid storage op %d\n", __func__, req->op);
+        halt("%s: invalid storage op %d\n", func_ss, req->op);
     }
     apply(req->completion, STATUS_OK);
 }
@@ -441,8 +443,9 @@ static int open_internal(const char *name, int flags, int mode)
     tuple n;
     int ret;
 
+    sstring name_ss = isstring((char *)name, strlen(name));
     fsfile fsf;
-    fs_status fss = filesystem_get_node(&rootfs, cwd_inode, name, !!(flags & O_NOFOLLOW),
+    fs_status fss = filesystem_get_node(&rootfs, cwd_inode, name_ss, !!(flags & O_NOFOLLOW),
         !!(flags & O_CREAT), !!(flags & O_EXCL), !!(flags & O_TRUNC), &n, &fsf);
     ret = rv_from_fs_status(fss);
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
@@ -665,9 +668,10 @@ static void tfs_destroy(void *v)
 static int tfs_mkdir(const char *pathname, mode_t mode)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
+    sstring path_ss = isstring((char *)pathname, strlen(pathname));
     int rv;
     pthread_rwlock_wrlock(&rwlock);
-    rv = rv_from_fs_status(filesystem_mkdir(rootfs, cwd_inode, pathname));
+    rv = rv_from_fs_status(filesystem_mkdir(rootfs, cwd_inode, path_ss));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
@@ -677,9 +681,11 @@ static int tfs_mkdir(const char *pathname, mode_t mode)
 static int tfs_rename(const char *oldpath, const char *newpath)
 {
     tfs_fuse_debug("%s: oldpath %s newpath %s\n", __func__, oldpath, newpath);
+    sstring oldpath_ss = isstring((char *)oldpath, strlen(oldpath));
+    sstring newpath_ss = isstring((char *)newpath, strlen(newpath));
     pthread_rwlock_wrlock(&rwlock);
-    int rv = rv_from_fs_status(filesystem_rename(rootfs, cwd_inode, oldpath, rootfs,
-        cwd_inode, newpath, false));
+    int rv = rv_from_fs_status(filesystem_rename(rootfs, cwd_inode, oldpath_ss, rootfs,
+        cwd_inode, newpath_ss, false));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
@@ -689,9 +695,10 @@ static int tfs_rename(const char *oldpath, const char *newpath)
 static int tfs_rmdir(const char *pathname)
 {
     tfs_fuse_debug("%s: path %s\n", __func__, pathname);
+    sstring path_ss = isstring((char *)pathname, strlen(pathname));
     int rv;
     pthread_rwlock_wrlock(&rwlock);
-    rv = rv_from_fs_status(filesystem_delete(rootfs, cwd_inode, pathname, true));
+    rv = rv_from_fs_status(filesystem_delete(rootfs, cwd_inode, path_ss, true));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
@@ -701,8 +708,9 @@ static int tfs_rmdir(const char *pathname)
 static int tfs_unlink(const char *pathname)
 {
     tfs_fuse_debug("%s: unlink %s\n", __func__, pathname);
+    sstring path_ss = isstring((char *)pathname, strlen(pathname));
     pthread_rwlock_wrlock(&rwlock);
-    int rv = rv_from_fs_status(filesystem_delete(rootfs, cwd_inode, pathname, false));
+    int rv = rv_from_fs_status(filesystem_delete(rootfs, cwd_inode, path_ss, false));
     if (rv == 0)
         set_flush_timeout();
     pthread_rwlock_unlock(&rwlock);
@@ -934,7 +942,7 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       length,
                       closure(h, req_handle, fd, offset),
-                      0, 0,
+                      0, sstring_null(),
                       closure(h, fsc));
     fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
     files = allocate_vector(h, 64);

@@ -32,7 +32,7 @@
 //#define VIRTQUEUE_DEBUG
 //#define VIRTQUEUE_DEBUG_VERBOSE
 #ifdef VIRTQUEUE_DEBUG
-# define virtqueue_debug(x, ...) do {tprintf(sym(virtqueue), 0, x, ##__VA_ARGS__);} while(0)
+# define virtqueue_debug(x, ...) do {tprintf(sym(virtqueue), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 # define virtqueue_debug(...) do { } while(0)
 #endif // defined(VIRTQUEUE_DEBUG)
@@ -87,7 +87,7 @@ typedef struct vqmsg {
     
 typedef struct virtqueue {
     vtdev dev;
-    const char *name;
+    sstring name;
     u16 entries;
     u16 queue_index;
     bytes notify_offset;
@@ -150,7 +150,7 @@ void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
     buffer_produce(m->descv, sizeof(struct vring_desc));
     m->count++;
     virtqueue_debug_verbose("%s: vq %s, vqmsg %p, phys_addr 0x%lx, len 0x%x, %s, m->count now %d\n",
-                            __func__, vq->name, m, phys_addr, len, write ? "write" : "read", m->count);
+                            func_ss, vq->name, m, phys_addr, len, write ? "write" : "read", m->count);
 }
 
 static void virtqueue_fill(virtqueue vq);
@@ -163,7 +163,7 @@ void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno)
 {
     m->completion = completion;
     virtqueue_debug_verbose("%s: vq %s, vqmsg %p, completion %p (%F)\n",
-                            __func__, vq->name, m, completion, completion);
+                            func_ss, vq->name, m, completion, completion);
     u64 irqflags = spin_lock_irq(&vq->lock);
     if (seqno)
         *seqno = vq->msg_seqno++;
@@ -180,7 +180,7 @@ static void vq_poll(virtqueue vq)
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
         virtqueue_debug_verbose("%s: vq %s: last_used_idx %d, id %d, len %d\n",
-            __func__, vq->name, vq->last_used_idx, uep->id, uep->len);
+                                func_ss, vq->name, vq->last_used_idx, uep->id, uep->len);
         u16 head = uep->id;
         vqmsg m = vq->msgs[head];
 
@@ -213,7 +213,8 @@ closure_function(1, 0, void, vq_interrupt,
 {
     virtqueue vq = bound(vq);
     virtqueue_debug_verbose("%s: ENTRY: vq %s: entries %d, last_used_idx %d, used->idx %d, desc_idx %d\n",
-        __func__, vq->name, vq->entries, vq->last_used_idx, vq->used->idx, vq->desc_idx);
+                            func_ss, vq->name, vq->entries,
+                            vq->last_used_idx, vq->used->idx, vq->desc_idx);
 
     spin_lock(&vq->lock);
   poll:
@@ -227,12 +228,12 @@ closure_function(1, 0, void, vq_interrupt,
     }
     virtqueue_fill(vq);
     virtqueue_debug("%s: EXIT: vq %s: last_used_idx %d, desc_idx %d\n",
-                    __func__, vq->name, vq->last_used_idx, vq->desc_idx);
+                    func_ss, vq->name, vq->last_used_idx, vq->desc_idx);
     spin_unlock(&vq->lock);
 }
 
 status virtqueue_alloc(vtdev dev,
-                       const char *name,
+                       sstring name,
                        u16 queue_index,
                        u16 size,
                        bytes notify_offset,
@@ -254,7 +255,7 @@ status virtqueue_alloc(vtdev dev,
     vq->dev = dev;
     vq->name = name;
     virtqueue_debug("%s: vq %s: idx %d, size %d, alloc %d\n",
-                    __func__, vq->name, queue_index, size, alloc);
+                    func_ss, vq->name, queue_index, size, alloc);
     vq->queue_index = queue_index;
     vq->notify_offset = notify_offset;
     vq->entries = size;
@@ -272,7 +273,7 @@ status virtqueue_alloc(vtdev dev,
     vq->avail = (struct vring_avail *) (vq->ring_mem + avail_offset);
     vq->used = (struct vring_used *) (vq->ring_mem + used_offset);
     virtqueue_debug("%s: vq %p: desc %p, avail %p, used %p\n",
-        __func__, vq, vq->desc, vq->avail, vq->used);
+                    func_ss, vq, vq->desc, vq->avail, vq->used);
     vq->avail_event = (void *)(vq->used + 1) + sizeof(vq->used->ring[0]) * size;
     vq->used_event = (void *)(vq->avail + 1) + sizeof(vq->avail->ring[0]) * size;
     vq->events_enabled = true;
@@ -354,7 +355,7 @@ static int virtqueue_notify(virtqueue vq, u16 added)
 static void virtqueue_fill(virtqueue vq)
 {
     virtqueue_debug("%s: ENTRY: vq %s: entries %d, desc_idx %d, avail->idx %d, avail->flags 0x%x\n",
-        __func__, vq->name, vq->entries, vq->desc_idx, vq->avail->idx, vq->avail->flags);
+                    func_ss, vq->name, vq->entries, vq->desc_idx, vq->avail->idx, vq->avail->flags);
 
     list n = list_get_next(&vq->msg_queue);
     u16 added = 0;

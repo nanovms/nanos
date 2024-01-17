@@ -235,23 +235,23 @@ closure_function(1, 1, u32, tun_events,
     return events;
 }
 
-static void get_tun_config(char *name, ip4_addr_t *ipaddr, ip4_addr_t *netmask, u64 *mtu, boolean *bringup)
+static void get_tun_config(sstring name, ip4_addr_t *ipaddr, ip4_addr_t *netmask, u64 *mtu, boolean *bringup)
 {
     if (!tun_cfg)
         return;
-    tuple cfg = get_tuple(tun_cfg, sym_this(name));
+    tuple cfg = get_tuple(tun_cfg, sym_sstring(name));
     if (!cfg)
         return;
     buffer ipb = get(cfg, sym(ipaddress));
     if (ipb) {
-        char *ip = buffer_to_cstring(ipb);
+        sstring ip = buffer_to_sstring(ipb);
         if (!ip4addr_aton(ip, ipaddr)) {
             rprintf("tun: invalid ipaddress %s\n", ip);
         }
     }
     buffer nmb = get(cfg, sym(netmask));
     if (nmb) {
-        char *nm = buffer_to_cstring(nmb);
+        sstring nm = buffer_to_sstring(nmb);
         if (!ip4addr_aton(nm, netmask) || !ip4_addr_netmask_valid(netmask->addr)) {
             rprintf("tun: invalid netmask %s\n", nm);
         }
@@ -287,7 +287,7 @@ closure_function(1, 2, sysreturn, tun_ioctl,
         }
         if ((ifreq->ifr.ifr_flags & ~TUN_TYPE_MASK) & ~(IFF_NO_PI | IFF_MULTI_QUEUE))
             return -EINVAL;
-        struct netif *netif = netif_find(ifreq->ifr_name);
+        struct netif *netif = netif_find(sstring_from_cstring(ifreq->ifr_name, IFNAMSIZ));
         if (netif) {
             boolean is_tun = (netif->output == tun_if_output);
             if (is_tun)
@@ -312,7 +312,8 @@ closure_function(1, 2, sysreturn, tun_ioctl,
             ip4_addr_t netmask = (ip4_addr_t){0};
             boolean bringup = false;
             u64 mtu = 0;
-            get_tun_config(tun->netif.name, &ipaddr, &netmask, &mtu, &bringup);
+            sstring name = isstring(tun->netif.name, sizeof(tun->netif.name));
+            get_tun_config(name, &ipaddr, &netmask, &mtu, &bringup);
             netif_add(&tun->netif, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, netif_input);
             netif_name_cpy(ifreq->ifr_name, &tun->netif);
             list_init(&tun->files);
@@ -419,7 +420,7 @@ closure_function(0, 1, sysreturn, tun_open,
     tf->pq = allocate_queue(tun_heap, TUN_QUEUE_LEN);
     if (tf->pq == INVALID_ADDRESS)
         goto no_mem;
-    tf->bq = allocate_blockq(tun_heap, "tun");
+    tf->bq = allocate_blockq(tun_heap, ss("tun"));
     if (tf->bq == INVALID_ADDRESS) {
         deallocate_queue(tf->pq);
         goto no_mem;
@@ -456,7 +457,7 @@ int init(status_handler complete)
     spec_file_open open = closure(tun_heap, tun_open);
     if (open == INVALID_ADDRESS)
         return KLIB_INIT_FAILED;
-    if (create_special_file("/dev/net/tun", open, 0, makedev(MISC_MAJOR, TUN_MINOR))) {
+    if (create_special_file(ss("/dev/net/tun"), open, 0, makedev(MISC_MAJOR, TUN_MINOR))) {
         return KLIB_INIT_OK;
     } else {
         deallocate_closure(open);

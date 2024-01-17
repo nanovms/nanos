@@ -105,7 +105,7 @@ void storage_sync(status_handler sh);
 struct filesystem *storage_get_fs(tuple root);
 u64 storage_get_mountpoint(tuple root, struct filesystem **fs);
 
-typedef closure_type(volume_handler, void, u8 *, const char *, struct filesystem *, u64);
+typedef closure_type(volume_handler, void, u8 *, sstring, struct filesystem *, u64);
 void storage_iterate(volume_handler vh);
 
 void storage_detach(void *priv, thunk complete);

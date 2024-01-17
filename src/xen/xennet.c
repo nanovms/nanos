@@ -3,7 +3,7 @@
 //#define XENNET_DEBUG
 //#define XENNET_DEBUG_DATA
 #ifdef XENNET_DEBUG
-#define xennet_debug(x, ...) do {tprintf(sym(xennet), 0, x "\n", ##__VA_ARGS__);} while(0)
+#define xennet_debug(x, ...) do {tprintf(sym(xennet), 0, ss(x "\n"), ##__VA_ARGS__);} while(0)
 #else
 #define xennet_debug(x, ...)
 #endif
@@ -107,71 +107,72 @@ struct xennet_dev {
 
 static status xennet_inform_backend(xennet_dev xnd)
 {
+    sstring func = func_ss;
     status s = STATUS_OK;
     xen_dev xd = &xnd->dev;
-    xennet_debug("%s: dev id %d", __func__, xd->if_id);
+    xennet_debug("%s: dev id %d", func, xd->if_id);
 
     u32 tx_id;
-    char *node;
+    sstring node;
     int retries = XENNET_INFORM_BACKEND_RETRIES;
 
   again:
-    node = "transaction start";
+    node = ss("transaction start");
     s = xenstore_transaction_start(&tx_id);
     if (!is_ok(s))
         return s;
 
-    node = "vifname";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "vif%d", xd->if_id);
+    node = ss("vifname");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("vif%d"), xd->if_id);
     if (!is_ok(s))
         goto abort;
 
-    node = "rx-ring-ref";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xnd->rx_ring_gntref);
+    node = ss("rx-ring-ref");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%d"), xnd->rx_ring_gntref);
     if (!is_ok(s))
         goto abort;
 
-    node = "tx-ring-ref";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xnd->tx_ring_gntref);
+    node = ss("tx-ring-ref");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%d"), xnd->tx_ring_gntref);
     if (!is_ok(s))
         goto abort;
 
-    node = "request-rx-copy";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", 1);
+    node = ss("request-rx-copy");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%d"), 1);
     if (!is_ok(s))
         goto abort;
 
-    node = "feature-rx-notify";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", 1);
+    node = ss("feature-rx-notify");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%d"), 1);
     if (!is_ok(s))
         goto abort;
 
-    node = "event-channel";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xnd->evtchn);
+    node = ss("event-channel");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%d"), xnd->evtchn);
     if (!is_ok(s))
         goto abort;
 
-    node = "transaction end";
+    node = ss("transaction end");
     s = xenstore_transaction_end(tx_id, false);
     if (!is_ok(s)) {
         value v = get_string(s, sym(errno));
         if (v) {
-            if (!runtime_strcmp("EAGAIN", buffer_ref((buffer)v, 0))) {
+            if (!buffer_strcmp(v, "EAGAIN")) {
                 deallocate_value(s);
                 if (retries-- == 0) {
                     return timm("result", "%s failed: transaction end returned EAGAIN after %d tries",
-                             __func__, XENNET_INFORM_BACKEND_RETRIES);
+                                func, XENNET_INFORM_BACKEND_RETRIES);
                 }
                 goto again;
             }
         }
-        return timm_up(s, "result", "%s: transaction end failed", __func__);
+        return timm_up(s, "result", "%s: transaction end failed", func);
     }
     return s;
   abort:
     xenstore_transaction_end(tx_id, true);
     return timm_up(s, "result", "%s: transaction aborted; step \"%s\" failed",
-                   __func__, node);
+                   func, node);
 }
 
 static inline u16 xennet_form_tx_id(xennet_tx_buf txb, int pageidx)
@@ -257,7 +258,7 @@ static void xennet_service_tx_ring(xennet_dev xd)
         RING_IDX cons = xd->tx_ring.rsp_cons;
         RING_IDX prod = xd->tx_ring.sring->rsp_prod;
         memory_barrier();
-        xennet_debug("%s: cons %d, prod %d", __func__, cons, prod);
+        xennet_debug("%s: cons %d, prod %d", func_ss, cons, prod);
 
         struct list q;
         list_init(&q);
@@ -299,7 +300,7 @@ closure_function(1, 0, void, xennet_tx_service_bh,
                  xennet_dev, xd)
 {
     xennet_dev xd = bound(xd);
-    xennet_debug("%s: dev id %d", __func__, xd->dev.if_id);
+    xennet_debug("%s: dev id %d", func_ss, xd->dev.if_id);
     list l;
     while ((l = (list)dequeue(xd->tx_servicequeue)) != INVALID_ADDRESS) {
         struct list q;
@@ -315,7 +316,7 @@ closure_function(1, 0, void, xennet_tx_service_bh,
             xennet_return_txbuf(xd, txb);
         }
     }
-    xennet_debug("%s: exit", __func__);
+    xennet_debug("%s exit", func_ss);
 }
 
 /* called with tx_fill_lock taken / irqs disabled */
@@ -349,7 +350,7 @@ static void xennet_populate_tx_ring(xennet_dev xd)
 
     RING_IDX prod = xd->tx_ring.req_prod_pvt;
     RING_IDX prod_end = xd->tx_ring.rsp_cons + XENNET_TX_RING_SIZE;
-    xennet_debug("%s: prod %d, prod_end %d", __func__, prod, prod_end);
+    xennet_debug("%s: prod %d, prod_end %d", func_ss, prod, prod_end);
 
     while (prod < prod_end) {
         netif_tx_request_t *tx = RING_GET_REQUEST(&xd->tx_ring, prod);
@@ -411,7 +412,7 @@ static void xennet_tx_buf_add_pages(xennet_dev xd, xennet_tx_buf txb, struct pbu
 static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
 {
     xennet_dev xd = (xennet_dev)netif->state;
-    xennet_debug("%s: id %d, pbuf %p", __func__, xd->dev.if_id, p);
+    xennet_debug("%s: id %d, pbuf %p", func_ss, xd->dev.if_id, p);
 
     xennet_tx_buf txb = xennet_get_txbuf(xd);
     if (txb == INVALID_ADDRESS)
@@ -444,7 +445,7 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
 static err_t xennet_netif_init(struct netif *netif)
 {
     xennet_dev xd = (xennet_dev)netif->state;
-    netif->hostname = "uniboot"; // XXX fix in virtio too
+    netif->hostname = sstring_empty();
     netif->name[0] = 'e';
     netif->name[1] = 'n';
     netif->output = etharp_output;
@@ -538,7 +539,7 @@ static void xennet_populate_rx_ring(xennet_dev xd)
     RING_IDX prod = xd->rx_ring.req_prod_pvt;
     RING_IDX prod_end = xd->rx_ring.rsp_cons + XENNET_RX_RING_SIZE;
 
-    xennet_debug("%s: prod %d, prod_end %d", __func__, prod, prod_end);
+    xennet_debug("%s: prod %d, prod_end %d", func_ss, prod, prod_end);
 
     u64 flags = spin_lock_irq(&xd->rx_fill_lock);
     while (prod < prod_end) {
@@ -575,7 +576,7 @@ static void xennet_service_rx_ring(xennet_dev xd)
         RING_IDX prod = xd->rx_ring.sring->rsp_prod;
         assert(prod - cons <= XENNET_RX_RING_SIZE);
         read_barrier();
-        xennet_debug("%s: cons %d, prod %d", __func__, cons, prod);
+        xennet_debug("%s: cons %d, prod %d", func_ss, cons, prod);
 
         struct list q;
         list_init(&q);
@@ -623,7 +624,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
                  xennet_dev, xd)
 {
     xennet_dev xd = bound(xd);
-    xennet_debug("%s: dev id %d", __func__, xd->dev.if_id);
+    xennet_debug("%s: dev id %d", func_ss, xd->dev.if_id);
     list l;
     while ((l = (list)dequeue(xd->rx_servicequeue)) != INVALID_ADDRESS) {
         struct list q;
@@ -641,7 +642,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
             }
         }
     }
-    xennet_debug("%s: exit", __func__);
+    xennet_debug("%s exit", func_ss);
 }
 
 closure_function(1, 0, void, xennet_event_handler,
@@ -658,10 +659,10 @@ static status xennet_enable(xennet_dev xd)
 {
     xen_dev xdev = &xd->dev;
     status s = STATUS_OK;
-    xennet_debug("%s: dev id %d", __func__, xdev->if_id);
+    xennet_debug("%s: dev id %d", func_ss, xdev->if_id);
 
     u64 val;
-    s = xenstore_read_u64(0, xdev->backend, "feature-rx-copy", &val);
+    s = xenstore_read_u64(0, xdev->backend, ss("feature-rx-copy"), &val);
     if (!is_ok(s)) {
         s = timm("result", "failed to verify presence of rx-copy feature: %v", s);
         return s;
@@ -743,7 +744,7 @@ static status xennet_enable(xennet_dev xd)
 /* policy: meta becomes property of driver (unless failure status) */
 static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta)
 {
-    xennet_debug("%s: id %d, frontend %b, meta %v", __func__, id, frontend, meta);
+    xennet_debug("%s: id %d, frontend %b, meta %v", func_ss, id, frontend, meta);
     heap h = heap_general(kh);
     xennet_dev xd;
     value v;
@@ -818,7 +819,7 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     for (int i = 0; i < XENNET_INIT_RX_BUFFERS_FACTOR * XENNET_RX_RING_SIZE; i++) {
         xennet_rx_buf rxb = xennet_alloc_rxbuf(xd);
         if (rxb == INVALID_ADDRESS) {
-            s = timm("result", "%s: unable to allocate rx buffers\n", __func__);
+            s = timm("result", "%s: unable to allocate rx buffers", func_ss);
             goto out_dealloc_xd;
         }
         xennet_return_rxbuf((struct pbuf *)&rxb->p);
@@ -850,5 +851,5 @@ closure_function(1, 3, boolean, xennet_probe,
 
 void init_xennet(kernel_heaps kh)
 {
-    register_xen_driver("vif", closure(heap_general(kh), xennet_probe, kh));
+    register_xen_driver(ss("vif"), closure(heap_general(kh), xennet_probe, kh));
 }

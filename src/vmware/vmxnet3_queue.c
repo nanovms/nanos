@@ -27,7 +27,7 @@ vmxnet3_init_txq(vmxnet3_pci dev, int q)
     txr = &txq->vxtxq_cmd_ring;
 
     buffer b = little_stack_buffer(16);
-    bprintf(b, "%s-tx%d", DEVICE_NAME, q);
+    bprintf(b, "%s-tx%d", ss(DEVICE_NAME), q);
     memcpy(txq->vxtxq_name, b->contents, sizeof(txq->vxtxq_name));
 
     txq->vxtxq_sc = dev;
@@ -49,7 +49,7 @@ vmxnet3_init_rxq(vmxnet3_pci dev, int q)
     rxc = &rxq->vxrxq_comp_ring;
 
     buffer b = little_stack_buffer(16);
-    bprintf(b, "%s-rx%d", DEVICE_NAME, q);
+    bprintf(b, "%s-rx%d", ss(DEVICE_NAME), q);
     memcpy(rxq->vxrxq_name, b->contents, sizeof(rxq->vxrxq_name));
 
     rxq->vxrxq_sc = dev;

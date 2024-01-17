@@ -198,13 +198,13 @@ int do_eventfd2(unsigned int count, int flags)
     efd->h = h;
     efd->flags = flags;
 
-    efd->read_bq = allocate_blockq(h, "eventfd read");
+    efd->read_bq = allocate_blockq(h, ss("eventfd read"));
     if (efd->read_bq == INVALID_ADDRESS) {
         msg_err("failed to allocated blockq\n");
         goto err_read_bq;
     }
 
-    efd->write_bq = allocate_blockq(h, "eventfd write");
+    efd->write_bq = allocate_blockq(h, ss("eventfd write"));
     if (efd->write_bq == INVALID_ADDRESS) {
         msg_err("failed to allocate blockq\n");
         goto err_write_bq;

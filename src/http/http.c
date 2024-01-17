@@ -68,7 +68,7 @@ status http_request(heap h, buffer_handler bh, http_method method, tuple headers
     status s = apply(bh, b);
     if (!is_ok(s)) {
         deallocate_buffer(b);
-        return timm_up(s, "result", "%s failed to send", __func__);
+        return timm_up(s, "result", "%s failed to send", func_ss);
     }
     if (body)
         s = apply(bh, body);
@@ -99,7 +99,7 @@ static status send_http_headers(http_responder out, tuple t)
     s = apply(out->out, d);
     if (!is_ok(s)) {
         deallocate_buffer(d);
-        return timm_up(s, "%s failed to send", __func__);
+        return timm_up(s, "result", "%s failed to send", func_ss);
     }
     return STATUS_OK;
 }
@@ -130,7 +130,7 @@ status send_http_chunk(http_responder out, buffer c)
     /* could support trailers... */
     return s;
   out_fail:
-    s = timm_up(s, "%s: failed to send", __func__);
+    s = timm_up(s, "result", "%s failed to send", func_ss);
     return s;
 }
 
@@ -140,7 +140,7 @@ status send_http_chunked_response(http_responder out, tuple t)
     set(t, sym(Transfer-Encoding), aprintf(transient, "chunked"));
     status s = send_http_headers(out, t);
     if (!is_ok(s))
-        return timm_up(s, "%s failed to send", __func__);
+        return timm_up(s, "result", "%s failed to send", func_ss);
     return s;
 }
 
@@ -167,7 +167,7 @@ status send_http_response(http_responder out, tuple t, buffer c)
         apply(out->out, 0);
     return STATUS_OK;
   out_fail:
-    return timm_up(s, "%s failed to send", __func__);
+    return timm_up(s, "result", "%s failed to send", func_ss);
 }
 
 static void reset_parser(http_parser p)
@@ -308,21 +308,21 @@ buffer_handler allocate_http_parser(heap h, value_handler each)
     return closure(h, http_recv, p);
 }
 
-const char * const http_request_methods[] = {
-    [HTTP_REQUEST_METHOD_GET] = "GET",
-    [HTTP_REQUEST_METHOD_HEAD] = "HEAD",
-    [HTTP_REQUEST_METHOD_POST] = "POST",
-    [HTTP_REQUEST_METHOD_PUT] = "PUT",
-    [HTTP_REQUEST_METHOD_DELETE] = "DELETE",
-    [HTTP_REQUEST_METHOD_TRACE] = "TRACE",
-    [HTTP_REQUEST_METHOD_OPTIONS] = "OPTIONS",
-    [HTTP_REQUEST_METHOD_CONNECT] = "CONNECT",
-    [HTTP_REQUEST_METHOD_PATCH] = "PATCH"
+const sstring http_request_methods[] = {
+    [HTTP_REQUEST_METHOD_GET] = ss_static_init("GET"),
+    [HTTP_REQUEST_METHOD_HEAD] = ss_static_init("HEAD"),
+    [HTTP_REQUEST_METHOD_POST] = ss_static_init("POST"),
+    [HTTP_REQUEST_METHOD_PUT] = ss_static_init("PUT"),
+    [HTTP_REQUEST_METHOD_DELETE] = ss_static_init("DELETE"),
+    [HTTP_REQUEST_METHOD_TRACE] = ss_static_init("TRACE"),
+    [HTTP_REQUEST_METHOD_OPTIONS] = ss_static_init("OPTIONS"),
+    [HTTP_REQUEST_METHOD_CONNECT] = ss_static_init("CONNECT"),
+    [HTTP_REQUEST_METHOD_PATCH] = ss_static_init("PATCH")
 };
 
 typedef struct http_listener_registrant {
     struct list l;
-    const char *uri;
+    sstring uri;
     http_request_handler each;
 } *http_listener_registrant;
 
@@ -337,7 +337,7 @@ static void get_http_ver(buffer b, u32 *ver)
 {
     u64 ma, mi;
     *ver = HTTP_VER(1, 1);
-    if (buffer_strstr(b, "HTTP/") != 0)
+    if (buffer_strstr(b, ss("HTTP/")) != 0)
         return;
     buffer_consume(b, 5);
     if (!parse_int(b, 10, &ma))
@@ -350,12 +350,12 @@ static void get_http_ver(buffer b, u32 *ver)
 }
 
 closure_function(2, 2, boolean, find_header,
-                 value *, pv, const char *, m,
+                 value *, pv, sstring, m,
                  value, k, value, v)
 {
     if (!is_symbol(k) && !is_string(v))
         return true;
-    if (buffer_compare_with_cstring_ci(symbol_string(k), bound(m))) {
+    if (!buffer_compare_with_sstring_ci(symbol_string(k), bound(m))) {
         *bound(pv) = v;
         return false;
     }
@@ -369,11 +369,11 @@ static void check_keepalive(http_responder hr, tuple v)
     else
         hr->keepalive = true;
     value conn;
-    if (iterate(v, stack_closure(find_header, &conn, "Connection")))
+    if (iterate(v, stack_closure(find_header, &conn, ss("Connection"))))
         return;
-    if (buffer_compare_with_cstring_ci(conn, "close"))
+    if (!buffer_strcasecmp(conn, "close"))
         hr->keepalive = false;
-    else if (buffer_compare_with_cstring_ci(conn, "keep-alive")) {
+    else if (!buffer_strcasecmp(conn, "keep-alive")) {
         hr->keepalive = true;
     }
 }
@@ -401,8 +401,7 @@ closure_function(2, 1, void, each_http_request,
 
     buffer mb = vector_get(vsl, 0);
     for (method = 0; method < HTTP_REQUEST_METHODS; method++) {
-        if (buffer_compare(mb, alloca_wrap_buffer(http_request_methods[method],
-                                                  runtime_strlen(http_request_methods[method]))))
+        if (buffer_compare(mb, alloca_wrap_sstring(http_request_methods[method])))
             break;
     }
 
@@ -438,8 +437,7 @@ closure_function(2, 1, void, each_http_request,
     http_listener_registrant match = 0;
     list_foreach(&hl->registrants, l) {
         http_listener_registrant r = struct_from_list(l, http_listener_registrant, l);
-        if (top_len == runtime_strlen(r->uri) &&
-            runtime_memcmp(top, r->uri, top_len) == 0) {
+        if ((top_len == r->uri.len) && !runtime_memcmp(top, r->uri.ptr, top_len)) {
             match = r;
             break;
         }
@@ -500,7 +498,7 @@ closure_function(1, 1, input_buffer_handler, each_http_connection,
 }
 
 /* just top level of abs_path */
-void http_register_uri_handler(http_listener hl, const char *uri, http_request_handler each)
+void http_register_uri_handler(http_listener hl, sstring uri, http_request_handler each)
 {
     http_listener_registrant r = allocate(hl->h, sizeof(struct http_listener_registrant));
     assert(r != INVALID_ADDRESS); /* no error path, this is pretty much init only */

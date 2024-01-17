@@ -7,7 +7,7 @@
 
 //#define ID_HEAP_DEBUG
 #ifdef ID_HEAP_DEBUG
-#define id_debug(x, ...) do {rprintf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define id_debug(x, ...) do {rprintf("%s: " x, func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define id_debug(x, ...)
 #endif

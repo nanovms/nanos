@@ -66,12 +66,12 @@ u64 rtc_gettimeofday(void) {
     if (!rtc_detect())
         return 0;
     u64 seconds = RTCDR;
-    rtc_debug("%s: returning %ld seconds\n", __func__, seconds);
+    rtc_debug("%s: returning %ld seconds\n", func_ss, seconds);
     return seconds;
 }
 
 void rtc_settimeofday(u64 seconds) {
-    rtc_debug("%s: setting rtc to %ld seconds\n", __func__, seconds);
+    rtc_debug("%s: setting rtc to %ld seconds\n", func_ss, seconds);
     if (rtc_detect())
         RTCLR = seconds;
 }

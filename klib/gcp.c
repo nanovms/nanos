@@ -141,7 +141,7 @@ closure_function(1, 1, void, gcp_zone_vh,
     status s;
 
     /* content is in the following format: projects/PROJECT_NUM/zones/ZONE */
-    int offset = buffer_strstr(content, "/zones/");
+    int offset = buffer_strstr(content, ss("/zones/"));
     if (offset < 0) {
         s = timm("result", "unknown zone format '%b'", content);
         goto out;
@@ -192,7 +192,7 @@ closure_function(1, 1, void, gcp_access_token_vh,
         s = timm("result", "failed to get access token: %b", content);
         goto done;
     }
-    int ptr = buffer_strstr(content, "access_token");
+    int ptr = buffer_strstr(content, ss("access_token"));
     if (ptr < 0)
         goto parse_error;
     buffer_consume(content, ptr);
@@ -258,7 +258,7 @@ closure_function(4, 1, boolean, gcp_instance_md_in,
 }
 
 closure_function(3, 1, input_buffer_handler, gcp_instance_md_ch,
-                 const char *, url, value_handler, vh, status_handler, sh,
+                 sstring, url, value_handler, vh, status_handler, sh,
                  buffer_handler, out)
 {
     status_handler sh = bound(sh);
@@ -272,7 +272,7 @@ closure_function(3, 1, input_buffer_handler, gcp_instance_md_ch,
         s = timm("result", "failed to allocate request");
         goto error;
     }
-    set(req, sym(url), alloca_wrap_cstring(bound(url)));
+    set(req, sym(url), alloca_wrap_sstring(bound(url)));
     set(req, sym(Connection), alloca_wrap_cstring("close"));
     set(req, sym(Metadata-Flavor), alloca_wrap_cstring("Google"));
     s = http_request(gcp.h, out, HTTP_REQUEST_METHOD_GET, req, 0);
@@ -306,7 +306,7 @@ static void gcp_project_id_get(status_handler sh)
         return;
     }
     connection_handler ch = closure(gcp.h, gcp_instance_md_ch,
-                                    "/computeMetadata/v1/project/project-id", vh, sh);
+                                    ss("/computeMetadata/v1/project/project-id"), vh, sh);
     if (ch == INVALID_ADDRESS) {
         deallocate_closure(vh);
         apply(sh, timm("result", "failed to allocate project ID connection handler"));
@@ -323,7 +323,7 @@ static void gcp_hostname_get(status_handler sh)
         return;
     }
     connection_handler ch = closure(gcp.h, gcp_instance_md_ch,
-                                    "/computeMetadata/v1/instance/hostname", vh, sh);
+                                    ss("/computeMetadata/v1/instance/hostname"), vh, sh);
     if (ch == INVALID_ADDRESS) {
         deallocate_closure(vh);
         apply(sh, timm("result", "failed to allocate hostname connection handler"));
@@ -340,7 +340,7 @@ static void gcp_zone_get(status_handler sh)
         return;
     }
     connection_handler ch = closure(gcp.h, gcp_instance_md_ch,
-                                    "/computeMetadata/v1/instance/zone", vh, sh);
+                                    ss("/computeMetadata/v1/instance/zone"), vh, sh);
     if (ch == INVALID_ADDRESS) {
         deallocate_closure(vh);
         apply(sh, timm("result", "failed to allocate zone connection handler"));
@@ -357,7 +357,7 @@ static void gcp_instance_id_get(status_handler sh)
         return;
     }
     connection_handler ch = closure(gcp.h, gcp_instance_md_ch,
-                                    "/computeMetadata/v1/instance/id", vh, sh);
+                                    ss("/computeMetadata/v1/instance/id"), vh, sh);
     if (ch == INVALID_ADDRESS) {
         deallocate_closure(vh);
         apply(sh, timm("result", "failed to allocate instance ID connection handler"));
@@ -374,7 +374,7 @@ static void gcp_access_token_get(status_handler sh)
         return;
     }
     connection_handler ch = closure(gcp.h, gcp_instance_md_ch,
-                                    "/computeMetadata/v1/instance/service-accounts/default/token",
+                                    ss("/computeMetadata/v1/instance/service-accounts/default/token"),
                                     vh, sh);
     if (ch == INVALID_ADDRESS) {
         deallocate_closure(vh);
@@ -460,7 +460,7 @@ define_closure_function(1, 1, void, gcp_setup_complete,
     }
 }
 
-static void gcp_dns_cb(const char *name, const ip_addr_t *addr, void *cb_arg)
+static void gcp_dns_cb(sstring name, const ip_addr_t *addr, void *cb_arg)
 {
     connection_handler ch = cb_arg;
     if (addr) {
@@ -474,7 +474,7 @@ static void gcp_dns_cb(const char *name, const ip_addr_t *addr, void *cb_arg)
     }
 }
 
-static void gcp_connect(const char *server, connection_handler ch)
+static void gcp_connect(sstring server, connection_handler ch)
 {
     ip_addr_t addr;
     err_t err = dns_gethostbyname(server, &addr, gcp_dns_cb, ch);
@@ -679,7 +679,7 @@ define_closure_function(0, 2, void, gcp_log_timer_handler,
     if (overruns == timer_disabled)
         return;
     if (gcp.log_inited)
-        gcp_connect(GCP_LOG_SERVER_NAME, (connection_handler)&gcp.log_conn_handler);
+        gcp_connect(ss(GCP_LOG_SERVER_NAME), (connection_handler)&gcp.log_conn_handler);
 }
 
 define_closure_function(0, 2, void, gcp_metrics_timer_handler,
@@ -688,34 +688,36 @@ define_closure_function(0, 2, void, gcp_metrics_timer_handler,
     if ((overruns == timer_disabled) || gcp.metrics_pending)
         return;
     gcp.metrics_pending = true;
-    gcp_connect(GCP_METRICS_SERVER_NAME, (connection_handler)&gcp.metrics_conn_handler);
+    gcp_connect(ss(GCP_METRICS_SERVER_NAME), (connection_handler)&gcp.metrics_conn_handler);
 }
 
-static void gcp_metrics_add_memory(buffer body, boolean first, const char *type, const char *state,
-                                   u64 value, const char *interval)
+static void gcp_metrics_add_memory(buffer body, boolean first, sstring type, sstring state,
+                                   u64 value, sstring interval)
 {
     bprintf(body, "%s{\"resource\":{\"type\":\"gce_instance\""
                   ",\"labels\":{\"zone\":\"%b\",\"instance_id\":\"%b\"}}"
                   ",\"metric\":{\"type\":\"agent.googleapis.com/memory/%s\""
                   ",\"labels\":{\"state\":\"%s\"}}"
                   ",\"points\":[{\"value\":{\"doubleValue\":%ld},\"interval\":%s}]}",
-                  first ? "" : ",", gcp.zone, gcp.instance_id, type, state, value, interval);
+                  first ? sstring_empty() : ss(","), gcp.zone, gcp.instance_id, type, state, value,
+                  interval);
 }
 
-static void gcp_metrics_add_disk(buffer body, boolean first, const char *type, const char *state,
-                                   u64 value, const char *interval, buffer device)
+static void gcp_metrics_add_disk(buffer body, boolean first, sstring type, sstring state,
+                                   u64 value, sstring interval, buffer device)
 {
     bprintf(body, "%s{\"resource\":{\"type\":\"gce_instance\""
                   ",\"labels\":{\"zone\":\"%b\",\"instance_id\":\"%b\"}}"
                   ",\"metric\":{\"type\":\"agent.googleapis.com/disk/%s\""
                   ",\"labels\":{\"device\":\"%b\",\"state\":\"%s\"}}"
                   ",\"points\":[{\"value\":{\"doubleValue\":%ld},\"interval\":%s}]}",
-                  first ? "" : ",", gcp.zone, gcp.instance_id, type, device, state, value, interval);
+                  first ? sstring_empty() : ss(","), gcp.zone, gcp.instance_id, type, device, state,
+                  value, interval);
 }
 
 closure_function(3, 4, void, gcp_metrics_disk_vh,
-                 buffer, b, const char *, interval, boolean, include_readonly,
-                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
+                 buffer, b, sstring, interval, boolean, include_readonly,
+                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
 {
     if (filesystem_is_readonly(fs) && !bound(include_readonly))
         return;
@@ -724,23 +726,27 @@ closure_function(3, 4, void, gcp_metrics_disk_vh,
     u64 free_blocks = fs_freeblocks(fs);
     u64 percent_used_free = free_blocks * 100 / total_blocks;
     buffer b = bound(b);
-    const char *interval = bound(interval);
+    sstring interval = bound(interval);
     buffer device;
-    if (label[0]) {
-        device = alloca_wrap_cstring(label);
+    if (!sstring_is_empty(label)) {
+        device = alloca_wrap_sstring(label);
     } else {
         device = little_stack_buffer(2 * UUID_LEN + 4);
         print_uuid(device, uuid);
     }
-    gcp_metrics_add_disk(b, false, "bytes_used", "free", free_blocks * block_size, interval, device);
-    gcp_metrics_add_disk(b, false, "bytes_used", "used", (total_blocks - free_blocks) * block_size, interval, device);
-    gcp_metrics_add_disk(b, false, "percent_used", "free", percent_used_free, interval, device);
-    gcp_metrics_add_disk(b, false, "percent_used", "used", 100 - percent_used_free, interval, device);
+    gcp_metrics_add_disk(b, false, ss("bytes_used"), ss("free"), free_blocks * block_size, interval,
+                         device);
+    gcp_metrics_add_disk(b, false, ss("bytes_used"), ss("used"),
+                         (total_blocks - free_blocks) * block_size, interval, device);
+    gcp_metrics_add_disk(b, false, ss("percent_used"), ss("free"), percent_used_free, interval,
+                         device);
+    gcp_metrics_add_disk(b, false, ss("percent_used"), ss("used"), 100 - percent_used_free,
+                         interval, device);
 }
 
 closure_function(2, 4, void, gcp_disk_count_vh,
                  u64 *, count, boolean, include_readonly,
-                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
+                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
 {
     if (filesystem_is_readonly(fs) && !bound(include_readonly))
         return;
@@ -778,17 +784,24 @@ static boolean gcp_metrics_post(void)
     struct tm tm;
     gmtime_r(&seconds, &tm);
     char interval[40];
-    rsnprintf(interval, sizeof(interval), "{\"endTime\":\"%d-%02d-%02dT%02d:%02d:%02dZ\"}",
-              1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    sstring interval_ss = isstring(interval,
+                                   rsnprintf(interval, sizeof(interval),
+                                            "{\"endTime\":\"%d-%02d-%02dT%02d:%02d:%02dZ\"}",
+                                            1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday,
+                                            tm.tm_hour, tm.tm_min, tm.tm_sec));
     buffer_write_cstring(body, "{\"timeSeries\":[");
-    gcp_metrics_add_memory(body, true, "bytes_used", "cached", cached, interval);
-    gcp_metrics_add_memory(body, false, "bytes_used", "free", free, interval);
-    gcp_metrics_add_memory(body, false, "bytes_used", "used", used, interval);
-    gcp_metrics_add_memory(body, false, "percent_used", "cached", cached * 100 / total, interval);
-    gcp_metrics_add_memory(body, false, "percent_used", "free", free * 100 / total, interval);
-    gcp_metrics_add_memory(body, false, "percent_used", "used", used * 100 / total, interval);
+    gcp_metrics_add_memory(body, true, ss("bytes_used"), ss("cached"), cached, interval_ss);
+    gcp_metrics_add_memory(body, false, ss("bytes_used"), ss("free"), free, interval_ss);
+    gcp_metrics_add_memory(body, false, ss("bytes_used"), ss("used"), used, interval_ss);
+    gcp_metrics_add_memory(body, false, ss("percent_used"), ss("cached"), cached * 100 / total,
+                           interval_ss);
+    gcp_metrics_add_memory(body, false, ss("percent_used"), ss("free"), free * 100 / total,
+                           interval_ss);
+    gcp_metrics_add_memory(body, false, ss("percent_used"), ss("used"), used * 100 / total,
+                           interval_ss);
     if (gcp.metrics_disk && metrics_disk_count)
-        storage_iterate(stack_closure(gcp_metrics_disk_vh, body, interval, gcp.metrics_disk_include_readonly));
+        storage_iterate(stack_closure(gcp_metrics_disk_vh, body, interval_ss,
+                                      gcp.metrics_disk_include_readonly));
     if (!buffer_write_cstring(body, "]}"))
         goto req_done;
     status s = http_request(gcp.h, gcp.metrics_out, HTTP_REQUEST_METHOD_POST, req, body);
@@ -883,7 +896,7 @@ int init(status_handler complete)
         assert(gcp.log_resp_parser != INVALID_ADDRESS);
         init_closure(&gcp.log_timer_handler, gcp_log_timer_handler);
         gcp.log_driver.write = gcp_log_write;
-        gcp.log_driver.name = "gcp";
+        gcp.log_driver.name = ss("gcp");
         attach_console_driver(&gcp.log_driver);
         config_empty = false;
     }

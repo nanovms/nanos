@@ -132,17 +132,17 @@ void start_secondary_cores(kernel_heaps kh)
 
 closure_function(1, 2, boolean, cpu_dtb_handler,
                  u64 *, proc_count,
-                 dt_node, n, char *, name)
+                 dt_node, n, sstring, name)
 {
-    dt_prop device_type = dtb_get_prop(DEVICETREE, n, "device_type");
+    dt_prop device_type = dtb_get_prop(DEVICETREE, n, ss("device_type"));
     if (device_type == INVALID_ADDRESS)
         return true;
     dt_value dtval = dtb_read_value(DEVICETREE, n, device_type);
     if (dtval.type != DT_VALUE_STRING ||
-        runtime_strcmp(dtval.u.string, "cpu"))
+        runtime_strcmp(isstring(dtval.u.string, dtval.dlen), ss("cpu")))
         return true;
 
-    dt_prop reg = dtb_get_prop(DEVICETREE, n, "reg");
+    dt_prop reg = dtb_get_prop(DEVICETREE, n, ss("reg"));
     if (reg == INVALID_ADDRESS)
         halt("unable to find \"reg\" property for cpu\n");
     dt_value reg_val = dtb_read_value(DEVICETREE, n, reg);
@@ -162,14 +162,15 @@ void count_cpus_present(void)
     hartids_by_cpuid = allocate_vector(heap_general(get_kernel_heaps()), 8);
     assert(hartids_by_cpuid != INVALID_ADDRESS);
     vector_set(hartids_by_cpuid, 0, (void*)boot_hartid);
-    dt_node n = dtb_find_node_by_path(DEVICETREE, "/cpus");
+    dt_node n = dtb_find_node_by_path(DEVICETREE, ss("/cpus"));
     if (n == INVALID_ADDRESS) {
         msg_err("unable to find \"/cpus/cpu-map/cluster0\" in device tree; resorting to single cpu\n");
         return;
     }
 
     u64 proc_count = 1;
-    dtb_walk_node_children(DEVICETREE, n, 0, stack_closure(cpu_dtb_handler, &proc_count));
+    dtb_walk_node_children(DEVICETREE, n, sstring_null(),
+                           stack_closure(cpu_dtb_handler, &proc_count));
     present_processors = proc_count;
 }
 

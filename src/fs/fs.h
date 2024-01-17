@@ -64,7 +64,7 @@ typedef enum {
     FS_STATUS_READONLY,
 } fs_status;
 
-const char *string_from_fs_status(fs_status s);
+sstring string_from_fs_status(fs_status s);
 
 typedef closure_type(fs_status_handler, void, fsfile, fs_status);
 
@@ -164,24 +164,24 @@ tuple fs_new_entry(filesystem fs);
 
 boolean file_tuple_is_ancestor(tuple t1, tuple t2, tuple p2);
 
-fs_status filesystem_mkdir(filesystem fs, inode cwd, const char *path);
-fs_status filesystem_get_node(filesystem *fs, inode cwd, const char *path, boolean nofollow,
+fs_status filesystem_mkdir(filesystem fs, inode cwd, sstring path);
+fs_status filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
                               boolean create, boolean exclusive, boolean truncate, tuple *n,
                               fsfile *f);
 void filesystem_put_node(filesystem fs, tuple n);
 tuple filesystem_get_meta(filesystem fs, inode n);
 void filesystem_put_meta(filesystem fs, tuple n);
 fs_status filesystem_creat_unnamed(filesystem fs, fsfile *f);
-fs_status filesystem_symlink(filesystem fs, inode cwd, const char *path, const char *target);
-fs_status filesystem_delete(filesystem fs, inode cwd, const char *path, boolean directory);
-fs_status filesystem_rename(filesystem oldfs, inode oldwd, const char *oldpath,
-                            filesystem newfs, inode newwd, const char *newpath,
+fs_status filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target);
+fs_status filesystem_delete(filesystem fs, inode cwd, sstring path, boolean directory);
+fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
+                            filesystem newfs, inode newwd, sstring newpath,
                             boolean noreplace);
-fs_status filesystem_exchange(filesystem fs1, inode wd1, const char *path1,
-                              filesystem fs2, inode wd2, const char *path2);
+fs_status filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
+                              filesystem fs2, inode wd2, sstring path2);
 
-fs_status filesystem_mk_socket(filesystem *fs, inode cwd, const char *path, void *s, inode *n);
-fs_status filesystem_get_socket(filesystem *fs, inode cwd, const char *path, tuple *n, void **s);
+fs_status filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s, inode *n);
+fs_status filesystem_get_socket(filesystem *fs, inode cwd, sstring path, tuple *n, void **s);
 fs_status filesystem_clear_socket(filesystem fs, inode n);
 
 fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child);
@@ -196,7 +196,7 @@ u64 fs_totalblocks(filesystem fs);
 u64 fs_usedblocks(filesystem fs);
 u64 fs_freeblocks(filesystem fs);
 
-extern const char *gitversion;
+extern const sstring gitversion;
 
 #define NAME_MAX 255
 #define PATH_MAX 4096
@@ -231,33 +231,33 @@ static inline boolean is_regular(tuple n)
     return (!is_dir(n) && !is_symlink(n) && !is_socket(n) && !is_special(n));
 }
 
-static inline char *path_find_last_delim(const char *path, unsigned int len)
+static inline char *path_find_last_delim(sstring path)
 {
-    return (char *)utf8_findn_r((u8 *)path, len, '/');
+    return (char *)utf8_find_r(path, '/');
 }
 
-static inline const char *filename_from_path(const char *path)
+static inline sstring filename_from_path(sstring path)
 {
-    const char *filename = path_find_last_delim(path, PATH_MAX);
+    char *filename = path_find_last_delim(path);
     if (!filename) {
-        filename = path;
+        filename = path.ptr;
     } else {
         filename++;
     }
-    return filename;
+    return isstring(filename, path.len - (filename - path.ptr));
 }
 
 /* Expects an empty buffer, and never resizes the buffer. */
-boolean dirname_from_path(buffer dest, const char *path);
+boolean dirname_from_path(buffer dest, sstring path);
 
 void fs_set_path_helper(filesystem (*get_root_fs)(), inode (*get_mountpoint)(tuple, filesystem *));
 
-int filesystem_resolve_cstring(filesystem *fs, tuple cwd, const char *f, tuple *entry,
+int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entry,
                     tuple *parent);
 
-/* Same as resolve_cstring(), except that if the entry is a symbolic link this
+/* Same as filesystem_resolve_sstring(), except that if the entry is a symbolic link this
  * function follows the link (recursively). */
-int filesystem_resolve_cstring_follow(filesystem *fs, tuple cwd, const char *f, tuple *entry,
+int filesystem_resolve_sstring_follow(filesystem *fs, tuple cwd, sstring f, tuple *entry,
         tuple *parent);
 
 int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,

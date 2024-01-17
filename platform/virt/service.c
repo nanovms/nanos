@@ -327,7 +327,7 @@ void init_platform_devices(kernel_heaps kh)
     acpi_parse_spcr(stack_closure(plat_spcr_handler, kh, &console_driver));
     if (!console_driver) {
         console_driver = allocate_zero(heap_general(kh), sizeof(*console_driver));
-        console_driver->name = "serial";
+        console_driver->name = ss("serial");
         console_driver->write = serial_console_write;
     }
     attach_console_driver(console_driver);

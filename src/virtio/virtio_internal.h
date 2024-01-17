@@ -97,11 +97,11 @@ static inline void virtio_attach(heap h, backed_heap page_allocator,
     d->transport = transport;
 }
 
-status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, struct virtqueue **result);
+status virtio_alloc_virtqueue(vtdev dev, sstring name, int idx, struct virtqueue **result);
 status virtio_register_config_change_handler(vtdev dev, thunk handler);
 
 status virtqueue_alloc(vtdev dev,
-                       const char *name,
+                       sstring name,
                        u16 queue_index,
                        u16 size,
                        bytes notify_offset,

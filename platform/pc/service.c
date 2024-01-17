@@ -139,7 +139,7 @@ void reclaim_regions(void)
             unmap(e->base, e->length);
             if (!id_heap_add_range(heap_physical(get_kernel_heaps()), e->base, e->length))
                 halt("%s: add range for physical heap failed (%R)\n",
-                     __func__, irange(e->base, e->base + e->length));
+                     func_ss, irange(e->base, e->base + e->length));
         }
     }
     /* we're done with looking at e820 (and our custom) regions, so
@@ -501,13 +501,13 @@ void pvh_start(hvm_start_info start_info)
     init_service(0, 0);
 }
 
+RO_AFTER_INIT static struct console_driver serial_console_driver = {
+    .name = ss_static_init("serial"),
+    .write = serial_console_write,
+};
+
 void init_platform_devices(kernel_heaps kh)
 {
-    RO_AFTER_INIT static struct console_driver serial_console_driver = {
-        .name = "serial",
-        .write = serial_console_write,
-    };
-
     attach_console_driver(&serial_console_driver);
     vga_pci_register(kh);
     pci_discover(); // early PCI discover to configure VGA console
@@ -587,7 +587,7 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_virtio_rng(kh);
 }
 
-void cmdline_consume(const char *opt_name, cmdline_handler h)
+void cmdline_consume(sstring opt_name, cmdline_handler h)
 {
     for_regions(e) {
         if (e->type == REGION_CMDLINE) {

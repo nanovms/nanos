@@ -86,7 +86,7 @@ typedef u64 uintptr_t;
     } while (0)
 
 #define ena_trace(ctx, level, fmt, args...)                     \
-    ena_trace_raw(ctx, level, "%s(): " fmt, __func__, ##args)
+    ena_trace_raw(ctx, level, "%s(): " fmt, func_ss, ##args)
 
 #define ena_trc_dbg(ctx, format, arg...)    \
     ena_trace(ctx, ENA_DBG, format, ##arg)

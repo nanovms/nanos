@@ -89,7 +89,7 @@ typedef struct ltrace_brkpt {
     void *plt_entry;
     u64 addr;   /* userspace instruction pointer */
     u8 insn[sizeof(swbkp_insn)];
-    const char *sym_name;
+    sstring sym_name;
 } *ltrace_brkpt;
 
 declare_closure_struct(0, 2, int, ltrace_brkpt_compare,
@@ -164,7 +164,7 @@ void ltrace_init(value cfg, buffer exe, u64 load_offset)
         runtime_memcpy(brkpt->insn, plt_entry, sizeof(swbkp_insn));
         runtime_memcpy(plt_entry, swbkp_insn, sizeof(swbkp_insn));
         brkpt->sym_name = elf_string(exe, strtab, syms[sym_index].st_name);
-        if (!brkpt->sym_name)
+        if (sstring_is_null(brkpt->sym_name))
             halt("ltrace: no name for symbol 0x%lx\n", sym_index);
         ltrace_debug("PLT entry at 0x%lx: relocation 0x%lx, symbol 0x%lx at 0x%lx (%s)", plt_addr,
                      rel_index, sym_index, sym_offset, brkpt->sym_name);

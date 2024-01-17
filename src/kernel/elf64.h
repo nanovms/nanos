@@ -259,9 +259,9 @@ typedef closure_type(elf_map_handler, boolean, u64 /* vaddr */, u64 /* buffer va
                      u64 /* data size */, u64 /* bss size */, pageflags /* flags */);
 typedef closure_type(elf_loader, void, u64 /* offset */, u64 /* length */, void * /* dest */,
                      status_handler);
-typedef closure_type(elf_sym_handler, void, char *, u64, u64, u8);
-typedef closure_type(elf_sym_resolver, void *, const char *);
-char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset);
+typedef closure_type(elf_sym_handler, void, sstring, u64, u64, u8);
+typedef closure_type(elf_sym_resolver, void *, sstring);
+sstring elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset);
 void elf_symbols(buffer elf, elf_sym_handler each);
 boolean elf_dyn_parse(buffer elf, Elf64_Shdr **symtab, Elf64_Shdr **strtab, Elf64_Rela **reltab,
                       int *relcount);

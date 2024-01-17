@@ -211,7 +211,7 @@ retry_send:
         netvsc_xmit_completion(packet);
 
         // TODO - error code?
-        netvsc_debug("%s: hv_rf_on_send() failed %d times, giving up", __func__, retries);
+        netvsc_debug("%s: hv_rf_on_send() failed %d times, giving up", func_ss, retries);
         return ERR_TIMEOUT;
     }
 
@@ -229,7 +229,7 @@ define_closure_function(0, 1, u64, hn_mem_cleaner,
 static err_t
 vmxif_init(struct netif *netif)
 {
-    netif->hostname = "uniboot"; // from config
+    netif->hostname = sstring_empty();
 
     netif->name[0] = DEVICE_NAME[0];
     netif->name[1] = DEVICE_NAME[1];
@@ -282,7 +282,7 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
               ethernet_input);
 
     mm_register_mem_cleaner(init_closure(&hn->mem_cleaner, hn_mem_cleaner));
-    netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x", __func__,
+    netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x", func_ss,
                  netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
                  netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
     return STATUS_OK;

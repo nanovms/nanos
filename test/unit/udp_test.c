@@ -16,7 +16,7 @@
 
 void fail(char * s)
 {
-    rprintf("%s failed: %s (errno %d)\n", s, strerror(errno), errno);
+    rprintf("%s failed: %s (errno %d)\n", s, errno_sstring(), errno);
     exit(EXIT_FAILURE);
 }
 

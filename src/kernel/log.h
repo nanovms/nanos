@@ -13,11 +13,6 @@ typedef struct klog_dump {
 
 void klog_write(const char *s, bytes count);
 
-static inline void klog_print(const char *s)
-{
-    klog_write(s, runtime_strlen(s));
-}
-
 void klog_disk_setup(u64 disk_offset, storage_req_handler req_handler);
 void klog_set_boot_id(u64 id);
 void klog_load(klog_dump dest, status_handler sh);

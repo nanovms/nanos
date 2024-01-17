@@ -171,7 +171,7 @@ void install_gdt64_and_tss(void *tss_desc, void *tss, void *gdt, void *gdt_point
 /* locking constructs */
 #include <mutex.h>
 
-void cmdline_consume(const char *opt_name, cmdline_handler h);
+void cmdline_consume(sstring opt_name, cmdline_handler h);
 void boot_params_apply(tuple t);
 #endif
 

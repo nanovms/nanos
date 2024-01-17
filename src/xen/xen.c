@@ -3,7 +3,7 @@
 
 //#define XEN_DEBUG
 #ifdef XEN_DEBUG
-#define xen_debug(x, ...) do {tprintf(sym(xen), 0, x "\n", ##__VA_ARGS__);} while(0)
+#define xen_debug(x, ...) do {tprintf(sym(xen), 0, ss(x "\n"), ##__VA_ARGS__);} while(0)
 #else
 #define xen_debug(x, ...)
 #endif
@@ -25,10 +25,10 @@
 #include "xen_internal.h"
 
 declare_closure_struct(0, 1, void, xen_watch_handler,
-                       const char *, path);
+                       sstring, path);
 declare_closure_struct(0, 0, void, xen_scan_service);
 declare_closure_struct(0, 1, void, xen_shutdown_watcher,
-                       const char *, path);
+                       sstring, path);
 declare_closure_struct(1, 0, void, xen_shutdown_handler,
                        buffer, b);
 
@@ -78,10 +78,9 @@ typedef struct xen_platform_info {
     boolean initialized;
 } *xen_platform_info;
 
-#define XEN_DRIVER_NAME_MAX 16
 typedef struct xen_driver {
     struct list l;
-    const char name[XEN_DRIVER_NAME_MAX + 1]; /* XXX make symbol? */
+    sstring name;
     xen_device_probe probe;
 } *xen_driver;
 
@@ -190,7 +189,7 @@ static boolean xen_grant_init(kernel_heaps kh)
         msg_err("failed to allocate grant table\n");
         return false;
     }
-    xen_debug("%s: table v 0x%lx, p 0x%lx", __func__, gt->table, physical_from_virtual(gt->table));
+    xen_debug("%s: table v 0x%lx, p 0x%lx", func_ss, gt->table, physical_from_virtual(gt->table));
 
     /* Allocate grant entry allocator. */
     heap h = heap_locked(kh);
@@ -266,7 +265,7 @@ closure_function(0, 1, void, xen_runloop_timer,
     u64 expiry = n + MAX(nsec_from_timestamp(duration), XEN_TIMER_SLOP_NS);
     int vcpu = current_cpu()->id;
 
-    xen_debug("%s: cpu %d now %T, expiry %T", __func__, vcpu, nanoseconds(n), nanoseconds(expiry));
+    xen_debug("%s: cpu %d now %T, expiry %T", func_ss, vcpu, nanoseconds(n), nanoseconds(expiry));
     struct vcpu_set_singleshot_timer sst;
     sst.timeout_abs_ns = expiry;
     sst.flags = 0;
@@ -278,7 +277,7 @@ closure_function(0, 1, void, xen_runloop_timer,
 
 closure_function(0, 0, void, xen_runloop_timer_handler)
 {
-    xen_debug("%s: cpu %d now %T", __func__, current_cpu()->id, nanoseconds(pvclock_now_ns()));
+    xen_debug("%s: cpu %d now %T", func_ss, current_cpu()->id, nanoseconds(pvclock_now_ns()));
     schedule_timer_service();
 }
 
@@ -298,14 +297,12 @@ static void xenstore_watch_event(struct xsd_sockmsg *msg)
         length -= r;
         kern_pause();
     } while (length > 0);
-    u64 path_len = 0;
-    while ((path_len < msg->len) && (*(char *)buffer_ref(b, path_len) != '\0'))
-        path_len++;
+    sstring path = sstring_from_cstring(buffer_ref(b, 0), msg->len);
+    bytes path_len = path.len;
     if (path_len == msg->len) {
         msg_err("no string terminator for xenstore path\n");
         return;
     }
-    const char *path = buffer_ref(b, 0);
     buffer_consume(b, path_len + 1);
     u64 token;
     if (!parse_int(b, 16, &token)) {
@@ -314,13 +311,13 @@ static void xenstore_watch_event(struct xsd_sockmsg *msg)
     }
 
     xenstore_watch_handler handler = pointer_from_u64(token);
-    xenstore_debug("%s: path %s, handler %F", __func__, path, handler);
+    xenstore_debug("%s: path %s, handler %F", func_ss, path, handler);
     apply(handler, path);
 }
 
 closure_function(0, 0, void, xenstore_evtchn_handler)
 {
-    xenstore_debug("%s", __func__);
+    xenstore_debug("%s", func_ss);
     xenstore_lock();
     struct xsd_sockmsg *msg;
     buffer msgbuf = little_stack_buffer(sizeof(*msg));
@@ -397,18 +394,19 @@ define_closure_function(1, 0, void, xen_shutdown_handler,
     status s = xenstore_transaction_start(&txid);
     if (!is_ok(s))
         return;
-    s = xenstore_read_string(txid, alloca_wrap_cstring("control"), "shutdown", rsp);
+    sstring node = ss("shutdown");
+    s = xenstore_read_string(txid, alloca_wrap_cstring("control"), node, rsp);
     if (!is_ok(s) || buffer_length(rsp) == 0)
         goto out;
-    s = xenstore_sync_printf(txid, alloca_wrap_cstring("control"), "shutdown", "\0");
+    s = xenstore_sync_printf(txid, alloca_wrap_cstring("control"), node, sstring_empty());
 out:
     xenstore_transaction_end(txid, is_ok(s) ? false : true);
-    if (buffer_compare_with_cstring(rsp, "poweroff") || buffer_compare_with_cstring(rsp, "halt"))
+    if (!buffer_strcmp(rsp, "poweroff") || !buffer_strcmp(rsp, "halt"))
         kernel_powerdown();
 }
 
 define_closure_function(0, 1, void, xen_shutdown_watcher,
-                 const char *, path)
+                        sstring, path)
 {
     async_apply_bh((thunk)&xen_info.shutdown_handler);
 }
@@ -535,7 +533,7 @@ boolean xen_detect(kernel_heaps kh)
     /* set up interrupt handling path */
     int irq = allocate_interrupt();
     xen_debug("interrupt vector %d; registering", irq);
-    register_interrupt(irq, closure(xen_info.h, xen_interrupt), "xen");
+    register_interrupt(irq, closure(xen_info.h, xen_interrupt), ss("xen"));
 
     xen_hvm_param.domid = DOMID_SELF;
     xen_hvm_param.index = HVM_PARAM_CALLBACK_IRQ;
@@ -723,7 +721,7 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
     u32 len = request ? buffer_length(request) : 1;
     void * data = request ? buffer_ref(request, 0) : "";
 
-    xenstore_debug("%s: tx_id %d, type %d, request %p, response %p", __func__, tx_id, type, request, response);
+    xenstore_debug("%s: tx_id %d, type %d, request %p, response %p", func_ss, tx_id, type, request, response);
     msg.tx_id = tx_id;
     msg.req_id = 0;
     msg.type = type;
@@ -779,7 +777,7 @@ status xenstore_transaction_start(u32 *tx_id)
         goto out;
     u64 val;
     if (!u64_from_value(response, &val)) {
-        s = timm("result", "%s: failed to parse response \"%b\"", __func__, response);
+        s = timm("result", "%s: failed to parse response \"%b\"", func_ss, response);
         goto out;
     }
     *tx_id = val;
@@ -797,18 +795,17 @@ status xenstore_transaction_end(u32 tx_id, boolean abort)
     return s;
 }
 
-status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char *format, ...)
+status xenstore_sync_printf(u32 tx_id, buffer path, sstring node, sstring format, ...)
 {
     buffer request = allocate_buffer(xen_info.h, PAGESIZE);
     assert(push_buffer(request, path));
     push_u8(request, '/');
-    assert(buffer_write(request, node, runtime_strlen(node)));
+    assert(buffer_write_sstring(request, node));
     push_u8(request, 0);
     vlist a;
     vstart(a, format);
-    buffer bf = alloca_wrap_buffer(format, runtime_strlen(format));
-    vbprintf(request, bf, &a);
-    xenstore_debug("%s: request: \"%b\"", __func__, request);
+    vbprintf(request, format, &a);
+    xenstore_debug("%s: request: \"%b\"", func_ss, request);
 
     buffer response = allocate_buffer(xen_info.h, 8); /* for error capture */
     status s = xenstore_sync_request(tx_id, XS_WRITE, request, response);
@@ -817,7 +814,7 @@ status xenstore_sync_printf(u32 tx_id, buffer path, const char *node, const char
     return s;
 }
 
-status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
+status xenstore_read_u64(u32 tx_id, buffer path, sstring node, u64 *result)
 {
     buffer response = allocate_buffer(xen_info.h, 16);
     status s = xenstore_read_string(tx_id, path, node, response);
@@ -825,7 +822,7 @@ status xenstore_read_u64(u32 tx_id, buffer path, const char *node, u64 *result)
         goto out;
     u64 val;
     if (!u64_from_value(response, &val)) {
-        s = timm("result", "%s: unable to parse int from response \"%b\"", __func__, response);
+        s = timm("result", "%s: unable to parse int from response \"%b\"", func_ss, response);
         goto out;
     }
     *result = val;
@@ -834,12 +831,12 @@ out:
     return s;
 }
 
-status xenstore_read_string(u32 tx_id, buffer path, const char *node, buffer response)
+status xenstore_read_string(u32 tx_id, buffer path, sstring node, buffer response)
 {
     buffer request = allocate_buffer(xen_info.h, 64);
     assert(push_buffer(request, path));
     push_u8(request, '/');
-    assert(buffer_write(request, node, runtime_strlen(node)));
+    assert(buffer_write_sstring(request, node));
     push_u8(request, 0);
 
     status s = xenstore_sync_request(tx_id, XS_READ, request, response);
@@ -858,7 +855,7 @@ status xenstore_watch(buffer path, xenstore_watch_handler handler, boolean watch
         return timm("result", "failed to allocate memory");
     push_buffer(request, path);
     push_u8(request, 0);
-    xenstore_debug("%swatching %s", watch ? "" : "un", buffer_ref(request, 0));
+    xenstore_debug("%swatching %b", watch ? sstring_empty() : ss("un"), path);
     bprintf(request, "%lx", handler);   /* the handler address is used as watch token */
     push_u8(request, 0);
     status s = xenstore_sync_request(0, watch ? XS_WATCH : XS_UNWATCH, request, response);
@@ -870,7 +867,7 @@ status xenbus_get_state(buffer path, XenbusState *state)
 {
     assert(path);
     u64 val = 0;
-    status s = xenstore_read_u64(0, path, "state", &val);
+    status s = xenstore_read_u64(0, path, ss("state"), &val);
     if (!is_ok(s))
         *state = XenbusStateUnknown;
     else
@@ -884,10 +881,10 @@ status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate)
     status s = xenbus_get_state(path, &oldstate);
     if (!is_ok(s))
         return s;
-    xen_debug("%s: old  %d, new %d", __func__, oldstate, newstate);
+    xen_debug("%s: old %d, new %d", func_ss, oldstate, newstate);
     if (oldstate == newstate)
         return STATUS_OK;
-    return xenstore_sync_printf(tx_id, path, "state", "%d", newstate);
+    return xenstore_sync_printf(tx_id, path, ss("state"), ss("%d"), newstate);
 }
 
 status xenbus_watch_state(buffer path, xenstore_watch_handler handler, boolean watch)
@@ -926,7 +923,7 @@ status xendev_attach(xen_dev xd, int id, buffer frontend, tuple meta)
 
 static status traverse_directory_internal(heap h, buffer path, tuple *parent)
 {
-    xenstore_debug("%s: path \"%s\"", __func__, path);
+    xenstore_debug("%s: path \"%b\"", func_ss, path);
     buffer response = allocate_buffer(h, PAGESIZE);
 
     status s = xenstore_sync_request(0, XS_DIRECTORY, path, response);
@@ -947,11 +944,11 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
     bytes splice_saved_end = splice->end;    /* XXX violation; amend buffer interface */
 
     do {
-        char * child = buffer_ref(response, 0);
-        int child_len = runtime_strlen(child) + 1;
-        assert(buffer_write(splice, child, child_len));
+        sstring child = sstring_from_cstring(buffer_ref(response, 0), buffer_length(response));
+        int child_len = child.len + 1;
+        assert(buffer_write(splice, child.ptr, child_len));
 
-        value child_node = get(*parent, sym_this(child));
+        value child_node = get(*parent, sym_sstring(child));
         tuple t = child_node;
         s = traverse_directory_internal(h, splice, &t);
         if (!is_ok(s))
@@ -980,7 +977,7 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
         } else {
             child_node = t;
         }
-        set(*parent, sym_this(child), child_node);
+        set(*parent, sym_sstring(child), child_node);
         buffer_consume(response, child_len);
         splice->end = splice_saved_end; /* XXX see above */
     } while (buffer_length(response) > 0 && *(u8 *)buffer_ref(response, 0) != '\0');
@@ -991,10 +988,10 @@ static status traverse_directory_internal(heap h, buffer path, tuple *parent)
     return s;
 }
 
-static inline status traverse_directory(heap h, const char * path, tuple *node)
-{
-    return traverse_directory_internal(h, alloca_wrap_buffer(path, runtime_strlen(path) + 1), node);
-}
+#define traverse_directory(h, path, node)   ({                                      \
+    assert_string_literal(path);                                                    \
+    traverse_directory_internal(h, alloca_wrap_buffer(path, sizeof(path)), node);   \
+})
 
 void xen_driver_unbind(tuple meta)
 {
@@ -1048,7 +1045,7 @@ closure_function(1, 2, boolean, xen_probe_devices_each,
         xen_driver xd = struct_from_list(l, xen_driver, l);
         /* XXX must be a cleaner way to compare symbols? */
         string name = symbol_string(k);
-        if (runtime_memcmp(buffer_ref(name, 0), xd->name, MIN(buffer_length(name), XEN_DRIVER_NAME_MAX)))
+        if (buffer_compare_with_sstring(name, xd->name))
             continue;
         iterate(v, stack_closure(xen_probe_id_each, xd, name, v, bound(s)));
         if (*bound(s) != STATUS_OK)
@@ -1070,19 +1067,15 @@ static status xen_scan(void)
 }
 
 define_closure_function(0, 1, void, xen_watch_handler,
-                        const char *, path)
+                        sstring, path)
 {
-    xenstore_debug("%s: path %s", __func__, path);
+    xenstore_debug("%s: path %s", func_ss, path);
 
     /* Trigger a rescan if the path has format 'device/<type>/<node>'. */
-    if (runtime_strlen(path) < sizeof("device/"))
-        return;
-    path += sizeof("device/");
     int depth = 0;
-    while (*path) {
-        if ((*path == '/') && (++depth > 1))
+    for (bytes offset = sizeof("device/"); offset < path.len; offset++) {
+        if ((path.ptr[offset] == '/') && (++depth > 1))
             return;
-        path++;
     }
     if (depth == 0)
         return;
@@ -1091,7 +1084,7 @@ define_closure_function(0, 1, void, xen_watch_handler,
 
 define_closure_function(0, 0, void, xen_scan_service)
 {
-    xenstore_debug("%s", __func__);
+    xenstore_debug("%s", func_ss);
 
     /* Avoid concurrent scans. */
     if (atomic_test_and_set_bit(&xen_info.scanning, 0)) {
@@ -1125,13 +1118,11 @@ status xen_probe_devices(void)
     return s;
 }
 
-void register_xen_driver(const char *name, xen_device_probe probe)
+void register_xen_driver(sstring name, xen_device_probe probe)
 {
     xen_driver xd = allocate(xen_info.h, sizeof(struct xen_driver));
     assert(xd != INVALID_ADDRESS);
-    int namelen = runtime_strlen(name);
-    assert(namelen <= XEN_DRIVER_NAME_MAX);
-    runtime_memcpy((void*)xd->name, name, namelen);
+    xd->name = name;
     xd->probe = probe;
     list_insert_before(&xen_info.driver_list, &xd->l);
 }

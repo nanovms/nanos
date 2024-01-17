@@ -12,7 +12,7 @@
 //#define RBTREE_PARANOIA
 //#define RBTREE_DEBUG
 #ifdef RBTREE_DEBUG
-#define rbtree_debug(x, ...) do {rprintf("RBTREE %s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define rbtree_debug(x, ...) do {rprintf("RBTREE %s: " x, func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define rbtree_debug(x, ...)
 #endif
@@ -313,7 +313,7 @@ boolean rbtree_remove_by_key(rbtree t, rbnode k)
     {
         status s = rbtree_validate(t);
         if (!is_ok(s)) {
-            halt("%s: validate check failed: %v\n", __func__, s);
+            halt("%s: validate check failed: %v\n", func_ss, s);
         }
     }
 #endif
@@ -361,7 +361,7 @@ boolean rbtree_insert_node(rbtree t, rbnode n)
     {
         status s = rbtree_validate(t);
         if (!is_ok(s)) {
-            halt("%s: validate check failed: %v\n", __func__, s);
+            halt("%s: validate check failed: %v\n", func_ss, s);
         }
     }
 #endif
@@ -455,7 +455,7 @@ void rbtree_dump(rbtree t, int order)
 static status parent_child_check(rbtree t, rbnode p, int hand)
 {
     rbnode c = child(p, hand);
-    char *hstr = hand == left ? "left" : "right";
+    sstring hstr = hand == left ? ss("left") : ss("right");
     if (!c)
         return STATUS_OK;
     if (parent(c) != p) {

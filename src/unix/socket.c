@@ -179,6 +179,16 @@ static inline void unixsock_notify_writer(unixsock s)
     fdesc_notify_events(&s->sock.f);
 }
 
+static void unixsock_addr_copy(struct sockaddr_un *dest, struct sockaddr_un *src, socklen_t *len)
+{
+    sstring addr = sstring_from_cstring(src->sun_path, sizeof(src->sun_path));
+    socklen_t actual_len = __builtin_offsetof(struct sockaddr_un, sun_path) + addr.len;
+    if ((addr.len > 0) && (actual_len < sizeof(struct sockaddr_un)))
+        actual_len++;   /* include the string terminator for the path name */
+    runtime_memcpy(dest, src, MIN(*len, actual_len));
+    *len = actual_len;
+}
+
 closure_function(7, 1, sysreturn, unixsock_read_bh,
                  unixsock, s, void *, dest, sg_list, sg, u64, length, io_completion, completion, struct sockaddr_un *, from_addr, socklen_t *, from_length,
                  u64, flags)
@@ -243,8 +253,7 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
                 struct sockaddr_un *from_addr = bound(from_addr);
                 socklen_t *from_length = bound(from_length);
                 if (from_addr && from_length) {
-                    runtime_memcpy(from_addr, &shb->from_addr, MIN(*from_length, sizeof(shb->from_addr)));
-                    *from_length = __builtin_offsetof(struct sockaddr_un, sun_path) + runtime_strlen(from_addr->sun_path) + 1;
+                    unixsock_addr_copy(from_addr, &shb->from_addr, from_length);
                 }
             }
             assert(dequeue(s->data) == shb);
@@ -340,8 +349,26 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
     return rv;
 }
 
-static int lookup_socket(unixsock *s, char *path)
+static sysreturn unixsock_get_path(sstring *path, struct sockaddr *addr, socklen_t addrlen)
 {
+    if (addrlen <= __builtin_offsetof(struct sockaddr_un, sun_path))
+        return -EINVAL;
+    if (!fault_in_user_memory(addr, addrlen, false))
+        return -EFAULT;
+    struct sockaddr_un *unix_addr = (struct sockaddr_un *)addr;
+    if (unix_addr->sun_family != AF_UNIX)
+        return -EINVAL;
+    *path = sstring_from_cstring(unix_addr->sun_path,
+                                 addrlen - __builtin_offsetof(struct sockaddr_un, sun_path));
+    return 0;
+}
+
+static sysreturn lookup_socket(unixsock *s, struct sockaddr *addr, socklen_t addrlen)
+{
+    sstring path;
+    sysreturn rv = unixsock_get_path(&path, addr, addrlen);
+    if (rv)
+        return rv;
     process p = current->p;
     filesystem fs = p->cwd_fs;
     tuple n;
@@ -527,7 +554,6 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
     unixsock s = (unixsock) sock;
-    struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
     unixsock_lock(s);
     sysreturn ret;
     if (s->fs_entry) {
@@ -535,42 +561,14 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
         goto out;
     }
 
-    if (addrlen < sizeof(unixaddr->sun_family)) {
-        ret = -EINVAL;
+    sstring path;
+    ret = unixsock_get_path(&path, addr, addrlen);
+    if (ret)
         goto out;
-    }
-
-    if (addrlen > sizeof(*unixaddr)) {
-        ret = -ENAMETOOLONG;
-        goto out;
-    }
-
-    if (!fault_in_memory(addr, addrlen)) {
-        ret = -EFAULT;
-        goto out;
-    }
-
-    /* Ensure that the NULL-terminated path string fits in unixaddr->sun_path
-     * (add terminator character if not found). */
-    int term;
-    for (term = 1; term < addrlen - sizeof(unixaddr->sun_family); term++) {
-        if (unixaddr->sun_path[term] == '\0') {
-            break;
-        }
-    }
-    if (term == addrlen - sizeof(unixaddr->sun_family)) {
-        /* Terminator character not found: add it if possible. */
-        if (addrlen == sizeof(*unixaddr)) {
-            ret = -ENAMETOOLONG;
-            goto out;
-        }
-        /* TODO: is this string not const? */
-        unixaddr->sun_path[term] = '\0';
-    }
 
     process p = current->p;
     s->fs = p->cwd_fs;
-    fs_status fss = filesystem_mk_socket(&s->fs, p->cwd, unixaddr->sun_path, s, &s->fs_entry);
+    fs_status fss = filesystem_mk_socket(&s->fs, p->cwd, path, s, &s->fs_entry);
     if (fss != FS_STATUS_OK) {
         ret = (fss == FS_STATUS_EXIST) ? -EADDRINUSE : sysreturn_from_fs_status(fss);
         goto out;
@@ -662,12 +660,8 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
     unixsock s = (unixsock) sock;
     sysreturn rv;
 
-    struct sockaddr_un *unixaddr = (struct sockaddr_un *) addr;
     unixsock listener = 0;
-    if (!fault_in_user_string(unixaddr->sun_path))
-        rv = -EFAULT;
-    else
-        rv = lookup_socket(&listener, unixaddr->sun_path);
+    rv = lookup_socket(&listener, addr, addrlen);
     if (rv != 0)
         goto out;
     if (listener->sock.type != s->sock.type) {
@@ -742,14 +736,7 @@ closure_function(5, 1, sysreturn, accept_bh,
             rv = -EFAULT;
             goto out;
         }
-        socklen_t *addrlen = bound(addrlen);
-        socklen_t actual_len = sizeof(child->peer->local_addr.sun_family);
-        if (child->peer->local_addr.sun_path[0]) {  /* pathname socket */
-            actual_len += runtime_strlen(child->peer->local_addr.sun_path) + 1;
-        }
-        runtime_memcpy(addr, &child->peer->local_addr,
-                MIN(*addrlen, actual_len));
-        *addrlen = actual_len;
+        unixsock_addr_copy((struct sockaddr_un *)addr, &child->peer->local_addr, bound(addrlen));
         context_clear_err(ctx);
     }
     unixsock_notify_writer(s);
@@ -785,12 +772,9 @@ static sysreturn unixsock_getsockname(struct sock *sock, struct sockaddr *addr, 
 {
     unixsock s = (unixsock)sock;
     unixsock_lock(s);
-    socklen_t len = offsetof(struct sockaddr_un *, sun_path) +
-                    runtime_strlen(s->local_addr.sun_path) + 1;
-    runtime_memcpy(addr, &s->local_addr, MIN(len, *addrlen));
+    unixsock_addr_copy((struct sockaddr_un *)addr, &s->local_addr, addrlen);
     unixsock_unlock(s);
     socket_release(sock);
-    *addrlen = len;
     return 0;
 }
 
@@ -868,25 +852,7 @@ sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
                 rv = -EOPNOTSUPP;
             goto out;
         }
-        if (!(dest_addr && addrlen)) {
-            rv = -EFAULT;
-            goto out;
-        }
-        if (addrlen < sizeof(struct sockaddr_un)) {
-            rv = -EINVAL;
-            goto out;
-        }
-        struct sockaddr_un daddr;
-        if (!copy_from_user(dest_addr, &daddr, sizeof(daddr))) {
-            rv = -EFAULT;
-            goto out;
-        }
-        if (daddr.sun_family != AF_UNIX) {
-            rv = -EINVAL;
-            goto out;
-        }
-        daddr.sun_path[sizeof(daddr.sun_path)-1] = 0;
-        rv = lookup_socket(&dest, daddr.sun_path);
+        rv = lookup_socket(&dest, dest_addr, addrlen);
         if (rv != 0)
             goto out;
     } else {

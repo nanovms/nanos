@@ -2,7 +2,7 @@
 
 //#define VIRTIO_RNG_DEBUG
 #ifdef VIRTIO_RNG_DEBUG
-#define virtio_rng_debug(x, ...) do {tprintf(sym(vtrng), 0, x, ##__VA_ARGS__);} while(0)
+#define virtio_rng_debug(x, ...) do {tprintf(sym(vtrng), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define virtio_rng_debug(x, ...)
 #endif
@@ -47,7 +47,7 @@ static inline entropy_buf current_ebuf(void)
 
 static void virtio_rng_fill(entropy_buf ebuf)
 {
-    virtio_rng_debug("%s: ebuf %p\n", __func__, ebuf);
+    virtio_rng_debug("%s: ebuf %p\n", func_ss, ebuf);
     virtqueue vq = virtio_rng.requestq;
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
@@ -60,7 +60,7 @@ define_closure_function(1, 1, void, ebuf_fill_complete,
                         entropy_buf, ebuf,
                         u64, len)
 {
-    virtio_rng_debug("%s: len %ld\n", __func__, len);
+    virtio_rng_debug("%s: len %ld\n", func_ss, len);
     assert(len <= VIRTIO_RNG_BUFSIZE);
     bound(ebuf)->offset = 0;
     bound(ebuf)->len = len;
@@ -72,7 +72,7 @@ define_closure_function(1, 1, void, ebuf_fill_complete,
 
 static void virtio_init_ebufs(void)
 {
-    virtio_rng_debug("%s\n", __func__);
+    virtio_rng_debug("%s\n", func_ss);
     for (int i = 0; i < 2; i++) {
         entropy_buf ebuf = &virtio_rng.ebufs[i];
         ebuf->buf = alloc_map(virtio_rng.backed, VIRTIO_RNG_BUFSIZE, &ebuf->phys);
@@ -100,7 +100,7 @@ static bytes virtio_rng_get_seed(void *seed, bytes len)
             virtio_rng_fill(ebuf);
         }
     }
-    virtio_rng_debug("%s: filled %ld\n", __func__, filled);
+    virtio_rng_debug("%s: filled %ld\n", func_ss, filled);
     return filled;
 }
 
@@ -112,7 +112,7 @@ static boolean virtio_rng_attach(heap general, backed_heap backed, vtdev v)
     virtio_rng.dev = v;
     virtio_rng.initialized = false;
 
-    status s = virtio_alloc_virtqueue(v, "virtio rng requestq", 0, &virtio_rng.requestq);
+    status s = virtio_alloc_virtqueue(v, ss("virtio rng requestq"), 0, &virtio_rng.requestq);
     if (!is_ok(s))
         goto fail;
 
@@ -130,7 +130,7 @@ closure_function(3, 1, boolean, vtpci_rng_probe,
                  heap, general, backed_heap, backed, id_heap, physical,
                  pci_dev, d)
 {
-    virtio_rng_debug("%s\n", __func__);
+    virtio_rng_debug("%s\n", func_ss);
     if (!vtpci_probe(d, VIRTIO_ID_ENTROPY))
         return false;
 
@@ -141,7 +141,7 @@ closure_function(3, 1, boolean, vtpci_rng_probe,
 
 void init_virtio_rng(kernel_heaps kh)
 {
-    virtio_rng_debug("%s\n", __func__);
+    virtio_rng_debug("%s\n", func_ss);
     heap h = heap_locked(kh);
     register_pci_driver(closure(h, vtpci_rng_probe, h, heap_linear_backed(kh), heap_physical(kh)), 0);
 }

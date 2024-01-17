@@ -24,7 +24,7 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
     u64 count;
     u64 val;
 
-    table_validate(t, "basic_table_tests: alloc");
+    table_validate(t, ss("basic_table_tests: alloc"));
 
     if (table_elements(t) != 0) {
         msg_err("table_elements() not zero on empty table\n");
@@ -42,12 +42,12 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
         table_set(t, (void *)count, (void *)(count + 1));
     }
 
-    table_validate(t, "basic_table_tests: after fill");
+    table_validate(t, ss("basic_table_tests: after fill"));
 
     /* This should not add anything to the table. */
     table_set(t, (void *)count, 0);
 
-    table_validate(t, "basic_table_tests: after null set");
+    table_validate(t, ss("basic_table_tests: after null set"));
 
     count = 0;
     table_foreach(t, n, v) {
@@ -95,7 +95,7 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
         return false;
     }
 
-    table_validate(t, "basic_table_tests: after remove one");
+    table_validate(t, ss("basic_table_tests: after remove one"));
 
     count = table_elements(t);
     if (count != n_elem - 1) {
@@ -109,7 +109,7 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
         msg_err("invalid element %ld removed, should be 2\n", val);
         return false;
     }
-    table_validate(t, "basic_table_tests: after table_remove()");
+    table_validate(t, ss("basic_table_tests: after table_remove()"));
     count = table_elements(t);
     if (count != n_elem - 2) {
         msg_err("invalid table_elements() %ld after table_remove(), should be %ld\n",
@@ -121,13 +121,13 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
     for (count = 2; count < (n_elem / 2); count++)
         table_set(t, (void *)count, 0);
 
-    table_validate(t, "basic_table_tests: after remove forward");
+    table_validate(t, ss("basic_table_tests: after remove forward"));
 
     /* ... and then backward (descend to bottom of each bucket) */
     for (count = n_elem - 1; count >= (n_elem / 2); count--)
         table_set(t, (void *)count, 0);
 
-    table_validate(t, "basic_table_tests: after remove backward");
+    table_validate(t, ss("basic_table_tests: after remove backward"));
 
     count = table_elements(t);
     if (count != 0) {
@@ -159,13 +159,13 @@ static boolean one_elem_table_tests(heap h, u64 n_elem)
     table t = allocate_table(h, silly_key, anything_equals);
     u64 count;
 
-    table_validate(t, "one_elem_table_tests: after alloc");
+    table_validate(t, ss("one_elem_table_tests: after alloc"));
 
     for (count = 0; count < n_elem; count++) {
         table_set(t, (void *)count, (void *)(count + 1));
     }
 
-    table_validate(t, "one_elem_table_tests: after fill");
+    table_validate(t, ss("one_elem_table_tests: after fill"));
 
     count = 0;
     table_foreach(t, n, v) {
@@ -245,7 +245,7 @@ static boolean preallocated_table_tests(heap h, u64 (*key_function)(void *x), u6
     u64 heap_occupancy = heap_allocated(h);
     u64 count;
 
-    table_validate(t, "preallocated_table_tests: alloc");
+    table_validate(t, ss("preallocated_table_tests: alloc"));
 
     if (table_elements(t) != 0) {
         msg_err("table_elements() not zero on empty table\n");
@@ -255,7 +255,7 @@ static boolean preallocated_table_tests(heap h, u64 (*key_function)(void *x), u6
         table_set(t, (void *)count, (void *)(count + 1));
     }
 
-    table_validate(t, "preallocated_table_tests: after fill");
+    table_validate(t, ss("preallocated_table_tests: after fill"));
 
     if (heap_allocated(h) != heap_occupancy) {
         msg_err("unexpected allocation: heap_allocated(h) %llu, originally %llu\n", heap_allocated(h), heap_occupancy);
@@ -267,10 +267,10 @@ static boolean preallocated_table_tests(heap h, u64 (*key_function)(void *x), u6
         msg_err("found unexpected element 0\n");
         return false;
     }
-    table_validate(t, "preallocated_table_tests: after remove one");
+    table_validate(t, ss("preallocated_table_tests: after remove one"));
 
     table_set(t, 0, (void *)1);
-    table_validate(t, "preallocated_table_tests: after insert one");
+    table_validate(t, ss("preallocated_table_tests: after insert one"));
 
 
     deallocate_table(t);

@@ -14,7 +14,7 @@ closure_function(2, 5, boolean, kernel_elf_map,
                  u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
 {
     boot_elf_debug("%s: vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
-                   __func__, vaddr, offset, data_size, bss_size, flags);
+                   func_ss, vaddr, offset, data_size, bss_size, flags);
     u64 map_start = vaddr & ~PAGEMASK;
     data_size += vaddr & PAGEMASK;
 
@@ -53,6 +53,6 @@ closure_function(2, 5, boolean, kernel_elf_map,
 
 void *load_kernel_elf(buffer b, heap bss_heap)
 {
-    boot_elf_debug("%s: b %p, bss_heap %p\n", __func__, b, bss_heap);
+    boot_elf_debug("%s: b %p, bss_heap %p\n", func_ss, b, bss_heap);
     return load_elf(b, 0, stack_closure(kernel_elf_map, b, bss_heap));
 }

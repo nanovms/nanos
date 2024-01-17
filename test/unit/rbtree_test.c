@@ -3,7 +3,7 @@
 
 //#define RBTEST_DEBUG
 #ifdef RBTEST_DEBUG
-#define rbtest_debug(x, ...) do {rprintf("RBTEST %s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define rbtest_debug(x, ...) do {rprintf("RBTEST %s: " x, func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define rbtest_debug(x, ...)
 #endif
@@ -49,7 +49,7 @@ closure_function(3, 1, boolean, test_max_lte_node,
         rbnode x = *bound(last) ? *bound(last) : INVALID_ADDRESS;
         if (ml != x) {
             rprintf("%s: lookup max lte returned %p, should be last (%p)\n",
-                    __func__, ml, x);
+                    func_ss, ml, x);
             *bound(result) = false;
             return false;
         }
@@ -69,7 +69,7 @@ static boolean test_max_lte(rbtree t)
         rbnode ml = rbtree_lookup_max_lte(t, &k.node);
         if (ml != last) {
             rprintf("%s: lookup max lte for key %d after last node "
-                    "returned %p instead of last (%p)\n", __func__,
+                    "returned %p instead of last (%p)\n", func_ss,
                     k.key, ml, last);
             return false;
         }
@@ -89,16 +89,16 @@ static boolean test_insert(heap h, rbtree t, int key, boolean validate)
     if (validate) {
         status s = rbtree_validate(t);
         if (!is_ok(s)) {
-            rprintf("%s: rbtree_validate failed with %v ", __func__, s);
+            rprintf("%s: rbtree_validate failed with %v ", func_ss, s);
             goto out_fail;
         }
         rbnode r = rbtree_lookup(t, &tn->node);
         if (r != &tn->node) {
-            rprintf("%s: rbtree_lookup failed (returned %p) ", __func__, r);
+            rprintf("%s: rbtree_lookup failed (returned %p) ", func_ss, r);
             goto out_fail;
         }
         if (!test_max_lte(t)) {
-            rprintf("%s: max lte test failed ", __func__);
+            rprintf("%s: max lte test failed ", func_ss);
             goto out_fail;
         }
     }
@@ -222,12 +222,12 @@ closure_function(3, 1, boolean, validate_preorder_vec,
     int *p = bound(vec) + i;
     rbtest_debug("index %d, expect %d, tn->key %d\n", i, *p, tn->key);
     if (*p == -1) {
-        rprintf("%s: result vec exceeded at index %d\n", __func__, i);
+        rprintf("%s: result vec exceeded at index %d\n", func_ss, i);
         *bound(match) = false;
         return false;
     }
     if (*p != tn->key) {
-        rprintf("%s: key %d at index %d, expected %d\n", __func__, tn->key, i, *p);
+        rprintf("%s: key %d at index %d, expected %d\n", func_ss, tn->key, i, *p);
         *bound(match) = false;
         return false;
     }
@@ -239,7 +239,7 @@ static boolean do_transformation_test(rbtree t, heap h, int i, boolean insert)
 {
     int index, k;
     boolean match;
-    char *op = insert ? "insertion" : "removal";
+    sstring op = insert ? ss("insertion") : ss("removal");
     int *keys = insert ? insert_keys[i] : remove_keys[i];
 
     if (keys[0] == -1)
@@ -250,7 +250,7 @@ static boolean do_transformation_test(rbtree t, heap h, int i, boolean insert)
         rbtest_debug("   %d: %d\n", j, k);
         boolean result = insert ? test_insert(h, t, k, true) : test_remove(h, t, k, true);
         if (!result) {
-            rprintf("%s: %s failed for test %d, idx %d, key %d\n", __func__, op, i, j, k);
+            rprintf("%s: %s failed for test %d, idx %d, key %d\n", func_ss, op, i, j, k);
             return false;   /* XXX leak */
         }
     }
@@ -266,12 +266,12 @@ static boolean do_transformation_test(rbtree t, heap h, int i, boolean insert)
     if (match) {
         if (rvec[index] != -1) {
             rprintf("%s: in-order traversal for %s test %d gave incomplete results, end index %d\n",
-                    __func__, op, i, index);
+                    func_ss, op, i, index);
             return false;
         }
     }
     if (!match) {
-        rprintf("%s: validate for %s test %d failed\n", __func__, op, i);
+        rprintf("%s: validate for %s test %d failed\n", func_ss, op, i);
         return false;
     }
     rbtest_debug("passed\n\n");

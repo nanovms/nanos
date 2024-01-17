@@ -90,7 +90,7 @@ closure_function(1, 1, void, stage2_bios_read,
                  storage_req, req)
 {
     if (req->op != STORAGE_OP_READSG)
-        halt("%s: invalid storage op %d\n", __func__, req->op);
+        halt("%s: invalid storage op %d\n", func_ss, req->op);
     u64 offset = bound(offset);
     assert((offset & (SECTOR_SIZE - 1)) == 0);
     u64 start_sector = (offset >> SECTOR_OFFSET) + req->blocks.start;
@@ -98,7 +98,7 @@ closure_function(1, 1, void, stage2_bios_read,
     sg_list sg = req->data;
 
     void *read_buffer = pointer_from_u64(SCRATCH_BASE);
-    stage2_debug("%s: sg %p <- 0x%lx (0x%lx)\n", __func__, sg, start_sector, nsectors);
+    stage2_debug("%s: sg %p <- 0x%lx (0x%lx)\n", func_ss, sg, start_sector, nsectors);
 
     while (nsectors > 0) {
         int read_sectors = MIN(nsectors, SCRATCH_LEN >> SECTOR_OFFSET);
@@ -123,11 +123,11 @@ closure_function(3, 1, void, stage2_ata_read,
                  storage_req, req)
 {
     if (req->op != STORAGE_OP_READSG)
-        halt("%s: invalid storage op %d\n", __func__, req->op);
+        halt("%s: invalid storage op %d\n", func_ss, req->op);
     u64 offset = bound(offset);
     assert((offset & (SECTOR_SIZE - 1)) == 0);
     range blocks = req->blocks;
-    stage2_debug("%s: %R (offset 0x%lx)\n", __func__, blocks, offset);
+    stage2_debug("%s: %R (offset 0x%lx)\n", func_ss, blocks, offset);
     u64 ds = offset >> SECTOR_OFFSET;
     blocks.start += ds;
     blocks.end += ds;
@@ -195,7 +195,7 @@ closure_function(0, 1, void, fail,
 
 static void setup_page_tables()
 {
-    stage2_debug("%s\n", __func__);
+    stage2_debug("%s\n", func_ss);
 
     /* initial page tables, carried into stage3 init */
     stage2_debug("initial page tables at [0x%lx,  0x%lx)\n", initial_pages_base,
@@ -215,7 +215,7 @@ static u64 working_saved_base;
 closure_function(0, 1, status, kernel_read_complete,
                  buffer, kb)
 {
-    stage2_debug("%s\n", __func__);
+    stage2_debug("%s\n", func_ss);
 
     /* save kernel elf image for use in stage3 (for symbol data) */
     create_region(u64_from_pointer(buffer_ref(kb, 0)), pad(buffer_length(kb), PAGESIZE), REGION_KERNIMAGE);
@@ -231,7 +231,7 @@ closure_function(0, 1, status, kernel_read_complete,
     assert(working_saved_base);
     create_region(working_saved_base, STAGE2_WORKING_HEAP_SIZE, REGION_PHYSICAL);
 
-    stage2_debug("%s: run64, start address 0xffffffff%08lx\n", __func__, u64_from_pointer(k));
+    stage2_debug("%s: run64, start address 0xffffffff%08lx\n", func_ss, u64_from_pointer(k));
     run64(u64_from_pointer(k));
     halt("failed to start long mode\n");
 }
@@ -259,7 +259,7 @@ closure_function(3, 2, void, filesystem_initialized,
 
 void newstack()
 {
-    stage2_debug("%s\n", __func__);
+    stage2_debug("%s\n", func_ss);
     struct partition_entry *bootfs_part = partition_get(MBR_ADDRESS, PARTITION_BOOTFS);
     u32 fs_offset = bootfs_part->lba_start * SECTOR_SIZE;
     heap h = general;
@@ -273,7 +273,7 @@ void newstack()
                       infinity,
                       get_stage2_disk_read(h, fs_offset),
                       true,
-                      false,
+                      sstring_null(),
                       closure(h, filesystem_initialized, h, backed, bh));
     
     halt("kernel failed to execute\n");
@@ -284,12 +284,12 @@ void vm_exit(u8 code)
     QEMU_HALT(code);
 }
 
-void halt_with_code(u8 code, char *format, ...)
+void halt_with_code(u8 code, sstring format, ...)
 {
     buffer b = little_stack_buffer(512);
     vlist a;
     vstart(a, format);
-    vbprintf(b, alloca_wrap_cstring(format), &a);
+    vbprintf(b, format, &a);
     vend(a);
     buffer_print(b);
     vm_exit(code);
@@ -338,7 +338,7 @@ void centry()
 #ifdef STAGE2_DEBUG
     init_extra_prints();
 #endif
-    stage2_debug("%s\n", __func__);
+    stage2_debug("%s\n", func_ss);
 
     /* Validate support for no-exec (NX) bits in ptes. */
     u32 v[4];

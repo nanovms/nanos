@@ -61,7 +61,7 @@ static u64 sg_copy(void *buf, sg_list sg, u64 n, boolean to_buf)
     sg_buf sgb;
     u64 remain = n;
 
-    sg_debug("%s: target %p, sg %p, length 0x%lx, count %ld\n", __func__, target, sg, length, sg->count);
+    sg_debug("%s: target %p, sg %p, length 0x%lx, count %ld\n", func_ss, target, sg, length, sg->count);
     while (remain > 0 && (sgb = sg_list_head_peek(sg)) != INVALID_ADDRESS) {
         assert(sgb->size > sgb->offset); /* invariant: no null-length bufs */
         void *sg_buf = sgb->buf + sgb->offset;
@@ -142,7 +142,7 @@ u64 sg_copy_to_buf_and_release(void *target, sg_list sg, u64 n)
     sg_buf sgb;
     u64 remain = n;
 
-    sg_debug("%s: target %p, sg %p, limit 0x%lx, count %ld\n", __func__, target, sg, limit, sg->count);
+    sg_debug("%s: target %p, sg %p, limit 0x%lx, count %ld\n", func_ss, target, sg, limit, sg->count);
     while ((sgb = sg_list_head_remove(sg)) != INVALID_ADDRESS) {
         assert(sgb->size > sgb->offset);
         u64 len = MIN(remain, sg_buf_len(sgb));
@@ -241,16 +241,16 @@ closure_function(3, 3, void, sg_wrapped_read,
     bytes padlen = pad(length, 1 << block_order);
     void *buf = allocate(bound(backed), padlen);
     sg_debug("%s: io %p, order %d, backed %p, sg %p, range %R, sh %p\n",
-             __func__, bound(block_read), block_order, bound(backed), sg, q, sh);
+             func_ss, bound(block_read), block_order, bound(backed), sg, q, sh);
 
     if (buf == INVALID_ADDRESS) {
         apply(sh, timm("result", "%s: failed to allocate backed buffer of size %ld",
-                       __func__, padlen));
+                       func_ss, padlen));
         return;
     }
     refcount refcount = allocate(sg_heap, sizeof(struct refcount));
     if (refcount == INVALID_ADDRESS) {
-        apply(sh, timm("result", "%s: alloc failed", __func__));
+        apply(sh, timm("result", "%s: alloc failed", func_ss));
         return;
     }
     init_refcount(refcount, 1, closure(sg_heap, sg_wrapped_buf_release,
@@ -269,13 +269,13 @@ closure_function(3, 3, void, sg_wrapped_read,
 
 sg_io sg_wrapped_block_reader(block_io bio, int block_order, heap backed)
 {
-    sg_debug("%s, heap %p, bio %p, order %d, backed %p\n", __func__, sg_heap, bio, block_order, backed);
+    sg_debug("%s, heap %p, bio %p, order %d, backed %p\n", func_ss, sg_heap, bio, block_order, backed);
     return closure(sg_heap, sg_wrapped_read, bio, block_order, backed);
 }
 
 void init_sg(heap h)
 {
-    sg_debug("%s\n", __func__);
+    sg_debug("%s\n", func_ss);
     sg_heap = h;
     list_init(&free_sg_lists);
     sg_lock_init();

@@ -68,7 +68,7 @@ int cpuid_from_apicid(u32 aid);
 
 void ioapic_set_int(unsigned int gsi, u64 v);
 boolean ioapic_int_is_free(unsigned int gsi);
-void ioapic_register_int(unsigned int gsi, thunk h, const char *name);
+void ioapic_register_int(unsigned int gsi, thunk h, sstring name);
 
 extern apic_iface apic_if;
 

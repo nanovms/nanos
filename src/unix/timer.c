@@ -8,7 +8,7 @@
 
 //#define UNIX_TIMER_DEBUG
 #ifdef UNIX_TIMER_DEBUG
-#define timer_debug(x, ...) do {tprintf(sym(unix_timer), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define timer_debug(x, ...) do {tprintf(sym(unix_timer), 0, ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define timer_debug(x, ...)
 #endif
@@ -360,7 +360,7 @@ sysreturn timerfd_create(int clockid, int flags)
         return -ENOMEM;
 
     init_fdesc(unix_timer_heap, &ut->f, FDESC_TYPE_TIMERFD);
-    ut->info.timerfd.bq = allocate_blockq(unix_timer_heap, "timerfd");
+    ut->info.timerfd.bq = allocate_blockq(unix_timer_heap, ss("timerfd"));
     if (ut->info.timerfd.bq == INVALID_ADDRESS)
         goto err_mem_bq;
     ut->info.timerfd.cancel_on_set = false;
@@ -420,7 +420,7 @@ static void sigev_deliver(unix_timer ut)
         break;
     default:
         /* SIGEV_THREAD is a glibc thing; we should never see it. */
-        halt("%s: invalid sigev_notify %d\n", __func__, sevp->sigev_notify);
+        halt("%s: invalid sigev_notify %d\n", func_ss, sevp->sigev_notify);
     }
 }
 

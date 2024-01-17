@@ -293,7 +293,7 @@ sysreturn inotify_init1(int flags)
     if (in->event_buf == INVALID_ADDRESS) {
         goto nomem;
     }
-    in->bq = allocate_blockq(h, "inotify");
+    in->bq = allocate_blockq(h, ss("inotify"));
     if (in->bq == INVALID_ADDRESS) {
         deallocate_ringbuf(in->event_buf);
         goto nomem;
@@ -321,7 +321,8 @@ sysreturn inotify_init1(int flags)
 
 sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
 {
-    if (!fault_in_user_string(pathname))
+    sstring pathname_ss;
+    if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
     if (!mask)
         return -EINVAL;
@@ -334,7 +335,7 @@ sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     tuple n;
-    fs_status fss = filesystem_get_node(&fs, cwd, pathname, (mask & IN_DONT_FOLLOW) != 0, false,
+    fs_status fss = filesystem_get_node(&fs, cwd, pathname_ss, (mask & IN_DONT_FOLLOW) != 0, false,
                                         false, false, &n, 0);
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);

@@ -1,11 +1,11 @@
 #include <kernel.h>
 #include <symtab.h>
 
-const char *context_type_strings[CONTEXT_TYPE_MAX] = {
-    "undefined",
-    "kernel",
-    "syscall",
-    "thread",
+const sstring context_type_strings[CONTEXT_TYPE_MAX] = {
+    ss_static_init("undefined"),
+    ss_static_init("kernel"),
+    ss_static_init("syscall"),
+    ss_static_init("thread"),
 };
 
 struct mm_stats mm_stats;
@@ -238,12 +238,12 @@ void run_percpu_init(void)
     }
 }
 
-void halt_with_code(u8 code, char *format, ...)
+void halt_with_code(u8 code, sstring format, ...)
 {
     buffer b = little_stack_buffer(512);
     vlist a;
     vstart(a, format);
-    vbprintf(b, alloca_wrap_cstring(format), &a);
+    vbprintf(b, format, &a);
     vend(a);
     buffer_print(b);
     kernel_shutdown(code);
@@ -256,17 +256,16 @@ void kernel_powerdown(void) {
 }
 
 #ifndef CONFIG_TRACELOG
-void tprintf(symbol tag, tuple attrs, const char *format, ...)
+void tprintf(symbol tag, tuple attrs, sstring format, ...)
 {
     vlist a;
     buffer b = little_stack_buffer(256);
     vstart(a, format);
-    buffer f = alloca_wrap_buffer(format, runtime_strlen(format));
     bprintf(b, "[%T, %d, %v", now(CLOCK_ID_MONOTONIC), current_cpu()->id, tag);
     if (attrs)
         bprintf(b, " %v", attrs);
     bprintf(b, "] ");
-    vbprintf(b, f, &a);
+    vbprintf(b, format, &a);
     vend(a);
     buffer_print(b);
 }

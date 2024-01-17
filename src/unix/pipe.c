@@ -2,7 +2,7 @@
 
 //#define PIPE_DEBUG
 #ifdef PIPE_DEBUG
-#define pipe_debug(x, ...) do {tprintf(sym(pipe), 0, x, ##__VA_ARGS__);} while(0)
+#define pipe_debug(x, ...) do {tprintf(sym(pipe), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define pipe_debug(x, ...)
 #endif
@@ -36,16 +36,6 @@ struct pipe {
 
 #define pipe_lock(p)    spin_lock(&(p)->lock)
 #define pipe_unlock(p)  spin_unlock(&(p)->lock)
-
-#define BUFFER_DEBUG(BUF,LENGTH) do { \
-    pipe_debug("%s:%d - requested %d -- contents %p start/end %d/%d  -- len %d %d\n", \
-        __func__, __LINE__, \
-        (LENGTH), \
-        (BUF)->contents, \
-        (BUF)->start, \
-        (BUF)->end, \
-        (BUF)->length, buffer_length((BUF))); \
-} while(0)
 
 boolean pipe_init(unix_heaps uh)
 {
@@ -93,7 +83,7 @@ static void pipe_file_release(pipe_file pf)
 static void pipe_release(pipe p)
 {
     if (!p->ref_cnt || (fetch_and_add(&p->ref_cnt, -1) == 1)) {
-        pipe_debug("%s(%p): deallocating pipe\n", __func__, p);
+        pipe_debug("%s(%p): deallocating pipe\n", func_ss, p);
         if (p->data != INVALID_ADDRESS)
             deallocate_buffer(p->data);
 
@@ -106,14 +96,14 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
     pf->fd = -1;    /* fd has already been deallocated by the close() syscall */
     if (&p->files[PIPE_READ] == pf) {
         pipe_notify_writer(pf, EPOLLHUP);
-        pipe_debug("%s(%p): writer notified\n", __func__, p);
+        pipe_debug("%s(%p): writer notified\n", func_ss, p);
         deallocate_closure(pf->f.read);
         deallocate_closure(pf->f.close);
         deallocate_closure(pf->f.events);
     }
     if (&p->files[PIPE_WRITE] == pf) {
         pipe_notify_reader(pf, (buffer_length(p->data) ? EPOLLIN : 0) | EPOLLHUP);
-        pipe_debug("%s(%p): reader notified\n", __func__, p);
+        pipe_debug("%s(%p): reader notified\n", func_ss, p);
         deallocate_closure(pf->f.write);
         deallocate_closure(pf->f.close);
         deallocate_closure(pf->f.events);
@@ -339,7 +329,7 @@ int do_pipe2(int fds[2], int flags)
         reader->f.events = closure(pipe->h, pipe_read_events, reader);
         reader->f.flags = (flags & O_NONBLOCK) | O_RDONLY;
 
-        reader->bq = allocate_blockq(pipe->h, "pipe read");
+        reader->bq = allocate_blockq(pipe->h, ss("pipe read"));
         if (reader->bq == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq\n");
             apply(reader->f.close, 0, io_completion_ignore);
@@ -364,7 +354,7 @@ int do_pipe2(int fds[2], int flags)
         writer->f.events = closure(pipe->h, pipe_write_events, writer);
         writer->f.flags = (flags & O_NONBLOCK) | O_WRONLY;
 
-        writer->bq = allocate_blockq(pipe->h, "pipe write");
+        writer->bq = allocate_blockq(pipe->h, ss("pipe write"));
         if (writer->bq == INVALID_ADDRESS) {
             msg_err("failed to allocate blockq\n");
             apply(writer->f.close, 0, io_completion_ignore);

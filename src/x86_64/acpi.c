@@ -22,7 +22,7 @@ static u64 find_rsdp_internal(u64 va, u64 len)
         if (runtime_memcmp(&rsdp->sig, "RSD PTR ", sizeof(rsdp->sig)) != 0)
             continue;
         if (!acpi_checksum(rsdp, 20)) {
-            acpi_debug("%s: RSDP failed checksum", __func__);
+            acpi_debug("%s: RSDP failed checksum", func_ss);
             continue;
         }
         return i;
@@ -80,9 +80,9 @@ static u64 find_rsdp(kernel_heaps kh)
 out:
     deallocate_u64(vh, va, BIOS_SEARCH_LENGTH);
     if (rsdp != INVALID_PHYSICAL) {
-        acpi_debug("%s: found RSDP at %p", __func__, rsdp);
+        acpi_debug("%s: found RSDP at %p", func_ss, rsdp);
     } else {
-        acpi_debug("%s: could not find valid RSDP", __func__);
+        acpi_debug("%s: could not find valid RSDP", func_ss);
     }
     return rsdp;
 }
@@ -92,7 +92,7 @@ void acpi_save_rsdp(u64 rsdp)
     saved_rsdp = rsdp;
 }
 
-void acpi_register_irq_handler(int irq, thunk t, const char *name)
+void acpi_register_irq_handler(int irq, thunk t, sstring name)
 {
     ioapic_register_int(irq, t, name);
 }

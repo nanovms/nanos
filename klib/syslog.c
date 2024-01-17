@@ -59,7 +59,7 @@ static struct {
     closure_struct(syslog_timer_func, flush);
     closure_struct(syslog_shutdown_completion, shutdown);
     buffer program;
-    char *server;
+    sstring server;
     boolean dns_in_progress;
     boolean arp_init;
     timestamp dns_backoff;
@@ -68,6 +68,7 @@ static struct {
     u16 server_port;
     struct udp_pcb *udp_pcb;
     char local_ip[40];
+    bytes local_ip_len;
     bytes max_hdr_len;
     bytes hdr_len;
     struct list udp_msgs;
@@ -77,28 +78,29 @@ static struct {
 
 static void syslog_file_rotate(void)
 {
-    bytes path_len = buffer_length(syslog.file_path);
-    buffer old_file = alloca_wrap_buffer(stack_allocate(path_len + 2), path_len + 2);
-    buffer new_file = alloca_wrap_buffer(stack_allocate(path_len + 2), path_len + 2);
-    runtime_memcpy(buffer_ref(old_file, 0), buffer_ref(syslog.file_path, 0), path_len);
-    runtime_memcpy(buffer_ref(new_file, 0), buffer_ref(syslog.file_path, 0), path_len);
-    byte(old_file, path_len) = byte(new_file, path_len) = '.';
+    sstring file_path = buffer_to_sstring(syslog.file_path);
+    bytes path_len = file_path.len;
+    sstring old_file = isstring(stack_allocate(path_len + 2), path_len + 2);
+    sstring new_file = isstring(stack_allocate(path_len + 2), path_len + 2);
+    runtime_memcpy(old_file.ptr, file_path.ptr, path_len);
+    runtime_memcpy(new_file.ptr, file_path.ptr, path_len);
+    old_file.ptr[path_len] = new_file.ptr[path_len] = '.';
 
     /* Rename rotated log files by replacing the ".<n-1>" name extension with ".<n>". */
     for (u64 i = syslog.file_rotate; i > 1; i--) {
-        byte(new_file, path_len + 1) = '0' + i - 1;
-        byte(old_file, path_len + 1) = '0' + i;
+        new_file.ptr[path_len + 1] = '0' + i - 1;
+        old_file.ptr[path_len + 1] = '0' + i;
         fs_rename(new_file, old_file);
     }
 
     /* Rename the current log file by adding a ".1" extension to the file name. */
-    byte(old_file, path_len + 1) = '1';
-    sysreturn ret = fs_rename(syslog.file_path, old_file);
+    old_file.ptr[path_len + 1] = '1';
+    sysreturn ret = fs_rename(file_path, old_file);
     fsfile_release(syslog.fsf);
 
     if (ret == 0) {
         /* Continue logging on a new file. */
-        syslog.fsf = fsfile_open_or_create(syslog.file_path, true);
+        syslog.fsf = fsfile_open_or_create(file_path, true);
         syslog.file_offset = 0;
         syslog.fs_write = fsfile_get_writer(syslog.fsf);
     } else {
@@ -224,10 +226,10 @@ static void syslog_set_hdr_len(void)
     struct netif *n = netif_get_default();
     if (!n)
         return;
-    ipaddr_ntoa_r(&n->ip_addr, syslog.local_ip, sizeof(syslog.local_ip));
+    syslog.local_ip_len = ipaddr_ntoa_r(&n->ip_addr, syslog.local_ip, sizeof(syslog.local_ip));
     netif_unref(n);
     syslog.hdr_len = syslog.max_hdr_len - sizeof(syslog.local_ip) +
-            runtime_strlen(syslog.local_ip) + 1;
+                     syslog.local_ip_len + 1;
 }
 
 static void syslog_udp_send(void)
@@ -246,7 +248,8 @@ static void syslog_udp_send(void)
             "<" __XSTRING(SYSLOG_PRIORITY) ">" SYSLOG_VERSION
             " %d-%02d-%02dT%02d:%02d:%02d.%06dZ %s %b - - -",
             1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
-            usec_from_timestamp(msg->t) - secs * MILLION, syslog.local_ip, syslog.program);
+            usec_from_timestamp(msg->t) - secs * MILLION,
+            isstring(syslog.local_ip, syslog.local_ip_len), syslog.program);
 
         /* Replace the string terminator inserted by rsnprintf() with the last character of the
          * header. */
@@ -271,7 +274,7 @@ static void syslog_udp_send(void)
         syslog.arp_init = false;
 }
 
-static void syslog_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+static void syslog_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     if (ipaddr) {
         syslog.server_ip = *ipaddr;
@@ -338,7 +341,7 @@ static void syslog_write(void *d, const char *s, bytes count)
 {
     if (syslog.file_path)
         syslog_file_write(s, count);
-    if (syslog.server)
+    if (!sstring_is_null(syslog.server))
         syslog_udp_write(s, count);
 }
 
@@ -422,14 +425,7 @@ closure_function(0, 2, boolean, syslog_cfg,
             rprintf("invalid syslog server\n");
             return false;
         }
-        bytes len = buffer_length(v);
-        syslog.server = allocate(syslog.h, len + 1);
-        if (syslog.server == INVALID_ADDRESS) {
-            rprintf("unable to allocate memory for syslog server\n");
-            return false;
-        }
-        runtime_memcpy(syslog.server, buffer_ref(v, 0), len);
-        syslog.server[len] = '\0';
+        syslog.server = buffer_to_sstring(v);
     } else if (s == sym(server_port)) {
         u64 port;
         if (!(is_string(v) || is_integer(v)) ||
@@ -465,7 +461,7 @@ int init(status_handler complete)
         return KLIB_INIT_FAILED;
     }
     if (syslog.file_path) {
-        syslog.fsf = fsfile_open_or_create(syslog.file_path, false);
+        syslog.fsf = fsfile_open_or_create(buffer_to_sstring(syslog.file_path), false);
         if (!syslog.fsf) {
             rprintf("cannot create syslog output file\n");
             return KLIB_INIT_FAILED;
@@ -473,7 +469,7 @@ int init(status_handler complete)
         syslog.fs_write = fsfile_get_writer(syslog.fsf);
         syslog.file_offset = fsfile_get_length(syslog.fsf); /* append to existing contents */
     }
-    if (syslog.server) {
+    if (!sstring_is_null(syslog.server)) {
         tuple env = get_environment();
         syslog.program = get(env, sym(IMAGE_NAME));
         if (!syslog.program)
@@ -493,7 +489,7 @@ int init(status_handler complete)
     init_closure(&syslog.flush, syslog_timer_func);
     add_shutdown_completion(init_closure(&syslog.shutdown, syslog_shutdown_completion));
     syslog.driver.write = syslog_write;
-    syslog.driver.name = "syslog";
+    syslog.driver.name = ss("syslog");
     syslog.driver.disabled = false;
     attach_console_driver(&syslog.driver);
     return KLIB_INIT_OK;

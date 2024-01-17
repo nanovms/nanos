@@ -2,20 +2,20 @@
 
 //#define SCHED_DEBUG
 #ifdef SCHED_DEBUG
-#define sched_debug(x, ...) do {tprintf(sym(sched), 0, x, ##__VA_ARGS__);} while(0)
+#define sched_debug(x, ...) do {tprintf(sym(sched), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define sched_debug(x, ...)
 #endif
 
-static const char * const state_strings_backing[] = {
-    "not present",
-    "idle",
-    "kernel",
-    "interrupt",
-    "user",
+static const sstring state_strings_backing[] = {
+    ss_static_init("not present"),
+    ss_static_init("idle"),
+    ss_static_init("kernel"),
+    ss_static_init("interrupt"),
+    ss_static_init("user"),
 };
 
-const char * const * const state_strings = state_strings_backing;
+const sstring * const state_strings = state_strings_backing;
 BSS_RO_AFTER_INIT static int wakeup_vector;
 BSS_RO_AFTER_INIT int shutdown_vector;
 u32 shutting_down = 0;
@@ -262,7 +262,7 @@ closure_function(0, 0, void, global_shutdown)
 void init_scheduler(heap h)
 {
     /* timer init */
-    kernel_timers = allocate_timerqueue(h, 0, "runloop");
+    kernel_timers = allocate_timerqueue(h, 0, ss("runloop"));
     assert(kernel_timers != INVALID_ADDRESS);
     kernel_timers->min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
     kernel_timers->max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
@@ -271,9 +271,9 @@ void init_scheduler(heap h)
 
     /* IPI init */
     wakeup_vector = allocate_ipi_interrupt();
-    register_interrupt(wakeup_vector, ignore, "wakeup ipi");
+    register_interrupt(wakeup_vector, ignore, ss("wakeup ipi"));
     shutdown_vector = allocate_ipi_interrupt();
-    register_interrupt(shutdown_vector, closure(h, global_shutdown), "shutdown ipi");
+    register_interrupt(shutdown_vector, closure(h, global_shutdown), ss("shutdown ipi"));
     assert(wakeup_vector != INVALID_PHYSICAL);
 
     /* scheduling queues init */

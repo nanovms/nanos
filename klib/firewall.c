@@ -297,17 +297,18 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
             rprintf("firewall: invalid ip src value '%v'\n", src);
             return false;
         }
-        char *src_str = buffer_to_cstring(src);
+        sstring src_str = buffer_to_sstring(src);
         boolean neq;
-        if (src_str[0] == '!') {
+        if (src_str.ptr[0] == '!') {
             neq = true;
-            src_str++;
+            src_str.ptr++;
+            src_str.len--;
         } else {
             neq = false;
         }
         char *slash = runtime_strchr(src_str, '/');
         if (slash)
-            *slash = '\0';
+            src_str.len = slash - src_str.ptr;
         ip_addr_t addr;
         int parsed;
         if (ipv6)
@@ -320,10 +321,12 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
         }
         u64 netmask;
         if (slash) {
-            buffer netmask_str = alloca_wrap_cstring(slash + 1);
+            src_str.ptr = slash + 1;
+            src_str.len = buffer_length(src) - (slash + 1 - (char *)buffer_ref(src, 0));
+            buffer netmask_str = alloca_wrap_sstring(src_str);
             if (!parse_int(netmask_str, 10, &netmask) || buffer_length(netmask_str) ||
                 (netmask == 0) || (netmask > (ipv6 ? 128 : 32))) {
-                rprintf("firewall: invalid network mask '%s'\n", slash + 1);
+                rprintf("firewall: invalid network mask '%s'\n", src_str);
                 return false;
             }
         } else {

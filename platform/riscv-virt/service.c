@@ -145,13 +145,13 @@ void __attribute__((noreturn)) start(void *a0, void *dtb)
     while (1);
 }
 
+RO_AFTER_INIT static struct console_driver serial_console_driver = {
+    .name = ss_static_init("serial"),
+    .write = serial_console_write,
+};
+
 void init_platform_devices(kernel_heaps kh)
 {
-    RO_AFTER_INIT static struct console_driver serial_console_driver = {
-        .name = "serial",
-        .write = serial_console_write,
-    };
-
     attach_console_driver(&serial_console_driver);
 }
 

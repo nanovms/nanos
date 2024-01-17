@@ -17,12 +17,12 @@ key identity_key(void *a)
 }
 
 #ifdef TABLE_PARANOIA
-#define table_paranoia(t, n)    table_validate(t, n)
+#define table_paranoia(t, n)    table_validate(t, ss(n))
 #else
 #define table_paranoia(t, n)
 #endif
 
-void table_validate(table t, char *n)
+void table_validate(table t, sstring n)
 {
     void *last;
     for(int i = 0; i < t->buckets; i++) {

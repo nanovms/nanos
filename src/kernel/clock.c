@@ -2,7 +2,7 @@
 
 //#define CLOCK_DEBUG
 #ifdef CLOCK_DEBUG
-#define clock_debug(x, ...) do {tprintf(sym(clock), 0, x, ##__VA_ARGS__);} while(0)
+#define clock_debug(x, ...) do {tprintf(sym(clock), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define clock_debug(x, ...)
 #endif
@@ -91,7 +91,7 @@ void clock_step_rtc(s64 step)
 void clock_reset_rtc(timestamp wallclock_now)
 {
     clock_debug("%s: now %T, wallclock_now %T\n",
-                __func__, now(CLOCK_ID_REALTIME), wallclock_now);
+                func_ss, now(CLOCK_ID_REALTIME), wallclock_now);
     timestamp n = now(CLOCK_ID_REALTIME);
     rtc_settimeofday(sec_from_timestamp(wallclock_now));
     notify_unix_timers_of_rtc_change();

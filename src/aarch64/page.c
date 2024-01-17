@@ -55,7 +55,7 @@ void init_mmu(range init_pt, u64 vtarget)
     page_init_debug("\n");
 
     if (field_from_u64(mmfr0, ID_AA64MMFR0_EL1_TGran4) == 15)
-        halt("%s: 4KB granule not supported\n", __func__);
+        halt("%s: 4KB granule not supported\n", func_ss);
 
     page_set_allowed_levels(0xe); /* mapping at levels 1-3 always allowed */
     init_page_initial_map(pointer_from_u64(init_pt.start), init_pt);

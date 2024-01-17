@@ -156,7 +156,7 @@ boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init)
     assert(apic_if);
     *ct = closure(apic_heap, lapic_timer);
     int v = allocate_interrupt();
-    register_interrupt(v, closure(apic_heap, lapic_timer_int), "lapic timer");
+    register_interrupt(v, closure(apic_heap, lapic_timer_int), ss("lapic timer"));
     *per_cpu_init = closure(apic_heap, lapic_timer_percpu_init, v);
     apply(*per_cpu_init);
     calibrate_lapic_timer();
@@ -226,7 +226,7 @@ boolean ioapic_int_is_free(unsigned int gsi)
     return !!(ioapic_read(IOAPIC_REG_REDIR + 2 * gsi) & (1 << IOAPIC_INT_MASK));
 }
 
-void ioapic_register_int(unsigned int gsi, thunk h, const char *name)
+void ioapic_register_int(unsigned int gsi, thunk h, sstring name)
 {
     boolean alloc_vector = ioapic_int_is_free(gsi);
     u64 v;

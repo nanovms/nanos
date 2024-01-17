@@ -1,5 +1,5 @@
-#define resolve_dir(__fs, __dirfd, __path) ({ \
-    if (!fault_in_user_string(__path)) return -EFAULT;  \
+#define resolve_dir(__fs, __dirfd, __path, __path_ss) ({ \
+    if (!fault_in_user_string(__path, &(__path_ss))) return -EFAULT;    \
     inode cwd; \
     process p = current->p; \
     if (*(__path) == '/') { \
@@ -30,7 +30,7 @@ sysreturn sysreturn_from_fs_status_value(status s);
  * not to the range to be read ahead. */
 void file_readahead(file f, u64 offset, u64 len);
 
-fs_status filesystem_chdir(process p, const char *path);
+fs_status filesystem_chdir(process p, sstring path);
 
 void filesystem_update_relatime(filesystem fs, tuple md);
 
@@ -48,12 +48,12 @@ sysreturn fallocate(int fd, int mode, long offset, long len);
 
 sysreturn fadvise64(int fd, s64 off, u64 len, int advice);
 
-sysreturn fs_rename(buffer oldpath, buffer newpath);
+sysreturn fs_rename(sstring oldpath, sstring newpath);
 
 void file_release(file f);
 
-fsfile fsfile_open(buffer file_path);
-fsfile fsfile_open_or_create(buffer file_path, boolean truncate);
+fsfile fsfile_open(sstring file_path);
+fsfile fsfile_open_or_create(sstring file_path, boolean truncate);
 fs_status fsfile_truncate(fsfile f, u64 len);
 
 notify_entry fs_watch(heap h, tuple n, u64 eventmask, event_handler eh, notify_set *s);

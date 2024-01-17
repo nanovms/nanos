@@ -37,7 +37,7 @@ declare_closure_struct(1, 0, void, xenblk_bh_service,
 
 declare_closure_struct(1, 1, void, xenblk_watch_handler,
                        xenblk_dev, xbd,
-                       const char *, path);
+                       sstring, path);
 declare_closure_struct(1, 0, void, xenblk_watch_service,
                        xenblk_dev, xbd);
 declare_closure_struct(1, 0, void, xenblk_detach_complete,
@@ -128,7 +128,7 @@ static void xenblk_service_pending(xenblk_dev xbd)
 {
     RING_IDX prod = xbd->ring.req_prod_pvt;
     RING_IDX prod_end = xbd->ring.rsp_cons + XENBLK_RING_SIZE;
-    xenblk_debug("%s: prod %d, prod_end %d", __func__, prod, prod_end);
+    xenblk_debug("%s: prod %d, prod_end %d", func_ss, prod, prod_end);
     while (prod < prod_end) {
         blkif_request_t *req = RING_GET_REQUEST(&xbd->ring, prod);
         list l = list_get_next(&xbd->pending);
@@ -201,7 +201,7 @@ static void xenblk_service_ring(xenblk_dev xbd)
         RING_IDX cons = xbd->ring.rsp_cons;
         RING_IDX prod = xbd->ring.sring->rsp_prod;
         read_barrier();
-        xenblk_debug("%s: cons %d, prod %d", __func__, cons, prod);
+        xenblk_debug("%s: cons %d, prod %d", func_ss, cons, prod);
         while (cons < prod) {
             blkif_response_t *resp = RING_GET_RESPONSE(&xbd->ring, cons);
             xenblk_ring_req rreq = vector_get(xbd->rreqs, resp->id);
@@ -228,7 +228,7 @@ define_closure_function(2, 3, void, xenblk_io,
 {
     xenblk_dev xbd = bound(xbd);
     boolean write = bound(write);
-    xenblk_debug("[%d] %s %R", xbd->dev.if_id, write ? "write" : "read",
+    xenblk_debug("[%d] %s %R", xbd->dev.if_id, write ? ss("write") : ss("read"),
             blocks);
     xenblk_req req = xenblk_get_req(xbd);
     if (!req) {
@@ -251,7 +251,7 @@ define_closure_function(1, 0, void, xenblk_event_handler,
                         xenblk_dev, xbd)
 {
     xenblk_dev xbd = bound(xbd);
-    xenblk_debug("[%d] %s", xbd->dev.if_id, __func__);
+    xenblk_debug("[%d] %s", xbd->dev.if_id, func_ss);
     spin_lock(&xbd->lock);
     boolean done_empty = list_empty(&xbd->done);
     xenblk_service_ring(xbd);
@@ -265,7 +265,7 @@ define_closure_function(1, 0, void, xenblk_bh_service,
                         xenblk_dev, xbd)
 {
     xenblk_dev xbd = bound(xbd);
-    xenblk_debug("[%d] %s", xbd->dev.if_id, __func__);
+    xenblk_debug("[%d] %s", xbd->dev.if_id, func_ss);
     list l;
     u64 irqflags = spin_lock_irq(&xbd->lock);
     while ((l = list_get_next(&xbd->done))) {
@@ -316,13 +316,13 @@ define_closure_function(1, 0, void, xenblk_watch_service,
         timm_dealloc(s);
         return;
     }
-    xenblk_debug("%s(%p): backend state %d", __func__, xbd, backend_state);
+    xenblk_debug("%s(%p): backend state %d", func_ss, xbd, backend_state);
     switch (backend_state) {
     case XenbusStateConnected: {
         if (xbd->capacity != 0) /* disk already attached */
             break;
         u64 sector_size;
-        s = xenstore_read_u64(0, xd->backend, "sector-size", &sector_size);
+        s = xenstore_read_u64(0, xd->backend, ss("sector-size"), &sector_size);
         if (!is_ok(s)) {
             msg_err("cannot read sector size: %v\n", s);
             timm_dealloc(s);
@@ -331,7 +331,7 @@ define_closure_function(1, 0, void, xenblk_watch_service,
             msg_err("unsupported sector size %ld\n", sector_size);
             goto remove;
         }
-        s = xenstore_read_u64(0, xd->backend, "physical-sector-size",
+        s = xenstore_read_u64(0, xd->backend, ss("physical-sector-size"),
             &sector_size);
         if (!is_ok(s)) {
             /* physical sector size is the same as logical sector size */
@@ -341,7 +341,7 @@ define_closure_function(1, 0, void, xenblk_watch_service,
             goto remove;
         }
         u64 sectors;
-        s = xenstore_read_u64(0, xd->backend, "sectors", &sectors);
+        s = xenstore_read_u64(0, xd->backend, ss("sectors"), &sectors);
         if (!is_ok(s)) {
             msg_err("cannot read number of sectors: %v\n", s);
             timm_dealloc(s);
@@ -397,10 +397,10 @@ define_closure_function(1, 0, void, xenblk_watch_service,
 
 define_closure_function(1, 1, void, xenblk_watch_handler,
                         xenblk_dev, xbd,
-                        const char *, path)
+                        sstring, path)
 {
     xenblk_dev xbd = bound(xbd);
-    xenblk_debug("%s: path %s", __func__, path);
+    xenblk_debug("%s: path %s", func_ss, path);
     async_apply_bh((thunk)&xbd->watch_service);
 }
 
@@ -408,28 +408,28 @@ define_closure_function(1, 1, void, xenblk_watch_handler,
 
 static status xenblk_inform_backend(xenblk_dev xbd)
 {
+    sstring func = func_ss;
     status s = STATUS_OK;
     xen_dev xd = &xbd->dev;
-    xenblk_debug("%s: dev id %d", __func__, xd->if_id);
+    xenblk_debug("%s: dev id %d", func, xd->if_id);
     u32 tx_id;
-    char *node;
+    sstring node;
     int retries = XENBLK_INFORM_BACKEND_RETRIES;
 
   again:
     s = xenstore_transaction_start(&tx_id);
     if (!is_ok(s))
         return s;
-    node = "protocol";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%s",
-        XEN_IO_PROTO_ABI_NATIVE);
+    node = ss("protocol");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%s"), ss(XEN_IO_PROTO_ABI_NATIVE));
     if (!is_ok(s))
         goto abort;
-    node = "ring-ref";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xbd->ring_gntref);
+    node = ss("ring-ref");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%d"), xbd->ring_gntref);
     if (!is_ok(s))
         goto abort;
-    node = "event-channel";
-    s = xenstore_sync_printf(tx_id, xd->frontend, node, "%d", xbd->evtchn);
+    node = ss("event-channel");
+    s = xenstore_sync_printf(tx_id, xd->frontend, node, ss("%d"), xbd->evtchn);
     if (!is_ok(s))
         goto abort;
     s = xenstore_transaction_end(tx_id, false);
@@ -439,18 +439,18 @@ static status xenblk_inform_backend(xenblk_dev xbd)
             if (!buffer_strcmp((buffer)v, "EAGAIN")) {
                 deallocate_value(s);
                 if (retries-- == 0)
-                    return timm("result", "%s failed after %d tries", __func__,
+                    return timm("result", "%s failed after %d tries", func,
                         XENBLK_INFORM_BACKEND_RETRIES);
                 goto again;
             }
         }
-        return timm_up(s, "result", "%s: transaction end failed", __func__);
+        return timm_up(s, "result", "%s: transaction end failed", func);
     }
     return xenbus_set_state(0, xd->frontend, XenbusStateInitialised);
   abort:
     xenstore_transaction_end(tx_id, true);
     return timm_up(s, "result", "%s: transaction aborted; step \"%s\" failed",
-                   __func__, node);
+                   func, node);
 }
 
 static status xenblk_enable(xenblk_dev xbd)
@@ -545,5 +545,5 @@ closure_function(2, 3, boolean, xenblk_probe,
 
 void init_xenblk(kernel_heaps kh, storage_attach sa)
 {
-    register_xen_driver("vbd", closure(heap_locked(kh), xenblk_probe, kh, sa));
+    register_xen_driver(ss("vbd"), closure(heap_locked(kh), xenblk_probe, kh, sa));
 }

@@ -9,7 +9,7 @@
 
 //#define V9P_DEBUG
 #ifdef V9P_DEBUG
-#define v9p_debug(x, ...) do {tprintf(sym(v9p), 0, x, ##__VA_ARGS__);} while(0)
+#define v9p_debug(x, ...) do {tprintf(sym(v9p), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define v9p_debug(x, ...)
 #endif
@@ -74,7 +74,7 @@ static u32 v9p_request(virtio_9p v9p, u64 req_phys, u32 req_len, u64 resp_phys, 
 define_closure_function(0, 2, void, v9p_fs_init,
                         boolean, readonly, filesystem_complete, complete)
 {
-    v9p_debug("%s read-%s (%F)\n", __func__, readonly ? "only" : "write", complete);
+    v9p_debug("%s read-%s (%F)\n", func_ss, readonly ? ss("only") : ss("write"), complete);
     virtio_9p v9p = struct_from_field(closure_self(), virtio_9p, fs_init);
     p9_create_fs(v9p->general, v9p, readonly, complete);
 }
@@ -99,7 +99,7 @@ static boolean v9p_dev_attach(heap general, backed_heap backed, vtdev dev)
         }
     }
     v9p_debug("  attachment ID %ld\n", attach_id);
-    status s = virtio_alloc_virtqueue(dev, "virtio 9p", 0, &v9p->vq);
+    status s = virtio_alloc_virtqueue(dev, ss("virtio 9p"), 0, &v9p->vq);
     if (!is_ok(s)) {
         msg_err("failed to allocate virtqueue: %v\n", s);
         goto err;
@@ -552,11 +552,11 @@ fs_status v9p_unlinkat(void *priv, u32 dfid, string name, u32 flags)
     return s;
 }
 
-fs_status v9p_version(void *priv, u32 msize, const char *version, u32 *ret_msize)
+fs_status v9p_version(void *priv, u32 msize, sstring version, u32 *ret_msize)
 {
     v9p_debug("version %s msize 0x%x\n", version, msize);
     virtio_9p v9p = priv;
-    u64 version_len = runtime_strlen(version);
+    u64 version_len = version.len;
     struct p9_version_req *req;
     union p9_version_resp *resp;
     u64 req_len = sizeof(*req) + version_len;
@@ -595,8 +595,8 @@ fs_status v9p_attach(void *priv, u32 root_fid, u64 *root_qid)
 {
     v9p_debug("attach\n");
     virtio_9p v9p = priv;
-    const char *uname = "root";
-    const char *aname = ".";
+    sstring uname = ss("root");
+    sstring aname = ss(".");
     u64 uname_len = p9_strlen(uname);
     u64 aname_len = p9_strlen(aname);
     u64 req_len = sizeof(struct p9_msg_hdr) + 4 /* fid */ + 4 /* afid */ + uname_len + aname_len +

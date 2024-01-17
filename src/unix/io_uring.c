@@ -25,7 +25,7 @@
 //#define IOUR_DEBUG
 #ifdef IOUR_DEBUG
 #define iour_debug(x, ...) do { \
-        tprintf(sym(iour), 0, "%s: " x "\n", __func__, ##__VA_ARGS__);   \
+        tprintf(sym(iour), 0, ss("%s: " x "\n"), func_ss, ##__VA_ARGS__);   \
 } while(0)
 #else
 #define iour_debug(x, ...)
@@ -601,7 +601,7 @@ static void iour_iov(io_uring iour, fdesc f, boolean write, struct iovec *iov,
 static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
                     u64 offset, u64 user_data)
 {
-    iour_debug("%s at %p, len %d, offset %ld", write ? "write" : "read", addr,
+    iour_debug("%s at %p, len %d, offset %ld", write ? ss("write") : ss("read"), addr,
             len, offset);
     int err = 0;
     file_io op = write ? f->write : f->read;

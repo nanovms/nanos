@@ -160,7 +160,7 @@ void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes l
 void pci_bar_deinit(struct pci_bar *b);
 void pci_platform_init(void);
 void pci_platform_init_bar(pci_dev dev, int bar);
-u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data);
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, sstring name, u32 *address, u32 *data);
 void pci_platform_deallocate_msi(pci_dev dev, u64 v);
 boolean pci_platform_has_msi(void);
 
@@ -193,10 +193,10 @@ void pci_set_bus_master(pci_dev dev);
 int pci_get_msix_count(pci_dev dev);
 int pci_enable_msix(pci_dev dev);
 void pci_enable_io_and_memory(pci_dev dev);
-u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name);
+u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, sstring name);
 void pci_teardown_msix(pci_dev dev, int msi_slot);
 void pci_disable_msix(pci_dev dev);
-void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name);
+void pci_setup_non_msi_irq(pci_dev dev, thunk h, sstring name);
 
 static inline u64 pci_msix_table_addr(pci_dev dev)
 {

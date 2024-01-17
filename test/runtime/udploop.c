@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -11,7 +12,7 @@
 
 void fail(char * s)
 {
-    rprintf("%s failed: %s (errno %d)\n", s, strerror(errno), errno);
+    printf("%s failed: %s (errno %d)\n", s, strerror(errno), errno);
     exit(EXIT_FAILURE);
 }
 

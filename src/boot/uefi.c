@@ -90,12 +90,12 @@ u64 random_u64()
     }
 }
 
-void halt_with_code(u8 code, char *format, ...)
+void halt_with_code(u8 code, sstring format, ...)
 {
     vlist a;
     buffer b = little_stack_buffer(512);
     vstart(a, format);
-    vbprintf(b, alloca_wrap_cstring(format), &a);
+    vbprintf(b, format, &a);
     buffer_print(b);
     UBS->exit(uefi_image_handle, EFI_LOAD_ERROR, 0, 0); /* does not return */
     while(1);   /* to honor "noreturn" attribute */
@@ -180,7 +180,7 @@ closure_function(2, 1, void, uefi_blkdev_read,
                  storage_req, req)
 {
     if (req->op != STORAGE_OP_READSG)
-        halt("%s: invalid storage op %d\n", __func__, req->op);
+        halt("%s: invalid storage op %d\n", func_ss, req->op);
     sg_list sg = req->data;
     efi_block_io_protocol block_io = bound(block_io);
     efi_status status = EFI_SUCCESS;
@@ -282,7 +282,8 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
                    bootfs_part->lba_start, bootfs_part->nsectors);
         init_pagecache(&general, &general, PAGESIZE);
         create_filesystem(&general, SECTOR_SIZE, bootfs_part->nsectors * SECTOR_SIZE,
-                          closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start), true, 0,
+                          closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start),
+                          true, sstring_null(),
                           closure(&general, uefi_bootfs_complete, &general, &aligned_heap, &options));
     }
     UBS->free_pool(handle_buffer);

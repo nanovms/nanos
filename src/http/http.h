@@ -26,12 +26,12 @@ status send_http_chunk(http_responder out, buffer c);
 status send_http_chunked_response(http_responder out, tuple t);
 status send_http_response(http_responder out, tuple t, buffer c);
 
-extern const char * const http_request_methods[];
+extern const sstring http_request_methods[];
 
 typedef struct http_listener *http_listener;
 typedef closure_type(http_request_handler, void, http_method, http_responder, value);
 
-void http_register_uri_handler(http_listener hl, const char *uri, http_request_handler each);
+void http_register_uri_handler(http_listener hl, sstring uri, http_request_handler each);
 void http_register_default_handler(http_listener hl, http_request_handler each);
 connection_handler connection_handler_from_http_listener(http_listener hl);
 http_listener allocate_http_listener(heap h, u16 port);

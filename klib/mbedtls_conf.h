@@ -44,9 +44,6 @@ void mbedtls_free(void *ptr);
 #ifndef memcmp
 #define memcmp  runtime_memcmp
 #endif
-#ifndef strlen
-#define strlen  runtime_strlen
-#endif
 #ifndef strcmp
 #define strcmp  runtime_strcmp
 #endif

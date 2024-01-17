@@ -30,7 +30,7 @@
 static int pci_cfgenable(pci_dev dev, int reg, int bytes)
 {
     pci_plat_debug("%s: dev %p, dev->bus %d, reg %d, bytes %d\n",
-                   __func__, dev, dev->bus, reg, bytes);
+                   func_ss, dev, dev->bus, reg, bytes);
     int dataport = 0;
 
     if (dev->bus <= PCI_BUSMAX && dev->slot <= PCI_SLOTMAX && dev->function <= PCI_FUNCMAX &&
@@ -46,7 +46,7 @@ static int pci_cfgenable(pci_dev dev, int reg, int bytes)
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     pci_plat_debug("%s: dev %p, dev->bus %d, reg %d, bytes %d\n",
-                   __func__, dev, dev->bus, reg, bytes);
+                   func_ss, dev, dev->bus, reg, bytes);
     u32 data = -1;
     int port;
 
@@ -70,7 +70,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
     pci_plat_debug("%s: dev %p, dev->bus %d, reg %d, bytes %d, source 0x%x\n",
-                   __func__, dev, dev->bus, reg, bytes, source);
+                   func_ss, dev, dev->bus, reg, bytes, source);
     int port;
 
     port = pci_cfgenable(dev, reg, bytes);
@@ -91,13 +91,13 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 
 u8 pci_bar_read_1(struct pci_bar *b, u64 offset)
 {
-    pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", __func__, b, offset);
+    pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", func_ss, b, offset);
     return b->type == PCI_BAR_MEMORY ? *(u8 *) (b->vaddr + offset) : in8(b->addr + offset);
 }
 
 void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val)
 {
-    pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", __func__, b, offset, val);
+    pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", func_ss, b, offset, val);
     if (b->type == PCI_BAR_MEMORY)
         *(u8 *) (b->vaddr + offset) = val;
     else
@@ -106,13 +106,13 @@ void pci_bar_write_1(struct pci_bar *b, u64 offset, u8 val)
 
 u16 pci_bar_read_2(struct pci_bar *b, u64 offset)
 {
-    pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", __func__, b, offset);
+    pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", func_ss, b, offset);
     return b->type == PCI_BAR_MEMORY ? *(u16 *) (b->vaddr + offset) : in16(b->addr + offset);
 }
 
 void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val)
 {
-    pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", __func__, b, offset, val);
+    pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", func_ss, b, offset, val);
     if (b->type == PCI_BAR_MEMORY)
         *(u16 *) (b->vaddr + offset) = val;
     else
@@ -121,13 +121,13 @@ void pci_bar_write_2(struct pci_bar *b, u64 offset, u16 val)
 
 u32 pci_bar_read_4(struct pci_bar *b, u64 offset)
 {
-    pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", __func__, b, offset);
+    pci_plat_debug("%s: pci_bar %p, offset 0x%lx\n", func_ss, b, offset);
     return b->type == PCI_BAR_MEMORY ? *(u32 *) (b->vaddr + offset) : in32(b->addr + offset);
 }
 
 void pci_bar_write_4(struct pci_bar *b, u64 offset, u32 val)
 {
-    pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", __func__, b, offset, val);
+    pci_plat_debug("%s: pci_bar %p, offset 0x%lx, val 0x%x\n", func_ss, b, offset, val);
     if (b->type == PCI_BAR_MEMORY)
         *(u32 *) (b->vaddr + offset) = val;
     else
@@ -147,9 +147,9 @@ void pci_bar_write_8(struct pci_bar *b, u64 offset, u64 val)
         out64(b->addr + offset, val);
 }
 
-void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
+void pci_setup_non_msi_irq(pci_dev dev, thunk h, sstring name)
 {
-    pci_plat_debug("%s: h %F, name %s\n", __func__, h, name);
+    pci_plat_debug("%s: h %F, name %s\n", func_ss, h, name);
 
     /* For maximum portability, the GSI should be retrieved via the ACPI _PRT method. */
     unsigned int gsi = pci_cfgread(dev, PCIR_INTERRUPT_LINE, 1);
@@ -159,7 +159,7 @@ void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
 
 void pci_platform_init_bar(pci_dev dev, int bar)
 {
-    pci_plat_debug("%s: dev %p, %d:%d:%d, bar %d\n", __func__, dev,
+    pci_plat_debug("%s: dev %p, %d:%d:%d, bar %d\n", func_ss, dev,
                    dev->bus, dev->slot, dev->function, bar);
     u64 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
     boolean is_io = (base & PCI_BAR_B_TYPE_MASK) == PCI_BAR_IOPORT;
@@ -193,7 +193,7 @@ void pci_platform_init_bar(pci_dev dev, int bar)
     }
 }
 
-u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data)
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, sstring name, u32 *address, u32 *data)
 {
     u64 v = allocate_interrupt();
     if (v == INVALID_PHYSICAL)

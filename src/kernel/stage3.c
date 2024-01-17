@@ -15,7 +15,8 @@ closure_function(3, 1, void, program_start,
                  status, s)
 {
     if (!is_ok(s))
-        halt("program startup failed %s exec: %v\n", bound(exec_started) ? "on" : "before", s);
+        halt("program startup failed %s exec: %v\n", bound(exec_started) ? ss("on") : ss("before"),
+             s);
     else if (bound(exec_started)) {
         closure_finish();
         return;
@@ -34,50 +35,6 @@ closure_function(3, 1, void, program_start,
     bound(exec_started) = true;
     exec_elf(bound(kp), bound(path), (status_handler)closure_self());
 }
-
-/* http debug test */
-#if 0
-closure_function(1, 3, void, each_test_request,
-                 heap, h,
-                 http_method, m, buffer_handler, out, value, v)
-{
-    status s = STATUS_OK;
-    bytes total = 0;
-    heap h = bound(h);
-    rprintf("http: %s request via http: %v\n", http_request_methods[m], v);
-    buffer u = table_find(v, sym(relative_uri));
-    if (u && buffer_compare_with_cstring(u, "chunk")) {
-        rprintf("chunked response\n");
-        s = send_http_chunked_response(out, timm("Content-Type", "text/html"));
-
-        if (!is_ok(s))
-            goto out_fail;
-
-        for (int i = 0; i < 10; i++) {
-            buffer b = bulk_test_buffer(h);
-            total += buffer_length(b);
-            s = send_http_chunk(out, b);
-            if (!is_ok(s))
-                goto out_fail;
-        }
-
-        s = send_http_chunk(out, 0);
-        if (!is_ok(s))
-            goto out_fail;
-    } else {
-        buffer b = bulk_test_buffer(h);
-        total += buffer_length(b);
-        s = send_http_response(out, timm("Content-Type", "text/html"), b);
-        if (!is_ok(s))
-            goto out_fail;
-    }
-
-    rprintf("sent %d bytes\n", total);
-    return;
-  out_fail:
-    msg_err("output buffer handler failed: %v\n", s);
-}
-#endif
 
 static void init_kernel_heaps_management(tuple root)
 {
@@ -118,18 +75,6 @@ closure_function(6, 0, void, startup,
     /* register root tuple with management and kick off interfaces, if any */
     init_management_root(root);
     init_kernel_heaps_management(root);
-#if 0
-    http_listener hl = allocate_http_listener(general, 9090);
-    assert(hl != INVALID_ADDRESS);
-    http_register_uri_handler(hl, "test", closure(general, each_test_request, general));
-
-    if (get(root, sym(http))) {
-        status s = listen_port(general, 9090, connection_handler_from_http_listener(hl));
-        if (!is_ok(s))
-            halt("listen_port failed for http listener: %v\n", s);
-        rprintf("Debug http server started on port 9090\n");
-    }
-#endif
     if (get(root, sym(readonly_rootfs)))
         filesystem_set_readonly(fs);
     value p = get(root, sym(program));

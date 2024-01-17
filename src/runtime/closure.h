@@ -6,7 +6,6 @@
     _fill_##__name(__c, __p, __s, ##__VA_ARGS__)
 
 struct _closure_common {
-    char *name;
 #define CLOSURE_COMMON_CTX_IS_CONTEXT        1 /* vs heap */
 #define CLOSURE_COMMON_CTX_DEALLOC_ON_FINISH 2
 #define CLOSURE_COMMON_CTX_FLAGS_MASK        3
@@ -23,7 +22,6 @@ struct _closure_common {
     __var = allocate(__h, sizeof(struct _closure_##__name));    \
     if (__var != INVALID_ADDRESS) {                             \
         __var->__apply = __name;                                \
-        __var->__c.name = #__name;                              \
         __var->__c.ctx = ctx_from_heap(__h);                    \
         __var->__c.size = sizeof(struct _closure_##__name);     \
     }                                                           \
@@ -75,7 +73,6 @@ struct _closure_common {
     static __ret __func(struct _closure_##__name *__self, ##__VA_ARGS__);           \
     static __name _fill_##__func(u64 ctx, struct _closure_##__name *p, bytes s) {   \
         p->__apply = __func;                                                        \
-        p->__c.name = #__func;                                                      \
         p->__c.ctx = ctx;                                                           \
         p->__c.size = s;                                                            \
         return (__name)p;                                                           \

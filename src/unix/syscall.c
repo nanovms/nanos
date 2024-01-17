@@ -88,7 +88,7 @@ define_closure_function(2, 1, void, iov_op_each_complete,
     fdesc f = p->f;
     boolean write = p->write;
     thread t = current;
-    thread_log(t, "%s: rv %ld, curr %d, iovcnt %d", __func__, rv, p->curr, iovcnt);
+    thread_log(t, "%s: rv %ld, curr %d, iovcnt %d", func_ss, rv, p->curr, iovcnt);
 
     file_io op = write ? f->write : f->read;
     if (!op)
@@ -148,7 +148,7 @@ closure_function(4, 1, void, iov_read_complete,
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
-    thread_log(current, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
+    thread_log(current, "%s: sg %p, completion %F, rv %ld", func_ss, sg, completion,
                rv);
     if (rv > 0) {
         if (!sg_to_iov(sg, bound(iov), bound(iovcnt)))
@@ -165,7 +165,7 @@ closure_function(2, 1, void, iov_write_complete,
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
-    thread_log(current, "%s: sg %p, completion %F, rv %ld", __func__, sg, completion,
+    thread_log(current, "%s: sg %p, completion %F, rv %ld", func_ss, sg, completion,
                rv);
     sg_list_release(sg);
     deallocate_sg_list(sg);
@@ -372,7 +372,7 @@ closure_function(9, 1, void, sendfile_bh,
 {
     thread t = current;
     thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
-               __func__, bound(readlen), bound(written), bound(bh), rv);
+               func_ss, bound(readlen), bound(written), bound(bh), rv);
 
     if (rv <= 0) {
         if (bound(bh) && rv == -EAGAIN) { /* result of a write */
@@ -460,7 +460,7 @@ out_complete:
 static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
 {
     thread_log(current, "%s: out %d, in %d, offset %p, *offset %d, count %ld",
-               __func__, out_fd, in_fd, offset, offset ? *offset : 0, count);
+               func_ss, out_fd, in_fd, offset, offset ? *offset : 0, count);
     u64 read_offset;
     if (offset) {
         if (!get_user_value(offset, &read_offset))
@@ -533,7 +533,7 @@ closure_function(6, 1, void, file_read_complete,
                  status, s)
 {
     thread t = current;
-    thread_log(t, "%s: status %v", __func__, s);
+    thread_log(t, "%s: status %v", func_ss, s);
     sysreturn rv;
     sg_list sg = bound(sg);
     context ctx = get_current_context(current_cpu());
@@ -574,7 +574,7 @@ closure_function(2, 6, sysreturn, file_read,
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread t = current;
     thread_log(t, "%s: f %p, dest %p, offset %ld (%s), length %ld, file length %ld",
-               __func__, f, dest, offset, is_file_offset ? "file" : "specified",
+               func_ss, f, dest, offset, is_file_offset ? ss("file") : ss("specified"),
                length, f->fsf ? fsfile_get_length(f->fsf) : 0);
 
     sysreturn rv;
@@ -602,7 +602,7 @@ closure_function(4, 1, void, file_sg_read_complete,
                  file, f, sg_list, sg, boolean, is_file_offset, io_completion, completion,
                  status, s)
 {
-    thread_log(current, "%s: status %v", __func__, s);
+    thread_log(current, "%s: status %v", func_ss, s);
     sysreturn rv;
     if (is_ok(s)) {
        u64 length = bound(sg)->count;
@@ -627,7 +627,7 @@ closure_function(2, 6, sysreturn, file_sg_read,
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread t = current;
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), length %ld, file length %ld",
-               __func__, f, sg, offset, is_file_offset ? "file" : "specified",
+               func_ss, f, sg, offset, is_file_offset ? ss("file") : ss("specified"),
                length, f->fsf ? fsfile_get_length(f->fsf) : 0);
 
     sysreturn rv;
@@ -676,7 +676,7 @@ closure_function(6, 1, void, file_write_complete,
 {
     if (!bound(flush)) {
         thread_log(current, "%s: f %p, sg, %p, completion %F, status %v",
-                   __func__, bound(f), bound(sg), bound(completion), s);
+                   func_ss, bound(f), bound(sg), bound(completion), s);
         sg_list_release(bound(sg));
         deallocate_sg_list(bound(sg));
         file f = bound(f);
@@ -700,7 +700,7 @@ closure_function(2, 6, sysreturn, file_write,
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread t = current;
     thread_log(t, "%s: f %p, src %p, offset %ld (%s), length %ld, file length %ld",
-               __func__, f, src, offset, is_file_offset ? "file" : "specified",
+               func_ss, f, src, offset, is_file_offset ? ss("file") : ss("specified"),
                length, f->fsf ? fsfile_get_length(f->fsf) : 0);
 
     if (!f->fsf)
@@ -746,7 +746,7 @@ closure_function(5, 1, void, file_sg_write_complete,
     u64 len = bound(len);
     io_completion completion = bound(completion);
     thread_log(current, "%s: f %p, len %ld, completion %F, status %v",
-               __func__, f, len, completion, s);
+               func_ss, f, len, completion, s);
     file_write_complete_internal(f, len, bound(is_file_offset), completion,
                                  s);
     closure_finish();
@@ -763,7 +763,7 @@ closure_function(2, 6, sysreturn, file_sg_write,
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread t = current;
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
-               __func__, f, sg, offset, is_file_offset ? "file" : "specified",
+               func_ss, f, sg, offset, is_file_offset ? ss("file") : ss("specified"),
                len, f->fsf ? fsfile_get_length(f->fsf) : 0);
     if (!f->fsf) {
         rv = -EBADF;
@@ -849,16 +849,7 @@ static int dt_from_tuple(tuple n)
         return DT_REG;
 }
 
-static inline fs_status node_from_user_path(filesystem *fs, inode cwd, const char *path,
-                                            boolean nofollow, boolean create, boolean exclusive,
-                                            boolean truncate, tuple *n, fsfile *f)
-{
-    if (!fault_in_user_string(path))
-        return FS_STATUS_FAULT;
-    return filesystem_get_node(fs, cwd, path, nofollow, create, exclusive, truncate, n, f);
-}
-
-sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
+sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
                         int mode)
 {
     heap h = heap_locked(get_kernel_heaps());
@@ -880,7 +871,7 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
     }
 
     if (do_missing_files) {
-        b = string_from_cstring(name);
+        b = wrap_string_sstring(name);
         assert(b != INVALID_ADDRESS);
         b = buffer_basename(b);
     }
@@ -1031,13 +1022,14 @@ sysreturn open_internal(filesystem fs, inode cwd, const char *name, int flags,
 #ifdef __x86_64__
 sysreturn open(const char *name, int flags, int mode)
 {
-    if (!fault_in_user_string(name))
+    sstring name_ss;
+    if (!fault_in_user_string(name, &name_ss))
         return -EFAULT;
-    thread_log(current, "open: \"%s\", flags %x, mode %x", name, flags, mode);
+    thread_log(current, "open: \"%s\", flags %x, mode %x", name_ss, flags, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = open_internal(cwd_fs, cwd, name, flags, mode);
+    sysreturn rv = open_internal(cwd_fs, cwd, name_ss, flags, mode);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1060,7 +1052,7 @@ sysreturn dup(int fd)
 
 sysreturn dup2(int oldfd, int newfd)
 {
-    thread_log(current, "%s: oldfd %d, newfd %d", __func__, oldfd, newfd);
+    thread_log(current, "%s: oldfd %d, newfd %d", func_ss, oldfd, newfd);
     process p = current->p;
     fdesc f = resolve_fd(p, oldfd);
     if (newfd != oldfd) {
@@ -1100,13 +1092,14 @@ sysreturn dup3(int oldfd, int newfd, int flags)
 
 sysreturn mkdir(const char *pathname, int mode)
 {
-    if (!fault_in_user_string(pathname))
+    sstring pathname_ss;
+    if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname, mode);
+    thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname_ss, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(cwd_fs, cwd, pathname));
+    sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(cwd_fs, cwd, pathname_ss));
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1125,25 +1118,27 @@ If pathname is absolute, then dirfd is ignore
 */
 sysreturn mkdirat(int dirfd, char *pathname, int mode)
 {
+    sstring pathname_ss;
     filesystem fs;
     inode cwd;
-    cwd = resolve_dir(fs, dirfd, pathname);
-    thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname, dirfd, mode);
+    cwd = resolve_dir(fs, dirfd, pathname, pathname_ss);
+    thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname_ss, dirfd, mode);
 
-    sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(fs, cwd, pathname));
+    sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(fs, cwd, pathname_ss));
     filesystem_release(fs);
     return rv;
 }
 
 sysreturn creat(const char *pathname, int mode)
 {
-    if (!fault_in_user_string(pathname))
+    sstring pathname_ss;
+    if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "creat: \"%s\", mode 0x%x", pathname, mode);
+    thread_log(current, "creat: \"%s\", mode 0x%x", pathname_ss, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = open_internal(cwd_fs, cwd, pathname,
+    sysreturn rv = open_internal(cwd_fs, cwd, pathname_ss,
         O_CREAT|O_WRONLY|O_TRUNC, mode);
     filesystem_release(cwd_fs);
     return rv;
@@ -1201,11 +1196,11 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
     return buflen;
 }
 
-static int try_write_dirent(void *dirp, boolean dirent64, char *p,
+static int try_write_dirent(void *dirp, boolean dirent64, string p,
         int *read_sofar, int *written_sofar, u64 *f_offset,
         unsigned int *count, filesystem fs, tuple n)
 {
-    int len = runtime_strlen(p);
+    int len = buffer_length(p);
     *read_sofar += len;
     if (*read_sofar > *f_offset) {
         int reclen = dirent64 ? (offsetof(struct linux_dirent64 *, d_name) + len + 1) :
@@ -1222,14 +1217,15 @@ static int try_write_dirent(void *dirp, boolean dirent64, char *p,
                 struct linux_dirent64 *dp = dirp;
                 dp->d_ino = fs->get_inode(fs, n);
                 dp->d_reclen = reclen;
-                runtime_memcpy(dp->d_name, p, len + 1);
+                runtime_memcpy(dp->d_name, buffer_ref(p, 0), len);
+                dp->d_name[len] = '\0';
                 dp->d_off = reclen + *written_sofar;
                 dp->d_type = dt_from_tuple(n);
             } else {
                 struct linux_dirent *dp = dirp;
                 dp->d_ino = fs->get_inode(fs, n);
                 dp->d_reclen = reclen;
-                runtime_memcpy(dp->d_name, p, len);
+                runtime_memcpy(dp->d_name, buffer_ref(p, 0), len);
                 zero(dp->d_name + len, reclen - (((void *)dp->d_name) - dirp) - len - 1);
                 dp->d_off = reclen + *written_sofar;
                 ((char *)dirp)[reclen - 1] = dt_from_tuple(n);
@@ -1249,8 +1245,7 @@ closure_function(8, 2, boolean, getdents_each,
                  value, k, value, v)
 {
     assert(is_symbol(k));
-    buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-    char *p = cstring(symbol_string(k), tmpbuf);
+    string p = symbol_string(k);
     *bound(r) = try_write_dirent(*bound(dirp), bound(dirent64), p,
                                  bound(read_sofar), bound(written_sofar), &bound(f)->offset, bound(count),
                                  bound(fs), v);
@@ -1310,9 +1305,10 @@ sysreturn getdents64(int fd, struct linux_dirent64 *dirp, unsigned int count)
 
 sysreturn chdir(const char *path)
 {
-    if (!fault_in_user_string(path))
+    sstring path_ss;
+    if (!fault_in_user_string(path, &path_ss))
         return -EFAULT;
-    return sysreturn_from_fs_status(filesystem_chdir(current->p, path));
+    return sysreturn_from_fs_status(filesystem_chdir(current->p, path_ss));
 }
 
 sysreturn fchdir(int dirfd)
@@ -1357,14 +1353,17 @@ static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, long lengt
 
 sysreturn truncate(const char *path, long length)
 {
+    sstring path_ss;
+    if (!fault_in_user_string(path, &path_ss))
+        return -EFAULT;
     tuple t;
     filesystem fs;
     inode cwd;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fsfile fsf;
-    fs_status fss = node_from_user_path(&fs, cwd, path, false, false, false, false, &t, &fsf);
-    thread_log(current, "%s \"%s\" %d", __func__, path, length);
+    fs_status fss = filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &t, &fsf);
+    thread_log(current, "%s \"%s\" %d", func_ss, path_ss, length);
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
@@ -1390,7 +1389,7 @@ sysreturn truncate(const char *path, long length)
 
 sysreturn ftruncate(int fd, long length)
 {
-    thread_log(current, "%s %d %d", __func__, fd, length);
+    thread_log(current, "%s %d %d", func_ss, fd, length);
     file f = resolve_fd(current->p, fd);
     sysreturn rv;
     if (!(f->f.flags & (O_RDWR | O_WRONLY)) ||
@@ -1409,7 +1408,7 @@ closure_function(1, 1, void, sync_complete,
 {
     assert(is_syscall_context(get_current_context(current_cpu())));
     thread t = current;
-    thread_log(current, "%s: status %v", __func__, s);
+    thread_log(current, "%s: status %v", func_ss, s);
     fdesc f = bound(f);
     if (f)
         fdesc_put(f);
@@ -1480,7 +1479,7 @@ sysreturn fdatasync(int fd)
     return fsync_internal(fd, true);
 }
 
-static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname, int mode)
+static sysreturn access_internal(filesystem fs, inode cwd, sstring pathname, int mode)
 {
     tuple m = 0;
     fs_status fss = filesystem_get_node(&fs, cwd, pathname, false, false, false, false, &m, 0);
@@ -1499,23 +1498,25 @@ static sysreturn access_internal(filesystem fs, inode cwd, const char *pathname,
 
 sysreturn access(const char *pathname, int mode)
 {
-    if (!fault_in_user_string(pathname))
+    sstring pathname_ss;
+    if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "access: \"%s\", mode %d", pathname, mode);
+    thread_log(current, "access: \"%s\", mode %d", pathname_ss, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = access_internal(cwd_fs, cwd, pathname, mode);
+    sysreturn rv = access_internal(cwd_fs, cwd, pathname_ss, mode);
     filesystem_release(cwd_fs);
     return rv;
 }
 
 sysreturn faccessat(int dirfd, const char *pathname, int mode)
 {
+    sstring pathname_ss;
     filesystem fs;
-    inode cwd = resolve_dir(fs, dirfd, pathname);
-    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname, mode);
-    sysreturn rv = access_internal(fs, cwd, pathname, mode);
+    inode cwd = resolve_dir(fs, dirfd, pathname, pathname_ss);
+    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname_ss, mode);
+    sysreturn rv = access_internal(fs, cwd, pathname_ss, mode);
     filesystem_release(fs);
     return rv;
 }
@@ -1537,11 +1538,12 @@ sysreturn openat(int dirfd, const char *name, int flags, int mode)
     if (name == 0)
         return set_syscall_error(current, EINVAL);
 
+    sstring name_ss;
     filesystem fs;
     inode cwd;
-    cwd = resolve_dir(fs, dirfd, name);
+    cwd = resolve_dir(fs, dirfd, name, name_ss);
 
-    sysreturn rv = open_internal(fs, cwd, name, flags, mode);
+    sysreturn rv = open_internal(fs, cwd, name_ss, flags, mode);
     filesystem_release(fs);
     return rv;
 }
@@ -1634,7 +1636,7 @@ static sysreturn fstat(int fd, struct stat *s)
     return rv;
 }
 
-static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boolean follow,
+static sysreturn stat_internal(filesystem fs, inode cwd, sstring name, boolean follow,
         struct stat *buf)
 {
     tuple n;
@@ -1643,6 +1645,8 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
     if (!fault_in_user_memory(buf, sizeof(struct stat), true))
         return -EFAULT;
 
+    thread_log(current, "stat: cwd 0x%lx, \"%s\", %sfollow, buf %p", cwd, name,
+               follow ? sstring_empty() : ss("no "), buf);
     fs_status fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
@@ -1660,25 +1664,24 @@ static sysreturn stat_internal(filesystem fs, inode cwd, const char *name, boole
 
 static sysreturn stat_cwd(const char *name, boolean follow, struct stat *buf)
 {
-    if (!fault_in_user_string(name))
+    sstring name_ss;
+    if (!fault_in_user_string(name, &name_ss))
         return -EFAULT;
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = stat_internal(cwd_fs, cwd, name, follow, buf);
+    sysreturn rv = stat_internal(cwd_fs, cwd, name_ss, follow, buf);
     filesystem_release(cwd_fs);
     return rv;
 }
 
 static sysreturn stat(const char *name, struct stat *buf)
 {
-    thread_log(current, "stat: \"%s\", buf %p", name, buf);
     return stat_cwd(name, true, buf);
 }
 
 static sysreturn lstat(const char *name, struct stat *buf)
 {
-    thread_log(current, "lstat: \"%s\", buf %p", name, buf);
     return stat_cwd(name, false, buf);
 }
 #endif
@@ -1690,9 +1693,10 @@ static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags
         return fstat(dfd, s);
 
     // Else, if we have a fd of a directory, resolve name to it.
+    sstring name_ss;
     filesystem fs;
-    inode n = resolve_dir(fs, dfd, name);
-    sysreturn rv = stat_internal(fs, n, name, !(flags & AT_SYMLINK_NOFOLLOW), s);
+    inode n = resolve_dir(fs, dfd, name, name_ss);
+    sysreturn rv = stat_internal(fs, n, name_ss, !(flags & AT_SYMLINK_NOFOLLOW), s);
     filesystem_release(fs);
     return rv;
 }
@@ -1700,10 +1704,10 @@ static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags
 sysreturn lseek(int fd, s64 offset, int whence)
 {
     thread_log(current, "%s: fd %d offset %ld whence %s",
-            __func__, fd, offset, whence == SEEK_SET ? "SEEK_SET" :
-            whence == SEEK_CUR ? "SEEK_CUR" :
-            whence == SEEK_END ? "SEEK_END" :
-            "bugged");
+               func_ss, fd, offset, whence == SEEK_SET ? ss("SEEK_SET") :
+               whence == SEEK_CUR ? ss("SEEK_CUR") :
+               whence == SEEK_END ? ss("SEEK_END") :
+               ss("invalid"));
 
     file f = resolve_fd(current->p, fd);
     s64 new;
@@ -1771,8 +1775,8 @@ sysreturn uname(struct utsname *v)
     runtime_memcpy(v->machine, machine, sizeof(machine));
 
     /* gitversion shouldn't exceed the field, but just in case... */
-    bytes len = MIN(runtime_strlen(gitversion), sizeof(v->version) - 1);
-    runtime_memcpy(v->version, gitversion, len);
+    bytes len = MIN(gitversion.len, sizeof(v->version) - 1);
+    runtime_memcpy(v->version, gitversion.ptr, len);
     v->version[len] = '\0';     /* TODO: append build seq / time */
 
     /* The "5.0-" dummy prefix placates the glibc dynamic loader. */
@@ -1847,7 +1851,7 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 
 static sysreturn getrusage(int who, struct rusage *usage)
 {
-    thread_log(current, "%s: who %d", __func__, who);
+    thread_log(current, "%s: who %d", func_ss, who);
     context ctx = get_current_context(current_cpu());
     if (!validate_user_memory(usage, sizeof(*usage), true) || context_set_err(ctx))
         return -EFAULT;
@@ -1915,7 +1919,7 @@ static sysreturn brk(void *addr)
     return sysreturn_from_pointer(addr);
 }
 
-static sysreturn readlink_internal(filesystem fs, inode cwd, const char *pathname, char *buf,
+static sysreturn readlink_internal(filesystem fs, inode cwd, sstring pathname, char *buf,
         u64 bufsiz)
 {
     if (!fault_in_user_memory(buf, bufsiz, true)) {
@@ -1942,36 +1946,39 @@ static sysreturn readlink_internal(filesystem fs, inode cwd, const char *pathnam
 
 sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
 {
-    if (!fault_in_user_string(pathname))
+    sstring pathname_ss;
+    if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "readlink: \"%s\"", pathname);
+    thread_log(current, "readlink: \"%s\"", pathname_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = readlink_internal(cwd_fs, cwd, pathname, buf, bufsiz);
+    sysreturn rv = readlink_internal(cwd_fs, cwd, pathname_ss, buf, bufsiz);
     filesystem_release(cwd_fs);
     return rv;
 }
 
 sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
 {
-    thread_log(current, "readlinkat: \"%s\", dirfd %d", pathname, dirfd);
+    sstring pathname_ss;
     filesystem fs;
-    inode cwd = resolve_dir(fs, dirfd, pathname);
-    sysreturn rv = readlink_internal(fs, cwd, pathname, buf, bufsiz);
+    inode cwd = resolve_dir(fs, dirfd, pathname, pathname_ss);
+    thread_log(current, "readlinkat: \"%s\", dirfd %d", pathname_ss, dirfd);
+    sysreturn rv = readlink_internal(fs, cwd, pathname_ss, buf, bufsiz);
     filesystem_release(fs);
     return rv;
 }
 
 sysreturn unlink(const char *pathname)
 {
-    if (!fault_in_user_string(pathname))
+    sstring pathname_ss;
+    if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "unlink %s", pathname);
+    thread_log(current, "unlink %s", pathname_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_delete(cwd_fs, cwd, pathname, false));
+    sysreturn rv = sysreturn_from_fs_status(filesystem_delete(cwd_fs, cwd, pathname_ss, false));
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1981,38 +1988,41 @@ sysreturn unlinkat(int dirfd, const char *pathname, int flags)
     if (flags & ~AT_REMOVEDIR) {
         return set_syscall_error(current, EINVAL);
     }
+    sstring path_ss;
     filesystem fs;
-    inode cwd = resolve_dir(fs, dirfd, pathname);
-    thread_log(current, "unlinkat %d %s 0x%x", dirfd, pathname, flags);
+    inode cwd = resolve_dir(fs, dirfd, pathname, path_ss);
+    thread_log(current, "unlinkat %d %s 0x%x", dirfd, path_ss, flags);
     sysreturn rv;
-    rv = sysreturn_from_fs_status(filesystem_delete(fs, cwd, pathname, !!(flags & AT_REMOVEDIR)));
+    rv = sysreturn_from_fs_status(filesystem_delete(fs, cwd, path_ss, !!(flags & AT_REMOVEDIR)));
     filesystem_release(fs);
     return rv;
 }
 
 sysreturn rmdir(const char *pathname)
 {
-    if (!fault_in_user_string(pathname))
+    sstring pathname_ss;
+    if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "rmdir %s", pathname);
+    thread_log(current, "rmdir %s", pathname_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_delete(cwd_fs, cwd, pathname, true));
+    sysreturn rv = sysreturn_from_fs_status(filesystem_delete(cwd_fs, cwd, pathname_ss, true));
     filesystem_release(cwd_fs);
     return rv;
 }
 
 sysreturn rename(const char *oldpath, const char *newpath)
 {
-    if (!fault_in_user_string(oldpath) || !fault_in_user_string(newpath))
+    sstring oldpath_ss, newpath_ss;
+    if (!fault_in_user_string(oldpath, &oldpath_ss) || !fault_in_user_string(newpath, &newpath_ss))
         return -EFAULT;
-    thread_log(current, "rename \"%s\" \"%s\"", oldpath, newpath);
+    thread_log(current, "rename \"%s\" \"%s\"", oldpath_ss, newpath_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_rename(cwd_fs, cwd, oldpath,
-        cwd_fs, cwd, newpath, false));
+    sysreturn rv = sysreturn_from_fs_status(filesystem_rename(cwd_fs, cwd, oldpath_ss,
+                                                              cwd_fs, cwd, newpath_ss, false));
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -2020,12 +2030,13 @@ sysreturn rename(const char *oldpath, const char *newpath)
 sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
         const char *newpath)
 {
+    sstring oldpath_ss, newpath_ss;
     filesystem oldfs, newfs;
-    inode oldwd = resolve_dir(oldfs, olddirfd, oldpath);
-    inode newwd = resolve_dir(newfs, newdirfd, newpath);
-    thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath, newdirfd, newpath);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_rename(oldfs, oldwd, oldpath,
-        newfs, newwd, newpath, false));
+    inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
+    inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
+    thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath_ss, newdirfd, newpath_ss);
+    sysreturn rv = sysreturn_from_fs_status(filesystem_rename(oldfs, oldwd, oldpath_ss,
+                                                              newfs, newwd, newpath_ss, false));
     filesystem_release(oldfs);
     filesystem_release(newfs);
     return rv;
@@ -2038,17 +2049,18 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
             ((flags & RENAME_EXCHANGE) && (flags & RENAME_NOREPLACE))) {
         return set_syscall_error(current, EINVAL);
     }
+    sstring oldpath_ss, newpath_ss;
     filesystem oldfs, newfs;
-    inode oldwd = resolve_dir(oldfs, olddirfd, oldpath);
-    inode newwd = resolve_dir(newfs, newdirfd, newpath);
-    thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd, oldpath,
-               newdirfd, newpath, flags);
+    inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
+    inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
+    thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd, oldpath_ss,
+               newdirfd, newpath_ss, flags);
     fs_status fss;
     if (flags & RENAME_EXCHANGE) {
-        fss = filesystem_exchange(oldfs, oldwd, oldpath, newfs, newwd, newpath);
+        fss = filesystem_exchange(oldfs, oldwd, oldpath_ss, newfs, newwd, newpath_ss);
     }
     else {
-        fss = filesystem_rename(oldfs, oldwd, oldpath, newfs, newwd, newpath,
+        fss = filesystem_rename(oldfs, oldwd, oldpath_ss, newfs, newwd, newpath_ss,
             !!(flags & RENAME_NOREPLACE));
     }
     filesystem_release(oldfs);
@@ -2057,12 +2069,11 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
 }
 
 /* File paths are treated as absolute paths. */
-sysreturn fs_rename(buffer oldpath, buffer newpath)
+sysreturn fs_rename(sstring oldpath, sstring newpath)
 {
     filesystem fs = get_root_fs();
     inode root = fs->get_inode(fs, filesystem_getroot(fs));
-    return sysreturn_from_fs_status(filesystem_rename(fs, root, buffer_to_cstring(oldpath),
-        fs, root, buffer_to_cstring(newpath), false));
+    return sysreturn_from_fs_status(filesystem_rename(fs, root, oldpath, fs, root, newpath, false));
 }
 
 sysreturn close(int fd)
@@ -2480,7 +2491,7 @@ void register_file_syscalls(struct syscall *map)
 
 struct syscall {
     void *handler;
-    const char *name;
+    sstring name;
     u64 flags;
 };
 
@@ -2593,8 +2604,8 @@ void syscall_handler(thread t)
     }
     struct syscall *s = t->p->syscalls + call;
     if (debugsyscalls) {
-        if (s->name)
-            thread_log(t, s->name);
+        if (!sstring_is_null(s->name))
+            thread_log(t, "%s", s->name);
         else
             thread_log(t, "syscall %d", call);
     }
@@ -2613,7 +2624,7 @@ void syscall_handler(thread t)
         if (debugsyscalls)
             thread_log(t, "direct return: %ld, rsp 0x%lx", rv, f[SYSCALL_FRAME_SP]);
     } else if (debugsyscalls) {
-        if (s->name)
+        if (!sstring_is_null(s->name))
             thread_log(t, "nosyscall %s", s->name);
         else
             thread_log(t, "nosyscall %d", call);
@@ -2675,21 +2686,19 @@ static boolean stat_compare(void *za, void *zb)
     return sb->usecs > sa->usecs;
 }
 
-static inline char *print_usecs(buffer b, u64 x)
+static inline sstring print_usecs(buffer b, u64 x)
 {
     buffer_clear(b);
     bprintf(b, "%d.%06d", x / MILLION, x % MILLION);
-    buffer_write_byte(b, 0);
-    return buffer_ref(b, 0);
+    return buffer_to_sstring(b);
 }
 
-static inline char *print_pct(buffer b, u64 x, u64 y)
+static inline sstring print_pct(buffer b, u64 x, u64 y)
 {
     buffer_clear(b);
     x *= 100;
     bprintf(b, "%d.%02d", x / y, (x * 100 / y) % 100);
-    buffer_write_byte(b, 0);
-    return buffer_ref(b, 0);
+    return buffer_to_sstring(b);
 }
 
 #define LINE "------"
@@ -2715,7 +2724,8 @@ closure_function(0, 2, void, print_syscall_stats_cfn,
 
     if (status != 0)
         return;
-    rprintf("\n" HDR_FMT SEPARATOR, "% time", "seconds", "usecs/call", "calls", "errors", "syscall");
+    rprintf("\n" HDR_FMT SEPARATOR, ss("% time"), ss("seconds"), ss("usecs/call"), ss("calls"),
+            ss("errors"), ss("syscall"));
     for (int i = 0; i < SYS_MAX; i++) {
         ss = &stats[i];
         if (ss->calls == 0)
@@ -2729,12 +2739,13 @@ closure_function(0, 2, void, print_syscall_stats_cfn,
         rprintf(DATA_FMT, print_pct(pbuf, ss->usecs, tot_usecs), print_usecs(tbuf, ss->usecs),
             ROUNDED_IDIV(ss->usecs, ss->calls), ss->calls, ss->errors, _linux_syscalls[ss - stats].name);
     }
-    rprintf(SEPARATOR SUM_FMT, "100.00", print_usecs(tbuf, tot_usecs), 0, tot_calls, tot_errs, "total");
+    rprintf(SEPARATOR SUM_FMT, ss("100.00"), print_usecs(tbuf, tot_usecs), 0, tot_calls, tot_errs,
+            ss("total"));
     deallocate_pqueue(pq);
 }
 
-static char *missing_files_exclude[] = {
-    "ld.so.cache",
+static const sstring missing_files_exclude[] = {
+    ss_static_init("ld.so.cache"),
 };
 
 closure_function(0, 2, void, print_missing_files_cfn,
@@ -2744,7 +2755,7 @@ closure_function(0, 2, void, print_missing_files_cfn,
     rprintf("missing_files_begin\n");
     vector_foreach(missing_files, b) {
         for (int i = 0; i < sizeof(missing_files_exclude)/sizeof(missing_files_exclude[0]); i++) {
-            if (buffer_compare_with_cstring(b, missing_files_exclude[i]))
+            if (!buffer_compare_with_sstring(b, missing_files_exclude[i]))
                 goto next;
         }
         rprintf("%v\n", b);
@@ -2782,7 +2793,7 @@ void init_syscalls(process p)
     }
 }
 
-void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name, u64 flags)
+void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), sstring name, u64 flags)
 {
     assert(m[n].handler == 0);
     m[n].handler = f;
@@ -2798,16 +2809,16 @@ void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)())
 }
 
 static struct trace_set {
-    char *name;
+    sstring name;
     u64 flag;
 } trace_sets[] = {
-    { "%file", SYSCALL_F_SET_FILE },
-    { "%desc", SYSCALL_F_SET_DESC },
-    { "%memory", SYSCALL_F_SET_MEM },
-    { "%process", SYSCALL_F_SET_PROC },
-    { "%signal", SYSCALL_F_SET_SIG },
-    { "%net", SYSCALL_F_SET_NET },
-    { "%network", SYSCALL_F_SET_NET },
+    { ss_static_init("%file"), SYSCALL_F_SET_FILE },
+    { ss_static_init("%desc"), SYSCALL_F_SET_DESC },
+    { ss_static_init("%memory"), SYSCALL_F_SET_MEM },
+    { ss_static_init("%process"), SYSCALL_F_SET_PROC },
+    { ss_static_init("%signal"), SYSCALL_F_SET_SIG },
+    { ss_static_init("%net"), SYSCALL_F_SET_NET },
+    { ss_static_init("%network"), SYSCALL_F_SET_NET },
 };
 
 static void notrace_configure(process p, boolean set)
@@ -2828,12 +2839,12 @@ closure_function(2, 2, boolean, notrace_each,
     if (peek_char(v) == '%') {
         for (int j = 0; j < sizeof(trace_sets) / sizeof(trace_sets[0]); j++) {
             struct trace_set *ts = trace_sets + j;
-            if (!buffer_compare_with_cstring(v, ts->name))
+            if (buffer_compare_with_sstring(v, ts->name))
                 continue;
 
             for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
                 struct syscall *s = bound(p)->syscalls + i;
-                if (!s->name || !(s->flags & ts->flag))
+                if (sstring_is_null(s->name) || !(s->flags & ts->flag))
                     continue;
 
                 if (bound(set))
@@ -2846,10 +2857,7 @@ closure_function(2, 2, boolean, notrace_each,
     } else {
         for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
             struct syscall *s = bound(p)->syscalls + i;
-            if (!s->name)
-                continue;
-
-            if (!buffer_compare_with_cstring(v, s->name))
+            if (sstring_is_null(s->name) || buffer_compare_with_sstring(v, s->name))
                 continue;
 
             if (bound(set))

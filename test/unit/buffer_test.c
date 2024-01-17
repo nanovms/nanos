@@ -10,7 +10,7 @@
 
 #define test_assert(expr) do { \
 if (expr) ; else { \
-	msg_err("%s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
+	msg_err("%s -- failed at %s:%d\n", ss(#expr), file_ss, __LINE__); \
 	goto fail; \
 } \
 } while (0)
@@ -21,7 +21,7 @@ boolean basic_tests(heap h)
     boolean failure = true;
     buffer wb = (buffer)0;
     u32 test_int;
-    char test_str[] =  "This is a test string";
+    sstring test_str =  ss("This is a test string");
     buffer b = allocate_buffer(h, 10);
     /*
      * Validate buffer initialized correct, and some 
@@ -47,53 +47,54 @@ boolean basic_tests(heap h)
     push_varint(b, 0xdeadbeef);
     test_assert(pop_varint(b) == 0xdeadbeef);
     test_assert(buffer_length(b) == 0);
-    test_assert(buffer_memcmp(b, test_str, 0) == 0);
+    test_assert(buffer_memcmp(b, test_str.ptr, 0) == 0);
     test_assert(buffer_strchr(b, '0') < 0);
     test_assert(buffer_strrchr(b, '0') < 0);
     test_assert(buffer_strstr(b, test_str) == -1);
     test_assert(buffer_basename(b) == b);
 
     /* Buffer capacity */
-    buffer_write_cstring(b, test_str);
-    test_assert(buffer_set_capacity(b, 1) >= strlen(test_str));
+    buffer_write_sstring(b, test_str);
+    test_assert(buffer_set_capacity(b, 1) >= test_str.len);
     test_assert(buffer_set_capacity(b, b->length) == b->length);
     buffer_set_capacity(b, 3 * b->length);
-    test_assert(buffer_compare_with_cstring(b, test_str));
-    test_assert(buffer_compare_with_cstring_ci(b, test_str));
-    test_assert(buffer_compare_with_cstring_ci(b, "THIS IS A TEST STRING"));
+    test_assert(!buffer_compare_with_sstring(b, test_str));
+    test_assert(!buffer_compare_with_sstring_ci(b, test_str));
+    test_assert(!buffer_strcasecmp(b, "THIS IS A TEST STRING"));
 
-    test_assert(buffer_strcmp(b, test_str) == 0);
-    test_assert(buffer_memcmp(b, test_str, sizeof(test_str)) < 0);
+    test_assert(buffer_strcmp(b, "This is a test string") == 0);
     test_assert(buffer_strchr(b, 't') == 10);
     test_assert(buffer_strchr(b, 'u') < 0);
     test_assert(buffer_strrchr(b, 'T') == 0);
     test_assert(buffer_strrchr(b, 'g') == 20);
     test_assert(buffer_strrchr(b, 'i') == 18);
     test_assert(buffer_strrchr(b, 'u') == -1);
-    test_assert(buffer_strstr(b, "") == 0);
+    test_assert(buffer_strstr(b, ss("")) == 0);
     test_assert(buffer_strstr(b, test_str) == 0);
-    test_assert(buffer_strstr(b, "This") == 0);
-    test_assert(buffer_strstr(b, "is") == 2);
-    test_assert(buffer_strstr(b, "g") == 20);
-    test_assert(buffer_strstr(b, "TT") == -1);
+    test_assert(buffer_strstr(b, ss("This")) == 0);
+    test_assert(buffer_strstr(b, ss("is")) == 2);
+    test_assert(buffer_strstr(b, ss("g")) == 20);
+    test_assert(buffer_strstr(b, ss("TT")) == -1);
 
-    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("/usr/lib")), "lib"));
-    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("/usr/")), "usr"));
-    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("usr")), "usr"));
-    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("/")), "/"));
-    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring(".")), "."));
-    test_assert(buffer_compare_with_cstring(buffer_basename(alloca_wrap_cstring("..")), ".."));
+    push_u8(b, '\0');
+    test_assert(!buffer_compare_with_sstring(b, test_str));
+    test_assert(!buffer_strcasecmp(b, "ThIs Is A tEsT sTrInG"));
+
+    test_assert(!buffer_strcasecmp(buffer_basename(alloca_wrap_cstring("/usr/lib")), "lib"));
+    test_assert(!buffer_strcasecmp(buffer_basename(alloca_wrap_cstring("/usr/")), "usr"));
+    test_assert(!buffer_strcasecmp(buffer_basename(alloca_wrap_cstring("usr")), "usr"));
+    test_assert(!buffer_strcasecmp(buffer_basename(alloca_wrap_cstring("/")), "/"));
+    test_assert(!buffer_strcasecmp(buffer_basename(alloca_wrap_cstring(".")), "."));
+    test_assert(!buffer_strcasecmp(buffer_basename(alloca_wrap_cstring("..")), ".."));
 
     /* Create and then deallocate a wrapped buffer. */
-    deallocate_buffer(wrap_string_cstring(test_str));
+    deallocate_buffer(wrap_string(test_str.ptr, test_str.len));
 
     /*
      * Validate wrap_string_cstring initialization, and contents
      */
-    wb = wrap_string_cstring(test_str);
-    // Note, compiler adds a '\0' to array so sizeof array will be 1 more than string
-    test_assert(buffer_length(wb) == (sizeof(test_str) - 1));
-    test_assert(strcmp(buffer_ref(wb,0),test_str) == 0);
+    wb = wrap_string(test_str.ptr, test_str.len);
+    test_assert(!buffer_compare_with_sstring(wb, test_str));
     failure = false;
   fail:
     if (wb) unwrap_buffer(h, wb);
@@ -214,8 +215,8 @@ boolean concat_tests(heap h)
 #define VBPRINTF_TEST(b, orig, fmt, ...)                                                 \
     do {                                                                                 \
         buffer_clear(b);                                                                 \
-        bbprintf(b, alloca_wrap_buffer(fmt, runtime_strlen(fmt)), ##__VA_ARGS__);        \
-        test_assert(buffer_compare(b, alloca_wrap_buffer(orig, runtime_strlen(orig))));  \
+        bprintf(b, fmt, ##__VA_ARGS__);                                                  \
+        test_assert(buffer_compare(b, alloca_wrap_cstring(orig)));                       \
     } while (0)
 
 boolean vbprintf_tests(heap h)
@@ -224,8 +225,8 @@ boolean vbprintf_tests(heap h)
     buffer b = allocate_buffer(h, 10);
 
     // %s
-    VBPRINTF_TEST(b, "hello, world", "%s", "hello, world");
-    VBPRINTF_TEST(b, "(null)", "%s", "(null)");
+    VBPRINTF_TEST(b, "hello, world", "%s", ss("hello, world"));
+    VBPRINTF_TEST(b, "(null)", "%s", ss("(null)"));
 
     // %p
     void *p = (void *) 0x123456780000;

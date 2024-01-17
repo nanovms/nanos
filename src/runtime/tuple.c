@@ -21,17 +21,17 @@ BSS_RO_AFTER_INIT static heap iheap;
 #define immediate 1
 #define reference 0
 
-const char *tag_names[tag_max] = {
-    "unknown",
-    "string",
-    "symbol",
-    "table-backed tuple",
-    "function-backed tuple",
-    "vector",
-    "integer"
+const sstring tag_names[tag_max] = {
+    ss_static_init("unknown"),
+    ss_static_init("string"),
+    ss_static_init("symbol"),
+    ss_static_init("table-backed tuple"),
+    ss_static_init("function-backed tuple"),
+    ss_static_init("vector"),
+    ss_static_init("integer"),
 };
 
-static inline void validate_tag_type(const char * fn, value v, u16 tag)
+static inline void validate_tag_type(sstring fn, value v, u16 tag)
 {
     if (tag >= tag_max)
         halt("%s: value %p has invalid tag type %d\n", fn, v, tag);
@@ -55,7 +55,7 @@ value get(value e, value a)
 {
     u16 tag = tagof(e);
     tuple t = (tuple)e;
-    validate_tag_type(__func__, e, tag);
+    validate_tag_type(func_ss, e, tag);
 
     switch (tag) {
     case tag_table_tuple:
@@ -77,7 +77,7 @@ void set(value e, value a, value v)
 {
     u16 tag = tagof(e);
     tuple t = (tuple)e;
-    validate_tag_type(__func__, e, tag);
+    validate_tag_type(func_ss, e, tag);
 
     switch (tag) {
     case tag_table_tuple:
@@ -102,7 +102,7 @@ boolean iterate(value e, binding_handler h)
 {
     u16 tag = tagof(e);
     tuple t = (tuple)e;
-    validate_tag_type(__func__, e, tag);
+    validate_tag_type(func_ss, e, tag);
     switch (tag) {
     case tag_table_tuple:
         table_foreach(&t->t, a, v) {
@@ -157,7 +157,7 @@ int tuple_count(tuple t)
         apply(t->f.i, stack_closure(tuple_count_each, &count));
         return count;
     default:
-        halt("%s: t %p is not a tuple (tag %d)\n", __func__, t, tag);
+        halt("%s: t %p is not a tuple (tag %d)\n", func_ss, t, tag);
     }
 }
 
@@ -288,7 +288,8 @@ static u64 pop_header(buffer f, boolean *imm, u8 *type, boolean old_encoding)
             len = (len<<7) | (a & 0x7f);
         } while(a & 0x80);
     }
-    tuple_debug("header: %s type %d len %lx\n", (*imm) ? "immediate" : "reference", *type, len);
+    tuple_debug("header: %s type %d len %lx\n", (*imm) ? ss("immediate") : ss("reference"),
+                *type, len);
     return len;
 }
 
@@ -303,7 +304,7 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
     assert(buffer_extend(b, words + 1));
 
     tuple_debug("push header: %s type %d length:0x%lx bits:%d words:%d\n",
-                imm ? "immediate" : "reference", type, length, bits, words);
+                imm ? ss("immediate") : ss("reference"), type, length, bits, words);
     assert(type < 8);
     u8 first = (imm << 7) | (type << 4) | (((words)?1:0)<<3) | (length >> (words * 7));
     tuple_debug("push %x\n", first);
@@ -319,7 +320,7 @@ static void push_header(buffer b, boolean imm, u8 type, u64 length)
 
 static void set_new_value(value e, value a, heap h, table dictionary, buffer source, u64 *total, u64 *obsolete, boolean old_encoding)
 {
-    tuple_debug("%s: e %p, a %v\n", __func__, e, a);
+    tuple_debug("%s: e %p, a %v\n", func_ss, e, a);
     value nv = decode_value(h, dictionary, source, total, obsolete, old_encoding);
     if (obsolete) {
         value old_v = get(e, a);
@@ -356,7 +357,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
     u8 type;
     boolean imm;
     u64 len = pop_header(source, &imm, &type, old_encoding);
-    tuple_debug("%s: type %d, imm %d, len %d\n", __func__, type, imm, len);
+    tuple_debug("%s: type %d, imm %d, len %d\n", func_ss, type, imm, len);
 
     if (type == type_tuple) {
         tuple t;
@@ -407,7 +408,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
         boolean neg = len > 0;
         assert(imm == immediate);
         u64 n = pop_varint(source);
-        tuple_debug("decode_value: decoded integer %s%lu\n", neg ? "-" : "", n);
+        tuple_debug("decode_value: decoded integer %s%lu\n", neg ? ss("-") : sstring_empty(), n);
         if (neg)
             return value_from_s64(-(s64)n);
         else
@@ -437,7 +438,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
                 return null_value;
             }
             if (!old_encoding)
-                rprintf("%s: warning: untyped buffer, len %ld, offset %d: %X\n", __func__,
+                rprintf("%s: warning: untyped buffer, len %ld, offset %d: %X\n", func_ss,
                         len, source->start, alloca_wrap_buffer(buffer_ref(source, 0), len));
 
             /* address a long-standing bug in bootloaders; untyped buffers must be tagged */
@@ -455,7 +456,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
             if (!b) halt("indirect buffer not found: 0x%lx, offset %d\n", len, source->start);
         }
         tuple_debug("decode_value: %s buffer %p (%b)\n",
-                    imm == immediate ? "immediate" : "indirect", b, b);
+                    imm == immediate ? ss("immediate") : ss("indirect"), b, b);
         return b;
     }
 }
@@ -496,7 +497,7 @@ static void encode_value_internal(buffer dest, table dictionary, value v, u64 *t
         encode_string(dest, (string)v);
     } else {
         if (v != null_value) {
-            rprintf("%s: untyped value %v, len %d, from %p\n", __func__, v,
+            rprintf("%s: untyped value %v, len %d, from %p\n", func_ss, v,
                     buffer_length((buffer)v), __builtin_return_address(0));
             print_frame_trace_from_here();
         }
@@ -571,7 +572,7 @@ closure_function(4, 2, boolean, encode_tuple_each,
 
 static void encode_tuple_internal(buffer dest, table dictionary, tuple t, u64 *total, table visited)
 {
-    tuple_debug("%s: dest %p, dictionary %p, tuple %p\n", __func__, dest, dictionary, t);
+    tuple_debug("%s: dest %p, dictionary %p, tuple %p\n", func_ss, dest, dictionary, t);
     u64 d = u64_from_pointer(table_find(dictionary, t));
     u64 count = 0;
 
@@ -623,7 +624,7 @@ closure_function(4, 2, boolean, encode_vector_each,
 
 static void encode_vector_internal(buffer dest, table dictionary, vector v, u64 *total, table visited)
 {
-    tuple_debug("%s: dest %p, dictionary %p, vector %v\n", __func__, dest, dictionary, v);
+    tuple_debug("%s: dest %p, dictionary %p, vector %v\n", func_ss, dest, dictionary, v);
     u64 d = u64_from_pointer(table_find(dictionary, v));
     u64 count;
     if (!(visited && table_find(visited, v)))
@@ -645,7 +646,7 @@ static void encode_vector_internal(buffer dest, table dictionary, vector v, u64 
 
 static void encode_integer(buffer dest, value v)
 {
-    tuple_debug("%s: dest %p, v %v\n", __func__, dest, v);
+    tuple_debug("%s: dest %p, v %v\n", func_ss, dest, v);
     u64 abs;
     boolean neg = is_signed_integer_value(v);
     if (neg) {
@@ -689,7 +690,7 @@ void deallocate_value(value v)
             deallocate_buffer((buffer)v);
         break;
     default:
-        halt("%s: unknown tag type %d\n", __func__, tag);
+        halt("%s: unknown tag type %d\n", func_ss, tag);
     }
 }
 

@@ -37,7 +37,4 @@
 #ifndef __ASSEMBLY__
 #define mmio_base_addr(x) ((u64)(DEVICE_BASE + DEV_BASE_ ##x))
 
-void early_debug(const char *s);
-void early_debug_u64(u64 n);
-void early_dump(void *p, unsigned long length);
 #endif

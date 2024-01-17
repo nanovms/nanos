@@ -134,12 +134,12 @@ static parser json_array_parser(heap h, parse_finish_internal c, parse_error_int
 
 static boolean char_is_whitespace(character in)
 {
-    return (runtime_strchr(" \n\r\t", in) != 0);
+    return (runtime_strchr(ss(" \n\r\t"), in) != 0);
 }
 
 static boolean char_is_numeric(character in)
 {
-    return (runtime_strchr("1234567890.", in) != 0);
+    return (runtime_strchr(ss("1234567890."), in) != 0);
 }
 
 static parser parse_literal(parser p, character in, int char_index, const char *literal,

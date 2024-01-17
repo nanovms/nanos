@@ -11,7 +11,7 @@ struct spinlock pt_lock;
 //#define PAGE_DUMP_ALL
 
 #if defined(PAGE_DEBUG) && !defined(BOOT)
-#define page_debug(x, ...) do {tprintf(sym(page), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define page_debug(x, ...) do {tprintf(sym(page), 0, ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define page_debug(x, ...)
 #endif

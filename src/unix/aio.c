@@ -201,7 +201,7 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb, context ctx)
 {
     if (!validate_user_memory(iocb, sizeof(struct iocb), false) || context_set_err(ctx))
         return -EFAULT;
-    thread_log(current, "%s: fd %d, op %d", __func__, iocb->aio_fildes,
+    thread_log(current, "%s: fd %d, op %d", func_ss, iocb->aio_fildes,
             iocb->aio_lio_opcode);
 
     if (iocb->aio_reserved1 || iocb->aio_reserved2 || !iocb->aio_buf ||

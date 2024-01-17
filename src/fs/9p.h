@@ -29,7 +29,7 @@ struct p9_string {
     char str[0];
 } __attribute__((packed));
 
-#define p9_strlen(str)  (2 + runtime_strlen(str))
+#define p9_strlen(str)  (2 + (str).len)
 #define p9_buflen(buf)  (2 + buffer_length(buf))
 
 enum p9_msg_t {
@@ -370,9 +370,9 @@ union p9_write_resp {
 
 void p9_create_fs(heap h, void *transport, boolean readonly, filesystem_complete complete);
 
-void p9_strcpy(struct p9_string *dest, const char *str);
+void p9_strcpy(struct p9_string *dest, sstring str);
 void p9_bufcpy(struct p9_string *dest, buffer b);
-int p9_strcmp(struct p9_string *s1, const char *s2);
+int p9_strcmp(struct p9_string *s1, sstring s2);
 
 fs_status p9_parse_minimal_resp(u8 req_type, union p9_minimal_resp *resp, u32 resp_len);
 fs_status p9_parse_qid_resp(u8 req_type, union p9_qid_resp *resp, u32 resp_len, u64 *qid);

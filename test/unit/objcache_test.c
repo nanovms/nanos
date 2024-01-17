@@ -155,7 +155,8 @@ boolean preallocated_objcache_test(heap meta, heap parent, int objsize, boolean 
 
     /* re-allocate a page + 1 worth to trigger parent allocation */
     if (!(alloc_vec(h, opp + 1, objsize, objs) != prealloc_only)) {
-        msg_err("tb: unexpectedly %s to allocate object\n", prealloc_only ? "able" : "failed");
+        msg_err("tb: unexpectedly %s to allocate object\n",
+                prealloc_only ? ss("able") : ss("failed"));
         return false;
     }
 

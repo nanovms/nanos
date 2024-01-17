@@ -84,45 +84,46 @@ static boolean pledge_default_handler(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u6
     return pledge_syscall_check((syscall_context)get_current_context(current_cpu()), rv);
 }
 
+static const sstring promises[] = {
+    ss_static_init("stdio"),
+    ss_static_init("rpath"),
+    ss_static_init("wpath"),
+    ss_static_init("cpath"),
+    ss_static_init("dpath"),
+    ss_static_init("tmppath"),
+    ss_static_init("inet"),
+    ss_static_init("mcast"),
+    ss_static_init("fattr"),
+    ss_static_init("chown"),
+    ss_static_init("flock"),
+    ss_static_init("unix"),
+    ss_static_init("dns"),
+    ss_static_init("getpw"),
+    ss_static_init("sendfd"),
+    ss_static_init("recvfd"),
+    ss_static_init("tape"),
+    ss_static_init("tty"),
+    ss_static_init("proc"),
+    ss_static_init("exec"),
+    ss_static_init("prot_exec"),
+    ss_static_init("settime"),
+    ss_static_init("ps"),
+    ss_static_init("vminfo"),
+    ss_static_init("id"),
+    ss_static_init("pf"),
+    ss_static_init("route"),
+    ss_static_init("wroute"),
+    ss_static_init("audio"),
+    ss_static_init("video"),
+    ss_static_init("bpf"),
+    ss_static_init("unveil"),
+    ss_static_init("error"),
+};
+
 static u64 pledge_get_ability(buffer promise)
 {
-    static const char *promises[] = {
-        "stdio",
-        "rpath",
-        "wpath",
-        "cpath",
-        "dpath",
-        "tmppath",
-        "inet",
-        "mcast",
-        "fattr",
-        "chown",
-        "flock",
-        "unix",
-        "dns",
-        "getpw",
-        "sendfd",
-        "recvfd",
-        "tape",
-        "tty",
-        "proc",
-        "exec",
-        "prot_exec",
-        "settime",
-        "ps",
-        "vminfo",
-        "id",
-        "pf",
-        "route",
-        "wroute",
-        "audio",
-        "video",
-        "bpf",
-        "unveil",
-        "error",
-    };
     for (int i = 0; i < _countof(promises); i++)
-        if (buffer_compare_with_cstring(promise, promises[i]))
+        if (!buffer_compare_with_sstring(promise, promises[i]))
             return U64_FROM_BIT(i);
     return 0;
 }
@@ -131,11 +132,12 @@ static sysreturn pledge(const char *promises, const char *execpromises)
 {
     if (!promises)
         return 0;
-    if (!fault_in_user_string(promises))
+    sstring promises_ss;
+    if (!fault_in_user_string(promises, &promises_ss))
         return -EFAULT;
     heap h = heap_locked(&get_unix_heaps()->kh);
     u64 new_abilities = 0;
-    vector prom = split(h, alloca_wrap_cstring(promises), ' ');
+    vector prom = split(h, alloca_wrap_sstring(promises_ss), ' ');
     string pr;
     vector_foreach(prom, pr) {
         u64 ability = pledge_get_ability(pr);
@@ -396,45 +398,52 @@ static boolean pledge_getsockopt(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg
     return pledge_sockopt_check(false, arg1, arg2, rv);
 }
 
-static boolean path_canonicalize(const char *path, char *canon_path, int buf_size)
+static boolean path_canonicalize(sstring path, sstring *canon_path, int buf_size)
 {
-    if (path[0] != '/')
+    if (sstring_is_empty(path) || (path.ptr[0] != '/'))
         return false;
-    const char *p = path;
-    char *q = canon_path;
-    while (*p && (q - canon_path < buf_size)) {
-        if ((p[0] == '/') && ((p[1] == '/') || (p[1] == '\0')))
-            p++;
-        else if ((p[0] == '/') && (p[1] == '.') && ((p[2] == '/') || (p[2] == '\0')))
-            p += 2;
-        else if ((p[0] == '/') && (p[1] == '.') && (p[2] == '.') &&
-                 ((p[3] == '/') || (p[3] == '\0'))) {
-            p += 3;
-            if (q != canon_path)
-                /* remove the last path component */
-                do {
-                    q--;
-                } while (*q != '/');
-
-        } else {
-            *q++ = *p++;
+    bytes offset = 0;
+    char *q = canon_path->ptr;
+    while ((offset < path.len) && (q - canon_path->ptr < buf_size)) {
+        const char *p = path.ptr + offset;
+        if (p[0] == '/') {
+            if ((offset + 1 == path.len) || (p[1] == '/')) {
+                offset++;
+                continue;
+            }
+            if (p[1] == '.') {
+                if ((offset + 2 == path.len) || (p[2] == '/')) {
+                    offset += 2;
+                    continue;
+                }
+                if ((p[2] == '.') && ((offset + 3 == path.len) || (p[3] == '/'))) {
+                    offset += 3;
+                    if (q != canon_path->ptr)
+                        /* remove the last path component */
+                        do {
+                            q--;
+                        } while (*q != '/');
+                    continue;
+                }
+            }
         }
+        *q++ = *p;
+        offset++;
     }
-    if ((*p == '\0') && (q - canon_path < buf_size)) {
-        if (q == canon_path)
+    if ((offset == path.len) && (q - canon_path->ptr < buf_size)) {
+        if (q == canon_path->ptr)
             *q++ = '/';
-        *q = 0;
+        canon_path->len = q - canon_path->ptr;
         return true;
     }
     return false;
 }
 
-static boolean path_is_in_dir(const char *path, const char *dir)
+static boolean path_is_in_dir(sstring path, sstring dir)
 {
-    int dir_path_len = runtime_strlen(dir);
-    if (runtime_strlen(path) < dir_path_len)
+    if (path.len < dir.len)
         return false;
-    return (runtime_memcmp(path, dir, dir_path_len) == 0);
+    return (runtime_memcmp(path.ptr, dir.ptr, dir.len) == 0);
 }
 
 static boolean pledge_filepath_create(const char *path, sysreturn *rv)
@@ -444,11 +453,14 @@ static boolean pledge_filepath_create(const char *path, sysreturn *rv)
         return true;
     if (pldg.abilities & PLEDGE_CPATH)
         return false;
-    if (!fault_in_user_string(path))
+    sstring path_ss;
+    if (!fault_in_user_string(path, &path_ss))
         return false;
-    char canon_path[PATH_MAX];
-    boolean canon = path_canonicalize(path, canon_path, sizeof(canon_path));
-    if ((pldg.abilities & PLEDGE_TMPPATH) && canon && path_is_in_dir(canon_path, "/tmp/"))
+    char canon_path_array[PATH_MAX];
+    sstring canon_path;
+    canon_path.ptr = canon_path_array;
+    boolean canon = path_canonicalize(path_ss, &canon_path, sizeof(canon_path_array));
+    if ((pldg.abilities & PLEDGE_TMPPATH) && canon && path_is_in_dir(canon_path, ss("/tmp/")))
         return false;
     *rv = pledge_fail(sc->t);
     return true;
@@ -459,11 +471,14 @@ static boolean pledge_filepath_io(int call, const char *path, int flags, sysretu
     syscall_context sc = (syscall_context)get_current_context(current_cpu());
     if (pledge_syscall_check(sc, rv))
         return true;
-    if (!fault_in_user_string(path))
+    sstring path_ss;
+    if (!fault_in_user_string(path, &path_ss))
         return false;
-    char canon_path[PATH_MAX];
-    boolean canon = path_canonicalize(path, canon_path, sizeof(canon_path));
-    if ((pldg.abilities & PLEDGE_TMPPATH) && canon && path_is_in_dir(canon_path, "/tmp/"))
+    char canon_path_array[PATH_MAX];
+    sstring canon_path;
+    canon_path.ptr = canon_path_array;
+    boolean canon = path_canonicalize(path_ss, &canon_path, sizeof(canon_path_array));
+    if ((pldg.abilities & PLEDGE_TMPPATH) && canon && path_is_in_dir(canon_path, ss("/tmp/")))
         return false;
     if (!(pldg.abilities & PLEDGE_CPATH) && (flags & O_CREAT))
         goto fail;
@@ -474,24 +489,24 @@ static boolean pledge_filepath_io(int call, const char *path, int flags, sysretu
                 goto fail;
             switch (call) {
             case SYS_openat:
-                if (path_is_in_dir(canon_path, "/usr/share/zoneinfo/") ||
-                    !runtime_strcmp(canon_path, "/etc/localtime"))
+                if (path_is_in_dir(canon_path, ss("/usr/share/zoneinfo/")) ||
+                    !runtime_strcmp(canon_path, ss("/etc/localtime")))
                     return false;
                 if ((pldg.abilities & PLEDGE_DNS) &&
-                    (!runtime_strcmp(canon_path, "/etc/resolv.conf") ||
-                     !runtime_strcmp(canon_path, "/etc/hosts") ||
-                     !runtime_strcmp(canon_path, "/etc/services") ||
-                     !runtime_strcmp(canon_path, "/etc/protocols")))
+                    (!runtime_strcmp(canon_path, ss("/etc/resolv.conf")) ||
+                     !runtime_strcmp(canon_path, ss("/etc/hosts")) ||
+                     !runtime_strcmp(canon_path, ss("/etc/services")) ||
+                     !runtime_strcmp(canon_path, ss("/etc/protocols"))))
                     return false;
                 break;
             case SYS_faccessat:
-                if (!runtime_strcmp(canon_path, "/etc/localtime"))
+                if (!runtime_strcmp(canon_path, ss("/etc/localtime")))
                     return false;
                 break;
             case SYS_newfstatat:
                 if ((pldg.abilities & PLEDGE_DNS) &&
-                    (!runtime_strcmp(canon_path, "/etc/resolv.conf") ||
-                     !runtime_strcmp(canon_path, "/etc/hosts")))
+                    (!runtime_strcmp(canon_path, ss("/etc/resolv.conf")) ||
+                     !runtime_strcmp(canon_path, ss("/etc/hosts"))))
                     return false;
                 break;
             }

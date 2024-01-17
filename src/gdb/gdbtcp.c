@@ -12,7 +12,7 @@ closure_function(1, 1, status, gdb_send,
     /* invoked exclusively by gdbserver_input with lwIP lock held */
     err_t err = tcp_write(bound(g)->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK)
-        return timm("result", "%s: tcp_write returned with error %d", __func__, err);
+        return timm("result", "%s: tcp_write returned with error %d", func_ss, err);
     return STATUS_OK;
 }
 

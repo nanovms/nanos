@@ -168,7 +168,7 @@ static int ata_io_loop(struct ata *dev, int cmd, void *buf, u64 nsectors)
 
     for (;;) {
         if (ata_wait(dev, mask) < 0) {
-            ata_debug("%s: timeout (nsectors %ld)\n", __func__, nsectors);
+            ata_debug("%s: timeout (nsectors %ld)\n", func_ss, nsectors);
             return -1;
         }
 
@@ -220,7 +220,7 @@ static boolean ata_set_lba(struct ata *dev, u64 lba, u64 nsectors)
 void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s)
 {
     struct ata *dev = (struct ata *)_dev;
-    const char *err;
+    sstring err;
 
     u64 lba = blocks.start;
     u64 nsectors = range_span(blocks);
@@ -235,7 +235,7 @@ void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s
             cmd = ATA_WRITE;
     }
     ata_debug("%s: cmd 0x%x, blocks %R, sectors %d\n",
-        __func__, cmd, blocks, nsectors);
+              func_ss, cmd, blocks, nsectors);
 
     if (dev->irq_enabled) {
         ata_out8(dev, ATA_CONTROL, ATA_A_IDS);
@@ -256,14 +256,14 @@ void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s
     return;
 
 timeout:
-    err = "ata_io_cmd: device timeout";
+    err = ss("ata_io_cmd: device timeout");
     msg_err("%s\n", err);
-    apply(s, timm("result", err));
+    apply(s, timm_sstring(ss("result"), err));
 }
 
 boolean ata_io_cmd_dma(void *_dev, boolean write, range blocks)
 {
-    ata_debug("%s: %s at %R\n", __func__, write ? "write" : "read", blocks);
+    ata_debug("%s: %s at %R\n", func_ss, write ? ss("write") : ss("read"), blocks);
     struct ata *dev = (struct ata *)_dev;
     if (!ata_set_lba(dev, blocks.start, range_span(blocks)))
         return false;
@@ -335,7 +335,7 @@ boolean ata_probe(struct ata *dev)
     ata_out8(dev, ATA_DRIVE, sel);
     if (ata_in8(dev, ATA_DRIVE) != sel) {
         // drive does not exist
-        ata_debug("%s: drive does not exist\n", __func__);
+        ata_debug("%s: drive does not exist\n", func_ss);
         return false;
     }
 
@@ -350,7 +350,7 @@ boolean ata_probe(struct ata *dev)
     }
     ata_out8(dev, ATA_COMMAND, ATA_ATA_IDENTIFY);
     if (ata_wait(dev, ATA_S_READY | ATA_S_DRQ) < 0) {
-        ata_debug("%s: IDENTIFY timeout\n", __func__);
+        ata_debug("%s: IDENTIFY timeout\n", func_ss);
         return false;
     }
     char buf[512];
@@ -372,14 +372,21 @@ boolean ata_probe(struct ata *dev)
         dev->model[i] = buf[ATA_IDENT_MODEL + i + 1];
         dev->model[i + 1] = buf[ATA_IDENT_MODEL + i];
     }
+#ifdef ATA_DEBUG
+    sstring model = isstring(dev->model, 0);
+#endif
     dev->model[sizeof(dev->model) - 1] = ' ';
     for (int i = sizeof(dev->model) - 1; i >= 0; i--) {
-        if (dev->model[i] != ' ')
+        if (dev->model[i] != ' ') {
+#ifdef ATA_DEBUG
+            model.len = i + 1;
+#endif
             break;
+        }
         dev->model[i] = '\0';
     }
     ata_debug("%s: model %s, signature 0x%x, capabilities 0x%x, command sets 0x%x, %ld sectors\n",
-        __func__, dev->model, dev->signature, dev->capabilities, dev->command_sets, sectors);
+              func_ss, model, dev->signature, dev->capabilities, dev->command_sets, sectors);
 
     return true;
 }

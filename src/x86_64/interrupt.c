@@ -7,7 +7,7 @@
 
 //#define INT_DEBUG
 #ifdef INT_DEBUG
-#define int_debug(x, ...) do {tprintf(sym(int), 0, x, ##__VA_ARGS__);} while(0)
+#define int_debug(x, ...) do {tprintf(sym(int), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define int_debug(x, ...)
 #endif
@@ -18,44 +18,33 @@
 typedef struct inthandler {
     struct list l;
     thunk t;
-    const char *name;
+    sstring name;
 } *inthandler;
 
-static const char *interrupt_names[MAX_INTERRUPT_VECTORS] = {
-    "Divide by 0",
-    "Reserved",
-    "NMI Interrupt",
-    "Breakpoint (INT3)",
-    "Overflow (INTO)",
-    "Bounds range exceeded (BOUND)",
-    "Invalid opcode (UD2)",
-    "Device not available (WAIT/FWAIT)",
-    "Double fault",
-    "Coprocessor segment overrun",
-    "Invalid TSS",
-    "Segment not present",
-    "Stack-segment fault",
-    "General protection fault",
-    "Page fault",
-    "Reserved",
-    "x87 FPU error",
-    "Alignment check",
-    "Machine check",
-    "SIMD Floating-Point Exception",
-    "reserved 14",
-    "reserved 15",
-    "reserved 16",
-    "reserved 17",
-    "reserved 18",
-    "reserved 19",
-    "reserved 1a",
-    "reserved 1b",
-    "reserved 1c",
-    "reserved 1d",
-    "reserved 1e",
-    "reserved 1f"};
+static sstring interrupt_names[MAX_INTERRUPT_VECTORS] = {
+    ss_static_init("Divide by 0"),
+    ss_static_init("Reserved"),
+    ss_static_init("NMI Interrupt"),
+    ss_static_init("Breakpoint (INT3)"),
+    ss_static_init("Overflow (INTO)"),
+    ss_static_init("Bounds range exceeded (BOUND)"),
+    ss_static_init("Invalid opcode (UD2)"),
+    ss_static_init("Device not available (WAIT/FWAIT)"),
+    ss_static_init("Double fault"),
+    ss_static_init("Coprocessor segment overrun"),
+    ss_static_init("Invalid TSS"),
+    ss_static_init("Segment not present"),
+    ss_static_init("Stack-segment fault"),
+    ss_static_init("General protection fault"),
+    ss_static_init("Page fault"),
+    ss_static_init("Reserved"),
+    ss_static_init("x87 FPU error"),
+    ss_static_init("Alignment check"),
+    ss_static_init("Machine check"),
+    ss_static_init("SIMD Floating-Point Exception"),
+};
 
-static char* textoreg[] = {
+static const char register_names[][6] = {
     "   rax", //0
     "   rbx", //1
     "   rcx", //2
@@ -82,11 +71,6 @@ static char* textoreg[] = {
     "gsbase", //23
     "vector", //24
 };
-
-static inline char *register_name(u64 s)
-{
-    return textoreg[s];
-}
 
 BSS_RO_AFTER_INIT static u64 *idt;
 
@@ -145,14 +129,14 @@ void dump_context(context ctx)
     print_u64(v);
     if (v < INTERRUPT_VECTOR_START) {
         rputs(" (");
-        rputs((char *)interrupt_names[v]);
+        rput_sstring(interrupt_names[v]);
         rputs(")");
     }
     rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
     if (ctx->type >= CONTEXT_TYPE_UNDEFINED && ctx->type < CONTEXT_TYPE_MAX) {
         rputs("\n      type: ");
-        rputs(context_type_strings[ctx->type]);
+        rput_sstring(context_type_strings[ctx->type]);
     }
     rputs("\nactive_cpu: ");
     print_u64(ctx->active_cpu);
@@ -172,7 +156,7 @@ void dump_context(context ctx)
 
     rputs("\n\n");
     for (int j = 0; j < 24; j++) {
-        rputs(register_name(j));
+        rput_sstring(isstring((char *)register_names[j], 6));
         rputs(": ");
         print_u64_with_sym(f[j]);
         rputs("\n");
@@ -283,7 +267,7 @@ void common_handler()
     console("cpu ");
     print_u64(ci->id);
     console(", state ");
-    console(state_strings[ci->state]);
+    console_sstring(state_strings[ci->state]);
     console(", vector ");
     print_u64(i);
     console("\n");
@@ -311,11 +295,11 @@ boolean reserve_interrupt(u64 irq)
     return id_heap_set_area(interrupt_vector_heap, irq, 1, true, true);
 }
 
-void register_interrupt(int vector, thunk t, const char *name)
+void register_interrupt(int vector, thunk t, sstring name)
 {
     if (handlers[vector])
         halt("%s: handler for vector %d already registered (%p)\n",
-             __func__, vector, handlers[vector]);
+             func_ss, vector, handlers[vector]);
     handlers[vector] = t;
     interrupt_names[vector] = name;
 }
@@ -323,9 +307,9 @@ void register_interrupt(int vector, thunk t, const char *name)
 void unregister_interrupt(int vector)
 {
     if (!handlers[vector])
-        halt("%s: no handler registered for vector %d\n", __func__, vector);
+        halt("%s: no handler registered for vector %d\n", func_ss, vector);
     handlers[vector] = 0;
-    interrupt_names[vector] = 0;
+    interrupt_names[vector] = sstring_null();
 }
 
 closure_function(1, 0, void, shirq_handler,
@@ -346,14 +330,14 @@ u64 allocate_shirq(void)
     list_init(handlers);
     thunk t = closure(int_general, shirq_handler, handlers);
     assert(t != INVALID_ADDRESS);
-    register_interrupt(v, t, "shirq");
+    register_interrupt(v, t, ss("shirq"));
     return v;
 }
 
-void register_shirq(int v, thunk t, const char *name)
+void register_shirq(int v, thunk t, sstring name)
 {
     if (!handlers[v])
-        halt("%s: vector %d not allocated\n", __func__, v);
+        halt("%s: vector %d not allocated\n", func_ss, v);
     list shirq_handlers = closure_member(shirq_handler, handlers[v], handlers);
     inthandler handler = allocate(int_general, sizeof(struct inthandler));
     assert(handler != INVALID_ADDRESS);

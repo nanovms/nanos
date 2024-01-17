@@ -6,7 +6,7 @@
 
 //#define COREDUMP_DEBUG
 #ifdef COREDUMP_DEBUG
-#define core_debug(x, ...) do {tprintf(sym(coredump), 0, x, ##__VA_ARGS__);} while(0)
+#define core_debug(x, ...) do {tprintf(sym(coredump), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define core_debug(x, ...)
 #endif
@@ -102,9 +102,9 @@ static u64 vmflags_to_pflags(u64 vmflags)
     return f;
 }
 
-static void *add_note(buffer b, char *name, int type, u64 length)
+static void *add_note(buffer b, sstring name, int type, u64 length)
 {
-    int nlen = runtime_strlen(name) + 1;
+    int nlen = name.len + 1;
     int hlen = pad(sizeof(Elf_Note) + nlen, 4);
     u64 dlen = pad(length, 4);
     if (buffer_extend(b, hlen + dlen) == false)
@@ -113,7 +113,8 @@ static void *add_note(buffer b, char *name, int type, u64 length)
     n->n_descsz=length;
     n->n_namesz = nlen;
     n->n_type = type;
-    runtime_memcpy((void *)(n + 1), name, nlen);
+    runtime_memcpy((void *)(n + 1), name.ptr, name.len);
+    *((char *)(n + 1) + name.len) = '\0';
     buffer_produce(b, hlen);
     void *r = buffer_ref(b, buffer_length(b));
     buffer_produce(b, dlen);
@@ -122,7 +123,7 @@ static void *add_note(buffer b, char *name, int type, u64 length)
 
 static boolean add_thread_status(buffer b, thread t, struct siginfo *si)
 {
-    struct elf_prstatus *prs = add_note(b, "CORE", NT_PRSTATUS, sizeof(struct elf_prstatus));
+    struct elf_prstatus *prs = add_note(b, ss("CORE"), NT_PRSTATUS, sizeof(struct elf_prstatus));
     runtime_memset((void *)prs, 0, sizeof(*prs));
     prs->pr_info.si_signo = si->si_signo;
     prs->pr_info.si_code = si->si_code;
@@ -137,14 +138,14 @@ static boolean add_thread_status(buffer b, thread t, struct siginfo *si)
 
     reg_copy_out(&prs->pr_reg, t);
 
-    void *fp = add_note(b, "CORE", NT_PRFPREG, fpreg_size());
+    void *fp = add_note(b, ss("CORE"), NT_PRFPREG, fpreg_size());
     fpreg_copy_out(fp, t);
 
 #ifdef __x86_64__
 #define XCR0_OFFSET 464     /* points into sw_reserved of fxregs_state */
     extern u8 use_xsave;
     if (use_xsave) {
-        u8 *xs = add_note(b, "LINUX", NT_X86_XSTATE, extended_frame_size);
+        u8 *xs = add_note(b, ss("LINUX"), NT_X86_XSTATE, extended_frame_size);
         runtime_memcpy(xs, pointer_from_u64(thread_frame(t)[FRAME_EXTENDED]),
             extended_frame_size);
         u32 v[2];
@@ -153,7 +154,7 @@ static boolean add_thread_status(buffer b, thread t, struct siginfo *si)
     }
 #endif
 
-    void *psi = add_note(b, "CORE", NT_SIGINFO, sizeof(struct siginfo));
+    void *psi = add_note(b, ss("CORE"), NT_SIGINFO, sizeof(struct siginfo));
     runtime_memcpy(psi, si, sizeof(*si));
     return true;
 }
@@ -225,7 +226,7 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
     process p = t->p;
     status s = STATUS_OK;
 
-    fsfile f = fsfile_open_or_create(alloca_wrap_cstring(CORE_PATH), true);
+    fsfile f = fsfile_open_or_create(ss(CORE_PATH), true);
     if (f == INVALID_ADDRESS) {
         core_debug("failed to open core file\n");
         s = timm("result", "no core generated: failed to open core file");
@@ -291,7 +292,8 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
     phdr->p_type = PT_NOTE;
     phdr->p_offset = doff;
 
-    struct elf_prpsinfo *psinfo = add_note(bhdr, "CORE", NT_PRPSINFO, sizeof(struct elf_prpsinfo));
+    struct elf_prpsinfo *psinfo = add_note(bhdr, ss("CORE"), NT_PRPSINFO,
+                                           sizeof(struct elf_prpsinfo));
     assert(psinfo);
     runtime_memset((void *)psinfo, 0, sizeof(*psinfo));
     psinfo->pr_state = 0;
@@ -322,7 +324,7 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
         psinfo->pr_fname[l] = 0;
     }
 
-    struct aux *auxv = add_note(bhdr, "CORE", NT_AUXV, sizeof(t->p->saved_aux));
+    struct aux *auxv = add_note(bhdr, ss("CORE"), NT_AUXV, sizeof(t->p->saved_aux));
     runtime_memcpy(auxv, t->p->saved_aux, sizeof(t->p->saved_aux));
 
     /* TODO add NT_FILE note for filebacked mappings */

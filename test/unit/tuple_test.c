@@ -9,7 +9,7 @@
 
 #define test_assert(expr) do { \
 if (expr) ; else { \
-    msg_err("%s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
+    msg_err("%s -- failed at %s:%d\n", ss(#expr), file_ss, __LINE__); \
     goto fail; \
 } \
 } while (0)
@@ -18,12 +18,23 @@ boolean all_tests(heap h)
 {
     boolean failure = true;
 
-    char *tst[COUNT_ELM] = {"00","10","20","30","40","50","60","70","80","90"};
+    sstring tst[COUNT_ELM] = {
+        ss_static_init("00"),
+        ss_static_init("10"),
+        ss_static_init("20"),
+        ss_static_init("30"),
+        ss_static_init("40"),
+        ss_static_init("50"),
+        ss_static_init("60"),
+        ss_static_init("70"),
+        ss_static_init("80"),
+        ss_static_init("90"),
+    };
 
     // check count
     tuple t1 = allocate_tuple();
     for(u8 i = 0; i < COUNT_ELM; i++){
-        buffer b1 = wrap_string_cstring(tst[i]);
+        buffer b1 = wrap_string_sstring(tst[i]);
         set(t1, value_from_u64(i), b1);
     }
     test_assert(tuple_count(t1) == COUNT_ELM);//rprintf("%v\n", t1);
@@ -31,7 +42,7 @@ boolean all_tests(heap h)
     // from vector
     vector v1 = allocate_vector(h, COUNT_ELM);
     for(u8 i = 0; i < COUNT_ELM; i++){
-        vector_push(v1, wrap_string_cstring(tst[i]));
+        vector_push(v1, wrap_string_sstring(tst[i]));
     }
     test_assert(vector_length(v1) == COUNT_ELM);//rprintf("%v\n", t2);
     deallocate_vector(v1);
@@ -117,8 +128,8 @@ boolean all_tests(heap h)
     v1 = allocate_vector(h, 1);
     set(t1, sym(v1), v1);
     tuple t2 = allocate_tuple();
-    set(t2, sym(b0), wrap_string_cstring(tst[0]));
-    set(t2, sym(b1), wrap_string_cstring(tst[1]));
+    set(t2, sym(b0), wrap_string_sstring(tst[0]));
+    set(t2, sym(b1), wrap_string_sstring(tst[1]));
     set(t1, sym(t2), t2);
     tuple t3 = clone_tuple(t1);
     vector v2 = get(t3, sym(v1));

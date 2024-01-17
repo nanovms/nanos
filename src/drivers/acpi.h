@@ -160,7 +160,7 @@ typedef closure_type(spcr_handler, void, u8, u64);
 void init_acpi(kernel_heaps kh);
 void init_acpi_tables(kernel_heaps kh);
 void acpi_save_rsdp(u64 rsdp);
-void acpi_register_irq_handler(int irq, thunk t, const char *name);
+void acpi_register_irq_handler(int irq, thunk t, sstring name);
 boolean acpi_walk_madt(madt_handler mh);
 boolean acpi_walk_mcfg(mcfg_handler mh);
 boolean acpi_parse_spcr(spcr_handler h);

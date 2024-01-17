@@ -65,7 +65,7 @@ hyperv_sbintime2count(timestamp time)
 void
 vmbus_et_intr(void)
 {
-    vmbus_timer_debug("%s\n", __func__);
+    vmbus_timer_debug("%s\n", func_ss);
     schedule_timer_service();
 }
 

@@ -1,4 +1,9 @@
+#ifdef KERNEL
+#include <kernel.h>
+#include <symtab.h>
+#else
 #include <runtime.h>
+#endif
 
 
 static char *hex_digit="0123456789abcdef";
@@ -309,9 +314,15 @@ static void format_range(buffer dest, struct formatter_state *s, vlist *a)
 static void format_closure(buffer dest, struct formatter_state *s, vlist *a)
 {
     // xxx - we can probably do better here?
-    void **k = varg(*a, void **);
-    struct _closure_common *c = k[1];
-    bprintf(dest, "%s", &c->name);
+    u64 *k = varg(*a, u64 *);
+#ifdef KERNEL
+    sstring name = find_elf_sym(*k, 0, 0);
+    if (!sstring_is_null(name)) {
+        bprintf(dest, "%s", name);
+        return;
+    }
+#endif
+    bprintf(dest, "%p", *k);
 }
 
 void init_extra_prints(void)

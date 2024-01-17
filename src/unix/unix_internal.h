@@ -209,10 +209,9 @@ declare_closure_struct(1, 0, void, free_blockq,
                        blockq, bq)
 
 /* queue of threads waiting for a resource */
-#define BLOCKQ_NAME_MAX 20
 struct blockq {
     heap h;
-    char name[BLOCKQ_NAME_MAX]; /* for debug */
+    sstring name;   /* for debug */
     boolean wake;
     struct spinlock lock;
     struct list waiters_head;   /* of threads and associated timers+actions */
@@ -220,7 +219,7 @@ struct blockq {
     closure_struct(free_blockq, free);
 };
 
-blockq allocate_blockq(heap h, char * name);
+blockq allocate_blockq(heap h, sstring name);
 void deallocate_blockq(blockq bq);
 void blockq_thread_init(unix_context t);
 
@@ -234,7 +233,7 @@ static inline void blockq_release(blockq bq)
     refcount_release(&bq->refcount);
 }
 
-static inline const char * blockq_name(blockq bq)
+static inline sstring blockq_name(blockq bq)
 {
     return bq->name;
 }
@@ -570,12 +569,12 @@ extern thread dummy_thread;
             (_ctx->type == CONTEXT_TYPE_THREAD ? (thread)_ctx : 0);})
 
 #ifdef CURRENT_DEBUG
-#define current _current(__func__)
-static inline thread _current(const char *caller) {
+#define current _current(func_ss)
+static inline thread _current(sstring caller) {
     thread t = get_current_thread();
-    if (t == 0 && runtime_strcmp("run_thread_frame", caller) != 0 &&
-        runtime_strcmp("thread_wakeup", caller) != 0) {
-        log_printf("CURRENT", "invalid address returned to caller '%s'\n", caller);
+    if (t == 0 && runtime_strcmp(ss("run_thread_frame"), caller) != 0 &&
+        runtime_strcmp(ss("thread_wakeup"), caller) != 0) {
+        log_printf(ss("CURRENT"), ss("invalid address returned to caller '%s'\n"), caller);
         print_frame_trace_from_here();
     }
     return t;
@@ -832,10 +831,10 @@ struct rt_sigframe *get_rt_sigframe(thread t);
 boolean setup_sigframe(thread t, int signum, struct siginfo *si);
 void restore_ucontext(struct ucontext * uctx, thread t);
 
-void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), const char *name, u64 flags);
+void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), sstring name, u64 flags);
 void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)());
 
-#define register_syscall(m, n, f, fl) _register_syscall(m, SYS_##n, f, #n, fl)
+#define register_syscall(m, n, f, fl) _register_syscall(m, SYS_##n, f, ss(#n), fl)
 
 #define SYSCALL_F_NOTRACE   0x1
 #define SYSCALL_F_SET_FILE  (1<<8)
@@ -900,13 +899,13 @@ vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);
 boolean vmap_validate_range(process p, range q, u32 flags);
 void truncate_file_maps(process p, fsfile f, u64 new_length);
-const char *string_from_mmap_type(int type);
+sstring string_from_mmap_type(int type);
 
-void thread_log_internal(thread t, const char *desc, ...);
+void thread_log_internal(thread t, sstring desc, ...);
 #define thread_trace(__t, __f, __desc, ...)                 \
     do {                                                    \
         if ((__t) && ((__t)->p->trace & (__f)))             \
-        thread_log_internal(__t, __desc, ##__VA_ARGS__);    \
+        thread_log_internal(__t, ss(__desc), ##__VA_ARGS__);    \
     } while (0)
 #define thread_log(__t, __desc, ...)    thread_trace(__t, TRACE_OTHER, __desc, ##__VA_ARGS__)
 
@@ -1075,7 +1074,7 @@ typedef struct special_file_wrapper {
 typedef closure_type(spec_file_open, sysreturn, file f);
 
 void register_special_files(process p);
-boolean create_special_file(const char *path, spec_file_open open, u64 size, u64 rdev);
+boolean create_special_file(sstring path, spec_file_open open, u64 size, u64 rdev);
 sysreturn spec_open(file f, tuple t);
 file spec_allocate(tuple t);
 void spec_deallocate(file f);
@@ -1113,15 +1112,19 @@ static inline boolean validate_user_string(const char *name)
     return false;
 }
 
-static inline boolean fault_in_user_string(const char *name)
+static inline boolean fault_in_user_string(const char *name, sstring *res)
 {
     u64 a = u64_from_pointer(name);
     while (fault_in_user_memory(pointer_from_u64(a & ~PAGEMASK),
                                 PAGESIZE, false)) {
         u64 lim = (a & ~PAGEMASK) + PAGESIZE;
         while (a < lim) {
-            if (*(u8*)pointer_from_u64(a++) == '\0')
+            if (*(u8*)pointer_from_u64(a) == '\0') {
+                res->ptr = (char *)name;
+                res->len = a - u64_from_pointer(name);
                 return true;
+            }
+            a++;
         }
     }
     return false;

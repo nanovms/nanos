@@ -170,7 +170,7 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
 
             if (lstat(cstring(target_name, tmpbuf), st) < 0) {
                 if (errno != ENOENT)
-                    halt("couldn't stat file %b: %s\n", target_name, strerror(errno));
+                    halt("couldn't stat file %b: %s\n", target_name, errno_sstring());
 
                 // not found in target root -- fallback to lookup on host
                 deallocate_buffer(target_name);
@@ -183,7 +183,7 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
             }
 
             if ((len = readlink(cstring(target_name, tmpbuf), path_buf, sizeof(path_buf))) < 0)
-                halt("couldn't readlink file %b: %s\n", name, strerror(errno));
+                halt("couldn't readlink file %b: %s\n", name, errno_sstring());
             if (path_buf[0] != '/') {
                 // relative symlinks are ok
                 name = target_name;
@@ -196,7 +196,7 @@ buffer lookup_file(heap h, const char *target_root, buffer name, struct stat *st
     }
 
     if (stat(cstring(name, tmpbuf), st) < 0)
-        halt("couldn't stat file %b: %s\n", name, strerror(errno));
+        halt("couldn't stat file %b: %s\n", name, errno_sstring());
     return target_name;
 }
 
@@ -213,7 +213,7 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
 
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     int fd = open(cstring(name, tmpbuf), O_RDONLY);
-    if (fd < 0) halt("couldn't open file %b: %s\n", name, strerror(errno));
+    if (fd < 0) halt("couldn't open file %b: %s\n", name, errno_sstring());
     u64 size = st.st_size;
     buffer_extend(dest, pad(st.st_size, SECTOR_SIZE));
     u64 total = 0;
@@ -221,7 +221,7 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
         int rv = read(fd, buffer_ref(dest, total), size - total);
         if (rv < 0 && errno != EINTR) {
             close(fd);
-            halt("read: %b: %s\n", name, strerror(errno));
+            halt("read: %b: %s\n", name, errno_sstring());
         }
         total += rv;
     }
@@ -262,7 +262,7 @@ closure_function(2, 1, void, bwrite,
         apply(req->completion, STATUS_OK);
         return;
     default:
-        halt("%s: invalid storage op %d\n", __func__, req->op);
+        halt("%s: invalid storage op %d\n", func_ss, req->op);
     }
     sg_list sg = req->data;
     u64 offset = bound(offset) + (req->blocks.start << SECTOR_OFFSET);
@@ -283,7 +283,7 @@ closure_function(2, 1, void, bwrite,
         }
         xfer = writev(bound(d), iov, iov_count);
         if (xfer < 0 && errno != EINTR) {
-            apply(req->completion, timm("result", "write error", "error", "%s", strerror(errno)));
+            apply(req->completion, timm("result", "write error %s", errno_sstring()));
             return;
         }
         sg_consume(sg, xfer);
@@ -425,7 +425,7 @@ static ssize_t write_uefi_part(descriptor out, ssize_t offset, const char *uefi_
 {
     descriptor in = open(uefi_loader, O_RDONLY);
     if (in < 0) {
-        halt("couldn't open UEFI loader file %s: %s\n", uefi_loader, strerror(errno));
+        halt("couldn't open UEFI loader file %s: %s\n", uefi_loader, errno_sstring());
     }
     assert(lseek(out, offset, SEEK_SET) == offset);
     write_blob_padded(out, uefi_part_blob1, sizeof(uefi_part_blob1), true);
@@ -481,7 +481,7 @@ static ssize_t write_uefi_part(descriptor out, ssize_t offset, const char *uefi_
         }
     }
     if (nr < 0) {
-        halt("couldn't read from UEFI loader file %s: %s\n", uefi_loader, strerror(errno));
+        halt("couldn't read from UEFI loader file %s: %s\n", uefi_loader, errno_sstring());
     }
     return offset + UEFI_PART_SIZE;
 }
@@ -491,14 +491,14 @@ static void write_mbr(descriptor f, boolean uefi)
     // get resulting size
     off_t total_size = lseek(f, 0, SEEK_END);
     if (total_size < 0)
-        halt("could not get image size: %s\n", strerror(errno));
+        halt("could not get image size: %s\n", errno_sstring());
     assert(total_size % SECTOR_SIZE == 0);
 
     // read MBR
     char buf[SECTOR_SIZE];
     int res = pread(f, buf, sizeof(buf), 0);
     if (res < 0)
-        halt("could not read MBR: %s\n", strerror(errno));
+        halt("could not read MBR: %s\n", errno_sstring());
     else if (res != sizeof(buf))
         halt("could not read MBR (short read)\n");
 
@@ -532,7 +532,7 @@ static void write_mbr(descriptor f, boolean uefi)
     // write MBR
     res = pwrite(f, buf, sizeof(buf), 0);
     if (res < 0)
-        halt("could not write MBR: %s\n", strerror(errno));
+        halt("could not write MBR: %s\n", errno_sstring());
     else if (res != sizeof(buf))
         halt("could not write MBR (short write)\n");
 }
@@ -617,7 +617,7 @@ int main(int argc, char **argv)
     int c;
     const char *bootimg_path = NULL;
     const char *kernelimg_path = NULL;
-    const char *label = "";
+    sstring label = sstring_empty();
     const char *target_root = NULL;
     long long img_size = 0;
     long long coredumplimit = 0;
@@ -646,7 +646,7 @@ int main(int argc, char **argv)
                 printf("label '%s' too long\n", optarg);
                 exit(EXIT_FAILURE);
             }
-            label = optarg;
+            label = isstring(optarg, strlen(optarg));
             break;
         case 'r':
             target_root = optarg;
@@ -685,7 +685,7 @@ int main(int argc, char **argv)
 
     descriptor out = open(image_path, O_CREAT|O_RDWR|O_TRUNC, 0644);
     if (out < 0) {
-        halt("couldn't open output file %s: %s\n", image_path, strerror(errno));
+        halt("couldn't open output file %s: %s\n", image_path, errno_sstring());
     }
 
     // prepend boot image (if any)
@@ -693,7 +693,7 @@ int main(int argc, char **argv)
     if (bootimg_path != NULL) {
         descriptor in = open(bootimg_path, O_RDONLY);
         if (in < 0) {
-            halt("couldn't open boot image file %s: %s\n", bootimg_path, strerror(errno));
+            halt("couldn't open boot image file %s: %s\n", bootimg_path, errno_sstring());
         }
 
         char buf[PAGESIZE];
@@ -704,14 +704,14 @@ int main(int argc, char **argv)
             while (nr > 0) {
                 nw = write(out, buf, nr);
                 if (nw < 0) {
-                    halt("couldn't write to output file %s: %s\n", image_path, strerror(errno));
+                    halt("couldn't write to output file %s: %s\n", image_path, errno_sstring());
                 }
                 offset += nw;
                 nr -= nw;
             }
         }
         if (nr < 0) {
-            halt("couldn't read from boot image file %s: %s\n", bootimg_path, strerror(errno));
+            halt("couldn't read from boot image file %s: %s\n", bootimg_path, errno_sstring());
         }
 
         /* The on-disk kernel log dump section is immediately before the first partition. */
@@ -747,7 +747,8 @@ int main(int argc, char **argv)
             push_u8((buffer)v, 0);
             char *s = buffer_ref((buffer)v, 0);
             if (!parse_size(s, &img_size)) {
-                halt("invalid imagesize string \"%s\"\n", s);
+                printf("invalid imagesize string \"%s\"\n", s);
+                exit(EXIT_FAILURE);
             }
             deallocate_buffer((buffer)v);
         }
@@ -769,7 +770,7 @@ int main(int argc, char **argv)
             tuple children = find_or_allocate_tuple(boot, sym(children));
             tuple kernel = find_or_allocate_tuple(children, sym(kernel));
             tuple contents = find_or_allocate_tuple(kernel, sym(contents));
-            buffer b = alloca_wrap_buffer(kernelimg_path, runtime_strlen(kernelimg_path));
+            buffer b = alloca_wrap_buffer(kernelimg_path, strlen(kernelimg_path));
             set(contents, sym(host), b);
             set(kernel, sym(contents), contents);
             set(children, sym(kernel), kernel);
@@ -789,7 +790,7 @@ int main(int argc, char **argv)
         }
         if (boot) {
             create_filesystem(h, SECTOR_SIZE, BOOTFS_SIZE, closure(h, bwrite, out, offset), false,
-                              "", closure(h, fsc, h, out, boot, target_root));
+                              sstring_empty(), closure(h, fsc, h, out, boot, target_root));
             offset += BOOTFS_SIZE;
 
             /* Remove tuple from root, so it doesn't end up in the root FS. */
@@ -809,7 +810,7 @@ int main(int argc, char **argv)
 
     off_t current_size = lseek(out, 0, SEEK_END);
     if (current_size < 0) {
-        halt("could not get image size: %s\n", strerror(errno));
+        halt("could not get image size: %s\n", errno_sstring());
     }
     if (!img_size)
         img_size = current_size;
@@ -817,7 +818,7 @@ int main(int argc, char **argv)
                    TFS_LOG_DEFAULT_EXTENSION_SIZE) + offset;
     if (current_size < img_size) {
         if (ftruncate(out, img_size)) {
-            halt("could not set image size: %s\n", strerror(errno));
+            halt("could not set image size: %s\n", errno_sstring());
         }
     }
     if (bootimg_path != NULL)

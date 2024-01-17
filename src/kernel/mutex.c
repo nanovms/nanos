@@ -2,7 +2,7 @@
 
 //#define MUTEX_DEBUG
 #ifdef MUTEX_DEBUG
-#define mutex_debug(x, ...) do {tprintf(sym(mutex), 0, x, ##__VA_ARGS__);} while(0)
+#define mutex_debug(x, ...) do {tprintf(sym(mutex), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define mutex_debug(x, ...)
 #endif
@@ -90,7 +90,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
 #endif
     /* not preemptable (could become option on allocate) */
     if (((volatile mutex)m)->turn == ctx)
-        halt("%s: lock already held - cpu %d, mutex %p, ctx %p, ra %p\n", __func__,
+        halt("%s: lock already held - cpu %d, mutex %p, ctx %p, ra %p\n", func_ss,
              ci->id, m, ctx, __builtin_return_address(0));
 
     assert(!ctx->waiting_on);

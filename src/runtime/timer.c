@@ -10,7 +10,7 @@
 
 //#define TIMER_DEBUG
 #ifdef TIMER_DEBUG
-#define timer_debug(x, ...) do {log_printf("TIMER", x, ##__VA_ARGS__);} while(0)
+#define timer_debug(x, ...) do {log_printf(ss("TIMER"), ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define timer_debug(x, ...)
 #endif
@@ -150,7 +150,7 @@ void timer_adjust_end(timerqueue tq, pqueue_element_handler h)
     timer_unlock(tq);
 }
 
-timerqueue allocate_timerqueue(heap h, clock_now now, const char *name)
+timerqueue allocate_timerqueue(heap h, clock_now now, sstring name)
 {
     timerqueue tq = allocate(h, sizeof(struct timerqueue));
     tq->pq = allocate_pqueue(h, now ? timer_compare_simple : timer_compare);

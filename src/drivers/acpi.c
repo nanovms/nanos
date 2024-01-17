@@ -311,7 +311,7 @@ static ACPI_STATUS acpi_ged_res_probe(ACPI_RESOURCE *resource, void *context)
             }
             thunk handler = closure(acpi_heap, acpi_ged_handler, event, gsi);
             assert(handler != INVALID_ADDRESS);
-            acpi_register_irq_handler(gsi, handler, "acpi-ged");
+            acpi_register_irq_handler(gsi, handler, ss("acpi-ged"));
         }
         break;
     }
@@ -451,7 +451,7 @@ void AcpiOsFree(void *memory)
 
 void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS where, ACPI_SIZE length)
 {
-    acpi_debug("%s(0x%lx, %ld)", __func__, where, length);
+    acpi_debug("%s(0x%lx, %ld)", func_ss, where, length);
     u64 page_offset = where & PAGEMASK;
     length += page_offset;
     heap vh = (heap)heap_virtual_page(get_kernel_heaps());
@@ -465,7 +465,7 @@ void *AcpiOsMapMemory(ACPI_PHYSICAL_ADDRESS where, ACPI_SIZE length)
 
 void AcpiOsUnmapMemory(void *where, ACPI_SIZE length)
 {
-    acpi_debug("%s(0x%lx, %ld)", __func__, where, length);
+    acpi_debug("%s(0x%lx, %ld)", func_ss, where, length);
     u64 page_offset = u64_from_pointer(where) & PAGEMASK;
     where -= page_offset;
     length = pad(length + page_offset, PAGESIZE);
@@ -562,7 +562,7 @@ void AcpiOsStall(UINT32 usecs)
 
 void AcpiOsSleep(UINT64 msecs)
 {
-    halt("%s not supported\n", __func__);
+    halt("%s not supported\n", func_ss);
 }
 
 ACPI_STATUS AcpiOsSignal(UINT32 function, void *info)
@@ -572,10 +572,7 @@ ACPI_STATUS AcpiOsSignal(UINT32 function, void *info)
 
 void AcpiOsPrintf(const char *fmt, ...)
 {
-    /* We can't use the printf-style functions of the kernel because they treat the %X format
-     * identifier differently from the standard printf-style functions. Just print the format
-     * string, it may still be helpful if any error messages are generated. */
-    rputs(fmt);
+    /* We don't handle null-terminated strings, so don't parse the format string. */
 }
 
 ACPI_STATUS AcpiOsTableOverride(ACPI_TABLE_HEADER *existing_table, ACPI_TABLE_HEADER **new_table)
@@ -733,7 +730,7 @@ UINT32 AcpiOsInstallInterruptHandler(UINT32 interrupt_number, ACPI_OSD_HANDLER s
     thunk irq_handler = closure(acpi_heap, acpi_irq, service_routine, context);
     if (irq_handler == INVALID_ADDRESS)
         return AE_NO_MEMORY;
-    acpi_register_irq_handler(interrupt_number, irq_handler, "ACPI");
+    acpi_register_irq_handler(interrupt_number, irq_handler, ss("ACPI"));
     return AE_OK;
 }
 

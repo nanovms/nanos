@@ -98,7 +98,7 @@ static void pvscsi_hcb_dealloc(pvscsi dev, struct pvscsi_hcb *hcb)
 static struct pvscsi_hcb *pvscsi_hcb_alloc(pvscsi dev, u16 target, u16 lun, u8 cmd)
 {
     int alloc_len = scsi_data_len(cmd);
-    pvscsi_debug("%s: cmd %d, alloc_len %d\n", __func__, cmd, alloc_len);
+    pvscsi_debug("%s: cmd %d, alloc_len %d\n", func_ss, cmd, alloc_len);
     struct pvscsi_hcb *hcb = allocate((heap)dev->hcb_objcache, sizeof(struct pvscsi_hcb));
     assert(hcb != INVALID_ADDRESS);
     if (alloc_len) {
@@ -161,7 +161,7 @@ closure_function(6, 0, void, pvscsi_io_done,
     } else if (hcb->scsi_status != SCSI_STATUS_OK) {
         if ((hcb->scsi_status == SCSI_STATUS_BUSY) &&
                 (bound(retries++) < PVSCSI_RETRY_LIMIT)) {
-            pvscsi_debug("%s: scsi_status busy, retrying\n", __func__);
+            pvscsi_debug("%s: scsi_status busy, retrying\n", func_ss);
 
             /* Clone the failed request and retry. */
             pvscsi_disk d = bound(d);
@@ -198,7 +198,7 @@ static void pvscsi_io(pvscsi_disk disk, u8 cmd, void *buf, range blocks, status_
     cdb->addr = htobe64(blocks.start);
     cdb->length = htobe32(nblocks);
     pvscsi_debug("%s: cmd %d, blocks %R, addr 0x%016lx, length 0x%08x\n",
-        __func__, cmd, blocks, cdb->addr, cdb->length);
+                 func_ss, cmd, blocks, cdb->addr, cdb->length);
     r->completion = closure(dev->general, pvscsi_io_done, sh, buf,
         nblocks * disk->block_size, disk, r, 0);
     pvscsi_action_io_queued(dev, r, disk->target, disk->lun, buf, nblocks * disk->block_size);
@@ -227,7 +227,7 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
     u16 lun = bound(lun);
     struct pvscsi_hcb *hcb = bound(hcb);
     pvscsi_debug("%s: target %d, lun %d, host_status %d, scsi_status %d\n",
-        __func__, target, lun, hcb->host_status, hcb->scsi_status);
+                 func_ss, target, lun, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS) {
         scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
         goto out;
@@ -251,7 +251,7 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
     d->lun = lun;
     d->scsi = s;
     pvscsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
-        __func__, target, lun, d->block_size, d->capacity);
+                 func_ss, target, lun, d->block_size, d->capacity);
 
     block_io in = closure(s->general, pvscsi_read, d);
     block_io out = closure(s->general, pvscsi_write, d);
@@ -274,7 +274,7 @@ closure_function(6, 0, void, pvscsi_test_unit_ready_done,
     int retry_count = bound(retry_count);
 
     pvscsi_debug("%s: target %d, lun %d, host_status %d, scsi_status %d\n",
-        __func__, target, lun, hcb->host_status, hcb->scsi_status);
+                 func_ss, target, lun, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS) {
         goto out;
     }
@@ -315,7 +315,7 @@ closure_function(5, 0, void, pvscsi_inquiry_done,
     u16 target = bound(target);
     u16 lun = bound(lun);
     pvscsi_debug("%s: target %d, lun %d, host_status %d, scsi_status %d\n",
-        __func__, target, lun, hcb->host_status, hcb->scsi_status);
+                 func_ss, target, lun, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS || hcb->scsi_status != SCSI_STATUS_OK) {
         if (hcb->scsi_status != SCSI_STATUS_OK)
             scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
@@ -326,7 +326,7 @@ closure_function(5, 0, void, pvscsi_inquiry_done,
 #ifdef PVSCSI_DEBUG
     struct scsi_res_inquiry *res = (struct scsi_res_inquiry *) hcb->data;
     pvscsi_debug("%s: vendor %b, product %b, revision %b\n",
-        __func__,
+        func_ss,
         alloca_wrap_buffer(res->vendor, sizeof(res->vendor)),
         alloca_wrap_buffer(res->product, sizeof(res->product)),
         alloca_wrap_buffer(res->revision, sizeof(res->revision)));
@@ -346,13 +346,13 @@ closure_function(4, 0, void, pvscsi_report_luns_done,
     struct pvscsi_hcb *hcb = bound(hcb);
     u16 target = bound(target);
     pvscsi_debug("%s: target %d, host_status %d, scsi_status %d\n",
-        __func__, target, hcb->host_status, hcb->scsi_status);
+                 func_ss, target, hcb->host_status, hcb->scsi_status);
     /* BTSTAT_DATARUN is just residue, not an error */
     if ((hcb->host_status != BTSTAT_SUCCESS && hcb->host_status != BTSTAT_DATARUN)
          || hcb->scsi_status != SCSI_STATUS_OK) {
         if (hcb->scsi_status != SCSI_STATUS_OK)
             scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
-        pvscsi_debug("%s: NOT SUCCESS: host_status %d, scsi_status %d\n", __func__, hcb->host_status,
+        pvscsi_debug("%s: ERROR: host_status %d, scsi_status %d\n", func_ss, hcb->host_status,
                      hcb->scsi_status);
         closure_finish();
         return;
@@ -360,10 +360,10 @@ closure_function(4, 0, void, pvscsi_report_luns_done,
 
     struct scsi_res_report_luns *res = (struct scsi_res_report_luns *) hcb->data;
     u32 length = be32toh(res->length);
-    pvscsi_debug("%s: got %d luns\n", __func__, length / sizeof(res->lundata[0]));
+    pvscsi_debug("%s: got %d luns\n", func_ss, length / sizeof(res->lundata[0]));
     for (u32 i = 0; i < MIN(MAX_LUN, length / sizeof(res->lundata[0])); i++) {
         u16 lun = (res->lundata[i] & 0xffff) >> 8;
-        pvscsi_debug("%s: got lun %d (lundata 0x%08lx)\n", __func__, lun, res->lundata[i]);
+        pvscsi_debug("%s: got lun %d (lundata 0x%08lx)\n", func_ss, lun, res->lundata[i]);
 
         // inquiry
         struct pvscsi_hcb *r = pvscsi_hcb_alloc(dev, target, lun, SCSI_CMD_INQUIRY);
@@ -378,7 +378,7 @@ closure_function(4, 0, void, pvscsi_report_luns_done,
 static void pvscsi_report_luns(pvscsi dev, storage_attach a, u16 target)
 {
     pvscsi_debug("%s: pvscsi %p, attach %p (%F), target 0x%x\n",
-                 __func__, dev, a, a, target);
+                 func_ss, dev, a, a, target);
     struct pvscsi_hcb *r = pvscsi_hcb_alloc(dev, target, 0, SCSI_CMD_REPORT_LUNS);
     struct scsi_cdb_report_luns *cdb = (struct scsi_cdb_report_luns *)r->cdb;
     cdb->select_report = RPL_REPORT_DEFAULT;
@@ -402,7 +402,7 @@ static void pvscsi_process_cmp_ring(pvscsi dev);
 closure_function(1, 0, void, msix_handler,
                  pvscsi, dev)
 {
-    pvscsi_debug("%s: for dev %p\n", __func__, bound(dev));
+    pvscsi_debug("%s: for dev %p\n", func_ss, bound(dev));
     pvscsi_process_cmp_ring(bound(dev));
 }
 
@@ -411,7 +411,7 @@ closure_function(1, 0, void, intx_handler,
 {
     pvscsi dev = bound(dev);
     u32 status = pvscsi_reg_read(dev, PVSCSI_REG_OFFSET_INTR_STATUS);
-    pvscsi_debug("%s: for dev %p, status 0x%x\n", __func__, dev, status);
+    pvscsi_debug("%s: for dev %p, status 0x%x\n", func_ss, dev, status);
 
     if ((status & PVSCSI_INTR_ALL_SUPPORTED) == 0)
         return;
@@ -508,7 +508,7 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
     dev->max_targets = pvscsi_reg_read(dev, PVSCSI_REG_OFFSET_COMMAND_STATUS);
     if (dev->max_targets == ~0)
         dev->max_targets = 16;
-    pvscsi_debug("%s: max targets %d\n", __func__, dev->max_targets);
+    pvscsi_debug("%s: max targets %d\n", func_ss, dev->max_targets);
 
     // reset
     pvscsi_write_cmd(dev, PVSCSI_CMD_ADAPTER_RESET, 0, 0);
@@ -527,7 +527,7 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
 #ifdef PVSCSI_DEBUG
     volatile struct pvscsi_rings_state *s = dev->rings_state;
     pvscsi_debug("%s: req queue %d/%d, cmp queue %d/%d, msg queue %d\n",
-        __func__,
+	func_ss,
 	U64_FROM_BIT(s->req_num_entries_log2), sizeof(struct pvscsi_ring_req_desc),
 	U64_FROM_BIT(s->cmp_num_entries_log2), sizeof(struct pvscsi_ring_cmp_desc),
 	U64_FROM_BIT(s->msg_num_entries_log2));
@@ -552,11 +552,12 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
     if (msix_enabled) {
         dev->intr_handler = closure(dev->general, msix_handler, dev);
         assert(dev->intr_handler != INVALID_ADDRESS);
-        assert(pci_setup_msix(dev->dev, 0, dev->intr_handler, "pvscsi intr") != INVALID_PHYSICAL);
+        assert(pci_setup_msix(dev->dev, 0, dev->intr_handler, ss("pvscsi intr")) !=
+               INVALID_PHYSICAL);
     } else {
         dev->intr_handler = closure(dev->general, intx_handler, dev);
         assert(dev->intr_handler != INVALID_ADDRESS);
-        pci_setup_non_msi_irq(dev->dev, dev->intr_handler, "pvscsi intr");
+        pci_setup_non_msi_irq(dev->dev, dev->intr_handler, ss("pvscsi intr"));
     }
     pvscsi_reg_write(dev, PVSCSI_REG_OFFSET_INTR_MASK, PVSCSI_INTR_CMPL_MASK);
 
@@ -603,12 +604,12 @@ static void pvscsi_execute_ccb(pvscsi dev, struct pvscsi_hcb *hcb)
 
     u8 cdb0 = e->cdb[0];
     e->flags = cdb0 == SCSI_CMD_WRITE_16 ? PVSCSI_FLAG_CMD_DIR_TODEVICE : PVSCSI_FLAG_CMD_DIR_TOHOST;
-    pvscsi_debug("%s: e %p, flags 0x%x\n", __func__, e, e->flags);
+    pvscsi_debug("%s: e %p, flags 0x%x\n", func_ss, e, e->flags);
 
     memory_barrier();
     s->req_prod_idx++;
     pvscsi_kick_io(dev, cdb0);
-    pvscsi_debug("%s: kicked\n", __func__);
+    pvscsi_debug("%s: kicked\n", func_ss);
 }
 
 static inline u64 pvscsi_hcb_to_context(pvscsi dev, struct pvscsi_hcb *hcb)
@@ -635,7 +636,7 @@ static boolean pvscsi_action_io(pvscsi dev, struct pvscsi_hcb *hcb)
     }
 
     pvscsi_debug("%s: req_prod_idx 0x%x, req_num_entries_log2 0x%x, hcb %p, cmd 0x%02x\n",
-                 __func__, s->req_prod_idx, req_num_entries_log2, hcb, hcb->cdb[0]);
+                 func_ss, s->req_prod_idx, req_num_entries_log2, hcb, hcb->cdb[0]);
     struct pvscsi_ring_req_desc *e = ring + (s->req_prod_idx & MASK(req_num_entries_log2));
 
     e->bus = 0;
@@ -681,7 +682,7 @@ static void pvscsi_process_cmp_ring(pvscsi dev)
         struct pvscsi_ring_cmp_desc *e = ring + (s->cmp_cons_idx & MASK(s->cmp_num_entries_log2));
 
         pvscsi_debug("%s: cmp_cons_idx %d, cmp_prod_idx %d\n",
-                     __func__, s->cmp_cons_idx, s->cmp_prod_idx);
+                     func_ss, s->cmp_cons_idx, s->cmp_prod_idx);
 
         struct pvscsi_hcb *hcb = pvscsi_context_to_hcb(dev, e->context);
         hcb->scsi_status = e->scsi_status;

@@ -110,12 +110,12 @@ struct sock {
 static inline int socket_init(heap h, int domain, int type, u32 flags, struct sock *s)
 {
     runtime_memset((u8 *) s, 0, sizeof(*s));
-    s->rxbq = allocate_blockq(h, "sock receive");
+    s->rxbq = allocate_blockq(h, ss("sock receive"));
     if (s->rxbq == INVALID_ADDRESS) {
         msg_err("failed to allocate blockq\n");
         goto err_rx;
     }
-    s->txbq = allocate_blockq(h, "sock transmit");
+    s->txbq = allocate_blockq(h, ss("sock transmit"));
     if (s->txbq == INVALID_ADDRESS) {
         msg_err("failed to allocate blockq\n");
         goto err_tx;

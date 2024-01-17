@@ -41,7 +41,9 @@ declare_closure_struct(0, 2, void, cw_log_timer_handler,
 static struct cw {
     heap h;
     char region[16], hostname[64], servername[64];
+    bytes region_len, hostname_len, servername_len;
     char access_key[32], secret[64], token[2 * KB];
+    bytes access_key_len, secret_len, token_len;
     closure_struct(cw_aws_cred_handler, aws_cred_handler);
     closure_struct(cw_aws_setup_complete, aws_setup_complete);
     timestamp metrics_interval;
@@ -51,6 +53,7 @@ static struct cw {
     closure_struct(cw_metrics_in_handler, metrics_in_handler);
     struct console_driver log_driver;
     char log_servername[64];
+    bytes log_servername_len;
     buffer log_group, log_stream, log_seq_token;
     vector log_entries;
     int log_pending;
@@ -74,18 +77,18 @@ typedef struct cw_log_entry {
 static boolean cw_aws_setup(void);
 
 closure_function(4, 1, status, cw_aws_metadata_handler,
-                 const char *, name, char *, dest, bytes, dest_len, status_handler, complete,
+                 sstring, name, char *, dest, bytes *, dest_len, status_handler, complete,
                  buffer, data)
 {
-    const char *name = bound(name);
+    sstring name = bound(name);
     char *dest = bound(dest);
-    bytes dest_len = bound(dest_len);
+    bytes *dest_len = bound(dest_len);
     status_handler complete = bound(complete);
     if (data) {
         bytes len = buffer_length(data);
-        if (len < dest_len) {
+        if (len <= *dest_len) {
             buffer_read(data, dest, len);
-            dest[len] = '\0';
+            *dest_len = len;
             apply(complete, STATUS_OK);
         } else {
             apply(complete,
@@ -108,25 +111,25 @@ define_closure_function(1, 1, void, cw_aws_cred_handler,
         goto done;
     }
     bytes len = buffer_length(cred->access_key);
-    if (len < sizeof(cw.access_key)) {
+    if (len <= sizeof(cw.access_key)) {
         buffer_read(cred->access_key, cw.access_key, len);
-        cw.access_key[len] = '\0';
+        cw.access_key_len = len;
     } else {
         s = timm("result", "invalid AWS access key length %ld", len);
         goto done;
     }
     len = buffer_length(cred->secret);
-    if (len < sizeof(cw.secret)) {
+    if (len <= sizeof(cw.secret)) {
         buffer_read(cred->secret, cw.secret, len);
-        cw.secret[len] = '\0';
+        cw.secret_len = len;
     } else {
         s = timm("result", "invalid AWS secret length %ld", len);
         goto done;
     }
     len = buffer_length(cred->token);
-    if (len < sizeof(cw.token)) {
+    if (len <= sizeof(cw.token)) {
         buffer_read(cred->token, cw.token, len);
-        cw.token[len] = '\0';
+        cw.token_len = len;
         s = STATUS_OK;
     } else {
         s = timm("result", "invalid AWS token length %ld", len);
@@ -135,16 +138,17 @@ define_closure_function(1, 1, void, cw_aws_cred_handler,
     apply(bound(complete), s);
 }
 
-static boolean cw_aws_req_send(const char *service, const char *target, tuple req, buffer body,
+static boolean cw_aws_req_send(sstring service, sstring target, tuple req, buffer body,
                                buffer_handler out)
 {
-    set(req, sym(x-amz-target), alloca_wrap_cstring(target));
-    buffer auth = aws_req_sign(cw.h, cw.region, service, "POST", req, body,
-                               cw.access_key, cw.secret);
+    set(req, sym(x-amz-target), alloca_wrap_sstring(target));
+    buffer auth = aws_req_sign(cw.h, isstring(cw.region, cw.region_len), service, ss("POST"),
+                               req, body, isstring(cw.access_key, cw.access_key_len),
+                               isstring(cw.secret, cw.secret_len));
     if (!auth)
         return false;
     set(req, sym(Authorization), auth);
-    set(req, sym(x-amz-security-token), alloca_wrap_cstring(cw.token));
+    set(req, sym(x-amz-security-token), alloca_wrap_buffer(cw.token, cw.token_len));
     status s = http_request(cw.h, out, HTTP_REQUEST_METHOD_POST, req, body);
     boolean success = is_ok(s);
     if (!success)
@@ -161,7 +165,7 @@ closure_function(2, 0, void, cw_send_async,
     closure_finish();
 }
 
-static void cw_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+static void cw_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     void (*sender)(const ip_addr_t *server) = callback_arg;
     thunk t = closure(cw.h, cw_send_async, sender, ipaddr ? *ipaddr : ip_addr_any);
@@ -171,7 +175,7 @@ static void cw_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_
         msg_err("failed to allocate closure\n");
 }
 
-static void cw_connect(const char *server, void (*handler)(const ip_addr_t *server))
+static void cw_connect(sstring server, void (*handler)(const ip_addr_t *server))
 {
     ip_addr_t cw_host;
     err_t err = dns_gethostbyname(server, &cw_host, cw_dns_cb, handler);
@@ -203,11 +207,11 @@ closure_function(1, 1, void, cw_logstream_vh,
     if (resp) {
         buffer word;
         for (u64 i = 0; (word = get(resp, integer_key(i))); i++)
-            if (buffer_strstr(word, "OK") == 0)
+            if (buffer_strstr(word, ss("OK")) == 0)
                 goto success;
     }
     buffer content = get_string(v, sym(content));
-    if (content && (buffer_strstr(content, "ResourceAlreadyExistsException") >= 0))
+    if (content && (buffer_strstr(content, ss("ResourceAlreadyExistsException")) >= 0))
         goto success;
     msg_err("unexpected response %v\n", v);
     return;
@@ -256,7 +260,7 @@ closure_function(2, 1, input_buffer_handler, cw_logstream_ch,
         goto exit;
     }
     set(req, sym(url), alloca_wrap_cstring("/"));
-    set(req, sym(host), alloca_wrap_cstring(cw.log_servername));
+    set(req, sym(host), alloca_wrap_buffer(cw.log_servername, cw.log_servername_len));
     aws_req_set_date(req, little_stack_buffer(16));
     set(req, sym(accept), alloca_wrap_cstring("application/json"));
     set(req, sym(content-type), alloca_wrap_cstring("application/x-amz-json-1.1"));
@@ -270,7 +274,7 @@ closure_function(2, 1, input_buffer_handler, cw_logstream_ch,
         msg_err("failed to allocate input buffer handler\n");
         goto req_done;
     }
-    success = cw_aws_req_send(CLOUDWATCH_LOG_SERVICE_NAME, "Logs_20140328.CreateLogStream",
+    success = cw_aws_req_send(ss(CLOUDWATCH_LOG_SERVICE_NAME), ss("Logs_20140328.CreateLogStream"),
                               req, body, out);
     if (!success)
         deallocate_closure(ibh);
@@ -329,16 +333,16 @@ closure_function(1, 1, void, cw_loggroup_vh,
     if (resp) {
         buffer word;
         for (u64 i = 0; (word = get(resp, integer_key(i))); i++)
-            if (buffer_strstr(word, "OK") == 0)
+            if (buffer_strstr(word, ss("OK")) == 0)
                 goto success;
     }
     buffer content = get_string(v, sym(content));
-    if (content && (buffer_strstr(content, "ResourceAlreadyExistsException") >= 0))
+    if (content && (buffer_strstr(content, ss("ResourceAlreadyExistsException")) >= 0))
         goto success;
     msg_err("unexpected response %v\n", v);
     return;
   success:
-    cw_connect(cw.log_servername, cw_logstream_create);
+    cw_connect(isstring(cw.log_servername, cw.log_servername_len), cw_logstream_create);
 }
 
 closure_function(2, 1, input_buffer_handler, cw_loggroup_ch,
@@ -357,7 +361,7 @@ closure_function(2, 1, input_buffer_handler, cw_loggroup_ch,
         goto exit;
     }
     set(req, sym(url), alloca_wrap_cstring("/"));
-    set(req, sym(host), alloca_wrap_cstring(cw.log_servername));
+    set(req, sym(host), alloca_wrap_buffer(cw.log_servername, cw.log_servername_len));
     aws_req_set_date(req, little_stack_buffer(16));
     set(req, sym(accept), alloca_wrap_cstring("application/json"));
     set(req, sym(content-type), alloca_wrap_cstring("application/x-amz-json-1.1"));
@@ -370,7 +374,7 @@ closure_function(2, 1, input_buffer_handler, cw_loggroup_ch,
         msg_err("failed to allocate input buffer handler\n");
         goto req_done;
     }
-    success = cw_aws_req_send(CLOUDWATCH_LOG_SERVICE_NAME, "Logs_20140328.CreateLogGroup",
+    success = cw_aws_req_send(ss(CLOUDWATCH_LOG_SERVICE_NAME), ss("Logs_20140328.CreateLogGroup"),
                               req, body, out);
     if (!success)
         deallocate_closure(ibh);
@@ -424,13 +428,15 @@ static void cw_log_setup(void)
 {
     spin_lock(&cw.lock);
     if (!cw.log_stream) {
-        cw.log_stream = wrap_string_cstring(cw.hostname);
+        cw.log_stream = wrap_string(cw.hostname, cw.hostname_len);
         assert(cw.log_stream != INVALID_ADDRESS);
     }
     if (!cw.log_inited) {
-        rsnprintf(cw.log_servername, sizeof(cw.log_servername),
-                  CLOUDWATCH_LOG_SERVICE_NAME ".%s.amazonaws.com", cw.region);
-        cw_connect(cw.log_servername, cw_loggroup_create);
+        cw.log_servername_len = MIN(rsnprintf(cw.log_servername, sizeof(cw.log_servername),
+                                              CLOUDWATCH_LOG_SERVICE_NAME ".%s.amazonaws.com",
+                                              isstring(cw.region, cw.region_len)),
+                                    sizeof(cw.log_servername));
+        cw_connect(isstring(cw.log_servername, cw.log_servername_len), cw_loggroup_create);
     }
     spin_unlock(&cw.lock);
 }
@@ -451,8 +457,10 @@ define_closure_function(1, 1, void, cw_aws_setup_complete,
                         status, s)
 {
     if (is_ok(s)) {
-        rsnprintf(cw.servername, sizeof(cw.servername), CLOUDWATCH_SERVICE_NAME ".%s.amazonaws.com",
-                  cw.region);
+        cw.servername_len = MIN(rsnprintf(cw.servername, sizeof(cw.servername),
+                                          CLOUDWATCH_SERVICE_NAME ".%s.amazonaws.com",
+                                          isstring(cw.region, cw.region_len)),
+                                sizeof(cw.servername));
         bound(retry_backoff) = seconds(1);
         if (cw.metrics_interval)
             register_timer(kernel_timers, &cw.metrics_timer, CLOCK_ID_MONOTONIC, 0, false,
@@ -483,13 +491,15 @@ static boolean cw_aws_setup(void)
     }
     merge m = allocate_merge(cw.h, completion);
     status_handler complete = apply_merge(m);
-    buffer_handler handler = closure(cw.h, cw_aws_metadata_handler, "region", cw.region,
-                                     sizeof(cw.region), apply_merge(m));
+    cw.region_len = sizeof(cw.region);
+    buffer_handler handler = closure(cw.h, cw_aws_metadata_handler, ss("region"), cw.region,
+                                     &cw.region_len, apply_merge(m));
     if (handler == INVALID_ADDRESS)
         return false;
     aws_region_get(cw.h, handler);
-    handler = closure(cw.h, cw_aws_metadata_handler, "hostname", cw.hostname,
-                      sizeof(cw.hostname), apply_merge(m));
+    cw.hostname_len = sizeof(cw.hostname);
+    handler = closure(cw.h, cw_aws_metadata_handler, ss("hostname"), cw.hostname, &cw.hostname_len,
+                      apply_merge(m));
     if (handler == INVALID_ADDRESS)
         return false;
     aws_hostname_get(cw.h, handler);
@@ -500,10 +510,11 @@ static boolean cw_aws_setup(void)
 
 static void cw_metric_add_dimensions(buffer dest)
 {
-    bprintf(dest, ",\"Dimensions\":[{\"Name\":\"host\",\"Value\":\"%s\"}]", cw.hostname);
+    bprintf(dest, ",\"Dimensions\":[{\"Name\":\"host\",\"Value\":\"%s\"}]",
+            isstring(cw.hostname, cw.hostname_len));
 }
 
-static void cw_metrics_add_bytes(buffer dest, boolean first, const char *metric, u64 val)
+static void cw_metrics_add_bytes(buffer dest, boolean first, sstring metric, u64 val)
 {
     if (!first)
         push_u8(dest, ',');
@@ -512,7 +523,7 @@ static void cw_metrics_add_bytes(buffer dest, boolean first, const char *metric,
     push_u8(dest, '}');
 }
 
-static void cw_metrics_add_percent(buffer dest, boolean first, const char *metric, int val)
+static void cw_metrics_add_percent(buffer dest, boolean first, sstring metric, int val)
 {
     if (!first)
         push_u8(dest, ',');
@@ -526,8 +537,8 @@ define_closure_function(1, 1, boolean, cw_metrics_in_handler,
                         buffer, data)
 {
     if (data) {
-        if (buffer_strstr(data, "200 OK") < 0) {
-            if (buffer_strstr(data, AWS_ERR_TOKEN_EXPIRED) >= 0) {
+        if (buffer_strstr(data, ss("200 OK")) < 0) {
+            if (buffer_strstr(data, ss(AWS_ERR_TOKEN_EXPIRED)) >= 0) {
                 remove_timer(kernel_timers, &cw.metrics_timer, 0);
                 aws_cred_get(cw.h, init_closure(&cw.aws_cred_handler, cw_aws_cred_handler,
                                                 (status_handler)&cw.aws_setup_complete));
@@ -549,7 +560,7 @@ define_closure_function(0, 1, input_buffer_handler, cw_metrics_conn_handler,
     if (req == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     set(req, sym(url), alloca_wrap_cstring("/"));
-    set(req, sym(host), alloca_wrap_cstring(cw.hostname));
+    set(req, sym(host), alloca_wrap_buffer(cw.hostname, cw.hostname_len));
     aws_req_set_date(req, little_stack_buffer(16));
     set(req, sym(content-type), alloca_wrap_cstring("application/json"));
     set(req, sym(content-encoding), alloca_wrap_cstring("amz-1.0"));
@@ -560,18 +571,18 @@ define_closure_function(0, 1, input_buffer_handler, cw_metrics_conn_handler,
     u64 cached = pagecache_get_occupancy();
     u64 available = free + cached;
     u64 used = total - available;
-    string body = string_from_cstring("{\"Namespace\":\"CWAgent\",\"MetricData\":[");
-    cw_metrics_add_bytes(body, true, "mem_available", available);
-    cw_metrics_add_percent(body, false, "mem_available_percent", available * 100 / total);
-    cw_metrics_add_bytes(body, false, "mem_cached", cached);
-    cw_metrics_add_bytes(body, false, "mem_free", free);
-    cw_metrics_add_bytes(body, false, "mem_total", total);
-    cw_metrics_add_bytes(body, false, "mem_used", used);
-    cw_metrics_add_percent(body, false, "mem_used_percent", used * 100 / total);
+    string body = wrap_string_cstring("{\"Namespace\":\"CWAgent\",\"MetricData\":[");
+    cw_metrics_add_bytes(body, true, ss("mem_available"), available);
+    cw_metrics_add_percent(body, false, ss("mem_available_percent"), available * 100 / total);
+    cw_metrics_add_bytes(body, false, ss("mem_cached"), cached);
+    cw_metrics_add_bytes(body, false, ss("mem_free"), free);
+    cw_metrics_add_bytes(body, false, ss("mem_total"), total);
+    cw_metrics_add_bytes(body, false, ss("mem_used"), used);
+    cw_metrics_add_percent(body, false, ss("mem_used_percent"), used * 100 / total);
     if (!buffer_write_cstring(body, "]}"))
         goto req_done;
-    success = cw_aws_req_send(CLOUDWATCH_SERVICE_NAME,
-                              "GraniteServiceVersion20100801.PutMetricData", req, body, out);
+    success = cw_aws_req_send(ss(CLOUDWATCH_SERVICE_NAME),
+                              ss("GraniteServiceVersion20100801.PutMetricData"), req, body, out);
   req_done:
     if (!success)
         deallocate_buffer(body);
@@ -597,7 +608,7 @@ define_closure_function(0, 2, void, cw_metrics_timer_handler,
 {
     if (overruns == timer_disabled)
         return;
-    cw_connect(cw.servername, cw_metrics_send);
+    cw_connect(isstring(cw.servername, cw.servername_len), cw_metrics_send);
 }
 
 static void cw_log_write(void *d, const char *s, bytes count)
@@ -628,11 +639,11 @@ static void cw_log_connect(const ip_addr_t *server)
     }
 }
 
-static boolean cw_log_token_get(buffer resp, const char *label)
+static boolean cw_log_token_get(buffer resp, sstring label)
 {
     int tok_start = buffer_strstr(resp, label);
     if (tok_start >= 0) {
-        buffer_consume(resp, tok_start + runtime_strlen(label));
+        buffer_consume(resp, tok_start + label.len);
         tok_start = buffer_strchr(resp, '"');
         if (tok_start >= 0) {
             buffer_consume(resp, tok_start + 1);
@@ -661,11 +672,11 @@ define_closure_function(0, 1, void, cw_log_vh,
 {
     buffer content = get_string(v, sym(content));
     if (content) {
-        if (cw_log_token_get(content, CW_LOG_NEXT_SEQ_TOK)) {
+        if (cw_log_token_get(content, ss(CW_LOG_NEXT_SEQ_TOK))) {
             cw_log_pending_delete();
-        } else if (cw_log_token_get(content, CW_LOG_EXP_SEQ_TOK)) {
+        } else if (cw_log_token_get(content, ss(CW_LOG_EXP_SEQ_TOK))) {
             /* resend log entries at the next timer interval */
-        } else if (buffer_strstr(content, AWS_ERR_TOKEN_EXPIRED) >= 0) {
+        } else if (buffer_strstr(content, ss(AWS_ERR_TOKEN_EXPIRED)) >= 0) {
             aws_cred_get(cw.h, init_closure(&cw.aws_cred_handler, cw_aws_cred_handler,
                          (status_handler)&cw.aws_setup_complete));
         } else {
@@ -708,7 +719,7 @@ static void cw_log_post(void)
     if (req == INVALID_ADDRESS)
         goto error;
     set(req, sym(url), alloca_wrap_cstring("/"));
-    set(req, sym(host), alloca_wrap_cstring(cw.log_servername));
+    set(req, sym(host), alloca_wrap_buffer(cw.log_servername, cw.log_servername_len));
     aws_req_set_date(req, little_stack_buffer(16));
     set(req, sym(accept), alloca_wrap_cstring("application/json"));
     set(req, sym(content-type), alloca_wrap_cstring("application/x-amz-json-1.1"));
@@ -773,7 +784,7 @@ static void cw_log_post(void)
     if (!buffer_write_cstring(body, "]}"))
         goto req_done;
     cw.log_resp_recved = false;
-    success = cw_aws_req_send(CLOUDWATCH_LOG_SERVICE_NAME, "Logs_20140328.PutLogEvents",
+    success = cw_aws_req_send(ss(CLOUDWATCH_LOG_SERVICE_NAME), ss("Logs_20140328.PutLogEvents"),
                               req, body, cw.log_out);
   req_done:
     if (success)
@@ -790,7 +801,7 @@ static void cw_log_post(void)
 static void cw_log_send(void)
 {
     if (!cw.log_out)
-        cw_connect(cw.log_servername, cw_log_connect);
+        cw_connect(isstring(cw.log_servername, cw.log_servername_len), cw_log_connect);
     else
         cw_log_post();
 }
@@ -869,7 +880,7 @@ int init(status_handler complete)
         assert(cw.log_resp_parser != INVALID_ADDRESS);
         init_closure(&cw.log_timer_handler, cw_log_timer_handler);
         cw.log_driver.write = cw_log_write;
-        cw.log_driver.name = "cloudwatch";
+        cw.log_driver.name = ss("cloudwatch");
         cw.log_driver.disabled = false;
         attach_console_driver(&cw.log_driver);
         cw_config_empty = false;

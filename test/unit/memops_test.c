@@ -5,7 +5,7 @@
 
 #define test_assert(expr)   do { \
     if (!(expr)) { \
-        msg_err("%s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
+        msg_err("%s -- failed at %s:%d\n", ss(#expr), file_ss, __LINE__); \
         exit(EXIT_FAILURE); \
     } \
 } while (0)

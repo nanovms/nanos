@@ -43,7 +43,7 @@ struct virtio_vsock_hdr {
 
 //#define VIRTIO_SOCK_DEBUG
 #ifdef VIRTIO_SOCK_DEBUG
-#define virtio_sock_debug(x, ...) do {tprintf(sym(virtio_sock), 0, x "\n", ##__VA_ARGS__);} while(0)
+#define virtio_sock_debug(x, ...) do {tprintf(sym(virtio_sock), 0, ss(x "\n"), ##__VA_ARGS__);} while(0)
 #else
 #define virtio_sock_debug(x, ...)
 #endif
@@ -105,13 +105,13 @@ static boolean virtio_sock_dev_attach(heap general, backed_heap backed, vtdev de
         return false;
     vs->guest_cid = vtdev_cfg_read_4(dev, offsetof(struct virtio_vsock_config *, guest_cid));
     virtio_sock_debug("  guest CID %d", vs->guest_cid);
-    status s = virtio_alloc_virtqueue(dev, "virtio socket rx", 0, &vs->rxq);
+    status s = virtio_alloc_virtqueue(dev, ss("virtio socket rx"), 0, &vs->rxq);
     if (!is_ok(s)) {
         msg_err("failed to allocate rx virtqueue: %v\n", s);
         timm_dealloc(s);
         goto err;
     }
-    s = virtio_alloc_virtqueue(dev, "virtio socket tx", 1, &vs->txq);
+    s = virtio_alloc_virtqueue(dev, ss("virtio socket tx"), 1, &vs->txq);
     if (!is_ok(s)) {
         msg_err("failed to allocate tx virtqueue: %v\n", s);
         timm_dealloc(s);
@@ -120,7 +120,7 @@ static boolean virtio_sock_dev_attach(heap general, backed_heap backed, vtdev de
 
     /* The event virtqueue is initialized even if not used, otherwise AWS Firecracker complains
      * about an "attempt to use virtio queue that is not marked ready". */
-    s = virtio_alloc_virtqueue(dev, "virtio socket events", 2, &vs->eventq);
+    s = virtio_alloc_virtqueue(dev, ss("virtio socket events"), 2, &vs->eventq);
     if (!is_ok(s)) {
         msg_err("failed to allocate event virtqueue: %v\n", s);
         timm_dealloc(s);

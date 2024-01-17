@@ -17,7 +17,7 @@
 
 //#define VIRTIO_MMIO_DEBUG
 #ifdef VIRTIO_MMIO_DEBUG
-#define virtio_mmio_debug(x, ...) tprintf(sym(vtmmio), 0, x "\n", ##__VA_ARGS__)
+#define virtio_mmio_debug(x, ...) tprintf(sym(vtmmio), 0, ss(x "\n"), ##__VA_ARGS__)
 #else
 #define virtio_mmio_debug(x, ...)
 #endif
@@ -94,7 +94,7 @@ closure_function(1, 2, void, vtmmio_cmdline_parse,
 
 void virtio_mmio_enum_devs(kernel_heaps kh)
 {
-    cmdline_consume("virtio_mmio", stack_closure(vtmmio_cmdline_parse, kh));
+    cmdline_consume(ss("virtio_mmio"), stack_closure(vtmmio_cmdline_parse, kh));
     acpi_get_vtmmio_devs(stack_closure(vtmmio_new_dev, kh));
 }
 
@@ -188,7 +188,7 @@ define_closure_function(1, 0, void, vtmmio_irq,
     }
 }
 
-status vtmmio_alloc_virtqueue(vtmmio dev, const char *name, int idx,
+status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx,
                               struct virtqueue **result)
 {
     virtio_mmio_debug("allocating virtqueue %d (%s)", idx, name);

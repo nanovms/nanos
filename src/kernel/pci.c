@@ -40,7 +40,7 @@ u64 pci_bar_size(pci_dev dev, u8 type, u8 flags, int bar)
 void pci_bar_init(pci_dev dev, struct pci_bar *b, int bar, bytes offset, bytes length)
 {
     pci_debug("%s: bus %d, slot %d, function %d, bar %d, offset 0x%lx, length 0x%lx\n",
-              __func__, dev->bus, dev->slot, dev->function, bar, offset, length);
+              func_ss, dev->bus, dev->slot, dev->function, bar, offset, length);
     pci_platform_init_bar(dev, bar);
     u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
     pci_debug("   base 0x%x\n", base);
@@ -87,7 +87,7 @@ void pci_bar_deinit(struct pci_bar *b)
 
 void pci_set_bus_master(pci_dev dev)
 {
-    pci_debug("%s\n", __func__);
+    pci_debug("%s\n", func_ss);
     u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
     command |= PCIM_CMD_BUSMASTEREN;
     pci_cfgwrite(dev, PCIR_COMMAND, 2, command);
@@ -95,7 +95,7 @@ void pci_set_bus_master(pci_dev dev)
 
 void pci_enable_io_and_memory(pci_dev dev)
 {
-    pci_debug("%s\n", __func__);
+    pci_debug("%s\n", func_ss);
     u16 command = pci_cfgread(dev, PCIR_COMMAND, 2);
     command |= PCIM_CMD_IOEN | PCIM_CMD_MEMORYEN;
     pci_cfgwrite(dev, PCIR_COMMAND, 2, command);
@@ -133,7 +133,7 @@ int pci_get_msix_count(pci_dev dev)
 
 int pci_enable_msix(pci_dev dev)
 {
-    pci_debug("%s: dev %p\n", __func__, dev);
+    pci_debug("%s: dev %p\n", func_ss, dev);
     if (!pci_platform_has_msi())
         return 0;
     u32 cp = pci_find_cap(dev, PCIY_MSIX);
@@ -146,14 +146,14 @@ int pci_enable_msix(pci_dev dev)
     int bar = msix_table & 0x7;
     bytes offset = msix_table & ~0x7;
     pci_bar_init(dev, &dev->msix_bar, bar, offset, -1);
-    pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", __func__,
+    pci_debug("%s: msix_config.msix_table 0x%x, msix_table %p\n", func_ss,
               msix_table, dev->msix_bar.vaddr);
 
     // enable MSI-X
     u16 ctrl = pci_cfgread(dev, cp + 2, 2);
     ctrl |= 0x8000;
     int num_entries = (ctrl & 0x7ff) + 1;
-    pci_debug("%s: ctrl 0x%x, num entries %d\n", __func__, ctrl, num_entries);
+    pci_debug("%s: ctrl 0x%x, num entries %d\n", func_ss, ctrl, num_entries);
     pci_cfgwrite(dev, cp + 2, 2, ctrl);
     return num_entries;
 }
@@ -163,9 +163,9 @@ u64 pci_msix_table_slot_addr(pci_dev dev, int msi_slot)
     return pci_msix_table_addr(dev) + (msi_slot * sizeof(u32) * 4);
 }
 
-u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, const char *name)
+u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, sstring name)
 {
-    pci_debug("%s: msi %d: %s\n", __func__, msi_slot, name);
+    pci_debug("%s: msi %d: %s\n", func_ss, msi_slot, name);
 
     u32 address, data;
     u64 vector = pci_platform_allocate_msi(dev, h, name, &address, &data);
@@ -186,7 +186,7 @@ void pci_teardown_msix(pci_dev dev, int msi_slot)
 {
     u64 slot_addr = pci_msix_table_slot_addr(dev, msi_slot);
     int v = msi_get_vector(mmio_read_32(slot_addr + sizeof(u32) * 2));
-    pci_debug("%s: table slot addr 0x%lx, msi %d: int %d\n", __func__, slot_addr, msi_slot, v);
+    pci_debug("%s: table slot addr 0x%lx, msi %d: int %d\n", func_ss, slot_addr, msi_slot, v);
     mmio_write_32(slot_addr + (sizeof(u32) * 3), 1); /* set Masked bit to 1 */
     pci_platform_deallocate_msi(dev, v);
 }
@@ -248,7 +248,8 @@ static void pci_parse_iomem(pci_dev dev, boolean allocate)
                 addr |= ((u64)pci_cfgread(dev, PCIR_BAR(bar + 1), 4)) << 32;
                 bar++;
             }
-            pci_debug("%sllocating mem addr 0x%lx, size 0x%lx (bar %d)\n", allocate ? "A" : "Dea",
+            pci_debug("%sllocating mem addr 0x%lx, size 0x%lx (bar %d)\n",
+                      allocate ? ss("A") : ss("Dea"),
                       addr, size, bar);
             id_heap_set_area(iomem, addr, size, false, allocate);
         }
@@ -261,7 +262,7 @@ void pci_probe_device(pci_dev dev)
     if (vendor == 0xffff)
         return;
     pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
-        __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
+              func_ss, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
     pci_dev pcid;
     spin_lock(&pci_lock);
     int dev_index = pci_dev_find(dev);
@@ -290,7 +291,7 @@ void pci_probe_device(pci_dev dev)
     if (class == PCIC_BRIDGE && subclass == PCIS_BRIDGE_PCI) {
         u8 secbus = pci_cfgread(dev, PCIR_SECBUS_1, 1);
         pci_debug("%s: %02x:%02x:%x: %04x:%04x: class %02x:%02x: secondary bus %02x\n",
-            __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
+                  func_ss, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
             class, subclass, secbus);
         pci_probe_bus(secbus);
         return;
@@ -318,7 +319,7 @@ void pci_probe_device(pci_dev dev)
 closure_function(4, 0, void, pci_device_remove_complete,
                  int, bus, int, slot, int, function, thunk, completion)
 {
-    pci_debug("%s\n", __func__);
+    pci_debug("%s\n", func_ss);
     struct pci_dev dev = {
         .bus = bound(bus),
         .slot = bound(slot),
@@ -337,7 +338,7 @@ closure_function(4, 0, void, pci_device_remove_complete,
 
 void pci_remove_device(pci_dev dev, thunk completion)
 {
-    pci_debug("%s: %02x:%02x:%x\n", __func__, dev->bus, dev->slot, dev->function);
+    pci_debug("%s: %02x:%02x:%x\n", func_ss, dev->bus, dev->slot, dev->function);
     spin_lock(&pci_lock);
     int dev_index = pci_dev_find(dev);
     pci_driver driver;
@@ -368,7 +369,7 @@ void pci_remove_device(pci_dev dev, thunk completion)
 static void
 pci_probe_bus(int bus)
 {
-    pci_debug("%s: probing bus %02x\n", __func__, bus);
+    pci_debug("%s: probing bus %02x\n", func_ss, bus);
     for (int i = 0; i <= PCI_SLOTMAX; i++) {
         struct pci_dev _dev = { .bus = bus, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
@@ -413,18 +414,18 @@ void pci_discover()
     if ((pci_get_hdrtype(dev) & PCIM_MFDEV) == 0) {
         /* Assume that 0.0.0 is always a host-to-pci bridge */
         if (pci_get_class(dev) == PCIC_BRIDGE) {
-            pci_debug("%s: single\n", __func__);
+            pci_debug("%s: single\n", func_ss);
             // single PCI host controller
             pci_probe_bus(0);
         } else
-            pci_debug("%s: no host-to-pci bridge found\n", __func__);
+            pci_debug("%s: no host-to-pci bridge found\n", func_ss);
     } else {
         // multiple PCI host controllers
         for (int f = 1; f < 8; f++) {
             dev->function = f;
             u16 vendor = pci_get_vendor(dev);
             pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
-                 __func__, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
+                      func_ss, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
             if (vendor != 0xffff)
                 pci_probe_bus(f);
         }

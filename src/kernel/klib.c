@@ -6,7 +6,7 @@
 
 //#define KLIB_DEBUG
 #ifdef KLIB_DEBUG
-#define klib_debug(x, ...) do {tprintf(sym(klib), 0, x, ##__VA_ARGS__);} while(0)
+#define klib_debug(x, ...) do {tprintf(sym(klib), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define klib_debug(x, ...)
 #endif
@@ -30,7 +30,7 @@ closure_function(1, 1, boolean, klib_elf_walk,
         else if (r.end > kl->load_range.end)
             kl->load_range.end = r.end;
     }
-    klib_debug("%s: kl %s, r %R, load_range %R\n", __func__, kl->name, r, kl->load_range);
+    klib_debug("%s: kl %b, r %R, load_range %R\n", func_ss, kl->name, r, kl->load_range);
     return true;
 }
 
@@ -43,7 +43,7 @@ static klib_mapping add_klib_mapping(klib kl, u64 vaddr, u64 paddr, u64 size, pa
     km->phys = paddr;
     km->flags = flags;
     klib_debug("%s: vaddr 0x%lx, paddr 0x%lx, size 0x%lx, flags 0x%lx\n",
-               __func__, vaddr, paddr, size, flags.w);
+               func_ss, vaddr, paddr, size, flags.w);
     assert(rangemap_insert(kl->mappings, &km->n));
     map(vaddr, paddr, size, flags);
     return km;
@@ -55,7 +55,7 @@ closure_function(2, 5, boolean, klib_elf_map,
 {
     klib kl = bound(kl);
     klib_debug("%s: kl %b, vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
-               __func__, kl->name, vaddr, offset, data_size, bss_size, flags);
+               func_ss, kl->name, vaddr, offset, data_size, bss_size, flags);
     u64 map_start = vaddr & ~PAGEMASK;
     data_size += vaddr & PAGEMASK;
 
@@ -95,7 +95,7 @@ closure_function(2, 5, boolean, klib_elf_map,
 }
 
 closure_function(0, 1, void *, klib_sym_resolve,
-                 const char *, name)
+                 sstring, name)
 {
     return symtab_get_addr(name);
 }
@@ -124,7 +124,7 @@ closure_function(3, 1, status, load_klib_complete,
     kl->name = clone_buffer(h, bound(name));
     kl->elf = b;
 
-    klib_debug("%s: klib %p, read length %ld\n", __func__, kl, buffer_length(b));
+    klib_debug("%s: klib %b, read length %ld\n", func_ss, kl->name, buffer_length(b));
     kl->load_range = irange(0, 0);
     walk_elf(b, stack_closure(klib_elf_walk, kl));
     u64 where = allocate_u64((heap)klib_heap, range_span(kl->load_range));
@@ -152,7 +152,7 @@ closure_function(1, 1, void, load_klib_failed,
                  status, s)
 {
     klib_handler complete = bound(complete);
-    klib_debug("%s: complete %p (%F), status %v\n", __func__, complete, complete, s);
+    klib_debug("%s: complete %p (%F), status %v\n", func_ss, complete, complete, s);
     timm_dealloc(s);
     apply(complete, INVALID_ADDRESS, KLIB_LOAD_FAILED);
     closure_finish();
@@ -160,7 +160,7 @@ closure_function(1, 1, void, load_klib_failed,
 
 void load_klib(buffer name, klib_handler complete, status_handler sh)
 {
-    klib_debug("%s: \"%s\", complete %p (%F)\n", __func__, name, complete, complete);
+    klib_debug("%s: \"%s\", complete %p (%F)\n", func_ss, name, complete, complete);
     assert(klib_root && klib_fs);
     heap h = heap_locked(klib_kh);
     tuple md = resolve_path(klib_root, split(h, name, '/'));
@@ -186,7 +186,7 @@ closure_function(1, 1, boolean, destruct_mapping,
 
 void unload_klib(klib kl)
 {
-    klib_debug("%s: kl %s\n", __func__, kl->name);
+    klib_debug("%s: kl %b\n", func_ss, kl->name);
     heap h = heap_locked(klib_kh);
     deallocate_rangemap(kl->mappings, stack_closure(destruct_mapping, kl));
     deallocate_u64((heap)klib_heap, kl->load_range.start, range_span(kl->load_range));
@@ -292,7 +292,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
     tuple klib_md = filesystem_getroot(fs);
     assert(klib_md);
     klib_debug("%s: fs %p, config_root %p, klib_md %p\n",
-               __func__, fs, config_root, klib_md);
+               func_ss, fs, config_root, klib_md);
     heap h = heap_locked(kh);
     klib_kh = kh;
     klib_fs = (filesystem)fs;
@@ -302,7 +302,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
     extern u8 END;
     u64 klib_heap_start = pad(u64_from_pointer(&END), PAGESIZE_2M);
     u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
-    klib_debug("%s: creating klib heap @ 0x%lx, size 0x%lx\n", __func__,
+    klib_debug("%s: creating klib heap @ 0x%lx, size 0x%lx\n", func_ss,
                klib_heap_start, klib_heap_size);
     klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE, true);
     assert(klib_heap != INVALID_ADDRESS);

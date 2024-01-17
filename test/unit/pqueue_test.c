@@ -1,5 +1,6 @@
 //#define ENABLE_MSG_DEBUG
 #include <runtime.h>
+#include <stdio.h>
 #include <stdlib.h>
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
@@ -232,7 +233,7 @@ boolean basic_test(heap h)
     return true;
   fail:
     deallocate_pqueue(q);
-    msg_err("pqueue basic test failed: %s\n", msg);
+    printf("pqueue basic test failed: %s\n", msg);
     return false;
 }
 
@@ -270,7 +271,7 @@ boolean random_test(heap h, int n, int passes)
     }
     return true;
   fail:
-    msg_err("random_test fail; %s\n", msg);
+    printf("random_test fail; %s\n", msg);
     deallocate_pqueue(q);
     return false;
 }
@@ -322,7 +323,7 @@ static boolean remove_test(heap h, int passes)
     deallocate_pqueue(q);
     if (!err_msg)
         return true;
-    msg_err("%s\n", err_msg);
+    printf("remove test failed: %s\n", err_msg);
     return false;
 }
 
@@ -361,7 +362,7 @@ static boolean reorder_test(heap h, int passes)
     deallocate_pqueue(q);
     if (!err_msg)
         return true;
-    msg_err("%s\n", err_msg);
+    printf("reorder test failed: %s\n", err_msg);
     return false;
 }
 

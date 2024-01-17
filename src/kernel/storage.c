@@ -5,7 +5,7 @@
 
 //#define STORAGE_DEBUG
 #ifdef STORAGE_DEBUG
-#define storage_debug(x, ...) do {tprintf(sym(storage), 0, x "\n", ##__VA_ARGS__);} while(0)
+#define storage_debug(x, ...) do {tprintf(sym(storage), 0, ss(x "\n"), ##__VA_ARGS__);} while(0)
 #else
 #define storage_debug(x, ...)
 #endif
@@ -14,6 +14,7 @@ typedef struct volume {
     struct list l;
     u8 uuid[UUID_LEN];
     char label[VOLUME_LABEL_MAX_LEN];
+    bytes label_len;
     void *priv;
     fs_init_handler init_handler;
     int attach_id;
@@ -89,7 +90,7 @@ static boolean volume_match(symbol s, volume v)
         if (match)
             return true;
     }
-    if (buffer_compare_with_cstring(vol, v->label))
+    if (!buffer_compare_with_sstring(vol, isstring(v->label, v->label_len)))
         return true;
     if (buffer_length(vol) != 2 * UUID_LEN + 4)
         return false;
@@ -132,10 +133,10 @@ closure_function(2, 2, void, volume_link,
 static void volume_mount(volume v, buffer mount_point)
 {
     boolean readonly = false;
-    char *cmount_point = buffer_to_cstring(mount_point);
-    int i = buffer_strstr(mount_point, ":ro");
+    sstring cmount_point = buffer_to_sstring(mount_point);
+    int i = buffer_strstr(mount_point, ss(":ro"));
     if (i > 0) {
-        cmount_point[i] = 0;
+        cmount_point.len = i;
         readonly = true;
     }
     filesystem fs = storage.root_fs;
@@ -160,7 +161,8 @@ static void volume_mount(volume v, buffer mount_point)
         msg_err("cannot allocate closure\n");
         return;
     }
-    storage_debug("mounting volume%s at %s", readonly ? " readonly" : "", cmount_point);
+    storage_debug("mounting volume%s at %s", readonly ? ss(" readonly") : sstring_empty(),
+                  cmount_point);
     v->mounting = true;
     apply(v->init_handler, readonly, complete);
 }
@@ -275,6 +277,7 @@ boolean volume_add(u8 *uuid, char *label, void *priv, fs_init_handler init_handl
         return false;
     runtime_memcpy(v->uuid, uuid, UUID_LEN);
     runtime_memcpy(v->label, label, VOLUME_LABEL_MAX_LEN);
+    v->label_len = sstring_from_cstring(v->label, VOLUME_LABEL_MAX_LEN).len;
     v->priv = priv;
     v->init_handler = init_handler;
     v->attach_id = attach_id;
@@ -348,19 +351,19 @@ inode storage_get_mountpoint(tuple root, filesystem *fs)
 
 void storage_iterate(volume_handler vh)
 {
-    apply(vh, 0, "root", storage.root_fs, 0);
+    apply(vh, 0, ss("root"), storage.root_fs, 0);
     storage_lock();
     list_foreach(&storage.volumes, e) {
         volume v = struct_from_list(e, volume, l);
         if (v->fs)
-            apply(vh, v->uuid, v->label, v->fs, v->mount_dir);
+            apply(vh, v->uuid, isstring(v->label, v->label_len), v->fs, v->mount_dir);
     }
     storage_unlock();
 }
 
 void storage_detach(void *priv, thunk complete)
 {
-    storage_debug("%s", __func__);
+    storage_debug("%s", func_ss);
     volume vol = 0;
     storage_lock();
     list_foreach(&storage.volumes, e) {

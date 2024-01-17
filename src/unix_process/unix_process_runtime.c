@@ -13,7 +13,7 @@
 
 //#define TAG_HEAP_DEBUG
 #ifdef TAG_HEAP_DEBUG
-#define tag_debug(x, ...) do {rprintf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define tag_debug(x, ...) do {rprintf("%s: " x, func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define tag_debug(x, ...)
 #endif
@@ -107,12 +107,12 @@ heap heap_dma(void)
     return malloc_heap;
 }
 
-void halt_with_code(u8 code, char *format, ...)
+void halt_with_code(u8 code, sstring format, ...)
 {
     buffer z = little_stack_buffer(500);
     vlist a;
     vstart(a, format);
-    vbprintf(z, alloca_wrap_buffer(format, runtime_strlen(format)), &a);
+    vbprintf(z, format, &a);
     igr(write(1, buffer_ref(z, 0), buffer_length(z)));
     exit(2);
 }
@@ -150,7 +150,7 @@ static heap allocate_tagged_region(heap h, u64 tag)
         abi_init = true;
         int rv = prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0);
         if (rv < 0)
-            halt("prctl failed on PR_SET_TAGGED_ADDR_CTRL %d (%s)\n", errno, strerror(errno));
+            halt("prctl failed on PR_SET_TAGGED_ADDR_CTRL %d (%s)\n", errno, errno_sstring());
     }
 #endif
     struct tagheap *th = allocate(h, sizeof(struct tagheap));
@@ -198,6 +198,15 @@ heap init_process_runtime()
     return h;
 }
 
+sstring errno_sstring(void)
+{
+    sstring s = {
+        .ptr = strerror(errno),
+    };
+    s.len = strlen(s.ptr);
+    return s;
+}
+
 void console_write(const char *s, bytes count)
 {
     igr(write(1, s, count));
@@ -218,7 +227,7 @@ tuple parse_arguments(heap h, int argc, char **argv)
     vector unassociated = 0;
     symbol tag = 0;
     for (int i = 1; i<argc; i++) {
-        string s = wrap_string_cstring(argv[i]);
+        string s = wrap_string(argv[i], strlen(argv[i]));
         if (*argv[i] == '-') {
             s->start++;
             tag = intern(s);

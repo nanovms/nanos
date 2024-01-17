@@ -64,9 +64,6 @@ static struct telemetry {
     int stats_count;
 } telemetry;
 
-/* To be used with literal strings only */
-#define buffer_write_cstring(b, s)  buffer_write(b, s, sizeof(s) - 1)
-
 static void telemetry_crash_report(void);
 static void telemetry_boot(void);
 static void telemetry_stats_send(void);
@@ -80,7 +77,7 @@ closure_function(2, 0, void, telemetry_connect,
     closure_finish();
 }
 
-static void telemetry_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+static void telemetry_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     connection_handler ch = callback_arg;
     if (!ipaddr) {
@@ -115,12 +112,12 @@ static void telemetry_retry(void)
         telemetry.retry_backoff <<= 1;
 }
 
-static boolean telemetry_req(const char *url, buffer data, buffer_handler bh)
+static boolean telemetry_req(sstring url, buffer data, buffer_handler bh)
 {
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS)
         return false;
-    set(req, sym(url), alloca_wrap_cstring(url));
+    set(req, sym(url), alloca_wrap_sstring(url));
     set(req, sym(Host), alloca_wrap_cstring(RADAR_HOSTNAME));
     set(req, sym(RADAR-KEY), telemetry.auth_header);
     set(req, sym(Content-Type), alloca_wrap_cstring("application/json"));
@@ -187,7 +184,7 @@ closure_function(2, 1, boolean, telemetry_recv,
 }
 
 closure_function(3, 1, input_buffer_handler, telemetry_ch,
-                 const char *, url, buffer, data, value_handler, vh,
+                 sstring, url, buffer, data, value_handler, vh,
                  buffer_handler, out)
 {
     buffer data = bound(data);
@@ -207,14 +204,14 @@ closure_function(3, 1, input_buffer_handler, telemetry_ch,
     return in;
 }
 
-boolean telemetry_send(const char *url, buffer data, value_handler vh)
+boolean telemetry_send(sstring url, buffer data, value_handler vh)
 {
     connection_handler ch;
     ch = closure(telemetry.h, telemetry_ch, url, data, vh);
     if (ch == INVALID_ADDRESS)
         return false;
     ip_addr_t radar_addr;
-    err_t err = dns_gethostbyname(RADAR_HOSTNAME, &radar_addr, telemetry_dns_cb, ch);
+    err_t err = dns_gethostbyname(ss(RADAR_HOSTNAME), &radar_addr, telemetry_dns_cb, ch);
     switch (err) {
     case ERR_OK:
         if (tls_connect(&radar_addr, RADAR_PORT, ch) == 0)
@@ -250,7 +247,7 @@ closure_function(0, 1, void, telemetry_crash_recv,
         if (resp) {
             buffer word;
             for (u64 i = 0; (word = get(resp, integer_key(i))); i++)
-                if (buffer_strstr(word, "OK") == 0) {
+                if (buffer_strstr(word, ss("OK")) == 0) {
                     telemetry.dump_done = true;
                     break;
                 }
@@ -304,7 +301,7 @@ static void telemetry_crash_report(void)
         }
     }
     buffer_write_cstring(b, "\"}\r\n");
-    if (!telemetry_send("/api/v1/crashes", b, vh)) {
+    if (!telemetry_send(ss("/api/v1/crashes"), b, vh)) {
         goto err_free_buf;
     }
     return;
@@ -322,7 +319,7 @@ closure_function(0, 1, void, telemetry_boot_recv,
         return;
     buffer content = get(v, sym(content));
     if (content) {
-        int index = buffer_strstr(content, "\"id\"");
+        int index = buffer_strstr(content, ss("\"id\""));
         if (index < 0)
             goto exit;
         buffer_consume(content, index);
@@ -352,12 +349,12 @@ static void telemetry_boot(void)
     if (vh == INVALID_ADDRESS) {
         goto err_free_buf;
     }
-    char addr[40];
-    ipaddr_ntoa_r(&netif->ip_addr, addr, sizeof(addr));
-    bprintf(b, "{\"privateIP\":\"%s\"", addr);
+    char addr[IPADDR_STRLEN_MAX];
+    bprintf(b, "{\"privateIP\":\"%s\"",
+            isstring(addr, ipaddr_ntoa_r(&netif->ip_addr, addr, sizeof(addr))));
     telemetry_print_env(b);
     buffer_write_cstring(b, "}\r\n");
-    if (!telemetry_send("/api/v1/boots", b, vh)) {
+    if (!telemetry_send(ss("/api/v1/boots"), b, vh)) {
         deallocate_closure(vh);
         goto err_free_buf;
     }
@@ -373,12 +370,12 @@ static void telemetry_boot(void)
 
 closure_function(2, 4, void, telemetry_vh,
                  buffer, b, int, count,
-                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
+                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
 {
     u64 block_size = fs_blocksize(fs);
     buffer b = bound(b);
-    bprintf(b, "%s{\"volume\":\"", (bound(count) == 0) ? "" : ",");
-    if (label[0])
+    bprintf(b, "%s{\"volume\":\"", (bound(count) == 0) ? sstring_empty() : ss(","));
+    if (!sstring_is_empty(label))
         bprintf(b, "%s", label);
     else
         print_uuid(b, uuid);
@@ -397,11 +394,11 @@ static void telemetry_stats_send(void)
     bprintf(b, "{\"bootID\":%ld,\"memUsed\":[", telemetry.boot_id);
     for (int i = 0; i < RADAR_STATS_BATCH_SIZE; i++)
         bprintf(b, "%ld%s", telemetry.stats_mem_used[i],
-                (i < RADAR_STATS_BATCH_SIZE - 1) ? "," : "");
+                (i < RADAR_STATS_BATCH_SIZE - 1) ? ss(",") : sstring_empty());
     buffer_write_cstring(b, "],\"diskUsage\":[");
     storage_iterate(stack_closure(telemetry_vh, b, 0));
     buffer_write_cstring(b, "]}\r\n");
-    if (!telemetry_send("/api/v1/machine-stats", b, 0)) {
+    if (!telemetry_send(ss("/api/v1/machine-stats"), b, 0)) {
         msg_err("failed to send stats\n");
         deallocate_buffer(b);
     }

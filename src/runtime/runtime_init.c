@@ -99,16 +99,15 @@ static void format_character(buffer dest, struct formatter_state *s, vlist *a)
     push_character(dest, x);
 }
 
-static void format_cstring(buffer dest, struct formatter_state *s, vlist *a)
+static void format_sstring(buffer dest, struct formatter_state *s, vlist *a)
 {
-    char *c = varg(*a, char *);
-    if (!c) c = (char *)"(null)";
-    int len = runtime_strlen(c);
-    if (s->precision > 0)
+    sstring ss = varg(*a, sstring);
+    int len = ss.len;
+    if ((s->precision > 0) && (s->precision < len))
         len = s->precision;
     if (len < s->width && s->align == 0)
         fill(dest, s->width - len, ' ');
-    assert(buffer_write(dest, c, len));
+    assert(buffer_write(dest, ss.ptr, len));
     if (len < s->width && s->align == '-')
         fill(dest, s->width - len, ' ');
 }
@@ -132,7 +131,7 @@ void init_runtime(heap general, heap safe)
     register_format('x', format_number, 1);
     register_format('d', format_number, 1);
     register_format('u', format_number, 1);
-    register_format('s', format_cstring, 0);
+    register_format('s', format_sstring, 0);
     register_format('b', format_buffer, 0);
     register_format('n', format_spaces, 0);
     register_format('c', format_character, 0);
@@ -141,11 +140,10 @@ void init_runtime(heap general, heap safe)
     null_value = wrap_buffer(general, "", 1);
 }
 
-void rputs(const char *s)
+void rput_sstring(sstring s)
 {
-    int len = runtime_strlen(s);
-    console_write(s, len);
-    klog_write(s, len);
+    console_write(s.ptr, s.len);
+    klog_write(s.ptr, s.len);
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766

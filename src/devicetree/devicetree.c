@@ -58,41 +58,42 @@ struct dt_prop {
     u8 data[0];
 };
 
-typedef closure_type(dt_node_begin_handler, boolean, dt_node, char *, int, dt_node);
+typedef closure_type(dt_node_begin_handler, boolean, dt_node, sstring, int, dt_node);
 typedef closure_type(dt_node_end_handler, boolean, dt_node, int);
-typedef closure_type(dt_prop_handler, boolean, void *, dt_node, char *, dt_prop);
+typedef closure_type(dt_prop_handler, boolean, void *, dt_node, sstring, dt_prop);
 
 #define nelem(x) (sizeof((x))/sizeof((x)[0]))
 static struct prop_value_map {
-    char *name;
+    sstring name;
     int type;
 } prop_value_map[] = {
-    { "compatible", DT_VALUE_STRINGLIST },
-    { "model", DT_VALUE_STRING },
-    { "phandle", DT_VALUE_U32 },
-    { "status", DT_VALUE_STRING },
-    { "#address-cells", DT_VALUE_U32 },
-    { "#size-cells", DT_VALUE_U32 },
-    { "#interrupt-cells", DT_VALUE_U32 },
-    { "interrupt-parent", DT_VALUE_PHANDLE },
-    { "reg", DT_VALUE_REG },
-    { "virtual-reg", DT_VALUE_U32 },
-    { "device_type", DT_VALUE_STRING },
-    { "bootargs", DT_VALUE_STRING },
-    { "stdout-path", DT_VALUE_STRING },
-    { "stdin-path", DT_VALUE_STRING },
-    { "clock-frequency", DT_VALUE_FREQ },
-    { "timebase-frequency", DT_VALUE_FREQ },
-    { "mmu-type", DT_VALUE_STRING },
-    { "cpu", DT_VALUE_PHANDLE },
+    { ss_static_init("compatible"), DT_VALUE_STRINGLIST },
+    { ss_static_init("model"), DT_VALUE_STRING },
+    { ss_static_init("phandle"), DT_VALUE_U32 },
+    { ss_static_init("status"), DT_VALUE_STRING },
+    { ss_static_init("#address-cells"), DT_VALUE_U32 },
+    { ss_static_init("#size-cells"), DT_VALUE_U32 },
+    { ss_static_init("#interrupt-cells"), DT_VALUE_U32 },
+    { ss_static_init("interrupt-parent"), DT_VALUE_PHANDLE },
+    { ss_static_init("reg"), DT_VALUE_REG },
+    { ss_static_init("virtual-reg"), DT_VALUE_U32 },
+    { ss_static_init("device_type"), DT_VALUE_STRING },
+    { ss_static_init("bootargs"), DT_VALUE_STRING },
+    { ss_static_init("stdout-path"), DT_VALUE_STRING },
+    { ss_static_init("stdin-path"), DT_VALUE_STRING },
+    { ss_static_init("clock-frequency"), DT_VALUE_FREQ },
+    { ss_static_init("timebase-frequency"), DT_VALUE_FREQ },
+    { ss_static_init("mmu-type"), DT_VALUE_STRING },
+    { ss_static_init("cpu"), DT_VALUE_PHANDLE },
 };
 
-char *dtb_string(void *dtb, u64 off)
+sstring dtb_string(void *dtb, u64 off)
 {
     dt_header fdt = dtb;
-    if (off >= dt_u32(fdt->size_dt_strings))
-        return "(bad string offset)";
-    return (char *)fdt + dt_u32(fdt->off_dt_strings) + off;
+    u64 end = dt_u32(fdt->size_dt_strings);
+    if (off >= end)
+        return ss("(bad string offset)");
+    return sstring_from_cstring((char *)fdt + dt_u32(fdt->off_dt_strings) + off, end - off);
 }
 
 #define MAX_NODE_DEPTH 16
@@ -101,7 +102,7 @@ void dtb_walk_internal(void *dtb, dt_node dn,
        dt_node_begin_handler nbh, dt_node_end_handler neh, dt_prop_handler ph)
 {
     dt_node nstack[MAX_NODE_DEPTH];
-    char *name;
+    sstring name;
     int nodelevel = 0;
     dt_header fdt = dtb;
     u8 *n = (u8 *)dn;
@@ -121,10 +122,10 @@ void dtb_walk_internal(void *dtb, dt_node dn,
         void *data = n;
         switch (token) {
         case FDT_BEGIN_NODE:
-            name = data;
+            name = sstring_from_cstring(data, end - n);
             if (nbh && !apply(nbh, (dt_node)curtok, name, nodelevel, nodelevel ? nstack[nodelevel - 1] : INVALID_ADDRESS))
                 return;
-            n += pad(runtime_strlen(name) + 1, 4);
+            n += pad(name.len + 1 /* string terminator */, 4);
             nstack[nodelevel++] = curtok;
             break;
         case FDT_END_NODE:
@@ -176,7 +177,7 @@ dt_node dtb_get_root(void *dtb)
 
 closure_function(2, 4, boolean, get_parent_handler,
                  dt_node, ln, dt_node *, p,
-                 dt_node, n, char *, name, int, level, dt_node, parent)
+                 dt_node, n, sstring, name, int, level, dt_node, parent)
 {
     if (bound(ln) == n) {
         *bound(p) = parent;
@@ -194,8 +195,8 @@ dt_node dtb_get_parent(void *dtb, dt_node n)
 }
 
 closure_function(2, 4, boolean, get_prop_handler,
-                 char *, pname, dt_prop *, p,
-                 void *, dtb, dt_node, n, char *, name, dt_prop, p)
+                 sstring, pname, dt_prop *, p,
+                 void *, dtb, dt_node, n, sstring, name, dt_prop, p)
 {
     if (runtime_strcmp(bound(pname), name) == 0) {
         *bound(p) = p;
@@ -205,14 +206,14 @@ closure_function(2, 4, boolean, get_prop_handler,
 }
 
 closure_function(0, 4, boolean, get_prop_nb,
-                 dt_node, n, char *, name, int, level, dt_node, parent)
+                 dt_node, n, sstring, name, int, level, dt_node, parent)
 {
     if (level > 0)
         return false;
     return true;
 }
 
-dt_prop dtb_get_prop(void *dtb, dt_node dn, char *pname)
+dt_prop dtb_get_prop(void *dtb, dt_node dn, sstring pname)
 {
     dt_prop p = INVALID_ADDRESS;
     if (dn == INVALID_ADDRESS)
@@ -229,7 +230,7 @@ dt_value dtb_read_value(void *dtb, dt_node n, dt_prop p)
     if (p == INVALID_ADDRESS)
         return (dt_value){ .type = DT_VALUE_INVALID };
 
-    char *name = dt_string(dtb, p->name);
+    sstring name = dt_string(dtb, p->name);
     void *data = p->data;
 
     v.type = DT_VALUE_UNKNOWN;
@@ -268,12 +269,12 @@ dt_value dtb_read_value(void *dtb, dt_node n, dt_prop p)
 }
 
 closure_function(4, 4, boolean, find_node_handler,
-                 char *, tok, char *, nexttok, dt_node *, rn, int, plevel,
-                dt_node, n, char *, name, int, level, dt_node, parent)
+                 sstring, tok, sstring, nexttok, dt_node *, rn, int, plevel,
+                 dt_node, n, sstring, name, int, level, dt_node, parent)
 {
-    char *tok = bound(tok);
+    sstring tok = bound(tok);
     if (level == 0) {
-        if (tok == 0) {
+        if (sstring_is_null(tok)) {
             *bound(rn) = n;
             return false;
         }
@@ -281,8 +282,8 @@ closure_function(4, 4, boolean, find_node_handler,
         return true;
     }
     if (bound(plevel) == level && runtime_strcmp(tok, name) == 0) {
-        bound(tok) = runtime_strtok_r(0, "/", &bound(nexttok));
-        if (bound(tok) == 0) {
+        bound(tok) = runtime_strtok_r(0, ss("/"), &bound(nexttok));
+        if (sstring_is_null(bound(tok))) {
             *bound(rn) = n;
             return false;
         }
@@ -291,13 +292,11 @@ closure_function(4, 4, boolean, find_node_handler,
     return true;
 }
 
-dt_node dtb_find_node_by_path(void *dtb, char *path)
+dt_node dtb_find_node_by_path(void *dtb, sstring path)
 {
     dt_node n = INVALID_ADDRESS;
-    if (path[0] != '/')
-        return INVALID_ADDRESS;
-    char *nexttok;
-    char *tok = runtime_strtok_r(path, "/", &nexttok);
+    sstring nexttok;
+    sstring tok = runtime_strtok_r(&path, ss("/"), &nexttok);
     dtb_walk_internal(dtb, dtb_get_root(dtb),
             stack_closure(find_node_handler, tok, nexttok, &n, 0), 0, 0);
     return n;
@@ -305,9 +304,9 @@ dt_node dtb_find_node_by_path(void *dtb, char *path)
 
 closure_function(2, 4, boolean, find_phandle_handler,
                  u32, phandle, dt_node *, rn,
-                 void *, dtb, dt_node, n, char *, name, dt_prop, p)
+                 void *, dtb, dt_node, n, sstring, name, dt_prop, p)
 {
-    if (runtime_strcmp(name, "phandle") != 0)
+    if (runtime_strcmp(name, ss("phandle")) != 0)
         return true;
     dt_value v = dtb_read_value(dtb, n, p);
     if (v.u.num != bound(phandle))
@@ -325,14 +324,14 @@ dt_node dtb_find_node_by_phandle(void *dtb, u32 phandle)
 }
 
 closure_function(3, 4, boolean, walk_child_handler,
-                 char *, match, dt_node_handler, nh, int *, nmatches,
-                 dt_node, n, char *, name, int, level, dt_node, parent)
+                 sstring, match, dt_node_handler, nh, int *, nmatches,
+                 dt_node, n, sstring, name, int, level, dt_node, parent)
 {
-    char *match = bound(match);
+    sstring match = bound(match);
     *bound(nmatches) = 0;
-    if (level == 1 && (match == 0 || runtime_strstr(name, match) == name)) {
-         char *ep = match ? name + runtime_strlen(match) : 0;
-         if (!match || *ep == 0 || *ep == '@') {
+    if (level == 1 && (sstring_is_null(match) || runtime_strstr(name, match) == name.ptr)) {
+         char *ep = !sstring_is_null(match) ? name.ptr + match.len : 0;
+         if (sstring_is_null(match) || match.len == name.len || *ep == '@') {
             (*bound(nmatches))++;
             return apply(bound(nh), n, name);
          }
@@ -340,7 +339,7 @@ closure_function(3, 4, boolean, walk_child_handler,
     return true;
 }
 
-int dtb_walk_node_children(void *dtb, dt_node n, char *match, dt_node_handler nh)
+int dtb_walk_node_children(void *dtb, dt_node n, sstring match, dt_node_handler nh)
 {
     int nmatches = 0;
     dtb_walk_internal(dtb, n, stack_closure(walk_child_handler, match, nh, &nmatches), 0, 0);
@@ -349,15 +348,15 @@ int dtb_walk_node_children(void *dtb, dt_node n, char *match, dt_node_handler nh
 
 closure_function(1, 4, boolean, print_node,
                  int *, level,
-                 dt_node, n, char *, name, int, level, dt_node, parent)
+                 dt_node, n, sstring, name, int, level, dt_node, parent)
 {
     *bound(level) = level + 1;
     while (level-- > 0)
         console("  ");
-    if (name[0] == 0)
+    if (sstring_is_empty(name))
         console("/");
     else
-        console(name);
+        console_sstring(name);
     console(" (");
     print_u64(u64_from_pointer(n));
     console(")");
@@ -378,13 +377,13 @@ closure_function(1, 2, boolean, print_node_end,
 
 closure_function(1, 4, boolean, print_prop,
                  int *, level,
-                 void *, dtb, dt_node, n, char *, name, dt_prop, p)
+                 void *, dtb, dt_node, n, sstring, name, dt_prop, p)
 {
     int level = *bound(level);
     dt_value v = dtb_read_value(dtb, n, p);
     while (level-- > 0)
         console("  ");
-    console(name);
+    console_sstring(name);
     console(": ");
     switch (v.type) {
     case DT_VALUE_U32:
@@ -396,16 +395,18 @@ closure_function(1, 4, boolean, print_prop,
         break;
     case DT_VALUE_STRING:
         console("\"");
-        console(v.data);
+        console_sstring(sstring_from_cstring(v.data, v.dlen));
         console("\"");
         break;
     case DT_VALUE_STRINGLIST: {
+        sstring s;
         int cnt = 0;
-        dt_stringlist_foreach(v, c) {
+        for (char *c = v.data, *ce = c + v.dlen; c < ce; c += s.len + 1) {
             if (cnt++ != 0)
                 console(",");
+            s = sstring_from_cstring(c, ce - c);
             console("\"");
-            console(c);
+            console_sstring(s);
             console("\"");
         }
         break;
@@ -456,10 +457,10 @@ dt_reg_iterator dtb_read_reg(void *dtb, dt_node n, dt_prop p)
     ri.address_cells = 2;
     ri.size_cells = 1;
     dt_node parent = dtb_get_parent(dtb, n);
-    dt_prop pv = dtb_get_prop(dtb, parent, "#address-cells");
+    dt_prop pv = dtb_get_prop(dtb, parent, ss("#address-cells"));
     if (pv != DT_VALUE_INVALID)
         ri.address_cells = dtb_read_u32(pv);
-    pv = dtb_get_prop(dtb, parent, "#size-cells");
+    pv = dtb_get_prop(dtb, parent, ss("#size-cells"));
     if (pv != DT_VALUE_INVALID)
         ri.size_cells = dtb_read_u32(pv);
     return ri;
@@ -483,10 +484,10 @@ boolean dtb_reg_iterate(dt_reg_iterator *ri, range *r)
 
 closure_function(2, 2, boolean, read_mem_size,
                  void *, dtb, range *, r,
-                 dt_node, n, char *, name)
+                 dt_node, n, sstring, name)
 {
     void *dtb = bound(dtb);
-    dt_prop p = dtb_get_prop(dtb, n, "reg");
+    dt_prop p = dtb_get_prop(dtb, n, ss("reg"));
     if (p == INVALID_ADDRESS) {
         console("read_mem_size: memory node missing 'reg' property\n");
         return false;
@@ -503,7 +504,8 @@ closure_function(2, 2, boolean, read_mem_size,
 range dtb_read_memory_range(void *dtb)
 {
     range r = irangel(INVALID_PHYSICAL, 0);
-    dtb_walk_node_children(dtb, dtb_get_root(dtb), "memory", stack_closure(read_mem_size, dtb, &r));
+    dtb_walk_node_children(dtb, dtb_get_root(dtb), ss("memory"),
+                           stack_closure(read_mem_size, dtb, &r));
     return r;
 }
 

@@ -213,7 +213,7 @@ flush_entry get_page_flush_entry(void)
 void init_flush(heap h)
 {
     flush_ipi = allocate_ipi_interrupt();
-    register_interrupt(flush_ipi, closure(h, flush_handler), "flush ipi");
+    register_interrupt(flush_ipi, closure(h, flush_handler), ss("flush ipi"));
     list_init(&entries);
     flush_service = closure(h, do_flush_service);
     free_flush_entries = allocate_queue(h, MAX_FLUSH_ENTRIES + 1);

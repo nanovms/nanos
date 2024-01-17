@@ -12,11 +12,11 @@ typedef struct specfiles_disks {
 
 closure_function(1, 4, void, disks_handler,
                  buffer, b,
-                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
+                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
 {
     buffer b = bound(b);
     buffer_write_cstring(b, "[\n");
-    if (label[0])
+    if (!sstring_is_empty(label))
         bprintf(b, "\tNAME=%s\n", label);
     if (uuid) {
         buffer_write_cstring(b, "\tUUID=");
@@ -79,7 +79,7 @@ int init(status_handler complete)
         spec_file_open open = closure(specfiles_heap, disks_open);
         if (open == INVALID_ADDRESS)
             error = true;
-        else if (!create_special_file("/sys/devices/disks", open, 0, 0)) {
+        else if (!create_special_file(ss("/sys/devices/disks"), open, 0, 0)) {
             deallocate_closure(open);
             error = true;
         }

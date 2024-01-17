@@ -28,7 +28,7 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
     u32 data = -1;
     u64 base = pcie_ecam_base
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
-    pci_plat_debug("%s:  dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx: ", __func__,
+    pci_plat_debug("%s: dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx: ", func_ss,
               dev, dev->bus, reg, bytes, base);
     switch (bytes) {
     case 1:
@@ -50,7 +50,7 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
     u64 base = pcie_ecam_base
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
     pci_plat_debug("%s: dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx= 0x%x\n",
-                   __func__, dev, dev->bus, reg, bytes, base, source);
+                   func_ss, dev, dev->bus, reg, bytes, base, source);
     switch (bytes) {
     case 1:
         mmio_write_8(base, source);
@@ -67,8 +67,8 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 #define MK_PCI_BAR_READ(BYTES, BITS)                                    \
     u##BITS pci_bar_read_##BYTES(struct pci_bar *b, u64 offset)         \
     {                                                                   \
-        pci_plat_debug("%s:  bar %p, %s addr + offset 0x%lx: ", __func__, b, \
-                       b->type == PCI_BAR_MEMORY ? "memory" : "ioport", \
+        pci_plat_debug("%s: bar %p, %s addr + offset 0x%lx: ", func_ss, b,              \
+                       b->type == PCI_BAR_MEMORY ? ss("memory") : ss("ioport"),         \
                        (b->type == PCI_BAR_MEMORY ? b->vaddr : b->addr) + offset);      \
         u##BITS rv = b->type == PCI_BAR_MEMORY ? mmio_read_##BITS(b->vaddr + offset) :  \
             pio_in##BITS(b->addr + offset);                             \
@@ -79,8 +79,8 @@ void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 #define MK_PCI_BAR_WRITE(BYTES, BITS)                                   \
     void pci_bar_write_##BYTES(struct pci_bar *b, u64 offset, u##BITS val) \
     {                                                                   \
-        pci_plat_debug("%s: bar %p, %s addr + offset 0x%lx= 0x%x\n", __func__, b, \
-                       b->type == PCI_BAR_MEMORY ? "memory" : "ioport", \
+        pci_plat_debug("%s: bar %p, %s addr + offset 0x%lx= 0x%x\n", func_ss, b,        \
+                       b->type == PCI_BAR_MEMORY ? ss("memory") : ss("ioport"),         \
                        (b->type == PCI_BAR_MEMORY ? b->vaddr : b->addr) + offset, val); \
         if (b->type == PCI_BAR_MEMORY)                                  \
             mmio_write_##BITS(b->vaddr + offset, val);                  \
@@ -98,11 +98,11 @@ MK_PCI_BAR_WRITE(2, 16)
 MK_PCI_BAR_WRITE(4, 32)
 MK_PCI_BAR_WRITE(8, 64)
 
-void pci_setup_non_msi_irq(pci_dev dev, thunk h, const char *name)
+void pci_setup_non_msi_irq(pci_dev dev, thunk h, sstring name)
 {
     /* queue index ignored; virtio ints are shared */
     u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % VIRT_PCIE_IRQ_NUM);
-    pci_plat_debug("%s: dev %p, irq %d, handler %F, name %s\n", __func__, dev, v, h, name);
+    pci_plat_debug("%s: dev %p, irq %d, handler %F, name %s\n", func_ss, dev, v, h, name);
     register_interrupt(v, h, name);
 }
 
@@ -127,7 +127,7 @@ void pci_platform_init(void)
    This could be replaced with generic PCI resource allocation. */
 void pci_platform_init_bar(pci_dev dev, int bar_idx)
 {
-    pci_plat_debug("%s: dev %p, %d:%d:%d, bar_idx %d\n", __func__,
+    pci_plat_debug("%s: dev %p, %d:%d:%d, bar_idx %d\n", func_ss,
                    dev, dev->bus, dev->slot, dev->function, bar_idx);
     u32 bar = pci_cfgread(dev, PCIR_BAR(bar_idx), 4);
     pci_plat_debug("   bar before 0x%x\n", bar);
@@ -141,12 +141,12 @@ void pci_platform_init_bar(pci_dev dev, int bar_idx)
             base = DEV_BASE_PCIE_MMIO + ((dev->bus + 1) << 18) + (dev->slot << 12) +
                 (dev->function << 8) + (bar << 4);
         }
-        pci_plat_debug("%s: dev %d:%d:%d, base 0x%x\n", __func__, dev->bus, dev->slot, dev->function, base);
+        pci_plat_debug("%s: dev %d:%d:%d, base 0x%x\n", func_ss, dev->bus, dev->slot, dev->function, base);
         pci_cfgwrite(dev, PCIR_BAR(bar_idx), 4, base);
     }
 }
 
-u64 pci_platform_allocate_msi(pci_dev dev, thunk h, const char *name, u32 *address, u32 *data)
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, sstring name, u32 *address, u32 *data)
 {
     u64 v = allocate_msi_interrupt();
     if (v == INVALID_PHYSICAL)

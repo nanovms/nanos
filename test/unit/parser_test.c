@@ -9,15 +9,15 @@
 
 #define test_assert(expr) do { \
 if (expr) ; else { \
-    msg_err("%s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
+    msg_err("%s -- failed at %s:%d\n", ss(#expr), file_ss, __LINE__); \
     return false; \
 } \
 } while (0)
 
-/* s2 must be null-terminated */
-#define test_strings_equal(s1, s2) do {        \
-if (strncmp(s1, s2, strlen(s2)) != 0) {                         \
-    msg_err("\"%s\" != \"%s\" -- failed at %s:%d\n", s1, s2, __FILE__, __LINE__); \
+/* s must be a string literal */
+#define test_strings_equal(b, s) do {        \
+if (buffer_strcmp(b, s) != 0) {                         \
+    msg_err("\"%b\" != \"%s\" -- failed at %s:%d\n", b, ss(s), file_ss, __LINE__); \
     return false; \
 } \
 } while (0)
@@ -31,7 +31,7 @@ if (strncmp(s1, s2, strlen(s2)) != 0) {                         \
 
 #define test_assert_json_incomplete() do {                                  \
     test_assert(errors_count == 1);                                         \
-    test_strings_equal(last_error->contents, "unexpected end of input");    \
+    test_strings_equal(last_error, "unexpected end of input");    \
 } while (0)
 
 value root;
@@ -58,7 +58,7 @@ closure_function(1, 1, void, perr,
     last_error = clone_buffer(bound(h), s);
 }
 
-void parse_string(heap h, parser p, char *str)
+void parse_string(heap h, parser p, sstring str)
 {
     root = NULL;
     errors_count = 0;
@@ -67,10 +67,9 @@ void parse_string(heap h, parser p, char *str)
         last_error = NULL;
     }
 
-    buffer b = wrap_string_cstring(str);
+    buffer b = alloca_wrap_sstring(str);
     p = parser_feed(p, b);
     apply(p, CHARACTER_INVALID);    /* signal end of input */
-    /* deallocate_buffer(b); */
 }
 
 #define PARSE_TEST(name, p, str) \
@@ -78,7 +77,7 @@ void parse_string(heap h, parser p, char *str)
 \
     boolean name(heap h) \
     { \
-        parse_string(h, p, str); \
+        parse_string(h, p, ss(str)); \
 \
         return !_check_##name(h); \
     } \
@@ -153,9 +152,9 @@ TUPLE_PARSE_TEST(tuple_simple_test, "(key:value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
     deallocate_buffer(v1);
 
     return true;
@@ -168,9 +167,9 @@ TUPLE_PARSE_TEST(tuple_simple_spaced_test, " ( key : value ) ")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
     deallocate_buffer(v1);
 
     return true;
@@ -185,7 +184,7 @@ TUPLE_PARSE_TEST(vector_simple_test, "[val1]")
 
     buffer v1 = get_string(root, integer_key(0));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "val1");
+    test_strings_equal(v1, "val1");
 
     return true;
 }
@@ -197,14 +196,14 @@ TUPLE_PARSE_TEST(tuple_2elements_test, "(key1:value1 key2:value2)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 2);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key1")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key1")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value1");
+    test_strings_equal(v1, "value1");
     deallocate_buffer(v1);
 
-    buffer v2 = get_string(root, intern(wrap_string_cstring("key2")));
+    buffer v2 = get_string(root, intern(alloca_wrap_cstring("key2")));
     test_assert(v2 != NULL);
-    test_strings_equal(v2->contents, "value2");
+    test_strings_equal(v2, "value2");
     deallocate_buffer(v2);
 
     return true;
@@ -219,11 +218,11 @@ TUPLE_PARSE_TEST(vector_2elements_test, "[val1 val2]")
 
     buffer v1 = get_string(root, integer_key(0));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "val1");
+    test_strings_equal(v1, "val1");
 
     buffer v2 = get_string(root, integer_key(1));
     test_assert(v2 != NULL);
-    test_strings_equal(v2->contents, "val2");
+    test_strings_equal(v2, "val2");
 
     return true;
 }
@@ -237,11 +236,11 @@ TUPLE_PARSE_TEST(whitespace_after_last_vector_value_test, "[val ]")
 
     buffer v1 = get_string(root, integer_key(0));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "val");
+    test_strings_equal(v1, "val");
 
     buffer v2 = get_string(root, integer_key(1));
     test_assert(v2 != NULL);
-    test_strings_equal(v2->contents, "");
+    test_strings_equal(v2, "");
 
     return true;
 }
@@ -253,13 +252,13 @@ TUPLE_PARSE_TEST(tuple_nested_tuple_test, "(key:(key2:value2))")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    tuple v1 = get_tuple(root, intern(wrap_string_cstring("key")));
+    tuple v1 = get_tuple(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get_string(v1, intern(wrap_string_cstring("key2")));
+    buffer v2 = get_string(v1, intern(alloca_wrap_cstring("key2")));
     test_assert(v2 != NULL);
-    test_strings_equal(v2->contents, "value2");
+    test_strings_equal(v2, "value2");
     deallocate_buffer(v2);
 
     return true;
@@ -277,9 +276,9 @@ TUPLE_PARSE_TEST(vector_nested_tuple_test, "[(key2:value2)]")
     test_assert(v1 != NULL);
     test_assert(tuple_count(v1) == 1);
 
-    buffer v2 = get_string(v1, intern(wrap_string_cstring("key2")));
+    buffer v2 = get_string(v1, intern(alloca_wrap_cstring("key2")));
     test_assert(v2 != NULL);
-    test_strings_equal(v2->contents, "value2");
+    test_strings_equal(v2, "value2");
     deallocate_buffer(v2);
 
     return true;
@@ -292,14 +291,14 @@ TUPLE_PARSE_TEST(tuple_nested_vector_test, "(key:[value2])")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    value v1 = get(root, intern(wrap_string_cstring("key")));
+    value v1 = get(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
     test_assert(is_vector(v1));
     test_assert(vector_length(v1) == 1);
 
     buffer v2 = get_string(v1, integer_key(0));
     test_assert(v2 != NULL);
-    test_strings_equal(v2->contents, "value2");
+    test_strings_equal(v2, "value2");
     deallocate_buffer(v2);
 
     return true;
@@ -320,7 +319,7 @@ TUPLE_PARSE_TEST(vector_nested_vector_test, "[[value2]]")
 
     buffer v2 = get_string(v1, integer_key(0));
     test_assert(v2 != NULL);
-    test_strings_equal(v2->contents, "value2");
+    test_strings_equal(v2, "value2");
     deallocate_buffer(v2);
 
     return true;
@@ -333,9 +332,9 @@ TUPLE_PARSE_TEST(quoted_tuple_value_test, "(key:\"value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
     deallocate_buffer(v1);
 
     return true;
@@ -348,9 +347,9 @@ TUPLE_PARSE_TEST(quoted_tuple_name_test, "(\"key\":value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
     deallocate_buffer(v1);
 
     return true;
@@ -363,9 +362,9 @@ TUPLE_PARSE_TEST(quoted_tuple_name_value_test, "(\"key\":\"value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
     deallocate_buffer(v1);
 
     return true;
@@ -378,9 +377,9 @@ TUPLE_PARSE_TEST(spaced_quoted_tuple_name_value_test, "( \"key\" : \"value\" )")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
     deallocate_buffer(v1);
 
     return true;
@@ -393,9 +392,9 @@ TUPLE_PARSE_TEST(quoted_spaced_tuple_value_test, "(key:\"hello value\")")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "hello value");
+    test_strings_equal(v1, "hello value");
     deallocate_buffer(v1);
 
     return true;
@@ -408,9 +407,9 @@ TUPLE_PARSE_TEST(quoted_spaced_tuple_name_test, "(\"hello key\":value)")
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("hello key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("hello key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
     deallocate_buffer(v1);
 
     return true;
@@ -423,9 +422,9 @@ TUPLE_PARSE_TEST(quoted_spaced_tuple_name_value_test, "(\"hello key\":\"hello va
     test_assert(root != NULL);
     test_assert(tuple_count(root) == 1);
 
-    buffer v1 = get_string(root, intern(wrap_string_cstring("hello key")));
+    buffer v1 = get_string(root, intern(alloca_wrap_cstring("hello key")));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "hello value");
+    test_strings_equal(v1, "hello value");
     deallocate_buffer(v1);
 
     return true;
@@ -440,7 +439,7 @@ TUPLE_PARSE_TEST(quoted_vector_value_test, "[\"value\"]")
 
     buffer v1 = get_string(root, integer_key(0));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "value");
+    test_strings_equal(v1, "value");
 
     return true;
 }
@@ -454,7 +453,7 @@ TUPLE_PARSE_TEST(quoted_spaced_vector_value_test, "[\"hello value\"]")
 
     buffer v1 = get_string(root, integer_key(0));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "hello value");
+    test_strings_equal(v1, "hello value");
 
     return true;
 }
@@ -468,7 +467,7 @@ TUPLE_PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"
 
     buffer v1 = get_string(root, integer_key(0));
     test_assert(v1 != NULL);
-    test_strings_equal(v1->contents, "hello \"value\"");
+    test_strings_equal(v1, "hello \"value\"");
 
     return true;
 }
@@ -476,7 +475,7 @@ TUPLE_PARSE_TEST(quoted_escaped_quote_vector_value_test, "[\"hello \\\"value\\\"
 TUPLE_PARSE_TEST(unknown_terminal_test, "(key:value()")
 {
     test_assert(errors_count == 1);
-    test_strings_equal(last_error->contents, "unknown property discriminator 40");
+    test_strings_equal(last_error, "unknown property discriminator 40");
 
     return true;
 }
@@ -484,7 +483,7 @@ TUPLE_PARSE_TEST(unknown_terminal_test, "(key:value()")
 TUPLE_PARSE_TEST(single_closing_tuple_bracket_test, ")")
 {
     test_assert(errors_count == 1);
-    test_strings_equal(last_error->contents, "unknown property discriminator 40");
+    test_strings_equal(last_error, "unknown property discriminator 40");
 
     return true;
 }
@@ -492,7 +491,7 @@ TUPLE_PARSE_TEST(single_closing_tuple_bracket_test, ")")
 TUPLE_PARSE_TEST(single_closing_vector_bracket_test, "]")
 {
     test_assert(errors_count == 1);
-    test_strings_equal(last_error->contents, "unknown property discriminator 40");
+    test_strings_equal(last_error, "unknown property discriminator 40");
 
     return true;
 }
@@ -504,13 +503,13 @@ JSON_PARSE_TEST(json_whitespace_test, " {\n\"\ra\t\" :\n\"\rb\t\" ,\n\"c\":{\r\"
 
     string s = get_string(root, sym_this("\ra\t"));
     test_assert(s != NULL);
-    test_strings_equal(s->contents, "\rb\t");
+    test_strings_equal(s, "\rb\t");
 
     tuple t = get_tuple(root, sym_this("c"));
     test_assert((t != NULL) && (tuple_count(t) == 1));
     s = get_string(t, sym_this("d"));
     test_assert(s != NULL);
-    test_strings_equal(s->contents, "e");
+    test_strings_equal(s, "e");
 
     destruct_value(root, true);
     return true;
@@ -519,7 +518,7 @@ JSON_PARSE_TEST(json_whitespace_test, " {\n\"\ra\t\" :\n\"\rb\t\" ,\n\"c\":{\r\"
 JSON_PARSE_TEST(json_invalid_objstart_test, "a")
 {
     test_assert(errors_count == 1);
-    test_strings_equal(last_error->contents, "unexpected character a");
+    test_strings_equal(last_error, "unexpected character a");
     return true;
 }
 
@@ -574,14 +573,14 @@ JSON_PARSE_TEST(json_incomplete_stringvalue_test1, "{\"a\":\"b")
 JSON_PARSE_TEST(json_incomplete_numbervalue_test, "{\"a\":-")
 {
     test_assert(errors_count == 1);
-    test_strings_equal(last_error->contents, "no digits found");
+    test_strings_equal(last_error, "no digits found");
     return true;
 }
 
 JSON_PARSE_TEST(json_incomplete_numbervalue_test1, "{\"a\":0.")
 {
     test_assert(errors_count == 1);
-    test_strings_equal(last_error->contents, "no digits found");
+    test_strings_equal(last_error, "no digits found");
     return true;
 }
 
@@ -629,7 +628,7 @@ JSON_PARSE_TEST(json_longstring_test, "{\"abcdefghijklmnopqrstuvwxyz0123456789\"
 
     string s = get_string(root, sym_this("abcdefghijklmnopqrstuvwxyz0123456789"));
     test_assert(s != NULL);
-    test_strings_equal(s->contents, "0123456789abcdefghijklmnopqrstuvwxyz");
+    test_strings_equal(s, "0123456789abcdefghijklmnopqrstuvwxyz");
 
     destruct_value(root, true);
     return true;
@@ -765,12 +764,12 @@ JSON_PARSE_TEST(json_nested_test, "{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"
 {
     test_no_errors();
     tuple t = root;
-    char attr_name[2];
-    strcpy(attr_name, "a");
+    char attr = 'a';
+    sstring attr_name = isstring(&attr, sizeof(attr));
     for (int i = 0; i < 7; i++) {
         test_assert((t != NULL) && (tuple_count(t) == 1));
-        t = get_tuple(t, sym_this(attr_name));
-        attr_name[0] = attr_name[0] + 1;
+        t = get_tuple(t, sym_sstring(attr_name));
+        attr = attr + 1;
     }
     test_assert((t != NULL) && (tuple_count(t) == 0));
 

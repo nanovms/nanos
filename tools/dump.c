@@ -27,7 +27,7 @@ closure_function(2, 1, void, bread,
                  storage_req, req)
 {
     if (req->op != STORAGE_OP_READSG)
-        halt("%s: invalid storage op %d\n", __func__, req->op);
+        halt("%s: invalid storage op %d\n", func_ss, req->op);
     sg_list sg = req->data;
     u64 offset = bound(fs_offset) + (req->blocks.start << SECTOR_OFFSET);
     u64 total = range_span(req->blocks) << SECTOR_OFFSET;
@@ -47,7 +47,7 @@ closure_function(2, 1, void, bread,
         }
         xfer = readv(bound(d), iov, iov_count);
         if (xfer < 0 && errno != EINTR) {
-            apply(req->completion, timm("result", "read error", "error", "%s", strerror(errno)));
+            apply(req->completion, timm("result", "read error %s", errno_sstring()));
             return;
         }
         if (xfer == 0) {
@@ -273,7 +273,7 @@ int main(int argc, char **argv)
     while ((c = getopt(argc, argv, "d:tl")) != EOF) {
         switch (c) {
         case 'd':
-            target_dir = alloca_wrap_buffer(optarg, runtime_strlen(optarg));
+            target_dir = alloca_wrap_buffer(optarg, strlen(optarg));
             break;
         case 't':
             options |= DUMP_OPT_TREE;
@@ -303,7 +303,7 @@ int main(int argc, char **argv)
                       SECTOR_SIZE,
                       infinity,
                       closure(h, bread, fd, get_fs_offset(fd, PARTITION_ROOTFS, false)),
-                      true, 0,  /* read only, no label */
+                      true, sstring_null(), /* read only, no label */
                       closure(h, fsc, h, target_dir, options));
     return EXIT_SUCCESS;
 }

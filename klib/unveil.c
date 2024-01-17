@@ -136,11 +136,12 @@ static sysreturn unveil(const char *path, const char *permissions)
     }
     if (unv.locked)
         return -EPERM;
-    if (!fault_in_user_string(path) || !fault_in_user_string(permissions))
+    sstring path_ss, permissions_ss;
+    if (!fault_in_user_string(path, &path_ss) ||
+        !fault_in_user_string(permissions, &permissions_ss))
         return -EFAULT;
     u64 perms = UNVEIL_PERMS_VALID;
-    char p;
-    while ((p = *permissions)) {
+    sstring_foreach(i, p, permissions_ss) {
         switch (p) {
         case 'r':
             perms |= UNVEIL_READ;
@@ -157,7 +158,6 @@ static sysreturn unveil(const char *path, const char *permissions)
         default:
             return -EINVAL;
         }
-        permissions++;
     }
     sysreturn rv = 0;
     spin_wlock(&unv.lock);
@@ -175,7 +175,7 @@ static sysreturn unveil(const char *path, const char *permissions)
     tuple n;
     process_get_cwd(current->p, &cwd_fs, &cwd);
     fs = cwd_fs;
-    if (filesystem_get_node(&fs, cwd, path, false, false, false, false, &n, 0) == FS_STATUS_OK) {
+    if (filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &n, 0) == FS_STATUS_OK) {
         if (is_dir(n)) {
             rv = unveil_set_dir_perms(fs, n, perms);
         } else {
@@ -187,24 +187,29 @@ static sysreturn unveil(const char *path, const char *permissions)
     } else {
         /* Unveiling a nonexistent path: if the parent directory exists, set unveil permissions for
          * the given file name in the parent directory. */
-        u64 path_len = runtime_strlen(path);
-        const char *dir_separator = path_find_last_delim(path, path_len);
-        char *parent_path;
+        bytes path_len = path_ss.len;
+        char *dir_separator = path_find_last_delim(path_ss);
+        sstring parent_path;
         if (dir_separator) {
             if (dir_separator - path == path_len - 1) {
                 rv = -ENOENT;
                 goto release;
             }
-            parent_path = stack_allocate(dir_separator - path + 2);   /* include final '/' */
-            runtime_memcpy(parent_path, path, dir_separator - path + 1);
-            parent_path[dir_separator - path + 1] = '\0';
+            parent_path.ptr = path_ss.ptr;
+            parent_path.len = dir_separator - path + 1; /* include final '/' */
         } else {
-            parent_path = ".";
+            parent_path = ss(".");
         }
         if (filesystem_get_node(&fs, cwd, parent_path, false, false, false, false, &n, 0) ==
             FS_STATUS_OK) {
-            symbol dir_entry = dir_separator ? sym_this(dir_separator + 1) : sym_this(path);
-            rv = unveil_set_dir_entry_perms(fs, n, dir_entry, perms);
+            sstring dir_entry;
+            if (dir_separator) {
+                dir_entry.ptr = dir_separator + 1;
+                dir_entry.len = path_ss.len - parent_path.len;
+            } else {
+                dir_entry = path_ss;
+            }
+            rv = unveil_set_dir_entry_perms(fs, n, sym_sstring(dir_entry), perms);
             filesystem_put_node(fs, n);
         } else {
             rv = -ENOENT;
@@ -245,11 +250,11 @@ static u64 unveil_get_perms(filesystem fs, tuple md)
     return perms;
 }
 
-static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, buffer path, boolean nofollow,
+static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, sstring path, boolean nofollow,
                                             u64 perms)
 {
     tuple n;
-    fs_status fss = filesystem_get_node(&fs, cwd, buffer_ref(path, 0), nofollow,
+    fs_status fss = filesystem_get_node(&fs, cwd, path, nofollow,
                                         false, false, false, &n, 0);
     u64 unveil_perms = 0;
     if (fss == FS_STATUS_OK) {
@@ -261,35 +266,41 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, buffer pat
             }
             inode ino = fs->get_inode(fs, n);
             filesystem_put_node(fs, n);
-            fss = filesystem_get_node(&fs, ino, "..", true, false, false, false, &n, 0);
+            fss = filesystem_get_node(&fs, ino, ss(".."), true, false, false, false, &n, 0);
         } while (fss == FS_STATUS_OK);
     } else {
         /* Nonexistent path: look for the parent directory. */
-        char *dir_separator = path_find_last_delim(buffer_ref(path, 0), buffer_length(path));
-        const char *parent_path;
+        char *dir_separator = path_find_last_delim(path);
+        sstring parent_path;
         if (dir_separator) {
-            if (dir_separator != buffer_ref(path, 0)) {
-                *dir_separator = '\0';
-                parent_path = buffer_ref(path, 0);
+            if (dir_separator != path.ptr) {
+                parent_path.ptr = path.ptr;
+                parent_path.len = dir_separator - path.ptr;
             } else {
-                parent_path = "/";
+                parent_path = ss("/");
             }
         } else {
-            parent_path = ".";
+            parent_path = ss(".");
         }
         fss = filesystem_get_node(&fs, cwd, parent_path, false, false, false, false, &n, 0);
         if (fss == FS_STATUS_OK) {
             unveil_dir dir = unveil_find_dir(fs, n);
             if (dir && dir->dir_entries) {
-                symbol dir_entry = dir_separator ? sym_this(dir_separator + 1) :
-                                                   sym_this(buffer_ref(path, 0));
-                unveil_perms = u64_from_pointer(table_find(dir->dir_entries, dir_entry));
+                sstring dir_entry;
+                if (dir_separator) {
+                    dir_entry.ptr = dir_separator + 1;
+                    dir_entry.len = path.len - (dir_separator + 1 - path.ptr);
+                } else {
+                    dir_entry = path;
+                }
+                unveil_perms = u64_from_pointer(table_find(dir->dir_entries,
+                                                           sym_sstring(dir_entry)));
             }
             filesystem_put_node(fs, n);
         }
         if (!(unveil_perms & UNVEIL_PERMS_VALID)) {
             if (dir_separator) {
-                path->end = path->start + (void *)dir_separator - buffer_ref(path, 0);
+                path.len = dir_separator - path.ptr;
                 return unveil_check_path_internal(fs, cwd, path, false, perms);
             } else {
                 tuple md = filesystem_get_meta(fs, cwd);
@@ -308,18 +319,14 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, buffer pat
 static boolean unveil_check_path_at(int dirfd, const char *path, boolean nofollow, u64 perms,
                                     sysreturn *rv)
 {
-    if (!unv.dirs || !fault_in_user_string(path))
+    sstring path_ss;
+    if (!unv.dirs || !fault_in_user_string(path, &path_ss))
         return false;
     inode cwd;
     filesystem fs = get_cwd_fs(dirfd, path, &cwd);
     if (!fs)
         return false;
-    buffer b = stack_allocate(sizeof(struct buffer));
-    bytes path_len = runtime_strlen(path) + 1;  /* include string terminator character */
-    char *path_copy = stack_allocate(path_len);
-    init_buffer(b, path_len, true, 0, path_copy);
-    buffer_write(b, path, path_len);
-    sysreturn ret = unveil_check_path_internal(fs, cwd, b, nofollow, perms);
+    sysreturn ret = unveil_check_path_internal(fs, cwd, path_ss, nofollow, perms);
     filesystem_release(fs);
     if (!ret)
         return false;
@@ -495,7 +502,8 @@ static boolean unveil_unlinkat(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4,
     const char *path = (const char *)arg1;
     if (unveil_check_path_at(arg0, path, true, UNVEIL_CREATE, rv))
         return true;
-    if ((arg2 & AT_REMOVEDIR) && unv.dirs && fault_in_user_string(path)) {
+    sstring path_ss;
+    if ((arg2 & AT_REMOVEDIR) && unv.dirs && fault_in_user_string(path, &path_ss)) {
         /* If the directory being removed has an unveil entry, remove the unveil entry. */
         inode cwd;
         filesystem cwd_fs = get_cwd_fs(arg0, path, &cwd);
@@ -503,7 +511,7 @@ static boolean unveil_unlinkat(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4,
             return false;
         filesystem fs = cwd_fs;
         tuple n;
-        fs_status fss = filesystem_get_node(&fs, cwd, path, true, false, false, false, &n, 0);
+        fs_status fss = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &n, 0);
         if (fss == FS_STATUS_OK) {
             struct unveil_dir d = {
                 .fs = fs,

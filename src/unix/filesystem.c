@@ -71,7 +71,7 @@ void file_readahead(file f, u64 offset, u64 len)
             irangel(offset + len, ra_size));
 }
 
-fs_status filesystem_chdir(process p, const char *path)
+fs_status filesystem_chdir(process p, sstring path)
 {
     process_lock(p);
     filesystem fs = p->cwd_fs;
@@ -116,40 +116,42 @@ closure_function(2, 2, void, fs_op_complete,
 {
     thread t = bound(t);
     sysreturn ret = sysreturn_from_fs_status(s);
-    thread_log(current, "%s: %d", __func__, ret);
+    thread_log(current, "%s: %d", func_ss, ret);
 
     fdesc_put(&bound(f)->f);
     syscall_return(t, ret);     /* returns on kernel context */
     closure_finish();
 }
 
-static sysreturn symlink_internal(filesystem fs, inode cwd, const char *path,
+static sysreturn symlink_internal(filesystem fs, inode cwd, sstring path,
         const char *target)
 {
-    if (!fault_in_user_string(target))
+    sstring target_ss;
+    if (!fault_in_user_string(target, &target_ss))
         return -EFAULT;
-    return sysreturn_from_fs_status(filesystem_symlink(fs, cwd, path, target));
+    thread_log(current, "symlink 0x%lx %s -> %s", cwd, path, target_ss);
+    return sysreturn_from_fs_status(filesystem_symlink(fs, cwd, path, target_ss));
 }
 
 sysreturn symlink(const char *target, const char *linkpath)
 {
-    if (!fault_in_user_string(linkpath))
+    sstring path_ss;
+    if (!fault_in_user_string(linkpath, &path_ss))
         return -EFAULT;
-    thread_log(current, "symlink %s -> %s", linkpath, target);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = symlink_internal(cwd_fs, cwd, linkpath, target);
+    sysreturn rv = symlink_internal(cwd_fs, cwd, path_ss, target);
     filesystem_release(cwd_fs);
     return rv;
 }
 
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath)
 {
-    thread_log(current, "symlinkat %d %s -> %s", dirfd, linkpath, target);
     filesystem fs;
-    inode cwd = resolve_dir(fs, dirfd, linkpath);
-    sysreturn rv = symlink_internal(fs, cwd, linkpath, target);
+    sstring path_ss;
+    inode cwd = resolve_dir(fs, dirfd, linkpath, path_ss);
+    sysreturn rv = symlink_internal(fs, cwd, path_ss, target);
     filesystem_release(fs);
     return rv;
 }
@@ -160,11 +162,12 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
     tuple t;
     filesystem fs;
     inode cwd;
-    if (!fault_in_user_string(filename))
+    sstring filename_ss;
+    if (!fault_in_user_string(filename, &filename_ss))
         return -EFAULT;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
-    fs_status fss = filesystem_get_node(&fs, cwd, filename, false, false, false, false, &t, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, filename_ss, false, false, false, false, &t, 0);
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
@@ -227,7 +230,7 @@ static timestamp time_from_utimens(const struct timespec *t)
 
 sysreturn utimensat(int dirfd, const char *filename, const struct timespec times[2], int flags)
 {
-    thread_log(current, "%s: dirfd %d, path %p, times %p, flags 0x%x", __func__, dirfd, filename,
+    thread_log(current, "%s: dirfd %d, path %p, times %p, flags 0x%x", func_ss, dirfd, filename,
                times, flags);
     timestamp atime, mtime;
     if (times) {
@@ -249,9 +252,10 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
     filesystem fs, cwd_fs;
     sysreturn rv;
     if (filename) {
-        inode cwd = resolve_dir(fs, dirfd, filename);
+        sstring filename_ss;
+        inode cwd = resolve_dir(fs, dirfd, filename, filename_ss);
         cwd_fs = fs;
-        fs_status fss = filesystem_get_node(&fs, cwd, filename, !!(flags & AT_SYMLINK_NOFOLLOW),
+        fs_status fss = filesystem_get_node(&fs, cwd, filename_ss, !!(flags & AT_SYMLINK_NOFOLLOW),
                                             false, false, false, &t, 0);
         rv = sysreturn_from_fs_status(fss);
         if (rv)
@@ -312,14 +316,15 @@ sysreturn statfs(const char *path, struct statfs *buf)
     filesystem fs;
     inode cwd;
     process_get_cwd(current->p, &fs, &cwd);
+    sstring path_ss;
     filesystem cwd_fs = fs;
     tuple t = 0;
     sysreturn rv;
-    if (!fault_in_user_string(path)) {
+    if (!fault_in_user_string(path, &path_ss)) {
         rv = -EFAULT;
         goto out;
     }
-    fs_status fss = filesystem_get_node(&fs, cwd, path, true, false, false, false, &t, 0);
+    fs_status fss = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &t, 0);
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
     } else {
@@ -452,13 +457,13 @@ void file_release(file f)
 }
 
 /* file_path is treated as an absolute path for fsfile_open() and fsfile_open_or_create() */
-fsfile fsfile_open(buffer file_path)
+fsfile fsfile_open(sstring file_path)
 {
     tuple file;
     fsfile fsf;
     filesystem fs = get_root_fs();
     fs_status s = filesystem_get_node(&fs, fs->get_inode(fs, filesystem_getroot(fs)),
-                                      buffer_to_cstring(file_path),
+                                      file_path,
                                       true, false, false, false, &file, &fsf);
     if (s == FS_STATUS_OK) {
         filesystem_put_node(fs, file);
@@ -467,23 +472,20 @@ fsfile fsfile_open(buffer file_path)
     return 0;
 }
 
-fsfile fsfile_open_or_create(buffer file_path, boolean truncate)
+fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
 {
     tuple file;
     fsfile fsf;
     filesystem fs = get_root_fs();
     tuple root = filesystem_getroot(fs);
-    char *file_str = buffer_to_cstring(file_path);
-    int separator = buffer_strrchr(file_path, '/');
+    char *separator = runtime_strrchr(file_path, '/');
     fs_status s;
-    if (separator > 0) {
-        file_str[separator] = '\0';
-        s = filesystem_mkdirpath(fs, 0, file_str, true);
+    if (separator > file_path.ptr) {
+        s = filesystem_mkdirpath(fs, 0, isstring(file_path.ptr, separator - file_path.ptr), true);
         if ((s != FS_STATUS_OK) && (s != FS_STATUS_EXIST))
             return 0;
-        file_str[separator] = '/';
     }
-    s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_str, true, true, false, truncate,
+    s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_path, true, true, false, truncate,
                             &file, &fsf);
     if (s == FS_STATUS_OK) {
         filesystem_put_node(fs, file);

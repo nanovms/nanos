@@ -41,14 +41,14 @@ struct net_lwip_timer {
     u64 interval_ms;
     lwip_cyclic_timer_handler handler;
 #ifdef LWIP_DEBUG
-    char * name;
+    sstring name;
 #endif
     struct timer t;
     closure_struct(dispatch_lwip_timer, timer_func);
 };
 
 #ifdef LWIP_DEBUG
-#define NET_LWIP_TIMER_INIT(interval, func, name)   {interval, func, name}
+#define NET_LWIP_TIMER_INIT(interval, func, name)   {interval, func, ss_static_init(name)}
 #else
 #define NET_LWIP_TIMER_INIT(interval, func, name)   {interval, func}
 #endif
@@ -95,11 +95,11 @@ void sys_timeouts_init(void)
     }
 }
 
-void lwip_debug(char * format, ...)
+void lwip_debug_sstring(sstring format, ...)
 {
     vlist a;
     vstart(a, format);
-    log_vprintf("LWIP", format, &a);
+    log_vprintf(ss("LWIP"), format, &a);
 }
 
 void *lwip_allocate(u64 size)
@@ -147,8 +147,11 @@ static void check_netif_ready(struct netif *netif, boolean ipv6)
 static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
                               const netif_ext_callback_args_t* args)
 {
-    char ifname[4];
-    netif_name_cpy(ifname, netif);
+    char ifname_array[3];
+    sstring ifname = {
+        .ptr = ifname_array,
+    };
+    ifname.len = netif_name_cpy(ifname.ptr, netif);
     if (reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) {
         u8 *n = (u8 *)&netif->ip_addr;
         rprintf("%s: assigned %d.%d.%d.%d\n", ifname, n[0], n[1], n[2], n[3]);
@@ -156,7 +159,10 @@ static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
     }
     if ((reason & LWIP_NSC_IPV6_ADDR_STATE_CHANGED) &&
        (netif_ip6_addr_state(netif, args->ipv6_addr_state_changed.addr_index) & IP6_ADDR_VALID)) {
-        rprintf("%s: assigned %s\n", ifname, ipaddr_ntoa(args->ipv6_addr_state_changed.address));
+        char addr[IP6ADDR_STRLEN_MAX];
+        rprintf("%s: assigned %s\n", ifname,
+                isstring(addr, ipaddr_ntoa_r(args->ipv6_addr_state_changed.address,
+                                              addr, sizeof(addr))));
         check_netif_ready(netif, true);
     }
 }
@@ -167,10 +173,10 @@ u32_t lwip_rand(void)
 }
 
 /* unsigned only ... don't imagine we'd have negative interface numbers! */
-int lwip_atoi(const char *p)
+int lwip_atoi(sstring p)
 {
     u64 i;
-    return u64_from_value(alloca_wrap_cstring(p), &i) ? i : -1;
+    return u64_from_value(alloca_wrap_sstring(p), &i) ? i : -1;
 }
 
 /* mildly unfortunate to add another level of indirection to resolve types
@@ -178,11 +184,6 @@ int lwip_atoi(const char *p)
 void lwip_memcpy(void *a, const void *b, unsigned long len)
 {
     runtime_memcpy(a, b, len);
-}
-
-int lwip_strlen(char *a)
-{
-    return runtime_strlen(a);
 }
 
 void lwip_memset(void *x, unsigned char v, unsigned long len)
@@ -193,11 +194,6 @@ void lwip_memset(void *x, unsigned char v, unsigned long len)
 int lwip_memcmp(const void *x, const void *y, unsigned long len)
 {
     return runtime_memcmp(x, y, len);
-}
-
-int lwip_strcmp(const char *x, const char *y)
-{
-    return runtime_strcmp(x, y);
 }
 
 int lwip_strncmp(const char *x, const char *y, unsigned long len)
@@ -244,32 +240,24 @@ boolean ifflags_to_netif(struct netif *netif, u16 flags)
     return true;
 }
 
-void netif_name_cpy(char *dest, struct netif *netif)
+bytes netif_name_cpy(char *dest, struct netif *netif)
 {
     runtime_memcpy(dest, netif->name, sizeof(netif->name));
     dest[sizeof(netif->name)] = '0' + netif->num;
-    dest[sizeof(netif->name) + 1] = '\0';
+    return sizeof(netif->name) + 1;
 }
-
-#define MAX_ADDR_LEN 20
-
-#define MAX_IP6_ADDR_LEN    39
 
 static boolean get_config_addr(tuple root, symbol s, ip4_addr_t *addr)
 {
     string v = get_string(root, s);
     if (!v)
         return false;
-    int len = MIN(buffer_length(v), MAX_ADDR_LEN);
-    char str[MAX_ADDR_LEN + 1];
-    runtime_memcpy(str, buffer_ref(v, 0), len);
-    str[len] = '\0';
-    if (ip4addr_aton(str, addr) == 1)
+    if (ip4addr_aton(buffer_to_sstring(v), addr) == 1)
         return true;
     return false;
 }
 
-static boolean get_static_config(tuple t, struct netif *n, const char *ifname, boolean trace) {
+static boolean get_static_config(tuple t, struct netif *n, sstring ifname, boolean trace) {
     ip4_addr_t ip;
     ip4_addr_t netmask;
     ip4_addr_t gw;
@@ -291,10 +279,11 @@ static boolean get_static_config(tuple t, struct netif *n, const char *ifname, b
     }
 
     if (trace) {
+        char addr[IP4ADDR_STRLEN_MAX];
         rprintf("NET: static IP config for interface %s:\n", ifname);
-        rprintf(" address\t%s\n", ip4addr_ntoa(&ip));
-        rprintf(" netmask\t%s\n", ip4addr_ntoa(&netmask));
-        rprintf(" gateway\t%s\n", ip4addr_ntoa(&gw));
+        rprintf(" address\t%s\n", isstring(addr, ip4addr_ntoa_r(&ip, addr, sizeof(addr))));
+        rprintf(" netmask\t%s\n", isstring(addr, ip4addr_ntoa_r(&netmask, addr, sizeof(addr))));
+        rprintf(" gateway\t%s\n", isstring(addr, ip4addr_ntoa_r(&gw, addr, sizeof(addr))));
     }
 
     netif_set_addr(n, &ip, &netmask, &gw);
@@ -302,14 +291,11 @@ static boolean get_static_config(tuple t, struct netif *n, const char *ifname, b
     return true;
 }
 
-static boolean get_static_ip6_config(tuple t, struct netif *n, const char *ifname, boolean trace)
+static boolean get_static_ip6_config(tuple t, struct netif *n, sstring ifname, boolean trace)
 {
     string b = get_string(t, sym(ip6addr));
-    if (b && (buffer_length(b) <= MAX_IP6_ADDR_LEN)) {
-        bytes len = buffer_length(b);
-        char str[len + 1];
-        runtime_memcpy(str, buffer_ref(b, 0), len);
-        str[len] = '\0';
+    if (b) {
+        sstring str = buffer_to_sstring(b);
         ip6_addr_t ip6;
         if (ip6addr_aton(str, &ip6)) {
             if (trace)
@@ -374,15 +360,18 @@ void init_network_iface(tuple root, merge m) {
             continue;
         }
 
-        char ifname[4];
-        netif_name_cpy(ifname, n);
+        char ifname_array[3];
+        sstring ifname = {
+            .ptr = ifname_array,
+        };
+        ifname.len = netif_name_cpy(ifname.ptr, n);
 
-        tuple t = get_tuple(root, sym_this(ifname));
+        tuple t = get_tuple(root, sym_sstring(ifname));
         if (!t) {
             /* If this is the first interface and there is no config tuple
                under its name, default to looking for static config at the
                root level. This usage should be deprecated. */
-            if (!runtime_memcmp(ifname, "en1", 3))
+            if (!runtime_memcmp(ifname.ptr, "en1", 3))
                 t = root;
         }
 

@@ -7,7 +7,7 @@
 
 //#define P9_DEBUG
 #ifdef P9_DEBUG
-#define p9_debug(x, ...) do {tprintf(sym(9p), 0, x, ##__VA_ARGS__);} while(0)
+#define p9_debug(x, ...) do {tprintf(sym(9p), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define p9_debug(x, ...)
 #endif
@@ -130,7 +130,8 @@ define_closure_function(1, 3, void, p9_fsf_io,
         fsf = struct_from_field(closure_self(), p9_fsfile, write);
     else
         fsf = struct_from_field(closure_self(), p9_fsfile, read);
-    p9_debug("%s file %p, sg %p, r %R, sh %F\n", write ? "write" : "read", fsf, sg, q, complete);
+    p9_debug("%s file %p, sg %p, r %R, sh %F\n", write ? ss("write") : ss("read"), fsf, sg, q,
+             complete);
     p9fs p9fs = (struct p9fs *)fsf->f.fs;
     merge m = allocate_merge(p9fs->fs.h, complete);
     complete = apply_merge(m);
@@ -369,7 +370,7 @@ static fs_status p9_readdir(p9fs fs, u32 fid, tuple md)
                 s = FS_STATUS_IOERR;
                 break;
             }
-            if (p9_strcmp(&entry->name, ".") && p9_strcmp(&entry->name, "..")) {
+            if (p9_strcmp(&entry->name, ss(".")) && p9_strcmp(&entry->name, ss(".."))) {
                 symbol name_sym = p9_sym(&entry->name);
                 tuple t;
                 if (old_c)
@@ -706,7 +707,7 @@ void p9_create_fs(heap h, void *transport, boolean readonly, filesystem_complete
         goto dealloc_fs;
     }
     fs->root.fid = p9_fid_new(fs);
-    fs_status fss = v9p_version(transport, 64 * MB, "9P2000.L", &fs->msize);
+    fs_status fss = v9p_version(transport, 64 * MB, ss("9P2000.L"), &fs->msize);
     if (fss != FS_STATUS_OK) {
         s = timm("result", "failed to negotiate protocol version (%d)", fss);
         goto dealloc_fid_h;
@@ -752,11 +753,11 @@ void p9_create_fs(heap h, void *transport, boolean readonly, filesystem_complete
     apply(complete, INVALID_ADDRESS, s);
 }
 
-void p9_strcpy(struct p9_string *dest, const char *str)
+void p9_strcpy(struct p9_string *dest, sstring str)
 {
-    int len = runtime_strlen(str);
+    int len = str.len;
     dest->length = len;
-    runtime_memcpy(dest->str, str, len);
+    runtime_memcpy(dest->str, str.ptr, len);
 }
 
 void p9_bufcpy(struct p9_string *dest, buffer b)
@@ -766,13 +767,13 @@ void p9_bufcpy(struct p9_string *dest, buffer b)
     buffer_read_at(b, 0, dest->str, len);
 }
 
-int p9_strcmp(struct p9_string *s1, const char *s2)
+int p9_strcmp(struct p9_string *s1, sstring s2)
 {
-    int len = MIN(s1->length, runtime_strlen(s2));
-    int res = runtime_memcmp(s1->str, s2, len);
+    int len = MIN(s1->length, s2.len);
+    int res = runtime_memcmp(s1->str, s2.ptr, len);
     if (res)
         return res;
-    return (int)(s1->length - runtime_strlen(s2));
+    return (int)(s1->length - s2.len);
 }
 
 fs_status p9_parse_minimal_resp(u8 req_type, union p9_minimal_resp *resp, u32 resp_len)

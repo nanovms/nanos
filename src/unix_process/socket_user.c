@@ -143,8 +143,8 @@ static void select_spin(notifier n)
 	rprintf("   returned %d\n", res);
 	rprintf("      r: %lx\tw: %lx\te: %lx\n", *rp, *wp, *ep);
 #endif
-        if (res == -1)
-	    halt ("select failed with %s (%d)\n", strerror(errno), errno);
+	if (res == -1)
+	    halt("select failed with %s (%d)\n", errno_sstring(), errno);
 	if (res == 0)
 	    continue;
 	int words = pad(s->nfds, 64) >> 6;
@@ -278,7 +278,7 @@ static void poll_spin(notifier n)
         rprintf("   returned %d\n", res);
 #endif
         if (res == -1)
-            halt("poll failed with %s (%d)\n", strerror(errno), errno);
+            halt("poll failed with %s (%d)\n", errno_sstring(), errno);
         for (int i = 0; i < NFDS(p->poll_fds); i++) {
             if (fds[i].revents == 0)
                 continue;
@@ -383,7 +383,7 @@ static void epoll_spin(notifier n)
     while (1) {
         int res = epoll_wait(e->fd, ev, sizeof(ev)/sizeof(struct epoll_event), -1);
         if (res == -1)
-	    halt("epoll failed with %s (%d)\n", strerror(errno), errno);
+            halt("epoll failed with %s (%d)\n", errno_sstring(), errno);
         for (int i = 0; i < res; i++) {
             registration r = ev[i].data.ptr;
 #ifdef SOCKET_USER_EPOLL_DEBUG
@@ -398,7 +398,7 @@ notifier create_epoll_notifier(heap h)
 {
     descriptor f;
     if ((f = epoll_create(1)) < 0) {
-	msg_err("epoll_create failed, %s (%d)\n", strerror(errno), errno);
+	msg_err("epoll_create failed, %s (%d)\n", errno_sstring(), errno);
 	return 0;
     }
     epoll_notifier e = allocate(h, sizeof(struct epoll_notifier));
@@ -417,7 +417,7 @@ void set_nonblocking(descriptor d)
 {
     int flags = fcntl(d, F_GETFL);
     if (fcntl(d, F_SETFL, flags | O_NONBLOCK)) {
-        halt("fcntl %s\n", strerror(errno));
+        halt("fcntl %s\n", errno_sstring());
     }
 }
 
@@ -451,7 +451,7 @@ define_closure_function(0, 0, void, connection_input)
 	return;
     }
     if (res < 0 && errno != ENOTCONN)
-	rprintf("read error: %s (%d)\n", strerror(errno), errno);
+	printf("read error: %s (%d)\n", strerror(errno), errno);
     notifier_reset_fd(ch->n, f);
     close(f);
     apply(ch->bh, 0);   // should pass status
@@ -492,7 +492,8 @@ closure_function(4, 0, void, accepting,
     struct sockaddr_in where;
     socklen_t len = sizeof(struct sockaddr_in);
     int s = accept(bound(c), (struct sockaddr *)&where, &len);
-    if (s < 0 ) halt("accept %s\n", strerror(errno));
+    if (s < 0 )
+        halt("accept %s\n", errno_sstring());
 #ifndef __APPLE__
     int en = 1;
     setsockopt(s, SOL_TCP, TCP_NODELAY, &en, sizeof(en));
@@ -550,10 +551,10 @@ void listen_port(heap h, notifier n, u16 port, connection_handler nc)
         perror("setsockopt(SO_REUSEADDR) failed");
     
     if (bind(service, (struct sockaddr *)&where, sizeof(struct sockaddr_in)))
-        halt("bind %s", strerror(errno));
+        halt("bind %s\n", errno_sstring());
 
     if (listen(service, 5))
-        halt("listen %s", strerror(errno));
+        halt("listen %s\n", errno_sstring());
 
     register_descriptor(h, n, service, closure(h, accepting, h, n, service, nc));
 }

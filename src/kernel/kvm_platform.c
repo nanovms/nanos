@@ -76,7 +76,7 @@ boolean kvm_detect(kernel_heaps kh)
     } else if (init_lapic_timer(&ct, &per_cpu_init)) {
         kvm_debug("defaulting to (suboptimal) lapic timer");
     } else {
-        halt("%s: no timer available\n", __func__);
+        halt("%s: no timer available\n", func_ss);
     }
 
     register_platform_clock_timer(ct, per_cpu_init);

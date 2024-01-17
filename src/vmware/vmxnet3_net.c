@@ -204,7 +204,7 @@ static void vmxnet3_check_version(vmxnet3_pci dev)
 static err_t vmxif_init(struct netif *netif)
 {
     vmxnet3 vn = netif->state;
-    netif->hostname = "uniboot"; // from config
+    netif->hostname = sstring_empty();
 
     netif->name[0] = DEVICE_NAME[0];
     netif->name[1] = DEVICE_NAME[1];
@@ -388,7 +388,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     vn->rx_service = closure(dev->general, vmxnet3_rx_service_bh, vn);
 
     vn->rx_intr_handler = closure(dev->general, rx_interrupt, vn);
-    assert(pci_setup_msix(dev->dev, 1, vn->rx_intr_handler, "vmxnet3 rx") != INVALID_PHYSICAL);
+    assert(pci_setup_msix(dev->dev, 1, vn->rx_intr_handler, ss("vmxnet3 rx")) != INVALID_PHYSICAL);
     // interrupts are not used for tx
 
     vmxnet3_tx_queues_alloc(dev);

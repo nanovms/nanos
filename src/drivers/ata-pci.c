@@ -106,33 +106,33 @@ typedef struct ata_pci_req {
 } *ata_pci_req;
 
 #ifdef ATA_DEBUG
-static const char *ata_pcivendor2str(pci_dev d)
+static sstring ata_pcivendor2str(pci_dev d)
 {
     switch (pci_get_vendor(d)) {
-    case ATA_ACARD_ID:          return "Acard";
-    case ATA_ACER_LABS_ID:      return "AcerLabs";
-    case ATA_AMD_ID:            return "AMD";
-    case ATA_ADAPTEC_ID:        return "Adaptec";
-    case ATA_ATI_ID:            return "ATI";
-    case ATA_CYRIX_ID:          return "Cyrix";
-    case ATA_CYPRESS_ID:        return "Cypress";
-    case ATA_HIGHPOINT_ID:      return "HighPoint";
-    case ATA_INTEL_ID:          return "Intel";
-    case ATA_ITE_ID:            return "ITE";
-    case ATA_JMICRON_ID:        return "JMicron";
-    case ATA_MARVELL_ID:        return "Marvell";
-    case ATA_MARVELL2_ID:       return "Marvell";
-    case ATA_NATIONAL_ID:       return "National";
-    case ATA_NETCELL_ID:        return "Netcell";
-    case ATA_NVIDIA_ID:         return "nVidia";
-    case ATA_PROMISE_ID:        return "Promise";
-    case ATA_SERVERWORKS_ID:    return "ServerWorks";
-    case ATA_SILICON_IMAGE_ID:  return "SiI";
-    case ATA_SIS_ID:            return "SiS";
-    case ATA_VIA_ID:            return "VIA";
-    case ATA_CENATEK_ID:        return "Cenatek";
-    case ATA_MICRON_ID:         return "Micron";
-    default:                    return "Generic";
+    case ATA_ACARD_ID:          return ss("Acard");
+    case ATA_ACER_LABS_ID:      return ss("AcerLabs");
+    case ATA_AMD_ID:            return ss("AMD");
+    case ATA_ADAPTEC_ID:        return ss("Adaptec");
+    case ATA_ATI_ID:            return ss("ATI");
+    case ATA_CYRIX_ID:          return ss("Cyrix");
+    case ATA_CYPRESS_ID:        return ss("Cypress");
+    case ATA_HIGHPOINT_ID:      return ss("HighPoint");
+    case ATA_INTEL_ID:          return ss("Intel");
+    case ATA_ITE_ID:            return ss("ITE");
+    case ATA_JMICRON_ID:        return ss("JMicron");
+    case ATA_MARVELL_ID:        return ss("Marvell");
+    case ATA_MARVELL2_ID:       return ss("Marvell");
+    case ATA_NATIONAL_ID:       return ss("National");
+    case ATA_NETCELL_ID:        return ss("Netcell");
+    case ATA_NVIDIA_ID:         return ss("nVidia");
+    case ATA_PROMISE_ID:        return ss("Promise");
+    case ATA_SERVERWORKS_ID:    return ss("ServerWorks");
+    case ATA_SILICON_IMAGE_ID:  return ss("SiI");
+    case ATA_SIS_ID:            return ss("SiS");
+    case ATA_VIA_ID:            return ss("VIA");
+    case ATA_CENATEK_ID:        return ss("Cenatek");
+    case ATA_MICRON_ID:         return ss("Micron");
+    default:                    return ss("Generic");
     }
 }
 #endif // ATA_DEBUG
@@ -144,13 +144,13 @@ static ata_pci ata_pci_alloc(heap general, heap contiguous, pci_dev d)
     apci->ata = ata_alloc(general);
     apci->prdt = allocate(contiguous, PRDT_SIZE);
     assert(apci->prdt != INVALID_ADDRESS);
-    ata_debug("%s: %s ATA controller\n", __func__, ata_pcivendor2str(d));
+    ata_debug("%s: %s ATA controller\n", func_ss, ata_pcivendor2str(d));
     return apci;
 }
 
 void ata_pci_dealloc(heap general, heap contiguous, ata_pci apci)
 {
-    ata_debug("%s\n", __func__);
+    ata_debug("%s\n", func_ss);
     deallocate(contiguous, apci->prdt, PRDT_SIZE);
     ata_dealloc(apci->ata);
     deallocate(general, apci, sizeof(*apci));
@@ -158,7 +158,7 @@ void ata_pci_dealloc(heap general, heap contiguous, ata_pci apci)
 
 static boolean ata_pci_service_req(ata_pci apci, ata_pci_req req)
 {
-    ata_debug("%s: %R %v\n", __func__, req->remain, req->s);
+    ata_debug("%s: %R %v\n", func_ss, req->remain, req->s);
     if (!is_ok(req->s))
         goto done;
     u64 block_count = MIN(range_span(req->remain), apci->io_max_blocks);
@@ -176,7 +176,7 @@ static boolean ata_pci_service_req(ata_pci apci, ata_pci_req req)
         u64 boundary = pad(buf_phys + 1, 64 * KB);
         u64 len = MIN(byte_count, boundary - buf_phys);
 
-        ata_debug("%s: PRD address 0x%08x, len %ld\n", __func__, buf_phys, len);
+        ata_debug("%s: PRD address 0x%08x, len %ld\n", func_ss, buf_phys, len);
         req->buf += len;
         byte_count -= len;
         if (len == U64_FROM_BIT(16))
@@ -189,7 +189,7 @@ static boolean ata_pci_service_req(ata_pci apci, ata_pci_req req)
     if (prd_count > 0) {
         apci->prdt[prd_count - 1].ctrl = PRD_LAST_ENTRY;
         range blocks = irangel(req->remain.start, block_count);
-        ata_debug("%s: starting DMA for %R\n", __func__, blocks);
+        ata_debug("%s: starting DMA for %R\n", func_ss, blocks);
         pci_bar_write_4(&apci->bmr, ATA_BMR_PRDT(ATA_PRIMARY), apci->prdt_phys);
         if (!ata_io_cmd_dma(apci->ata, req->write, blocks)) {
             req->s = timm("result", "ATA command failed");
@@ -273,8 +273,8 @@ define_closure_function(1, 0, void, ata_pci_irq,
     pci_bar_write_1(&apci->bmr, ATA_BMR_CMD(ATA_PRIMARY), 0);
     u8 status = pci_bar_read_1(&apci->bmr, ATA_BMR_STATUS(ATA_PRIMARY));
     boolean error = ata_clear_irq(apci->ata);
-    ata_debug("%s: BMR status 0x%02x, ATA %s\n", __func__, status,
-              error ? "error" : "OK");
+    ata_debug("%s: BMR status 0x%02x, ATA %s\n", func_ss, status,
+              error ? ss("error") : ss("OK"));
     if (status & ATA_BMR_STATUS_ERR) {
         /* Clear error status */
         pci_bar_write_1(&apci->bmr, ATA_BMR_STATUS(ATA_PRIMARY),
@@ -343,7 +343,7 @@ closure_function(3, 1, boolean, ata_pci_probe,
     u64 irq = allocate_interrupt();
     assert(irq != INVALID_PHYSICAL);
     ioapic_set_int(ATA_IRQ(ATA_PRIMARY), irq);
-    register_interrupt(irq, (thunk)&dev->irq_handler, "ata pci");
+    register_interrupt(irq, (thunk)&dev->irq_handler, ss("ata pci"));
     apply(bound(a),
           storage_init_req_handler(&dev->req_handler, (block_io)&dev->read, (block_io)&dev->write),
           ata_get_capacity(dev->ata), 0);

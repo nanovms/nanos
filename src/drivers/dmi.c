@@ -83,18 +83,23 @@ static void dmi_map(void)
     }
 }
 
-static const char *dmi_string(const struct dmi_header *dm, u8 s)
+static sstring dmi_string(const struct dmi_header *dm, u8 s)
 {
     const char *str = ((char *)dm) + dm->length;
     if (!s)
-        return "";
-    while (--s && *str)
-        str += runtime_strlen(str) + 1;
-    dmi_debug("returning string '%s'", str);
-    return str;
+        return sstring_empty();
+    while (--s && *str) {
+        do {
+            str++;
+        } while (*str);
+        str++;
+    }
+    sstring sstr = sstring_from_cstring(str, (char *)dmi_base + dmi_len - str);
+    dmi_debug("returning string '%s'", sstr);
+    return sstr;
 }
 
-const char *dmi_get_string(enum dmi_field field)
+sstring dmi_get_string(enum dmi_field field)
 {
     dmi_debug("get string %d", field);
     int type, offset;
@@ -104,12 +109,12 @@ const char *dmi_get_string(enum dmi_field field)
         offset = 8;
         break;
     default:
-        return 0;
+        return sstring_null();
     }
     if (!dmi_base)
         dmi_map();
     if (!dmi_base)
-        return 0;
+        return sstring_null();
     int i = 0;
     for (u8 *data = dmi_base;
             (i < dmi_num) && (data + sizeof(struct dmi_header) <= (u8 *)dmi_base + dmi_len); i++) {
@@ -126,5 +131,5 @@ const char *dmi_get_string(enum dmi_field field)
             return dmi_string(dm, *(((u8 *)dm) + offset));
         }
     }
-    return 0;
+    return sstring_null();
 }

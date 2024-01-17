@@ -4,70 +4,70 @@
 
 //#define INT_DEBUG
 #ifdef INT_DEBUG
-#define int_debug(x, ...) do {log_printf("  INT", x, ##__VA_ARGS__);} while(0)
+#define int_debug(x, ...) do {log_printf(ss("  INT"), ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define int_debug(x, ...)
 #endif
 
-static const char *interrupt_names[] = {
-    "Instruction address misaligned",
-    "Instruction access fault",
-    "Illegal Instruction",
-    "Breakpoint",
-    "Load address misaligned",
-    "Load access fault",
-    "Store/AMO address misaligned",
-    "Store/AMO access fault",
-    "Environment call from U-mode",
-    "Environment call from S-mode",
-    "reserved 10",
-    "Environment call from M-mode",
-    "Instruction page fault",
-    "Load page fault",
-    "reserved 14",
-    "Store/AMO page fault",
+static const sstring interrupt_names[] = {
+    ss_static_init("Instruction address misaligned"),
+    ss_static_init("Instruction access fault"),
+    ss_static_init("Illegal Instruction"),
+    ss_static_init("Breakpoint"),
+    ss_static_init("Load address misaligned"),
+    ss_static_init("Load access fault"),
+    ss_static_init("Store/AMO address misaligned"),
+    ss_static_init("Store/AMO access fault"),
+    ss_static_init("Environment call from U-mode"),
+    ss_static_init("Environment call from S-mode"),
+    ss_static_init("reserved 10"),
+    ss_static_init("Environment call from M-mode"),
+    ss_static_init("Instruction page fault"),
+    ss_static_init("Load page fault"),
+    ss_static_init("reserved 14"),
+    ss_static_init("Store/AMO page fault"),
 };
 
 
-static const char *register_names[] = {
-    "        pc",
-    "        ra",
-    "        sp",
-    "        gp",
-    "        tp",
-    "        t0",
-    "        t1",
-    "        t2",
-    "        fp",
-    "        s1",
-    "        a0",
-    "        a1",
-    "        a2",
-    "        a3",
-    "        a4",
-    "        a5",
-    "        a6",
-    "        a7",
-    "        s2",
-    "        s3",
-    "        s4",
-    "        s5",
-    "        s6",
-    "        s7",
-    "        s8",
-    "        s9",
-    "       s10",
-    "       s11",
-    "        t3",
-    "        t4",
-    "        t5",
-    "        t6",
+static const char register_names[][3] = {
+    " pc",
+    " ra",
+    " sp",
+    " gp",
+    " tp",
+    " t0",
+    " t1",
+    " t2",
+    " fp",
+    " s1",
+    " a0",
+    " a1",
+    " a2",
+    " a3",
+    " a4",
+    " a5",
+    " a6",
+    " a7",
+    " s2",
+    " s3",
+    " s4",
+    " s5",
+    " s6",
+    " s7",
+    " s8",
+    " s9",
+    "s10",
+    "s11",
+    " t3",
+    " t4",
+    " t5",
+    " t6",
 };
 
 typedef struct inthandler {
     struct list l;
     thunk t;
-    const char *name;
+    sstring name;
 } *inthandler;
 
 static struct list *handlers;
@@ -109,14 +109,14 @@ void dump_context(context ctx)
 
     if (!isint && v < sizeof(interrupt_names)/sizeof(interrupt_names[0])) {
         rputs(" (");
-        rputs((char *)interrupt_names[v]);
+        rput_sstring(interrupt_names[v]);
         rputs(")");
     }
     rputs("\n     frame: ");
     print_u64_with_sym(u64_from_pointer(f));
     if (ctx->type >= CONTEXT_TYPE_UNDEFINED && ctx->type < CONTEXT_TYPE_MAX) {
         rputs("\n      type: ");
-        rputs(context_type_strings[ctx->type]);
+        rput_sstring(context_type_strings[ctx->type]);
     }
     rputs("\nactive_cpu: ");
     print_u64(ctx->active_cpu);
@@ -128,7 +128,7 @@ void dump_context(context ctx)
     print_u64_with_sym(u64_from_pointer(f[FRAME_FAULT_ADDRESS]));
     rputs("\n");
     for (int i = 0; i < sizeof(register_names)/sizeof(register_names[0]); i++) {
-        rputs(register_names[i]);
+        rput_sstring(isstring((char *)register_names[i], 3));
         rputs(": ");
         print_u64_with_sym(f[i]);
         rputs("\n");
@@ -136,7 +136,7 @@ void dump_context(context ctx)
     print_stack(f);
 }
 
-void register_interrupt(int vector, thunk t, const char *name)
+void register_interrupt(int vector, thunk t, sstring name)
 {
     // XXX ignore handlers for vector 0 (i.e. not implemented)
     if (vector == 0)
@@ -144,7 +144,7 @@ void register_interrupt(int vector, thunk t, const char *name)
 
     boolean initialized = !list_empty(&handlers[vector]);
     int_debug("%s: vector %d, thunk %p (%F), name %s%s\n",
-              __func__, vector, t, t, name, initialized ? ", shared" : "");
+              func_ss, vector, t, t, name, initialized ? ss(", shared") : sstring_empty());
 
     inthandler h = allocate(int_general, sizeof(struct inthandler));
     assert(h != INVALID_ADDRESS);
@@ -164,11 +164,11 @@ void unregister_interrupt(int vector)
     // XXX ignore handlers for vector 0 (i.e. not implemented)
     if (vector == 0)
         return;
-    int_debug("%s: vector %d\n", __func__, vector);
+    int_debug("%s: vector %d\n", func_ss, vector);
     if (vector <= PLIC_MAX_INT)
         plic_disable_int(vector);
     if (list_empty(&handlers[vector]))
-        halt("%s: no handler registered for vector %d\n", __func__, vector);
+        halt("%s: no handler registered for vector %d\n", func_ss, vector);
     list_foreach(&handlers[vector], l) {
         inthandler h = struct_from_list(l, inthandler, l);
         int_debug("   remove handler %s (%F)\n", h->name, h->t);
@@ -187,7 +187,7 @@ void riscv_timer(void)
 static boolean invoke_handlers_for_vector(cpuinfo ci, int v)
 {
     if (list_empty(&handlers[v])) {
-        rprintf("\nno handler for %s %d\n", v <= PLIC_MAX_INT ? "interrupt" : "IPI", v);
+        rprintf("\nno handler for %s %d\n", v <= PLIC_MAX_INT ? ss("interrupt") : ss("IPI"), v);
         return false;
     }
 
@@ -238,7 +238,8 @@ void trap_interrupt(void)
         u64 i;
         while ((i = plic_dispatch_int())) {
             int_debug("[%2d] # %d, state %s user %s\n", ci->id, i,
-                    state_strings[ci->state], (f[FRAME_STATUS]&STATUS_SPP)?"false":"true" );
+                     state_strings[ci->state],
+                     (f[FRAME_STATUS] & STATUS_SPP) ? ss("false") : ss("true"));
 
             if (i > PLIC_MAX_INT) {
                 rprintf("\ndispatched interrupt %d exceeds PLIC_MAX_INT\n", i);
@@ -277,7 +278,7 @@ void trap_interrupt(void)
     console("cpu ");
     print_u64(ci->id);
     console(", state ");
-    console(state_strings[ci->state]);
+    console_sstring(state_strings[ci->state]);
     console(", vector ");
     print_u64(v);
     console("\n");
@@ -317,7 +318,7 @@ void trap_exception(void)
 #ifdef INT_DEBUG
         if (v < sizeof(interrupt_names)/sizeof(interrupt_names[0])) {
             rputs(" (");
-            rputs((char *)interrupt_names[v]);
+            rputs_sstring(interrupt_names[v]);
             rputs(")");
         }
         rputs("\n   context: ");
@@ -347,7 +348,7 @@ void trap_exception(void)
     console("cpu ");
     print_u64(ci->id);
     console(", state ");
-    console(state_strings[ci->state]);
+    console_sstring(state_strings[ci->state]);
     console(", vector ");
     print_u64(v);
     console("\n");

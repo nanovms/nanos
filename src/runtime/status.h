@@ -5,42 +5,44 @@ typedef closure_type(status_handler, void, status);
 
 extern tuple timm_oom;
 
-static inline void timm_term(tuple t, char *n, vlist *a)
+static inline void timm_term(tuple t, sstring n, sstring f, ...)
 {
-    symbol k = intern(alloca_wrap_buffer(n, runtime_strlen(n)));
-    char *f = varg(*a, char *);
+    vlist a;
+    vstart(a, f);
+    symbol k = sym_sstring(n);
     string s = allocate_string(100);
-    vbprintf(s, alloca_wrap_buffer(f, runtime_strlen(f)), a);
+    vbprintf(s, f, &a);
+    vend(a);
     set(t, k, s);
-}
-
-// if the format strings and subsequent arguments dont line up, this whole thing goes sideways
-static inline tuple timm_internal(tuple t, char *first, ...)
-{
-    vlist e;
-    vstart(e, first);
-    if (t == STATUS_OK)
-        t = allocate_tuple();
-    if (t == INVALID_ADDRESS)
-        return timm_oom;
-
-    // deal with the mandatory first argument
-    if (first != INVALID_ADDRESS) {
-        char *n; 
-        timm_term(t, first, &e);
-        while((n = varg(e, char *)) != INVALID_ADDRESS)  
-            timm_term(t, n, &e);
-    }
-    return t;
 }
 
 tuple timm_clone(tuple t);
 
 void timm_dealloc(tuple t);
 
-// fix for zero argument case
-#define timm(first, ...)  timm_internal(STATUS_OK, first, __VA_ARGS__, INVALID_ADDRESS)
-#define timm_append(s, first, ...)  timm_internal(s, first, __VA_ARGS__, INVALID_ADDRESS)
+#define timm(n, f, ...) ({                          \
+    tuple s = allocate_tuple();                     \
+    if (s != INVALID_ADDRESS)                       \
+        timm_term(s, ss(n), ss(f), ## __VA_ARGS__); \
+    else                                            \
+        s = timm_oom;                               \
+    s;                                              \
+})
+
+#define timm_sstring(n, f, ...) ({          \
+    tuple s = allocate_tuple();             \
+    if (s != INVALID_ADDRESS)               \
+        timm_term(s, n, f, ## __VA_ARGS__); \
+    else                                    \
+        s = timm_oom;                       \
+    s;                                      \
+})
+
+#define timm_append(s, n, f, ...)   ({              \
+    if (s != timm_oom)                              \
+        timm_term(s, ss(n), ss(f), ## __VA_ARGS__); \
+    s;                                              \
+})
 
 // build up status chain
 #define timm_up(sd, first, ...)                     \

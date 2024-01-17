@@ -6,7 +6,7 @@
 
 //#define GIC_DEBUG
 #ifdef GIC_DEBUG
-#define gic_debug(x, ...) do {rprintf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define gic_debug(x, ...) do {rprintf("%s: " x, func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define gic_debug(x, ...)
 #endif
@@ -470,7 +470,7 @@ int init_gic(void)
         gic.v3_iface = true;
         break;
     default:
-        halt("%s: gic type %d from ID_AA64PFR0_EL1 not supported\n", __func__, gic_iface);
+        halt("%s: gic type %d from ID_AA64PFR0_EL1 not supported\n", func_ss, gic_iface);
     }
 
     if (gic.v3_iface) {

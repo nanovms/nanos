@@ -9,7 +9,7 @@
 
 //#define VSOCK_DEBUG
 #ifdef VSOCK_DEBUG
-#define vsock_debug(x, ...) do {tprintf(sym(vsock), 0, x "\n", ##__VA_ARGS__);} while(0)
+#define vsock_debug(x, ...) do {tprintf(sym(vsock), 0, ss(x "\n"), ##__VA_ARGS__);} while(0)
 #else
 #define vsock_debug(x, ...)
 #endif

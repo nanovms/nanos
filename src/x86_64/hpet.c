@@ -147,7 +147,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
             ioapic_set_int(gsi, tim->interrupt);
             tim->config |= gsi << HPET_TIMER_CONFIG_INT_ROUTE_CNF_SHIFT;
         }
-        register_interrupt(tim->interrupt, t, "hpet timer");
+        register_interrupt(tim->interrupt, t, ss("hpet timer"));
     }
 
     if (periodic) {

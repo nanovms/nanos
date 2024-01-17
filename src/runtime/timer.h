@@ -47,7 +47,7 @@ typedef struct timerqueue {
     u32 service_scheduled;  /* CAS */
     u32 update;             /* CAS; timer re-programming needed */
     boolean empty;          /* indicating the queue is empty */
-    const char *name;
+    sstring name;
 } *timerqueue;
 
 struct timer {
@@ -163,7 +163,7 @@ boolean remove_timer(timerqueue tq, timer t, timestamp *remain);
 
 typedef closure_type(timer_select, boolean, timer);
 
-timerqueue allocate_timerqueue(heap h, clock_now now, const char *name);
+timerqueue allocate_timerqueue(heap h, clock_now now, sstring name);
 void deallocate_timerqueue(timerqueue tq);
 void timer_service(timerqueue tq, timestamp here);
 void timer_reorder(timerqueue tq);

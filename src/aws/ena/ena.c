@@ -98,7 +98,8 @@ static int ena_enable_msix_and_set_admin_interrupts(struct ena_adapter *);
 static void ena_update_on_link_change(void *, struct ena_admin_aenq_entry *);
 static void unimplemented_aenq_handler(void *, struct ena_admin_aenq_entry *);
 
-static const char ena_version[] = DEVICE_NAME " " DRV_MODULE_NAME " v" DRV_MODULE_VERSION;
+static const sstring ena_version =
+    ss_static_init(DEVICE_NAME " " DRV_MODULE_NAME " v" DRV_MODULE_VERSION);
 
 static const ena_vendor_info_t ena_vendor_info_array[] = {
         { PCI_VENDOR_ID_AMAZON, PCI_DEV_ID_ENA_PF, 0 },
@@ -930,7 +931,7 @@ static int ena_request_mgmnt_irq(struct ena_adapter *adapter)
     irq = &adapter->irq_tbl[ENA_MGMNT_IRQ_IDX];
 
     if (pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
-                       "ena_mgmnt") == INVALID_PHYSICAL)
+                       ss("ena_mgmnt")) == INVALID_PHYSICAL)
         return ENA_COM_FAULT;
     return 0;
 }
@@ -948,7 +949,7 @@ static int ena_request_io_irq(struct ena_adapter *adapter)
     for (i = ENA_IO_IRQ_FIRST_IDX; i < adapter->msix_vecs; i++) {
         irq = &adapter->irq_tbl[i];
         if (pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
-                           "ena_io") == INVALID_PHYSICAL)
+                           ss("ena_io")) == INVALID_PHYSICAL)
             return ENA_COM_FAULT;
         ena_trace(NULL, ENA_INFO, "queue %d\n", i - ENA_IO_IRQ_FIRST_IDX);
     }
@@ -1358,7 +1359,7 @@ int ena_up(struct ena_adapter *adapter)
         adapter->requested_rx_ring_size,
         adapter->requested_tx_ring_size,
         (adapter->ena_dev->tx_mem_queue_type == ENA_ADMIN_PLACEMENT_POLICY_DEV) ?
-                "ENABLED" : "DISABLED");
+                ss("ENABLED") : ss("DISABLED"));
 
     rc = create_queues_with_size_backoff(adapter);
     if (unlikely(rc != 0)) {
@@ -1407,7 +1408,7 @@ static err_t ena_init(struct netif *netif)
     struct ena_adapter *adapter = netif->state;
 
     netif = &adapter->ifp;
-    netif->hostname = "uniboot";
+    netif->hostname = sstring_empty();
     netif->name[0] = 'e';
     netif->name[1] = 'n';
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;

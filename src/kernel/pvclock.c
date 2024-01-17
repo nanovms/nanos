@@ -83,7 +83,7 @@ boolean init_tsc_deadline_timer(clock_timer *ct, thunk *per_cpu_init)
 
     *ct = closure(pvclock_heap, tsc_deadline_timer);
     int irq = allocate_interrupt();
-    register_interrupt(irq, timer_interrupt_handler, "tsc deadline timer");
+    register_interrupt(irq, timer_interrupt_handler, ss("tsc deadline timer"));
     *per_cpu_init = closure(pvclock_heap, tsc_deadline_percpu_init, irq);
     apply(*per_cpu_init);
     return true;

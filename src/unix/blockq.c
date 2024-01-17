@@ -38,7 +38,7 @@
 
 //#define BLOCKQ_DEBUG
 #ifdef BLOCKQ_DEBUG
-#define blockq_debug(x, ...) do {tprintf(sym(blockq), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define blockq_debug(x, ...) do {tprintf(sym(blockq), 0, ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define blockq_debug(x, ...)
 #endif
@@ -53,9 +53,9 @@ static void blockq_apply(blockq bq, unix_context t, u64 bq_flags)
 {
     blockq_debug("bq %p (\"%s\") ctx %p %s %s %s\n",
                  bq, blockq_name(bq), t,
-                 (bq_flags & BLOCKQ_ACTION_BLOCKED) ? "blocked " : "",
-                 (bq_flags & BLOCKQ_ACTION_NULLIFY) ? "nullify " : "",
-                 (bq_flags & BLOCKQ_ACTION_TIMEDOUT) ? "timedout" : "");
+                 (bq_flags & BLOCKQ_ACTION_BLOCKED) ? ss("blocked ") : sstring_empty(),
+                 (bq_flags & BLOCKQ_ACTION_NULLIFY) ? ss("nullify ") : sstring_empty(),
+                 (bq_flags & BLOCKQ_ACTION_TIMEDOUT) ? ss("timedout") : sstring_empty());
 
     assert(t->blocked_on == bq);
     async_apply_1((async_1)t->bq_action, (void *)bq_flags); /* bq_action retval ignored */
@@ -145,7 +145,7 @@ unix_context blockq_wake_one(blockq bq)
 
 boolean blockq_wake_one_for_thread(blockq bq, unix_context t, boolean nullify)
 {
-    thread_log(current, "%s: ctx %p", __func__, t);
+    thread_log(current, "%s: ctx %p", func_ss, t);
     blockq_lock(bq);
     thread_lock(t);
     if (t->blocked_on != bq) {
@@ -331,7 +331,7 @@ define_closure_function(1, 0, void, free_blockq,
     deallocate(bq->h, bq, sizeof(struct blockq));
 }
 
-blockq allocate_blockq(heap h, char * name)
+blockq allocate_blockq(heap h, sstring name)
 {
     blockq_debug("name \"%s\"\n", name);
     blockq bq = allocate(h, sizeof(struct blockq));
@@ -339,14 +339,7 @@ blockq allocate_blockq(heap h, char * name)
         return bq;
 
     bq->h = h;
-    u64 len;
-    if (name) {
-        len = MIN(runtime_strlen(name), BLOCKQ_NAME_MAX - 1);
-        runtime_memcpy(bq->name, name, len);
-    } else {
-        len = 0;
-    }
-    bq->name[len] = '\0';
+    bq->name = name;
     bq->wake = false;
     spin_lock_init(&bq->lock);
     list_init(&bq->waiters_head);

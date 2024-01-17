@@ -1,7 +1,7 @@
-extern void vbprintf(buffer s, buffer fmt, vlist *ap);
+extern void vbprintf(buffer s, sstring fmt, vlist *ap);
 
-extern void log_vprintf(const char *prefix, const char *log_format, vlist *a);
-extern void log_printf(const char *prefix, const char *log_format, ...);
+extern void log_vprintf(sstring prefix, sstring log_format, vlist *a);
+extern void log_printf(sstring prefix, sstring log_format, ...);
 
 struct formatter_state {
     int state;
@@ -19,8 +19,14 @@ typedef void (*formatter)(buffer dest, struct formatter_state *s, vlist *ap);
 void register_format(character c, formatter f, int accepts_long);
 void init_extra_prints(void);
 
-buffer aprintf(heap h, const char *fmt, ...);
-void bbprintf(buffer b, buffer fmt, ...);
-void bprintf(buffer b, const char *fmt, ...);
-int rsnprintf(char *str, u64 size, const char *fmt, ...);
-void rprintf(const char *format, ...);
+buffer aprintf_sstring(heap h, sstring fmt, ...);
+#define aprintf(h, fmt, ...)    aprintf_sstring(h, ss(fmt), ##__VA_ARGS__)
+
+void bprintf_sstring(buffer b, sstring fmt, ...);
+#define bprintf(b, fmt, ...)    bprintf_sstring(b, ss(fmt), ##__VA_ARGS__)
+
+int rsnprintf_sstring(char *str, u64 size, sstring fmt, ...);
+#define rsnprintf(str, size, fmt, ...)  rsnprintf_sstring(str, size, ss(fmt), ##__VA_ARGS__)
+
+void rprintf_sstring(sstring format, ...);
+#define rprintf(fmt, ...)   rprintf_sstring(ss(fmt), ##__VA_ARGS__)

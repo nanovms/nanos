@@ -3,7 +3,7 @@
 
 //#define MGMT_DEBUG
 #ifdef MGMT_DEBUG
-#define mgmt_debug(x, ...) do {tprintf(sym(mgmt), 0, x, ##__VA_ARGS__);} while(0)
+#define mgmt_debug(x, ...) do {tprintf(sym(mgmt), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define mgmt_debug(x, ...)
 #endif
@@ -15,10 +15,10 @@ closure_function(3, 1, status, telnet_recv,
     buffer_handler out = bound(out);
     if (!b) {
         // XXX need tuple parser dealloc
-        mgmt_debug("%s: remote closed\n", __func__);
+        mgmt_debug("%s: remote closed\n", func_ss);
         return STATUS_OK;
     }
-    mgmt_debug("%s: got request \"%b\"\n", __func__, b);
+    mgmt_debug("%s: got request \"%b\"\n", func_ss, b);
     switch (*((u8*)buffer_ref(b, 0))) {
     case 0x04:                  /* EOT */
         mgmt_debug("   remote sent quit\n");

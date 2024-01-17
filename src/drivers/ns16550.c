@@ -25,7 +25,7 @@ struct console_driver *ns16550_console_init(kernel_heaps kh, void *base)
     ns16550_console console = allocate(heap_general(kh), sizeof(*console));
     console->addr = base;
     zero(&console->driver, sizeof(console->driver));
-    console->driver.name = "16550";
+    console->driver.name = ss("16550");
     console->driver.write = ns16550_write;
     return &console->driver;
 }

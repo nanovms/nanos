@@ -2,79 +2,64 @@
 
 static heap stringheap;
 
-char *
-runtime_strchr (const char *string, int _c)
+char *runtime_strchr(sstring s, int c)
 {
-    char c = _c;
-
-    for (;;) 
-        if (*string == c)
-            return (char *) string;
-        else if (*string == '\0')
-            return 0;
-        else
-            string ++;
+    sstring_foreach(i, si, s)
+        if (si == c)
+            return s.ptr + i;
+    return 0;
 }
-    
-char *
-runtime_strstr(const char *haystack, const char *needle)
+
+char *runtime_strrchr(sstring s, int c)
 {
-    const char *haystack_p = haystack;
-    const char *needle_p = needle;
-    while (*haystack_p && *needle_p) {
-        if (*needle_p == *haystack_p) {
-            needle_p++;
-            haystack_p++;
-        } else {
-            needle_p = needle;
-            haystack_p = ++haystack;
-        }
+    for (bytes i = s.len; i > 0; i--) {
+        char *p = s.ptr + i - 1;
+        if (*p == c)
+            return p;
     }
-    if (!*needle_p)
-        return (char *)haystack;
-    else
+    return 0;
+}
+
+char *runtime_strstr(sstring haystack, sstring needle)
+{
+    if (needle.len > haystack.len)
         return 0;
+    bytes limit = haystack.len - needle.len;
+    for (bytes i = 0; i <= limit; i++)
+        if (!runtime_memcmp(haystack.ptr + i, needle.ptr, needle.len))
+            return (haystack.ptr + i);
+    return 0;
 }
 
-char *
-runtime_strtok_r (char *s, const char *delimiters, char **save_ptr)
+sstring runtime_strtok_r(sstring *str, sstring delim, sstring *saveptr)
 {
-    char *token;
+    if (str != 0)
+        *saveptr = *str;
 
-    if (s == 0)
-        s = *save_ptr;
+    bytes offset = 0;
+    while ((offset < saveptr->len) && (runtime_strchr(delim, saveptr->ptr[offset]) != 0))
+        offset++;
+    if (offset == saveptr->len)
+        return sstring_null();
 
-    while (runtime_strchr(delimiters, *s) != 0) {
-        if (*s == '\0') {
-            *save_ptr = s;
-            return 0;
-        }
-
-        s ++;
-    }
-
-    token = s;
-    while (runtime_strchr(delimiters, *s) == 0)
-        s ++;
-
-    if (*s != '\0') {
-        *s = '\0';
-        *save_ptr = s + 1;
-    } else 
-        *save_ptr = s;
+    sstring token = {
+        .ptr = saveptr->ptr + offset,
+    };
+    while ((offset < saveptr->len) && (runtime_strchr(delim, saveptr->ptr[offset]) == 0))
+        offset++;
+    token.len = offset - (token.ptr - saveptr->ptr);
+    saveptr->ptr += offset;
+    saveptr->len -= offset;
 
     return token;
 }
 
-int
-runtime_strcmp (const char *string1, const char *string2)
+int runtime_strcmp(sstring string1, sstring string2)
 {
-    while (*string1 && *string1 == *string2) {
-        string1++;
-        string2++;
-    }
+    if (string1.len != string2.len)
+        return (string1.len - string2.len);
 
-    return *(const unsigned char *)string1 - *(const unsigned char *)string2;
+    return runtime_memcmp(string1.ptr, string2.ptr, string1.len);
 }
 
 string wrap_string(void *body, bytes length)

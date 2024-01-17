@@ -4,7 +4,7 @@
 
 //#define DIRECT_DEBUG
 #ifdef DIRECT_DEBUG
-#define direct_debug(x, ...) do {log_printf("DNET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define direct_debug(x, ...) do {log_printf(ss("DNET"), ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define direct_debug(x, ...)
 #endif
@@ -263,7 +263,7 @@ define_closure_function(1, 1, status, direct_conn_send,
     /* enqueue qbuf, even if !b */
     qbuf q = allocate(dc->d->h, sizeof(struct qbuf));
     if (q == INVALID_ADDRESS) {
-        s = timm("result", "%s: failed to allocate qbuf", __func__);
+        s = timm("result", "%s: failed to allocate qbuf", func_ss);
     } else {
         /* queue even if b == 0 (acts as close connection command) */
         q->b = b;
@@ -362,16 +362,16 @@ status listen_port(heap h, u16 port, connection_handler c)
 {
     direct_debug("port %d, c %p\n", port, c);
     status s = STATUS_OK;
-    char *op;
+    sstring op;
     err_t err = ERR_OK;
     direct d = direct_alloc(h, c);
     if (d == INVALID_ADDRESS) {
-        op = "allocate";
+        op = ss("allocate");
         goto fail;
     }
     err = tcp_bind(d->p, IP_ANY_TYPE, port);
     if (err != ERR_OK) {
-        op = "tcp_bind";
+        op = ss("tcp_bind");
         goto fail_unlock_dealloc;
     }
     tcp_unref(d->p);
@@ -383,7 +383,7 @@ status listen_port(heap h, u16 port, connection_handler c)
   fail_unlock_dealloc:
     direct_dealloc(d);
   fail:
-    s = timm("result", "%s: %s failed", __func__, op);
+    s = timm("result", "%s: %s failed", func_ss, op);
     if (err != ERR_OK)
         timm_append(s, "lwip_error", "%d", err);
     return s;
@@ -408,10 +408,14 @@ static void direct_connect_err(void *arg, err_t err)
 status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch)
 {
     status s = STATUS_OK;
-    direct_debug("addr %s, port %d, ch %F\n", ipaddr_ntoa(addr), port, ch);
+#ifdef DIRECT_DEBUG
+    char addr_str[IPADDR_STRLEN_MAX];
+    direct_debug("addr %s, port %d, ch %F\n",
+                 isstring(addr_str, ipaddr_ntoa_r(addr, addr_str, sizeof(addr_str))), port, ch);
+#endif
     direct d = direct_alloc(h, ch);
     if (d == INVALID_ADDRESS)
-        return timm("result", "%s: alloc failed", __func__);
+        return timm("result", "%s: alloc failed", func_ss);
     tcp_lock(d->p);
     tcp_err(d->p, direct_connect_err);
     err_t err = tcp_connect(d->p, addr, port, direct_connect_complete);

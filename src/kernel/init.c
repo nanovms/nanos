@@ -178,7 +178,7 @@ closure_function(2, 2, void, fsstarted,
                  u8 *, mbr, storage_req_handler, req_handler,
                  filesystem, fs, status, s)
 {
-    init_debug("%s\n", __func__);
+    init_debug("%s\n", func_ss);
     heap h = heap_locked(init_heaps);
     if (!is_ok(s)) {
         buffer b = allocate_buffer(h, 128);
@@ -205,7 +205,7 @@ closure_function(2, 2, void, fsstarted,
     if (mounts)
         storage_set_mountpoints(mounts);
     value klibs = get_string(root, sym(klibs));
-    boolean klibs_in_bootfs = klibs && buffer_compare_with_cstring(klibs, "bootfs");
+    boolean klibs_in_bootfs = klibs && !buffer_strcmp(klibs, "bootfs");
 
     merge m;
     async_apply(create_init(init_heaps, root, fs, &m));
@@ -221,7 +221,7 @@ closure_function(2, 2, void, fsstarted,
                               bootfs_part->nsectors * SECTOR_SIZE,
                               closure(h, offset_req_handler,
                                       bootfs_part->lba_start * SECTOR_SIZE, bound(req_handler)),
-                              true, 0, /* read-only, no label */
+                              true, sstring_null(), /* read-only, no label */
                               bootfs_handler(init_heaps, root, klibs ? apply_merge(m) : 0,
                                              klibs_in_bootfs, ingest_kernel_syms));
             opening_bootfs = true;
@@ -266,18 +266,17 @@ static int cmdline_get_prefix(char *opt_start, int opt_len)
 }
 
 /* Removes consumed options from command line; returns updated command line length. */
-int cmdline_parse(char *cmdline_start, int cmdline_len, const char *opt_name, cmdline_handler h)
+int cmdline_parse(char *cmdline_start, int cmdline_len, sstring opt_name, cmdline_handler h)
 {
-    init_debug("%s (%d): option %s", __func__, cmdline_len, opt_name);
+    init_debug("%s (%d): option %s", func_ss, cmdline_len, opt_name);
     char *cmdline_end = cmdline_start + cmdline_len;
     char *opt_start;
     int opt_len;
-    int name_len = runtime_strlen(opt_name);
     char *p = cmdline_start;
     while ((opt_start = cmdline_next_option(p, cmdline_end - p, &opt_len))) {
         char *opt_end = opt_start + opt_len;
         int prefix_len = cmdline_get_prefix(opt_start, opt_len);
-        if ((prefix_len == name_len) && !runtime_memcmp(opt_start, opt_name, prefix_len)) {
+        if ((prefix_len == opt_name.len) && !runtime_memcmp(opt_start, opt_name.ptr, prefix_len)) {
             char *value_start = opt_start + prefix_len + 1;
             apply(h, value_start, opt_end - value_start);
 
@@ -290,7 +289,7 @@ int cmdline_parse(char *cmdline_start, int cmdline_len, const char *opt_name, cm
             p = opt_end;
         }
     }
-    init_debug("%s: updated length %d", __func__, cmdline_len);
+    init_debug("%s: updated length %d", func_ss, cmdline_len);
     return cmdline_len;
 }
 
@@ -341,7 +340,7 @@ void cmdline_apply(char *cmdline_start, int cmdline_len, tuple t)
 }
 
 #ifdef MM_DEBUG
-#define mm_debug(x, ...) do {tprintf(sym(mm), 0, x, ##__VA_ARGS__);} while(0)
+#define mm_debug(x, ...) do {tprintf(sym(mm), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define mm_debug(x, ...) do { } while(0)
 #endif
@@ -399,7 +398,7 @@ closure_function(1, 1, void, mm_service_sync,
                  status, s)
 {
     if (!is_ok(s)) {
-        mm_debug("%s: storage sync failed: %v\n", __func__, s);
+        mm_debug("%s: storage sync failed: %v\n", func_ss, s);
         timm_dealloc(s);
     }
     context_schedule_return(bound(ctx));
@@ -414,7 +413,7 @@ void mm_service(boolean flush)
     u64 threshold = total >> MEM_CLEAN_THRESHOLD_SHIFT;
     if (threshold < MEM_CLEAN_THRESHOLD)
         threshold = MEM_CLEAN_THRESHOLD;
-    mm_debug("%s: total %ld, alloc %ld, free %ld\n", __func__,
+    mm_debug("%s: total %ld, alloc %ld, free %ld\n", func_ss,
              heap_total(phys), heap_allocated(phys), free);
     if (free < threshold) {
         u64 clean_bytes = threshold - free;
@@ -465,7 +464,7 @@ boolean first_boot(void)
 
 static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u64 length)
 {
-    init_debug("%s", __func__);
+    init_debug("%s", func_ss);
     length -= offset;
     heap h = heap_locked(init_heaps);
     create_filesystem(h,
@@ -473,7 +472,7 @@ static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u6
                       length,
                       closure(h, offset_req_handler, offset, req_handler),
                       false,
-                      false,
+                      sstring_null(),
                       closure(h, fsstarted, mbr, req_handler));
 }
 
@@ -482,7 +481,7 @@ closure_function(2, 2, void, volume_fs_init,
                  boolean, readonly, filesystem_complete, complete)
 {
     create_filesystem(heap_locked(init_heaps), SECTOR_SIZE, bound(length), bound(req_handler),
-                      readonly, 0 /* no label */, complete);
+                      readonly, sstring_null() /* no label */, complete);
     closure_finish();
 }
 
@@ -490,7 +489,7 @@ closure_function(4, 1, void, mbr_read,
                  u8 *, mbr, storage_req_handler, req_handler, u64, length, int, attach_id,
                  status, s)
 {
-    init_debug("%s", __func__);
+    init_debug("%s", func_ss);
     if (!is_ok(s)) {
         msg_err("unable to read partitions: %v\n", s);
         goto out;
@@ -773,10 +772,10 @@ void vm_exit(u8 code)
 
 static char *hex_digits="0123456789abcdef";
 
-void early_debug(const char *s)
+void early_debug_sstring(sstring s)
 {
-    while (*s != '\0')
-        serial_putchar(*s++);
+    sstring_foreach(i, c, s)
+        serial_putchar(c);
 }
 
 void early_debug_u64(u64 n)

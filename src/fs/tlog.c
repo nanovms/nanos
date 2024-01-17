@@ -8,7 +8,7 @@
 //#define TLOG_DEBUG_DUMP
 #ifdef TLOG_DEBUG
 #ifdef KERNEL
-#define tlog_debug(x, ...) do {tprintf(sym(tlog), 0, x, ##__VA_ARGS__);} while(0)
+#define tlog_debug(x, ...) do {tprintf(sym(tlog), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define tlog_debug(x, ...) do {rprintf(" TLOG: " x, ##__VA_ARGS__);} while(0)
 #endif
@@ -113,8 +113,8 @@ define_closure_function(3, 3, void, log_storage_op,
     assert((range_span(q) & MASK(order)) == 0);
     range blocks = range_add(range_rshift(q, order), bound(start_sector));
     boolean write = bound(write);
-    tlog_debug("%s: sg %p, q %R, blocks %R, sh %F, %s\n", __func__,
-               sg, q, blocks, sh, write ? "write" : "read");
+    tlog_debug("%s: sg %p, q %R, blocks %R, sh %F, %s\n", func_ss,
+               sg, q, blocks, sh, write ? ss("write") : ss("read"));
     filesystem_storage_op(bound(fs), sg, blocks, write, sh);
 }
 
@@ -186,7 +186,7 @@ closure_function(1, 1, boolean, log_dealloc_ext_node,
 define_closure_function(1, 0, void, log_free,
                         log, tl)
 {
-    tlog_debug("%s\n", __func__);
+    tlog_debug("%s\n", func_ss);
     log_destroy(bound(tl));
 }
 
@@ -268,7 +268,7 @@ closure_function(4, 1, void, flush_log_extension_complete,
                  status, s)
 {
     log_ext ext = bound(ext);
-    tlog_debug("%s: status %v\n", __func__, s);
+    tlog_debug("%s: status %v\n", func_ss, s);
     deallocate_sg_list(bound(sg));
     apply(bound(complete), s);
     refcount_release(&ext->refcount);
@@ -300,7 +300,7 @@ static void flush_log_extension(log_ext ext, boolean release, status_handler com
     sgb->refcount = 0;
 
     range r = irangel(b->start, write_bytes);
-    tlog_debug("%s: writing r %R, buffer addr %p\n", __func__, r, sgb->buf);
+    tlog_debug("%s: writing r %R, buffer addr %p\n", func_ss, r, sgb->buf);
     apply((sg_io)&ext->write, sg, r, closure(ext->tl->h, flush_log_extension_complete,
                                              sg, ext, release, complete));
     if (!release) {
@@ -334,7 +334,8 @@ static void log_extension_init(log_ext ext)
     push_varint(staging, range_span(ext->sectors));
     if (ext->sectors.start == 0) {
         assert(buffer_write(staging, ext->tl->fs->uuid, UUID_LEN));
-        assert(buffer_write_cstring(staging, ext->tl->fs->label));
+        assert(buffer_write_sstring(staging, sstring_from_cstring(ext->tl->fs->label,
+                                                                  VOLUME_LABEL_MAX_LEN)));
         push_u8(staging, '\0');   /* label string terminator */
     }
 }
@@ -481,7 +482,7 @@ closure_function(2, 1, void, log_switch_complete,
                  log, old_tl, log, new_tl,
                  status, s)
 {
-    tlog_debug("%s: status %v\n", __func__, s);
+    tlog_debug("%s: status %v\n", func_ss, s);
     log old_tl = bound(old_tl);
     log new_tl = bound(new_tl);
     tfs fs = old_tl->fs;
@@ -520,7 +521,7 @@ closure_function(2, 1, void, log_switch_complete,
 
 void log_flush(log tl, status_handler completion)
 {
-    tlog_debug("%s: log %p, completion %p, dirty %d\n", __func__, tl, completion, tl->dirty);
+    tlog_debug("%s: log %p, completion %p, dirty %d\n", func_ss, tl, completion, tl->dirty);
     if (!tl->dirty && (tl->state != TLOG_STATE_COMPACTING)) {
         if (completion)
 #ifdef KERNEL
@@ -875,7 +876,7 @@ static void log_read(log tl, status_handler sh)
     sgb->offset = 0;
     sgb->refcount = 0;
     status_handler tlc = closure(tl->h, log_read_complete, ext, sg, length, sh);
-    tlog_debug("%s: issuing sg read, sg %p, r %R\n", __func__, sg, r);
+    tlog_debug("%s: issuing sg read, sg %p, r %R\n", func_ss, sg, r);
     apply((sg_io)&ext->read, sg, r, tlc);
 }
 

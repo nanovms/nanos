@@ -596,10 +596,10 @@ static boolean gve_init_interrupts(gve adapter)
     if (msix_avail < 3) /* TX irq, RX irq, management irq */
         return false;
     if (pci_setup_msix(adapter->pdev, 2, init_closure(&adapter->mgmt_irq_handler, gve_mgmt_irq),
-                       "gve_mgmt") == INVALID_PHYSICAL)
+                       ss("gve_mgmt")) == INVALID_PHYSICAL)
         goto error;
     if (pci_setup_msix(adapter->pdev, 1, init_closure(&adapter->rx.irq_handler, gve_rx_irq),
-                       "gve_rx") == INVALID_PHYSICAL)
+                       ss("gve_rx")) == INVALID_PHYSICAL)
         goto err_disable_mgmt;
     return true;
   err_disable_mgmt:
@@ -828,7 +828,7 @@ static err_t gve_if_init(struct netif *netif)
 {
     gve adapter = netif->state;
     netif = &adapter->net_if;
-    netif->hostname = 0;
+    netif->hostname = sstring_empty();
     netif->name[0] = 'e';
     netif->name[1] = 'n';
     netif->mtu = adapter->mtu;

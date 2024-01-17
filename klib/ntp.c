@@ -3,7 +3,7 @@
 
 //#define NTP_DEBUG
 #ifdef NTP_DEBUG
-#define ntp_debug(x, ...) do {tprintf(sym(ntp), 0, x, ##__VA_ARGS__);} while(0)
+#define ntp_debug(x, ...) do {tprintf(sym(ntp), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define ntp_debug(x, ...)
 #endif
@@ -72,7 +72,7 @@ struct ntp_sample {
 };
 
 typedef struct ntp_server {
-    char *addr;
+    sstring addr;
     u16 port;
     ip_addr_t ip_addr;
     struct ntp_ts last_transmit_time;
@@ -704,7 +704,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     pbuf_free(p);
 }
 
-static void ntp_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
+static void ntp_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callback_arg)
 {
     if (ipaddr) {
         ntp_server server = callback_arg;
@@ -780,11 +780,7 @@ static void ntp_server_add(heap h, buffer addr, u16 port)
     ntp_debug("adding server %b (port %d)\n", addr, port);
     ntp_server server = allocate(h, sizeof(*server));
     assert(server != INVALID_ADDRESS);
-    bytes addr_len = buffer_length(addr);
-    server->addr = allocate(h, addr_len + 1);
-    assert(server->addr != INVALID_ADDRESS);
-    runtime_memcpy(server->addr, buffer_ref(addr, 0), addr_len);
-    server->addr[addr_len] = '\0';
+    server->addr = buffer_to_sstring(addr);
     server->port = port;
     vector_push(ntp.servers, server);
 }

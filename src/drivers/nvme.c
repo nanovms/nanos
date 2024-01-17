@@ -409,7 +409,7 @@ define_closure_function(3, 3, void, nvme_io,
 define_closure_function(1, 0, void, nvme_io_irq,
                         nvme, n)
 {
-    nvme_debug("%s", __func__);
+    nvme_debug("%s", func_ss);
     nvme n = bound(n);
     spin_lock(&n->lock);
     boolean done_empty = list_empty(&n->done_reqs);
@@ -440,7 +440,7 @@ define_closure_function(1, 0, void, nvme_io_irq,
 define_closure_function(1, 0, void, nvme_bh_service,
                         nvme, n)
 {
-    nvme_debug("%s", __func__);
+    nvme_debug("%s", func_ss);
     nvme n = bound(n);
     list l;
     u64 irqflags = spin_lock_irq(&n->lock);
@@ -583,9 +583,9 @@ closure_function(3, 1, void, nvme_identify_controller_resp,
         /* Retrieve block device name in vendor-specific field.
          * Expected name format (after trimming whitespace): '/dev/sd[a-z]' */
         char *bdev = resp + 3072;
-        bdev[AMZN_BDEV_SIZE - 1] = '\0';
-        nvme_debug("AWS block device '%s'", bdev);
-        int len = runtime_strlen(bdev);
+        sstring bdev_ss = sstring_from_cstring(bdev, AMZN_BDEV_SIZE);
+        nvme_debug("AWS block device '%s'", bdev_ss);
+        bytes len = bdev_ss.len;
         while (len > 0) {
             char dev_id = bdev[len - 1];
             if (dev_id == ' ') {
@@ -763,7 +763,7 @@ static boolean nvme_create_iocq(nvme n, storage_attach a)
         return false;
     }
     if (pci_setup_msix(n->d, NVME_IOQ_MSIX, init_closure(&n->io_irq, nvme_io_irq, n),
-                       "nvme I/O") == INVALID_PHYSICAL) {
+                       ss("nvme I/O")) == INVALID_PHYSICAL) {
         msg_err("failed to allocate MSI-X vector\n");
         return false;
     }
@@ -782,7 +782,7 @@ define_closure_function(1, 0, void, nvme_admin_irq,
                         nvme, n)
 {
     nvme n = bound(n);
-    nvme_debug("%s (%F)", __func__, n->ac_handler);
+    nvme_debug("%s (%F)", func_ss, n->ac_handler);
     nvme_cq acq = &n->acq;
     struct nvme_cqe *cqe = nvme_get_cqe(acq);
     if (cqe) {
@@ -860,7 +860,7 @@ closure_function(3, 1, boolean, nvme_probe,
     n->d = d;
     pci_enable_msix(d);
     if (pci_setup_msix(d, NVME_AQ_MSIX, init_closure(&n->admin_irq, nvme_admin_irq, n),
-                       "nvme admin") == INVALID_PHYSICAL) {
+                       ss("nvme admin")) == INVALID_PHYSICAL) {
         msg_err("failed to allocate MSI-X vector\n");
         goto free_cmds;
     }

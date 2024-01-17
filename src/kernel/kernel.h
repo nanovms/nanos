@@ -17,7 +17,7 @@ void runloop_target(void) __attribute__((noreturn));
 #ifdef CONFIG_TRACELOG
 #include <tracelog.h>
 #else
-void tprintf(symbol tag, tuple attrs, const char *format, ...);
+void tprintf(symbol tag, tuple attrs, sstring format, ...);
 #endif
 
 #ifdef LOCK_STATS
@@ -26,7 +26,7 @@ void tprintf(symbol tag, tuple attrs, const char *format, ...);
 
 //#define CONTEXT_DEBUG
 #ifdef CONTEXT_DEBUG
-#define context_debug(x, ...) do {tprintf(sym(context), 0, x, ##__VA_ARGS__);} while(0)
+#define context_debug(x, ...) do {tprintf(sym(context), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define context_debug(x, ...)
 #endif
@@ -388,7 +388,7 @@ static inline cpuinfo cpuinfo_from_id(int cpu)
     return vector_get(cpuinfos, cpu);
 }
 
-extern const char *context_type_strings[CONTEXT_TYPE_MAX];
+extern const sstring context_type_strings[CONTEXT_TYPE_MAX];
 
 static inline boolean is_kernel_context(context c)
 {
@@ -510,7 +510,7 @@ static inline void __attribute__((always_inline)) context_release_refcount(conte
 
 static inline void __attribute__((always_inline)) context_acquire(context ctx, cpuinfo ci)
 {
-    context_debug("%s: ctx %p, cpu %d\n", __func__, ctx, ci->id);
+    context_debug("%s: ctx %p, cpu %d\n", func_ss, ctx, ci->id);
     assert(ctx->active_cpu != ci->id);
     u64 remain = CONTEXT_RESUME_SPIN_LIMIT;
     volatile u32 *ac = &ctx->active_cpu;
@@ -519,27 +519,27 @@ static inline void __attribute__((always_inline)) context_acquire(context ctx, c
         assert(remain-- > 0);
     }
     ctx->active_cpu = ci->id;
-    context_debug("%s: ctx %p, cpu %d acquired\n", __func__, ctx, ci->id);
+    context_debug("%s: ctx %p, cpu %d acquired\n", func_ss, ctx, ci->id);
 }
 
 static inline void __attribute__((always_inline)) context_release(context ctx)
 {
     if (ctx->active_cpu == -1u)
-        halt("%s: already paused c %p, type %d\n", __func__, ctx, ctx->type);
+        halt("%s: already paused c %p, type %d\n", func_ss, ctx, ctx->type);
     assert(ctx->active_cpu == current_cpu()->id); /* XXX tmp for bringup */
     ctx->active_cpu = -1u;
 }
 
 static inline void __attribute__((always_inline)) context_pause(context ctx)
 {
-    context_debug("%s: ctx %p\n", __func__, ctx);
+    context_debug("%s: ctx %p\n", func_ss, ctx);
     if (ctx->pause)
         ctx->pause(ctx);
 }
 
 static inline void __attribute__((always_inline)) context_resume(context ctx)
 {
-    context_debug("%s: ctx %p\n", __func__, ctx);
+    context_debug("%s: ctx %p\n", func_ss, ctx);
     cpuinfo ci = current_cpu();
     context_acquire(ctx, ci);
     set_current_context(ci, ctx);
@@ -563,11 +563,11 @@ static inline void context_schedule_return(context ctx)
 
 static inline void context_reschedule(context ctx)
 {
-    context_debug("%s: suspend ctx %p, cpu %d\n", __func__, ctx, current_cpu()->id);
+    context_debug("%s: suspend ctx %p, cpu %d\n", func_ss, ctx, current_cpu()->id);
     context_pre_suspend(ctx);
     context_schedule_return(ctx);
     context_suspend();
-    context_debug("%s: resume ctx %p, cpu %d\n", __func__, ctx, current_cpu()->id);
+    context_debug("%s: resume ctx %p, cpu %d\n", func_ss, ctx, current_cpu()->id);
 }
 
 void __attribute__((noreturn)) context_switch_finish(context prev, context next, void *a, u64 arg0, u64 arg1);
@@ -579,7 +579,7 @@ context_switch_and_branch(context ctx, void * a, u64 arg0, u64 arg1)
     cpuinfo ci = current_cpu();
     context prev = get_current_context(ci);
     context_debug("%s: prev %p, next %p, a %p, arg0 0x%lx, arg1 0x%lx\n",
-                  __func__, prev, ctx, a, arg0, arg1);
+                  func_ss, prev, ctx, a, arg0, arg1);
     if (ctx != prev) {
         context_pause(prev);
         context_acquire(ctx, ci);
@@ -642,18 +642,18 @@ static inline void clear_fault_handler(void)
 
 #define contextual_closure(__name, ...) ({                              \
             context __ctx = get_current_context(current_cpu());         \
-            context_debug("contextual_closure(%s, ...) ctx %p type %d\n", #__name, __ctx, __ctx->type); \
+            context_debug("contextual_closure(%s, ...) ctx %p type %d\n", ss(#__name),  \
+                          __ctx, __ctx->type);                                          \
             closure_from_context(__ctx, __name, ##__VA_ARGS__);})
 
 #define contextual_closure_alloc(__name, __var) \
     do {                                                                \
         context __ctx = get_current_context(current_cpu());             \
-        context_debug("contextual_closure_alloc(%s, ...) ctx %p\n", #__name, __ctx); \
+        context_debug("contextual_closure_alloc(%s, ...) ctx %p\n", ss(#__name), __ctx);    \
         heap __h = __ctx->transient_heap;                               \
         __var = allocate(__h, sizeof(struct _closure_##__name));        \
         if (__var != INVALID_ADDRESS) {                                 \
             __var->__apply = __name;                                    \
-            __var->__c.name = #__name;                                  \
             __var->__c.ctx = ctx_from_context(__ctx);                   \
             __var->__c.size = sizeof(struct _closure_##__name);         \
         }                                                               \
@@ -753,7 +753,7 @@ void kernel_runtime_init(kernel_heaps kh);
 void read_kernel_syms(void);
 void reclaim_regions(void);
 
-int cmdline_parse(char *cmdline_start, int cmdline_len, const char *opt_name, cmdline_handler h);
+int cmdline_parse(char *cmdline_start, int cmdline_len, sstring opt_name, cmdline_handler h);
 void cmdline_apply(char *cmdline_start, int cmdline_len, tuple t);
 
 boolean breakpoint_insert(heap h, u64 a, u8 type, u8 length, thunk completion);
@@ -826,11 +826,11 @@ int msi_get_vector(u32 data);
 
 u64 allocate_ipi_interrupt(void);
 void deallocate_ipi_interrupt(u64 irq);
-void register_interrupt(int vector, thunk t, const char *name);
+void register_interrupt(int vector, thunk t, sstring name);
 void unregister_interrupt(int vector);
 
 u64 allocate_shirq(void);
-void register_shirq(int vector, thunk t, const char *name);
+void register_shirq(int vector, thunk t, sstring name);
 
 boolean dev_irq_enable(u32 dev_id, int vector);
 void dev_irq_disable(u32 dev_id, int vector);
@@ -873,7 +873,7 @@ void register_root_notify(symbol s, set_value_notify n);
 boolean first_boot(void);
 
 extern void interrupt_exit(void);
-extern const char * const * const state_strings;
+extern const sstring * const state_strings;
 
 void kernel_unlock();
 
@@ -895,6 +895,8 @@ void wakeup_or_interrupt_cpu_all();
 typedef closure_type(halt_handler, void, int);
 extern halt_handler vm_halt;
 
-void early_debug(const char *s);
+void early_debug_sstring(sstring s);
+#define early_debug(s)  early_debug_sstring(ss(s))
+
 void early_debug_u64(u64 n);
 void early_dump(void *p, unsigned long length);

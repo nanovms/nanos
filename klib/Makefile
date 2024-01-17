@@ -123,7 +123,6 @@ SRCS-mbedtls-crypto= \
 	$(MBEDTLS_DIR)/library/sha512.c \
 	$(MBEDTLS_DIR)/library/threading.c \
 	$(MBEDTLS_DIR)/library/version.c \
-	$(MBEDTLS_DIR)/library/version_features.c \
 	$(MBEDTLS_DIR)/library/xtea.c \
 
 SRCS-mbedtls-x509= \

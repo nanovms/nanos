@@ -105,7 +105,7 @@ void vtdev_set_status(vtdev dev, u8 status)
     }
 }
 
-status virtio_alloc_virtqueue(vtdev dev, const char *name, int idx, struct virtqueue **result)
+status virtio_alloc_virtqueue(vtdev dev, sstring name, int idx, struct virtqueue **result)
 {
     switch (dev->transport) {
     case VTIO_TRANSPORT_MMIO:

@@ -59,17 +59,13 @@ static void netconsole_config(void *_d, tuple r)
     }
 
     buffer dst_ip = get(r, sym(netconsole_ip));
-    char *s = dst_ip ? buffer_ref(dst_ip, 0) : DEFAULT_IP;
-    bytes len = dst_ip ? buffer_length(dst_ip) : runtime_strlen(DEFAULT_IP);
+    sstring b = dst_ip ? buffer_to_sstring(dst_ip) : ss(DEFAULT_IP);
 
-    if (len > IPADDR_STRLEN_MAX) {
+    if (b.len > IPADDR_STRLEN_MAX) {
         msg_err("ip address too long\n");
         return;
     }
 
-    char b[IPADDR_STRLEN_MAX+1];
-    runtime_memcpy(b, s, len);
-    b[len] = 0;
     if (!ipaddr_aton(b, &nd->dst_ip)) {
         msg_err("failed to translate ip address\n");
         return;
@@ -96,7 +92,7 @@ void netconsole_register(kernel_heaps kh, console_attach a)
     assert(nd != INVALID_ADDRESS);
     nd->h = h;
     nd->c.write = netconsole_write;
-    nd->c.name = "net";
+    nd->c.name = ss("net");
     nd->c.disabled = true;
     nd->c.config = netconsole_config;
     apply(a, &nd->c);

@@ -31,7 +31,7 @@ static inline u64 linear_backed_alloc_internal(linear_backed_heap hb, bytes size
         return p;
     u64 v = p + hb->virt_base;
     linear_backed_debug("%s: size 0x%lx, len 0x%lx, p 0x%lx, v 0x%lx\n",
-                        __func__, size, len, p, v);
+                        func_ss, size, len, p, v);
     return v;
 }
 
@@ -46,7 +46,7 @@ static inline void linear_backed_dealloc_internal(linear_backed_heap hb, u64 x, 
     u64 phys = x - hb->virt_base;
     deallocate_u64((heap)hb->physical, phys, len);
     linear_backed_debug("%s: addr 0x%lx, phys 0x%lx, size 0x%lx, len 0x%lx\n",
-                        __func__, x, phys, size, len);
+                        func_ss, x, phys, size, len);
 }
 
 static void linear_backed_dealloc(heap h, u64 x, bytes size)

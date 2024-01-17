@@ -7,7 +7,7 @@
 
 //#define EXEC_DEBUG
 #ifdef EXEC_DEBUG
-#define exec_debug(x, ...) do {tprintf(sym(exec), 0, x, ##__VA_ARGS__);} while(0)
+#define exec_debug(x, ...) do {tprintf(sym(exec), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define exec_debug(x, ...)
 #endif
@@ -209,7 +209,7 @@ closure_function(4, 5, boolean, static_map,
                  u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
 {
     exec_debug("%s: vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
-               __func__, vaddr, offset, data_size, bss_size, flags);
+               func_ss, vaddr, offset, data_size, bss_size, flags);
     u64 map_start = vaddr & ~PAGEMASK;
     data_size += vaddr & PAGEMASK;
 
@@ -229,7 +229,7 @@ closure_function(4, 5, boolean, static_map,
             vmflags |= VMAP_FLAG_WRITABLE;
         range r = irangel(map_start, data_size);
         exec_debug("   add %s to vmap: %R vmflags 0x%lx, paddr 0x%lx\n",
-                   pageflags_is_exec(flags) ? "text" : "data", r, vmflags, paddr);
+                   pageflags_is_exec(flags) ? ss("text") : ss("data"), r, vmflags, paddr);
         struct vmap k = ivmap(vmflags, bound(allowed_flags), 0, 0, 0);
         if (allocate_vmap(bound(p), r, k) == INVALID_ADDRESS)
             goto alloc_fail;
@@ -268,7 +268,7 @@ closure_function(4, 5, boolean, faulting_map,
                  u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
 {
     exec_debug("%s: vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
-               __func__, vaddr, offset, data_size, bss_size, flags);
+               func_ss, vaddr, offset, data_size, bss_size, flags);
     u64 map_start = vaddr & ~PAGEMASK;
     if (data_size > 0) {
         offset &= ~PAGEMASK;
@@ -284,7 +284,7 @@ closure_function(4, 5, boolean, faulting_map,
             vmflags |= VMAP_FLAG_TAIL_BSS;
         range r = irangel(map_start, data_map_size);
         exec_debug("%s: add %s to vmap: %R vmflags 0x%lx, offset 0x%lx, data_size 0x%lx, tail_bss 0x%lx\n",
-                   __func__, pageflags_is_exec(flags) ? "text" : "data",
+                   func_ss, pageflags_is_exec(flags) ? ss("text") : ss("data"),
                    r, vmflags, offset, data_size, tail_bss);
         struct vmap k = ivmap(vmflags, bound(allowed_flags), offset,
                               fsfile_get_cachenode(bound(f)), 0);
@@ -298,7 +298,7 @@ closure_function(4, 5, boolean, faulting_map,
     if (bss_size > 0) {
         u64 vmflags = VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE | VMAP_FLAG_BSS;
         range r = irangel(map_start, pad(bss_size, PAGESIZE));
-        exec_debug("%s: add bss vmap: %R vmflags 0x%lx\n", __func__, r, vmflags);
+        exec_debug("%s: add bss vmap: %R vmflags 0x%lx\n", func_ss, r, vmflags);
         struct vmap k = ivmap(vmflags, bound(allowed_flags), 0, 0, 0);
         if (allocate_vmap(bound(p), r, k) == INVALID_ADDRESS)
             goto alloc_fail;
@@ -349,7 +349,7 @@ closure_function(1, 1, boolean, trace_notify,
 }
 
 static void exec_elf_finish(buffer ex, fsfile f, process kp,
-                            range load_range, const char *interp_path, boolean ingest_symbols,
+                            range load_range, sstring interp_path, boolean ingest_symbols,
                             status_handler complete)
 {
     status s = STATUS_OK;
@@ -367,9 +367,8 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
 
     exec_debug("exec_elf enter\n");
 
-    if (interp_path) {
-        buffer ib = alloca_wrap_buffer(interp_path, runtime_strlen(interp_path));
-        interp = fsfile_open(ib);
+    if (!sstring_is_null(interp_path)) {
+        interp = fsfile_open(interp_path);
         if (!interp) {
             s = timm("result", "couldn't find program interpreter %s", interp_path);
             goto out;
@@ -455,8 +454,7 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
 
     string cwd = get_string(root, sym(cwd));
     if (cwd) {
-        buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
-        fs_status fss = filesystem_chdir(proc, cstring(cwd, tmpbuf));
+        fs_status fss = filesystem_chdir(proc, buffer_to_sstring(cwd));
         if (fss != FS_STATUS_OK) {
             s = timm("result", "unable to change cwd to \"%b\"; %s", cwd, string_from_fs_status(fss));
             goto out;
@@ -474,12 +472,12 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
 static boolean elf_check_extend(u64 req_len, fsfile f, buffer b, io_status_handler self)
 {
     u64 curr = buffer_length(b);
-    exec_debug("%s: req_len %ld, curr %ld\n", __func__, req_len, curr);
+    exec_debug("%s: req_len %ld, curr %ld\n", func_ss, req_len, curr);
     if (req_len <= curr)
         return false;
     u64 readlen = req_len - curr;
     assert(buffer_extend(b, readlen));
-    exec_debug("%s: curr %ld, readlen %ld\n", __func__, curr, readlen);
+    exec_debug("%s: curr %ld, readlen %ld\n", func_ss, curr, readlen);
     filesystem_read_linear(f, buffer_ref(b, curr), irangel(curr, readlen), self);
     return true;
 }
@@ -492,7 +490,7 @@ closure_function(4, 2, void, exec_elf_read,
     buffer b = bound(b);
     process kp = bound(kp);
     status_handler complete = bound(complete);
-    exec_debug("%s: status %v, read %ld bytes\n", __func__, s, length);
+    exec_debug("%s: status %v, read %ld bytes\n", func_ss, s, length);
     if (!is_ok(s)) {
         apply(complete, timm_up(s, "result", "failed to read elf file"));
         closure_finish();
@@ -501,14 +499,15 @@ closure_function(4, 2, void, exec_elf_read,
     buffer_produce(b, length);
     exec_debug("buffer length %ld\n", buffer_length(b));
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(b, 0);
-    const char *interp_path = 0;
+    sstring interp_path = sstring_null();
     boolean ingest_symbols = !!get(kp->process_root, sym(ingest_program_symbols));
 
     /* This procedure will repeat until we have all the ELF info we need. */
     range load_range = irange(infinity, 0);
     foreach_phdr(e, p) {
-        if (p->p_type == PT_INTERP) {
-            interp_path = (void *)e + p->p_offset;
+        if ((p->p_type == PT_INTERP) && (p->p_filesz > 0)) {
+            interp_path = isstring((void *)e + p->p_offset,
+                                   p->p_filesz - 1  /* the last byte is the string terminator */);
             exec_debug("interp offset p->p_offset %ld, p->p_filesz %ld\n", p->p_offset, p->p_filesz);
             if (elf_check_extend(p->p_offset + p->p_filesz, f, b, (io_status_handler)closure_self()))
                 return;
@@ -542,11 +541,11 @@ closure_function(4, 2, void, exec_elf_read,
 
 void exec_elf(process kp, string program_path, status_handler complete)
 {
-    exec_debug("%s: path \"%b\", complete %p (%F)\n", __func__, program_path, complete, complete);
+    exec_debug("%s: path \"%b\", complete %p (%F)\n", func_ss, program_path, complete, complete);
     kernel_heaps kh = (kernel_heaps)(kp->uh);
     heap general = heap_locked(kh);
     tuple root = kp->process_root;
-    fsfile f = fsfile_open(program_path);
+    fsfile f = fsfile_open(buffer_to_sstring(program_path));
     if (!f) {
         apply(complete, timm("result", "unable to open program file %v", program_path));
         return;

@@ -7,7 +7,7 @@
 
 //#define VIRTIO_BLK_DEBUG
 #ifdef VIRTIO_BLK_DEBUG
-#define virtio_blk_debug(x, ...) do {tprintf(sym(vtblk), 0, x, ##__VA_ARGS__);} while(0)
+#define virtio_blk_debug(x, ...) do {tprintf(sym(vtblk), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define virtio_blk_debug(x, ...)
 #endif
@@ -139,13 +139,14 @@ closure_function(4, 1, void, complete,
 static inline void storage_rw_internal(storage st, boolean write, void * buf,
                                        range sectors, status_handler sh)
 {
-    char * err = 0;
-    virtio_blk_debug("virtio_%s: block range %R cap %ld\n", write ? "write" : "read", sectors, st->capacity);
+    sstring err;
+    virtio_blk_debug("%s: block range %R cap %ld\n", write ? ss("write") : ss("read"), sectors,
+                     st->capacity);
 
     u64 start_sector = sectors.start;
     u64 nsectors = range_span(sectors);
     if (nsectors == 0) {
-        err = "length must be > 0";
+        err = ss("length must be > 0");
         goto out_inval;
     }
 
@@ -221,7 +222,7 @@ static void virtio_storage_io_sg(storage st, boolean write, sg_list sg, range bl
 
 static void storage_flush(storage st, status_handler s)
 {
-    virtio_blk_debug("%s: handler %p (%F)\n", __func__, s, s);
+    virtio_blk_debug("%s: handler %p (%F)\n", func_ss, s, s);
     u64 req_phys;
     virtio_blk_req req = allocate_virtio_blk_req(st, VIRTIO_BLK_T_FLUSH, 0, &req_phys);
     virtqueue vq = st->command;
@@ -270,8 +271,8 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
             vtdev_cfg_read_4(v, VIRTIO_BLK_R_BLOCK_SIZE) : SECTOR_SIZE;
     s->capacity = (vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_LOW) |
 		   ((u64) vtdev_cfg_read_4(v, VIRTIO_BLK_R_CAPACITY_HIGH) << 32)) * s->block_size;
-    virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", __func__, s->capacity, s->block_size);
-    virtio_alloc_virtqueue(v, "virtio blk", 0, &s->command);
+    virtio_blk_debug("%s: capacity 0x%lx, block size 0x%x\n", func_ss, s->capacity, s->block_size);
+    virtio_alloc_virtqueue(v, ss("virtio blk"), 0, &s->command);
 
     s->seg_max = (v->features & VIRTIO_BLK_F_SEG_MAX) ?
             vtdev_cfg_read_4(v, VIRTIO_BLK_R_SEG_MAX) : 1;
@@ -288,7 +289,7 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
                  heap, general, storage_attach, a, backed_heap, page_allocator,
                  pci_dev, d)
 {
-    virtio_blk_debug("%s\n", __func__);
+    virtio_blk_debug("%s\n", func_ss);
     if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
         return false;
 
@@ -316,7 +317,7 @@ closure_function(3, 1, void, vtmmio_blk_probe,
 
 void init_virtio_blk(kernel_heaps kh, storage_attach a)
 {
-    virtio_blk_debug("%s\n", __func__);
+    virtio_blk_debug("%s\n", func_ss);
     heap h = heap_locked(kh);
     backed_heap page_allocator = heap_linear_backed(kh);
     register_pci_driver(closure(h, vtpci_blk_probe, h, a, page_allocator), 0);

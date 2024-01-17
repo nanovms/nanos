@@ -10,7 +10,7 @@ extern io_status_handler ignore_io_status;
 #define MIN_EXTENT_ALLOC_SIZE   (1 * MB)
 
 status filesystem_probe(u8 *first_sector, u8 *uuid, char *label);
-const char *filesystem_get_label(filesystem fs);
+sstring filesystem_get_label(filesystem fs);
 void filesystem_get_uuid(filesystem fs, u8 *uuid);
 
 void create_filesystem(heap h,
@@ -18,7 +18,7 @@ void create_filesystem(heap h,
                        u64 size,
                        storage_req_handler req_handler,
                        boolean ro,
-                       const char *label,
+                       sstring label,
                        filesystem_complete complete);
 void destroy_filesystem(filesystem fs);
 
@@ -28,7 +28,7 @@ tfsfile allocate_fsfile(tfs fs, tuple md);
 fs_status filesystem_write_tuple(tfs fs, tuple t);
 fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean cleanup);
 
-fs_status filesystem_mkentry(filesystem fs, tuple cwd, const char *fp, tuple entry,
+fs_status filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry,
     boolean persistent, boolean recursive);
-fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, const char *fp,
+fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, sstring fp,
         boolean persistent);

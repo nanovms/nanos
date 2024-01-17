@@ -15,7 +15,7 @@ fs_status v9p_fsync(void *priv, u32 fid, u32 datasync);
 fs_status v9p_mkdir(void *priv, u32 dfid, string name, u32 mode, u64 *qid);
 fs_status v9p_renameat(void *priv, u32 old_dfid, string old_name, u32 new_dfid, string new_name);
 fs_status v9p_unlinkat(void *priv, u32 dfid, string name, u32 flags);
-fs_status v9p_version(void *priv, u32 msize, const char *version, u32 *ret_msize);
+fs_status v9p_version(void *priv, u32 msize, sstring version, u32 *ret_msize);
 fs_status v9p_attach(void *priv, u32 root_fid, u64 *root_qid);
 fs_status v9p_walk(void *priv, u32 fid, u32 newfid, string wname, struct p9_qid *qid);
 fs_status v9p_clunk(void *priv, u32 fid);

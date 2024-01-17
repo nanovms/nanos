@@ -10,13 +10,15 @@ string symbol_string(symbol s);
       if (!__s){char x[] = #name; __s = intern(alloca_wrap_buffer(x, sizeof(x)-1));} \
      __s;})              
 
-#define sym_this(name)\
-    (intern(alloca_wrap_buffer(name, runtime_strlen(name))))
+#define sym_this(name)  ({                              \
+    assert_string_literal(name);                        \
+    intern(alloca_wrap_buffer(name, sizeof(name) - 1)); \
+})
+
+#define sym_sstring(name)   ({                      \
+    sstring __n = name;                             \
+    intern(alloca_wrap_buffer(__n.ptr, __n.len));   \
+})
 
 table symbol_table();
 key key_from_symbol(void *z);
-
-static inline boolean sym_cstring_compare(symbol s, const char *c)
-{
-    return buffer_compare_with_cstring(symbol_string(s), c);
-}

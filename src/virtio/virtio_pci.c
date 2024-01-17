@@ -34,7 +34,7 @@
 
 //#define VIRTIO_PCI_DEBUG
 #ifdef VIRTIO_PCI_DEBUG
-# define virtio_pci_debug(x, ...) do {tprintf(sym(virtio_pci), 0, x, ##__VA_ARGS__);} while(0)
+# define virtio_pci_debug(x, ...) do {tprintf(sym(virtio_pci), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 # define virtio_pci_debug(...) do { } while(0)
 #endif // defined(VIRTIO_PCI_DEBUG)
@@ -137,7 +137,7 @@ struct vtpci_common_config {
 
 boolean vtpci_probe(pci_dev d, int virtio_dev_id)
 {
-    virtio_pci_debug("%s: vendor is 0x%x, virtio_dev_id 0x%x\n", __func__,
+    virtio_pci_debug("%s: vendor is 0x%x, virtio_dev_id 0x%x\n", func_ss,
                      pci_get_vendor(d), virtio_dev_id);
     if (pci_get_vendor(d) != VIRTIO_PCI_VENDORID) {
         return false;
@@ -173,7 +173,7 @@ void vtpci_set_status(vtpci dev, u8 status)
     pci_bar_write_1(&dev->common_config, dev->regs[VTPCI_REG_DEVICE_STATUS], status);
     if (status == VIRTIO_CONFIG_STATUS_RESET) {
         while (vtpci_get_status(dev) != VIRTIO_CONFIG_STATUS_RESET) {
-            virtio_pci_debug("%s: waiting for VIRTIO_CONFIG_STATUS_RESET\n", __func__);
+            virtio_pci_debug("%s: waiting for VIRTIO_CONFIG_STATUS_RESET\n", func_ss);
             kern_pause();
         }
     }
@@ -199,7 +199,7 @@ closure_function(1, 0, void, vtpci_non_msix_irq,
                  vtpci, dev)
 {
     vtpci dev = bound(dev);
-    virtio_pci_debug("%s: dev %p\n", __func__, dev);
+    virtio_pci_debug("%s: dev %p\n", func_ss, dev);
 
     /* read and clear interrupt status */
     u8 isr_status = vtpci_get_isr_status(dev);
@@ -230,7 +230,7 @@ static void vtpci_register_non_msix_irq(vtpci dev)
     assert(dev->vq_handlers != INVALID_ADDRESS);
 
     /* XXX should really have separate dev name and queue names */
-    pci_setup_non_msi_irq(dev->dev, dev->non_msix_handler, "vtpci non-msix");
+    pci_setup_non_msi_irq(dev->dev, dev->non_msix_handler, ss("vtpci non-msix"));
 }
 
 static void vtpci_register_non_msix_queue_handler(vtpci dev, thunk handler)
@@ -246,7 +246,7 @@ static void vtpci_register_non_msix_config_handler(vtpci dev, thunk handler)
     dev->config_handler = handler;
 }
 
-static status vtpci_setup_msix(vtpci dev, thunk handler, const char *name, int cfg_reg)
+static status vtpci_setup_msix(vtpci dev, thunk handler, sstring name, int cfg_reg)
 {
     int msi_slot = allocate_u64(dev->msix_entries, 1);
     if (msi_slot < 0)
@@ -262,7 +262,7 @@ static status vtpci_setup_msix(vtpci dev, thunk handler, const char *name, int c
 }
 
 status vtpci_alloc_virtqueue(vtpci dev,
-                             const char *name,
+                             sstring name,
                              int idx,
                              struct virtqueue **result)
 {
@@ -276,7 +276,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
         pci_bar_read_2(&dev->common_config, VTPCI_R_QUEUE_NOTIFY_OFF) * dev->notify_offset_multiplier :
         VIRTIO_PCI_QUEUE_NOTIFY;
 
-    virtio_pci_debug("%s: name %s, notify_offset 0x%lx\n", __func__, name, notify_offset);
+    virtio_pci_debug("%s: name %s, notify_offset 0x%lx\n", func_ss, name, notify_offset);
     status s = virtqueue_alloc(&dev->virtio_dev, name, idx, size, notify_offset,
                                VIRTIO_PCI_VRING_ALIGN, &vq, &handler);
     if (!is_ok(s))
@@ -293,7 +293,7 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     // queue ring
     if (vtpci_is_modern(dev)) {
-        virtio_pci_debug("%s: desc 0x%lx, avail 0x%lx, used 0x%lx\n", __func__,
+        virtio_pci_debug("%s: desc 0x%lx, avail 0x%lx, used 0x%lx\n", func_ss,
                 virtqueue_desc_paddr(vq), virtqueue_avail_paddr(vq), virtqueue_used_paddr(vq));
         vtpci_modern_write_8(&dev->common_config, VTPCI_R_QUEUE_DESC, virtqueue_desc_paddr(vq));
         vtpci_modern_write_8(&dev->common_config, VTPCI_R_QUEUE_AVAIL, virtqueue_avail_paddr(vq));
@@ -311,19 +311,19 @@ closure_function(2, 0, void, vtpci_config_change_msix_irq,
                  vtpci, dev, thunk, handler)
 {
     virtio_pci_debug("%s: dev %p, queueing config change handler %F\n",
-                     __func__, bound(dev), bound(handler));
+                     func_ss, bound(dev), bound(handler));
     async_apply_bh(bound(handler));
 }
 
 status vtpci_register_config_change_handler(vtpci dev, thunk handler)
 {
-    virtio_pci_debug("%s: dev %p, handler %p (%F)\n", __func__, dev, handler, handler);
+    virtio_pci_debug("%s: dev %p, handler %p (%F)\n", func_ss, dev, handler, handler);
     if (dev->msix_entries) {
         thunk t = closure(dev->virtio_dev.general, vtpci_config_change_msix_irq, dev, handler);
         assert(t != INVALID_ADDRESS);
 
         // XXX vtdev name
-        return vtpci_setup_msix(dev, t, "config change", VTPCI_REG_CONFIG_MSIX_VECTOR);
+        return vtpci_setup_msix(dev, t, ss("config change"), VTPCI_REG_CONFIG_MSIX_VECTOR);
     } else {
         vtpci_register_non_msix_config_handler(dev, handler);
     }
@@ -357,7 +357,7 @@ static u32 vtpci_modern_find_cap(vtpci dev, u8 cfg_type, struct pci_bar *b)
             u8 bar = pci_cfgread(dev->dev, cp + VTPCI_CAP_R_BAR, 1);
             u8 cap_len = pci_cfgread(dev->dev, cp + VTPCI_CAP_R_LEN, 1);
             assert(cap_len >= sizeof(struct vtpci_cap));
-            virtio_pci_debug("%s: cp 0x%x, cfg_type %d: cap_len %d\n", __func__, cp, cfg_type, cap_len);
+            virtio_pci_debug("%s: cp 0x%x, cfg_type %d: cap_len %d\n", func_ss, cp, cfg_type, cap_len);
             u32 offset = pci_cfgread(dev->dev, cp + VTPCI_CAP_R_OFFSET, 4);
             u32 length = pci_cfgread(dev->dev, cp + VTPCI_CAP_R_LENGTH, 4);
             pci_bar_init(dev->dev, b, bar, offset, length);
@@ -382,7 +382,7 @@ static void vtpci_modern_alloc_resources(vtpci dev)
     u32 cp = vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_NOTIFY_CFG, &dev->notify_config);
     if (cp) {
         dev->notify_offset_multiplier = pci_cfgread(dev->dev, cp + VTPCI_NOTIFY_CAP_R_OFFSET_MULTIPLIER, 4);
-        virtio_pci_debug("%s: notify_offset_multiplier 0x%x\n", __func__, dev->notify_offset_multiplier);
+        virtio_pci_debug("%s: notify_offset_multiplier 0x%x\n", func_ss, dev->notify_offset_multiplier);
     }
     vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_DEVICE_CFG, &dev->device_config);
 }
@@ -391,7 +391,7 @@ define_closure_function(1, 2, void, vtpci_notify,
                         vtpci, dev,
                         u16, queue_index, bytes, notify_offset)
 {
-    virtio_pci_debug("%s: queue %d, notify_offset 0x%x\n", __func__,
+    virtio_pci_debug("%s: queue %d, notify_offset 0x%x\n", func_ss,
                      queue_index, notify_offset);
     pci_bar_write_2(&bound(dev)->notify_config, notify_offset, queue_index);
 }
@@ -405,7 +405,8 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
     boolean is_modern = pci_get_device(d) >= VIRTIO_PCI_DEVICEID_MODERN_MIN;
     if (is_modern)
         feature_mask |= VIRTIO_F_VERSION_1;
-    virtio_pci_debug("%s: dev %x%s\n", __func__, pci_get_device(d), is_modern ? "is modern" : "");
+    virtio_pci_debug("%s: dev %x%s\n", func_ss, pci_get_device(d),
+                     is_modern ? ss(" (modern)") : sstring_empty());
 
     dev->dev = d;
     int msix_entries = pci_enable_msix(dev->dev);
@@ -451,7 +452,7 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
         pci_bar_write_4(&dev->common_config, VIRTIO_PCI_GUEST_FEATURES, virtio_dev->features);
     }
     virtio_pci_debug("%s: device features 0x%lx, negotiated features 0x%lx\n",
-        __func__, virtio_dev->dev_features, virtio_dev->features);
+                     func_ss, virtio_dev->dev_features, virtio_dev->features);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE);
 
     init_closure(&dev->notify, vtpci_notify, dev);

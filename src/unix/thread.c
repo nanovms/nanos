@@ -164,7 +164,7 @@ void register_thread_syscalls(struct syscall *map)
     register_syscall(map, gettid, gettid, 0);
 }
 
-void thread_log_internal(thread t, const char *desc, ...)
+void thread_log_internal(thread t, sstring desc, ...)
 {
     if (t->syscall && syscall_notrace(t->p, t->syscall->call))
         return;
@@ -174,13 +174,13 @@ void thread_log_internal(thread t, const char *desc, ...)
 #ifndef CONFIG_TRACELOG
     bprintf(b, "%n%d ", (int) ((MAX(MIN(t->tid, 20), 1) - 1) * 4), t->tid);
 #endif
-    if (t->name[0] != '\0')
-        bprintf(b, "[%s] ", t->name);
-    buffer f = alloca_wrap_buffer(desc, runtime_strlen(desc));
-    vbprintf(b, f, &ap);
+    sstring name = sstring_from_cstring(t->name, sizeof(t->name));
+    if (!sstring_is_empty(name))
+        bprintf(b, "[%s] ", name);
+    vbprintf(b, desc, &ap);
     push_u8(b, '\n');
 #ifdef CONFIG_TRACELOG
-    tprintf(sym(thread), t->tracelog_attrs, "%b", b);
+    tprintf(sym(thread), t->tracelog_attrs, ss("%b"), b);
 #else
     buffer_print(b);
 #endif
@@ -188,7 +188,7 @@ void thread_log_internal(thread t, const char *desc, ...)
 
 static inline void check_stop_conditions(thread t)
 {
-    char *cause;
+    sstring cause;
     u64 pending = sigstate_get_pending(&t->signals);
 
     /* rather abrupt to just halt...this should go do dump or recovery */
@@ -197,14 +197,14 @@ static inline void check_stop_conditions(thread t)
 
         /* Terminate on uncaught SIGSEGV, or if triggered by signal handler. */
         if (handler == SIG_IGN || handler == SIG_DFL) {
-            cause = "Unhandled SIGSEGV";
+            cause = ss("Unhandled SIGSEGV");
             goto terminate;
         }
     }
 
     boolean is_sigkill = (pending & mask_from_sig(SIGKILL)) != 0;
     if (is_sigkill || (pending & mask_from_sig(SIGSTOP))) {
-        cause = is_sigkill ? "SIGKILL" : "SIGSTOP";
+        cause = is_sigkill ? ss("SIGKILL") : ss("SIGSTOP");
         goto terminate;
     }
     return;
@@ -336,8 +336,8 @@ void thread_wakeup(thread t)
     syscall_context sc = (syscall_context)ctx;
     blockq bq = sc->uc.blocked_on;
     assert(bq);
-    thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", __func__, current->tid, t->tid,
-               bq != INVALID_ADDRESS ? blockq_name(bq) : "uninterruptible",
+    thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", func_ss, current->tid, t->tid,
+               bq != INVALID_ADDRESS ? blockq_name(bq) : ss("uninterruptible"),
                thread_frame(t)[SYSCALL_FRAME_PC]);
     sc->uc.blocked_on = 0;
     t->syscall = 0;
@@ -353,7 +353,7 @@ void thread_reenqueue(thread t)
 
 boolean thread_attempt_interrupt(thread t)
 {
-    thread_log(current, "%s: tid %d", __func__, t->tid);
+    thread_log(current, "%s: tid %d", func_ss, t->tid);
     unix_context ctx;
     blockq bq;
     boolean success = false;
@@ -389,7 +389,8 @@ timerqueue thread_get_cpu_timer_queue(thread t)
     thread_lock(t);
     if (!t->cpu_timers) {
         timerqueue tq = allocate_timerqueue(heap_locked((kernel_heaps)&t->uh),
-                                            init_closure(&t->now, thread_now), t->name);
+                                            init_closure(&t->now, thread_now),
+                                            sstring_from_cstring(t->name, sizeof(t->name)));
         if (tq != INVALID_ADDRESS)
             t->cpu_timers = tq;
     }
@@ -427,7 +428,7 @@ thread create_thread(process p, u64 tid)
     t->task.t = init_closure(&t->thread_return, thread_return, t);
     t->task.runtime = 0;
 
-    t->thread_bq = allocate_blockq(h, "thread");
+    t->thread_bq = allocate_blockq(h, ss("thread"));
     if (t->thread_bq == INVALID_ADDRESS)
         goto fail_bq;
 

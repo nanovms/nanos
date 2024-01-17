@@ -1,6 +1,8 @@
 // would like to call this string.h, but unix programs
 // are pretty stubborn, in this case lwip
 
+#define CHARACTER_INVALID 0xfffffffful
+
 typedef buffer string;
 
 static inline s8 digit_of(character x)
@@ -58,31 +60,38 @@ static int inline string_character_length(char *s) {
     for (character __i; __i = pop_character(__s), __i != CHARACTER_INVALID;)
 
 
-static inline character utf8_decode(const u8 *x, int *count)
+static inline character utf8_decode(sstring x, int *count)
 {
-    if ((x[0] & 0xf0) == 0xf0) {
-        *count = 4;
-        return ((x[0] & 0xf) << 18)
-            | ((x[1]&0x3f)<< 12)
-            | ((x[2]&0x3f)<< 6)
-            | (x[3]&0x3f);
+    if (sstring_is_empty(x))
+        goto error;
+    bytes len = utf8_length(x.ptr[0]);
+    if (x.len < len)
+        goto error;
+    character c;
+    switch (len) {
+    case 1:
+        c = x.ptr[0];
+        break;
+    case 2:
+        c = x.ptr[0] & 0x3f;
+        break;
+    case 3:
+        c = x.ptr[0] & 0x1f;
+        break;
+    case 4:
+        c = x.ptr[0] & 0xf;
+        break;
+    default:
+        goto error;
     }
+    for (bytes i = 1; i < len; i++)
+        c = (c << 6) | (x.ptr[i] & 0x3f);
+    *count = len;
+    return c;
     
-    if ((x[0] & 0xe0) == 0xe0) {
-        *count = 3;
-        return ((x[0] & 0x1f) << 12)
-            | ((x[1]&0x3f)<< 6)
-            | (x[2]&0x3f);
-    }
-    
-    if ((x[0] & 0xc0) == 0xc0) {
-        *count = 2;
-        return ((x[0] & 0x3f) << 6)
-            | (x[1]&0x3f);
-    }
-    
-    *count = 1;
-    return *x;
+  error:
+    *count = 0;
+    return CHARACTER_INVALID;
 }
 
 static inline boolean push_character(string s, character c)
@@ -105,18 +114,11 @@ static inline boolean push_character(string s, character c)
     return false;
 }
 
-// xxx - check
-#define CHARACTER_INVALID 0xfffffffful
-
-// duplicate work for length
 static inline character pop_character(buffer b)
 {
-    if (buffer_length(b) == 0) return CHARACTER_INVALID;
-    bytes len = utf8_length(*(u8 *)buffer_ref(b, 0));
-    if (buffer_length(b) < len) return CHARACTER_INVALID;
     int z;
-    character c = utf8_decode(buffer_ref(b, 0), &z);
-    b->start += len;
+    character c = utf8_decode(buffer_to_sstring(b), &z);
+    b->start += z;
     return c;
 }
 
@@ -173,27 +175,19 @@ static inline boolean parse_signed_int(buffer b, u32 base, s64 *result)
   return true;
 }
 
-static inline const u8 *utf8_find(const u8 *x, character c)
+static inline const u8 *utf8_find_r(sstring x, character c)
 {
-    int nbytes;
-
-    while (x && *x) {
-        if (utf8_decode(x, &nbytes) == c) return x;
-        x += nbytes;
-    }
-    return false;
-}
-
-static inline const u8 *utf8_findn_r(const u8 *x, bytes n, character c)
-{
-    if (!x)
-        return false;
     int nbytes;
     bytes offset = 0;
     const u8 *found = false;
 
-    while ((offset < n) && *(x + offset)) {
-        if (utf8_decode(x + offset, &nbytes) == c) found = x + offset;
+    while (1) {
+        sstring s = isstring(x.ptr + offset, x.len - offset);
+        character decoded = utf8_decode(s, &nbytes);
+        if (decoded == CHARACTER_INVALID)
+            break;
+        if (decoded == c)
+            found = (u8 *)s.ptr;
         offset += nbytes;
     }
     return found;

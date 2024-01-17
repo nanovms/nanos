@@ -50,7 +50,7 @@
 #include "virtio_pci.h"
 
 #ifdef VIRTIO_NET_DEBUG
-# define virtio_net_debug(x, ...) do {tprintf(sym(virtio_net), 0, x, __VA_ARGS__);} while (0)
+# define virtio_net_debug(x, ...) do {tprintf(sym(virtio_net), 0, ss(x), __VA_ARGS__);} while (0)
 #else
 # define virtio_net_debug(...) do { } while(0)
 #endif // defined(VIRTIO_NET_DEBUG)
@@ -141,7 +141,7 @@ static void post_receive(vnet vn);
 define_closure_function(0, 1, void, vnet_input,
                         u64, len)
 {
-    virtio_net_debug("%s: len %ld\n", __func__, len);
+    virtio_net_debug("%s: len %ld\n", func_ss, len);
 
     xpbuf x = struct_from_field(closure_self(), xpbuf, input);
     vnet vn= x->vn;
@@ -277,7 +277,7 @@ define_closure_function(0, 1, u64, vnet_mem_cleaner,
 static err_t virtioif_init(struct netif *netif)
 {
     vnet vn = netif->state;
-    netif->hostname = "uniboot"; // from config
+    netif->hostname = sstring_empty();
 
     netif->name[0] = 'e';
     netif->name[1] = 'n';
@@ -286,7 +286,7 @@ static err_t virtioif_init(struct netif *netif)
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     vtdev_cfg_read_mem(vn->dev, 0, netif->hwaddr, ETHER_ADDR_LEN);
     virtio_net_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
-        __func__,
+        func_ss,
         netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
         netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
 
@@ -336,17 +336,17 @@ static void virtio_net_attach(vtdev dev)
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    virtio_alloc_virtqueue(dev, "virtio net tx", 1, &vn->txq);
+    virtio_alloc_virtqueue(dev, ss("virtio net tx"), 1, &vn->txq);
     virtqueue_set_polling(vn->txq, true);
-    virtio_alloc_virtqueue(dev, "virtio net rx", 0, &vn->rxq);
-    virtio_net_debug("%s: rx q entries %d, tx q entries %d\n", __func__,
+    virtio_alloc_virtqueue(dev, ss("virtio net rx"), 0, &vn->rxq);
+    virtio_net_debug("%s: rx q entries %d, tx q entries %d\n", func_ss,
                      virtqueue_entries(vn->rxq), virtqueue_entries(vn->txq));
     bytes rx_allocsize = vn->rxbuflen + sizeof(struct xpbuf);
     bytes rxbuffers_pagesize = find_page_size(rx_allocsize, virtqueue_entries(vn->rxq));
     bytes tx_handler_size = sizeof(closure_struct_type(tx_complete));
     bytes tx_handler_pagesize = find_page_size(tx_handler_size, virtqueue_entries(vn->txq));
     virtio_net_debug("%s: net_header_len %d, rx_allocsize %d, rxbuffers_pagesize %d "
-                     "tx_handler_size %d tx_handler_pagesize %d\n", __func__, vn->net_header_len,
+                     "tx_handler_size %d tx_handler_pagesize %d\n", func_ss, vn->net_header_len,
                      rx_allocsize, rxbuffers_pagesize, tx_handler_size, tx_handler_pagesize);
     vn->rxbuffers = allocate_objcache(h, (heap)contiguous, rx_allocsize, rxbuffers_pagesize, true);
     assert(vn->rxbuffers != INVALID_ADDRESS);

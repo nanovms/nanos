@@ -14,7 +14,7 @@
 
 //#define NETSYSCALL_DEBUG
 #ifdef NETSYSCALL_DEBUG
-#define net_debug(x, ...) do {log_printf(" NET", "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define net_debug(x, ...) do {log_printf(ss(" NET"), ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define net_debug(x, ...)
 #endif
@@ -928,7 +928,7 @@ static sysreturn socket_ifreq(struct ifreq *ifreq, boolean set, socket_ifreq_han
     context ctx = get_current_context(current_cpu());
     if (!validate_user_memory(ifreq, sizeof(struct ifreq), !set) || context_set_err(ctx))
         return -EFAULT;
-    struct netif *netif = netif_find(ifreq->ifr_name);
+    struct netif *netif = netif_find(sstring_from_cstring(ifreq->ifr_name, IFNAMSIZ));
     context_clear_err(ctx);
     if (!netif)
         return -ENODEV;

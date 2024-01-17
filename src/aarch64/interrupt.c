@@ -4,7 +4,7 @@
 
 //#define INT_DEBUG
 #ifdef INT_DEBUG
-#define int_debug(x, ...) do {tprintf(sym(int), 0, x, ##__VA_ARGS__);} while(0)
+#define int_debug(x, ...) do {tprintf(sym(int), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define int_debug(x, ...)
 #endif
@@ -12,18 +12,18 @@
 typedef struct inthandler {
     struct list l;
     thunk t;
-    const char *name;
+    sstring name;
 } *inthandler;
 
 BSS_RO_AFTER_INIT static struct list *handlers;
 
-static char* gpreg_names[FRAME_N_GPREG] = {
-    "  x0", "  x1", "  x2", "  x3", "  x4", "  x5", "  x6", "  x7",
-    "  x8", "  x9", " x10", " x11", " x12", " x13", " x14", " x15",
-    " x16", " x17", " x18", " x19", " x20", " x21", " x22", " x23",
-    " x24", " x25", " x26", " x27", " x28", " x29", " x30", "  sp" };
+static const char gpreg_names[FRAME_N_GPREG][3] = {
+    " x0", " x1", " x2", " x3", " x4", " x5", " x6", " x7",
+    " x8", " x9", "x10", "x11", "x12", "x13", "x14", "x15",
+    "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
+    "x24", "x25", "x26", "x27", "x28", "x29", "x30", " sp" };
 
-static char* fpsimd_names[35] = {
+static const char fpsimd_names[35][4] = {
     "  q0", "  q1", "  q2", "  q3", "  q4", "  q5", "  q6", "  q7",
     "  q8", "  q9", " q10", " q11", " q12", " q13", " q14", " q15",
     " q16", " q17", " q18", " q19", " q20", " q21", " q22", " q23",
@@ -64,7 +64,7 @@ void dump_context(context ctx)
     print_u64_with_sym(u64_from_pointer(f));
     if (ctx->type >= CONTEXT_TYPE_UNDEFINED && ctx->type < CONTEXT_TYPE_MAX) {
         rputs("\n      type: ");
-        rputs(context_type_strings[ctx->type]);
+        rput_sstring(context_type_strings[ctx->type]);
     }
     rputs("\n      spsr: ");
     print_u64(f[FRAME_ESR_SPSR] & MASK(32));
@@ -84,7 +84,7 @@ void dump_context(context ctx)
     case ESR_EC_INST_ABRT_LEL:
     case ESR_EC_INST_ABRT:
         rputs(" instruction abort in ");
-        rputs(esr_ec == ESR_EC_INST_ABRT_LEL ? "el0" : "el1");
+        rput_sstring(esr_ec == ESR_EC_INST_ABRT_LEL ? ss("el0") : ss("el1"));
         print_far_if_valid(iss);
         /* ... */
         break;
@@ -94,8 +94,8 @@ void dump_context(context ctx)
     case ESR_EC_DATA_ABRT_LEL:
     case ESR_EC_DATA_ABRT:
         rputs(" data abort in ");
-        rputs(esr_ec == ESR_EC_DATA_ABRT_LEL ? "el0" : "el1");
-        rputs(iss & ESR_ISS_DATA_ABRT_WnR ? " write" : " read");
+        rput_sstring(esr_ec == ESR_EC_DATA_ABRT_LEL ? ss("el0") : ss("el1"));
+        rput_sstring(iss & ESR_ISS_DATA_ABRT_WnR ? ss(" write") : ss(" read"));
         if (iss & ESR_ISS_DATA_ABRT_CM)
             rputs(" cache");
         print_far_if_valid(iss);
@@ -109,43 +109,43 @@ void dump_context(context ctx)
             rputs(", impl defined, ISS: ");
             print_u64(iss);
         } else {
-            const char *str;
+            sstring str;
             if (iss & ESR_ISS_SERROR_INT_IESB)
                 rputs(", IESB");
             switch (field_from_u64(iss, ESR_ISS_SERROR_INT_AET)) {
             case ESR_ISS_SERROR_INT_AET_UC:
-                str = ", UC";
+                str = ss(", UC");
                 break;
             case ESR_ISS_SERROR_INT_AET_UEU:
-                str = ", UEU";
+                str = ss(", UEU");
                 break;
             case ESR_ISS_SERROR_INT_AET_UEO:
-                str = ", UEO";
+                str = ss(", UEO");
                 break;
             case ESR_ISS_SERROR_INT_AET_UER:
-                str = ", UER";
+                str = ss(", UER");
                 break;
             case ESR_ISS_SERROR_INT_AET_CE:
-                str = ", CE";
+                str = ss(", CE");
                 break;
             default:
-                str = ", unknown AET";
+                str = ss(", unknown AET");
             }
-            rputs(str);
+            rput_sstring(str);
             if (iss & ESR_ISS_SERROR_INT_EA)
                 rputs(", EA");
             switch (field_from_u64(iss, ESR_ISS_SERROR_INT_DFSC)) {
             case ESR_ISS_SERROR_INT_DFSC_UNCAT:
-                str = " uncategorized";
+                str = ss(" uncategorized");
                 break;
             case ESR_ISS_SERROR_INT_DFSC_ASYNC:
-                str = " async";
+                str = ss(" async");
                 break;
             default:
-                str = " unknown";
+                str = ss(" unknown");
             }
             rputs("DFSC ");
-            rputs(str);
+            rput_sstring(str);
         }
         break;
     case ESR_EC_BRK:
@@ -169,12 +169,12 @@ void dump_context(context ctx)
     u64 *fp = frame_extended(f);
     for (int j = 0; j < FRAME_N_GPREG; j++) {
         rputs("      ");
-        rputs(gpreg_names[j]);
+        rput_sstring(isstring((char *)gpreg_names[j], 3));
         rputs(": ");
         print_u64_with_sym(f[j]);
         int qidx = (2 * j);
         if (fp && (fp[qidx] || fp[qidx + 1])) {
-            rputs(fpsimd_names[j]);
+            rput_sstring(isstring((char *)fpsimd_names[j], 4));
             rputs(": ");
             print_u64(fp[qidx + 1]);
             print_u64(fp[qidx]);
@@ -185,8 +185,8 @@ void dump_context(context ctx)
         u64 v = f[FRAME_FPSR + j];
         if (!v)
             continue;
-        rputs("      ");
-        rputs(fpsimd_names[32 + j]);
+        rputs("     ");
+        rput_sstring(isstring((char *)fpsimd_names[32 + j], 4));
         rputs(": ");
         print_u64(v);
         rputs("\n");
@@ -220,7 +220,7 @@ void synchronous_handler(void)
         f[FRAME_VECTOR] = f[FRAME_X8];
         set_current_context(ci, ctx);
         switch_stack_1(frame_get_stack_top(ctx->frame), syscall, f);
-        halt("%s: syscall returned\n", __func__);
+        halt("%s: syscall returned\n", func_ss);
     }
 
     if (ec == ESR_EC_UNKNOWN) {
@@ -258,7 +258,7 @@ void irq_handler(void)
     context_frame f = ctx->frame;
     u64 i;
 
-    int_debug("%s: enter\n", __func__);
+    int_debug("%s: enter\n", func_ss);
 
     int saved_state = ci->state;
 
@@ -317,7 +317,7 @@ void serror_handler(void)
 NOTRACE
 void invalid_handler(void)
 {
-    halt("%s\n", __func__);
+    halt("%s\n", func_ss);
 }
 
 BSS_RO_AFTER_INIT static id_heap ipi_vector_heap;
@@ -349,11 +349,11 @@ static void interrupt_init(int vector)
     gic_enable_int(vector);
 }
 
-void register_interrupt(int vector, thunk t, const char *name)
+void register_interrupt(int vector, thunk t, sstring name)
 {
     boolean initialized = !list_empty(&handlers[vector]);
     int_debug("%s: vector %d, thunk %p (%F), name %s%s\n",
-              __func__, vector, t, t, name, initialized ? ", shared" : "");
+              func_ss, vector, t, t, name, initialized ? ss(", shared") : sstring_empty());
 
     inthandler h = allocate(int_general, sizeof(struct inthandler));
     assert(h != INVALID_ADDRESS);
@@ -367,10 +367,10 @@ void register_interrupt(int vector, thunk t, const char *name)
 
 void unregister_interrupt(int vector)
 {
-    int_debug("%s: vector %d\n", __func__, vector);
+    int_debug("%s: vector %d\n", func_ss, vector);
     gic_disable_int(vector);
     if (list_empty(&handlers[vector]))
-        halt("%s: no handler registered for vector %d\n", __func__, vector);
+        halt("%s: no handler registered for vector %d\n", func_ss, vector);
     list_foreach(&handlers[vector], l) {
         inthandler h = struct_from_list(l, inthandler, l);
         int_debug("   remove handler %s (%F)\n", h->name, h->t);
@@ -445,7 +445,7 @@ void init_interrupts(kernel_heaps kh)
     /* timer init is minimal, stash irq setup here */
     gic_set_int_config(GIC_TIMER_IRQ, GICD_ICFGR_LEVEL);
     gic_set_int_priority(GIC_TIMER_IRQ, 0);
-    register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), "arm timer");
+    register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), ss("arm timer"));
 
     register_percpu_init(init_closure(&int_percpu_init, interrupt_percpu_init));
 }

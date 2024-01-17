@@ -4,7 +4,7 @@
 
 //#define SIGNAL_DEBUG
 #ifdef SIGNAL_DEBUG
-#define sig_debug(x, ...) do {tprintf(sym(signal), 0, "%s: " x, __func__, ##__VA_ARGS__);} while(0)
+#define sig_debug(x, ...) do {tprintf(sym(signal), 0, ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define sig_debug(x, ...)
 #endif
@@ -142,7 +142,7 @@ static queued_signal dequeue_signal(thread t, u64 sigmask)
             break;
     }
     sig_debug("-> selected sig %d, dequeued from %s\n",
-              signum, ss == &t->signals ? "thread" : "process");
+              signum, ss == &t->signals ? ss("thread") : ss("process"));
     return qs;
 }
 
@@ -944,7 +944,7 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
     sfd->h = h;
     init_fdesc(h, &sfd->f, FDESC_TYPE_SIGNALFD);
 
-    sfd->bq = allocate_blockq(h, "signalfd");
+    sfd->bq = allocate_blockq(h, ss("signalfd"));
     if (sfd->bq == INVALID_ADDRESS)
         goto err_mem_bq;
 
@@ -1033,7 +1033,7 @@ closure_function(2, 2, void, coredump_shutdown_handler,
 static void default_signal_action(thread t, queued_signal qs)
 {
     heap h = heap_locked(get_kernel_heaps());
-    char *fate;
+    sstring fate;
     int signum = qs->si.si_signo;
 
     switch (signum) {
@@ -1051,7 +1051,7 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGIO:
     case SIGPWR:
         /* terminate */
-        fate = "   terminate";
+        fate = ss("   terminate");
         break;
 
     case SIGQUIT:
@@ -1065,7 +1065,7 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGXCPU:
     case SIGXFSZ:
         /* core dump */
-        fate = "   core dump";
+        fate = ss("   core dump");
         add_shutdown_completion(closure(h, coredump_shutdown_handler, t, &qs->si));
         break;
 
@@ -1074,7 +1074,7 @@ static void default_signal_action(thread t, queued_signal qs)
     case SIGTTIN:
     case SIGTTOU:
         /* stop */
-        fate = "   stop";
+        fate = ss("   stop");
         break;
     default:
         /* ignore */
@@ -1091,8 +1091,8 @@ static void default_signal_action(thread t, queued_signal qs)
             dump_context(&t->syscall->uc.kc.context);
         }
     }
-    thread_log(t, fate);
-    halt_with_code(VM_EXIT_SIGNAL(signum), "%s\n", fate);
+    thread_log(t, "%s", fate);
+    halt_with_code(VM_EXIT_SIGNAL(signum), ss("%s\n"), fate);
 }
 
 boolean dispatch_signals(thread t)
@@ -1122,9 +1122,9 @@ boolean dispatch_signals(thread t)
         thread_log(t, "   fault address 0x%lx", si->sifields.sigfault.addr);
 
     if (handler == SIG_DFL) {
-        const char *s = "   default action";
+        sstring s = ss("   default action");
         sig_debug("%s\n", s);
-        thread_log(t, s);
+        thread_log(t, "%s", s);
         default_signal_action(t, qs);
         /* ignore if returned */
     }
@@ -1134,9 +1134,9 @@ boolean dispatch_signals(thread t)
         check_syscall_restart(t, sa);
     }
     if (handler == SIG_DFL || handler == SIG_IGN) {
-        const char *s = "   ignored";
+        sstring s = ss("   ignored");
         sig_debug("%s\n", s);
-        thread_log(t, s);
+        thread_log(t, "%s", s);
         free_queued_signal(qs);
         return false;
     }

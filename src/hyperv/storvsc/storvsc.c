@@ -439,7 +439,8 @@ static void hv_storvsc_channel_init(struct storvsc_softc *sc)
         support_multichannel = true;
     }
 
-    storvsc_debug("max chans %d%s", max_subch + 1, support_multichannel ? ", multi-chan capable" : "");
+    storvsc_debug("max chans %d%s", max_subch + 1,
+                  support_multichannel ? ss(", multi-chan capable") : sstring_empty());
 #endif
     zero(vstor_packet, sizeof(struct vstor_packet));
     vstor_packet->operation = VSTOR_OPERATION_ENDINITIALIZATION;
@@ -605,7 +606,7 @@ static void hv_storvsc_on_channel_callback(struct vmbus_channel *channel, void *
                 break;
             case VSTOR_OPERATION_ENUMERATE_BUS:
             {
-                storvsc_debug("%s: rescan bus on device %p\n", __func__, sc);
+                storvsc_debug("%s: rescan bus on device %p\n", func_ss, sc);
                 struct storvsc_disk *sd;
                 spin_lock(&sc->disks_lock);
                 vector_foreach(sc->disks, sd)
@@ -741,7 +742,7 @@ closure_function(4, 0, void, storvsc_read_capacity_done,
     u16 lun = bound(lun);
     struct storvsc_hcb *hcb = bound(hcb);
     storvsc_debug("%s: dev %p target %d, lun %d, host_status %d, scsi_status %d",
-        __func__, s, target, lun, hcb->host_status, hcb->scsi_status);
+                  func_ss, s, target, lun, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS) {
         scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
         goto out;
@@ -771,7 +772,7 @@ closure_function(4, 0, void, storvsc_read_capacity_done,
     vector_push(s->disks, sd);
     spin_unlock(&s->disks_lock);
     storvsc_debug("%s: attach dev %p disk %p target %d, lun %d, block size 0x%lx, capacity 0x%lx",
-        __func__, s, sd, target, lun, sd->block_size, sd->capacity);
+                  func_ss, s, sd, target, lun, sd->block_size, sd->capacity);
 
     block_io in = closure(s->general, storvsc_read, sd);
     block_io out = closure(s->general, storvsc_write, sd);
@@ -789,7 +790,7 @@ closure_function(2, 0, void, deallocate_storvsc_disk,
 
 static void storvsc_remove_disk(struct storvsc_softc *s, u16 target, u16 lun)
 {
-    storvsc_debug("%s: target %d lun %d\n", __func__, target, lun);
+    storvsc_debug("%s: target %d lun %d\n", func_ss, target, lun);
     spin_lock(&s->disks_lock);
     for (int i = 0; i < vector_length(s->disks); i++) {
         struct storvsc_disk *sd = vector_get(s->disks, i);
@@ -814,7 +815,7 @@ closure_function(6, 0, void, storvsc_test_unit_ready_done,
     int retry_count = bound(retry_count);
 
     storvsc_debug("%s: dev %p target %d, lun %d, host_status %d, scsi_status %d",
-        __func__, sc, target, lun, hcb->host_status, hcb->scsi_status);
+                  func_ss, sc, target, lun, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS) {
         /* if the command could not be sent to the disk, remove it */
         storvsc_remove_disk(sc, target, lun);
@@ -858,7 +859,7 @@ closure_function(4, 0, void, storvsc_inquiry_done,
     u16 target = bound(target);
     u16 lun = bound(lun);
     storvsc_debug("%s: dev %p target %d, lun %d, host_status %d, scsi_status %d",
-        __func__, bound(s), target, lun, hcb->host_status, hcb->scsi_status);
+                  func_ss, bound(s), target, lun, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS || hcb->scsi_status != SCSI_STATUS_OK) {
         if (hcb->scsi_status != SCSI_STATUS_OK)
             scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
@@ -869,7 +870,7 @@ closure_function(4, 0, void, storvsc_inquiry_done,
 #ifdef STORVSC_DEBUG
     struct scsi_res_inquiry *res = (struct scsi_res_inquiry *) hcb->data;
     storvsc_debug("%s: vendor %b, product %b, revision %b",
-        __func__,
+        func_ss,
         alloca_wrap_buffer(res->vendor, sizeof(res->vendor)),
         alloca_wrap_buffer(res->product, sizeof(res->product)),
         alloca_wrap_buffer(res->revision, sizeof(res->revision)));
@@ -888,11 +889,11 @@ closure_function(3, 0, void, storvsc_report_luns_done,
     struct storvsc_hcb *hcb = bound(hcb);
     u16 target = bound(target);
     storvsc_debug("%s: dev %p target %d, hcb: %x, host_status %d, scsi_status %d",
-        __func__, bound(s), target, hcb, hcb->host_status, hcb->scsi_status);
+                  func_ss, bound(s), target, hcb, hcb->host_status, hcb->scsi_status);
     if (hcb->host_status != BTSTAT_SUCCESS || hcb->scsi_status != SCSI_STATUS_OK) {
         if (hcb->scsi_status != SCSI_STATUS_OK)
             scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
-        storvsc_debug("%s: NOT SUCCESS: host_status %d, scsi_status %d", __func__, hcb->host_status,
+        storvsc_debug("%s: ERROR: host_status %d, scsi_status %d", func_ss, hcb->host_status,
                      hcb->scsi_status);
         closure_finish();
         return;
@@ -901,11 +902,11 @@ closure_function(3, 0, void, storvsc_report_luns_done,
     struct scsi_res_report_luns *res = (struct scsi_res_report_luns *) hcb->data;
     u32 length = be32toh(res->length);
     u32 luns_num = length / sizeof(res->lundata[0]);
-    storvsc_debug("%s: got %d luns", __func__, luns_num);
+    storvsc_debug("%s: got %d luns", func_ss, luns_num);
     u8 max_luns = sc->hs_drv_props->drv_max_luns_per_target;
     for (u32 i = 0; i < MIN(max_luns, luns_num); i++) {
         u16 lun = (res->lundata[i] & 0xffff) >> 8;
-        storvsc_debug("%s: got lun %d (lundata 0x%08lx)", __func__, lun, res->lundata[i]);
+        storvsc_debug("%s: got lun %d (lundata 0x%08lx)", func_ss, lun, res->lundata[i]);
 
         // inquiry
         struct storvsc_hcb *r = storvsc_hcb_alloc(sc, target, lun, SCSI_CMD_INQUIRY);

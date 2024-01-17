@@ -83,7 +83,7 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
     thread t = bound(t);
     timestamp elapsed = now(bound(id)) - bound(start);
     thread_log(t, "%s: start %T, interval %T, rem %p, elapsed %T, flags 0x%lx",
-               __func__, bound(start), bound(interval), bound(rem), elapsed, flags);
+               func_ss, bound(start), bound(interval), bound(rem), elapsed, flags);
     sysreturn rv = 0;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         if (bound(rem)) {
@@ -133,7 +133,7 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
 
     /* Report any attempted use of CLOCK_PROCESS_CPUTIME_ID */
     if (_clock_id == CLOCK_PROCESS_CPUTIME_ID) {
-        rprintf("%s: CLOCK_PROCESS_CPUTIME_ID not yet supported\n", __func__);
+        rprintf("%s: CLOCK_PROCESS_CPUTIME_ID not yet supported\n", func_ss);
         return -EINVAL;
     }
 
@@ -213,7 +213,7 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 
 sysreturn clock_settime(clockid_t clk_id, const struct timespec *tp)
 {
-    thread_log(current, "%s: clk_id %d, tp %p", __func__, clk_id, tp);
+    thread_log(current, "%s: clk_id %d, tp %p", func_ss, clk_id, tp);
     context ctx;
     switch (clk_id) {
     case CLOCK_REALTIME:

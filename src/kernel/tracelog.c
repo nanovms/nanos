@@ -92,7 +92,7 @@ static inline void schedule_collator(void)
 
 static inline void schedule_collator_timer(void)
 {
-    tracelog_debug("%s\n", __func__);
+    tracelog_debug("%s\n", func_ss);
     register_timer(kernel_timers, &tracelog.collate_timer, CLOCK_ID_MONOTONIC,
                    seconds(TRACELOG_COLLATE_TIMER_PERIOD_SEC), false, 0,
                    (timer_handler)&tracelog.collate_timer_func);
@@ -191,7 +191,8 @@ static void close_trace_entry(cpuinfo ci, tracelog_buffer tb)
     u64 entry_len = buffer_length(b) & TRACELOG_OFFSET_MASK;
     te->str_len = entry_len - TRACELOG_HEADER_SIZE - 1;
     tracelog_debug("   finish: str_len %d entry_len %ld, produce %ld, string:\n%s\n",
-                   te->str_len, entry_len, TRACELOG_ENTRY_SIZE - entry_len, te->str);
+                   te->str_len, entry_len, TRACELOG_ENTRY_SIZE - entry_len,
+                   isstring(te->str, te->str_len));
     buffer_produce(b, TRACELOG_ENTRY_SIZE - entry_len);
     if (!buffer_extend(b, TRACELOG_ENTRY_SIZE)) { /* for next */
         msg_err("failed to extend tracelog buffer; reduce collate threshold, reduce "
@@ -201,16 +202,15 @@ static void close_trace_entry(cpuinfo ci, tracelog_buffer tb)
     }
 }
 
-void vtprintf(symbol tag, tuple attrs, const char *format, vlist *ap)
+void vtprintf(symbol tag, tuple attrs, sstring format, vlist *ap)
 {
     cpuinfo ci = current_cpu();
     if (tracelog.disabled || !match_tag_and_attrs(tag, attrs))
         return;
     if (!tracelog.m) {
         buffer b = little_stack_buffer(TRACELOG_ENTRY_STRING_SIZE);
-        buffer f = alloca_wrap_buffer(format, runtime_strlen(format));
         bprintf(b, "[%T, %d, %v] ", now(CLOCK_ID_MONOTONIC), ci->id, tag);
-        vbprintf(b, f, ap);
+        vbprintf(b, format, ap);
         buffer_print(b);
         return;
     }
@@ -228,7 +228,7 @@ void vtprintf(symbol tag, tuple attrs, const char *format, vlist *ap)
     u64 entry_start = buffer_length(b) & ~TRACELOG_OFFSET_MASK;
     u64 entry_offset = buffer_length(b) & TRACELOG_OFFSET_MASK;
     tracelog_debug("%s: buffer %p, tag %v, format \"%s\", buffer_length %ld,\n"
-                   "entry start %ld\n", __func__, b, tag, format, buffer_length(b),
+                   "entry start %ld\n", func_ss, b, tag, format, buffer_length(b),
                    entry_start);
     tracelog_entry te = buffer_ref(b, entry_start);
 
@@ -253,7 +253,7 @@ void vtprintf(symbol tag, tuple attrs, const char *format, vlist *ap)
     tracelog_debug("   write at %p, remain %ld\n", p, remain);
     buffer teb = alloca_wrap_buffer(p, remain);
     buffer_clear(teb);
-    vbprintf(teb, alloca_wrap_buffer(format, runtime_strlen(format)), ap);
+    vbprintf(teb, format, ap);
     int written = buffer_length(teb);
     if (written == 0)
         goto out_irq_restore;
@@ -270,7 +270,7 @@ void vtprintf(symbol tag, tuple attrs, const char *format, vlist *ap)
     irq_restore(saved_flags);
 }
 
-void tprintf(symbol tag, tuple attrs, const char *format, ...)
+void tprintf(symbol tag, tuple attrs, sstring format, ...)
 {
     vlist ap;
     vstart(ap, format);
@@ -282,7 +282,7 @@ void tprintf(symbol tag, tuple attrs, const char *format, ...)
 define_closure_function(1, 0, void, tracelog_buffer_free_locked,
                         tracelog_buffer, tb)
 {
-    tracelog_debug("%s: tb %p\n", __func__, bound(tb));
+    tracelog_debug("%s: tb %p\n", func_ss, bound(tb));
     tracelog_buffer tb = bound(tb);
     buffer_clear(&tb->b);
     if (tracelog.n_free < TRACELOG_MAX_FREE_BYTES) {
@@ -297,7 +297,7 @@ define_closure_function(1, 0, void, tracelog_buffer_free_locked,
 /* mutex held */
 static tracelog_buffer allocate_tracelog_buffer_locked(void)
 {
-    tracelog_debug("%s\n", __func__);
+    tracelog_debug("%s\n", func_ss);
     tracelog_buffer tb;
     list l = list_get_next(&tracelog.free_tracelog_buffers);
     if (l) {
@@ -341,7 +341,7 @@ closure_function(4, 1, void, tracelog_file_write_complete,
                  status, s)
 {
     if (!is_ok(s))
-        msg_err("failed to %s tracelog: %v\n", bound(flushing) ? "flush" : "write to", s);
+        msg_err("failed to %s tracelog: %v\n", bound(flushing) ? ss("flush") : ss("write to"), s);
     if (bound(flushing)) {
         async_apply_status_handler(bound(complete), s);
         closure_finish();
@@ -364,7 +364,7 @@ static void tracelog_buffer_fill_locked(buffer b, bytes threshold)
         bprintf(b, "[%T, %d, %v", te->t, te->cpu, te->tag);
         if (te->attrs)
             bprintf(b, " %v", te->attrs);
-        bprintf(b, "] %s", te->str);
+        bprintf(b, "] %s", isstring(te->str, te->str_len));
         list_delete(l);
         release_tracelog_buffer_locked(te->tb);
         if (buffer_length(b) > threshold)
@@ -375,7 +375,7 @@ static void tracelog_buffer_fill_locked(buffer b, bytes threshold)
 /* mutex held */
 static void tracelog_file_write(status_handler complete)
 {
-    tracelog_debug("%s\n", __func__);
+    tracelog_debug("%s\n", func_ss);
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS)
         goto fail;
@@ -483,7 +483,7 @@ static void tracelog_collate(status_handler complete)
 
 define_closure_function(0, 0, void, tracelog_collator)
 {
-    tracelog_debug("%s\n", __func__);
+    tracelog_debug("%s\n", func_ss);
     tracelog.collator_scheduled = false;
     tracelog_collate(0);
 }
@@ -495,7 +495,7 @@ static inline void tracelog_send_http_response(buffer_handler handler, buffer b)
     catch_err(send_http_response(handler, timm("ContentType", "text/html"), b));
 }
 
-static inline void tracelog_send_http_simple_result(buffer_handler handler, const char *result)
+static inline void tracelog_send_http_simple_result(buffer_handler handler, sstring result)
 {
     buffer b = aprintf(tracelog.h, "<html><head><title>%s</title></head>"
                        "<body><h1>%s</h1></body></html>\r\n", result, result);
@@ -507,7 +507,7 @@ static inline void tracelog_send_http_chunked_response(buffer_handler handler)
     catch_err(send_http_chunked_response(handler, timm("ContentType", "text/html")));
 }
 
-static inline void tracelog_send_http_error(buffer_handler handler, const char *status, const char *msg)
+static inline void tracelog_send_http_error(buffer_handler handler, sstring status, sstring msg)
 {
     buffer b = aprintf(tracelog.h, "<html><head><title>%s %s</title></head>"
                        "<body><h1>%s</h1></body></html>\r\n", status, msg, msg);
@@ -516,12 +516,12 @@ static inline void tracelog_send_http_error(buffer_handler handler, const char *
 
 static inline void tracelog_send_http_uri_not_found(buffer_handler handler)
 {
-    tracelog_send_http_error(handler, "404", "Not Found");
+    tracelog_send_http_error(handler, ss("404"), ss("Not Found"));
 }
 
 static inline void tracelog_send_http_no_method(buffer_handler handler)
 {
-    tracelog_send_http_error(handler, "501", "Not Implemented");
+    tracelog_send_http_error(handler, ss("501"), ss("Not Implemented"));
 }
 
 static void tracelog_clear(void)
@@ -537,7 +537,7 @@ static void tracelog_clear(void)
 
 static boolean tracelog_do_http_get(buffer_handler out, buffer relative_uri)
 {
-    tracelog_debug("%s\n", __func__);
+    tracelog_debug("%s\n", func_ss);
     buffer b = allocate_buffer(tracelog.h, TRACELOG_HTTP_CHUNK_MAXSIZE);
     mutex_lock(tracelog.m);
     tracelog_buffer_fill_locked(b, TRACELOG_HTTP_CHUNK_THRESHOLD);
@@ -558,7 +558,7 @@ static inline void schedule_send_http_chunk(void)
 define_closure_function(2, 0, void, tracelog_send_http_chunk,
                         buffer_handler, out, buffer, relative_uri)
 {
-    tracelog_debug("%s\n", __func__);
+    tracelog_debug("%s\n", func_ss);
     if (tracelog_do_http_get(bound(out), bound(relative_uri)))
         schedule_send_http_chunk();
 }
@@ -567,21 +567,21 @@ closure_function(0, 3, void, tracelog_http_request,
                  http_method, method, buffer_handler, handler, value, val)
 {
     string relative_uri = get_string(val, sym(relative_uri));
-    tracelog_debug("%s: method %d, handler %p, relative_uri %p\n", __func__,
+    tracelog_debug("%s: method %d, handler %p, relative_uri %p\n", func_ss,
                    method, handler, relative_uri);
     switch (method) {
     case HTTP_REQUEST_METHOD_GET:
         if (relative_uri) {
-            if (buffer_compare_with_cstring(relative_uri, "enable")) {
+            if (!buffer_strcmp(relative_uri, "enable")) {
                 tracelog.disabled = false;
-                tracelog_send_http_simple_result(handler, "tracelog enabled");
-            } else if (buffer_compare_with_cstring(relative_uri, "disable")) {
+                tracelog_send_http_simple_result(handler, ss("tracelog enabled"));
+            } else if (!buffer_strcmp(relative_uri, "disable")) {
                 tracelog.disabled = true;
-                tracelog_send_http_simple_result(handler, "tracelog disabled");
-            } else if (buffer_compare_with_cstring(relative_uri, "clear")) {
+                tracelog_send_http_simple_result(handler, ss("tracelog disabled"));
+            } else if (!buffer_strcmp(relative_uri, "clear")) {
                 tracelog_collate(0);
                 tracelog_clear();
-                tracelog_send_http_simple_result(handler, "tracelog cleared");
+                tracelog_send_http_simple_result(handler, ss("tracelog cleared"));
             } else {
                 tracelog_send_http_uri_not_found(handler);
             }
@@ -607,7 +607,7 @@ static void init_tracelog_http_listener(void)
     tracelog.http_listener = allocate_http_listener(tracelog.h, TRACELOG_HTTP_PORT);
     assert(tracelog.http_listener != INVALID_ADDRESS);
     http_register_uri_handler(tracelog.http_listener,
-                              TRACELOG_TRACE_URI,
+                              ss(TRACELOG_TRACE_URI),
                               closure(tracelog.h, tracelog_http_request));
 
     connection_handler ch = connection_handler_from_http_listener(tracelog.http_listener);
@@ -624,7 +624,7 @@ static void init_tracelog_http_listener(void)
 closure_function(0, 2, void, tracelog_shutdown_handler,
                  int, status, merge, m)
 {
-    tracelog_debug("%s\n", __func__);
+    tracelog_debug("%s\n", func_ss);
     tracelog_collate(apply_merge(m));
     closure_finish();
 }
@@ -641,7 +641,7 @@ static void init_tracelog_file_writer(value v)
     filesystem fs = get_root_fs();
     tuple root = filesystem_getroot(fs);
     fs_status s = filesystem_get_node(&fs, fs->get_inode(fs, root),
-                                      buffer_to_cstring((buffer)v),
+                                      buffer_to_sstring((buffer)v),
                                       true, true, false, false, &file, &fsf);
     if (s != FS_STATUS_OK) {
         msg_err("failed to open tracelog file: %s\n", string_from_fs_status(s));

@@ -11,7 +11,9 @@ declare_closure_struct(1, 2, void, report_ready_func,
 typedef struct azure {
     heap h;
     char container_id[64];
+    bytes container_id_len;
     char instance_id[64];
+    bytes instance_id_len;
     timestamp report_backoff;
     struct timer report_timer;
     closure_struct(report_ready_func, report_ready);
@@ -42,7 +44,7 @@ closure_function(2, 1, void, wireserver_parse_resp,
     azure az = bound(az);
     buffer content = get(v, sym(content));
     if (content) {
-        int index = buffer_strstr(content, "<ContainerId>");
+        int index = buffer_strstr(content, ss("<ContainerId>"));
         if (index < 0)
             goto exit;
         buffer_consume(content, index);
@@ -50,11 +52,11 @@ closure_function(2, 1, void, wireserver_parse_resp,
         index = buffer_strchr(content, '<');
         if (index < 0)
             goto exit;
-        if (index >= sizeof(az->container_id))
+        if (index > sizeof(az->container_id))
             goto exit;
         buffer_read(content, az->container_id, index);
-        az->container_id[index] = '\0';
-        index = buffer_strstr(content, "<InstanceId>");
+        az->container_id_len = index;
+        index = buffer_strstr(content, ss("<InstanceId>"));
         if (index < 0)
             goto exit;
         buffer_consume(content, index);
@@ -62,10 +64,10 @@ closure_function(2, 1, void, wireserver_parse_resp,
         index = buffer_strchr(content, '<');
         if (index < 0)
             goto exit;
-        if (index >= sizeof(az->instance_id))
+        if (index > sizeof(az->instance_id))
             goto exit;
         buffer_read(content, az->instance_id, index);
-        az->instance_id[index] = '\0';
+        az->instance_id_len = index;
         azure_report_ready(az);
     }
   exit:
@@ -175,7 +177,9 @@ closure_function(1, 1, input_buffer_handler, wireserver_post_ch,
                       </Role>\n\
                     </RoleInstanceList>\n\
                   </Container>\n\
-                </Health>\n", az->container_id, az->instance_id);
+                </Health>\n",
+                isstring(az->container_id, az->container_id_len),
+                isstring(az->instance_id, az->instance_id_len));
         status s = http_request(az->h, out, HTTP_REQUEST_METHOD_POST, req, b);
         deallocate_value(req);
         if (is_ok(s))
@@ -194,7 +198,7 @@ closure_function(1, 1, input_buffer_handler, wireserver_post_ch,
 static void azure_report_ready(azure az)
 {
     connection_handler ch;
-    if (!az->instance_id[0])
+    if (!az->instance_id_len)
         ch = closure(az->h, wireserver_get_ch, az);
     else
         ch = closure(az->h, wireserver_post_ch, az);
@@ -214,7 +218,7 @@ boolean azure_cloud_init(heap h)
     if (az == INVALID_ADDRESS)
         return false;
     az->h = h;
-    az->container_id[0] = az->instance_id[0] = '\0';
+    az->container_id_len = az->instance_id_len = 0;
     az->report_backoff = seconds(1);
     init_timer(&az->report_timer);
     azure_report_ready(az);

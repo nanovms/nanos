@@ -3,7 +3,7 @@
 
 //#define GDB_DEBUG
 #ifdef GDB_DEBUG
-#define gdb_debug(x, ...) do {tprintf(sym(gdb), 0, x, ##__VA_ARGS__);} while(0)
+#define gdb_debug(x, ...) do {tprintf(sym(gdb), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define gdb_debug(...)
 #endif
@@ -77,7 +77,7 @@ static boolean return_offsets(gdb g, buffer in, string out)
 
 static boolean return_supported(gdb g, buffer in, string out)
 {
-    if (buffer_strstr(in, "multiprocess+")) {
+    if (buffer_strstr(in, ss("multiprocess+"))) {
         g->multiprocess = true;
         bprintf(out, "multiprocess+");
     }
@@ -141,10 +141,12 @@ static boolean extra_info(gdb g, buffer in, string out)
         return true;
     }
     // XXX is there a better way to communicate status?
+    sstring status;
     if (t->syscall && t->syscall->uc.blocked_on)
-        mem2hex(out, "Blocked", strlen("Blocked"));
+        status = ss("Blocked");
     else
-        mem2hex(out, "Runnable", strlen("Runnable"));
+        status = ss("Runnable");
+    mem2hex(out, status.ptr, status.len);
     return true;
 }
 static struct handler query_handler[] = {

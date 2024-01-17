@@ -4,7 +4,7 @@
 //#define ELF_DEBUG
 #ifdef ELF_DEBUG
 #ifdef KERNEL
-#define elf_debug(x, ...) do {tprintf(sym(elf), 0, x, ##__VA_ARGS__);} while(0)
+#define elf_debug(x, ...) do {tprintf(sym(elf), 0, ss(x), ##__VA_ARGS__);} while(0)
 #else
 #define elf_debug(x, ...) do {rprintf(" ELF: " x, ##__VA_ARGS__);} while(0)
 #endif
@@ -12,14 +12,14 @@
 #define elf_debug(x, ...)
 #endif
 
-char *elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
+sstring elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset)
 {
     char * str = buffer_ref(elf, string_section->sh_offset + offset);
     char * end = buffer_ref(elf, string_section->sh_offset + string_section->sh_size);
     for (char * c = str; c < end; c++)
         if (*c == '\0')
-            return str;
-    return 0;                   /* no null terminator found */
+            return isstring(str, c - str);
+    return sstring_null();  /* no null terminator found */
 }
 
 #define ELF_CHECK_PTR(ptr, type)                  \
@@ -45,10 +45,10 @@ void elf_symbols(buffer elf, elf_sym_handler each)
         if (s->sh_type == SHT_SYMTAB) {
             symbols = s;
         } else if (s->sh_type == SHT_STRTAB) {
-            char * name = elf_string(elf, section_names, s->sh_name);
-            if (!name)
+            sstring name = elf_string(elf, section_names, s->sh_name);
+            if (sstring_is_null(name))
                 goto out_elf_fail;
-            if (runtime_memcmp(name, symbol_string_name, sizeof(symbol_string_name)-1) == 0)
+            if (runtime_memcmp(name.ptr, symbol_string_name, sizeof(symbol_string_name)-1) == 0)
                 symbol_strings = s;
         }
         s++;
@@ -62,8 +62,8 @@ void elf_symbols(buffer elf, elf_sym_handler each)
     Elf64_Sym *sym = buffer_ref(elf, symbols->sh_offset);
     for (int i = 0; i < symbols->sh_size; i+=symbols->sh_entsize) {
         ELF_CHECK_PTR(sym, Elf64_Sym);
-        char * name = elf_string(elf, symbol_strings, sym->st_name);
-        if (!name)
+        sstring name = elf_string(elf, symbol_strings, sym->st_name);
+        if (sstring_is_null(name))
             goto out_elf_fail;
         apply(each, name, sym->st_value, sym->st_size, sym->st_info);
         sym++;
@@ -78,12 +78,12 @@ closure_function(6, 1, boolean, elf_sym_relocate,
                  Elf64_Rela *, rel)
 {
     u64 sym_index = ELF64_R_SYM(rel->r_info);
-    const char *sym_name;
+    sstring sym_name;
     if (sym_index < bound(sym_count))
         sym_name = elf_string(bound(elf), bound(strtab), bound(syms)[sym_index].st_name);
     else
-        sym_name = 0;
-    if (!sym_name)
+        sym_name = sstring_null();
+    if (sstring_is_null(sym_name))
         return false;
     void *sym_addr = apply(bound(resolver), sym_name);
     if (sym_addr == INVALID_ADDRESS)
@@ -199,17 +199,19 @@ boolean elf_plt_get(buffer elf, u64 *addr, u64 *offset, u64 *size)
     if (section_names->sh_offset + section_names->sh_size > buffer_length(elf))
         goto out_elf_fail;
     Elf64_Shdr *plt_section = 0;
-    char *name;
+    sstring name;
     foreach_shdr(e, s) {
         switch (s->sh_type) {
         case SHT_PROGBITS:
         case SHT_NOBITS:
             name = elf_string(elf, section_names, s->sh_name);
-            if (!name)
+            if (sstring_is_null(name))
                 goto out_elf_fail;
-            if ((name[0] == '.') && (name[1] == 'p') && (name[2] == 'l') && (name[3] == 't')) {
+            char plt_prefix[] = {'.', 'p', 'l', 't'};
+            if ((name.len >= sizeof(plt_prefix)) &&
+                !runtime_memcmp(name.ptr, plt_prefix, sizeof(plt_prefix))) {
                 ELF_CHECK_PTR(s, Elf64_Shdr);
-                elf_debug("%s: found section %s\n", __func__, name);
+                elf_debug("%s: found section %s\n", func_ss, name);
                 if (!plt_section) {
                     plt_section = s;
                     *addr = s->sh_addr;
@@ -234,7 +236,7 @@ void walk_elf(buffer elf, range_handler rh)
     void *elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *e = buffer_ref(elf, 0);
     elf_debug("%s: buffer %p, handler %p (%F), buf [%p, %p)\n",
-              __func__, elf, rh, rh, e, elf_end);
+              func_ss, elf, rh, rh, e, elf_end);
     ELF_CHECK_PTR(e, Elf64_Ehdr);
     foreach_phdr(e, p) {
         ELF_CHECK_PTR(p, Elf64_Phdr);
@@ -257,7 +259,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
     void *elf_end = buffer_ref(elf, buffer_length(elf));
     Elf64_Ehdr *e = buffer_ref(elf, 0);
     elf_debug("%s: buffer %p, load_offset 0x%lx, mapper %p (%F), buf [%p, %p)\n",
-              __func__, elf, load_offset, mapper, mapper, e, elf_end);
+              func_ss, elf, load_offset, mapper, mapper, e, elf_end);
     ELF_CHECK_PTR(e, Elf64_Ehdr);
     foreach_phdr(e, p) {
         ELF_CHECK_PTR(p, Elf64_Phdr);

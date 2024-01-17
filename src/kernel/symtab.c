@@ -7,35 +7,36 @@ BSS_RO_AFTER_INIT static rangemap elf_symtable;
 
 typedef struct elfsym {
     struct rmnode node;
-    char * name;
+    sstring name;
 } *elfsym;
 
-static inline elfsym allocate_elfsym(range r, char * name)
+static inline elfsym allocate_elfsym(range r, sstring name)
 {
     elfsym es = allocate(general, sizeof(struct elfsym));
     assert(es != INVALID_ADDRESS);
     rmnode_init(&es->node, r);
-    int bytes = runtime_strlen(name) + 1;
-    es->name = allocate(general, bytes);
-    assert(es->name != INVALID_ADDRESS);
-    runtime_memcpy(es->name, name, bytes);
+    int bytes = name.len;
+    es->name.ptr = allocate(general, bytes);
+    assert(es->name.ptr != INVALID_ADDRESS);
+    runtime_memcpy(es->name.ptr, name.ptr, bytes);
+    es->name.len = bytes;
     return es;
 }
 
 static inline void deallocate_elfsym(elfsym es)
 {
-    deallocate(general, es->name, runtime_strlen(es->name) + 1);
+    deallocate(general, es->name.ptr, es->name.len);
     deallocate(general, es, sizeof(struct elfsym));
 }
 
 closure_function(1, 4, void, elf_symtable_add,
                  u64, load_offset,
-                 char *, name, u64, a, u64, len, u8, info)
+                 sstring, name, u64, a, u64, len, u8, info)
 {
     int type = ELF64_ST_TYPE(info);
 
     /* store bind info? */
-    if (a == 0 || len == 0 || !name || name[0] == '\0' ||
+    if (a == 0 || len == 0 || sstring_is_empty(name) ||
 	(type != STT_FUNC && type != STT_OBJECT))
 	return;
 
@@ -67,14 +68,14 @@ closure_function(0, 1, boolean, symtab_remove_sym,
     return true;
 }
 
-char * find_elf_sym(u64 a, u64 *offset, u64 *len)
+sstring find_elf_sym(u64 a, u64 *offset, u64 *len)
 {
     if (!elf_symtable)
-        return 0;
+        return sstring_null();
 
     elfsym es = (elfsym)rangemap_lookup(elf_symtable, a);
     if (es == INVALID_ADDRESS)
-        return 0;
+        return sstring_null();
     range r = range_from_rmnode(&es->node);
 
     if (offset)
@@ -96,15 +97,15 @@ void add_elf_syms(buffer b, u64 load_offset)
 
 void print_u64_with_sym(u64 a)
 {
-    char * name;
+    sstring name;
     u64 offset, len;
 
     print_u64(a);
 
     name = find_elf_sym(a, &offset, &len);
-    if (name) {
+    if (!sstring_is_null(name)) {
 	rputs("\t(");
-	rputs(name);
+	rput_sstring(name);
 	rputs(" + ");
 	print_u64(offset);
         rputs("/");
@@ -118,7 +119,7 @@ boolean symtab_is_empty(void)
     return (rangemap_first_node(elf_symtable) == INVALID_ADDRESS);
 }
 
-void *symtab_get_addr(const char *sym_name)
+void *symtab_get_addr(sstring sym_name)
 {
     rangemap_foreach(elf_symtable, n) {
         elfsym sym = struct_from_field(n, elfsym, node);

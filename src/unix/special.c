@@ -4,7 +4,7 @@
 #include <storage.h>
 
 typedef struct special_file {
-    const char *path;
+    sstring path;
     sysreturn (*open)(file f);
     sysreturn (*close)(file f);
     sysreturn (*read)(file f, void *dest, u64 length, u64 offset);
@@ -105,12 +105,12 @@ sysreturn mounts_close(file f)
 
 closure_function(1, 4, void, mounts_handler,
                  buffer, b,
-                 u8 *, uuid, const char *, label, filesystem, fs, inode, mount_point)
+                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
 {
     buffer b = bound(b);
     bytes saved_end = b->end;
-    if (label[0])
-        buffer_write_cstring(b, label);
+    if (!sstring_is_empty(label))
+        buffer_write_sstring(b, label);
     else
         print_uuid(b, uuid);
     push_u8(b, ' ');
@@ -133,7 +133,7 @@ closure_function(1, 4, void, mounts_handler,
         push_u8(b, '/');
     }
 out:
-    bprintf(b, " tfs %s 0 0\n", filesystem_is_readonly(fs) ? "ro" : "rw");
+    bprintf(b, " tfs %s 0 0\n", filesystem_is_readonly(fs) ? ss("ro") : ss("rw"));
 }
 
 static sysreturn mounts_read(file f, void *dest, u64 length, u64 offset)
@@ -211,12 +211,15 @@ static u32 cpu_online_events(file f)
 }
 
 static const special_file special_files[] = {
-    { "/dev/urandom", .read = urandom_read, .write = 0, .events = urandom_events },
-    { "/dev/null", .read = null_read, .write = null_write, .events = null_events },
-    { "/proc/meminfo", .read = meminfo_read},
-    { "/proc/mounts", .open = mounts_open, .close = mounts_close, .read = mounts_read, .events = mounts_events, .alloc_size = sizeof(struct mounts_notify_data)},
-    { "/proc/self/maps", .read = maps_read, .events = maps_events, },
-    { "/sys/devices/system/cpu/online", .read = cpu_online_read, .write = null_write, .events = cpu_online_events },
+    { ss_static_init("/dev/urandom"), .read = urandom_read, .write = 0, .events = urandom_events },
+    { ss_static_init("/dev/null"), .read = null_read, .write = null_write, .events = null_events },
+    { ss_static_init("/proc/meminfo"), .read = meminfo_read},
+    { ss_static_init("/proc/mounts"), .open = mounts_open, .close = mounts_close,
+      .read = mounts_read, .events = mounts_events,
+      .alloc_size = sizeof(struct mounts_notify_data)},
+    { ss_static_init("/proc/self/maps"), .read = maps_read, .events = maps_events, },
+    { ss_static_init("/sys/devices/system/cpu/online"), .read = cpu_online_read,
+      .write = null_write, .events = cpu_online_events },
     FTRACE_SPECIAL_FILES
 };
 
@@ -337,7 +340,7 @@ closure_function(1, 1, sysreturn, special_open,
     return ret;
 }
 
-boolean create_special_file(const char *path, spec_file_open open, u64 size, u64 rdev)
+boolean create_special_file(sstring path, spec_file_open open, u64 size, u64 rdev)
 {
     tuple entry = allocate_tuple();
     if (entry == INVALID_ADDRESS)
@@ -357,26 +360,26 @@ boolean create_special_file(const char *path, spec_file_open open, u64 size, u64
 void register_special_files(process p)
 {
     filesystem fs = p->root_fs;
+    sstring self_exe_path = ss("/proc/self/exe");
     tuple self_exe;
     heap h = heap_locked((kernel_heaps)p->uh);
 
-    fs_status fss = filesystem_get_node(&fs, p->cwd, "/proc/self/exe", false, false, false, false,
+    fs_status fss = filesystem_get_node(&fs, p->cwd, self_exe_path, false, false, false, false,
         &self_exe, 0);
     if (fss == FS_STATUS_OK) {
         filesystem_put_node(fs, self_exe);
     } else {
-        fss = filesystem_mkdirpath(p->root_fs, 0, "/proc/self", true);
+        fss = filesystem_mkdirpath(p->root_fs, 0, ss("/proc/self"), true);
         if ((fss == FS_STATUS_OK) || (fss == FS_STATUS_EXIST)) {
             value program = get(p->process_root, sym(program));
             assert(program);
-            buffer b = allocate_buffer(h, buffer_length(program) + 2);
+            buffer b = allocate_buffer(h, buffer_length(program) + 1);
             assert(b != INVALID_ADDRESS);
             /* glibc expects exe path to be absolute */
             if (peek_char(program) != '/')
                 assert(buffer_write_byte(b, '/'));
             assert(push_buffer(b, program));
-            assert(buffer_write_byte(b, '\0')); /* append string terminator character */
-            filesystem_symlink(p->cwd_fs, p->cwd, "/proc/self/exe", buffer_ref(b, 0));
+            filesystem_symlink(p->cwd_fs, p->cwd, self_exe_path, buffer_to_sstring(b));
             deallocate_buffer(b);
         }
     }
@@ -390,7 +393,7 @@ void register_special_files(process p)
         assert(create_special_file(sf->path, open, sf->alloc_size, 0));
     }
 
-    filesystem_mkdirpath(p->root_fs, 0, "/sys/devices/system/cpu/cpu0", false);
+    filesystem_mkdirpath(p->root_fs, 0, ss("/sys/devices/system/cpu/cpu0"), false);
 }
 
 sysreturn

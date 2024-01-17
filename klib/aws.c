@@ -78,7 +78,7 @@ closure_function(5, 1, boolean, aws_metadata_in,
 }
 
 closure_function(3, 1, input_buffer_handler, aws_metadata_ch,
-                 heap, h, const char *, uri, buffer_handler, handler,
+                 heap, h, sstring, uri, buffer_handler, handler,
                  buffer_handler, out)
 {
     heap h = bound(h);
@@ -92,7 +92,7 @@ closure_function(3, 1, input_buffer_handler, aws_metadata_ch,
         msg_err("failed to allocate request\n");
         goto error;
     }
-    set(req, sym(url), alloca_wrap_cstring(bound(uri)));
+    set(req, sym(url), alloca_wrap_sstring(bound(uri)));
     status s = http_request(h, out, HTTP_REQUEST_METHOD_GET, req, 0);
     deallocate_value(req);
     if (!is_ok(s)) {
@@ -119,7 +119,7 @@ boolean aws_metadata_available(void)
     return false;
 }
 
-void aws_metadata_get(heap h, const char *uri, buffer_handler handler)
+void aws_metadata_get(heap h, sstring uri, buffer_handler handler)
 {
     ip_addr_t md_server = AWS_MD_SERVER;
     connection_handler ch = closure(h, aws_metadata_ch, h, uri, handler);
@@ -135,7 +135,7 @@ void aws_metadata_get(heap h, const char *uri, buffer_handler handler)
     apply(handler, 0);
 }
 
-static boolean aws_cred_parse_item(buffer data, const char *name, buffer value)
+static boolean aws_cred_parse_item(buffer data, sstring name, buffer value)
 {
     int ptr = buffer_strstr(data, name);
     if (ptr < 0)
@@ -173,9 +173,9 @@ closure_function(2, 1, status, aws_cred_parse,
         .secret = alloca_wrap_buffer(0, 0),
         .token = alloca_wrap_buffer(0, 0),
     };
-    if (aws_cred_parse_item(data, "AccessKeyId", cred.access_key) &&
-        aws_cred_parse_item(data, "SecretAccessKey", cred.secret) &&
-        aws_cred_parse_item(data, "Token", cred.token))
+    if (aws_cred_parse_item(data, ss("AccessKeyId"), cred.access_key) &&
+        aws_cred_parse_item(data, ss("SecretAccessKey"), cred.secret) &&
+        aws_cred_parse_item(data, ss("Token"), cred.token))
         apply(handler, &cred);
     else
         apply(handler, 0);
@@ -193,7 +193,7 @@ closure_function(2, 1, status, aws_iam_role_get,
         msg_err("no IAM role associated to instance\n");
         goto error;
     }
-    buffer uri = string_from_cstring(AWS_CRED_URI);
+    buffer uri = wrap_string_cstring(AWS_CRED_URI);
     push_u8(uri, '/');
     if (!push_buffer(uri, data)) {
         msg_err("failed to build URI\n");
@@ -202,8 +202,7 @@ closure_function(2, 1, status, aws_iam_role_get,
     }
     buffer_handler cred_parser = closure(h, aws_cred_parse, uri, handler);
     if (cred_parser != INVALID_ADDRESS) {
-        push_u8(uri, '\0');
-        aws_metadata_get(h, buffer_ref(uri, 0), cred_parser);
+        aws_metadata_get(h, buffer_to_sstring(uri), cred_parser);
         return STATUS_OK;
     } else {
         msg_err("failed to allocate closure\n");
@@ -218,7 +217,7 @@ void aws_cred_get(heap h, aws_cred_handler handler)
 {
     buffer_handler role_handler = closure(h, aws_iam_role_get, h, handler);
     if (role_handler != INVALID_ADDRESS) {
-        aws_metadata_get(h, AWS_CRED_URI, role_handler);
+        aws_metadata_get(h, ss(AWS_CRED_URI), role_handler);
     } else {
         msg_err("failed to allocate closure\n");
         apply(handler, 0);
@@ -290,7 +289,7 @@ static boolean aws_headers_sort(heap h, tuple req, binding_handler handler)
 }
 
 /* creates a canonical request */
-static buffer aws_create_can_req(heap h, const char *method, tuple req, buffer body)
+static buffer aws_create_can_req(heap h, sstring method, tuple req, buffer body)
 {
     buffer url = get(req, sym(url));
     if (!url)
@@ -298,7 +297,7 @@ static buffer aws_create_can_req(heap h, const char *method, tuple req, buffer b
     buffer can_req = allocate_buffer(h, 512);
     if (can_req == INVALID_ADDRESS)
         return 0;
-    if (!buffer_write_cstring(can_req, method))
+    if (!buffer_write_sstring(can_req, method))
         goto error;
     push_u8(can_req, '\n');
     int uri_end = buffer_strchr(url, '?');
@@ -332,7 +331,7 @@ static buffer aws_create_can_req(heap h, const char *method, tuple req, buffer b
     return 0;
 }
 
-static buffer aws_create_string_to_sign(heap h, const char *region, const char *service,
+static buffer aws_create_string_to_sign(heap h, sstring region, sstring service,
                                         buffer datetime, buffer can_req)
 {
     u8 sha[32];
@@ -348,9 +347,9 @@ static buffer aws_create_string_to_sign(heap h, const char *region, const char *
     buffer cred_scope = little_stack_buffer(64);
     buffer_write(cred_scope, buffer_ref(datetime, 0), 8);   /* date value (YYYYMMDD) */
     push_u8(cred_scope, '/');
-    buffer_write_cstring(cred_scope, region);
+    buffer_write_sstring(cred_scope, region);
     push_u8(cred_scope, '/');
-    buffer_write_cstring(cred_scope, service);
+    buffer_write_sstring(cred_scope, service);
     buffer_write_cstring(cred_scope, "/" AWS_REQ "\n");
     if (!push_buffer(string_to_sign, cred_scope))
         goto error;
@@ -362,17 +361,17 @@ static buffer aws_create_string_to_sign(heap h, const char *region, const char *
     return 0;
 }
 
-static boolean aws_create_signing_key(heap h, const char *region, const char *service,
-                                      buffer datetime, const char *secret, u8 *key)
+static boolean aws_create_signing_key(heap h, sstring region, sstring service,
+                                      buffer datetime, sstring secret, u8 *key)
 {
-    int secret_len = runtime_strlen(secret);
+    int secret_len = secret.len;
     u8 ext_secret[4 + secret_len];
     runtime_memcpy(ext_secret, "AWS4", 4);
-    runtime_memcpy(ext_secret + 4, secret, secret_len);
+    runtime_memcpy(ext_secret + 4, secret.ptr, secret_len);
     u8 k_date[32], k_region[32], k_service[32];
     if (!aws_hmac(ext_secret, sizeof(ext_secret), buffer_ref(datetime, 0), 8, k_date) ||
-        !aws_hmac(k_date, sizeof(k_date), (const u8 *)region, runtime_strlen(region), k_region) ||
-        !aws_hmac(k_region, sizeof(k_region), (const u8 *)service, runtime_strlen(service),
+        !aws_hmac(k_date, sizeof(k_date), (const u8 *)region.ptr, region.len, k_region) ||
+        !aws_hmac(k_region, sizeof(k_region), (const u8 *)service.ptr, service.len,
                   k_service) ||
         !aws_hmac(k_service, sizeof(k_service), (const u8 *)AWS_REQ, sizeof(AWS_REQ) - 1, key))
         return false;
@@ -389,8 +388,8 @@ void aws_req_set_date(tuple req, buffer b)
     set(req, sym(x-amz-date), b);
 }
 
-buffer aws_req_sign(heap h, const char *region, const char *service, const char *method,
-                    tuple req, buffer body, const char *access_key, const char *secret)
+buffer aws_req_sign(heap h, sstring region, sstring service, sstring method,
+                    tuple req, buffer body, sstring access_key, sstring secret)
 {
     buffer datetime = get(req, sym(x-amz-date));
     if (!datetime)
@@ -416,16 +415,16 @@ buffer aws_req_sign(heap h, const char *region, const char *service, const char 
         goto free_string_to_sign;
     }
     if (!buffer_write_cstring(auth, AWS_HASH_ALGO " Credential=") ||
-        !buffer_write_cstring(auth, access_key))
+        !buffer_write_sstring(auth, access_key))
         goto free_auth;
     push_u8(auth, '/');
     if (!buffer_write(auth, buffer_ref(datetime, 0), 8))    /* date value (YYYYMMDD) */
         goto free_auth;
     push_u8(auth, '/');
-    if (!buffer_write_cstring(auth, region))
+    if (!buffer_write_sstring(auth, region))
         goto free_auth;
     push_u8(auth, '/');
-    if (!buffer_write_cstring(auth, service) ||
+    if (!buffer_write_sstring(auth, service) ||
         !buffer_write_cstring(auth, "/" AWS_REQ ", SignedHeaders=") ||
         !aws_headers_sort(h, req, stack_closure(aws_header_add, auth, true)))
         goto free_auth;

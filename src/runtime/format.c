@@ -18,13 +18,13 @@ void register_format(character c, formatter f, int accepts_long)
     }
 }
 
-static void invalid_format(buffer d, buffer fmt, int start_idx, int idx)
+static void invalid_format(buffer d, sstring fmt, int start_idx, int idx)
 {
     static const char header[] = "[invalid format ";
 
     assert(buffer_write(d, header, sizeof(header) - 1));
     for (int i = 0; i < idx - start_idx + 1; i++)
-        push_u8(d, byte(fmt, start_idx + i));
+        push_u8(d, fmt.ptr[start_idx + i]);
     push_u8(d, ']');
 }
 
@@ -39,13 +39,13 @@ static void reset_formatter_state(struct formatter_state *s)
     s->precision = -1;
 }
 
-void vbprintf(buffer d, buffer fmt, vlist *ap)
+void vbprintf(buffer d, sstring fmt, vlist *ap)
 {
     int start_idx = 0;
     struct formatter_state s;
 
     reset_formatter_state(&s);
-    foreach_character(idx, c, fmt) {
+    sstring_foreach(idx, c, fmt) {
         if (s.state == 1)  {
             if (idx - start_idx == 1 && (c == '0' || c == '-')) {
                 if (c == '0')
@@ -99,51 +99,40 @@ void vbprintf(buffer d, buffer fmt, vlist *ap)
 
 // XXX fixme
 /* XXX the various debug stuff needs to be folded into one log facility...somewhere */
-void log_vprintf(const char *prefix, const char *log_format, vlist *a)
+void log_vprintf(sstring prefix, sstring log_format, vlist *a)
 {
     buffer b = little_stack_buffer(1024);
     bprintf(b, "[%T] %s: ", now(CLOCK_ID_BOOTTIME), prefix);
-    buffer f = alloca_wrap_buffer(log_format, runtime_strlen(log_format));
-    vbprintf(b, f, a);
+    vbprintf(b, log_format, a);
     buffer_print(b);
 }
 
-void log_printf(const char * prefix, const char *log_format, ...)
+void log_printf(sstring prefix, sstring log_format, ...)
 {
     vlist a;
     vstart(a, log_format);
     log_vprintf(prefix, log_format, &a);
 }
 
-buffer aprintf(heap h, const char *fmt, ...)
+buffer aprintf_sstring(heap h, sstring fmt, ...)
 {
     buffer b = allocate_buffer(h, 80);
     vlist ap;
-    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
     vstart (ap, fmt);
-    vbprintf(b, f, &ap);
+    vbprintf(b, fmt, &ap);
     vend(ap);
     return(b);
 }
 
-void bbprintf(buffer b, buffer fmt, ...)
+void bprintf_sstring(buffer b, sstring fmt, ...)
 {
     vlist ap;
-    vstart(ap, fmt);
+    vstart (ap, fmt);
     vbprintf(b, fmt, &ap);
     vend(ap);
 }
 
-void bprintf(buffer b, const char *fmt, ...)
-{
-    vlist ap;
-    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
-    vstart (ap, fmt);
-    vbprintf(b, f, &ap);
-    vend(ap);
-}
-
-int rsnprintf(char *str, u64 size, const char *fmt, ...)
+int rsnprintf_sstring(char *str, u64 size, sstring fmt, ...)
 {
     buffer b = allocate_buffer(transient, size);
     if (b == INVALID_ADDRESS) {
@@ -154,8 +143,7 @@ int rsnprintf(char *str, u64 size, const char *fmt, ...)
     }
     vlist ap;
     vstart(ap, fmt);
-    buffer f = alloca_wrap_buffer(fmt, runtime_strlen(fmt));
-    vbprintf(b, f, &ap);
+    vbprintf(b, fmt, &ap);
     vend(ap);
     int n;
     if (size > 0) {
@@ -168,13 +156,12 @@ int rsnprintf(char *str, u64 size, const char *fmt, ...)
     return n;
 }
 
-void rprintf(const char *format, ...)
+void rprintf_sstring(sstring format, ...)
 {
     /* What's a reasonable limit here? This needs to be reentrant. */
     buffer b = little_stack_buffer(16 * KB);
     vlist a;
     vstart(a, format);
-    buffer f = alloca_wrap_buffer(format, runtime_strlen(format));
-    vbprintf(b, f, &a);
+    vbprintf(b, format, &a);
     buffer_print(b);
 }

@@ -130,6 +130,9 @@ static void uds_stream_test(void)
 
     s1 = socket(AF_UNIX, SOCK_STREAM, 0);
     test_assert(s1 >= 0);
+
+    addr.sun_family = AF_UNIX + 1;
+    test_assert((bind(s1, (struct sockaddr *) &addr, addr_len) == -1) && (errno == EINVAL));
     addr.sun_family = AF_UNIX;
 
     test_getsockopt(s1, SOCK_STREAM);

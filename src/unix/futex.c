@@ -37,7 +37,7 @@ static struct futex * soft_create_futex(process p, u64 key)
     }
 
     f->h = h;
-    f->bq = allocate_blockq(f->h, "futex");
+    f->bq = allocate_blockq(f->h, ss("futex"));
     if (f->bq == INVALID_ADDRESS) {
         msg_err("failed to allocate futex blockq\n");
         deallocate(f->h, f, sizeof(struct futex));
@@ -110,11 +110,12 @@ closure_function(3, 1, sysreturn, futex_bh,
 {
     thread t = bound(t);
     struct futex *f = bound(f);
+    sstring func = func_ss;
     sysreturn rv;
 
     if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
         futex_unlock(f);
-        thread_log(t, "%s: struct futex: %p, blocking", __func__, f);
+        thread_log(t, "%s: struct futex: %p, blocking", func, f);
         return BLOCKQ_BLOCK_REQUIRED;
     }
 
@@ -127,7 +128,7 @@ closure_function(3, 1, sysreturn, futex_bh,
         rv = 0; /* no timer expire + not us --> actual wakeup */
     }
 
-    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", __func__, f, flags, rv);
+    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", func, f, flags, rv);
     closure_finish();
     return syscall_return(t, rv);
 }

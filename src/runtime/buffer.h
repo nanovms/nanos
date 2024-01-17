@@ -33,6 +33,11 @@ static inline void *buffer_ref(buffer b, bytes offset)
     return((void *)b->contents + (b->start + offset));
 }
 
+static inline bytes buffer_length(buffer b)
+{
+    return b->end - b->start;
+}
+
 static inline void *buffer_end(buffer b)
 {
     return b->contents + b->end;
@@ -54,11 +59,21 @@ static inline char peek_char(buffer b)
             b;                                                  \
         })
 
-#define alloca_wrap_cstring(__x) alloca_wrap_buffer((__x), runtime_strlen(__x))
+#define alloca_wrap_sstring(s)  ({          \
+    sstring __s = s;                        \
+    alloca_wrap_buffer(__s.ptr, __s.len);   \
+})
+
+#define alloca_wrap_cstring(__x) alloca_wrap_sstring(ss(__x))
 
 #define alloca_wrap(__z) alloca_wrap_buffer(buffer_ref((__z), 0), buffer_length(__z))
 
 #define byte(__b, __i) *(u8 *)((__b)->contents + (__b)->start + (__i))
+
+static inline sstring buffer_to_sstring(buffer b)
+{
+    return isstring(buffer_ref(b, 0), buffer_length(b));
+}
 
 #define buffer_to_cstring(__b) ({                           \
             bytes len = buffer_length(__b);                 \
@@ -85,11 +100,6 @@ static inline void buffer_produce(buffer b, bytes s)
     buffer_assert(b->start <= b->end);
     buffer_assert(b->end + s <= b->length);
     b->end += s;
-}
-
-static inline bytes buffer_length(buffer b)
-{
-    return b->end - b->start;
 }
 
 static inline bytes buffer_space(buffer b)
@@ -186,10 +196,12 @@ static inline boolean buffer_write(buffer b, const void *source, bytes length)
     return true;
 }
 
-static inline boolean buffer_write_cstring(buffer b, const char *x)
+static inline boolean buffer_write_sstring(buffer b, sstring s)
 {
-    return buffer_write(b, x, runtime_strlen(x));
+    return buffer_write(b, s.ptr, s.len);
 }
+
+#define buffer_write_cstring(b, x)  buffer_write_sstring(b, ss(x))
 
 static inline boolean buffer_read(buffer b, void *dest, bytes length)
 {
@@ -350,29 +362,8 @@ static inline boolean buffer_lt(buffer a, buffer b)
     return false;
 }
 
-static inline boolean buffer_compare_with_cstring(buffer b, const char *x)
-{
-    int len = buffer_length(b);
-    for (int i = 0; i < len; i++) {
-        if (byte(b, i) != (u8)x[i])
-            return false;
-        if (x[i] == '\0')       /* must terminate */
-            return i == len - 1;
-    }
-    return x[len] == '\0';
-}
-
-static inline boolean buffer_compare_with_cstring_ci(buffer b, const char *x)
-{
-    int len = buffer_length(b);
-    for (int i = 0; i < len; i++) {
-        if (tolower(byte(b, i)) != tolower((u8)x[i]))
-            return false;
-        if (x[i] == '\0')       /* must terminate */
-            return i == len - 1;
-    }
-    return x[len] == '\0';
-}
+int buffer_compare_with_sstring(buffer b, sstring x);
+int buffer_compare_with_sstring_ci(buffer b, sstring x);
 
 static inline int buffer_memcmp(buffer b, void *mem, bytes n)
 {
@@ -387,12 +378,8 @@ static inline int buffer_memcmp(buffer b, void *mem, bytes n)
 }
 
 /* Can only be used with literal strings. */
-#define buffer_strcmp(b, str)   ({  \
-    int res = buffer_memcmp(b, str, sizeof(str) - 1);   \
-    if (!res && buffer_length(b) >= sizeof(str))    \
-        res = 1;    \
-    res;    \
-})
+#define buffer_strcmp(b, str)       buffer_compare_with_sstring(b, ss(str))
+#define buffer_strcasecmp(b, str)   buffer_compare_with_sstring_ci(b, ss(str))
 
 static inline int buffer_strchr(buffer b, int c)
 {
@@ -413,7 +400,7 @@ static inline int buffer_strrchr(buffer b, int c)
     return -1;
 }
 
-int buffer_strstr(buffer b, const char *str);
+int buffer_strstr(buffer b, sstring str);
 
 // the ascii subset..utf8 me
 #define foreach_character(__i, __c, __s)                                \

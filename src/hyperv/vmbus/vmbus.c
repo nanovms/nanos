@@ -549,7 +549,7 @@ vmbus_attach(kernel_heaps kh, vmbus_dev *result)
     dev->vmbus_idtvec = allocate_interrupt();
     vmbus_debug("interrupt vector %d; registering", dev->vmbus_idtvec);
     dev->vmbus_intr_handler = closure(dev->general, vmbus_interrupt, dev);
-    register_interrupt(dev->vmbus_idtvec, dev->vmbus_intr_handler, "vmbus");
+    register_interrupt(dev->vmbus_idtvec, dev->vmbus_intr_handler, ss("vmbus"));
 
     dev->poll_mode = true;
 

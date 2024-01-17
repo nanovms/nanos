@@ -51,13 +51,15 @@ void console_write(const char *s, bytes count);
 
 void print_u64(u64 s);
 
+#include <sstring.h>
+
 #define VM_EXIT_SIGNAL(x) (x)
 #define VM_EXIT_GDB 0x7d
 #define VM_EXIT_FAULT 0x7e
 #define VM_EXIT_HALT 0x7f
 
-#define halt(fmt, ...) halt_with_code(VM_EXIT_HALT, fmt, ##__VA_ARGS__)
-void halt_with_code(u8 code, char *format, ...) __attribute__((noreturn));
+#define halt(fmt, ...) halt_with_code(VM_EXIT_HALT, ss(fmt), ##__VA_ARGS__)
+void halt_with_code(u8 code, sstring format, ...) __attribute__((noreturn));
 void kernel_shutdown(int status) __attribute__((noreturn));
 void vm_exit(u8 code) __attribute__((noreturn));
 void vm_shutdown(u8 code) __attribute__((noreturn));
@@ -73,12 +75,16 @@ void print_frame_trace_from_here();
         if (!(x)) {                                 \
             __label__ __here;                       \
             print_frame_trace_from_here();          \
-            __here: halt("assertion " #x " failed at %s:%d (IP %p)  in %s(); halt\n", __FILE__, __LINE__, &&__here, __func__); \
+            __here: halt("assertion " #x " failed at %s:%d (IP %p) in %s()\n",  \
+                         file_ss, __LINE__, &&__here, func_ss);                 \
         }                                           \
     } while(0)
 #endif
 
 #define build_assert(x) _Static_assert((x), "build assertion failure")
+
+#define string_literal(s)           (char []){s}
+#define assert_string_literal(s)    (void)string_literal(s)
 
 #include <lock.h>
 
@@ -89,19 +95,14 @@ void runtime_memset(u8 *a, u8 b, bytes len);
 int runtime_memcmp(const void *a, const void *b, bytes len);
 void *runtime_memchr(const void *a, int c, bytes len);
 
-static inline int runtime_strlen(const char *a)
-{
-    int i = 0;
-    for (; *a; a++, i++);
-    return i;
-}
+void rput_sstring(sstring s);
+#define rputs(s)    rput_sstring(ss(s))
 
-void rputs(const char *s);
-
-static inline void console(const char *s)
+static inline void console_sstring(sstring s)
 {
-    console_write(s, runtime_strlen(s));
+    console_write(s.ptr, s.len);
 }
+#define console(s)  console_sstring(ss(s))
 
 #define pad(__x, __s) ((((__x) - 1) & (~((__s) - 1))) + (__s))
 
@@ -185,18 +186,18 @@ typedef struct flush_entry *flush_entry;
 /* XXX: Note that printing function names will reveal our internals to
    some degree. All the logging stuff needs more time in the oven. */
 
-#define msg_err(fmt, ...) rprintf("%s error: " fmt, __func__,   \
+#define msg_err(fmt, ...) rprintf("%s error: " fmt, func_ss,    \
 				  ##__VA_ARGS__)
 
 #ifdef ENABLE_MSG_WARN
-#define msg_warn(fmt, ...) rprintf("%s warning: " fmt, __func__,   \
+#define msg_warn(fmt, ...) rprintf("%s warning: " fmt, func_ss, \
 				  ##__VA_ARGS__)
 #else
 #define msg_warn(fmt, ...)
 #endif
 
 #ifdef ENABLE_MSG_DEBUG
-#define msg_debug(fmt, ...) rprintf("%s debug: " fmt, __func__, \
+#define msg_debug(fmt, ...) rprintf("%s debug: " fmt, func_ss,  \
 				    ##__VA_ARGS__)
 #else
 #define msg_debug(fmt, ...)

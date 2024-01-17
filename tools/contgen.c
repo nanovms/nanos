@@ -88,7 +88,6 @@ void cblock()
     p("static _rettype (**_fill_##_name(u64 ctx, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _rt%");
     p("  if (n != INVALID_ADDRESS) {|");
     p("    n->__apply = _name;|");
-    p("    n->__c.name = #_name;|");
     p("    n->__c.ctx = ctx;|");
     p("    n->__c.size = s;|");
     for (int i = 0; i < nleft ; i++)  p("  n->_ln% = l%;|", i, i);
