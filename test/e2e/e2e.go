@@ -81,14 +81,6 @@ func cloudPrebuild(t *testing.T) {
 	}()
 }
 
-func rubyPrebuild(t *testing.T) {
-	effect, err := exec.Command("/bin/bash", "-c", "mkdir -p .ruby && export GEM_HOME=.ruby && if (gem install --help | grep -q -- \"--no-document\"); then gem install sinatra --no-document; else gem install sinatra --no-rdoc --no-ri; fi").CombinedOutput()
-	if err != nil {
-		t.Log(effect)
-		t.Fatal(err)
-	}
-}
-
 func rustPrebuild(t *testing.T) {
 	effect, err := exec.Command("/bin/bash", "-c", "rustc http_server.rs -o main").CombinedOutput()
 	if err != nil {
@@ -140,7 +132,7 @@ func testPackages(t *testing.T) {
 		{name: "node_v11.5.0", pkg: "eyberg/node:v11.5.0", dir: "node_v11.5.0", request: "http://0.0.0.0:8083"},
 		{name: "nginx_1.15.6", pkg: "eyberg/nginx:1.15.6", dir: "nginx_1.15.6", request: "http://0.0.0.0:8084"},
 		{name: "php_7.3.5", pkg: "eyberg/php:7.3.5", dir: "php_7.3.5", request: "http://0.0.0.0:9501"},
-		{name: "ruby_3.1.2", pkg: "eyberg/ruby:3.1.2", dir: "ruby_3.1.2", request: "http://0.0.0.0:4567", prebuild: rubyPrebuild},
+		{name: "ruby_3.1.2", pkg: "eyberg/ruby:3.1.2", dir: "ruby_3.1.2", request: "http://0.0.0.0:4567"},
 		{name: "go", dir: "go", request: "http://0.0.0.0:8080", elf: "main", prebuild: goPrebuild},
 		{name: "rust", dir: "rust", request: "http://0.0.0.0:8080", elf: "main", prebuild: rustPrebuild, nocross: true},
 	}

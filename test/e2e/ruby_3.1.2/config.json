@@ -1,9 +1,5 @@
 {
     "Args": ["myapp.rb"],
-    "Dirs": [".ruby"],
-    "ENV": {
-        "GEM_HOME": ".ruby"
-    },
     "RunConfig": {
         "Ports": ["4567"]
     },
