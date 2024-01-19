@@ -8,7 +8,6 @@
     "tls"
   ],
   "ManifestPassthrough": {
-    "exec_wait_for_ip4_secs": "5",
     "cloud_init": {
       "download_env": [
         {

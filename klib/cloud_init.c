@@ -370,10 +370,14 @@ static status cloud_download_connect(ip_addr_t *addr, connection_handler ch)
 
 static void cloud_download_dns_cb(const char *name, const ip_addr_t *ipaddr, void *callback_arg)
 {
-    if (ipaddr)
-        return;
     connection_handler ch = (connection_handler)callback_arg;
-    status s = timm("result", "cloud_init: failed to resolve server hostname '%s'", name);
+    status s;
+    if (ipaddr)
+        s = cloud_download_connect((ip_addr_t *)ipaddr, ch);
+    else
+        s = timm("result", "cloud_init: failed to resolve server hostname '%s'", name);
+    if (is_ok(s))
+        return;
     cloud_download_cfg cfg = closure_member(cloud_download_ch, ch, cfg);
     status_handler sh = (status_handler)&cfg->complete;
     apply(sh, s);
@@ -390,7 +394,32 @@ static void cloud_download(connection_handler ch)
     runtime_memcpy(host, buffer_ref(&cfg->server_host, 0), host_len);
     host[host_len] = '\0';                                \
     ip_addr_t addr;
-    err_t err = dns_gethostbyname(host, &addr, cloud_download_dns_cb, ch);
+    err_t err;
+
+    /* Before attempting to connect to the server or resolve its host name, check that the
+     * networking stack is correctly configured with a suitable IP address (by checking the network
+     * interface from which outgoing packets will be routed), and retry later if this check fails.
+     * This prevents klib initialization errors from occurring if this klib is loaded before an IP
+     * address is acquired via DHCP.  */
+    if (ipaddr_aton(host, &addr)) {
+        struct netif *n = ip_route(&ip_addr_any, &addr);
+        if (n) {
+            netif_unref(n);
+            err = ERR_OK;
+        } else {
+            err = ERR_RTE;
+        }
+    } else {
+        const ip_addr_t *dns = dns_getserver(0);
+        struct netif *n = ip_route(&ip_addr_any, dns);
+        if (n) {
+            netif_unref(n);
+            err = dns_gethostbyname(host, &addr, cloud_download_dns_cb, ch);
+        } else {
+            err = ERR_RTE;
+        }
+    }
+
     switch (err) {
     case ERR_OK:
         s = cloud_download_connect(&addr, ch);
@@ -398,7 +427,8 @@ static void cloud_download(connection_handler ch)
             goto error;
         break;
     case ERR_INPROGRESS:
-    case ERR_VAL:
+        break;
+    case ERR_RTE:
         if (!cloud_download_retry(ch)) {
             s = timm("result", "cloud_init: failed to schedule download retry");
             goto error;
