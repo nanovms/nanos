@@ -60,7 +60,7 @@ closure_function(1, 2, boolean, fill_arguments_each,
 }
 
 static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
-        u64 va, tuple process_root, boolean aslr)
+        u64 va, u64 interp_load_addr, tuple process_root, boolean aslr)
 {
     exec_debug("build_exec_stack start %p, tid %d, va 0x%lx\n", start, t->tid, va);
 
@@ -154,6 +154,7 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
         {AT_PHENT, e->e_phentsize},
         {AT_PHNUM, e->e_phnum},
         {AT_PAGESZ, PAGESIZE},
+        {AT_BASE, interp_load_addr},
         {AT_RANDOM, u64_from_pointer(randbuf)},
         {AT_ENTRY, u64_from_pointer(start)},
 #ifdef __aarch64__
@@ -308,8 +309,8 @@ closure_function(4, 5, boolean, faulting_map,
     return false;
 }
 
-closure_function(6, 2, void, load_interp_complete,
-                 thread, t, kernel_heaps, kh, buffer, b, fsfile, f, boolean, static_map, boolean, ingest_symbols,
+closure_function(7, 2, void, load_interp_complete,
+                 thread, t, kernel_heaps, kh, buffer, b, fsfile, f, u64, load_addr, boolean, static_map, boolean, ingest_symbols,
                  status, s, bytes, length)
 {
     thread t = bound(t);
@@ -321,8 +322,7 @@ closure_function(6, 2, void, load_interp_complete,
         halt("read interp failed %v\n", s);
     exec_debug("interpreter load complete, length %ld, reading elf\n", length);
     buffer_produce(b, length);
-    u64 where = process_get_virt_range(p, HUGE_PAGESIZE, PROCESS_VIRTUAL_MMAP_RANGE);
-    assert(where != INVALID_PHYSICAL);
+    u64 where = bound(load_addr);
     if (bound(ingest_symbols)) {
         exec_debug("ingesting interp symbols\n");
         add_elf_syms(b, where);
@@ -360,6 +360,7 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
     process proc = create_process(uh, root, fs);
     thread t = create_thread(proc, proc->pid);
     fsfile interp;
+    u64 interp_load_addr;
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(ex, 0);
     boolean aslr = get(root, sym(noaslr)) == 0;
     heap general = heap_locked(kh);
@@ -373,9 +374,11 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
             s = timm("result", "couldn't find program interpreter %s", interp_path);
             goto out;
         }
+        interp_load_addr = process_get_virt_range(proc, HUGE_PAGESIZE, PROCESS_VIRTUAL_MMAP_RANGE);
         exec_debug("interp: %p\n", interp);
     } else {
         interp = 0;
+        interp_load_addr = 0;
     }
     exec_debug("range of loadable segments prior to adjustment: %R\n", load_range);
 
@@ -421,7 +424,7 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
     /* XXX temporarily disable because it breaks ftrace. Will need to 
        eventually deal with this for issue #1269 */
     //current_cpu()->current_thread = (nanos_thread)t;
-    build_exec_stack(proc, t, e, entry, load_range.start, root, aslr);
+    build_exec_stack(proc, t, e, entry, load_range.start, interp_load_addr, root, aslr);
 
     if (ingest_symbols) {
         exec_debug("ingesting program symbols\n");
@@ -445,7 +448,7 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
         buffer b = allocate_buffer(general, pad(length, PAGESIZE));
         assert(b != INVALID_ADDRESS);
         io_status_handler sh = closure(general, load_interp_complete, t, kh, b,
-                                       interp, static_map, ingest_symbols);
+                                       interp, interp_load_addr, static_map, ingest_symbols);
         filesystem_read_linear(interp, buffer_ref(b, 0), irangel(0, length), sh);
         goto out;
     }
