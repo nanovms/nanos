@@ -281,11 +281,24 @@ static void vmap_merge_test(void)
     for (int i = 0; i < 3; i++) {
         void *p = addr + (4096 * i);
         munmap(p, 4096);
+
+        /* Verify that a hole has been created. */
+        int ret = msync(addr, 4096 * 3, MS_SYNC);
+        if (!ret || (errno != ENOMEM))
+            fail_exit("msync should have failed with ENOMEM (ret %d, err '%s')\n", ret,
+                      strerror(errno));
+
         addr2 = mmap(p, 4096, PROT_READ, MAP_FIXED | MAP_PRIVATE, fd, (4096 * i));
         if (addr2 == MAP_FAILED) {
             perror("merge test mmap 2");
             exit(EXIT_FAILURE);
         }
+
+        /* Verify that there are no holes. */
+        ret = msync(addr, 4096 * 3, MS_SYNC);
+        if (ret)
+            handle_err("msync after filling a hole");
+
         unsigned long c = do_sum(addr);
         if (c != sum)
             fail_exit("checksum mismatch\n");

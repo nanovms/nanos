@@ -339,10 +339,10 @@ void vmap_iterator(process p, vmap_handler vmh)
 
 closure_function(1, 1, boolean, vmap_validate_node,
                  u32, flags,
-                 rmnode, n)
+                 vmap, vm)
 {
     u32 flags = bound(flags);
-    return (((vmap)n)->flags & flags) == flags;
+    return (vm->flags & flags) == flags;
 }
 
 closure_function(0, 1, boolean, vmap_validate_gap,
@@ -351,14 +351,24 @@ closure_function(0, 1, boolean, vmap_validate_gap,
     return false;
 }
 
+/* Walk a given range in the process memory map and invoke a vmap handler for each mapping
+ * encountered in that range.
+ * If `allow_gaps` is false, the presence of any gap in the memory map over the given range makes
+ * this function return RM_ABORT; otherwise, this function returns RM_MATCH if at least (part of)
+ * one mapping exists in the given range, RM_NOMATCH of no mapping exists. */
+static int vmap_range_walk(process p, range q, vmap_handler node_handler, boolean allow_gaps)
+{
+    range_handler gap_handler = allow_gaps ? 0 : stack_closure(vmap_validate_gap);
+    vmap_lock(p);
+    int res = rangemap_range_lookup_with_gaps(p->vmaps, q, (rmnode_handler)node_handler,
+                                              gap_handler);
+    vmap_unlock(p);
+    return res;
+}
+
 boolean vmap_validate_range(process p, range q, u32 flags)
 {
-    vmap_lock(p);
-    int res = rangemap_range_lookup_with_gaps(p->vmaps, q,
-                                              stack_closure(vmap_validate_node, flags),
-                                              stack_closure(vmap_validate_gap));
-    vmap_unlock(p);
-    return res == RM_MATCH;
+    return (vmap_range_walk(p, q, stack_closure(vmap_validate_node, flags), false) == RM_MATCH);
 }
 
 closure_function(0, 1, boolean, vmap_dump_node,
@@ -944,11 +954,11 @@ sysreturn mprotect(void * addr, u64 len, int prot)
 /* blow a hole in the process address space intersecting q */
 closure_function(3, 1, boolean, vmap_remove_intersection,
                  rangemap, pvmap, range, q, vmap_handler, unmap,
-                 rmnode, node)
+                 vmap, match)
 {
+    rmnode node = &match->node;
     thread_log(current, "%s: q %R, r %R", __func__, bound(q), node->r);
     rangemap pvmap = bound(pvmap);
-    vmap match = (vmap)node;
     range rn = node->r;
     range ri = range_intersection(bound(q), rn);
     vmap_debug("%s: vm %p %R, ri %R\n", __func__, match, rn, ri);
@@ -1025,8 +1035,8 @@ static void process_remove_range_locked(process p, range q, boolean unmap)
 {
     vmap_debug("%s: q %R\n", __func__, q);
     vmap_handler vh = unmap ? stack_closure(vmap_unmap, p) : 0;
-    rangemap_range_lookup(p->vmaps, q, stack_closure(vmap_remove_intersection,
-                                                     p->vmaps, q, vh));
+    rangemap_range_lookup(p->vmaps, q,
+                          (rmnode_handler)stack_closure(vmap_remove_intersection, p->vmaps, q, vh));
 }
 
 void unmap_and_free_phys(u64 virtual, u64 length)
@@ -1061,23 +1071,14 @@ void truncate_file_maps(process p, fsfile f, u64 new_length)
 }
 
 closure_function(0, 1, boolean, msync_vmap,
-                 rmnode, n)
+                 vmap, vm)
 {
-    vmap vm = (vmap)n;
     if ((vm->flags & VMAP_FLAG_SHARED) &&
         (vm->flags & VMAP_FLAG_MMAP) &&
         (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
         vmap_assert(vm->cache_node);
-        pagecache_node_scan_and_commit_shared_pages(vm->cache_node, n->r);
+        pagecache_node_scan_and_commit_shared_pages(vm->cache_node, vm->node.r);
     }
-    return true;
-}
-
-closure_function(1, 1, boolean, msync_gap,
-                 boolean *, have_gap,
-                 range, r)
-{
-    *bound(have_gap) = true;
     return true;
 }
 
@@ -1095,11 +1096,7 @@ static sysreturn msync(void *addr, u64 length, int flags)
     if (flags & MS_SYNC) {
         process p = current->p;
         range q = irangel(u64_from_pointer(addr), pad(length, PAGESIZE));
-        vmap_lock(p);
-        rangemap_range_lookup_with_gaps(p->vmaps, q,
-                                        stack_closure(msync_vmap),
-                                        stack_closure(msync_gap, &have_gap));
-        vmap_unlock(p);
+        have_gap = (vmap_range_walk(p, q, stack_closure(msync_vmap), false) == RM_ABORT);
     }
 
     /* TODO: Linux appears to only use MS_INVALIDATE to test whether a
@@ -1330,16 +1327,14 @@ void vmh_dealloc(struct heap *h, u64 a, bytes b)
     vmap_heap vmh = (vmap_heap)h;
     process p = vmh->p;
     range q = irangel(a, b);
-    vmap_lock(p);
-    rangemap_range_lookup(p->vmaps, q, stack_closure(vmap_remove_intersection, p->vmaps, q, 0));
-    vmap_unlock(p);
+    vmap_range_walk(p, q, stack_closure(vmap_remove_intersection, p->vmaps, q, 0), true);
 }
 
 closure_function(1, 1, boolean, vmh_allocated_handler,
                  u64 *, allocated,
-                 rmnode, n)
+                 vmap, vm)
 {
-    *bound(allocated) += range_span(n->r);
+    *bound(allocated) += range_span(vm->node.r);
     return true;
 }
 
@@ -1348,10 +1343,8 @@ bytes vmh_allocated(struct heap *h)
     vmap_heap vmh = (vmap_heap)h;
     process p = vmh->p;
     bytes allocated = 0;
-    vmap_lock(p);
-    rangemap_range_lookup(p->vmaps, irange(0, PROCESS_VIRTUAL_HEAP_LIMIT),
-                          stack_closure(vmh_allocated_handler, &allocated));
-    vmap_unlock(p);
+    vmap_range_walk(p, irange(0, PROCESS_VIRTUAL_HEAP_LIMIT),
+                    stack_closure(vmh_allocated_handler, &allocated), true);
     return allocated;
 }
 
@@ -1362,17 +1355,10 @@ bytes vmh_total(struct heap *h)
 
 closure_function(2, 1, boolean, check_vmap_permissions,
                  u64, required_flags, u64, disallowed_flags,
-                 rmnode, n)
+                 vmap, vm)
 {
-    vmap vm = (vmap)n;
     u64 rf = bound(required_flags), df = bound(disallowed_flags);
     return ((vm->flags & rf) == rf && (vm->flags & df) == 0);
-}
-
-closure_function(0, 1, boolean, check_vmap_gap,
-                 range, r)
-{
-    return false;
 }
 
 boolean validate_user_memory_permissions(process p, const void *buf, bytes length,
@@ -1380,12 +1366,9 @@ boolean validate_user_memory_permissions(process p, const void *buf, bytes lengt
 {
     u64 addr = u64_from_pointer(buf);
     range q = irange(addr, pad(addr + length, PAGESIZE));
-    vmap_lock(p);
-    int res = rangemap_range_lookup_with_gaps(p->vmaps, q,
-                                              stack_closure(check_vmap_permissions, required_flags,
-                                                            disallowed_flags),
-                                              stack_closure(check_vmap_gap));
-    vmap_unlock(p);
+    int res = vmap_range_walk(p, q, stack_closure(check_vmap_permissions, required_flags,
+                                                  disallowed_flags),
+                              false);
     return res == RM_MATCH;
 }
 
