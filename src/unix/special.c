@@ -153,7 +153,7 @@ static sysreturn mounts_read(file f, void *dest, u64 length, u64 offset)
     return length;
 }
 
-closure_function(1, 1, void, maps_handler,
+closure_function(1, 1, boolean, maps_handler,
                  buffer, b,
                  vmap, map)
 {
@@ -173,6 +173,7 @@ closure_function(1, 1, void, maps_handler,
     }
 
     buffer_write_cstring(b, "\n");
+    return true;
 }
 
 static sysreturn maps_read(file f, void *dest, u64 length, u64 offset)

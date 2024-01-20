@@ -330,7 +330,8 @@ void vmap_iterator(process p, vmap_handler vmh)
     vmap_lock(p);
     vmap vm = (vmap) rangemap_first_node(p->vmaps);
     while (vm != INVALID_ADDRESS) {
-        apply(vmh, vm);
+        if (!apply(vmh, vm))
+            break;
         vm = (vmap) rangemap_next_node(p->vmaps, &vm->node);
     }
     vmap_unlock(p);
@@ -1012,11 +1013,12 @@ static void vmap_unmap_page_range(process p, vmap k)
     }
 }
 
-closure_function(1, 1, void, vmap_unmap,
+closure_function(1, 1, boolean, vmap_unmap,
                  process, p,
                  vmap, v)
 {
     vmap_unmap_page_range(bound(p), v);
+    return true;
 }
 
 static void process_remove_range_locked(process p, range q, boolean unmap)

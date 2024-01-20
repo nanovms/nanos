@@ -463,7 +463,7 @@ typedef struct vmap {
     .cache_node = __c,                              \
     .fd = __fd,                                     \
 }
-typedef closure_type(vmap_handler, void, vmap);
+typedef closure_type(vmap_handler, boolean, vmap);
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
