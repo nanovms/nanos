@@ -34,6 +34,10 @@ typedef struct kernel_heaps {
        of DMA memory. */
     backed_heap linear_backed;
 
+    /* Caching heap for allocations of single pages. Avoids complete exhaustion of physical memory,
+     * and minimizes memory fragmentation. */
+    caching_heap pages;
+
     /* The general heap is an mcache used for allocations of arbitrary
        sizes from 32B to 1MB. It is the heap that is closest to being
        a general-purpose allocator. Compatible with a malloc/free

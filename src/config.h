@@ -65,12 +65,11 @@
 #define MEM_CLEAN_THRESHOLD (64 * MB)
 #define MEM_CLEAN_THRESHOLD_SHIFT   6
 #define PAGECACHE_SCAN_PERIOD_SECONDS 5
-#define PAGECACHE_MEMORY_RESERVE        (8 * MB)
-#define PAGECACHE_LOWMEM_MEMORY_RESERVE (4 * MB)
-#define USER_MEMORY_RESERVE (4 * MB)
+#define PAGEHEAP_MEMORY_RESERVE         (8 * MB)
+#define PAGEHEAP_LOWMEM_MEMORY_RESERVE  (4 * MB)
+#define PAGEHEAP_LOWMEM_PAGESIZE        (128*KB)
 #define LOW_MEMORY_THRESHOLD   (64 * MB)
 #define SG_FRAG_BYTE_THRESHOLD (128*KB)
-#define PAGECACHE_LOWMEM_CONTIGUOUS_PAGESIZE (128*KB)
 #define PAGECACHE_MAX_SG_ENTRIES    8192
 
 /* don't go below this minimum amount of physical memory when inflating balloon */

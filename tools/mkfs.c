@@ -729,7 +729,7 @@ int main(int argc, char **argv)
         parser_feed(p, read_stdin(h));
     }
 
-    init_pagecache(h, h, 0, PAGESIZE);
+    init_pagecache(h, h, PAGESIZE);
     mkfs_write_status = closure(h, mkfs_write_handler);
 
     if (root && !empty_fs) {

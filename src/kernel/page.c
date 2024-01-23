@@ -544,6 +544,27 @@ void unmap(u64 virtual, u64 length)
     unmap_pages(virtual, length);
 }
 
+closure_function(1, 1, boolean, page_dealloc,
+                 heap, pageheap,
+                 range, r)
+{
+    u64 virt = pagemem.pagevirt.start + r.start;
+    deallocate_u64(bound(pageheap), virt, range_span(r));
+    return true;
+}
+
+void unmap_and_free_phys(u64 virtual, u64 length)
+{
+    unmap_pages_with_handler(virtual, length,
+                             stack_closure(page_dealloc, (heap)get_kernel_heaps()->pages));
+}
+
+void page_free_phys(u64 phys)
+{
+    u64 virt = pagemem.pagevirt.start + phys;
+    deallocate_u64((heap)get_kernel_heaps()->pages, virt, PAGESIZE);
+}
+
 static boolean init_page_map(range phys, range *curr_virt, id_heap virt_heap, pageflags flags)
 {
     if (phys.end > range_span(*curr_virt)) {

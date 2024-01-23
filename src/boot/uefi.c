@@ -280,7 +280,7 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
             continue;
         uefi_debug("found boot filesystem at LBA 0x%lx, length 0x%lx sectors",
                    bootfs_part->lba_start, bootfs_part->nsectors);
-        init_pagecache(&general, &general, 0, PAGESIZE);
+        init_pagecache(&general, &general, PAGESIZE);
         create_filesystem(&general, SECTOR_SIZE, bootfs_part->nsectors * SECTOR_SIZE,
                           closure(&general, uefi_blkdev_read, block_io, bootfs_part->lba_start), true, 0,
                           closure(&general, uefi_bootfs_complete, &general, &aligned_heap, &options));

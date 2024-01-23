@@ -927,7 +927,7 @@ int main(int argc, char **argv)
     dfd = fd;
     --argc;
     h = init_process_runtime();
-    init_pagecache(h, h, 0, PAGESIZE);
+    init_pagecache(h, h, PAGESIZE);
     u64 length;
     u64 offset = get_fs_offset(fd, partition, false, &length);
     create_filesystem(h,

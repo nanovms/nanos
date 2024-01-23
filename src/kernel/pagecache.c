@@ -500,8 +500,9 @@ static u64 evict_from_list_locked(pagecache pc, struct pagelist *pl, u64 pages)
                         pl == &pc->new ? "new" : "active", pp, byte_range_from_page(pc, pp),
                         page_state(pp), pp->refcount);
         pp->evicted = true;
+        if (pp->refcount == 1)
+            evicted++;
         pagecache_page_release_locked(pc, pp, true);
-        evicted++;
     }
     return evicted;
 }
@@ -832,17 +833,9 @@ u64 pagecache_drain(u64 drain_bytes)
 {
     pagecache pc = global_pagecache;
     u64 pages = pad(drain_bytes, cache_pagesize(pc)) >> pc->page_order;
-    u64 drained = 0;
 
     pagecache_lock_state(pc);
-    do {
-        u64 evicted = evict_pages_locked(pc, pages);
-        drained += cache_drain((caching_heap)pc->contiguous, drain_bytes - drained,
-                               PAGECACHE_PAGES_RETAIN * cache_pagesize(pc));
-        if (evicted < pages)
-            break;
-        pages *= 2;
-    } while (drained < drain_bytes);
+    u64 drained = evict_pages_locked(pc, pages) * cache_pagesize(pc);
     balance_page_lists_locked(pc);
     if (drained < drain_bytes)
         pagecache_delete_pages_locked(pc);
@@ -1585,8 +1578,9 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     pagecache_debug("%s: node %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx\n",
                     __func__, pn, node_offset, vaddr, flags.w);
     pagecache pc = pn->pv->pc;
-    u64 paddr = allocate_u64(pc->physical, PAGESIZE);
-    if (paddr == INVALID_PHYSICAL)
+    u64 pagesize = cache_pagesize(pc);
+    void *p = allocate(pc->contiguous, pagesize);
+    if (p == INVALID_ADDRESS)
         return false;
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pc->page_order);
@@ -1595,9 +1589,9 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
     assert(page_state(pp) != PAGECACHE_PAGESTATE_FREE);
     assert(pp->kvirt != INVALID_ADDRESS);
     assert(pp->refcount != 0);
-    unmap(vaddr, cache_pagesize(pc));
-    map(vaddr, paddr, cache_pagesize(pc), flags);
-    runtime_memcpy(pointer_from_u64(vaddr), pp->kvirt, cache_pagesize(pc));
+    unmap(vaddr, pagesize);
+    map(vaddr, physical_from_virtual(p), pagesize, flags);
+    runtime_memcpy(pointer_from_u64(vaddr), pp->kvirt, pagesize);
     pagecache_unlock_node(pn);
     pagecache_lock_state(pc);
     pagecache_page_release_locked(pc, pp, true);
@@ -1696,7 +1690,7 @@ closure_function(4, 3, boolean, pagecache_unmap_page_nodelocked,
             pagecache_unlock_state(pc);
         } else {
             /* private copy: free physical page */
-            deallocate_u64(pc->physical, phys, cache_pagesize(pc));
+            page_free_phys(phys);
         }
     }
     return true;
@@ -1901,7 +1895,7 @@ static inline void page_list_init(struct pagelist *pl)
     pl->pages = 0;
 }
 
-void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
+void init_pagecache(heap general, heap contiguous, u64 pagesize)
 {
     pagecache pc = allocate(general, sizeof(struct pagecache));
     assert (pc != INVALID_ADDRESS);
@@ -1910,15 +1904,7 @@ void init_pagecache(heap general, heap contiguous, heap physical, u64 pagesize)
     pc->page_order = find_order(pagesize);
     assert(pagesize == U64_FROM_BIT(pc->page_order));
     pc->h = general;
-#ifdef KERNEL
-    pc->contiguous = (heap)allocate_objcache(general, contiguous, PAGESIZE,
-                                             is_low_memory_machine() ?
-                                             PAGECACHE_LOWMEM_CONTIGUOUS_PAGESIZE :
-                                             PAGESIZE_2M, true);
-#else
     pc->contiguous = contiguous;
-#endif
-    pc->physical = physical;
     heap dma = heap_dma();
     pc->zero_page = allocate_zero(dma, pagesize);
     assert(pc->zero_page != INVALID_ADDRESS);

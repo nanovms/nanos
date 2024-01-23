@@ -997,17 +997,6 @@ closure_function(3, 1, boolean, vmap_remove_intersection,
     return true;
 }
 
-closure_function(1, 1, boolean, dealloc_phys_page,
-                 id_heap, physical,
-                 range, r)
-{
-    if (!id_heap_set_area(bound(physical), r.start, range_span(r), true, false)) {
-        msg_err("some of physical range %R not allocated in heap\n", r);
-        return false;
-    }
-    return true;
-}
-
 static void vmap_unmap_page_range(process p, vmap k)
 {
     range r = k->node.r;
@@ -1040,12 +1029,6 @@ static void process_remove_range_locked(process p, range q, boolean unmap)
     vmap_handler vh = unmap ? stack_closure(vmap_unmap, p) : 0;
     rangemap_range_lookup(p->vmaps, q,
                           (rmnode_handler)stack_closure(vmap_remove_intersection, p->vmaps, q, vh));
-}
-
-void unmap_and_free_phys(u64 virtual, u64 length)
-{
-    unmap_pages_with_handler(virtual, length,
-        stack_closure(dealloc_phys_page, heap_physical(get_kernel_heaps())));
 }
 
 /* don't truncate vmap; just unmap truncated pages */
@@ -1405,8 +1388,7 @@ void mmap_process_init(process p, tuple root)
     heap h = heap_locked(kh);
     boolean aslr = !get(root, sym(noaslr));
     mmap_info.h = h;
-    mmap_info.virtual_backed = reserve_heap_wrapper(h, (heap)heap_page_backed(kh),
-                                                    USER_MEMORY_RESERVE);
+    mmap_info.virtual_backed = (heap)kh->pages;
     spin_lock_init(&p->vmap_lock);
     u64 min_addr;
     if (get_u64(root, sym(mmap_min_addr), &min_addr))

@@ -28,7 +28,6 @@ typedef struct pagecache {
     int page_order;
     heap h;
     heap contiguous;
-    heap physical;
     heap completions;
     heap pp_heap;
 

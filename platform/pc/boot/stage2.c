@@ -267,7 +267,7 @@ void newstack()
 
     setup_page_tables();
 
-    init_pagecache(h, h, 0, PAGESIZE);
+    init_pagecache(h, h, PAGESIZE);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,

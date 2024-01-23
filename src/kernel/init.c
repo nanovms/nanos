@@ -119,6 +119,12 @@ void init_kernel_heaps(void)
     }
 
     boolean is_lowmem = is_low_memory_machine();
+    u64 memory_reserve = is_lowmem ? PAGEHEAP_LOWMEM_MEMORY_RESERVE : PAGEHEAP_MEMORY_RESERVE;
+    heaps.pages = allocate_objcache(&bootstrap,
+                                    reserve_heap_wrapper(&bootstrap, (heap)heaps.page_backed,
+                                                         memory_reserve),
+                                    PAGESIZE, is_lowmem ? PAGEHEAP_LOWMEM_PAGESIZE : PAGESIZE_2M,
+                                    true);
     int max_mcache_order = is_lowmem ? MAX_LOWMEM_MCACHE_ORDER : MAX_MCACHE_ORDER;
     bytes pagesize = is_lowmem ? U64_FROM_BIT(max_mcache_order + 1) : PAGESIZE_2M;
     heaps.general = allocate_mcache(&bootstrap, (heap)heaps.page_backed, 5, max_mcache_order,
@@ -368,7 +374,12 @@ static u64 mm_clean(u64 clean_bytes)
         e = next;
     }
     spin_unlock(&mm_lock);
-    return clean_bytes - remain;
+    u64 cleaned = clean_bytes - remain;
+    if (cleaned)
+        /* Memory cleaners may have deallocated page heap memory: drain the page heap, so that
+         * deallocated memory can be returned to the physical heap. */
+        cache_drain(init_heaps->pages, cleaned, 0);
+    return cleaned;
 }
 
 boolean mm_register_mem_cleaner(mem_cleaner cleaner)
@@ -571,9 +582,7 @@ void kernel_runtime_init(kernel_heaps kh)
     dma_init(kh);
     list_init(&mm_cleaners);
     spin_lock_init(&mm_lock);
-    u64 memory_reserve = lowmem ? PAGECACHE_LOWMEM_MEMORY_RESERVE : PAGECACHE_MEMORY_RESERVE;
-    init_pagecache(locked, reserve_heap_wrapper(misc, (heap)heap_page_backed(kh), memory_reserve),
-                   reserve_heap_wrapper(misc, (heap)heap_physical(kh), memory_reserve), PAGESIZE);
+    init_pagecache(locked, (heap)kh->pages, PAGESIZE);
     mem_cleaner pc_cleaner = closure(misc, mm_pagecache_cleaner);
     assert(pc_cleaner != INVALID_ADDRESS);
     assert(mm_register_mem_cleaner(pc_cleaner));

@@ -800,6 +800,7 @@ static inline u64 phys_from_linear_backed_virt(u64 virt)
 }
 
 void unmap_and_free_phys(u64 virtual, u64 length);
+void page_free_phys(u64 phys);
 
 #if !defined(BOOT)
 
