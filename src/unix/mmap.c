@@ -981,15 +981,18 @@ closure_function(3, 1, boolean, vmap_remove_intersection,
     } else {
         /* tail only: move node start back */
         vmap_assert(rangemap_reinsert(pvmap, node, irange(ri.end, rn.end)));
-        match->node_offset += ri.end - rn.start;
     }
     if (bound(unmap)) {
         struct vmap k = altered_vmap_key(match, match->flags, ri.start - rn.start);
         k.node.r = ri;
         apply(bound(unmap), &k);
     }
-    if (!head && !tail)
-        deallocate_vmap_locked(pvmap, match);
+    if (!head) {
+        if (tail)
+            match->node_offset += ri.end - rn.start;
+        else
+            deallocate_vmap_locked(pvmap, match);
+    }
     vmap_paranoia_locked(pvmap);
     return true;
 }
