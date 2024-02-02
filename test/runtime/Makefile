@@ -1,3 +1,5 @@
+include ../../vars.mk
+
 # these are built for the target platform (Linux x86_64)
 DEBUG_STRIP=y
 PROGRAMS= \
@@ -46,7 +48,6 @@ PROGRAMS= \
 	udploop \
 	unixsocket \
 	unlink \
-	vsyscall \
 	web \
 	webg \
 	webs \
@@ -278,11 +279,6 @@ SRCS-unlink= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-unlink=		-static
 
-SRCS-vsyscall= \
-	$(CURDIR)/vsyscall.c \
-	$(SRCDIR)/unix_process/ssp.c
-LDFLAGS-vsyscall=	 -static
-
 SRCS-web= \
 	$(CURDIR)/web.c \
 	$(SRCDIR)/http/http.c \
@@ -309,6 +305,18 @@ SRCS-readv = \
 	$(CURDIR)/readv.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-readv=		-static
+
+ifeq ($(ARCH),x86_64)
+
+PROGRAMS+= \
+	vsyscall \
+
+SRCS-vsyscall= \
+	$(CURDIR)/vsyscall.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-vsyscall=	 -static
+
+endif
 
 CFLAGS+=	-O3 -DENABLE_MSG_DEBUG
 CFLAGS+=	-I$(ARCHDIR) \

@@ -6,6 +6,8 @@ GOGET=		$(GO) get
 GOMOD=		$(GO) mod
 BINARY_NAME=	ops
 
+include ../../vars.mk
+
 all: build
 
 build: deps

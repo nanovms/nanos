@@ -5,6 +5,8 @@ GOTEST=		$(GO) test
 GOGET=		$(GO) get
 BINARY_NAME=	ops
 
+include ../../vars.mk
+
 test:
 	$(Q) $(MKDIR) $(OBJDIR)
 	$(Q) $(LN) -sf $(PLATFORMOBJDIR)/bin/kernel.img $(OBJDIR)/kernel.img

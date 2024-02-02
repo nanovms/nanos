@@ -1,3 +1,5 @@
+include ../vars.mk
+
 LWIPDIR=		$(VENDORDIR)/lwip
 MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 

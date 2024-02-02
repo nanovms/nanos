@@ -1,3 +1,5 @@
+include ../../vars.mk
+
 ACPICA_DIR=	$(VENDORDIR)/acpica
 LWIPDIR=	$(VENDORDIR)/lwip
 PROGRAMS=	kernel.elf

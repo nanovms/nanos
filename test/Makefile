@@ -1,3 +1,5 @@
+include ../vars.mk
+
 SUBDIR=			unit runtime go e2e
 
 # can't do runtime until image build is common...

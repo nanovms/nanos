@@ -1,3 +1,5 @@
+include ../../../vars.mk
+
 PROGRAMS=	stage2.elf
 
 SRCS-stage2.elf= \

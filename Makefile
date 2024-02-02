@@ -1,3 +1,5 @@
+include vars.mk
+
 SUBDIR=		$(PLATFORMDIR) klib test tools
 
 # runtime tests / ready-to-use targets
@@ -98,7 +100,56 @@ test test-noaccel: image
 	$(Q) $(MAKE) -C test test
 	$(Q) $(MAKE) runtime-tests$(subst test,,$@)
 
-RUNTIME_TESTS=	aio creat dup epoll eventfd fadvise fallocate fcntl fst fs_full futex futexrobust getdents getrandom hw hwg hws inotify io_uring ktest mkdir mmap netlink netsock pipe readv rename sandbox sendfile signal sigoverflow socketpair syslog time unlink thread_test tlbshootdown tun unixsocket vsyscall write writev
+RUNTIME_TESTS=	\
+	aio \
+	creat \
+	dup \
+	epoll \
+	eventfd \
+	fadvise \
+	fallocate \
+	fcntl \
+	fst \
+	fs_full \
+	futex \
+	futexrobust \
+	getdents \
+	getrandom \
+	hw \
+	hwg \
+	hws \
+	inotify \
+	io_uring \
+	ktest \
+	mkdir \
+	mmap \
+	netlink \
+	netsock \
+	pipe \
+	readv \
+	rename \
+	sandbox \
+	sendfile \
+	signal \
+	sigoverflow \
+	socketpair \
+	symlink \
+	syslog \
+	thread_test \
+	time \
+	tlbshootdown \
+	tun \
+	unixsocket \
+	unlink \
+	write \
+	writev \
+
+ifeq ($(ARCH),x86_64)
+
+RUNTIME_TESTS+= \
+	vsyscall \
+
+endif
 
 .PHONY: runtime-tests runtime-tests-noaccel
 

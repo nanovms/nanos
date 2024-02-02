@@ -1,3 +1,5 @@
+include ../../vars.mk
+
 LWIPDIR=	$(VENDORDIR)/lwip
 PROGRAMS=	kernel.elf
 

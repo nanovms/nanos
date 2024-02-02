@@ -1,3 +1,5 @@
+include ../../vars.mk
+
 SUBDIR=		boot
 ACPICA_DIR=	$(VENDORDIR)/acpica
 LWIPDIR=	$(VENDORDIR)/lwip
