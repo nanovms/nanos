@@ -143,6 +143,15 @@ SRCS-mbedtls-tls= \
 	$(MBEDTLS_DIR)/library/ssl_ticket.c \
 	$(MBEDTLS_DIR)/library/ssl_tls.c \
 
+ifeq ($(ARCH),x86_64)
+
+PROGRAMS+= umcg
+
+SRCS-umcg= \
+	$(CURDIR)/umcg.c \
+
+endif
+
 ADDITIONAL_PROGRAMS= \
 	test/klib \
 	test/lock \

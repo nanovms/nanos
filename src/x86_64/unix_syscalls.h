@@ -335,4 +335,4 @@
 #define SYS_io_uring_register			427
 #define SYS_clone3				435
 
-#define SYS_MAX 436
+#define SYS_MAX 451

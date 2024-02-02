@@ -219,6 +219,7 @@ struct blockq {
     closure_struct(free_blockq, free);
 };
 
+void blockq_init(blockq bq, sstring name);
 blockq allocate_blockq(heap h, sstring name);
 void deallocate_blockq(blockq bq);
 void blockq_thread_init(unix_context t);

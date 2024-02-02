@@ -147,6 +147,7 @@ RUNTIME_TESTS=	\
 ifeq ($(ARCH),x86_64)
 
 RUNTIME_TESTS+= \
+	umcg \
 	vsyscall \
 
 endif

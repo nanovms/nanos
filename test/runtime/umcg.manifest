@@ -1,0 +1,15 @@
+(
+    boot:(
+        children:(
+            klib:(children:(umcg:(contents:(host:output/klib/bin/umcg))))
+        )
+    )
+    children:(
+        umcg:(contents:(host:output/test/runtime/bin/umcg))
+        TEST-LIBS
+    )
+    klibs:bootfs
+    program:/umcg
+    environment:()
+    arguments:[umcg]
+)

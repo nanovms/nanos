@@ -331,19 +331,23 @@ define_closure_function(1, 0, void, free_blockq,
     deallocate(bq->h, bq, sizeof(struct blockq));
 }
 
-blockq allocate_blockq(heap h, sstring name)
+void blockq_init(blockq bq, sstring name)
 {
-    blockq_debug("name \"%s\"\n", name);
-    blockq bq = allocate(h, sizeof(struct blockq));
-    if (bq == INVALID_ADDRESS)
-        return bq;
-
-    bq->h = h;
     bq->name = name;
     bq->wake = false;
     spin_lock_init(&bq->lock);
     list_init(&bq->waiters_head);
     init_refcount(&bq->refcount, 1, init_closure(&bq->free, free_blockq, bq));
+}
+
+blockq allocate_blockq(heap h, sstring name)
+{
+    blockq_debug("name \"%s\"\n", name);
+    blockq bq = allocate(h, sizeof(struct blockq));
+    if (bq != INVALID_ADDRESS) {
+        bq->h = h;
+        blockq_init(bq, name);
+    }
     return bq;
 }
 

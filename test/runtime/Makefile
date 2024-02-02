@@ -309,7 +309,14 @@ LDFLAGS-readv=		-static
 ifeq ($(ARCH),x86_64)
 
 PROGRAMS+= \
+	umcg \
 	vsyscall \
+
+SRCS-umcg= \
+	$(CURDIR)/umcg.c \
+	$(SRCDIR)/unix_process/unix_process_runtime.c \
+	$(RUNTIME)
+LIBS-umcg=	-lpthread
 
 SRCS-vsyscall= \
 	$(CURDIR)/vsyscall.c \
