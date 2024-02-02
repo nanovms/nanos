@@ -330,10 +330,7 @@ void thread_yield(void)
    point pause and release are called and the context is placed on a free list. */
 void thread_wakeup(thread t)
 {
-    cpuinfo ci = current_cpu();
-    context ctx = get_current_context(ci);
-    assert(is_syscall_context(ctx));
-    syscall_context sc = (syscall_context)ctx;
+    syscall_context sc = t->syscall;
     blockq bq = sc->uc.blocked_on;
     assert(bq);
     thread_log(current, "%s: %ld->%ld blocked_on %s, RIP=0x%lx", func_ss, current->tid, t->tid,
@@ -341,7 +338,7 @@ void thread_wakeup(thread t)
                thread_frame(t)[SYSCALL_FRAME_PC]);
     sc->uc.blocked_on = 0;
     t->syscall = 0;
-    context_release_refcount(ctx);
+    context_release_refcount(&sc->uc.kc.context);
     schedule_thread(t);
 }
 
