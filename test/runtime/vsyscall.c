@@ -1,12 +1,12 @@
 /* vsyscall test */
 
-#include <stdio.h>
 #include <time.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+
+#include "../test_utils.h"
 
 #define VSYSCALL_BASE                 0xffffffffff600000ull
 #define VSYSCALL_OFFSET_VGETTIMEOFDAY 0x000
@@ -25,8 +25,7 @@ int main(int argc, char * argv[])
 {
     unsigned cpu = 0, node = 0;
     if (vgetcpu(&cpu, &node, NULL) != 0) {
-        printf("vgetcpu failed: %s (%d)\n", strerror(errno), errno);
-        return EXIT_FAILURE;
+        test_perror("vgetcpu");
     }
     printf("vgetcpu: cpu %d, node %d\n", cpu, node);
 
@@ -39,20 +38,17 @@ int main(int argc, char * argv[])
 
         t1 = vtime(NULL);
         if (t1 == -1) {
-            printf("vtime #1 failed: %s (%d)\n", strerror(errno), errno);
-            return EXIT_FAILURE;
+            test_perror("vtime #1");
         }
         printf("vtime with null arg: returned %lu\n", t1);
 
         t1 = vtime(&t2);
         if (t1 == -1) {
-            printf("vtime #2 failed: %s (%d)\n", strerror(errno), errno);
-            return EXIT_FAILURE;
+            test_perror("vtime #2");
         }
         printf("vtime with arg: returned %lu, stored %lu\n", t1, t2);
         if (t1 != t2) {
-            printf("failure: return val and stored time mismatch\n");
-            return EXIT_FAILURE;
+            test_error("return val and stored time mismatch");
         }
 
         sleep(1);

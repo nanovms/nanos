@@ -6,8 +6,6 @@
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 #include <poll.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -17,19 +15,12 @@
 
 #include <runtime.h>
 
+#include "../test_utils.h"
+
 #define TUN_ADDR    0x0a0b0c0d
 
 #define TUN_PEER_ADDR   (TUN_ADDR + 1)
 #define TUN_PEER_PORT   1234
-
-#define FAULT_ADDR ((void *)0xBADF0000)
-
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
 
 static int tun_setup(int flags, char *ifname)
 {

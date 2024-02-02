@@ -1,8 +1,6 @@
 #include <sys/time.h>
 #include <sys/times.h>
 #include <sys/syscall.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -15,6 +13,8 @@
 #include <sched.h>
 #include <pthread.h>
 #include <sys/stat.h>
+
+#include "../test_utils.h"
 
 #ifndef TFD_TIMER_CANCEL_ON_SET /* old glibc */
 #define TFD_TIMER_CANCEL_ON_SET (1 << 1)
@@ -29,11 +29,6 @@
 #else
 #define timetest_debug(x, ...)
 #endif
-
-#define fail_perror(msg, ...) do { timetest_msg(msg ": %s (%d)\n", ##__VA_ARGS__, strerror(errno), errno); \
-        exit(EXIT_FAILURE); } while(0)
-
-#define fail_error(msg, ...) do { timetest_msg(msg, ##__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
 
 #define SECOND_NSEC 1000000000ull
 #define SECOND_USEC 1000000ull
@@ -110,31 +105,31 @@ static void test_clock_nanosleep(clockid_t clock_id, unsigned long long nsec)
     /* check relative interval */
     timetest_debug("relative test\n");
     if (clock_gettime(clock_id, &start) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
     timespec_from_nsec(&req, nsec);
     if (clock_nanosleep(clock_id, 0, &req, &rem) < 0)
-        fail_perror("clock_nanosleep");
+        test_perror("clock_nanosleep");
     if (clock_gettime(clock_id, &end) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
 
     long long delta = validate_interval(&start, &end, 1, nsec);
     if (delta < 0)
-        fail_error("interval validation failed\n");
+        test_error("interval validation");
     timetest_msg("relative test passed, delta %lld nsec\n", delta);
 
     /* check absolute interval */
     timetest_debug("absolute test\n");
     if (clock_gettime(clock_id, &start) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
     timespec_add_nsec(&req, &start, nsec);
     if (clock_nanosleep(clock_id, TIMER_ABSTIME, &req, &rem) < 0)
-        fail_perror("clock_nanosleep");
+        test_perror("clock_nanosleep");
     if (clock_gettime(clock_id, &end) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
 
     delta = validate_interval(&start, &end, 1, nsec);
     if (delta < 0)
-        fail_error("interval validation failed\n");
+        test_error("interval validation");
     timetest_msg("absolute test passed, delta %lld nsec\n", delta);
 
     /* XXX need test for interrupt / check remaining */
@@ -147,16 +142,16 @@ static void test_nanosleep(unsigned long long nsec)
 
     /* Linux nanosleep measures against CLOCK_MONOTONIC (see nanosleep(2) man page) */
     if (clock_gettime(CLOCK_MONOTONIC, &start) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
     timespec_from_nsec(&req, nsec);
     if (nanosleep(&req, &rem) < 0)
-        fail_perror("nanosleep");
+        test_perror("nanosleep");
     if (clock_gettime(CLOCK_MONOTONIC, &end) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
 
     long long delta = validate_interval(&start, &end, 1, nsec);
     if (delta < 0)
-        fail_error("interval validation failed\n");
+        test_error("interval validation");
     timetest_msg("test passed, delta %lld nsec\n", delta);
 
     /* XXX need test for interrupt / check remaining */
@@ -186,7 +181,7 @@ void test_time_and_times(void)
             (tms.tms_stime < tms_prev.tms_stime) ||
             (tms.tms_cutime < tms_prev.tms_cutime) ||
             (tms.tms_cstime < tms_prev.tms_cstime) || (uptime < uptime_prev)) {
-            fail_error("non-monotonic values\n");
+            test_error("non-monotonic values");
         }
         memcpy(&tms_prev, &tms, sizeof(tms));
         uptime_prev = uptime;
@@ -194,12 +189,12 @@ void test_time_and_times(void)
         struct timespec tp;
         timetest_msg("CLOCK_MONOTONIC: ");
         if (clock_gettime(CLOCK_MONOTONIC, &tp) < 0)
-            fail_perror("clock_gettime");
+            test_perror("clock_gettime");
         print_timespec(&tp);
         printf("\n");
         timetest_msg("CLOCK_REALTIME: ");
         if (clock_gettime(CLOCK_REALTIME, &tp) < 0)
-            fail_perror("clock_gettime");
+            test_perror("clock_gettime");
         print_timespec(&tp);
         printf("\n");
         usleep(250000);
@@ -214,55 +209,55 @@ static void test_cputime(void)
     int rv;
 
     if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &thread_ts) < 0)
-        fail_perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
+        test_perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
     if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &proc_ts) < 0)
-        fail_perror("clock_gettime(CLOCK_PROCESS_CPUTIME_ID)");
+        test_perror("clock_gettime(CLOCK_PROCESS_CPUTIME_ID)");
     if (delta_nsec(&thread_ts, &proc_ts) < 0)
-        fail_error("%s: process CPU time < thread CPU time\n", __func__);
+        test_error("%s: process CPU time < thread CPU time", __func__);
     do {
         if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmp_ts) < 0)
-            fail_perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
+            test_perror("clock_gettime(CLOCK_THREAD_CPUTIME_ID)");
         thread_delta = delta_nsec(&thread_ts, &tmp_ts);
         if (thread_delta < 0)
-            fail_error("%s: thread_delta %lld\n", __func__, thread_delta);
+            test_error("%s: thread_delta %lld", __func__, thread_delta);
         thread_ts = tmp_ts;
         if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &tmp_ts) < 0)
-            fail_perror("clock_gettime(CLOCK_PROCESS_CPUTIME_ID)");
+            test_perror("clock_gettime(CLOCK_PROCESS_CPUTIME_ID)");
         proc_delta = delta_nsec(&proc_ts, &tmp_ts);
         if (proc_delta < 0)
-            fail_error("%s: proc_delta %lld\n", __func__, proc_delta);
+            test_error("%s: proc_delta %lld", __func__, proc_delta);
         proc_ts = tmp_ts;
         if (delta_nsec(&thread_ts, &proc_ts) < 0)
-            fail_error("%s: process CPU time < thread CPU time\n", __func__);
+            test_error("%s: process CPU time < thread CPU time", __func__);
     } while ((thread_delta == 0) || (proc_delta == 0));
 
     rv = clock_getcpuclockid(0xbad0bad, &cid);
     if (rv != ESRCH)
-        fail_error("clock_getcpuclockid with invalid pid returned %d\n", rv);
+        test_error("clock_getcpuclockid with invalid pid returned %d", rv);
     rv = clock_gettime(~0 << 3, &tmp_ts);
     if ((rv != -1) || (errno != EINVAL))
-        fail_error("clock_gettime with invalid clock type returned %d (errno %d)\n", rv, errno);
+        test_error("clock_gettime with invalid clock type returned %d (errno %d)", rv, errno);
     rv = clock_gettime((~0xbad0bad << 3) | 0x2, &tmp_ts);
     if ((rv != -1) || (errno != EINVAL))
-        fail_error("clock_gettime with invalid process id returned %d (errno %d)\n", rv, errno);
+        test_error("clock_gettime with invalid process id returned %d (errno %d)", rv, errno);
     rv = clock_gettime((~0xbad0bad << 3) | 0x4 | 0x2, &tmp_ts);
     if ((rv != -1) || (errno != EINVAL))
-        fail_error("clock_gettime with invalid thread id returned %d (errno %d)\n", rv, errno);
+        test_error("clock_gettime with invalid thread id returned %d (errno %d)", rv, errno);
 
     rv = pthread_getcpuclockid(pthread_self(), &cid);
     if (rv != 0)
-        fail_error("thread_getcpuclockid for the current thread returned %d\n", rv);
+        test_error("thread_getcpuclockid for the current thread returned %d", rv);
     if (clock_gettime(cid, &thread_ts) < 0)
-        fail_perror("clock_gettime(pthread_getcpuclockid())");
+        test_perror("clock_gettime(pthread_getcpuclockid())");
 
     rv = clock_getcpuclockid(0, &cid);
     if (rv != 0)
-        fail_error("clock_getcpuclockid for the current process returned %d\n", rv);
+        test_error("clock_getcpuclockid for the current process returned %d", rv);
     if (clock_gettime(cid, &proc_ts) < 0)
-        fail_perror("clock_gettime(clock_getcpuclockid())");
+        test_perror("clock_gettime(clock_getcpuclockid())");
 
     if (delta_nsec(&thread_ts, &proc_ts) < 0)
-        fail_error("process CPU time < thread CPU time\n");
+        test_error("process CPU time < thread CPU time");
 }
 
 static void test_getres_clk(clockid_t clk_id)
@@ -270,9 +265,9 @@ static void test_getres_clk(clockid_t clk_id)
     struct timespec res;
 
     if ((clock_getres(clk_id, NULL) < 0) || (clock_getres(clk_id, &res) < 0))
-        fail_perror("failed to get resolution for clock %d", clk_id);
+        test_perror("failed to get resolution for clock %d", clk_id);
     if ((res.tv_sec == 0) && (res.tv_nsec == 0))
-        fail_error("zero resolution for clock %d\n", clk_id);
+        test_error("zero resolution for clock %d", clk_id);
 }
 
 static void test_getres(void)
@@ -289,8 +284,8 @@ static void test_getres(void)
 
 #define pertest_msg(x, ...) timetest_msg("test %d: " x, test->test_id, ##__VA_ARGS__);
 #define pertest_debug(x, ...) timetest_debug("test %d: " x, test->test_id, ##__VA_ARGS__);
-#define pertest_fail_perror(x, ...) fail_perror("test %d: " x, test->test_id, ##__VA_ARGS__);
-#define pertest_fail_error(x, ...) fail_error("test %d: " x, test->test_id, ##__VA_ARGS__);
+#define pertest_fail_perror(x, ...) test_perror("test %d: " x, test->test_id, ##__VA_ARGS__);
+#define pertest_fail_error(x, ...)  test_error("test %d: " x, test->test_id, ##__VA_ARGS__);
 
 struct timer_test {
     /* test parameters */
@@ -318,14 +313,14 @@ static inline void timerfd_set(clockid_t clock_id, int fd, unsigned long long va
     if (absolute) {
         struct timespec n;
         if (clock_gettime(clock_id, &n) < 0)
-            fail_perror("clock_gettime");
+            test_perror("clock_gettime");
         timespec_add_nsec(&its.it_value, &n, value);
     } else {
         timespec_from_nsec(&its.it_value, value);
     }
     timespec_from_nsec(&its.it_interval, interval);
     if (timerfd_settime(fd, absolute ? TFD_TIMER_ABSTIME : 0, &its, 0) < 0)
-        fail_perror("timerfd_settime");
+        test_perror("timerfd_settime");
 }
 
 static inline void timerfd_check_disarmed(int fd)
@@ -333,9 +328,9 @@ static inline void timerfd_check_disarmed(int fd)
     struct itimerspec its;
     int rv = timerfd_gettime(fd, &its);
     if (rv < 0)
-        fail_perror("timerfd_gettime");
+        test_perror("timerfd_gettime");
     if (its.it_value.tv_sec != 0 || its.it_value.tv_nsec != 0)
-        fail_error("timerfd_gettime should have returned zero it_value for disarmed timer.\n");
+        test_error("timerfd_gettime should have returned zero it_value for disarmed timer");
 }
 
 static void timerfd_test_start(struct timer_test *test)
@@ -357,7 +352,7 @@ static void timerfd_test_finish(struct timer_test *test)
     long long delta = validate_interval(&test->start, &test->finish,
                                         test->total_overruns, test->nsec);
     if (delta < 0)
-        pertest_fail_error("interval validation failed\n");
+        pertest_fail_error("interval validation");
     timetest_msg("%s clock id %d, nsec %lld, overruns %lld passed "
                  "with delta %lld nsec\n", test->absolute ? "absolute" : "relative",
                  test->clock, test->nsec, test->overruns, delta);
@@ -375,9 +370,9 @@ static int test_timerfd_fd_service(struct timer_test *test)
         pertest_fail_perror("read");
     }
     if (rv != sizeof(overruns))
-        pertest_fail_error("read returned unexpected value: %d\n", rv);
+        pertest_fail_error("read returned unexpected value: %d", rv);
     if (overruns == 0)
-        pertest_fail_error("read zero overruns\n");
+        pertest_fail_error("read zero overruns");
     test->total_overruns += overruns;
     pertest_debug("read %lld overruns, total %lld\n", overruns, test->total_overruns);
     return test->total_overruns >= test->overruns;
@@ -405,12 +400,12 @@ static void test_timerfd(void)
     timetest_msg("testing interface");
     int fd = timerfd_create(CLOCK_MONOTONIC /* matters not for interface test */, 0);
     if (fd < 0)
-        fail_perror("timerfd_create");
+        test_perror("timerfd_create");
 
     int rv = timerfd_gettime(fd, 0);
     if (rv >= 0 || errno != EFAULT) {
-        fail_error("timerfd_gettime with null curr_value should have failed with "
-                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+        test_error("timerfd_gettime with null curr_value should have failed with "
+                   "EFAULT (rv %d, errno %d)", rv, errno);
     }
 
     timerfd_check_disarmed(fd);
@@ -432,9 +427,9 @@ static void test_timerfd(void)
                                    test->test_id, test->clock, test->nsec, test->overruns, test->absolute);
                     test->fd = timerfd_create(test->clock, 0);
                     if (test->fd < 0)
-                        fail_perror("test #%d failed: timerfd_create", test->test_id);
+                        pertest_fail_perror("timerfd_create");
                     if (pthread_create(&test->pt, NULL, test_timerfd_thread, test))
-                        fail_perror("pthread_create");
+                        pertest_fail_error("pthread_create");
                 }
             }
         }
@@ -445,7 +440,7 @@ static void test_timerfd(void)
         struct timer_test *test = ((struct timer_test *)tests) + i;
         void * retval;
         if (pthread_join(test->pt, &retval))
-            fail_perror("pthread_join");
+            pertest_fail_error("pthread_join");
     }
     timetest_msg("all blocking read tests passed\n");
 
@@ -453,7 +448,7 @@ static void test_timerfd(void)
     timetest_msg("starting poll read tests\n");
     int epfd = epoll_create(1);
     if (epfd < 0)
-        fail_perror("epoll_create");
+        test_perror("epoll_create");
 
     for (int i = 0; i < ntests; i++) {
         struct timer_test *test = ((struct timer_test *)tests) + i;
@@ -461,7 +456,7 @@ static void test_timerfd(void)
         epev.events = EPOLLIN;
         epev.data.ptr = test;
         if (epoll_ctl(epfd, EPOLL_CTL_ADD, test->fd, &epev) < 0)
-            fail_perror("epoll_ctl");
+            test_perror("epoll_ctl");
         timerfd_test_start(test);
     }
 
@@ -470,9 +465,9 @@ static void test_timerfd(void)
         struct epoll_event rev;
         int nfds = epoll_wait(epfd, &rev, 1, 20000);
         if (nfds < 0)
-            fail_perror("epoll_wait");
+            test_perror("epoll_wait");
         if (nfds == 0)
-            fail_error("epoll_wait timed out\n");
+            test_error("epoll_wait timed out");
 
         struct timer_test *test = rev.data.ptr;
         if (rev.events & EPOLLIN) {
@@ -503,7 +498,7 @@ static void posix_timer_set(clockid_t clock_id, int timerid, unsigned long long 
                    timerid, abs_start != 0, its.it_value.tv_sec, its.it_value.tv_nsec,
                    its.it_interval.tv_sec, its.it_interval.tv_nsec);
     if (syscall(SYS_timer_settime, timerid, abs_start ? TIMER_ABSTIME : 0, &its, 0) < 0)
-        fail_perror("timer_settime");
+        test_perror("timer_settime");
 }
 
 static inline void posix_timer_check_disarmed(struct timer_test *test)
@@ -513,14 +508,14 @@ static inline void posix_timer_check_disarmed(struct timer_test *test)
     if (rv < 0)
         pertest_fail_perror("timer_gettime");
     if (its.it_value.tv_sec != 0 || its.it_value.tv_nsec != 0)
-        pertest_fail_error("timer_gettime should have returned zero it_value for disarmed timer.\n");
+        pertest_fail_error("timer_gettime should have returned zero it_value for disarmed timer");
 }
 
 static void posix_test_start(struct timer_test *test)
 {
     test->total_overruns = 0;
     if (clock_gettime(test->clock, &test->start) < 0)
-        pertest_fail_perror("failed: clock_gettime");
+        pertest_fail_perror("clock_gettime");
     posix_timer_set(test->clock, test->timerid, test->nsec,
                     test->overruns > 1 ? test->nsec : 0,
                     test->absolute ? &test->start : 0);
@@ -545,7 +540,7 @@ static void posix_test_finish(struct timer_test *test)
     long long delta = validate_interval(&test->start, &test->finish,
                                         test->total_overruns, test->nsec);
     if (delta < 0)
-        pertest_fail_error("interval validation failed\n");
+        pertest_fail_error("interval validation");
     if (syscall(SYS_timer_delete, test->timerid) < 0)
         pertest_fail_perror("timer_delete");
     pertest_msg("%s clock id %d, nsec %lld, overruns %lld passed "
@@ -585,25 +580,25 @@ void test_posix_timers(void)
     timetest_msg("testing interface\n");
     int rv = syscall(SYS_timer_create, CLOCK_MONOTONIC, 0, 0);
     if (rv >= 0 || errno != EFAULT)
-        fail_error("timer_create with null timerid should have failed with "
-                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+        test_error("timer_create with null timerid should have failed with "
+                   "EFAULT (rv %d, errno %d)", rv, errno);
 
     int dummy_id;
     if (syscall(SYS_timer_create, CLOCK_MONOTONIC, 0, &dummy_id) < 0)
-        fail_perror("timer_create with null sev");
+        test_perror("timer_create with null sev");
 
     rv = syscall(SYS_timer_gettime, dummy_id, 0);
     if (rv >= 0 || errno != EFAULT)
-        fail_error("timer_gettime with null curr_value should have failed with "
-                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+        test_error("timer_gettime with null curr_value should have failed with "
+                   "EFAULT (rv %d, errno %d)", rv, errno);
 
     rv = syscall(SYS_timer_settime, dummy_id, 0, 0, 0);
     if (rv >= 0 || errno != EINVAL)
-        fail_error("timer_settime with null new_value should have failed with "
-                   "EINVAL (rv %d, errno %d)\n", rv, errno);
+        test_error("timer_settime with null new_value should have failed with "
+                   "EINVAL (rv %d, errno %d)", rv, errno);
 
     if (syscall(SYS_timer_delete, dummy_id) < 0)
-        fail_perror("timer_delete");
+        test_perror("timer_delete");
 
     clockid_t cid;
     timer_t timer_id;
@@ -611,27 +606,27 @@ void test_posix_timers(void)
 
     rv = clock_getcpuclockid(0, &cid);
     if (rv != 0 )
-        fail_error("clock_getcpuclockid error %d\n", rv);
+        test_error("clock_getcpuclockid error %d", rv);
     if (timer_create(cid, 0, &timer_id) < 0)
-        fail_perror("timer_create with process CPU time");
+        test_perror("timer_create with process CPU time");
     rv = timer_gettime(timer_id, &its);
     if (rv < 0)
-        fail_perror("timer_gettime with process CPU time");
+        test_perror("timer_gettime with process CPU time");
     rv = timer_delete(timer_id);
     if (rv < 0)
-        fail_perror("timer_delete with process CPU time");
+        test_perror("timer_delete with process CPU time");
 
     rv = pthread_getcpuclockid(pthread_self(), &cid);
     if (rv != 0 )
-        fail_error("pthread_getcpuclockid error %d (%s)\n", rv, strerror(rv));
+        test_error("pthread_getcpuclockid error %d (%s)", rv, strerror(rv));
     if (timer_create(cid, 0, &timer_id) < 0)
-        fail_perror("timer_create with thread CPU time");
+        test_perror("timer_create with thread CPU time");
     rv = timer_gettime(timer_id, &its);
     if (rv < 0)
-        fail_perror("timer_gettime with thread CPU time");
+        test_perror("timer_gettime with thread CPU time");
     rv = timer_delete(timer_id);
     if (rv < 0)
-        fail_perror("timer_delete with thread CPU time");
+        test_perror("timer_delete with thread CPU time");
 
     posix_timers_finished = 0;
 
@@ -641,14 +636,14 @@ void test_posix_timers(void)
     sa.sa_flags |= SA_SIGINFO;
     rv = sigaction(SIGRTMIN, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        test_perror("test_posix_timers: sigaction");
 
     sigset_t ss;
     sigemptyset(&ss);
     sigaddset(&ss, SIGRTMIN);
     rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
     if (rv < 0)
-        fail_perror("sigprocmask");
+        test_perror("sigprocmask");
 
     timetest_msg("starting signal test\n");
     int id = 0;
@@ -667,7 +662,7 @@ void test_posix_timers(void)
                     sev.sigev_signo = SIGRTMIN;
                     sev.sigev_value.sival_ptr = test;
                     if (syscall(SYS_timer_create, test->clock, &sev, &test->timerid) < 0)
-                        fail_perror("timer_create");
+                        test_perror("timer_create");
                     timetest_debug("test #%d starting: timerid %d, clock %d, nsec %lld, "
                                    "overruns %lld, absolute %d\n", test->test_id,
                                    test->timerid, test->clock, test->nsec,
@@ -687,7 +682,7 @@ void test_posix_timers(void)
     sigaddset(&ss, SIGRTMIN);
     rv = sigprocmask(SIG_BLOCK, &ss, 0);
     if (rv < 0)
-        fail_perror("sigprocmask");
+        test_perror("sigprocmask");
 }
 
 /* XXX only ITIMER_REAL and ITIMER_PROF right now */
@@ -711,9 +706,9 @@ static void itimers_sighandler(int sig, siginfo_t *si, void *ucontext)
             struct itimerval itv;
             memset(&itv, 0, sizeof(struct itimerval));
             if (syscall(SYS_setitimer, itimer_types[itimer_which], &itv, 0 /* XXX check old val */) < 0)
-                fail_perror("setitimer");
+                test_perror("setitimer");
             if (clock_gettime(itimer_clockids[itimer_which], (struct timespec*)&itimer_finished) < 0)
-                fail_perror("clock_gettime");
+                test_perror("clock_gettime");
         }
         itimer_expect--;
     } else {
@@ -727,24 +722,24 @@ void test_itimers(void)
 
     int rv = syscall(SYS_setitimer, ITIMER_REAL, 0, 0);
     if (rv != 0)
-        fail_perror("setitimer with null new_value should have passed");
+        test_perror("setitimer with null new_value");
 
     rv = syscall(SYS_getitimer, ITIMER_REAL, 0);
     if (rv >= 0 || errno != EFAULT)
-        fail_error("getitimer with null curr_value should have failed with "
-                   "EFAULT (rv %d, errno %d)\n", rv, errno);
+        test_error("getitimer with null curr_value should have failed with "
+                   "EFAULT (rv %d, errno %d)", rv, errno);
 
     struct itimerval itv;
     memset(&itv, 0, sizeof(struct itimerval));
     rv = syscall(SYS_setitimer, 3, &itv, 0);
     if (rv >= 0 || errno != EINVAL)
-        fail_error("setitimer with invalid which should have failed with "
-                   "EINVAL (rv %d, errno %d)\n", rv, errno);
+        test_error("setitimer with invalid which should have failed with "
+                   "EINVAL (rv %d, errno %d)", rv, errno);
 
     rv = syscall(SYS_getitimer, 3, &itv);
     if (rv >= 0 || errno != EINVAL)
-        fail_error("getitimer with invalid which should have failed with "
-                   "EINVAL (rv %d, errno %d)\n", rv, errno);
+        test_error("getitimer with invalid which should have failed with "
+                   "EINVAL (rv %d, errno %d)", rv, errno);
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
@@ -753,10 +748,10 @@ void test_itimers(void)
     for (int i = 0; i < N_WHICH; i++) {
         rv = syscall(SYS_getitimer, itimer_types[i], &itv);
         if (rv < 0)
-            fail_perror("test_itimers: getitimer (%d)", i);
+            test_perror("test_itimers: getitimer (%d)", i);
         rv = sigaction(itimer_signals[i], &sa, 0);
         if (rv < 0)
-            fail_perror("test_itimers: sigaction (%d)", i);
+            test_perror("test_itimers: sigaction (%d)", i);
     }
 
     sigset_t ss;
@@ -764,7 +759,7 @@ void test_itimers(void)
     sigaddset(&ss, SIGALRM);
     rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
     if (rv < 0)
-        fail_perror("sigprocmask");
+        test_perror("sigprocmask");
 
     timetest_msg("starting itimer test\n");
     for (int i = 0; i < N_WHICH; i++) {
@@ -780,16 +775,16 @@ void test_itimers(void)
                 itimer_which = i;
                 itimer_expect = overruns;
                 if (clock_gettime(itimer_clockids[i], &start) < 0)
-                    fail_perror("clock_gettime");
+                    test_perror("clock_gettime");
                 if (syscall(SYS_setitimer, itimer_types[i], &itv, 0 /* XXX check old val */) < 0)
-                    fail_perror("setitimer");
+                    test_perror("setitimer");
                 while (itimer_expect > 0)
                     usleep(50000); /* XXX ugh ... also need timeout */
 
                 long long delta = validate_interval(&start, (struct timespec*)&itimer_finished,
                                                     overruns, test_intervals[j]);
                 if (delta < 0)
-                    fail_error("interval validation failed\n");
+                    test_error("interval validation");
                 timetest_msg("test passed; delta %lld nsec\n", delta);
             }
         }
@@ -808,7 +803,7 @@ static void alarm_sighandler(int sig, siginfo_t *si, void *ucontext)
     assert(sig == si->si_signo);
     assert(si->si_code == SI_KERNEL);
     if (clock_gettime(CLOCK_REALTIME, (struct timespec*)&alarm_finished) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
     alarm_received = 1;
 }
 
@@ -820,28 +815,28 @@ void test_alarm(void)
     sa.sa_flags |= SA_SIGINFO;
     int rv = sigaction(SIGALRM, &sa, 0);
     if (rv < 0)
-        fail_perror("test_signal_catch: sigaction");
+        test_perror("test_signal_catch: sigaction");
 
     sigset_t ss;
     sigemptyset(&ss);
     sigaddset(&ss, SIGALRM);
     rv = sigprocmask(SIG_UNBLOCK, &ss, 0);
     if (rv < 0)
-        fail_perror("sigprocmask");
+        test_perror("sigprocmask");
 
     alarm_received = 0;
     unsigned int old = alarm(3);
     timetest_debug("...old %d\n", old);
     if (old != 0)
-        fail_error("alarm timer should have been disarmed\n");
+        test_error("alarm timer should have been disarmed");
 
     usleep(1000000);
     struct timespec start;
     if (clock_gettime(CLOCK_REALTIME, &start) < 0)
-        fail_perror("clock_gettime");
+        test_perror("clock_gettime");
     old = alarm(1);
     if (old == 0)
-        fail_error("alarm timer should still be armed after usleep\n");
+        test_error("alarm timer should still be armed after usleep");
 
     while (!alarm_received)
         usleep(50000); /* XXX as above */
@@ -849,7 +844,7 @@ void test_alarm(void)
     long long delta = validate_interval(&start, (struct timespec*)&alarm_finished,
                                         1, SECOND_NSEC);
     if (delta < 0)
-        fail_error("interval validation failed\n");
+        test_error("interval validation");
     timetest_msg("test passed; delta %lld nsec\n", delta);
 }
 
@@ -863,23 +858,23 @@ static void test_utime(void)
 
     fd = timerfd_create(CLOCK_MONOTONIC, 0);
     if (fd < 0)
-        fail_perror("timerfd_create");
+        test_perror("timerfd_create");
     rv = futimens(fd, NULL);
     close(fd);
     if ((rv != -1) || (errno != EACCES))
-        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        test_error("rv %d, errno %d", rv, errno);
     rv = futimens(-1, NULL);
     if ((rv != -1) || (errno != EBADF))
-        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        test_error("rv %d, errno %d", rv, errno);
     rv = utimensat(-1, filename, NULL, 0);
     if ((rv != -1) || (errno != EBADF))
-        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        test_error("rv %d, errno %d", rv, errno);
     rv = utimes(filename, NULL);
     if ((rv != -1) || (errno != ENOENT))
-        fail_error("failed at %d (%d, %d)\n", __LINE__, rv, errno);
+        test_error("rv %d, errno %d", rv, errno);
     fd = creat(filename, S_IRUSR | S_IWUSR);
     if (fd < 0)
-        fail_perror("creat(\"%s\")", filename);
+        test_perror("creat(\"%s\")", filename);
     times[0].tv_nsec = 0;
     times[1].tv_nsec = 999999999;
     if (futimens(fd, times) < 0) {
@@ -912,7 +907,7 @@ static void test_utime(void)
         timetest_msg("failed at %d (%d, %d)\n", __LINE__, rv, errno);
         goto close_fd;
     }
-    rv = futimens(fd, (void *)0xbadf0000);
+    rv = futimens(fd, FAULT_ADDR);
     if ((rv != -1) || (errno != EFAULT)) {
         timetest_msg("failed at %d (%d, %d)\n", __LINE__, rv, errno);
         goto close_fd;
@@ -931,7 +926,7 @@ static void test_utime(void)
 
 static void test_fault(void)
 {
-    void *fault_addr = (void *)0xbadf0000;
+    void *fault_addr = FAULT_ADDR;
     int fd;
     struct itimerspec ts;
     struct itimerval tv;
@@ -939,66 +934,66 @@ static void test_fault(void)
 
     fd = timerfd_create(CLOCK_MONOTONIC, 0);
     if (fd < 0)
-        fail_perror("timerfd_create");
+        test_perror("timerfd_create");
 
     if ((timerfd_gettime(fd, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("timerfd_gettime() with faulting address test failed\n");
+        test_error("timerfd_gettime() with faulting address test");
     if ((timerfd_settime(fd, 0, fault_addr, NULL) != -1) || (errno != EFAULT))
-        fail_error("timerfd_settime() with faulting new value test failed\n");
+        test_error("timerfd_settime() with faulting new value test");
     memset(&ts, 0, sizeof(ts));
     if ((timerfd_settime(fd, 0, &ts, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("timerfd_settime() with faulting old value test failed\n");
+        test_error("timerfd_settime() with faulting old value test");
 
     ts.it_value.tv_nsec = 1;
     if (timerfd_settime(fd, 0, &ts, NULL) < 0)
-        fail_perror("timerfd_settime()");
+        test_perror("timerfd_settime()");
     if ((read(fd, fault_addr, sizeof(unsigned long)) != -1) || (errno != EFAULT))
-        fail_error("timerfd read() with faulting buffer test failed\n");
+        test_error("timerfd read() with faulting buffer test");
 
     close(fd);
 
     if ((syscall(SYS_timer_create, CLOCK_MONOTONIC, NULL, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("timer_create() with faulting timerid test failed\n");
+        test_error("timer_create() with faulting timerid test");
     if ((syscall(SYS_timer_create, CLOCK_MONOTONIC, fault_addr, &timerid) != -1) ||
         (errno != EFAULT))
-        fail_error("timer_create() with faulting sigevent test failed\n");
+        test_error("timer_create() with faulting sigevent test");
 
     if (timer_create(CLOCK_MONOTONIC, NULL, &timerid) < 0)
-        fail_perror("timer_create()");
+        test_perror("timer_create()");
     if ((timer_gettime(timerid, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("timer_gettime() with faulting address test failed\n");
+        test_error("timer_gettime() with faulting address test");
     if ((timer_settime(timerid, 0, fault_addr, NULL) != -1) || (errno != EFAULT))
-        fail_error("timer_settime() with faulting new value test failed\n");
+        test_error("timer_settime() with faulting new value test");
     ts.it_value.tv_sec = 1;
     if ((timer_settime(timerid, 0, &ts, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("timer_settime() with faulting old value test failed\n");
+        test_error("timer_settime() with faulting old value test");
     timer_delete(timerid);
 
     if ((getitimer(ITIMER_REAL, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("getitimer() with faulting address test failed\n");
+        test_error("getitimer() with faulting address test");
     if ((setitimer(ITIMER_REAL, fault_addr, NULL) != -1) || (errno != EFAULT))
-        fail_error("setitimer() with faulting new value test failed\n");
+        test_error("setitimer() with faulting new value test");
     memset(&tv, 0, sizeof(tv));
     if ((setitimer(ITIMER_REAL, &tv, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("setitimer() with faulting old value test failed\n");
+        test_error("setitimer() with faulting old value test");
 
     if ((syscall(SYS_gettimeofday, fault_addr, NULL) != -1) || (errno != EFAULT))
-        fail_error("gettimeofday() with faulting address test failed\n");
+        test_error("gettimeofday() with faulting address test");
     if ((syscall(SYS_settimeofday, fault_addr, NULL) != -1) || (errno != EFAULT))
-        fail_error("settimeofday() with faulting address test failed\n");
+        test_error("settimeofday() with faulting address test");
     if ((syscall(SYS_times, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("times() with faulting address test failed\n");
+        test_error("times() with faulting address test");
     if ((syscall(SYS_clock_gettime, CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("clock_gettime() with faulting address test failed\n");
+        test_error("clock_gettime() with faulting address test");
     if ((syscall(SYS_clock_settime, CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("clock_settime() with faulting address test failed\n");
+        test_error("clock_settime() with faulting address test");
     if ((syscall(SYS_clock_getres, CLOCK_REALTIME, fault_addr) != -1) || (errno != EFAULT))
-        fail_error("clock_getres() with faulting address test failed\n");
+        test_error("clock_getres() with faulting address test");
 
     if ((syscall(SYS_nanosleep, fault_addr, NULL) != -1) || (errno != EFAULT))
-        fail_error("nanosleep() with faulting address test failed\n");
+        test_error("nanosleep() with faulting address test");
     if ((syscall(SYS_clock_nanosleep, CLOCK_MONOTONIC, 0, fault_addr, NULL) != -1) || (errno != EFAULT))
-        fail_error("clock_nanosleep() with faulting address test failed\n");
+        test_error("clock_nanosleep() with faulting address test");
 }
 
 static void test_settime(void)
@@ -1010,65 +1005,65 @@ static void test_settime(void)
     int ret;
     int fd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK);
     if (fd < 0)
-        fail_perror("timerfd_create");
+        test_perror("timerfd_create");
     if (clock_gettime(CLOCK_REALTIME, &n) < 0)
-        fail_perror("clock_gettime(CLOCK_REALTIME)");
+        test_perror("clock_gettime(CLOCK_REALTIME)");
     ts.it_interval.tv_sec = ts.it_interval.tv_nsec = 0;
 
     ts.it_value.tv_sec = 1;
     ts.it_value.tv_nsec = 0;
     if (timerfd_settime(fd, 0, &ts, NULL) < 0)
-        fail_perror("timerfd_settime");
+        test_perror("timerfd_settime");
     n.tv_sec++;
     if (clock_settime(CLOCK_REALTIME, &n))
-        fail_perror("clock_settime");
+        test_perror("clock_settime");
     if (timerfd_gettime(fd, &ts) < 0)
-        fail_perror("timerfd_gettime");
+        test_perror("timerfd_gettime");
     if ((ts.it_value.tv_sec == 0) && (ts.it_value.tv_nsec == 0))
-        fail_error("relative timer was affected by change to real-time clock\n");
+        test_error("relative timer was affected by change to real-time clock");
 
     n.tv_sec++;
     ts.it_value.tv_sec = n.tv_sec + 1;
     ts.it_value.tv_nsec = n.tv_nsec;
     if (timerfd_settime(fd, TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET, &ts, NULL) < 0)
-        fail_perror("timerfd_settime(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET)");
+        test_perror("timerfd_settime(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET)");
     if (clock_settime(CLOCK_REALTIME, &n))
-        fail_perror("clock_settime");
+        test_perror("clock_settime");
     ret = read(fd, &overruns, sizeof(overruns));
     if ((ret >= 0) || (errno != ECANCELED))
-        fail_error("absolute timer was not canceled by change to real-time clock (%d)\n",
+        test_error("absolute timer was not canceled by change to real-time clock (%d)",
                    (ret >= 0) ? ret : -errno);
     ret = read(fd, &overruns, sizeof(overruns));
     if ((ret >= 0) || (errno != EAGAIN))
-        fail_error("unexpected result from second read after timer canceled (%d)\n",
+        test_error("unexpected result from second read after timer canceled (%d)",
                    (ret >= 0) ? ret : -errno);
 
     /* test removal of timer from list of cancelable timers */
     if (timerfd_settime(fd, TFD_TIMER_ABSTIME, &ts, NULL) < 0)
-        fail_perror("timerfd_settime(TFD_TIMER_ABSTIME)");
+        test_perror("timerfd_settime(TFD_TIMER_ABSTIME)");
     if (clock_settime(CLOCK_REALTIME, &n))
-        fail_perror("clock_settime");
+        test_perror("clock_settime");
     ret = read(fd, &overruns, sizeof(overruns));
     if ((ret >= 0) || (errno != EAGAIN))
-        fail_error("unexpected read result from non-cancelable timer after change to real-time "
-                   "clock (%d)\n", (ret >= 0) ? ret : -errno);
+        test_error("unexpected read result from non-cancelable timer after change to real-time "
+                   "clock (%d)", (ret >= 0) ? ret : -errno);
 
     /* undo changes to real-time clock */
     n.tv_sec -= 2;
     if (clock_settime(CLOCK_REALTIME, &n))
-        fail_perror("clock_settime");
+        test_perror("clock_settime");
 
     close(fd);
 
     tv.tv_sec = n.tv_sec;
     tv.tv_usec = n.tv_nsec / 1000;
     if (settimeofday(&tv, NULL))
-        fail_perror("settimeofday");
+        test_perror("settimeofday");
 
     /* test setting of non-settable clock types */
     ret = clock_settime(CLOCK_REALTIME_COARSE, &n);
     if ((ret == 0) || (errno != EINVAL))
-        fail_error("unexpected result from clock_settime(CLOCK_REALTIME_COARSE) (%d)\n",
+        test_error("unexpected result from clock_settime(CLOCK_REALTIME_COARSE) (%d)",
                    (ret == 0) ? ret : -errno);
 }
 

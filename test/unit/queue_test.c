@@ -1,10 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <errno.h>
 #include <string.h>
 #include <runtime.h>
+
+#include "../test_utils.h"
 
 //#define PRINT_STATS
 //#define QUEUETEST_DEBUG
@@ -13,27 +13,6 @@
 #else
 #define queuetest_debug(x, ...)
 #endif
-
-#define QUEUETEST_ASSERT(x)                                             \
-    do {                                                                \
-        if (!(x)) {                                                     \
-            printf("%s: assertion %s failed on line %d\n", __func__, #x, __LINE__); \
-            exit(EXIT_FAILURE);                                         \
-        }                                                               \
-    } while(0)
-
-#define fail_perror(msg, ...)                                           \
-    do {                                                                \
-        printf("%s failed: " msg ", error %s (%d)\n", __func__, ##__VA_ARGS__, \
-                strerror(errno), errno);                                \
-        exit(EXIT_FAILURE);                                             \
-    } while(0)
-
-#define fail_error(x, ...)                                      \
-    do {                                                        \
-        printf("%s failed: " x "\n", __func__, ##__VA_ARGS__); \
-        exit(EXIT_FAILURE);                                     \
-    } while(0)
 
 #define QUEUE_ORDER             (10)
 #define QUEUE_SIZE              (1ull << QUEUE_ORDER)
@@ -64,17 +43,17 @@ static u64 find_free(void)
             return INVALID;
     }
     u64 o = fetch_and_add((u64*)&vec_count, -1);
-    QUEUETEST_ASSERT(o > 0);
+    test_assert(o > 0);
     return i;
 }
 
 static void release(u64 n)
 {
     u64 o = fetch_and_add((u64*)&vec_count, 1);
-    QUEUETEST_ASSERT(o < RESULTS_VEC_SIZE);
+    test_assert(o < RESULTS_VEC_SIZE);
     u64 v = __atomic_exchange_n(&results[n], 0, __ATOMIC_RELEASE);
     if (v != 1)
-        fail_error("dequeued already-freed item\n");
+        test_error("dequeued already-freed item");
 }
 
 /* take care - a lot of runtime isn't threadsafe */
@@ -120,7 +99,7 @@ static void * test_child(void *arg)
                     break;
                 }
             }
-            QUEUETEST_ASSERT(n < RESULTS_VEC_SIZE);
+            test_assert(n < RESULTS_VEC_SIZE);
             release(n);
             fetch_and_add((u64*)&total_dequeued, 1);
         }
@@ -141,7 +120,7 @@ static void thread_test(void)
     queuetest_debug("spawning threads...\n");
     for (int i = 0; i < N_THREADS; i++) {
         if (pthread_create(&threads[i], NULL, test_child, q))
-            fail_perror("pthread_create");
+            test_error("pthread_create");
     }
 
     usleep(THREAD_TEST_DURATION_US);
@@ -151,12 +130,12 @@ static void thread_test(void)
     for (int i = 0; i < N_THREADS; i++) {
         void * retval;
         if (pthread_join(threads[i], &retval))
-            fail_perror("pthread_create");
+            test_error("pthread_create");
         if (retval != (void *)EXIT_SUCCESS)
-            fail_error("child %d failed\n", i);
+            test_error("child %d failed", i);
     }
-    QUEUETEST_ASSERT(vec_count == RESULTS_VEC_SIZE);
-    QUEUETEST_ASSERT(total_queued == total_dequeued);
+    test_assert(vec_count == RESULTS_VEC_SIZE);
+    test_assert(total_queued == total_dequeued);
 #ifdef PRINT_STATS
     printf("total queued %lld\n", total_queued);
     printf("total dequeued %lld\n", total_dequeued);
@@ -177,25 +156,25 @@ static void n_test(void)
 {
     queuetest_debug("");
     queue q = allocate_queue(test_heap, QUEUE_SIZE);
-    QUEUETEST_ASSERT(q != INVALID_ADDRESS);
+    test_assert(q != INVALID_ADDRESS);
     void **buf = allocate(test_heap, QUEUE_SIZE * sizeof(u64));
     for (int n = QUEUE_SIZE; n > 1; n >>= 1) {
         int items = QUEUE_SIZE / n;
         for (u64 x = 0; x < items; x++) {
             for (int y = 0; y < n; y++)
                 buf[y] = (void *)x;
-            QUEUETEST_ASSERT(enqueue_n(q, buf, n));
+            test_assert(enqueue_n(q, buf, n));
         }
         for (u64 x = 0; x < items; x++) {
-            QUEUETEST_ASSERT(dequeue_n(q, buf, n));
+            test_assert(dequeue_n(q, buf, n));
             for (int y = 0; y < n; y++) {
-                QUEUETEST_ASSERT(buf[y] == (void *)x);
+                test_assert(buf[y] == (void *)x);
             }
         }
     }
     /* dequeue should fail here */
-    QUEUETEST_ASSERT(queue_empty(q));
-    QUEUETEST_ASSERT(queue_length(q) == 0);
+    test_assert(queue_empty(q));
+    test_assert(queue_length(q) == 0);
     deallocate_queue(q);
 }
 
@@ -205,33 +184,33 @@ static void basic_test(boolean multi)
     queuetest_debug("%s\n", multi ? "multi" : "single");
     zero(results, QUEUE_SIZE * sizeof(u64));
     queue q = allocate_queue(test_heap, QUEUE_SIZE);
-    QUEUETEST_ASSERT(q != INVALID_ADDRESS);
-    QUEUETEST_ASSERT(queue_empty(q));
-    QUEUETEST_ASSERT(queue_length(q) == 0);
+    test_assert(q != INVALID_ADDRESS);
+    test_assert(queue_empty(q));
+    test_assert(queue_length(q) == 0);
     for (u64 i = 0; i < QUEUE_SIZE; i++) {
-        QUEUETEST_ASSERT(test_enqueue(q, i, multi));
+        test_assert(test_enqueue(q, i, multi));
         results[i] = 1;
     }
-    QUEUETEST_ASSERT(queue_full(q));
-    QUEUETEST_ASSERT(queue_length(q) == QUEUE_SIZE);
+    test_assert(queue_full(q));
+    test_assert(queue_length(q) == QUEUE_SIZE);
 
     /* enqueue should fail here */
-    QUEUETEST_ASSERT(!test_enqueue(q, 0, multi));
+    test_assert(!test_enqueue(q, 0, multi));
 
     /* drain and check */
     for (u64 i = 0; i < QUEUE_SIZE; i++) {
-        QUEUETEST_ASSERT((u64)queue_peek(q) == i);
+        test_assert((u64)queue_peek(q) == i);
         u64 n = test_dequeue(q, multi);
-        QUEUETEST_ASSERT(n != INVALID);
-        QUEUETEST_ASSERT(n == i);
-        QUEUETEST_ASSERT(results[n] == 1);
+        test_assert(n != INVALID);
+        test_assert(n == i);
+        test_assert(results[n] == 1);
         results[n] = 0;
     }
 
     /* dequeue should fail here */
-    QUEUETEST_ASSERT(test_dequeue(q, multi) == INVALID);
-    QUEUETEST_ASSERT(queue_empty(q));
-    QUEUETEST_ASSERT(queue_length(q) == 0);
+    test_assert(test_dequeue(q, multi) == INVALID);
+    test_assert(queue_empty(q));
+    test_assert(queue_length(q) == 0);
 
     /* some number of randomized passes to test ring wrap */
     vec_count = QUEUE_SIZE;
@@ -240,25 +219,25 @@ static void basic_test(boolean multi)
         for (u64 i = 0; i < n_enqueue; i++) {
             u64 n = find_free();
             assert(n != INVALID);
-            QUEUETEST_ASSERT(test_enqueue(q, n, multi));
+            test_assert(test_enqueue(q, n, multi));
         }
-        QUEUETEST_ASSERT(queue_length(q) == QUEUE_SIZE - vec_count);
+        test_assert(queue_length(q) == QUEUE_SIZE - vec_count);
         u64 n_dequeue = pass < (BASIC_TEST_RANDOM_PASSES - 1) ?
             random() % queue_length(q) : queue_length(q);
         for (u64 i = 0; i < n_dequeue; i++) {
             u64 n = test_dequeue(q, multi);
-            QUEUETEST_ASSERT(n != INVALID);
-            QUEUETEST_ASSERT(results[n] == 1);
+            test_assert(n != INVALID);
+            test_assert(results[n] == 1);
             results[n] = 0;
             vec_count++;
         }
     }
-    QUEUETEST_ASSERT(vec_count == QUEUE_SIZE);
-    QUEUETEST_ASSERT(queue_length(q) == 0);
-    QUEUETEST_ASSERT(test_dequeue(q, multi) == INVALID);
-    QUEUETEST_ASSERT(queue_peek(q) == INVALID_ADDRESS);
-    QUEUETEST_ASSERT(queue_empty(q));
-    QUEUETEST_ASSERT(!queue_full(q));
+    test_assert(vec_count == QUEUE_SIZE);
+    test_assert(queue_length(q) == 0);
+    test_assert(test_dequeue(q, multi) == INVALID);
+    test_assert(queue_peek(q) == INVALID_ADDRESS);
+    test_assert(queue_empty(q));
+    test_assert(!queue_full(q));
     deallocate_queue(q);
 }
 

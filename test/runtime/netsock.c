@@ -4,8 +4,6 @@
 #include <net/if.h>
 #include <poll.h>
 #include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -17,7 +15,7 @@
 
 #include <runtime.h>
 
-#define FAULT_ADDR  ((void *)0xBADF0000)
+#include "../test_utils.h"
 
 #define NETSOCK_TEST_BASIC_PORT 1233
 #define NETSOCK_TEST_FAULT_PORT 1237
@@ -25,13 +23,6 @@
 #define NETSOCK_TEST_FIO_COUNT  8
 
 #define NETSOCK_TEST_PEEK_COUNT 8
-
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
 
 static inline void timespec_sub(struct timespec *a, struct timespec *b, struct timespec *r)
 {

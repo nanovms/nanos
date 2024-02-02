@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -9,15 +8,13 @@
 #include <dirent.h>     /* Defines DT_* constants */
 #include <unistd.h>
 #include <string.h>
-#include <stdlib.h>
 #include <sys/syscall.h>
 #include <libgen.h>
 
+#include "../test_utils.h"
+
 #define TEST_DIR "/tmp/mkdir_test"
 #define DEFAULT_MODE (S_IRWXU)
-
-#define handle_error(msg) \
-       do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
 struct linux_dirent64 {
     unsigned long  d_ino;
@@ -40,12 +37,12 @@ listdir(const char *label, const char *dir)
  
     fd = open(dir, O_RDONLY | O_DIRECTORY);
     if (fd == -1)
-        handle_error("open");
+        test_perror("open");
  
     for ( ; ; ) {
         nread = syscall(SYS_getdents64, fd, buf, BUF_SIZE);
         if (nread == -1)
-            handle_error("getdents64");
+            test_perror("getdents64");
  
         if (nread == 0)
             break;
@@ -94,13 +91,11 @@ void _mkdirat(int fd, const char *path, int m, int expect)
     printf("r = %d, errno = %d\n", r, errno);
     if (r == 0) {
         if (expect != 0) {
-            printf("ERROR - mkdirat() succeeded but errno %d expected\n", expect);
-            exit(EXIT_FAILURE);
+            test_error("mkdirat() succeeded but errno %d expected", expect);
         }
     } else {
         if (errno != expect) {
-            printf("ERROR - mkdirat() errno %d, expecting %d\n", errno, expect);
-            exit(EXIT_FAILURE);
+            test_error("mkdirat() errno %d, expecting %d", errno, expect);
         }
     }
 }
@@ -115,18 +110,15 @@ void _chdir(const char *path)
     int path_len = strlen(path);
     char *cwd = malloc(path_len + 1);
     if (!cwd) {
-        printf("ERROR - malloc() failed\n");
-        exit(EXIT_FAILURE);
+        test_error("malloc()");
     }
     char *ret = getcwd(cwd, path_len);
     if (ret || (errno != ERANGE)) {
-        printf("ERROR - getcwd() didn't return ERANGE error\n");
-        exit(EXIT_FAILURE);
+        test_error("getcwd() didn't return ERANGE error");
     }
     ret = getcwd(cwd, path_len + 1);
     if (!ret || strcmp(cwd, path)) {
-        printf("ERROR - getcwd() didn't return expected directory\n");
-        exit(EXIT_FAILURE);
+        test_error("getcwd() didn't return expected directory");
     }
     free(cwd);
 }
@@ -161,7 +153,7 @@ static inline int _open(char *path, int flags, mode_t mode, const char *func, in
     int fd = open(path, flags, mode);
     if (fd == -1) {
         printf("%s(%d): ERROR opening %s, errno = %d\n", func, line, path, errno);
-        handle_error("open");
+        test_perror("open");
     }
     return fd;
 }
@@ -196,8 +188,7 @@ void check2(int dfd, char *fullpath, char *relpath, int flags)
     if (!stat(fullpath, &st))
         stat_ino = (int)st.st_ino;
     else {
-        printf("ERROR - can't stat %s\n", fullpath);
-        exit(EXIT_FAILURE);
+        test_perror("can't stat %s", fullpath);
     }
 
     if (!fstat(full_fd, &st))
@@ -281,8 +272,7 @@ int main(int argc, char **argv)
     char c;
     char *cwd = getcwd(&c, 1);
     if (cwd || (errno != ERANGE)) {
-        printf("ERROR - getcwd() didn't return ERANGE error\n");
-        exit(EXIT_FAILURE);
+        test_error("getcwd() didn't return ERANGE error");
     }
 
     /* If a path argument is specified, validate that it matches cwd. */
@@ -290,8 +280,7 @@ int main(int argc, char **argv)
         char tmp[PATH_MAX];
         cwd = getcwd(tmp, PATH_MAX);
         if (!cwd || strcmp(argv[1], tmp)) {
-            printf("ERROR - cwd \"%s\" doesn't match expected \"%s\"\n", cwd, argv[1]);
-            exit(EXIT_FAILURE);
+            test_error("cwd \"%s\" doesn't match expected \"%s\"", cwd, argv[1]);
         }
     }
 
@@ -324,8 +313,7 @@ int main(int argc, char **argv)
     // Validate chdir fail on invalid path
     int r = chdir(TEST_DIR "/bogus");
     if (r != -1 || errno != ENOENT) {
-        printf("ERROR - chdir on invalid path didn't return ENOENT error\n");
-        exit(EXIT_FAILURE);
+        test_error("chdir on invalid path didn't return ENOENT error");
     }
 
     // Validate it fails on non-directories
@@ -342,8 +330,7 @@ int main(int argc, char **argv)
     _mkdirat(AT_FDCWD, name_too_long, DEFAULT_MODE, ENAMETOOLONG);
     r = chdir(name_too_long);
     if (r != -1 || errno != ENAMETOOLONG) {
-        printf("ERROR - chdir on invalid path didn't return ENAMETOOLONG\n");
-        exit(EXIT_FAILURE);
+        test_error("chdir on invalid path didn't return ENAMETOOLONG");
     }
 
     _chdir(TEST_DIR);
@@ -375,10 +362,9 @@ int main(int argc, char **argv)
     check2(fd, TEST_DIR "/test/subdir/test_newfile", "subdir/test_newfile", 0);
     _fchdir(fd);
 
-    r = syscall(SYS_mkdirat, fd, (void *)0xbadf0000, DEFAULT_MODE);
+    r = syscall(SYS_mkdirat, fd, FAULT_ADDR, DEFAULT_MODE);
     if ((r != -1) || (errno != EFAULT)) {
-        printf("ERROR - mkdirat() with faulting string (%d, %d)\n", r, errno);
-        exit(EXIT_FAILURE);
+        test_error("mkdirat() with faulting string (%d, %d)", r, errno);
     }
 
     close(fd);
@@ -387,8 +373,7 @@ int main(int argc, char **argv)
     fd = OPEN("subdir/test_newfile", O_RDONLY, 0);
     _fchdir(fd);
     if (errno != ENOTDIR) {
-        printf("fchdir(): expecting errno %d, found %d (%s)\n", ENOTDIR, errno, strerror(errno));
-        exit(EXIT_FAILURE);
+        test_error("fchdir(): expecting errno %d, found %d (%s)", ENOTDIR, errno, strerror(errno));
     }
     close(fd);
 

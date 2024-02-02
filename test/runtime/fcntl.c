@@ -1,16 +1,9 @@
-#include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <stdio.h>
 #include <fcntl.h>
 #include <errno.h>
 
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
+#include "../test_utils.h"
 
 static void test_access_mode(int fd)
 {
@@ -78,7 +71,7 @@ int main(int argc, char **argv)
 
     test_access_mode(fd);
 
-    test_lk(fd, F_GETLK, (void *)0xbadf0000, EFAULT);
+    test_lk(fd, F_GETLK, FAULT_ADDR, EFAULT);
 
     lock.l_type   = F_WRLCK;
     lock.l_start  = 0;

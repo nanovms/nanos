@@ -1,14 +1,8 @@
 #include <runtime.h>
-#include <stdlib.h>
+
+#include "../test_utils.h"
 
 #define MEM_BUF_SIZE    512
-
-#define test_assert(expr)   do { \
-    if (!(expr)) { \
-        msg_err("%s -- failed at %s:%d\n", ss(#expr), file_ss, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
 
 static void test_memcpy(long *buf1, long *buf2, unsigned long buf_size)
 {

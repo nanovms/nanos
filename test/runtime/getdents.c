@@ -3,14 +3,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
-#include <stdio.h>
 #include <unistd.h>
-#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 
-#define handle_error(msg) \
-       do { perror(msg); exit(EXIT_FAILURE); } while (0)
+#include "../test_utils.h"
 
 struct linux_dirent {
    long           d_ino;
@@ -39,7 +36,7 @@ struct linux_dirent64 {
    for ( ; ; ) { \
        nread = syscall(SYSCALL, fd, buf, BUF_SIZE); \
        if (nread == -1) \
-           handle_error("getdents"); \
+           test_perror("getdents"); \
        if (nread == 0) \
            break; \
        printf("--------------- nread=%d ---------------\n", nread); \
@@ -69,7 +66,7 @@ struct linux_dirent64 {
 #define OPEN_DIR(NAME) do { \
    fd = open(NAME, O_RDONLY | O_DIRECTORY); \
    if (fd == -1) \
-       handle_error("open"); \
+       test_perror("open"); \
 } while(0)
 
 int
@@ -103,17 +100,17 @@ main(int argc, char *argv[])
 
     dir = opendir(dirname);
     if (!dir)
-        handle_error("opendir");
+        test_perror("opendir");
     fd = dirfd(dir);
     if (fd < 0)
-        handle_error("dirfd");
+        test_perror("dirfd");
     rv = lseek(fd, 1, SEEK_END);
     if ((rv != -1) || (errno != EINVAL)) {
         printf("unexpected lseek results (%ld, %d)\n", rv, errno);
         exit(EXIT_FAILURE);
     }
     if (lseek(fd, 0, SEEK_END) < 0)
-        handle_error("lseek");
+        test_perror("lseek");
     if (readdir(dir) != NULL) {
         printf("unexpected dir entry after lseek\n");
         exit(EXIT_FAILURE);

@@ -3,8 +3,6 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/inotify.h>
 #include <sys/ioctl.h>
@@ -13,12 +11,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
+#include "../test_utils.h"
 
 #define INOTIFY_TEST_DIR1   "tmp1"
 #define INOTIFY_TEST_DIR2   "tmp2"

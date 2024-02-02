@@ -1,18 +1,9 @@
 #include <runtime.h>
-#include <stdlib.h>
 #include <string.h>
 
-#define EXIT_SUCCESS 0
-#define EXIT_FAILURE 1
+#include "../test_utils.h"
 
 #define COUNT_ELM   10
-
-#define test_assert(expr) do { \
-if (expr) ; else { \
-    msg_err("%s -- failed at %s:%d\n", ss(#expr), file_ss, __LINE__); \
-    return false; \
-} \
-} while (0)
 
 /* s must be a string literal */
 #define test_strings_equal(b, s) do {        \

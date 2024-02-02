@@ -4,14 +4,14 @@
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <semaphore.h>
+
+#include "../test_utils.h"
 
 #define CLIENT_SOCKET_PATH "client_socket"
 #define SERVER_SOCKET_PATH "server_socket"
@@ -21,13 +21,6 @@
 #define IOV_LEN          8
 #define CLIENT_COUNT     8
 #define DGRAM_COUNT      128
-
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
 
 static void test_getsockopt(int fd, int type)
 {
@@ -632,7 +625,7 @@ static void uds_fault_test(void)
     struct sockaddr_un addr;
     socklen_t len = sizeof(addr);
     uint8_t buf[64];
-    void *fault_addr = (void *)0xbadf0000;
+    void *fault_addr = FAULT_ADDR;
     struct msghdr msg;
     pthread_t pt;
 

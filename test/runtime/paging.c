@@ -1,9 +1,9 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/mman.h>
+
+#include "../test_utils.h"
 
 static long pagesize;
 
@@ -33,8 +33,7 @@ static void test_write_to_ro(void)
 {
     void * p = mmap(NULL, 0x1000, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (p == (void *)-1) {
-        printf("mmap fail: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
+        test_perror("mmap");
     }
     printf("test write to read-only mmapped page\n");
     test_write(p);
@@ -55,8 +54,7 @@ static void test_exec_mmap()
     printf("test exec in mmap without PROT_EXEC\n");
     void * p = mmap(NULL, 0x1000, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (p == (void *)-1) {
-        printf("mmap fail: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
+        test_perror("mmap");
     }
     test_exec(p);
 }
@@ -66,8 +64,7 @@ static void test_exec_heap(void)
     printf("test exec in heap page\n");
     void * p = malloc(sizeof(int));
     if (!p) {
-        printf("malloc failed\n");
-        exit(EXIT_FAILURE);
+        test_error("malloc");
     }
     test_exec(p);
 }

@@ -1,12 +1,12 @@
 #include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+
+#include "../test_utils.h"
 
 /* expect = 0 for success, errno otherwise */
 void _creat(const char *path, int m, int expect)
@@ -67,10 +67,9 @@ int main(int argc, char **argv)
     int fd;
     char name_too_long[NAME_MAX + 2];
 
-    fd = creat((char *)0xbadf0000, 0);
+    fd = creat(FAULT_ADDR, 0);
     if ((fd != -1) || (errno != EFAULT)) {
-        printf("creat() with faulting path failed (%d, %d)\n", fd, errno);
-        exit(EXIT_FAILURE);
+        test_error("creat() with faulting path (%d, %d)", fd, errno);
     }
 
     check("/creat", 0);

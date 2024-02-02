@@ -1,7 +1,5 @@
-#include <stdio.h>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <stdlib.h>
 #include <pthread.h>
 #include <runtime.h>
 #include <linux/futex.h>
@@ -9,8 +7,8 @@
 #include <time.h>
 #include <errno.h>
 
-#define EXIT_FAILURE 1
-#define EXIT_SUCCESS 0
+#include "../test_utils.h"
+
 #define FUTEX_INITIALIZER 11
 #define WAKE_OP_VAL3(op, oparg, cmp, cmparg) \
                         (((op & 0xf) << 28) | \
@@ -335,7 +333,7 @@ static void *futex_wake_op_test_thread(void *arg)
 
 static boolean futex_fault_test(void)
 {
-    const void *fault_addr = (void *)0xbadf0000;
+    const void *fault_addr = FAULT_ADDR;
     int ret;
 
     ret = syscall(SYS_futex, fault_addr, FUTEX_WAIT, 0, 0, NULL, 0);

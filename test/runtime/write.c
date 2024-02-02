@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
 #define _GNU_SOURCE
 #define __USE_GNU
 #include <fcntl.h>
@@ -13,6 +11,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "../test_utils.h"
+
 //#define WRITETEST_DEBUG
 #ifdef WRITETEST_DEBUG
 #define writetest_debug(x, ...) do {printf("%s: " x, __func__, ##__VA_ARGS__);} while(0)
@@ -22,8 +22,6 @@
 
 #define BUFLEN 256
 #define DEFAULT_BULK_SIZE (20 << 20) /* 20M */
-
-#define FAULT_ADDR  ((void *)0xBADF0000)
 
 static char *str = "I'm staying. Finishing my coffee. Enjoying my coffee.";
 
@@ -54,44 +52,36 @@ void basic_write_test()
     ssize_t rv;
     int fd = open("/", O_RDWR);
     if (fd != -1 || errno != EISDIR) {
-        perror("open directory rdwr");
-        exit(EXIT_FAILURE);
+        test_perror("open directory rdwr");
     }
     fd = open("/", O_WRONLY);
     if (fd != -1 || errno != EISDIR) {
-        perror("open directory wr");
-        exit(EXIT_FAILURE);
+        test_perror("open directory wr");
     }
     fd = open("/", O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
-        perror("open directory");
-        exit(EXIT_FAILURE);
+        test_perror("open directory");
     }
     close(fd);
     fd = open("/", O_RDONLY);
     if (fd < 0) {
-        perror("open directory rd");
-        exit(EXIT_FAILURE);
+        test_perror("open directory rd");
     }
     if (read(fd, buf, BUFLEN) != -1 || errno != EISDIR) {
-        perror("read directory");
-        exit(EXIT_FAILURE);
+        test_perror("read directory");
     }
     if (write(fd, buf, BUFLEN) != -1 || errno != EBADF) {
-        perror("write directory");
-        exit(EXIT_FAILURE);
+        test_perror("write directory");
     }
     close(fd);
 
     fd = open("hello", O_RDWR | O_DIRECTORY);
     if (fd != -1 || errno != ENOTDIR) {
-        perror("open file as directory");
-        exit(EXIT_FAILURE);
+        test_perror("open file as directory");
     }
     fd = open("hello", O_RDWR);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
 
     _READ(buf, BUFLEN);
@@ -124,8 +114,7 @@ void basic_write_test()
     writetest_debug("new: \"%s\"\n", buf);
 
     if (strncmp(str, buf, strlen(str))) {
-        printf("basic write fail: string mismatch\n");
-        exit(EXIT_FAILURE);
+        test_error("basic write: string mismatch");
     }
 
     struct stat s;
@@ -141,8 +130,7 @@ void basic_write_test()
 
     rv = write(fd, FAULT_ADDR, 4096);
     if ((rv != -1) || (errno != EFAULT)) {
-        printf("write with faulting buffer: rv %ld, errno %d\n", rv, errno);
-        exit(EXIT_FAILURE);
+        test_error("write with faulting buffer: rv %ld, errno %d", rv, errno);
     }
 
     rv = syncfs(fd);
@@ -173,8 +161,7 @@ static void scatter_write_test_fd(int fd, ssize_t buflen, int iterations, int ma
     unsigned char tmp[BUFLEN];
     unsigned char * buf = malloc(buflen);
     if (!buf) {
-        printf("malloc of size %ld failed\n", buflen);
-        exit(EXIT_FAILURE);
+        test_error("malloc of size %ld", buflen);
     }
     bzero(buf, buflen);
 
@@ -209,13 +196,12 @@ static void scatter_write_test_fd(int fd, ssize_t buflen, int iterations, int ma
             _READ(tmp, min(rmost - n, BUFLEN));
             for (int i = 0; i < rv; i++) {
                 if (tmp[i] != buf[n + i]) {
-                    printf("scatter test fail: read content mismatch at offset %d\n", n + i);
 #if 0
                     for (int z = 0; z < BUFLEN; z++) {
                         printf("%d - buf: %d, read: %d\n", z, buf[n + z], tmp[z]);
                     }
 #endif
-                    exit(EXIT_FAILURE);
+                    test_error("scatter test: read content mismatch at offset %d", n + i);
                 }
             }
             n += rv;
@@ -231,16 +217,14 @@ void scatter_write_test(ssize_t buflen, int iterations, int max_writesize)
 {
     int fd = open("scatter", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
     scatter_write_test_fd(fd, buflen, iterations, max_writesize);
     close(fd);
 
     fd = open(".", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
-        perror("open tmpfile");
-        exit(EXIT_FAILURE);
+        test_perror("open tmpfile");
     }
     scatter_write_test_fd(fd, buflen, iterations, max_writesize);
     close(fd);
@@ -254,8 +238,7 @@ void append_write_test()
     unsigned char tmp[BUFLEN];
     int fd = open("append", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
 
     /* XXX kinda stupid, this should use some known pattern and check it */
@@ -297,8 +280,7 @@ void sync_write_test(void)
 {
     int fd = open("sync_write", O_CREAT | O_RDWR | O_SYNC, S_IRUSR | S_IWUSR);
     if (fd < 0) {
-        perror("sync_write open");
-        exit(EXIT_FAILURE);
+        test_perror("sync_write open");
     }
     scatter_write_test_fd(fd, 1 << 12, 1, 512);
     close(fd);
@@ -315,70 +297,57 @@ void truncate_test(const char *prog)
 
     rv = truncate(FAULT_ADDR, 0);
     if ((rv != -1) || (errno != EFAULT)) {
-        printf("truncate() with faulting path failed (%ld, %d)\n", rv, errno);
-        exit(EXIT_FAILURE);
+        test_error("truncate() with faulting path (%ld, %d)", rv, errno);
     }
 
     memset(name_too_long, '-', sizeof(name_too_long) - 1);
     name_too_long[sizeof(name_too_long) - 1] = '\0';
     rv = truncate(name_too_long, 0);
     if ((rv != -1) || (errno != ENAMETOOLONG)) {
-        printf("truncate() with name too long failed (%ld, %d)\n", rv, errno);
-        exit(EXIT_FAILURE);
+        test_error("truncate() with name too long (%ld, %d)", rv, errno);
     }
 
     int fd = open("new_file", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
     if (ftruncate(fd, BUFLEN / 2) < 0) {
-        perror("ftruncate to BUFLEN / 2");
-        exit(EXIT_FAILURE);
+        test_perror("ftruncate to BUFLEN / 2");
     }
     rv = lseek(fd, 0, SEEK_END);
     if (rv < 0) {
-        perror("lseek");
-        exit(EXIT_FAILURE);
+        test_perror("lseek");
     }
     if (rv != BUFLEN / 2) {
-        printf("unexpected file size %ld\n", rv);
-        exit(EXIT_FAILURE);
+        test_error("unexpected file size %ld", rv);
     }
     close(fd);
 
     rv = stat("new_file", &s);
     if (rv < 0) {
-        perror("stat");
-        exit(EXIT_FAILURE);
+        test_perror("stat");
     }
     if (s.st_size != BUFLEN / 2) {
-        printf("unexpected file size %ld\n", s.st_size);
-        exit(EXIT_FAILURE);
+        test_error("unexpected file size %ld", s.st_size);
     }
     fd = open("new_file", O_RDWR);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
     _READ(tmp, BUFLEN);
     if (rv != BUFLEN / 2) {
-        printf("read %ld bytes, expected %d\n", rv, BUFLEN / 2);
-        exit(EXIT_FAILURE);
+        test_error("read %ld bytes, expected %d", rv, BUFLEN / 2);
     }
     for (int i = 0; i < BUFLEN / 2; i++) {
         if (tmp[i] != 0) {
-            printf("unexpected data 0x%02x at offset %d\n", tmp[i], i);
-            exit(EXIT_FAILURE);
+            test_error("unexpected data 0x%02x at offset %d", tmp[i], i);
         }
     }
     if (ftruncate(fd, BUFLEN / 2) < 0) {
-        perror("ftruncate to same length as current length");
-        exit(EXIT_FAILURE);
+        test_perror("ftruncate to same length as current length");
     }
     if ((ftruncate(fd, -1) == 0) || (errno != EINVAL)) {
-        printf("negative length truncate test failed\n");
-        exit(EXIT_FAILURE);
+        test_error("negative length truncate test");
     }
     _LSEEK(0, SEEK_SET);
     for (int i = 0; i < BUFLEN / 2; i++) {
@@ -386,33 +355,28 @@ void truncate_test(const char *prog)
     }
     _WRITE(tmp, BUFLEN / 2);
     if (ftruncate(fd, BUFLEN / 4) < 0) {
-        perror("ftruncate to BUFLEN / 4");
-        exit(EXIT_FAILURE);
+        test_perror("ftruncate to BUFLEN / 4");
     }
     close(fd);
 
     fd = open("new_file", O_RDWR);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
     _READ(tmp, BUFLEN);
     if (rv != BUFLEN / 4) {
-        printf("read %ld bytes, expected %d\n", rv, BUFLEN / 4);
-        exit(EXIT_FAILURE);
+        test_error("read %ld bytes, expected %d", rv, BUFLEN / 4);
     }
     for (int i = 0; i < BUFLEN / 4; i++) {
         if (tmp[i] != i) {
-            printf("unexpected data 0x%02x at offset %d\n", tmp[i], i);
-            exit(EXIT_FAILURE);
+            test_error("unexpected data 0x%02x at offset %d", tmp[i], i);
         }
     }
     close(fd);
 
     fd = open("new_file", O_RDWR | O_TRUNC);
     if (fd < 0) {
-        perror("open(O_TRUNC)");
-        exit(EXIT_FAILURE);
+        test_perror("open(O_TRUNC)");
     }
     if (fstat(fd, &s) < 0) {
         perror("fstat");
@@ -426,75 +390,61 @@ void truncate_test(const char *prog)
 
     fd = open("new_file", O_RDONLY);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
     if ((ftruncate(fd, 0) == 0) || ((errno != EBADF) && (errno != EINVAL))) {
-        printf("read-only file truncate test failed\n");
-        exit(EXIT_FAILURE);
+        test_error("read-only file truncate test");
     }
     close(fd);
 
     if ((ftruncate(fd, 0) == 0) || ((errno != EBADF) && (errno != EINVAL))) {
-        printf("bad file descriptor truncate test failed\n");
-        exit(EXIT_FAILURE);
+        test_error("bad file descriptor truncate test");
     }
 
     if ((truncate("/dev/null", 0) == 0) || (errno != EINVAL)) {
-        printf("non-regular file truncate test failed\n");
-        exit(EXIT_FAILURE);
+        test_error("non-regular file truncate test");
     }
 
     if (mkdir("my_dir", S_IRUSR | S_IWUSR) < 0) {
-        perror("mkdir");
-        exit(EXIT_FAILURE);
+        test_perror("mkdir");
     }
     if ((truncate("my_dir", 0) == 0) || (errno != EISDIR)) {
-        printf("directory truncate test failed\n");
-        exit(EXIT_FAILURE);
+        test_error("directory truncate test");
     }
 
     if ((truncate("nonexisting", 0) == 0) || (errno != ENOENT)) {
-        printf("non-existing file truncate test failed\n");
-        exit(EXIT_FAILURE);
+        test_error("non-existing file truncate test");
     }
 
     fd = eventfd(0, 0);
     if (fd < 0) {
-        perror("eventfd");
-        exit(EXIT_FAILURE);
+        test_perror("eventfd");
     }
     if ((ftruncate(fd, 0) == 0) || (errno != EINVAL)) {
-        printf("non-regular file truncate test failed\n");
-        exit(EXIT_FAILURE);
+        test_error("non-regular file truncate test");
     }
     close(fd);
 
     if (truncate(prog, 0) == 0) {
-        printf("Could truncate program executable file\n");
-        exit(EXIT_FAILURE);
+        test_error("could truncate program executable file");
     }
 
     /* Test truncation of a file not linked to the filesystem. */
     fd = open(".", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
-        perror("open tmpfile");
-        exit(EXIT_FAILURE);
+        test_perror("open tmpfile");
     }
     _WRITE(tmp, BUFLEN);
     _LSEEK(0, SEEK_CUR);
     if (rv != BUFLEN) {
-        printf("tmpfile lseek returned %ld\n", rv);
-        exit(EXIT_FAILURE);
+        test_error("tmpfile lseek returned %ld", rv);
     }
     if (ftruncate(fd, BUFLEN / 2) < 0) {
-        perror("tmpfile truncate failed");
-        exit(EXIT_FAILURE);
+        test_perror("tmpfile truncate");
     }
     _LSEEK(0, SEEK_END);
     if (rv != BUFLEN / 2) {
-        printf("tmpfile lseek after truncate returned %ld\n", rv);
-        exit(EXIT_FAILURE);
+        test_error("tmpfile lseek after truncate returned %ld", rv);
     }
     close(fd);
 
@@ -509,21 +459,17 @@ static void write_exec_test(const char *prog)
     int fd;
 
     if (access(prog, W_OK) == 0) {
-        printf("Could access program executable file in write mode\n");
-        exit(EXIT_FAILURE);
+        test_error("could access program executable file in write mode");
     } else if (errno != EACCES) {
-        perror("Unexpected error from access(prog, W_OK)");
-        exit(EXIT_FAILURE);
+        test_perror("access(prog, W_OK)");
     }
     fd = open(prog, O_RDWR);
     if (fd >= 0) {
-        printf("Could open program executable file for writing\n");
-        exit(EXIT_FAILURE);
+        test_error("could open program executable file for writing");
     }
     fd = open(prog, O_WRONLY);
     if (fd >= 0) {
-        printf("Could open program executable file in write-only mode\n");
-        exit(EXIT_FAILURE);
+        test_error("could open program executable file in write-only mode");
     }
 }
 
@@ -563,8 +509,7 @@ void bulk_write_test(unsigned long long size)
     int rv, fd;
     fd = open("new_file_2", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
-        perror("bulk_write_test: open");
-        exit(EXIT_FAILURE);
+        test_perror("bulk_write_test: open");
     }
 
     writetest_debug("starting bulk write test...\n");
@@ -777,8 +722,7 @@ static void fs_stress_test()
 
     struct timespec start;
     if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
-        perror("fs_stress_test: clock_gettime");
-        exit(EXIT_FAILURE);
+        test_perror("fs_stress_test: clock_gettime");
     }
 
     /* Creating and writing to new files */
@@ -791,8 +735,7 @@ static void fs_stress_test()
         fds[i] = fd;
 
         if (fd < 0) {
-            perror("open");
-            exit(EXIT_FAILURE);
+            test_perror("open");
         }
 
         _READ(buf, BUFLEN);
@@ -821,8 +764,7 @@ static void fs_stress_test()
 
         /* Confirms file is deleted */
         if (remove(fd_names[i]) != 0) {
-            perror("file remove unsucessful");
-            exit(EXIT_FAILURE);
+            test_perror("file remove");
         }
     }
 
@@ -832,8 +774,7 @@ static void fs_stress_test()
     /* Time of deletion and total time*/
     struct timespec postsync;
     if (clock_gettime(CLOCK_MONOTONIC, &postsync) < 0) {
-        perror("fs_stress_test: clock_gettime");
-        exit(EXIT_FAILURE);
+        test_perror("fs_stress_test: clock_gettime");
     }
     print_op_stats("delete", &postwrite, &postsync, 0);
     print_op_stats("total", &start, &postsync, 0);

@@ -1,13 +1,13 @@
 #define GNU_SOURCE
 #include <dirent.h>     /* Defines DT_* constants */
 #include <fcntl.h>
-#include <stdio.h>
 #include <unistd.h>
-#include <stdlib.h>
 #include <sys/syscall.h>
 #include <sys/sendfile.h>
 #include <errno.h>
 #include <string.h>
+
+#include "../test_utils.h"
 
 #define BUF_LEN 10
 
@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
     }
 
     lseek(fd_in, 0, SEEK_SET);
-    ret = sendfile(fd_out, fd_in, (long *)0xbadf0000, BUF_LEN);
+    ret = sendfile(fd_out, fd_in, FAULT_ADDR, BUF_LEN);
     if ((ret != -1) || (errno != EFAULT))
         sf_err_goto(err_fop, "sendfile with faulting offset test failed (%d, %d)\n", ret, errno);
 

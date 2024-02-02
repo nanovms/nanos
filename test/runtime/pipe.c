@@ -1,18 +1,15 @@
 #define _GNU_SOURCE
 #include <fcntl.h>
-#include <stdio.h>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <errno.h>
 #include <poll.h>
 #include <string.h>
-#include <stdlib.h>
 #include <pthread.h>
 
 #include <runtime.h>
 
-#define handle_error(msg) \
-       do { perror(msg); exit(EXIT_FAILURE); } while (0)
+#include "../test_utils.h"
 
 int __pipe(int fildes[2])
 {
@@ -29,33 +26,29 @@ void basic_test(heap h, int * fds)
     int ret;
 
     if (write(fds[1], &test_val, sizeof(test_val)) < 0)
-        handle_error("pipe write");
+        test_perror("pipe write");
     capacity = fcntl(fds[0], F_GETPIPE_SZ);
     if (capacity < 0)
-        handle_error("F_GETPIPE_SZ");
+        test_perror("F_GETPIPE_SZ");
     nbytes = fcntl(fds[0], F_SETPIPE_SZ, 3 * capacity);
     if (nbytes < 0)
-        handle_error("F_SETPIPE_SZ");
+        test_perror("F_SETPIPE_SZ");
     if (nbytes < 3 * capacity) {
-        printf("pipe capacity set error (%ld)\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("pipe capacity set (%ld)", nbytes);
     }
     capacity = nbytes;
     nbytes = fcntl(fds[0], F_GETPIPE_SZ);
     if (nbytes != capacity) {
-        printf("pipe capacity get error (fd 0, %ld)\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("pipe capacity get (fd 0, %ld)", nbytes);
     }
     nbytes = fcntl(fds[1], F_GETPIPE_SZ);
     if (nbytes != capacity) {
-        printf("pipe capacity get error (fd 1, %ld)\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("pipe capacity get (fd 1, %ld)", nbytes);
     }
     nbytes = read(fds[0], &test_val, sizeof(test_val));
     if ((nbytes != sizeof(test_val)) || (test_val != 0x12345678)) {
-        printf("pipe read error after set capacity (%ld, 0x%x)\n", nbytes,
+        test_error("pipe read after set capacity (%ld, 0x%x)", nbytes,
                test_val);
-        exit(EXIT_FAILURE);
     }
 
     char *test_string = "This is a pipe test string!";
@@ -64,11 +57,10 @@ void basic_test(heap h, int * fds)
 
     nbytes = write(fds[1], test_string, test_len);
     if (nbytes < 0)
-        handle_error("basic test write");
+        test_perror("basic test write");
 
     if (nbytes < test_len) {
-        printf("pipe basic test: short write (%ld)\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("pipe basic test: short write (%ld)", nbytes);
     }
 
     pfd[0].fd = fds[0];
@@ -76,9 +68,8 @@ void basic_test(heap h, int * fds)
     pfd[0].events = pfd[1].events = POLLIN | POLLOUT;
     ret = poll(pfd, 2, -1);
     if ((ret != 2) || (pfd[0].revents != POLLIN) || (pfd[1].revents != POLLOUT)) {
-        printf("pipe before read: poll returned %d, pfd[0].revents 0x%x, pfd[1].revents 0x%x\n",
+        test_error("pipe before read: poll returned %d, pfd[0].revents 0x%x, pfd[1].revents 0x%x",
                ret, pfd[0].revents, pfd[1].revents);
-        exit(EXIT_FAILURE);
     }
 
     int nread = 0;
@@ -86,15 +77,14 @@ void basic_test(heap h, int * fds)
     do {
         nbytes = read(fds[0], ibuf + nread, 5);
         if (nbytes < 0)
-            handle_error("basic test read");
+            test_perror("basic test read");
         nread += nbytes;
     } while (nread < test_len);
 
     ret = poll(pfd, 2, -1);
     if ((ret != 1) || (pfd[0].revents != 0) || (pfd[1].revents != POLLOUT)) {
-        printf("pipe after read: poll returned %d, pfd[0].revents 0x%x, pfd[1].revents 0x%x\n",
+        test_error("pipe after read: poll returned %d, pfd[0].revents 0x%x, pfd[1].revents 0x%x",
                ret, pfd[0].revents, pfd[1].revents);
-        exit(EXIT_FAILURE);
     }
 
     buffer_produce(in, test_len);
@@ -102,9 +92,8 @@ void basic_test(heap h, int * fds)
     buffer_clear(in);
 
     if (strcmp(test_string, (const char *)buffer_ref(in, 0))) {
-        printf("PIPE-RD/WR - ERROR - test message corrupted, expected %s and got %s\n",
+        test_error("PIPE-RD/WR - test message corrupted, expected %s and got %s",
                test_string, (char *)buffer_ref(in, 0));
-        exit(EXIT_FAILURE);
     } else {
         printf("PIPE-RD/WR - SUCCESS - test message received\n");
     }
@@ -124,7 +113,7 @@ void * blocking_test_child(void * arg)
     do {
         int nbytes = read(fds[0], dstbuf, dstbufsiz);
         if (nbytes < 0)
-            handle_error("blocking test read");
+            test_perror("blocking test read");
         for (int i = 0; i < nbytes; i++) {
             if (dstbuf[i] != blocking_srcbuf[nread + i]) {
                 printf("blocking test: mismatch at offset %d\n", nread + i);
@@ -145,14 +134,14 @@ void blocking_test(heap h, int * fds)
 
     pthread_t pt;
     if (pthread_create(&pt, NULL, blocking_test_child, fds))
-        handle_error("blocking test pthread_create");
+        test_error("blocking test pthread_create");
 
     int nwritten = 0;
     do {
         int nbytes = write(fds[1], blocking_srcbuf + nwritten,
                            BLOCKING_TEST_LEN - nwritten);
         if (nbytes < 0)
-            handle_error("blocking test write");
+            test_perror("blocking test write");
         nwritten += nbytes;
     } while(nwritten < BLOCKING_TEST_LEN);
 
@@ -160,11 +149,10 @@ void blocking_test(heap h, int * fds)
 
     void * retval = 0;
     if (pthread_join(pt, &retval))
-        handle_error("blocking test pthread_join");
+        test_error("blocking test pthread_join");
     if (retval != (void *)EXIT_SUCCESS) {
-        printf("blocking test failed: read thread failed with retval %lld\n",
+        test_error("blocking test: read thread failed with retval %lld",
                (long long)retval);
-        exit(EXIT_FAILURE);
     }
     printf("blocking test passed\n");
 }
@@ -174,25 +162,22 @@ static void fault_test(void)
     int fds[2];
     int status;
     u8 buf[64];
-    void *fault_addr = (void *)0xbadf0000;
+    void *fault_addr = FAULT_ADDR;
 
     if ((__pipe(fault_addr) != -1) || (errno != EFAULT)) {
-        printf("pipe with faulting buffer error\n");
-        exit(EXIT_FAILURE);
+        test_error("pipe with faulting buffer");
     }
     status = __pipe(fds);
     if (status == -1)
-        handle_error("pipe");
+        test_perror("pipe");
     if ((write(fds[1], fault_addr, 1) != -1) || (errno != EFAULT)) {
-        printf("write with faulting buffer error\n");
-        exit(EXIT_FAILURE);
+        test_error("write with faulting buffer");
     }
 
     if (write(fds[1], buf, sizeof(buf)) < 0)
-        handle_error("write");
+        test_perror("write");
     if ((read(fds[0], fault_addr, 1) != -1) || (errno != EFAULT)) {
-        printf("read with faulting buffer error\n");
-        exit(EXIT_FAILURE);
+        test_error("read with faulting buffer");
     }
 
     close(fds[0]);
@@ -209,7 +194,7 @@ int main(int argc, char **argv)
 
     status = __pipe(fds);
     if (status == -1)
-        handle_error("pipe");
+        test_perror("pipe");
 
     printf("PIPE-CREATE - SUCCESS, fds %d %d\n", fds[0], fds[1]);
 
@@ -222,9 +207,8 @@ int main(int argc, char **argv)
     pfd.events = POLLIN | POLLOUT;
     status = poll(&pfd, 1, -1);
     if ((status != 1) || (pfd.revents != POLLHUP)) {
-        printf("after closing writer fd: poll on reader fd returned %d, pfd.revents 0x%x\n",
+        test_error("after closing writer fd: poll on reader fd returned %d, pfd.revents 0x%x",
                status, pfd.revents);
-        exit(EXIT_FAILURE);
     }
 
     close(fds[0]);

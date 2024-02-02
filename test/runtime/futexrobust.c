@@ -1,10 +1,10 @@
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <stdint.h>
 #include <errno.h>
+
+#include "../test_utils.h"
 
 pthread_mutex_t mut, mut2;
 uint32_t val;
@@ -24,8 +24,7 @@ acquire_mutex(pthread_mutex_t *m)
         pthread_mutex_consistent(m);
         break;
     default:
-        printf("got unexpected value from mutex: %d\n", err);
-        exit(EXIT_FAILURE);
+        test_error("got unexpected value from mutex: %d", err);
     }
 }
 

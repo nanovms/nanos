@@ -1,8 +1,6 @@
 /* test for basic ftrace functionality */
 
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -18,6 +16,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/prctl.h>
+
+#include "../test_utils.h"
 
 #define TRACE_DIR "/sys/kernel/debug/tracing"
 #define FTRACE_CURRENT          TRACE_DIR "/current_tracer"
@@ -39,8 +39,7 @@ open_and_read_max(const char  * fname,
 
     fd = open(fname, O_RDONLY);
     if (fd < 0) {
-        fprintf(stderr, "Failed to open %s: %s\n", fname, strerror(errno));
-        exit(EXIT_FAILURE);
+        test_perror("open %s", fname);
     }
 
     do {
@@ -49,8 +48,7 @@ open_and_read_max(const char  * fname,
             if (errno == EINTR)
                 continue;
 
-            fprintf(stderr, "read %s failed: %s\n", fname, strerror(errno));
-            exit(EXIT_FAILURE);
+            test_perror("read %s", fname);
         }
 
         buf[bytes] = '\0';
@@ -71,14 +69,12 @@ open_and_write(const char * fname, const char * str)
 
     fd = open(fname, O_RDWR);
     if (fd < 0) {
-        fprintf(stderr, "Failed to open %s: %s\n", fname, strerror(errno));
-        exit(EXIT_FAILURE);
+        test_perror("open %s", fname);
     }
 
     bytes = write(fd, str, strlen(str));
     if (bytes < 0) {
-        fprintf(stderr, "Failed to write to %s: %s\n", fname, strerror(errno));
-        exit(EXIT_FAILURE);
+        test_error("write to %s", fname);
     }
 
     close(fd);
@@ -91,11 +87,7 @@ alrm(int signo) {}
 static int
 register_alarm(unsigned long sec)
 {
-    int ret = alarm(sec);
-    if (ret != 0) {
-        fprintf(stderr, "alarm failed: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
+    alarm(sec);
 
     return 0;
 }
@@ -112,8 +104,7 @@ register_timeout(unsigned long sec)
 
     ret = sigaction(SIGALRM, &sa, NULL); 
     if (ret != 0) {
-        fprintf(stderr, "sigaction failed: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
+        test_perror("sigaction");
     }
 
     return register_alarm(sec);

@@ -3,11 +3,11 @@
 #include <poll.h>
 #include <pthread.h>
 #include <runtime.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+#include "../test_utils.h"
 
 #define BUF_SIZE    8192
 
@@ -18,20 +18,18 @@ static void basic_test(void)
 {
     ssize_t nbytes, total;
     int fd[2];
-    void *fault_addr = (void *)0xbadf0000;
+    void *fault_addr = FAULT_ADDR;
     int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
 
     if (ret < 0) {
-        printf("socketpair basic test: socketpair error %d\n", errno);
-        exit(EXIT_FAILURE);
+        test_perror("socketpair basic test: socketpair");
     }
     memset(writeBuf, 0xA5, sizeof(writeBuf));
     total = 0;
     do {
         nbytes = write(fd[0], writeBuf + total, BUF_SIZE - total);
         if (nbytes <= 0) {
-            printf("socketpair basic test: write error\n");
-            exit(EXIT_FAILURE);
+            test_error("socketpair basic test: write");
         }
         total += nbytes;
     } while (total < BUF_SIZE);
@@ -39,34 +37,29 @@ static void basic_test(void)
     do {
         nbytes = read(fd[1], readBuf + total, BUF_SIZE / 2 - total);
         if (nbytes <= 0) {
-            printf("socketpair basic test: read error\n");
-            exit(EXIT_FAILURE);
+            test_error("socketpair basic test: read");
         }
         total += nbytes;
     } while (total < BUF_SIZE / 2);
     if (total != BUF_SIZE / 2) {
-        printf("socketpair basic test: read more data than requested\n");
-        exit(EXIT_FAILURE);
+        test_error("socketpair basic test: read more data than requested");
     }
     do {
         nbytes = read(fd[1], readBuf + total, BUF_SIZE - total);
         if (nbytes <= 0) {
-            printf("socketpair basic test: read error\n");
-            exit(EXIT_FAILURE);
+            test_error("socketpair basic test: read");
         }
         total += nbytes;
     } while (total < BUF_SIZE);
     if (memcmp(readBuf, writeBuf, BUF_SIZE)) {
-        printf("socketpair basic test: data mismatch\n");
-        exit(EXIT_FAILURE);
+        test_error("socketpair basic test: data mismatch");
     }
     close(fd[0]);
     close(fd[1]);
 
     ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fault_addr);
     if ((ret != -1) || (errno != EFAULT)) {
-        printf("socketpair fault test failed (%d, %d)\n", ret, errno);
-        exit(EXIT_FAILURE);
+        test_error("socketpair fault test (%d, %d)", ret, errno);
     }
 }
 
@@ -77,25 +70,21 @@ static void hangup_test(void)
     int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
 
     if (ret < 0) {
-        printf("socketpair hangup test: socketpair error %d\n", errno);
-        exit(EXIT_FAILURE);
+        test_perror("socketpair hangup test: socketpair");
     }
     close(fd[0]);
     fds.fd = fd[1];
     fds.events = 0;
     ret = poll(&fds, 1, 0);
     if (ret <= 0) {
-        printf("socketpair hangup test: poll returned %d\n", ret);
-        exit(EXIT_FAILURE);
+        test_error("socketpair hangup test: poll returned %d", ret);
     }
     if (!(fds.revents & POLLHUP)) {
-        printf("socketpair hangup test: unexpected events %x\n", fds.revents);
-        exit(EXIT_FAILURE);
+        test_error("socketpair hangup test: unexpected events %x", fds.revents);
     }
     ret = read(fd[1], readBuf, BUF_SIZE);
     if (ret != 0) {
-        printf("socketpair hangup test: read returned %d\n", ret);
-        exit(EXIT_FAILURE);
+        test_error("socketpair hangup test: read returned %d", ret);
     }
     close(fd[1]);
 }
@@ -124,32 +113,26 @@ static void blocking_read_test(void)
     int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
 
     if (ret < 0) {
-        printf("socketpair blocking read test: socketpair error %d\n", errno);
-        exit(EXIT_FAILURE);
+        test_perror("socketpair blocking read test: socketpair");
     }
     thread_done = false;
     if (pthread_create(&pt, NULL, blocking_read_test_child,
             (void *)(long)fd[0])) {
-        printf("socketpair blocking read test: cannot create thread\n");
-        exit(EXIT_FAILURE);
+        test_error("socketpair blocking read test: cannot create thread");
     }
     usleep(100 * 1000);
     if (thread_done) {
-        printf("socketpair blocking read test: thread didn't block\n");
-        exit(EXIT_FAILURE);
+        test_error("socketpair blocking read test: thread didn't block");
     }
     nbytes = write(fd[1], writeBuf, BUF_SIZE);
     if (nbytes <= 0) {
-        printf("socketpair blocking read test: write returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("socketpair blocking read test: write returned %ld", nbytes);
     }
     if (pthread_join(pt, &retval)) {
-        printf("socketpair blocking read test: cannot join thread\n");
-        exit(EXIT_FAILURE);
+        test_error("socketpair blocking read test: cannot join thread");
     }
     if ((long)retval != EXIT_SUCCESS) {
-        printf("socketpair blocking read test: thread errored out\n");
-        exit(EXIT_FAILURE);
+        test_error("socketpair blocking read test: thread errored out");
     }
     close(fd[0]);
     close(fd[1]);
@@ -161,14 +144,12 @@ static void nonblocking_test(void)
     int ret = socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fd);
 
     if (ret < 0) {
-        printf("socketpair non-blocking test: socketpair error %d\n", errno);
-        exit(EXIT_FAILURE);
+        test_perror("socketpair non-blocking test: socketpair");
     }
     ret = read(fd[0], readBuf, BUF_SIZE);
     if ((ret != -1) || (errno != EAGAIN)) {
-        printf("socketpair non-blocking test: read didn't error out (%d, %d)\n",
+        test_error("socketpair non-blocking test: read didn't error out (%d, %d)",
                 ret, errno);
-        exit(EXIT_FAILURE);
     }
     close(fd[0]);
     close(fd[1]);

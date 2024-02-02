@@ -4,8 +4,6 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
@@ -15,6 +13,8 @@
 #include <unistd.h>
 
 #include "runtime.h"
+
+#include "../test_utils.h"
 
 #ifndef SYS_io_uring_setup
 #define SYS_io_uring_setup      425
@@ -170,13 +170,6 @@ enum {
 #define IORING_REGISTER_PROBE           8
 
 #define BUF_SIZE        8192
-
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
 
 struct iour {
     struct io_uring_params params;

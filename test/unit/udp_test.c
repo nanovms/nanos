@@ -3,22 +3,17 @@
 
 #include <errno.h>
 #include <string.h>
-#include <stdlib.h>
 
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
+#include "../test_utils.h"
+
 #define DEFAULT_LOCAL_PORT 9035
 #define DEFAULT_LOCAL_ITERATIONS 100
 #define BUFLEN 1500
 #define MSGSIZE 512
-
-void fail(char * s)
-{
-    rprintf("%s failed: %s (errno %d)\n", s, errno_sstring(), errno);
-    exit(EXIT_FAILURE);
-}
 
 int main(int argc, char ** argv)
 {
@@ -47,7 +42,7 @@ int main(int argc, char ** argv)
 
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd < 0)
-	fail("socket");
+        test_perror("socket");
 
     struct sockaddr_in lsin;
     lsin.sin_family = AF_INET;
@@ -55,7 +50,7 @@ int main(int argc, char ** argv)
     lsin.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(fd, (struct sockaddr *)&lsin, sizeof(lsin)) < 0)
-	fail("bind");
+        test_perror("bind");
 
     struct sockaddr_in dsin;
     dsin.sin_family = AF_INET;
@@ -63,7 +58,7 @@ int main(int argc, char ** argv)
     dsin.sin_addr.s_addr = htonl(daddr);
 
     if (connect(fd, (struct sockaddr *)&dsin, sizeof(dsin)) < 0)
-	fail("connect");
+        test_perror("connect");
 
     struct sockaddr_in rsin;
     socklen_t rsin_len;
@@ -75,18 +70,18 @@ int main(int argc, char ** argv)
 	int slen = sendto(fd, sbuf, MSGSIZE, 0, (struct sockaddr *)&dsin, sizeof(dsin));
 	// XXX retry on EINTR / EAGAIN
 	if (slen < 0)
-	    fail("sendto");
+	    test_perror("sendto");
 
 	int rlen = recvfrom(fd, rbuf, BUFLEN, 0, (struct sockaddr *)&rsin, &rsin_len);
 	if (rlen < 0)
-	    fail("recvfrom");
+	    test_perror("recvfrom");
 	// XXX retry
 
 	if (rlen != MSGSIZE)
-	    fail("length mismatch");
+	    test_error("length mismatch");
 
 	if (memcmp(sbuf, rbuf, MSGSIZE))
-	    fail("payload mismatch");
+	    test_error("payload mismatch");
     }
 
     rprintf("success\n");

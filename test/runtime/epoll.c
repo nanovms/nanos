@@ -1,14 +1,14 @@
 #include <fcntl.h>
 #include <pthread.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <sched.h>
 #include <string.h>
-#include <stdio.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/eventfd.h>
 #include <errno.h>
+
+#include "../test_utils.h"
 
 /* for old libc versions */
 #ifndef EPOLLEXCLUSIVE
@@ -20,13 +20,6 @@ struct test_epoll {
     volatile int wake_count;
 };
 
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
-
 /* Covers EPOLL_CTL_ADD and EPOLL_CTL_DEL epoll_ctl operations */
 void test_ctl()
 {
@@ -35,8 +28,7 @@ void test_ctl()
 
     efd = epoll_create1(0);
     if (efd < 0) {
-        printf("Cannot create epoll\n");
-        goto fail;
+        test_perror("cannot create epoll");
     }
 
     event.events = 0;
@@ -52,48 +44,38 @@ void test_ctl()
     event.events = EPOLLIN;
 
     if ((epoll_ctl(efd, EPOLL_CTL_ADD, fd, NULL) != -1) || (errno != EFAULT)) {
-        printf("NULL event pointer is not allowed for EPOLL_CTL_ADD\n");
-        goto fail;
+        test_error("NULL event pointer is not allowed for EPOLL_CTL_ADD");
     }
 
     if (epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event)) {
-        printf("Cannot add descriptor to epoll\n");
-        goto fail;
+        test_perror("cannot add descriptor to epoll");
     }
 
     if ((epoll_ctl(efd, EPOLL_CTL_MOD, fd, NULL) != -1) || (errno != EFAULT)) {
-        printf("NULL event pointer is not allowed for EPOLL_CTL_MOD\n");
-        goto fail;
+        test_error("NULL event pointer is not allowed for EPOLL_CTL_MOD");
     }
 
     event.events = EPOLLIN | EPOLLOUT;
     if (epoll_ctl(efd, EPOLL_CTL_MOD, fd, &event)) {
-        printf("Cannot modify epoll settings for existing descriptor\n");
-        goto fail;
+        test_perror("cannot modify epoll settings for existing descriptor");
     }
 
     close(fd);
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (epoll_ctl(efd, EPOLL_CTL_ADD, fd, &event)) {
-        printf("Cannot re-add descriptor to epoll\n");
-        goto fail;
+        test_perror("cannot re-add descriptor to epoll");
     }
 
     /* EPOLL_CTL_DEL must accept NULL for the event pointer */
     if (epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL)) {
-        printf("Cannot remove descriptor from epoll\n");
-        goto fail;
+        test_perror("cannot remove descriptor from epoll");
     }
 
     if (close(efd)) {
-        printf("Cannot close epoll\n");
-        goto fail;
+        test_perror("cannot close epoll");
     }
 
     return;
-  fail:
-    printf("test failed\n");
-    exit(EXIT_FAILURE);
 }
 
 static void test_wait()
@@ -101,7 +83,7 @@ static void test_wait()
     int efd;
     int fd;
     struct epoll_event event;
-    void *fault_addr = (void *)0xbadf0000;
+    void *fault_addr = FAULT_ADDR;
 
     efd = epoll_create1(0);
     test_assert(efd >= 0);

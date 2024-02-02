@@ -10,8 +10,6 @@
  */
 
 #include <runtime.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -19,6 +17,8 @@
 #include <string.h>
 #include <errno.h>
 #include <math.h>
+
+#include "../test_utils.h"
 
 /* Number of random bytes to output for test. */
 #define BSLEN 16384
@@ -86,8 +86,7 @@ static void gen_bytestream(char *path, int len)
 
     fd = open(path, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
     if (fd == -1) {
-        msg_err("can't create bytestream file.\n");
-        exit(EXIT_FAILURE);
+        test_perror("can't create bytestream file");
     }
 
     while (nbytes < BSLEN) {
@@ -243,11 +242,9 @@ int main(int argc, char **argv)
             show_stats = true;
             break;
         case '?':
-            fprintf(stderr, "Unknown option -%c\n", optopt);
-            exit(EXIT_FAILURE);
+            test_error("unknown option -%c", optopt);
         default:
-            fprintf(stderr, "Cannot parse arguments, exiting...\n");
-            exit(EXIT_FAILURE);
+            test_error("cannot parse arguments");
         }
     }
 
@@ -257,8 +254,7 @@ int main(int argc, char **argv)
     
     err = ent_get_stats("/tmp/test", &stats[0]);
     if (err) {
-        msg_err("Cannot get stats, failing.\n");
-        result = EXIT_FAILURE;
+        test_error("cannot get stats");
     } else {
         result = ent_test(&stats[0]);
     }

@@ -4,20 +4,11 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define FAULT_ADDR  ((void *)0xBADF0000)
-
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
+#include "../test_utils.h"
 
 int main(int argc, char **argv)
 {

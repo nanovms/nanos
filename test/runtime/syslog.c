@@ -1,7 +1,5 @@
 #include <errno.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -9,14 +7,9 @@
 
 #include <runtime.h>
 
-#define SYSLOG_FILE_PATH    "var/log/syslog"
+#include "../test_utils.h"
 
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
+#define SYSLOG_FILE_PATH    "var/log/syslog"
 
 static void syslog_test_basic(void)
 {

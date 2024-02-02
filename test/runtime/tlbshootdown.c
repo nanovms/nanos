@@ -1,6 +1,4 @@
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/sysinfo.h>
 #include <sched.h>
@@ -10,6 +8,8 @@
 #include <sys/mman.h>
 #include <signal.h>
 #include <setjmp.h>
+
+#include "../test_utils.h"
 
 #define MAX_CPUS 16
 #define PAGESIZE 4096
@@ -45,8 +45,7 @@ void *cpu_thread(void *v)
 
     if (sigsetjmp(jbs[id], 1)) {
         if (stage == 0) {
-            printf("thread %d failed expected memory access\n", id);
-            exit(EXIT_FAILURE);
+            test_error("thread %d failed expected memory access", id);
         }
         return NULL;
     }
@@ -57,9 +56,8 @@ void *cpu_thread(void *v)
     /* this one is expected to fail and generated SIGSEGV */
     for (i = PAGESIZE * id; i < PAGESIZE * id + NBYTES; i++)
         m[i] += id;
-    printf("thread %d on cpu %d accessed unmapped memory without segfault\n", id, sched_getcpu());
+    test_error("thread %d on cpu %d accessed unmapped memory without segfault", id, sched_getcpu());
 
-    exit(EXIT_FAILURE);
     return NULL;
 }
 
@@ -76,8 +74,7 @@ void handle_sigbuf(int sig, siginfo_t *si, void *uctxt)
         }
     }
     if (id < 0) {
-        printf("unable to get thread id in sighandler\n");
-        exit(EXIT_FAILURE);
+        test_error("unable to get thread id in sighandler");
     }
     siglongjmp(jbs[id], si->si_code);
 }
@@ -112,8 +109,7 @@ int main(int argc, char **argv)
     sa.sa_sigaction = handle_sigbuf;
     sa.sa_flags |= SA_SIGINFO;
     if (sigaction(SIGSEGV, &sa, 0) < 0) {
-        printf("failed to set signal handler\n");
-        exit(EXIT_FAILURE);
+        test_perror("failed to set signal handler");
     }
 
     np = get_nprocs();
@@ -123,8 +119,7 @@ int main(int argc, char **argv)
         stage = 0;
         m = mmap(NULL, PAGESIZE * np, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
         if (m == (void *)-1) {
-            printf("mmap failure\n");
-            exit(EXIT_FAILURE);
+            test_perror("mmap");
         }
         memset((void *)m, 0, PAGESIZE * np);
         for (long i = 0; i < np; i++) {

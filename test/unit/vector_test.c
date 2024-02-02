@@ -7,10 +7,8 @@
 
 //#define ENABLE_MSG_DEBUG
 #include <runtime.h>
-#include <stdio.h>
-#include <stdlib.h>
-#define EXIT_SUCCESS 0
-#define EXIT_FAILURE 1
+
+#include "../test_utils.h"
 
 boolean basic_test(heap h)
 {
@@ -146,11 +144,8 @@ int main(int argc, char **argv)
     heap h = init_process_runtime();
 
     if (!basic_test(h))
-	goto fail;
+        test_error("basic test");
 
     msg_debug("vector test passed\n");
     exit(EXIT_SUCCESS);
-  fail:
-    msg_err("vector test failed\n");
-    exit(EXIT_FAILURE);
 }

@@ -1,18 +1,11 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
 
-#define DUP_FD_COUNT    60000
+#include "../test_utils.h"
 
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
+#define DUP_FD_COUNT    60000
 
 static void test_dup(void)
 {

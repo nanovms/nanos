@@ -2,9 +2,9 @@
    will need doctoring if the behavior of range search, etc., changes. */
 
 //#define ENABLE_MSG_DEBUG
-#include <stdio.h>
 #include <runtime.h>
-#include <stdlib.h>
+
+#include "../test_utils.h"
 
 struct rm_result {
     range r;
@@ -45,8 +45,7 @@ static test_node allocate_test_node(heap h, range r, int val)
 {
     test_node tn = allocate(h, sizeof(struct test_node));
     if (tn == INVALID_ADDRESS) {
-        printf("unable to allocate test node; fail\n");
-        exit(EXIT_FAILURE);
+        test_error("unable to allocate test node");
     }
     rmnode_init(&tn->node, r);
     tn->val = val;
@@ -189,9 +188,8 @@ static void rangemap_verify_ranges(rangemap rm, int expected_count, u64 expected
         length += range_span(n->r);
     }
     if ((count != expected_count) || (length != expected_length)) {
-        msg_err("range count %d (expected %d), length %ld (expected %ld)\n",
+        test_error("range count %d (expected %d), length %lld (expected %lld)",
                 count, expected_count, length, expected_length);
-        exit(EXIT_FAILURE);
     }
 }
 

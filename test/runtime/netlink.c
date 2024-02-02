@@ -3,13 +3,13 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <net/if.h>
+
+#include "../test_utils.h"
 
 #define DUMP_ROUTES
 //#define DEBUG_NETLINK
@@ -25,13 +25,6 @@
 #else
 #define debug_netlink(x, ...)
 #endif
-
-#define test_assert(expr) do {                  \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
 
 static int netlink_open(struct sockaddr_nl *nladdr, unsigned int pid)
 {
@@ -120,7 +113,7 @@ static void test_fault(void)
     socklen_t len;
     struct nlmsghdr nlh;
     uint8_t buf[512];
-    void *fault_addr = (void *)0xbadf0000;
+    void *fault_addr = FAULT_ADDR;
 
     fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
     test_assert(fd >= 0);

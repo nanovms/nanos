@@ -1,6 +1,6 @@
 #include <runtime.h>
-#include <stdio.h>
-#include <stdlib.h>
+
+#include "../test_utils.h"
 
 static inline key silly_key(void *a)
 {
@@ -291,36 +291,28 @@ int main(int argc, char **argv)
     heap h = init_process_runtime();
 
     if (!basic_table_tests(h, identity_key, BASIC_ELEM_COUNT)) {
-        msg_err("Identity key table test failed\n");
-        goto fail;
+        test_error("identity key table test");
     }
 
     if (!basic_table_tests(h, silly_key, BASIC_ELEM_COUNT)) {
-        msg_err("Silly key table test failed\n");
-        goto fail;
+        test_error("silly key table test");
     }
 
     if (!basic_table_tests(h, less_silly_key, BASIC_ELEM_COUNT)) {
-        msg_err("Less silly key table test failed\n");
-        goto fail;
+        test_error("less silly key table test");
     }
 
     if (!one_elem_table_tests(h, BASIC_ELEM_COUNT)) {
-        msg_err("One-element table test failed\n");
-        goto fail;
+        test_error("one-element table test");
     }
 
     if (!basic_table_tests(h, identity_key, STRESS_ELEM_COUNT)) {
-        msg_err("Stress table test failed\n");
-        goto fail;
+        test_error("stress table test");
     }
 
     if (!preallocated_table_tests(h, identity_key, BASIC_ELEM_COUNT)) {
-        msg_err("Preallocated table test failed\n");
-        goto fail;
+        test_error("preallocated table test");
     }
 
     exit(EXIT_SUCCESS);
-fail:
-    exit(EXIT_FAILURE);
 }

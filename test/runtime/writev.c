@@ -1,28 +1,26 @@
 #include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/uio.h>
 #include <unistd.h>
 #include <assert.h>
 
+#include "../test_utils.h"
+
 #define BUFLEN 256
 
 #define _READ(b, l)             \
     rv = read(fd, b, l);                    \
     if (rv < 0) {                           \
-        perror("read");                 \
         close(fd);          \
-        exit(EXIT_FAILURE);     \
+        test_perror("read");                \
     }
 
 #define _LSEEK(o, w)                \
     rv = lseek(fd, o, w);                   \
     if (rv < 0) {                           \
-        perror("lseek");                \
         close(fd);          \
-        exit(EXIT_FAILURE);     \
+        test_perror("lseek");               \
     }
 
 int main()
@@ -47,8 +45,7 @@ int main()
 
     int fd = open("hello", O_RDWR);
     if (fd < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+        test_perror("open");
     }
 
     _READ(buf, BUFLEN);
@@ -67,21 +64,18 @@ int main()
 
     rv = writev(fd, iovs, 3);
     if (rv < 0) {
-        printf("Write unsuccessful (writev returned %ld)\n", rv);
-        exit(EXIT_FAILURE);
+        test_perror("writev");
     }
 
     if (rv != total_write_len) {
-        printf("Written bytes number %ld is not equal to expected %d", rv, total_write_len);
-        exit(EXIT_FAILURE);
+        test_error("written bytes number %ld is not equal to expected %d", rv, total_write_len);
     }
 
     int endpos = lseek(fd, 0, SEEK_CUR);
     if (startpos + total_write_len != endpos)
     {
-        printf("File offset at the end of writev is not correct: expected %d != actual %d\n",
+        test_error("file offset at the end of writev is not correct: expected %d != actual %d",
             startpos + total_write_len, endpos);
-        exit(EXIT_FAILURE);
     }
 
     _LSEEK(startpos, SEEK_SET);
@@ -90,64 +84,51 @@ int main()
     _READ(buf, total_write_len);
 
     if (rv != total_write_len) {
-        printf("read fail: expecting %d bytes, rv: %ld \n", total_write_len, rv);
-        exit(EXIT_FAILURE);
+        test_error("read: expecting %d bytes, rv: %ld", total_write_len, rv);
     }
 
     if (strncmp(str, buf, strlen(str))) {
-        printf("write fail: string mismatch\n");
         buf[rv] = '\0';
-        printf("Expected: \"%s\", actual: \"%s\"\n", str, buf);
-        exit(EXIT_FAILURE);
+        test_error("write: string mismatch, expected \"%s\", actual \"%s\"", str, buf);
     }
 
     rv = pwritev(fd, iovs, 3, -1);
     if ((rv != -1) || (errno != EINVAL)) {
-        printf("pwritev with invalid offset returned %ld (errno %d)\n", rv, errno);
-        exit(EXIT_FAILURE);
+        test_error("pwritev with invalid offset returned %ld (errno %d)", rv, errno);
     }
 
     startpos += 10;
     rv = pwritev(fd, iovs, 3, startpos);
     if (rv != total_write_len) {
-        printf("Bytes written with pwritev: %ld (expected %d)\n", rv, total_write_len);
-        exit(EXIT_FAILURE);
+        test_error("bytes written with pwritev: %ld (expected %d)", rv, total_write_len);
     }
     rv = lseek(fd, 0, SEEK_CUR);
     if (rv != endpos) {
-        printf("File offset at the end of pwritev: %ld (expected %d)\n", rv, endpos);
-        exit(EXIT_FAILURE);
+        test_error("file offset at the end of pwritev: %ld (expected %d)", rv, endpos);
     }
     _LSEEK(startpos, SEEK_SET);
     _READ(buf, total_write_len);
     if (rv != total_write_len) {
-        printf("read after pwritev fail: expecting %d bytes, rv: %ld \n", total_write_len, rv);
-        exit(EXIT_FAILURE);
+        test_error("read after pwritev: expecting %d bytes, rv: %ld", total_write_len, rv);
     }
     if (strncmp(str, buf, strlen(str))) {
-        printf("pwritev fail: string mismatch\n");
         buf[rv] = '\0';
-        printf("Expected: \"%s\", actual: \"%s\"\n", str, buf);
-        exit(EXIT_FAILURE);
+        test_error("pwritev: string mismatch, expected \"%s\", actual \"%s\"", str, buf);
     }
 
     close(fd);
 
     fd = open("hello", O_RDONLY);
     if (fd < 0) {
-        perror("open read-only");
-        exit(EXIT_FAILURE);
+        test_perror("open read-only");
     }
     if (writev(fd, iovs, 3) != -1) {
-        printf("Could writev to read-only file\n");
-        exit(EXIT_FAILURE);
+        test_error("could writev to read-only file");
     } else if (errno != EBADF) {
-        perror("writev to read-only file: unexpected error");
-        exit(EXIT_FAILURE);
+        test_perror("writev to read-only file: unexpected error");
     }
     if (close(fd) < 0) {
-        perror("close read-only");
-        exit(EXIT_FAILURE);
+        test_perror("close read-only");
     }
 
     printf("write test passed\n");

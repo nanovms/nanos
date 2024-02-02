@@ -2,10 +2,10 @@
 #include <errno.h>
 #include <pthread.h>
 #include <runtime.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
+
+#include "../test_utils.h"
 
 #define EVENTFD_VAL_MAX 0xFFFFFFFFFFFFFFFE
 
@@ -21,30 +21,25 @@ static void basic_test(int fd)
     writtenVal = 1;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal) - 1);
     if ((nbytes != -1) || (errno != EINVAL)) {
-        printf("eventfd basic test: write didn't error out (%ld, %d)\n", nbytes,
+        test_error("eventfd basic test: write didn't error out (%ld, %d)", nbytes,
                 errno);
-        exit(EXIT_FAILURE);
     }
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if (nbytes != sizeof(writtenVal)) {
-        printf("eventfd basic test: write returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd basic test: write returned %ld", nbytes);
     }
     nbytes = read(fd, (u8 *)&readVal, sizeof(readVal) - 1);
     if ((nbytes != -1) || (errno != EINVAL)) {
-        printf("eventfd basic test: read didn't error out (%ld, %d)\n", nbytes,
+        test_error("eventfd basic test: read didn't error out (%ld, %d)", nbytes,
                 errno);
-        exit(EXIT_FAILURE);
     }
     nbytes = read(fd, (u8 *)&readVal, sizeof(readVal));
     if (nbytes != sizeof(readVal)) {
-        printf("eventfd basic test: read returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd basic test: read returned %ld", nbytes);
     }
     if (readVal != writtenVal) {
-        printf("eventfd basic test: read value %lld, should be %lld\n", readVal,
+        test_error("eventfd basic test: read value %lld, should be %lld", readVal,
                 writtenVal);
-        exit(EXIT_FAILURE);
     }
 }
 
@@ -70,32 +65,26 @@ static void blocking_read_test(int fd)
 
     thread_done = false;
     if (pthread_create(&pt, NULL, blocking_read_test_child, (void *)(long)fd)) {
-        printf("eventfd blocking read test: cannot create thread\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking read test: cannot create thread");
     }
     usleep(100 * 1000);
     if (thread_done) {
-        printf("eventfd blocking read test: thread didn't block\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking read test: thread didn't block");
     }
     writtenVal = 0xDEADBEEF;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if (nbytes != sizeof(writtenVal)) {
-        printf("eventfd blocking read test: write returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking read test: write returned %ld", nbytes);
     }
     if (pthread_join(pt, &retval)) {
-        printf("eventfd blocking read test: cannot join thread\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking read test: cannot join thread");
     }
     if ((long)retval != EXIT_SUCCESS) {
-        printf("eventfd blocking read test: thread errored out\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking read test: thread errored out");
     }
     if (readVal != writtenVal) {
-        printf("eventfd blocking read test: unexpected readVal 0x%llX\n",
+        test_error("eventfd blocking read test: unexpected readVal 0x%llX",
                 readVal);
-        exit(EXIT_FAILURE);
     }
 }
 
@@ -124,68 +113,57 @@ static void blocking_write_test(int fd)
     writtenVal = EVENTFD_VAL_MAX;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if (nbytes != sizeof(writtenVal)) {
-        printf("eventfd blocking write test: write returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking write test: write returned %ld", nbytes);
     }
     thread_done = false;
     if (pthread_create(&pt, NULL, blocking_write_test_child, (void *)(long)fd))
     {
-        printf("eventfd blocking write test: cannot create thread\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking write test: cannot create thread");
     }
     usleep(100 * 1000);
     if (thread_done) {
-        printf("eventfd blocking write test: thread didn't block\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking write test: thread didn't block");
     }
     nbytes = read(fd, (u8 *)&readVal, sizeof(readVal));
     if (nbytes != sizeof(readVal)) {
-        printf("eventfd blocking write test: read returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking write test: read returned %ld", nbytes);
     }
     if (readVal != EVENTFD_VAL_MAX) {
-        printf("eventfd blocking write test: unexpected readVal 0x%llX\n",
+        test_error("eventfd blocking write test: unexpected readVal 0x%llX",
                 readVal);
-        exit(EXIT_FAILURE);
     }
     if (pthread_join(pt, &retval)) {
-        printf("eventfd blocking write test: cannot join thread\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking write test: cannot join thread");
     }
     if ((long)retval != EXIT_SUCCESS) {
-        printf("eventfd blocking write test: thread errored out\n");
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking write test: thread errored out");
     }
 
     /* Reset the eventfd counter value. */
     nbytes = read(fd, (u8 *)&readVal, sizeof(readVal));
     if (nbytes != sizeof(readVal)) {
-        printf("eventfd blocking write test: read returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd blocking write test: read returned %ld", nbytes);
     }
 }
 
 static void fault_test(int fd)
 {
-    void *fault_addr = (void *)0xbadf0000;
+    void *fault_addr = FAULT_ADDR;
     ssize_t nbytes;
 
     nbytes = write(fd, fault_addr, sizeof(writtenVal));
     if ((nbytes != -1) || (errno != EFAULT)) {
-        printf("eventfd fault test write error (%ld, %d)\n", nbytes, errno);
-        exit(EXIT_FAILURE);
+        test_error("eventfd fault test write (%ld, %d)", nbytes, errno);
     }
 
     writtenVal = 1;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if (nbytes != sizeof(writtenVal)) {
-        printf("eventfd fault test write error (%ld, %d)\n", nbytes, errno);
-        exit(EXIT_FAILURE);
+        test_error("eventfd fault test write (%ld, %d)", nbytes, errno);
     }
     nbytes = read(fd, fault_addr, sizeof(readVal));
     if ((nbytes != -1) || (errno != EFAULT)) {
-        printf("eventfd fault test read error (%ld, %d)\n", nbytes, errno);
-        exit(EXIT_FAILURE);
+        test_error("eventfd fault test read (%ld, %d)", nbytes, errno);
     }
 }
 
@@ -195,29 +173,25 @@ static void nonblocking_test(int fd)
 
     nbytes = read(fd, (u8 *)&readVal, sizeof(readVal));
     if ((nbytes != -1) || (errno != EAGAIN)) {
-        printf("eventfd non-blocking test: read didn't error out (%ld, %d)\n",
+        test_error("eventfd non-blocking test: read didn't error out (%ld, %d)",
                 nbytes, errno);
-        exit(EXIT_FAILURE);
     }
     writtenVal = EVENTFD_VAL_MAX;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if (nbytes != sizeof(writtenVal)) {
-        printf("eventfd non-blocking test: write returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd non-blocking test: write returned %ld", nbytes);
     }
     writtenVal = 1;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if ((nbytes != -1) || (errno != EAGAIN)) {
-        printf("eventfd non-blocking test: write didn't error out (%ld, %d)\n",
+        test_error("eventfd non-blocking test: write didn't error out (%ld, %d)",
                 nbytes, errno);
-        exit(EXIT_FAILURE);
     }
 
     /* Reset the eventfd counter value. */
     nbytes = read(fd, (u8 *)&readVal, sizeof(readVal));
     if (nbytes != sizeof(readVal)) {
-        printf("eventfd non-blocking test: read returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd non-blocking test: read returned %ld", nbytes);
     }
 }
 
@@ -229,27 +203,23 @@ static void semaphore_test(int fd)
     writtenVal = 8;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if (nbytes != sizeof(writtenVal)) {
-        printf("eventfd semaphore test: write returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd semaphore test: write returned %ld", nbytes);
     }
     i += writtenVal;
     writtenVal = 16;
     nbytes = write(fd, &writtenVal, sizeof(writtenVal));
     if (nbytes != sizeof(writtenVal)) {
-        printf("eventfd semaphore test: write returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd semaphore test: write returned %ld", nbytes);
     }
     i += writtenVal;
     for (; i > 0; i--) {
         nbytes = read(fd, (u8 *)&readVal, sizeof(readVal));
         if (nbytes != sizeof(readVal)) {
-            printf("eventfd semaphore test: read returned %ld\n", nbytes);
-            exit(EXIT_FAILURE);
+            test_error("eventfd semaphore test: read returned %ld", nbytes);
         }
         if (readVal != 1) {
-            printf("eventfd semaphore test: read value %lld, should be 1\n",
+            test_error("eventfd semaphore test: read value %lld, should be 1",
                     readVal);
-            exit(EXIT_FAILURE);
         }
     }
 }
@@ -260,13 +230,11 @@ static void initval_test(int fd, unsigned int initval)
 
     nbytes = read(fd, (u8 *)&readVal, sizeof(readVal));
     if (nbytes != sizeof(readVal)) {
-        printf("eventfd initval test: read returned %ld\n", nbytes);
-        exit(EXIT_FAILURE);
+        test_error("eventfd initval test: read returned %ld", nbytes);
     }
     if (readVal != initval) {
-        printf("eventfd initval test: read value %lld, should be %u\n",
+        test_error("eventfd initval test: read value %lld, should be %u",
                 readVal, initval);
-        exit(EXIT_FAILURE);
     }
 }
 
@@ -276,8 +244,7 @@ int main(int argc, char **argv)
 
     fd = eventfd(0, 0);
     if (fd < 0) {
-        perror("eventfd");
-        return EXIT_FAILURE;
+        test_perror("eventfd");
     }
     basic_test(fd);
     blocking_read_test(fd);
@@ -286,22 +253,19 @@ int main(int argc, char **argv)
     close(fd);
     fd = eventfd(0, EFD_NONBLOCK);
     if (fd < 0) {
-        perror("eventfd");
-        return EXIT_FAILURE;
+        test_perror("eventfd");
     }
     nonblocking_test(fd);
     close(fd);
     fd = eventfd(0, EFD_SEMAPHORE);
     if (fd < 0) {
-        perror("eventfd");
-        return EXIT_FAILURE;
+        test_perror("eventfd");
     }
     semaphore_test(fd);
     close(fd);
     fd = eventfd(0xDEADBEEF, 0);
     if (fd < 0) {
-        perror("eventfd");
-        return EXIT_FAILURE;
+        test_perror("eventfd");
     }
     initval_test(fd, 0xDEADBEEF);
     close(fd);

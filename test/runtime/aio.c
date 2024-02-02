@@ -4,24 +4,15 @@
 #include <fcntl.h>
 #include <linux/aio_abi.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/eventfd.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include "../test_utils.h"
+
 #define BUF_SIZE        8192
 #define SMALLBUF_SIZE   256
-
-#define FAULT_ADDR  ((void *)0xBADF0000)
-
-#define test_assert(expr) do { \
-    if (!(expr)) { \
-        printf("Error: %s -- failed at %s:%d\n", #expr, __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
 
 static void iocb_setup_pread(struct iocb *iocb, int fd, void *buf,
         size_t count, long long offset)
