@@ -346,8 +346,8 @@ netvsc_m_append(hn_softc_t *hn, xpbuf m0, int len, uint8_t *cp)
             space = remainder;
         runtime_memcpy(m->p.pbuf.payload + m->p.pbuf.len, cp, space);
         m->p.pbuf.len += space;
-        m->p.pbuf.tot_len += space;
-        m0->p.pbuf.tot_len += space;
+        for (m = m0; m; m = (xpbuf)m->p.pbuf.next)
+            m->p.pbuf.tot_len += space;
         cp += space;
         remainder -= space;
     }
@@ -361,11 +361,10 @@ netvsc_m_append(hn_softc_t *hn, xpbuf m0, int len, uint8_t *cp)
         struct pbuf* np = &n->p.pbuf;
         np->len = MIN(hn->rxbuflen, remainder);
         np->tot_len = np->len;
-        m0->p.pbuf.tot_len += np->len;
         runtime_memcpy(np->payload, cp, np->len);
         cp += np->len;
         remainder -= np->len;
-        m->p.pbuf.next = np;
+        pbuf_cat(&m0->p.pbuf, np);
         m = n;
     }
     return (remainder == 0);
