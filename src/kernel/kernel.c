@@ -78,8 +78,10 @@ define_closure_function(2, 0, void, free_kernel_context,
     }
 
     bound(queued) = false;
-    if (!enqueue(bound(free_ctx_q), kc))
+    if (!enqueue(bound(free_ctx_q), kc)) {
+        destruct_context(&kc->context);
         deallocate(heap_locked(get_kernel_heaps()), kc, kc->size);
+    }
 }
 
 static void kernel_context_pause(context c)
