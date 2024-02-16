@@ -567,27 +567,27 @@ static void iour_complete_timeout(io_uring iour, u64 user_data)
     }
 }
 
-closure_function(3, 1, void, iour_rw_complete,
-                 io_uring, iour, fdesc, f, u64, user_data,
+closure_function(4, 1, void, iour_rw_complete,
+                 io_uring, iour, fdesc, f, u64, user_data, context, proc_ctx,
                  sysreturn, rv)
 {
     fdesc_put(bound(f));
     iour_complete(bound(iour), bound(user_data), rv, true, true);
+    context_release_refcount(bound(proc_ctx));
     closure_finish();
 }
 
 static void iour_iov(io_uring iour, fdesc f, boolean write, struct iovec *iov,
                      u32 len, u64 off, u64 user_data)
 {
-    io_completion completion = closure(iour->h, iour_rw_complete, iour, f,
-        user_data);
-    process_context pc;
-    if (completion != INVALID_ADDRESS) {
-        pc = get_process_context();
-        if (pc == INVALID_ADDRESS) {
-            deallocate_closure(completion);
-            completion = INVALID_ADDRESS;
-        }
+    io_completion completion;
+    process_context pc = get_process_context();
+    if (pc != INVALID_ADDRESS) {
+        completion = closure(iour->h, iour_rw_complete, iour, f, user_data, &pc->uc.kc.context);
+        if (completion == INVALID_ADDRESS)
+            context_release_refcount(&pc->uc.kc.context);
+    } else {
+        completion = INVALID_ADDRESS;
     }
     if (completion == INVALID_ADDRESS) {
         fdesc_put(f);
@@ -613,13 +613,13 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
             (!write && !fdesc_is_readable(f))) {
         err = -EBADF;
     } else {
-        completion = closure(iour->h, iour_rw_complete, iour, f, user_data);
-        if (completion != INVALID_ADDRESS) {
-            pc = get_process_context();
-            if (pc == INVALID_ADDRESS) {
-                deallocate_closure(completion);
-                completion = INVALID_ADDRESS;
-            }
+        pc = get_process_context();
+        if (pc != INVALID_ADDRESS) {
+            completion = closure(iour->h, iour_rw_complete, iour, f, user_data, &pc->uc.kc.context);
+            if (completion == INVALID_ADDRESS)
+                context_release_refcount(&pc->uc.kc.context);
+        } else {
+            completion = INVALID_ADDRESS;
         }
         if (completion == INVALID_ADDRESS)
             err = -ENOMEM;
@@ -811,11 +811,12 @@ static void iour_timeout_remove(io_uring iour, u64 addr, u64 user_data)
     iour_complete(iour, user_data, res, false, false);
 }
 
-closure_function(2, 1, void, iour_close_complete,
-                 io_uring, iour, u64, user_data,
+closure_function(3, 1, void, iour_close_complete,
+                 io_uring, iour, u64, user_data, context, proc_ctx,
                  sysreturn, rv)
 {
     iour_complete(bound(iour), bound(user_data), rv, true, true);
+    context_release_refcount(bound(proc_ctx));
     closure_finish();
 }
 
@@ -998,15 +999,15 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         iour_debug("closing fd %d", fd);
         deallocate_fd(current->p, fd);
         if (fetch_and_add(&f->refcnt, -2) == 2) {
-            process_context pc;
-            io_completion completion = closure(iour->h, iour_close_complete,
-                iour, sqe->user_data);
-            if (completion != INVALID_ADDRESS) {
-                pc = get_process_context();
-                if (pc == INVALID_ADDRESS) {
-                    deallocate_closure(completion);
-                    completion = INVALID_ADDRESS;
-                }
+            io_completion completion;
+            process_context pc = get_process_context();
+            if (pc != INVALID_ADDRESS) {
+                completion = closure(iour->h, iour_close_complete, iour, sqe->user_data,
+                                     &pc->uc.kc.context);
+                if (completion == INVALID_ADDRESS)
+                    context_release_refcount(&pc->uc.kc.context);
+            } else {
+                completion = INVALID_ADDRESS;
             }
             if (completion == INVALID_ADDRESS) {
                 iour_complete(iour, sqe->user_data, -ENOMEM, false, false);
