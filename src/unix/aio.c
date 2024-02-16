@@ -129,18 +129,19 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
     return 0;
 }
 
-closure_function(3, 1, void, aio_eventfd_complete,
-                 heap, h, fdesc, f, u64 *, efd_val,
+closure_function(4, 1, void, aio_eventfd_complete,
+                 heap, h, fdesc, f, u64 *, efd_val, context, proc_ctx,
                  sysreturn, rv)
 {
     u64 *efd_val = bound(efd_val);
     deallocate(bound(h), efd_val, sizeof(*efd_val));
     fdesc_put(bound(f));
+    context_release_refcount(bound(proc_ctx));
     closure_finish();
 }
 
-closure_function(5, 1, void, aio_complete,
-                 struct aio *, aio, fdesc, f, u64, data, u64, obj, int, res_fd,
+closure_function(6, 1, void, aio_complete,
+                 struct aio *, aio, fdesc, f, u64, data, u64, obj, int, res_fd, context, proc_ctx,
                  sysreturn, rv)
 {
     struct aio *aio = bound(aio);
@@ -164,8 +165,8 @@ closure_function(5, 1, void, aio_complete,
         blockq_reserve(bq);
     aio_unlock(aio);
     fdesc_put(bound(f));
+    context ctx = bound(proc_ctx);
     if (res_fd != AIO_RESFD_INVALID) {
-        context ctx = get_current_context(current_cpu());
         fdesc res = fdesc_get(((process_context)ctx)->p, res_fd);
         if (res) {
             if (res->write && fdesc_is_writable(res)) {
@@ -173,8 +174,9 @@ closure_function(5, 1, void, aio_complete,
                 u64 *efd_val = allocate(h, sizeof(*efd_val));
                 assert(efd_val != INVALID_ADDRESS);
                 *efd_val = 1;
-                io_completion completion = closure(h, aio_eventfd_complete, h, res, efd_val);
+                io_completion completion = closure(h, aio_eventfd_complete, h, res, efd_val, ctx);
                 apply(res->write, efd_val, sizeof(*efd_val), 0, ctx, true, completion);
+                ctx = 0;
             } else {
                 fdesc_put(res);
             }
@@ -186,6 +188,8 @@ closure_function(5, 1, void, aio_complete,
     }
     closure_finish();
     refcount_release(&aio->refcount);
+    if (ctx)
+        context_release_refcount(ctx);
 }
 
 static unsigned int aio_avail_events(struct aio *aio)
@@ -237,14 +241,14 @@ static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb, context ctx)
         rv = -EFAULT;
         goto error;
     }
-    completion = closure(heap_locked(aio->kh), aio_complete, aio, f, iocb->aio_data, (u64)iocb,
-                         res_fd);
-    if (completion == INVALID_ADDRESS) {
+    pc = get_process_context();
+    if (pc == INVALID_ADDRESS) {
         rv = -ENOMEM;
         goto error;
     }
-    pc = get_process_context();
-    if (pc == INVALID_ADDRESS) {
+    completion = closure(heap_locked(aio->kh), aio_complete, aio, f, iocb->aio_data, (u64)iocb,
+                         res_fd, &pc->uc.kc.context);
+    if (completion == INVALID_ADDRESS) {
         rv = -ENOMEM;
         goto error;
     }
