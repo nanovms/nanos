@@ -122,6 +122,7 @@ physical virtqueue_desc_paddr(struct virtqueue *vq);
 physical virtqueue_avail_paddr(struct virtqueue *vq);
 physical virtqueue_used_paddr(struct virtqueue *vq);
 u16 virtqueue_entries(virtqueue vq);
+u16 virtqueue_free_entries(virtqueue vq);
 void virtqueue_set_polling(virtqueue vq, boolean enable);
 
 typedef struct vqmsg *vqmsg;
@@ -129,5 +130,6 @@ typedef struct vqmsg *vqmsg;
 vqmsg allocate_vqmsg(virtqueue vq);
 void deallocate_vqmsg(virtqueue vq, vqmsg m);
 void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write);
-void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno);
-#define vqmsg_commit(vq, m, completion) vqmsg_commit_seqno(vq, m, completion, 0)
+void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno, boolean kick);
+#define vqmsg_commit(vq, m, completion) vqmsg_commit_seqno(vq, m, completion, 0, true)
+void virtqueue_kick(virtqueue vq);

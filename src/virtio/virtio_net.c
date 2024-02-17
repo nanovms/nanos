@@ -130,13 +130,34 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     return ERR_OK;
 }
 
+static vqmsg vnet_rxq_push(vnet vn, xpbuf x, int *desc_count)
+{
+    virtqueue rxq = vn->rxq;
+    vqmsg m = allocate_vqmsg(rxq);
+    if (m == INVALID_ADDRESS)
+        return m;
+    int rxbuflen = vn->rxbuflen;
+    pbuf_alloced_custom(PBUF_RAW, rxbuflen, PBUF_REF, &x->p, x + 1, rxbuflen);
+    u64 phys = physical_from_virtual(x + 1);
+    if (vtdev_is_modern(vn->dev) || (vn->dev->features & VIRTIO_F_ANY_LAYOUT)) {
+        vqmsg_push(rxq, m, phys, rxbuflen, true);
+        *desc_count = 1;
+    } else {
+        int header_len = vn->net_header_len;
+        vqmsg_push(rxq, m, phys, header_len, true);
+        vqmsg_push(rxq, m, phys + header_len, rxbuflen - header_len, true);
+        *desc_count = 2;
+    }
+    return m;
+}
+
 static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
     deallocate((heap)x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
 }
 
-static void post_receive(vnet vn);
+static int post_receive(vnet vn);
 
 define_closure_function(0, 1, void, vnet_input,
                         u64, len)
@@ -241,29 +262,29 @@ define_closure_function(0, 1, void, vnet_input,
 }
 
 
-static void post_receive(vnet vn)
+static int post_receive(vnet vn)
 {
-    xpbuf x = allocate((heap)vn->rxbuffers, sizeof(struct xpbuf) + vn->rxbuflen);
-    assert(x != INVALID_ADDRESS);
-    x->vn = vn;
-    x->p.custom_free_function = receive_buffer_release;
-    pbuf_alloced_custom(PBUF_RAW,
-                        vn->rxbuflen,
-                        PBUF_REF,
-                        &x->p,
-                        x+1,
-                        vn->rxbuflen);
-
-    vqmsg m = allocate_vqmsg(vn->rxq);
-    assert(m != INVALID_ADDRESS);
-    u64 phys = physical_from_virtual(x + 1);
-    if (vtdev_is_modern(vn->dev) || (vn->dev->features & VIRTIO_F_ANY_LAYOUT)) {
-        vqmsg_push(vn->rxq, m, phys, vn->rxbuflen, true);
-    } else {
-        vqmsg_push(vn->rxq, m, phys, vn->net_header_len, true);
-        vqmsg_push(vn->rxq, m, phys + vn->net_header_len, vn->rxbuflen - vn->net_header_len, true);
+    virtqueue rxq = vn->rxq;
+    u16 free_entries = virtqueue_free_entries(rxq);
+    int new_entries = 0;
+    int rxbuflen = vn->rxbuflen;
+    while (new_entries < free_entries) {
+        xpbuf x = allocate((heap)vn->rxbuffers, sizeof(struct xpbuf) + rxbuflen);
+        if (x == INVALID_ADDRESS)
+            break;
+        x->vn = vn;
+        x->p.custom_free_function = receive_buffer_release;
+        int desc_count;
+        vqmsg m = vnet_rxq_push(vn, x, &desc_count);
+        if (m == INVALID_ADDRESS)
+            break;
+        new_entries += desc_count;
+        vqmsg_commit_seqno(rxq, m, init_closure(&x->input, vnet_input), &x->seqno,
+                           new_entries >= free_entries);
     }
-    vqmsg_commit_seqno(vn->rxq, m, init_closure(&x->input, vnet_input), &x->seqno);
+    if ((new_entries > 0) && (new_entries < free_entries))
+        virtqueue_kick(rxq);
+    return new_entries;
 }
 
 define_closure_function(0, 1, u64, vnet_mem_cleaner,
@@ -302,10 +323,6 @@ static err_t virtioif_init(struct netif *netif)
     /* device capabilities */
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
-
-    for (int i = 0; i < virtqueue_entries(vn->rxq); i++)
-        post_receive(vn);
-    
     return ERR_OK;
 }
 
@@ -365,6 +382,7 @@ static void virtio_net_attach(vtdev dev)
               vn,
               virtioif_init,
               ethernet_input);
+    assert(post_receive(vn) > 0);
 }
 
 closure_function(2, 1, boolean, vtpci_net_probe,

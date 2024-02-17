@@ -131,11 +131,8 @@ static boolean virtio_sock_dev_attach(heap general, backed_heap backed, vtdev de
     vs->general = general;
     vs->backed = backed;
     vs->dev = dev;
-    u16 rx_entries = virtqueue_entries(vs->rxq);
-    virtio_sock_debug("  %d rx queue entries", rx_entries);
-    for (u16 i = 0; i + VIRTIO_SOCK_RX_PACKET_DESCS <= rx_entries; i += VIRTIO_SOCK_RX_PACKET_DESCS)
-        if (!virtio_sock_rxq_submit(vs))
-            goto err;
+    if (!virtio_sock_rxq_submit(vs))
+        goto err;
     vs->rx_seqno = 0;
     vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
     vsock_set_transport(vs);
@@ -356,23 +353,33 @@ define_closure_function(0, 1, void, virtio_sock_rx_complete,
 
 static boolean virtio_sock_rxq_submit(virtio_sock vs)
 {
-    u64 phys;
-    virtio_sock_rxbuf rxbuf = alloc_map(vs->backed, VIRTIO_SOCK_RXBUF_SIZE, &phys);
-    if (rxbuf == INVALID_ADDRESS)
-        return false;
     virtqueue vq = vs->rxq;
-    vqmsg m = allocate_vqmsg(vq);
-    if (m == INVALID_ADDRESS) {
-        dealloc_unmap(vs->backed, rxbuf, phys, VIRTIO_SOCK_RXBUF_SIZE);
-        return false;
+    int free_entries = virtqueue_free_entries(vq);
+    virtio_sock_debug("rxq submit: %d free entries", free_entries);
+    int new_entries = 0;
+    u64 phys;
+    while (new_entries < free_entries) {
+        virtio_sock_rxbuf rxbuf = alloc_map(vs->backed, VIRTIO_SOCK_RXBUF_SIZE, &phys);
+        if (rxbuf == INVALID_ADDRESS)
+            break;
+        vqmsg m = allocate_vqmsg(vq);
+        if (m == INVALID_ADDRESS) {
+            dealloc_unmap(vs->backed, rxbuf, phys, VIRTIO_SOCK_RXBUF_SIZE);
+            break;
+        }
+        u64 data_offset = offsetof(virtio_sock_rxbuf, data);
+        vqmsg_push(vq, m, phys + data_offset, sizeof(struct virtio_vsock_hdr), true);
+        data_offset += sizeof(struct virtio_vsock_hdr);
+        vqmsg_push(vq, m, phys + data_offset, VIRTIO_SOCK_RXBUF_SIZE - data_offset, true);
+        rxbuf->vs = vs;
+        new_entries += VIRTIO_SOCK_RX_PACKET_DESCS;
+        vqmsg_commit_seqno(vq, m, init_closure(&rxbuf->complete, virtio_sock_rx_complete),
+                           &rxbuf->seqno, new_entries >= free_entries);
     }
-    u64 data_offset = offsetof(virtio_sock_rxbuf, data);
-    vqmsg_push(vq, m, phys + data_offset, sizeof(struct virtio_vsock_hdr), true);
-    data_offset += sizeof(struct virtio_vsock_hdr);
-    vqmsg_push(vq, m, phys + data_offset, VIRTIO_SOCK_RXBUF_SIZE - data_offset, true);
-    rxbuf->vs = vs;
-    vqmsg_commit_seqno(vq, m, init_closure(&rxbuf->complete, virtio_sock_rx_complete),
-                       &rxbuf->seqno);
+    if (new_entries == 0)
+        return false;
+    if (new_entries < free_entries)
+        virtqueue_kick(vq);
     return true;
 }
 

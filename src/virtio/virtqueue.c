@@ -159,7 +159,7 @@ static void virtqueue_fill(virtqueue vq);
  * initialized (when the virtqueue is created) to zero and incremented by one each time this
  * function is called with a nun-null seqno. This allows callers to determine e.g. the order in
  * which messages are received from a remote peer. */
-void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno)
+void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno, boolean kick)
 {
     m->completion = completion;
     virtqueue_debug_verbose("%s: vq %s, vqmsg %p, completion %p (%F)\n",
@@ -168,8 +168,17 @@ void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno)
     if (seqno)
         *seqno = vq->msg_seqno++;
     list_push_back(&vq->msg_queue, &m->l);
-    virtqueue_fill(vq);
+    if (kick)
+        virtqueue_fill(vq);
     spin_unlock_irq(&vq->lock, irqflags);
+}
+
+void virtqueue_kick(virtqueue vq)
+{
+    spinlock lock = &vq->lock;
+    u64 irqflags = spin_lock_irq(lock);
+    virtqueue_fill(vq);
+    spin_unlock_irq(lock, irqflags);
 }
 
 static void vq_poll(virtqueue vq)
@@ -306,6 +315,11 @@ physical virtqueue_used_paddr(virtqueue vq)
 u16 virtqueue_entries(virtqueue vq)
 {
     return vq->entries;
+}
+
+u16 virtqueue_free_entries(virtqueue vq)
+{
+    return vq->free_cnt;
 }
 
 static void vq_enable_events(virtqueue vq)
