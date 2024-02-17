@@ -357,8 +357,17 @@ static void virtio_net_attach(vtdev dev)
     vn->net_header_len = (dev->features & VIRTIO_F_VERSION_1) ||
         (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
-    vn->rxbuflen = pad(vn->net_header_len + sizeof(struct eth_hdr) + sizeof(struct eth_vlan_hdr) +
-                       1500, 8);    /* padding to make xpbuf structures aligned to 8 bytes */
+
+    /* RX buffer length should be a multiple of 8 bytes to make xpbuf structures aligned to 8 bytes
+     */
+    if (!(dev->features & (VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6 |
+                           VIRTIO_NET_F_GUEST_UFO)) ||
+        (dev->features & VIRTIO_NET_F_MRG_RXBUF))
+        vn->rxbuflen = pad(vn->net_header_len + sizeof(struct eth_hdr) +
+                           sizeof(struct eth_vlan_hdr) + 1500, 8);
+    else
+        vn->rxbuflen = U16_MAX & ~0x7;  /* lwIP maximum packet length is U16_MAX */
+
     mm_register_mem_cleaner(init_closure(&vn->mem_cleaner, vnet_mem_cleaner));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
