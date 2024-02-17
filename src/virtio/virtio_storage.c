@@ -110,11 +110,12 @@ typedef struct storage {
 static virtio_blk_req allocate_virtio_blk_req(storage st, u32 type, u64 sector, u64 *phys)
 {
     virtio_blk_req req = alloc_map(st->v->contiguous, sizeof(struct virtio_blk_req), phys);
-    assert(req != INVALID_ADDRESS);
-    req->type = type;
-    req->reserved = 0;
-    req->sector = sector;
-    req->status = 0;
+    if (req != INVALID_ADDRESS) {
+        req->type = type;
+        req->reserved = 0;
+        req->sector = sector;
+        req->status = 0;
+    }
     return req;
 }
 
@@ -153,6 +154,10 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     u64 req_phys;
     virtio_blk_req req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
                                                  start_sector, &req_phys);
+    if (req == INVALID_ADDRESS) {
+        apply(sh, timm_oom);
+        return;
+    }
     virtqueue vq = st->command;
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
@@ -192,6 +197,10 @@ static void virtio_storage_io_sg(storage st, boolean write, sg_list sg, range bl
         if (!req) {
             req = allocate_virtio_blk_req(st, write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN,
                                           blocks.start, &req_phys);
+            if (req == INVALID_ADDRESS) {
+                apply(sh, timm_oom);
+                return;
+            }
             msg = allocate_vqmsg(vq);
             assert(msg != INVALID_ADDRESS);
             vqmsg_push(vq, msg, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
@@ -225,6 +234,10 @@ static void storage_flush(storage st, status_handler s)
     virtio_blk_debug("%s: handler %p (%F)\n", func_ss, s, s);
     u64 req_phys;
     virtio_blk_req req = allocate_virtio_blk_req(st, VIRTIO_BLK_T_FLUSH, 0, &req_phys);
+    if (req == INVALID_ADDRESS) {
+        apply(s, timm_oom);
+        return;
+    }
     virtqueue vq = st->command;
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
