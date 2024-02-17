@@ -154,7 +154,17 @@ static vqmsg vnet_rxq_push(vnet vn, xpbuf x, int *desc_count)
 static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
-    deallocate((heap)x->vn->rxbuffers, x, x->vn->rxbuflen + sizeof(struct xpbuf));
+    vnet vn = x->vn;
+    virtqueue rxq = vn->rxq;
+    if (virtqueue_free_entries(rxq) > 0) {
+        int desc_count;
+        vqmsg m = vnet_rxq_push(vn, x, &desc_count);
+        if (m != INVALID_ADDRESS) {
+            vqmsg_commit_seqno(rxq, m, (vqfinish)&x->input, &x->seqno, true);
+            return;
+        }
+    }
+    deallocate((heap)vn->rxbuffers, x, vn->rxbuflen + sizeof(struct xpbuf));
 }
 
 static int post_receive(vnet vn);
