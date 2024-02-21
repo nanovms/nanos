@@ -40,7 +40,7 @@ CFLAGS+= \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/x86_64
-LDFLAGS+=	$(KERNLDFLAGS) -T linker_script
+LDFLAGS+=	--gc-sections -T linker_script
 AFLAGS+=	-I$(SRCDIR)/x86_64 -felf
 
 NASMFLAGS	= -l $@.lst -I $(SRCDIR)/x86_64/ -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OBJDIR)/stage2.pad)
