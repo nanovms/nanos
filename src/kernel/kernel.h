@@ -750,7 +750,7 @@ void init_kernel_heaps(void);
 void init_platform_devices(kernel_heaps kh);
 void init_cpuinfo_machine(cpuinfo ci, heap backed);
 void kernel_runtime_init(kernel_heaps kh);
-void read_kernel_syms(void);
+range kern_get_elf(void);
 void reclaim_regions(void);
 
 int cmdline_parse(char *cmdline_start, int cmdline_len, sstring opt_name, cmdline_handler h);

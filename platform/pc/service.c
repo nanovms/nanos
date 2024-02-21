@@ -66,29 +66,13 @@ typedef struct hvm_memmap_entry {
 
 extern filesystem root_fs;
 
-void read_kernel_syms(void)
+range kern_get_elf(void)
 {
-    u64 kern_base = INVALID_PHYSICAL;
-    u64 kern_length;
-
-    /* add kernel symbols */
     for_regions(e) {
-	if (e->type == REGION_KERNIMAGE) {
-	    kern_base = e->base;
-	    kern_length = e->length;
-
-	    u64 v = allocate_u64((heap)heap_virtual_huge(get_kernel_heaps()), kern_length);
-            pageflags flags = pageflags_noexec(pageflags_readonly(pageflags_memory()));
-	    map(v, kern_base, kern_length, flags);
-#ifdef ELF_SYMTAB_DEBUG
-	    rprintf("kernel ELF image at 0x%lx, length %ld, mapped at 0x%lx\n",
-		    kern_base, kern_length, v);
-#endif
-	    add_elf_syms(alloca_wrap_buffer(v, kern_length), 0);
-            unmap(v, kern_length);
-	    break;
-	}
+        if (e->type == REGION_KERNIMAGE)
+            return irangel(e->base, e->length);
     }
+    return irange(INVALID_PHYSICAL, INVALID_PHYSICAL);
 }
 
 BSS_RO_AFTER_INIT static boolean have_rdseed;

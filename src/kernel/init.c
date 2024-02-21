@@ -556,6 +556,19 @@ closure_function(0, 1, u64, mm_pagecache_cleaner,
     return pagecache_drain(clean_bytes);
 }
 
+static void read_kernel_syms(void)
+{
+    range kern_phys = kern_get_elf();
+    if (kern_phys.start == INVALID_PHYSICAL)
+        return;
+    u64 kern_len = range_span(kern_phys);
+    u64 v = allocate_u64((heap)heap_virtual_huge(get_kernel_heaps()), kern_len);
+    map(v, kern_phys.start, kern_len, pageflags_memory());
+    init_debug("kernel ELF image at %R, mapped at %p", kern_phys, v);
+    add_elf_syms(alloca_wrap_buffer(v, kern_len), 0);
+    unmap(v, kern_len);
+}
+
 void kernel_runtime_init(kernel_heaps kh)
 {
     heap misc = heap_general(kh);

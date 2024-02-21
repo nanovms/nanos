@@ -61,9 +61,9 @@ id_heap init_physical_id_heap(heap h)
     return physical;
 }
 
-void read_kernel_syms(void)
+range kern_get_elf(void)
 {
-    // XXX TODO
+    return irange(INVALID_PHYSICAL, INVALID_PHYSICAL);
 }
 
 void reclaim_regions(void)
