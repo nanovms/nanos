@@ -261,6 +261,7 @@ u64 hw_get_seed(void);
 extern bytes (*preferred_get_seed)(void *seed, bytes len);
 void get_seed_complete(void *seed, bytes len);
 
+u64 random_early_u64(void);
 u64 random_u64(void);
 u64 random_buffer(buffer b);
 void random_buffer_aborted(void);

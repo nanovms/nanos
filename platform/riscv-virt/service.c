@@ -18,9 +18,9 @@
 #define init_dump(p, len)
 #endif
 
-u64 hw_get_seed(void)
+u64 machine_random_seed(void)
 {
-    return (u64)now(CLOCK_ID_REALTIME);
+    return 0;
 }
 
 extern void *START, *END;

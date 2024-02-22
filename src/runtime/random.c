@@ -145,6 +145,18 @@ void arc4rand(void *ptr, bytes len)
     chacha20_unlock();
 }
 
+/* Can generate random numbers before init_random() is called. */
+u64 random_early_u64(void)
+{
+    u8 key[CHACHA20_KEYBYTES];
+    get_seed_complete(key, CHACHA20_KEYBYTES);
+    u64 retval;
+    chacha_keysetup(&chacha20inst.ctx, key, CHACHA20_KEYBYTES * 8);
+    chacha_ivsetup(&chacha20inst.ctx, (u8 *)&retval, (u8 *)&retval);
+    chacha_encrypt_bytes(&chacha20inst.ctx, chacha20inst.m_buffer, (u8 *)&retval, sizeof(retval));
+    return retval;
+}
+
 u64 random_u64(void)
 {
     u64 retval;

@@ -257,6 +257,20 @@ void kernel_powerdown(void) {
     unix_shutdown();
 }
 
+u64 hw_get_seed(void)
+{
+    u64 seed = machine_random_seed();
+    if (seed != 0)
+        return seed;
+    seed = now(CLOCK_ID_REALTIME);
+    if (seed != -1ull)
+        return seed;
+    seed = rtc_gettimeofday();
+    if (seed != 0)
+        return seed;
+    return rdtsc();
+}
+
 #ifndef CONFIG_TRACELOG
 void tprintf(symbol tag, tuple attrs, sstring format, ...)
 {

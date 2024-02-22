@@ -94,14 +94,14 @@ static boolean hw_seed(u64 * seed, boolean rdseed)
     return false;
 }
 
-u64 hw_get_seed(void)
+u64 machine_random_seed(void)
 {
     u64 seed = 0;
     if (have_rdseed && hw_seed(&seed, true))
         return seed;
     if (have_rdrand && hw_seed(&seed, false))
         return seed;
-    return (u64)now(CLOCK_ID_REALTIME);
+    return 0;
 }
 
 static void init_hwrand(void)
@@ -238,9 +238,6 @@ static void __attribute__((noinline)) init_service_new_stack()
             break;
         }
     }
-
-    early_init_debug("init_hwrand");
-    init_hwrand();
 
     early_init_debug("init cpu features");
     init_cpu_features();
@@ -457,6 +454,7 @@ void init_service(u64 rdi, u64 rsi)
     if (!pagebase)
         init_mmu();
     init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
+    init_hwrand();
     init_kernel_heaps();
     if (cmdline)
         create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);

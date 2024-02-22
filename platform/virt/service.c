@@ -31,7 +31,7 @@
 
 BSS_RO_AFTER_INIT struct uefi_boot_params boot_params;
 
-u64 hw_get_seed(void)
+u64 machine_random_seed(void)
 {
 #if 0 // gcc not taking +rng feature modifier...encode manually?
     if (field_from_u64(read_psr(ID_AA64ISAR0_EL1), ID_AA64ISAR0_EL1_RNDR)
@@ -39,8 +39,7 @@ u64 hw_get_seed(void)
         return read_psr(RNDRRS);
     }
 #endif
-    /* likely not a good fallback - look for another */
-    return (u64)now(CLOCK_ID_REALTIME);
+    return 0;
 }
 
 static void uefi_mem_map_iterate(uefi_mem_map mem_map, range_handler h)
