@@ -55,16 +55,12 @@ void init_mmu(range init_pt, u64 vtarget, void *dtb)
     page_set_allowed_levels(0xe); // 1-3
     init_page_initial_map(pointer_from_u64(init_pt.start), init_pt);
     assert(allocate_table_page(&tablebase));
-    u64 kernel_size = pad(u64_from_pointer(&END) - u64_from_pointer(&START), PAGESIZE);
-    page_init_debug("kernel_size ");
-    page_init_debug_u64(kernel_size);
-    page_init_debug("\n");
-    map(KERNEL_BASE, KERNEL_PHYS, kernel_size, pageflags_writable(pageflags_exec(pageflags_memory())));
     page_init_debug("map devices\n");
     map(DEVICE_BASE, 0, DEVICETREE_BLOB_BASE - DEVICE_BASE, pageflags_writable(pageflags_device()));
 
     page_init_debug("map temporary identity mapping\n");
-    map(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
+    map(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE,
+        pageflags_writable(pageflags_exec(pageflags_memory())));    /* includes the kernel image */
     page_init_debug("relocate and map devicetree blob\n");
     assert(pad(dtb_blob_size(dtb), PAGESIZE) <= DTB_SIZE);
     runtime_memcpy(pointer_from_u64(PHYSMEM_BASE+BIOS_SIZE), dtb, dtb_blob_size(dtb));

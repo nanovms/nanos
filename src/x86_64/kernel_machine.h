@@ -13,7 +13,6 @@
 #define KERNEL_BASE             0xffffffff80000000ull
 #define KERNEL_LIMIT            0xfffffffffffff000ull // XXX ? klibs
 #define KMEM_LIMIT              0xffffbfff00000000ull
-#define PAGES_BASE              0xffffffffc0000000ull
 #define LINEAR_BACKED_LIMIT     0xffffffff00000000ull
 #define LINEAR_BACKED_BASE      0xffffc00000000000ull
 #define LINEAR_BACKED_PHYSLIMIT 0x00003fff00000000ull
@@ -101,8 +100,7 @@
 struct cpuinfo_machine;
 
 /* AP boot page */
-extern void * AP_BOOT_PAGE;
-#define AP_BOOT_START u64_from_pointer(&AP_BOOT_PAGE)
+#define AP_BOOT_START   0x00000000
 #define AP_BOOT_END (AP_BOOT_START + PAGESIZE)
 
 /* interrupt control */
@@ -539,6 +537,17 @@ static inline u64 *get_current_fp(void)
 #define switch_stack_5(s, target, __a0, __a1, __a2, __a3, __a4) do {    \
     _switch_stack_head(s, target); _switch_stack_args_5(__a0, __a1, __a2, __a3, __a4); \
     _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2), "r"(__ra3), "r"(__ra4)); } while(0)
+
+static inline void jump_to_offset(u64 offset) {
+    asm("lea 0x5(%%rip), %%rax\n"    /* 0x5 is the sum of the length of the next 2 instructions */
+        "add %0, %%rax\n"
+        "jmp *%%rax" :: "r"(offset) : "%rax");
+}
+
+/* adds an offset to the return address of the current function */
+static inline void return_offset(u64 offset) {
+    asm("add %0, 0x8(%%rbp)" :: "r"(offset) : "memory");
+}
 
 /* for vdso */
 #define do_syscall(sysnr, rdi, rsi) ({\

@@ -71,6 +71,7 @@ DEPFLAGS=	-MD -MP -MT $@
 
 KERNCFLAGS=	-nostdinc \
 		-fno-builtin \
+		-fpie \
 		-fdata-sections \
 		-ffunction-sections
 
@@ -103,7 +104,7 @@ KERNCFLAGS+=	-march=rv64gc -mabi=lp64d
 endif
 
 KERNCFLAGS+=	-fno-omit-frame-pointer
-KERNLDFLAGS=	--gc-sections -z max-page-size=4096 -L $(OUTDIR)/klib
+KERNLDFLAGS=	--gc-sections -z max-page-size=4096 -L $(OUTDIR)/klib -pie --no-dynamic-linker
 
 ifneq ($(UBSAN),)
 KERNCFLAGS+= -fsanitize=undefined -fno-sanitize=alignment,null -fsanitize-undefined-trap-on-error
@@ -327,7 +328,7 @@ else ifeq ($(ARCH),riscv64)
 KERNCFLAGS+=	-fstack-protector-all
 else
 KERNCFLAGS+=	-mstack-protector-guard=global \
-		-fno-pic
+
 endif
 endif
 endif

@@ -396,7 +396,6 @@ setup64:
         xor ax, ax
         mov fs, ax     
         mov gs, ax
-        mov eax, 0xffffffff
-        shl rax, 32
-        or rax, rdx
+        mov rax, 0
+        or eax, edx
         jmp rax

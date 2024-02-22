@@ -744,6 +744,7 @@ static inline boolean is_kernel_memory(void *a)
 
 #define BOOTSTRAP_BASE  KMEM_BASE
 
+void kaslr(void);
 u64 init_bootstrap_heap(u64 phys_length);
 id_heap init_physical_id_heap(heap h);
 void init_kernel_heaps(void);
@@ -752,6 +753,9 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed);
 void kernel_runtime_init(kernel_heaps kh);
 range kern_get_elf(void);
 void reclaim_regions(void);
+
+extern u64 kas_kern_offset;
+extern heap kas_heap;
 
 int cmdline_parse(char *cmdline_start, int cmdline_len, sstring opt_name, cmdline_handler h);
 void cmdline_apply(char *cmdline_start, int cmdline_len, tuple t);

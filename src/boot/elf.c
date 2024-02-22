@@ -24,6 +24,10 @@ closure_function(2, 5, boolean, kernel_elf_map,
     else
         data_size = pad(data_size, PAGESIZE);
 
+    /* Set the writable flag in all mappings, so that the kernel can apply relocations to its image
+     * when doing KASLR. */
+    flags = pageflags_writable(flags);
+
     offset &= ~PAGEMASK;
     if (data_size > 0) {
         u64 paddr = physical_from_virtual(buffer_ref(bound(b), offset));

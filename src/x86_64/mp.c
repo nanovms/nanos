@@ -118,8 +118,6 @@ void ap_start()
 void allocate_apboot(heap stackheap, void (*ap_entry)())
 {
     start_callback = ap_entry;
-    map((u64)apboot, (u64)apboot, PAGESIZE,
-        pageflags_writable(pageflags_exec(pageflags_memory())));
 
     set_page_write_protect(false);
     asm("sidt %0": "=m"(ap_idt_pointer));
@@ -137,7 +135,6 @@ void allocate_apboot(heap stackheap, void (*ap_entry)())
 void deallocate_apboot(heap stackheap)
 {
     deallocate_stack(stackheap, 4 * PAGESIZE, ap_stack);
-    unmap((u64)apboot, PAGESIZE);
 }
 
 #define AP_START_TIMEOUT_MS 200

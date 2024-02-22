@@ -107,9 +107,10 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     while(1);
 }
 
-void init_setup_stack(void)
+static void init_setup_stack(void)
 {
     serial_set_devbase(DEVICE_BASE);
+    kaslr();
     init_debug("in init_setup_stack, calling init_kernel_heaps\n");
     init_kernel_heaps();
     init_debug("allocating stack\n");
@@ -128,8 +129,6 @@ void init_setup_stack(void)
     switch_stack(stack_top, init_service_new_stack);
 }
 
-void (*init_mmu_target)(void) = &init_setup_stack;
-
 void __attribute__((noreturn)) start(void *a0, void *dtb)
 {
     init_debug("start\n\n");
@@ -137,10 +136,8 @@ void __attribute__((noreturn)) start(void *a0, void *dtb)
     devicetree_dump(dtb);
 #endif
 
-    init_debug("calling init_mmu with target ");
-    init_debug_u64(u64_from_pointer(init_mmu_target));
-    init_debug("\n");
-    init_mmu(irange(INIT_PAGEMEM, pad(INIT_PAGEMEM,PAGESIZE_2M)), u64_from_pointer(init_mmu_target), dtb);
+    init_debug("calling init_mmu\n");
+    init_mmu(irange(INIT_PAGEMEM, pad(INIT_PAGEMEM,PAGESIZE_2M)), u64_from_pointer(init_setup_stack), dtb);
 
     while (1);
 }

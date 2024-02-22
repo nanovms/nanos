@@ -14,6 +14,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/riscv64/clock.c \
 	$(SRCDIR)/riscv64/elf64.c \
 	$(SRCDIR)/riscv64/kernel_machine.c \
+	$(SRCDIR)/riscv64/init.S \
 	$(SRCDIR)/riscv64/interrupt.c \
 	$(SRCDIR)/riscv64/page.c \
 	$(SRCDIR)/riscv64/plic.c \
@@ -128,6 +129,8 @@ SRCS-lwip= \
 	$(LWIPDIR)/src/netif/ethernet.c \
 	$(LWIPDIR)/src/netif/ppp/polarssl/md5.c \
 
+CFLAGS-init.S=	-fno-pic
+
 INCLUDES=\
 	-I$(SRCDIR) \
 	-I$(ARCHDIR) \
@@ -148,7 +151,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR) -march=rv64gc -mabi=lp64d
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3 -fno-pic
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
 

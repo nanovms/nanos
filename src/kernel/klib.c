@@ -14,7 +14,6 @@
 BSS_RO_AFTER_INIT static kernel_heaps klib_kh;
 BSS_RO_AFTER_INIT static filesystem klib_fs;
 BSS_RO_AFTER_INIT static tuple klib_root;
-BSS_RO_AFTER_INIT static id_heap klib_heap;
 BSS_RO_AFTER_INIT static vector klib_loaded;
 
 closure_function(1, 1, boolean, klib_elf_walk,
@@ -127,7 +126,7 @@ closure_function(3, 1, status, load_klib_complete,
     klib_debug("%s: klib %b, read length %ld\n", func_ss, kl->name, buffer_length(b));
     kl->load_range = irange(0, 0);
     walk_elf(b, stack_closure(klib_elf_walk, kl));
-    u64 where = allocate_u64((heap)klib_heap, range_span(kl->load_range));
+    u64 where = allocate_u64(kas_heap, range_span(kl->load_range));
     assert(where != INVALID_PHYSICAL);
     kl->load_range = range_add(kl->load_range, where);
 
@@ -189,7 +188,7 @@ void unload_klib(klib kl)
     klib_debug("%s: kl %b\n", func_ss, kl->name);
     heap h = heap_locked(klib_kh);
     deallocate_rangemap(kl->mappings, stack_closure(destruct_mapping, kl));
-    deallocate_u64((heap)klib_heap, kl->load_range.start, range_span(kl->load_range));
+    deallocate_u64(kas_heap, kl->load_range.start, range_span(kl->load_range));
     deallocate_buffer(kl->elf);
     symtab_remove_addrs(kl->load_range);
     deallocate(h, kl, sizeof(struct klib));
@@ -299,13 +298,6 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
     klib_loaded = allocate_vector(h, 4);
     assert(klib_loaded != INVALID_ADDRESS);
 
-    extern u8 END;
-    u64 klib_heap_start = pad(u64_from_pointer(&END), PAGESIZE_2M);
-    u64 klib_heap_size = KERNEL_LIMIT - klib_heap_start;
-    klib_debug("%s: creating klib heap @ 0x%lx, size 0x%lx\n", func_ss,
-               klib_heap_start, klib_heap_size);
-    klib_heap = create_id_heap(h, h, klib_heap_start, klib_heap_size, PAGESIZE, true);
-    assert(klib_heap != INVALID_ADDRESS);
     tuple c = get_tuple(klib_md, sym(children));
     if (!c)
         goto done;

@@ -51,14 +51,20 @@ void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options)
     regions->type = 0;  /* initialize region area */
     rsvd_mem = allocate_rangemap(general);
     assert(rsvd_mem != INVALID_ADDRESS);
-    u64 initial_pages = allocate_u64(aligned, INITIAL_PAGES_SIZE);
+    u64 initial_pages_size = INITIAL_PAGES_SIZE;
+    u64 initial_pages = allocate_u64(aligned, initial_pages_size);
     assert(initial_pages != INVALID_PHYSICAL);
-    create_region(initial_pages, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
-    rsvd_mem_add(irangel(initial_pages, INITIAL_PAGES_SIZE));
+    if (initial_pages < INITIAL_MAP_SIZE) {
+        /* we don't want the initial pages to overlap with the initial map area */
+        initial_pages_size -= INITIAL_MAP_SIZE - initial_pages;
+        initial_pages = INITIAL_MAP_SIZE;
+    }
+    create_region(initial_pages, initial_pages_size, REGION_INITIAL_PAGES);
+    rsvd_mem_add(irangel(initial_pages, initial_pages_size));
     init_mmu();
     pgdir = bootstrap_page_tables(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
     map(0, 0, INITIAL_MAP_SIZE, pageflags_writable(pageflags_exec(pageflags_memory())));
-    map(PAGES_BASE, initial_pages, INITIAL_PAGES_SIZE, pageflags_writable(pageflags_memory()));
+    map(initial_pages, initial_pages, initial_pages_size, pageflags_writable(pageflags_memory()));
     options->load_to_physical = false;
 }
 
@@ -108,5 +114,5 @@ void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer
             break;
         }
     }
-    start_kernel(kern_entry + KERNEL_BASE - KERNEL_BASE_PHYS);
+    start_kernel(kern_entry);
 }

@@ -44,6 +44,7 @@ extern void run64(u32 entry);
 static heap general, backed;
 static u64 stack_base;
 static u64 initial_pages_base;
+static u32 initial_pages_size;
 
 static u64 s[2] = { 0xa5a5beefa5a5cafe, 0xbeef55aaface55aa };
 
@@ -199,14 +200,14 @@ static void setup_page_tables()
 
     /* initial page tables, carried into stage3 init */
     stage2_debug("initial page tables at [0x%lx,  0x%lx)\n", initial_pages_base,
-                 initial_pages_base + INITIAL_PAGES_SIZE);
-    create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
+                 initial_pages_base + initial_pages_size);
+    create_region(initial_pages_base, initial_pages_size, REGION_INITIAL_PAGES);
     init_mmu(region_allocator(general, PAGESIZE, REGION_INITIAL_PAGES));
 
     /* initial map, page tables and stack */
     pageflags flags = pageflags_writable(pageflags_exec(pageflags_memory()));
     map(0, 0, INITIAL_MAP_SIZE, flags);
-    map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
+    map(initial_pages_base, initial_pages_base, initial_pages_size, flags);
     map(stack_base, stack_base, (u64)STAGE2_STACK_SIZE, flags);
 }
 
@@ -225,13 +226,12 @@ closure_function(0, 1, status, kernel_read_complete,
     if (!k) {
         halt("kernel elf parse failed\n");
     }
-    k += KERNEL_BASE - KERNEL_BASE_PHYS;
 
     /* tell stage3 that pages from the stage2 working heap can be reclaimed */
     assert(working_saved_base);
     create_region(working_saved_base, STAGE2_WORKING_HEAP_SIZE, REGION_PHYSICAL);
 
-    stage2_debug("%s: run64, start address 0xffffffff%08lx\n", func_ss, u64_from_pointer(k));
+    stage2_debug("%s: run64, start address %p\n", func_ss, k);
     run64(u64_from_pointer(k));
     halt("failed to start long mode\n");
 }
@@ -380,8 +380,14 @@ void centry()
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
 
     /* allocate identity region for page tables */
+    initial_pages_size = INITIAL_PAGES_SIZE;
     initial_pages_base = allocate_u64(backed, INITIAL_PAGES_SIZE);
     assert(initial_pages_base != INVALID_PHYSICAL);
+    if (initial_pages_base < INITIAL_MAP_SIZE) {
+        /* we don't want the initial pages to overlap with the initial map area */
+        initial_pages_size -= INITIAL_MAP_SIZE - initial_pages_base;
+        initial_pages_base = INITIAL_MAP_SIZE;
+    }
 
     u32 stacktop = stack_base + STAGE2_STACK_SIZE - 4;
     asm("mov %0, %%esp": :"g"(stacktop));

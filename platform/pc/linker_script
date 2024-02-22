@@ -1,6 +1,6 @@
 OUTPUT_FORMAT("elf64-x86-64")
 
-ENTRY(_phys_start)
+ENTRY(_start)
 
 INCLUDE klib-syms.lds
 
@@ -16,27 +16,13 @@ PHDRS
  * permission, delimited by the READONLY_END symbol */
 SECTIONS
 {
-    . = 0;
-    AP_BOOT_PAGE = .;
-
-    /* Physical addresses are only relevant in case of direct stage3 load. */
-    LOAD_OFFSET = START - 0x200000;     /* 0x200000 equals KERNEL_BASE_PHYS */
-    _phys_start = _start - LOAD_OFFSET; /* entry point physical adddress */
-    _phys_pvh_start32 = pvh_start32 - LOAD_OFFSET;
-
-    . = 0xffffffff80000000;
+    . = 0x200000;   /* KERNEL_BASE_PHYS */
     START = .;
 
-    .start ALIGN(4096): AT(ADDR(.start) - LOAD_OFFSET)
+    text_start = .;
+    .text :
     {
         *(.start)
-    }
-
-    /* the default linker aligns the file and text without throwing
-       away a page..but for today...*/
-    text_start = .;
-    .text ALIGN(4096): AT(ADDR(.text) - LOAD_OFFSET)
-    {
         *(.text)
         *(.text.*)
         . = ALIGN(4096);
@@ -47,15 +33,18 @@ SECTIONS
     } :text
     text_end = .;
 
-    .rodata ALIGN(4096): AT(ADDR(.rodata) - LOAD_OFFSET)
+    .rodata :
     {
         *(.rodata)
         *(.rodata.*)
+        *(.dynamic)
+        _DYNSYM = .;
     } :rodata
 
+    . = ALIGN(4096);
     READONLY_END = .;
 
-    .data ALIGN(4096): AT(ADDR(.data) - LOAD_OFFSET)
+    .data :
     {
         ro_after_init_start = .;
         *(.ro_after_init)
@@ -66,7 +55,7 @@ SECTIONS
     } :data
 
     PROVIDE(bss_start = .);
-    .bss  ALIGN(4096): AT(ADDR(.bss) - LOAD_OFFSET)
+    .bss  ALIGN(4096):
     {
         bss_ro_after_init_start = .;
         *(.bss.ro_after_init)
@@ -85,7 +74,7 @@ SECTIONS
      * We could look at generating them automatically, but for now it's easy enough
      * to do it this way
      */
-    .vvar ALIGN(4096): AT(ADDR(.vvar) - LOAD_OFFSET)
+    .vvar ALIGN(4096):
     {
         vvar_page = .;
         __vdso_vdso_dat = vvar_page + 128;

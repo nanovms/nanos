@@ -106,8 +106,7 @@ void psci_reset(void)
 
 BSS_RO_AFTER_INIT static buffer mpid_map;
 static struct spinlock ap_lock;
-extern void *LOAD_OFFSET;
-extern void (*init_mmu_target)(void);
+static void (*init_mmu_target)(void);
 
 u64 mpid_from_cpuid(int id)
 {
@@ -146,8 +145,7 @@ static void ap_start(void)
 
 static void ap_start_nommu(void)
 {
-    register u64 init_func = u64_from_pointer((void *)aarch64_cpu_init - (void *)&LOAD_OFFSET);
-    asm volatile("blr %0" :: "r"(init_func));
+    asm volatile("bl aarch64_cpu_init");
     spin_lock(&ap_lock);    /* so that all APs can use the same temporary stack */
     enable_mmu(u64_from_pointer(init_mmu_target));
 }
@@ -158,7 +156,7 @@ void start_secondary_cores(kernel_heaps kh)
     init_flush(heap_locked(kh));
     for (int i = 1; i < present_processors; i++)
         arm_hvc(PSCI_FN64_CPU_ON, mpid_from_cpuid(i),
-                u64_from_pointer((void *)ap_start_nommu - (void *)&LOAD_OFFSET), 0);
+                u64_from_pointer((void *)ap_start_nommu - kas_kern_offset), 0);
     for (u64 to = 0; (total_processors != present_processors) && (to < AP_START_TIMEOUT_MS); to++)
         kernel_delay(milliseconds(1));
 

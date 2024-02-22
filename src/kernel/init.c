@@ -7,6 +7,7 @@
 #include <symtab.h>
 #include <dma.h>
 #include <drivers/console.h>
+#include <elf64.h>
 #include <serial.h>
 
 //#define INIT_DEBUG
@@ -23,6 +24,8 @@ typedef struct mm_cleaner {
 
 BSS_RO_AFTER_INIT filesystem root_fs;
 BSS_RO_AFTER_INIT halt_handler vm_halt;
+BSS_RO_AFTER_INIT u64 kas_kern_offset;
+BSS_RO_AFTER_INIT heap kas_heap;
 BSS_RO_AFTER_INIT static kernel_heaps init_heaps;
 
 #define SHUTDOWN_COMPLETIONS_SIZE 8
@@ -65,6 +68,42 @@ u64 init_bootstrap_heap(u64 phys_length)
 
     bootstrap_limit = BOOTSTRAP_BASE + bootstrap_size;
     return bootstrap_size;
+}
+
+/* Kernel address space layout randomization.
+ * Functions that call (directly or indirectly) this function must either not return to their
+ * caller, or execute `return_offset(kas_kern_offset)` before returning to their caller. */
+void kaslr(void)
+{
+    extern u8 START, text_end, READONLY_END, bss_start, END;
+    u64 ksize = pad(&END - &START, PAGESIZE);
+    u64 random_offset = random_early_u64() % (KERNEL_LIMIT - KERNEL_BASE - ksize);
+    u64 kbase = KERNEL_BASE + (random_offset & ~PAGEMASK);
+    u64 kern_offset = kbase - u64_from_pointer(&START);
+#ifdef INIT_DEBUG
+    early_debug("kernel load offset 0x");
+    early_debug_u64(kern_offset);
+    early_debug("\n");
+#endif
+    u64 kphys = physical_from_virtual(&START);
+    pageflags flags = pageflags_memory();
+    u64 text_len = &text_end - &START;
+    map(kbase, kphys, text_len, pageflags_exec(flags));
+    u64 rodata_len = &READONLY_END - &text_end;
+    map(kbase + text_len, kphys + text_len, rodata_len, flags);
+    u8 *initdata_end = pointer_from_u64(u64_from_pointer(&bss_start) & ~PAGEMASK);
+    map(kbase + text_len + rodata_len, kphys + text_len + rodata_len,
+        initdata_end - &READONLY_END, pageflags_writable(flags));
+
+    /* the BSS may not be physically contiguous to the initialized data */
+    kphys = physical_from_virtual(initdata_end);
+    map(kbase + (initdata_end - &START), kphys, &END - initdata_end, pageflags_writable(flags));
+
+    jump_to_offset(kern_offset);
+    extern void *_DYNAMIC, *_DYNSYM;
+    elf_dyn_relocate(0, kern_offset, (Elf64_Dyn *)&_DYNAMIC, (Elf64_Sym *)&_DYNSYM);
+    kas_kern_offset = kern_offset;
+    return_offset(kern_offset);
 }
 
 void init_kernel_heaps(void)
@@ -149,6 +188,14 @@ void init_kernel_heaps(void)
     assert(heaps.malloc != INVALID_ADDRESS);
     heaps.malloc = locking_heap_wrapper(heaps.general, heaps.malloc);
     assert(heaps.malloc != INVALID_ADDRESS);
+
+    id_heap kas_ih = create_id_heap(heaps.general, heaps.locked,
+                                    KERNEL_BASE, KERNEL_LIMIT - KERNEL_BASE, PAGESIZE, true);
+    assert(kas_ih != INVALID_ADDRESS);
+    id_heap_set_randomize(kas_ih, true);
+    extern u8 START, END;
+    id_heap_set_area(kas_ih, u64_from_pointer(&START), pad(&END - &START, PAGESIZE), false, true);
+    kas_heap = (heap)kas_ih;
 }
 
 heap heap_dma(void)
@@ -565,7 +612,7 @@ static void read_kernel_syms(void)
     u64 v = allocate_u64((heap)heap_virtual_huge(get_kernel_heaps()), kern_len);
     map(v, kern_phys.start, kern_len, pageflags_memory());
     init_debug("kernel ELF image at %R, mapped at %p", kern_phys, v);
-    add_elf_syms(alloca_wrap_buffer(v, kern_len), 0);
+    add_elf_syms(alloca_wrap_buffer(v, kern_len), kas_kern_offset);
     unmap(v, kern_len);
 }
 
@@ -598,7 +645,6 @@ void kernel_runtime_init(kernel_heaps kh)
     mem_cleaner pc_cleaner = closure(misc, mm_pagecache_cleaner);
     assert(pc_cleaner != INVALID_ADDRESS);
     assert(mm_register_mem_cleaner(pc_cleaner));
-    unmap(0, PAGESIZE);         /* unmap zero page */
     init_extra_prints();
     init_pci(kh);
     init_console(kh);

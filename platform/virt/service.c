@@ -248,12 +248,13 @@ static void __attribute__((noinline)) init_service_new_stack(void)
     while(1);
 }
 
-void init_setup_stack(void)
+static void init_setup_stack(void)
 {
     serial_set_devbase(DEVICE_BASE);
 #if 0
     devicetree_dump(pointer_from_u64(DEVICETREE_BLOB_BASE));
 #endif
+    kaslr();
     init_debug("in init_setup_stack, calling init_kernel_heaps\n");
     init_kernel_heaps();
     init_debug("allocating stack\n");
@@ -272,18 +273,14 @@ void init_setup_stack(void)
     switch_stack(stack_top, init_service_new_stack);
 }
 
-/* avoids pc-relative immediate (must not be static) */
-void (*init_mmu_target)(void) = &init_setup_stack;
-
 extern void *bss_start;
 extern void *bss_end;
-extern void *LOAD_OFFSET;
 
 void __attribute__((noreturn)) start(u64 x0, u64 x1)
 {
     /* clear bss */
-    u64 *p = pointer_from_u64((void *)&bss_start - (void *)&LOAD_OFFSET);
-    u64 *end = pointer_from_u64((void *)&bss_end - (void *)&LOAD_OFFSET);
+    u64 *p = pointer_from_u64((void *)&bss_start);
+    u64 *end = pointer_from_u64((void *)&bss_end);
     do {
         p[0] = 0;
         p[1] = 0;
@@ -298,10 +295,8 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
         runtime_memcpy(&boot_params, params, sizeof(boot_params));
     }
 
-    init_debug("calling init_mmu with target ");
-    init_debug_u64(u64_from_pointer(init_mmu_target));
-    init_debug("\n");
-    init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_mmu_target));
+    init_debug("calling init_mmu\n");
+    init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_setup_stack));
 
     while (1);
 }

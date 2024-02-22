@@ -64,7 +64,7 @@ typedef struct hvm_memmap_entry {
     u32 reserved;
 } *hvm_memmap_entry;
 
-extern filesystem root_fs;
+extern u8 START, END;
 
 range kern_get_elf(void)
 {
@@ -128,7 +128,9 @@ void reclaim_regions(void)
     }
     /* we're done with looking at e820 (and our custom) regions, so
        release the initial map here */
-    unmap(PAGESIZE, INITIAL_MAP_SIZE - PAGESIZE);
+    unmap(0, INITIAL_MAP_SIZE);
+
+    unmap(u64_from_pointer(&START) - kas_kern_offset, pad(&END - &START, PAGESIZE));
 }
 
 void vm_shutdown(u8 code)
@@ -230,6 +232,9 @@ static void __attribute__((noinline)) init_service_new_stack()
 
     for_regions(e) {
         switch (e->type) {
+        case REGION_INITIAL_PAGES:
+            unmap(e->base, INITIAL_PAGES_SIZE);
+            break;
         case REGION_SMBIOS:
             smbios_entry_point = e->base;
             break;
@@ -324,15 +329,9 @@ id_heap init_physical_id_heap(heap h)
     return physical;
 }
 
-extern void *END;
-
-/* The temp_pages_r pointer is set to a memory region that can be used to allocate temporary page
- * tables. Returns the number of pages have been allocated from that region. */
-static int kernel_map_virtual(region *temp_pages_r) {
-    u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE;
-    u64 *pdpt = 0;
-    u64 *pdt = 0;
-    *temp_pages_r = 0;
+static void setup_initmap(void)
+{
+    u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE_PHYS;
     for_regions(r) {
         if ((r->type == REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
                 (r->base + r->length > KERNEL_BASE_PHYS)) {
@@ -343,65 +342,35 @@ static int kernel_map_virtual(region *temp_pages_r) {
                 create_region(r->base, KERNEL_BASE_PHYS - r->base, r->type);
             region_resize(r, r->base - pad(KERNEL_BASE_PHYS + kernel_size, PAGESIZE));
         }
-        if (!*temp_pages_r && (r->length >= 4 * PAGESIZE)) {
-            *temp_pages_r = r;
-            pdpt = pointer_from_u64(r->base);
-            pdt = pointer_from_u64(r->base + PAGESIZE);
-            region_resize(r, -2 * PAGESIZE);
-        }
     }
 
-    /* Set up a temporary mapping of kernel code virtual address space, to be
-     * able to run from virtual addresses (which is needed to properly access
-     * things such as literal strings, static variables and function pointers).
+    /* Fix up the initial mapping set up by the hypervisor in the first 1GB of virtual memory:
+     * - set the 'user' and 'writable' flags on level 1 and level 2 page directory entries (AWS
+     *   Firecracker v1.6.0 does not set the 'user' flag, thereby preventing pages referenced by
+     *   these directory entries from being mapped for user space access)
+     * - unmap the memory area above the kernel, so that new (and properly configured) PTEs will be
+     *   used if any mappings are set up later in this area
      */
-    assert(*temp_pages_r);
-    map_setup_2mbpages(KERNEL_BASE, KERNEL_BASE_PHYS,
-                       pad(kernel_size, PAGESIZE_2M) >> PAGELOG_2M,
-                       pageflags_writable(pageflags_exec(pageflags_memory())), pdpt, pdt);
+    u64 *pml4;
+    mov_from_cr("cr3", pml4);
+    pml4[0] |= PAGE_WRITABLE | PAGE_USER;
+    u64 *pdpt = pointer_from_u64(pml4[0] & ~PAGE_FLAGS_MASK);
+    pdpt[0] |= PAGE_WRITABLE | PAGE_USER;
+    u64 *pdt = pointer_from_u64(pdpt[0] & ~PAGE_FLAGS_MASK);
+    u64 offset = pad(u64_from_pointer(&END), PAGESIZE_2M) >> PAGELOG_2M;;
+    zero(pdt + offset, PAGESIZE - offset * sizeof(*pdt));
 
-    return 2;
-}
-
-static inline void jump_to_virtual(void) {
-    /* Jump to virtual address */
-    asm("movq $1f, %rdi \n\
-        jmp *%rdi \n\
-        1: \n");
-}
-
-extern void *READONLY_END;
-
-/* Returns the number of pages have been allocated from the temporary page table region. */
-static int setup_initmap(region temp_pages_r)
-{
     /* Set up initial mappings in the same way as stage2 does. */
     init_mmu();
     struct region_heap rh;
     region_heap_init(&rh, PAGESIZE, REGION_PHYSICAL);
     u64 initial_pages_base = allocate_u64(&rh.h, INITIAL_PAGES_SIZE);
     assert(initial_pages_base != INVALID_PHYSICAL);
-    u64 *pdpt = pointer_from_u64(temp_pages_r->base);
-    u64 *pdt = pointer_from_u64(temp_pages_r->base + PAGESIZE);
-    region_resize(temp_pages_r, -2 * PAGESIZE);
     u64 map_base = initial_pages_base & ~MASK(PAGELOG_2M);
     map_setup_2mbpages(map_base, map_base,
                        pad(initial_pages_base - map_base + INITIAL_PAGES_SIZE, PAGESIZE_2M) >>
                        PAGELOG_2M, pageflags_writable(pageflags_memory()), pdpt, pdt);
     create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
-    heap pageheap = region_allocator(&rh.h, PAGESIZE, REGION_INITIAL_PAGES);
-    void *pgdir = bootstrap_page_tables(pageheap);
-    pageflags flags = pageflags_writable(pageflags_memory());
-    pageflags roflags = pageflags_exec(pageflags_readonly(pageflags_memory()));
-    map(0, 0, INITIAL_MAP_SIZE, flags);
-    map(PAGES_BASE, initial_pages_base, INITIAL_PAGES_SIZE, flags);
-    u64 roend = pad(u64_from_pointer(&READONLY_END), PAGESIZE);
-    map(KERNEL_BASE, KERNEL_BASE_PHYS, roend - KERNEL_BASE, roflags);
-    map(roend, KERNEL_BASE_PHYS + roend - KERNEL_BASE,
-        pad(u64_from_pointer(&END), PAGESIZE) - roend, flags);
-    mov_to_cr("cr3", pgdir);
-    bootstrapping = false;
-    return 2;
 }
 
 // init linker set
@@ -411,9 +380,6 @@ void init_service(u64 rdi, u64 rsi)
     const char *cmdline = 0;
     u32 cmdline_size;
 
-    /* NOTE: Do not call any non-inlined functions before this if-block because
-     * direct load boot methods (firecracker) do not have virtual address space
-     * set up for the kernel before this point! */
     if (params && (*(u16 *)(params + BOOT_PARAM_OFFSET_BOOT_FLAG) == 0xAA55) &&
             (*(u32 *)(params + BOOT_PARAM_OFFSET_HEADER) == 0x53726448)) {
         /* The kernel has been loaded directly by the hypervisor, without going
@@ -426,25 +392,12 @@ void init_service(u64 rdi, u64 rsi)
                 continue;
             create_region(r->base, r->length, r->type);
         }
-        region temp_pages_r;
-        int temp_pages = kernel_map_virtual(&temp_pages_r);
-        jump_to_virtual();
 
         cmdline = pointer_from_u64((u64)*((u32 *)(params +
                 BOOT_PARAM_OFFSET_CMD_LINE_PTR)));
         cmdline_size = *((u32 *)(params + BOOT_PARAM_OFFSET_CMDLINE_SIZE));
-        if (u64_from_pointer(cmdline) + cmdline_size >= INITIAL_MAP_SIZE) {
-            /* Command line is outside the memory space we are going to map:
-             * move it at the beginning of the boot parameters (it's OK to
-             * overwrite the boot params, since we already parsed what we need).
-             */
-            assert(u64_from_pointer(params) + cmdline_size < MBR_ADDRESS);
-            runtime_memcpy(params, cmdline, cmdline_size);
-            cmdline = (char *)params;
-        }
 
-        temp_pages += setup_initmap(temp_pages_r);
-        region_resize(temp_pages_r, temp_pages * PAGESIZE);
+        setup_initmap();
     }
 
     serial_init();
@@ -453,8 +406,9 @@ void init_service(u64 rdi, u64 rsi)
     find_initial_pages();
     if (!pagebase)
         init_mmu();
-    init_page_initial_map(pointer_from_u64(PAGES_BASE), initial_pages);
+    init_page_initial_map(pointer_from_u64(initial_pages.start), initial_pages);
     init_hwrand();
+    kaslr();
     init_kernel_heaps();
     if (cmdline)
         create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);
@@ -475,11 +429,7 @@ void pvh_start(hvm_start_info start_info)
         if (mem_table[i].type == HVM_MEMMAP_TYPE_RAM)
             create_region(mem_table[i].addr, mem_table[i].size, REGION_PHYSICAL);
     }
-    region temp_pages_r;
-    int temp_pages = kernel_map_virtual(&temp_pages_r);
-    jump_to_virtual();
-    temp_pages += setup_initmap(temp_pages_r);
-    region_resize(temp_pages_r, temp_pages * PAGESIZE);
+    setup_initmap();
     init_service(0, 0);
 }
 

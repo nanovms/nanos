@@ -114,13 +114,13 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/hyperv/utilities/vmbus_ic.c \
 	$(SRCDIR)/hyperv/utilities/vmbus_shutdown.c \
 	$(SRCDIR)/x86_64/acpi.c \
-	$(SRCDIR)/x86_64/ap.s \
 	$(SRCDIR)/x86_64/apic.c \
 	$(SRCDIR)/x86_64/breakpoint.c \
 	$(SRCDIR)/x86_64/clock.c \
 	$(SRCDIR)/x86_64/crt0.s \
 	$(SRCDIR)/x86_64/elf64.c \
 	$(SRCDIR)/x86_64/hpet.c \
+	$(SRCDIR)/x86_64/init.s \
 	$(SRCDIR)/x86_64/interrupt.c \
 	$(SRCDIR)/x86_64/kernel_machine.c \
 	$(SRCDIR)/x86_64/mp.c \
@@ -186,7 +186,7 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)/
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3 -fno-pic -mcmodel=kernel
+CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=-DCONFIG_LTRACE
 CFLAGS+=-DDMA_BUFFERING	# required by memory encryption

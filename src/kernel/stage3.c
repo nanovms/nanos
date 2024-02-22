@@ -107,7 +107,7 @@ closure_function(5, 1, status, kernel_read_complete,
                  kernel_heaps, kh, filesystem, fs, filesystem, klib_fs, status_handler, klibs_complete, tuple, root,
                  buffer, b)
 {
-    add_elf_syms(b, 0);
+    add_elf_syms(b, kas_kern_offset);
     deallocate_buffer(b);
     filesystem fs = bound(fs);
     filesystem klib_fs = bound(klib_fs);

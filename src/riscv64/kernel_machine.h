@@ -382,6 +382,20 @@ static inline u64 *get_current_fp(void)
     _switch_stack_head(s, target); _switch_stack_args_5(__a0, __a1, __a2, __a3, __a4); \
     _switch_stack_tail("r"(__ra0), "r"(__ra1), "r"(__ra2), "r"(__ra3), "r"(__ra4)); } while(0)
 
+static inline void jump_to_offset(u64 offset) {
+    asm("la t0, target\n"
+        "add t0, t0, %0\n"
+        "jr t0\n"
+        "target:":: "r"(offset) : "t0");
+}
+
+/* adds an offset to the return address of the current function */
+static inline void return_offset(u64 offset) {
+    asm("ld t0, -8(fp)\n"
+        "add t0, t0, %0\n"
+        "sd t0, -8(fp)" :: "r"(offset) : "t0", "memory");
+}
+
 /* syscall entry */
 #define init_syscall_handler()   /* stub */
 

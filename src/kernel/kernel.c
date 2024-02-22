@@ -53,6 +53,9 @@ void print_frame_trace(u64 *fp)
         rputs("\n");
     }
 
+    rputs("\nkernel load offset ");
+    print_u64(kas_kern_offset);
+    rputs("\n");
     print_loaded_klibs();
 }
 

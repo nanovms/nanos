@@ -34,8 +34,6 @@ static struct {
     u64 levelmask;              /* bitmap of levels allowed to map */
 } pagemem;
 
-BSS_RO_AFTER_INIT boolean bootstrapping;
-
 #ifndef physical_from_virtual
 physical physical_from_virtual(void *x)
 {
@@ -54,20 +52,22 @@ physical physical_from_virtual(void *x)
 
 u64 *pointer_from_pteaddr(u64 pa)
 {
-    if (bootstrapping)
-        return pointer_from_u64(pa);
+#ifdef BOOT
+    return pointer_from_u64(pa);
+#else
     u64 offset = pa - pagemem.physbase;
     return pointer_from_u64(pagemem.pagevirt.start + offset);
+#endif
 }
 
 void *allocate_table_page(u64 *phys)
 {
-    if (bootstrapping) {
-        /* Bootloader use: single, identity-mapped pages */
-        void *p = allocate_zero(pagemem.pageheap, PAGESIZE);
-        *phys = u64_from_pointer(p);
-        return p;
-    }
+#ifdef BOOT
+    /* Bootloader use: single, identity-mapped pages */
+    void *p = allocate_zero(pagemem.pageheap, PAGESIZE);
+    *phys = u64_from_pointer(p);
+    return p;
+#else
     page_init_debug("allocate_table_page:");
     if (range_span(pagemem.current_phys) == 0) {
         page_init_debug(" [new alloc, pa: ");
@@ -89,6 +89,7 @@ void *allocate_table_page(u64 *phys)
     page_init_debug("\n");
     zero(p, PAGESIZE);
     return p;
+#endif
 }
 
 #define PTE_ENTRIES U64_FROM_BIT(9)

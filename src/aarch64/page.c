@@ -31,15 +31,13 @@ void flush_tlb(boolean full_flush)
 }
 
 extern void *START, *READONLY_END, *END;
-extern void *LOAD_OFFSET;
 
 /* init_pt is a 2M block to use for inital ptes */
 void init_mmu(range init_pt, u64 vtarget)
 {
     page_init_debug("START ");
     page_init_debug_u64(u64_from_pointer(&START));
-    page_init_debug("LOAD_OFFSET ");
-    page_init_debug_u64(u64_from_pointer(&LOAD_OFFSET));
+    page_init_debug(", PAGE TABLES ");
     page_init_debug_u64(init_pt.start);
     page_init_debug(", ");
     page_init_debug_u64(init_pt.end);
@@ -63,35 +61,6 @@ void init_mmu(range init_pt, u64 vtarget)
     assert(allocate_table_page(&user_tablebase));
     assert(allocate_table_page(&kernel_tablebase));
     
-#if 0
-    /* XXX: something about splitting the mapping into two pieces
-       causes some accesses to go off the rails ... even if both are made writable */
-    pageflags ro_flags = pageflags_exec(pageflags_memory());
-    u64 start = u64_from_pointer(&START);
-    u64 readonly_end = u64_from_pointer(&READONLY_END);
-    u64 end = u64_from_pointer(&END);
-    assert((start & PAGEMASK) == 0);
-    assert((readonly_end & PAGEMASK) == 0);
-    assert((end & PAGEMASK) == 0);
-
-    u64 ro_size = readonly_end - start;
-    u64 rw_size = end - readonly_end;
-    page_init_debug("ro_size ");
-    page_init_debug_u64(ro_size);
-    page_init_debug("\nrw_size ");
-    page_init_debug_u64(rw_size);
-    page_init_debug("\n");
-    map(KERNEL_BASE, KERNEL_PHYS, ro_size, ro_flags);
-    map(KERNEL_BASE + ro_size, KERNEL_PHYS + ro_size, rw_size, pageflags_writable(ro_flags));
-#else
-    /* XXX: kernel is writable here, replace with ro/rw mapping above when fixed */
-    u64 kernel_size = pad(u64_from_pointer(&END) - u64_from_pointer(&START), PAGESIZE);
-    page_init_debug("kernel_size ");
-    page_init_debug_u64(kernel_size);
-    page_init_debug("\n");
-    map_nolock(KERNEL_BASE, KERNEL_PHYS, kernel_size, pageflags_writable(pageflags_exec(pageflags_memory())));
-#endif
-
     page_init_debug("map devices\n");
     map_nolock(DEVICE_BASE, 0, DEV_MAP_SIZE, pageflags_writable(pageflags_device()));
 

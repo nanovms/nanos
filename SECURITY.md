@@ -15,6 +15,12 @@ __ASLR__:
 
 * Binary Randomization
 
+__KASLR__:
+
+* Kernel Load Address Randomization
+
+* Klib Load Address Randomization
+
 __Page Protections__:
 
 * Stack Execution off by Default
