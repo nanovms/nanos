@@ -16,7 +16,8 @@ _start:
     push rdx    ; system table
 
     lea rdi, [rel IMAGE_BASE]
-    lea rsi, [rel _DYNAMIC]
+    mov rsi, rdi
+    lea rdx, [rel _DYNAMIC]
     call elf_dyn_relocate
 
     mov ecx, MSR_EFER

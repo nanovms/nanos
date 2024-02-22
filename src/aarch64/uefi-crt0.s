@@ -80,7 +80,8 @@ _start:
     stp x29, x30, [sp, #-32]!
     stp x0, x1, [sp, #16]
     adr x0, IMAGE_BASE
-    adr x1, _DYNAMIC
+    mov x1, x0
+    adr x2, _DYNAMIC
     bl  elf_dyn_relocate
     ldp x0, x1, [sp, #16]
     bl  efi_main

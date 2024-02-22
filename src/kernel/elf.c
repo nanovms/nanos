@@ -190,6 +190,37 @@ boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver)
                                                  resolver));
 }
 
+void elf_dyn_relocate(u64 base, u64 offset, Elf64_Dyn *dyn, Elf64_Sym *syms)
+{
+    Elf64_Rela *rel = 0;
+    u64 relsz = 0, relent = 0, relcount = 0;
+    int i;
+
+    for (i = 0; dyn[i].d_tag != DT_NULL; ++i) {
+        switch (dyn[i].d_tag) {
+            case DT_RELA:
+                rel = (Elf64_Rela *)pointer_from_u64(dyn[i].d_un.d_ptr + base);
+                break;
+            case DT_RELASZ:
+                relsz = dyn[i].d_un.d_val;
+                break;
+            case DT_RELAENT:
+                relent = dyn[i].d_un.d_val;
+                break;
+            case DT_RELACOUNT:
+                relcount = dyn[i].d_un.d_val;
+                break;
+            default:
+                break;
+        }
+    }
+    if (!rel || (relent != sizeof(Elf64_Rela)))
+        return;
+    if (relsz == 0)
+        relsz = relent * relcount;
+    arch_elf_relocate(rel, relsz, syms, base, offset);
+}
+
 boolean elf_plt_get(buffer elf, u64 *addr, u64 *offset, u64 *size)
 {
     Elf64_Ehdr *e = (Elf64_Ehdr *)buffer_ref(elf, 0);

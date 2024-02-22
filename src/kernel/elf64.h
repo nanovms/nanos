@@ -227,6 +227,7 @@ typedef struct {
 #define DT_RELASZ   8
 #define DT_RELAENT  9
 #define DT_JMPREL   23
+#define DT_RELACOUNT    0x6ffffff9
 
 #define SHT_PROGBITS 1
 #define SHT_SYMTAB 2/* symbol table section */
@@ -266,6 +267,7 @@ void elf_symbols(buffer elf, elf_sym_handler each);
 boolean elf_dyn_parse(buffer elf, Elf64_Shdr **symtab, Elf64_Shdr **strtab, Elf64_Rela **reltab,
                       int *relcount);
 boolean elf_dyn_link(buffer elf, void *load_addr, elf_sym_resolver resolver);
+void elf_dyn_relocate(u64 base, u64 offset, Elf64_Dyn *dyn, Elf64_Sym *syms);
 boolean elf_plt_get(buffer elf, u64 *addr, u64 *offset, u64 *size);
 void walk_elf(buffer elf, range_handler rh);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
@@ -276,6 +278,7 @@ typedef closure_type(elf_sym_relocator, boolean, Elf64_Rela *);
 void elf_apply_relocate_add(buffer elf, Elf64_Shdr *s, u64 offset);
 boolean elf_apply_relocate_syms(buffer elf, Elf64_Rela *reltab, int relcount,
                                 elf_sym_relocator relocator);
+void arch_elf_relocate(Elf64_Rela *rel, u64 relsz, Elf64_Sym *syms, u64 base, u64 offset);
 
 static inline void elf_apply_relocs(buffer elf, u64 offset)
 {

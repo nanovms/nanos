@@ -33,3 +33,25 @@ boolean elf_apply_relocate_syms(buffer elf, Elf64_Rela *rel, int relcount,
     return true;
 }
 
+void arch_elf_relocate(Elf64_Rela *rel, u64 relsz, Elf64_Sym *syms, u64 base, u64 offset)
+{
+    u64 *loc;
+    u64 value;
+    while (relsz > 0) {
+        switch (ELF64_R_TYPE(rel->r_info)) {
+        case R_RISCV_64:
+            value = syms[ELF64_R_SYM(rel->r_info)].st_value;
+            break;
+        case R_RISCV_RELATIVE:
+            value = 0;
+            break;
+        default:
+            goto next;
+        }
+        loc = pointer_from_u64(base + rel->r_offset);
+        *loc = value + rel->r_addend + offset;
+next:
+        rel++;
+        relsz -= sizeof(*rel);
+    }
+}
