@@ -2781,6 +2781,12 @@ void init_syscalls(process p)
     }
 }
 
+void _init_syscall(struct syscall *m, int n, sstring name, u64 flags)
+{
+    m[n].name = name;
+    m[n].flags = flags;
+}
+
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), sstring name, u64 flags)
 {
     assert(m[n].handler == 0);

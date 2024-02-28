@@ -838,9 +838,11 @@ struct rt_sigframe *get_rt_sigframe(thread t);
 boolean setup_sigframe(thread t, int signum, struct siginfo *si);
 void restore_ucontext(struct ucontext * uctx, thread t);
 
+void _init_syscall(struct syscall *m, int n, sstring name, u64 flags);
 void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), sstring name, u64 flags);
 void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)());
 
+#define init_syscall(m, n, fl)        _init_syscall(m, SYS_##n, ss(#n), fl)
 #define register_syscall(m, n, f, fl) _register_syscall(m, SYS_##n, f, ss(#n), fl)
 
 #define SYSCALL_F_NOTRACE   0x1
