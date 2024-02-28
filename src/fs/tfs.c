@@ -1208,44 +1208,36 @@ closure_function(1, 1, boolean, free_extent,
     return true;
 }
 
-/* Called with fs locked. */
-fs_status filesystem_creat_unnamed(filesystem fs, fsfile *f)
-{
-    if (!fs_is_tfs(fs))
-        return FS_STATUS_INVAL;
-    if (fs->ro)
-        return FS_STATUS_READONLY;
-    *f = (fsfile)allocate_fsfile((tfs)fs, 0);
-    if (*f == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
-    tfs_debug("%s: file %p\n", func_ss, *f);
-    fsfile_set_length(*f, 0);
-    return FS_STATUS_OK;
-}
-
 static fs_status tfs_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
 {
     tfs tfs = (struct tfs *)fs;
     tfsfile fsf = 0;
     fs_status fss;
-    if (is_regular(md)) {
-        set(md, sym(extents), allocate_tuple());
+    if (!md || is_regular(md)) {
+        if (md)
+            set(md, sym(extents), allocate_tuple());
         fsf = allocate_fsfile(tfs, md);
         if (fsf == INVALID_ADDRESS)
             return FS_STATUS_NOMEM;
         if (f) {
             *f = &fsf->f;
-            fsfile_reserve(*f);
         }
     }
-    fss = filesystem_write_eav(tfs, children(parent), intern(name), md, false);
-    if (fss == FS_STATUS_OK) {
-        if (!fsf)
-            table_set(tfs->files, md, INVALID_ADDRESS);
-    } else if (fsf) {
-        table_set(tfs->files, md, 0);
-        deallocate_fsfile(tfs, fsf, stack_closure(free_extent, tfs));
+    if (parent && name && md) {
+        fss = filesystem_write_eav(tfs, children(parent), intern(name), md, false);
+        if (fsf) {
+            if (fss == FS_STATUS_OK) {
+                fsfile_reserve(&fsf->f);
+            } else {
+                table_set(tfs->files, md, 0);
+                deallocate_fsfile(tfs, fsf, stack_closure(free_extent, tfs));
+            }
+        }
+    } else {
+        fss = FS_STATUS_OK;
     }
+    if ((fss == FS_STATUS_OK) && !fsf)
+        table_set(tfs->files, md, INVALID_ADDRESS);
     return fss;
 }
 

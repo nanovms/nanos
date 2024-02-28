@@ -516,6 +516,14 @@ void filesystem_put_meta(filesystem fs, tuple n)
     filesystem_unlock(fs);
 }
 
+/* Called with fs locked. */
+fs_status filesystem_creat_unnamed(filesystem fs, fsfile *f)
+{
+    if (fs->ro)
+        return FS_STATUS_READONLY;
+    return fs->create(fs, 0, 0, 0, f);
+}
+
 fs_status filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target)
 {
     int target_len = target.len;

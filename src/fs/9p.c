@@ -615,6 +615,8 @@ static tuple p9_lookup(filesystem fs, tuple parent, string name)
 
 static fs_status p9_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
 {
+    if (!name)
+        return FS_STATUS_INVAL;
     p9_debug("create parent %p name '%b' md %p f %p\n", parent, name, md, f);
     p9fs p9fs = (struct p9fs *)fs;
     p9_dentry parent_dentry = p9_get_dentry_from_md(p9fs, parent);
