@@ -683,7 +683,6 @@ static fs_status p9_truncate(filesystem fs, fsfile f, u64 len)
                               0, 0);
     if (s != FS_STATUS_OK)
         return s;
-    filesystem_update_mtime(fs, f->md);
     return FS_STATUS_OK;
 }
 

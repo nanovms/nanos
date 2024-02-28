@@ -406,7 +406,6 @@ static fs_status tfs_truncate(filesystem fs, fsfile f, u64 len)
             return s;
         set(f->md, l, v);
         f->status |= FSF_DIRTY_DATASYNC;
-        filesystem_update_mtime(fs, f->md);
     }
     return FS_STATUS_OK;
 }

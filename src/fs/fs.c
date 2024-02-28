@@ -261,8 +261,12 @@ fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
     if (fs->ro)
         return FS_STATUS_READONLY;
     fs_status fsf = fs->truncate(fs, f, len);
-    if (fsf == FS_STATUS_OK)
+    if (fsf == FS_STATUS_OK) {
+        tuple md = f->md;
+        if (md)
+            filesystem_update_mtime(fs, md);
         fsfile_set_length(f, len);
+    }
     return fsf;
 }
 
