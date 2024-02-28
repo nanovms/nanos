@@ -806,6 +806,30 @@ void filesystem_deinit(filesystem fs)
     pagecache_dealloc_volume(fs->pv);
 }
 
+fs_status fs_get_fsfile(table files, tuple n, fsfile *f)
+{
+    fsfile fsf = table_find(files, n);
+    if (!fsf)
+        return FS_STATUS_NOENT;
+    if (fsf == INVALID_ADDRESS) /* non-regular file */
+        fsf = 0;
+    else
+        fsfile_reserve(fsf);
+    *f = fsf;
+    return FS_STATUS_OK;
+}
+
+void fs_unlink(table files, tuple n)
+{
+    fsfile fsf = table_remove(files, n);
+    if (fsf == INVALID_ADDRESS)   /* directory entry other than regular file */
+        fsf = 0;
+    if (fsf) {
+        fsf->md = 0;
+        fsfile_release(fsf);
+    }
+}
+
 /* Note: This function is used to retrieve the root metadata for a given
    filesystem. To access the system-wide root tuple for other uses, such as to
    probe for configuration options or to register a management interface, use
@@ -1291,4 +1315,29 @@ boolean file_tuple_is_ancestor(tuple t1, tuple t2, tuple p2)
         p2 = p;
     }
     return true;
+}
+
+fs_status fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_md,
+                          boolean exchange)
+{
+    if (!exchange) {
+        if (new_md) {
+            tuple c = children(new_md);
+            if (c) {
+                if (!is_dir(old_md))
+                    return FS_STATUS_ISDIR;
+                boolean notempty = (tuple_count(c) != 0);
+                if (notempty)
+                    return FS_STATUS_NOTEMPTY;
+            } else if (is_dir(old_md))
+                return FS_STATUS_NOTDIR;
+        }
+        if (file_tuple_is_ancestor(old_md, new_md, new_parent))
+            return FS_STATUS_INVAL;
+    } else {
+        if (file_tuple_is_ancestor(old_md, new_md, new_parent) ||
+            file_tuple_is_ancestor(new_md, old_md, old_parent))
+            return FS_STATUS_INVAL;
+    }
+    return FS_STATUS_OK;
 }

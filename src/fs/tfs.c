@@ -28,15 +28,14 @@
 
 #endif
 
-#define fs_is_tfs(fs)   ((fs)->get_meta == fs_tuple_from_inode)
+#define fs_is_tfs(fs)   ((fs)->get_meta == tmpfs_get_meta)
 
 #define tfs_from_file(f)    ((tfs)((f)->f.fs))
 
 /* Called with fs locked */
-static tuple fs_tuple_from_inode(filesystem fs, inode n)
+static tuple tmpfs_get_meta(filesystem fs, inode n)
 {
-    tuple t = pointer_from_u64(n);
-    return table_find(((tfs)fs)->files, t) ? t : 0;
+    return fs_tuple_from_inode(((tfs)fs)->files, n);
 }
 
 static s64 tfsfile_get_blocks(fsfile f)
@@ -1078,13 +1077,7 @@ static void destruct_dir_entry(tuple n)
 
 static boolean tfs_file_unlink(tfs fs, tuple t)
 {
-    tfsfile f = table_remove(fs->files, t);
-    if (f == INVALID_ADDRESS)   /* directory entry other than regular file */
-        f = 0;
-    if (f) {
-        f->f.md = 0;
-        refcount_release(&f->f.refcount);
-    }
+    fs_unlink(fs->files, t);
 
     /* If a tuple is not present in the filesystem log dictionary, it can (and should) be destroyed
      * now (it won't be destroyed when the filesystem log is rebuilt). */
@@ -1256,27 +1249,11 @@ static fs_status tfs_rename(filesystem fs, tuple old_parent, string old_name, tu
                             tuple new_parent, string new_name, tuple new_md, boolean exchange,
                             boolean *destruct_md)
 {
-    if (!exchange) {
-        if (new_md) {
-            tuple c = children(new_md);
-            if (c) {
-                if (!is_dir(old_md))
-                    return FS_STATUS_ISDIR;
-                boolean notempty = (tuple_count(c) != 0);
-                if (notempty)
-                    return FS_STATUS_NOTEMPTY;
-            } else if (is_dir(old_md))
-                return FS_STATUS_NOTDIR;
-        }
-        if (file_tuple_is_ancestor(old_md, new_md, new_parent))
-            return FS_STATUS_INVAL;
-    } else {
-        if (file_tuple_is_ancestor(old_md, new_md, new_parent) ||
-            file_tuple_is_ancestor(new_md, old_md, old_parent))
-            return FS_STATUS_INVAL;
-    }
+    fs_status s = fs_check_rename(old_parent, old_md, new_parent, new_md, exchange);
+    if (s != FS_STATUS_OK)
+        return s;
     tfs tfs = (struct tfs *)fs;
-    fs_status s = filesystem_write_eav(tfs, children(new_parent), intern(new_name), old_md, true);
+    s = filesystem_write_eav(tfs, children(new_parent), intern(new_name), old_md, true);
     if (s == FS_STATUS_OK)
         s = filesystem_write_eav(tfs, children(old_parent), intern(old_name), exchange ? new_md : 0,
                                  exchange && new_md);
@@ -1451,26 +1428,9 @@ boolean filesystem_reserve_log_space(tfs fs, u64 *next_offset, u64 *offset, u64 
     return true;
 }
 
-static tuple tfs_lookup(filesystem fs, tuple parent, string name)
-{
-    return lookup(parent, intern(name));
-}
-
 static fs_status tfs_get_fsfile(filesystem fs, tuple n, fsfile *f)
 {
-    fsfile fsf = table_find(((tfs)fs)->files, n);
-    if (!fsf)
-        return FS_STATUS_NOENT;
-    if (fsf == INVALID_ADDRESS) /* non-regular file */
-        fsf = 0;
-    else
-        fsfile_reserve(fsf);
-    *f = fsf;
-    return FS_STATUS_OK;
-}
-
-static inode tfs_get_inode(filesystem fs, tuple t) {
-    return u64_from_pointer(t);
+    return fs_get_fsfile(((tfs)fs)->files, n, f);
 }
 
 void create_filesystem(heap h,
@@ -1498,10 +1458,10 @@ void create_filesystem(heap h,
     fs->req_handler = req_handler;
     fs->fs.root = 0;
     fs->page_order = pagecache_get_page_order();
-    fs->fs.lookup = tfs_lookup;
+    fs->fs.lookup = fs_lookup;
     fs->fs.get_fsfile = tfs_get_fsfile;
-    fs->fs.get_inode = tfs_get_inode;
-    fs->fs.get_meta = fs_tuple_from_inode;
+    fs->fs.get_inode = fs_get_inode;
+    fs->fs.get_meta = tmpfs_get_meta;
 #ifndef TFS_READ_ONLY
     fs->fs.create = tfs_create;
     fs->fs.unlink = tfs_unlink;

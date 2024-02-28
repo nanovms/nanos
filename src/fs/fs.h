@@ -164,6 +164,8 @@ static inline u64 sector_from_offset(filesystem fs, bytes b)
 tuple fs_new_entry(filesystem fs);
 
 boolean file_tuple_is_ancestor(tuple t1, tuple t2, tuple p2);
+fs_status fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_md,
+                          boolean exchange);
 
 fs_status filesystem_mkdir(filesystem fs, inode cwd, sstring path);
 fs_status filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
@@ -196,6 +198,24 @@ u64 fs_blocksize(filesystem fs);
 u64 fs_totalblocks(filesystem fs);
 u64 fs_usedblocks(filesystem fs);
 u64 fs_freeblocks(filesystem fs);
+
+static inline tuple fs_lookup(filesystem fs, tuple parent, string name)
+{
+    return lookup(parent, intern(name));
+}
+
+static inline inode fs_get_inode(filesystem fs, tuple n) {
+    return u64_from_pointer(n);
+}
+
+static inline tuple fs_tuple_from_inode(table files, inode n)
+{
+    tuple t = pointer_from_u64(n);
+    return table_find(files, t) ? t : 0;
+}
+
+fs_status fs_get_fsfile(table files, tuple n, fsfile *f);
+void fs_unlink(table files, tuple n);
 
 extern const sstring gitversion;
 
