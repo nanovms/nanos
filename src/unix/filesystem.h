@@ -50,6 +50,7 @@ sysreturn fadvise64(int fd, s64 off, u64 len, int advice);
 
 sysreturn fs_rename(sstring oldpath, sstring newpath);
 
+int file_open(filesystem fs, tuple n, int flags, fsfile fsf);
 void file_release(file f);
 
 fsfile fsfile_open(sstring file_path);

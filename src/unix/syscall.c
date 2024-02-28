@@ -565,11 +565,10 @@ closure_function(6, 1, void, file_read_complete,
     closure_finish();
 }
 
-closure_function(2, 6, sysreturn, file_read,
-                 file, f, fsfile, fsf,
-                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, file_read,
+                   void *dest, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    file f = bound(f);
+    file f = struct_from_field(closure_self(), file, read);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread t = current;
@@ -617,11 +616,10 @@ closure_function(4, 1, void, file_sg_read_complete,
     closure_finish();
 }
 
-closure_function(2, 6, sysreturn, file_sg_read,
-                 file, f, fsfile, fsf,
-                 sg_list, sg, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(sg_file_io, sysreturn, file_sg_read,
+                   sg_list sg, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    file f = bound(f);
+    file f = struct_from_field(closure_self(), file, sg_read);
 
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
@@ -691,11 +689,10 @@ closure_function(6, 1, void, file_write_complete,
     closure_finish();
 }
 
-closure_function(2, 6, sysreturn, file_write,
-                 file, f, fsfile, fsf,
-                 void *, src, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, file_write,
+                   void *src, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    file f = bound(f);
+    file f = struct_from_field(closure_self(), file, write);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
     thread t = current;
@@ -752,11 +749,10 @@ closure_function(5, 1, void, file_sg_write_complete,
     closure_finish();
 }
 
-closure_function(2, 6, sysreturn, file_sg_write,
-                 file, f, fsfile, fsf,
-                 sg_list, sg, u64, len, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(sg_file_io, sysreturn, file_sg_write,
+                   sg_list sg, u64 len, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    file f = bound(f);
+    file f = struct_from_field(closure_self(), file, sg_write);
     sysreturn rv;
 
     boolean is_file_offset = offset_arg == infinity;
@@ -782,35 +778,27 @@ closure_function(2, 6, sysreturn, file_sg_write,
     return io_complete(completion, rv);
 }
 
-closure_function(2, 2, sysreturn, file_close,
-                 file, f, fsfile, fsf,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, file_close,
+                   context ctx, io_completion completion)
 {
-    file f = bound(f);
+    file f = struct_from_field(closure_self(), file, close);
     tuple md = filesystem_get_meta(f->fs, f->n);
     if (md) {
         fs_notify_event(md, ((f->f.flags & O_ACCMODE) == O_RDONLY) ?
                         IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
         filesystem_put_meta(f->fs, md);
     }
-    fsfile fsf = bound(fsf);
+    fsfile fsf = f->fsf;
     if (fsf)
         fsfile_release(fsf);
-    deallocate_closure(f->f.read);
-    deallocate_closure(f->f.write);
-    deallocate_closure(f->f.sg_read);
-    deallocate_closure(f->f.sg_write);
-    deallocate_closure(f->f.events);
-    deallocate_closure(f->f.close);
     file_release(f);
     return io_complete(completion, 0);
 }
 
-closure_function(1, 1, u32, file_events,
-                 file, f,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, file_events,
+                   thread t /* ignore */)
 {
-    file f = bound(f);
+    file f = struct_from_field(closure_self(), file, events);
     u32 events;
     switch (fdesc_type(&f->f)) {
     case FDESC_TYPE_REGULAR:
@@ -849,16 +837,119 @@ static int dt_from_tuple(tuple n)
         return DT_REG;
 }
 
+int file_open(filesystem fs, tuple n, int flags, fsfile fsf)
+{
+    thread t = current;
+    process p = t->p;
+    heap h = heap_locked(get_kernel_heaps());
+    unix_heaps uh = get_unix_heaps();
+
+    if (flags & O_TMPFILE)
+        flags |= O_DIRECTORY;
+
+    switch (flags & O_ACCMODE) {
+    case O_RDONLY:
+        if ((flags & O_TMPFILE)) {
+            return -EINVAL;
+        }
+        break;
+    case O_WRONLY:
+    case O_RDWR:
+        if (filesystem_is_readonly(fs)) {
+            return -EROFS;
+        }
+        if (!(file_meta_perms(p, n) & ACCESS_PERM_WRITE)) {
+            return -EACCES;
+        }
+        if (is_dir(n) && !(flags & O_TMPFILE)) {
+            return -EISDIR;
+        }
+        break;
+    default:
+        return -EINVAL;
+    }
+    if ((flags & (O_CREAT|O_DIRECTORY)) == O_DIRECTORY && !is_dir(n)) {
+        return -ENOTDIR;
+    }
+
+    u64 length = 0;
+    int type;
+
+    if (flags & O_TMPFILE) {
+        fs_status fss = filesystem_creat_unnamed(fs, &fsf);
+        if (fss != FS_STATUS_OK) {
+            return sysreturn_from_fs_status(fss);
+        }
+        type = FDESC_TYPE_REGULAR;
+    } else {
+        type = file_type_from_tuple(n);
+        if (type == FDESC_TYPE_REGULAR) {
+            assert(fsf);
+            if (flags & O_TRUNC)
+                truncate_file_maps(p, fsf, 0);
+            length = fsfile_get_length(fsf);
+        }
+    }
+
+    file f = type == FDESC_TYPE_SPECIAL ? spec_allocate(n) : unix_cache_alloc(uh, file);
+    if (f == INVALID_ADDRESS) {
+        thread_log(t, "failed to allocate struct file");
+        if (flags & O_TMPFILE)
+            fsfile_release(fsf);
+        return -ENOMEM;
+    }
+
+    init_fdesc(h, &f->f, type);
+    f->f.flags = flags;
+    f->fs = fs;
+    f->fsf = fsf;
+    if (type == FDESC_TYPE_REGULAR) {
+        f->fs_read = fsfile_get_reader(fsf);
+        assert(f->fs_read);
+        f->fs_write = fsfile_get_writer(fsf);
+        assert(f->fs_write);
+        f->fadv = POSIX_FADV_NORMAL;
+    }
+    f->n = fs->get_inode(fs, n);
+    f->offset = (flags & O_APPEND) ? length : 0;
+
+    if (type == FDESC_TYPE_SPECIAL) {
+        int spec_ret = spec_open(f, n);
+        if (spec_ret != 0) {
+            assert(spec_ret < 0);
+            thread_log(t, "spec_open failed (%d)", spec_ret);
+            spec_deallocate(f);
+            return spec_ret;
+        }
+    } else {
+        f->f.read = init_closure_func(&f->read, file_io, file_read);
+        f->f.write = init_closure_func(&f->write, file_io, file_write);
+        f->f.sg_read = init_closure_func(&f->sg_read, sg_file_io, file_sg_read);
+        f->f.sg_write = init_closure_func(&f->sg_write, sg_file_io, file_sg_write);
+        f->f.close = init_closure_func(&f->close, fdesc_close, file_close);
+        f->f.events = init_closure_func(&f->events, fdesc_events, file_events);
+    }
+
+    int fd = allocate_fd(p, f);
+    if (fd == INVALID_PHYSICAL) {
+        thread_log(t, "failed to allocate fd");
+        apply(f->f.close, 0, io_completion_ignore);
+        return -EMFILE;
+    }
+    thread_log(t, "   fd %d, length %ld, offset %ld", fd, length, f->offset);
+    filesystem_reserve(fs);
+    fs_notify_event(n, IN_OPEN);
+    return fd;
+}
+
 sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
                         int mode)
 {
-    heap h = heap_locked(get_kernel_heaps());
-    unix_heaps uh = get_unix_heaps();
     tuple n;
     int ret;
     buffer b = 0;
 
-    fsfile fsf;
+    fsfile fsf = 0;
     fs_status fss = filesystem_get_node(&fs, cwd, name, !!(flags & O_NOFOLLOW),
                                         !!(flags & O_CREAT), !!(flags & O_EXCL),
                                         !!(flags & O_TRUNC), &n, &fsf);
@@ -894,108 +985,9 @@ sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
         return set_syscall_return(current, ret);
     }
 
-    if (flags & O_TMPFILE)
-        flags |= O_DIRECTORY;
-
-    switch (flags & O_ACCMODE) {
-    case O_RDONLY:
-        if ((flags & O_TMPFILE)) {
-            ret = -EINVAL;
-            goto out;
-        }
-        break;
-    case O_WRONLY:
-    case O_RDWR:
-        if (filesystem_is_readonly(fs)) {
-            ret = -EROFS;
-            goto out;
-        }
-        if (!(file_meta_perms(current->p, n) & ACCESS_PERM_WRITE)) {
-            ret = -EACCES;
-            goto out;
-        }
-        if (is_dir(n) && !(flags & O_TMPFILE)) {
-            ret = -EISDIR;
-            goto out;
-        }
-        break;
-    default:
-        ret = -EINVAL;
+    ret = file_open(fs, n, flags, fsf);
+    if (ret < 0)
         goto out;
-    }
-
-    if ((flags & (O_CREAT|O_DIRECTORY)) == O_DIRECTORY && !is_dir(n)) {
-        thread_log(current, "\"%s\" opened with O_DIRECTORY but is not a directory", name);
-        ret = -ENOTDIR;
-        goto out;
-    }
-
-    u64 length = 0;
-    int type;
-
-    if (flags & O_TMPFILE) {
-        fs_status fss = filesystem_creat_unnamed(fs, &fsf);
-        if (fss != FS_STATUS_OK) {
-            ret = sysreturn_from_fs_status(fss);
-            goto out;
-        }
-        type = FDESC_TYPE_REGULAR;
-    } else {
-        type = file_type_from_tuple(n);
-        if (type == FDESC_TYPE_REGULAR) {
-            assert(fsf);
-            if (flags & O_TRUNC)
-                truncate_file_maps(current->p, fsf, 0);
-            length = fsfile_get_length(fsf);
-        }
-    }
-
-    file f = type == FDESC_TYPE_SPECIAL ? spec_allocate(n) : unix_cache_alloc(uh, file);
-    if (f == INVALID_ADDRESS) {
-        thread_log(current, "failed to allocate struct file");
-        ret = -ENOMEM;
-        goto out;
-    }
-
-    init_fdesc(h, &f->f, type);
-    f->f.flags = flags;
-    f->fs = fs;
-    f->fsf = fsf;
-    if (type == FDESC_TYPE_REGULAR) {
-        f->fs_read = fsfile_get_reader(fsf);
-        assert(f->fs_read);
-        f->fs_write = fsfile_get_writer(fsf);
-        assert(f->fs_write);
-        f->fadv = POSIX_FADV_NORMAL;
-    }
-    f->n = fs->get_inode(fs, n);
-    f->offset = (flags & O_APPEND) ? length : 0;
-
-    if (type == FDESC_TYPE_SPECIAL) {
-        int spec_ret = spec_open(f, n);
-        if (spec_ret != 0) {
-            assert(spec_ret < 0);
-            thread_log(current, "spec_open failed (%d)\n", spec_ret);
-            spec_deallocate(f);
-            ret = spec_ret;
-            goto out;
-        }
-    } else {
-        f->f.read = closure(h, file_read, f, fsf);
-        f->f.write = closure(h, file_write, f, fsf);
-        f->f.sg_read = closure(h, file_sg_read, f, fsf);
-        f->f.sg_write = closure(h, file_sg_write, f, fsf);
-        f->f.close = closure(h, file_close, f, fsf);
-        f->f.events = closure(h, file_events, f);
-    }
-
-    int fd = allocate_fd(current->p, f);
-    if (fd == INVALID_PHYSICAL) {
-        thread_log(current, "failed to allocate fd");
-        filesystem_put_node(fs, n);
-        apply(f->f.close, 0, io_completion_ignore);
-        return -EMFILE;
-    }
 
     if (do_missing_files) {
         for (int i = 0; i < vector_length(missing_files); i++) {
@@ -1008,10 +1000,6 @@ sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
         }
         deallocate_buffer(b);
     }
-    thread_log(current, "   fd %d, length %ld, offset %ld", fd, length, f->offset);
-    filesystem_reserve(fs);
-    fs_notify_event(n, IN_OPEN);
-    ret = fd;
   out:
     filesystem_put_node(fs, n);
     if ((ret < 0) && fsf)

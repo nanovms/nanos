@@ -438,6 +438,12 @@ struct file {
     };
     inode n;                /* filesystem inode number */
     u64 offset;
+    closure_struct(file_io, read);
+    closure_struct(file_io, write);
+    closure_struct(sg_file_io, sg_read);
+    closure_struct(sg_file_io, sg_write);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_close, close);
 };
 
 sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap);
