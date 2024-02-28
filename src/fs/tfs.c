@@ -1562,7 +1562,7 @@ void destroy_filesystem(filesystem fs)
     }
     if (fs->root)
         destruct_dir_entry(fs->root);
-    pagecache_dealloc_volume(fs->pv);
+    filesystem_deinit(fs);
     deallocate_table(tfs->files);
     deallocate_rangemap(tfs->storage, stack_closure(tfs_storage_destroy, fs->h));
     deallocate(fs->h, fs, sizeof(*fs));

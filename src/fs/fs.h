@@ -135,6 +135,7 @@ struct fsfile {
 #define FSF_DIRTY           (FSF_DIRTY_DATASYNC | FSF_DIRTY_OTHER)
 
 status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean ro);
+void filesystem_deinit(filesystem fs);
 
 static inline u64 bytes_from_sectors(filesystem fs, u64 sectors)
 {

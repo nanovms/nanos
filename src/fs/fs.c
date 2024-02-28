@@ -801,6 +801,11 @@ status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean r
     return STATUS_OK;
 }
 
+void filesystem_deinit(filesystem fs)
+{
+    pagecache_dealloc_volume(fs->pv);
+}
+
 /* Note: This function is used to retrieve the root metadata for a given
    filesystem. To access the system-wide root tuple for other uses, such as to
    probe for configuration options or to register a management interface, use
