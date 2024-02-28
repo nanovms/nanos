@@ -1,0 +1,16 @@
+(
+    boot:(
+        children:(
+            klib:(children:(
+                tmpfs:(contents:(host:output/klib/bin/tmpfs))
+                shmem:(contents:(host:output/klib/bin/shmem))
+            ))
+        )
+    )
+    children:(
+        shmem:(contents:(host:output/test/runtime/bin/shmem))
+    )
+    klibs:bootfs
+    program:/shmem
+    environment:()
+)

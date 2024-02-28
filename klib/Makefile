@@ -11,8 +11,10 @@ PROGRAMS= \
 	ntp \
 	radar \
 	sandbox \
+	shmem \
 	special_files \
 	syslog \
+	tmpfs \
 	tls \
 	tun \
 
@@ -41,6 +43,9 @@ SRCS-sandbox= \
 	$(CURDIR)/sandbox.c \
 	$(CURDIR)/unveil.c \
 
+SRCS-shmem= \
+	$(CURDIR)/shmem.c \
+
 SRCS-special_files= \
 	$(CURDIR)/special_files.c \
 
@@ -50,6 +55,9 @@ SRCS-syslog= \
 SRCS-tls= \
 	$(CURDIR)/mbedtls.c \
 	$(SRCS-mbedtls)
+
+SRCS-tmpfs= \
+	$(CURDIR)/tmpfs.c \
 
 SRCS-tun= \
 	$(CURDIR)/tun.c \

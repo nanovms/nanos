@@ -130,6 +130,7 @@ RUNTIME_TESTS=	\
 	rename \
 	sandbox \
 	sendfile \
+	shmem \
 	signal \
 	sigoverflow \
 	socketpair \

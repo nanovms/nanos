@@ -36,6 +36,7 @@ PROGRAMS= \
 	rename \
 	sandbox \
 	sendfile \
+	shmem \
 	sigoverflow \
 	signal \
 	socketpair \
@@ -203,6 +204,11 @@ SRCS-sandbox= \
 	$(CURDIR)/sandbox.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-sandbox=	-static
+
+SRCS-shmem= \
+	$(CURDIR)/shmem.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-shmem=	-static
 
 SRCS-sigoverflow= \
 	$(CURDIR)/sigoverflow.c \

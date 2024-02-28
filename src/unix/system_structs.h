@@ -929,3 +929,7 @@ struct io_uring_params {
 #define IN_MASK_ADD         0x20000000
 #define IN_ISDIR            0x40000000
 #define IN_ONESHOT          0x80000000
+
+/* memfd flags */
+#define MFD_CLOEXEC         0x0001
+#define MFD_ALLOW_SEALING   0x0002

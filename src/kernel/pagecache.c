@@ -145,6 +145,8 @@ static inline void pagecache_unlock_node(pagecache_node pn)
 #define pagecache_unlock_node(pn)
 #endif
 
+typedef closure_type(pagecache_page_handler, void, pagecache_page);
+
 static inline void change_page_state_locked(pagecache pc, pagecache_page pp, int state)
 {
     int old_state = page_state(pp);
@@ -567,6 +569,29 @@ static boolean pagecache_set_dirty(pagecache_node pn, range r)
         list_insert_before(&pv->dirty_nodes, &pn->l);
     pagecache_unlock_volume(pv);
     return true;
+}
+
+static void pagecache_nodelocked_traverse(pagecache_node pn, range pages,
+                                          pagecache_page_handler handler)
+{
+    if (range_span(pages) == 0)
+        return;
+    pagecache_page pp = page_lookup_nodelocked(pn, pages.start);
+    pagecache_lock_state(global_pagecache);
+    while (true) {
+        apply(handler, pp);
+        if (++pages.start == pages.end)
+            break;
+        pp = (pagecache_page)rbnode_get_next((rbnode)pp);
+    }
+    pagecache_unlock_state(global_pagecache);
+}
+
+static void pagecache_node_traverse(pagecache_node pn, range pages, pagecache_page_handler handler)
+{
+    pagecache_lock_node(pn);
+    pagecache_nodelocked_traverse(pn, pages, handler);
+    pagecache_unlock_node(pn);
 }
 
 closure_function(6, 1, void, pagecache_write_sg_finish,
@@ -1226,6 +1251,29 @@ void pagecache_purge_node(pagecache_node pn, status_handler complete)
     if (complete)
         apply(complete, s);
 }
+
+closure_function(0, 1, void, pagecache_pin_handler,
+                 pagecache_page, pp)
+{
+    pp->refcount++;
+}
+
+void pagecache_nodelocked_pin(pagecache_node pn, range pages)
+{
+    pagecache_nodelocked_traverse(pn, pages, stack_closure(pagecache_pin_handler));
+}
+
+closure_function(0, 1, void, pagecache_unpin_handler,
+                 pagecache_page, pp)
+{
+    pagecache_page_release_locked(global_pagecache, pp, false);
+}
+
+void pagecache_node_unpin(pagecache_node pn, range pages)
+{
+    pagecache_node_traverse(pn, pages, stack_closure(pagecache_unpin_handler));
+}
+
 #endif /* !PAGECACHE_READ_ONLY */
 
 typedef closure_type(pp_handler, boolean, pagecache_page);
