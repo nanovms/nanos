@@ -13,15 +13,15 @@ typedef struct testnode {
     int key;
 } *testnode;
 
-closure_function(0, 2, int, test_compare,
-                 rbnode, a, rbnode, b)
+closure_func_basic(rb_key_compare, int, test_compare,
+                   rbnode a, rbnode b)
 {
     testnode ta = (testnode)a, tb = (testnode)b;
     return ta->key < tb->key ? -1 : (ta->key > tb->key ? 1 : 0);
 }
 
-closure_function(0, 1, boolean, dump_node,
-                 rbnode, n)
+closure_func_basic(rbnode_handler, boolean, dump_node,
+                   rbnode n)
 {
     testnode tn = (testnode)n;
     rprintf(" %d", tn->key);
@@ -33,13 +33,13 @@ void test_dump(rbtree t)
     rprintf("tree %p, preorder:\n", t);
     rbtree_dump(t, RB_PREORDER);
     rprintf("in order:\n");
-    rbtree_traverse(t, RB_INORDER, stack_closure(dump_node));
+    rbtree_traverse(t, RB_INORDER, stack_closure_func(rbnode_handler, dump_node));
     rprintf("\n");
 }
 
 closure_function(3, 1, boolean, test_max_lte_node,
                  rbtree, t, rbnode *, last, boolean *, result,
-                 rbnode, n)
+                 rbnode n)
 {
     testnode tn = (testnode)n;
     if (tn->key > 0) {
@@ -138,7 +138,7 @@ static boolean test_remove(heap h, rbtree t, int key, boolean expect)
 
 closure_function(1, 1, boolean, dealloc_testnode,
                  heap, h,
-                 rbnode, n)
+                 rbnode n)
 {
     deallocate(bound(h), n, sizeof(struct testnode));
     return true;
@@ -146,7 +146,7 @@ closure_function(1, 1, boolean, dealloc_testnode,
 
 closure_function(1, 1, boolean, assert_no_node,
                  boolean *, result,
-                 rbnode, n)
+                 rbnode n)
 {
     *bound(result) = false;
     return false;
@@ -215,7 +215,7 @@ static int remove_preorder[][N_INSERT_NODES] = {
 
 closure_function(3, 1, boolean, validate_preorder_vec,
                  int *, vec, int *, index, boolean *, match,
-                 rbnode, n)
+                 rbnode n)
 {
     testnode tn = (testnode)n;
     int i = *bound(index);
@@ -282,7 +282,8 @@ static boolean transformation_tests(heap h)
 {
     for (int i = 0; insert_keys[i][0] != -1; i++) {
         struct rbtree t;
-        init_rbtree(&t, stack_closure(test_compare), stack_closure(dump_node));
+        init_rbtree(&t, stack_closure_func(rb_key_compare, test_compare),
+                    stack_closure_func(rbnode_handler, dump_node));
 
         if (!do_transformation_test(&t, h, i, true))
             return false;
@@ -299,7 +300,8 @@ static boolean transformation_tests(heap h)
 /* braindead test */
 static boolean basic_test(heap h)
 {
-    rbtree t = allocate_rbtree(h, closure(h, test_compare), closure(h, dump_node));
+    rbtree t = allocate_rbtree(h, closure_func(h, rb_key_compare, test_compare),
+                               closure_func(h, rbnode_handler, dump_node));
     if (t == INVALID_ADDRESS) {
         msg_err("allocate_rbtree() failed\n");
         return false;
@@ -348,7 +350,8 @@ static boolean basic_test(heap h)
 static boolean random_test(heap h)
 {
     int vec[RANDOM_VECLEN];
-    rbtree t = allocate_rbtree(h, closure(h, test_compare), closure(h, dump_node));
+    rbtree t = allocate_rbtree(h, closure_func(h, rb_key_compare, test_compare),
+                               closure_func(h, rbnode_handler, dump_node));
     assert(rbtree_get_count(t) == 0);
     if (t == INVALID_ADDRESS) {
         msg_err("allocate_rbtree() failed\n");

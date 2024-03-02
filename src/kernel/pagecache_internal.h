@@ -3,18 +3,6 @@ typedef struct pagelist {
     u64 pages;
 } *pagelist;
 
-declare_closure_struct(1, 2, void, pagecache_scan_timer,
-                       struct pagecache *, pc,
-                       u64, expiry, u64, overruns);
-declare_closure_struct(0, 1, void, pagecache_writeback_complete,
-                       status, s);
-
-declare_closure_struct(0, 2, int, pagecache_page_compare,
-                       rbnode, a, rbnode, b);
-declare_closure_struct(1, 1, boolean, pagecache_page_print_key,
-                       struct pagecache *, pc,
-                       rbnode, n);
-
 typedef struct page_completion {
     struct list l;
     union {
@@ -48,10 +36,10 @@ typedef struct pagecache {
 
     boolean writeback_in_progress;
     struct timer scan_timer;
-    closure_struct(pagecache_scan_timer, do_scan_timer);
-    closure_struct(pagecache_writeback_complete, writeback_complete);
-    closure_struct(pagecache_page_compare, page_compare);
-    closure_struct(pagecache_page_print_key, page_print_key);
+    closure_struct(timer_handler, do_scan_timer);
+    closure_struct(status_handler, writeback_complete);
+    closure_struct(rb_key_compare, page_compare);
+    closure_struct(rbnode_handler, page_print_key);
 } *pagecache;
 
 typedef struct pagecache_volume {
@@ -62,12 +50,6 @@ typedef struct pagecache_volume {
     u64 length;                 /* end of volume */
     int block_order;
 } *pagecache_volume;
-
-declare_closure_struct(1, 0, void, pagecache_node_queue_free,
-                       pagecache_node, pn);
-
-declare_closure_struct(1, 0, void, pagecache_node_free,
-                       pagecache_node, pn);
 
 typedef struct pagecache_node {
     struct list l;              /* volume-wide node list */
@@ -89,8 +71,8 @@ typedef struct pagecache_node {
     sg_io fs_read;
     sg_io fs_write;
     pagecache_node_reserve fs_reserve;
-    closure_struct(pagecache_node_free, free);
-    closure_struct(pagecache_node_queue_free, queue_free);
+    closure_struct(thunk, free);
+    closure_struct(thunk, queue_free);
     struct refcount refcount;   /* count dirty pages before freeing node */
 } *pagecache_node;
 
@@ -104,7 +86,7 @@ struct pagecache_node_op_common {
 
 declare_closure_struct(3, 1, void, pagecache_commit_dirty_ranges,
                        pagecache_node, pn, buffer, dirty, status_handler, complete,
-                       status, s);
+                       status s);
 struct pagecache_node_op_commit {
     struct pagecache_node_op_common common;
     closure_struct(pagecache_commit_dirty_ranges, commit);
@@ -135,9 +117,6 @@ typedef struct pagecache_shared_map {
 
 typedef struct pagecache_page *pagecache_page;
 
-declare_closure_struct(2, 0, void, pagecache_page_read_release,
-                       pagecache, pc, pagecache_page, pp);
-
 struct pagecache_page {
     struct rbnode rbnode;
     struct refcount read_refcount;  /* 24 */
@@ -152,6 +131,6 @@ struct pagecache_page {
     u64 phys;                   /* physical address */
     struct list bh_completions; /* default for non-kernel use */
 
-    closure_struct(pagecache_page_read_release, read_release);
+    closure_struct(thunk, read_release);
     boolean evicted;
 };

@@ -1,7 +1,7 @@
 #include <runtime.h>
 // synthesize the parser
-typedef closure_type(completion, parser, void *);
-typedef closure_type(err_internal, parser, string);
+closure_type(completion, parser, void *v);
+closure_type(err_internal, parser, string err);
 
 typedef table charset;
 
@@ -36,7 +36,7 @@ static charset charset_from_string(heap h, char *elements)
 
 closure_function(1, 1, parser, til_newline,
                  parser, finish,
-                 character, in)
+                 character in)
 {
     if (in == '\n') {
         parser f = bound(finish);
@@ -49,7 +49,7 @@ closure_function(1, 1, parser, til_newline,
 // leaky; no finite lifespan
 closure_function(2, 1, parser, eat_whitespace,
                  heap, h, parser, finish,
-                 character, in)
+                 character in)
 {
     if (in == '#')
         return (parser)closure(bound(h), til_newline, (parser)closure_self());
@@ -67,7 +67,7 @@ static parser ignore_whitespace(heap h, parser next)
 
 closure_function(3, 1, parser, escaped_character,
                  heap, h, string, s, parser, next,
-                 character, in)
+                 character in)
 {
     parser n = bound(next);
     push_character(bound(s), in);
@@ -77,7 +77,7 @@ closure_function(3, 1, parser, escaped_character,
 
 closure_function(3, 1, parser, quoted_string,
                  heap, h, completion, c, string, s,
-                 character, in)
+                 character in)
 {
     if (in == '"') {
         completion c = bound(c);
@@ -94,7 +94,7 @@ closure_function(3, 1, parser, quoted_string,
 
 closure_function(3, 1, parser, terminal,
                  completion, c, charset, final, string, s,
-                 character, in)
+                 character in)
 {
     if (member(bound(final), in)) {
         // apply(apply(x)) calls x twice
@@ -109,7 +109,7 @@ closure_function(3, 1, parser, terminal,
 
 closure_function(3, 1, parser, value_complete,
                  value, e, value, a, parser, check,
-                 void *, v)
+                 void *v)
 {
     set(bound(e), bound(a), v);
     parser c = bound(check);
@@ -119,7 +119,7 @@ closure_function(3, 1, parser, value_complete,
 
 closure_function(3, 1, parser, dispatch_property,
                  heap, h, parser, pv, err_internal, e,
-                 character, x)
+                 character x)
 {
     switch(x) {
         //    case '|':
@@ -137,20 +137,20 @@ closure_function(3, 1, parser, dispatch_property,
 
 closure_function(4, 1, parser, is_end_of_tuple,
                  heap, h, completion, c, tuple, t, err_internal, e,
-                 character, in);
+                 character in);
 
 closure_function(5, 1, parser, is_end_of_vector,
                  heap, h, completion, c, vector, v, err_internal, e, u64 *, index,
-                 character, in);
+                 character in);
 
 closure_function(3, 1, parser, parse_value_string,
                  heap, h, completion, c, string, s,
-                 character, in);
+                 character in);
 
 // leaky; no finite lifespan
 closure_function(3, 1, parser, parse_value,
                  heap, h, completion, c, err_internal, err,
-                 character, in)
+                 character in)
 {
     heap h = bound(h);
     completion c = bound(c);
@@ -178,7 +178,7 @@ closure_function(3, 1, parser, parse_value,
 // leaky; no finite lifespan
 closure_function(3, 1, parser, parse_tuple,
                  heap, h, completion, c, err_internal, err,
-                 character, in)
+                 character in)
 {
     heap h = bound(h);
     completion c = bound(c);
@@ -194,7 +194,7 @@ closure_function(3, 1, parser, parse_tuple,
 
 closure_function(4, 1, parser, name_complete,
                  heap, h, tuple, t, parser, check, err_internal, err,
-                 void *, b)
+                 void *b)
 {
     heap h = bound(h);
     completion vc = closure(h, value_complete, bound(t), intern(b), bound(check));
@@ -207,7 +207,7 @@ closure_function(4, 1, parser, name_complete,
 
 closure_function(3, 1, parser, parse_name,
                  heap, h, completion, c, string, s,
-                 character, in)
+                 character in)
 {
     heap h = bound(h);
     parser p;
@@ -263,23 +263,23 @@ static parser parse_value_string(struct _closure_parse_value_string *__self, cha
 }
 
 // leaks; no end condition to free on
-closure_function(0, 1, parser, kill,
-                 character, ig)
+closure_func_basic(parser, void *, kill,
+                   character ig)
 {
     return (parser)closure_self();
 }
 
 closure_function(2, 1, parser, bridge_err,
                  heap, h, parse_error, error,
-                 string, s)
+                 string s)
 {
     apply(bound(error), s);
-    return (parser)closure(bound(h), kill);
+    return closure_func(bound(h), parser, kill);
 }
 
 closure_function(3, 1, parser, bridge_completion,
                  parse_finish, c, err_internal, err, parser *, start,
-                 void *, v)
+                 void *v)
 {
     apply(bound(c), v);
     return *bound(start);

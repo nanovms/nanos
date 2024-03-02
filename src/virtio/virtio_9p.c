@@ -17,13 +17,11 @@
 /* VirtIO feature flags */
 #define VIRTIO_9P_MOUNT_TAG 0x0001  /* mount tag is present in device configuration */
 
-declare_closure_struct(0, 2, void, v9p_fs_init,
-                       boolean, readonly, filesystem_complete, complete);
 typedef struct virtio_9p {
     heap general;
     backed_heap backed;
     vtdev dev;
-    closure_struct(v9p_fs_init, fs_init);
+    closure_struct(fs_init_handler, fs_init);
     virtqueue vq;
     u16 next_tag;
     struct spinlock lock;
@@ -44,7 +42,7 @@ static u16 v9p_get_next_tag(virtio_9p v9p)
 
 closure_function(2, 1, void, v9p_req_complete,
                  context, ctx, u32 *, ret_len,
-                 u64, len)
+                 u64 len)
 {
     *bound(ret_len) = len;
     context_schedule_return(bound(ctx));
@@ -71,8 +69,8 @@ static u32 v9p_request(virtio_9p v9p, u64 req_phys, u32 req_len, u64 resp_phys, 
     return ret_len;
 }
 
-define_closure_function(0, 2, void, v9p_fs_init,
-                        boolean, readonly, filesystem_complete, complete)
+closure_func_basic(fs_init_handler, void, v9p_fs_init,
+                   boolean readonly, filesystem_complete complete)
 {
     v9p_debug("%s read-%s (%F)\n", func_ss, readonly ? ss("only") : ss("write"), complete);
     virtio_9p v9p = struct_from_field(closure_self(), virtio_9p, fs_init);
@@ -108,7 +106,8 @@ static boolean v9p_dev_attach(heap general, backed_heap backed, vtdev dev)
     u8 uuid[UUID_LEN];
     char label[VOLUME_LABEL_MAX_LEN];
     rsnprintf(label, sizeof(label), "virtfs%ld", attach_id);
-    if (!volume_add(uuid, label, v9p, init_closure(&v9p->fs_init, v9p_fs_init),
+    if (!volume_add(uuid, label, v9p,
+                    init_closure_func(&v9p->fs_init, fs_init_handler, v9p_fs_init),
                     (int)attach_id)) {
         msg_err("failed to add volume\n");
         goto err;
@@ -125,7 +124,7 @@ static boolean v9p_dev_attach(heap general, backed_heap backed, vtdev dev)
 
 closure_function(2, 1, boolean, vtpci_9p_probe,
                  heap, general, backed_heap, backed,
-                 pci_dev, d)
+                 pci_dev d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_9P))
         return false;
@@ -677,7 +676,7 @@ fs_status v9p_clunk(void *priv, u32 fid)
 
 closure_function(4, 1, void, v9p_read_complete,
                  virtio_9p, v9p, struct p9_read *, xaction, u64, phys, status_handler, complete,
-                 u64, len)
+                 u64 len)
 {
     v9p_debug("read complete, len %ld\n", len);
     struct p9_read *xaction = bound(xaction);
@@ -737,7 +736,7 @@ void v9p_read(void *priv, u32 fid, u64 offset, u32 count, void *dest, status_han
 
 closure_function(4, 1, void, v9p_write_complete,
                  virtio_9p, v9p, struct p9_write_req *, req, u64, phys, status_handler, complete,
-                 u64, len)
+                 u64 len)
 {
     v9p_debug("write complete, len %ld\n", len);
     struct p9_write_req *req = bound(req);

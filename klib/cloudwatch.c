@@ -18,25 +18,13 @@
 
 declare_closure_struct(1, 1, void, cw_aws_cred_handler,
                        status_handler, complete,
-                       aws_cred, cred);
+                       aws_cred cred);
 declare_closure_struct(1, 1, void, cw_aws_setup_complete,
                        timestamp, retry_backoff,
-                       status, s);
-declare_closure_struct(0, 2, void, cw_metrics_timer_handler,
-                       u64, expiry, u64, overruns);
-declare_closure_struct(0, 1, input_buffer_handler, cw_metrics_conn_handler,
-                       buffer_handler, out);
+                       status s);
 declare_closure_struct(1, 1, boolean, cw_metrics_in_handler,
                        buffer_handler, out,
-                       buffer, data);
-declare_closure_struct(0, 1, input_buffer_handler, cw_log_conn_handler,
-                       buffer_handler, out)
-declare_closure_struct(0, 1, boolean, cw_log_in_handler,
-                       buffer, data);
-declare_closure_struct(0, 1, void, cw_log_vh,
-                       value, v);
-declare_closure_struct(0, 2, void, cw_log_timer_handler,
-                       u64, expiry, u64, overruns);
+                       buffer data);
 
 static struct cw {
     heap h;
@@ -48,8 +36,8 @@ static struct cw {
     closure_struct(cw_aws_setup_complete, aws_setup_complete);
     timestamp metrics_interval;
     struct timer metrics_timer;
-    closure_struct(cw_metrics_timer_handler, metrics_timer_handler);
-    closure_struct(cw_metrics_conn_handler, metrics_conn_handler);
+    closure_struct(timer_handler, metrics_timer_handler);
+    closure_struct(connection_handler, metrics_conn_handler);
     closure_struct(cw_metrics_in_handler, metrics_in_handler);
     struct console_driver log_driver;
     char log_servername[64];
@@ -57,13 +45,13 @@ static struct cw {
     buffer log_group, log_stream, log_seq_token;
     vector log_entries;
     int log_pending;
-    closure_struct(cw_log_conn_handler, log_conn_handler);
+    closure_struct(connection_handler, log_conn_handler);
     buffer_handler log_out;
-    closure_struct(cw_log_in_handler, log_in_handler);
-    closure_struct(cw_log_vh, log_vh);
+    closure_struct(input_buffer_handler, log_in_handler);
+    closure_struct(value_handler, log_vh);
     buffer_handler log_resp_parser;
     struct timer log_timer;
-    closure_struct(cw_log_timer_handler, log_timer_handler);
+    closure_struct(timer_handler, log_timer_handler);
     boolean log_inited, log_resp_recved;
     struct spinlock lock;
 } cw;
@@ -78,7 +66,7 @@ static boolean cw_aws_setup(void);
 
 closure_function(4, 1, status, cw_aws_metadata_handler,
                  sstring, name, char *, dest, bytes *, dest_len, status_handler, complete,
-                 buffer, data)
+                 buffer data)
 {
     sstring name = bound(name);
     char *dest = bound(dest);
@@ -103,7 +91,7 @@ closure_function(4, 1, status, cw_aws_metadata_handler,
 
 define_closure_function(1, 1, void, cw_aws_cred_handler,
                         status_handler, complete,
-                        aws_cred, cred)
+                        aws_cred cred)
 {
     status s;
     if (!cred) {
@@ -200,7 +188,7 @@ static void cw_log_send_async(void)
 
 closure_function(1, 1, void, cw_logstream_vh,
                  boolean, parsed,
-                 value, v)
+                 value v)
 {
     bound(parsed) = true;
     value resp = get(v, sym(start_line));
@@ -224,7 +212,7 @@ closure_function(1, 1, void, cw_logstream_vh,
 
 closure_function(3, 1, boolean, cw_log_meta_ibh,
                  buffer_handler, parser, boolean *, parsed, buffer_handler, out,
-                 buffer, data)
+                 buffer data)
 {
     status s = apply(bound(parser), data);
     if (!is_ok(s)) {
@@ -246,7 +234,7 @@ closure_function(3, 1, boolean, cw_log_meta_ibh,
 
 closure_function(2, 1, input_buffer_handler, cw_logstream_ch,
                  buffer_handler, parser, boolean *, parsed,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     buffer_handler parser = bound(parser);
     boolean success = false;
@@ -326,7 +314,7 @@ static void cw_logstream_create(const ip_addr_t *server)
 
 closure_function(1, 1, void, cw_loggroup_vh,
                  boolean, parsed,
-                 value, v)
+                 value v)
 {
     bound(parsed) = true;
     value resp = get(v, sym(start_line));
@@ -347,7 +335,7 @@ closure_function(1, 1, void, cw_loggroup_vh,
 
 closure_function(2, 1, input_buffer_handler, cw_loggroup_ch,
                  buffer_handler, parser, boolean *, parsed,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     buffer_handler parser = bound(parser);
     boolean success = false;
@@ -443,7 +431,7 @@ static void cw_log_setup(void)
 
 closure_function(1, 2, void, cw_aws_setup_retry,
                  struct timer, t,
-                 u64, expiry, u64, overruns)
+                 u64 expiry, u64 overruns)
 {
     if (cw_aws_setup())
         closure_finish();
@@ -454,7 +442,7 @@ closure_function(1, 2, void, cw_aws_setup_retry,
 
 define_closure_function(1, 1, void, cw_aws_setup_complete,
                         timestamp, retry_backoff,
-                        status, s)
+                        status s)
 {
     if (is_ok(s)) {
         cw.servername_len = MIN(rsnprintf(cw.servername, sizeof(cw.servername),
@@ -534,7 +522,7 @@ static void cw_metrics_add_percent(buffer dest, boolean first, sstring metric, i
 
 define_closure_function(1, 1, boolean, cw_metrics_in_handler,
                         buffer_handler, out,
-                        buffer, data)
+                        buffer data)
 {
     if (data) {
         if (buffer_strstr(data, ss("200 OK")) < 0) {
@@ -551,8 +539,8 @@ define_closure_function(1, 1, boolean, cw_metrics_in_handler,
     return true;
 }
 
-define_closure_function(0, 1, input_buffer_handler, cw_metrics_conn_handler,
-                        buffer_handler, out)
+closure_func_basic(connection_handler, input_buffer_handler, cw_metrics_conn_handler,
+                   buffer_handler out)
 {
     if (!out)
         return INVALID_ADDRESS;
@@ -603,8 +591,8 @@ static void cw_metrics_send(const ip_addr_t *server)
     }
 }
 
-define_closure_function(0, 2, void, cw_metrics_timer_handler,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, cw_metrics_timer_handler,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -667,8 +655,8 @@ static void cw_log_pending_delete(void)
     spin_unlock(&cw.lock);
 }
 
-define_closure_function(0, 1, void, cw_log_vh,
-                        value, v)
+closure_func_basic(value_handler, void, cw_log_vh,
+                   value v)
 {
     buffer content = get_string(v, sym(content));
     if (content) {
@@ -687,8 +675,8 @@ define_closure_function(0, 1, void, cw_log_vh,
     cw.log_resp_recved = true;
 }
 
-define_closure_function(0, 1, boolean, cw_log_in_handler,
-                        buffer, data)
+closure_func_basic(input_buffer_handler, boolean, cw_log_in_handler,
+                   buffer data)
 {
     if (data) {
         status s = apply(cw.log_resp_parser, data);
@@ -806,8 +794,8 @@ static void cw_log_send(void)
         cw_log_post();
 }
 
-define_closure_function(0, 1, input_buffer_handler, cw_log_conn_handler,
-                        buffer_handler, out)
+closure_func_basic(connection_handler, input_buffer_handler, cw_log_conn_handler,
+                   buffer_handler out)
 {
     input_buffer_handler ibh;
     spin_lock(&cw.lock);
@@ -823,8 +811,8 @@ define_closure_function(0, 1, input_buffer_handler, cw_log_conn_handler,
     return ibh;
 }
 
-define_closure_function(0, 2, void, cw_log_timer_handler,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, cw_log_timer_handler,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -858,8 +846,8 @@ int init(status_handler complete)
     }
     if (cw.metrics_interval) {
         init_timer(&cw.metrics_timer);
-        init_closure(&cw.metrics_timer_handler, cw_metrics_timer_handler);
-        init_closure(&cw.metrics_conn_handler, cw_metrics_conn_handler);
+        init_closure_func(&cw.metrics_timer_handler, timer_handler, cw_metrics_timer_handler);
+        init_closure_func(&cw.metrics_conn_handler, connection_handler, cw_metrics_conn_handler);
     }
     tuple logging = get_tuple(cw_config, sym(logging));
     if (logging) {
@@ -874,11 +862,12 @@ int init(status_handler complete)
         assert(cw.log_seq_token != INVALID_ADDRESS);
         cw.log_entries = allocate_vector(cw.h, CW_LOG_MAX_ENTRIES);
         assert(cw.log_entries != INVALID_ADDRESS);
-        init_closure(&cw.log_conn_handler, cw_log_conn_handler);
-        init_closure(&cw.log_in_handler, cw_log_in_handler);
-        cw.log_resp_parser = allocate_http_parser(cw.h, init_closure(&cw.log_vh, cw_log_vh));
+        init_closure_func(&cw.log_conn_handler, connection_handler, cw_log_conn_handler);
+        init_closure_func(&cw.log_in_handler, input_buffer_handler, cw_log_in_handler);
+        cw.log_resp_parser = allocate_http_parser(cw.h, init_closure_func(&cw.log_vh, value_handler,
+                                                                          cw_log_vh));
         assert(cw.log_resp_parser != INVALID_ADDRESS);
-        init_closure(&cw.log_timer_handler, cw_log_timer_handler);
+        init_closure_func(&cw.log_timer_handler, timer_handler, cw_log_timer_handler);
         cw.log_driver.write = cw_log_write;
         cw.log_driver.name = ss("cloudwatch");
         cw.log_driver.disabled = false;

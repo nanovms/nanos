@@ -4,7 +4,7 @@
 #include <runtime.h>
 #endif
 
-typedef closure_type(merge_apply, status_handler);
+closure_type(merge_apply, status_handler);
 
 struct merge {
    heap h;
@@ -16,7 +16,7 @@ struct merge {
 
 closure_function(1, 1, void, merge_join,
                  merge, m,
-                 status, s)
+                 status s)
 {
     merge m = bound(m);
     if (s != STATUS_OK)

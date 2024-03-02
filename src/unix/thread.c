@@ -257,11 +257,10 @@ static void thread_schedule_return(context ctx)
     sched_enqueue(t->scheduling_queue, &t->task);
 }
 
-define_closure_function(1, 0, void, thread_return,
-                        thread, t)
+closure_func_basic(thunk, void, thread_return)
 {
     cpuinfo ci = current_cpu();
-    thread t = bound(t);
+    thread t = struct_from_closure(thread, thread_return);
     if (t->p->trap)
         runloop(); // XXX pause?
 
@@ -375,7 +374,7 @@ boolean thread_attempt_interrupt(thread t)
     return success;
 }
 
-define_closure_function(0, 0, timestamp, thread_now)
+closure_func_basic(clock_now, timestamp, thread_now)
 {
     thread t = struct_from_field(closure_self(), thread, now);
     return thread_cputime(t);
@@ -386,7 +385,7 @@ timerqueue thread_get_cpu_timer_queue(thread t)
     thread_lock(t);
     if (!t->cpu_timers) {
         timerqueue tq = allocate_timerqueue(heap_locked((kernel_heaps)&t->uh),
-                                            init_closure(&t->now, thread_now),
+                                            init_closure_func(&t->now, clock_now, thread_now),
                                             sstring_from_cstring(t->name, sizeof(t->name)));
         if (tq != INVALID_ADDRESS)
             t->cpu_timers = tq;
@@ -395,10 +394,9 @@ timerqueue thread_get_cpu_timer_queue(thread t)
     return t->cpu_timers;
 }
 
-define_closure_function(1, 0, void, free_thread,
-                        thread, t)
+closure_func_basic(thunk, void, free_thread)
 {
-    thread t = bound(t);
+    thread t = struct_from_closure(thread, free);
     if (t->cpu_timers)
         deallocate_timerqueue(t->cpu_timers);
     deallocate_bitmap(t->affinity);
@@ -422,7 +420,7 @@ thread create_thread(process p, u64 tid)
     t->context.resume = thread_resume;
     t->context.schedule_return = thread_schedule_return;
     t->context.pre_suspend = 0;
-    t->task.t = init_closure(&t->thread_return, thread_return, t);
+    t->task.t = init_closure_func(&t->thread_return, thunk, thread_return);
     t->task.runtime = 0;
 
     t->thread_bq = allocate_blockq(h, ss("thread"));
@@ -432,7 +430,7 @@ thread create_thread(process p, u64 tid)
     t->p = p;
     t->syscall = 0;
     runtime_memcpy(&t->uh, p->uh, sizeof(*p->uh));
-    init_refcount(&t->context.refcount, 1, init_closure(&t->free, free_thread, t));
+    init_refcount(&t->context.refcount, 1, init_closure_func(&t->free, thunk, free_thread));
     t->select_epoll = 0;
     init_rbnode(&t->n);
     t->clear_tid = 0;
@@ -531,15 +529,15 @@ void exit_thread(thread t)
     thread_release(t);
 }
 
-closure_function(0, 1, boolean, tid_print_key,
-                 rbnode, n)
+closure_func_basic(rbnode_handler, boolean, tid_print_key,
+                   rbnode n)
 {
     rprintf(" %d", struct_from_field(n, thread, n)->tid);
     return true;
 }
 
-closure_function(0, 2, int, thread_tid_compare,
-                 rbnode, a, rbnode, b)
+closure_func_basic(rb_key_compare, int, thread_tid_compare,
+                   rbnode a, rbnode b)
 {
     thread ta = struct_from_field(a, thread, n);
     thread tb = struct_from_field(b, thread, n);
@@ -548,7 +546,7 @@ closure_function(0, 2, int, thread_tid_compare,
 
 closure_function(1, 1, boolean, vector_from_tree_handler,
                  vector, v,
-                 rbnode, n)
+                 rbnode n)
 {
     thread t = struct_from_field(n, thread, n);
     vector_push(bound(v), t);
@@ -563,7 +561,8 @@ void threads_to_vector(process p, vector v)
 void init_threads(process p)
 {
     heap h = heap_locked((kernel_heaps)p->uh);
-    p->threads = allocate_rbtree(h, closure(h, thread_tid_compare), closure(h, tid_print_key));
+    p->threads = allocate_rbtree(h, closure_func(h, rb_key_compare, thread_tid_compare),
+                                 closure_func(h, rbnode_handler, tid_print_key));
     spin_lock_init(&p->threads_lock);
     init_futices(p);
 }

@@ -94,7 +94,7 @@ static void add_linear_backed_page(linear_backed_heap hb, int index)
 
 closure_function(1, 1, boolean, physmem_range_handler,
                  linear_backed_heap, hb,
-                 range, r)
+                 range r)
 {
 #ifdef DEBUG_LINEAR_BACKED_HEAP
     console("linear_backed_heap: add phys [");

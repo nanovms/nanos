@@ -1,7 +1,7 @@
 #include <runtime.h>
 
-typedef closure_type(parse_finish_internal, parser, void *);
-typedef closure_type(parse_error_internal, parser, string);
+closure_type(parse_finish_internal, parser, void *v);
+closure_type(parse_error_internal, parser, string err);
 
 struct parser_common {
     heap h;
@@ -9,68 +9,46 @@ struct parser_common {
     parse_error_internal e;
 };
 
-declare_closure_struct(0, 1, parser, json_string_parse,
-                       character, in);
 typedef struct json_string_p {
     struct parser_common p;
-    closure_struct(json_string_parse, parse);
+    closure_struct(parser, parse);
     string s;
     boolean escape;
 } *json_string_p;
 
-declare_closure_struct(0, 1, parser, json_number_parse,
-                       character, in);
 typedef struct json_number_p {
     struct parser_common p;
-    closure_struct(json_number_parse, parse);
+    closure_struct(parser, parse);
     boolean digit_found;
     boolean fractional;
 } *json_number_p;
 
-declare_closure_struct(0, 1, parser, json_boolean_parse,
-                       character, in);
 typedef struct json_boolean_p {
     struct parser_common p;
-    closure_struct(json_boolean_parse, parse);
+    closure_struct(parser, parse);
     boolean value;
     int char_count;
 } *json_boolean_p;
 
-declare_closure_struct(0, 1, parser, json_null_parse,
-                       character, in);
 typedef struct json_null_p {
     struct parser_common p;
-    closure_struct(json_null_parse, parse);
+    closure_struct(parser, parse);
     int char_count;
 } *json_null_p;
 
-declare_closure_struct(0, 1, parser, json_value_parse,
-                       character, in);
-declare_closure_struct(0, 1, parser, json_value_complete,
-                       void *, result);
-declare_closure_struct(0, 1, parser, json_value_error,
-                       string, err);
 typedef struct json_value_p {
     struct parser_common p;
-    closure_struct(json_value_parse, parse);
-    closure_struct(json_value_complete, c);
-    closure_struct(json_value_error, e);
+    closure_struct(parser, parse);
+    closure_struct(parse_finish_internal, c);
+    closure_struct(parse_error_internal, e);
 } *json_value_p;
 
-declare_closure_struct(0, 1, parser, json_attr_parse,
-                       character, in);
-declare_closure_struct(0, 1, parser, json_attr_name_complete,
-                       void *, result);
-declare_closure_struct(0, 1, parser, json_attr_value_complete,
-                       void *, result);
-declare_closure_struct(0, 1, parser, json_attr_error,
-                       string, err);
 typedef struct json_attr_p {
     struct parser_common p;
-    closure_struct(json_attr_parse, parse);
-    closure_struct(json_attr_name_complete, name_c);
-    closure_struct(json_attr_value_complete, value_c);
-    closure_struct(json_attr_error, e);
+    closure_struct(parser, parse);
+    closure_struct(parse_finish_internal, name_c);
+    closure_struct(parse_finish_internal, value_c);
+    closure_struct(parse_error_internal, e);
     tuple parent_obj;
     string name;
     enum {
@@ -79,17 +57,11 @@ typedef struct json_attr_p {
     } state;
 } *json_attr_p;
 
-declare_closure_struct(0, 1, parser, json_obj_parse,
-                       character, in);
-declare_closure_struct(0, 1, parser, json_obj_attr_complete,
-                       void *, result);
-declare_closure_struct(0, 1, parser, json_obj_attr_error,
-                       string, err);
 typedef struct json_obj_p {
     struct parser_common p;
-    closure_struct(json_obj_parse, parse);
-    closure_struct(json_obj_attr_complete, c);
-    closure_struct(json_obj_attr_error, e);
+    closure_struct(parser, parse);
+    closure_struct(parse_finish_internal, c);
+    closure_struct(parse_error_internal, e);
     tuple obj;
     enum {
         JSON_OBJ_STATE_ATTR_BEGIN,
@@ -97,36 +69,24 @@ typedef struct json_obj_p {
     } state;
 } *json_obj_p;
 
-declare_closure_struct(0, 1, parser, json_array_parse,
-                       character, in);
-declare_closure_struct(0, 1, parser, json_array_elem_complete,
-                       void *, result);
-declare_closure_struct(0, 1, parser, json_array_elem_error,
-                       string, err);
 typedef struct json_array_p {
     struct parser_common p;
-    closure_struct(json_array_parse, parse);
-    closure_struct(json_array_elem_complete, c);
-    closure_struct(json_array_elem_error, e);
+    closure_struct(parser, parse);
+    closure_struct(parse_finish_internal, c);
+    closure_struct(parse_error_internal, e);
     enum {
         JSON_ARRAY_STATE_ELEM_BEGIN,
         JSON_ARRAY_STATE_ELEM_END,
     } state;
 } *json_array_p;
 
-declare_closure_struct(0, 1, parser, json_parse,
-                       character, in);
-declare_closure_struct(0, 1, parser, json_complete,
-                       void *, result);
-declare_closure_struct(0, 1, parser, json_error,
-                       string, err);
 typedef struct json_p {
     heap h;
     parse_finish finish;
     parse_error err;
-    closure_struct(json_parse, parse);
-    closure_struct(json_complete, c);
-    closure_struct(json_error, e);
+    closure_struct(parser, parse);
+    closure_struct(parse_finish_internal, c);
+    closure_struct(parse_error_internal, e);
 } *json_p;
 
 static parser json_obj_parser(heap h, parse_finish_internal c, parse_error_internal e);
@@ -157,8 +117,8 @@ static parser parse_literal(parser p, character in, int char_index, const char *
     return p;
 }
 
-define_closure_function(0, 1, parser, json_string_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_string_parse,
+                   character in)
 {
     json_string_p p = struct_from_field(closure_self(), json_string_p, parse);
     string s = p->s;
@@ -216,12 +176,12 @@ static parser json_string_parser(heap h, parse_finish_internal c, parse_error_in
     p->p.h = h;
     p->p.c = c;
     p->p.e = e;
-    return (parser)init_closure(&p->parse, json_string_parse);
+    return init_closure_func(&p->parse, parser, json_string_parse);
 }
 
 /* Actual parsing of JSON numbers is not implemented. */
-define_closure_function(0, 1, parser, json_number_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_number_parse,
+                   character in)
 {
     json_number_p p = struct_from_field(closure_self(), json_number_p, parse);
     string err_string;
@@ -263,12 +223,12 @@ static parser json_number_parser(heap h, character first, parse_finish_internal 
     p->p.h = h;
     p->p.c = c;
     p->p.e = e;
-    parser number_p = (parser)init_closure(&p->parse, json_number_parse);
+    parser number_p = init_closure_func(&p->parse, parser, json_number_parse);
     return (first != '-') ? apply(number_p, first) : number_p;
 }
 
-define_closure_function(0, 1, parser, json_boolean_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_boolean_parse,
+                   character in)
 {
     json_boolean_p p = struct_from_field(closure_self(), json_boolean_p, parse);
     const char *literal = (p->value ? "true" : "false");
@@ -293,11 +253,11 @@ static parser json_boolean_parser(heap h, boolean value, parse_finish_internal c
     p->p.h = h;
     p->p.c = c;
     p->p.e = e;
-    return (parser)init_closure(&p->parse, json_boolean_parse);
+    return init_closure_func(&p->parse, parser, json_boolean_parse);
 }
 
-define_closure_function(0, 1, parser, json_null_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_null_parse,
+                   character in)
 {
     json_null_p p = struct_from_field(closure_self(), json_null_p, parse);
     parser self = (parser)closure_self();
@@ -318,11 +278,11 @@ static parser json_null_parser(heap h, parse_finish_internal c, parse_error_inte
     p->p.h = h;
     p->p.c = c;
     p->p.e = e;
-    return (parser)init_closure(&p->parse, json_null_parse);
+    return init_closure_func(&p->parse, parser, json_null_parse);
 }
 
-define_closure_function(0, 1, parser, json_value_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_value_parse,
+                   character in)
 {
     if (char_is_whitespace(in))
         return (parser)closure_self();
@@ -371,8 +331,8 @@ define_closure_function(0, 1, parser, json_value_parse,
     return apply(e, err_string);
 }
 
-define_closure_function(0, 1, parser, json_value_complete,
-                        void *, result)
+closure_func_basic(parse_finish_internal, parser, json_value_complete,
+                   void *result)
 {
     json_value_p p = struct_from_field(closure_self(), json_value_p, c);
     parser next = apply(p->p.c, result);
@@ -380,8 +340,8 @@ define_closure_function(0, 1, parser, json_value_complete,
     return next;
 }
 
-define_closure_function(0, 1, parser, json_value_error,
-                        buffer, err)
+closure_func_basic(parse_error_internal, parser, json_value_error,
+                   string err)
 {
     json_value_p p = struct_from_field(closure_self(), json_value_p, e);
     parser next = apply(p->p.e, err);
@@ -397,13 +357,13 @@ static parser json_value_parser(heap h, parse_finish_internal c, parse_error_int
     p->p.h = h;
     p->p.c = c;
     p->p.e = e;
-    init_closure(&p->c, json_value_complete);
-    init_closure(&p->e, json_value_error);
-    return (parser)init_closure(&p->parse, json_value_parse);
+    init_closure_func(&p->c, parse_finish_internal, json_value_complete);
+    init_closure_func(&p->e, parse_error_internal, json_value_error);
+    return init_closure_func(&p->parse, parser, json_value_parse);
 }
 
-define_closure_function(0, 1, parser, json_attr_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_attr_parse,
+                   character in)
 {
     json_attr_p p = struct_from_field(closure_self(), json_attr_p, parse);
     parse_error_internal e = (parse_error_internal)&p->e;
@@ -440,8 +400,8 @@ define_closure_function(0, 1, parser, json_attr_parse,
     return apply(e, err_string);
 }
 
-define_closure_function(0, 1, parser, json_attr_name_complete,
-                        void *, result)
+closure_func_basic(parse_finish_internal, parser, json_attr_name_complete,
+                   void *result)
 {
     json_attr_p p = struct_from_field(closure_self(), json_attr_p, name_c);
     p->name = result;
@@ -453,8 +413,8 @@ define_closure_function(0, 1, parser, json_attr_name_complete,
     return (parser)&p->parse;
 }
 
-define_closure_function(0, 1, parser, json_attr_value_complete,
-                        void *, result)
+closure_func_basic(parse_finish_internal, parser, json_attr_value_complete,
+                   void *result)
 {
     json_attr_p p = struct_from_field(closure_self(), json_attr_p, value_c);
     if (result)
@@ -465,8 +425,8 @@ define_closure_function(0, 1, parser, json_attr_value_complete,
     return next;
 }
 
-define_closure_function(0, 1, parser, json_attr_error,
-                        buffer, err)
+closure_func_basic(parse_error_internal, parser, json_attr_error,
+                   string err)
 {
     json_attr_p p = struct_from_field(closure_self(), json_attr_p, e);
     parser next = apply(p->p.e, err);
@@ -488,14 +448,14 @@ static parser json_attr_parser(heap h, tuple parent_obj, parse_finish_internal c
     p->parent_obj = parent_obj;
     p->name = 0;
     p->state = JSON_ATTR_STATE_NAME;
-    init_closure(&p->name_c, json_attr_name_complete);
-    init_closure(&p->value_c, json_attr_value_complete);
-    init_closure(&p->e, json_attr_error);
-    return (parser)init_closure(&p->parse, json_attr_parse);
+    init_closure_func(&p->name_c, parse_finish_internal, json_attr_name_complete);
+    init_closure_func(&p->value_c, parse_finish_internal, json_attr_value_complete);
+    init_closure_func(&p->e, parse_error_internal, json_attr_error);
+    return init_closure_func(&p->parse, parser, json_attr_parse);
 }
 
-define_closure_function(0, 1, parser, json_obj_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_obj_parse,
+                   character in)
 {
     if (char_is_whitespace(in))
         return (parser)closure_self();
@@ -549,16 +509,16 @@ define_closure_function(0, 1, parser, json_obj_parse,
     return next;
 }
 
-define_closure_function(0, 1, parser, json_obj_attr_complete,
-                        void *, result)
+closure_func_basic(parse_finish_internal, parser, json_obj_attr_complete,
+                   void *result)
 {
     json_obj_p p = struct_from_field(closure_self(), json_obj_p, c);
     p->state = JSON_OBJ_STATE_ATTR_END;
     return (parser)&p->parse;
 }
 
-define_closure_function(0, 1, parser, json_obj_attr_error,
-                        buffer, err)
+closure_func_basic(parse_error_internal, parser, json_obj_attr_error,
+                   string err)
 {
     json_obj_p p = struct_from_field(closure_self(), json_obj_p, e);
     destruct_value(p->obj, true);
@@ -577,13 +537,13 @@ static parser json_obj_parser(heap h, parse_finish_internal c, parse_error_inter
     p->p.c = c;
     p->p.e = e;
     p->state = JSON_OBJ_STATE_ATTR_BEGIN;
-    init_closure(&p->c, json_obj_attr_complete);
-    init_closure(&p->e, json_obj_attr_error);
-    return (parser)init_closure(&p->parse, json_obj_parse);
+    init_closure_func(&p->c, parse_finish_internal, json_obj_attr_complete);
+    init_closure_func(&p->e, parse_error_internal, json_obj_attr_error);
+    return init_closure_func(&p->parse, parser, json_obj_parse);
 }
 
-define_closure_function(0, 1, parser, json_array_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_array_parse,
+                   character in)
 {
     json_array_p p = struct_from_field(closure_self(), json_array_p, parse);
     string err_string;
@@ -621,8 +581,8 @@ define_closure_function(0, 1, parser, json_array_parse,
     return next;
 }
 
-define_closure_function(0, 1, parser, json_array_elem_complete,
-                        void *, result)
+closure_func_basic(parse_finish_internal, parser, json_array_elem_complete,
+                   void *result)
 {
     json_array_p p = struct_from_field(closure_self(), json_array_p, c);
     if (result)
@@ -631,8 +591,8 @@ define_closure_function(0, 1, parser, json_array_elem_complete,
     return (parser)&p->parse;
 }
 
-define_closure_function(0, 1, parser, json_array_elem_error,
-                        buffer, err)
+closure_func_basic(parse_error_internal, parser, json_array_elem_error,
+                   string err)
 {
     json_array_p p = struct_from_field(closure_self(), json_array_p, e);
     parser next = apply(p->p.e, err);
@@ -649,13 +609,13 @@ static parser json_array_parser(heap h, parse_finish_internal c, parse_error_int
     p->p.c = c;
     p->p.e = e;
     p->state = JSON_ARRAY_STATE_ELEM_BEGIN;
-    init_closure(&p->c, json_array_elem_complete);
-    init_closure(&p->e, json_array_elem_error);
-    return (parser)init_closure(&p->parse, json_array_parse);
+    init_closure_func(&p->c, parse_finish_internal, json_array_elem_complete);
+    init_closure_func(&p->e, parse_error_internal, json_array_elem_error);
+    return init_closure_func(&p->parse, parser, json_array_parse);
 }
 
-define_closure_function(0, 1, parser, json_parse,
-                        character, in)
+closure_func_basic(parser, void *, json_parse,
+                   character in)
 {
     if (char_is_whitespace(in) || (in == CHARACTER_INVALID))
         return (parser)closure_self();
@@ -675,16 +635,16 @@ define_closure_function(0, 1, parser, json_parse,
     return (parser)closure_self();
 }
 
-define_closure_function(0, 1, parser, json_complete,
-                        void *, result)
+closure_func_basic(parse_finish_internal, parser, json_complete,
+                   void *result)
 {
     json_p p = struct_from_field(closure_self(), json_p, c);
     apply(p->finish, result);
     return (parser)&p->parse;
 }
 
-define_closure_function(0, 1, parser, json_error,
-                        buffer, err)
+closure_func_basic(parse_error_internal, parser, json_error,
+                   string err)
 {
     json_p p = struct_from_field(closure_self(), json_p, e);
     apply(p->err, err);
@@ -699,9 +659,9 @@ parser json_parser(heap h, parse_finish c, parse_error err)
     p->h = h;
     p->finish = c;
     p->err = err;
-    init_closure(&p->c, json_complete);
-    init_closure(&p->e, json_error);
-    return (parser)init_closure(&p->parse, json_parse);
+    init_closure_func(&p->c, parse_finish_internal, json_complete);
+    init_closure_func(&p->e, parse_error_internal, json_error);
+    return init_closure_func(&p->parse, parser, json_parse);
 }
 
 void json_parser_free(parser p)

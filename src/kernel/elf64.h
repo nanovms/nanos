@@ -256,12 +256,11 @@ typedef struct {
         for (Elf64_Shdr *__s = (void *)__e + __e->e_shoff + (__i * __e->e_shentsize); __s ; __s = 0) \
 
 /* returns virtual address to access map (e.g. vaddr or identity in stage2) */
-typedef closure_type(elf_map_handler, boolean, u64 /* vaddr */, u64 /* buffer vaddr or file offset */,
-                     u64 /* data size */, u64 /* bss size */, pageflags /* flags */);
-typedef closure_type(elf_loader, void, u64 /* offset */, u64 /* length */, void * /* dest */,
-                     status_handler);
-typedef closure_type(elf_sym_handler, void, sstring, u64, u64, u8);
-typedef closure_type(elf_sym_resolver, void *, sstring);
+closure_type(elf_map_handler, boolean, u64 vaddr, u64 offset, u64 data_size, u64 bss_size,
+             pageflags flags);
+closure_type(elf_loader, void, u64 offset, u64 length, void *dest, status_handler sh);
+closure_type(elf_sym_handler, void, sstring name, u64 a, u64 len, u8 info);
+closure_type(elf_sym_resolver, void *, sstring name);
 sstring elf_string(buffer elf, Elf64_Shdr *string_section, u64 offset);
 void elf_symbols(buffer elf, elf_sym_handler each);
 boolean elf_dyn_parse(buffer elf, Elf64_Shdr **symtab, Elf64_Shdr **strtab, Elf64_Rela **reltab,
@@ -274,7 +273,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
 void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh);
 
 /* Architecture-specific */
-typedef closure_type(elf_sym_relocator, boolean, Elf64_Rela *);
+closure_type(elf_sym_relocator, boolean, Elf64_Rela *rel);
 void elf_apply_relocate_add(buffer elf, Elf64_Shdr *s, u64 offset);
 boolean elf_apply_relocate_syms(buffer elf, Elf64_Rela *reltab, int relcount,
                                 elf_sym_relocator relocator);

@@ -38,7 +38,7 @@ u64 trace_get_flags(value v)
 
 declare_closure_struct(2, 1, void, klog_load_sh,
     klog_dump, dest, status_handler, sh,
-    status, s);
+    status s);
 
 static struct {
     struct klog_dump dump;
@@ -83,7 +83,7 @@ void klog_set_boot_id(u64 id)
 
 define_closure_function(2, 1, void, klog_load_sh,
                         klog_dump, dest, status_handler, sh,
-                        status, s)
+                        status s)
 {
     klog_dump dest = bound(dest);
     if (is_ok(s) && runtime_memcmp(&dest->header, KLOG_DUMP_MAGIC, sizeof(KLOG_DUMP_MAGIC) - 1)) {

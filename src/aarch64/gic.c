@@ -436,8 +436,8 @@ static void init_gits(kernel_heaps kh)
 BSS_RO_AFTER_INIT u16 gic_msi_vector_base;
 BSS_RO_AFTER_INIT u16 gic_msi_vector_num;
 
-closure_function(0, 2, void, gic_madt_handler,
-                 u8, type, void *, p)
+closure_func_basic(madt_handler, void, gic_madt_handler,
+                   u8 type, void *p)
 {
     switch (type) {
     case ACPI_MADT_GEN_DIST:
@@ -454,7 +454,7 @@ closure_function(0, 2, void, gic_madt_handler,
 
 int init_gic(void)
 {
-    acpi_walk_madt(stack_closure(gic_madt_handler));
+    acpi_walk_madt(stack_closure_func(madt_handler, gic_madt_handler));
     if (!gic.dist_base)
         gic.dist_base = mmio_base_addr(GIC_DIST);
     if (!gic.redist.base)

@@ -62,7 +62,7 @@ typedef struct iovec {
 
 typedef struct hv_device hv_device;
 typedef void task_fn_t(void *context, int pending);
-typedef closure_type(vmbus_device_probe, boolean, hv_device*, storage_attach, boolean*);
+closure_type(vmbus_device_probe, boolean, hv_device *dev, storage_attach attach, boolean *attached);
 
 void register_vmbus_driver(const struct hyperv_guid *type, vmbus_device_probe probe);
 void init_netvsc(kernel_heaps kh);

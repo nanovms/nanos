@@ -9,24 +9,17 @@
 #define direct_debug(x, ...)
 #endif
 
-declare_closure_struct(1, 0, void, direct_receive_service,
-                       struct direct *, d);
-
 typedef struct direct {
     connection_handler new;
     struct tcp_pcb *p;
     heap h;
     struct spinlock conn_lock;
     struct list conn_head;
-    closure_struct(direct_receive_service, receive_service);
+    closure_struct(thunk, receive_service);
     u32 receive_service_scheduled;
 } *direct;
 
 #define DIRECT_CONN_RECEIVE_QUEUE_SIZE 1024
-
-declare_closure_struct(1, 1, status, direct_conn_send,
-                       struct direct_conn *, dc,
-                       buffer, b);
 
 typedef struct direct_conn {
     direct d;
@@ -34,7 +27,7 @@ typedef struct direct_conn {
     struct list l;              /* direct list */
     struct tcp_pcb *p;
     struct list sendq_head;
-    closure_struct(direct_conn_send, send_bh);
+    closure_struct(buffer_handler, send_bh);
     input_buffer_handler receive_bh;
     queue receive_queue;
     err_t pending_err;          /* lwIP */
@@ -48,10 +41,9 @@ typedef struct qbuf {
 
 static boolean direct_conn_closed(direct_conn dc);
 
-define_closure_function(1, 0, void, direct_receive_service,
-                        direct, d)
+closure_func_basic(thunk, void, direct_receive_service)
 {
-    direct d = bound(d);
+    direct d = struct_from_closure(direct, receive_service);
     d->receive_service_scheduled = 0;
     write_barrier();
     spin_lock(&d->conn_lock);
@@ -128,7 +120,7 @@ static direct direct_alloc(heap h, connection_handler ch)
     d->h = h;
     spin_lock_init(&d->conn_lock);
     list_init(&d->conn_head);
-    init_closure(&d->receive_service, direct_receive_service, d);
+    init_closure_func(&d->receive_service, thunk, direct_receive_service);
     d->receive_service_scheduled = 0;
     d->new = ch;
     tcp_arg(d->p, d);
@@ -252,13 +244,12 @@ static err_t direct_conn_sent(void *arg, struct tcp_pcb *pcb, u16 len)
     return ERR_OK;
 }
 
-define_closure_function(1, 1, status, direct_conn_send,
-                        direct_conn, dc,
-                        buffer, b)
+closure_func_basic(buffer_handler, status, direct_conn_send,
+                   buffer b)
 {
-    direct_debug("dc %p, b %p, len %ld\n", bound(dc), b, b ? buffer_length(b) : 0);
+    direct_conn dc = struct_from_closure(direct_conn, send_bh);
+    direct_debug("dc %p, b %p, len %ld\n", dc, b, b ? buffer_length(b) : 0);
     status s = STATUS_OK;
-    direct_conn dc = bound(dc);
 
     /* enqueue qbuf, even if !b */
     qbuf q = allocate(dc->d->h, sizeof(struct qbuf));
@@ -312,7 +303,7 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
     dc->d = d;
     dc->p = pcb;
     list_init(&dc->sendq_head);
-    init_closure(&dc->send_bh, direct_conn_send, dc);
+    init_closure_func(&dc->send_bh, buffer_handler, direct_conn_send);
     dc->receive_bh = 0;
     dc->receive_queue = allocate_queue(d->h, DIRECT_CONN_RECEIVE_QUEUE_SIZE);
     if (dc->receive_queue == INVALID_ADDRESS)

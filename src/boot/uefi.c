@@ -131,14 +131,14 @@ static u64 uefi_alloc_aligned(heap h, bytes b)
 
 closure_function(1, 2, void, uefi_io_sh,
                  status_handler, sh,
-                 status, s, bytes, length)
+                 status s, bytes length)
 {
     apply(bound(sh), s);
 }
 
 closure_function(1, 4, void, uefi_kernel_load,
                  fsfile, kernel,
-                 u64, offset, u64, length, void *, dest, status_handler, sh)
+                 u64 offset, u64 length, void *dest, status_handler sh)
 {
     filesystem_read_linear(bound(kernel), dest, irangel(offset, length),
                            stack_closure(uefi_io_sh, sh));
@@ -146,7 +146,7 @@ closure_function(1, 4, void, uefi_kernel_load,
 
 closure_function(1, 1, void, uefi_kernel_loaded,
                  u64 *, kernel_entry,
-                 status, s)
+                 status s)
 {
     if (!is_ok(s))
         halt("UEFI: failed to load kernel %v\n", s);
@@ -157,7 +157,7 @@ closure_function(1, 1, void, uefi_kernel_loaded,
 
 closure_function(1, 1, status, uefi_kernel_complete,
                  heap, h,
-                 buffer, b)
+                 buffer b)
 {
     uefi_debug("kernel read complete, loaded at %p", buffer_ref(b, 0));
     void *kernel_entry = load_kernel_elf(b, bound(h));
@@ -169,15 +169,15 @@ closure_function(1, 1, status, uefi_kernel_complete,
     return STATUS_OK;
 }
 
-closure_function(0, 1, void, uefi_kernel_fail,
-                 status, s)
+closure_func_basic(status_handler, void, uefi_kernel_fail,
+                   status s)
 {
     halt("UEFI: failed to read kernel file\n");
 }
 
 closure_function(2, 1, void, uefi_blkdev_read,
                  efi_block_io_protocol , block_io, u64, offset,
-                 storage_req, req)
+                 storage_req req)
 {
     if (req->op != STORAGE_OP_READSG)
         halt("%s: invalid storage op %d\n", func_ss, req->op);
@@ -202,7 +202,7 @@ closure_function(2, 1, void, uefi_blkdev_read,
 
 closure_function(3, 2, void, uefi_bootfs_complete,
                  heap, general, heap, aligned, uefi_arch_options, options,
-                 filesystem, fs, status, s)
+                 filesystem fs, status s)
 {
     if (!is_ok(s))
         halt("UEFI: failed to read boot filesystem\n");
@@ -222,7 +222,7 @@ closure_function(3, 2, void, uefi_bootfs_complete,
     } else {
         buffer_handler bh = closure(general, uefi_kernel_complete, aligned);
         assert(bh != INVALID_ADDRESS);
-        status_handler sh = closure(general, uefi_kernel_fail);
+        status_handler sh = closure_func(general, status_handler, uefi_kernel_fail);
         assert(sh != INVALID_ADDRESS);
         filesystem_read_entire(fs, t, aligned, bh, sh);
     }

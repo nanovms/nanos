@@ -7,5 +7,5 @@ void *pqueue_peek(pqueue q);
 void *pqueue_pop(pqueue q);
 u64 pqueue_length(pqueue q);
 void pqueue_reorder(pqueue q);
-typedef closure_type(pqueue_element_handler, boolean, void *);
+closure_type(pqueue_element_handler, boolean, void *elem);
 boolean pqueue_walk(pqueue q, pqueue_element_handler h);

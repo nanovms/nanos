@@ -21,13 +21,11 @@
 # define vmxnet3_net_debug(...) do { } while (0)
 #endif // defined(VMXNET3_NET_DEBUG)
 
-declare_closure_struct(0, 1, u64, vmxnet3_mem_cleaner,
-                       u64, clean_bytes);
 typedef struct vmxnet3 {
     vmxnet3_pci dev;
     caching_heap rxbuffers;
     int rxbuflen;
-    closure_struct(vmxnet3_mem_cleaner, mem_cleaner);
+    closure_struct(mem_cleaner, mem_cleaner);
     thunk rx_intr_handler;
     thunk rx_service;           /* for bhqueue processing */
     queue rx_servicequeue;
@@ -265,8 +263,8 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
 
 void vmxnet3_newbuf(vmxnet3 vdev, int rid);
 
-define_closure_function(0, 1, u64, vmxnet3_mem_cleaner,
-                        u64, clean_bytes)
+closure_func_basic(mem_cleaner, u64, vmxnet3_mem_cleaner,
+                   u64 clean_bytes)
 {
     vmxnet3 vn = struct_from_field(closure_self(), vmxnet3, mem_cleaner);
     return cache_drain(vn->rxbuffers, clean_bytes,
@@ -378,7 +376,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
                                       vn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M, true);
     assert(vn->rxbuffers != INVALID_ADDRESS);
-    mm_register_mem_cleaner(init_closure(&vn->mem_cleaner, vmxnet3_mem_cleaner));
+    mm_register_mem_cleaner(init_closure_func(&vn->mem_cleaner, mem_cleaner, vmxnet3_mem_cleaner));
 
     dev->vmx_ds = allocate_zero(dev->contiguous, sizeof(struct vmxnet3_driver_shared));
     assert(dev->vmx_ds != INVALID_ADDRESS);
@@ -426,7 +424,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
 
 closure_function(2, 1, boolean, vmxnet3_net_probe,
                  heap, general, heap, page_allocator,
-                 pci_dev, d)
+                 pci_dev d)
 {
     if (!vmxnet3_probe(d))
         return false;

@@ -21,10 +21,7 @@ typedef struct timer *timer;
 
 #define timer_disabled (-1ull)
 
-typedef closure_type(timer_handler, void, u64 /* expiry */, u64 /* overruns */);
-
-declare_closure_struct(2, 0, void, timer_free,
-                       timer, t, heap, h);
+closure_type(timer_handler, void, u64 expiry, u64 overruns);
 
 typedef struct timerqueue {
 #ifdef KERNEL
@@ -160,8 +157,6 @@ static inline void refresh_timer_update_locked(timerqueue tq, timer next)
    If remain is nonzero and removal was successful, *remain is set to the time
    remaining until timer elapse. */
 boolean remove_timer(timerqueue tq, timer t, timestamp *remain);
-
-typedef closure_type(timer_select, boolean, timer);
 
 timerqueue allocate_timerqueue(heap h, clock_now now, sstring name);
 void deallocate_timerqueue(timerqueue tq);

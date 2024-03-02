@@ -167,8 +167,8 @@ static void new_cpu()
         kernel_sleep();
 }
 
-closure_function(0, 2, void, count_processors_handler,
-                 u8, type, void *, p)
+closure_func_basic(madt_handler, void, count_processors_handler,
+                   u8 type, void *p)
 {
     switch (type) {
     case ACPI_MADT_LAPIC:
@@ -184,7 +184,7 @@ closure_function(0, 2, void, count_processors_handler,
 
 static void count_processors()
 {
-    if (acpi_walk_madt(stack_closure(count_processors_handler))) {
+    if (acpi_walk_madt(stack_closure_func(madt_handler, count_processors_handler))) {
         init_debug("ACPI reports %d processors", present_processors);
     } else {
         present_processors = 1;

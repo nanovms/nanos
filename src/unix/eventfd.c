@@ -37,7 +37,7 @@ closure_func_basic(fdesc_et_handler, u64, efd_edge_handler,
 
 closure_function(4, 1, sysreturn, efd_read_bh,
                  struct efd *, efd, void *, buf, u64, length, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     struct efd *efd = bound(efd);
     sysreturn rv = sizeof(efd->counter);
@@ -97,7 +97,7 @@ closure_func_basic(file_io, sysreturn, efd_read,
 
 closure_function(4, 1, sysreturn, efd_write_bh,
                  struct efd *, efd, void *, buf, u64, length, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     struct efd *efd = bound(efd);
     sysreturn rv = sizeof(efd->counter);

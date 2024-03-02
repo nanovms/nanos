@@ -234,7 +234,7 @@ closure_function(4, 0, void, sg_wrapped_buf_release,
 /* wrap linear block io into an sg reader - for uses without pagecache (stage2, dump) */
 closure_function(3, 3, void, sg_wrapped_read,
                  block_io, block_read, int, block_order, heap, backed,
-                 sg_list, sg, range, q, status_handler, sh)
+                 sg_list sg, range q, status_handler sh)
 {
     int block_order = bound(block_order);
     bytes length = range_span(q);

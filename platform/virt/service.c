@@ -64,7 +64,7 @@ static void uefi_mem_map_iterate(uefi_mem_map mem_map, range_handler h)
 
 closure_function(1, 1, boolean, get_mem_size,
                  u64 *, mem_size,
-                 range, r)
+                 range r)
 {
     *bound(mem_size) += range_span(r);
     return true;
@@ -72,7 +72,7 @@ closure_function(1, 1, boolean, get_mem_size,
 
 closure_function(3, 1, boolean, get_bootstrap_base,
                  range, rsvd, u64, bootstrap_size, u64 *, base,
-                 range, r)
+                 range r)
 {
     u64 bootstrap_size = bound(bootstrap_size);
     range r1, r2;
@@ -131,7 +131,7 @@ static inline void add_heap_range_helper(id_heap h, range r, range rsvd, range *
 
 closure_function(4, 1, boolean, add_heap_range,
                  id_heap, h, range, rsvd1, range, rsvd2, range *, remainder,
-                 range, r)
+                 range r)
 {
     id_heap h = bound(h);
     range *remainder = bound(remainder);
@@ -218,8 +218,8 @@ void reclaim_regions(void)
 {
 }
 
-closure_function(0, 1, void, psci_vm_halt,
-                 int, status)
+closure_func_basic(halt_handler, void, psci_vm_halt,
+                   int status)
 {
     psci_shutdown();
 }
@@ -303,7 +303,7 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
 
 closure_function(2, 2, void, plat_spcr_handler,
                  kernel_heaps, kh, struct console_driver **, driver,
-                 u8, type, u64, addr)
+                 u8 type, u64 addr)
 {
     switch (type) {
     case SERIAL_16550_COMPATIBLE:
@@ -346,7 +346,7 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     init_virtio_9p(kh);
     init_virtio_socket(kh);
     if (!vm_halt) {
-        vm_halt = closure(heap_locked(kh), psci_vm_halt);
+        vm_halt = closure_func(heap_locked(kh), halt_handler, psci_vm_halt);
         assert(vm_halt != INVALID_ADDRESS);
     }
 }

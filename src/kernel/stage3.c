@@ -12,7 +12,7 @@
 
 closure_function(3, 1, void, program_start,
                  process, kp, string, path, boolean, exec_started,
-                 status, s)
+                 status s)
 {
     if (!is_ok(s))
         halt("program startup failed %s exec: %v\n", bound(exec_started) ? ss("on") : ss("before"),
@@ -105,7 +105,7 @@ thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m)
 
 closure_function(5, 1, status, kernel_read_complete,
                  kernel_heaps, kh, filesystem, fs, filesystem, klib_fs, status_handler, klibs_complete, tuple, root,
-                 buffer, b)
+                 buffer b)
 {
     add_elf_syms(b, kas_kern_offset);
     deallocate_buffer(b);
@@ -122,7 +122,7 @@ closure_function(5, 1, status, kernel_read_complete,
 
 closure_function(5, 2, void, bootfs_complete,
                  kernel_heaps, kh, tuple, root, status_handler, klibs_complete, boolean, klibs_in_bootfs, boolean, ingest_kernel_syms,
-                 filesystem, fs, status, s)
+                 filesystem fs, status s)
 {
     tuple boot_root = filesystem_getroot(fs);
     tuple c = children(boot_root);

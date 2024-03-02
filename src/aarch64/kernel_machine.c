@@ -164,8 +164,8 @@ void start_secondary_cores(kernel_heaps kh)
     unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
 }
 
-closure_function(0, 2, void, count_cpus_handler,
-                 u8, type, void *, p)
+closure_func_basic(madt_handler, void, count_cpus_handler,
+                   u8 type, void *p)
 {
     if (type == ACPI_MADT_GEN_INT) {
         acpi_gen_int agi = p;
@@ -180,7 +180,7 @@ closure_function(0, 2, void, count_cpus_handler,
 void count_cpus_present(void)
 {
     mpid_map = allocate_buffer(heap_general(get_kernel_heaps()), 16);
-    if (acpi_walk_madt(stack_closure(count_cpus_handler))) {
+    if (acpi_walk_madt(stack_closure_func(madt_handler, count_cpus_handler))) {
         spin_lock_init(&ap_lock);
         init_mmu_target = ap_start;
     } else {

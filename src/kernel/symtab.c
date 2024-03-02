@@ -31,7 +31,7 @@ static inline void deallocate_elfsym(elfsym es)
 
 closure_function(1, 4, void, elf_symtable_add,
                  u64, load_offset,
-                 sstring, name, u64, a, u64, len, u8, info)
+                 sstring name, u64 a, u64 len, u8 info)
 {
     int type = ELF64_ST_TYPE(info);
 
@@ -59,8 +59,8 @@ closure_function(1, 4, void, elf_symtable_add,
     }
 }
 
-closure_function(0, 1, boolean, symtab_remove_sym,
-                 rmnode, n)
+closure_func_basic(rmnode_handler, boolean, symtab_remove_sym,
+                   rmnode n)
 {
     elfsym sym = struct_from_field(n, elfsym, node);
     rangemap_remove_node(elf_symtable, n);
@@ -131,7 +131,7 @@ void *symtab_get_addr(sstring sym_name)
 
 void symtab_remove_addrs(range r)
 {
-    rangemap_range_lookup(elf_symtable, r, stack_closure(symtab_remove_sym));
+    rangemap_range_lookup(elf_symtable, r, stack_closure_func(rmnode_handler, symtab_remove_sym));
 }
 
 void init_symtab(kernel_heaps kh)

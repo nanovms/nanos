@@ -143,14 +143,12 @@ struct hv_storvsc_request {
     volatile boolean        channel_wait_msg_flag;
 };
 
-declare_closure_struct(0, 1, u64, storvsc_mem_cleaner,
-                       u64, clean_bytes);
 struct storvsc_softc {
     heap general;
     heap contiguous;                /* physically */
 
     caching_heap hcb_objcache;
-    closure_struct(storvsc_mem_cleaner, mem_cleaner);
+    closure_struct(mem_cleaner, mem_cleaner);
 
     struct list hcb_queue;
     struct spinlock queue_lock;
@@ -169,6 +167,8 @@ struct storvsc_softc {
 
 struct storvsc_disk {
     struct storvsc_softc *sc;
+    closure_struct(block_io, read);
+    closure_struct(block_io, write);
     closure_struct(storage_simple_req_handler, req_handler);
     u16 target;
     u16 lun;
@@ -719,18 +719,18 @@ static void storvsc_io(struct storvsc_disk *sd, u8 cmd, void *buf, range blocks,
         apply(sh, STATUS_OK);
 }
 
-closure_function(1, 3, void, storvsc_write,
-                 struct storvsc_disk*, d,
-                 void *, buf, range, blocks, status_handler, sh)
+closure_func_basic(block_io, void, storvsc_write,
+                   void *buf, range blocks, status_handler sh)
 {
-    storvsc_io(bound(d), SCSI_CMD_WRITE_16, buf, blocks, sh);
+    struct storvsc_disk *sd = struct_from_closure(struct storvsc_disk *, write);
+    storvsc_io(sd, SCSI_CMD_WRITE_16, buf, blocks, sh);
 }
 
-closure_function(1, 3, void, storvsc_read,
-                 struct storvsc_disk*, d,
-                 void *, buf, range, blocks, status_handler, sh)
+closure_func_basic(block_io, void, storvsc_read,
+                   void *buf, range blocks, status_handler sh)
 {
-    storvsc_io(bound(d), SCSI_CMD_READ_16, buf, blocks, sh);
+    struct storvsc_disk *sd = struct_from_closure(struct storvsc_disk *, read);
+    storvsc_io(sd, SCSI_CMD_READ_16, buf, blocks, sh);
 }
 
 closure_function(4, 0, void, storvsc_read_capacity_done,
@@ -774,8 +774,8 @@ closure_function(4, 0, void, storvsc_read_capacity_done,
     storvsc_debug("%s: attach dev %p disk %p target %d, lun %d, block size 0x%lx, capacity 0x%lx",
                   func_ss, s, sd, target, lun, sd->block_size, sd->capacity);
 
-    block_io in = closure(s->general, storvsc_read, sd);
-    block_io out = closure(s->general, storvsc_write, sd);
+    block_io in = init_closure_func(&sd->read, block_io, storvsc_read);
+    block_io out = init_closure_func(&sd->write, block_io, storvsc_write);
     apply(s->sa, storage_init_req_handler(&sd->req_handler, in, out), sd->capacity, lun);
   out:
     closure_finish();
@@ -929,8 +929,8 @@ static void storvsc_report_luns(struct storvsc_softc *sc, u16 target)
     storvsc_action(sc, r, target, 0);
 }
 
-define_closure_function(0, 1, u64, storvsc_mem_cleaner,
-                        u64, clean_bytes)
+closure_func_basic(mem_cleaner, u64, storvsc_mem_cleaner,
+                   u64 clean_bytes)
 {
     struct storvsc_softc *sc = struct_from_field(closure_self(), struct storvsc_softc *,
                                                  mem_cleaner);
@@ -972,7 +972,7 @@ static status storvsc_attach(kernel_heaps kh, hv_device* device, storage_attach 
     // setup hcb cache
     sc->hcb_objcache = allocate_objcache(sc->general, sc->contiguous,
                                          sizeof(struct storvsc_hcb), PAGESIZE_2M, true);
-    mm_register_mem_cleaner(init_closure(&sc->mem_cleaner, storvsc_mem_cleaner));
+    mm_register_mem_cleaner(init_closure_func(&sc->mem_cleaner, mem_cleaner, storvsc_mem_cleaner));
     sc->sa = a;
     sc->disks = allocate_vector(h, 1);
     spin_lock_init(&sc->disks_lock);
@@ -1304,9 +1304,7 @@ static enum hv_storage_type storvsc_get_storage_type(hv_device* device)
 
 closure_function(1, 3, boolean, storvsc_probe,
                  kernel_heaps, kh,
-                 struct hv_device*, device,
-                 storage_attach, a,
-                 boolean*, storvsc_attached)
+                 struct hv_device *device, storage_attach a, boolean *storvsc_attached)
 {
     status s = storvsc_attach(bound(kh), device, a);
     if (!is_ok(s)) {

@@ -1,11 +1,11 @@
 union tuple;
 typedef union tuple *tuple;
 
-typedef closure_type(tuple_generator, tuple);
-typedef closure_type(tuple_get, value, value);
-typedef closure_type(tuple_set, void, value, value);
-typedef closure_type(binding_handler, boolean, value, value);
-typedef closure_type(tuple_iterate, boolean, binding_handler);
+closure_type(tuple_generator, tuple);
+closure_type(tuple_get, value, value k);
+closure_type(tuple_set, void, value k, value v);
+closure_type(binding_handler, boolean, value k, value v);
+closure_type(tuple_iterate, boolean, binding_handler h);
 
 typedef struct function_tuple {
     tuple_get g;

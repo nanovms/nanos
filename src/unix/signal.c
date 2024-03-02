@@ -278,7 +278,7 @@ void deliver_signal_to_thread(thread t, struct siginfo *info)
 
 closure_function(2, 1, boolean, deliver_signal_handler,
                  thread *, can_wake, u64, sigword,
-                 rbnode, n)
+                 rbnode n)
 {
     u64 sigword = bound(sigword);
     thread *can_wake = bound(can_wake);
@@ -489,7 +489,7 @@ sysreturn rt_sigprocmask(int how, const u64 *set, u64 *oldset, u64 sigsetsize)
 
 closure_function(1, 1, sysreturn, rt_sigsuspend_bh,
                  thread, t,
-                 u64, flags)
+                 u64 flags)
 {
     thread t = bound(t);
     sig_debug("tid %d, blocked %d, nullify %d\n",
@@ -699,7 +699,7 @@ sysreturn pause(void)
 
 closure_function(4, 1, sysreturn, rt_sigtimedwait_bh,
                  thread, t, u64, interest, siginfo_t *, info, boolean, polling,
-                 u64, flags)
+                 u64 flags)
 {
     thread t = bound(t);
     u64 interest = bound(interest);
@@ -758,8 +758,6 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
     return blockq_check_timeout(current->thread_bq, ba, false, CLOCK_ID_MONOTONIC, t, false);
 }
 
-declare_closure_struct(0, 2, u64, signalfd_notify,
-                       u64, events, void *, t);
 typedef struct signal_fd {
     struct fdesc f; /* must be first */
     int fd;
@@ -768,7 +766,10 @@ typedef struct signal_fd {
     u64 mask;
     process p;
     notify_entry n;
-    closure_struct(signalfd_notify, notify);
+    closure_struct(file_io, read);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_close, close);
+    closure_struct(event_handler, notify);
 } *signal_fd;
 
 static void signalfd_siginfo_fill(struct signalfd_siginfo * si, queued_signal qs)
@@ -812,7 +813,7 @@ static void signalfd_update_siginterest(process p)
 
 closure_function(5, 1, sysreturn, signalfd_read_bh,
                  signal_fd, sfd, thread, t, void *, dest, u64, length, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     signal_fd sfd = bound(sfd);
     int max_infos = bound(length) / sizeof(struct signalfd_siginfo);
@@ -873,42 +874,37 @@ closure_function(5, 1, sysreturn, signalfd_read_bh,
     return rv;
 }
 
-closure_function(1, 6, sysreturn, signalfd_read,
-                 signal_fd, sfd,
-                 void *, buf, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, signalfd_read,
+                   void *buf, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    signal_fd sfd = bound(sfd);
+    signal_fd sfd = struct_from_closure(signal_fd, read);
     thread t = current;
     sig_debug("fd %d, buf %p, length %ld, tid %d, bh %d\n", sfd->fd, buf, length, t ? t->tid : -1, bh);
     blockq_action ba = closure_from_context(ctx, signalfd_read_bh, sfd, t, buf, length, completion);
     return blockq_check(sfd->bq, ba, bh);
 }
 
-closure_function(1, 1, u32, signalfd_events,
-                 signal_fd, sfd,
-                 thread, t)
+closure_func_basic(fdesc_events, u32, signalfd_events,
+                   thread t)
 {
-    return (get_all_pending_signals(t) & bound(sfd)->mask) ? EPOLLIN : 0;
+    signal_fd sfd = struct_from_closure(signal_fd, events);
+    return (get_all_pending_signals(t) & sfd->mask) ? EPOLLIN : 0;
 }
 
-closure_function(1, 2, sysreturn, signalfd_close,
-                 signal_fd, sfd,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, signalfd_close,
+                   context ctx, io_completion completion)
 {
-    signal_fd sfd = bound(sfd);
+    signal_fd sfd = struct_from_closure(signal_fd, close);
     deallocate_blockq(sfd->bq);
     notify_remove(sfd->p->signalfds, sfd->n, true);
     signalfd_update_siginterest(sfd->p);
-    deallocate_closure(sfd->f.read);
-    deallocate_closure(sfd->f.events);
-    deallocate_closure(sfd->f.close);
     release_fdesc(&sfd->f);
     deallocate(sfd->h, sfd, sizeof(struct signal_fd));
     return io_complete(completion, 0);
 }
 
-define_closure_function(0, 2, u64, signalfd_notify,
-                        u64, events, void *, t)
+closure_func_basic(event_handler, u64, signalfd_notify,
+                   u64 events, void *t)
 {
     signal_fd sfd = struct_from_field(closure_self(), signal_fd, notify);
     if (events == NOTIFY_EVENTS_RELEASE)
@@ -949,14 +945,15 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
         goto err_mem_bq;
 
     sfd->p = current->p;
-    sfd->n = notify_add(sfd->p->signalfds, sfd->mask, init_closure(&sfd->notify, signalfd_notify));
+    sfd->n = notify_add(sfd->p->signalfds, sfd->mask,
+                        init_closure_func(&sfd->notify, event_handler, signalfd_notify));
     if (sfd->n == INVALID_ADDRESS)
         goto err_mem_notify;
 
     sfd->f.flags = flags;
-    sfd->f.read = closure(h, signalfd_read, sfd);
-    sfd->f.events = closure(h, signalfd_events, sfd);
-    sfd->f.close = closure(h, signalfd_close, sfd);
+    sfd->f.read = init_closure_func(&sfd->read, file_io, signalfd_read);
+    sfd->f.events = init_closure_func(&sfd->events, fdesc_events, signalfd_events);
+    sfd->f.close = init_closure_func(&sfd->close, fdesc_close, signalfd_close);
 
     u64 fd = allocate_fd(current->p, sfd);
     if (fd == INVALID_PHYSICAL) {
@@ -1022,7 +1019,7 @@ static void dump_sig_info(thread t, queued_signal qs)
 
 closure_function(2, 2, void, coredump_shutdown_handler,
                  thread, t, struct siginfo *, si,
-                 int, status, merge, m)
+                 int status, merge m)
 {
     thread t = bound(t);
     struct siginfo *si = bound(si);

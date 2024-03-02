@@ -132,7 +132,7 @@ void start_secondary_cores(kernel_heaps kh)
 
 closure_function(1, 2, boolean, cpu_dtb_handler,
                  u64 *, proc_count,
-                 dt_node, n, sstring, name)
+                 dt_node n, sstring name)
 {
     dt_prop device_type = dtb_get_prop(DEVICETREE, n, ss("device_type"));
     if (device_type == INVALID_ADDRESS)

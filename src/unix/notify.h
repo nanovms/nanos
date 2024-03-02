@@ -4,7 +4,7 @@ typedef struct notify_entry *notify_entry;
 /* Notify handlers receive event changes, including falling edges;
    if the last argument is a non-zero thread pointer, event changes
    are relevant only for waiters on that thread. */
-typedef closure_type(event_handler, u64, u64 events, void *arg);
+closure_type(event_handler, u64, u64 events, void *arg);
 
 #define NOTIFY_FLAGS_EXCLUSIVE  U64_FROM_BIT(0)
 

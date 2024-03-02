@@ -4,8 +4,8 @@ struct rbnode {
     rbnode c[2];
 };
 
-typedef closure_type(rbnode_handler, boolean, rbnode n);
-typedef closure_type(rb_key_compare, int, rbnode a, rbnode b);
+closure_type(rbnode_handler, boolean, rbnode n);
+closure_type(rb_key_compare, int, rbnode a, rbnode b);
 
 typedef struct rbtree {
     rbnode root;

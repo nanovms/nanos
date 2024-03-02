@@ -21,13 +21,6 @@
 #define VTMMIO_OFFSET_QUEUEUSEDHIGH     0x0A4
 #define VTMMIO_OFFSET_CONFIG            0x100
 
-declare_closure_struct(1, 2, void, vtmmio_notify,
-                       struct vtmmio_dev *, dev,
-                       u16, queue_index, bytes, notify_offset);
-
-declare_closure_struct(1, 0, void, vtmmio_irq,
-    struct vtmmio_dev *, dev);
-
 typedef struct vtmmio_dev {
     struct vtdev virtio_dev; /* must be first */
     struct list l;
@@ -36,8 +29,8 @@ typedef struct vtmmio_dev {
     int irq;
     void *vbase;
     u64 irq_vector;
-    closure_struct(vtmmio_notify, notify);
-    closure_struct(vtmmio_irq, irq_handler);
+    closure_struct(vtdev_notify, notify);
+    closure_struct(thunk, irq_handler);
     vector vq_handlers;
 } *vtmmio;
 
@@ -67,7 +60,7 @@ static inline void vtmmio_set_u64(vtmmio dev, u64 offset, u64 value)
 
 #define vtmmio_get_status(dev)  (u8)vtmmio_get_u32(dev, VTMMIO_OFFSET_STATUS)
 
-typedef closure_type(vtmmio_probe, void, vtmmio);
+closure_type(vtmmio_probe, void, vtmmio dev);
 
 void vtmmio_probe_devs(vtmmio_probe probe);
 void vtmmio_set_status(vtmmio dev, u8 status);

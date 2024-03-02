@@ -137,7 +137,7 @@ int ena_dma_alloc(struct ena_adapter *adapter, u64 size, ena_mem_handle_t *dma,
 
 closure_function(2, 1, boolean, ena_probe,
         heap, general, heap, page_allocator,
-        pci_dev, d)
+        pci_dev d)
 {
     const ena_vendor_info_t *ent;
     uint16_t pci_vendor_id = 0;
@@ -289,10 +289,10 @@ static void ena_free_all_io_rings_resources(struct ena_adapter *adapter)
 
 }
 
-define_closure_function(1, 0, void, ena_enqueue_task,
-                        struct ena_ring *, ring)
+closure_func_basic(thunk, void, ena_enqueue_task)
 {
-    ena_deferred_mq_start(bound(ring), 1);
+    struct ena_ring *ring = struct_from_closure(struct ena_ring *, enqueue_task);
+    ena_deferred_mq_start(ring, 1);
 }
 
 /**
@@ -339,7 +339,7 @@ static int ena_setup_tx_resources(struct ena_adapter *adapter, int qid)
     ena_txring_flush(tx_ring);
     ENA_RING_MTX_UNLOCK(tx_ring);
 
-    init_closure(&tx_ring->enqueue_task, ena_enqueue_task, tx_ring);
+    init_closure_func(&tx_ring->enqueue_task, thunk, ena_enqueue_task);
     tx_ring->running = true;
 
     return 0;
@@ -742,10 +742,10 @@ static void ena_destroy_all_io_queues(struct ena_adapter *adapter)
     ena_destroy_all_rx_queues(adapter);
 }
 
-define_closure_function(1, 0, void, ena_cleanup_task,
-                        struct ena_que *, que)
+closure_func_basic(thunk, void, ena_cleanup_task)
 {
-    ena_cleanup(bound(que), 1);
+    struct ena_que *que = struct_from_closure(struct ena_que *, cleanup_task);
+    ena_cleanup(que, 1);
 }
 
 static int ena_create_io_queues(struct ena_adapter *adapter)
@@ -809,7 +809,7 @@ static int ena_create_io_queues(struct ena_adapter *adapter)
 
     for (i = 0; i < adapter->num_io_queues; i++) {
         queue = &adapter->que[i];
-        init_closure(&queue->cleanup_task, ena_cleanup_task, queue);
+        init_closure_func(&queue->cleanup_task, thunk, ena_cleanup_task);
     }
 
     return 0;
@@ -831,10 +831,9 @@ err_tx:
  *
  **********************************************************************/
 
-define_closure_function(1, 0, void, ena_irq_handler,
-                        struct ena_irq *, irq)
+closure_func_basic(thunk, void, ena_irq_handler)
 {
-    struct ena_irq *irq = bound(irq);
+    struct ena_irq *irq = struct_from_closure(struct ena_irq *, th);
     irq->handler(irq->data);
 }
 
@@ -930,7 +929,8 @@ static int ena_request_mgmnt_irq(struct ena_adapter *adapter)
 
     irq = &adapter->irq_tbl[ENA_MGMNT_IRQ_IDX];
 
-    if (pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
+    if (pci_setup_msix(adapter->pdev, irq->vector,
+                       init_closure_func(&irq->th, thunk, ena_irq_handler),
                        ss("ena_mgmnt")) == INVALID_PHYSICAL)
         return ENA_COM_FAULT;
     return 0;
@@ -948,7 +948,8 @@ static int ena_request_io_irq(struct ena_adapter *adapter)
 
     for (i = ENA_IO_IRQ_FIRST_IDX; i < adapter->msix_vecs; i++) {
         irq = &adapter->irq_tbl[i];
-        if (pci_setup_msix(adapter->pdev, irq->vector, init_closure(&irq->th, ena_irq_handler, irq),
+        if (pci_setup_msix(adapter->pdev, irq->vector,
+                           init_closure_func(&irq->th, thunk, ena_irq_handler),
                            ss("ena_io")) == INVALID_PHYSICAL)
             return ENA_COM_FAULT;
         ena_trace(NULL, ENA_INFO, "queue %d\n", i - ENA_IO_IRQ_FIRST_IDX);
@@ -1309,14 +1310,13 @@ static void check_for_empty_rx_ring(struct ena_adapter *adapter)
     }
 }
 
-define_closure_function(1, 2, void, ena_timer_task,
-                        struct ena_adapter *, adapter,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, ena_timer_task,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
 
-    struct ena_adapter *adapter = bound(adapter);
+    struct ena_adapter *adapter = struct_from_closure(struct ena_adapter *, timer_task);
 
     check_for_missing_keep_alive(adapter);
 
@@ -1385,7 +1385,7 @@ int ena_up(struct ena_adapter *adapter)
     if (ENA_FLAG_ISSET (ENA_FLAG_DEVICE_RUNNING, adapter))
         register_timer(kernel_timers, &adapter->timer_service,
             CLOCK_ID_MONOTONIC, seconds(1), false, seconds(1),
-            init_closure(&adapter->timer_task, ena_timer_task, adapter));
+            init_closure_func(&adapter->timer_task, timer_handler, ena_timer_task));
 
     ENA_FLAG_SET_ATOMIC(ENA_FLAG_DEV_UP, adapter);
 
@@ -1984,10 +1984,9 @@ err:
     return rc;
 }
 
-define_closure_function(1, 0, void, ena_reset_task,
-                        struct ena_adapter *, adapter)
+closure_func_basic(thunk, void, ena_reset_task)
 {
-    struct ena_adapter *adapter = bound(adapter);
+    struct ena_adapter *adapter = struct_from_closure(struct ena_adapter *, reset_task);
 
     if (unlikely(!ENA_FLAG_ISSET(ENA_FLAG_TRIGGER_RESET, adapter))) {
         device_printf(adapter->pdev, "device reset scheduled but trigger_reset is off\n");
@@ -2000,23 +1999,23 @@ define_closure_function(1, 0, void, ena_reset_task,
     ENA_LOCK_UNLOCK(adapter);
 }
 
-define_closure_function(1, 0, void, ena_link_up_task,
-                        struct ena_adapter *, adapter)
+closure_func_basic(thunk, void, ena_link_up_task)
 {
-    struct netif *ifp = &bound(adapter)->ifp;
+    struct ena_adapter *adapter = struct_from_closure(struct ena_adapter *, link_up_task);
+    struct netif *ifp = &adapter->ifp;
     ena_trace(NULL, ENA_INFO, "link UP task\n");
-    ENA_FLAG_SET_ATOMIC(ENA_FLAG_LINK_UP, bound(adapter));
-    if (!ENA_FLAG_ISSET(ENA_FLAG_ONGOING_RESET, bound(adapter)))
+    ENA_FLAG_SET_ATOMIC(ENA_FLAG_LINK_UP, adapter);
+    if (!ENA_FLAG_ISSET(ENA_FLAG_ONGOING_RESET, adapter))
         netif_set_link_up(ifp);
 }
 
-define_closure_function(1, 0, void, ena_link_down_task,
-                        struct ena_adapter *, adapter)
+closure_func_basic(thunk, void, ena_link_down_task)
 {
-    struct netif *ifp = &bound(adapter)->ifp;
+    struct ena_adapter *adapter = struct_from_closure(struct ena_adapter *, link_down_task);
+    struct netif *ifp = &adapter->ifp;
     ena_trace(NULL, ENA_INFO, "link DOWN task\n");
     netif_set_link_down(ifp);
-    ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_LINK_UP, bound(adapter));
+    ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_LINK_UP, adapter);
 }
 
 /**
@@ -2157,14 +2156,14 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
         goto err_msix_free;
     }
 
-    init_closure(&adapter->reset_task, ena_reset_task, adapter);
+    init_closure_func(&adapter->reset_task, thunk, ena_reset_task);
 
     /* Initialize statistics */
     zero(&adapter->dev_stats, sizeof(struct ena_stats_dev));
     zero(&adapter->hw_stats, sizeof(struct ena_hw_stats));
 
-    init_closure(&adapter->link_up_task, ena_link_up_task, adapter);
-    init_closure(&adapter->link_down_task, ena_link_down_task, adapter);
+    init_closure_func(&adapter->link_up_task, thunk, ena_link_up_task);
+    init_closure_func(&adapter->link_down_task, thunk, ena_link_down_task);
 
     ENA_FLAG_SET_ATOMIC(ENA_FLAG_DEVICE_RUNNING, adapter);
     ena_up(adapter);

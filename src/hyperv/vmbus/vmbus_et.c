@@ -70,7 +70,7 @@ vmbus_et_intr(void)
 }
 
 closure_function(1, 1, void, vmbus_et_timer, hyperv_tc64_t, hyperv_tc64,
-                 timestamp, interval)
+                 timestamp interval)
 {
     u64 cur = bound(hyperv_tc64)();
     cur += hyperv_sbintime2count(interval);

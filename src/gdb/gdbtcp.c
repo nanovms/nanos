@@ -7,7 +7,7 @@ typedef struct tcpgdb{
     
 closure_function(1, 1, status, gdb_send,
                  tcpgdb, g,
-                 buffer, b)
+                 buffer b)
 {
     /* invoked exclusively by gdbserver_input with lwIP lock held */
     err_t err = tcp_write(bound(g)->p, buffer_ref(b, 0), buffer_length(b), TCP_WRITE_FLAG_COPY);

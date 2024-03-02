@@ -20,7 +20,6 @@ typedef struct tfs {
     u8 uuid[UUID_LEN];
     char label[VOLUME_LABEL_MAX_LEN];
     table files; // maps tuple to fsfile
-    closure_type(log, void, tuple);
     heap dma;
     void *zero_page;
     storage_req_handler req_handler;
@@ -47,7 +46,7 @@ declare_closure_struct(2, 0, void, free_uninited,
 
 declare_closure_struct(2, 1, void, uninited_complete,
                        struct uninited *, u, status_handler, complete,
-                       status, s);
+                       status s);
 
 typedef struct uninited {
     tfs fs;

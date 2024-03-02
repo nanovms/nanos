@@ -60,14 +60,12 @@
      VIRTIO_NET_F_GUEST_TSO6 | VIRTIO_NET_F_GUEST_ECN | VIRTIO_NET_F_GUEST_UFO |    \
      VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_ANY_LAYOUT | VIRTIO_F_RING_EVENT_IDX)
 
-declare_closure_struct(0, 1, u64, vnet_mem_cleaner,
-                       u64, clean_bytes);
 typedef struct vnet {
     vtdev dev;
     u16 port;
     caching_heap rxbuffers;
     caching_heap txhandlers;
-    closure_struct(vnet_mem_cleaner, mem_cleaner);
+    closure_struct(mem_cleaner, mem_cleaner);
     bytes net_header_len;
     int rxbuflen;
     u32 rx_seqno;
@@ -80,20 +78,18 @@ typedef struct vnet {
     void *empty; // just a mac..fix, from pre-heap days
 } *vnet;
 
-declare_closure_struct(0, 1, void, vnet_input,
-                       u64, len);
 typedef struct xpbuf
 {
     struct pbuf_custom p;
     vnet vn;
-    closure_struct(vnet_input, input);
+    closure_struct(vqfinish, input);
     u32 seqno;
 } __attribute__((aligned(8))) *xpbuf;
 
 
 closure_function(1, 1, void, tx_complete,
                  struct pbuf *, p,
-                 u64, len)
+                 u64 len)
 {
     pbuf_free(bound(p));
     closure_finish();
@@ -169,8 +165,8 @@ static void receive_buffer_release(struct pbuf *p)
 
 static int post_receive(vnet vn);
 
-define_closure_function(0, 1, void, vnet_input,
-                        u64, len)
+closure_func_basic(vqfinish, void, vnet_input,
+                   u64 len)
 {
     virtio_net_debug("%s: len %ld\n", func_ss, len);
 
@@ -289,7 +285,7 @@ static int post_receive(vnet vn)
         if (m == INVALID_ADDRESS)
             break;
         new_entries += desc_count;
-        vqmsg_commit_seqno(rxq, m, init_closure(&x->input, vnet_input), &x->seqno,
+        vqmsg_commit_seqno(rxq, m, init_closure_func(&x->input, vqfinish, vnet_input), &x->seqno,
                            new_entries >= free_entries);
     }
     if ((new_entries > 0) && (new_entries < free_entries))
@@ -297,8 +293,8 @@ static int post_receive(vnet vn)
     return new_entries;
 }
 
-define_closure_function(0, 1, u64, vnet_mem_cleaner,
-                        u64, clean_bytes)
+closure_func_basic(mem_cleaner, u64, vnet_mem_cleaner,
+                   u64 clean_bytes)
 {
     vnet vn = struct_from_field(closure_self(), vnet, mem_cleaner);
     return cache_drain(vn->rxbuffers, clean_bytes,
@@ -368,7 +364,7 @@ static void virtio_net_attach(vtdev dev)
     else
         vn->rxbuflen = U16_MAX & ~0x7;  /* lwIP maximum packet length is U16_MAX */
 
-    mm_register_mem_cleaner(init_closure(&vn->mem_cleaner, vnet_mem_cleaner));
+    mm_register_mem_cleaner(init_closure_func(&vn->mem_cleaner, mem_cleaner, vnet_mem_cleaner));
     /* rx = 0, tx = 1, ctl = 2 by 
        page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
@@ -406,7 +402,7 @@ static void virtio_net_attach(vtdev dev)
 
 closure_function(2, 1, boolean, vtpci_net_probe,
                  heap, general, backed_heap, page_allocator,
-                 pci_dev, d)
+                 pci_dev d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_NETWORK))
         return false;
@@ -418,7 +414,7 @@ closure_function(2, 1, boolean, vtpci_net_probe,
 
 closure_function(2, 1, void, vtmmio_net_probe,
                  heap, general, backed_heap, page_allocator,
-                 vtmmio, d)
+                 vtmmio d)
 {
     if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_NETWORK) ||
             (d->memsize < VTMMIO_OFFSET_CONFIG +

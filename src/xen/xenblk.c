@@ -27,21 +27,7 @@ typedef struct xenblk_dev *xenblk_dev;
 
 declare_closure_struct(2, 3, void, xenblk_io,
                        xenblk_dev, xbd, boolean, write,
-                       void *, buf, range, blocks, status_handler, sh);
-
-declare_closure_struct(1, 0, void, xenblk_event_handler,
-                       xenblk_dev, xbd);
-
-declare_closure_struct(1, 0, void, xenblk_bh_service,
-                       xenblk_dev, xbd);
-
-declare_closure_struct(1, 1, void, xenblk_watch_handler,
-                       xenblk_dev, xbd,
-                       sstring, path);
-declare_closure_struct(1, 0, void, xenblk_watch_service,
-                       xenblk_dev, xbd);
-declare_closure_struct(1, 0, void, xenblk_detach_complete,
-                       xenblk_dev, xbd)
+                       void *buf, range blocks, status_handler sh);
 
 struct xenblk_dev {
     struct xen_dev dev;
@@ -56,11 +42,11 @@ struct xenblk_dev {
     closure_struct(xenblk_io, read);
     closure_struct(xenblk_io, write);
     closure_struct(storage_simple_req_handler, req_handler);
-    closure_struct(xenblk_event_handler, event_handler);
-    closure_struct(xenblk_bh_service, bh_service);
-    closure_struct(xenblk_watch_handler, watch_handler);
-    closure_struct(xenblk_watch_service, watch_service);
-    closure_struct(xenblk_detach_complete, detach_complete);
+    closure_struct(thunk, event_handler);
+    closure_struct(thunk, bh_service);
+    closure_struct(xenstore_watch_handler, watch_handler);
+    closure_struct(thunk, watch_service);
+    closure_struct(thunk, detach_complete);
     vector rreqs;   /* xenblk_ring_req */
     struct list pending, done, free;    /* xenblk_req */
     struct list free_rreqs; /* xenblk_ring_req */
@@ -224,7 +210,7 @@ static void xenblk_service_ring(xenblk_dev xbd)
 
 define_closure_function(2, 3, void, xenblk_io,
                         xenblk_dev, xbd, boolean, write,
-                        void *, buf, range, blocks, status_handler, sh)
+                        void *buf, range blocks, status_handler sh)
 {
     xenblk_dev xbd = bound(xbd);
     boolean write = bound(write);
@@ -247,10 +233,9 @@ define_closure_function(2, 3, void, xenblk_io,
     spin_unlock_irq(&xbd->lock, irqflags);
 }
 
-define_closure_function(1, 0, void, xenblk_event_handler,
-                        xenblk_dev, xbd)
+closure_func_basic(thunk, void, xenblk_event_handler)
 {
-    xenblk_dev xbd = bound(xbd);
+    xenblk_dev xbd = struct_from_closure(xenblk_dev, event_handler);
     xenblk_debug("[%d] %s", xbd->dev.if_id, func_ss);
     spin_lock(&xbd->lock);
     boolean done_empty = list_empty(&xbd->done);
@@ -261,10 +246,9 @@ define_closure_function(1, 0, void, xenblk_event_handler,
     spin_unlock(&xbd->lock);
 }
 
-define_closure_function(1, 0, void, xenblk_bh_service,
-                        xenblk_dev, xbd)
+closure_func_basic(thunk, void, xenblk_bh_service)
 {
-    xenblk_dev xbd = bound(xbd);
+    xenblk_dev xbd = struct_from_closure(xenblk_dev, bh_service);
     xenblk_debug("[%d] %s", xbd->dev.if_id, func_ss);
     list l;
     u64 irqflags = spin_lock_irq(&xbd->lock);
@@ -298,16 +282,14 @@ static void xenblk_remove(xenblk_dev xbd)
     deallocate(xbd->h, xbd, sizeof(*xbd));
 }
 
-define_closure_function(1, 0, void, xenblk_detach_complete,
-                 xenblk_dev, xbd)
+closure_func_basic(thunk, void, xenblk_detach_complete)
 {
-    xenblk_remove(bound(xbd));
+    xenblk_remove(struct_from_closure(xenblk_dev, detach_complete));
 }
 
-define_closure_function(1, 0, void, xenblk_watch_service,
-                        xenblk_dev, xbd)
+closure_func_basic(thunk, void, xenblk_watch_service)
 {
-    xenblk_dev xbd = bound(xbd);
+    xenblk_dev xbd = struct_from_closure(xenblk_dev, watch_service);
     xen_dev xd = &xbd->dev;
     XenbusState backend_state;
     status s = xenbus_get_state(xbd->dev.backend, &backend_state);
@@ -388,18 +370,17 @@ define_closure_function(1, 0, void, xenblk_watch_service,
     }
     case XenbusStateClosing:
         storage_detach((storage_req_handler)&xbd->req_handler,
-                       init_closure(&xbd->detach_complete, xenblk_detach_complete, xbd));
+                       init_closure_func(&xbd->detach_complete, thunk, xenblk_detach_complete));
         break;
     default:
         break;
     }
 }
 
-define_closure_function(1, 1, void, xenblk_watch_handler,
-                        xenblk_dev, xbd,
-                        sstring, path)
+closure_func_basic(xenstore_watch_handler, void, xenblk_watch_handler,
+                   sstring path)
 {
-    xenblk_dev xbd = bound(xbd);
+    xenblk_dev xbd = struct_from_closure(xenblk_dev, watch_handler);
     xenblk_debug("%s: path %s", func_ss, path);
     async_apply_bh((thunk)&xbd->watch_service);
 }
@@ -471,16 +452,19 @@ static status xenblk_enable(xenblk_dev xbd)
     s = xen_allocate_evtchn(xd->backend_id, &xbd->evtchn);
     if (!is_ok(s))
         goto out_revoke;
-    init_closure(&xbd->bh_service, xenblk_bh_service, xbd);
-    xen_register_evtchn_handler(xbd->evtchn, init_closure(&xbd->event_handler,
-        xenblk_event_handler, xbd));
+    init_closure_func(&xbd->bh_service, thunk, xenblk_bh_service);
+    xen_register_evtchn_handler(xbd->evtchn,
+                                init_closure_func(&xbd->event_handler, thunk,
+                                                  xenblk_event_handler));
     s = xenblk_inform_backend(xbd);
     if (!is_ok(s))
         goto out_evtchn;
     xbd->capacity = 0;
-    init_closure(&xbd->watch_service, xenblk_watch_service, xbd);
+    init_closure_func(&xbd->watch_service, thunk, xenblk_watch_service);
     s = xenbus_watch_state(xd->backend,
-                           init_closure(&xbd->watch_handler, xenblk_watch_handler, xbd), true);
+                           init_closure_func(&xbd->watch_handler, xenstore_watch_handler,
+                                             xenblk_watch_handler),
+                           true);
     if (!is_ok(s)) {
         s = timm_up(s, "result", "failed to watch backend state");
         xenbus_set_state(0, xbd->dev.frontend, XenbusStateClosed);
@@ -498,7 +482,7 @@ static status xenblk_enable(xenblk_dev xbd)
 
 closure_function(2, 3, boolean, xenblk_probe,
                  kernel_heaps, kh, storage_attach, sa,
-                 int, id, buffer, frontend, tuple, meta)
+                 int id, buffer frontend, tuple meta)
 {
     xenblk_debug("probe for id %d, frontend %b, meta %v", id, frontend, meta);
     kernel_heaps kh = bound(kh);

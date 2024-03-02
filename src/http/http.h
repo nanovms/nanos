@@ -11,8 +11,6 @@ typedef enum {
     HTTP_REQUEST_METHODS
 } http_method;
 
-typedef closure_type(http_response, void, tuple);
-
 typedef struct http_responder *http_responder;
 
 buffer_handler allocate_http_parser(heap h, value_handler each);
@@ -29,7 +27,7 @@ status send_http_response(http_responder out, tuple t, buffer c);
 extern const sstring http_request_methods[];
 
 typedef struct http_listener *http_listener;
-typedef closure_type(http_request_handler, void, http_method, http_responder, value);
+closure_type(http_request_handler, void, http_method method, http_responder out, value v);
 
 void http_register_uri_handler(http_listener hl, sstring uri, http_request_handler each);
 void http_register_default_handler(http_listener hl, http_request_handler each);

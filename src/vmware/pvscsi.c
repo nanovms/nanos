@@ -37,8 +37,6 @@ struct pvscsi_hcb {
     u8 sense[PVSCSI_SENSE_SIZE];
 };
 
-declare_closure_struct(0, 1, u64, pvscsi_mem_cleaner,
-                       u64, clean_bytes);
 typedef struct pvscsi {
     pci_dev dev;
 
@@ -48,7 +46,7 @@ typedef struct pvscsi {
     heap general;
 
     caching_heap hcb_objcache;
-    closure_struct(pvscsi_mem_cleaner, mem_cleaner);
+    closure_struct(mem_cleaner, mem_cleaner);
 
     struct pvscsi_rings_state    *rings_state;
     struct pvscsi_ring_req_desc    *req_ring;
@@ -71,6 +69,8 @@ typedef struct pvscsi_disk {
     u16 lun;
     u64 capacity;
     u64 block_size;
+    closure_struct(block_io, read);
+    closure_struct(block_io, write);
     closure_struct(storage_simple_req_handler, req_handler);
 } *pvscsi_disk;
 
@@ -204,18 +204,16 @@ static void pvscsi_io(pvscsi_disk disk, u8 cmd, void *buf, range blocks, status_
     pvscsi_action_io_queued(dev, r, disk->target, disk->lun, buf, nblocks * disk->block_size);
 }
 
-closure_function(1, 3, void, pvscsi_write,
-                 pvscsi_disk, s,
-                 void *, buf, range, blocks, status_handler, sh)
+closure_func_basic(block_io, void, pvscsi_write,
+                   void *buf, range blocks, status_handler sh)
 {
-    pvscsi_io(bound(s), SCSI_CMD_WRITE_16, buf, blocks, sh);
+    pvscsi_io(struct_from_closure(pvscsi_disk, write), SCSI_CMD_WRITE_16, buf, blocks, sh);
 }
 
-closure_function(1, 3, void, pvscsi_read,
-                 pvscsi_disk, s,
-                 void *, buf, range, blocks, status_handler, sh)
+closure_func_basic(block_io, void, pvscsi_read,
+                   void *buf, range blocks, status_handler sh)
 {
-    pvscsi_io(bound(s), SCSI_CMD_READ_16, buf, blocks, sh);
+    pvscsi_io(struct_from_closure(pvscsi_disk, read), SCSI_CMD_READ_16, buf, blocks, sh);
 }
 
 closure_function(5, 0, void, pvscsi_read_capacity_done,
@@ -253,8 +251,8 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
     pvscsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
                  func_ss, target, lun, d->block_size, d->capacity);
 
-    block_io in = closure(s->general, pvscsi_read, d);
-    block_io out = closure(s->general, pvscsi_write, d);
+    block_io in = init_closure_func(&d->read, block_io, pvscsi_read);
+    block_io out = init_closure_func(&d->write, block_io, pvscsi_write);
     apply(bound(a), storage_init_req_handler(&d->req_handler, in, out), d->capacity, -1);
   out:
     closure_finish();
@@ -471,8 +469,8 @@ closure_function(1, 0, void, pvscsi_rx_service_bh, pvscsi, dev)
     spin_unlock(&dev->queue_lock);
 }
 
-define_closure_function(0, 1, u64, pvscsi_mem_cleaner,
-                        u64, clean_bytes)
+closure_func_basic(mem_cleaner, u64, pvscsi_mem_cleaner,
+                   u64 clean_bytes)
 {
     pvscsi dev = struct_from_field(closure_self(), pvscsi, mem_cleaner);
     return cache_drain(dev->hcb_objcache, clean_bytes,
@@ -536,7 +534,7 @@ static void pvscsi_attach(heap general, storage_attach a, heap page_allocator, p
     // setup hcb cache
     dev->hcb_objcache = allocate_objcache(dev->general, page_allocator,
                                           sizeof(struct pvscsi_hcb), PAGESIZE_2M, true);
-    mm_register_mem_cleaner(init_closure(&dev->mem_cleaner, pvscsi_mem_cleaner));
+    mm_register_mem_cleaner(init_closure_func(&dev->mem_cleaner, mem_cleaner, pvscsi_mem_cleaner));
 
     dev->adapter_queue_size = cmd.req_ring_num_pages * PAGESIZE / sizeof(struct pvscsi_ring_req_desc);
     dev->adapter_queue_size = MIN(dev->adapter_queue_size, PVSCSI_MAX_REQ_QUEUE_DEPTH);
@@ -579,7 +577,8 @@ boolean pvscsi_dev_probe(pci_dev d)
 }
 
 closure_function(3, 1, boolean, pvscsi_probe,
-                 heap, general, storage_attach, a, heap, page_allocator, pci_dev, d)
+                 heap, general, storage_attach, a, heap, page_allocator,
+                 pci_dev d)
 {
     if (!pvscsi_dev_probe(d))
         return false;

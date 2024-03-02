@@ -79,11 +79,6 @@ typedef struct ntp_server {
     struct ntp_ts last_originate_time;
 } *ntp_server;
 
-declare_closure_struct(0, 2, void, ntp_slew_complete_func,
-                       u64, expiry, u64, overruns);
-declare_closure_struct(0, 2, void, ntp_raw_update_func,
-                       u64, expiry, u64, overruns);
-
 static struct {
     boolean ptp_clock;
     vector servers;
@@ -93,8 +88,8 @@ static struct {
     struct timer slew_timer;
     struct timer raw_update_timer;
     timer_handler query_func;
-    closure_struct(ntp_slew_complete_func, slew_complete_func);
-    closure_struct(ntp_raw_update_func, raw_update_func);
+    closure_struct(timer_handler, slew_complete_func);
+    closure_struct(timer_handler, raw_update_func);
     boolean query_ongoing;
     u64 reset_threshold;
 
@@ -491,8 +486,8 @@ static void start_slew()
         false, 0, (timer_handler)&ntp.slew_complete_func);
 }
 
-define_closure_function(0, 2, void, ntp_slew_complete_func,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, ntp_slew_complete_func,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -591,8 +586,8 @@ badlimit:
     return true;
 }
 
-closure_function(0, 2, void, ptp_query_func,
-                 u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, ptp_query_func,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -728,8 +723,8 @@ static boolean ntp_resolve_and_query(ntp_server server)
     return true;
 }
 
-closure_function(0, 2, void, ntp_query_func,
-                 u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, ntp_query_func,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -765,8 +760,8 @@ closure_function(0, 2, void, ntp_query_func,
 }
 
 /* Periodically update last raw to avoid numeric errors from big intervals */
-define_closure_function(0, 2, void, ntp_raw_update_func,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, ntp_raw_update_func,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -955,7 +950,7 @@ int init(status_handler complete)
         ntp.max_base_freq = PPM_SCALE(ppm);
     }
     if (ntp.ptp_clock) {
-        ntp.query_func = closure(h, ptp_query_func);
+        ntp.query_func = closure_func(h, timer_handler, ptp_query_func);
     } else {
         ntp.pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp.pcb) {
@@ -963,11 +958,11 @@ int init(status_handler complete)
             return KLIB_INIT_FAILED;
         }
         udp_recv(ntp.pcb, ntp_input, 0);
-        ntp.query_func = closure(h, ntp_query_func);
+        ntp.query_func = closure_func(h, timer_handler, ntp_query_func);
     }
     assert(ntp.query_func != INVALID_ADDRESS);
-    init_closure(&ntp.slew_complete_func, ntp_slew_complete_func);
-    init_closure(&ntp.raw_update_func, ntp_raw_update_func);
+    init_closure_func(&ntp.slew_complete_func, timer_handler, ntp_slew_complete_func);
+    init_closure_func(&ntp.raw_update_func, timer_handler, ntp_raw_update_func);
     spin_lock_init(&ntp.lock);
     ntp_reset_state();
     runtime_memset((void *)ntp.samples, 0, sizeof(ntp.samples));

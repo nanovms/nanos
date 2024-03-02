@@ -32,10 +32,7 @@ typedef struct p9fs {
 
 declare_closure_struct(1, 3, void, p9_fsf_io,
                        boolean, write,
-                       sg_list, sg, range, q, status_handler, complete);
-declare_closure_struct(0, 1, status, p9_fsf_reserve,
-                       range, q);
-declare_closure_struct(0, 0, void, p9_fsf_free);
+                       sg_list sg, range q, status_handler complete);
 typedef struct p9_fsfile {
     struct fsfile f;
     struct list l;
@@ -44,8 +41,8 @@ typedef struct p9_fsfile {
     p9_dentry dentry;
     closure_struct(p9_fsf_io, read);
     closure_struct(p9_fsf_io, write);
-    closure_struct(p9_fsf_reserve, reserve);
-    closure_struct(p9_fsf_free, free);
+    closure_struct(pagecache_node_reserve, reserve);
+    closure_struct(thunk, free);
 } *p9_fsfile;
 
 static void p9_dentry_delete(p9fs fs, p9_dentry dentry);
@@ -122,7 +119,7 @@ static void p9_dentry_delete(p9fs fs, p9_dentry dentry)
 
 define_closure_function(1, 3, void, p9_fsf_io,
                         boolean, write,
-                        sg_list, sg, range, q, status_handler, complete)
+                        sg_list sg, range q, status_handler complete)
 {
     boolean write = bound(write);
     p9_fsfile fsf;
@@ -154,8 +151,8 @@ define_closure_function(1, 3, void, p9_fsf_io,
     apply(complete, STATUS_OK);
 }
 
-define_closure_function(0, 1, status, p9_fsf_reserve,
-                        range, q)
+closure_func_basic(pagecache_node_reserve, status, p9_fsf_reserve,
+                   range q)
 {
     p9_fsfile fsf = struct_from_field(closure_self(), p9_fsfile, reserve);
     p9_debug("reserve file %p range %R\n", fsf, q);
@@ -185,15 +182,14 @@ static void p9_fsfile_delete(p9fs fs, p9_fsfile fsf)
     deallocate(fs->fs.h, fsf, sizeof(*fsf));
 }
 
-define_closure_function(1, 1, void, fsf_sync_complete,
-                        fsfile, f,
-                        status, s)
+closure_func_basic(status_handler, void, p9fsf_sync_complete,
+                   status s)
 {
     if (!is_ok(s)) {
         msg_err("failed to sync page cache node: %v\n", s);
         timm_dealloc(s);
     }
-    fsfile f = bound(f);
+    fsfile f = struct_from_closure(fsfile, sync_complete);
     p9_fsfile fsf = (p9_fsfile)f;
     filesystem fs = f->fs;
     p9fs p9fs = (struct p9fs *)fs;
@@ -205,7 +201,7 @@ define_closure_function(1, 1, void, fsf_sync_complete,
     filesystem_unlock(fs);
 }
 
-define_closure_function(0, 0, void, p9_fsf_free)
+closure_func_basic(thunk, void, p9_fsf_free)
 {
     p9_fsfile fsf = struct_from_field(closure_self(), p9_fsfile, free);
     p9_debug("free file %p, dentry %p, md %p\n", fsf, fsf->dentry, fsf->dentry->md);
@@ -230,7 +226,8 @@ define_closure_function(0, 0, void, p9_fsf_free)
     }
     list_delete(&fsf->l);
     filesystem_unlock(fs);
-    pagecache_sync_node(f->cache_node, init_closure(&f->sync_complete, fsf_sync_complete, f));
+    pagecache_sync_node(f->cache_node,
+                        init_closure_func(&f->sync_complete, status_handler, p9fsf_sync_complete));
 }
 
 static p9_fsfile p9_fsfile_new(p9fs fs, p9_dentry dentry)
@@ -243,8 +240,9 @@ static p9_fsfile p9_fsfile_new(p9fs fs, p9_dentry dentry)
     fs_status s = fsfile_init(&fs->fs, &fsf->f, dentry->md,
                               init_closure(&fsf->read, p9_fsf_io, false),
                               init_closure(&fsf->write, p9_fsf_io, true),
-                              init_closure(&fsf->reserve, p9_fsf_reserve),
-                              init_closure(&fsf->free, p9_fsf_free));
+                              init_closure_func(&fsf->reserve, pagecache_node_reserve,
+                                                p9_fsf_reserve),
+                              init_closure_func(&fsf->free, thunk, p9_fsf_free));
     if (s != FS_STATUS_OK) {
         deallocate(h, fsf, sizeof(*fsf));
         return 0;
@@ -293,7 +291,7 @@ P9_GET_DENTRY_FROM(inode, qid)
 
 closure_function(4, 1, void, p9_cache_sync_complete,
                  filesystem, fs, fsfile, f, boolean, datasync, status_handler, completion,
-                 status, s)
+                 status s)
 {
     p9_debug("cache sync complete, status %v\n", s);
     if (is_ok(s)) {
@@ -323,7 +321,7 @@ closure_function(4, 1, void, p9_cache_sync_complete,
 
 closure_function(2, 2, boolean, p9_dir_cleanup,
                  p9fs, fs, tuple, other_c,
-                 value, k, value, v)
+                 value k, value v)
 {
     p9fs fs = bound(fs);
     tuple other_c = bound(other_c);

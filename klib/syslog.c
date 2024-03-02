@@ -36,11 +36,6 @@ typedef struct syslog_udp_msg {
     u8 buf[PBUF_TRANSPORT];
 } *syslog_udp_msg;
 
-declare_closure_struct(0, 2, void, syslog_timer_func,
-                       u64, expiry, u64, overruns);
-declare_closure_struct(0, 2, void, syslog_shutdown_completion,
-                       int, status, merge, m)
-
 #define syslog_lock()   u64 _irqflags = spin_lock_irq(&syslog.lock)
 #define syslog_unlock() spin_unlock_irq(&syslog.lock, _irqflags)
 
@@ -56,8 +51,8 @@ static struct {
     sg_list file_sg;
     sg_buf file_sgb;
     struct timer flush_timer;
-    closure_struct(syslog_timer_func, flush);
-    closure_struct(syslog_shutdown_completion, shutdown);
+    closure_struct(timer_handler, flush);
+    closure_struct(shutdown_handler, shutdown);
     buffer program;
     sstring server;
     boolean dns_in_progress;
@@ -110,7 +105,7 @@ static void syslog_file_rotate(void)
 
 closure_function(4, 1, void, syslog_file_write_complete,
                  void *, buf, u64, len, sg_list, sg, status_handler, complete,
-                 status, s)
+                 status s)
 {
     fsfile f = syslog.fsf;
     status_handler complete = bound(complete);
@@ -345,8 +340,8 @@ static void syslog_write(void *d, const char *s, bytes count)
         syslog_udp_write(s, count);
 }
 
-define_closure_function(0, 2, void, syslog_timer_func,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, syslog_timer_func,
+                   u64 expiry, u64 overruns)
 {
     if (overruns != timer_disabled) {
         syslog_file_flush(0);
@@ -354,15 +349,15 @@ define_closure_function(0, 2, void, syslog_timer_func,
     }
 }
 
-define_closure_function(0, 2, void, syslog_shutdown_completion,
-                        int, status, merge, m)
+closure_func_basic(shutdown_handler, void, syslog_shutdown_completion,
+                   int status, merge m)
 {
     syslog_file_flush(apply_merge(m));
     syslog_udp_flush();
 }
 
-closure_function(0, 2, boolean, syslog_cfg,
-                 value, s, value, v)
+closure_func_basic(binding_handler, boolean, syslog_cfg,
+                   value s, value v)
 {
     if (s == sym(file)) {
         if (!is_string(v)) {
@@ -456,7 +451,7 @@ int init(status_handler complete)
     syslog.file_rotate = SYSLOG_FILE_ROTATE_DEFAULT;
     syslog.server_port = SYSLOG_UDP_PORT_DEFAULT;
 
-    if (!is_tuple(cfg) || !iterate(cfg, stack_closure(syslog_cfg))) {
+    if (!is_tuple(cfg) || !iterate(cfg, stack_closure_func(binding_handler, syslog_cfg))) {
         rprintf("invalid syslog configuration\n");
         return KLIB_INIT_FAILED;
     }
@@ -486,8 +481,9 @@ int init(status_handler complete)
         syslog.arp_init = true;
     }
     init_timer(&syslog.flush_timer);
-    init_closure(&syslog.flush, syslog_timer_func);
-    add_shutdown_completion(init_closure(&syslog.shutdown, syslog_shutdown_completion));
+    init_closure_func(&syslog.flush, timer_handler, syslog_timer_func);
+    add_shutdown_completion(init_closure_func(&syslog.shutdown, shutdown_handler,
+                                              syslog_shutdown_completion));
     syslog.driver.write = syslog_write;
     syslog.driver.name = ss("syslog");
     syslog.driver.disabled = false;

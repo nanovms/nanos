@@ -47,16 +47,12 @@ typedef struct select_notifier {
     select_bitmaps tmp;
 } *select_notifier;
 
-declare_closure_struct(0, 0, void, connection_input);
-declare_closure_struct(0, 1, status, connection_output,
-                       buffer, b);
-
 typedef struct conn_handler {
     heap h;
     notifier n;
     descriptor f;
-    closure_struct(connection_input, in);
-    closure_struct(connection_output, out);
+    closure_struct(thunk, in);
+    closure_struct(buffer_handler, out);
     input_buffer_handler bh;
 } *conn_handler;
 
@@ -439,7 +435,7 @@ static void register_descriptor(heap h, notifier n, descriptor f, thunk each)
     notifier_register(n, f, EPOLLIN|EPOLLHUP, each);
 }
 
-define_closure_function(0, 0, void, connection_input)
+closure_func_basic(thunk, void, connection_input)
 {
     conn_handler ch = struct_from_field(closure_self(), conn_handler, in);
     descriptor f = ch->f;
@@ -459,8 +455,8 @@ define_closure_function(0, 0, void, connection_input)
 }
 
 
-define_closure_function(0, 1, status, connection_output,
-                        buffer, b)
+closure_func_basic(buffer_handler, status, connection_output,
+                   buffer b)
 {
     conn_handler ch = struct_from_field(closure_self(), conn_handler, out);
     descriptor c = ch->f;
@@ -480,8 +476,8 @@ static void register_conn_descriptor(heap h, notifier n, descriptor f, connectio
     ch->h = h;
     ch->n = n;
     ch->f = f;
-    ch->bh = apply(nc, init_closure(&ch->out, connection_output));
-    register_descriptor(h, n, f, init_closure(&ch->in, connection_input));
+    ch->bh = apply(nc, init_closure_func(&ch->out, buffer_handler, connection_output));
+    register_descriptor(h, n, f, init_closure_func(&ch->in, thunk, connection_input));
 }
 
 closure_function(4, 0, void, accepting,

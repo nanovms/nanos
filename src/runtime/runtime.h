@@ -208,7 +208,7 @@ typedef struct flush_entry *flush_entry;
 /* closures, used everywhere, including in data structures */
 #include <closure.h>
 #include <closure_templates.h>
-typedef closure_type(thunk, void);
+closure_type(thunk, void);
 
 /* data structures */
 #include <list.h>
@@ -229,26 +229,26 @@ typedef closure_type(thunk, void);
 #include <clock.h>
 #include <timer.h>
 
-typedef closure_type(buffer_handler, status, buffer);
-typedef closure_type(input_buffer_handler, boolean, buffer);
-typedef closure_type(connection_handler, input_buffer_handler, buffer_handler);
-typedef closure_type(value_handler, void, value);
-typedef closure_type(io_status_handler, void, status, bytes);
-typedef closure_type(block_io, void, void *, range, status_handler);
+closure_type(buffer_handler, status, buffer b);
+closure_type(input_buffer_handler, boolean, buffer b);
+closure_type(connection_handler, input_buffer_handler, buffer_handler out);
+closure_type(value_handler, void, value v);
+closure_type(io_status_handler, void, status s, bytes len);
+closure_type(block_io, void, void *buf, range r, status_handler complete);
 
 struct storage_req;
-typedef closure_type(storage_req_handler, void, struct storage_req *);
-typedef closure_type(storage_attach, void, storage_req_handler, u64, int);
+closure_type(storage_req_handler, void, struct storage_req *req);
+closure_type(storage_attach, void, storage_req_handler h, u64 size, int attach_id);
 
 #include <sg.h>
 
 void print_value(buffer dest, value v, tuple attrs);
 
 // should be  (parser, parser, character)
-typedef closure_type(parser, void *, character);
+closure_type(parser, void *, character c);
 // change to status_handler
-typedef closure_type(parse_error, void, buffer);
-typedef closure_type(parse_finish, void, void *);
+closure_type(parse_error, void, string err);
+closure_type(parse_finish, void, void *v);
 parser tuple_parser(heap h, parse_finish c, parse_error err);
 parser value_parser(heap h, parse_finish c, parse_error err);
 parser json_parser(heap h, parse_finish c, parse_error err);

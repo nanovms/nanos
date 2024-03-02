@@ -39,7 +39,7 @@ static void *stack_prealloc(void *start, u64 size)
 
 closure_function(5, 2, boolean, environment_each,
                  char **, envp, int *, envc, u64 **, s, void **, a, buffer, b,
-                 value, n, value, v)
+                 value n, value v)
 {
     assert(is_symbol(n));
     bound(envp)[(*bound(envc))++] = ppush(*bound(s), *bound(a), bound(b), "%b=%b", symbol_string(n), v);
@@ -48,7 +48,7 @@ closure_function(5, 2, boolean, environment_each,
 
 closure_function(1, 2, boolean, fill_arguments_each,
                  vector, r,
-                 value, a, value, v)
+                 value a, value v)
 {
     u64 i;
     if (!u64_from_attribute(a, &i)) {
@@ -206,7 +206,7 @@ void start_process(thread t, void *start)
 
 closure_function(4, 5, boolean, static_map,
                  process, p, kernel_heaps, kh, u32, allowed_flags, buffer, b,
-                 u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
+                 u64 vaddr, u64 offset, u64 data_size, u64 bss_size, pageflags flags)
 {
     exec_debug("%s: vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
                func_ss, vaddr, offset, data_size, bss_size, flags);
@@ -265,7 +265,7 @@ closure_function(4, 5, boolean, static_map,
 
 closure_function(4, 5, boolean, faulting_map,
                  process, p, kernel_heaps, kh, u32, allowed_flags, fsfile, f,
-                 u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
+                 u64 vaddr, u64 offset, u64 data_size, u64 bss_size, pageflags flags)
 {
     exec_debug("%s: vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
                func_ss, vaddr, offset, data_size, bss_size, flags);
@@ -311,7 +311,7 @@ closure_function(4, 5, boolean, faulting_map,
 
 closure_function(7, 2, void, load_interp_complete,
                  thread, t, kernel_heaps, kh, buffer, b, fsfile, f, u64, load_addr, boolean, static_map, boolean, ingest_symbols,
-                 status, s, bytes, length)
+                 status s, bytes length)
 {
     thread t = bound(t);
     process p = t->p;
@@ -342,7 +342,7 @@ closure_function(7, 2, void, load_interp_complete,
 
 closure_function(1, 1, boolean, trace_notify,
                  process, p,
-                 value, v)
+                 value v)
 {
     bound(p)->trace = trace_get_flags(v);
     return true;
@@ -484,7 +484,7 @@ static boolean elf_check_extend(u64 req_len, fsfile f, buffer b, io_status_handl
 
 closure_function(4, 2, void, exec_elf_read,
                  fsfile, f, buffer, b, process, kp, status_handler, complete,
-                 status, s, bytes, length)
+                 status s, bytes length)
 {
     fsfile f = bound(f);
     buffer b = bound(b);

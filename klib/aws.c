@@ -15,7 +15,7 @@
 
 closure_function(2, 1, void, aws_metadata_recv,
                  buffer_handler, handler, boolean *, done,
-                 value, v)
+                 value v)
 {
     value resp = get(v, sym(start_line));
     buffer content = 0;
@@ -33,7 +33,7 @@ closure_function(2, 1, void, aws_metadata_recv,
 
 closure_function(5, 1, boolean, aws_metadata_in,
                  heap, h, buffer_handler, handler, buffer_handler, out, buffer_handler, parser, boolean, done,
-                 buffer, data)
+                 buffer data)
 {
     buffer_handler handler = bound(handler);
     buffer_handler out = bound(out);
@@ -79,7 +79,7 @@ closure_function(5, 1, boolean, aws_metadata_in,
 
 closure_function(3, 1, input_buffer_handler, aws_metadata_ch,
                  heap, h, sstring, uri, buffer_handler, handler,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     heap h = bound(h);
     buffer_handler handler = bound(handler);
@@ -163,7 +163,7 @@ static boolean aws_cred_parse_item(buffer data, sstring name, buffer value)
 
 closure_function(2, 1, status, aws_cred_parse,
                  buffer, uri, aws_cred_handler, handler,
-                 buffer, data)
+                 buffer data)
 {
     deallocate_buffer(bound(uri));
     aws_cred_handler handler = bound(handler);
@@ -184,7 +184,7 @@ closure_function(2, 1, status, aws_cred_parse,
 
 closure_function(2, 1, status, aws_iam_role_get,
                  heap, h, aws_cred_handler, handler,
-                 buffer, data)
+                 buffer data)
 {
     heap h = bound(h);
     aws_cred_handler handler = bound(handler);
@@ -245,7 +245,7 @@ static boolean aws_headers_compare(void *a, void *b)
 
 closure_function(1, 2, boolean, aws_header_insert,
                  pqueue, pq,
-                 value, n, value, v)
+                 value n, value v)
 {
     if (n != sym(url))
         pqueue_insert(bound(pq), n);
@@ -255,7 +255,7 @@ closure_function(1, 2, boolean, aws_header_insert,
 /* Header names must be lowercase; header values must not have leading or trailing whitespace. */
 closure_function(2, 2, boolean, aws_header_add,
                  buffer, dest, boolean, signed_hdr,
-                 value, n, value, v)
+                 value n, value v)
 {
     buffer dest = bound(dest);
     boolean signed_hdr = bound(signed_hdr);

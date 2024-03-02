@@ -40,7 +40,7 @@ typedef struct dt_value {
     } u;
 } dt_value;
 
-typedef closure_type(dt_node_handler, boolean, dt_node, sstring);
+closure_type(dt_node_handler, boolean, dt_node n, sstring name);
 
 sstring dtb_string(void *dtb, u64 off);
 

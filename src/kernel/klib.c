@@ -18,7 +18,7 @@ BSS_RO_AFTER_INIT static vector klib_loaded;
 
 closure_function(1, 1, boolean, klib_elf_walk,
                  klib, kl,
-                 range, r)
+                 range r)
 {
     klib kl = bound(kl);
     if (range_empty(kl->load_range)) {
@@ -50,7 +50,7 @@ static klib_mapping add_klib_mapping(klib kl, u64 vaddr, u64 paddr, u64 size, pa
 
 closure_function(2, 5, boolean, klib_elf_map,
                  klib, kl, buffer, b,
-                 u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
+                 u64 vaddr, u64 offset, u64 data_size, u64 bss_size, pageflags flags)
 {
     klib kl = bound(kl);
     klib_debug("%s: kl %b, vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
@@ -93,8 +93,8 @@ closure_function(2, 5, boolean, klib_elf_map,
     return false;
 }
 
-closure_function(0, 1, void *, klib_sym_resolve,
-                 sstring, name)
+closure_func_basic(elf_sym_resolver, void *, klib_sym_resolve,
+                   sstring name)
 {
     return symtab_get_addr(name);
 }
@@ -102,7 +102,7 @@ closure_function(0, 1, void *, klib_sym_resolve,
 static int klib_initialize(klib kl, status_handler sh)
 {
     if (elf_dyn_link(kl->elf, pointer_from_u64(kl->load_range.start),
-                     stack_closure(klib_sym_resolve)))
+                     stack_closure_func(elf_sym_resolver, klib_sym_resolve)))
         return kl->ki(sh);
     else
         return KLIB_MISSING_DEP;
@@ -110,7 +110,7 @@ static int klib_initialize(klib kl, status_handler sh)
 
 closure_function(3, 1, status, load_klib_complete,
                  buffer, name, klib_handler, complete, status_handler, sh,
-                 buffer, b)
+                 buffer b)
 {
     heap h = heap_locked(klib_kh);
     klib_handler complete = bound(complete);
@@ -148,7 +148,7 @@ closure_function(3, 1, status, load_klib_complete,
 
 closure_function(1, 1, void, load_klib_failed,
                  klib_handler, complete,
-                 status, s)
+                 status s)
 {
     klib_handler complete = bound(complete);
     klib_debug("%s: complete %p (%F), status %v\n", func_ss, complete, complete, s);
@@ -174,7 +174,7 @@ void load_klib(buffer name, klib_handler complete, status_handler sh)
 
 closure_function(1, 1, boolean, destruct_mapping,
                  klib, kl,
-                 rmnode, n)
+                 rmnode n)
 {
     klib_mapping km = (klib_mapping)n;
     klib_debug("   v %R, p 0x%lx, flags 0x%lx\n", km->n.r, km->phys, km->flags.w);
@@ -197,7 +197,7 @@ void unload_klib(klib kl)
 
 closure_function(3, 1, void, klibs_complete,
                  u64, pending, queue, retry_klibs, status_handler, complete,
-                 status, s)
+                 status s)
 {
     queue retry_klibs = bound(retry_klibs);
     if (!queue_empty(retry_klibs))
@@ -209,7 +209,7 @@ closure_function(3, 1, void, klibs_complete,
 
 closure_function(4, 2, void, autoload_klib_complete,
                  u64 *, pending, queue, retry_klibs, status_handler, sh, klib, kl,
-                 klib, kl, int, rv)
+                 klib kl, int rv)
 {
     u64 pending = fetch_and_add(bound(pending), -1);
     queue retry_klibs = bound(retry_klibs);
@@ -249,7 +249,7 @@ closure_function(4, 2, void, autoload_klib_complete,
 
 closure_function(3, 2, boolean, autoload_klib_each,
                  u64 *, pending, queue, retry_klibs, merge, m,
-                 value, s, value, v)
+                 value s, value v)
 {
     if (!is_dir(v)) {
         fetch_and_add(bound(pending), 1);

@@ -27,9 +27,6 @@ typedef struct inotify {
     blockq bq;
 } *inotify;
 
-declare_closure_struct(0, 2, u64, inotify_event_handler,
-                       u64, events, void *, arg);
-
 typedef struct inotify_watch {
     struct list l;
     inotify in;
@@ -37,7 +34,7 @@ typedef struct inotify_watch {
     inode n;
     notify_set ns;
     notify_entry ne;
-    closure_struct(inotify_event_handler, eh);
+    closure_struct(event_handler, eh);
 } *inotify_watch;
 
 #define inotify_lock(in)    spin_lock(&(in)->f.lock)
@@ -59,7 +56,7 @@ static sysreturn inotify_resolve_fd(int fd, inotify *in)
 
 closure_function(4, 1, sysreturn, inotify_read_bh,
                  inotify, in, void *, buf, u64, length, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     inotify in = bound(in);
     sysreturn rv;
@@ -242,8 +239,8 @@ static void inotify_noti_readers(inotify in)
     blockq_wake_one(in->bq);
 }
 
-define_closure_function(0, 2, u64, inotify_event_handler,
-                        u64, events, void *, arg)
+closure_func_basic(event_handler, u64, inotify_event_handler,
+                   u64 events, void *arg)
 {
     u64 rv = 0;
     if (!(events & ~IN_ISDIR))
@@ -369,7 +366,8 @@ sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
             rv = -ENOMEM;
             goto unlock;
         }
-        watch->ne = fs_watch(in->h, n, mask, init_closure(&watch->eh, inotify_event_handler),
+        watch->ne = fs_watch(in->h, n, mask,
+                             init_closure_func(&watch->eh, event_handler, inotify_event_handler),
                              &watch->ns);
         if (watch->ne) {
             watch->in = in;

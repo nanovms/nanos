@@ -22,6 +22,9 @@ struct pipe_file {
     int fd;
     pipe pipe;
     blockq bq;
+    closure_struct(file_io, io);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_close, close);
 };
 
 struct pipe {
@@ -97,32 +100,26 @@ static inline void pipe_dealloc_end(pipe p, pipe_file pf)
     if (&p->files[PIPE_READ] == pf) {
         pipe_notify_writer(pf, EPOLLHUP);
         pipe_debug("%s(%p): writer notified\n", func_ss, p);
-        deallocate_closure(pf->f.read);
-        deallocate_closure(pf->f.close);
-        deallocate_closure(pf->f.events);
     }
     if (&p->files[PIPE_WRITE] == pf) {
         pipe_notify_reader(pf, (buffer_length(p->data) ? EPOLLIN : 0) | EPOLLHUP);
         pipe_debug("%s(%p): reader notified\n", func_ss, p);
-        deallocate_closure(pf->f.write);
-        deallocate_closure(pf->f.close);
-        deallocate_closure(pf->f.events);
     }
     pipe_file_release(pf);
     pipe_release(p);
 }
 
-closure_function(1, 2, sysreturn, pipe_close,
-                 pipe_file, pf,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, pipe_close,
+                   context ctx, io_completion completion)
 {
-    pipe_dealloc_end(bound(pf)->pipe, bound(pf));
+    pipe_file pf = struct_from_closure(pipe_file, close);
+    pipe_dealloc_end(pf->pipe, pf);
     return io_complete(completion, 0);
 }
 
 closure_function(4, 1, sysreturn, pipe_read_bh,
                  pipe_file, pf, void *, dest, u64, length, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     pipe_file pf = bound(pf);
     int rv;
@@ -173,11 +170,10 @@ closure_function(4, 1, sysreturn, pipe_read_bh,
     return rv;
 }
 
-closure_function(1, 6, sysreturn, pipe_read,
-                 pipe_file, pf,
-                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, pipe_read,
+                   void *dest, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    pipe_file pf = bound(pf);
+    pipe_file pf = struct_from_closure(pipe_file, io);
 
     if (length == 0)
         return io_complete(completion, 0);
@@ -188,7 +184,7 @@ closure_function(1, 6, sysreturn, pipe_read,
 
 closure_function(4, 1, sysreturn, pipe_write_bh,
                  pipe_file, pf, void *, dest, u64, length, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     sysreturn rv = 0;
     pipe_file pf = bound(pf);
@@ -238,23 +234,21 @@ closure_function(4, 1, sysreturn, pipe_write_bh,
     return rv;
 }
 
-closure_function(1, 6, sysreturn, pipe_write,
-                 pipe_file, pf,
-                 void *, dest, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, pipe_write,
+                   void *dest, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     if (length == 0)
         return io_complete(completion, 0);
 
-    pipe_file pf = bound(pf);
+    pipe_file pf = struct_from_closure(pipe_file, io);
     blockq_action ba = closure_from_context(ctx, pipe_write_bh, pf, dest, length, completion);
     return blockq_check(pf->bq, ba, bh);
 }
 
-closure_function(1, 1, u32, pipe_read_events,
-                 pipe_file, pf,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, pipe_read_events,
+                   thread t)
 {
-    pipe_file pf = bound(pf);
+    pipe_file pf = struct_from_closure(pipe_file, events);
     assert(pf->f.read);
     pipe_lock(pf->pipe);
     u32 events = buffer_length(pf->pipe->data) ? EPOLLIN : 0;
@@ -264,11 +258,10 @@ closure_function(1, 1, u32, pipe_read_events,
     return events;
 }
 
-closure_function(1, 1, u32, pipe_write_events,
-                 pipe_file, pf,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, pipe_write_events,
+                   thread t)
 {
-    pipe_file pf = bound(pf);
+    pipe_file pf = struct_from_closure(pipe_file, events);
     assert(pf->f.write);
     pipe_lock(pf->pipe);
     u32 events = buffer_length(pf->pipe->data) < pf->pipe->max_size ? EPOLLOUT : 0;
@@ -324,9 +317,9 @@ int do_pipe2(int fds[2], int flags)
         init_fdesc(pipe->h, &reader->f, FDESC_TYPE_PIPE);
         pipe->ref_cnt = 1;
 
-        reader->f.read = closure(pipe->h, pipe_read, reader);
-        reader->f.close = closure(pipe->h, pipe_close, reader);
-        reader->f.events = closure(pipe->h, pipe_read_events, reader);
+        reader->f.read = init_closure_func(&reader->io, file_io, pipe_read);
+        reader->f.close = init_closure_func(&reader->close, fdesc_close, pipe_close);
+        reader->f.events = init_closure_func(&reader->events, fdesc_events, pipe_read_events);
         reader->f.flags = (flags & O_NONBLOCK) | O_RDONLY;
 
         reader->bq = allocate_blockq(pipe->h, ss("pipe read"));
@@ -349,9 +342,9 @@ int do_pipe2(int fds[2], int flags)
         init_fdesc(pipe->h, &writer->f, FDESC_TYPE_PIPE);
         fetch_and_add(&pipe->ref_cnt, 1);
 
-        writer->f.write = closure(pipe->h, pipe_write, writer);
-        writer->f.close = closure(pipe->h, pipe_close, writer);
-        writer->f.events = closure(pipe->h, pipe_write_events, writer);
+        writer->f.write = init_closure_func(&writer->io, file_io, pipe_write);
+        writer->f.close = init_closure_func(&writer->close, fdesc_close, pipe_close);
+        writer->f.events = init_closure_func(&writer->events, fdesc_events, pipe_write_events);
         writer->f.flags = (flags & O_NONBLOCK) | O_WRONLY;
 
         writer->bq = allocate_blockq(pipe->h, ss("pipe write"));

@@ -106,8 +106,8 @@ void pci_setup_non_msi_irq(pci_dev dev, thunk h, sstring name)
     register_interrupt(v, h, name);
 }
 
-closure_function(0, 4, boolean, pci_mcfg_handler,
-                 u64, addr, u16, segment, u8, bus_start, u8, bus_end)
+closure_func_basic(mcfg_handler, boolean, pci_mcfg_handler,
+                   u64 addr, u16 segment, u8 bus_start, u8 bus_end)
 {
     if ((segment == 0) && (bus_start == 0)) {
         pcie_ecam_base = DEVICE_BASE + addr;
@@ -118,7 +118,7 @@ closure_function(0, 4, boolean, pci_mcfg_handler,
 
 void pci_platform_init(void)
 {
-    acpi_walk_mcfg(stack_closure(pci_mcfg_handler));
+    acpi_walk_mcfg(stack_closure_func(mcfg_handler, pci_mcfg_handler));
     if (!pcie_ecam_base)
         pcie_ecam_base = mmio_base_addr(PCIE_ECAM);
 }

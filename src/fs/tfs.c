@@ -51,7 +51,7 @@ void fixup_directory(tuple parent, tuple dir);
 
 closure_function(1, 2, boolean, fixup_directory_each,
                  tuple, dir,
-                 value, s, value, v)
+                 value s, value v)
 {
     if (is_tuple(v))
         fixup_directory(bound(dir), v);
@@ -93,7 +93,7 @@ static inline extent allocate_extent(heap h, range file_blocks, range storage_bl
 
 closure_function(2, 1, boolean, tfs_storage_alloc,
                  u64, nblocks, u64 *, start_block,
-                 range, r)
+                 range r)
 {
     if (range_span(r) >= bound(nblocks)) {
         *bound(start_block) = r.start;
@@ -173,7 +173,7 @@ void ingest_extent(tfsfile f, symbol off, tuple value)
 
 closure_function(1, 2, boolean, tfs_ingest_extent,
                  tfsfile, f,
-                 value, s, value, v)
+                 value s, value v)
 {
     assert(is_symbol(s));
     ingest_extent(bound(f), s, v);
@@ -184,7 +184,7 @@ static boolean enumerate_dir_entries(tfs fs, tuple t);
 
 closure_function(1, 2, boolean, enumerate_dir_entries_each,
                  tfs, fs,
-                 value, s, value, v)
+                 value s, value v)
 {
     tfs fs = bound(fs);
     if (is_tuple(v))
@@ -229,7 +229,7 @@ void filesystem_storage_op(tfs fs, sg_list sg, range blocks, boolean write,
 
 closure_function(2, 1, void, zero_blocks_complete,
                  sg_list, sg, status_handler, completion,
-                 status, s)
+                 status s)
 {
     sg_list sg = bound(sg);
     sg_list_release(sg);
@@ -299,7 +299,7 @@ static void queue_uninited_op(tfs fs, uninited u, sg_list sg, range blocks,
 
 closure_function(4, 1, boolean, read_extent,
                  tfs, fs, sg_list, sg, merge, m, range, blocks,
-                 rmnode, node)
+                 rmnode node)
 {
     tfs fs = bound(fs);
     sg_list sg = bound(sg);
@@ -327,7 +327,7 @@ closure_function(4, 1, boolean, read_extent,
 
 closure_function(3, 1, boolean, zero_hole,
                  tfs, fs, sg_list, sg, range, blocks,
-                 range, z)
+                 range z)
 {
     range i = range_intersection(bound(blocks), z);
     u64 length = range_span(i) << bound(fs)->fs.blocksize_order;
@@ -341,7 +341,7 @@ BSS_RO_AFTER_INIT io_status_handler ignore_io_status;
 /* whole block reads, file length resolved in cache */
 closure_function(2, 3, void, filesystem_storage_read,
                  tfs, fs, tfsfile, f,
-                 sg_list, sg, range, q, status_handler, complete)
+                 sg_list sg, range q, status_handler complete)
 {
     tfs fs = bound(fs);
     tfsfile f = bound(f);
@@ -539,7 +539,7 @@ static fs_status add_extents(tfs fs, range i, rangemap rm)
 
 define_closure_function(2, 1, void, uninited_complete,
                         uninited, u, status_handler, complete,
-                        status, s)
+                        status s)
 {
     uninited u = bound(u);
     uninited_lock(u);
@@ -860,7 +860,7 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
 
 closure_function(2, 1, status, filesystem_check_or_reserve_extent,
                  tfs, fs, tfsfile, f,
-                 range, q)
+                 range q)
 {
     tfs fs = bound(fs);
     tfsfile f = bound(f);
@@ -877,7 +877,7 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
 
 closure_function(2, 3, void, filesystem_storage_write,
                  tfs, fs, tfsfile, f,
-                 sg_list, sg, range, q, status_handler, complete)
+                 sg_list sg, range q, status_handler complete)
 {
     tfs fs = bound(fs);
     tfsfile f = bound(f);
@@ -901,7 +901,7 @@ closure_function(2, 3, void, filesystem_storage_write,
 
 closure_function(3, 1, void, fs_cache_sync_complete,
                  tfs, fs, status_handler, completion, boolean, flush_log,
-                 status, s)
+                 status s)
 {
     if (!is_ok(s)) {
 #ifdef KERNEL
@@ -942,7 +942,7 @@ static status_handler tfs_get_sync_handler(filesystem fs, fsfile fsf, boolean da
 
 closure_function(2, 1, void, filesystem_op_complete,
                  fsfile, f, fs_status_handler, sh,
-                 status, s)
+                 status s)
 {
     tfs_debug("%s: status %v\n", func_ss);
     apply(bound(sh), bound(f), is_ok(s) ? FS_STATUS_OK : FS_STATUS_IOERR);
@@ -951,14 +951,14 @@ closure_function(2, 1, void, filesystem_op_complete,
 
 closure_function(1, 1, boolean, destroy_extent_node,
                  tfs, fs,
-                 rmnode, n)
+                 rmnode n)
 {
     destroy_extent(bound(fs), (extent)n);
     return true;
 }
 
-closure_function(0, 1, boolean, assert_no_node,
-                 rmnode, n)
+closure_func_basic(rmnode_handler, boolean, assert_no_node,
+                   rmnode n)
 {
     halt("tfs: temporary rangemap not empty on dealloc\n");
 }
@@ -1029,7 +1029,7 @@ void filesystem_alloc(fsfile f, long offset, long len,
 done:
     filesystem_unlock(fs);
     deallocate_rangemap(new_rm, (status == FS_STATUS_OK ?
-                                 stack_closure(assert_no_node) :
+                                 stack_closure_func(rmnode_handler, assert_no_node) :
                                  stack_closure(destroy_extent_node, tfs)));
     apply(completion, f, status);
 }
@@ -1050,8 +1050,8 @@ void filesystem_dealloc(fsfile f, long offset, long len,
     filesystem_write_sg(f, 0, irangel(offset, len), sh);
 }
 
-closure_function(0, 2, boolean, cleanup_directory_each,
-                 value, s, value, v)
+closure_func_basic(binding_handler, boolean, cleanup_directory_each,
+                   value s, value v)
 {
     if (is_tuple(v))
         cleanup_directory(v);
@@ -1065,7 +1065,7 @@ static tuple cleanup_directory(tuple n)
         return 0;
     tuple c = children(n);
     if (c)
-        iterate(c, stack_closure(cleanup_directory_each));
+        iterate(c, stack_closure_func(binding_handler, cleanup_directory_each));
     return parent;
 }
 
@@ -1195,7 +1195,7 @@ static void deallocate_fsfile(tfs fs, tfsfile f, rmnode_handler extent_destructo
 
 closure_function(1, 1, boolean, free_extent,
                  tfs, fs,
-                 rmnode, n)
+                 rmnode n)
 {
     destroy_extent(bound(fs), (extent)n);
     return true;
@@ -1264,7 +1264,7 @@ static fs_status tfs_rename(filesystem fs, tuple old_parent, string old_name, tu
 
 closure_function(1, 1, boolean, tfs_storage_freeblocks,
                  u64 *, free_blocks,
-                 range, r)
+                 range r)
 {
     *bound(free_blocks) += range_span(r);
     return true;
@@ -1305,15 +1305,14 @@ void filesystem_log_rebuild_done(tfs fs, log new_tl)
     fs->temp_log = 0;
 }
 
-define_closure_function(1, 1, void, fsf_sync_complete,
-                        fsfile, f,
-                        status, s)
+closure_func_basic(status_handler, void, tfsfile_sync_complete,
+                   status s)
 {
     if (!is_ok(s)) {
         msg_err("failed to purge page cache node: %v\n", s);
         timm_dealloc(s);
     }
-    tfsfile f = (tfsfile)bound(f);
+    tfsfile f = (tfsfile)struct_from_closure(fsfile, sync_complete);
     tfs fs = tfs_from_file(f);
     deallocate_fsfile(fs, f, stack_closure(free_extent, fs));
 }
@@ -1322,7 +1321,8 @@ closure_function(1, 0, void, free_extents,
                  fsfile, f)
 {
     fsfile f = bound(f);
-    pagecache_purge_node(f->cache_node, init_closure(&f->sync_complete, fsf_sync_complete, f));
+    pagecache_purge_node(f->cache_node, init_closure_func(&f->sync_complete, status_handler,
+                                                          tfsfile_sync_complete));
 }
 
 #endif /* !TFS_READ_ONLY */
@@ -1380,7 +1380,7 @@ fsfile fsfile_from_node(filesystem fs, tuple n)
 
 closure_function(2, 1, void, log_complete,
                  filesystem_complete, fc, tfs, fs,
-                 status, s)
+                 status s)
 {
     tfs_debug("%s: complete %p, fs %p, status %v\n", func_ss, bound(fc), bound(fs), s);
     tfs fs = bound(fs);
@@ -1398,8 +1398,10 @@ closure_function(2, 1, void, log_complete,
     closure_finish();
 }
 
-closure_function(0, 2, void, ignore_io,
-                 status, s, bytes, length) {}
+closure_func_basic(io_status_handler, void, ignore_io,
+                 status s, bytes length)
+{
+}
 
 sstring filesystem_get_label(filesystem fs)
 {
@@ -1451,7 +1453,7 @@ void create_filesystem(heap h,
         return;
     }
     if (!ignore_io_status)
-        ignore_io_status = closure(h, ignore_io);
+        ignore_io_status = closure_func(h, io_status_handler, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->zero_page = pagecache_get_zero_page();
     assert(fs->zero_page);
@@ -1494,7 +1496,7 @@ void create_filesystem(heap h,
 
 closure_function(1, 1, boolean, dealloc_extent_node,
                  filesystem, fs,
-                 rmnode, n)
+                 rmnode n)
 {
     deallocate(bound(fs)->h, n, sizeof(struct extent));
     return true;
@@ -1502,7 +1504,7 @@ closure_function(1, 1, boolean, dealloc_extent_node,
 
 closure_function(1, 1, boolean, tfs_storage_destroy,
                  heap, h,
-                 rmnode, n)
+                 rmnode n)
 {
     deallocate(bound(h), n, sizeof(*n));
     return false;

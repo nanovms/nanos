@@ -6,7 +6,7 @@ struct console_driver {
     boolean disabled;
 };
 
-typedef closure_type(console_attach, void, struct console_driver *);
+closure_type(console_attach, void, struct console_driver *driver);
 
 void init_console(kernel_heaps kh);
 void config_console(tuple root);

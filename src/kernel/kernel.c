@@ -103,7 +103,7 @@ static void kernel_context_schedule_return(context c)
     async_apply_bh((thunk)&kc->kernel_return);
 }
 
-define_closure_function(0, 0, void, kernel_context_return)
+closure_func_basic(thunk, void, kernel_context_return)
 {
     kernel_context kc = struct_from_field(closure_self(), kernel_context, kernel_return);
     context_frame f = kc->context.frame;
@@ -126,7 +126,7 @@ void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q
     c->resume = kernel_context_resume;
     c->schedule_return = kernel_context_schedule_return;
     c->pre_suspend = kernel_context_pre_suspend;
-    init_closure(&kc->kernel_return, kernel_context_return);
+    init_closure_func(&kc->kernel_return, thunk, kernel_context_return);
     c->fault_handler = 0;
     c->transient_heap = heap_locked(get_kernel_heaps());
     void *stack_top = ((void *)kc) + size - STACK_ALIGNMENT;

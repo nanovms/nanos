@@ -231,7 +231,7 @@ static UINT32 acpi_shutdown(void *context)
 
 closure_function(2, 1, void, acpi_powerdown_sleepctrl,
                  ACPI_TABLE_FADT *, fadt, u8, slp_typ,
-                 int, status)
+                 int status)
 {
     acpi_debug("powerdown");
     ACPI_STATUS rv = AcpiWrite(ACPI_SLEEPCTRL_SLP_EN | ACPI_SLEEPCTRL_SLP_TYP(bound(slp_typ)), &bound(fadt)->SleepControl);
@@ -241,7 +241,7 @@ closure_function(2, 1, void, acpi_powerdown_sleepctrl,
 
 closure_function(3, 1, void, acpi_powerdown_pm1,
                  ACPI_TABLE_FADT *, fadt, u16, pm1a_slp_typ, u16, pm1b_slp_typ,
-                 int, status)
+                 int status)
 {
     acpi_debug("powerdown");
     ACPI_TABLE_FADT *fadt = bound(fadt);

@@ -5,7 +5,7 @@
 
 closure_function(1, 3, void, each_request,
                  heap, h,
-                 http_method, m, http_responder, out, value, v)
+                 http_method m, http_responder out, value v)
 {
     send_http_response(out,
                        timm("ContentType", "text/html"),

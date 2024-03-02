@@ -53,8 +53,6 @@ struct virtio_balloon_stat {
     u64 val;
 } __attribute__((packed));
 
-declare_closure_struct(0, 2, void, virtio_balloon_timer_task,
-                       u64, expiry, u64, overruns);
 struct virtio_balloon {
     heap general;
     backed_heap backed;
@@ -64,7 +62,7 @@ struct virtio_balloon {
     virtqueue deflateq;
     virtqueue statsq;
     struct timer retry_timer;
-    closure_struct(virtio_balloon_timer_task, timer_task);
+    closure_struct(timer_handler, timer_task);
     struct virtio_balloon_stat *stats;
     u64 stats_phys;
     int next_tag;
@@ -114,7 +112,7 @@ static void update_actual_pages(s64 delta)
 
 closure_function(1, 1, void, inflate_complete,
                  balloon_page, bp,
-                 u64, len)
+                 u64 len)
 {
     balloon_page bp = bound(bp);
     virtio_balloon_verbose("%s: balloon_page %p (phys base 0x%lx)\n", func_ss, bp,
@@ -187,7 +185,7 @@ static void return_balloon_page_memory(balloon_page bp)
 
 closure_function(1, 1, void, deflate_complete,
                  balloon_page, bp,
-                 u64, len)
+                 u64 len)
 {
     balloon_page bp = bound(bp);
     virtio_balloon_verbose("%s: bp %p, len %ld\n", func_ss, bound(bp), len);
@@ -263,8 +261,8 @@ closure_function(1, 0, void, virtio_balloon_config_change,
     virtio_balloon_update();
 }
 
-closure_function(0, 1, u64, virtio_balloon_deflater,
-                 u64, deflate_bytes)
+closure_func_basic(mem_cleaner, u64, virtio_balloon_deflater,
+                   u64 deflate_bytes)
 {
     virtio_balloon_debug("deflate of %ld bytes requested\n", deflate_bytes);
     u64 deflate = ((deflate_bytes + MASK(VIRTIO_BALLOON_ALLOC_ORDER))
@@ -295,8 +293,8 @@ static inline void write_stat(u16 tag, u64 val)
     virtio_balloon.next_tag++;
 }
 
-closure_function(0, 1, void, virtio_balloon_enqueue_stats,
-                 u64, len)
+closure_func_basic(vqfinish, void, virtio_balloon_enqueue_stats,
+                   u64 len)
 {
     /* enqueue one descriptor for device to return upon stats request */
     virtqueue vq = virtio_balloon.statsq;
@@ -329,7 +327,7 @@ static void virtio_balloon_init_statsq(void)
     assert(vq);
     virtio_balloon_debug("%s\n", func_ss);
 
-    vqfinish c = closure(virtio_balloon.general, virtio_balloon_enqueue_stats);
+    vqfinish c = closure_func(virtio_balloon.general, vqfinish, virtio_balloon_enqueue_stats);
     assert(c != INVALID_ADDRESS);
     vqmsg m = allocate_vqmsg(vq);
     assert(m != INVALID_ADDRESS);
@@ -338,8 +336,8 @@ static void virtio_balloon_init_statsq(void)
     vqmsg_commit(vq, m, c);
 }
 
-define_closure_function(0, 2, void, virtio_balloon_timer_task,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, virtio_balloon_timer_task,
+                   u64 expiry, u64 overruns)
 {
     if (overruns != timer_disabled) {
         virtio_balloon_debug("%s\n", func_ss);
@@ -359,7 +357,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
     list_init(&virtio_balloon.in_balloon);
     list_init(&virtio_balloon.free);
     init_timer(&virtio_balloon.retry_timer);
-    init_closure(&virtio_balloon.timer_task, virtio_balloon_timer_task);
+    init_closure_func(&virtio_balloon.timer_task, timer_handler, virtio_balloon_timer_task);
 
     thunk t = closure(general, virtio_balloon_config_change, v);
     assert(t != INVALID_ADDRESS);
@@ -386,7 +384,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
     vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
     update_actual_pages(0);
     virtio_balloon_update();
-    mem_cleaner bd = closure(general, virtio_balloon_deflater);
+    mem_cleaner bd = closure_func(general, mem_cleaner, virtio_balloon_deflater);
     assert(bd != INVALID_ADDRESS);
     if (!mm_register_mem_cleaner(bd))
         deallocate_closure(bd);
@@ -400,7 +398,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
 
 closure_function(3, 1, boolean, vtpci_balloon_probe,
                  heap, general, backed_heap, backed, id_heap, physical,
-                 pci_dev, d)
+                 pci_dev d)
 {
     virtio_balloon_debug("%s\n", func_ss);
     if (!vtpci_probe(d, VIRTIO_ID_BALLOON))

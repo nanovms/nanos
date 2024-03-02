@@ -1,5 +1,5 @@
 typedef u64 *context_frame;
-typedef closure_type(fault_handler, context, context);
+closure_type(fault_handler, context, context ctx);
 
 #define CONTEXT_TYPE_UNDEFINED 0
 #define CONTEXT_TYPE_KERNEL    1

@@ -2,7 +2,7 @@
 
 closure_function(1, 3, boolean, pt_test_entry_handler,
                  boolean, writable,
-                 int, level, u64, vaddr, pteptr, entry)
+                 int level, u64 vaddr, pteptr entry)
 {
     pte e = pte_from_pteptr(entry);
     if (!pte_is_mapping(level, e))

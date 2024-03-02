@@ -46,8 +46,8 @@ void console_force_unlock(void)
     spin_unlock(&write_lock);
 }
 
-closure_function(0, 1, void, attach_console,
-                 struct console_driver *, d)
+closure_func_basic(console_attach, void, attach_console,
+                   struct console_driver *d)
 {
     attach_console_driver(d);
 }
@@ -56,14 +56,14 @@ void init_console(kernel_heaps kh)
 {
     list_init(&console_drivers);
     heap h = heap_general(kh);
-    console_attach a = closure(h, attach_console);
+    console_attach a = closure_func(h, console_attach, attach_console);
     netconsole_register(kh, a);
     inited = true;
 }
 
 closure_function(1, 2, boolean, config_console_each,
                  tuple, root,
-                 value, a, value, v)
+                 value a, value v)
 {
     if (!is_string(v)) {
         msg_err("value (attr %v) not a string\n", a);

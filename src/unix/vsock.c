@@ -44,12 +44,11 @@ typedef struct vsock {
     ringbuf incoming;
 } *vsock;
 
-declare_closure_struct(0, 0, void, vsock_bound_free);
 typedef struct vsock_bound {
     vsock s;
     u32 cid;
     struct refcount refc;
-    closure_struct(vsock_bound_free, free);
+    closure_struct(thunk, free);
     struct spinlock lock;
 } *vsock_bound;
 
@@ -71,7 +70,7 @@ static sysreturn vsock_addr_check(struct sockaddr_vm *addr, socklen_t addrlen)
     return 0;
 }
 
-define_closure_function(0, 0, void, vsock_bound_free)
+closure_func_basic(thunk, void, vsock_bound_free)
 {
     vsock_bound bound = struct_from_field(closure_self(), vsock_bound, free);
     deallocate(vsock_priv.h, bound, sizeof(*bound));
@@ -100,7 +99,7 @@ static sysreturn vsock_bind_internal(vsock s, u32 cid, u32 port)
         return -ENOMEM;
     bound->s = s;
     bound->cid = cid;
-    init_refcount(&bound->refc, 1, init_closure(&bound->free, vsock_bound_free));
+    init_refcount(&bound->refc, 1, init_closure_func(&bound->free, thunk, vsock_bound_free));
     spin_lock_init(&bound->lock);
     if (port == VMADDR_PORT_ANY) {
         for (u32 p = VSOCK_PORT_LAST_PRIVILEGED + 1; p != 0; p++) {
@@ -173,7 +172,7 @@ static vsock_connection vsock_get_connection(struct vsock_conn_id *id)
 
 closure_function(4, 1, sysreturn, vsock_read_bh,
                  vsock, s, void *, dest, u64, length, io_completion, completion,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     vsock s = bound(s);
     void *dest = bound(dest);
@@ -259,7 +258,7 @@ closure_func_basic(file_io, sysreturn, vsock_read,
 
 closure_function(4, 1, sysreturn, vsock_write_bh,
                  vsock, s, void *, src, u64, length, io_completion, completion,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     vsock s = bound(s);
     void *src = bound(src);
@@ -460,7 +459,7 @@ static sysreturn vsock_listen(struct sock *sock, int backlog)
 
 closure_function(3, 1, sysreturn, vsock_connect_bh,
                  vsock, s, u32, peer_cid, u32, peer_port,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     vsock s = bound(s);
     u32 peer_cid = bound(peer_cid);
@@ -565,7 +564,7 @@ static sysreturn vsock_connect(struct sock *sock, struct sockaddr *addr, socklen
 
 closure_function(4, 1, sysreturn, vsock_accept_bh,
                  vsock, s, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     vsock s = bound(s);
     sysreturn rv;

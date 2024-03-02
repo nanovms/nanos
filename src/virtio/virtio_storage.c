@@ -95,12 +95,9 @@ struct virtio_blk_config {
 #define VIRTIO_BLK_DRIVER_FEATURES  \
     (VIRTIO_BLK_F_SEG_MAX | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_CONFIG_WCE | VIRTIO_BLK_F_FLUSH)
 
-declare_closure_struct(0, 1, void, virtio_storage_req_handler,
-                       storage_req, req);
-
 typedef struct storage {
     vtdev v;
-    closure_struct(virtio_storage_req_handler, req_handler);
+    closure_struct(storage_req_handler, req_handler);
     struct virtqueue *command;
     u64 capacity;
     u64 block_size;
@@ -127,7 +124,7 @@ static void deallocate_virtio_blk_req(storage st, virtio_blk_req req, u64 phys)
 
 closure_function(4, 1, void, complete,
                  storage, s, status_handler, f, virtio_blk_req, req, u64, phys,
-                 u64, len)
+                 u64 len)
 {
     status st = 0;
     // 1 is io error, 2 is unsupported operation
@@ -248,8 +245,8 @@ static void storage_flush(storage st, status_handler s)
     vqmsg_commit(vq, m, c);
 }
 
-define_closure_function(0, 1, void, virtio_storage_req_handler,
-                        storage_req, req)
+closure_func_basic(storage_req_handler, void, virtio_storage_req_handler,
+                   storage_req req)
 {
     storage st = struct_from_field(closure_self(), storage, req_handler);
     switch (req->op) {
@@ -295,12 +292,13 @@ static void virtio_blk_attach(heap general, storage_attach a, vtdev v)
     }
     vtdev_set_status(v, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 
-    apply(a, init_closure(&s->req_handler, virtio_storage_req_handler), s->capacity, -1);
+    apply(a, init_closure_func(&s->req_handler, storage_req_handler, virtio_storage_req_handler),
+          s->capacity, -1);
 }
 
 closure_function(3, 1, boolean, vtpci_blk_probe,
                  heap, general, storage_attach, a, backed_heap, page_allocator,
-                 pci_dev, d)
+                 pci_dev d)
 {
     virtio_blk_debug("%s\n", func_ss);
     if (!vtpci_probe(d, VIRTIO_ID_BLOCK))
@@ -315,7 +313,7 @@ closure_function(3, 1, boolean, vtpci_blk_probe,
 
 closure_function(3, 1, void, vtmmio_blk_probe,
                  heap, general, storage_attach, a, backed_heap, page_allocator,
-                 vtmmio, d)
+                 vtmmio d)
 {
     virtio_blk_debug("%s\n", __func__);
     if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_BLOCK) ||

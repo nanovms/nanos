@@ -294,6 +294,10 @@ typedef struct nlsock {
     int family;
     struct sockaddr_nl addr;
     queue data;
+    closure_struct(file_io, read);
+    closure_struct(file_io, write);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_close, close);
 } *nlsock;
 
 #define nl_lock(s)      spin_lock(&(s)->sock.f.lock)
@@ -750,7 +754,7 @@ static sysreturn nl_write_internal(nlsock s, void * src, u64 len)
 
 closure_function(8, 1, sysreturn, nl_read_bh,
                  nlsock, s, void *, dest, u64, length, struct msghdr *, msg, int, flags, struct sockaddr *, from, socklen_t *, from_len, io_completion, completion,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     nlsock s = bound(s);
     void *dest = bound(dest);
@@ -855,46 +859,42 @@ out:
     return rv;
 }
 
-closure_function(1, 6, sysreturn, nl_read,
-                 nlsock, s,
-                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, nl_read,
+                   void *dest, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
     nl_debug("read len %ld", length);
-    nlsock s = bound(s);
+    nlsock s = struct_from_closure(nlsock, read);
     blockq_action ba = closure_from_context(ctx, nl_read_bh, s, dest, length, 0, 0, 0, 0, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, -ENOMEM);
     return blockq_check(s->sock.rxbq, ba, false);
 }
 
-closure_function(1, 6, sysreturn, nl_write,
-                 nlsock, s,
-                 void *, src, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, nl_write,
+                   void *src, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     nl_debug("write len %ld", length);
-    nlsock s = bound(s);
+    nlsock s = struct_from_closure(nlsock, write);
     nl_lock(s);
     sysreturn rv = nl_write_internal(s, src, length);
     nl_unlock(s);
     return io_complete(completion, rv);
 }
 
-closure_function(1, 1, u32, nl_events,
-                 nlsock, s,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, nl_events,
+                 thread t)
 {
-    nlsock s = bound(s);
+    nlsock s = struct_from_closure(nlsock, events);
     u32 events = EPOLLOUT;
     if (!queue_empty(s->data))
         events |= EPOLLIN;
     return events;
 }
 
-closure_function(1, 2, sysreturn, nl_close,
-                 nlsock, s,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, nl_close,
+                   context ctx, io_completion completion)
 {
-    nlsock s = bound(s);
+    nlsock s = struct_from_closure(nlsock, close);
     nl_debug("close, pid %d", s->addr.nl_pid);
     socket_flush_q(&s->sock);
     struct nlmsghdr *hdr = dequeue(s->data);
@@ -911,10 +911,6 @@ closure_function(1, 2, sysreturn, nl_close,
             break;
         }
     }
-    deallocate_closure(s->sock.f.read);
-    deallocate_closure(s->sock.f.write);
-    deallocate_closure(s->sock.f.events);
-    deallocate_closure(s->sock.f.close);
     socket_deinit(&s->sock);
     if (s->addr.nl_pid != 0)
         deallocate_u64((heap)netlink.pids, s->addr.nl_pid, 1);
@@ -1122,10 +1118,10 @@ sysreturn netlink_open(int type, int family)
     spin_unlock(&netlink.lock);
     s->family = family;
     zero(&s->addr, sizeof(s->addr));
-    s->sock.f.read = closure(h, nl_read, s);
-    s->sock.f.write = closure(h, nl_write, s);
-    s->sock.f.events = closure(h, nl_events, s);
-    s->sock.f.close = closure(h, nl_close, s);
+    s->sock.f.read = init_closure_func(&s->read, file_io, nl_read);
+    s->sock.f.write = init_closure_func(&s->write, file_io, nl_write);
+    s->sock.f.events = init_closure_func(&s->events, fdesc_events, nl_events);
+    s->sock.f.close = init_closure_func(&s->close, fdesc_close, nl_close);
     s->sock.bind = nl_bind;
     s->sock.getsockname = nl_getsockname;
     s->sock.sendto = nl_sendto;

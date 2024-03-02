@@ -49,10 +49,6 @@ enum {
     VTPCI_REG_MAX
 };
 
-declare_closure_struct(1, 2, void, vtpci_notify,
-                       struct vtpci *, dev,
-                       u16, queue_index, bytes, notify_offset);
-
 struct vtpci {
     struct vtdev virtio_dev; /* must be first */
     pci_dev dev;
@@ -66,7 +62,7 @@ struct vtpci {
 
     struct virtio_feature_desc	*vtpci_child_feat_desc;
 
-    closure_struct(vtpci_notify, notify);
+    closure_struct(vtdev_notify, notify);
 
     /* for non-MSIX */
     thunk non_msix_handler;

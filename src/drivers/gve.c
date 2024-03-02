@@ -250,8 +250,6 @@ typedef struct gve_tx_queue {
     struct gve_queue_resources *q_res;
 } *gve_tx_queue;
 
-declare_closure_struct(0, 0, void, gve_rx_irq);
-declare_closure_struct(0, 0, void, gve_rx_service);
 typedef struct gve_rx_queue {
     struct spinlock lock;
     u32 head, tail;
@@ -264,13 +262,11 @@ typedef struct gve_rx_queue {
     u64 *data;
     struct pbuf *pbufs;
     u32 *irq_db_index;
-    closure_struct(gve_rx_irq, irq_handler);
-    closure_struct(gve_rx_service, service);
+    closure_struct(thunk, irq_handler);
+    closure_struct(thunk, service);
     struct gve_queue_resources *q_res;
 } *gve_rx_queue;
 
-declare_closure_struct(0, 0, void, gve_mgmt_irq);
-declare_closure_struct(0, 0, void, gve_link_status_handler);
 typedef struct gve {
     heap general, contiguous;
     pci_dev pdev;
@@ -286,8 +282,8 @@ typedef struct gve {
     struct gve_irq_db *irq_db_indices;
     struct gve_tx_queue tx;
     struct gve_rx_queue rx;
-    closure_struct(gve_mgmt_irq, mgmt_irq_handler);
-    closure_struct(gve_link_status_handler, link_status_handler);
+    closure_struct(thunk, mgmt_irq_handler);
+    closure_struct(thunk, link_status_handler);
     struct netif net_if;
     u16 mtu;
 } *gve;
@@ -401,7 +397,7 @@ static void gve_free_device_resources(gve adapter)
                MAX(adapter->num_event_counters * sizeof(u32), PAGESIZE));
 }
 
-define_closure_function(0, 0, void, gve_link_status_handler)
+closure_func_basic(thunk, void, gve_link_status_handler)
 {
     gve adapter = struct_from_field(closure_self(), gve, link_status_handler);
     u32 status = pci_bar_read_4(&adapter->reg_bar, GVE_REG_DEVICE_STATUS);
@@ -412,7 +408,7 @@ define_closure_function(0, 0, void, gve_link_status_handler)
         netif_set_link_down(&adapter->net_if);
 }
 
-define_closure_function(0, 0, void, gve_mgmt_irq)
+closure_func_basic(thunk, void, gve_mgmt_irq)
 {
     gve adapter = struct_from_field(closure_self(), gve, mgmt_irq_handler);
     u32 status = pci_bar_read_4(&adapter->reg_bar, GVE_REG_DEVICE_STATUS);
@@ -522,7 +518,7 @@ static void gve_rx_fill(gve_rx_queue rx)
                         htobe32(rx->head));
 }
 
-define_closure_function(0, 0, void, gve_rx_irq)
+closure_func_basic(thunk, void, gve_rx_irq)
 {
     gve_debug("RX irq");
     gve_rx_queue rx = struct_from_field(closure_self(), gve_rx_queue, irq_handler);
@@ -530,7 +526,7 @@ define_closure_function(0, 0, void, gve_rx_irq)
     /* further interrupts are masked until this interrupt is acked in the RX service thunk */
 }
 
-define_closure_function(0, 0, void, gve_rx_service)
+closure_func_basic(thunk, void, gve_rx_service)
 {
     gve_rx_queue rx = struct_from_field(closure_self(), gve_rx_queue, service);
     gve adapter = rx->adapter;
@@ -595,10 +591,12 @@ static boolean gve_init_interrupts(gve adapter)
     int msix_avail = pci_enable_msix(adapter->pdev);
     if (msix_avail < 3) /* TX irq, RX irq, management irq */
         return false;
-    if (pci_setup_msix(adapter->pdev, 2, init_closure(&adapter->mgmt_irq_handler, gve_mgmt_irq),
+    if (pci_setup_msix(adapter->pdev, 2,
+                       init_closure_func(&adapter->mgmt_irq_handler, thunk, gve_mgmt_irq),
                        ss("gve_mgmt")) == INVALID_PHYSICAL)
         goto error;
-    if (pci_setup_msix(adapter->pdev, 1, init_closure(&adapter->rx.irq_handler, gve_rx_irq),
+    if (pci_setup_msix(adapter->pdev, 1,
+                       init_closure_func(&adapter->rx.irq_handler, thunk, gve_rx_irq),
                        ss("gve_rx")) == INVALID_PHYSICAL)
         goto err_disable_mgmt;
     return true;
@@ -755,7 +753,7 @@ static boolean gve_create_rx_queue(gve adapter, gve_rx_queue rx, u32 index)
     }
     rx->irq_db_index = &adapter->irq_db_indices[id].index;
     rx->adapter = adapter;
-    init_closure(&rx->service, gve_rx_service);
+    init_closure_func(&rx->service, thunk, gve_rx_service);
     spin_lock_init(&rx->lock);
     gve_rx_fill(rx);
     return true;
@@ -791,7 +789,7 @@ static boolean gve_init(gve adapter)
     pci_bar_init(adapter->pdev, &adapter->reg_bar, GVE_REGISTER_BAR, 0, -1);
     pci_bar_init(adapter->pdev, &adapter->db_bar, GVE_DOORBELL_BAR, 0, -1);
     pci_enable_io_and_memory(adapter->pdev);
-    init_closure(&adapter->link_status_handler, gve_link_status_handler);
+    init_closure_func(&adapter->link_status_handler, thunk, gve_link_status_handler);
     adapter->adminq_head = 0;
     adapter->adminq_mask = PAGESIZE / sizeof(struct gve_adminq_command) - 1;
     pci_bar_write_4(&adapter->reg_bar, GVE_REG_ADMINQ_PFN,
@@ -841,7 +839,7 @@ static err_t gve_if_init(struct netif *netif)
 
 closure_function(2, 1, boolean, gve_probe,
         heap, general, heap, contiguous,
-        pci_dev, d)
+        pci_dev d)
 {
     if ((pci_get_vendor(d) != PCI_VENDOR_ID_GOOGLE) || (pci_get_device(d) != PCI_DEV_ID_GVNIC))
         return false;

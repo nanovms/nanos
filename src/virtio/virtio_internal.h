@@ -17,7 +17,7 @@
 
 typedef struct virtqueue *virtqueue;
 
-typedef closure_type(vqfinish, void, u64);
+closure_type(vqfinish, void, u64 len);
 
 /* Status byte for guest to report progress. */
 #define VIRTIO_CONFIG_STATUS_RESET	0x00
@@ -59,7 +59,7 @@ typedef closure_type(vqfinish, void, u64);
 /* Modern device */
 #define VIRTIO_F_VERSION_1 U64_FROM_BIT(32)
 
-typedef closure_type(vtdev_notify, void, u16 queue_index, bytes notify_offset);
+closure_type(vtdev_notify, void, u16 queue_index, bytes notify_offset);
 
 typedef struct vtdev {
     u64 dev_features;              // device features

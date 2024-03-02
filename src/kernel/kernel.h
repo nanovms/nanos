@@ -5,7 +5,7 @@
 #include <debug.h>
 #endif
 
-typedef closure_type(cmdline_handler, void, const char *, int);
+closure_type(cmdline_handler, void, const char *str, int len);
 
 #ifdef KERNEL
 void runloop_target(void) __attribute__((noreturn));
@@ -32,14 +32,12 @@ void tprintf(symbol tag, tuple attrs, sstring format, ...);
 #endif
 
 /* per-cpu info, saved contexts and stacks */
-declare_closure_struct(0, 0, void, kernel_context_return);
-
 declare_closure_struct(2, 0, void, free_kernel_context,
                        queue, free_ctx_q, boolean, queued);
 
 typedef struct kernel_context {
     struct context context;
-    closure_struct(kernel_context_return, kernel_return);
+    closure_struct(thunk, kernel_return);
     closure_struct(free_kernel_context, free);
     u64 size;
     u64 err_frame[ERR_FRAME_SIZE];  /* must contain all callee-saved registers */
@@ -427,7 +425,7 @@ extern queue async_queue_1;
 extern timerqueue kernel_timers;
 extern thunk timer_interrupt_handler;
 
-typedef closure_type(clock_timer, void, timestamp);
+closure_type(clock_timer, void, timestamp t);
 
 extern clock_timer platform_timer;
 
@@ -456,7 +454,7 @@ static inline void async_apply_bh(thunk t)
     assert(enqueue_irqsafe(bhqueue, t));
 }
 
-typedef closure_type(async_1, void, u64);
+closure_type(async_1, void, u64 arg0);
 
 typedef struct applied_async_1 {
     async_1 a;
@@ -857,7 +855,7 @@ static inline boolean sched_queue_empty(sched_queue sq)
     return (sched_queue_length(sq) == 0);
 }
 
-typedef closure_type(mem_cleaner, u64, u64);
+closure_type(mem_cleaner, u64, u64 clean_bytes);
 boolean mm_register_mem_cleaner(mem_cleaner cleaner);
 
 kernel_heaps get_kernel_heaps(void);
@@ -893,12 +891,12 @@ void detect_devices(kernel_heaps kh, storage_attach sa);
 
 u64 machine_random_seed(void);
 
-typedef closure_type(shutdown_handler, void, int, merge);
+closure_type(shutdown_handler, void, int status, merge m);
 void add_shutdown_completion(shutdown_handler h);
 extern int shutdown_vector;
 void wakeup_or_interrupt_cpu_all();
 
-typedef closure_type(halt_handler, void, int);
+closure_type(halt_handler, void, int status);
 extern halt_handler vm_halt;
 
 void early_debug_sstring(sstring s);

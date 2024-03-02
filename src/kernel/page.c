@@ -143,8 +143,8 @@ boolean traverse_ptes(u64 vaddr, u64 length, entry_handler ph)
     return result;
 }
 
-closure_function(0, 3, boolean, dump_entry,
-                 int, level, u64, vaddr, pteptr, entry)
+closure_func_basic(entry_handler, boolean, dump_entry,
+                   int level, u64 vaddr, pteptr entry)
 {
     for (int i = 0; i < (level - PT_FIRST_LEVEL); i++)
         early_debug("   ");
@@ -167,13 +167,13 @@ void dump_page_tables(u64 addr, u64 length)
     early_debug(") (length ");
     early_debug_u64(length);
     early_debug(")\n");
-    traverse_ptes(addr, length, stack_closure(dump_entry));
+    traverse_ptes(addr, length, stack_closure_func(entry_handler, dump_entry));
     early_debug("\n");
 }
 
 /* called with lock held */
-closure_function(0, 3, boolean, validate_entry,
-                 int, level, u64, vaddr, pteptr, entry)
+closure_func_basic(entry_handler, boolean, validate_entry,
+                   int level, u64 vaddr, pteptr entry)
 {
     return pte_is_present(pte_from_pteptr(entry));
 }
@@ -185,11 +185,12 @@ boolean validate_virtual(void * base, u64 length)
     u64 p = u64_from_pointer(base) >> VIRTUAL_ADDRESS_BITS;
     if (p != 0 && p != MASK(64-VIRTUAL_ADDRESS_BITS))
         return false;
-    return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry));
+    return traverse_ptes(u64_from_pointer(base), length,
+                         stack_closure_func(entry_handler, validate_entry));
 }
 
-closure_function(0, 3, boolean, validate_entry_writable,
-                 int, level, u64, vaddr, pteptr, entry)
+closure_func_basic(entry_handler, boolean, validate_entry_writable,
+                   int level, u64 vaddr, pteptr entry)
 {
     pte pte = pte_from_pteptr(entry);
     if (!pte_is_present(pte))
@@ -200,13 +201,14 @@ closure_function(0, 3, boolean, validate_entry_writable,
 boolean validate_virtual_writable(void * base, u64 length)
 {
     page_debug("base %p, length 0x%lx\n", base, length);
-    return traverse_ptes(u64_from_pointer(base), length, stack_closure(validate_entry_writable));
+    return traverse_ptes(u64_from_pointer(base), length,
+                         stack_closure_func(entry_handler, validate_entry_writable));
 }
 
 /* called with lock held */
 closure_function(2, 3, boolean, update_pte_flags,
                  pageflags, flags, flush_entry, fe,
-                 int, level, u64, addr, pteptr, entry)
+                 int level, u64 addr, pteptr entry)
 {
     /* we only care about present ptes */
     pte orig_pte = pte_from_pteptr(entry);
@@ -244,7 +246,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
 /* called with lock held */
 closure_function(3, 3, boolean, remap_entry,
                  u64, new, u64, old, flush_entry, fe,
-                 int, level, u64, curr, pteptr, entry)
+                 int level, u64 curr, pteptr entry)
 {
     u64 offset = curr - bound(old);
     u64 oldentry = pte_from_pteptr(entry);
@@ -299,8 +301,8 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
 }
 
 /* called with lock held */
-closure_function(0, 3, boolean, zero_page,
-                 int, level, u64, addr, pteptr, entry)
+closure_func_basic(entry_handler, boolean, zero_page,
+                   int level, u64 addr, pteptr entry)
 {
     u64 e = pte_from_pteptr(entry);
     if (pte_is_present(e) && pte_is_mapping(level, e)) {
@@ -315,13 +317,13 @@ closure_function(0, 3, boolean, zero_page,
 
 void zero_mapped_pages(u64 vaddr, u64 length)
 {
-    traverse_ptes(vaddr, length, stack_closure(zero_page));
+    traverse_ptes(vaddr, length, stack_closure_func(entry_handler, zero_page));
 }
 
 /* called with lock held */
 closure_function(2, 3, boolean, unmap_page,
                  range_handler, rh, flush_entry, fe,
-                 int, level, u64, vaddr, pteptr, entry)
+                 int level, u64 vaddr, pteptr entry)
 {
     range_handler rh = bound(rh);
     u64 old_entry = pte_from_pteptr(entry);
@@ -547,7 +549,7 @@ void unmap(u64 virtual, u64 length)
 
 closure_function(1, 1, boolean, page_dealloc,
                  heap, pageheap,
-                 range, r)
+                 range r)
 {
     u64 virt = pagemem.pagevirt.start + r.start;
     deallocate_u64(bound(pageheap), virt, range_span(r));
@@ -580,7 +582,7 @@ static boolean init_page_map(range phys, range *curr_virt, id_heap virt_heap, pa
 
 closure_function(6, 1, boolean, init_page_map_all_rh,
                  range *, curr_virt, id_heap, virt_heap, u64, margin, pageflags, flags, u64, last_end, range *, init_pages,
-                 range, r)
+                 range r)
 {
     u64 margin = bound(margin);
     range phys = irange(r.start & ~(margin - 1), pad(r.end, margin));

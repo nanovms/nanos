@@ -65,7 +65,6 @@ typedef struct virtio_sock {
     u32 guest_cid;
 } *virtio_sock;
 
-declare_closure_struct(0, 0, void, virtio_sock_conn_free);
 typedef struct virtio_sock_connection {
     struct vsock_connection vsock_conn;
     virtio_sock vs;
@@ -75,23 +74,19 @@ typedef struct virtio_sock_connection {
     u32 tx_cnt;
     u32 peer_buf_alloc;
     u32 peer_fwd_cnt;
-    closure_struct(virtio_sock_conn_free, free);
+    closure_struct(thunk, free);
 } *virtio_sock_connection;
 
-declare_closure_struct(0, 1, void, virtio_sock_rx_complete,
-                       u64, len);
 typedef struct virtio_sock_rxbuf {
     virtio_sock vs;
     u32 seqno;
-    closure_struct(virtio_sock_rx_complete, complete);
+    closure_struct(vqfinish, complete);
     u8 data[0];
 } *virtio_sock_rxbuf;
 
-declare_closure_struct(0, 1, void, virtio_sock_tx_complete,
-                       u64, len);
 typedef struct virtio_sock_txbuf {
     virtio_sock vs;
-    closure_struct(virtio_sock_tx_complete, complete);
+    closure_struct(vqfinish, complete);
     u8 data[0];
 } *virtio_sock_txbuf;
 
@@ -144,7 +139,7 @@ static boolean virtio_sock_dev_attach(heap general, backed_heap backed, vtdev de
 
 closure_function(2, 1, boolean, vtpci_sock_probe,
                  heap, general, backed_heap, backed,
-                 pci_dev, d)
+                 pci_dev d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_VSOCK))
         return false;
@@ -156,7 +151,7 @@ closure_function(2, 1, boolean, vtpci_sock_probe,
 
 closure_function(2, 1, void, vtmmio_sock_probe,
                  heap, general, backed_heap, backed,
-                 vtmmio, d)
+                 vtmmio d)
 {
     if ((vtmmio_get_u32(d, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_VSOCK) ||
         (d->memsize < VTMMIO_OFFSET_CONFIG + sizeof(struct virtio_vsock_config)))
@@ -183,14 +178,14 @@ u32 virtio_sock_get_guest_cid(void *priv)
     return vs->guest_cid;
 }
 
-define_closure_function(0, 0, void, virtio_sock_conn_free)
+closure_func_basic(thunk, void, virtio_sock_conn_free)
 {
     virtio_sock_connection c = struct_from_field(closure_self(), virtio_sock_connection, free);
     deallocate(c->vs->general, c, sizeof(*c));
 }
 
-define_closure_function(0, 1, void, virtio_sock_tx_complete,
-                        u64, len)
+closure_func_basic(vqfinish, void, virtio_sock_tx_complete,
+                   u64 len)
 {
     virtio_sock_txbuf txbuf = struct_from_field(closure_self(), virtio_sock_txbuf, complete);
     struct virtio_vsock_hdr *hdr = (struct virtio_vsock_hdr *)txbuf->data;
@@ -225,7 +220,7 @@ static boolean virtio_sock_tx_hdr(virtio_sock vs, virtio_sock_connection conn, u
         return false;
     }
     vqmsg_push(vq, m, phys + offsetof(virtio_sock_txbuf, data), sizeof(*hdr), false);
-    vqmsg_commit(vq, m, init_closure(&txbuf->complete, virtio_sock_tx_complete));
+    vqmsg_commit(vq, m, init_closure_func(&txbuf->complete, vqfinish, virtio_sock_tx_complete));
     return true;
 }
 
@@ -239,8 +234,8 @@ static void virtio_socket_conn_update(virtio_sock_connection conn, struct virtio
         vsock_buf_space_notify(&conn->vsock_conn, new_buf_space);
 }
 
-define_closure_function(0, 1, void, virtio_sock_rx_complete,
-                        u64, len)
+closure_func_basic(vqfinish, void, virtio_sock_rx_complete,
+                   u64 len)
 {
     virtio_sock_rxbuf rxbuf = struct_from_field(closure_self(), virtio_sock_rxbuf, complete);
     virtio_sock vs = rxbuf->vs;
@@ -373,7 +368,8 @@ static boolean virtio_sock_rxq_submit(virtio_sock vs)
         vqmsg_push(vq, m, phys + data_offset, VIRTIO_SOCK_RXBUF_SIZE - data_offset, true);
         rxbuf->vs = vs;
         new_entries += VIRTIO_SOCK_RX_PACKET_DESCS;
-        vqmsg_commit_seqno(vq, m, init_closure(&rxbuf->complete, virtio_sock_rx_complete),
+        vqmsg_commit_seqno(vq, m,
+                           init_closure_func(&rxbuf->complete, vqfinish, virtio_sock_rx_complete),
                            &rxbuf->seqno, new_entries >= free_entries);
     }
     if (new_entries == 0)
@@ -391,7 +387,7 @@ vsock_connection virtio_sock_conn_new(void *priv, u32 local_port, u32 peer_cid, 
     if (c == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     vsock_conn_init(&c->vsock_conn, local_port, peer_cid, peer_port,
-                    init_closure(&c->free, virtio_sock_conn_free));
+                    init_closure_func(&c->free, thunk, virtio_sock_conn_free));
     c->vs = vs;
     c->type = VIRTIO_VSOCK_TYPE_STREAM;
     c->buf_alloc = buf_size;
@@ -476,7 +472,7 @@ boolean virtio_sock_tx(vsock_connection conn, void *data)
     vqmsg_push(vq, m, phys, sizeof(*hdr), false);
     vqmsg_push(vq, m, phys + sizeof(*hdr), hdr->len, false);
 
-    vqmsg_commit(vq, m, init_closure(&txbuf->complete, virtio_sock_tx_complete));
+    vqmsg_commit(vq, m, init_closure_func(&txbuf->complete, vqfinish, virtio_sock_tx_complete));
     return true;
 }
 

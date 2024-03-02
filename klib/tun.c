@@ -37,6 +37,11 @@ typedef struct tun_file {
     blockq bq;
     struct list l;
     struct tun *tun;
+    closure_struct(file_io, read);
+    closure_struct(file_io, write);
+    closure_struct(fdesc_events, events);
+    closure_struct(fdesc_ioctl, ioctl);
+    closure_struct(fdesc_close, close);
     boolean attached;
 } *tun_file;
 
@@ -103,7 +108,7 @@ static err_t tun_if_init(struct netif *netif)
 
 closure_function(4, 1, sysreturn, tun_read_bh,
                  tun_file, tf, void *, dest, u64, len, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     tun_file tf = bound(tf);
     tun tun = tf->tun;
@@ -166,11 +171,10 @@ closure_function(4, 1, sysreturn, tun_read_bh,
     return ret;
 }
 
-closure_function(1, 6, sysreturn, tun_read,
-                 tun_file, tf,
-                 void *, dest, u64, len, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, tun_read,
+                   void *dest, u64 len, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    tun_file tf = bound(tf);
+    tun_file tf = struct_from_closure(tun_file, read);
     tun tun = tf->tun;
     if (!tun)
         return io_complete(completion, -EBADFD);
@@ -180,11 +184,10 @@ closure_function(1, 6, sysreturn, tun_read,
     return blockq_check(tf->bq, ba, bh);
 }
 
-closure_function(1, 6, sysreturn, tun_write,
-                 tun_file, tf,
-                 void *, src, u64, len, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, tun_write,
+                   void *src, u64 len, u64 offset, context ctx, boolean bh, io_completion completion)
 {
-    tun_file tf = bound(tf);
+    tun_file tf = struct_from_closure(tun_file, write);
     tun tun = tf->tun;
     if (!tun)
         return io_complete(completion, -EBADFD);
@@ -222,11 +225,10 @@ closure_function(1, 6, sysreturn, tun_write,
     return io_complete(completion, len);
 }
 
-closure_function(1, 1, u32, tun_events,
-                 tun_file, tf,
-                 thread, t)
+closure_func_basic(fdesc_events, u32, tun_events,
+                   thread t)
 {
-    tun_file tf = bound(tf);
+    tun_file tf = struct_from_closure(tun_file, events);
     if (!tf->attached)
         return EPOLLERR;
     u32 events = EPOLLOUT;
@@ -266,11 +268,10 @@ static void get_tun_config(sstring name, ip4_addr_t *ipaddr, ip4_addr_t *netmask
     *bringup = get(cfg, sym(up)) != 0;
 }
 
-closure_function(1, 2, sysreturn, tun_ioctl,
-                 tun_file, tf,
-                 unsigned long, request, vlist, ap)
+closure_func_basic(fdesc_ioctl, sysreturn, tun_ioctl,
+                   unsigned long request, vlist ap)
 {
-    tun_file tf = bound(tf);
+    tun_file tf = struct_from_closure(tun_file, ioctl);
     tun tun = tf->tun;
     switch (request) {
     case TUNSETIFF: {
@@ -362,11 +363,10 @@ closure_function(1, 2, sysreturn, tun_ioctl,
     return 0;
 }
 
-closure_function(1, 2, sysreturn, tun_close,
-                 tun_file, tf,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, tun_close,
+                   context ctx, io_completion completion)
 {
-    tun_file tf = bound(tf);
+    tun_file tf = struct_from_closure(tun_file, close);
     tun tun = tf->tun;
     file f = tf->f;
     if (tun) {
@@ -385,38 +385,23 @@ closure_function(1, 2, sysreturn, tun_close,
     }
     deallocate_blockq(tf->bq);
     deallocate_queue(tf->pq);
-    deallocate_closure(f->f.read);
-    deallocate_closure(f->f.write);
-    deallocate_closure(f->f.events);
-    deallocate_closure(f->f.ioctl);
-    deallocate_closure(f->f.close);
     file_release(f);
     deallocate(tun_heap, tf, sizeof(struct tun_file));
     return io_complete(completion, 0);
 }
 
-closure_function(0, 1, sysreturn, tun_open,
-                 file, f)
+closure_func_basic(spec_file_open, sysreturn, tun_open,
+                   file f)
 {
     tun_file tf = allocate(tun_heap, sizeof(struct tun_file));
     if (tf == INVALID_ADDRESS)
         return -ENOMEM;
     *tf = (struct tun_file){};
-    f->f.read = closure(tun_heap, tun_read, tf);
-    if (f->f.read == INVALID_ADDRESS)
-        goto no_mem;
-    f->f.write = closure(tun_heap, tun_write, tf);
-    if (f->f.write == INVALID_ADDRESS)
-        goto no_mem;
-    f->f.events = closure(tun_heap, tun_events, tf);
-    if (f->f.events == INVALID_ADDRESS)
-        goto no_mem;
-    f->f.ioctl = closure(tun_heap, tun_ioctl, tf);
-    if (f->f.ioctl == INVALID_ADDRESS)
-        goto no_mem;
-    f->f.close = closure(tun_heap, tun_close, tf);
-    if (f->f.close == INVALID_ADDRESS)
-        goto no_mem;
+    f->f.read = init_closure_func(&tf->read, file_io, tun_read);
+    f->f.write = init_closure_func(&tf->write, file_io, tun_write);
+    f->f.events = init_closure_func(&tf->events, fdesc_events, tun_events);
+    f->f.ioctl = init_closure_func(&tf->ioctl, fdesc_ioctl, tun_ioctl);
+    f->f.close = init_closure_func(&tf->close, fdesc_close, tun_close);
     tf->pq = allocate_queue(tun_heap, TUN_QUEUE_LEN);
     if (tf->pq == INVALID_ADDRESS)
         goto no_mem;
@@ -429,16 +414,6 @@ closure_function(0, 1, sysreturn, tun_open,
     tf->tun = 0;
     return 0;
   no_mem:
-    if (f->f.read && (f->f.read != INVALID_ADDRESS))
-        deallocate_closure(f->f.read);
-    if (f->f.write && (f->f.write == INVALID_ADDRESS))
-        deallocate_closure(f->f.write);
-    if (f->f.events && (f->f.events == INVALID_ADDRESS))
-        deallocate_closure(f->f.events);
-    if (f->f.ioctl && (f->f.ioctl == INVALID_ADDRESS))
-        deallocate_closure(f->f.ioctl);
-    if (f->f.close && (f->f.close == INVALID_ADDRESS))
-        deallocate_closure(f->f.close);
     deallocate(tun_heap, tf, sizeof(struct tun_file));
     return -ENOMEM;
 }
@@ -454,7 +429,7 @@ int init(status_handler complete)
         rprintf("invalid tun cfg\n");
         return KLIB_INIT_FAILED;
     }
-    spec_file_open open = closure(tun_heap, tun_open);
+    spec_file_open open = closure_func(tun_heap, spec_file_open, tun_open);
     if (open == INVALID_ADDRESS)
         return KLIB_INIT_FAILED;
     if (create_special_file(ss("/dev/net/tun"), open, 0, makedev(MISC_MAJOR, TUN_MINOR))) {

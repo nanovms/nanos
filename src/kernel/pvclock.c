@@ -23,7 +23,7 @@ u64 pvclock_now_ns(void)
     return vdso_pvclock_now_ns(vclock);
 }
 
-closure_function(0, 0, timestamp, pvclock_now)
+closure_func_basic(clock_now, timestamp, pvclock_now)
 {
     return nanoseconds(pvclock_now_ns());
 }
@@ -33,7 +33,7 @@ void init_pvclock(heap h, struct pvclock_vcpu_time_info *vti, struct pvclock_wal
     assert(vti);
     vclock = vti;
     pvclock_heap = h;
-    register_platform_clock_now(closure(h, pvclock_now), VDSO_CLOCK_PVCLOCK,
+    register_platform_clock_now(closure_func(h, clock_now, pvclock_now), VDSO_CLOCK_PVCLOCK,
                                 pvclock_get_rtc_offset(wc));
 }
 
@@ -43,8 +43,8 @@ physical pvclock_get_physaddr(void)
                          : physical_from_virtual((void *)vclock);
 }
 
-closure_function(0, 1, void, tsc_deadline_timer,
-                 timestamp, interval)
+closure_func_basic(clock_timer, void, tsc_deadline_timer,
+                   timestamp interval)
 {
     u32 version;
     u64 count = 0;
@@ -81,7 +81,7 @@ boolean init_tsc_deadline_timer(clock_timer *ct, thunk *per_cpu_init)
     if ((v[2] & (1 << 24)) == 0)
         return false;           /* no TSC-Deadline */
 
-    *ct = closure(pvclock_heap, tsc_deadline_timer);
+    *ct = closure_func(pvclock_heap, clock_timer, tsc_deadline_timer);
     int irq = allocate_interrupt();
     register_interrupt(irq, timer_interrupt_handler, ss("tsc deadline timer"));
     *per_cpu_init = closure(pvclock_heap, tsc_deadline_percpu_init, irq);

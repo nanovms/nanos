@@ -1,13 +1,8 @@
-
-declare_closure_struct(0, 2, int, rmnode_compare,
-                 rbnode, a, rbnode, b);
-declare_closure_struct(0, 1, boolean, print_key,
-                 rbnode, n);
 typedef struct rangemap {
     heap h;
     struct rbtree t;
-    closure_struct(rmnode_compare, compare);
-    closure_struct(print_key, print);
+    closure_struct(rb_key_compare, compare);
+    closure_struct(rbnode_handler, print);
 } *rangemap;
 
 // [start, end)
@@ -24,8 +19,8 @@ typedef struct rmnode {
 #define irangel(__s, __l) (range){__s, (__s) + (__l)}
 #define point_in_range(__r, __p) ((__p >= __r.start) && (__p < __r.end))
 
-typedef closure_type(rmnode_handler, boolean, rmnode);
-typedef closure_type(range_handler, boolean, range);
+closure_type(rmnode_handler, boolean, rmnode n);
+closure_type(range_handler, boolean, range r);
 
 boolean rangemap_insert(rangemap rm, rmnode n);
 boolean rangemap_reinsert(rangemap rm, rmnode n, range k);

@@ -61,8 +61,8 @@
 
 typedef struct pci_dev *pci_dev;
 
-typedef closure_type(pci_probe, boolean, pci_dev); // bus slot func
-typedef closure_type(pci_remove, void, void *, thunk);
+closure_type(pci_probe, boolean, pci_dev dev); // bus slot func
+closure_type(pci_remove, void, void *driver_data, thunk complete);
 
 typedef struct pci_driver {
     pci_probe probe;

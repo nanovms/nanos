@@ -71,13 +71,7 @@ struct prd {
 
 declare_closure_struct(2, 3, void, ata_pci_io,
                        struct ata_pci *, apci, boolean, write,
-                       void *, buf, range, blocks, status_handler, s);
-
-declare_closure_struct(1, 0, void, ata_pci_irq,
-                       struct ata_pci *, apci);
-
-declare_closure_struct(1, 0, void, ata_pci_service,
-                       struct ata_pci *, apci);
+                       void *buf, range blocks, status_handler s);
 
 typedef struct ata_pci {
     heap h;
@@ -90,8 +84,8 @@ typedef struct ata_pci {
     closure_struct(ata_pci_io, write);
     block_io pio_read, pio_write;
     closure_struct(storage_simple_req_handler, req_handler);
-    closure_struct(ata_pci_irq, irq_handler);
-    closure_struct(ata_pci_service, service);
+    closure_struct(thunk, irq_handler);
+    closure_struct(thunk, service);
     struct list reqs;
     struct spinlock lock;
 } *ata_pci;
@@ -245,7 +239,7 @@ static void ata_pci_service_reqs(ata_pci apci)
 
 define_closure_function(2, 3, void, ata_pci_io,
                         ata_pci, apci, boolean, write,
-                        void *, buf, range, blocks, status_handler, sh)
+                        void *buf, range blocks, status_handler sh)
 {
     ata_pci apci = bound(apci);
     ata_pci_req req = allocate(apci->h, sizeof(*req));
@@ -266,10 +260,9 @@ define_closure_function(2, 3, void, ata_pci_io,
         ata_pci_service_reqs(apci);
 }
 
-define_closure_function(1, 0, void, ata_pci_irq,
-                        ata_pci, apci)
+closure_func_basic(thunk, void, ata_pci_irq)
 {
-    ata_pci apci = bound(apci);
+    ata_pci apci = struct_from_closure(ata_pci, irq_handler);
     pci_bar_write_1(&apci->bmr, ATA_BMR_CMD(ATA_PRIMARY), 0);
     u8 status = pci_bar_read_1(&apci->bmr, ATA_BMR_STATUS(ATA_PRIMARY));
     boolean error = ata_clear_irq(apci->ata);
@@ -294,15 +287,14 @@ define_closure_function(1, 0, void, ata_pci_irq,
     spin_unlock_irq(&apci->lock, irqflags);
 }
 
-define_closure_function(1, 0, void, ata_pci_service,
-                        ata_pci, apci)
+closure_func_basic(thunk, void, ata_pci_service)
 {
-    ata_pci_service_reqs(bound(apci));
+    ata_pci_service_reqs(struct_from_closure(ata_pci, service));
 }
 
 closure_function(3, 1, boolean, ata_pci_probe,
                  heap, general, heap, contiguous, storage_attach, a,
-                 pci_dev, d)
+                 pci_dev d)
 {
     heap general = bound(general);
     heap contiguous = bound(contiguous);
@@ -337,8 +329,8 @@ closure_function(3, 1, boolean, ata_pci_probe,
     init_closure(&dev->write, ata_pci_io, dev, true);
     dev->pio_read = create_ata_io(general, dev->ata, ATA_READ48);
     dev->pio_write = create_ata_io(general, dev->ata, ATA_WRITE48);
-    init_closure(&dev->irq_handler, ata_pci_irq, dev);
-    init_closure(&dev->service, ata_pci_service, dev);
+    init_closure_func(&dev->irq_handler, thunk, ata_pci_irq);
+    init_closure_func(&dev->service, thunk, ata_pci_service);
     ata_clear_irq(dev->ata);
     u64 irq = allocate_interrupt();
     assert(irq != INVALID_PHYSICAL);

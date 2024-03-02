@@ -20,8 +20,6 @@ sysreturn close(int fd);
 
 BSS_RO_AFTER_INIT io_completion syscall_io_complete;
 BSS_RO_AFTER_INIT io_completion io_completion_ignore;
-BSS_RO_AFTER_INIT shutdown_handler print_syscall_stats;
-BSS_RO_AFTER_INIT shutdown_handler print_missing_files;
 
 boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
 {
@@ -39,17 +37,12 @@ boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
     return true;
 }
 
-declare_closure_struct(2, 1, void, iov_op_each_complete,
-                       int, iovcnt, struct iov_progress *, progress,
-                       sysreturn, rv);
-
-declare_closure_struct(0, 0, void, iov_bh);
-
 struct iov_progress {
     heap h;
     fdesc f;
     boolean write;
     struct iovec *iov;
+    int iovcnt;
     boolean initialized;
     boolean blocking;
     u64 file_offset;
@@ -58,8 +51,8 @@ struct iov_progress {
     u64 total_len;
     context ctx;
     io_completion completion;
-    closure_struct(iov_op_each_complete, each_complete);
-    closure_struct(iov_bh, bh);
+    closure_struct(io_completion, each_complete);
+    closure_struct(thunk, bh);
 };
 
 static void iov_op_each(struct iov_progress *p)
@@ -78,13 +71,12 @@ static void iov_op_each(struct iov_progress *p)
           (io_completion)&p->each_complete);
 }
 
-define_closure_function(2, 1, void, iov_op_each_complete,
-                 int, iovcnt, struct iov_progress *, progress,
-                 sysreturn, rv)
+closure_func_basic(io_completion, void, iov_op_each_complete,
+                   sysreturn rv)
 {
     io_completion c;
-    int iovcnt = bound(iovcnt);
-    struct iov_progress *p = bound(progress);
+    struct iov_progress *p = struct_from_closure(struct iov_progress *, each_complete);
+    int iovcnt = p->iovcnt;
     fdesc f = p->f;
     boolean write = p->write;
     thread t = current;
@@ -137,14 +129,14 @@ define_closure_function(2, 1, void, iov_op_each_complete,
     apply(c, rv);
 }
 
-define_closure_function(0, 0, void, iov_bh)
+closure_func_basic(thunk, void, iov_bh)
 {
     iov_op_each(struct_from_field(closure_self(), struct iov_progress *, bh));
 }
 
 closure_function(4, 1, void, iov_read_complete,
                  sg_list, sg, struct iovec *, iov, int, iovcnt, io_completion, completion,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
@@ -161,7 +153,7 @@ closure_function(4, 1, void, iov_read_complete,
 
 closure_function(2, 1, void, iov_write_complete,
                  sg_list, sg, io_completion, completion,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
@@ -219,6 +211,7 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     p->f = f;
     p->write = write;
     p->iov = iov;
+    p->iovcnt = iovcnt;
     p->initialized = false;
     p->blocking = blocking;
     p->file_offset = offset;
@@ -227,10 +220,9 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     p->total_len = 0;
     p->ctx = ctx;
     p->completion = completion;
-    init_closure(&p->bh, iov_bh);
+    init_closure_func(&p->bh, thunk, iov_bh);
     closure_set_context(&p->bh, ctx);
-    init_closure(&p->each_complete, iov_op_each_complete, iovcnt,
-        p);
+    init_closure_func(&p->each_complete, io_completion, iov_op_each_complete);
     io_completion each = (io_completion)&p->each_complete;
     apply(each, 0);
     return;
@@ -368,7 +360,7 @@ sysreturn pwritev(int fd, struct iovec *iov, int iovcnt, s64 offset)
 
 closure_function(9, 1, void, sendfile_bh,
                  fdesc, in, fdesc, out, long *, offset, sg_list, sg, sg_buf, cur_buf, bytes, count, bytes, readlen, bytes, written, boolean, bh,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     thread t = current;
     thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
@@ -530,7 +522,7 @@ static void begin_file_read(file f, u64 length)
 
 closure_function(6, 1, void, file_read_complete,
                  sg_list, sg, void *, dest, u64, limit, file, f, boolean, is_file_offset, io_completion, completion,
-                 status, s)
+                 status s)
 {
     thread t = current;
     thread_log(t, "%s: status %v", func_ss, s);
@@ -599,7 +591,7 @@ closure_func_basic(file_io, sysreturn, file_read,
 
 closure_function(4, 1, void, file_sg_read_complete,
                  file, f, sg_list, sg, boolean, is_file_offset, io_completion, completion,
-                 status, s)
+                 status s)
 {
     thread_log(current, "%s: status %v", func_ss, s);
     sysreturn rv;
@@ -670,7 +662,7 @@ static void file_write_complete_internal(file f, u64 len,
 
 closure_function(6, 1, void, file_write_complete,
                  file, f, sg_list, sg, u64, length, boolean, is_file_offset, io_completion, completion, boolean, flush,
-                 status, s)
+                 status s)
 {
     if (!bound(flush)) {
         thread_log(current, "%s: f %p, sg, %p, completion %F, status %v",
@@ -732,7 +724,7 @@ closure_func_basic(file_io, sysreturn, file_write,
 
 closure_function(5, 1, void, file_sg_write_complete,
                  file, f, u64, len, boolean, is_file_offset, io_completion, completion, boolean, flush,
-                 status, s)
+                 status s)
 {
     file f = bound(f);
     if (!bound(flush) && (f->f.flags & O_DSYNC)) {
@@ -1230,7 +1222,7 @@ static int try_write_dirent(void *dirp, boolean dirent64, string p,
 
 closure_function(8, 2, boolean, getdents_each,
                  file, f, void **, dirp, boolean, dirent64, int *, read_sofar, int *, written_sofar, unsigned int *, count, int *, r, filesystem, fs,
-                 value, k, value, v)
+                 value k, value v)
 {
     assert(is_symbol(k));
     string p = symbol_string(k);
@@ -1392,7 +1384,7 @@ sysreturn ftruncate(int fd, long length)
 
 closure_function(1, 1, void, sync_complete,
                  fdesc, f,
-                 status, s)
+                 status s)
 {
     assert(is_syscall_context(get_current_context(current_cpu())));
     thread t = current;
@@ -2637,15 +2629,15 @@ boolean syscall_notrace(process p, int syscall)
 // to find it.
 BSS_RO_AFTER_INIT void (*syscall)(thread t);
 
-closure_function(0, 1, void, syscall_io_complete_cfn,
-                 sysreturn, rv)
+closure_func_basic(io_completion, void, syscall_io_complete_cfn,
+                   sysreturn rv)
 {
     thread t = ((syscall_context)get_current_context(current_cpu()))->t;
     syscall_return(t, rv);
 }
 
-closure_function(0, 1, status, hostname_done,
-                 buffer, b)
+closure_func_basic(buffer_handler, status, hostname_done,
+                   buffer b)
 {
     hostname = b;
 
@@ -2662,8 +2654,8 @@ closure_function(0, 1, status, hostname_done,
     return STATUS_OK;
 }
 
-closure_function(0, 1, void, io_complete_ignore,
-                 sysreturn, rv)
+closure_func_basic(io_completion, void, io_complete_ignore,
+                   sysreturn rv)
 {
 }
 
@@ -2699,8 +2691,8 @@ static inline sstring print_pct(buffer b, u64 x, u64 y)
 
 #define ROUNDED_IDIV(x, y) (((x)* 10 / (y) + 5) / 10)
 
-closure_function(0, 2, void, print_syscall_stats_cfn,
-                 int, status, merge, m)
+closure_func_basic(shutdown_handler, void, print_syscall_stats_cfn,
+                   int status, merge m)
 {
     u64 tot_usecs = 0;
     u64 tot_calls = 0;
@@ -2736,8 +2728,8 @@ static const sstring missing_files_exclude[] = {
     ss_static_init("ld.so.cache"),
 };
 
-closure_function(0, 2, void, print_missing_files_cfn,
-                 int, status, merge, m)
+closure_func_basic(shutdown_handler, void, print_missing_files_cfn,
+                   int status, merge m)
 {
     buffer b;
     rprintf("missing_files_begin\n");
@@ -2757,26 +2749,28 @@ void init_syscalls(process p)
 {
     heap h = heap_locked(get_kernel_heaps());
     syscall = syscall_handler;
-    syscall_io_complete = closure(h, syscall_io_complete_cfn);
-    io_completion_ignore = closure(h, io_complete_ignore);
+    syscall_io_complete = closure_func(h, io_completion, syscall_io_complete_cfn);
+    io_completion_ignore = closure_func(h, io_completion, io_complete_ignore);
     filesystem fs = p->root_fs;
     vector hostname_v = split(h, alloca_wrap_cstring("etc/hostname"), '/');
     tuple hostname_t = resolve_path(filesystem_getroot(fs), hostname_v);
     split_dealloc(hostname_v);
     if (hostname_t)
         filesystem_read_entire(fs, hostname_t, h,
-                               closure(h, hostname_done), ignore_status);
+                               closure_func(h, buffer_handler, hostname_done), ignore_status);
     tuple root = p->process_root;
     do_syscall_stats = get(root, sym(syscall_summary)) != 0;
     if (do_syscall_stats) {
-        print_syscall_stats = closure(h, print_syscall_stats_cfn);
+        shutdown_handler print_syscall_stats = closure_func(h, shutdown_handler,
+                                                            print_syscall_stats_cfn);
         add_shutdown_completion(print_syscall_stats);
     }
     do_missing_files = get(root, sym(missing_files)) != 0;
     if (do_missing_files) {
         missing_files = allocate_vector(h, 8);
         assert(missing_files != INVALID_ADDRESS);
-        print_missing_files = closure(h, print_missing_files_cfn);
+        shutdown_handler print_missing_files = closure_func(h, shutdown_handler,
+                                                            print_missing_files_cfn);
         add_shutdown_completion(print_missing_files);
     }
 }
@@ -2828,7 +2822,7 @@ static void notrace_configure(process p, boolean set)
 
 closure_function(2, 2, boolean, notrace_each,
                  process, p, boolean, set,
-                 value, k, value, v)
+                 value k, value v)
 {
     if (peek_char(v) == '%') {
         for (int j = 0; j < sizeof(trace_sets) / sizeof(trace_sets[0]); j++) {
@@ -2864,8 +2858,8 @@ closure_function(2, 2, boolean, notrace_each,
     return true;
 }
 
-closure_function(0, 1, boolean, debugsyscalls_notify,
-                 value, v)
+closure_func_basic(set_value_notify, boolean, debugsyscalls_notify,
+                   value v)
 {
     debugsyscalls = !!v;
     return true;
@@ -2873,7 +2867,7 @@ closure_function(0, 1, boolean, debugsyscalls_notify,
 
 closure_function(1, 1, boolean, notrace_notify,
                  process, p,
-                 value, v)
+                 value v)
 {
     notrace_configure(bound(p), false);
     if (is_composite(v))
@@ -2883,7 +2877,7 @@ closure_function(1, 1, boolean, notrace_notify,
 
 closure_function(1, 1, boolean, tracelist_notify,
                  process, p,
-                 value, v)
+                 value v)
 {
     notrace_configure(bound(p), true);
     if (is_composite(v))
@@ -2894,7 +2888,8 @@ closure_function(1, 1, boolean, tracelist_notify,
 void configure_syscalls(process p)
 {
     heap h = heap_locked(&p->uh->kh);
-    register_root_notify(sym(debugsyscalls), closure(h, debugsyscalls_notify));
+    register_root_notify(sym(debugsyscalls),
+                         closure_func(h, set_value_notify, debugsyscalls_notify));
     register_root_notify(sym(notrace), closure(h, notrace_notify, p));
     register_root_notify(sym(tracelist), closure(h, tracelist_notify, p));
 }

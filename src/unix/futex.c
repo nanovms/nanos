@@ -106,7 +106,7 @@ boolean futex_wake_many_by_uaddr(process p, int *uaddr, int val)
  */
 closure_function(3, 1, sysreturn, futex_bh,
                  struct futex *, f, thread, t, timestamp, timeout,
-                 u64, flags)
+                 u64 flags)
 {
     thread t = bound(t);
     struct futex *f = bound(f);
@@ -135,7 +135,7 @@ closure_function(3, 1, sysreturn, futex_bh,
 
 closure_function(1, 1, void, futex_requeue_handler,
                  struct futex *, dest,
-                 blockq_action, action)
+                 blockq_action action)
 {
     closure_member(futex_bh, action, f) = bound(dest);
 }
@@ -349,8 +349,8 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     return set_syscall_error(current, ENOSYS);
 }
 
-closure_function(0, 1, boolean, futex_trace_notify,
-                 value, v)
+closure_func_basic(set_value_notify, boolean, futex_trace_notify,
+                   value v)
 {
     futex_verbose = !!v;
     return true;
@@ -363,7 +363,7 @@ init_futices(process p)
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     if (p->futices == INVALID_ADDRESS)
         halt("failed to allocate futex table\n");
-    register_root_notify(sym(futex_trace), closure(h, futex_trace_notify));
+    register_root_notify(sym(futex_trace), closure_func(h, set_value_notify, futex_trace_notify));
 }
 
 /* robust mutex handling */

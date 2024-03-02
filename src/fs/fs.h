@@ -2,7 +2,7 @@ typedef struct filesystem *filesystem;
 
 typedef u64 inode;
 
-typedef closure_type(filesystem_complete, void, filesystem, status);
+closure_type(filesystem_complete, void, filesystem fs, status s);
 
 typedef struct fsfile *fsfile;
 
@@ -66,7 +66,7 @@ typedef enum {
 
 sstring string_from_fs_status(fs_status s);
 
-typedef closure_type(fs_status_handler, void, fsfile, fs_status);
+closure_type(fs_status_handler, void, fsfile fsf, fs_status fss);
 
 void filesystem_alloc(fsfile f, long offset, long len,
         boolean keep_size, fs_status_handler completion);
@@ -78,11 +78,6 @@ fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len);
 fs_status fsfile_init(filesystem fs, fsfile f, tuple md, sg_io fs_read, sg_io fs_write,
                       pagecache_node_reserve fs_reserve, thunk fs_free);
 
-declare_closure_struct(1, 0, void, fs_sync,
-                       filesystem, fs);
-declare_closure_struct(1, 1, void, fs_free,
-                       filesystem, fs,
-                       status, s);
 struct filesystem {
     u64 size;
     heap h;
@@ -108,14 +103,11 @@ struct filesystem {
     struct mutex lock;
 #endif
     struct refcount refcount;
-    closure_struct(fs_sync, sync);
+    closure_struct(thunk, sync);
     thunk sync_complete;
-    closure_struct(fs_free, free);
+    closure_struct(status_handler, free);
 };
 
-declare_closure_struct(1, 1, void, fsf_sync_complete,
-                       fsfile, f,
-                       status, s);
 struct fsfile {
     filesystem fs;
     pagecache_node cache_node;
@@ -125,7 +117,7 @@ struct fsfile {
     sg_io write;
     s64 (*get_blocks)(fsfile f);
     struct refcount refcount;
-    closure_struct(fsf_sync_complete, sync_complete);
+    closure_struct(status_handler, sync_complete);
     u8 status;
 };
 

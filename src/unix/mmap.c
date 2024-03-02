@@ -37,42 +37,37 @@ typedef struct vmap_heap {
     boolean randomize;
 } *vmap_heap;
 
-declare_closure_function(0, 2, int, pending_fault_compare,
-                         rbnode, a, rbnode, b);
-declare_closure_function(0, 1, boolean, pending_fault_print,
-                         rbnode, n);
 static struct {
     heap h;
     heap virtual_backed;
 
-    closure_struct(pending_fault_compare, pf_compare);
-    closure_struct(pending_fault_print, pf_print);
+    closure_struct(rb_key_compare, pf_compare);
+    closure_struct(rbnode_handler, pf_print);
 
     struct list pf_freelist;
 } mmap_info;
 
 static status demand_anonymous_page(pending_fault pf, context ctx, vmap vm, u64 vaddr);
 
-define_closure_function(0, 2, int, pending_fault_compare,
-                        rbnode, a, rbnode, b)
+closure_func_basic(rb_key_compare, int, pending_fault_compare,
+                   rbnode a, rbnode b)
 {
     u64 pa = ((pending_fault)a)->addr;
     u64 pb = ((pending_fault)b)->addr;
     return pa == pb ? 0 : (pa < pb ? -1 : 1);
 }
 
-define_closure_function(0, 1, boolean, pending_fault_print,
-                        rbnode, n)
+closure_func_basic(rbnode_handler, boolean, pending_fault_print,
+                   rbnode n)
 {
     rprintf(" 0x%lx", ((pending_fault)n)->addr);
     return true;
 }
 
-define_closure_function(1, 1, void, pending_fault_complete,
-                        pending_fault, pf,
-                        status, s)
+closure_func_basic(status_handler, void, pending_fault_complete,
+                   status s)
 {
-    pending_fault pf = bound(pf);
+    pending_fault pf = struct_from_closure(pending_fault, complete);
     pf_debug("%s: page 0x%lx, status %v\n", func_ss, pf->addr, s);
     if (!is_ok(s)) {
         msg_err("page fill failed with %v\n", s);
@@ -115,7 +110,7 @@ static pending_fault new_pending_fault_locked(process p, u64 addr)
     pf->addr = addr;
     pf->bss_start = 0;
     pf->p = p;
-    init_closure(&pf->complete, pending_fault_complete, pf);
+    init_closure_func(&pf->complete, status_handler, pending_fault_complete);
     assert(rbtree_insert_node(&p->pending_faults, &pf->n));
     return pf;
 }
@@ -161,7 +156,7 @@ static void demand_page_major_fault(pending_fault pf, context ctx)
 
 closure_function(4, 1, void, mmap_anon_page,
                  boolean, flush_done, pending_fault, pf, vmap, vm, u64, vaddr,
-                 status, s)
+                 status s)
 {
     if (!bound(flush_done)) {
         bound(flush_done) = true;
@@ -339,14 +334,14 @@ void vmap_iterator(process p, vmap_handler vmh)
 
 closure_function(1, 1, boolean, vmap_validate_node,
                  u32, flags,
-                 vmap, vm)
+                 vmap vm)
 {
     u32 flags = bound(flags);
     return (vm->flags & flags) == flags;
 }
 
-closure_function(0, 1, boolean, vmap_validate_gap,
-                 range, q)
+closure_func_basic(range_handler, boolean, vmap_validate_gap,
+                   range q)
 {
     return false;
 }
@@ -358,7 +353,8 @@ closure_function(0, 1, boolean, vmap_validate_gap,
  * one mapping exists in the given range, RM_NOMATCH of no mapping exists. */
 static int vmap_range_walk(process p, range q, vmap_handler node_handler, boolean allow_gaps)
 {
-    range_handler gap_handler = allow_gaps ? 0 : stack_closure(vmap_validate_gap);
+    range_handler gap_handler = allow_gaps ?
+                                0 : stack_closure_func(range_handler, vmap_validate_gap);
     vmap_lock(p);
     int res = rangemap_range_lookup_with_gaps(p->vmaps, q, (rmnode_handler)node_handler,
                                               gap_handler);
@@ -371,8 +367,8 @@ boolean vmap_validate_range(process p, range q, u32 flags)
     return (vmap_range_walk(p, q, stack_closure(vmap_validate_node, flags), false) == RM_MATCH);
 }
 
-closure_function(0, 1, boolean, vmap_dump_node,
-                 rmnode, n)
+closure_func_basic(rmnode_handler, boolean, vmap_dump_node,
+                   rmnode n)
 {
     vmap curr = (vmap)n;
     rprintf("  %R, %s%s %s%s\n", curr->node.r,
@@ -386,7 +382,7 @@ closure_function(0, 1, boolean, vmap_dump_node,
 void vmap_dump(rangemap pvmap)
 {
     rprintf("vmaps:\n");
-    rmnode_handler nh = stack_closure(vmap_dump_node);
+    rmnode_handler nh = stack_closure_func(rmnode_handler, vmap_dump_node);
     rangemap_range_lookup(pvmap, (range){0, infinity}, nh);
 }
 
@@ -407,7 +403,7 @@ static boolean vmap_compare_attributes(vmap a, vmap b)
 #ifdef VMAP_PARANOIA
 closure_function(1, 1, boolean, vmap_paranoia_node,
                  vmap *, last,
-                 rmnode, n)
+                 rmnode n)
 {
     vmap v = (vmap)n;
     vmap last = *bound(last);
@@ -527,7 +523,7 @@ static inline boolean validate_mmap_range(process p, range q)
 
 closure_function(3, 1, boolean, proc_virt_gap_handler,
                  u64, size, boolean, randomize, u64 *, addr,
-                 range, r)
+                 range r)
 {
     u64 size = bound(size);
     if (range_span(r) <= size)
@@ -715,7 +711,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 
 closure_function(3, 3, boolean, mincore_fill_vec,
                  u64, base, u64, nr_pgs, u8 *, vec,
-                 int, level, u64, addr, pteptr, entry)
+                 int level, u64 addr, pteptr entry)
 {
     pte e = pte_from_pteptr(entry);
     u64 pgoff, i, size;
@@ -739,8 +735,8 @@ closure_function(3, 3, boolean, mincore_fill_vec,
     return true;
 }
 
-closure_function(0, 1, boolean, mincore_vmap_gap,
-                 range, r)
+closure_func_basic(range_handler, boolean, mincore_vmap_gap,
+                   range r)
 {
     thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
     return false;
@@ -767,7 +763,8 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
     process p = current->p;
     vmap_lock(p);
     boolean found = rangemap_range_find_gaps(p->vmaps, irangel(start, length),
-                                             stack_closure(mincore_vmap_gap)) == RM_ABORT;
+                                             stack_closure_func(range_handler, mincore_vmap_gap)) ==
+            RM_ABORT;
     vmap_unlock(p);
     if (found)
         return -ENOMEM;
@@ -781,7 +778,7 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
 
 closure_function(1, 1, boolean, vmap_update_protections_validate,
                  u32, newflags,
-                 rmnode, node)
+                 rmnode node)
 {
     if (bound(newflags) & ~((vmap)node)->allowed_flags)
         return false;
@@ -882,8 +879,8 @@ void vmap_update_protections_intersection(heap h, rangemap pvmap, range q, u32 n
     }
 }
 
-closure_function(0, 1, boolean, vmap_update_protections_gap,
-                 range, r)
+closure_func_basic(range_handler, boolean, vmap_update_protections_gap,
+                   range r)
 {
     vmap_debug("%s: gap %R\n", func_ss, r);
     thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
@@ -899,7 +896,8 @@ static sysreturn vmap_update_protections_locked(heap h, rangemap pvmap, range q,
     thread_log(current, "%s: validate %R", func_ss, q);
     vmap_debug("%s: q %R newflags 0x%x\n", func_ss, q, newflags);
     if (!validate_user_memory(pointer_from_u64(q.start), range_span(q), false) ||
-        (rangemap_range_find_gaps(pvmap, q, stack_closure(vmap_update_protections_gap))
+        (rangemap_range_find_gaps(pvmap, q,
+                                  stack_closure_func(range_handler, vmap_update_protections_gap))
          == RM_ABORT))
         return -ENOMEM;
 
@@ -954,7 +952,7 @@ sysreturn mprotect(void * addr, u64 len, int prot)
 /* blow a hole in the process address space intersecting q */
 closure_function(3, 1, boolean, vmap_remove_intersection,
                  rangemap, pvmap, range, q, vmap_handler, unmap,
-                 vmap, match)
+                 vmap match)
 {
     rmnode node = &match->node;
     thread_log(current, "%s: q %R, r %R", func_ss, bound(q), node->r);
@@ -1017,7 +1015,7 @@ static void vmap_unmap_page_range(process p, vmap k)
 
 closure_function(1, 1, boolean, vmap_unmap,
                  process, p,
-                 vmap, v)
+                 vmap v)
 {
     vmap_unmap_page_range(bound(p), v);
     return true;
@@ -1056,8 +1054,8 @@ void truncate_file_maps(process p, fsfile f, u64 new_length)
     vmap_unlock(p);
 }
 
-closure_function(0, 1, boolean, msync_vmap,
-                 vmap, vm)
+closure_func_basic(vmap_handler, boolean, msync_vmap,
+                   vmap vm)
 {
     if ((vm->flags & VMAP_FLAG_SHARED) &&
         (vm->flags & VMAP_FLAG_MMAP) &&
@@ -1082,7 +1080,8 @@ static sysreturn msync(void *addr, u64 length, int flags)
     if (flags & MS_SYNC) {
         process p = current->p;
         range q = irangel(u64_from_pointer(addr), pad(length, PAGESIZE));
-        have_gap = (vmap_range_walk(p, q, stack_closure(msync_vmap), false) == RM_ABORT);
+        have_gap = (vmap_range_walk(p, q, stack_closure_func(vmap_handler, msync_vmap), false) ==
+                RM_ABORT);
     }
 
     /* TODO: Linux appears to only use MS_INVALIDATE to test whether a
@@ -1318,7 +1317,7 @@ void vmh_dealloc(struct heap *h, u64 a, bytes b)
 
 closure_function(1, 1, boolean, vmh_allocated_handler,
                  u64 *, allocated,
-                 vmap, vm)
+                 vmap vm)
 {
     *bound(allocated) += range_span(vm->node.r);
     return true;
@@ -1341,7 +1340,7 @@ bytes vmh_total(struct heap *h)
 
 closure_function(2, 1, boolean, check_vmap_permissions,
                  u64, required_flags, u64, disallowed_flags,
-                 vmap, vm)
+                 vmap vm)
 {
     u64 rf = bound(required_flags), df = bound(disallowed_flags);
     return ((vm->flags & rf) == rf && (vm->flags & df) == 0);
@@ -1430,8 +1429,8 @@ void mmap_process_init(process p, tuple root)
 
     spin_lock_init(&p->faulting_lock);
     init_rbtree(&p->pending_faults,
-                init_closure(&mmap_info.pf_compare, pending_fault_compare),
-                init_closure(&mmap_info.pf_print, pending_fault_print));
+                init_closure_func(&mmap_info.pf_compare, rb_key_compare, pending_fault_compare),
+                init_closure_func(&mmap_info.pf_print, rbnode_handler, pending_fault_print));
     list_init(&mmap_info.pf_freelist);
 }
 

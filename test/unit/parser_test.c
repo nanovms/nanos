@@ -28,7 +28,7 @@ if (buffer_strcmp(b, s) != 0) {                         \
 value root;
 closure_function(1, 1, void, finish,
                  heap, h,
-                 void *, v)
+                 void *v)
 {
     root = v;
 }
@@ -41,7 +41,7 @@ parser json_p;
 
 closure_function(1, 1, void, perr,
                  heap, h,
-                 string, s)
+                 string s)
 {
     errors_count++;
     if (last_error)

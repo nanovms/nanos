@@ -838,7 +838,7 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     
 closure_function(1, 3, boolean, xennet_probe,
                  kernel_heaps, kh,
-                 int, id, buffer, frontend, tuple, meta)
+                 int id, buffer frontend, tuple meta)
 {
     xennet_debug("probe for id %d, meta: %v", id, meta);
     status s = xennet_attach(bound(kh), id, frontend, meta);

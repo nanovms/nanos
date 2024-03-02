@@ -70,7 +70,7 @@ void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options)
 
 closure_function(1, 1, boolean, uefi_add_mem,
                  region, last_region,
-                 range, r)
+                 range r)
 {
     region last_region = bound(last_region);
     if (last_region && (last_region->base + last_region->length == r.start))

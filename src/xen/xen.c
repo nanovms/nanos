@@ -24,11 +24,6 @@
 
 #include "xen_internal.h"
 
-declare_closure_struct(0, 1, void, xen_watch_handler,
-                       sstring, path);
-declare_closure_struct(0, 0, void, xen_scan_service);
-declare_closure_struct(0, 1, void, xen_shutdown_watcher,
-                       sstring, path);
 declare_closure_struct(1, 0, void, xen_shutdown_handler,
                        buffer, b);
 
@@ -54,9 +49,9 @@ typedef struct xen_platform_info {
     struct spinlock xenstore_lock;
     vector        evtchn_handlers;
 
-    closure_struct(xen_watch_handler, watch_handler);
-    closure_struct(xen_scan_service, scan_service);
-    closure_struct(xen_shutdown_watcher, shutdown_watcher);
+    closure_struct(xenstore_watch_handler, watch_handler);
+    closure_struct(thunk, scan_service);
+    closure_struct(xenstore_watch_handler, shutdown_watcher);
     closure_struct(xen_shutdown_handler, shutdown_handler);
     u64 scanning;
 
@@ -258,8 +253,8 @@ void xen_revoke_page_access(grant_ref_t ref)
 
 /* Reportedly, Xen timers can fire up to 100us early. */
 #define XEN_TIMER_SLOP_NS 100000
-closure_function(0, 1, void, xen_runloop_timer,
-                 timestamp, duration)
+closure_func_basic(clock_timer, void, xen_runloop_timer,
+                   timestamp duration)
 {
     u64 n = pvclock_now_ns();
     u64 expiry = n + MAX(nsec_from_timestamp(duration), XEN_TIMER_SLOP_NS);
@@ -275,7 +270,7 @@ closure_function(0, 1, void, xen_runloop_timer,
     }
 }
 
-closure_function(0, 0, void, xen_runloop_timer_handler)
+closure_func_basic(thunk, void, xen_runloop_timer_handler)
 {
     xen_debug("%s: cpu %d now %T", func_ss, current_cpu()->id, nanoseconds(pvclock_now_ns()));
     schedule_timer_service();
@@ -315,7 +310,7 @@ static void xenstore_watch_event(struct xsd_sockmsg *msg)
     apply(handler, path);
 }
 
-closure_function(0, 0, void, xenstore_evtchn_handler)
+closure_func_basic(thunk, void, xenstore_evtchn_handler)
 {
     xenstore_debug("%s", func_ss);
     xenstore_lock();
@@ -374,7 +369,8 @@ static int xen_setup_vcpu(int vcpu, u64 shared_info_phys)
     }
     evtchn_port_t timer_evtchn = eop.u.bind_virq.port;
     xen_debug("cpu %d timer event channel %d", vcpu, timer_evtchn);
-    xen_register_evtchn_handler(timer_evtchn, closure(xen_info.h, xen_runloop_timer_handler));
+    xen_register_evtchn_handler(timer_evtchn,
+                                closure_func(xen_info.h, thunk, xen_runloop_timer_handler));
     assert(xen_unmask_evtchn(timer_evtchn) == 0);
     return 0;
 }
@@ -405,8 +401,8 @@ out:
         kernel_powerdown();
 }
 
-define_closure_function(0, 1, void, xen_shutdown_watcher,
-                        sstring, path)
+closure_func_basic(xenstore_watch_handler, void, xen_shutdown_watcher,
+                   sstring path)
 {
     async_apply_bh((thunk)&xen_info.shutdown_handler);
 }
@@ -550,7 +546,8 @@ boolean xen_detect(kernel_heaps kh)
     if (xen_setup_vcpu(0, shared_info_phys) < 0)
         goto out_unregister_irq;
 
-    register_platform_clock_timer(closure(xen_info.h, xen_runloop_timer), closure(xen_info.h, xen_per_cpu_init, shared_info_phys));
+    register_platform_clock_timer(closure_func(xen_info.h, clock_timer, xen_runloop_timer),
+                                  closure(xen_info.h, xen_per_cpu_init, shared_info_phys));
 
     /* register pvclock (feature verified above) */
     init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time,
@@ -559,7 +556,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_debug("unmasking xenstore event channel");
     spin_lock_init(&xen_info.xenstore_lock);
     xen_register_evtchn_handler(xen_info.xenstore_evtchn,
-                                closure(xen_info.h, xenstore_evtchn_handler));
+                                closure_func(xen_info.h, thunk, xenstore_evtchn_handler));
     assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
 
     if (!xen_grant_init(kh)) {
@@ -568,7 +565,10 @@ boolean xen_detect(kernel_heaps kh)
     }
 
     init_closure(&xen_info.shutdown_handler, xen_shutdown_handler, allocate_buffer(xen_info.h, 16));
-    if (!is_ok(xenstore_watch(alloca_wrap_cstring("control/shutdown"), init_closure(&xen_info.shutdown_watcher, xen_shutdown_watcher), true)))
+    if (!is_ok(xenstore_watch(alloca_wrap_cstring("control/shutdown"),
+                              init_closure_func(&xen_info.shutdown_watcher, xenstore_watch_handler,
+                                                xen_shutdown_watcher),
+                              true)))
         msg_err("failed to register shutdown handler\n");
 
     xen_debug("xen initialization complete");
@@ -1000,7 +1000,7 @@ void xen_driver_unbind(tuple meta)
 
 closure_function(4, 2, boolean, xen_probe_id_each,
                  xen_driver, xd, string, name, tuple, parent, status *, s,
-                 value, k, value, v)
+                 value k, value v)
 {
     assert(is_symbol(k));
     if (get(v, sym(bound)))
@@ -1036,7 +1036,7 @@ closure_function(4, 2, boolean, xen_probe_id_each,
 
 closure_function(1, 2, boolean, xen_probe_devices_each,
                  status *, s,
-                 value, k, value, v)
+                 value k, value v)
 {
     assert(is_symbol(k));
     if (!is_tuple(v))
@@ -1066,8 +1066,8 @@ static status xen_scan(void)
     return s;
 }
 
-define_closure_function(0, 1, void, xen_watch_handler,
-                        sstring, path)
+closure_func_basic(xenstore_watch_handler, void, xen_watch_handler,
+                   sstring path)
 {
     xenstore_debug("%s: path %s", func_ss, path);
 
@@ -1082,7 +1082,7 @@ define_closure_function(0, 1, void, xen_watch_handler,
     async_apply_bh((thunk)&xen_info.scan_service);
 }
 
-define_closure_function(0, 0, void, xen_scan_service)
+closure_func_basic(thunk, void, xen_scan_service)
 {
     xenstore_debug("%s", func_ss);
 
@@ -1106,9 +1106,11 @@ status xen_probe_devices(void)
     assert(xen_info.device_tree == 0);
     status s = xen_scan();
     if (is_ok(s)) {
-        init_closure(&xen_info.scan_service, xen_scan_service);
+        init_closure_func(&xen_info.scan_service, thunk, xen_scan_service);
         s = xenstore_watch(alloca_wrap_cstring("device"),
-                           init_closure(&xen_info.watch_handler, xen_watch_handler), true);
+                           init_closure_func(&xen_info.watch_handler, xenstore_watch_handler,
+                                             xen_watch_handler),
+                           true);
         if (!is_ok(s)) {
             msg_warn("cannot watch devices: %v\n", s);
             timm_dealloc(s);

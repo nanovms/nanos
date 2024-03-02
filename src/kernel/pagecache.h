@@ -2,7 +2,7 @@ typedef struct pagecache_volume *pagecache_volume;
 
 typedef struct pagecache_node *pagecache_node;
 
-typedef closure_type(pagecache_node_reserve, status, range);
+closure_type(pagecache_node_reserve, status, range r);
 
 void pagecache_set_node_length(pagecache_node pn, u64 length);
 

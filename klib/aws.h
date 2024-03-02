@@ -18,7 +18,7 @@ typedef struct aws_cred {
     buffer secret;
     buffer token;
 } *aws_cred;
-typedef closure_type(aws_cred_handler, void, aws_cred);
+closure_type(aws_cred_handler, void, aws_cred cred);
 void aws_cred_get(heap h, aws_cred_handler handler);
 
 void aws_req_set_date(tuple req, buffer b);

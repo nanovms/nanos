@@ -31,7 +31,7 @@ struct http_responder {
 
 closure_function(3, 2, boolean, each_header,
                  buffer, dest, symbol, ignore, boolean, dealloc,
-                 value, n, value, v)
+                 value n, value v)
 {
     if (n != bound(ignore)) {
         // XXX string
@@ -198,7 +198,7 @@ static void deallocate_parser(http_parser p)
 // switch protocols
 closure_function(1, 1, status, http_recv,
                  http_parser, p,
-                 buffer, b)
+                 buffer b)
 {
     http_parser p = bound(p);
 
@@ -351,7 +351,7 @@ static void get_http_ver(buffer b, u32 *ver)
 
 closure_function(2, 2, boolean, find_header,
                  value *, pv, sstring, m,
-                 value, k, value, v)
+                 value k, value v)
 {
     if (!is_symbol(k) && !is_string(v))
         return true;
@@ -381,7 +381,7 @@ static void check_keepalive(http_responder hr, tuple v)
 /* XXX need refcount of outstanding http handlers for safe dealloc */
 closure_function(2, 1, void, each_http_request,
                  http_listener, hl, struct http_responder, hr,
-                 value, v)
+                 value v)
 {
     http_method method;
     http_listener hl = bound(hl);
@@ -466,7 +466,7 @@ closure_function(2, 1, void, each_http_request,
 
 closure_function(1, 1, boolean, http_ibh,
                  buffer_handler, parser,
-                 buffer, b)
+                 buffer b)
 {
     status s = apply(bound(parser), b);
     if (!b)
@@ -479,7 +479,7 @@ closure_function(1, 1, boolean, http_ibh,
 
 closure_function(1, 1, input_buffer_handler, each_http_connection,
                  http_listener, hl,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     http_listener hl = bound(hl);
     struct http_responder hr;

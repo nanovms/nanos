@@ -4,20 +4,13 @@
 #include <storage.h>
 #include <tmpfs.h>
 
-declare_closure_struct(0, 3, void, tmpfsfile_read,
-                       sg_list, sg, range, q, status_handler, complete);
-declare_closure_struct(0, 3, void, tmpfsfile_write,
-                       sg_list, sg, range, q, status_handler, complete);
-declare_closure_struct(0, 1, status, tmpfsfile_reserve,
-                       range, q);
-declare_closure_struct(0, 0, void, tmpfsfile_free);
 typedef struct tmpfs_file {
     struct fsfile f;
     struct rangemap dirty;
-    closure_struct(tmpfsfile_read, read);
-    closure_struct(tmpfsfile_write, write);
-    closure_struct(tmpfsfile_reserve, reserve);
-    closure_struct(tmpfsfile_free, free);
+    closure_struct(sg_io, read);
+    closure_struct(sg_io, write);
+    closure_struct(pagecache_node_reserve, reserve);
+    closure_struct(thunk, free);
 } *tmpfs_file;
 
 static fs_status tmpfs_get_fsfile(filesystem fs, tuple n, fsfile *f)
@@ -30,8 +23,8 @@ static tuple tmpfs_get_meta(filesystem fs, inode n)
     return fs_tuple_from_inode(((tmpfs)fs)->files, n);
 }
 
-define_closure_function(0, 3, void, tmpfsfile_read,
-                        sg_list, sg, range, q, status_handler, complete)
+closure_func_basic(sg_io, void, tmpfsfile_read,
+                   sg_list sg, range q, status_handler complete)
 {
     sg_zero_fill(sg, range_span(q));
     apply(complete, STATUS_OK);
@@ -39,7 +32,7 @@ define_closure_function(0, 3, void, tmpfsfile_read,
 
 closure_function(2, 1, boolean, tmpfsfile_write_handler,
                  rangemap, dirty, pagecache_node, pn,
-                 range, r)
+                 range r)
 {
     if (rangemap_insert_range(bound(dirty), r)) {
         /* Pin the pages so that they cannot be evicted from the page cache. */
@@ -50,8 +43,8 @@ closure_function(2, 1, boolean, tmpfsfile_write_handler,
     return true;
 }
 
-define_closure_function(0, 3, void, tmpfsfile_write,
-                        sg_list, sg, range, q, status_handler, complete)
+closure_func_basic(sg_io, void, tmpfsfile_write,
+                   sg_list sg, range q, status_handler complete)
 {
     tmpfs_file fsf = struct_from_field(closure_self(), tmpfs_file, write);
     tmpfs fs = (tmpfs)fsf->f.fs;
@@ -70,8 +63,8 @@ define_closure_function(0, 3, void, tmpfsfile_write,
     async_apply_status_handler(complete, (res == RM_NOMATCH) ? STATUS_OK : timm_oom);
 }
 
-define_closure_function(0, 1, status, tmpfsfile_reserve,
-                        range, q)
+closure_func_basic(pagecache_node_reserve, status, tmpfsfile_reserve,
+                   range q)
 {
     tmpfs_file fsf = struct_from_field(closure_self(), tmpfs_file, reserve);
     if (fsfile_get_length(&fsf->f) < q.end) {
@@ -86,19 +79,18 @@ define_closure_function(0, 1, status, tmpfsfile_reserve,
 
 closure_function(1, 1, boolean, tmpfs_dirty_destruct,
                  heap, h,
-                 rmnode, n)
+                 rmnode n)
 {
     deallocate(bound(h), n, sizeof(*n));
     return false;
 }
 
-define_closure_function(1, 1, void, fsf_sync_complete,
-                        fsfile, f,
-                        status, s)
+closure_func_basic(status_handler, void, tmpfsfile_sync_complete,
+                   status s)
 {
     if (!is_ok(s))  /* any error during node purge is innocuous */
         timm_dealloc(s);
-    fsfile f = bound(f);
+    fsfile f = struct_from_closure(fsfile, sync_complete);
     tmpfs_file fsf = (tmpfs_file)f;
     pagecache_node pn = f->cache_node;
     rangemap dirty = &fsf->dirty;
@@ -110,11 +102,13 @@ define_closure_function(1, 1, void, fsf_sync_complete,
     deallocate(f->fs->h, fsf, sizeof(*fsf));
 }
 
-define_closure_function(0, 0, void, tmpfsfile_free)
+closure_func_basic(thunk, void, tmpfsfile_free)
 {
     tmpfs_file fsf = struct_from_field(closure_self(), tmpfs_file, free);
     pagecache_node pn = fsf->f.cache_node;
-    pagecache_purge_node(pn, init_closure(&fsf->f.sync_complete, fsf_sync_complete, &fsf->f));
+    pagecache_purge_node(pn,
+                         init_closure_func(&fsf->f.sync_complete, status_handler,
+                                           tmpfsfile_sync_complete));
 }
 
 static s64 tmpfsfile_get_blocks(fsfile f)
@@ -136,10 +130,11 @@ static fs_status tmpfs_create(filesystem fs, tuple parent, string name, tuple md
         fsf = allocate(h, sizeof(*fsf));
         if (fsf == INVALID_ADDRESS)
             return FS_STATUS_NOMEM;
-        fss = fsfile_init(fs, &fsf->f, md, init_closure(&fsf->read, tmpfsfile_read),
-                          init_closure(&fsf->write, tmpfsfile_write),
-                          init_closure(&fsf->reserve, tmpfsfile_reserve),
-                          init_closure(&fsf->free, tmpfsfile_free));
+        fss = fsfile_init(fs, &fsf->f, md, init_closure_func(&fsf->read, sg_io, tmpfsfile_read),
+                          init_closure_func(&fsf->write, sg_io, tmpfsfile_write),
+                          init_closure_func(&fsf->reserve, pagecache_node_reserve,
+                                            tmpfsfile_reserve),
+                          init_closure_func(&fsf->free, thunk, tmpfsfile_free));
         if (fss != FS_STATUS_OK) {
             deallocate(h, fsf, sizeof(*fsf));
             return fss;

@@ -184,7 +184,7 @@ static inline u64 id_alloc(heap h, bytes count)
 
 closure_function(2, 1, boolean, dealloc_from_range,
                  id_heap, i, range, q,
-                 rmnode, n)
+                 rmnode n)
 {
     id_heap i = bound(i);
     range q = bound(q);
@@ -209,7 +209,7 @@ closure_function(2, 1, boolean, dealloc_from_range,
 
 closure_function(2, 1, boolean, dealloc_gap,
                  id_heap, h, range, q,
-                 range, r)
+                 range r)
 {
     msg_err("heap %p: gap %R found while deallocating %R\n", bound(h), r, bound(q));
     return false;
@@ -236,7 +236,7 @@ static inline void id_dealloc(heap h, u64 a, bytes count)
 
 closure_function(1, 1, boolean, destruct_id_range,
                  id_heap, i,
-                 rmnode, n)
+                 rmnode n)
 {
     id_range r = (id_range)n;
     deallocate_bitmap(r->b);
@@ -268,7 +268,7 @@ static boolean add_range(id_heap i, u64 base, u64 length)
 
 closure_function(3, 1, boolean, set_intersection,
                  range, q, boolean, validate, boolean, allocate,
-                 rmnode, n)
+                 rmnode n)
 {
     range ri = range_intersection(bound(q), n->r);
     id_range r = (id_range)n;
@@ -290,7 +290,7 @@ static u64 id_total(heap h)
 
 closure_function(2, 1, boolean, set_gap,
                  id_heap, i, range, q,
-                 range, r)
+                 range r)
 {
     /* really no reason to ever set across ranges, so we should know if it happens... */
     msg_err("heap: %p, gap %R found while setting %R\n", bound(i), r, bound(q));
@@ -466,7 +466,7 @@ static value id_management(heap h)
 
 closure_function(2, 1, boolean, node_foreach_handler,
                  range_handler, rh, int, order,
-                 rmnode, n)
+                 rmnode n)
 {
     apply(bound(rh), range_lshift(n->r, bound(order)));
     return true;
@@ -481,7 +481,7 @@ boolean id_heap_range_foreach(id_heap i, range_handler rh)
 
 closure_function(1, 1, boolean, prealloc_foreach_handler,
                  id_heap, i,
-                 range, r)
+                 range r)
 {
     return set_area(bound(i), r.start, range_span(r), false, false);
 }

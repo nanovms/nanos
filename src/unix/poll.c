@@ -11,9 +11,6 @@
 
 typedef struct epollfd *epollfd;
 
-declare_closure_struct(1, 0, void, epollfd_free,
-                       epollfd, efd);
-
 typedef struct epollfd {
     int fd;
     fdesc f;
@@ -22,7 +19,7 @@ typedef struct epollfd {
     u32 lastevents; /* retain last received events; for edge trigger */
     u64 data;       /* may be multiple versions of data? */
     struct refcount refcount;
-    closure_struct(epollfd_free, free);
+    closure_struct(thunk, free);
     epoll e;
     boolean registered;
     boolean zombie; /* freed or masked by oneshot */
@@ -30,9 +27,6 @@ typedef struct epollfd {
 } *epollfd;
 
 typedef struct epoll_blocked *epoll_blocked;
-
-declare_closure_struct(1, 0, void, epoll_blocked_free,
-                       epoll_blocked, w);
 
 enum epoll_type {
     EPOLL_TYPE_SELECT,
@@ -47,7 +41,7 @@ struct epoll_blocked {
     thread t;
     struct refcount refcount;
     struct spinlock lock;   /* protects the data in the union */
-    closure_struct(epoll_blocked_free, free);
+    closure_struct(thunk, free);
     union {
         buffer user_events;
         buffer poll_fds;
@@ -62,9 +56,6 @@ struct epoll_blocked {
     struct list blocked_list;
 };
 
-declare_closure_struct(1, 0, void, epoll_free,
-                       epoll, e);
-
 /* we call it an epoll, but these structs are used for select and poll too */
 struct epoll {
     struct fdesc f;             /* must be first */
@@ -72,7 +63,8 @@ struct epoll {
     struct list blocked_head;   /* an epoll_blocked per thread (in epoll_wait)  */
     struct refcount refcount;
     enum epoll_type epoll_type;
-    closure_struct(epoll_free, free);
+    closure_struct(fdesc_close, close);
+    closure_struct(thunk, free);
     heap h;
     struct rw_spinlock fds_lock;
     vector events;              /* epollfds indexed by fd */
@@ -80,15 +72,12 @@ struct epoll {
     bitmap fds;                 /* fds being watched / epollfd registered */
 };
 
-define_closure_function(1, 0, void, epoll_free,
-                        epoll, e)
+closure_func_basic(thunk, void, epoll_free)
 {
-    epoll e = bound(e);
+    epoll e = struct_from_closure(epoll, free);
     epoll_debug("e %p\n", e);
     deallocate_bitmap(e->fds);
     deallocate_vector(e->events);
-    if (e->f.close && e->f.close != INVALID_ADDRESS)
-        deallocate_closure(e->f.close);
     deallocate(epoll_heap, e, sizeof(*e));
 }
 
@@ -100,7 +89,7 @@ static epoll epoll_alloc_internal(int epoll_type)
 
     e->epoll_type = epoll_type;
     list_init(&e->blocked_head);
-    init_refcount(&e->refcount, 1, init_closure(&e->free, epoll_free, e));
+    init_refcount(&e->refcount, 1, init_closure_func(&e->free, thunk, epoll_free));
     spin_lock_init(&e->blocked_lock);
     spin_rw_lock_init(&e->fds_lock);
     e->h = epoll_heap;
@@ -121,10 +110,9 @@ static epoll epoll_alloc_internal(int epoll_type)
     return INVALID_ADDRESS;
 }
 
-define_closure_function(1, 0, void, epollfd_free,
-                        epollfd, efd)
+closure_func_basic(thunk, void, epollfd_free)
 {
-    epollfd efd = bound(efd);
+    epollfd efd = struct_from_closure(epollfd, free);
     epoll_debug("fd %d\n", efd->fd);
     refcount_release(&efd->e->refcount); /* release epoll */
     deallocate(epoll_heap, efd, sizeof(*efd));
@@ -148,7 +136,7 @@ static epollfd alloc_epollfd(epoll e, int fd, u32 eventmask, u64 data)
     efd->fd = fd;
     efd->e = e;
     reset_epollfd(efd, eventmask, data);
-    init_refcount(&efd->refcount, 1, init_closure(&efd->free, epollfd_free, efd));
+    init_refcount(&efd->refcount, 1, init_closure_func(&efd->free, thunk, epollfd_free));
     spin_lock_init(&efd->lock);
     efd->registered = false;
     assert(vector_set(e->events, fd, efd));
@@ -192,7 +180,7 @@ static inline u32 report_from_notify_events(epollfd efd, u64 notify_events);
 
 closure_function(1, 2, u64, wait_notify,
                  epollfd, efd,
-                 u64, notify_events, void *, t)
+                 u64 notify_events, void *t)
 {
     epollfd efd = bound(efd);
 
@@ -297,11 +285,10 @@ void epoll_finish(epoll e)
     refcount_release(&e->refcount);
 }
 
-closure_function(1, 2, sysreturn, epoll_close,
-                 epoll, e,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, epoll_close,
+                   context ctx, io_completion completion)
 {
-    epoll e = bound(e);
+    epoll e = struct_from_closure(epoll, close);
     release_fdesc(&e->f);
     epoll_finish(e);
     return io_complete(completion, 0);
@@ -309,17 +296,12 @@ closure_function(1, 2, sysreturn, epoll_close,
 
 sysreturn epoll_create(int flags)
 {
-    sysreturn rv;
     epoll_debug("flags 0x%x\n", flags);
     epoll e = epoll_alloc_internal(EPOLL_TYPE_EPOLL);
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
     init_fdesc(e->h, &e->f, FDESC_TYPE_EPOLL);
-    e->f.close = closure(e->h, epoll_close, e);
-    if (e->f.close == INVALID_ADDRESS) {
-        rv = -ENOMEM;
-        goto out_dealloc_epoll;
-    }
+    e->f.close = init_closure_func(&e->close, fdesc_close, epoll_close);
     u64 fd = allocate_fd(current->p, e);
     if (fd == INVALID_PHYSICAL) {
         apply(e->f.close, 0, io_completion_ignore);
@@ -327,17 +309,13 @@ sysreturn epoll_create(int flags)
     }
     epoll_debug("   got fd %d\n", fd);
     return fd;
-  out_dealloc_epoll:
-    refcount_release(&e->refcount);
-    return rv;
 }
 
 #define user_event_count(__w) (buffer_length(__w->user_events)/sizeof(struct epoll_event))
 
-define_closure_function(1, 0, void, epoll_blocked_free,
-                        epoll_blocked, w)
+closure_func_basic(thunk, void, epoll_blocked_free)
 {
-    epoll_blocked w = bound(w);
+    epoll_blocked w = struct_from_closure(epoll_blocked, free);
     epoll_debug("w %p\n", w);
     thread_release(w->t);
     refcount_release(&w->e->refcount);
@@ -436,7 +414,7 @@ static epoll_blocked alloc_epoll_blocked(epoll e)
     epoll_debug("w %p\n", w);
 
     /* initial reservation released on thread wakeup (or direct return) */
-    init_refcount(&w->refcount, 1, init_closure(&w->free, epoll_blocked_free, w));
+    init_refcount(&w->refcount, 1, init_closure_func(&w->free, thunk, epoll_blocked_free));
     spin_lock_init(&w->lock);
     w->t = current;
     thread_reserve(w->t);
@@ -476,7 +454,7 @@ static void check_fdesc(epollfd efd, epoll_blocked w)
 
 closure_function(3, 1, sysreturn, epoll_wait_bh,
                  epoll_blocked, w, thread, t, timestamp, timeout,
-                 u64, flags)
+                 u64 flags)
 {
     sysreturn rv;
     thread t = bound(t);
@@ -723,7 +701,7 @@ static inline void select_notify(epollfd efd, epoll_blocked w, u64 events)
 
 closure_function(3, 1, sysreturn, select_bh,
                  epoll_blocked, w, thread, t, timestamp, timeout,
-                 u64, flags)
+                 u64 flags)
 {
     sysreturn rv;
     thread t = bound(t);
@@ -949,7 +927,7 @@ static inline void poll_notify(epollfd efd, epoll_blocked w, u64 events)
 
 closure_function(3, 1, sysreturn, poll_bh,
                  epoll_blocked, w, thread, t, timestamp, timeout,
-                 u64, flags)
+                 u64 flags)
 {
     sysreturn rv;
     thread t = bound(t);

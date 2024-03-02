@@ -139,7 +139,7 @@ boolean is_composite(value v)
 
 closure_function(1, 2, boolean, tuple_count_each,
                  int *, count,
-                 value, s, value, v)
+                 value s, value v)
 {
     assert(is_symbol(s));
     (*bound(count))++;
@@ -163,7 +163,7 @@ int tuple_count(tuple t)
 
 closure_function(2, 2, boolean, tuple_get_symbol_each,
                  value, val, symbol *, sym,
-                 value, s, value, v)
+                 value s, value v)
 {
     if (v != bound(val))
         return true;
@@ -201,7 +201,7 @@ tuple allocate_tuple(void)
 
 closure_function(1, 2, boolean, clone_tuple_each,
                  tuple, clone,
-                 value, s, value, v)
+                 value s, value v)
 {
     if (!is_immediate(v) && (v != null_value)) {
         value_tag tag = tagof(v);
@@ -237,7 +237,7 @@ tuple clone_tuple(tuple t)
 
 closure_function(2, 2, boolean, destruct_value_each,
                  value, v, boolean, recursive,
-                 value, s, value, v)
+                 value s, value v)
 {
     if (is_composite(v)) {
         if (bound(recursive))
@@ -548,7 +548,7 @@ static boolean no_encode(value v)
 
 closure_function(1, 2, boolean, encode_value_count_each,
                  u64 *, count,
-                 value, s, value, v)
+                 value s, value v)
 {
     if (!no_encode(v))
         (*bound(count))++;
@@ -557,7 +557,7 @@ closure_function(1, 2, boolean, encode_value_count_each,
 
 closure_function(4, 2, boolean, encode_tuple_each,
                  buffer, dest, table, dictionary, u64 *, total, table, visited,
-                 value, s, value, v)
+                 value s, value v)
 {
     assert(is_symbol(s));
     tuple_debug("   s %b, v %p, tag %d\n", symbol_string(s), v, tagof(v));
@@ -611,7 +611,7 @@ void encode_value(buffer dest, table dictionary, value v, u64 *total)
 
 closure_function(4, 2, boolean, encode_vector_each,
                  buffer, dest, table, dictionary, u64 *, total, table, visited,
-                 value, a, value, v)
+                 value a, value v)
 {
     tuple_debug("   a %v, v %p, tag %d\n", a, v, tagof(v));
     if (no_encode(v))

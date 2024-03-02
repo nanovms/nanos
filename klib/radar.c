@@ -41,11 +41,6 @@ LXY2JtwE65/3YR8V3Idv7kaWKK2hJn0KCacuBKONvPi8BDAB\
 #define RADAR_STATS_INTERVAL    seconds(60)
 #define RADAR_STATS_BATCH_SIZE  5
 
-declare_closure_struct(0, 2, void, retry_timer_func,
-    u64, expiry, u64, overruns);
-declare_closure_struct(0, 2, void, telemetry_stats,
-    u64, expiry, u64, overruns);
-
 static struct telemetry {
     heap h;
     heap phys;
@@ -57,9 +52,9 @@ static struct telemetry {
     boolean running;
     timestamp retry_backoff;
     struct timer retry_timer;
-    closure_struct(retry_timer_func, retry_func);
+    closure_struct(timer_handler, retry_func);
     struct timer stats_timer;
-    closure_struct(telemetry_stats, stats_func);
+    closure_struct(timer_handler, stats_func);
     u64 stats_mem_used[RADAR_STATS_BATCH_SIZE];
     int stats_count;
 } telemetry;
@@ -93,8 +88,8 @@ error:
     apply(ch, 0);
 }
 
-define_closure_function(0, 2, void, retry_timer_func,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, retry_timer_func,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -107,7 +102,7 @@ define_closure_function(0, 2, void, retry_timer_func,
 static void telemetry_retry(void)
 {
     register_timer(kernel_timers, &telemetry.retry_timer, CLOCK_ID_MONOTONIC, telemetry.retry_backoff, false, 0,
-            init_closure(&telemetry.retry_func, retry_timer_func));
+            init_closure_func(&telemetry.retry_func, timer_handler, retry_timer_func));
     if (telemetry.retry_backoff < seconds(600))
         telemetry.retry_backoff <<= 1;
 }
@@ -133,7 +128,7 @@ static boolean telemetry_req(sstring url, buffer data, buffer_handler bh)
 
 closure_function(2, 1, boolean, telemetry_recv,
                  value_handler, vh, buffer_handler, out,
-                 buffer, data)
+                 buffer data)
 {
     if (data) {
         value_handler vh = bound(vh);
@@ -185,7 +180,7 @@ closure_function(2, 1, boolean, telemetry_recv,
 
 closure_function(3, 1, input_buffer_handler, telemetry_ch,
                  sstring, url, buffer, data, value_handler, vh,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     buffer data = bound(data);
     input_buffer_handler in = INVALID_ADDRESS;
@@ -239,8 +234,8 @@ static void telemetry_print_env(buffer b)
         bprintf(b, ",\"imageName\":\"%b\"", image_name);
 }
 
-closure_function(0, 1, void, telemetry_crash_recv,
-                 value, v)
+closure_func_basic(value_handler, void, telemetry_crash_recv,
+                   value v)
 {
     if (v) {
         value resp = get(v, sym(start_line));
@@ -261,7 +256,7 @@ static void telemetry_crash_report(void)
     buffer b = allocate_buffer(telemetry.h, PAGESIZE);
     if (b == INVALID_ADDRESS)
         goto error;
-    value_handler vh = closure(telemetry.h, telemetry_crash_recv);
+    value_handler vh = closure_func(telemetry.h, value_handler, telemetry_crash_recv);
     if (vh == INVALID_ADDRESS) {
         goto err_free_buf;
     }
@@ -311,8 +306,8 @@ static void telemetry_crash_report(void)
     telemetry_retry();
 }
 
-closure_function(0, 1, void, telemetry_boot_recv,
-                 value, v)
+closure_func_basic(value_handler, void, telemetry_boot_recv,
+                   value v)
 {
     telemetry.boot_id = 0;
     if (!v) /* couldn't allocate HTTP parser */
@@ -345,7 +340,7 @@ static void telemetry_boot(void)
     buffer b = allocate_buffer(telemetry.h, 64);
     if (b == INVALID_ADDRESS)
         goto error;
-    value_handler vh = closure(telemetry.h, telemetry_boot_recv);
+    value_handler vh = closure_func(telemetry.h, value_handler, telemetry_boot_recv);
     if (vh == INVALID_ADDRESS) {
         goto err_free_buf;
     }
@@ -370,7 +365,7 @@ static void telemetry_boot(void)
 
 closure_function(2, 4, void, telemetry_vh,
                  buffer, b, int, count,
-                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
+                 u8 *uuid, sstring label, filesystem fs, inode mount_point)
 {
     u64 block_size = fs_blocksize(fs);
     buffer b = bound(b);
@@ -404,8 +399,8 @@ static void telemetry_stats_send(void)
     }
 }
 
-define_closure_function(0, 2, void, telemetry_stats,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, telemetry_stats,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -416,8 +411,8 @@ define_closure_function(0, 2, void, telemetry_stats,
     }
 }
 
-closure_function(0, 1, void, klog_dump_loaded,
-                 status, s)
+closure_func_basic(status_handler, void, klog_dump_loaded,
+                   status s)
 {
     if (is_ok(s)) {
         if (telemetry.dump->exit_code != 0) {
@@ -447,13 +442,13 @@ int init(status_handler complete)
     init_timer(&telemetry.retry_timer);
     telemetry.running = false;
     init_timer(&telemetry.stats_timer);
-    init_closure(&telemetry.stats_func, telemetry_stats);
+    init_closure_func(&telemetry.stats_func, timer_handler, telemetry_stats);
     telemetry.dump = allocate(telemetry.h, sizeof(*telemetry.dump));
     if (telemetry.dump == INVALID_ADDRESS) {
         rprintf("Radar: failed to allocate log dump\n");
         return KLIB_INIT_FAILED;
     }
-    status_handler sh = closure(telemetry.h, klog_dump_loaded);
+    status_handler sh = closure_func(telemetry.h, status_handler, klog_dump_loaded);
     if (sh == INVALID_ADDRESS) {
         rprintf("Radar: failed to allocate log dump load handler\n");
         deallocate(telemetry.h, telemetry.dump, sizeof(*telemetry.dump));

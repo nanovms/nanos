@@ -8,7 +8,7 @@
 
 closure_function(1, 1, u64, test0,
                  u64, l,
-                 u64, r)
+                 u64 r)
 {
     if (bound(l) != TEST_L || r != TEST_R) {
         test_error("argument mismatch");
@@ -21,7 +21,7 @@ static boolean terminate_reached;
 
 closure_function(1, 2, void, test1,
                  int, count,
-                 void *, self, boolean, terminate)
+                 void *self, boolean terminate)
 {
     if (terminate) {
         if (bound(count) != 1) {
@@ -37,8 +37,8 @@ closure_function(1, 2, void, test1,
     apply(closure_self(), self, true);
 }
 
-typedef closure_type(test0_type, u64, u64);
-typedef closure_type(test1_type, void, void *, boolean);
+closure_type(test0_type, u64, u64 r);
+closure_type(test1_type, void, void *self, boolean terminate);
 
 int main(int argc, char **argv)
 {

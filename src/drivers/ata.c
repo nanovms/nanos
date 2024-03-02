@@ -289,7 +289,7 @@ boolean ata_clear_irq(void *_dev)
 
 closure_function(2, 3, void, ata_io_cmd_cfn,
                  void *, _dev, int, cmd,
-                 void *, buf, range, blocks, status_handler, s)
+                 void *buf, range blocks, status_handler s)
 {
     ata_io_cmd(bound(_dev), bound(cmd), buf, blocks, s);
 }

@@ -153,9 +153,9 @@ static inline boolean acpi_checksum(void *a, u8 len)
     return sum == 0;
 }
 
-typedef closure_type(madt_handler, void, u8, void *);
-typedef closure_type(mcfg_handler, boolean, u64, u16, u8, u8);
-typedef closure_type(spcr_handler, void, u8, u64);
+closure_type(madt_handler, void, u8 type, void *p);
+closure_type(mcfg_handler, boolean, u64 addr, u16 segment, u8 bus_start, u8 bus_end);
+closure_type(spcr_handler, void, u8 type, u64 addr);
 
 void init_acpi(kernel_heaps kh);
 void init_acpi_tables(kernel_heaps kh);
@@ -171,6 +171,6 @@ typedef struct acpi_mmio_dev {
     u32 irq;
 } *acpi_mmio_dev;
 
-typedef closure_type(acpi_mmio_handler, void, acpi_mmio_dev);
+closure_type(acpi_mmio_handler, void, acpi_mmio_dev adev);
 
 void acpi_get_vtmmio_devs(acpi_mmio_handler handler);

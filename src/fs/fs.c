@@ -168,7 +168,7 @@ void filesystem_set_rdev(filesystem fs, tuple t, u64 rdev)
 /* TODO moving sg up to syscall level means eliminating this extra step */
 closure_function(4, 1, void, filesystem_read_complete,
                  void *, dest, u64, limit, io_status_handler, io_complete, sg_list, sg,
-                 status, s)
+                 status s)
 {
     fs_debug("%s: dest %p, status %v\n", func_ss, bound(dest), s);
     u64 count = 0;
@@ -194,7 +194,7 @@ void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler io_
 
 closure_function(5, 1, void, read_entire_complete,
                  sg_list, sg, buffer_handler, bh, buffer, b, fsfile, f, status_handler, sh,
-                 status, s)
+                 status s)
 {
     buffer b = bound(b);
     fs_debug("read_entire_complete: status %v, addr %p\n", s, buffer_end(b));
@@ -272,7 +272,7 @@ fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
 
 closure_function(3, 1, void, filesystem_write_complete,
                  sg_list, sg, u64, length, io_status_handler, io_complete,
-                 status, s)
+                 status s)
 {
     deallocate_sg_list(bound(sg));
     apply(bound(io_complete), s, bound(length));
@@ -350,25 +350,23 @@ void filesystem_release(filesystem fs)
     refcount_release(&fs->refcount);
 }
 
-define_closure_function(1, 1, void, fs_free,
-                        filesystem, fs,
-                        status, s)
+closure_func_basic(status_handler, void, fs_free,
+                   status s)
 {
     if (!is_ok(s)) {
         msg_warn("failed to flush filesystem: %v\n", s);
         timm_dealloc(s);
     }
-    filesystem fs = bound(fs);
+    filesystem fs = struct_from_closure(filesystem, free);
     if (fs->sync_complete)
         apply(fs->sync_complete);
     fs->destroy_fs(fs);
 }
 
-define_closure_function(1, 0, void, fs_sync,
-                        filesystem, fs)
+closure_func_basic(thunk, void, fs_sync)
 {
-    filesystem fs = bound(fs);
-    filesystem_flush(fs, init_closure(&fs->free, fs_free, fs));
+    filesystem fs = struct_from_closure(filesystem, sync);
+    filesystem_flush(fs, init_closure_func(&fs->free, status_handler, fs_free));
 }
 
 tuple fs_new_entry(filesystem fs)
@@ -398,7 +396,7 @@ static fs_status fs_create_dir_entry(filesystem fs, tuple parent, string name, t
 
 closure_function(1, 2, boolean, file_unlink_each,
                  tuple, t,
-                 value, k, value, v)
+                 value k, value v)
 {
     if (is_tuple(v) && get(v, sym(no_encode))) {
         destruct_value(v, true);
@@ -793,7 +791,7 @@ status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean r
     if (fs->pv == INVALID_ADDRESS)
         return timm("result", "failed to allocate pagacache volume");
 #ifndef FS_READ_ONLY
-    init_refcount(&fs->refcount, 1, init_closure(&fs->sync, fs_sync, fs));
+    init_refcount(&fs->refcount, 1, init_closure_func(&fs->sync, thunk, fs_sync));
     fs->sync_complete = 0;
     filesystem_lock_init(fs);
 #endif
@@ -1245,7 +1243,7 @@ boolean dirname_from_path(buffer dest, sstring path)
 
 closure_function(4, 2, boolean, file_get_path_each,
                  tuple, p, char *, buf, u64, len, int *, cur_len,
-                 value, k, value, v)
+                 value k, value v)
 {
     if (v != bound(p))
         return true;

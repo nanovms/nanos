@@ -19,16 +19,16 @@ enum cloud_init_task_op {
     CLOUD_INIT_TASK_OP_DELETE,
 };
 
-typedef closure_type(cloud_init_task, void, enum cloud_init_task_op, void *);
+closure_type(cloud_init_task, void, enum cloud_init_task_op op, void *arg);
 
-typedef closure_type(download_recv, boolean, buffer_handler, buffer);
+closure_type(download_recv, boolean, buffer_handler out, buffer data);
 
 declare_closure_struct(2, 2, void, cloud_download_task,
                        download_recv, recv, thunk, cleanup,
-                       int, op, void *, arg);
+                       enum cloud_init_task_op op, void *arg);
 declare_closure_struct(2, 1, void, cloud_download_done,
                        struct cloud_download_cfg *, cfg, status_handler, complete,
-                       status, s);
+                       status s);
 
 typedef struct cloud_download_cfg {
     struct buffer server_host;
@@ -44,28 +44,26 @@ typedef struct cloud_download_cfg {
 
 declare_closure_struct(4, 2, boolean, cloud_download_file_recv,
                        buffer_handler, parser, bytes, content_len, bytes, received, status_handler, sh,
-                       buffer_handler, out, buffer, data);
-declare_closure_struct(0, 0, void, cloud_download_file_cleanup);
+                       buffer_handler out, buffer data);
 typedef struct cloud_download_file {
     struct cloud_download_cfg download;
     buffer file_path;
     closure_struct(cloud_download_file_recv, recv);
-    closure_struct(cloud_download_file_cleanup, cleanup);
+    closure_struct(thunk, cleanup);
 } *cloud_download_file;
 
 declare_closure_struct(1, 1, void, cloud_download_setenv,
                        status *, s,
-                       value, v);
+                       value v);
 declare_closure_struct(2, 2, boolean, cloud_download_env_recv,
                        buffer_handler, parser, status, s,
-                       buffer_handler, out, buffer, data);
-declare_closure_struct(0, 0, void, cloud_download_env_cleanup);
+                       buffer_handler out, buffer data);
 typedef struct cloud_download_env_cfg {
     struct cloud_download_cfg download;
     vector attribute_path;
     closure_struct(cloud_download_setenv, setenv);
     closure_struct(cloud_download_env_recv, recv);
-    closure_struct(cloud_download_env_cleanup, cleanup);
+    closure_struct(thunk, cleanup);
 } *cloud_download_env;
 
 static heap cloud_heap;
@@ -157,7 +155,7 @@ static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
 
 define_closure_function(2, 1, void, cloud_download_done,
                         cloud_download_cfg, cfg, status_handler, complete,
-                        status, s)
+                        status s)
 {
     cloud_download_cfg cfg = bound(cfg);
     if (!is_ok(s) && cfg->optional) {
@@ -171,7 +169,7 @@ define_closure_function(2, 1, void, cloud_download_done,
 
 closure_function(3, 2, void, cloud_download_save_complete,
                  fsfile, f, buffer, content, status_handler, sh,
-                 status, s, bytes, len)
+                 status s, bytes len)
 {
     deallocate_buffer(bound(content));
     fsfile_release(bound(f));
@@ -181,7 +179,7 @@ closure_function(3, 2, void, cloud_download_save_complete,
 
 closure_function(4, 1, void, cloud_download_save,
                  bytes *, content_len, fsfile, f, bytes *, received, merge, m,
-                 value, v)
+                 value v)
 {
     fsfile f = bound(f);
     status_handler sh = apply_merge(bound(m));
@@ -226,7 +224,7 @@ closure_function(4, 1, void, cloud_download_save,
 
 define_closure_function(4, 2, boolean, cloud_download_file_recv,
                         buffer_handler, parser, bytes, content_len, bytes, received, status_handler, sh,
-                        buffer_handler, out, buffer, data)
+                        buffer_handler out, buffer data)
 {
     cloud_download_file cfg = struct_from_field(closure_self(), cloud_download_file, recv);
     status_handler sh = bound(sh);
@@ -302,7 +300,7 @@ define_closure_function(4, 2, boolean, cloud_download_file_recv,
     return true;
 }
 
-define_closure_function(0, 0, void, cloud_download_file_cleanup)
+closure_func_basic(thunk, void, cloud_download_file_cleanup)
 {
     cloud_download_file cfg = struct_from_field(closure_self(), cloud_download_file, cleanup);
     deallocate(cloud_heap, cfg, sizeof(*cfg));
@@ -312,14 +310,14 @@ static boolean cloud_download_retry(connection_handler ch);
 
 closure_function(2, 1, boolean, cloud_download_recv,
                  download_recv, recv, buffer_handler, out,
-                 buffer, data)
+                 buffer data)
 {
     return apply(bound(recv), bound(out), data);
 }
 
 closure_function(2, 1, input_buffer_handler, cloud_download_ch,
                  cloud_download_cfg, cfg, download_recv, recv,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     cloud_download_cfg cfg = bound(cfg);
     status_handler sh = (status_handler)&cfg->complete;
@@ -443,7 +441,7 @@ static void cloud_download(connection_handler ch)
 
 closure_function(2, 2, void, cloud_download_retry_func,
                  struct timer, timer, connection_handler, ch,
-                 u64, expiry, u64, overruns)
+                 u64 expiry, u64 overruns)
 {
     if (overruns != timer_disabled)
         cloud_download(bound(ch));
@@ -475,7 +473,7 @@ static void cloud_download_start(cloud_download_cfg cfg, download_recv recv, sta
 
 define_closure_function(2, 2, void, cloud_download_task,
                         download_recv, recv, thunk, cleanup,
-                        int, op, void *, arg)
+                        enum cloud_init_task_op op, void *arg)
 {
     cloud_download_cfg cfg = struct_from_field(closure_self(), cloud_download_cfg, task);
     switch (op) {
@@ -495,7 +493,7 @@ static int cloud_download_file_parse(tuple config, vector tasks)
     status_handler sh = (status_handler)&parsed_cfg->download.complete;
     download_recv recv = init_closure(&parsed_cfg->recv, cloud_download_file_recv,
                                       INVALID_ADDRESS, 0, 0, sh);
-    thunk cleanup = init_closure(&parsed_cfg->cleanup, cloud_download_file_cleanup);
+    thunk cleanup = init_closure_func(&parsed_cfg->cleanup, thunk, cloud_download_file_cleanup);
     vector_push(tasks, init_closure(&parsed_cfg->download.task, cloud_download_task,
                                     recv, cleanup));
     int ret = cloud_download_parse(config, &parsed_cfg->download);
@@ -528,7 +526,7 @@ static int cloud_download_file_parse(tuple config, vector tasks)
 
 closure_function(1, 2, boolean, cloud_download_env_each,
                  tuple, env,
-                 value, k, value, v)
+                 value k, value v)
 {
     if (is_string(v)) {
         buffer b = clone_buffer(cloud_heap, v);
@@ -541,7 +539,7 @@ closure_function(1, 2, boolean, cloud_download_env_each,
 
 closure_function(2, 1, void, cloud_download_env_set,
                  cloud_download_env, cfg, status *, result,
-                 void *, v)
+                 void *v)
 {
     tuple env = v;
     vector attr_path = bound(cfg)->attribute_path;
@@ -565,7 +563,7 @@ closure_function(2, 1, void, cloud_download_env_set,
 
 closure_function(1, 1, void, cloud_download_env_err,
                  status *, result,
-                 string, data)
+                 string data)
 {
     if (*bound(result) == STATUS_OK)
         *bound(result) = timm("result", "failed to parse JSON: %b", data);
@@ -573,7 +571,7 @@ closure_function(1, 1, void, cloud_download_env_err,
 
 define_closure_function(1, 1, void, cloud_download_setenv,
                         status *, s,
-                        value, v)
+                        value v)
 {
     cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, setenv);
     value start_line = get(v, sym(start_line));
@@ -596,7 +594,7 @@ define_closure_function(1, 1, void, cloud_download_setenv,
 
 define_closure_function(2, 2, boolean, cloud_download_env_recv,
                         buffer_handler, parser, status, s,
-                        buffer_handler, out, buffer, data)
+                        buffer_handler out, buffer data)
 {
     cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, recv);
     if (data && (bound(parser) == INVALID_ADDRESS)) {
@@ -628,7 +626,7 @@ define_closure_function(2, 2, boolean, cloud_download_env_recv,
     return true;
 }
 
-define_closure_function(0, 0, void, cloud_download_env_cleanup)
+closure_func_basic(thunk, void, cloud_download_env_cleanup)
 {
     cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, cleanup);
     deallocate(cloud_heap, cfg, sizeof(*cfg));
@@ -640,7 +638,7 @@ static int cloud_download_env_parse(tuple config, vector tasks)
     assert(cfg != INVALID_ADDRESS);
     download_recv recv = init_closure(&cfg->recv, cloud_download_env_recv,
                                       INVALID_ADDRESS, STATUS_OK);
-    thunk cleanup = init_closure(&cfg->cleanup, cloud_download_env_cleanup);
+    thunk cleanup = init_closure_func(&cfg->cleanup, thunk, cloud_download_env_cleanup);
     vector_push(tasks, init_closure(&cfg->download.task, cloud_download_task, recv, cleanup));
     int ret = cloud_download_parse(config, &cfg->download);
     if (ret != KLIB_INIT_OK)

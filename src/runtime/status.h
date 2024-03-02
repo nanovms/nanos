@@ -1,7 +1,7 @@
 #define STATUS_OK ((tuple)0)
 
 typedef tuple status;
-typedef closure_type(status_handler, void, status);
+closure_type(status_handler, void, status s);
 
 extern tuple timm_oom;
 

@@ -56,9 +56,7 @@ typedef struct log_ext *log_ext;
 
 declare_closure_struct(3, 3, void, log_storage_op,
                        tfs, fs, u64, start_sector, boolean, write,
-                       sg_list, sg, range, q, status_handler, sh)
-declare_closure_struct(1, 0, void, log_ext_free,
-                       log_ext, ext);
+                       sg_list sg, range q, status_handler sh)
 
 struct log_ext {
     log tl;
@@ -73,11 +71,8 @@ struct log_ext {
     struct spinlock lock;
 #endif
     struct refcount refcount;
-    closure_struct(log_ext_free, free);
+    closure_struct(thunk, free);
 };
-
-declare_closure_struct(1, 0, void, log_free,
-                       log, tl);
 
 struct log {
     heap h;
@@ -101,12 +96,12 @@ struct log {
         TLOG_STATE_FAILED,      /* unrecoverable log failure */
     } state;
     struct refcount refcount;
-    closure_struct(log_free, free);
+    closure_struct(thunk, free);
 };
 
 define_closure_function(3, 3, void, log_storage_op,
                         tfs, fs, u64, start_sector, boolean, write,
-                        sg_list, sg, range, q, status_handler, sh)
+                        sg_list sg, range q, status_handler sh)
 {
     int order = bound(fs)->fs.blocksize_order;
     assert((q.start & MASK(order)) == 0);
@@ -118,10 +113,9 @@ define_closure_function(3, 3, void, log_storage_op,
     filesystem_storage_op(bound(fs), sg, blocks, write, sh);
 }
 
-define_closure_function(1, 0, void, log_ext_free,
-                        log_ext, ext)
+closure_func_basic(thunk, void, log_ext_free)
 {
-    log_ext ext = bound(ext);
+    log_ext ext = struct_from_closure(log_ext, free);
     log tl = ext->tl;
     deallocate(tl->fs->dma, ext->staging.contents, ext->staging.length);
     heap h = tl->h;
@@ -146,7 +140,7 @@ static log_ext open_log_extension(log tl, range sectors)
     init_closure(&ext->read, log_storage_op, fs, sectors.start, false);
     init_closure(&ext->write, log_storage_op, fs, sectors.start, true);
     ext->sectors = sectors;
-    init_refcount(&ext->refcount, 1, init_closure(&ext->free, log_ext_free, ext));
+    init_refcount(&ext->refcount, 1, init_closure_func(&ext->free, thunk, log_ext_free));
 #ifndef TLOG_READ_ONLY
     tlog_ext_lock_init(ext);
     if (sectors.start != 0) {
@@ -177,17 +171,17 @@ static void close_log_extension(log_ext ext)
 
 closure_function(1, 1, boolean, log_dealloc_ext_node,
                  log, tl,
-                 rmnode, n)
+                 rmnode n)
 {
     deallocate(bound(tl)->h, n, sizeof(*n));
     return true;
 }
 
-define_closure_function(1, 0, void, log_free,
-                        log, tl)
+closure_func_basic(thunk, void, log_free)
 {
     tlog_debug("%s\n", func_ss);
-    log_destroy(bound(tl));
+    log tl = struct_from_closure(log, free);
+    log_destroy(tl);
 }
 
 #endif
@@ -222,7 +216,7 @@ static log log_new(heap h, tfs fs)
     if (tl->extensions == INVALID_ADDRESS) {
         goto fail_dealloc_completions;
     }
-    init_refcount(&tl->refcount, 1, init_closure(&tl->free, log_free, tl));
+    init_refcount(&tl->refcount, 1, init_closure_func(&tl->free, thunk, log_free));
 #endif
     range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->fs.blocksize_order);
     tl->current = open_log_extension(tl, sectors);
@@ -265,7 +259,7 @@ static void dump_staging(log_ext ext)
 #ifndef TLOG_READ_ONLY
 closure_function(4, 1, void, flush_log_extension_complete,
                  sg_list, sg, log_ext, ext, boolean, release, status_handler, complete,
-                 status, s)
+                 status s)
 {
     log_ext ext = bound(ext);
     tlog_debug("%s: status %v\n", func_ss, s);
@@ -343,7 +337,7 @@ static void log_extension_init(log_ext ext)
 /* complete linkage in (now disembodied - thus long arg list) previous extension */
 closure_function(3, 1, void, log_extend_link,
                  log_ext, old_ext, range, sectors, status_handler, sh,
-                 status, s)
+                 status s)
 {
     status_handler sh = bound(sh);
     if (!is_ok(s)) {
@@ -466,7 +460,7 @@ static void run_flush_completions(log tl, status s)
 
 closure_function(1, 1, void, log_flush_complete,
                  log, tl,
-                 status, s)
+                 status s)
 {
     /* would need to move these to runqueue if a flush is ever invoked from a tfs op */
     tlog_lock(bound(tl));
@@ -480,7 +474,7 @@ closure_function(1, 1, void, log_flush_complete,
 
 closure_function(2, 1, void, log_switch_complete,
                  log, old_tl, log, new_tl,
-                 status, s)
+                 status s)
 {
     tlog_debug("%s: status %v\n", func_ss, s);
     log old_tl = bound(old_tl);
@@ -593,7 +587,7 @@ void log_flush(log tl, status_handler completion)
 #ifdef KERNEL
 closure_function(1, 2, void, log_flush_timer_expired,
                  log, tl,
-                 u64, expiry, u64, overruns)
+                 u64 expiry, u64 overruns)
 {
     if (overruns != timer_disabled) {
         tlog_lock(bound(tl));
@@ -710,7 +704,7 @@ static void log_read(log tl, status_handler sh);
 
 closure_function(4, 1, void, log_read_complete,
                  log_ext, ext, sg_list, sg, u64, length, status_handler, sh,
-                 status, read_status)
+                 status read_status)
 {
     log_ext ext = bound(ext);
     log tl = ext->tl;

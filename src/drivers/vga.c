@@ -173,7 +173,7 @@ static void vga_console_write(void *_d, const char *s, bytes count)
 
 closure_function(2, 1, boolean, vga_pci_probe,
                  heap, general, heap, virtual,
-                 pci_dev, _d)
+                 pci_dev _d)
 {
     if ((pci_get_class(_d) != PCIC_DISPLAY) || (pci_get_subclass(_d) != PCIS_VGA))
         return false;

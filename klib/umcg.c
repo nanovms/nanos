@@ -48,8 +48,6 @@ enum umcg_event_type {
 #define umcg_debug(x, ...)
 #endif
 
-declare_closure_struct(0, 2, void, umcg_worker_timeout,
-                       u64, expiry, u64, overruns);
 typedef struct umcg_worker {
     struct rbnode node;
     struct list l;
@@ -61,15 +59,13 @@ typedef struct umcg_worker {
     blockq server_bq;
     u64 *server_event;
     struct timer tmr;
-    closure_struct(umcg_worker_timeout, timeout_handler);
+    closure_struct(timer_handler, timeout_handler);
 } *umcg_worker;
 
-declare_closure_struct(0, 2, int, umcg_worker_compare,
-                       rbnode, a, rbnode, b);
 static struct {
     heap h;
     struct rbtree workers;
-    closure_struct(umcg_worker_compare, worker_compare);
+    closure_struct(rb_key_compare, worker_compare);
     struct list idle_workers;
     struct spinlock lock;
     struct blockq server_bq;    /* used by idle servers, i.e. servers not attached to any worker */
@@ -85,8 +81,8 @@ static struct {
 
 static sysreturn umcg_unregister(umcg_worker worker);
 
-define_closure_function(0, 2, int, umcg_worker_compare,
-                        rbnode, a, rbnode, b)
+closure_func_basic(rb_key_compare, int, umcg_worker_compare,
+                   rbnode a, rbnode b)
 {
     thread ta = ((umcg_worker)a)->t;
     thread tb = ((umcg_worker)b)->t;
@@ -122,8 +118,8 @@ static void umcg_worker_event_to_server(umcg_worker worker, enum umcg_event_type
     blockq_release(bq);
 }
 
-define_closure_function(0, 2, void, umcg_worker_timeout,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, umcg_worker_timeout,
+                   u64 expiry, u64 overruns)
 {
     umcg_debug("worker timeout (%ld)", overruns);
     if (overruns == timer_disabled)
@@ -189,9 +185,8 @@ static void umcg_worker_schedule_return(context ctx)
 static void umcg_worker_thread_free(void *__self)
 {
     umcg_debug("worker thread free");
-    closure_ref(free_thread, ft) = __self;
-    umcg_unregister(umcg_get_worker(closure_member(free_thread, ft, t)));
-    apply((thunk)ft);   /* invoke the real thread refcount completion */
+    umcg_unregister(umcg_get_worker(struct_from_closure(thread, free)));
+    apply((thunk)__self);   /* invoke the real thread refcount completion */
 }
 
 static sysreturn umcg_register_worker(thread t, u64 id)
@@ -206,7 +201,7 @@ static sysreturn umcg_register_worker(thread t, u64 id)
     worker->id = id;
     worker->status = UMCG_WORKER_IDLE;
     init_timer(&worker->tmr);
-    init_closure(&worker->timeout_handler, umcg_worker_timeout);
+    init_closure_func(&worker->timeout_handler, timer_handler, umcg_worker_timeout);
     umcg_lock();
     init_rbnode(&worker->node);
     if (!rbtree_insert_node(&umcg.workers, &worker->node)) {
@@ -306,7 +301,7 @@ static sysreturn umcg_server_get_events(u64 *events, u64 event_sz)
 
 closure_function(1, 1, sysreturn, umcg_server_wait_worker_bh,
                  umcg_worker, worker,
-                 u64, flags)
+                 u64 flags)
 {
     syscall_context ctx = (syscall_context)get_current_context(current_cpu());
     sysreturn rv;
@@ -324,7 +319,7 @@ closure_function(1, 1, sysreturn, umcg_server_wait_worker_bh,
 
 closure_function(3, 1, sysreturn, umcg_server_wait_bh,
                  timestamp, timeout, u64 *, events, u64, event_sz,
-                 u64, flags)
+                 u64 flags)
 {
     syscall_context ctx = (syscall_context)get_current_context(current_cpu());
     sysreturn rv;
@@ -348,7 +343,7 @@ closure_function(3, 1, sysreturn, umcg_server_wait_bh,
 
 closure_function(3, 1, sysreturn, umcg_server_ctx_switch_bh,
                  u64, event, u64 *, events, u64, event_sz,
-                 u64, flags)
+                 u64 flags)
 {
     syscall_context ctx = (syscall_context)get_current_context(current_cpu());
     sysreturn rv;
@@ -519,7 +514,8 @@ sysreturn umcg_ctl(u64 flags, u64 cmd, int next_tid, u64 abs_timeout, u64 *event
 int init(status_handler complete)
 {
     umcg.h = heap_locked(get_kernel_heaps());
-    init_rbtree(&umcg.workers, init_closure(&umcg.worker_compare, umcg_worker_compare), 0);
+    init_rbtree(&umcg.workers,
+                init_closure_func(&umcg.worker_compare, rb_key_compare, umcg_worker_compare), 0);
     list_init(&umcg.idle_workers);
     blockq_init(&umcg.server_bq, ss("umcg servers"));
     spin_lock_init(&umcg.lock);

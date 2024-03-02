@@ -1709,7 +1709,7 @@ send_http_chunk_failed:
 closure_function(4, 2, void, __ftrace_send_http_chunk,
                  struct ftrace_routine *, routine, struct ftrace_printer *, p,
                  boolean, local_printer, http_responder, out,
-                 u64, expiry, u64, overruns)
+                 u64 expiry, u64 overruns)
 {
     if (overruns != timer_disabled &&
         __ftrace_send_http_chunk_internal(bound(routine), bound(p),
@@ -1806,8 +1806,8 @@ ftrace_do_http_put(http_responder handler, struct ftrace_routine * routine,
     __ftrace_do_http_method(handler, routine, true, put_data);
 }
 
-closure_function(0, 3, void, ftrace_http_request,
-                 http_method, method, http_responder, handler, value, val)
+closure_func_basic(http_request_handler, void, ftrace_http_request,
+                   http_method method, http_responder handler, value val)
 {
     buffer relative_uri;
     struct ftrace_routine * routine;
@@ -1860,7 +1860,7 @@ init_http_listener(void)
     http_register_uri_handler(
         ftrace_hl,
         ss(FTRACE_TRACE_URI),
-        closure(ftrace_heap, ftrace_http_request)
+        closure_func(ftrace_heap, http_request_handler, ftrace_http_request)
     );
 
     s = listen_port(ftrace_heap, FTRACE_TRACE_PORT,

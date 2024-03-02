@@ -15,14 +15,10 @@
 
 struct entropy_buf;
 
-declare_closure_struct(1, 1, void, ebuf_fill_complete,
-                       struct entropy_buf *, ebuf,
-                       u64, len);
-
 typedef struct entropy_buf {
     void *buf;
     u64 phys;
-    closure_struct(ebuf_fill_complete, fill_complete);
+    closure_struct(vqfinish, fill_complete);
     int offset;
     int len;
     boolean filling;
@@ -56,15 +52,15 @@ static void virtio_rng_fill(entropy_buf ebuf)
     vqmsg_commit(vq, m, (vqfinish)&ebuf->fill_complete);
 }
 
-define_closure_function(1, 1, void, ebuf_fill_complete,
-                        entropy_buf, ebuf,
-                        u64, len)
+closure_func_basic(vqfinish, void, ebuf_fill_complete,
+                   u64 len)
 {
     virtio_rng_debug("%s: len %ld\n", func_ss, len);
     assert(len <= VIRTIO_RNG_BUFSIZE);
-    bound(ebuf)->offset = 0;
-    bound(ebuf)->len = len;
-    bound(ebuf)->filling = false;
+    entropy_buf ebuf = struct_from_closure(entropy_buf, fill_complete);
+    ebuf->offset = 0;
+    ebuf->len = len;
+    ebuf->filling = false;
     if (compare_and_swap_32(&virtio_rng.initialized, false, true)) {
         random_reseed();
     }
@@ -77,7 +73,7 @@ static void virtio_init_ebufs(void)
         entropy_buf ebuf = &virtio_rng.ebufs[i];
         ebuf->buf = alloc_map(virtio_rng.backed, VIRTIO_RNG_BUFSIZE, &ebuf->phys);
         assert(ebuf->buf != INVALID_ADDRESS);
-        init_closure(&ebuf->fill_complete, ebuf_fill_complete, ebuf);
+        init_closure_func(&ebuf->fill_complete, vqfinish, ebuf_fill_complete);
         ebuf->offset = ebuf->len = 0;
         virtio_rng_fill(ebuf);
     }
@@ -128,7 +124,7 @@ static boolean virtio_rng_attach(heap general, backed_heap backed, vtdev v)
 
 closure_function(3, 1, boolean, vtpci_rng_probe,
                  heap, general, backed_heap, backed, id_heap, physical,
-                 pci_dev, d)
+                 pci_dev d)
 {
     virtio_rng_debug("%s\n", func_ss);
     if (!vtpci_probe(d, VIRTIO_ID_ENTROPY))

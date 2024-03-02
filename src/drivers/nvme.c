@@ -164,17 +164,11 @@ typedef struct nvme_cq {
     boolean phase;
 } *nvme_cq;
 
-typedef closure_type(nvme_ac_handler, void, struct nvme_cqe *cqe);
+closure_type(nvme_ac_handler, void, struct nvme_cqe *cqe);
 
-declare_closure_struct(1, 0, void, nvme_admin_irq,
-                       struct nvme *, n);
-declare_closure_struct(1, 0, void, nvme_io_irq,
-                       struct nvme *, n);
-declare_closure_struct(1, 0, void, nvme_bh_service,
-                       struct nvme *, n);
 declare_closure_struct(3, 3, void, nvme_io,
                        struct nvme *, n, u32, namespace, boolean, write,
-                       void *, buf, range, blocks, status_handler, sh);
+                       void *buf, range blocks, status_handler sh);
 
 typedef struct nvme {
     heap general, contiguous;
@@ -184,17 +178,17 @@ typedef struct nvme {
     int dstrd;  /* doorbell stride */
     struct nvme_sq asq; /* admin submission queue */
     struct nvme_cq acq; /* admin completion queue */
-    closure_struct(nvme_admin_irq, admin_irq);
+    closure_struct(thunk, admin_irq);
     nvme_ac_handler ac_handler; /* admin completion handler */
     int ioq_order;     /* I/O queue size */
     struct nvme_sq iosq;    /* I/O submission queue */
     struct nvme_cq iocq;    /* I/O completion queue */
     int attach_id;
-    closure_struct(nvme_io_irq, io_irq);
+    closure_struct(thunk, io_irq);
     struct list pending_reqs, free_reqs, done_reqs;
     vector cmds;
     struct list free_cmds;
-    closure_struct(nvme_bh_service, bh_service);
+    closure_struct(thunk, bh_service);
     closure_struct(nvme_io, r);
     closure_struct(nvme_io, w);
     closure_struct(storage_simple_req_handler, req_handler);
@@ -382,7 +376,7 @@ static void nvme_service_pending(nvme n, boolean allocate)
 
 define_closure_function(3, 3, void, nvme_io,
                         nvme, n, u32, namespace, boolean, write,
-                        void *, buf, range, blocks, status_handler, sh)
+                        void *buf, range blocks, status_handler sh)
 {
     nvme n = bound(n);
     u32 namespace = bound(namespace);
@@ -406,11 +400,10 @@ define_closure_function(3, 3, void, nvme_io,
     spin_unlock_irq(&n->lock, irqflags);
 }
 
-define_closure_function(1, 0, void, nvme_io_irq,
-                        nvme, n)
+closure_func_basic(thunk, void, nvme_io_irq)
 {
     nvme_debug("%s", func_ss);
-    nvme n = bound(n);
+    nvme n = struct_from_closure(nvme, io_irq);
     spin_lock(&n->lock);
     boolean done_empty = list_empty(&n->done_reqs);
     struct nvme_cqe *cqe;
@@ -437,11 +430,10 @@ define_closure_function(1, 0, void, nvme_io_irq,
     spin_unlock(&n->lock);
 }
 
-define_closure_function(1, 0, void, nvme_bh_service,
-                        nvme, n)
+closure_func_basic(thunk, void, nvme_bh_service)
 {
     nvme_debug("%s", func_ss);
-    nvme n = bound(n);
+    nvme n = struct_from_closure(nvme, bh_service);
     list l;
     u64 irqflags = spin_lock_irq(&n->lock);
     while ((l = list_get_next(&n->done_reqs))) {
@@ -533,7 +525,7 @@ static void nvme_ns_query_next(nvme n, u32 ns_id, u32 nn, void *ns_resp)
 
 closure_function(5, 1, void, nvme_ns_query_resp,
                  nvme, n, u32, ns_id, u32, nn, void *, ns_resp, storage_attach, a,
-                 struct nvme_cqe *, cqe)
+                 struct nvme_cqe *cqe)
 {
     nvme n = bound(n);
     void *ns_resp = bound(ns_resp);
@@ -556,7 +548,7 @@ static void nvme_ns_query_next_active(nvme n, u32 *ns_list, int index, void *ns_
 
 closure_function(5, 1, void, nvme_ns_query_resp_active,
                  nvme, n, u32 *, ns_list, int, index, void *, ns_resp, storage_attach, a,
-                 struct nvme_cqe *, cqe)
+                 struct nvme_cqe *cqe)
 {
     nvme n = bound(n);
     u32 *ns_list = bound(ns_list);
@@ -567,7 +559,7 @@ closure_function(5, 1, void, nvme_ns_query_resp_active,
 
 closure_function(3, 1, void, nvme_identify_controller_resp,
                  nvme, n, void *, resp, storage_attach, a,
-                 struct nvme_cqe *, cqe)
+                 struct nvme_cqe *cqe)
 {
     nvme n = bound(n);
     void *resp = bound(resp);
@@ -635,7 +627,7 @@ static boolean nvme_identify_controller(nvme n, storage_attach a)
 
 closure_function(3, 1, void, nvme_get_active_namespaces_resp,
                  nvme, n, void *, resp, storage_attach, a,
-                 struct nvme_cqe *, cqe)
+                 struct nvme_cqe *cqe)
 {
     nvme n = bound(n);
     void *resp = bound(resp);
@@ -689,7 +681,7 @@ static boolean nvme_get_active_namespaces(nvme n, u32 start_id, storage_attach a
 
 closure_function(2, 1, void, nvme_create_iosq_resp,
                  nvme, n, storage_attach, a,
-                 struct nvme_cqe *, cqe)
+                 struct nvme_cqe *cqe)
 {
     nvme n = bound(n);
     storage_attach a = bound(a);
@@ -737,7 +729,7 @@ static boolean nvme_create_iosq(nvme n, storage_attach a)
 
 closure_function(2, 1, void, nvme_create_iocq_resp,
                  nvme, n, storage_attach, a,
-                 struct nvme_cqe *, cqe)
+                 struct nvme_cqe *cqe)
 {
     nvme n = bound(n);
     int sc = NVME_STATUS_CODE(cqe->dw3);
@@ -762,7 +754,7 @@ static boolean nvme_create_iocq(nvme n, storage_attach a)
         nvme_deinit_cq(n, &n->iocq);
         return false;
     }
-    if (pci_setup_msix(n->d, NVME_IOQ_MSIX, init_closure(&n->io_irq, nvme_io_irq, n),
+    if (pci_setup_msix(n->d, NVME_IOQ_MSIX, init_closure_func(&n->io_irq, thunk, nvme_io_irq),
                        ss("nvme I/O")) == INVALID_PHYSICAL) {
         msg_err("failed to allocate MSI-X vector\n");
         return false;
@@ -778,10 +770,9 @@ static boolean nvme_create_iocq(nvme n, storage_attach a)
     return true;
 }
 
-define_closure_function(1, 0, void, nvme_admin_irq,
-                        nvme, n)
+closure_func_basic(thunk, void, nvme_admin_irq)
 {
-    nvme n = bound(n);
+    nvme n = struct_from_closure(nvme, admin_irq);
     nvme_debug("%s (%F)", func_ss, n->ac_handler);
     nvme_cq acq = &n->acq;
     struct nvme_cqe *cqe = nvme_get_cqe(acq);
@@ -794,7 +785,7 @@ define_closure_function(1, 0, void, nvme_admin_irq,
 
 closure_function(3, 1, boolean, nvme_probe,
                  heap, general, storage_attach, a, heap, contiguous,
-                 pci_dev, d)
+                 pci_dev d)
 {
     if ((pci_get_class(d) != PCIC_STORAGE) || (pci_get_subclass(d) != PCIS_STORAGE_NVM) ||
             (pci_get_prog_if(d) != PCIPI_STORAGE_NVME))
@@ -859,7 +850,7 @@ closure_function(3, 1, boolean, nvme_probe,
     }
     n->d = d;
     pci_enable_msix(d);
-    if (pci_setup_msix(d, NVME_AQ_MSIX, init_closure(&n->admin_irq, nvme_admin_irq, n),
+    if (pci_setup_msix(d, NVME_AQ_MSIX, init_closure_func(&n->admin_irq, thunk, nvme_admin_irq),
                        ss("nvme admin")) == INVALID_PHYSICAL) {
         msg_err("failed to allocate MSI-X vector\n");
         goto free_cmds;
@@ -870,7 +861,7 @@ closure_function(3, 1, boolean, nvme_probe,
     list_init(&n->done_reqs);
     list_init(&n->free_cmds);
     spin_lock_init(&n->lock);
-    init_closure(&n->bh_service, nvme_bh_service, n);
+    init_closure_func(&n->bh_service, thunk, nvme_bh_service);
     if (nvme_create_iocq(n, bound(a))) {
         d->driver_data = n;
         return true;
@@ -904,8 +895,8 @@ closure_function(2, 0, void, nvme_detach_complete,
     closure_finish();
 }
 
-closure_function(0, 2, void, nvme_remove,
-                 void *, driver_data, thunk, completion)
+closure_func_basic(pci_remove, void, nvme_remove,
+                   void *driver_data, thunk completion)
 {
     nvme_debug("removing");
     nvme n = driver_data;
@@ -920,5 +911,5 @@ void init_nvme(kernel_heaps kh, storage_attach a)
 {
     heap h = heap_locked(kh);
     register_pci_driver(closure(h, nvme_probe, h, a, (heap)heap_linear_backed(kh)),
-                        closure(h, nvme_remove));
+                        closure_func(h, pci_remove, nvme_remove));
 }

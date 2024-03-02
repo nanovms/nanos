@@ -387,13 +387,12 @@ static void vtpci_modern_alloc_resources(vtpci dev)
     vtpci_modern_find_cap(dev, VIRTIO_PCI_CAP_DEVICE_CFG, &dev->device_config);
 }
 
-define_closure_function(1, 2, void, vtpci_notify,
-                        vtpci, dev,
-                        u16, queue_index, bytes, notify_offset)
+closure_func_basic(vtdev_notify, void, vtpci_notify,
+                   u16 queue_index, bytes notify_offset)
 {
     virtio_pci_debug("%s: queue %d, notify_offset 0x%x\n", func_ss,
                      queue_index, notify_offset);
-    pci_bar_write_2(&bound(dev)->notify_config, notify_offset, queue_index);
+    pci_bar_write_2(&struct_from_closure(vtpci, notify)->notify_config, notify_offset, queue_index);
 }
 
 vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_mask)
@@ -455,7 +454,7 @@ vtpci attach_vtpci(heap h, backed_heap page_allocator, pci_dev d, u64 feature_ma
                      func_ss, virtio_dev->dev_features, virtio_dev->features);
     vtpci_set_status(dev, VIRTIO_CONFIG_STATUS_FEATURE);
 
-    init_closure(&dev->notify, vtpci_notify, dev);
+    init_closure_func(&dev->notify, vtdev_notify, vtpci_notify);
     dev->virtio_dev.notify = (vtdev_notify)&dev->notify;
     virtio_attach(h, page_allocator, VTIO_TRANSPORT_PCI, virtio_dev);
     dev->non_msix_handler = 0;

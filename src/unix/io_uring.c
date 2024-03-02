@@ -169,7 +169,7 @@ typedef struct io_uring {
 
 declare_closure_struct(2, 2, u64, iour_poll_notify,
                        io_uring, iour, struct iour_poll *, p,
-                       u64, events, void *, arg);
+                       u64 events, void *arg);
 
 typedef struct iour_poll {
     struct list l;
@@ -182,7 +182,7 @@ typedef struct iour_poll {
 
 declare_closure_struct(2, 2, void, iour_timeout,
                        io_uring, iour, struct iour_timer *, t,
-                       u64, expiry, u64, overruns);
+                       u64 expiry, u64 overruns);
 
 typedef struct iour_timer {
     struct list l;
@@ -278,7 +278,7 @@ closure_func_basic(fdesc_mmap, sysreturn, iour_mmap,
 
 closure_function(2, 1, sysreturn, iour_close_bh,
                  io_uring, iour, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     io_uring iour = bound(iour);
     sysreturn rv;
@@ -472,7 +472,7 @@ err1:
 
 simple_closure_function(1, 1, void, iour_efd_complete,
                         u64, efd_val,
-                        sysreturn, rv)
+                        sysreturn rv)
 {
     closure_finish();
 }
@@ -569,7 +569,7 @@ static void iour_complete_timeout(io_uring iour, u64 user_data)
 
 closure_function(4, 1, void, iour_rw_complete,
                  io_uring, iour, fdesc, f, u64, user_data, context, proc_ctx,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     fdesc_put(bound(f));
     iour_complete(bound(iour), bound(user_data), rv, true, true);
@@ -635,7 +635,7 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
 
 define_closure_function(2, 2, u64, iour_poll_notify,
                         io_uring, iour, iour_poll, p,
-                        u64, events, void *, arg)
+                        u64 events, void *arg)
 {
     if (!events)
         return false;
@@ -727,7 +727,7 @@ static void iour_poll_remove(io_uring iour, u64 addr, u64 user_data)
 
 define_closure_function(2, 2, void, iour_timeout,
                         io_uring, iour, iour_timer, t,
-                        u64, expiry, u64, overruns)
+                        u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -813,7 +813,7 @@ static void iour_timeout_remove(io_uring iour, u64 addr, u64 user_data)
 
 closure_function(3, 1, void, iour_close_complete,
                  io_uring, iour, u64, user_data, context, proc_ctx,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     iour_complete(bound(iour), bound(user_data), rv, true, true);
     context_release_refcount(bound(proc_ctx));
@@ -1058,7 +1058,7 @@ complete:
 
 simple_closure_function(7, 1, sysreturn, iour_getevents_bh,
                         io_uring, iour, sysreturn, submitted, unsigned int, min_complete, unsigned int, timeouts, boolean, sig_set, thread, t, io_completion, completion,
-                        u64, flags)
+                        u64 flags)
 {
     io_uring iour = bound(iour);
     if (flags & BLOCKQ_ACTION_BLOCKED)

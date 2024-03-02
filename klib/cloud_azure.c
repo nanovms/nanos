@@ -4,10 +4,6 @@
 
 #define AZURE_MS_VERSION    "2012-11-30"
 
-declare_closure_struct(1, 2, void, report_ready_func,
-    struct azure *, az,
-    u64, expiry, u64, overruns);
-
 typedef struct azure {
     heap h;
     char container_id[64];
@@ -16,30 +12,30 @@ typedef struct azure {
     bytes instance_id_len;
     timestamp report_backoff;
     struct timer report_timer;
-    closure_struct(report_ready_func, report_ready);
+    closure_struct(timer_handler, report_ready);
 } *azure;
 
 static void azure_report_ready(azure az);
 
-define_closure_function(1, 2, void, report_ready_func,
-                        azure, az,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, report_ready_func,
+                   u64 expiry, u64 overruns)
 {
+    azure az = struct_from_closure(azure, report_ready);
     if (overruns != timer_disabled)
-        azure_report_ready(bound(az));
+        azure_report_ready(az);
 }
 
 static void azure_report_retry(azure az)
 {
     register_timer(kernel_timers, &az->report_timer, CLOCK_ID_MONOTONIC, az->report_backoff, false, 0,
-        init_closure(&az->report_ready, report_ready_func, az));
+        init_closure_func(&az->report_ready, timer_handler, report_ready_func));
     if (az->report_backoff < seconds(600))
         az->report_backoff <<= 1;
 }
 
 closure_function(2, 1, void, wireserver_parse_resp,
                  azure, az, buffer_handler, out,
-                 value, v)
+                 value v)
 {
     azure az = bound(az);
     buffer content = get(v, sym(content));
@@ -77,7 +73,7 @@ closure_function(2, 1, void, wireserver_parse_resp,
 
 closure_function(3, 1, boolean, wireserver_get_resp,
                  azure, az, buffer_handler, out, buffer_handler, parser,
-                 buffer, data)
+                 buffer data)
 {
     if (data) {
         if (apply(bound(parser), data) != STATUS_OK) {
@@ -92,7 +88,7 @@ closure_function(3, 1, boolean, wireserver_get_resp,
 
 closure_function(1, 1, input_buffer_handler, wireserver_get_ch,
                  azure, az,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     azure az = bound(az);
     value_handler vh = INVALID_ADDRESS;
@@ -132,7 +128,7 @@ closure_function(1, 1, input_buffer_handler, wireserver_get_ch,
 
 closure_function(1, 1, boolean, wireserver_post_resp,
                  buffer_handler, out,
-                 buffer, data)
+                 buffer data)
 {
     if (data) {
         apply(bound(out), 0);
@@ -145,7 +141,7 @@ closure_function(1, 1, boolean, wireserver_post_resp,
 
 closure_function(1, 1, input_buffer_handler, wireserver_post_ch,
                  azure, az,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     azure az = bound(az);
     input_buffer_handler in = INVALID_ADDRESS;

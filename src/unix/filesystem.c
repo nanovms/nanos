@@ -112,7 +112,7 @@ void filesystem_update_relatime(filesystem fs, tuple md)
 
 closure_function(2, 2, void, fs_op_complete,
                  thread, t, file, f,
-                 fsfile, fsf, fs_status, s)
+                 fsfile fsf, fs_status s)
 {
     thread t = bound(t);
     sysreturn ret = sysreturn_from_fs_status(s);

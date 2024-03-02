@@ -54,11 +54,12 @@ static pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 #define resolve_fd_noret(__fd) vector_get(files, __fd)
 #define resolve_fd(__fd) ({void *f ; if (!(f = resolve_fd_noret(__fd))) return -EBADF; f;})
 
-typedef closure_type(file_io, int, void *buf, u64 length, u64 offset);
+closure_type(file_io, int, void *buf, u64 length, u64 offset);
+closure_type(fdesc_close, void);
 
 typedef struct fdesc {
     file_io read, write;
-    closure_type(close, void);
+    fdesc_close close;
 
     u64 refcnt;
     int type;
@@ -77,6 +78,9 @@ typedef struct file {
     inode n;                /* filesystem inode number */
     u64 offset;
     u64 length;
+    closure_struct(file_io, read);
+    closure_struct(file_io, write);
+    closure_struct(fdesc_close, close);
 } *file;
 
 static inline void init_fdesc(heap h, fdesc f, int type)
@@ -194,7 +198,7 @@ static inline tuple file_get_meta(file f)
 
 closure_function(2, 1, void, req_handle,
                  descriptor, d, u64, fs_offset,
-                 storage_req, req)
+                 storage_req req)
 {
     sg_list sg;
     u64 offset;
@@ -336,7 +340,7 @@ static int tfs_getattr(const char *name, struct stat *s)
 
 closure_function(6, 1, void, file_read_complete,
                  sg_list, sg, void *, dest, u64, limit, file, f, boolean, is_file_offset, int *, rv,
-                 status, s)
+                 status s)
 {
     int *rv = bound(rv);
     if (is_ok(s)) {
@@ -351,11 +355,10 @@ closure_function(6, 1, void, file_read_complete,
     closure_finish();
 }
 
-closure_function(2, 3, int, file_read,
-                 file, f, fsfile, fsf,
-                 void *, dest, u64, length, u64, offset_arg)
+closure_func_basic(file_io, int, file_read,
+                   void *dest, u64 length, u64 offset_arg)
 {
-    file f = bound(f);
+    file f = struct_from_closure(file, read);
 
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
@@ -376,7 +379,7 @@ closure_function(2, 3, int, file_read,
 
 closure_function(5, 1, void, file_write_complete,
                  file, f, sg_list, sg, u64, length, boolean, is_file_offset, int *, rv,
-                 status, s)
+                 status s)
 {
     tfs_fuse_debug("file_write_complete status %v\n", s);
     sg_list_release(bound(sg));
@@ -397,11 +400,10 @@ closure_function(5, 1, void, file_write_complete,
     closure_finish();
 }
 
-closure_function(2, 3, int, file_write,
-                file, f, fsfile, fsf,
-                void *, src, u64, length, u64, offset_arg)
+closure_func_basic(file_io, int, file_write,
+                void *src, u64 length, u64 offset_arg)
 {
-    file f = bound(f);
+    file f = struct_from_closure(file, write);
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
 
@@ -424,13 +426,9 @@ closure_function(2, 3, int, file_write,
     return rv;
 }
 
-closure_function(2, 0, void, file_close,
-                file, f, fsfile, fsf)
+closure_func_basic(fdesc_close, void, file_close)
 {
-    file f = bound(f);
-    deallocate_closure(f->f.read);
-    deallocate_closure(f->f.write);
-    deallocate_closure(f->f.close);
+    file f = struct_from_closure(file, close);
     fsfile_release(f->fsf);
     deallocate(h, f, sizeof(struct file));
 }
@@ -476,9 +474,9 @@ static int open_internal(const char *name, int flags, int mode)
     }
     init_fdesc(h, &f->f, type);
     f->f.flags = flags;
-    f->f.read = closure(h, file_read, f, fsf);
-    f->f.write = closure(h, file_write, f, fsf);
-    f->f.close = closure(h, file_close, f, fsf);
+    f->f.read = init_closure_func(&f->read, file_io, file_read);
+    f->f.write = init_closure_func(&f->write, file_io, file_write);
+    f->f.close = init_closure_func(&f->close, fdesc_close, file_close);
     f->fs = rootfs;
     if (type == FDESC_TYPE_REGULAR) {
         f->fsf = fsf;
@@ -602,7 +600,7 @@ out:
 
 closure_function(3, 2, boolean, tfs_readdir_each,
                  void *, buf, file, f, fuse_fill_dir_t, filler,
-                 value, k, value, v)
+                 value k, value v)
 {
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
     char *p = cstring(symbol_string(k), tmpbuf);
@@ -872,8 +870,8 @@ static struct fuse_operations tfs_op = {
     .utimens        = tfs_utimens,
 };
 
-closure_function(0, 2, void, fsc,
-                 filesystem, fs, status, s)
+closure_func_basic(filesystem_complete, void, fsc,
+                   filesystem fs, status s)
 {
     if (!is_ok(s)) {
         rprintf("failed to initialize filesystem: %v\n", s);
@@ -943,7 +941,7 @@ int main(int argc, char **argv)
                       length,
                       closure(h, req_handle, fd, offset),
                       0, sstring_null(),
-                      closure(h, fsc));
+                      closure_func(h, filesystem_complete, fsc));
     fdallocator = create_id_heap(h, h, 0, infinity, 1, false);
     files = allocate_vector(h, 64);
     fs_set_path_helper(get_root_fs, 0);

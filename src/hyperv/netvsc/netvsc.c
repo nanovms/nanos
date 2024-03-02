@@ -218,8 +218,8 @@ retry_send:
     return ERR_OK;
 }
 
-define_closure_function(0, 1, u64, hn_mem_cleaner,
-                        u64, clean_bytes)
+closure_func_basic(mem_cleaner, u64, hn_mem_cleaner,
+                   u64 clean_bytes)
 {
     hn_softc_t *hn = struct_from_field(closure_self(), hn_softc_t *, mem_cleaner);
     return cache_drain(hn->rxbuffers, clean_bytes,
@@ -281,7 +281,7 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
               vmxif_init,
               ethernet_input);
 
-    mm_register_mem_cleaner(init_closure(&hn->mem_cleaner, hn_mem_cleaner));
+    mm_register_mem_cleaner(init_closure_func(&hn->mem_cleaner, mem_cleaner, hn_mem_cleaner));
     netvsc_debug("%s: hwaddr %02x:%02x:%02x:%02x:%02x:%02x", func_ss,
                  netif->hwaddr[0], netif->hwaddr[1], netif->hwaddr[2],
                  netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
@@ -290,9 +290,7 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
 
 closure_function(1, 3, boolean, netvsc_probe,
                  kernel_heaps, kh,
-                 struct hv_device*, device,
-                 storage_attach, unused,
-                 boolean*, unused1)
+                 struct hv_device *device, storage_attach unused, boolean *unused1)
 {
     status s = netvsc_attach(bound(kh), device);
     if (!is_ok(s)) {

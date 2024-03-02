@@ -125,8 +125,8 @@ static void lapic_set_timer(timestamp interval)
     apic_write(APIC_TMRINITCNT, cnt);
 }
 
-closure_function(0, 1, void, lapic_timer,
-                 timestamp, interval)
+closure_func_basic(clock_timer, void, lapic_timer,
+                   timestamp interval)
 {
     current_cpu()->m.lapic_timer_expiry = now(CLOCK_ID_MONOTONIC_RAW) + interval;
     lapic_set_timer(interval);
@@ -154,7 +154,7 @@ closure_function(1, 0, void, lapic_timer_percpu_init,
 boolean init_lapic_timer(clock_timer *ct, thunk *per_cpu_init)
 {
     assert(apic_if);
-    *ct = closure(apic_heap, lapic_timer);
+    *ct = closure_func(apic_heap, clock_timer, lapic_timer);
     int v = allocate_interrupt();
     register_interrupt(v, closure(apic_heap, lapic_timer_int), ss("lapic timer"));
     *per_cpu_init = closure(apic_heap, lapic_timer_percpu_init, v);
@@ -253,7 +253,7 @@ int cpuid_from_apicid(u32 aid)
 
 closure_function(1, 2, void, apic_madt_handler,
                  kernel_heaps, kh,
-                 u8, type, void *, p)
+                 u8 type, void *p)
 {
     u32 apic_id;
 

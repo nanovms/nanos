@@ -37,8 +37,8 @@ closure_function(0, 0, timestamp, riscv_clock_now)
     return seconds(t / f) | truncate_seconds((t << 32) / f);
 }
 
-closure_function(0, 1, void, riscv_deadline_timer,
-                 timestamp, interval)
+closure_func_basic(clock_timer, void, riscv_deadline_timer,
+                   timestamp interval)
 {
     u64 tv = mmio_read_64(mmio_base_addr(CLINT) + CLINT_MTIME);
     tv += (interval*CLINT_TIMEBASE_FREQ) >> 32; 
@@ -51,13 +51,14 @@ closure_function(0, 0, void, riscv_timer_percpu_init)
 }
 
 closure_struct(riscv_clock_now, _clock_now);
-closure_struct(riscv_deadline_timer, _deadline_timer);
+closure_struct(clock_timer, _deadline_timer);
 closure_struct(riscv_timer_percpu_init, _timer_percpu_init);
 
 void init_clock(void)
 {
     register_platform_clock_now(init_closure(&_clock_now, riscv_clock_now), VDSO_CLOCK_SYSCALL, 0);
-    register_platform_clock_timer(init_closure(&_deadline_timer, riscv_deadline_timer),
+    register_platform_clock_timer(init_closure_func(&_deadline_timer, clock_timer,
+                                                    riscv_deadline_timer),
                                   init_closure(&_timer_percpu_init, riscv_timer_percpu_init));
 }
 

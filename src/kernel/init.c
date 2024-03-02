@@ -205,7 +205,7 @@ heap heap_dma(void)
 
 closure_function(2, 1, void, offset_req_handler,
                  u64, offset, storage_req_handler, req_handler,
-                 storage_req, req)
+                 storage_req req)
 {
     assert((bound(offset) & (SECTOR_SIZE - 1)) == 0);
     u64 ds = bound(offset) >> SECTOR_OFFSET;
@@ -223,7 +223,7 @@ BSS_RO_AFTER_INIT static tuple_notifier wrapped_root;
 
 closure_function(2, 2, void, fsstarted,
                  u8 *, mbr, storage_req_handler, req_handler,
-                 filesystem, fs, status, s)
+                 filesystem fs, status s)
 {
     init_debug("%s\n", func_ss);
     heap h = heap_locked(init_heaps);
@@ -442,7 +442,7 @@ boolean mm_register_mem_cleaner(mem_cleaner cleaner)
 
 closure_function(1, 1, void, mm_service_sync,
                  context, ctx,
-                 status, s)
+                 status s)
 {
     if (!is_ok(s)) {
         mm_debug("%s: storage sync failed: %v\n", func_ss, s);
@@ -525,7 +525,7 @@ static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u6
 
 closure_function(2, 2, void, volume_fs_init,
                  storage_req_handler, req_handler, u64, length,
-                 boolean, readonly, filesystem_complete, complete)
+                 boolean readonly, filesystem_complete complete)
 {
     create_filesystem(heap_locked(init_heaps), SECTOR_SIZE, bound(length), bound(req_handler),
                       readonly, sstring_null() /* no label */, complete);
@@ -534,7 +534,7 @@ closure_function(2, 2, void, volume_fs_init,
 
 closure_function(4, 1, void, mbr_read,
                  u8 *, mbr, storage_req_handler, req_handler, u64, length, int, attach_id,
-                 status, s)
+                 status s)
 {
     init_debug("%s", func_ss);
     if (!is_ok(s)) {
@@ -571,8 +571,8 @@ closure_function(4, 1, void, mbr_read,
     closure_finish();
 }
 
-closure_function(0, 3, void, attach_storage,
-                 storage_req_handler, req_handler, u64, length, int, attach_id)
+closure_func_basic(storage_attach, void, attach_storage,
+                   storage_req_handler req_handler, u64 length, int attach_id)
 {
     heap h = heap_locked(init_heaps);
     heap bh = (heap)heap_linear_backed(init_heaps);
@@ -597,8 +597,8 @@ closure_function(0, 3, void, attach_storage,
     apply(req_handler, &req);
 }
 
-closure_function(0, 1, u64, mm_pagecache_cleaner,
-                 u64, clean_bytes)
+closure_func_basic(mem_cleaner, u64, mm_pagecache_cleaner,
+                   u64 clean_bytes)
 {
     return pagecache_drain(clean_bytes);
 }
@@ -642,7 +642,7 @@ void kernel_runtime_init(kernel_heaps kh)
     list_init(&mm_cleaners);
     spin_lock_init(&mm_lock);
     init_pagecache(locked, (heap)kh->pages, PAGESIZE);
-    mem_cleaner pc_cleaner = closure(misc, mm_pagecache_cleaner);
+    mem_cleaner pc_cleaner = closure_func(misc, mem_cleaner, mm_pagecache_cleaner);
     assert(pc_cleaner != INVALID_ADDRESS);
     assert(mm_register_mem_cleaner(pc_cleaner));
     init_extra_prints();
@@ -691,7 +691,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);
 
-    storage_attach sa = closure(misc, attach_storage);
+    storage_attach sa = closure_func(misc, storage_attach, attach_storage);
 
     init_debug("detect_devices");
     detect_devices(kh, sa);
@@ -711,13 +711,14 @@ void add_shutdown_completion(shutdown_handler h)
 
 closure_function(1, 1, void, sync_complete,
                  u8, code,
-                 status, s)
+                 status s)
 {
     vm_exit(bound(code));
     closure_finish();
 }
 
-closure_function(0, 2, void, storage_shutdown, int, status, merge, m)
+closure_func_basic(shutdown_handler, void, storage_shutdown,
+                   int status, merge m)
 {
     if (status != 0)
         klog_save(status, apply_merge(m));
@@ -740,7 +741,7 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
 
     if (root_fs)
         vector_push(shutdown_completions,
-                    closure(locked, storage_shutdown));
+                    closure_func(locked, shutdown_handler, storage_shutdown));
 
     if (vector_length(shutdown_completions) > 0) {
         cpuinfo ci = current_cpu();

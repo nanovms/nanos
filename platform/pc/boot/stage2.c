@@ -88,7 +88,7 @@ heap heap_dma(void)
 
 closure_function(1, 1, void, stage2_bios_read,
                  u64, offset,
-                 storage_req, req)
+                 storage_req req)
 {
     if (req->op != STORAGE_OP_READSG)
         halt("%s: invalid storage op %d\n", func_ss, req->op);
@@ -121,7 +121,7 @@ closure_function(1, 1, void, stage2_bios_read,
 
 closure_function(3, 1, void, stage2_ata_read,
                  struct ata *, dev, u64, offset, u64, io_max_blocks,
-                 storage_req, req)
+                 storage_req req)
 {
     if (req->op != STORAGE_OP_READSG)
         halt("%s: invalid storage op %d\n", func_ss, req->op);
@@ -188,8 +188,8 @@ static storage_req_handler get_stage2_disk_read(heap general, u64 fs_offset)
     return closure(general, stage2_ata_read, dev, fs_offset, ata_get_io_max_blocks(dev));
 }
 
-closure_function(0, 1, void, fail,
-                 status, s)
+closure_func_basic(status_handler, void, fail,
+                   status s)
 {
     halt("filesystem_read_entire failed: %v\n", s);
 }
@@ -213,8 +213,8 @@ static void setup_page_tables()
 
 static u64 working_saved_base;
 
-closure_function(0, 1, status, kernel_read_complete,
-                 buffer, kb)
+closure_func_basic(buffer_handler, status, kernel_read_complete,
+                   buffer kb)
 {
     stage2_debug("%s\n", func_ss);
 
@@ -247,14 +247,14 @@ region fsregion()
 
 closure_function(3, 2, void, filesystem_initialized,
                  heap, h, heap, backed, buffer_handler, complete,
-                 filesystem, fs, status, s)
+                 filesystem fs, status s)
 {
     if (!is_ok(s))
         halt("unable to open filesystem: %v\n", s);
     filesystem_read_entire(fs, lookup(filesystem_getroot(fs), sym(kernel)),
                            bound(backed),
                            bound(complete),
-                           closure(bound(h), fail));
+                           closure_func(bound(h), status_handler, fail));
 }
 
 void newstack()
@@ -263,7 +263,7 @@ void newstack()
     struct partition_entry *bootfs_part = partition_get(MBR_ADDRESS, PARTITION_BOOTFS);
     u32 fs_offset = bootfs_part->lba_start * SECTOR_SIZE;
     heap h = general;
-    buffer_handler bh = closure(h, kernel_read_complete);
+    buffer_handler bh = closure_func(h, buffer_handler, kernel_read_complete);
 
     setup_page_tables();
 

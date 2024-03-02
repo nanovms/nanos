@@ -17,24 +17,7 @@
 
 declare_closure_struct(1, 1, void, gcp_setup_complete,
                        timestamp, retry_backoff,
-                       status, s);
-declare_closure_struct(0, 2, void, gcp_log_timer_handler,
-                       u64, expiry, u64, overruns);
-declare_closure_struct(0, 1, input_buffer_handler, gcp_log_conn_handler,
-                       buffer_handler, out)
-declare_closure_struct(0, 1, boolean, gcp_log_in_handler,
-                       buffer, data);
-declare_closure_struct(0, 1, void, gcp_log_vh,
-                       value, v);
-declare_closure_struct(0, 2, void, gcp_metrics_timer_handler,
-                       u64, expiry, u64, overruns);
-declare_closure_struct(0, 1, input_buffer_handler, gcp_metrics_conn_handler,
-                       buffer_handler, out)
-declare_closure_struct(0, 1, boolean, gcp_metrics_in_handler,
-                       buffer, data);
-declare_closure_struct(0, 1, void, gcp_metrics_value_handler,
-                       value, v);
-
+                       status s);
 static struct gcp {
     heap h;
     struct console_driver log_driver;
@@ -47,13 +30,13 @@ static struct gcp {
     buffer log_id;
     vector log_entries;
     struct timer log_timer;
-    closure_struct(gcp_log_timer_handler, log_timer_handler);
-    closure_struct(gcp_log_conn_handler, log_conn_handler);
+    closure_struct(timer_handler, log_timer_handler);
+    closure_struct(connection_handler, log_conn_handler);
     buffer_handler log_out;
-    closure_struct(gcp_log_in_handler, log_in_handler);
+    closure_struct(input_buffer_handler, log_in_handler);
     int log_pending;
     boolean log_resp_recved;
-    closure_struct(gcp_log_vh, log_vh);
+    closure_struct(value_handler, log_vh);
     buffer_handler log_resp_parser;
     timestamp metrics_interval;
     boolean metrics_disk;
@@ -61,12 +44,12 @@ static struct gcp {
     buffer metrics_url;
     boolean metrics_pending;
     struct timer metrics_timer;
-    closure_struct(gcp_metrics_timer_handler, metrics_timer_handler);
-    closure_struct(gcp_metrics_conn_handler, metrics_conn_handler);
+    closure_struct(timer_handler, metrics_timer_handler);
+    closure_struct(connection_handler, metrics_conn_handler);
     buffer_handler metrics_out;
-    closure_struct(gcp_metrics_in_handler, metrics_in_handler);
+    closure_struct(input_buffer_handler, metrics_in_handler);
     buffer_handler metrics_resp_parser;
-    closure_struct(gcp_metrics_value_handler, metrics_value_handler);
+    closure_struct(value_handler, metrics_value_handler);
     struct spinlock lock;
 } gcp;
 
@@ -89,7 +72,7 @@ static boolean gcp_instance_md_available(void)
 
 closure_function(1, 1, void, gcp_project_id_vh,
                  status_handler, sh,
-                 value, v)
+                 value v)
 {
     gcp.project_id = clone_buffer(gcp.h, get(v, sym(content)));
     status s;
@@ -120,7 +103,7 @@ closure_function(1, 1, void, gcp_project_id_vh,
 
 closure_function(1, 1, void, gcp_hostname_vh,
                  status_handler, sh,
-                 value, v)
+                 value v)
 {
     gcp.log_id = clone_buffer(gcp.h, get(v, sym(content)));
     status s;
@@ -135,7 +118,7 @@ closure_function(1, 1, void, gcp_hostname_vh,
 
 closure_function(1, 1, void, gcp_zone_vh,
                  status_handler, sh,
-                 value, v)
+                 value v)
 {
     buffer content = get(v, sym(content));
     status s;
@@ -167,7 +150,7 @@ closure_function(1, 1, void, gcp_zone_vh,
 
 closure_function(1, 1, void, gcp_instance_id_vh,
                  status_handler, sh,
-                 value, v)
+                 value v)
 {
     gcp.instance_id = clone_buffer(gcp.h, get(v, sym(content)));
     status s;
@@ -182,7 +165,7 @@ closure_function(1, 1, void, gcp_instance_id_vh,
 
 closure_function(1, 1, void, gcp_access_token_vh,
                  status_handler, sh,
-                 value, v)
+                 value v)
 {
     value resp = get(v, sym(start_line));
     buffer status_code = get(resp, integer_key(1));
@@ -222,7 +205,7 @@ closure_function(1, 1, void, gcp_access_token_vh,
 
 closure_function(4, 1, boolean, gcp_instance_md_in,
                  buffer_handler, out, buffer_handler, parser, value_handler, vh, status_handler, sh,
-                 buffer, data)
+                 buffer data)
 {
     buffer_handler out = bound(out);
     status_handler sh = bound(sh);
@@ -259,7 +242,7 @@ closure_function(4, 1, boolean, gcp_instance_md_in,
 
 closure_function(3, 1, input_buffer_handler, gcp_instance_md_ch,
                  sstring, url, value_handler, vh, status_handler, sh,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     status_handler sh = bound(sh);
     status s;
@@ -417,7 +400,7 @@ static void gcp_setup(void)
 
 closure_function(1, 2, void, gcp_setup_retry,
                  struct timer, t,
-                 u64, expiry, u64, overruns)
+                 u64 expiry, u64 overruns)
 {
     if (overruns != timer_disabled)
         gcp_setup();
@@ -426,7 +409,7 @@ closure_function(1, 2, void, gcp_setup_retry,
 
 define_closure_function(1, 1, void, gcp_setup_complete,
                         timestamp, retry_backoff,
-                        status, s)
+                        status s)
 {
     if (is_ok(s)) {
         bound(retry_backoff) = seconds(1);
@@ -517,8 +500,8 @@ static void gcp_log_pending_delete(void)
     spin_unlock(&gcp.lock);
 }
 
-define_closure_function(0, 1, void, gcp_log_vh,
-                        value, v)
+closure_func_basic(value_handler, void, gcp_log_vh,
+                   value v)
 {
     value resp = get(v, sym(start_line));
     buffer status_code = get(resp, integer_key(1));
@@ -536,8 +519,8 @@ define_closure_function(0, 1, void, gcp_log_vh,
     }
 }
 
-define_closure_function(0, 1, boolean, gcp_log_in_handler,
-                        buffer, data)
+closure_func_basic(input_buffer_handler, boolean, gcp_log_in_handler,
+                   buffer data)
 {
     if (data) {
         status s = apply(gcp.log_resp_parser, data);
@@ -654,8 +637,8 @@ static boolean gcp_log_post(void)
     return success;
 }
 
-define_closure_function(0, 1, input_buffer_handler, gcp_log_conn_handler,
-                        buffer_handler, out)
+closure_func_basic(connection_handler, input_buffer_handler, gcp_log_conn_handler,
+                   buffer_handler out)
 {
     input_buffer_handler ibh;
     spin_lock(&gcp.lock);
@@ -673,8 +656,8 @@ define_closure_function(0, 1, input_buffer_handler, gcp_log_conn_handler,
     return ibh;
 }
 
-define_closure_function(0, 2, void, gcp_log_timer_handler,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, gcp_log_timer_handler,
+                   u64 expiry, u64 overruns)
 {
     if (overruns == timer_disabled)
         return;
@@ -682,8 +665,8 @@ define_closure_function(0, 2, void, gcp_log_timer_handler,
         gcp_connect(ss(GCP_LOG_SERVER_NAME), (connection_handler)&gcp.log_conn_handler);
 }
 
-define_closure_function(0, 2, void, gcp_metrics_timer_handler,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, gcp_metrics_timer_handler,
+                   u64 expiry, u64 overruns)
 {
     if ((overruns == timer_disabled) || gcp.metrics_pending)
         return;
@@ -717,7 +700,7 @@ static void gcp_metrics_add_disk(buffer body, boolean first, sstring type, sstri
 
 closure_function(3, 4, void, gcp_metrics_disk_vh,
                  buffer, b, sstring, interval, boolean, include_readonly,
-                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
+                 u8 *uuid, sstring label, filesystem fs, inode mount_point)
 {
     if (filesystem_is_readonly(fs) && !bound(include_readonly))
         return;
@@ -746,7 +729,7 @@ closure_function(3, 4, void, gcp_metrics_disk_vh,
 
 closure_function(2, 4, void, gcp_disk_count_vh,
                  u64 *, count, boolean, include_readonly,
-                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
+                 u8 *uuid, sstring label, filesystem fs, inode mount_point)
 {
     if (filesystem_is_readonly(fs) && !bound(include_readonly))
         return;
@@ -818,8 +801,8 @@ static boolean gcp_metrics_post(void)
     return success;
 }
 
-define_closure_function(0, 1, input_buffer_handler, gcp_metrics_conn_handler,
-                        buffer_handler, out)
+closure_func_basic(connection_handler, input_buffer_handler, gcp_metrics_conn_handler,
+                   buffer_handler out)
 {
     input_buffer_handler ibh;
     if (out) {
@@ -836,8 +819,8 @@ define_closure_function(0, 1, input_buffer_handler, gcp_metrics_conn_handler,
     return ibh;
 }
 
-define_closure_function(0, 1, boolean, gcp_metrics_in_handler,
-                        buffer, data)
+closure_func_basic(input_buffer_handler, boolean, gcp_metrics_in_handler,
+                   buffer data)
 {
     if (data) {
         status s = apply(gcp.metrics_resp_parser, data);
@@ -856,8 +839,8 @@ define_closure_function(0, 1, boolean, gcp_metrics_in_handler,
     return false;
 }
 
-define_closure_function(0, 1, void, gcp_metrics_value_handler,
-                        value, v)
+closure_func_basic(value_handler, void, gcp_metrics_value_handler,
+                   value v)
 {
     value resp = get(v, sym(start_line));
     buffer status_code = get(resp, integer_key(1));
@@ -890,11 +873,13 @@ int init(status_handler complete)
         gcp.log_id = get_string(logging, sym(log_id));
         gcp.log_entries = allocate_vector(gcp.h, GCP_LOG_MAX_ENTRIES);
         assert(gcp.log_entries != INVALID_ADDRESS);
-        init_closure(&gcp.log_conn_handler, gcp_log_conn_handler);
-        init_closure(&gcp.log_in_handler, gcp_log_in_handler);
-        gcp.log_resp_parser = allocate_http_parser(gcp.h, init_closure(&gcp.log_vh, gcp_log_vh));
+        init_closure_func(&gcp.log_conn_handler, connection_handler, gcp_log_conn_handler);
+        init_closure_func(&gcp.log_in_handler, input_buffer_handler, gcp_log_in_handler);
+        gcp.log_resp_parser = allocate_http_parser(gcp.h,
+                                                   init_closure_func(&gcp.log_vh, value_handler,
+                                                                     gcp_log_vh));
         assert(gcp.log_resp_parser != INVALID_ADDRESS);
-        init_closure(&gcp.log_timer_handler, gcp_log_timer_handler);
+        init_closure_func(&gcp.log_timer_handler, timer_handler, gcp_log_timer_handler);
         gcp.log_driver.write = gcp_log_write;
         gcp.log_driver.name = ss("gcp");
         attach_console_driver(&gcp.log_driver);
@@ -921,12 +906,13 @@ int init(status_handler complete)
                 gcp.metrics_disk_include_readonly = true;
         }
         init_timer(&gcp.metrics_timer);
-        init_closure(&gcp.metrics_timer_handler, gcp_metrics_timer_handler);
-        init_closure(&gcp.metrics_conn_handler, gcp_metrics_conn_handler);
-        init_closure(&gcp.metrics_in_handler, gcp_metrics_in_handler);
+        init_closure_func(&gcp.metrics_timer_handler, timer_handler, gcp_metrics_timer_handler);
+        init_closure_func(&gcp.metrics_conn_handler, connection_handler, gcp_metrics_conn_handler);
+        init_closure_func(&gcp.metrics_in_handler, input_buffer_handler, gcp_metrics_in_handler);
         gcp.metrics_resp_parser = allocate_http_parser(gcp.h,
-                                                       init_closure(&gcp.metrics_value_handler,
-                                                                    gcp_metrics_value_handler));
+                                                       init_closure_func(&gcp.metrics_value_handler,
+                                                           value_handler,
+                                                           gcp_metrics_value_handler));
         assert(gcp.metrics_resp_parser != INVALID_ADDRESS);
         config_empty = false;
     }

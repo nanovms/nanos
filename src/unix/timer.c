@@ -19,21 +19,6 @@ enum unix_timer_type {
     UNIX_TIMER_TYPE_ITIMER
 };
 
-declare_closure_struct(1, 2, void, posix_timer_expire,
-                       struct unix_timer *, ut,
-                       u64, expiry, u64, overruns);
-
-declare_closure_struct(1, 2, void, itimer_expire,
-                       struct unix_timer *, ut,
-                       u64, expiry, u64, overruns);
-
-declare_closure_struct(1, 2, void, timerfd_timer_expire,
-                       struct unix_timer *, ut,
-                       u64, expiry, u64, overruns);
-
-declare_closure_struct(1, 0, void, unix_timer_free,
-                       struct unix_timer *, ut);
-
 typedef struct unix_timer {
     struct fdesc f;             /* used for timerfd only; must be first */
     process p;
@@ -52,13 +37,13 @@ typedef struct unix_timer {
             thread cputime_thread;
             thread recipient;   /* INVALID_ADDRESS means deliver to process */
             struct sigevent sevp;
-            closure_struct(posix_timer_expire, timer_expire);
+            closure_struct(timer_handler, timer_expire);
         } posix;
 
         struct {
             struct siginfo si;
             int which;
-            closure_struct(itimer_expire, timer_expire);
+            closure_struct(timer_handler, timer_expire);
         } itimer;
 
         struct timerfd {
@@ -66,22 +51,25 @@ typedef struct unix_timer {
             blockq bq;
             boolean cancel_on_set;
             boolean canceled;   /* by time set */
-            closure_struct(timerfd_timer_expire, timer_expire);
+            closure_struct(timer_handler, timer_expire);
+            closure_struct(file_io, read);
+            closure_struct(fdesc_events, events);
+            closure_struct(fdesc_close, close);
         } timerfd;
     } info;
     struct refcount refcount;
-    closure_struct(unix_timer_free, free);
+    closure_struct(thunk, free);
 } *unix_timer;
 
 BSS_RO_AFTER_INIT static heap unix_timer_heap;
 static struct spinlock timer_cancel_lock;
 static struct list timer_cancel_list;
 
-define_closure_function(1, 0, void, unix_timer_free,
-                        unix_timer, ut)
+closure_func_basic(thunk, void, unix_timer_free)
 {
-    timer_debug("ut %p\n", bound(ut));
-    deallocate(unix_timer_heap, bound(ut), sizeof(struct unix_timer));
+    unix_timer ut = struct_from_closure(unix_timer, free);
+    timer_debug("ut %p\n", ut);
+    deallocate(unix_timer_heap, ut, sizeof(struct unix_timer));
 }
 
 static unix_timer allocate_unix_timer(int type, timerqueue tq, clock_id cid)
@@ -97,7 +85,7 @@ static unix_timer allocate_unix_timer(int type, timerqueue tq, clock_id cid)
     init_timer(&ut->t);
     ut->overruns = 0;
     spin_lock_init(&ut->lock);
-    init_refcount(&ut->refcount, 1, init_closure(&ut->free, unix_timer_free, ut));
+    init_refcount(&ut->refcount, 1, init_closure_func(&ut->free, thunk, unix_timer_free));
     timer_debug("type %d, cid %d, ut %p\n", type, cid, ut);
     return ut;
 }
@@ -142,11 +130,10 @@ static inline void remove_unix_timer(unix_timer ut)
     remove_timer(ut->tq, &ut->t, 0);
 }
 
-define_closure_function(1, 2, void, timerfd_timer_expire,
-                        unix_timer, ut,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, timerfd_timer_expire,
+                   u64 expiry, u64 overruns)
 {
-    unix_timer ut = bound(ut);
+    unix_timer ut = struct_from_closure(unix_timer, info.timerfd.timer_expire);
     if (overruns != timer_disabled) {
         spin_lock(&ut->lock);
         ut->overruns += overruns;
@@ -233,7 +220,8 @@ sysreturn timerfd_settime(int fd, int flags,
         ut->interval = true;
     reserve_unix_timer(ut);
     register_timer(kernel_timers, &ut->t, ut->cid, tinit, absolute, interval,
-                   init_closure(&ut->info.timerfd.timer_expire, timerfd_timer_expire, ut));
+                   init_closure_func(&ut->info.timerfd.timer_expire, timer_handler,
+                                     timerfd_timer_expire));
   out:
     spin_unlock(&ut->lock);
     spin_unlock(&timer_cancel_lock);
@@ -257,7 +245,7 @@ sysreturn timerfd_gettime(int fd, struct itimerspec *curr_value)
 
 closure_function(4, 1, sysreturn, timerfd_read_bh,
                  unix_timer, ut, void *, dest, u64, length, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     unix_timer ut = bound(ut);
     boolean blocked = (flags & BLOCKQ_ACTION_BLOCKED) != 0;
@@ -306,37 +294,32 @@ closure_function(4, 1, sysreturn, timerfd_read_bh,
     return rv;
 }
 
-closure_function(1, 6, sysreturn, timerfd_read,
-                 unix_timer, ut,
-                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, timerfd_read,
+                 void *dest, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
     if (length < sizeof(u64))
         return io_complete(completion, -EINVAL);
-    unix_timer ut = bound(ut);
+    unix_timer ut = struct_from_closure(unix_timer, info.timerfd.read);
     timer_debug("ut %p, dest %p, length %ld, ctx %p, bh %d, completion %p\n",
                 ut, dest, length, ctx, bh, completion);
     blockq_action ba = closure_from_context(ctx, timerfd_read_bh, ut, dest, length, completion);
     return blockq_check(ut->info.timerfd.bq, ba, bh);
 }
 
-closure_function(1, 1, u32, timerfd_events,
-                 unix_timer, ut,
-                 thread, t /* ignored */)
+closure_func_basic(fdesc_events, u32, timerfd_events,
+                   thread t)
 {
-    return bound(ut)->overruns > 0 ? EPOLLIN : 0;
+    unix_timer ut = struct_from_closure(unix_timer, info.timerfd.events);
+    return ut->overruns > 0 ? EPOLLIN : 0;
 }
 
-closure_function(1, 2, sysreturn, timerfd_close,
-                 unix_timer, ut,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, timerfd_close,
+                   context ctx, io_completion completion)
 {
-    unix_timer ut = bound(ut);
+    unix_timer ut = struct_from_closure(unix_timer, info.timerfd.close);
     spin_lock(&ut->lock);
     remove_unix_timer(ut);
     deallocate_blockq(ut->info.timerfd.bq);
-    deallocate_closure(ut->f.read);
-    deallocate_closure(ut->f.events);
-    deallocate_closure(ut->f.close);
     release_fdesc(&ut->f);
     spin_unlock(&ut->lock);
     release_unix_timer(ut);
@@ -366,9 +349,9 @@ sysreturn timerfd_create(int clockid, int flags)
     ut->info.timerfd.cancel_on_set = false;
     ut->info.timerfd.canceled = false;
     ut->f.flags = flags;
-    ut->f.read = closure(unix_timer_heap, timerfd_read, ut);
-    ut->f.events = closure(unix_timer_heap, timerfd_events, ut);
-    ut->f.close = closure(unix_timer_heap, timerfd_close, ut);
+    ut->f.read = init_closure_func(&ut->info.timerfd.read, file_io, timerfd_read);
+    ut->f.events = init_closure_func(&ut->info.timerfd.events, fdesc_events, timerfd_events);
+    ut->f.close = init_closure_func(&ut->info.timerfd.close, fdesc_close, timerfd_close);
 
     u64 fd = allocate_fd(current->p, ut);
     if (fd == INVALID_PHYSICAL) {
@@ -424,11 +407,10 @@ static void sigev_deliver(unix_timer ut)
     }
 }
 
-define_closure_function(1, 2, void, posix_timer_expire,
-                        unix_timer, ut,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, posix_timer_expire,
+                   u64 expiry, u64 overruns)
 {
-    unix_timer ut = bound(ut);
+    unix_timer ut = struct_from_closure(unix_timer, info.posix.timer_expire);
     if (overruns != timer_disabled) {
         assert(overruns > 0);
 
@@ -486,7 +468,8 @@ sysreturn timer_settime(u32 timerid, int flags,
         ut->interval = true;
     reserve_unix_timer(ut);
     register_timer(ut->tq, &ut->t, ut->cid, tinit, absolute, interval,
-                   init_closure(&ut->info.posix.timer_expire, posix_timer_expire, ut));
+                   init_closure_func(&ut->info.posix.timer_expire, timer_handler,
+                                     posix_timer_expire));
     rv = 0;
   out:
     spin_unlock(&ut->lock);
@@ -686,11 +669,10 @@ sysreturn getitimer(int which, struct itimerval *curr_value)
     return rv;
 }
 
-define_closure_function(1, 2, void, itimer_expire,
-                        unix_timer, ut,
-                        u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, itimer_expire,
+                   u64 expiry, u64 overruns)
 {
-    unix_timer ut = bound(ut);
+    unix_timer ut = struct_from_closure(unix_timer, info.itimer.timer_expire);
     if (overruns != timer_disabled) {
         spin_lock(&ut->lock);
         /* Ignore overruns. Only one itimer signal may be queued. */
@@ -733,7 +715,7 @@ static sysreturn setitimer_internal(unix_timer ut,
         ut->interval = true;
     reserve_unix_timer(ut);
     register_timer(ut->tq, &ut->t, CLOCK_ID_MONOTONIC, tinit, false, interval,
-                   init_closure(&ut->info.itimer.timer_expire, itimer_expire, ut));
+                   init_closure_func(&ut->info.itimer.timer_expire, timer_handler, itimer_expire));
     rv = 0;
   out:
     spin_unlock(&ut->lock);

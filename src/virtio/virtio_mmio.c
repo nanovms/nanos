@@ -28,7 +28,7 @@ RO_AFTER_INIT static struct list vtmmio_devices = {
 
 closure_function(1, 1, void, vtmmio_new_dev,
                  kernel_heaps, kh,
-                 acpi_mmio_dev, adev)
+                 acpi_mmio_dev adev)
 {
     virtio_mmio_debug("new device");
     kernel_heaps kh = bound(kh);
@@ -53,7 +53,7 @@ closure_function(1, 1, void, vtmmio_new_dev,
 
 closure_function(1, 2, void, vtmmio_cmdline_parse,
                  kernel_heaps, kh,
-                 const char *, str, int, len)
+                 const char *str, int len)
 {
     buffer b = alloca_wrap_buffer(str, len);
     int optname_len = buffer_strchr(b, '=');
@@ -151,11 +151,10 @@ static boolean vtmmio_negotatiate_features(vtmmio dev, u64 mask)
     return (vtmmio_get_status(dev) & VIRTIO_CONFIG_STATUS_FEATURE);
 }
 
-define_closure_function(1, 2, void, vtmmio_notify,
-                        vtmmio, dev,
-                        u16, queue_index, bytes, notify_offset)
+closure_func_basic(vtdev_notify, void, vtmmio_notify,
+                   u16 queue_index, bytes notify_offset)
 {
-    vtmmio_set_u32(bound(dev), notify_offset, queue_index);
+    vtmmio_set_u32(struct_from_closure(vtmmio, notify), notify_offset, queue_index);
 }
 
 boolean attach_vtmmio(heap h, backed_heap page_allocator, vtmmio d, u64 feature_mask)
@@ -167,16 +166,15 @@ boolean attach_vtmmio(heap h, backed_heap page_allocator, vtmmio d, u64 feature_
             d->membase);
         return false;
     }
-    init_closure(&d->notify, vtmmio_notify, d);
+    init_closure_func(&d->notify, vtdev_notify, vtmmio_notify);
     d->virtio_dev.notify = (vtdev_notify)&d->notify;
     virtio_attach(h, page_allocator, VTIO_TRANSPORT_MMIO, &d->virtio_dev);
     return true;
 }
 
-define_closure_function(1, 0, void, vtmmio_irq,
-                        vtmmio, dev)
+closure_func_basic(thunk, void, vtmmio_irq)
 {
-    vtmmio dev = bound(dev);
+    vtmmio dev = struct_from_closure(vtmmio, irq_handler);
     u32 status = vtmmio_get_u32(dev, VTMMIO_OFFSET_INTSTATUS);
     virtio_mmio_debug("int status 0x%x", status);
     vtmmio_set_u32(dev, VTMMIO_OFFSET_INTACK, status);
@@ -208,7 +206,7 @@ status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx,
         dev->irq_vector = allocate_mmio_interrupt();
         assert(dev->irq_vector != INVALID_PHYSICAL);
         register_interrupt(dev->irq_vector,
-                           init_closure(&dev->irq_handler, vtmmio_irq, dev),
+                           init_closure_func(&dev->irq_handler, thunk, vtmmio_irq),
                            name);
         // XXX arm
 #ifdef __x86_64__

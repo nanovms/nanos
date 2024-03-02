@@ -92,19 +92,17 @@ typedef struct ltrace_brkpt {
     sstring sym_name;
 } *ltrace_brkpt;
 
-declare_closure_struct(0, 2, int, ltrace_brkpt_compare,
-                       rbnode, a, rbnode, b);
 struct ltrace {
     rbtree plt_map; /* maps PLT entries to breakpoints */
-    closure_struct(ltrace_brkpt_compare, brkpt_compare);
+    closure_struct(rb_key_compare, brkpt_compare);
     table ctx_map;  /* maps single-stepping context frames to breakpoints */
     struct spinlock lock;
 };
 
 static struct ltrace *ltrace;
 
-define_closure_function(0, 2, int, ltrace_brkpt_compare,
-                        rbnode, a, rbnode, b)
+closure_func_basic(rb_key_compare, int, ltrace_brkpt_compare,
+                   rbnode a, rbnode b)
 {
     ltrace_brkpt ba = (ltrace_brkpt)a;
     ltrace_brkpt bb = (ltrace_brkpt)b;
@@ -132,7 +130,10 @@ void ltrace_init(value cfg, buffer exe, u64 load_offset)
     heap h = heap_locked(get_kernel_heaps());
     ltrace = allocate(h, sizeof(*ltrace));
     assert(ltrace != INVALID_ADDRESS);
-    ltrace->plt_map = allocate_rbtree(h, init_closure(&ltrace->brkpt_compare, ltrace_brkpt_compare), 0);
+    ltrace->plt_map = allocate_rbtree(h,
+                                      init_closure_func(&ltrace->brkpt_compare, rb_key_compare,
+                                                        ltrace_brkpt_compare),
+                                      0);
     assert(ltrace->plt_map != INVALID_ADDRESS);
     ltrace->ctx_map = allocate_table(h, identity_key, pointer_equal);
     assert(ltrace->ctx_map != INVALID_ADDRESS);

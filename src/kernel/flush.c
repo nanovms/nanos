@@ -18,9 +18,6 @@ static struct rw_spinlock flush_lock;
 
 static void queue_flush_service(void);
 
-declare_closure_struct(1, 0, void, flush_complete,
-    flush_entry, f);
-
 struct flush_entry {
     struct list l;
     u64 gen;
@@ -29,10 +26,10 @@ struct flush_entry {
     u64 pages[FLUSH_THRESHOLD];
     int npages;
     status_handler completion;
-    closure_struct(flush_complete, finish);
+    closure_struct(thunk, finish);
 };
 
-define_closure_function(1, 0, void, flush_complete, flush_entry, f)
+closure_func_basic(thunk, void, flush_complete)
 {
     queue_flush_service();
 }
@@ -152,7 +149,8 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
             }
             return;
         }
-        init_refcount(&f->ref, total_processors, init_closure(&f->finish, flush_complete, f));
+        init_refcount(&f->ref, total_processors,
+                      init_closure_func(&f->finish, thunk, flush_complete));
         f->completion = completion;
 
         u64 flags = irq_disable_save();

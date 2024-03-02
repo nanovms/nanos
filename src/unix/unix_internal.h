@@ -127,8 +127,6 @@ typedef struct user_cap_data {
 } *cap_user_data_t;
 
 /* unix-specific memory objects and ids */
-declare_closure_struct(0, 1, u64, unix_mem_cleaner,
-                       u64, clean_bytes)
 typedef struct unix_heaps {
     struct kernel_heaps kh;	/* must be first */
 
@@ -138,7 +136,7 @@ typedef struct unix_heaps {
 #ifdef NET
     caching_heap socket_cache;
 #endif
-    closure_struct(unix_mem_cleaner, mem_cleaner);
+    closure_struct(mem_cleaner, mem_cleaner);
 
     /* id heaps */
     heap processes;
@@ -153,16 +151,16 @@ typedef struct unix_heaps {
 #define SYSRETURN_CONTINUE_BLOCKING SYSRETURN_INVALID
 #define BLOCKQ_BLOCK_REQUIRED       SYSRETURN_INVALID
 
-typedef closure_type(io_completion, void, sysreturn rv);
-typedef closure_type(blockq_action, sysreturn, u64 flags);
-typedef closure_type(blockq_action_handler, void, blockq_action action);
+closure_type(io_completion, void, sysreturn rv);
+closure_type(blockq_action, sysreturn, u64 flags);
+closure_type(blockq_action_handler, void, blockq_action action);
 
 struct blockq;
 typedef struct blockq * blockq;
 
 declare_closure_struct(1, 2, void, blockq_thread_timeout,
                        blockq, bq,
-                       u64, expiry, u64, overruns);
+                       u64 expiry, u64 overruns);
 typedef struct unix_context {
     struct kernel_context kc;
     blockq blocked_on;  /* blockq context is waiting on, INVALID_ADDRESS for uninterruptible */
@@ -205,9 +203,6 @@ static inline sysreturn io_complete(io_completion completion,
     return rv;
 }
 
-declare_closure_struct(1, 0, void, free_blockq,
-                       blockq, bq)
-
 /* queue of threads waiting for a resource */
 struct blockq {
     heap h;
@@ -216,7 +211,7 @@ struct blockq {
     struct spinlock lock;
     struct list waiters_head;   /* of threads and associated timers+actions */
     struct refcount refcount;
-    closure_struct(free_blockq, free);
+    closure_struct(thunk, free);
 };
 
 void blockq_init(blockq bq, sstring name);
@@ -268,9 +263,6 @@ struct ftrace_graph_entry;
 struct pending_fault;
 declare_closure_struct(3, 0, void, pending_fault_demand_file_page,
                        struct vmap *, vm, u64, node_offset, pageflags, flags);
-declare_closure_struct(1, 1, void, pending_fault_complete,
-                       struct pending_fault *, pf,
-                       status, s);
 
 typedef struct pending_fault {
     struct rbnode n;            /* must be first */
@@ -280,20 +272,13 @@ typedef struct pending_fault {
     vector dependents;
     struct list l_free;
     closure_struct(pending_fault_demand_file_page, demand_file_page);
-    closure_struct(pending_fault_complete, complete);
+    closure_struct(status_handler, complete);
 } *pending_fault;
-
-declare_closure_struct(1, 0, void, thread_return,
-                       thread, t);
-declare_closure_struct(1, 0, void, free_thread,
-                       thread, t);
 
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
 
 #define thread_frame(t) ((t)->context.frame)
-
-declare_closure_struct(0, 0, timestamp, thread_now);
 
 typedef struct thread {
     struct context context;
@@ -312,8 +297,8 @@ typedef struct thread {
     */
     struct unix_heaps uh;
 
-    closure_struct(free_thread, free);
-    closure_struct(thread_return, thread_return);
+    closure_struct(thunk, free);
+    closure_struct(thunk, thread_return);
 
     epoll select_epoll;
     int *clear_tid;
@@ -334,7 +319,7 @@ typedef struct thread {
     int last_syscall;
     timestamp syscall_enter_ts;
     u64 syscall_time;
-    closure_struct(thread_now, now);
+    closure_struct(clock_now, now);
     timerqueue cpu_timers;
 
     /* signals pending and saved state */
@@ -364,29 +349,15 @@ static inline timestamp thread_cputime(thread t)
 
 struct vmap;
 
-typedef closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, context ctx,
-        boolean bh, io_completion completion);
-declare_closure_struct(0, 6, sysreturn, file_io,
-                       void *, buf, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion);
-typedef closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, context ctx,
-        boolean bh, io_completion completion);
-declare_closure_struct(0, 6, sysreturn, sg_file_io,
-                       sg_list, sg, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion);
-typedef closure_type(fdesc_events, u32, thread t);
-declare_closure_struct(0, 1, u32, fdesc_events,
-                       thread, t);
-typedef closure_type(fdesc_ioctl, sysreturn, unsigned long request, vlist ap);
-declare_closure_struct(0, 2, sysreturn, fdesc_ioctl,
-                       unsigned long, request, vlist, ap);
-typedef closure_type(fdesc_mmap, sysreturn, struct vmap *vm, u64 offset);
-declare_closure_struct(0, 2, sysreturn, fdesc_mmap,
-                       struct vmap *, vm, u64, offset);
-typedef closure_type(fdesc_close, sysreturn, context ctx, io_completion completion);
-declare_closure_struct(0, 2, sysreturn, fdesc_close,
-                       context, ctx, io_completion, completion);
-typedef closure_type(fdesc_et_handler, u64, u64 events, u64 lastevents);
-declare_closure_struct(0, 2, u64, fdesc_et_handler,
-                       u64, events, u64, lastevents);
+closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, context ctx, boolean bh,
+             io_completion completion);
+closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, context ctx, boolean bh,
+             io_completion completion);
+closure_type(fdesc_events, u32, thread t);
+closure_type(fdesc_ioctl, sysreturn, unsigned long request, vlist ap);
+closure_type(fdesc_mmap, sysreturn, struct vmap *vm, u64 offset);
+closure_type(fdesc_close, sysreturn, context ctx, io_completion completion);
+closure_type(fdesc_et_handler, u64, u64 events, u64 lastevents);
 
 #define FDESC_TYPE_REGULAR      1
 #define FDESC_TYPE_DIRECTORY    2
@@ -402,10 +373,6 @@ declare_closure_struct(0, 2, u64, fdesc_et_handler,
 #define FDESC_TYPE_IORING      12
 #define FDESC_TYPE_INOTIFY     13
 
-declare_closure_struct(1, 1, void, fdesc_io_complete,
-                       struct fdesc *, f,
-                       sysreturn, rv);
-
 typedef struct fdesc {
     file_io read, write;
     sg_file_io sg_read, sg_write;
@@ -414,7 +381,7 @@ typedef struct fdesc {
     fdesc_mmap mmap;
     fdesc_close close;
     fdesc_et_handler edge_trigger_handler;
-    closure_struct(fdesc_io_complete, io_complete);
+    closure_struct(io_completion, io_complete);
 
     u64 refcnt;
     int type;
@@ -469,7 +436,7 @@ typedef struct vmap {
     .cache_node = __c,                              \
     .fd = __fd,                                     \
 }
-typedef closure_type(vmap_handler, boolean, vmap);
+closure_type(vmap_handler, boolean, vmap vm);
 
 static inline sysreturn set_syscall_return(thread t, sysreturn val)
 {
@@ -507,9 +474,6 @@ typedef struct file *file;
 
 struct syscall;
 
-declare_closure_struct(0, 1, context, unix_fault_handler,
-                       context, frame);
-declare_closure_struct(0, 0, timestamp, process_now);
 typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
     int               pid;
@@ -523,7 +487,7 @@ typedef struct process {
     tuple             process_root;
     inode             cwd;
     table             futices;
-    closure_struct(unix_fault_handler, fault_handler);
+    closure_struct(fault_handler, fault_handler);
     rbtree            threads;
     struct spinlock   threads_lock;
     struct syscall   *syscalls;
@@ -545,7 +509,7 @@ typedef struct process {
     vector            posix_timers; /* unix_timer by timerid */
     vector            itimers;      /* unix_timer by ITIMER_ type */
     timestamp         utime, stime;
-    closure_struct(process_now, now);
+    closure_struct(clock_now, now);
     timerqueue        cpu_timers;
     id_heap           aio_ids;
     vector            aio;
@@ -1080,7 +1044,7 @@ typedef struct special_file_wrapper {
     u64 alloc_size;
 } *special_file_wrapper;
 
-typedef closure_type(spec_file_open, sysreturn, file f);
+closure_type(spec_file_open, sysreturn, file f);
 
 void register_special_files(process p);
 boolean create_special_file(sstring path, spec_file_open open, u64 size, u64 rdev);

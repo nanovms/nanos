@@ -24,7 +24,7 @@
 
 closure_function(2, 1, void, bread,
                  descriptor, d, u64, fs_offset,
-                 storage_req, req)
+                 storage_req req)
 {
     if (req->op != STORAGE_OP_READSG)
         halt("%s: invalid storage op %d\n", func_ss, req->op);
@@ -62,7 +62,7 @@ closure_function(2, 1, void, bread,
 
 closure_function(1, 1, status, write_file,
                  buffer, path,
-                 buffer, b)
+                 buffer b)
 {
     // openat would be nicer really
     buffer tmpbuf = little_stack_buffer(NAME_MAX + 1);
@@ -87,7 +87,7 @@ void readdir(filesystem fs, heap h, tuple w, buffer path);
 
 closure_function(3, 2, boolean, readdir_each_child,
                  filesystem, fs, heap, h, buffer, path,
-                 value, k, value, v)
+                 value k, value v)
 {
     assert(is_symbol(k));
     if (k == sym_this(".") || k == sym_this(".."))
@@ -126,7 +126,7 @@ static void dump_fsentry(int indent, symbol name, tuple t);
 
 closure_function(1, 2, boolean, dump_fsentry_each,
                  int, indent,
-                 value, k, value, vc)
+                 value k, value vc)
 {
     assert(is_symbol(k));
     if (k == sym_this(".") || k == sym_this(".."))
@@ -153,7 +153,7 @@ static void dump_fsentry(int indent, symbol name, tuple t)
 
 closure_function(3, 2, void, fsc,
                  heap, h, buffer, b, unsigned int, options,
-                 filesystem, fs, status, s)
+                 filesystem fs, status s)
 {
     heap h = bound(h);
 

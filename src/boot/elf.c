@@ -11,7 +11,7 @@
 
 closure_function(2, 5, boolean, kernel_elf_map,
                  buffer, b, heap, bss_heap,
-                 u64, vaddr, u64, offset, u64, data_size, u64, bss_size, pageflags, flags)
+                 u64 vaddr, u64 offset, u64 data_size, u64 bss_size, pageflags flags)
 {
     boot_elf_debug("%s: vaddr 0x%lx, offset 0x%lx, data_size 0x%lx, bss_size 0x%lx, flags 0x%lx\n",
                    func_ss, vaddr, offset, data_size, bss_size, flags);

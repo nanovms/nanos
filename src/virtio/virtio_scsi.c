@@ -126,11 +126,8 @@ struct virtio_scsi {
 typedef struct virtio_scsi *virtio_scsi;
 typedef struct virtio_scsi_disk *virtio_scsi_disk;
 
-declare_closure_struct(0, 1, void, virtio_scsi_req_handler,
-                       storage_req, req);
-
 struct virtio_scsi_disk {
-    closure_struct(virtio_scsi_req_handler, req_handler);
+    closure_struct(storage_req_handler, req_handler);
     virtio_scsi scsi;
     u16 target;
     u16 lun;
@@ -171,7 +168,7 @@ static void virtio_scsi_detach_disk(virtio_scsi s, u16 target, u16 lun)
 
 closure_function(2, 1, void, virtio_scsi_event_complete,
                  virtio_scsi, s, virtio_scsi_event, e,
-                 u64, len)
+                 u64 len)
 {
     virtio_scsi_event e = bound(e);
     virtio_scsi s = bound(s);
@@ -217,11 +214,11 @@ static void virtio_scsi_enqueue_event(virtio_scsi s, virtio_scsi_event e, vqfini
  * Request queue
  */
 
-typedef closure_type(vsr_complete, void, virtio_scsi, virtio_scsi_request);
+closure_type(vsr_complete, void, virtio_scsi s, virtio_scsi_request req);
 
 closure_function(4, 1, void, virtio_scsi_request_complete,
                  vsr_complete, c, virtio_scsi, s, virtio_scsi_request, r, u64, r_phys,
-                 u64, len)
+                 u64 len)
 {
     virtio_scsi s = bound(s);
     virtio_scsi_request r = bound(r);
@@ -286,7 +283,7 @@ static void virtio_scsi_enqueue_request(virtio_scsi s, virtio_scsi_request r,
  */
 closure_function(1, 2, void, virtio_scsi_io_done,
                  status_handler, sh,
-                 virtio_scsi, s, virtio_scsi_request, r)
+                 virtio_scsi s, virtio_scsi_request r)
 {
     struct virtio_scsi_resp_cmd *resp = &r->resp;
     virtio_scsi_debug("%s: response %d, status %d\n", func_ss, resp->response,
@@ -411,8 +408,8 @@ static void virtio_scsi_flush(virtio_scsi_disk d, status_handler sh)
                                 closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh));
 }
 
-define_closure_function(0, 1, void, virtio_scsi_req_handler,
-                 storage_req, req)
+closure_func_basic(storage_req_handler, void, virtio_scsi_req_handler,
+                   storage_req req)
 {
     virtio_scsi_disk d = struct_from_field(closure_self(), virtio_scsi_disk, req_handler);
     switch (req->op) {
@@ -442,14 +439,16 @@ closure_function(3, 0, void, virtio_scsi_init_done,
     spin_lock(&s->lock);
     vector_push(s->disks, d);
     spin_unlock(&s->lock);
-    apply(bound(a), init_closure(&d->req_handler, virtio_scsi_req_handler), d->capacity,
+    apply(bound(a),
+          init_closure_func(&d->req_handler, storage_req_handler, virtio_scsi_req_handler),
+          d->capacity,
           bound(attach_id));
     closure_finish();
 }
 
 closure_function(5, 2, void, virtio_scsi_read_capacity_done,
                  storage_attach, a, u16, target, u16, lun, int, attach_id, u32, max_xfer_len,
-                 virtio_scsi, s, virtio_scsi_request, r)
+                 virtio_scsi s, virtio_scsi_request r)
 {
     u16 target = bound(target);
     u16 lun = bound(lun);
@@ -496,7 +495,7 @@ closure_function(5, 2, void, virtio_scsi_read_capacity_done,
 
 closure_function(6, 2, void, virtio_scsi_test_unit_ready_done,
                  storage_attach, a, u16, target, u16, lun, int, attach_id, u32, max_xfer_len, int, retry_count,
-                 virtio_scsi, s, virtio_scsi_request, r)
+                 virtio_scsi s, virtio_scsi_request r)
 {
     storage_attach a = bound(a);
     u16 target = bound(target);
@@ -540,7 +539,7 @@ closure_function(6, 2, void, virtio_scsi_test_unit_ready_done,
 
 closure_function(6, 2, void, virtio_scsi_inquiry_done,
                  storage_attach, a, u16, target, u16, lun, int, attach_id, u32, max_xfer_len, u64, resp_count,
-                 virtio_scsi, s, virtio_scsi_request, r)
+                 virtio_scsi s, virtio_scsi_request r)
 {
     u16 target = bound(target);
     u16 lun = bound(lun);
@@ -629,7 +628,7 @@ static void send_lun_inquiry(virtio_scsi s, u16 target, u16 lun)
 
 closure_function(2, 2, void, virtio_scsi_report_luns_done,
                  storage_attach, a, u16, target,
-                 virtio_scsi, s, virtio_scsi_request, r)
+                 virtio_scsi s, virtio_scsi_request r)
 {
     u16 target = bound(target);
     struct virtio_scsi_resp_cmd *resp = &r->resp;
@@ -731,7 +730,7 @@ static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_
 
 closure_function(3, 1, boolean, virtio_scsi_probe,
                  heap, general, storage_attach, a, backed_heap, page_allocator,
-                 pci_dev, d)
+                 pci_dev d)
 {
     if (!vtpci_probe(d, VIRTIO_ID_SCSI))
         return false;

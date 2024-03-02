@@ -69,18 +69,17 @@ void deallocate_fd(process p, int fd)
     process_unlock(p);
 }
 
-define_closure_function(1, 1, void, fdesc_io_complete,
-                        struct fdesc *, f,
-                        sysreturn, rv)
+closure_func_basic(io_completion, void, fdesc_io_complete,
+                   sysreturn rv)
 {
-    fdesc_put(bound(f));
+    fdesc_put(struct_from_closure(fdesc, io_complete));
     apply(syscall_io_complete, rv);
 }
 
 void init_fdesc(heap h, fdesc f, int type)
 {
     zero(f, sizeof(*f));
-    init_closure(&f->io_complete, fdesc_io_complete, f);
+    init_closure_func(&f->io_complete, io_completion, fdesc_io_complete);
     f->refcnt = 1;
     f->type = type;
     f->ns = allocate_notify_set(h);
@@ -246,8 +245,8 @@ static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
     return false;
 }
 
-define_closure_function(0, 1, context, unix_fault_handler,
-                        context, ctx)
+closure_func_basic(fault_handler, context, unix_fault_handler,
+                   context ctx)
 {
     sstring errmsg = sstring_empty();
     u64 fault_pc = frame_fault_pc(ctx->frame);
@@ -382,8 +381,8 @@ void init_thread_fault_handler(thread t)
     t->context.fault_handler = (fault_handler)&t->p->fault_handler;
 }
 
-closure_function(0, 6, sysreturn, dummy_read,
-                 void *, dest, u64, length, u64, offset_arg, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, dummy_read,
+                   void *dest, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
     thread_log(current, "%s: dest %p, length %ld, offset_arg %ld",
                func_ss, dest, length, offset_arg);
@@ -392,16 +391,15 @@ closure_function(0, 6, sysreturn, dummy_read,
     return 0;
 }
 
-closure_function(1, 2, sysreturn, std_close,
-                 file, f,
-                 context, ctx, io_completion, completion)
+closure_func_basic(fdesc_close, sysreturn, std_close,
+                   context ctx, io_completion completion)
 {
-    unix_cache_free(get_unix_heaps(), file, bound(f));
+    unix_cache_free(get_unix_heaps(), file, struct_from_closure(file, close));
     return io_complete(completion, 0);
 }
 
-closure_function(0, 6, sysreturn, stdout,
-                 void*, d, u64, length, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+closure_func_basic(file_io, sysreturn, stdout,
+                   void *d, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     sysreturn rv;
     if (fault_in_user_memory(d, length, false)) {
@@ -416,14 +414,14 @@ closure_function(0, 6, sysreturn, stdout,
     return rv;
 }
 
-closure_function(0, 1, u32, std_output_events,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, std_output_events,
+                   thread t)
 {
     return EPOLLOUT;
 }
 
-closure_function(0, 1, u32, std_input_events,
-                 thread, t /* ignore */)
+closure_func_basic(fdesc_events, u32, std_input_events,
+                   thread t)
 {
     return 0;
 }
@@ -445,16 +443,21 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     /* Writes to in, reads from out and err act as if handled by the
        out and in files respectively. */
     init_fdesc(h, &in->f, FDESC_TYPE_STDIO);
-    in->f.close = closure(h, std_close, in);
+    in->f.close = init_closure_func(&in->close, fdesc_close, std_close);
     init_fdesc(h, &out->f, FDESC_TYPE_STDIO);
-    out->f.close = closure(h, std_close, out);
+    out->f.close = init_closure_func(&out->close, fdesc_close, std_close);
     init_fdesc(h, &err->f, FDESC_TYPE_STDIO);
-    err->f.close = closure(h, std_close, err);
-    in->f.write = out->f.write = err->f.write = closure(h, stdout);
-    in->f.read = out->f.read = err->f.read = closure(h, dummy_read);
+    err->f.close = init_closure_func(&err->close, fdesc_close, std_close);
+    in->f.write = init_closure_func(&in->write, file_io, stdout);
+    out->f.write = init_closure_func(&out->write, file_io, stdout);
+    err->f.write = init_closure_func(&err->write, file_io, stdout);
+    in->f.read = init_closure_func(&in->read, file_io, dummy_read);
+    out->f.read = init_closure_func(&out->read, file_io, dummy_read);
+    err->f.read = init_closure_func(&err->read, file_io, dummy_read);
     in->f.flags = out->f.flags = err->f.flags = O_RDWR;
-    out->f.events = err->f.events = closure(h, std_output_events);
-    in->f.events = closure(h, std_input_events);
+    out->f.events = init_closure_func(&out->events, fdesc_events, std_output_events);
+    err->f.events = init_closure_func(&err->events, fdesc_events, std_output_events);
+    in->f.events = init_closure_func(&in->events, fdesc_events, std_input_events);
     return true;
 }
 
@@ -504,7 +507,7 @@ process_context get_process_context(void)
     return pc;
 }
 
-define_closure_function(0, 0, timestamp, process_now)
+closure_func_basic(clock_now, timestamp, process_now)
 {
     process p = struct_from_field(closure_self(), process, now);
     return proc_cputime(p);
@@ -540,7 +543,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     zero(p->files, sizeof(p->files));
     create_stdfiles(uh, p);
     init_threads(p);
-    init_closure(&p->fault_handler, unix_fault_handler);
+    init_closure_func(&p->fault_handler, fault_handler, unix_fault_handler);
     p->syscalls = linux_syscalls;
     init_sigstate(&p->signals);
     zero(p->sigactions, sizeof(p->sigactions));
@@ -550,7 +553,8 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->posix_timers = allocate_vector(locked, 8);
     p->itimers = allocate_vector(locked, 3);
     p->utime = p->stime = 0;
-    p->cpu_timers = allocate_timerqueue(locked, init_closure(&p->now, process_now), ss("cpu time"));
+    p->cpu_timers = allocate_timerqueue(locked, init_closure_func(&p->now, clock_now, process_now),
+                                        ss("cpu time"));
     assert(p->cpu_timers != INVALID_ADDRESS);
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);
@@ -599,8 +603,8 @@ void cputime_update(thread t, timestamp delta, boolean is_utime)
     timer_service(p->cpu_timers, proc_cputime(p));
 }
 
-define_closure_function(0, 1, u64, unix_mem_cleaner,
-                        u64, clean_bytes)
+closure_func_basic(mem_cleaner, u64, unix_mem_cleaner,
+                   u64 clean_bytes)
 {
     unix_heaps uh = struct_from_field(closure_self(), unix_heaps, mem_cleaner);
     u64 cleaned = cache_drain(uh->file_cache, clean_bytes, 0);
@@ -688,7 +692,8 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
             size *= GB;
         coredump_set_limit(size);
     }
-    assert(mm_register_mem_cleaner(init_closure(&uh->mem_cleaner, unix_mem_cleaner)));
+    assert(mm_register_mem_cleaner(init_closure_func(&uh->mem_cleaner, mem_cleaner,
+                                                     unix_mem_cleaner)));
 out:
     return kernel_process;
   alloc_fail:
@@ -698,7 +703,7 @@ out:
 
 closure_function(1, 2, void, shutdown_timeout,
                  struct timer, shutdown_timer,
-                 u64, expiry, u64, overruns)
+                 u64 expiry, u64 overruns)
 {
     closure_finish();
     if (overruns == timer_disabled)

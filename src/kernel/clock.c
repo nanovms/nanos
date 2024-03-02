@@ -60,7 +60,7 @@ void clock_set_slew(s64 slewfreq, timestamp start, u64 duration)
 
 closure_function(1, 1, boolean, timer_adjust_handler,
                 s64, amt,
-                void *, v)
+                void *v)
 {
     timer t = v;
     if (t->absolute)

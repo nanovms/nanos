@@ -13,15 +13,13 @@
 BSS_RO_AFTER_INIT static heap lwip_heap;
 BSS_RO_AFTER_INIT int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *input_netif);
 
-declare_closure_struct(0, 2, void, net_timeout_handler, u64, expiry, u64, overruns);
-
 typedef struct net_complete {
     struct list l;
     struct netif *netif;
     boolean ipv6;
     status_handler complete;
     struct timer timeout;
-    closure_struct(net_timeout_handler, timeout_handler);
+    closure_struct(timer_handler, timeout_handler);
 } *net_complete;
 
 static struct list net_complete_list;
@@ -35,8 +33,6 @@ static struct spinlock net_lock;
    lwip/src/core/timeouts.c if we switch on any other LWIP components
    and add an entry here accordingly. Barf */
 
-declare_closure_struct(0, 2, void, dispatch_lwip_timer,
-                       u64, expiry, u64, overruns);
 struct net_lwip_timer {
     u64 interval_ms;
     lwip_cyclic_timer_handler handler;
@@ -44,7 +40,7 @@ struct net_lwip_timer {
     sstring name;
 #endif
     struct timer t;
-    closure_struct(dispatch_lwip_timer, timer_func);
+    closure_struct(timer_handler, timer_func);
 };
 
 #ifdef LWIP_DEBUG
@@ -66,8 +62,8 @@ static struct net_lwip_timer net_lwip_timers[] = {
     NET_LWIP_TIMER_INIT(DHCP6_TIMER_MSECS, dhcp6_tmr, "dhcp6"),
 };
 
-define_closure_function(0, 2, void, dispatch_lwip_timer,
-                 u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, dispatch_lwip_timer,
+                   u64 expiry, u64 overruns)
 {
     struct net_lwip_timer *lt = struct_from_field(closure_self(), struct net_lwip_timer *,
                                                   timer_func);
@@ -88,7 +84,7 @@ void sys_timeouts_init(void)
         init_timer(&t->t);
         timestamp interval = milliseconds(t->interval_ms);
         register_timer(kernel_timers, &t->t, CLOCK_ID_MONOTONIC_RAW, interval, false, interval,
-                       init_closure(&t->timer_func, dispatch_lwip_timer));
+                       init_closure_func(&t->timer_func, timer_handler, dispatch_lwip_timer));
 #ifdef LWIP_DEBUG
         lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);
 #endif
@@ -307,8 +303,8 @@ static boolean get_static_ip6_config(tuple t, struct netif *n, sstring ifname, b
     return false;
 }
 
-define_closure_function(0, 2, void, net_timeout_handler,
-                 u64, expiry, u64, overruns)
+closure_func_basic(timer_handler, void, net_timeout_handler,
+                   u64 expiry, u64 overruns)
 {
     net_complete c = struct_from_field(closure_self(), net_complete, timeout_handler);
     apply(c->complete, STATUS_OK);
@@ -343,7 +339,7 @@ static void net_complete_cfg(tuple t, symbol opt, struct netif *n, boolean ipv6,
     list_push_back(&net_complete_list, &c->l);
     init_timer(&c->timeout);
     register_timer(kernel_timers, &c->timeout, CLOCK_ID_MONOTONIC, seconds(timeout), false, 0,
-                   init_closure(&c->timeout_handler, net_timeout_handler));
+                   init_closure_func(&c->timeout_handler, rmnode_handler, net_timeout_handler));
     spin_unlock(&net_lock);
     check_netif_ready(n, ipv6);
 }

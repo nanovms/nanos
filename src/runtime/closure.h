@@ -1,4 +1,10 @@
-#define closure_type(__x, __ret, ...) __ret (**__x)(void *, ## __VA_ARGS__)
+#define NUM_ARGS(...)   _NUM_ARGS(_dummy, ## __VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define _NUM_ARGS(...)  NTH_ARG(__VA_ARGS__)
+#define NTH_ARG(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, N, ...) N
+
+#define closure_type(__x, __ret, ...)               \
+    typedef __ret (**__x)(void *, ## __VA_ARGS__);  \
+    declare_closure_struct(0, NUM_ARGS(__VA_ARGS__), __ret, __x, ##__VA_ARGS__)
 
 #define apply(__c, ...) (*(__c))((void *)(__c), ## __VA_ARGS__)
 
@@ -31,13 +37,15 @@ struct _closure_common {
     struct _closure_##__name *__var;   \
     closure_alloc(__h, __name, __var)
 
-#define closure(__h, __name, ...) ({                                    \
-    struct _closure_##__name * __n = allocate(__h, sizeof(struct _closure_##__name)); \
-    __closure(ctx_from_heap(__h), __n, sizeof(struct _closure_##__name), __name, ##__VA_ARGS__);})
+#define closure_func(__h, __name, __func, ...)  ({                                      \
+    struct _closure_##__name * __n = allocate(__h, sizeof(struct _closure_##__name));   \
+    __closure(ctx_from_heap(__h), __n, sizeof(struct _closure_##__name), __func, ##__VA_ARGS__);})
+#define closure(__h, __name, ...)   closure_func(__h, __name, __name, ##__VA_ARGS__)
 
-#define stack_closure(__name, ...)                                 \
-    __closure(0, stack_allocate(sizeof(struct _closure_##__name)), \
-              sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
+#define stack_closure_func(__name, __func, ...)                     \
+    __closure(0, stack_allocate(sizeof(struct _closure_##__name)),  \
+              sizeof(struct _closure_##__name), __func, ##__VA_ARGS__)
+#define stack_closure(__name, ...)  stack_closure_func(__name, __name, ##__VA_ARGS__)
 
 #define init_closure(__p, __name, ...)                                  \
     __closure(0, (__p), sizeof(struct _closure_##__name), __name, ##__VA_ARGS__)
@@ -88,5 +96,6 @@ struct _closure_common {
 #define bound(v) (__self->v)
 #define closure_self() (&(__self->__apply))
 #define closure_member(name, var, member)   ((struct _closure_##name *)(var))->member
+#define struct_from_closure(__type, __field)    struct_from_field(__self, __type, __field)
 
 #include <closure_templates.h>

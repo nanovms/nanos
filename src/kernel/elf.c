@@ -75,7 +75,7 @@ void elf_symbols(buffer elf, elf_sym_handler each)
 
 closure_function(6, 1, boolean, elf_sym_relocate,
                  buffer, elf, void *, load_addr, Elf64_Sym *, syms, u64, sym_count, Elf64_Shdr *, strtab, elf_sym_resolver, resolver,
-                 Elf64_Rela *, rel)
+                 Elf64_Rela *rel)
 {
     u64 sym_index = ELF64_R_SYM(rel->r_info);
     sstring sym_name;
@@ -330,7 +330,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
 
 closure_function(5, 1, void, elf_load_program,
                  heap, h, Elf64_Phdr *, phdr, Elf64_Half, phnum, elf_loader, loader, status_handler, sh,
-                 status, s)
+                 status s)
 {
     heap h = bound(h);
     Elf64_Phdr *phdr = bound(phdr);
@@ -357,7 +357,7 @@ closure_function(5, 1, void, elf_load_program,
 
 closure_function(5, 1, void, elf_load_phdr,
                  heap, h, Elf64_Ehdr *, e, elf_loader, loader, u64 *, entry, status_handler, sh,
-                 status, s)
+                 status s)
 {
     heap h = bound(h);
     Elf64_Ehdr *e = bound(e);

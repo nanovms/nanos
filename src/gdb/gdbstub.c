@@ -48,7 +48,7 @@ static boolean read_thread_id(buffer b, int *tid)
 
 closure_function(1, 1, context, gdb_handle_exception,
                  gdb, g,
-                 context, ctx)
+                 context ctx)
 {
     gdb g = bound(g);
     g->t = current;
@@ -98,7 +98,7 @@ static boolean attached(gdb g, buffer in, string out)
 
 closure_function(1, 1, boolean, dump_threads,
                  string, out,
-                 rbnode, n)
+                 rbnode n)
 {
     thread th = struct_from_field(n, thread, n);
     bprintf(bound(out), "p1.%x,", th->tid);
@@ -163,16 +163,16 @@ static struct handler query_handler[] = {
     {0,0}
 };
 
-closure_function(0, 1, boolean, reset_stepping,
-                rbnode, n)
+closure_func_basic(rbnode_handler, boolean, reset_stepping,
+                   rbnode n)
 {
     thread t = struct_from_field(n, thread, n);
     clear_thread_stepping(t);
     return true;
 }
 
-closure_function(0, 1, boolean, sched_thread,
-                rbnode, n)
+closure_func_basic(rbnode_handler, boolean, sched_thread,
+                   rbnode n)
 {
     /* XXX this assumes the thread isn't currently running or already scheduled
        and is kind of racey with unblocking */
@@ -193,10 +193,10 @@ static void start_slave(gdb g, boolean stepping, thread t)
     gdb_debug("slave run %p %p %p %d\n", g, t, t->context.frame, stepping);
     g->p->trap = false;
     spin_lock(&g->p->threads_lock);
-    rbtree_traverse(g->p->threads, RB_INORDER, stack_closure(reset_stepping));
+    rbtree_traverse(g->p->threads, RB_INORDER, stack_closure_func(rbnode_handler, reset_stepping));
     if (stepping)
         set_thread_stepping(t);
-    rbtree_traverse(g->p->threads, RB_INORDER, stack_closure(sched_thread));
+    rbtree_traverse(g->p->threads, RB_INORDER, stack_closure_func(rbnode_handler, sched_thread));
     spin_unlock(&g->p->threads_lock);
 }
 
@@ -492,7 +492,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
 // not completely reassembling (meaning we dont handle fragments?)
 closure_function(1, 1, status, gdbserver_input,
                  gdb, g,
-                 buffer, b)
+                 buffer b)
 {
     gdb g = bound(g);
     char ch = '0';

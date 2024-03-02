@@ -6,25 +6,14 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/ssl.h>
 
-declare_closure_struct(1, 1, input_buffer_handler, tls_conn_handler,
-                       struct tls_conn *, conn,
-                       buffer_handler, out);
-declare_closure_struct(1, 1, boolean, tls_in_handler,
-                       struct tls_conn *, conn,
-                       buffer, b);
-declare_closure_struct(1, 1, status, tls_out_handler,
-                       struct tls_conn *, conn,
-                       buffer, b);
-declare_closure_struct(0, 0, void, tls_conn_free);
-
 typedef struct tls_conn {
     mbedtls_ssl_context ssl;
-    closure_struct(tls_conn_handler, ch);
-    closure_struct(tls_in_handler, in);
+    closure_struct(connection_handler, ch);
+    closure_struct(input_buffer_handler, in);
     buffer_handler out;
     connection_handler app_ch;
     input_buffer_handler app_in;
-    closure_struct(tls_out_handler, app_out);
+    closure_struct(buffer_handler, app_out);
     buffer incoming, outgoing;
     enum {
         tls_handshake,
@@ -32,7 +21,7 @@ typedef struct tls_conn {
         tls_closing,
     } state;
     struct refcount refcount;
-    closure_struct(tls_conn_free, free);
+    closure_struct(thunk, free);
 } *tls_conn;
 
 static struct {
@@ -122,11 +111,10 @@ static int tls_out_internal(tls_conn conn, buffer b)
     return ret;
 }
 
-define_closure_function(1, 1, status, tls_out_handler,
-                        struct tls_conn *, conn,
-                        buffer, b)
+closure_func_basic(buffer_handler, status, tls_out_handler,
+                   buffer b)
 {
-    tls_conn conn = bound(conn);
+    tls_conn conn = struct_from_closure(tls_conn, app_out);
     if (b) {
         tls_out_internal(conn, b);
     } else {    /* application requested connection shutdown */
@@ -139,11 +127,10 @@ define_closure_function(1, 1, status, tls_out_handler,
     return STATUS_OK;
 }
 
-define_closure_function(1, 1, boolean, tls_in_handler,
-                        struct tls_conn *, conn,
-                        buffer, b)
+closure_func_basic(input_buffer_handler, boolean, tls_in_handler,
+                   buffer b)
 {
-    tls_conn conn = bound(conn);
+    tls_conn conn = struct_from_closure(tls_conn, in);
     refcount_reserve(&conn->refcount);
     if (!b) {   /* underlying TCP connection closed */
         conn->out = 0;
@@ -156,7 +143,8 @@ define_closure_function(1, 1, boolean, tls_in_handler,
         ret = mbedtls_ssl_handshake(&conn->ssl);
         if (ret == 0) {
             conn->state = tls_open;
-            conn->app_in = apply(conn->app_ch, init_closure(&conn->app_out, tls_out_handler, conn));
+            conn->app_in = apply(conn->app_ch, init_closure_func(&conn->app_out, buffer_handler,
+                                                                 tls_out_handler));
             conn->app_ch = 0;   /* so that it is not invoked when the connection is closed */
             if (!conn->app_in)  /* application-level error */
                 goto conn_close;
@@ -201,15 +189,14 @@ define_closure_function(1, 1, boolean, tls_in_handler,
     return true;
 }
 
-define_closure_function(1, 1, input_buffer_handler, tls_conn_handler,
-                        struct tls_conn *, conn,
-                        buffer_handler, out)
+closure_func_basic(connection_handler, input_buffer_handler, tls_conn_handler,
+                   buffer_handler out)
 {
-    tls_conn conn = bound(conn);
+    tls_conn conn = struct_from_closure(tls_conn, ch);
     conn->out = out;
     if (!out)   /* TCP connection failed */
         goto conn_close;
-    input_buffer_handler in = init_closure(&conn->in, tls_in_handler, conn);
+    input_buffer_handler in = init_closure_func(&conn->in, input_buffer_handler, tls_in_handler);
     mbedtls_ssl_set_bio(&conn->ssl, conn, tls_send, tls_recv, NULL);
     conn->state = tls_handshake;
     int ret = mbedtls_ssl_handshake(&conn->ssl);
@@ -221,7 +208,7 @@ define_closure_function(1, 1, input_buffer_handler, tls_conn_handler,
     return 0;
 }
 
-define_closure_function(0, 0, void, tls_conn_free)
+closure_func_basic(thunk, void, tls_conn_free)
 {
     tls_conn conn = struct_from_field(closure_self(), tls_conn, free);
     mbedtls_ssl_free(&conn->ssl);
@@ -255,9 +242,9 @@ int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
     conn->app_ch = ch;
     conn->app_in = 0;
     conn->incoming = conn->outgoing = 0;
-    init_refcount(&conn->refcount, 1, init_closure(&conn->free, tls_conn_free));
+    init_refcount(&conn->refcount, 1, init_closure_func(&conn->free, thunk, tls_conn_free));
     status s = direct_connect(tls.h, addr, port,
-        init_closure(&conn->ch, tls_conn_handler, conn));
+                              init_closure_func(&conn->ch, connection_handler, tls_conn_handler));
     if (!is_ok(s)) {
         timm_dealloc(s);
         ret = -1;

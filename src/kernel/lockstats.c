@@ -244,8 +244,8 @@ lockstats_do_http_get_log_chunked(http_responder out)
     send_http_chunk(out, 0);
 }
 
-closure_function(0, 3, void, lockstats_http_request,
-                 http_method, method, http_responder, handler, value, val)
+closure_func_basic(http_request_handler, void, lockstats_http_request,
+                   http_method method, http_responder handler, value val)
 {
     string relative_uri;
     relative_uri = get_string(val, sym(relative_uri));
@@ -288,7 +288,7 @@ init_http_listener(void)
     http_register_uri_handler(
         lockstats_hl,
         ss(LOCKSTATS_URI),
-        closure(lockstats_heap, lockstats_http_request)
+        closure_func(lockstats_heap, http_request_handler, lockstats_http_request)
     );
 
     s = listen_port(lockstats_heap, LOCKSTATS_PORT,

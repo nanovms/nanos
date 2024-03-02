@@ -35,7 +35,7 @@ boolean peek_pop_check(pqueue q, u64 v)
 
 closure_function(1, 1, boolean, walk_test_handler,
                  int *, visited,
-                 void *, v)
+                 void *v)
 {
     (*bound(visited))++;
     return v != (void *)500;

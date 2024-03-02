@@ -10,7 +10,7 @@
 
 closure_function(3, 1, status, telnet_recv,
                  heap, h, buffer_handler, out, parser, p,
-                 buffer, b)
+                 buffer b)
 {
     buffer_handler out = bound(out);
     if (!b) {
@@ -33,7 +33,7 @@ closure_function(3, 1, status, telnet_recv,
 
 closure_function(1, 1, buffer_handler, each_telnet_connection,
                  heap, h,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     heap h = bound(h);
     mgmt_debug("telnet: connection\n");

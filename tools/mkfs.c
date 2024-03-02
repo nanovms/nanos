@@ -235,14 +235,14 @@ void read_file(heap h, const char *target_root, buffer dest, buffer name)
 heap malloc_allocator();
 
 tuple root;
-closure_function(0, 1, void, finish,
-                 void *, v)
+closure_func_basic(parse_finish, void, finish,
+                   void *v)
 {
     root = v;
 }
 
-closure_function(0, 1, void, perr,
-                 string, s)
+closure_func_basic(parse_error, void, perr,
+                   string s)
 {
     rprintf("manifest parse error %b\n", s);
     exit(EXIT_FAILURE);
@@ -250,7 +250,7 @@ closure_function(0, 1, void, perr,
 
 closure_function(2, 1, void, bwrite,
                  descriptor, d, ssize_t, offset,
-                 storage_req, req)
+                 storage_req req)
 {
     switch (req->op) {
     case STORAGE_OP_WRITESG:
@@ -292,8 +292,8 @@ closure_function(2, 1, void, bwrite,
     apply(req->completion, STATUS_OK);
 }
 
-closure_function(0, 1, void, err,
-                 status, s)
+closure_func_basic(status_handler, void, err,
+                   status s)
 {
     rprintf("reported error\n");
 }
@@ -316,7 +316,7 @@ static value translate(heap h, vector worklist,
 
 closure_function(6, 2, boolean, translate_each,
                  heap, h, vector, worklist, const char *, target_root, filesystem, fs, status_handler, sh, tuple, out,
-                 value, k, value, child)
+                 value k, value child)
 {
     assert(is_symbol(k));
     if (k == sym(contents)) {
@@ -344,8 +344,8 @@ static value translate(heap h, vector worklist,
 extern heap init_process_runtime();
 
 static io_status_handler mkfs_write_status;
-closure_function(0, 2, void, mkfs_write_handler,
-                 status, s, bytes, length)
+closure_func_basic(io_status_handler, void, mkfs_write_handler,
+                   status s, bytes length)
 {
     if (!is_ok(s)) {
         rprintf("write failed with %v\n", s);
@@ -355,7 +355,7 @@ closure_function(0, 2, void, mkfs_write_handler,
 
 closure_function(4, 2, void, fsc,
                  heap, h, descriptor, out, tuple, root, const char *, target_root,
-                 filesystem, fs, status, s)
+                 filesystem fs, status s)
 {
     tuple root = bound(root);
     if (!root)
@@ -363,7 +363,8 @@ closure_function(4, 2, void, fsc,
 
     heap h = bound(h);
     vector worklist = allocate_vector(h, 10);
-    tuple md = translate(h, worklist, bound(target_root), fs, root, closure(h, err));
+    tuple md = translate(h, worklist, bound(target_root), fs, root,
+                         closure_func(h, status_handler, err));
 
     buffer b = allocate_buffer(transient, 64);
     u8 uuid[UUID_LEN];
@@ -587,8 +588,8 @@ boolean parse_size(const char *str, long long *size)
 
 vector cmdline_tuples;
 
-closure_function(0, 1, void, cmdline_tuple_finish,
-                 void *, v)
+closure_func_basic(parse_finish, void, cmdline_tuple_finish,
+                   void *v)
 {
     if (!is_tuple(v)) {
         rprintf("parsed cmdline value is not a tuple: %v\n", v);
@@ -597,16 +598,16 @@ closure_function(0, 1, void, cmdline_tuple_finish,
     vector_push(cmdline_tuples, v);
 }
 
-closure_function(0, 1, void, cmdline_tuple_err,
-                 string, s)
+closure_func_basic(parse_error, void, cmdline_tuple_err,
+                   string s)
 {
     rprintf("cmdline tuple parse error %b\n", s);
     exit(EXIT_FAILURE);
 }
 
 
-closure_function(0, 2, boolean, cmdline_tuple_each,
-                 void *, k, void *, v)
+closure_func_basic(binding_handler, boolean, cmdline_tuple_each,
+                   void *k, void *v)
 {
     set(root, k, v);
     return true;
@@ -661,8 +662,8 @@ int main(int argc, char **argv)
         }
         case 't': {
             buffer b = alloca_wrap_buffer(optarg, strlen(optarg));
-            parser p = tuple_parser(h, stack_closure(cmdline_tuple_finish),
-                                    stack_closure(cmdline_tuple_err));
+            parser p = tuple_parser(h, stack_closure_func(parse_finish, cmdline_tuple_finish),
+                                    stack_closure_func(parse_error, cmdline_tuple_err));
             parser_feed(p, b);
             break;
         }
@@ -725,18 +726,19 @@ int main(int argc, char **argv)
         root = allocate_tuple();
         set(root, sym(children), allocate_tuple());
     } else {
-        parser p = tuple_parser(h, stack_closure(finish), stack_closure(perr));
+        parser p = tuple_parser(h, stack_closure_func(parse_finish, finish),
+                                stack_closure_func(parse_error, perr));
         parser_feed(p, read_stdin(h));
     }
 
     init_pagecache(h, h, PAGESIZE);
-    mkfs_write_status = closure(h, mkfs_write_handler);
+    mkfs_write_status = closure_func(h, io_status_handler, mkfs_write_handler);
 
     if (root && !empty_fs) {
         /* apply commandline tuples to root */
         value v;
         vector_foreach(cmdline_tuples, v) {
-            iterate(v, stack_closure(cmdline_tuple_each));
+            iterate(v, stack_closure_func(binding_handler, cmdline_tuple_each));
             deallocate_value(v);
         }
         deallocate_vector(cmdline_tuples);

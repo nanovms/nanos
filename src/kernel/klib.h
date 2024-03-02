@@ -17,7 +17,7 @@ typedef struct klib {
     klib_init ki;
 } *klib;
 
-typedef closure_type(klib_handler, void, klib, int);
+closure_type(klib_handler, void, klib ks, int rv);
 
 void load_klib(buffer name, klib_handler complete, status_handler sh);
 

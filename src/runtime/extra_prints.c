@@ -67,7 +67,7 @@ void print_csum_buffer(buffer s, buffer b)
 #ifndef BOOT
 closure_function(1, 2, boolean, _sort_handler,
                  vector, pairs,
-                 value, s, value, v)
+                 value s, value v)
 {
     assert(is_symbol(s));
     vector_push(bound(pairs), s);
@@ -126,7 +126,7 @@ static void print_tuple_internal(buffer b, tuple t, table *visited, s32 indent, 
 
 closure_function(6, 2, boolean, print_vector_each,
                  buffer, b, vector, vec, table *, visited, s32, indent, s32, depth, boolean *, sub,
-                 value, a, value, v)
+                 value a, value v)
 {
     buffer b = bound(b);
     if (*bound(sub)) {

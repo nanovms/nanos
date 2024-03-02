@@ -398,7 +398,7 @@ static void dump_node(rbtree t, rbnode n)
 
 closure_function(1, 1, boolean, dump_internal,
                  rbtree, t,
-                 rbnode, n)
+                 rbnode n)
 {
     dump_node(bound(t), n);
     return true;
@@ -523,7 +523,7 @@ static status validate_tree_invariants(rbtree t, rbnode n, u64 black_links, u64 
 
 closure_function(2, 1, boolean, test_inorder_node,
                  rbnode *, last, status *, result,
-                 rbnode, n)
+                 rbnode n)
 {
     if (*bound(last) != 0) {
         rbnode last = *bound(last);

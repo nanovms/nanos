@@ -64,7 +64,7 @@ static void blockq_apply(blockq bq, unix_context t, u64 bq_flags)
 /* A blockq_thread timed out. */
 define_closure_function(1, 2, void, blockq_thread_timeout,
                         blockq, bq,
-                        u64, expiry, u64, overruns)
+                        u64 expiry, u64 overruns)
 {
     blockq bq = bound(bq);
     unix_context t = struct_from_field(closure_self(), unix_context, bq_timeout_func);
@@ -322,10 +322,9 @@ void blockq_thread_init(unix_context t)
     spin_lock_init(&t->lock);
 }
 
-define_closure_function(1, 0, void, free_blockq,
-                        blockq, bq)
+closure_func_basic(thunk, void, free_blockq)
 {
-    blockq bq = bound(bq);
+    blockq bq = struct_from_closure(blockq, free);
     blockq_debug("for \"%s\"\n", blockq_name(bq));
     assert(list_empty(&bq->waiters_head));
     deallocate(bq->h, bq, sizeof(struct blockq));
@@ -337,7 +336,7 @@ void blockq_init(blockq bq, sstring name)
     bq->wake = false;
     spin_lock_init(&bq->lock);
     list_init(&bq->waiters_head);
-    init_refcount(&bq->refcount, 1, init_closure(&bq->free, free_blockq, bq));
+    init_refcount(&bq->refcount, 1, init_closure_func(&bq->free, thunk, free_blockq));
 }
 
 blockq allocate_blockq(heap h, sstring name)

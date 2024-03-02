@@ -59,13 +59,10 @@ static sysreturn meminfo_read(file f, void *dest, u64 length, u64 offset)
 }
 
 typedef struct mounts_notify_data *mounts_notify_data;
-declare_closure_struct(1, 1, void, mounts_notify,
-                       mounts_notify_data, d,
-                       u64, generation);
 
 struct mounts_notify_data {
     struct special_file_wrapper w;
-    closure_struct(mounts_notify, notify_handler);
+    closure_struct(mount_notification_handler, notify_handler);
     u64 last_generation;
 };
 
@@ -74,11 +71,10 @@ static u32 mounts_events(file f)
     return EPOLLIN | EPOLLRDNORM;
 }
 
-define_closure_function(1, 1, void, mounts_notify,
-                 mounts_notify_data, d,
-                 u64, generation)
+closure_func_basic(mount_notification_handler, void, mounts_notify,
+                   u64 generation)
 {
-    mounts_notify_data d = bound(d);
+    mounts_notify_data d = struct_from_closure(mounts_notify_data, notify_handler);
 
     u32 events = mounts_events(&d->w.f);
     if (d->last_generation != generation) {
@@ -92,7 +88,8 @@ sysreturn mounts_open(file f)
 {
     mounts_notify_data d = (mounts_notify_data)f;
     d->last_generation = 0;
-    storage_register_mount_notify(init_closure(&d->notify_handler, mounts_notify, d));
+    storage_register_mount_notify(init_closure_func(&d->notify_handler, mount_notification_handler,
+                                                    mounts_notify));
     return 0;
 }
 
@@ -105,7 +102,7 @@ sysreturn mounts_close(file f)
 
 closure_function(1, 4, void, mounts_handler,
                  buffer, b,
-                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
+                 u8 *uuid, sstring label, filesystem fs, inode mount_point)
 {
     buffer b = bound(b);
     bytes saved_end = b->end;
@@ -155,7 +152,7 @@ static sysreturn mounts_read(file f, void *dest, u64 length, u64 offset)
 
 closure_function(1, 1, boolean, maps_handler,
                  buffer, b,
-                 vmap, map)
+                 vmap map)
 {
     buffer b = bound(b);
 
@@ -225,7 +222,7 @@ static const special_file special_files[] = {
 
 closure_function(2, 6, sysreturn, spec_read,
                  const special_file *, sf, file, f,
-                 void *, dest, u64, len, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+                 void *dest, u64 len, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     const special_file *sf = bound(sf);
     thread_log(current, "spec_read: %s", sf->path);
@@ -250,7 +247,7 @@ closure_function(2, 6, sysreturn, spec_read,
 
 closure_function(2, 6, sysreturn, spec_write,
                  const special_file *, sf, file, f,
-                 void *, dest, u64, len, u64, offset, context, ctx, boolean, bh, io_completion, completion)
+                 void *dest, u64 len, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     const special_file *sf = bound(sf);
     thread_log(current, "spec_write: %s", sf->path);
@@ -269,7 +266,7 @@ closure_function(2, 6, sysreturn, spec_write,
 
 closure_function(2, 1, u32, spec_events,
                  const special_file *, sf, file, f,
-                 thread, t)
+                 thread t)
 {
     const special_file *sf = bound(sf);
     thread_log(current, "spec_events: %s", sf->path);
@@ -280,7 +277,7 @@ closure_function(2, 1, u32, spec_events,
 
 closure_function(2, 2, sysreturn, spec_close,
                  const special_file *, sf, file, f,
-                 context, ctx, io_completion, completion)
+                 context ctx, io_completion completion)
 {
     const special_file *sf = bound(sf);
     thread_log(current, "spec_close: %s", sf->path);
@@ -300,7 +297,7 @@ closure_function(2, 2, sysreturn, spec_close,
 
 closure_function(1, 1, sysreturn, special_open,
                  const special_file *, sf,
-                 file, f)
+                 file f)
 {
     const special_file *sf = bound(sf);
     heap h = heap_locked(get_kernel_heaps());

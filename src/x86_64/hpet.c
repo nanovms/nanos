@@ -173,8 +173,8 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
     hpet->timers[timer].comparator = comparator;
 }
 
-closure_function(0, 1, void, hpet_runloop_timer,
-                 timestamp, duration)
+closure_func_basic(clock_timer, void, hpet_runloop_timer,
+                   timestamp duration)
 {
     timer_config(0, duration, timer_interrupt_handler, false);
 }
@@ -208,7 +208,9 @@ boolean init_hpet(kernel_heaps kh) {
         if (prev == hpet_main_counter())
             continue;
         register_platform_clock_now(closure(heap_general(kh), hpet_now), VDSO_CLOCK_HPET, 0);
-        register_platform_clock_timer(closure(heap_general(kh), hpet_runloop_timer), 0 /* no per-cpu init */);
+        register_platform_clock_timer(closure_func(heap_general(kh), clock_timer,
+                                                   hpet_runloop_timer),
+                                      0 /* no per-cpu init */);
         return true;
     }
     msg_err("failed to initialize HPET; main counter not incrementing\n");

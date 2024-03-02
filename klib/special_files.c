@@ -12,7 +12,7 @@ typedef struct specfiles_disks {
 
 closure_function(1, 4, void, disks_handler,
                  buffer, b,
-                 u8 *, uuid, sstring, label, filesystem, fs, inode, mount_point)
+                 u8 *uuid, sstring label, filesystem fs, inode mount_point)
 {
     buffer b = bound(b);
     buffer_write_cstring(b, "[\n");
@@ -52,8 +52,8 @@ closure_func_basic(fdesc_close, sysreturn, disks_close,
     return io_complete(completion, 0);
 }
 
-closure_function(0, 1, sysreturn, disks_open,
-                 file, f)
+closure_func_basic(spec_file_open, sysreturn, disks_open,
+                   file f)
 {
     specfiles_disks disks = allocate(specfiles_heap, sizeof(struct specfiles_disks));
     if (disks == INVALID_ADDRESS)
@@ -76,7 +76,7 @@ int init(status_handler complete)
     boolean error = false;
     tuple disks_cfg = get_tuple(cfg, sym_this("disks"));
     if (disks_cfg) {
-        spec_file_open open = closure(specfiles_heap, disks_open);
+        spec_file_open open = closure_func(specfiles_heap, spec_file_open, disks_open);
         if (open == INVALID_ADDRESS)
             error = true;
         else if (!create_special_file(ss("/sys/devices/disks"), open, 0, 0)) {

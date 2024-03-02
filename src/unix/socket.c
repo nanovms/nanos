@@ -3,19 +3,10 @@
 #include <filesystem.h>
 #include <socket.h>
 
-declare_closure_struct(1, 0, void, sharedbuf_free,
-    struct sharedbuf *, shb);
-
-declare_closure_struct(1, 2, u64, unixsock_event_handler,
-                       struct unixsock *, s,
-                       u64, events, void *, arg);
-declare_closure_struct(1, 0, void, unixsock_free,
-    struct unixsock *, s);
-
 typedef struct sharedbuf {
     buffer b;
     struct refcount refcount;
-    closure_struct(sharedbuf_free, free);
+    closure_struct(thunk, free);
     struct sockaddr_un from_addr;
 } *sharedbuf;
 
@@ -38,8 +29,8 @@ typedef struct unixsock {
     closure_struct(fdesc_events, events);
     closure_struct(fdesc_ioctl, ioctl);
     closure_struct(fdesc_close, close);
-    closure_struct(unixsock_event_handler, event_handler);
-    closure_struct(unixsock_free, free);
+    closure_struct(event_handler, event_handler);
+    closure_struct(thunk, free);
     struct refcount refcount;
 } *unixsock;
 
@@ -53,10 +44,9 @@ static inline void sharedbuf_deallocate(sharedbuf shb)
     deallocate(h, shb, sizeof(*shb));
 }
 
-define_closure_function(1, 0, void, sharedbuf_free,
-                        sharedbuf, shb)
+closure_func_basic(thunk, void, sharedbuf_free)
 {
-    sharedbuf_deallocate(bound(shb));
+    sharedbuf_deallocate(struct_from_closure(sharedbuf, free));
 }
 
 static boolean unixsock_type_is_supported(int type)
@@ -76,21 +66,19 @@ static boolean unixsock_is_conn_oriented(unixsock s)
     return (s->sock.type != SOCK_DGRAM);
 }
 
-define_closure_function(1, 2, u64, unixsock_event_handler,
-                        unixsock, s,
-                        u64, events, void *, arg)
+closure_func_basic(event_handler, u64, unixsock_event_handler,
+                   u64 events, void *arg)
 {
-    unixsock s = bound(s);
+    unixsock s = struct_from_closure(unixsock, event_handler);
     if (events == NOTIFY_EVENTS_RELEASE)    /* the peer socket is being closed */
         s->notify_handle = INVALID_ADDRESS;
     fdesc_notify_events(&s->sock.f);
     return 0;
 }
 
-define_closure_function(1, 0, void, unixsock_free,
-                        unixsock, s)
+closure_func_basic(thunk, void, unixsock_free)
 {
-    unixsock s = bound(s);
+    unixsock s = struct_from_closure(unixsock, free);
     deallocate(s->sock.h, s, sizeof(*s));
 }
 
@@ -104,7 +92,7 @@ static inline sharedbuf sharedbuf_allocate(heap h, u64 len)
         deallocate(h, shb, sizeof(*shb));
         return INVALID_ADDRESS;
     }
-    init_closure(&shb->free, sharedbuf_free, shb);
+    init_closure_func(&shb->free, thunk, sharedbuf_free);
     init_refcount(&shb->refcount, 1, (thunk)&shb->free);
     return shb;
 }
@@ -191,7 +179,7 @@ static void unixsock_addr_copy(struct sockaddr_un *dest, struct sockaddr_un *src
 
 closure_function(7, 1, sysreturn, unixsock_read_bh,
                  unixsock, s, void *, dest, sg_list, sg, u64, length, io_completion, completion, struct sockaddr_un *, from_addr, socklen_t *, from_length,
-                 u64, flags)
+                 u64 flags)
 {
     unixsock s = bound(s);
     void *dest = bound(dest);
@@ -384,7 +372,7 @@ static sysreturn lookup_socket(unixsock *s, struct sockaddr *addr, socklen_t add
 
 closure_function(6, 1, sysreturn, unixsock_write_bh,
                  unixsock, s, void *, src, sg_list, sg, u64, length, io_completion, completion, unixsock, dest,
-                 u64, flags)
+                 u64 flags)
 {
     unixsock s = bound(s);
     void *src = bound(src);
@@ -608,7 +596,7 @@ static sysreturn unixsock_listen(struct sock *sock, int backlog)
 
 closure_function(3, 1, sysreturn, connect_bh,
                  unixsock, s, thread, t, unixsock, listener,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     unixsock s = bound(s);
     thread t = bound(t);
@@ -679,7 +667,8 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
             notify_remove(s->peer->sock.f.ns, s->notify_handle, false);
         unixsock_disconnect(s);
         s->notify_handle = notify_add(listener->sock.f.ns, EPOLLOUT | EPOLLERR | EPOLLHUP,
-                                      init_closure(&s->event_handler, unixsock_event_handler, s));
+                                      init_closure_func(&s->event_handler, event_handler,
+                                                        unixsock_event_handler));
         if (s->notify_handle == INVALID_ADDRESS)
             rv = -ENOMEM;
         else
@@ -695,7 +684,7 @@ out:
 
 closure_function(5, 1, sysreturn, accept_bh,
                  unixsock, s, thread, t, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     unixsock s = bound(s);
     thread t = bound(t);
@@ -888,7 +877,7 @@ sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
 
 closure_function(2, 1, void, sendmsg_complete,
                  sg_list, sg, io_completion, completion,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     sg_list sg = bound(sg);
     deallocate_sg_list(sg);
@@ -921,7 +910,7 @@ sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,
 
 closure_function(4, 1, void, recvmsg_complete,
                  sg_list, sg, struct iovec *, iov, int, iovlen, io_completion, completion,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     sg_list sg = bound(sg);
     if ((rv > 0) && !sg_to_iov(sg, bound(iov), bound(iovlen)))
@@ -999,7 +988,7 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags, boolean alloc_fd)
     s->conn_q = 0;
     s->peer = 0;
     s->notify_handle = INVALID_ADDRESS;
-    init_closure(&s->free, unixsock_free, s);
+    init_closure_func(&s->free, thunk, unixsock_free);
     init_refcount(&s->refcount, 1, (thunk)&s->free);
     if (alloc_fd) {
         s->sock.fd = allocate_fd(current->p, s);

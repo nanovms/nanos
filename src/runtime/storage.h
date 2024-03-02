@@ -88,12 +88,12 @@ typedef struct storage_req {
 
 declare_closure_struct(2, 1, void, storage_simple_req_handler,
                        block_io, read, block_io, write,
-                       storage_req, req);
+                       storage_req req);
 storage_req_handler storage_init_req_handler(closure_ref(storage_simple_req_handler, handler),
                                              block_io read, block_io write);
 
-typedef closure_type(fs_init_complete, void, struct filesystem *, status);
-typedef closure_type(fs_init_handler, void, boolean, fs_init_complete);
+closure_type(fs_init_complete, void, struct filesystem *fs, status s);
+closure_type(fs_init_handler, void, boolean readonly, fs_init_complete complete);
 
 void init_volumes(heap h);
 void storage_set_root_fs(struct filesystem *root_fs);
@@ -105,10 +105,10 @@ void storage_sync(status_handler sh);
 struct filesystem *storage_get_fs(tuple root);
 u64 storage_get_mountpoint(tuple root, struct filesystem **fs);
 
-typedef closure_type(volume_handler, void, u8 *, sstring, struct filesystem *, u64);
+closure_type(volume_handler, void, u8 *uuid, sstring label, struct filesystem *fs, u64 mount_dir);
 void storage_iterate(volume_handler vh);
 
 void storage_detach(void *priv, thunk complete);
-typedef closure_type(mount_notification_handler, void, u64);
+closure_type(mount_notification_handler, void, u64 mount_generation);
 void storage_register_mount_notify(mount_notification_handler nh);
 void storage_unregister_mount_notify(mount_notification_handler nh);

@@ -27,7 +27,7 @@ static void print_stats(stats s)
 
 closure_function(7, 1, void, value_in,
                  heap, h, buffer_handler, out, u64 *, count, status_handler, completed, thunk, newconn, stats, s, tuple, req,
-                 value, v)
+                 value v)
 {
     stats s = bound(s);
     s->responses++;
@@ -64,7 +64,7 @@ heap make_tiny_heap(heap parent);
 
 closure_function(1, 1, boolean, ibh_parser_wrap,
                  buffer_handler, bh,
-                 buffer, b)
+                 buffer b)
 {
     status s = apply(bound(bh), b);
     if (s != STATUS_OK) {
@@ -75,7 +75,7 @@ closure_function(1, 1, boolean, ibh_parser_wrap,
 
 closure_function(5, 1, input_buffer_handler, newconn,
                  heap, h, thunk, newconn, stats, s, tuple, t, status_handler, sth,
-                 buffer_handler, out)
+                 buffer_handler out)
 {
     stats s = bound(s);
     tuple t = bound(t);
@@ -99,8 +99,8 @@ closure_function(8, 0, void, startconn,
     connection(h, bound(n), bound(target), closure(h, newconn, h, *bound(self), bound(s), bound(req), sth), bound(err));
 }
 
-closure_function(0, 1, void, connection_error,
-                 status, s)
+closure_func_basic(status_handler, void, connection_error,
+                   status s)
 {
     rprintf("connection error! %v\n", s);
     exit(1);
@@ -108,7 +108,7 @@ closure_function(0, 1, void, connection_error,
 
 closure_function(1, 1, void, finished,
                  stats, st,
-                 status, s)
+                 status s)
 {
     print_stats(bound(st));
     rprintf("\n");
@@ -147,7 +147,7 @@ int main(int argc, char **argv)
     requests_per_connection = extract_u64_with_default(t, sym(requests), 10);
     total_connections = extract_u64_with_default(t, sym(connections), 10);
                                                    
-    status_handler err = closure(h, connection_error);
+    status_handler err = closure_func(h, status_handler, connection_error);
     stats s = allocate_zero(h, sizeof(struct stats));
     merge m = allocate_merge(h, closure(h, finished, s));
 

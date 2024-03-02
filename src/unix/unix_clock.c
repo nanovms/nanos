@@ -78,7 +78,7 @@ sysreturn settimeofday(const struct timeval *tv, const void *tz)
 
 closure_function(5, 1, sysreturn, nanosleep_bh,
                  thread, t, timestamp, start, clock_id, id, timestamp, interval, struct timespec *, rem,
-                 u64, flags)
+                 u64 flags)
 {
     thread t = bound(t);
     timestamp elapsed = now(bound(id)) - bound(start);

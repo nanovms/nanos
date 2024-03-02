@@ -104,7 +104,7 @@ static boolean volume_match(symbol s, volume v)
 
 closure_function(2, 2, void, volume_link,
                  volume, v, inode, mount_dir,
-                 filesystem, fs, status, s)
+                 filesystem fs, status s)
 {
     volume v = bound(v);
     if (is_ok(s)) {
@@ -184,7 +184,7 @@ static void storage_io_sg(block_io op, sg_list sg, range blocks, status_handler 
 
 define_closure_function(2, 1, void, storage_simple_req_handler,
                         block_io, read, block_io, write,
-                        storage_req, req)
+                        storage_req req)
 {
     switch (req->op) {
     case STORAGE_OP_READSG:
@@ -230,8 +230,8 @@ void storage_set_root_fs(filesystem root_fs)
     fs_set_path_helper(get_root_fs, storage_get_mountpoint);
 }
 
-closure_function(0, 2, boolean, storage_set_mountpoints_each,
-                 value, k, value, path)
+closure_func_basic(binding_handler, boolean, storage_set_mountpoints_each,
+                   value k, value path)
 {
     assert(is_symbol(k));
     assert(is_string(path));
@@ -250,7 +250,7 @@ void storage_set_mountpoints(tuple mounts)
     storage_lock();
     storage.mounts = mounts;
     storage.mounting = true;
-    iterate(mounts, stack_closure(storage_set_mountpoints_each));
+    iterate(mounts, stack_closure_func(binding_handler, storage_set_mountpoints_each));
     storage.mounting = false;
     storage_unlock();
     storage_check_if_ready();
@@ -258,7 +258,7 @@ void storage_set_mountpoints(tuple mounts)
 
 closure_function(1, 2, boolean, volume_add_mount_each,
                  volume, v,
-                 value, k, value, path)
+                 value k, value path)
 {
     assert(is_symbol(k));
     assert(is_string(path));

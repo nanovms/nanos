@@ -44,7 +44,7 @@ int xen_close_evtchn(evtchn_port_t evtchn);
 grant_ref_t xen_grant_page_access(u16 domid, u64 phys, boolean readonly);
 void xen_revoke_page_access(grant_ref_t ref);
 
-typedef closure_type(xenstore_watch_handler, void, sstring);
+closure_type(xenstore_watch_handler, void, sstring path);
 
 status xenbus_get_state(buffer path, XenbusState *state);
 status xenbus_set_state(u32 tx_id, buffer path, XenbusState newstate);
@@ -61,5 +61,5 @@ status xendev_attach(xen_dev xd, int id, buffer frontend, tuple meta);
 
 void xen_driver_unbind(tuple meta);
 
-typedef closure_type(xen_device_probe, boolean, int, buffer, tuple);
+closure_type(xen_device_probe, boolean, int id, buffer frontend, tuple meta);
 void register_xen_driver(sstring name, xen_device_probe probe);

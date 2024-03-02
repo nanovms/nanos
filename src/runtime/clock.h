@@ -25,7 +25,7 @@ typedef enum {
     VDSO_CLOCK_NRCLOCKS
 } vdso_clock_id;
 
-typedef closure_type(clock_now, timestamp);
+closure_type(clock_now, timestamp);
 extern clock_now platform_monotonic_now;
 
 #define PTP_CLOCK_PRECISION -9  /* expressed in seconds as power of two */

@@ -21,9 +21,6 @@ typedef struct aio_ring {
     struct io_event events[0];
 } *aio_ring;
 
-declare_closure_struct(1, 0, void, aio_free,
-                       struct aio *, aio);
-
 struct aio {
     struct list elem;  /* must be first */
     heap vh;
@@ -35,7 +32,7 @@ struct aio {
     unsigned int ongoing_ops;
     unsigned int copied_evts;
     struct refcount refcount;
-    closure_struct(aio_free, free);
+    closure_struct(thunk, free);
 };
 
 static struct aio *aio_alloc(process p, kernel_heaps kh, unsigned int *id)
@@ -70,10 +67,9 @@ static inline struct aio *aio_from_ring_id(process p, unsigned int id)
     return aio;
 }
 
-define_closure_function(1, 0, void, aio_free,
-                        struct aio *, aio)
+closure_func_basic(thunk, void, aio_free)
 {
-    struct aio *aio = bound(aio);
+    struct aio *aio = struct_from_closure(struct aio *, free);
     aio_ring ring = aio->ring;
     u64 phys = physical_from_virtual(ring);
     u64 alloc_size = pad(sizeof(*ring) + aio->nr * sizeof(struct io_event), PAGESIZE);
@@ -117,7 +113,7 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
     aio->bq = 0;
     aio->nr = nr_events;
     aio->ongoing_ops = 0;
-    init_refcount(&aio->refcount, 1, init_closure(&aio->free, aio_free, aio));
+    init_refcount(&aio->refcount, 1, init_closure_func(&aio->free, thunk, aio_free));
 
     ctx->nr = nr_events;
     ctx->head = ctx->tail = 0;
@@ -131,7 +127,7 @@ sysreturn io_setup(unsigned int nr_events, aio_context_t *ctx_idp)
 
 closure_function(4, 1, void, aio_eventfd_complete,
                  heap, h, fdesc, f, u64 *, efd_val, context, proc_ctx,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     u64 *efd_val = bound(efd_val);
     deallocate(bound(h), efd_val, sizeof(*efd_val));
@@ -142,7 +138,7 @@ closure_function(4, 1, void, aio_eventfd_complete,
 
 closure_function(6, 1, void, aio_complete,
                  struct aio *, aio, fdesc, f, u64, data, u64, obj, int, res_fd, context, proc_ctx,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     struct aio *aio = bound(aio);
     int res_fd = bound(res_fd);
@@ -334,7 +330,7 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
  * returns with aio lock released. */
 closure_function(6, 1, sysreturn, io_getevents_bh,
                  struct aio *, aio, long, min_nr, long, nr, struct io_event *, events, timestamp, timeout, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     struct aio *aio = bound(aio);
     struct io_event *events = bound(events);
@@ -418,7 +414,7 @@ static sysreturn io_destroy_internal(struct aio *aio, thread t, boolean in_bh);
 
 closure_function(2, 1, void, io_destroy_complete,
                  struct aio *, aio, thread, t,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     struct aio *aio = bound(aio);
     if (aio->ongoing_ops) {

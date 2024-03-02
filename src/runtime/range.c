@@ -232,16 +232,16 @@ int rangemap_range_find_gaps(rangemap rm, range q, range_handler gap_handler)
     return rangemap_range_lookup_internal(rm, q, 0, gap_handler);
 }
 
-define_closure_function(0, 2, int, rmnode_compare,
-                 rbnode, a, rbnode, b)
+closure_func_basic(rb_key_compare, int, rmnode_compare,
+                   rbnode a, rbnode b)
 {
     u64 sa = ((rmnode)a)->r.start;
     u64 sb = ((rmnode)b)->r.start;
     return sa == sb ? 0 : (sa < sb ? -1 : 1);
 }
 
-define_closure_function(0, 1, boolean, print_key,
-                 rbnode, n)
+closure_func_basic(rbnode_handler, boolean, print_key,
+                   rbnode n)
 {
     rprintf(" %R", ((rmnode)n)->r);
     return true;
@@ -259,13 +259,13 @@ rangemap allocate_rangemap(heap h)
 void init_rangemap(rangemap rm, heap h)
 {
     rm->h = h;
-    init_rbtree(&rm->t, init_closure(&rm->compare, rmnode_compare),
-                init_closure(&rm->print, print_key));
+    init_rbtree(&rm->t, init_closure_func(&rm->compare, rb_key_compare, rmnode_compare),
+                init_closure_func(&rm->print, rbnode_handler, print_key));
 }
 
 closure_function(1, 1, boolean, destruct_rmnode,
                  rmnode_handler, destructor,
-                 rbnode, n)
+                 rbnode n)
 {
     apply(bound(destructor), (rmnode)n);
     return true;

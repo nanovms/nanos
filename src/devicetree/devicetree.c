@@ -58,9 +58,9 @@ struct dt_prop {
     u8 data[0];
 };
 
-typedef closure_type(dt_node_begin_handler, boolean, dt_node, sstring, int, dt_node);
-typedef closure_type(dt_node_end_handler, boolean, dt_node, int);
-typedef closure_type(dt_prop_handler, boolean, void *, dt_node, sstring, dt_prop);
+closure_type(dt_node_begin_handler, boolean, dt_node n, sstring name, int level, dt_node parent);
+closure_type(dt_node_end_handler, boolean, dt_node n, int level);
+closure_type(dt_prop_handler, boolean, void *dtb, dt_node n, sstring name, dt_prop p);
 
 #define nelem(x) (sizeof((x))/sizeof((x)[0]))
 static struct prop_value_map {
@@ -177,7 +177,7 @@ dt_node dtb_get_root(void *dtb)
 
 closure_function(2, 4, boolean, get_parent_handler,
                  dt_node, ln, dt_node *, p,
-                 dt_node, n, sstring, name, int, level, dt_node, parent)
+                 dt_node n, sstring name, int level, dt_node parent)
 {
     if (bound(ln) == n) {
         *bound(p) = parent;
@@ -196,7 +196,7 @@ dt_node dtb_get_parent(void *dtb, dt_node n)
 
 closure_function(2, 4, boolean, get_prop_handler,
                  sstring, pname, dt_prop *, p,
-                 void *, dtb, dt_node, n, sstring, name, dt_prop, p)
+                 void *dtb, dt_node n, sstring name, dt_prop p)
 {
     if (runtime_strcmp(bound(pname), name) == 0) {
         *bound(p) = p;
@@ -205,8 +205,8 @@ closure_function(2, 4, boolean, get_prop_handler,
     return true;
 }
 
-closure_function(0, 4, boolean, get_prop_nb,
-                 dt_node, n, sstring, name, int, level, dt_node, parent)
+closure_func_basic(dt_node_begin_handler, boolean, get_prop_nb,
+                   dt_node n, sstring name, int level, dt_node parent)
 {
     if (level > 0)
         return false;
@@ -218,7 +218,7 @@ dt_prop dtb_get_prop(void *dtb, dt_node dn, sstring pname)
     dt_prop p = INVALID_ADDRESS;
     if (dn == INVALID_ADDRESS)
         return p;
-    dtb_walk_internal(dtb, dn, stack_closure(get_prop_nb), 0,
+    dtb_walk_internal(dtb, dn, stack_closure_func(dt_node_begin_handler, get_prop_nb), 0,
             stack_closure(get_prop_handler, pname, &p));
     return p;
 }
@@ -270,7 +270,7 @@ dt_value dtb_read_value(void *dtb, dt_node n, dt_prop p)
 
 closure_function(4, 4, boolean, find_node_handler,
                  sstring, tok, sstring, nexttok, dt_node *, rn, int, plevel,
-                 dt_node, n, sstring, name, int, level, dt_node, parent)
+                 dt_node n, sstring name, int level, dt_node parent)
 {
     sstring tok = bound(tok);
     if (level == 0) {
@@ -304,7 +304,7 @@ dt_node dtb_find_node_by_path(void *dtb, sstring path)
 
 closure_function(2, 4, boolean, find_phandle_handler,
                  u32, phandle, dt_node *, rn,
-                 void *, dtb, dt_node, n, sstring, name, dt_prop, p)
+                 void *dtb, dt_node n, sstring name, dt_prop p)
 {
     if (runtime_strcmp(name, ss("phandle")) != 0)
         return true;
@@ -325,7 +325,7 @@ dt_node dtb_find_node_by_phandle(void *dtb, u32 phandle)
 
 closure_function(3, 4, boolean, walk_child_handler,
                  sstring, match, dt_node_handler, nh, int *, nmatches,
-                 dt_node, n, sstring, name, int, level, dt_node, parent)
+                 dt_node n, sstring name, int level, dt_node parent)
 {
     sstring match = bound(match);
     *bound(nmatches) = 0;
@@ -348,7 +348,7 @@ int dtb_walk_node_children(void *dtb, dt_node n, sstring match, dt_node_handler 
 
 closure_function(1, 4, boolean, print_node,
                  int *, level,
-                 dt_node, n, sstring, name, int, level, dt_node, parent)
+                 dt_node n, sstring name, int level, dt_node parent)
 {
     *bound(level) = level + 1;
     while (level-- > 0)
@@ -366,7 +366,7 @@ closure_function(1, 4, boolean, print_node,
 
 closure_function(1, 2, boolean, print_node_end,
                  int *, level,
-                 dt_node, n, int, level)
+                 dt_node n, int level)
 {
     *bound(level) = level + 1;
     while (level-- > 0)
@@ -377,7 +377,7 @@ closure_function(1, 2, boolean, print_node_end,
 
 closure_function(1, 4, boolean, print_prop,
                  int *, level,
-                 void *, dtb, dt_node, n, sstring, name, dt_prop, p)
+                 void *dtb, dt_node n, sstring name, dt_prop p)
 {
     int level = *bound(level);
     dt_value v = dtb_read_value(dtb, n, p);
@@ -484,7 +484,7 @@ boolean dtb_reg_iterate(dt_reg_iterator *ri, range *r)
 
 closure_function(2, 2, boolean, read_mem_size,
                  void *, dtb, range *, r,
-                 dt_node, n, sstring, name)
+                 dt_node n, sstring name)
 {
     void *dtb = bound(dtb);
     dt_prop p = dtb_get_prop(dtb, n, ss("reg"));

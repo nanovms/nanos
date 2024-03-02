@@ -161,7 +161,7 @@ static boolean add_thread_status(buffer b, thread t, struct siginfo *si)
 
 closure_function(3, 1, boolean, additional_threads_status,
                  buffer, b, thread, t, struct siginfo *, si,
-                 rbnode, n)
+                 rbnode n)
 {
     thread t = struct_from_field(n, thread, n);
     /* skip guilty thread as it's already been added */
@@ -172,7 +172,7 @@ closure_function(3, 1, boolean, additional_threads_status,
 
 closure_function(2, 1, void, dump_complete,
                  fsfile, f, status_handler, completion,
-                 status, s)
+                 status s)
 {
     fsfile_release(bound(f));
     apply(bound(completion), s);
@@ -181,7 +181,7 @@ closure_function(2, 1, void, dump_complete,
 
 closure_function(8, 1, void, dump_write_complete,
                  fsfile, f, sg_io, write, sg_list, sg, Elf64_Phdr *, phdr, Elf64_Phdr *, phdr_end, buffer, b, status_handler, completion, u64, limit_remain,
-                 status, s)
+                 status s)
 {
     u64 limit_remain = bound(limit_remain);
     sg_list sg = bound(sg);

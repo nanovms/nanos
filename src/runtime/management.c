@@ -7,7 +7,7 @@
 
 declare_closure_struct(2, 2, void, mgmt_timer_expiry,
                        tuple, req, buffer_handler, out,
-                       u64, expiry, u64, overruns);
+                       u64 expiry, u64 overruns);
 
 static struct management {
     heap h;
@@ -44,7 +44,7 @@ static value resolve_tuple_path(tuple n, string path, tuple *parent, symbol *a)
 
 declare_closure_function(1, 2, boolean, each_request,
                          buffer_handler, out,
-                         value, k, value, args);
+                         value k, value args);
 
 static void handle_request(tuple req, buffer_handler out)
 {
@@ -59,7 +59,7 @@ static void handle_request(tuple req, buffer_handler out)
 #ifdef KERNEL
 define_closure_function(1, 2, void, mgmt_timer_expiry,
                         buffer_handler, out,
-                        u64, expiry, u64, overruns)
+                        u64 expiry, u64 overruns)
 {
     if (overruns != timer_disabled)
         handle_request(management.timer_req, bound(out));
@@ -68,7 +68,7 @@ define_closure_function(1, 2, void, mgmt_timer_expiry,
 
 define_closure_function(1, 2, boolean, each_request,
                         buffer_handler, out,
-                        value, k, value, args)
+                        value k, value args)
 {
     sstring resultstr = sstring_null();
     buffer b = allocate_buffer(management.h, 256);
@@ -167,7 +167,7 @@ define_closure_function(1, 2, boolean, each_request,
 
 closure_function(1, 1, void, mgmt_tuple_parsed,
                  buffer_handler, out,
-                 void *, p)
+                 void *p)
 {
     handle_request(p, bound(out));
     destruct_value(p, true);
@@ -175,7 +175,7 @@ closure_function(1, 1, void, mgmt_tuple_parsed,
 
 closure_function(1, 1, void, mgmt_tuple_parse_error,
                  buffer_handler, out,
-                 string, s)
+                 string s)
 {
     buffer b = allocate_buffer(management.h, 128);
     assert(b != INVALID_ADDRESS);
@@ -254,7 +254,7 @@ typedef struct tuple_notifier_cow {
 
 closure_function(1, 1, value, tuple_notifier_get,
                  tuple_notifier, tn,
-                 value, a)
+                 value a)
 {
     symbol s;
     get_value_notify n;
@@ -280,7 +280,7 @@ static boolean tn_init_copy(tuple_notifier_cow tn)
 
 closure_function(1, 1, value, tuple_notifier_cow_get,
                  tuple_notifier_cow, tn,
-                 value, a)
+                 value a)
 {
     symbol s;
     tuple_notifier_cow tn_cow = bound(tn);
@@ -314,7 +314,7 @@ closure_function(1, 1, value, tuple_notifier_cow_get,
 
 closure_function(1, 2, void, tuple_notifier_set,
                  tuple_notifier, tn,
-                 value, a, value, v)
+                 value a, value v)
 {
     /* check for notify */
     set_value_notify vh;
@@ -329,7 +329,7 @@ closure_function(1, 2, void, tuple_notifier_set,
 
 closure_function(1, 2, void, tuple_notifier_cow_set,
                  tuple_notifier_cow, tn,
-                 value, a, value, v)
+                 value a, value v)
 {
     tuple_notifier_cow tn_cow = bound(tn);
     tuple_notifier tn = &tn_cow->tn;
@@ -347,7 +347,7 @@ closure_function(1, 2, void, tuple_notifier_cow_set,
 
 closure_function(2, 2, boolean, tuple_notifier_iterate_each,
                  tuple_notifier, tn, binding_handler, h,
-                 value, a, value, v)
+                 value a, value v)
 {
     get_value_notify n;
     symbol s = sym_from_attribute(a);
@@ -359,7 +359,7 @@ closure_function(2, 2, boolean, tuple_notifier_iterate_each,
 
 closure_function(1, 1, boolean, tuple_notifier_iterate,
                  tuple_notifier, tn,
-                 binding_handler, h)
+                 binding_handler h)
 {
     /* This assumes that all attributes of interest exist in the parent
        value. Values that are served by get_notifys should still have
@@ -370,7 +370,7 @@ closure_function(1, 1, boolean, tuple_notifier_iterate,
 
 closure_function(2, 2, boolean, tuple_notifier_cow_iterate_each,
                  tuple_notifier_cow, tn, binding_handler, h,
-                 value, a, value, v)
+                 value a, value v)
 {
     tuple_notifier_cow tn_cow = bound(tn);
     tuple_notifier tn = &tn_cow->tn;
@@ -407,7 +407,7 @@ closure_function(2, 2, boolean, tuple_notifier_cow_iterate_each,
 
 closure_function(2, 2, boolean, tuple_notifier_iterate_copy_each,
                  value, parent, binding_handler, h,
-                 value, a, value, v)
+                 value a, value v)
 {
     if (get(bound(parent), a)) /* value has been handled in parent iterator */
         return true;
@@ -416,7 +416,7 @@ closure_function(2, 2, boolean, tuple_notifier_iterate_copy_each,
 
 closure_function(1, 1, boolean, tuple_notifier_cow_iterate,
                  tuple_notifier_cow, tn,
-                 binding_handler, h)
+                 binding_handler h)
 {
     tuple_notifier_cow tn = bound(tn);
     value parent = tn->tn.parent;

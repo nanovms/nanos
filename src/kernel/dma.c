@@ -16,7 +16,7 @@ void dma_init(kernel_heaps kh)
 
 closure_function(6, 1, void, dma_sg_io_complete,
                  sg_list, sg, sg_list, dma_sg, void *, buf, u64, buf_size, boolean, write, status_handler, completion,
-                 status, s)
+                 status s)
 {
     sg_list sg = bound(sg);
     sg_list dma_sg = bound(dma_sg);

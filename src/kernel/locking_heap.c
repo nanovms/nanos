@@ -58,7 +58,7 @@ static bytes heaplock_total(heap h)
 
 closure_function(1, 1, value, heaplock_get,
                  heaplock, hl,
-                 value, a)
+                 value a)
 {
     if (!is_symbol(a))
         return 0;
@@ -70,7 +70,7 @@ closure_function(1, 1, value, heaplock_get,
 
 closure_function(1, 2, void, heaplock_set,
                  heaplock, hl,
-                 value, a, value, v)
+                 value a, value v)
 {
     assert(is_symbol(a));
     lock_heap(bound(hl));
@@ -80,7 +80,7 @@ closure_function(1, 2, void, heaplock_set,
 
 closure_function(1, 1, boolean, heaplock_iterate,
                  heaplock, hl,
-                 binding_handler, h)
+                 binding_handler h)
 {
     lock_heap(bound(hl));
     boolean result = iterate(bound(hl)->parent_mgmt, h);

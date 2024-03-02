@@ -178,24 +178,18 @@ typedef struct _ena_vendor_info_t {
     unsigned int index;
 } ena_vendor_info_t;
 
-declare_closure_struct(1, 0, void, ena_irq_handler,
-        struct ena_irq *, irq);
-
 struct ena_irq {
-    closure_struct(ena_irq_handler, th);
+    closure_struct(thunk, th);
     void (*handler)(void*);
     void *data;
     unsigned int vector;
 };
 
-declare_closure_struct(1, 0, void, ena_cleanup_task,
-        struct ena_que *, que);
-
 struct ena_que {
     struct ena_adapter *adapter;
     struct ena_ring *tx_ring;
     struct ena_ring *rx_ring;
-    closure_struct(ena_cleanup_task, cleanup_task);
+    closure_struct(thunk, cleanup_task);
     uint32_t id;
 };
 
@@ -251,9 +245,6 @@ struct ena_stats_rx {
     uint64_t empty_rx_ring;
 };
 
-declare_closure_struct(1, 0, void, ena_enqueue_task,
-        struct ena_ring *, ring);
-
 struct ena_ring {
     /* Holds the empty requests for TX/RX out of order completions */
     union {
@@ -298,7 +289,7 @@ struct ena_ring {
 
     ena_spinlock_t ring_mtx;
 
-    closure_struct(ena_enqueue_task, enqueue_task);
+    closure_struct(thunk, enqueue_task);
 
     union {
         struct ena_stats_tx tx_stats;
@@ -335,19 +326,6 @@ struct ena_hw_stats {
     uint64_t rx_drops;
     uint64_t tx_drops;
 };
-
-declare_closure_struct(1, 2, void, ena_timer_task,
-                       struct ena_adapter *, adapter,
-                       u64, expiry, u64, overruns);
-
-declare_closure_struct(1, 0, void, ena_reset_task,
-                       struct ena_adapter *, adapter);
-
-declare_closure_struct(1, 0, void, ena_link_up_task,
-                       struct ena_adapter *, adapter);
-
-declare_closure_struct(1, 0, void, ena_link_down_task,
-                       struct ena_adapter *, adapter);
 
 /* Board specific private data structure */
 struct ena_adapter {
@@ -395,10 +373,10 @@ struct ena_adapter {
 
     /* Timer service */
     struct timer timer_service;
-    closure_struct(ena_timer_task, timer_task);
+    closure_struct(timer_handler, timer_task);
     timestamp keep_alive_timestamp;
     uint32_t next_monitored_tx_qid;
-    closure_struct(ena_reset_task, reset_task);
+    closure_struct(thunk, reset_task);
     int wd_active;
     timestamp keep_alive_timeout;
     timestamp missing_tx_timeout;
@@ -414,8 +392,8 @@ struct ena_adapter {
     /* Deferred link change tasks: Note that these are not folded into one
        closure, as doing so (with a closed-over link status variable common to
        all task enqueues) could lead to missed transient state transitions. */
-    closure_struct(ena_link_up_task, link_up_task);
-    closure_struct(ena_link_down_task, link_down_task);
+    closure_struct(thunk, link_up_task);
+    closure_struct(thunk, link_down_task);
 };
 
 #define	ENA_RING_MTX_LOCK(_ring)    spin_lock(&(_ring)->ring_mtx)

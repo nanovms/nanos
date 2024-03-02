@@ -579,7 +579,7 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
 
 closure_function(7, 1, sysreturn, sock_read_bh,
                  netsock, s, void *, dest, u64, length, int, flags, struct sockaddr *, src_addr, socklen_t *, addrlen, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     struct iovec iov = {
         .iov_base = bound(dest),
@@ -618,7 +618,7 @@ closure_function(7, 1, sysreturn, sock_read_bh,
 
 closure_function(4, 1, sysreturn, recvmsg_bh,
                  netsock, s, struct msghdr *, msg, int, flags, io_completion, completion,
-                 u64, flags)
+                 u64 flags)
 {
     sysreturn rv = sock_read_bh_internal(bound(s), bound(msg), bound(flags), bound(completion),
                                         flags);
@@ -644,7 +644,7 @@ closure_func_basic(file_io, sysreturn, socket_read,
 
 closure_function(6, 1, sysreturn, socket_write_tcp_bh,
                  netsock, s, void *, buf, sg_list, sg, u64, length, int, flags, io_completion, completion,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     netsock s = bound(s);
     void *buf = bound(buf);
@@ -1558,7 +1558,7 @@ static err_t lwip_tcp_sent(void * arg, struct tcp_pcb * pcb, u16 len)
 
 closure_function(2, 1, sysreturn, connect_tcp_bh,
                  netsock, s, thread, t,
-                 u64, flags)
+                 u64 flags)
 {
     sysreturn rv = 0;
     netsock s = bound(s);
@@ -1785,7 +1785,7 @@ sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
 
 closure_function(2, 1, void, netsock_sendmsg_complete,
                  sg_list, sg, io_completion, completion,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     sg_list sg = bound(sg);
     deallocate_sg_list(sg);
@@ -1836,7 +1836,7 @@ declare_closure_struct(0, 0, void, sendmmsg_next);
 
 closure_function(6, 1, void, sendmmsg_complete,
                  struct sock *, s, struct mmsghdr *, msgvec, unsigned int, vlen, int, flags, unsigned int, index, closure_struct_type(sendmmsg_next), next,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     struct sock *s = bound(s);
     if (rv < 0)
@@ -1972,7 +1972,7 @@ declare_closure_struct(0, 0, void, recvmmsg_next);
 
 closure_function(6, 1, void, recvmmsg_complete,
                  struct sock *, s, struct mmsghdr *, msgvec, unsigned int, vlen, int, flags, unsigned int, index, closure_struct_type(recvmmsg_next), next,
-                 sysreturn, rv)
+                 sysreturn rv)
 {
     struct sock *s = bound(s);
     if (rv < 0)
@@ -2129,7 +2129,7 @@ sysreturn listen(int sockfd, int backlog)
 
 closure_function(5, 1, sysreturn, accept_bh,
                  netsock, s, thread, t, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
-                 u64, bqflags)
+                 u64 bqflags)
 {
     netsock s = bound(s);
     thread t = bound(t);

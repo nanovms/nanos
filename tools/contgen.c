@@ -73,32 +73,32 @@ void pi(char *fmt, ...)
 
 void cblock()
 {
-    p("#define CLOSURE_STRUCT_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
+    p("#define CLOSURE_STRUCT_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _r%");
     p("struct _closure_##_name {|");
-    p("  _rettype (*__apply)(struct _closure_##_name *~);|", ", _rt%");
+    p("  _rettype (*__apply)(struct _closure_##_name *~);|", ", _r%");
     p("  struct _closure_common __c;|");
     for (int i = 0; i < nleft ; i++)  p("  _lt% _ln%;|", i, i);
     p("};\n\n");
 
-    p("#define CLOSURE_DECLARE_FUNCS_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
-    p("static _rettype (**_fill_##_name(u64 ctx, struct _closure_##_name* n, bytes s^))(void *~);|", ", _lt% l%", ", _rt%");
-    p("static _rettype _name(struct _closure_##_name *~);\n\n", ", _rt%");
+    p("#define CLOSURE_DECLARE_FUNCS_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _r%");
+    p("static _rettype (**_fill_##_name(u64 ctx, struct _closure_##_name* n, bytes s^))(void *~);|", ", _lt% l%", ", _r%");
+    p("static _rettype _name(struct _closure_##_name *~);\n\n", ", _r%");
 
-    p("#define CLOSURE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
-    p("static _rettype (**_fill_##_name(u64 ctx, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _rt%");
+    p("#define CLOSURE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _r%");
+    p("static _rettype (**_fill_##_name(u64 ctx, struct _closure_##_name* n, bytes s^))(void *~) {|", ", _lt% l%", ", _r%");
     p("  if (n != INVALID_ADDRESS) {|");
     p("    n->__apply = _name;|");
     p("    n->__c.ctx = ctx;|");
     p("    n->__c.size = s;|");
     for (int i = 0; i < nleft ; i++)  p("  n->_ln% = l%;|", i, i);
     p("  }|");
-    p("  return (_rettype (**)(void *~))n;|", ", _rt%");
+    p("  return (_rettype (**)(void *~))n;|", ", _r%");
     p("}|");
-    p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _rt% _rn%");
+    p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _r%");
 
-    p("#define CLOSURE_SIMPLE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _rt%, _rn%");
-    p("typedef _rettype (**_name##_func)(void *~);|", ", _rt%");
-    p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _rt% _rn%");
+    p("#define CLOSURE_SIMPLE_DEFINE_%_%(_rettype, _name^~)|", nleft, nright, ", _lt%, _ln%", ", _r%");
+    p("typedef _rettype (**_name##_func)(void *~);|", ", _r%");
+    p("static _rettype _name(struct _closure_##_name *__self~)\n\n\n", ", _r%");
 }
 
 int main(int argc, char **argv)
