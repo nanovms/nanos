@@ -6,6 +6,7 @@ MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 PROGRAMS= \
 	cloud_init \
 	cloudwatch \
+	digitalocean \
 	firewall \
 	gcp \
 	ntp \
@@ -25,6 +26,10 @@ SRCS-cloud_init= \
 SRCS-cloudwatch= \
 	$(CURDIR)/aws.c \
 	$(CURDIR)/cloudwatch.c \
+
+SRCS-digitalocean= \
+	$(CURDIR)/crc32.c \
+	$(CURDIR)/digitalocean.c \
 
 SRCS-firewall= \
 	$(CURDIR)/firewall.c \
