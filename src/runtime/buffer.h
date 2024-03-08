@@ -239,51 +239,40 @@ boolean buffer_append(buffer b,
                    const void *body,
                    bytes length);
 
-// little endian variants
-#define WRITE_BE(bits)                                          \
-    static inline boolean buffer_write_be##bits(buffer b, u64 x)   \
-    {                                                           \
-        u64 k = (x);                                            \
-        int len = bits>>3;                                      \
-        if (!buffer_extend((b), len))                           \
-            return false;                                       \
-        u8 *n = buffer_ref((b), (b)->end);                      \
-        for (int i = len-1; i >= 0; i--) {                      \
-            n[i] = k & 0xff;                                    \
-            k >>= 8;                                            \
-        }                                                       \
-        b->end += len;                                          \
-        return true;                                            \
+#define BUF_WRITE_ENDIAN(_bits, _endian)                                        \
+    static inline boolean buffer_write_##_endian##_bits(buffer b, u##_bits x)   \
+    {                                                                           \
+        int len = _bits >> 3;                                                   \
+        if (!buffer_extend(b, len))                                             \
+            return false;                                                       \
+        u##_bits *p = b->contents + b->end;                                     \
+        *p = hto##_endian##_bits(x);                                            \
+        b->end += len;                                                          \
+        return true;                                                            \
     }
 
-#define READ_BE(bits)                                   \
-    static inline u64 buffer_read_be##bits(buffer b)    \
-    {                                                   \
-        u64 k = 0;                                      \
-        int len = bits>>3;                              \
-        u8 *n = buffer_ref((b), 0);                     \
-        for (int i = 0; i < len; i++) {                 \
-            k = (k << 8) | (*n++);                      \
-        }                                               \
-        (b)->start +=len;                               \
-        return(k);                                      \
+#define BUF_READ_ENDIAN(_bits, _endian)                             \
+    static inline u##_bits buffer_read_##_endian##_bits(buffer b)   \
+    {                                                               \
+        int len = _bits >> 3;                                       \
+        u##_bits *p = b->contents + b->start;                       \
+        b->start += len;                                            \
+        return _endian##_bits##toh(*p);                             \
     }
 
-WRITE_BE(64)
-WRITE_BE(32)
-WRITE_BE(16)
-READ_BE(64)
-READ_BE(32)
-READ_BE(16)
+BUF_WRITE_ENDIAN(16, le)
+BUF_WRITE_ENDIAN(32, le)
+BUF_WRITE_ENDIAN(64, le)
+BUF_READ_ENDIAN(16, le)
+BUF_READ_ENDIAN(32, le)
+BUF_READ_ENDIAN(64, le)
 
-static inline boolean buffer_write_le64(buffer b, u64 v)
-{
-    if (!buffer_extend(b, sizeof(u64)))
-        return false;
-    *(u64 *)(b->contents + b->end) = v;
-    b->end += sizeof(u64);
-    return true;
-}
+BUF_WRITE_ENDIAN(16, be)
+BUF_WRITE_ENDIAN(32, be)
+BUF_WRITE_ENDIAN(64, be)
+BUF_READ_ENDIAN(16, be)
+BUF_READ_ENDIAN(32, be)
+BUF_READ_ENDIAN(64, be)
 
 // end of buffer?
 static inline u64 buffer_read_byte(buffer b)
@@ -450,25 +439,6 @@ static inline void push_u8(buffer b, u8 x)
     buffer_assert(b->end < b->length);
     *(u8 *)buffer_ref(b, buffer_length(b)) = x;
     b->end++;
-}
-
-static inline u32 buffer_read_le32(buffer b)
-{
-    buffer_assert(b->start + sizeof(u32) <= b->end);
-    // bounds
-    u32 x = *(u32 *)buffer_ref(b, 0);
-    b->start+=sizeof(u32);
-    return (x);
-}
-
-static inline boolean buffer_write_le32(buffer b, u32 x)
-{
-    if (!buffer_extend(b, sizeof(u32)))
-        return false;
-    buffer_assert(b->end + sizeof(u32) <= b->length);
-    *(u32 *)buffer_ref(b, buffer_length(b)) = x;
-    b->end+=sizeof(u32);
-    return true;
 }
 
 static inline void push_varint(buffer b, u64 x)

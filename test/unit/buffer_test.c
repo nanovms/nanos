@@ -120,6 +120,20 @@ boolean byteorder_tests(heap h)
     test_assert(buffer_read_le32(b) == 0x44332211);
     // Read back 32-bits in BE and compare
     test_assert(buffer_read_be32(b) == 0xdeadbeef);
+
+    buffer_write_le32(b, 0x11223344);
+    buffer_write_be32(b, 0xdeadbeef);
+    test_assert(buffer_read_le64(b) == 0xefbeadde11223344);
+
+    buffer_write_le16(b, 0x1122);
+    buffer_write_be16(b, 0x3344);
+    buffer_write_le32(b, 0xdeadbeef);
+    test_assert(buffer_read_be64(b) == 0x22113344efbeadde);
+
+    buffer_write_be32(b, 0x11223344);
+    test_assert(buffer_read_le16(b) == 0x2211);
+    test_assert(buffer_read_be16(b) == 0x3344);
+
     failure = false;
   fail:
     deallocate_buffer(b);
