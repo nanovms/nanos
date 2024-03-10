@@ -1718,7 +1718,6 @@ sysreturn lseek(int fd, s64 offset, int whence)
 
 sysreturn uname(struct utsname *v)
 {
-    char sysname[] = "Nanos";
     char machine[] =
 #ifdef __x86_64__
         "x86_64";
@@ -1733,7 +1732,17 @@ sysreturn uname(struct utsname *v)
     if (!fault_in_user_memory(v, sizeof(struct utsname), true))
         return -EFAULT;
 
-    runtime_memcpy(v->sysname, sysname, sizeof(sysname));
+    tuple cfg = get_tuple(get_root_tuple(), sym_this("uname"));
+    string sysname;
+    if (cfg)
+        sysname = get_string(cfg, sym_this("sysname"));
+    else
+        sysname = 0;
+    if (!sysname)
+        sysname = alloca_wrap_cstring("Nanos");
+    bytes sysname_len = MIN(buffer_length(sysname), sizeof(v->sysname) - 1);
+    runtime_memcpy(v->sysname, buffer_ref(sysname, 0), sysname_len);
+    v->sysname[sysname_len] = '\0';
     if (hostname) {
         bytes length = MIN(buffer_length(hostname), sizeof(v->nodename) - 1);
         runtime_memcpy(v->nodename, buffer_ref(hostname, 0), length);
@@ -1761,12 +1770,18 @@ sysreturn uname(struct utsname *v)
 
     /* The "5.0-" dummy prefix placates the glibc dynamic loader. */
     tuple env = get_environment();
-    string release = aprintf(heap_locked(get_kernel_heaps()), "5.0-%v",
-                             get_string(env, sym(NANOS_VERSION)));
+    string release;
+    if (cfg)
+        release = get_string(cfg, sym_this("release"));
+    else
+        release = 0;
+    if (!release) {
+        release = little_stack_buffer(sizeof(v->release) - 1);
+        bprintf(release, "5.0-%v_aaa", get_string(env, sym(NANOS_VERSION)));
+    }
     len = MIN(buffer_length(release), sizeof(v->release) - 1);
     runtime_memcpy(v->release, buffer_ref(release, 0), len);
     v->release[len] = '\0';
-    deallocate_buffer(release);
     return 0;
 }
 
