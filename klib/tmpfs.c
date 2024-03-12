@@ -147,6 +147,7 @@ static fs_status tmpfs_create(filesystem fs, tuple parent, string name, tuple md
             fsfile_reserve(&fsf->f);
     } else {
         fsf = INVALID_ADDRESS;
+        fss = FS_STATUS_OK;
     }
     if (md)
         table_set(tmpfs->files, md, fsf);
