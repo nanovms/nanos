@@ -284,7 +284,6 @@ closure_func_basic(thunk, void, thread_return)
     assert(f[FRAME_FULL]);
     thread_trace(t, TRACE_THREAD_RUN, "run thread, cpu %d, frame %p, pc 0x%lx, sp 0x%lx, rv 0x%lx",
                  current_cpu()->id, f, f[SYSCALL_FRAME_PC], f[SYSCALL_FRAME_SP], f[SYSCALL_FRAME_RETVAL1]);
-    ci->frcount++;
     clear_fault_handler();
     context_switch(&t->context);
     thread_release(t);
