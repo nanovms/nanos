@@ -70,6 +70,7 @@ typedef struct xennet_tx_page {
 } *xennet_tx_page;
     
 struct xennet_dev {
+    struct netif_dev ndev;
     struct xen_dev dev;
     heap h;
     heap contiguous;                /* physically */
@@ -83,8 +84,6 @@ struct xennet_dev {
     grant_ref_t tx_ring_gntref;
     grant_ref_t rx_ring_gntref;
 
-    /* lwIP */
-    struct netif *netif;
     u16 rxbuflen;
 
     struct spinlock rx_fill_lock;
@@ -445,10 +444,8 @@ static err_t xennet_linkoutput(struct netif *netif, struct pbuf *p)
 static err_t xennet_netif_init(struct netif *netif)
 {
     xennet_dev xd = (xennet_dev)netif->state;
-    netif->hostname = sstring_empty();
     netif->name[0] = 'e';
     netif->name[1] = 'n';
-    netif->output = etharp_output;
     netif->linkoutput = xennet_linkoutput;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     runtime_memcpy(netif->hwaddr, xd->mac, ETHARP_HWADDR_LEN);
@@ -635,7 +632,8 @@ closure_function(1, 0, void, xennet_rx_service_bh,
             assert(i);
             xennet_rx_buf rxb = struct_from_list(i, xennet_rx_buf, l);
             list_delete(i);
-            err_enum_t err = xd->netif->input((struct pbuf *)&rxb->p, xd->netif);
+            struct netif *n = &xd->ndev.n;
+            err_enum_t err = n->input((struct pbuf *)&rxb->p, n);
             if (err != ERR_OK) {
                 msg_err("xennet: rx drop by stack, err %d\n", err);
                 xennet_return_rxbuf((struct pbuf *)&rxb->p);
@@ -715,7 +713,7 @@ static status xennet_enable(xennet_dev xd)
     s = xenbus_set_state(0, xdev->frontend, XenbusStateConnected);
     if (!is_ok(s))
         goto out_dealloc_rx_buffers;
-    netif_add(xd->netif,
+    netif_add(&xd->ndev.n,
               0, 0, 0,
               xd,
               xennet_netif_init,
@@ -756,8 +754,7 @@ static status xennet_attach(kernel_heaps kh, int id, buffer frontend, tuple meta
     xd->h = heap_locked(kh);
     xd->contiguous = (heap)heap_linear_backed(kh);
 
-    xd->netif = allocate(h, sizeof(struct netif));
-    assert(xd->netif != INVALID_ADDRESS);
+    netif_dev_init(&xd->ndev);
 
     /* get MAC address */
     v = get_string(meta, sym(mac));

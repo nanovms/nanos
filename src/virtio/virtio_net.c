@@ -61,6 +61,7 @@
      VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_ANY_LAYOUT | VIRTIO_F_RING_EVENT_IDX)
 
 typedef struct vnet {
+    struct netif_dev ndev;
     vtdev dev;
     u16 port;
     caching_heap rxbuffers;
@@ -70,7 +71,6 @@ typedef struct vnet {
     int rxbuflen;
     u32 rx_seqno;
     struct virtio_net_hdr_mrg_rxbuf *rx_hdr;
-    struct netif *n;
     struct virtqueue *txq;
     struct virtqueue *rxq;
     struct virtqueue *ctl;
@@ -258,7 +258,7 @@ closure_func_basic(vqfinish, void, vnet_input,
         }
     }
     if (!err)
-        err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
+        err = (vn->ndev.n.input(&x->p.pbuf, &vn->ndev.n) != ERR_OK);
   out:
     if (err)
         receive_buffer_release(&x->p.pbuf);
@@ -304,11 +304,9 @@ closure_func_basic(mem_cleaner, u64, vnet_mem_cleaner,
 static err_t virtioif_init(struct netif *netif)
 {
     vnet vn = netif->state;
-    netif->hostname = sstring_empty();
 
     netif->name[0] = 'e';
     netif->name[1] = 'n';
-    netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     vtdev_cfg_read_mem(vn->dev, 0, netif->hwaddr, ETHER_ADDR_LEN);
@@ -348,8 +346,7 @@ static void virtio_net_attach(vtdev dev)
     backed_heap contiguous = dev->contiguous;
     vnet vn = allocate(h, sizeof(struct vnet));
     assert(vn != INVALID_ADDRESS);
-    vn->n = allocate(h, sizeof(struct netif));
-    assert(vn->n != INVALID_ADDRESS);
+    netif_dev_init(&vn->ndev);
     vn->net_header_len = (dev->features & VIRTIO_F_VERSION_1) ||
         (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
@@ -390,9 +387,8 @@ static void virtio_net_attach(vtdev dev)
     assert(vn->empty != INVALID_ADDRESS);
     for (int i = 0; i < vn->net_header_len; i++)
         ((u8 *)vn->empty)[i] = 0;
-    vn->n->state = vn;
     vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
-    netif_add(vn->n,
+    netif_add(&vn->ndev.n,
               0, 0, 0, 
               vn,
               virtioif_init,

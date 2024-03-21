@@ -55,7 +55,7 @@ void ena_cleanup(void *arg, int pending)
 {
     struct ena_que *que = arg;
     struct ena_adapter *adapter = que->adapter;
-    struct netif *netif = &adapter->ifp;
+    struct netif *netif = &adapter->ndev.n;
     struct ena_ring *tx_ring;
     struct ena_ring *rx_ring;
     struct ena_com_io_cq *io_cq;
@@ -99,7 +99,7 @@ void ena_cleanup(void *arg, int pending)
 void ena_deferred_mq_start(void *arg, int pending)
 {
     struct ena_ring *tx_ring = (struct ena_ring*) arg;
-    struct netif *netif = &tx_ring->adapter->ifp;
+    struct netif *netif = &tx_ring->adapter->ndev.n;
 
     while (!queue_empty(tx_ring->br) && tx_ring->running && netif_is_flag_set(netif, NETIF_FLAG_UP)) {
         ENA_RING_MTX_LOCK(tx_ring);
@@ -371,7 +371,7 @@ static int ena_rx_cleanup(struct ena_ring *rx_ring)
     int budget = RX_BUDGET;
 
     adapter = rx_ring->que->adapter;
-    ifp = &adapter->ifp;
+    ifp = &adapter->ndev.n;
     qid = rx_ring->que->id;
     ena_qid = ENA_IO_RXQ_IDX(qid);
     io_cq = &adapter->ena_dev->io_cq_queues[ena_qid];
@@ -575,7 +575,7 @@ static void ena_start_xmit(struct ena_ring *tx_ring)
 {
     struct pbuf *mbuf;
     struct ena_adapter *adapter = tx_ring->adapter;
-    struct netif *netif = &adapter->ifp;
+    struct netif *netif = &adapter->ndev.n;
     struct ena_com_io_sq *io_sq;
     int ena_qid;
     int ret = 0;

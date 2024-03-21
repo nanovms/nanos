@@ -1,7 +1,6 @@
 #include <kernel.h>
 #include <hyperv_internal.h>
 #include <hyperv.h>
-#include <lwip.h>
 #include <lwip/opt.h>
 #include <lwip/def.h>
 #include <lwip/mem.h>
@@ -229,11 +228,8 @@ closure_func_basic(mem_cleaner, u64, hn_mem_cleaner,
 static err_t
 vmxif_init(struct netif *netif)
 {
-    netif->hostname = sstring_empty();
-
     netif->name[0] = DEVICE_NAME[0];
     netif->name[1] = DEVICE_NAME[1];
-    netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     netif->mtu = 1500;
@@ -263,11 +259,9 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
     hn->rxbuffers = allocate_objcache(hn->general, hn->contiguous,
                                       hn->rxbuflen + sizeof(struct xpbuf), PAGESIZE_2M, true);
 
-    struct netif *netif = allocate(h, sizeof(struct netif));
-    assert(netif != INVALID_ADDRESS);
-    hn->netif = netif;
+    netif_dev_init(&hn->ndev);
 
-    int ret = hv_rf_on_device_add(device, hn->netif);
+    int ret = hv_rf_on_device_add(device, &hn->ndev.n);
     if (ret != 0)
         return timm("err", "err");
 
@@ -275,7 +269,8 @@ netvsc_attach(kernel_heaps kh, hv_device* device)
     if (ret != 0)
         return timm("err", "err");
 
-    netif_add(hn->netif,
+    struct netif *netif = &hn->ndev.n;
+    netif_add(netif,
               0, 0, 0,
               hn,
               vmxif_init,
@@ -372,11 +367,12 @@ int
 netvsc_recv(struct hv_device *device_ctx, netvsc_packet *packet)
 {
     hn_softc_t *hn = device_ctx->device;
+    struct netif *n = &hn->ndev.n;
 
     /*
      * Bail out if packet contains more data than configured MTU.
      */
-    if (packet->tot_data_buf_len > (hn->netif->mtu + SIZEOF_ETH_HDR)) {
+    if (packet->tot_data_buf_len > (n->mtu + SIZEOF_ETH_HDR)) {
         return (0);
     }
 
@@ -406,7 +402,7 @@ netvsc_recv(struct hv_device *device_ctx, netvsc_packet *packet)
             vaddr + packet->page_buffers[i].gpa_ofs);
     }
 
-    err_enum_t err = hn->netif->input((struct pbuf *)x, hn->netif);
+    err_enum_t err = n->input((struct pbuf *)x, n);
     if (err != ERR_OK) {
         msg_err("netvsc: rx drop by stack, err %d\n", err);
         receive_buffer_release((struct pbuf *)x);

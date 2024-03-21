@@ -525,7 +525,7 @@ hv_nv_connect_to_vsp(struct hv_device *device)
     uint32_t ndis_version;
     int ret = 0;
     hn_softc_t *sc = device->device;
-    struct netif *ifp = sc->netif;
+    struct netif *ifp = &sc->ndev.n;
 
     net_dev = hv_nv_get_outbound_net_device(device);
 

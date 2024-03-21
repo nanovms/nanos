@@ -46,10 +46,10 @@ typedef struct tun_file {
 } *tun_file;
 
 typedef struct tun {
+    struct netif_dev ndev;
     struct spinlock lock;
     struct list files;
     short flags;
-    struct netif netif;
     tun_file next_tx;
 } *tun;
 
@@ -219,7 +219,8 @@ closure_func_basic(file_io, sysreturn, tun_write,
         q = q->next;
     } while (q);
     context_clear_err(ctx);
-    tun->netif.input(p, &tun->netif);
+    struct netif *n = &tun->ndev.n;
+    n->input(p, n);
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);
     return io_complete(completion, len);
@@ -302,27 +303,29 @@ closure_func_basic(fdesc_ioctl, sysreturn, tun_ioctl,
                 return -ENOMEM;
             spin_lock_init(&tun->lock);
             tun->flags = ifreq->ifr.ifr_flags;
+            netif_dev_init(&tun->ndev);
+            struct netif *n = &tun->ndev.n;
             if (ifreq->ifr_name[0] && ifreq->ifr_name[1]) {
-                tun->netif.name[0] = ifreq->ifr_name[0];
-                tun->netif.name[1] = ifreq->ifr_name[1];
+                n->name[0] = ifreq->ifr_name[0];
+                n->name[1] = ifreq->ifr_name[1];
             } else {    /* assign a default name */
-                tun->netif.name[0] = 't';
-                tun->netif.name[1] = 'u';
+                n->name[0] = 't';
+                n->name[1] = 'u';
             }
             ip4_addr_t ipaddr = (ip4_addr_t){0};
             ip4_addr_t netmask = (ip4_addr_t){0};
             boolean bringup = false;
             u64 mtu = 0;
-            sstring name = isstring(tun->netif.name, sizeof(tun->netif.name));
+            sstring name = isstring(n->name, sizeof(n->name));
             get_tun_config(name, &ipaddr, &netmask, &mtu, &bringup);
-            netif_add(&tun->netif, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, netif_input);
-            netif_name_cpy(ifreq->ifr_name, &tun->netif);
+            netif_add(n, &ipaddr, &netmask, &ipaddr, tun, tun_if_init, netif_input);
+            netif_name_cpy(ifreq->ifr_name, n);
             list_init(&tun->files);
             tun->next_tx = tf;
             if (mtu > 0)
-                tun->netif.mtu = mtu;
+                n->mtu = mtu;
             if (bringup)
-                netif_set_up(&tun->netif);
+                netif_set_up(n);
         }
         spin_lock(&tun->lock);
         list_push_back(&tun->files, &tf->l);
@@ -338,7 +341,7 @@ closure_func_basic(fdesc_ioctl, sysreturn, tun_ioctl,
         context ctx = get_current_context(current_cpu());
         if (!validate_user_memory(ifreq, sizeof(struct ifreq), true) || context_set_err(ctx))
             return -EFAULT;
-        netif_name_cpy(ifreq->ifr_name, &tun->netif);
+        netif_name_cpy(ifreq->ifr_name, &tun->ndev.n);
         ifreq->ifr.ifr_flags = tun->flags;
         context_clear_err(ctx);
         break;
@@ -374,7 +377,7 @@ closure_func_basic(fdesc_close, sysreturn, tun_close,
         list_delete(&tf->l);
         if (list_empty(&tun->files)) {
             spin_unlock(&tun->lock);
-            netif_remove(&tun->netif);
+            netif_remove(&tun->ndev.n);
             deallocate(tun_heap, tun, sizeof(struct tun_file));
             tun = 0;
         } else if (tun->next_tx == tf) {
