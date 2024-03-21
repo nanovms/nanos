@@ -98,12 +98,12 @@ MK_PCI_BAR_WRITE(2, 16)
 MK_PCI_BAR_WRITE(4, 32)
 MK_PCI_BAR_WRITE(8, 64)
 
-void pci_setup_non_msi_irq(pci_dev dev, thunk h, sstring name)
+void pci_setup_irq_aff(pci_dev dev, thunk h, sstring name, range cpu_affinity)
 {
     /* queue index ignored; virtio ints are shared */
     u64 v = GIC_SPI_INTS_START + VIRT_PCIE_IRQ_BASE + (dev->slot % VIRT_PCIE_IRQ_NUM);
     pci_plat_debug("%s: dev %p, irq %d, handler %F, name %s\n", func_ss, dev, v, h, name);
-    register_interrupt(v, h, name);
+    irq_register_handler(v, h, name, cpu_affinity);
 }
 
 closure_func_basic(mcfg_handler, boolean, pci_mcfg_handler,
@@ -146,18 +146,19 @@ void pci_platform_init_bar(pci_dev dev, int bar_idx)
     }
 }
 
-u64 pci_platform_allocate_msi(pci_dev dev, thunk h, sstring name, u32 *address, u32 *data)
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, sstring name, u32 target_cpu,
+                              u32 *address, u32 *data)
 {
     u64 v = allocate_msi_interrupt();
     if (v == INVALID_PHYSICAL)
         return v;
     register_interrupt(v, h, name);
-    if (!dev_irq_enable(pci_dev_id(dev), v)) {
+    if (!dev_irq_enable(pci_dev_id(dev), v, target_cpu)) {
         unregister_interrupt(v);
         deallocate_msi_interrupt(v);
         return INVALID_PHYSICAL;
     }
-    msi_format(address, data, v);
+    msi_format(address, data, v, target_cpu);
     return v;
 }
 

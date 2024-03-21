@@ -220,7 +220,7 @@ closure_function(1, 0, void, vtpci_non_msix_irq,
     }
 }
 
-static void vtpci_register_non_msix_irq(vtpci dev)
+static void vtpci_register_non_msix_irq(vtpci dev, range cpu_affinity)
 {
     if (dev->non_msix_handler)
         return;
@@ -230,28 +230,29 @@ static void vtpci_register_non_msix_irq(vtpci dev)
     assert(dev->vq_handlers != INVALID_ADDRESS);
 
     /* XXX should really have separate dev name and queue names */
-    pci_setup_non_msi_irq(dev->dev, dev->non_msix_handler, ss("vtpci non-msix"));
+    pci_setup_irq_aff(dev->dev, dev->non_msix_handler, ss("vtpci non-msix"), cpu_affinity);
 }
 
-static void vtpci_register_non_msix_queue_handler(vtpci dev, thunk handler)
+static void vtpci_register_non_msix_queue_handler(vtpci dev, thunk handler, range cpu_affinity)
 {
-    vtpci_register_non_msix_irq(dev);
+    vtpci_register_non_msix_irq(dev, cpu_affinity);
     vector_push(dev->vq_handlers, handler);
 }
 
-static void vtpci_register_non_msix_config_handler(vtpci dev, thunk handler)
+static void vtpci_register_non_msix_config_handler(vtpci dev, thunk handler, range cpu_affinity)
 {
-    vtpci_register_non_msix_irq(dev);
+    vtpci_register_non_msix_irq(dev, cpu_affinity);
     assert(!dev->config_handler);
     dev->config_handler = handler;
 }
 
-static status vtpci_setup_msix(vtpci dev, thunk handler, sstring name, int cfg_reg)
+static status vtpci_setup_msix(vtpci dev, thunk handler, sstring name, range cpu_affinity,
+                               int cfg_reg)
 {
     int msi_slot = allocate_u64(dev->msix_entries, 1);
     if (msi_slot < 0)
         return timm("status", "failed to find free MSI-X slot");
-    if (pci_setup_msix(dev->dev, msi_slot, handler, name) == INVALID_PHYSICAL)
+    if (pci_setup_msix_aff(dev->dev, msi_slot, handler, name, cpu_affinity) == INVALID_PHYSICAL)
         return timm("status", "failed to allocate MSI-X vector");
     pci_bar_write_2(&dev->common_config, dev->regs[cfg_reg], msi_slot);
     int check_idx = pci_bar_read_2(&dev->common_config, dev->regs[cfg_reg]);
@@ -264,6 +265,7 @@ static status vtpci_setup_msix(vtpci dev, thunk handler, sstring name, int cfg_r
 status vtpci_alloc_virtqueue(vtpci dev,
                              sstring name,
                              int idx,
+                             range cpu_affinity,
                              struct virtqueue **result)
 {
     // allocate virtqueue
@@ -284,11 +286,11 @@ status vtpci_alloc_virtqueue(vtpci dev,
 
     if (dev->msix_entries) {
         // setup virtqueue MSI-X interrupt
-        s = vtpci_setup_msix(dev, handler, name, VTPCI_REG_QUEUE_MSIX_VECTOR);
+        s = vtpci_setup_msix(dev, handler, name, cpu_affinity, VTPCI_REG_QUEUE_MSIX_VECTOR);
         if (!is_ok(s))
             return s;
     } else {
-        vtpci_register_non_msix_queue_handler(dev, handler);
+        vtpci_register_non_msix_queue_handler(dev, handler, cpu_affinity);
     }
 
     // queue ring
@@ -318,14 +320,16 @@ closure_function(2, 0, void, vtpci_config_change_msix_irq,
 status vtpci_register_config_change_handler(vtpci dev, thunk handler)
 {
     virtio_pci_debug("%s: dev %p, handler %p (%F)\n", func_ss, dev, handler, handler);
+    range cpu_affinity = irange(0, 0);
     if (dev->msix_entries) {
         thunk t = closure(dev->virtio_dev.general, vtpci_config_change_msix_irq, dev, handler);
         assert(t != INVALID_ADDRESS);
 
         // XXX vtdev name
-        return vtpci_setup_msix(dev, t, ss("config change"), VTPCI_REG_CONFIG_MSIX_VECTOR);
+        return vtpci_setup_msix(dev, t, ss("config change"), cpu_affinity,
+                                VTPCI_REG_CONFIG_MSIX_VECTOR);
     } else {
-        vtpci_register_non_msix_config_handler(dev, handler);
+        vtpci_register_non_msix_config_handler(dev, handler, cpu_affinity);
     }
     return STATUS_OK;
 }

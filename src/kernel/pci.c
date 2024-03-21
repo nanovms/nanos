@@ -163,12 +163,13 @@ u64 pci_msix_table_slot_addr(pci_dev dev, int msi_slot)
     return pci_msix_table_addr(dev) + (msi_slot * sizeof(u32) * 4);
 }
 
-u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, sstring name)
+u64 pci_setup_msix_aff(pci_dev dev, int msi_slot, thunk h, sstring name, range cpu_affinity)
 {
     pci_debug("%s: msi %d: %s\n", func_ss, msi_slot, name);
 
+    u32 target_cpu = irq_get_target_cpu(cpu_affinity);
     u32 address, data;
-    u64 vector = pci_platform_allocate_msi(dev, h, name, &address, &data);
+    u64 vector = pci_platform_allocate_msi(dev, h, name, target_cpu, &address, &data);
     if (vector == INVALID_PHYSICAL)
         return vector;
 
@@ -185,10 +186,15 @@ u64 pci_setup_msix(pci_dev dev, int msi_slot, thunk h, sstring name)
 void pci_teardown_msix(pci_dev dev, int msi_slot)
 {
     u64 slot_addr = pci_msix_table_slot_addr(dev, msi_slot);
-    int v = msi_get_vector(mmio_read_32(slot_addr + sizeof(u32) * 2));
+    u32 msi_addr = mmio_read_32(slot_addr);
+    u32 msi_data = mmio_read_32(slot_addr + sizeof(u32) * 2);
+    int v;
+    u32 target_cpu;
+    msi_get_config(msi_addr, msi_data, &v, &target_cpu);
     pci_debug("%s: table slot addr 0x%lx, msi %d: int %d\n", func_ss, slot_addr, msi_slot, v);
     mmio_write_32(slot_addr + (sizeof(u32) * 3), 1); /* set Masked bit to 1 */
     pci_platform_deallocate_msi(dev, v);
+    irq_put_target_cpu(target_cpu);
 }
 
 void pci_disable_msix(pci_dev dev)

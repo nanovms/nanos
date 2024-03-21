@@ -94,7 +94,7 @@ void acpi_save_rsdp(u64 rsdp)
 
 void acpi_register_irq_handler(int irq, thunk t, sstring name)
 {
-    ioapic_register_int(irq, t, name);
+    ioapic_register_int(irq, t, name, irange(0, 0));
 }
 
 /* OS services layer */

@@ -91,11 +91,11 @@ void lapic_eoi(void)
     write_barrier();
 }
 
-void msi_format(u32 *address, u32 *data, int vector)
+void msi_format(u32 *address, u32 *data, int vector, u32 target_cpu)
 {
     u32 dm = 0;             // destination mode: ignored if rh == 0
     u32 rh = 0;             // redirection hint: 0 - disabled
-    u32 destination = 0;    // destination APIC
+    u32 destination = apicid_from_cpuid(target_cpu);    // destination APIC
     *address = (0xfeeu << 20) | (destination << 12) | (rh << 3) | (dm << 2);
 
     u32 mode = 0;           // delivery mode: 000 fixed, 001 lowest, 010 smi, 100 nmi, 101 init, 111 extint
@@ -104,9 +104,10 @@ void msi_format(u32 *address, u32 *data, int vector)
     *data = (trigger << 15) | (level << 14) | (mode << 8) | vector;
 }
 
-int msi_get_vector(u32 data)
+void msi_get_config(u32 address, u32 data, int *vector, u32 *target_cpu)
 {
-    return (data & 0xff);
+    *vector = data & 0xff;
+    *target_cpu = (address >> 12) & 0xff;
 }
 
 void lapic_set_tsc_deadline_mode(u32 v)
@@ -209,12 +210,12 @@ static void ioapic_write(int reg, u32 data)
     *(volatile u32 *)(ioapic_vbase + IOAPIC_IOWIN) = data;
 }
 
-void ioapic_set_int(unsigned int gsi, u64 v)
+void ioapic_set_int(unsigned int gsi, u64 v, u32 target_cpu)
 {
     /* Fixed delivery mode, physical destination, active high polarity,
      * edge-triggered. */
     ioapic_write(IOAPIC_REG_REDIR + 2 * gsi + 1,
-        apic_id() << IOAPIC_REDIR_DEST);
+                 apicid_from_cpuid(target_cpu) << IOAPIC_REDIR_DEST);
     ioapic_write(IOAPIC_REG_REDIR + 2 * gsi, v);
 }
 
@@ -226,7 +227,7 @@ boolean ioapic_int_is_free(unsigned int gsi)
     return !!(ioapic_read(IOAPIC_REG_REDIR + 2 * gsi) & (1 << IOAPIC_INT_MASK));
 }
 
-void ioapic_register_int(unsigned int gsi, thunk h, sstring name)
+void ioapic_register_int(unsigned int gsi, thunk h, sstring name, range cpu_affinity)
 {
     boolean alloc_vector = ioapic_int_is_free(gsi);
     u64 v;
@@ -239,7 +240,7 @@ void ioapic_register_int(unsigned int gsi, thunk h, sstring name)
     apic_debug("routing GSI %d to vector %d, handler %F (%s)\n", gsi, v, h, name);
     register_shirq(v, h, name);
     if (alloc_vector)
-        ioapic_set_int(gsi, v);
+        ioapic_set_int(gsi, v, irq_get_target_cpu(cpu_affinity));
 }
 
 int cpuid_from_apicid(u32 aid)
