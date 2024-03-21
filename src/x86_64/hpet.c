@@ -124,9 +124,10 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
     if (!tim->interrupt) {
         tim->config = TCONF(32MODE_CNF) | TCONF(INT_ENB_CNF);
         tim->interrupt = allocate_interrupt();
+        u32 target_cpu = irq_get_target_cpu(irange(0, 0));
         if (hpet->timers[timer].config & TCONF(FSB_INT_DEL_CAP)) {
             u32 a, d;
-            msi_format(&a, &d, tim->interrupt);
+            msi_format(&a, &d, tim->interrupt, target_cpu);
             hpet->timers[timer].fsb_int = ((u64)a << 32) | d;
             tim->config |= TCONF(FSB_EN_CNF);
         } else {
@@ -144,7 +145,7 @@ static void timer_config(int timer, timestamp rate, thunk t, boolean periodic)
                 }
             }
             assert(gsi >= 0);
-            ioapic_set_int(gsi, tim->interrupt);
+            ioapic_set_int(gsi, tim->interrupt, target_cpu);
             tim->config |= gsi << HPET_TIMER_CONFIG_INT_ROUTE_CNF_SHIFT;
         }
         register_interrupt(tim->interrupt, t, ss("hpet timer"));

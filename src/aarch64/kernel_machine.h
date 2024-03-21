@@ -258,6 +258,7 @@ struct cpuinfo_machine {
     context syscall_context;
 
     u64 gic_rdist_base; /* base (virtual) address of GICv3 redistributor */
+    u64 gic_rdist_rdbase;   /* GIC ITS target address of redistributor */
 };
 
 typedef struct cpuinfo *cpuinfo;

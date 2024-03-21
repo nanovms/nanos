@@ -23,12 +23,10 @@ void plic_disable_int(int irq)
     }
 }
 
-void plic_enable_int(int irq)
+void plic_enable_int(int irq, u32 target_cpu)
 {
-    for (int cpuid = 0; cpuid < present_processors; cpuid++) {
-        cpuinfo ci = cpuinfo_from_id(cpuid);
-        set_plic_bit(PLIC_ENABLE(context_from_hartid(ci->m.hartid)), irq);
-    }
+    cpuinfo ci = cpuinfo_from_id(target_cpu);
+    set_plic_bit(PLIC_ENABLE(context_from_hartid(ci->m.hartid)), irq);
 }
 
 void plic_set_int_priority(int irq, u32 pri)
@@ -60,11 +58,10 @@ void init_plic()
 {
 }
 
-void msi_format(u32 *address, u32 *data, int vector)
+void msi_format(u32 *address, u32 *data, int vector, u32 target_cpu)
 {
 }
 
-int msi_get_vector(u32 data)
+void msi_get_config(u32 address, u32 data, int *vector, u32 *target_cpu)
 {
-    return 0;
 }

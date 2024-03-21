@@ -136,7 +136,7 @@ void dump_context(context ctx)
     print_stack(f);
 }
 
-void register_interrupt(int vector, thunk t, sstring name)
+static void irq_register_internal(int vector, thunk t, sstring name, range cpu_affinity)
 {
     // XXX ignore handlers for vector 0 (i.e. not implemented)
     if (vector == 0)
@@ -154,8 +154,13 @@ void register_interrupt(int vector, thunk t, sstring name)
 
     if (vector <= PLIC_MAX_INT && !initialized) {
         plic_set_int_priority(vector, 1);
-        plic_enable_int(vector);
+        plic_enable_int(vector, irq_get_target_cpu(cpu_affinity));
     }
+}
+
+void register_interrupt(int vector, thunk t, sstring name)
+{
+    irq_register_internal(vector, t, name, irange(0, 0));
 }
 
 void unregister_interrupt(int vector)
@@ -174,6 +179,13 @@ void unregister_interrupt(int vector)
         list_delete(&h->l);
         deallocate(int_general, h, sizeof(struct inthandler));
     }
+}
+
+void irq_register_handler(int irq, thunk h, sstring name, range cpu_affinity)
+{
+    if (range_empty(cpu_affinity))
+        cpu_affinity = irange(0, total_processors);
+    irq_register_internal(irq, h, name, cpu_affinity);
 }
 
 void riscv_timer(void)

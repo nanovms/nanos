@@ -83,6 +83,7 @@ struct cpuinfo {
     queue cpu_queue;
     struct sched_queue thread_queue;
     timestamp last_timer_update;
+    int targeted_irqs;
     u64 inval_gen; /* Generation number for invalidates */
 
     cpuinfo mcs_prev;
@@ -822,23 +823,27 @@ void init_clock(void);
 
 void process_bhqueue();
 
-void msi_format(u32 *address, u32 *data, int vector);
-int msi_get_vector(u32 data);
+void msi_format(u32 *address, u32 *data, int vector, u32 target_cpu);
+void msi_get_config(u32 address, u32 data, int *vector, u32 *target_cpu);
 
 u64 allocate_ipi_interrupt(void);
 void deallocate_ipi_interrupt(u64 irq);
 void register_interrupt(int vector, thunk t, sstring name);
 void unregister_interrupt(int vector);
+void irq_register_handler(int irq, thunk h, sstring name, range cpu_affinity);
 
 u64 allocate_shirq(void);
 void register_shirq(int vector, thunk t, sstring name);
 
-boolean dev_irq_enable(u32 dev_id, int vector);
+boolean dev_irq_enable(u32 dev_id, int vector, u32 target_cpu);
 void dev_irq_disable(u32 dev_id, int vector);
 
 #define TARGET_EXCLUSIVE_BROADCAST  (-1ull)
 
 void send_ipi(u64 cpu, u8 vector);
+
+u32 irq_get_target_cpu(range cpu_affinity);
+void irq_put_target_cpu(u32 cpu_id);
 
 void init_scheduler(heap);
 void init_scheduler_cpus(heap h);

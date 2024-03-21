@@ -63,6 +63,7 @@
 #define GICD_CTLR_DISABLE           0
 #define GICD_CTLR_ENABLEGRP0        1
 #define GICD_CTLR_ENABLEGRP1        2
+#define GICD_CTLR_ARE_NS            U32_FROM_BIT(5)
 #define GICD_TYPER                  0x0004
 #define GICD_IDbits_BITS            5
 #define GICD_IDbits_SHIFT           19
@@ -103,6 +104,7 @@
 #define GICD_SGIR_NSATT             U64_FROM_BIT(15)
 #define GICD_CPENDSGIR(n)           0x0f10
 #define GICD_SPENDSGIR(n)           0x0f20
+#define GICD_IROUTER(n)             (0x6000 + 8 * (n))
 
 #define GICR_CTLR                   0x0000
 #define GICR_CTLR_EnableLPIs            U64_FROM_BIT(0)
@@ -241,6 +243,7 @@ void gic_enable_int(int irq);
 void gic_clear_pending_int(int irq);
 void gic_set_int_priority(int irq, u32 pri);
 void gic_set_int_config(int irq, u32 cfg);
+void gic_set_int_target(int irq, u32 target_cpu);
 boolean gic_int_is_pending(int irq);
 u64 gic_dispatch_int(void);
 void gic_eoi(int irq);

@@ -5,7 +5,7 @@
 
 void acpi_register_irq_handler(int irq, thunk t, sstring name)
 {
-    register_interrupt(irq, t, name);
+    irq_register_handler(irq, t, name, irange(0, 0));
 }
 
 /* OS services layer */

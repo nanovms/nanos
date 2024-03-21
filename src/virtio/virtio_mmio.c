@@ -186,7 +186,7 @@ closure_func_basic(thunk, void, vtmmio_irq)
     }
 }
 
-status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx,
+status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affinity,
                               struct virtqueue **result)
 {
     virtio_mmio_debug("allocating virtqueue %d (%s)", idx, name);
@@ -210,7 +210,7 @@ status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx,
                            name);
         // XXX arm
 #ifdef __x86_64__
-        ioapic_set_int(dev->irq, dev->irq_vector);
+        ioapic_set_int(dev->irq, dev->irq_vector, irq_get_target_cpu(cpu_affinity));
 #endif
     }
     vector_push(dev->vq_handlers, handler);
