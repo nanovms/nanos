@@ -40,6 +40,7 @@
 
 
 #include <hyperv.h>
+#include <lwip.h>
 #include <vmbus.h>
 
 typedef uint8_t hv_bool_uint8_t;
@@ -959,14 +960,13 @@ typedef struct netvsc_packet_ {
  * Device-specific softc structure
  */
 typedef struct hn_softc {
+	struct netif_dev ndev;
 	heap general;
 	heap contiguous;                /* physically */
 
 	struct hv_device       *hn_dev_obj;
 	netvsc_dev      *net_dev;
 
-	/* lwIP */
-	struct netif *netif;
 	u16 rxbuflen;
 	caching_heap rxbuffers;
 	closure_struct(mem_cleaner, mem_cleaner);

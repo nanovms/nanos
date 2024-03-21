@@ -268,6 +268,7 @@ typedef struct gve_rx_queue {
 } *gve_rx_queue;
 
 typedef struct gve {
+    struct netif_dev ndev;
     heap general, contiguous;
     pci_dev pdev;
     struct pci_bar reg_bar;
@@ -284,7 +285,6 @@ typedef struct gve {
     struct gve_rx_queue rx;
     closure_struct(thunk, mgmt_irq_handler);
     closure_struct(thunk, link_status_handler);
-    struct netif net_if;
     u16 mtu;
 } *gve;
 
@@ -340,7 +340,7 @@ static boolean gve_describe_device(gve adapter)
     cmd->describe_device.available_length = htobe32(PAGESIZE);
     boolean success = gve_adminq_execute_cmd(adapter, cmd);
     if (success) {
-        u8 *mac = adapter->net_if.hwaddr;
+        u8 *mac = adapter->ndev.n.hwaddr;
         runtime_memcpy(mac, desc->mac, sizeof(desc->mac));
         adapter->mtu = be16toh(desc->mtu);
         adapter->num_event_counters = be16toh(desc->counters);
@@ -402,10 +402,11 @@ closure_func_basic(thunk, void, gve_link_status_handler)
     gve adapter = struct_from_field(closure_self(), gve, link_status_handler);
     u32 status = pci_bar_read_4(&adapter->reg_bar, GVE_REG_DEVICE_STATUS);
     gve_debug("link status handler, status 0x%x", status);
+    struct netif *n = &adapter->ndev.n;
     if (status & GVE_DEVICE_STATUS_LINK_STATUS)
-        netif_set_link_up(&adapter->net_if);
+        netif_set_link_up(n);
     else
-        netif_set_link_down(&adapter->net_if);
+        netif_set_link_down(n);
 }
 
 closure_func_basic(thunk, void, gve_mgmt_irq)
@@ -414,7 +415,7 @@ closure_func_basic(thunk, void, gve_mgmt_irq)
     u32 status = pci_bar_read_4(&adapter->reg_bar, GVE_REG_DEVICE_STATUS);
     gve_debug("mgmt irq, status 0x%x", status);
     boolean dev_up = !!(status & GVE_DEVICE_STATUS_LINK_STATUS);
-    boolean netif_up = netif_is_link_up(&adapter->net_if);
+    boolean netif_up = netif_is_link_up(&adapter->ndev.n);
     if (dev_up != netif_up) {
         gve_debug("link status %d -> %d", netif_up, dev_up);
         async_apply_bh((thunk)&adapter->link_status_handler);
@@ -530,7 +531,7 @@ closure_func_basic(thunk, void, gve_rx_service)
 {
     gve_rx_queue rx = struct_from_field(closure_self(), gve_rx_queue, service);
     gve adapter = rx->adapter;
-    struct netif *net_if = &adapter->net_if;
+    struct netif *net_if = &adapter->ndev.n;
     u32 tail;
     boolean irq_acked = false;
     spin_lock(&rx->lock);
@@ -825,13 +826,10 @@ static boolean gve_init(gve adapter)
 static err_t gve_if_init(struct netif *netif)
 {
     gve adapter = netif->state;
-    netif = &adapter->net_if;
-    netif->hostname = sstring_empty();
     netif->name[0] = 'e';
     netif->name[1] = 'n';
     netif->mtu = adapter->mtu;
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_UP;
-    netif->output = etharp_output;
     netif->linkoutput = gve_linkoutput;
     netif->hwaddr_len = ETH_HWADDR_LEN;
     return ERR_OK;
@@ -853,7 +851,8 @@ closure_function(2, 1, boolean, gve_probe,
     adapter->pdev = d;
     if (gve_init(adapter)) {
         gve_debug("registering network interface");
-        netif_add(&adapter->net_if, 0, 0, 0, adapter, gve_if_init, ethernet_input);
+        netif_dev_init(&adapter->ndev);
+        netif_add(&adapter->ndev.n, 0, 0, 0, adapter, gve_if_init, ethernet_input);
         thunk t = (thunk)&adapter->link_status_handler;
         apply(t);
         return true;
