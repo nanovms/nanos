@@ -72,6 +72,8 @@ struct virtio_net_config {
 	u16	max_virtqueue_pairs;
 } __attribute__((packed));
 
+#define VIRTIO_NET_R_MAX_VQ     (offsetof(struct virtio_net_config *, max_virtqueue_pairs))
+
 /*
  * This is the first element of the scatter-gather list.  If you don't
  * specify GSO or CSUM features, you can simply ignore the header.
