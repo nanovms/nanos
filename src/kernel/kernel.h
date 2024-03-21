@@ -83,7 +83,6 @@ struct cpuinfo {
     queue cpu_queue;
     struct sched_queue thread_queue;
     timestamp last_timer_update;
-    u64 frcount;
     u64 inval_gen; /* Generation number for invalidates */
 
     cpuinfo mcs_prev;
