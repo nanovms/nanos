@@ -139,7 +139,7 @@ closure_function(1, 2, boolean, cpu_dtb_handler,
         return true;
     dt_value dtval = dtb_read_value(DEVICETREE, n, device_type);
     if (dtval.type != DT_VALUE_STRING ||
-        runtime_strcmp(isstring(dtval.u.string, dtval.dlen), ss("cpu")))
+        runtime_strcmp(sstring_from_cstring(dtval.u.string, dtval.dlen), ss("cpu")))
         return true;
 
     dt_prop reg = dtb_get_prop(DEVICETREE, n, ss("reg"));
