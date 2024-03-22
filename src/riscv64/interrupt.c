@@ -154,7 +154,6 @@ void register_interrupt(int vector, thunk t, sstring name)
 
     if (vector <= PLIC_MAX_INT && !initialized) {
         plic_set_int_priority(vector, 1);
-        plic_clear_pending_int(vector);
         plic_enable_int(vector);
     }
 }
@@ -318,13 +317,13 @@ void trap_exception(void)
 #ifdef INT_DEBUG
         if (v < sizeof(interrupt_names)/sizeof(interrupt_names[0])) {
             rputs(" (");
-            rputs_sstring(interrupt_names[v]);
+            rput_sstring(interrupt_names[v]);
             rputs(")");
         }
         rputs("\n   context: ");
         print_u64_with_sym(u64_from_pointer(ctx));
         rputs(" (");
-        rputs(state_strings[ci->state]);
+        rput_sstring(state_strings[ci->state]);
         rputs(")");
         rputs("\n    status: ");
         print_u64_with_sym(u64_from_pointer(f[FRAME_STATUS]));

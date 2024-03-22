@@ -31,25 +31,6 @@ void plic_enable_int(int irq)
     }
 }
 
-void plic_clear_pending_int(int irq)
-{
-    for (int cpuid = 0; cpuid < present_processors; cpuid++) {
-        cpuinfo ci = cpuinfo_from_id(cpuid);
-        u64 context = context_from_hartid(ci->m.hartid);
-        boolean en = read_plic_bit(PLIC_ENABLE(context), irq);
-        if (!en)
-            set_plic_bit(PLIC_ENABLE(context), irq);
-        u32 v;
-        while ((v = read_plic(PLIC_CLAIM(context)))) {
-            write_plic(PLIC_CLAIM(context), v);
-            if (v == irq)
-                break;
-        }
-        if (!en)
-            clear_plic_bit(PLIC_ENABLE(context), irq);
-    }
-}
-
 void plic_set_int_priority(int irq, u32 pri)
 {
     write_plic_irq(PLIC_PRIORITY, irq, pri);
