@@ -18,7 +18,6 @@
 
 void plic_disable_int(int irq);
 void plic_enable_int(int irq);
-void plic_clear_pending_int(int irq);
 void plic_set_int_priority(int irq, u32 pri);
 void plic_set_threshold(u64 hartid, u32 thresh);
 void plic_set_int_config(int irq, u32 cfg);
