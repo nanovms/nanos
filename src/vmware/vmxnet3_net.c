@@ -22,6 +22,7 @@
 #endif // defined(VMXNET3_NET_DEBUG)
 
 typedef struct vmxnet3 {
+    struct netif_dev ndev;
     vmxnet3_pci dev;
     caching_heap rxbuffers;
     int rxbuflen;
@@ -29,7 +30,6 @@ typedef struct vmxnet3 {
     thunk rx_intr_handler;
     thunk rx_service;           /* for bhqueue processing */
     queue rx_servicequeue;
-    struct netif *n;
 } *vmxnet3;
 
 typedef struct xpbuf
@@ -174,7 +174,7 @@ static void vmxnet3_get_mac(vmxnet3 vx)
     u32 ml = vmxnet3_read_cmd(vx->dev, VMXNET3_CMD_GET_MACL);
     u32 mh = vmxnet3_read_cmd(vx->dev, VMXNET3_CMD_GET_MACH);
 
-    struct netif* netif = vx->n;
+    struct netif* netif = &vx->ndev.n;
 
     netif->hwaddr[0] = ml;
     netif->hwaddr[1] = ml >> 8;
@@ -202,11 +202,9 @@ static void vmxnet3_check_version(vmxnet3_pci dev)
 static err_t vmxif_init(struct netif *netif)
 {
     vmxnet3 vn = netif->state;
-    netif->hostname = sstring_empty();
 
     netif->name[0] = DEVICE_NAME[0];
     netif->name[1] = DEVICE_NAME[1];
-    netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     vmxnet3_get_mac(vn);
@@ -252,7 +250,8 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
             assert(i);
             xpbuf rxb = struct_from_list(i, xpbuf, l);
             list_delete(i);
-            err_enum_t err = vn->n->input((struct pbuf *)rxb, vn->n);
+            struct netif *n = &vn->ndev.n;
+            err_enum_t err = n->input((struct pbuf *)rxb, n);
             if (err != ERR_OK) {
                 msg_err("vmxnet3: rx drop by stack, err %d\n", err);
                 receive_buffer_release((struct pbuf *)rxb);
@@ -369,8 +368,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     vmxnet3 vn = allocate(dev->general, sizeof(struct vmxnet3));
     assert(vn != INVALID_ADDRESS);
     vn->dev = dev;
-    vn->n = allocate(dev->general, sizeof(struct netif));
-    assert(vn->n != INVALID_ADDRESS);
+    netif_dev_init(&vn->ndev);
 
     vn->rxbuflen = VMXNET3_RX_MAXSEGSIZE;
     vn->rxbuffers = allocate_objcache(dev->general, page_allocator,
@@ -414,7 +412,7 @@ static void vmxnet3_net_attach(heap general, heap page_allocator, pci_dev d)
     vmxnet3_read_cmd(dev, VMXNET3_CMD_ENABLE);
     pci_bar_write_4(&dev->bar0, VMXNET3_BAR0_RXH1(0), 0);
     pci_bar_write_4(&dev->bar0, VMXNET3_BAR0_RXH2(0), 0);
-    netif_add(vn->n,
+    netif_add(&vn->ndev.n,
               0, 0, 0,
               vn,
               vmxif_init,

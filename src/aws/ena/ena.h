@@ -329,12 +329,10 @@ struct ena_hw_stats {
 
 /* Board specific private data structure */
 struct ena_adapter {
+    struct netif_dev ndev;
     heap general, contiguous;
     pci_dev pdev;
     struct ena_com_dev *ena_dev;
-
-    /* OS defined structs */
-    struct netif ifp;
 
     /* OS resources */
     struct pci_bar memory;

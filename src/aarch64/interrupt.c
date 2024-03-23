@@ -349,7 +349,7 @@ static void interrupt_init(int vector)
     gic_enable_int(vector);
 }
 
-void register_interrupt(int vector, thunk t, sstring name)
+static void irq_register_internal(int vector, thunk t, sstring name, range cpu_affinity)
 {
     boolean initialized = !list_empty(&handlers[vector]);
     int_debug("%s: vector %d, thunk %p (%F), name %s%s\n",
@@ -361,8 +361,16 @@ void register_interrupt(int vector, thunk t, sstring name)
     h->name = name;
     list_insert_before(&handlers[vector], &h->l);
 
-    if (!initialized)
+    if (!initialized) {
+        if (!range_empty(cpu_affinity))
+            gic_set_int_target(vector, irq_get_target_cpu(cpu_affinity));
         interrupt_init(vector);
+    }
+}
+
+void register_interrupt(int vector, thunk t, sstring name)
+{
+    irq_register_internal(vector, t, name, irange(0, 0));
 }
 
 void unregister_interrupt(int vector)
@@ -377,6 +385,13 @@ void unregister_interrupt(int vector)
         list_delete(&h->l);
         deallocate(int_general, h, sizeof(struct inthandler));
     }
+}
+
+void irq_register_handler(int irq, thunk h, sstring name, range cpu_affinity)
+{
+    if (range_empty(cpu_affinity))
+        cpu_affinity = irange(0, total_processors);
+    irq_register_internal(irq, h, name, cpu_affinity);
 }
 
 extern void *exception_vectors;

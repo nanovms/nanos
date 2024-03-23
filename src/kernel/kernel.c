@@ -189,7 +189,7 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
     ci->cpu_queue = allocate_queue(backed, CPU_QUEUE_SIZE);
     assert(ci->cpu_queue != INVALID_ADDRESS);
     ci->last_timer_update = 0;
-    ci->frcount = 0;
+    ci->targeted_irqs = 0;
     ci->mcs_prev = 0;
     ci->mcs_next = 0;
     ci->mcs_waiting = false;
@@ -272,6 +272,49 @@ u64 hw_get_seed(void)
     if (seed != 0)
         return seed;
     return rdtsc();
+}
+
+u32 irq_get_target_cpu(range cpu_affinity)
+{
+    static u32 last_target;
+    if (range_empty(cpu_affinity))
+        cpu_affinity = irange(0, total_processors);
+    u32 first, last;
+    if (point_in_range(cpu_affinity, last_target)) {
+        first = last_target + 1;
+        last = last_target;
+    } else {
+        first = cpu_affinity.start;
+        last = cpu_affinity.end - 1;
+    }
+    int irq_count = 0, min_irq = S32_MAX;
+    u32 cpu = U32_MAX;
+    do {
+        for (u32 cpu_id = first; ; cpu_id++) {
+            if (cpu_id == cpu_affinity.end)
+                cpu_id = cpu_affinity.start;
+            cpuinfo ci = cpuinfo_from_id(cpu_id);
+            int targeted_irqs = ci->targeted_irqs;
+            if (targeted_irqs == irq_count) {
+                ci->targeted_irqs++;
+                cpu = cpu_id;
+                break;
+            }
+            if (targeted_irqs < min_irq)
+                min_irq = targeted_irqs;
+            if (cpu_id == last)
+                break;
+        }
+        irq_count = min_irq;
+        min_irq = S32_MAX;
+    } while (cpu == U32_MAX);
+    return (last_target = cpu);
+}
+
+void irq_put_target_cpu(u32 cpu_id)
+{
+    cpuinfo ci = cpuinfo_from_id(cpu_id);
+    ci->targeted_irqs--;
 }
 
 #ifndef CONFIG_TRACELOG

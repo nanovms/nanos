@@ -66,9 +66,9 @@ void apic_per_cpu_init(void);
 void apic_enable(void);
 int cpuid_from_apicid(u32 aid);
 
-void ioapic_set_int(unsigned int gsi, u64 v);
+void ioapic_set_int(unsigned int gsi, u64 v, u32 target_cpu);
 boolean ioapic_int_is_free(unsigned int gsi);
-void ioapic_register_int(unsigned int gsi, thunk h, sstring name);
+void ioapic_register_int(unsigned int gsi, thunk h, sstring name, range cpu_affinity);
 
 extern apic_iface apic_if;
 

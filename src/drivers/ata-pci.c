@@ -334,7 +334,7 @@ closure_function(3, 1, boolean, ata_pci_probe,
     ata_clear_irq(dev->ata);
     u64 irq = allocate_interrupt();
     assert(irq != INVALID_PHYSICAL);
-    ioapic_set_int(ATA_IRQ(ATA_PRIMARY), irq);
+    ioapic_set_int(ATA_IRQ(ATA_PRIMARY), irq, irq_get_target_cpu(irange(0, 0)));
     register_interrupt(irq, (thunk)&dev->irq_handler, ss("ata pci"));
     apply(bound(a),
           storage_init_req_handler(&dev->req_handler, (block_io)&dev->read, (block_io)&dev->write),

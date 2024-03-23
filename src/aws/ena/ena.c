@@ -858,7 +858,7 @@ static void ena_handle_msix(void *arg)
 {
     struct ena_que *queue = arg;
     struct ena_adapter *adapter = queue->adapter;
-    struct netif *netif = &adapter->ifp;
+    struct netif *netif = &adapter->ndev.n;
 
     if (likely(netif_is_flag_set(netif, NETIF_FLAG_UP)))
         async_apply_bh((thunk)&queue->cleanup_task);
@@ -1008,7 +1008,7 @@ static int ena_up_complete(struct ena_adapter *adapter)
 {
     int rc;
 
-    rc = ena_change_mtu(adapter, adapter->ifp.mtu);
+    rc = ena_change_mtu(adapter, adapter->ndev.n.mtu);
     if (unlikely(rc != 0))
         return rc;
 
@@ -1368,7 +1368,7 @@ int ena_up(struct ena_adapter *adapter)
     }
 
     if (ENA_FLAG_ISSET(ENA_FLAG_LINK_UP, adapter))
-        netif_set_link_up(&adapter->ifp);
+        netif_set_link_up(&adapter->ndev.n);
 
     rc = ena_up_complete(adapter);
     if (unlikely(rc != 0))
@@ -1376,7 +1376,7 @@ int ena_up(struct ena_adapter *adapter)
 
     adapter->dev_stats.interface_up++;
 
-    netif_set_flags(&adapter->ifp, NETIF_FLAG_UP);
+    netif_set_flags(&adapter->ndev.n, NETIF_FLAG_UP);
 
     /* Activate timer service only if the device is running.
      * If this flag is not set, it means that the driver is being
@@ -1405,14 +1405,9 @@ error:
 
 static err_t ena_init(struct netif *netif)
 {
-    struct ena_adapter *adapter = netif->state;
-
-    netif = &adapter->ifp;
-    netif->hostname = sstring_empty();
     netif->name[0] = 'e';
     netif->name[1] = 'n';
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
-    netif->output = etharp_output;
     netif->linkoutput = ena_linkoutput;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     netif->mtu = sizeof(struct ip_hdr) + sizeof(struct tcp_hdr) + TCP_MSS;
@@ -1422,8 +1417,10 @@ static err_t ena_init(struct netif *netif)
 static int ena_setup_ifnet(struct ena_adapter *adapter,
                            struct ena_com_dev_get_features_ctx *feat)
 {
-    runtime_memcpy(adapter->ifp.hwaddr, feat->dev_attr.mac_addr, ETHARP_HWADDR_LEN);
-    netif_add(&adapter->ifp, 0, 0, 0, adapter, ena_init, ethernet_input);
+    netif_dev_init(&adapter->ndev);
+    struct netif *ifp = &adapter->ndev.n;
+    runtime_memcpy(ifp->hwaddr, feat->dev_attr.mac_addr, ETHARP_HWADDR_LEN);
+    netif_add(ifp, 0, 0, 0, adapter, ena_init, ethernet_input);
 
     return 0;
 }
@@ -1440,7 +1437,7 @@ void ena_down(struct ena_adapter *adapter)
     remove_timer(kernel_timers, &adapter->timer_service, 0);
 
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_DEV_UP, adapter);
-    netif_clear_flags(&adapter->ifp, NETIF_FLAG_UP);
+    netif_clear_flags(&adapter->ndev.n, NETIF_FLAG_UP);
 
     ena_free_io_irq(adapter);
 
@@ -1823,7 +1820,7 @@ static void ena_update_hints(struct ena_adapter *adapter,
 
 void ena_destroy_device(struct ena_adapter *adapter, bool graceful)
 {
-    struct netif *ifp = &adapter->ifp;
+    struct netif *ifp = &adapter->ndev.n;
     struct ena_com_dev *ena_dev = adapter->ena_dev;
     bool dev_up;
 
@@ -1879,7 +1876,7 @@ void ena_destroy_device(struct ena_adapter *adapter, bool graceful)
 static int ena_device_validate_params(struct ena_adapter *adapter,
                                       struct ena_com_dev_get_features_ctx *get_feat_ctx)
 {
-    if (get_feat_ctx->dev_attr.max_mtu < adapter->ifp.mtu) {
+    if (get_feat_ctx->dev_attr.max_mtu < adapter->ndev.n.mtu) {
         device_printf(adapter->pdev, "Error, device max mtu is smaller than ifp MTU\n");
         return ENA_COM_INVAL;
     }
@@ -1891,7 +1888,7 @@ int ena_restore_device(struct ena_adapter *adapter)
 {
     struct ena_com_dev_get_features_ctx get_feat_ctx;
     struct ena_com_dev *ena_dev = adapter->ena_dev;
-    struct netif *ifp = &adapter->ifp;
+    struct netif *ifp = &adapter->ndev.n;
     int wd_active;
     int rc;
 
@@ -2002,7 +1999,7 @@ closure_func_basic(thunk, void, ena_reset_task)
 closure_func_basic(thunk, void, ena_link_up_task)
 {
     struct ena_adapter *adapter = struct_from_closure(struct ena_adapter *, link_up_task);
-    struct netif *ifp = &adapter->ifp;
+    struct netif *ifp = &adapter->ndev.n;
     ena_trace(NULL, ENA_INFO, "link UP task\n");
     ENA_FLAG_SET_ATOMIC(ENA_FLAG_LINK_UP, adapter);
     if (!ENA_FLAG_ISSET(ENA_FLAG_ONGOING_RESET, adapter))
@@ -2012,7 +2009,7 @@ closure_func_basic(thunk, void, ena_link_up_task)
 closure_func_basic(thunk, void, ena_link_down_task)
 {
     struct ena_adapter *adapter = struct_from_closure(struct ena_adapter *, link_down_task);
-    struct netif *ifp = &adapter->ifp;
+    struct netif *ifp = &adapter->ndev.n;
     ena_trace(NULL, ENA_INFO, "link DOWN task\n");
     netif_set_link_down(ifp);
     ENA_FLAG_CLEAR_ATOMIC(ENA_FLAG_LINK_UP, adapter);

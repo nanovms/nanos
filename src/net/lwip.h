@@ -18,6 +18,18 @@
 
 status direct_connect(heap h, ip_addr_t *addr, u16 port, connection_handler ch);
 
+closure_type(netif_dev_setup, boolean, tuple config);
+
+typedef struct netif_dev {
+    struct netif n;
+    closure_struct(netif_dev_setup, setup);
+} *netif_dev;
+
+static inline void netif_dev_init(netif_dev dev)
+{
+    dev->setup.__apply = 0;
+}
+
 u16 ifflags_from_netif(struct netif *netif);
 boolean ifflags_to_netif(struct netif *netif, u16 flags); /* do not call with lwIP lock held */
 bytes netif_name_cpy(char *dest, struct netif *netif);
