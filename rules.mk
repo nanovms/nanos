@@ -104,7 +104,7 @@ KERNCFLAGS+=	-march=rv64gc -mabi=lp64d
 endif
 
 KERNCFLAGS+=	-fno-omit-frame-pointer
-KERNLDFLAGS=	--gc-sections -z max-page-size=4096 -L $(OUTDIR)/klib -pie --no-dynamic-linker
+KERNLDFLAGS=	--gc-sections -z notext -z noexecstack -z max-page-size=4096 -L $(OUTDIR)/klib -pie --no-dynamic-linker
 
 ifneq ($(UBSAN),)
 KERNCFLAGS+= -fsanitize=undefined -fno-sanitize=alignment,null -fsanitize-undefined-trap-on-error

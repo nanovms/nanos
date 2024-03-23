@@ -40,7 +40,7 @@ CFLAGS+= \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/x86_64
-LDFLAGS+=	--gc-sections -T linker_script
+LDFLAGS+=	-z noexecstack --gc-sections -T linker_script
 AFLAGS+=	-I$(SRCDIR)/x86_64 -felf
 
 NASMFLAGS	= -l $@.lst -I $(SRCDIR)/x86_64/ -dSTAGE2SIZE=$(shell $(SIZE_CMD) $(OBJDIR)/stage2.pad)
@@ -97,7 +97,7 @@ CFLAGS-uefi= \
 	-I$(SRCDIR) -I$(SRCDIR)/boot -I$(SRCDIR)/kernel -I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/fs -I$(SRCDIR)/x86_64 -I$(OBJDIR) \
 	-DBOOT -DUEFI -DEFIAPI="__attribute__((ms_abi))"
-LDLAGS-uefi= -nostdlib -shared -Bsymbolic -T $(SRCDIR)/x86_64/uefi.lds
+LDLAGS-uefi= -z noexecstack -nostdlib -shared -Bsymbolic -T $(SRCDIR)/x86_64/uefi.lds
 
 DEPFILES+= $(DEPS-uefi)
 

@@ -239,7 +239,7 @@ UEFI_CFLAGS=    -Wall -Werror -fpic -fshort-wchar -O3 -std=gnu11 \
 	-ffreestanding -DBOOT -DUEFI $(call cc-option, -mno-outline-atomics, "") \
 	-I$(SRCDIR) -I$(SRCDIR)/aarch64 -I$(SRCDIR)/boot -I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/runtime -I$(SRCDIR)/fs -I$(PLATFORMDIR) -I$(OBJDIR)
-UEFI_LDFLAGS=   -nostdlib -shared -Bsymbolic -T $(SRCDIR)/aarch64/uefi.lds
+UEFI_LDFLAGS=   -z noexecstack -nostdlib -shared -Bsymbolic -T $(SRCDIR)/aarch64/uefi.lds
 
 DEPFILES+=      $(VDSO_DEPS) $(UEFI_DEPS)
 CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis bin/kernel.elf boot/uefi.so src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJDIR)/vdso-offset.h $(VDSO_OBJS) $(VDSO_DEPS) $(UEFI_OBJS) $(UEFI_DEPS) $(UEFI_LOADER) $(BOOTIMG) $(KERNEL)
