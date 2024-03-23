@@ -3,12 +3,19 @@ OUTPUT_ARCH(i386)
 
 ENTRY(_start)
 
+PHDRS
+{
+  text PT_LOAD FLAGS(5);          /* R E */
+  rodata PT_LOAD FLAGS(4);        /* R */
+  data PT_LOAD FLAGS(6);          /* RW */
+}
+
 SECTIONS
 {
   . = 0x8000;
-  .start : { *(.start)}
-  .text : { *(.text)}
-  .rodata : { *(.rodata)}
-  .data : { *(.data) }
-  .bss  ALIGN(32): { *(.bss) }
+  .start : { *(.start)} :text
+  .text : { *(.text) *(.text.*) } :text
+  .rodata : { *(.rodata) *(.rodata.*) } :rodata
+  .data : { *(.data) *(.data.*) } :data
+  .bss ALIGN(32): { *(.bss) *(.bss.*) } :data
 }
