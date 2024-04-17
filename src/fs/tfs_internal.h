@@ -34,13 +34,6 @@ typedef struct tfsfile {
     rangemap extentmap;
 } *tfsfile;
 
-typedef struct uninited_queued_op {
-    sg_list sg;
-    merge m;
-    range blocks;
-    boolean write;
-} *uninited_queued_op;
-
 declare_closure_struct(2, 0, void, free_uninited,
                        heap, h, struct uninited *, u);
 
@@ -50,11 +43,7 @@ declare_closure_struct(2, 1, void, uninited_complete,
 
 typedef struct uninited {
     tfs fs;
-#ifdef KERNEL
-    struct spinlock lock;
-#endif
     struct refcount refcount;
-    buffer op_queue;
     boolean initialized;
     closure_struct(uninited_complete, complete);
     closure_struct(free_uninited, free);
