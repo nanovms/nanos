@@ -332,6 +332,7 @@ id_heap init_physical_id_heap(heap h)
 static void setup_initmap(void)
 {
     u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE_PHYS;
+    region page_region = 0;
     for_regions(r) {
         if ((r->type == REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
                 (r->base + r->length > KERNEL_BASE_PHYS)) {
@@ -341,8 +342,12 @@ static void setup_initmap(void)
             if (r->base < KERNEL_BASE_PHYS)
                 create_region(r->base, KERNEL_BASE_PHYS - r->base, r->type);
             region_resize(r, r->base - pad(KERNEL_BASE_PHYS + kernel_size, PAGESIZE));
+
+            page_region = r;
+            break;
         }
     }
+    assert(page_region);
 
     /* Fix up the initial mapping set up by the hypervisor in the first 1GB of virtual memory:
      * - set the 'user' and 'writable' flags on level 1 and level 2 page directory entries (AWS
@@ -369,7 +374,7 @@ static void setup_initmap(void)
     u64 map_base = initial_pages_base & ~MASK(PAGELOG_2M);
     map_setup_2mbpages(map_base, map_base,
                        pad(initial_pages_base - map_base + INITIAL_PAGES_SIZE, PAGESIZE_2M) >>
-                       PAGELOG_2M, pageflags_writable(pageflags_memory()), pdpt, pdt);
+                       PAGELOG_2M, pageflags_writable(pageflags_memory()), page_region);
     create_region(initial_pages_base, INITIAL_PAGES_SIZE, REGION_INITIAL_PAGES);
 }
 
