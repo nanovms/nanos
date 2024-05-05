@@ -146,7 +146,7 @@ closure_func_basic(input_buffer_handler, boolean, tls_in_handler,
             conn->app_in = apply(conn->app_ch, init_closure_func(&conn->app_out, buffer_handler,
                                                                  tls_out_handler));
             conn->app_ch = 0;   /* so that it is not invoked when the connection is closed */
-            if (!conn->app_in)  /* application-level error */
+            if (conn->app_in == INVALID_ADDRESS)    /* application-level error */
                 goto conn_close;
         } else if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
             goto conn_close;

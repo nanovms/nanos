@@ -647,10 +647,10 @@ closure_func_basic(connection_handler, input_buffer_handler, gcp_log_conn_handle
         if (gcp_log_post())
             ibh = (input_buffer_handler)&gcp.log_in_handler;
         else
-            ibh = 0;
+            ibh = INVALID_ADDRESS;
     } else {
         gcp_log_send_async();
-        ibh = 0;
+        ibh = INVALID_ADDRESS;
     }
     spin_unlock(&gcp.lock);
     return ibh;
@@ -804,17 +804,13 @@ static boolean gcp_metrics_post(void)
 closure_func_basic(connection_handler, input_buffer_handler, gcp_metrics_conn_handler,
                    buffer_handler out)
 {
-    input_buffer_handler ibh;
+    input_buffer_handler ibh = INVALID_ADDRESS;
     if (out) {
         gcp.metrics_out = out;
         if (gcp_metrics_post())
             ibh = (input_buffer_handler)&gcp.metrics_in_handler;
-        else
-            ibh = 0;
-    } else {
-        ibh = 0;
     }
-    if (!ibh)
+    if (ibh == INVALID_ADDRESS)
         gcp.metrics_pending = false;
     return ibh;
 }

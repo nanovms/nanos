@@ -805,7 +805,7 @@ closure_func_basic(connection_handler, input_buffer_handler, cw_log_conn_handler
         ibh = (input_buffer_handler)&cw.log_in_handler;
     } else {
         cw_log_send_async();
-        ibh = 0;
+        ibh = INVALID_ADDRESS;
     }
     spin_unlock(&cw.lock);
     return ibh;
