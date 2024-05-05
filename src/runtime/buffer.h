@@ -26,6 +26,12 @@ static inline void init_buffer(buffer b, bytes s, boolean wrapped, heap h, void 
     b->contents = contents;
 }
 
+#define buffer_init_from_string(b, s)   do {    \
+    sstring _s = ss(s);                         \
+    init_buffer(b, _s.len, true, 0, _s.ptr);    \
+    (b)->end = _s.len;                          \
+} while (0)
+
 static inline void *buffer_ref(buffer b, bytes offset)
 {
     buffer_assert(b->start + offset <= b->length);

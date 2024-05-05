@@ -22,6 +22,7 @@ PROGRAMS= \
 SRCS-cloud_init= \
 	$(CURDIR)/cloud_azure.c \
 	$(CURDIR)/cloud_init.c \
+	$(CURDIR)/net_utils.c \
 
 SRCS-cloudwatch= \
 	$(CURDIR)/aws.c \

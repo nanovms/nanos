@@ -1,11 +1,17 @@
 #include <kernel.h>
-#include <http.h>
 #include <lwip.h>
+#include <net_utils.h>
 
 #define AZURE_MS_VERSION    "2012-11-30"
 
+#define AZURE_WIRESERVER_ADDR   ss("168.63.129.16")
+
 typedef struct azure {
     heap h;
+    struct buffer ms_version;
+    struct buffer goalstate_query;
+    closure_struct(value_handler, goalstate_vh);
+    struct net_http_req_params goalstate_req_params;
     char container_id[64];
     bytes container_id_len;
     char instance_id[64];
@@ -14,6 +20,14 @@ typedef struct azure {
     struct timer report_timer;
     closure_struct(timer_handler, report_ready);
 } *azure;
+
+typedef struct azure_ready_data {
+    azure az;
+    struct buffer query;
+    struct buffer content_type;
+    tuple req;
+    closure_struct(value_handler, vh);
+} *azure_ready_data;
 
 static void azure_report_ready(azure az);
 
@@ -33,11 +47,14 @@ static void azure_report_retry(azure az)
         az->report_backoff <<= 1;
 }
 
-closure_function(2, 1, void, wireserver_parse_resp,
-                 azure, az, buffer_handler, out,
-                 value v)
+closure_func_basic(value_handler, void, az_goalstate_vh,
+                   value v)
 {
-    azure az = bound(az);
+    azure az = struct_from_closure(azure, goalstate_vh);
+    if (!v) {
+        azure_report_retry(az);
+        return;
+    }
     buffer content = get(v, sym(content));
     if (content) {
         int index = buffer_strstr(content, ss("<ContainerId>"));
@@ -65,143 +82,91 @@ closure_function(2, 1, void, wireserver_parse_resp,
         buffer_read(content, az->instance_id, index);
         az->instance_id_len = index;
         azure_report_ready(az);
+        return;
     }
   exit:
-    apply(bound(out), 0);
-    closure_finish();
+    msg_err("failed to parse response %v\n", v);
 }
 
-closure_function(3, 1, boolean, wireserver_get_resp,
-                 azure, az, buffer_handler, out, buffer_handler, parser,
-                 buffer data)
+closure_func_basic(value_handler, void, az_ready_vh,
+                   value v)
 {
-    if (data) {
-        if (apply(bound(parser), data) != STATUS_OK) {
-            azure_report_retry(bound(az));
-            return true;
-        }
-    } else {
-        closure_finish();
-    }
-    return false;
-}
-
-closure_function(1, 1, input_buffer_handler, wireserver_get_ch,
-                 azure, az,
-                 buffer_handler out)
-{
-    azure az = bound(az);
-    value_handler vh = INVALID_ADDRESS;
-    buffer_handler parser = INVALID_ADDRESS;
-    input_buffer_handler in = INVALID_ADDRESS;
-    if (out) {    /* connection succeeded */
-        tuple req = allocate_tuple();
-        if (req == INVALID_ADDRESS)
-            goto exit;
-        set(req, sym(url), alloca_wrap_cstring("/machine?comp=goalstate"));
-        set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
-        set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
-        vh = closure(az->h, wireserver_parse_resp, az, out);
-        if (vh == INVALID_ADDRESS)
-            goto exit;
-        buffer_handler parser = allocate_http_parser(az->h, vh);
-        if (parser == INVALID_ADDRESS)
-            goto exit;
-        status s = http_request(az->h, out, HTTP_REQUEST_METHOD_GET, req, 0);
-        deallocate_value(req);
-        if (is_ok(s))
-            in = closure(az->h, wireserver_get_resp, az, out, parser);
-        else
-            timm_dealloc(s);
-    }
-  exit:
-    closure_finish();
-    if (in == INVALID_ADDRESS) {
-        if (vh != INVALID_ADDRESS)
-            deallocate_closure(vh);
-        if (parser != INVALID_ADDRESS)
-            apply(parser, 0);
+    azure_ready_data req_data = struct_from_closure(azure_ready_data, vh);
+    azure az = req_data->az;
+    deallocate_value(req_data->req);
+    deallocate(az->h, req_data, sizeof(*req_data));
+    if (!v)
         azure_report_retry(az);
-    }
-    return in;
 }
-
-closure_function(1, 1, boolean, wireserver_post_resp,
-                 buffer_handler, out,
-                 buffer data)
-{
-    if (data) {
-        apply(bound(out), 0);
-        return true;
-    } else {
-        closure_finish();
-        return false;
-    }
-}
-
-closure_function(1, 1, input_buffer_handler, wireserver_post_ch,
-                 azure, az,
-                 buffer_handler out)
-{
-    azure az = bound(az);
-    input_buffer_handler in = INVALID_ADDRESS;
-    if (out) {    /* connection succeeded */
-        tuple req = allocate_tuple();
-        if (req == INVALID_ADDRESS)
-            goto exit;
-        buffer b = allocate_buffer(az->h, 512);
-        if (b == INVALID_ADDRESS) {
-            deallocate_value(req);
-            goto exit;
-        }
-        set(req, sym(url), alloca_wrap_cstring("/machine?comp=health"));
-        set(req, sym(Host), alloca_wrap_cstring("168.63.129.16"));
-        set(req, sym(x-ms-version), alloca_wrap_cstring(AZURE_MS_VERSION));
-        set(req, sym(Content-Type), alloca_wrap_cstring("text/xml;charset=utf-8"));
-        bprintf(b, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
-                <Health xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\
-                xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\n\
-                  <GoalStateIncarnation>1</GoalStateIncarnation>\n\
-                  <Container>\n\
-                    <ContainerId>%s</ContainerId>\n\
-                    <RoleInstanceList>\n\
-                      <Role>\n\
-                        <InstanceId>%s</InstanceId>\n\
-                        <Health>\n\
-                          <State>Ready</State>\n\
-                        </Health>\n\
-                      </Role>\n\
-                    </RoleInstanceList>\n\
-                  </Container>\n\
-                </Health>\n",
-                isstring(az->container_id, az->container_id_len),
-                isstring(az->instance_id, az->instance_id_len));
-        status s = http_request(az->h, out, HTTP_REQUEST_METHOD_POST, req, b);
-        deallocate_value(req);
-        if (is_ok(s))
-            in = closure(az->h, wireserver_post_resp, out);
-        else
-            timm_dealloc(s);
-    }
-  exit:
-    closure_finish();
-    if (in == INVALID_ADDRESS)
-        azure_report_retry(az);
-    return in;
-}
-
 
 static void azure_report_ready(azure az)
 {
-    connection_handler ch;
-    if (!az->instance_id_len)
-        ch = closure(az->h, wireserver_get_ch, az);
-    else
-        ch = closure(az->h, wireserver_post_ch, az);
-    if (ch == INVALID_ADDRESS)
+    status s;
+    if (!az->instance_id_len) {
+        s = net_http_req(&az->goalstate_req_params);
+        goto exit;
+    }
+    heap h = az->h;
+    buffer req_body = INVALID_ADDRESS;
+    tuple req = INVALID_ADDRESS;
+    azure_ready_data req_data = allocate(h, sizeof(*req_data));
+    if (req_data == INVALID_ADDRESS) {
+        s = timm_oom;
+        goto error;
+    }
+    req = allocate_tuple();
+    if (req == INVALID_ADDRESS) {
+        s = timm_oom;
+        goto error;
+    }
+    req_body = allocate_buffer(az->h, 512);
+    if (req_body == INVALID_ADDRESS) {
+        s = timm_oom;
+        goto error;
+    }
+    req_data->az = az;
+    struct net_http_req_params req_params;
+    req_params.host = AZURE_WIRESERVER_ADDR;
+    req_params.port = 80;
+    req_params.tls = false;
+    req_params.method = HTTP_REQUEST_METHOD_POST;
+    buffer_init_from_string(&req_data->query, "/machine?comp=health");
+    set(req, sym_this("url"), &req_data->query);
+    set(req, sym_this("x-ms-version"), &az->ms_version);
+    buffer_init_from_string(&req_data->content_type, "text/xml;charset=utf-8");
+    set(req, sym_this("Content-Type"), &req_data->content_type);
+    req_data->req = req_params.req = req;
+    bprintf(req_body, "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                      "<Health xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\""
+                      " xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\n"
+                      "  <GoalStateIncarnation>1</GoalStateIncarnation>\n"
+                      "  <Container>\n"
+                      "    <ContainerId>%s</ContainerId>\n"
+                      "    <RoleInstanceList>\n"
+                      "      <Role>\n"
+                      "        <InstanceId>%s</InstanceId>\n"
+                      "        <Health>\n"
+                      "          <State>Ready</State>\n"
+                      "        </Health>\n"
+                      "      </Role>\n"
+                      "    </RoleInstanceList>\n"
+                      "  </Container>\n"
+                      "</Health>\n",
+            isstring(az->container_id, az->container_id_len),
+            isstring(az->instance_id, az->instance_id_len));
+    req_params.body = req_body;
+    req_params.resp_handler = init_closure_func(&req_data->vh, value_handler, az_ready_vh);
+    s = net_http_req(&req_params);
+    if (is_ok(s))
         return;
-    ip_addr_t wireserver_addr = IPADDR4_INIT_BYTES(168, 63, 129, 16);
-    status s = direct_connect(az->h, &wireserver_addr, 80, ch);
+  error:
+    if (req_body != INVALID_ADDRESS)
+        deallocate_buffer(req_body);
+    if (req != INVALID_ADDRESS)
+        deallocate_value(req);
+    if (req_data != INVALID_ADDRESS)
+        deallocate(h, req_data, sizeof(*req_data));
+  exit:
     if (!is_ok(s)) {
         timm_dealloc(s);
         azure_report_retry(az);
@@ -214,6 +179,20 @@ boolean azure_cloud_init(heap h)
     if (az == INVALID_ADDRESS)
         return false;
     az->h = h;
+    buffer_init_from_string(&az->ms_version, AZURE_MS_VERSION);
+    buffer_init_from_string(&az->goalstate_query, "/machine?comp=goalstate");
+    net_http_req_params params = &az->goalstate_req_params;
+    params->host = AZURE_WIRESERVER_ADDR;
+    params->port = 80;
+    params->tls = false;
+    params->method = HTTP_REQUEST_METHOD_GET;
+    tuple req = allocate_tuple();
+    assert(req != INVALID_ADDRESS);
+    set(req, sym_this("url"), &az->goalstate_query);
+    set(req, sym_this("x-ms-version"), &az->ms_version);
+    params->req = req;
+    params->body = 0;
+    params->resp_handler = init_closure_func(&az->goalstate_vh, value_handler, az_goalstate_vh);
     az->container_id_len = az->instance_id_len = 0;
     az->report_backoff = seconds(1);
     init_timer(&az->report_timer);
