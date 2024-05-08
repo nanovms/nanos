@@ -263,10 +263,23 @@ tuple timm_clone(tuple t)
     return (t != INVALID_ADDRESS) ? t : timm_oom;
 }
 
+closure_function(1, 2, boolean, timm_dealloc_each,
+                 tuple, t,
+                 value s, value v)
+{
+    if (tagof(v) == tag_string)
+        deallocate_string((string)v);
+    else
+        timm_dealloc((tuple)v);
+    return true;
+}
+
 void timm_dealloc(tuple t)
 {
-    if ((t != STATUS_OK) && (t != timm_oom))
-        destruct_value(t, true);
+    if ((t != STATUS_OK) && (t != timm_oom)) {
+        iterate(t, stack_closure(timm_dealloc_each, t));
+        deallocate_table(&t->t);
+    }
 }
 
 // header: immediate(1)

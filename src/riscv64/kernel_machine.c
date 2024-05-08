@@ -103,6 +103,7 @@ void ap_start(u64 hartid)
     cpuinfo ci = init_cpuinfo(heap_locked(get_kernel_heaps()), cpuid);
     assert(ci != INVALID_ADDRESS);
     ci->m.hartid = hartid;
+    plic_set_threshold(hartid, 0);
     context_frame f = ci->m.kernel_context->frame;
     switch_stack_1(frame_get_stack_top(f), ap_start_newstack, cpuid);
 }
@@ -126,7 +127,6 @@ void start_secondary_cores(kernel_heaps kh)
             halt("failed to start cpu %d (hartid %d): error 0x%lx, value 0x%lx\n",
                  cpuid, hartid, r.error, r.value);
         }
-        plic_set_threshold(hartid, 0);
     }
 }
 
@@ -139,7 +139,7 @@ closure_function(1, 2, boolean, cpu_dtb_handler,
         return true;
     dt_value dtval = dtb_read_value(DEVICETREE, n, device_type);
     if (dtval.type != DT_VALUE_STRING ||
-        runtime_strcmp(isstring(dtval.u.string, dtval.dlen), ss("cpu")))
+        runtime_strcmp(sstring_from_cstring(dtval.u.string, dtval.dlen), ss("cpu")))
         return true;
 
     dt_prop reg = dtb_get_prop(DEVICETREE, n, ss("reg"));

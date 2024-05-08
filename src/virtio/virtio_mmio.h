@@ -65,4 +65,5 @@ closure_type(vtmmio_probe, void, vtmmio dev);
 void vtmmio_probe_devs(vtmmio_probe probe);
 void vtmmio_set_status(vtmmio dev, u8 status);
 boolean attach_vtmmio(heap h, backed_heap page_allocator, vtmmio d, u64 feature_mask);
-status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, struct virtqueue **result);
+status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affinity,
+                              struct virtqueue **result);

@@ -55,25 +55,37 @@ void *bootstrap_page_tables(heap initial)
 }
 
 #if defined(KERNEL) || defined(UEFI)
+
+#include <region.h>
+
 void map_setup_2mbpages(u64 v, physical p, int pages, pageflags flags,
-                        u64 *pdpt, u64 *pdt)
+                        region r)
 {
     assert(!(v & PAGEMASK_2M));
     assert(!(p & PAGEMASK_2M));
     u64 *pml4;
+    u64 *pdpt, *pdt;
     mov_from_cr("cr3", pml4);
     flags.w |= PAGE_PRESENT;
     u64 table_index = (v >> PT_SHIFT_L1) & MASK(9);
     if (pml4[table_index] & PAGE_PRESENT)
         pdpt = pointer_from_u64(pml4[table_index] & ~PAGE_FLAGS_MASK);
-    else
-        pml4[table_index] = u64_from_pointer(pdpt) | flags.w;
+    else {
+        assert(r->length >= PAGESIZE);
+        pdpt = pointer_from_u64(r->base);
+        region_resize(r, -PAGESIZE);
+        pml4[table_index] = new_level_pte(u64_from_pointer(pdpt)) | flags.w;
+    }
     v &= MASK(PT_SHIFT_L1);
     table_index = v >> PT_SHIFT_L2;
     if (pdpt[table_index] & PAGE_PRESENT)
         pdt = pointer_from_u64(pdpt[table_index] & ~PAGE_FLAGS_MASK);
-    else
-        pdpt[table_index] = u64_from_pointer(pdt) | flags.w;
+    else {
+        assert(r->length >= PAGESIZE);
+        pdt = pointer_from_u64(r->base);
+        region_resize(r, -PAGESIZE);
+        pdpt[table_index] = new_level_pte(u64_from_pointer(pdt)) | flags.w;
+    }
     v &= MASK(PT_SHIFT_L2);
     table_index = v >> PT_SHIFT_L3;
     assert(table_index + pages <= 512);

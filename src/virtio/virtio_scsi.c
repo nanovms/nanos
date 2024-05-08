@@ -700,11 +700,13 @@ static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_
     s->max_lun = pci_bar_read_4(&s->v->device_config, VIRTIO_SCSI_R_MAX_LUN);
     virtio_scsi_debug("max lun %d\n", s->max_lun);
 
-    status st = vtpci_alloc_virtqueue(s->v, ss("virtio scsi command"), 0, &s->command);
+    range cpu_affinity = irange(0, 0);
+    status st = vtpci_alloc_virtqueue(s->v, ss("virtio scsi command"), 0, cpu_affinity,
+                                      &s->command);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, ss("virtio scsi event"), 1, &s->eventq);
+    st = vtpci_alloc_virtqueue(s->v, ss("virtio scsi event"), 1, cpu_affinity, &s->eventq);
     assert(st == STATUS_OK);
-    st = vtpci_alloc_virtqueue(s->v, ss("virtio scsi request"), 2, &s->requestq);
+    st = vtpci_alloc_virtqueue(s->v, ss("virtio scsi request"), 2, cpu_affinity, &s->requestq);
     assert(st == STATUS_OK);
 
     // On reset, the device MUST set sense_size to 96 and cdb_size to 32

@@ -58,9 +58,17 @@
 #define VIRTIO_NET_DRV_FEATURES \
     (VIRTIO_NET_F_GUEST_CSUM | VIRTIO_NET_F_MAC | VIRTIO_NET_F_GUEST_TSO4 |         \
      VIRTIO_NET_F_GUEST_TSO6 | VIRTIO_NET_F_GUEST_ECN | VIRTIO_NET_F_GUEST_UFO |    \
-     VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_ANY_LAYOUT | VIRTIO_F_RING_EVENT_IDX)
+     VIRTIO_NET_F_MRG_RXBUF | VIRTIO_F_ANY_LAYOUT | VIRTIO_F_RING_EVENT_IDX |       \
+     VIRTIO_NET_F_CTRL_VQ | VIRTIO_NET_F_MQ)
+
+typedef struct vnet_rx {
+    virtqueue q;
+    u32 seqno;
+    struct virtio_net_hdr_mrg_rxbuf *hdr;
+} *vnet_rx;
 
 typedef struct vnet {
+    struct netif_dev ndev;
     vtdev dev;
     u16 port;
     caching_heap rxbuffers;
@@ -68,20 +76,26 @@ typedef struct vnet {
     closure_struct(mem_cleaner, mem_cleaner);
     bytes net_header_len;
     int rxbuflen;
-    u32 rx_seqno;
-    struct virtio_net_hdr_mrg_rxbuf *rx_hdr;
-    struct netif *n;
-    struct virtqueue *txq;
-    struct virtqueue *rxq;
+    virtqueue *txq_map;
+    vnet_rx rx;
     struct virtqueue *ctl;
     u64 empty_phys;
     void *empty; // just a mac..fix, from pre-heap days
 } *vnet;
 
+typedef struct vnet_cmd {
+    heap h;
+    struct virtio_net_ctrl_hdr hdr;
+    u8 ack;
+    closure_struct(vqfinish, finish);
+    status_handler complete;
+} *vnet_cmd;
+
 typedef struct xpbuf
 {
     struct pbuf_custom p;
     vnet vn;
+    vnet_rx rx;
     closure_struct(vqfinish, input);
     u32 seqno;
 } __attribute__((aligned(8))) *xpbuf;
@@ -100,16 +114,17 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 {
     vnet vn = netif->state;
 
-    vqmsg m = allocate_vqmsg(vn->txq);
+    virtqueue txq = vn->txq_map[current_cpu()->id];
+    vqmsg m = allocate_vqmsg(txq);
     assert(m != INVALID_ADDRESS);
-    vqmsg_push(vn->txq, m, vn->empty_phys, vn->net_header_len, false);
+    vqmsg_push(txq, m, vn->empty_phys, vn->net_header_len, false);
 
     pbuf_ref(p);
 
     for (struct pbuf * q = p; q != NULL; q = q->next)
-        vqmsg_push(vn->txq, m, physical_from_virtual(q->payload), q->len, false);
+        vqmsg_push(txq, m, physical_from_virtual(q->payload), q->len, false);
 
-    vqmsg_commit(vn->txq, m, closure((heap)vn->txhandlers, tx_complete, p));
+    vqmsg_commit(txq, m, closure((heap)vn->txhandlers, tx_complete, p));
     
     MIB2_STATS_NETIF_ADD(netif, ifoutoctets, p->tot_len);
     if (((u8_t *)p->payload)[0] & 1) {
@@ -128,7 +143,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 
 static vqmsg vnet_rxq_push(vnet vn, xpbuf x, int *desc_count)
 {
-    virtqueue rxq = vn->rxq;
+    virtqueue rxq = x->rx->q;
     vqmsg m = allocate_vqmsg(rxq);
     if (m == INVALID_ADDRESS)
         return m;
@@ -151,7 +166,7 @@ static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
     vnet vn = x->vn;
-    virtqueue rxq = vn->rxq;
+    virtqueue rxq = x->rx->q;
     if (virtqueue_free_entries(rxq) > 0) {
         int desc_count;
         vqmsg m = vnet_rxq_push(vn, x, &desc_count);
@@ -163,7 +178,7 @@ static void receive_buffer_release(struct pbuf *p)
     deallocate((heap)vn->rxbuffers, x, vn->rxbuflen + sizeof(struct xpbuf));
 }
 
-static int post_receive(vnet vn);
+static int post_receive(vnet vn, vnet_rx rx);
 
 closure_func_basic(vqfinish, void, vnet_input,
                    u64 len)
@@ -172,6 +187,7 @@ closure_func_basic(vqfinish, void, vnet_input,
 
     xpbuf x = struct_from_field(closure_self(), xpbuf, input);
     vnet vn= x->vn;
+    vnet_rx rx = x->rx;
     boolean err = false;
     struct virtio_net_hdr *hdr;
     boolean pkt_complete;
@@ -179,7 +195,7 @@ closure_func_basic(vqfinish, void, vnet_input,
         /* Ensure received messages are processed in the same order as they are received.
          * This is necessary in order to correctly process packets spread in multiple rx buffers. */
         u32 attempts = 0;
-        while ((volatile u32)vn->rx_seqno != x->seqno) {
+        while ((volatile u32)rx->seqno != x->seqno) {
             if (++attempts == 0) {
                 err = true;
                 goto out;
@@ -187,7 +203,7 @@ closure_func_basic(vqfinish, void, vnet_input,
             kern_pause();
         }
 
-        struct virtio_net_hdr_mrg_rxbuf *saved_hdr = vn->rx_hdr;
+        struct virtio_net_hdr_mrg_rxbuf *saved_hdr = rx->hdr;
         boolean first_msg = (saved_hdr == 0);
         if (first_msg) {
             saved_hdr = (struct virtio_net_hdr_mrg_rxbuf *)x->p.pbuf.payload;
@@ -195,7 +211,7 @@ closure_func_basic(vqfinish, void, vnet_input,
                 pkt_complete = true;
             } else {
                 saved_hdr->num_buffers--;
-                vn->rx_hdr = saved_hdr;
+                rx->hdr = saved_hdr;
                 pkt_complete = false;
             }
         } else {
@@ -208,11 +224,11 @@ closure_func_basic(vqfinish, void, vnet_input,
                 hdr = &saved_hdr->hdr;
                 x = head_pbuf;
                 len = head_pbuf->p.pbuf.tot_len;
-                vn->rx_hdr = 0;
+                rx->hdr = 0;
                 pkt_complete = true;
             }
         }
-        vn->rx_seqno++;
+        rx->seqno++;
         if (!first_msg)
             goto msg_processed;
     } else {
@@ -225,7 +241,7 @@ closure_func_basic(vqfinish, void, vnet_input,
     x->p.pbuf.payload += vn->net_header_len;
   msg_processed:
     if (!pkt_complete) {
-        post_receive(vn);
+        post_receive(vn, rx);
         return;
     }
     if (hdr->flags & VIRTIO_NET_HDR_F_NEEDS_CSUM) {
@@ -258,19 +274,19 @@ closure_func_basic(vqfinish, void, vnet_input,
         }
     }
     if (!err)
-        err = (vn->n->input(&x->p.pbuf, vn->n) != ERR_OK);
+        err = (vn->ndev.n.input(&x->p.pbuf, &vn->ndev.n) != ERR_OK);
   out:
     if (err)
         receive_buffer_release(&x->p.pbuf);
     // we need to get a signal from the device side that there was
     // an underrun here to open up the window
-    post_receive(vn);
+    post_receive(vn, rx);
 }
 
 
-static int post_receive(vnet vn)
+static int post_receive(vnet vn, vnet_rx rx)
 {
-    virtqueue rxq = vn->rxq;
+    virtqueue rxq = rx->q;
     u16 free_entries = virtqueue_free_entries(rxq);
     int new_entries = 0;
     int rxbuflen = vn->rxbuflen;
@@ -279,6 +295,7 @@ static int post_receive(vnet vn)
         if (x == INVALID_ADDRESS)
             break;
         x->vn = vn;
+        x->rx = rx;
         x->p.custom_free_function = receive_buffer_release;
         int desc_count;
         vqmsg m = vnet_rxq_push(vn, x, &desc_count);
@@ -301,14 +318,69 @@ closure_func_basic(mem_cleaner, u64, vnet_mem_cleaner,
                        NET_RX_BUFFERS_RETAIN * (sizeof(struct xpbuf) + vn->rxbuflen));
 }
 
+closure_func_basic(vqfinish, void, vnet_cmd_finish,
+                   u64 len)
+{
+    virtio_net_debug("%s len %ld\n", func_ss, len);
+    vnet_cmd command = struct_from_closure(vnet_cmd, finish);
+    status s;
+    if (len != 1)
+        s = timm("result", "invalid length %ld", len);
+    else if (command->ack != VIRTIO_NET_OK)
+        s = timm("result", "command status %d", command->ack);
+    else
+        s = STATUS_OK;
+    status_handler complete = command->complete;
+    deallocate(command->h, command, sizeof(*command));
+    apply(complete, s);
+}
+
+static boolean vnet_ctrl_cmd(vnet vn, u8 class, u8 cmd, void *data, u32 data_len,
+                             status_handler complete)
+{
+    virtio_net_debug("%s: class %d, cmd %d\n", func_ss, class, cmd);
+    heap h = (heap)vn->dev->contiguous;
+    vnet_cmd command = allocate(h, sizeof(*command));
+    if (command == INVALID_ADDRESS)
+        return false;
+    virtqueue vq = vn->ctl;
+    vqmsg m = allocate_vqmsg(vq);
+    if (m == INVALID_ADDRESS) {
+        deallocate(h, command, sizeof(*command));
+        return false;
+    }
+    command->h = h;
+    command->hdr.class = class;
+    command->hdr.cmd = cmd;
+    command->ack = VIRTIO_NET_ERR;
+    command->complete = complete;
+    vqmsg_push(vq, m, physical_from_virtual(&command->hdr), sizeof(command->hdr), false);
+    if (data_len > 0)
+        vqmsg_push(vq, m, physical_from_virtual(data), data_len, false);
+    vqmsg_push(vq, m, physical_from_virtual(&command->ack), sizeof(command->ack), true);
+    vqmsg_commit(vq, m, init_closure_func(&command->finish, vqfinish, vnet_cmd_finish));
+    return true;
+}
+
+closure_function(2, 1, void, vnet_cmd_mq_complete,
+                 vnet, vn, struct virtio_net_ctrl_mq, ctrl_mq,
+                 status s)
+{
+    if (s == STATUS_OK) {
+        netif_set_link_up(&bound(vn)->ndev.n);
+    } else {
+        msg_err("status %v\n", s);
+        timm_dealloc(s);
+    }
+    closure_finish();
+}
+
 static err_t virtioif_init(struct netif *netif)
 {
     vnet vn = netif->state;
-    netif->hostname = sstring_empty();
 
     netif->name[0] = 'e';
     netif->name[1] = 'n';
-    netif->output = etharp_output;
     netif->linkoutput = low_level_output;
     netif->hwaddr_len = ETHARP_HWADDR_LEN;
     vtdev_cfg_read_mem(vn->dev, 0, netif->hwaddr, ETHER_ADDR_LEN);
@@ -328,7 +400,7 @@ static err_t virtioif_init(struct netif *netif)
 
     /* device capabilities */
     /* don't set NETIF_FLAG_ETHARP if this device is not an ethernet one */
-    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_UP;
     return ERR_OK;
 }
 
@@ -336,6 +408,129 @@ static inline u64 find_page_size(bytes each, int n)
 {
     /* extra element to cover objcache meta */
     return MIN(1ul << find_order(each * (n + 1)), PAGESIZE_2M);
+}
+
+closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
+                   tuple config)
+{
+    vnet vn = struct_from_closure(vnet, ndev.setup);
+    vtdev dev = vn->dev;
+    heap h = dev->general;
+    heap contiguous = (heap)dev->contiguous;
+    u64 max_vq_pairs, vq_pairs;
+    if (dev->features & VIRTIO_NET_F_MQ) {
+        max_vq_pairs = vtdev_cfg_read_2(dev, VIRTIO_NET_R_MAX_VQ);
+        if (max_vq_pairs == 0) {
+            msg_err("device reports 0 virtqueue pairs\n");
+            return false;
+        }
+        if (config && get_u64(config, sym_this("io-queues"), &vq_pairs) && (vq_pairs > 0))
+            vq_pairs = MIN(vq_pairs, max_vq_pairs);
+        else
+            vq_pairs = max_vq_pairs;
+        vq_pairs = MIN(vq_pairs, total_processors);
+    } else {
+        max_vq_pairs = vq_pairs = 1;
+    }
+    virtio_net_debug("max vq pairs %d, using %d\n", max_vq_pairs, vq_pairs);
+    u64 cpus_per_vq = total_processors / vq_pairs;
+    u64 excess_cpus = total_processors - cpus_per_vq * vq_pairs;
+    vnet_rx rx = allocate(h, vq_pairs * sizeof(*rx));
+    if (rx == INVALID_ADDRESS)
+        goto err;
+    vn->rx = rx;
+    vn->txq_map = allocate(h, total_processors * sizeof(vn->txq_map[0]));
+    if (vn->txq_map == INVALID_ADDRESS)
+        goto err1;
+    int rxq_entries = 0, txq_entries = 0;
+    range cpu_affinity;
+    u64 first_cpu = 0, num_cpus = 0;
+    for (u64 i = 0; i < vq_pairs; i++) {
+        first_cpu += num_cpus;
+        num_cpus = (i < excess_cpus) ? (cpus_per_vq + 1) : cpus_per_vq;
+        cpu_affinity = irangel(first_cpu, num_cpus);
+        virtqueue vq;
+        int vq_index = 2 * i;
+        status s = virtio_alloc_vq_aff(dev, ss("virtio net rx"), vq_index, cpu_affinity, &vq);
+        if (!is_ok(s)) {
+            msg_err("failed to allocate vq: %v\n", s);
+            timm_dealloc(s);
+            goto err2;
+        }
+        rx[i].q = vq;
+        rx[i].seqno = 0;
+        rx[i].hdr = 0;
+        rxq_entries += virtqueue_entries(vq);
+        vq_index++;
+        s = virtio_alloc_vq_aff(dev, ss("virtio net tx"), vq_index, cpu_affinity, &vq);
+        if (!is_ok(s)) {
+            msg_err("failed to allocate vq: %v\n", s);
+            timm_dealloc(s);
+            goto err2;
+        }
+        virtqueue_set_polling(vq, true);
+        for (u64 j = first_cpu; j < first_cpu + num_cpus; j++)
+            vn->txq_map[j] = vq;
+        txq_entries += virtqueue_entries(vq);
+    }
+    if (vq_pairs > 1) {
+        status s = virtio_alloc_virtqueue(dev, ss("virtio net ctrl"), 2 * max_vq_pairs, &vn->ctl);
+        if (!is_ok(s)) {
+            msg_err("failed to allocate vq: %v\n", s);
+            timm_dealloc(s);
+            goto err2;
+        }
+    }
+    virtio_net_debug("%s: rx q entries %d, tx q entries %d\n", func_ss,
+                     rxq_entries, txq_entries);
+    bytes rx_allocsize = vn->rxbuflen + sizeof(struct xpbuf);
+    bytes rxbuffers_pagesize = find_page_size(rx_allocsize, rxq_entries);
+    bytes tx_handler_size = sizeof(closure_struct_type(tx_complete));
+    bytes tx_handler_pagesize = find_page_size(tx_handler_size, txq_entries);
+    virtio_net_debug("%s: net_header_len %d, rx_allocsize %d, rxbuffers_pagesize %d "
+                     "tx_handler_size %d tx_handler_pagesize %d\n", func_ss, vn->net_header_len,
+                     rx_allocsize, rxbuffers_pagesize, tx_handler_size, tx_handler_pagesize);
+    vn->rxbuffers = allocate_objcache(h, contiguous, rx_allocsize, rxbuffers_pagesize, true);
+    if (vn->rxbuffers == INVALID_ADDRESS)
+        goto err2;
+    vn->txhandlers = allocate_objcache(h, contiguous, tx_handler_size, tx_handler_pagesize, true);
+    if (vn->txhandlers == INVALID_ADDRESS)
+        goto err3;
+    for (u16 i = 0; i < vq_pairs; i++)
+        if (post_receive(vn, vn->rx + i) == 0) {
+            msg_err("failed to fill rx queues (%d)\n", rxq_entries);
+            goto err4;
+        }
+    if (vq_pairs > 1) {
+        struct virtio_net_ctrl_mq ctrl_mq = {
+            .virtqueue_pairs = vq_pairs,
+        };
+        status_handler complete = closure(contiguous, vnet_cmd_mq_complete, vn, ctrl_mq);
+        if (complete == INVALID_ADDRESS)
+            goto err4;
+        if (!vnet_ctrl_cmd(vn, VIRTIO_NET_CTRL_MQ, VIRTIO_NET_CTRL_MQ_VQ_PAIRS_SET,
+                             &closure_member(vnet_cmd_mq_complete, complete, ctrl_mq),
+                             sizeof(ctrl_mq), complete)) {
+            deallocate_closure(complete);
+            goto err4;
+        }
+    } else {
+        netif_set_link_up(&vn->ndev.n);
+    }
+    vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
+    mm_register_mem_cleaner(init_closure_func(&vn->mem_cleaner, mem_cleaner, vnet_mem_cleaner));
+    return true;
+  err4:
+      destroy_heap((heap)vn->txhandlers);
+  err3:
+    destroy_heap((heap)vn->rxbuffers);
+  err2:
+    deallocate(h, vn->txq_map, total_processors * sizeof(vn->txq_map[0]));
+  err1:
+    deallocate(h, rx, vq_pairs * sizeof(*rx));
+  err:
+    msg_err("vq pairs %d (max %d)\n", vq_pairs, max_vq_pairs);
+    return false;
 }
 
 static void virtio_net_attach(vtdev dev)
@@ -348,8 +543,7 @@ static void virtio_net_attach(vtdev dev)
     backed_heap contiguous = dev->contiguous;
     vnet vn = allocate(h, sizeof(struct vnet));
     assert(vn != INVALID_ADDRESS);
-    vn->n = allocate(h, sizeof(struct netif));
-    assert(vn->n != INVALID_ADDRESS);
+    init_closure_func(&vn->ndev.setup, netif_dev_setup, virtio_net_setup);
     vn->net_header_len = (dev->features & VIRTIO_F_VERSION_1) ||
         (dev->features & VIRTIO_NET_F_MRG_RXBUF) != 0 ?
         sizeof(struct virtio_net_hdr_mrg_rxbuf) : sizeof(struct virtio_net_hdr);
@@ -364,40 +558,16 @@ static void virtio_net_attach(vtdev dev)
     else
         vn->rxbuflen = U16_MAX & ~0x7;  /* lwIP maximum packet length is U16_MAX */
 
-    mm_register_mem_cleaner(init_closure_func(&vn->mem_cleaner, mem_cleaner, vnet_mem_cleaner));
-    /* rx = 0, tx = 1, ctl = 2 by 
-       page 53 of http://docs.oasis-open.org/virtio/virtio/v1.0/cs01/virtio-v1.0-cs01.pdf */
     vn->dev = dev;
-    virtio_alloc_virtqueue(dev, ss("virtio net tx"), 1, &vn->txq);
-    virtqueue_set_polling(vn->txq, true);
-    virtio_alloc_virtqueue(dev, ss("virtio net rx"), 0, &vn->rxq);
-    virtio_net_debug("%s: rx q entries %d, tx q entries %d\n", func_ss,
-                     virtqueue_entries(vn->rxq), virtqueue_entries(vn->txq));
-    bytes rx_allocsize = vn->rxbuflen + sizeof(struct xpbuf);
-    bytes rxbuffers_pagesize = find_page_size(rx_allocsize, virtqueue_entries(vn->rxq));
-    bytes tx_handler_size = sizeof(closure_struct_type(tx_complete));
-    bytes tx_handler_pagesize = find_page_size(tx_handler_size, virtqueue_entries(vn->txq));
-    virtio_net_debug("%s: net_header_len %d, rx_allocsize %d, rxbuffers_pagesize %d "
-                     "tx_handler_size %d tx_handler_pagesize %d\n", func_ss, vn->net_header_len,
-                     rx_allocsize, rxbuffers_pagesize, tx_handler_size, tx_handler_pagesize);
-    vn->rxbuffers = allocate_objcache(h, (heap)contiguous, rx_allocsize, rxbuffers_pagesize, true);
-    assert(vn->rxbuffers != INVALID_ADDRESS);
-    vn->rx_seqno = 0;
-    vn->rx_hdr = 0;
-    vn->txhandlers = allocate_objcache(h, (heap)contiguous, tx_handler_size, tx_handler_pagesize, true);
-    assert(vn->txhandlers != INVALID_ADDRESS);
     vn->empty = alloc_map(contiguous, contiguous->h.pagesize, &vn->empty_phys);
     assert(vn->empty != INVALID_ADDRESS);
     for (int i = 0; i < vn->net_header_len; i++)
         ((u8 *)vn->empty)[i] = 0;
-    vn->n->state = vn;
-    vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
-    netif_add(vn->n,
+    netif_add(&vn->ndev.n,
               0, 0, 0, 
               vn,
               virtioif_init,
               ethernet_input);
-    assert(post_receive(vn) > 0);
 }
 
 closure_function(2, 1, boolean, vtpci_net_probe,

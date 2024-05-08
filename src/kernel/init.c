@@ -219,10 +219,24 @@ extern filesystem_complete bootfs_handler(kernel_heaps kh, tuple root,
                                           status_handler klibs_complete, boolean klibs_in_bootfs,
                                           boolean ingest_kernel_syms);
 
+closure_function(1, 1, void, kern_start,
+                 thunk, stage3,
+                 status s)
+{
+    if (is_ok(s)) {
+        thunk stage3 = bound(stage3);
+        apply(stage3);
+    } else {
+        msg_err("%v\n", s);
+        timm_dealloc(s);
+    }
+    closure_finish();
+}
+
 BSS_RO_AFTER_INIT static tuple_notifier wrapped_root;
 
-closure_function(2, 2, void, fsstarted,
-                 u8 *, mbr, storage_req_handler, req_handler,
+closure_function(4, 2, void, fsstarted,
+                 u8 *, mbr, storage_req_handler, req_handler, void *, start, status_handler, complete,
                  filesystem fs, status s)
 {
     init_debug("%s\n", func_ss);
@@ -255,7 +269,7 @@ closure_function(2, 2, void, fsstarted,
     boolean klibs_in_bootfs = klibs && !buffer_strcmp(klibs, "bootfs");
 
     merge m;
-    async_apply(create_init(init_heaps, root, fs, &m));
+    closure_member(kern_start, bound(start), stage3) = create_init(init_heaps, root, fs, &m);
     boolean opening_bootfs = false;
     if (mbr) {
         heap bh = (heap)heap_linear_backed(init_heaps);
@@ -279,11 +293,13 @@ closure_function(2, 2, void, fsstarted,
     if (klibs && !opening_bootfs)
         init_klib(init_heaps, fs, root, apply_merge(m));
 
-    closure_finish();
     symbol booted = sym(booted);
     if (!get(root, booted))
         filesystem_write_eav((tfs)fs, fs_root, booted, null_value, false);
     config_console(root);
+    status_handler complete = bound(complete);
+    apply(complete, STATUS_OK);
+    closure_finish();
 }
 
 static char *cmdline_next_option(char *cmdline_start, int cmdline_len, int *opt_len)
@@ -509,7 +525,8 @@ boolean first_boot(void)
     return !get(get_root_tuple(), sym(booted));
 }
 
-static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u64 length)
+static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u64 length,
+                        void *start, status_handler complete)
 {
     init_debug("%s", func_ss);
     length -= offset;
@@ -520,7 +537,7 @@ static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u6
                       closure(h, offset_req_handler, offset, req_handler),
                       false,
                       sstring_null(),
-                      closure(h, fsstarted, mbr, req_handler));
+                      closure(h, fsstarted, mbr, req_handler, start, complete));
 }
 
 closure_function(2, 2, void, volume_fs_init,
@@ -532,8 +549,8 @@ closure_function(2, 2, void, volume_fs_init,
     closure_finish();
 }
 
-closure_function(4, 1, void, mbr_read,
-                 u8 *, mbr, storage_req_handler, req_handler, u64, length, int, attach_id,
+closure_function(6, 1, void, mbr_read,
+                 u8 *, mbr, storage_req_handler, req_handler, u64, length, int, attach_id, void *, start, status_handler, complete,
                  status s)
 {
     init_debug("%s", func_ss);
@@ -565,13 +582,15 @@ closure_function(4, 1, void, mbr_read,
         struct partition_entry *first_part = partition_at(mbr, 0);
         klog_disk_setup(first_part->lba_start * SECTOR_SIZE - KLOG_DUMP_SIZE, bound(req_handler));
 
-        rootfs_init(mbr, rootfs_part->lba_start * SECTOR_SIZE, bound(req_handler), bound(length));
+        rootfs_init(mbr, rootfs_part->lba_start * SECTOR_SIZE, bound(req_handler), bound(length),
+                    bound(start), bound(complete));
     }
   out:
     closure_finish();
 }
 
-closure_func_basic(storage_attach, void, attach_storage,
+closure_function(2, 3, void, attach_storage,
+                 void *, start, status_handler, complete,
                    storage_req_handler req_handler, u64 length, int attach_id)
 {
     heap h = heap_locked(init_heaps);
@@ -582,7 +601,8 @@ closure_func_basic(storage_attach, void, attach_storage,
         msg_err("cannot allocate memory for MBR sector\n");
         return;
     }
-    status_handler sh = closure(h, mbr_read, mbr, req_handler, length, attach_id);
+    status_handler sh = closure(h, mbr_read, mbr, req_handler, length, attach_id,
+                                bound(start), bound(complete));
     if (sh == INVALID_ADDRESS) {
         msg_err("cannot allocate MBR read closure\n");
         deallocate(bh, mbr, PAGESIZE);
@@ -691,7 +711,11 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("probe fs, register storage drivers");
     init_volumes(locked);
 
-    storage_attach sa = closure_func(misc, storage_attach, attach_storage);
+    status_handler start = closure(locked, kern_start, 0);
+    assert(start != INVALID_ADDRESS);
+    merge m = allocate_merge(locked, start);
+    storage_attach sa = closure(misc, attach_storage, start, apply_merge(m));
+    status_handler complete = apply_merge(m);
 
     init_debug("detect_devices");
     detect_devices(kh, sa);
@@ -699,6 +723,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("pci_discover (for other devices)");
     pci_discover();
     init_debug("discover done");
+    apply(complete, STATUS_OK);
 
     init_debug("starting runloop");
     runloop();

@@ -367,12 +367,13 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
                 change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_NEW);
             }
             pp->refcount++;
-        } else {
-            r = irange(0, 0);
         }
         pagecache_unlock_state(pc);
 
-        if (range_span(r)) {
+        if (m) {
+            if (range_span(r) == 0)
+                return true;
+
             /* issue page reads */
             pagecache_debug("   pc %p, pp %p, r %R, reading...\n", pc, pp, r);
             sg_list sg = allocate_sg_list();
@@ -383,9 +384,8 @@ static boolean touch_or_fill_page_nodelocked(pagecache_node pn, pagecache_page p
             assert(pagecache_add_sgb(pp, sg, read_size) != INVALID_ADDRESS);
             dma_sg_read(pn->fs_read, sg, r,
                   closure(pc->h, pagecache_read_page_complete, pc, pp, sg));
-            return false;
         }
-        return true;
+        return false;
     case PAGECACHE_PAGESTATE_ACTIVE:
         /* move to bottom of active list */
         list_delete(&pp->l);

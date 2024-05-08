@@ -83,14 +83,6 @@ static inline extent allocate_extent(heap h, range file_blocks, range storage_bl
     return e;
 }
 
-#ifdef KERNEL
-#define uninited_lock(u) spin_lock(&(u)->lock);
-#define uninited_unlock(u) spin_unlock(&(u)->lock);
-#else
-#define uninited_lock(u)
-#define uninited_unlock(u)
-#endif
-
 closure_function(2, 1, boolean, tfs_storage_alloc,
                  u64, nblocks, u64 *, start_block,
                  range r)
@@ -277,26 +269,6 @@ void zero_blocks(tfs fs, range blocks, merge m)
     apply(fs->req_handler, &req);
 }
 
-/* called with uninited lock held */
-static void queue_uninited_op(tfs fs, uninited u, sg_list sg, range blocks,
-                              status_handler complete, boolean write)
-{
-    struct uninited_queued_op uqo;
-    uqo.sg = sg;
-    uqo.m = allocate_merge(fs->fs.h, complete);
-    if (uqo.m == INVALID_ADDRESS)
-        goto alloc_fail;
-    uqo.blocks = blocks;
-    uqo.write = write;
-    if (!buffer_append(u->op_queue, &uqo, sizeof(uqo))) {
-        complete = apply_merge(uqo.m);
-        goto alloc_fail;
-    }
-    return;
-  alloc_fail:
-    apply(complete, timm("result", "failed to allocate and enqueue uninited op"));
-}
-
 closure_function(4, 1, boolean, read_extent,
                  tfs, fs, sg_list, sg, merge, m, range, blocks,
                  rmnode node)
@@ -310,18 +282,11 @@ closure_function(4, 1, boolean, read_extent,
     range blocks = irangel(e->start_block + e_offset, len);
     tfs_debug("%s: e %p, uninited %p, sg %p m %p blocks %R, i %R, len %ld, blocks %R\n",
               func_ss, e, e->uninited, bound(sg), bound(m), bound(blocks), i, len, blocks);
-    if (!e->uninited) {
+    uninited u = e->uninited;
+    if (!u || ((u != INVALID_ADDRESS) && u->initialized))
         filesystem_storage_op(fs, sg, blocks, false, apply_merge(bound(m)));
-    } else if (e->uninited == INVALID_ADDRESS) {
+    else
         sg_zero_fill(sg, range_span(blocks) << fs->fs.blocksize_order);
-    } else {
-        uninited_lock(e->uninited);
-        if (e->uninited->initialized)
-            filesystem_storage_op(fs, sg, blocks, false, apply_merge(bound(m)));
-        else
-            queue_uninited_op(fs, e->uninited, sg, blocks, apply_merge(bound(m)), false);
-        uninited_unlock(e->uninited);
-    }
     return true;
 }
 
@@ -542,34 +507,11 @@ define_closure_function(2, 1, void, uninited_complete,
                         status s)
 {
     uninited u = bound(u);
-    uninited_lock(u);
     if (!is_ok(s))
         s = timm_up(s, "result", "failed to convert uninited extent");
     apply(bound(complete), s);
 
-    /* Issue dependent storage operations. Note that we issue these all at
-       once, without waiting for completions, rather than in a sequential
-       fashion. This mirrors the normal behavior of storage operations, and
-       works thanks to the property of the pagecache issuing multiple
-       operations (writes, really) using the same buffer. So, unlike with the
-       contention between the zeroing of uninited sectors and subsequent r/w
-       operations, out-of-order completion of requests is not an issue
-       here. */
-    while (buffer_length(u->op_queue) > 0) {
-        assert(buffer_length(u->op_queue) % sizeof(uninited_queued_op) == 0);
-        uninited_queued_op uqo = buffer_ref(u->op_queue, 0);
-        tfs_debug("%s: issuing op, fs %p, sg %p, m %p, blocks %R, write %d\n",
-                  func_ss, u->fs, uqo->sg, uqo->m, uqo->blocks, uqo->write);
-        if (uqo->sg)
-            filesystem_storage_op(u->fs, uqo->sg, uqo->blocks, uqo->write, apply_merge(uqo->m));
-        else
-            zero_blocks(u->fs, uqo->blocks, uqo->m);
-        buffer_consume(u->op_queue, sizeof(struct uninited_queued_op));
-    }
-    deallocate_buffer(u->op_queue);
-    u->op_queue = 0;
     u->initialized = true;
-    uninited_unlock(u);
     refcount_release(&u->refcount);
 }
 
@@ -587,15 +529,7 @@ static uninited allocate_uninited(tfs fs, status_handler sh)
     if (u == INVALID_ADDRESS)
         return u;
     u->fs = fs;
-#ifdef KERNEL
-    spin_lock_init(&u->lock);
-#endif
     init_refcount(&u->refcount, 2, init_closure(&u->free, free_uninited, h, u));
-    u->op_queue = allocate_buffer(h, sizeof(struct uninited_queued_op));
-    if (u->op_queue == INVALID_ADDRESS) {
-        deallocate(h, u, sizeof(struct uninited));
-        return INVALID_ADDRESS;
-    }
     u->initialized = false;
     init_closure(&u->complete, uninited_complete, u, sh);
     return u;
@@ -648,17 +582,7 @@ static u64 write_extent(tfsfile f, extent ex, sg_list sg, range blocks, merge m)
         }
         apply(k, STATUS_OK);
         return i.end;
-    } else if (ex->uninited != 0) {
-        uninited_lock(ex->uninited);
-        if (ex->uninited->initialized) {
-            uninited_unlock(ex->uninited);
-            goto write;
-        }
-        queue_uninited_op(fs, ex->uninited, sg, r, apply_merge(m), true);
-        uninited_unlock(ex->uninited);
-        return i.end;
     }
-  write:
     if (sg)
         filesystem_storage_op(fs, sg, r, true, apply_merge(m));
     else

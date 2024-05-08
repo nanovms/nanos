@@ -89,7 +89,7 @@ MK_PCI_BAR_WRITE(1, 8)
 MK_PCI_BAR_WRITE(2, 16)
 MK_PCI_BAR_WRITE(4, 32)
 
-void pci_setup_non_msi_irq(pci_dev dev, thunk h, sstring name)
+void pci_setup_irq_aff(pci_dev dev, thunk h, sstring name, range cpu_affinity)
 {
     /* To mimic the interrupt assignment swizzle we need to know the 
        device/slot and interrupt pin assignment: 
@@ -97,7 +97,7 @@ void pci_setup_non_msi_irq(pci_dev dev, thunk h, sstring name)
     u64 irq = 0x20 + (dev->slot + (pci_cfgread(dev, PCIR_INT_PIN, 1)-1)) % 4;
     pci_plat_debug("%s: bus %d slot %d func %d pin %d irq 0x%x\n", func_ss,
                    dev->bus, dev->slot, dev->function, pci_cfgread(dev, PCIR_INT_PIN, 1), irq);
-    register_interrupt(irq, h, name);
+    irq_register_handler(irq, h, name, cpu_affinity);
 }
 
 /* Rudimentary resource allocation based on fixed offests for virt
@@ -123,13 +123,14 @@ void pci_platform_init_bar(pci_dev dev, int bar_idx)
     }
 }
 
-u64 pci_platform_allocate_msi(pci_dev dev, thunk h, sstring name, u32 *address, u32 *data)
+u64 pci_platform_allocate_msi(pci_dev dev, thunk h, sstring name, u32 target_cpu,
+                              u32 *address, u32 *data)
 {
     u64 v = allocate_msi_interrupt();
     if (v == INVALID_PHYSICAL)
         return v;
     register_interrupt(v, h, name);
-    msi_format(address, data, v);
+    msi_format(address, data, v, target_cpu);
     return v;
 }
 

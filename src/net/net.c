@@ -371,6 +371,15 @@ void init_network_iface(tuple root, merge m) {
                 t = root;
         }
 
+        n->hostname = sstring_empty();
+        if (n->flags & NETIF_FLAG_ETHARP) {
+            n->output = etharp_output;
+            n->output_ip6 = ethip6_output;
+        }
+        netif_dev dev = n->state;
+        netif_dev_setup setup = (netif_dev_setup)&dev->setup;
+        if (*setup && !apply(setup, t))
+            msg_err("failed to set up %s\n", ifname);
         u64 mtu;
         if (t) {
             if (get_u64(t, sym(mtu), &mtu)) {
@@ -389,7 +398,6 @@ void init_network_iface(tuple root, merge m) {
             }
         }
 
-        n->output_ip6 = ethip6_output;
         netif_create_ip6_linklocal_address(n, 1);
         netif_set_flags(n, NETIF_FLAG_MLD6);
         if (!default_iface)

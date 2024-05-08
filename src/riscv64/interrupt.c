@@ -136,7 +136,7 @@ void dump_context(context ctx)
     print_stack(f);
 }
 
-void register_interrupt(int vector, thunk t, sstring name)
+static void irq_register_internal(int vector, thunk t, sstring name, range cpu_affinity)
 {
     // XXX ignore handlers for vector 0 (i.e. not implemented)
     if (vector == 0)
@@ -154,9 +154,13 @@ void register_interrupt(int vector, thunk t, sstring name)
 
     if (vector <= PLIC_MAX_INT && !initialized) {
         plic_set_int_priority(vector, 1);
-        plic_clear_pending_int(vector);
-        plic_enable_int(vector);
+        plic_enable_int(vector, irq_get_target_cpu(cpu_affinity));
     }
+}
+
+void register_interrupt(int vector, thunk t, sstring name)
+{
+    irq_register_internal(vector, t, name, irange(0, 0));
 }
 
 void unregister_interrupt(int vector)
@@ -175,6 +179,13 @@ void unregister_interrupt(int vector)
         list_delete(&h->l);
         deallocate(int_general, h, sizeof(struct inthandler));
     }
+}
+
+void irq_register_handler(int irq, thunk h, sstring name, range cpu_affinity)
+{
+    if (range_empty(cpu_affinity))
+        cpu_affinity = irange(0, total_processors);
+    irq_register_internal(irq, h, name, cpu_affinity);
 }
 
 void riscv_timer(void)
@@ -318,13 +329,13 @@ void trap_exception(void)
 #ifdef INT_DEBUG
         if (v < sizeof(interrupt_names)/sizeof(interrupt_names[0])) {
             rputs(" (");
-            rputs_sstring(interrupt_names[v]);
+            rput_sstring(interrupt_names[v]);
             rputs(")");
         }
         rputs("\n   context: ");
         print_u64_with_sym(u64_from_pointer(ctx));
         rputs(" (");
-        rputs(state_strings[ci->state]);
+        rput_sstring(state_strings[ci->state]);
         rputs(")");
         rputs("\n    status: ");
         print_u64_with_sym(u64_from_pointer(f[FRAME_STATUS]));

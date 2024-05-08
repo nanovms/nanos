@@ -11,7 +11,7 @@
 #define gic_debug(x, ...)
 #endif
 
-#define GIC_ICID    0   /* a single interrupt collection is being used */
+#define GIC_ICID(cpuid) (cpuid)   /* mapping between target CPU and interrupt collection */
 
 /* The physical address of the command queue must be aligned to 64 KB. */
 #define GIC_CMD_QUEUE_SIZE  (64 * KB)
@@ -22,14 +22,16 @@ static struct {
     u64 dist_base;
     struct {
         u64 base;
-        u64 rdbase;
-    } redist;   /* redistributor associated to CPU 0 */
+        u64 propbase;
+        u64 pendbase;
+    } redist;
     u64 its_base;
     u8 *lpi_cfg_table;
     u64 its_typer;
     u32 dev_id_limit;
     void *its_cmd_queue;
     struct list devices;
+    table its_irq_map;  /* maps interrupt vectors to target CPUs */
 } gic;
 
 typedef struct its_dev {
@@ -40,6 +42,7 @@ typedef struct its_dev {
 
 #define gicd_read_32(reg)           mmio_read_32(gic.dist_base + GICD_ ## reg)
 #define gicd_write_32(reg, value)   mmio_write_32(gic.dist_base + GICD_ ## reg, value)
+#define gicd_write_64(reg, value)   mmio_write_64(gic.dist_base + GICD_ ## reg, value)
 
 #define gicr_base                   (current_cpu()->m.gic_rdist_base)
 #define gicr_read_32(reg)           mmio_read_32(gicr_base + GICR_ ## reg)
@@ -149,6 +152,25 @@ void gic_clear_pending_int(int irq)
 GIC_SET_INTFIELD(priority, IPRIORITY)
 GIC_SET_INTFIELD(config, ICFG)
 
+void gic_set_int_target(int irq, u32 target_cpu)
+{
+    gic_debug("irq %d, target %d\n", irq, target_cpu);
+    if ((irq < GIC_SPI_INTS_START) || (irq >= GIC_SPI_INTS_END))
+        return;
+    if (gic.v3_iface) { /* use affinity routing */
+        u64 mpid = mpid_from_cpuid(target_cpu);
+        gicd_write_64(IROUTER(irq), mpid);
+    } else {
+        int reg_num = irq / GICD_INTS_PER_ITARGETS_REG;
+        u32 itargets = gicd_read_32(ITARGETSR(reg_num));
+        int width = 32 / GICD_INTS_PER_ITARGETS_REG;
+        int reg_offset = (irq - reg_num * GICD_INTS_PER_ITARGETS_REG) * width;
+        itargets &= ~(MASK32(width) << reg_offset);
+        itargets |= U32_FROM_BIT(target_cpu) << reg_offset;
+        gicd_write_32(ITARGETSR(reg_num), itargets);
+    }
+}
+
 boolean gic_int_is_pending(int irq)
 {
     int w = irq / GICD_INTS_PER_IPEND_REG;
@@ -226,19 +248,14 @@ static void init_gicd(void)
          i < GIC_SPI_INTS_END / GICD_INTS_PER_IGROUP_REG; i++)
         gicd_write_32(IGROUPR(i), MASK(32));
 
-    /* shared periph target cpu0 */
-    for (int i = GIC_SPI_INTS_START / GICD_INTS_PER_ITARGETS_REG;
-         i < GIC_SPI_INTS_END / GICD_INTS_PER_ITARGETS_REG; i++)
-        gicd_write_32(ITARGETSR(i), 0x01010101);
-
-    /* enable
-       XXX - turn on affinity routing (ARE)? */
-
     /* Kludge: We seem to have one gicv2 variant (qemu w/ noaccel) that honors
        bit 1 as GRP1 enable, and another (qemu w/ kvm on bcm2711) which
        doesn't, so set both for now until the variants can be sorted
        out. (This may be due to the presence of GIC Security Extensions. */
-    gicd_write_32(CTLR, GICD_CTLR_ENABLEGRP1 | GICD_CTLR_ENABLEGRP0);
+    u32 ctrl = GICD_CTLR_ENABLEGRP1 | GICD_CTLR_ENABLEGRP0;
+    if (gic.v3_iface)
+        ctrl |= GICD_CTLR_ARE_NS;   /* enable affinity routing */
+    gicd_write_32(CTLR, ctrl);
 }
 
 /* aliases for macro use */
@@ -265,7 +282,7 @@ void gic_eoi(int irq)
     gicc_write(EOIR1, irq);
 }
 
-boolean dev_irq_enable(u32 dev_id, int vector)
+boolean dev_irq_enable(u32 dev_id, int vector, u32 target_cpu)
 {
     gic_debug("dev 0x%x, irq %d\n", dev_id, vector);
     if ((vector >= gic_msi_vector_base) && gic.its_base) {
@@ -304,9 +321,13 @@ boolean dev_irq_enable(u32 dev_id, int vector)
         }
         u32 event_id = vector - gic_msi_vector_base;
         gic_its_cmd(((u64)dev_id << 32) | ITS_CMD_MAPTI, ((u64)vector << 32) | event_id,
-                    GIC_ICID, 0);
+                    GIC_ICID(target_cpu), 0);
         gic_its_cmd(((u64)dev_id << 32) | ITS_CMD_INV, event_id, 0, 0);
-        gic_its_cmd(ITS_CMD_SYNC, 0, gic.redist.rdbase << 16, 0);
+        cpuinfo ci = cpuinfo_from_id(target_cpu);
+        gic_its_cmd(ITS_CMD_SYNC, 0, ci->m.gic_rdist_rdbase << 16, 0);
+        table_set(gic.its_irq_map, pointer_from_u64((u64)vector), ci);
+    } else {
+        gic_set_int_target(vector, target_cpu);
     }
     return true;
 }
@@ -318,11 +339,13 @@ void dev_irq_disable(u32 dev_id, int vector)
         u32 event_id = vector - gic_msi_vector_base;
         gic_its_cmd(((u64)dev_id << 32) | ITS_CMD_DISCARD, event_id, 0, 0);
         gic_its_cmd(((u64)dev_id << 32) | ITS_CMD_INV, event_id, 0, 0);
-        gic_its_cmd(ITS_CMD_SYNC, 0, gic.redist.rdbase << 16, 0);
+        cpuinfo ci = table_remove(gic.its_irq_map, pointer_from_u64((u64)vector));
+        if (ci)
+            gic_its_cmd(ITS_CMD_SYNC, 0, ci->m.gic_rdist_rdbase << 16, 0);
     }
 }
 
-void msi_format(u32 *address, u32 *data, int vector)
+void msi_format(u32 *address, u32 *data, int vector, u32 target_cpu)
 {
     if (gic.its_base) {
         *address = gic.its_base + GITS_TRANSLATER - DEVICE_BASE;
@@ -333,12 +356,18 @@ void msi_format(u32 *address, u32 *data, int vector)
     }
 }
 
-int msi_get_vector(u32 data)
-{
-    if (gic.its_base)
-        return (data + gic_msi_vector_base);
-    else
-        return data;
+void msi_get_config(u32 address, u32 data, int *vector, u32 *target_cpu) {
+    if (gic.its_base) {
+        *vector = data + gic_msi_vector_base;
+        cpuinfo ci = table_find(gic.its_irq_map, pointer_from_u64((u64)*vector));
+        if (ci)
+            *target_cpu = ci->id;
+        else
+            *target_cpu = 0;
+    } else {
+        *vector = data;
+        *target_cpu = 0;    /* retrieval of target CPU not supported */
+    }
 }
 
 static void init_gicc(void)
@@ -376,14 +405,26 @@ static void init_gicc(void)
     }
 }
 
+static void gits_percpu_init(void)
+{
+    cpuinfo ci = current_cpu();
+    u64 rdbase;
+    if (gic.its_typer & GITS_TYPER_PTA)
+        rdbase = ci->m.gic_rdist_base >> 16;
+    else
+        rdbase = GICR_TYPER_PROC_NUM(gicr_read_64(TYPER));
+    gic_debug("cpu %d, rdbase 0x%lx\n", ci->id, rdbase);
+    ci->m.gic_rdist_rdbase = rdbase;
+
+    /* map an interrupt collection to the redistributor associated to this CPU */
+    gic_its_cmd(ITS_CMD_MAPC, 0, ITS_MAPC_V | (rdbase << 16) | GIC_ICID(ci->id), 0);
+}
+
 static void init_gits(kernel_heaps kh)
 {
     gic.its_typer = gits_read_64(TYPER);
     gic_debug("typer 0x%lx\n", gic.its_typer);
-    if (gic.its_typer & GITS_TYPER_PTA)
-        gic.redist.rdbase = gic.redist.base >> 16;
-    else
-        gic.redist.rdbase = GICR_TYPER_PROC_NUM(gicr_read_64(TYPER));
+    heap h = heap_locked(kh);
     backed_heap backed = heap_linear_backed(kh);
     u64 pa;
     for (int n = 0; n < 8; n++) {
@@ -419,6 +460,8 @@ static void init_gits(kernel_heaps kh)
             break;
         }
     }
+    gic.its_irq_map = allocate_table(h, identity_key, pointer_equal);
+    assert(gic.its_irq_map != INVALID_ADDRESS);
     list_init(&gic.devices);
 
     /* Set up the command queue. */
@@ -429,8 +472,7 @@ static void init_gits(kernel_heaps kh)
 
     gits_write_32(CTLR, GITS_CTRL_ENABLED); /* Enable the ITS. */
 
-    /* Map an interrupt collection to the redistributor associated to CPU 0. */
-    gic_its_cmd(ITS_CMD_MAPC, 0, ITS_MAPC_V | (gic.redist.rdbase << 16) | GIC_ICID, 0);
+    gits_percpu_init();
 }
 
 BSS_RO_AFTER_INIT u16 gic_msi_vector_base;
@@ -496,13 +538,15 @@ int init_gic(void)
         assert(gic.lpi_cfg_table != INVALID_ADDRESS);
         zero(gic.lpi_cfg_table, PAGESIZE);
         u64 id_bits = find_order(gic_msi_vector_base + gic_msi_vector_num) - 1;
-        gicr_write_64(PROPBASER, pa | id_bits);
+        gic.redist.propbase = pa | id_bits;
+        gicr_write_64(PROPBASER, gic.redist.propbase);
 
         /* Set up LPI pending table, which must be aligned to 64 KB. */
         void *lpi_pending_table = alloc_map(backed, 64 * KB, &pa);
         assert(lpi_pending_table != INVALID_ADDRESS);
         zero(lpi_pending_table, 64 * KB);
-        gicr_write_64(PENDBASER, GICR_PENDBASER_PTZ | pa);
+        gic.redist.pendbase = GICR_PENDBASER_PTZ | pa;
+        gicr_write_64(PENDBASER, gic.redist.pendbase);
 
         gicr_write_32(CTLR, GICR_CTLR_EnableLPIs);
         if (gic.its_base)
@@ -525,8 +569,14 @@ int init_gic(void)
 
 void gic_percpu_init(void)
 {
-    if (gic.v3_iface)
+    if (gic.v3_iface) {
         gicr_get_base();
+        gicr_write_64(PROPBASER, gic.redist.propbase);
+        gicr_write_64(PENDBASER, gic.redist.pendbase);
+        gicr_write_32(CTLR, GICR_CTLR_EnableLPIs);
+        if (gic.its_base)
+            gits_percpu_init();
+    }
     init_gicd_percpu();
     init_gicc();
 }
