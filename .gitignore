@@ -1,3 +1,8 @@
+html/
+latex/
+
+target-root/
+
 Makefile.local
 /tags
 /TAGS
