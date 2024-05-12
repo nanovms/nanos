@@ -15,6 +15,30 @@ buffer allocate_buffer(heap h, bytes s)
     return b;
 }
 
+bytes buffer_set_capacity(buffer b, bytes len)
+{
+    bytes old_len = b->length;
+    if (buffer_is_wrapped(b))   /* wrapped buffers can't be resized */
+        return old_len;
+    bytes content_len = b->end - b->start;
+    if (len < content_len)
+        len = content_len;
+    if (len != old_len) {
+        void *new = allocate(b->h, len);
+        if (new == INVALID_ADDRESS)
+            return old_len;
+        if (old_len) {
+            runtime_memcpy(new, b->contents + b->start, content_len);
+            deallocate(b->h, b->contents, old_len);
+        }
+        b->length = len;
+        b->end = content_len;
+        b->start = 0;
+        b->contents = new;
+    }
+    return len;
+}
+
 boolean buffer_append(buffer b,
                      const void *body,
                      bytes length)

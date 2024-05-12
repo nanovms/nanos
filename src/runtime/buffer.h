@@ -118,25 +118,7 @@ static inline boolean buffer_is_wrapped(buffer b)
     return b->wrapped;
 }
 
-static inline bytes buffer_set_capacity(buffer b, bytes len)
-{
-    if (buffer_is_wrapped(b))   /* wrapped buffers can't be resized */
-        return b->length;
-    if (len < b->end - b->start)
-        len = b->end - b->start;
-    if (len != b->length) {
-        void *new = allocate(b->h, len);
-        if (new == INVALID_ADDRESS)
-            return b->length;
-        runtime_memcpy(new, b->contents + b->start, b->end - b->start);
-        deallocate(b->h, b->contents, b->length);
-        b->length = len;
-        b->end = b->end - b->start;
-        b->start = 0;
-        b->contents = new;
-    }
-    return len;
-}
+bytes buffer_set_capacity(buffer b, bytes len);
 
 static inline boolean buffer_extend(buffer b, bytes len)
 {
