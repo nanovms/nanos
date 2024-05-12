@@ -23,6 +23,7 @@ SRCS-cloud_init= \
 	$(CURDIR)/cloud_azure.c \
 	$(CURDIR)/cloud_init.c \
 	$(CURDIR)/net_utils.c \
+	$(CURDIR)/xml.c \
 
 SRCS-cloudwatch= \
 	$(CURDIR)/aws.c \
