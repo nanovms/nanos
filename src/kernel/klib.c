@@ -11,10 +11,20 @@
 #define klib_debug(x, ...)
 #endif
 
+typedef struct klib_autoload {
+    struct list retry_klibs;
+    closure_struct(status_handler, kl_complete);
+    status_handler complete;
+    struct spinlock lock;
+    int pending;
+} *klib_autoload;
+
 BSS_RO_AFTER_INIT static kernel_heaps klib_kh;
 BSS_RO_AFTER_INIT static filesystem klib_fs;
 BSS_RO_AFTER_INIT static tuple klib_root;
 BSS_RO_AFTER_INIT static vector klib_loaded;
+
+static void klib_missing_deps(klib_autoload autoload);
 
 closure_function(1, 1, boolean, klib_elf_walk,
                  klib, kl,
@@ -195,74 +205,112 @@ void unload_klib(klib kl)
     klib_debug("   unload complete\n");
 }
 
-closure_function(3, 1, void, klibs_complete,
-                 u64, pending, queue, retry_klibs, status_handler, complete,
-                 status s)
+closure_func_basic(status_handler, void, klibs_complete,
+                   status s)
 {
-    queue retry_klibs = bound(retry_klibs);
-    if (!queue_empty(retry_klibs))
-        halt("missing klib dependencies\n");
-    deallocate_queue(retry_klibs);
-    apply(bound(complete), s);
-    closure_finish();
+    klib_autoload autoload = struct_from_closure(klib_autoload, kl_complete);
+    apply(autoload->complete, s);
+    deallocate(heap_locked(klib_kh), autoload, sizeof(*autoload));
 }
 
 closure_function(4, 2, void, autoload_klib_complete,
-                 u64 *, pending, queue, retry_klibs, status_handler, sh, klib, kl,
+                 klib_autoload, autoload, status_handler, sh, klib, kl, struct list, l,
                  klib kl, int rv)
 {
-    u64 pending = fetch_and_add(bound(pending), -1);
-    queue retry_klibs = bound(retry_klibs);
+    klib_autoload autoload = bound(autoload);
+    list retry_klibs = &autoload->retry_klibs;
+    status s;
     switch (rv) {
     case KLIB_INIT_IN_PROGRESS:
     case KLIB_INIT_OK: {
+        spin_lock(&autoload->lock);
+        autoload->pending--;
         klib_debug("%p: ingesting elf symbols\n", kl);
         add_elf_syms(kl->elf, kl->load_range.start);
         vector_push(klib_loaded, kl);
 
         /* Retry initialization of klibs with missing dependencies. */
-        u64 qlen = queue_length(retry_klibs);
-        for (u64 retry_count = 0; retry_count < qlen; retry_count++) {
-            klib_handler retry = dequeue(retry_klibs);
-            if (retry == INVALID_ADDRESS)
-                break;
-            fetch_and_add(bound(pending), 1);
+        klib_handler retry;
+        int retry_rv = KLIB_MISSING_DEP;
+        list_foreach(retry_klibs, elem) {
+            retry = (klib_handler)struct_from_field(elem,
+                                                    closure_struct_type(autoload_klib_complete) *,
+                                                    l);
             kl =  closure_member(autoload_klib_complete, retry, kl);
-            apply(retry, kl, klib_initialize(kl, bound(sh)));
+            status_handler sh = closure_member(autoload_klib_complete, retry, sh);
+            retry_rv = klib_initialize(kl, sh);
+            if (retry_rv != KLIB_MISSING_DEP) {
+                list_delete(elem);
+                break;
+            }
         }
+        if (retry_rv != KLIB_MISSING_DEP) {
+            autoload->pending++;
+            spin_unlock(&autoload->lock);
+            apply(retry, kl, retry_rv);
+        } else if (!autoload->pending) {
+            spin_unlock(&autoload->lock);
+            klib_missing_deps(autoload);
+        } else {
+            spin_unlock(&autoload->lock);
+        }
+        s = STATUS_OK;
         break;
     }
     case KLIB_MISSING_DEP:
         bound(kl) = kl;
-        assert(enqueue(retry_klibs, closure_self()));
-        if (pending > 1)
+        spin_lock(&autoload->lock);
+        if (autoload->pending-- > 1) {
             /* Missing dependencies could be satisfied by pending klibs. */
+            list_push_back(retry_klibs, &bound(l));
+            s = STATUS_OK;
+        } else {
+            s = timm("result", "missing dependencies for %b klib", kl->name);
+        }
+        spin_unlock(&autoload->lock);
+        if (s == STATUS_OK)
             return;
+        klib_missing_deps(autoload);
         break;
     default:
         halt("klib automatic load failed (%d)\n", rv);
     }
     if (rv != KLIB_INIT_IN_PROGRESS)
-        apply(bound(sh), STATUS_OK);
+        apply(bound(sh), s);
     closure_finish();
 }
 
-closure_function(3, 2, boolean, autoload_klib_each,
-                 u64 *, pending, queue, retry_klibs, merge, m,
+closure_function(2, 2, boolean, autoload_klib_each,
+                 klib_autoload, autoload, merge, m,
                  value s, value v)
 {
     if (!is_dir(v)) {
-        fetch_and_add(bound(pending), 1);
+        klib_autoload autoload = bound(autoload);
+        autoload->pending++;
         status_handler sh = apply_merge(bound(m));
+        struct list elem;
+        list_init_member(&elem);
         heap h = heap_locked(klib_kh);
-        klib_handler kl_complete = closure(h, autoload_klib_complete, bound(pending),
-            bound(retry_klibs), sh, 0);
+        klib_handler kl_complete = closure(h, autoload_klib_complete, autoload, sh, 0, elem);
         assert(kl_complete != INVALID_ADDRESS);
         filesystem_read_entire(klib_fs, v, (heap)heap_page_backed(klib_kh),
                                closure(h, load_klib_complete, symbol_string(s), kl_complete, sh),
                                closure(h, load_klib_failed, kl_complete));
     }
     return true;
+}
+
+/* Called when loaded klibs with missing dependencies cannot have their dependencies satisfied. */
+static void klib_missing_deps(klib_autoload autoload)
+{
+    list_foreach(&autoload->retry_klibs, elem) {
+        klib_handler retry = (klib_handler)struct_from_field(elem,
+            closure_struct_type(autoload_klib_complete) *, l);
+        klib kl = closure_member(autoload_klib_complete, retry, kl);
+        status_handler sh = closure_member(autoload_klib_complete, retry, sh);
+        apply(sh, timm("result", "missing dependencies for %b klib", kl->name));
+        deallocate_closure(retry);
+    }
 }
 
 void print_loaded_klibs(void)
@@ -313,14 +361,18 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
         c = children(test_dir);
     }
     if (c) {
-        queue retry_klibs = allocate_queue(h, tuple_count(c));
-        assert(retry_klibs != INVALID_ADDRESS);
-        status_handler kl_complete = closure(h, klibs_complete, 0, retry_klibs, complete);
-        assert(kl_complete != INVALID_ADDRESS);
+        klib_autoload autoload = allocate(h, sizeof(*autoload));
+        assert(autoload != INVALID_ADDRESS);
+        list_init(&autoload->retry_klibs);
+        status_handler kl_complete = init_closure_func(&autoload->kl_complete, status_handler,
+                                                       klibs_complete);
+        autoload->complete = complete;
+        spin_lock_init(&autoload->lock);
+        autoload->pending = 0;
         merge m = allocate_merge(h, kl_complete);
         complete = apply_merge(m);
         iterate(c, stack_closure(autoload_klib_each,
-            &closure_member(klibs_complete, kl_complete, pending), retry_klibs, m));
+                                 autoload, m));
     }
   done:
     apply(complete, STATUS_OK);
