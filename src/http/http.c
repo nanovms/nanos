@@ -59,11 +59,9 @@ status http_request(heap h, buffer_handler bh, http_method method, tuple headers
     buffer b = allocate_buffer(h, 100);
     buffer url = get(headers, sym(url));
     bprintf(b, "%s %b HTTP/1.1\r\n", http_request_methods[method], url);
-    if (body) {
-        buffer content_len = little_stack_buffer(16);
-        bprintf(content_len, "%ld", buffer_length(body));
-        set(headers, sym(Content-Length), content_len);
-    }
+    buffer content_len = little_stack_buffer(16);
+    bprintf(content_len, "%ld", body ? buffer_length(body) : 0);
+    set(headers, sym(Content-Length), content_len);
     http_header(b, headers);
     status s = apply(bh, b);
     if (!is_ok(s)) {
