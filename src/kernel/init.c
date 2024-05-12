@@ -293,9 +293,6 @@ closure_function(4, 2, void, fsstarted,
     if (klibs && !opening_bootfs)
         init_klib(init_heaps, fs, root, apply_merge(m));
 
-    symbol booted = sym(booted);
-    if (!get(root, booted))
-        filesystem_write_eav((tfs)fs, fs_root, booted, null_value, false);
     config_console(root);
     status_handler complete = bound(complete);
     apply(complete, STATUS_OK);
@@ -518,11 +515,6 @@ void register_root_notify(symbol s, set_value_notify n)
 tuple get_environment(void)
 {
     return get(get_root_tuple(), sym(environment));
-}
-
-boolean first_boot(void)
-{
-    return !get(get_root_tuple(), sym(booted));
 }
 
 static void rootfs_init(u8 *mbr, u64 offset, storage_req_handler req_handler, u64 length,

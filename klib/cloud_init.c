@@ -659,18 +659,16 @@ static int cloud_download_env_parse(tuple config, vector tasks)
 int init(status_handler complete)
 {
     cloud_heap = heap_locked(get_kernel_heaps());
-    if (first_boot()) {
-        enum cloud c = cloud_detect();
-        switch (c) {
-        case CLOUD_ERROR:
+    enum cloud c = cloud_detect();
+    switch (c) {
+    case CLOUD_ERROR:
+        return KLIB_INIT_FAILED;
+    case CLOUD_AZURE:
+        if (!azure_cloud_init(cloud_heap))
             return KLIB_INIT_FAILED;
-        case CLOUD_AZURE:
-            if (!azure_cloud_init(cloud_heap))
-                return KLIB_INIT_FAILED;
-            break;
-        default:
-            break;
-        }
+        break;
+    default:
+        break;
     }
     tuple config = get(get_root_tuple(), sym(cloud_init));
     if (!config)

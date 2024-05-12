@@ -876,8 +876,6 @@ tuple get_root_tuple(void);
 tuple get_environment(void);
 void register_root_notify(symbol s, set_value_notify n);
 
-boolean first_boot(void);
-
 extern void interrupt_exit(void);
 extern const sstring * const state_strings;
 
