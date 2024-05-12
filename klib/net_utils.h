@@ -13,6 +13,9 @@ typedef struct net_http_req_params {
     boolean tls;
 } *net_http_req_params;
 
+void net_resolve(sstring host, void (*cb)(sstring host, const ip_addr_t *addr, void *cb_arg),
+                 void *cb_arg);
+
 status net_http_req(net_http_req_params params);
 
 #endif

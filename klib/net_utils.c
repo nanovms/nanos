@@ -118,6 +118,22 @@ closure_func_basic(value_handler, void, net_http_vh,
     }
 }
 
+void net_resolve(sstring host, void (*cb)(sstring host, const ip_addr_t *addr, void *cb_arg),
+                 void *cb_arg)
+{
+    ip_addr_t addr;
+    err_t err = dns_gethostbyname(host, &addr, cb, cb_arg);
+    switch (err) {
+    case ERR_OK:
+        cb(host, &addr, cb_arg);
+        break;
+    case ERR_INPROGRESS:
+        break;
+    default:
+        cb(host, 0, cb_arg);
+    }
+}
+
 status net_http_req(net_http_req_params params)
 {
     heap h = heap_locked(get_kernel_heaps());

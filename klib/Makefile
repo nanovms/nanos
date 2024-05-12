@@ -4,6 +4,7 @@ LWIPDIR=		$(VENDORDIR)/lwip
 MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
 PROGRAMS= \
+	azure \
 	cloud_init \
 	cloudwatch \
 	digitalocean \
@@ -18,6 +19,10 @@ PROGRAMS= \
 	tmpfs \
 	tls \
 	tun \
+
+SRCS-azure= \
+	$(CURDIR)/azure.c \
+	$(CURDIR)/azure_diagnostics.c \
 
 SRCS-cloud_init= \
 	$(CURDIR)/cloud_azure.c \
