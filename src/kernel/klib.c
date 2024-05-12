@@ -324,7 +324,7 @@ void print_loaded_klibs(void)
             print_u64(kl->load_range.start);
             rputs("/0x");
             buffer r = little_stack_buffer(16);
-            print_number(r, range_span(kl->load_range), 16, 0);
+            print_number(r, range_span(kl->load_range), 16, 0, false);
             buffer_print(r);
             rputs(" ");
         }

@@ -8,6 +8,7 @@ BSS_RO_AFTER_INIT thunk ignore;
 BSS_RO_AFTER_INIT status_handler ignore_status;
 BSS_RO_AFTER_INIT value null_value;
 static char *hex_digits="0123456789abcdef";
+static const char *hex_digits_upper = "0123456789ABCDEF";
 
 void print_u64(u64 s)
 {
@@ -17,22 +18,23 @@ void print_u64(u64 s)
     buffer_print(b);
 }
 
-void print_number(buffer s, u64 x, int base, int pad)
+void print_number(buffer s, u64 x, int base, int pad, boolean upper)
 {
     u64 q, r;
     DIV(x, base, q, r);
     if (q > 0 || pad > 1)
-        print_number(s, q, base, pad - 1);
-    push_u8(s, hex_digits[r]);
+        print_number(s, q, base, pad - 1, upper);
+    const char *digits = upper ? hex_digits_upper : hex_digits;
+    push_u8(s, digits[r]);
 }
 
-void print_signed_number(buffer s, s64 x, int base, int pad)
+void print_signed_number(buffer s, s64 x, int base, int pad, boolean upper)
 {
     if (x < 0) {
         push_u8(s, '-');
         x = -x;
     }
-    print_number(s, x, base, pad);
+    print_number(s, x, base, pad, upper);
 }
 
 static void format_pointer(buffer dest, struct formatter_state *s, vlist *a)
@@ -41,7 +43,7 @@ static void format_pointer(buffer dest, struct formatter_state *s, vlist *a)
     push_u8(dest, 'x');
     u64 x = varg(*a, word);
     int pad = sizeof(word) * 2;
-    print_number(dest, x, 16, pad);
+    print_number(dest, x, 16, pad, false);
 }
 
 static inline void fill(buffer b, int len, u8 c)
@@ -51,7 +53,15 @@ static inline void fill(buffer b, int len, u8 c)
 
 static void format_number(buffer dest, struct formatter_state *s, vlist *a)
 {
-    int base = s->format == 'x' ? 16 : 10;
+    int base;
+    switch (s->format) {
+    case 'x':
+    case 'X':
+        base = 16;
+        break;
+    default:
+        base = 10;
+    }
 
     s64 x;
     int sign = 0;
@@ -72,7 +82,7 @@ static void format_number(buffer dest, struct formatter_state *s, vlist *a)
         sign = 1;
         x = -x;
     }
-    print_number(tmp, x, base, s->precision);
+    print_number(tmp, x, base, s->precision, s->format == 'X');
     int len = buffer_length(tmp) + sign;
     if (s->precision == 0 && x == 0)
         len = 0;
@@ -129,6 +139,7 @@ void init_runtime(heap general, heap safe)
     transient = safe;
     register_format('p', format_pointer, 0);
     register_format('x', format_number, 1);
+    register_format('X', format_number, 1);
     register_format('d', format_number, 1);
     register_format('u', format_number, 1);
     register_format('s', format_sstring, 0);

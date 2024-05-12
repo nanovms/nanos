@@ -32,7 +32,7 @@ struct symbol {
 symbol intern_u64(u64 u)
 {
     buffer b = little_stack_buffer(20);
-    print_number(b, u, 10, 0);
+    print_number(b, u, 10, 0, false);
     return intern(b);
 }
 

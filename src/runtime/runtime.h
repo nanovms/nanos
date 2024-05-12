@@ -174,8 +174,8 @@ void sha256(buffer dest, buffer source);
 
 typedef struct buffer *buffer;
 
-void print_number(buffer s, u64 x, int base, int pad);
-void print_signed_number(buffer s, s64 x, int base, int pad);
+void print_number(buffer s, u64 x, int base, int pad, boolean upper);
+void print_signed_number(buffer s, s64 x, int base, int pad, boolean upper);
 
 typedef struct flush_entry *flush_entry;
 

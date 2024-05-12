@@ -40,14 +40,14 @@ static inline void validate_tag_type(sstring fn, value v, u16 tag)
 value indirect_integer_from_u64(u64 n)
 {
     buffer result = allocate_buffer(iheap, 10);
-    print_number(result, n, 10, 0);
+    print_number(result, n, 10, 0, false);
     return (value)result;
 }
 
 value indirect_integer_from_s64(s64 n)
 {
     buffer result = allocate_buffer(iheap, 10);
-    print_signed_number(result, n, 10, 0);
+    print_signed_number(result, n, 10, 0, false);
     return (value)result;
 }
 

@@ -64,7 +64,7 @@ closure_function(1, 1, context, gdb_handle_exception,
     string output = little_stack_buffer(32);
     reset_buffer(output);
     bprintf (output, "T");
-    print_number(output, (u64)sigval, 16, 2);
+    print_number(output, (u64)sigval, 16, 2, false);
     bprintf(output, "thread:p1.%x;", g->t->tid);
     putpacket_deferred (g, output);
     runloop();
@@ -291,7 +291,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
     switch (command) {
     case '?':
         bprintf(output, "S");
-        print_number(output, (u64)sigval, 16, 2);
+        print_number(output, (u64)sigval, 16, 2, false);
         break;
     case 'd':
         break;

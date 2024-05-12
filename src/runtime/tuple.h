@@ -133,7 +133,7 @@ static inline value value_rewrite_u64(value v, u64 n)
         return tagged_immediate_unsigned(n);
     assert(is_string(v) || is_integer(v));
     buffer_clear((buffer)v);
-    print_number((buffer)v, n, 10, 0);
+    print_number((buffer)v, n, 10, 0, false);
     return v;
 }
 
@@ -143,7 +143,7 @@ static inline value value_rewrite_s64(value v, s64 n)
         return tagged_immediate_signed(n);
     assert(is_string(v) || is_integer(v));
     buffer_clear((buffer)v);
-    print_signed_number((buffer)v, n, 10, 0);
+    print_signed_number((buffer)v, n, 10, 0, false);
     return v;
 }
 

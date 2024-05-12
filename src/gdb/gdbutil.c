@@ -17,7 +17,7 @@ boolean mem2hex (string b, void *mem, int count)
         return false;
     for (i = 0; i < count; i++) {
         ch = *(unsigned char *)(mem++);
-        print_number(b, (u64)ch, 16, 2);
+        print_number(b, (u64)ch, 16, 2, false);
     }
     return (true);
 }
@@ -68,7 +68,7 @@ static void put_sendstring(gdb g, string b)
     }
 
     bprintf (g->send_buffer, "#");
-    print_number(g->send_buffer, (u64)checksum, 16, 2);
+    print_number(g->send_buffer, (u64)checksum, 16, 2, false);
 }
 
 void putpacket_deferred(gdb g, string b)
