@@ -451,7 +451,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
                 return null_value;
             }
             if (!old_encoding)
-                rprintf("%s: warning: untyped buffer, len %ld, offset %d: %X\n", func_ss,
+                rprintf("%s: warning: untyped buffer, len %ld, offset %d: %B\n", func_ss,
                         len, source->start, alloca_wrap_buffer(buffer_ref(source, 0), len));
 
             /* address a long-standing bug in bootloaders; untyped buffers must be tagged */

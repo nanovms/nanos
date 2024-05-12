@@ -331,7 +331,7 @@ void init_extra_prints(void)
     register_format('v', format_value, 0);
     register_format('V', format_value_with_attributes, 0);
 #endif
-    register_format('X', format_hex_buffer, 0);
+    register_format('B', format_hex_buffer, 0);
     register_format('T', format_timestamp, 0);
     register_format('R', format_range, 0);
     register_format('C', format_csum_buffer, 0);

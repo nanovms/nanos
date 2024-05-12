@@ -249,7 +249,7 @@ static void dump_staging(log_ext ext)
     for (int i = 0; i < 4; i++) {
         b->start = i * 256;
         b->end = b->start + 256;
-        rprintf("%X\n", b);
+        rprintf("%B\n", b);
     }
     b->start = 0;
     b->end = z;

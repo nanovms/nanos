@@ -592,7 +592,7 @@ static void xennet_service_rx_ring(xennet_dev xd)
             xennet_debug("   RX flags %x, status %d, offset %d\n",
                          rx->flags, rx->status, rx->offset);
 #ifdef XENNET_DEBUG_DATA
-            xennet_debug("   buf:\n%X", alloca_wrap_buffer(rxb->p.pbuf.payload,
+            xennet_debug("   buf:\n%B", alloca_wrap_buffer(rxb->p.pbuf.payload,
                                                            rx->status + rx->offset));
 #endif
             rxb->p.pbuf.len = rx->status;
