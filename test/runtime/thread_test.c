@@ -129,15 +129,69 @@ void *terminus(void *k)
 
 }
 
+static intptr_t do_work(void)
+{
+    intptr_t result = 0;
+
+    for (int i = 0; (i & (1 << 28)) == 0; i++)
+        result += i;
+    return result;
+}
+
+static void *thread_affinity_test(void *arg)
+{
+    pthread_t self = pthread_self();
+    cpu_set_t set;
+    intptr_t cpu = (intptr_t)arg;
+    intptr_t rv;
+
+    /* wait for main thread to set our CPU affinity */
+    do {
+        test_assert(pthread_getaffinity_np(self, sizeof(set), &set) == 0);
+    } while ((CPU_COUNT(&set) != 1) || !CPU_ISSET(cpu, &set));
+
+    test_assert(sched_getcpu() == cpu);
+
+    /* Do some CPU-intensive work (to exercise the scheduler), then check that the scheduler did not
+     * migrate us to a non-affine CPU. */
+    rv = do_work();
+    test_assert(sched_getcpu() == cpu);
+
+    /* dummy return value, just to prevent the compiler from optimizing away do_work() */
+    return (void *)rv;
+}
+
 static void test_affinity(void)
 {
     cpu_set_t online_cpus;
     int cpu_count;
+    const int threads_per_cpu = 2;
+    pthread_t *threads;
+    int thread_count;
     cpu_set_t set;
 
     test_assert(sched_getaffinity(0, sizeof(online_cpus), &online_cpus) == 0);
     cpu_count = CPU_COUNT(&online_cpus);
     test_assert(cpu_count > 0);
+    threads = malloc(threads_per_cpu * cpu_count * sizeof(*threads));
+    test_assert(threads != NULL);
+    thread_count = 0;
+    CPU_ZERO(&set);
+    for (intptr_t i = 0; thread_count < threads_per_cpu * cpu_count; i++) {
+        if (!CPU_ISSET(i, &online_cpus))
+            continue;
+        CPU_SET(i, &set);
+        for (int j = 0; j < threads_per_cpu; j++) {
+            pthread_t *t = &threads[thread_count++];
+
+            test_assert(pthread_create(t , 0, thread_affinity_test, (void *)i) == 0);
+            test_assert(pthread_setaffinity_np(*t, sizeof(set), &set) == 0);
+        }
+        CPU_CLR(i, &set);
+    }
+    for (int i = 0; i < thread_count; i++)
+        test_assert(pthread_join(threads[i], NULL) == 0);
+    free(threads);
 
     if ((sched_setaffinity(0, sizeof(set), NULL) == 0) || (errno != EFAULT))
         halt("sched_setaffinity() missing EFAULT\n");

@@ -2355,6 +2355,16 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
     u64 cpus = cpusetsize * 8;
     if (cpus < total_processors)
         bitmap_range_check_and_set(affinity, cpus, total_processors - cpus, false, false);
+
+    /* If the thread has last run on a non-affine CPU, move it to the first CPU in the affinity
+     * mask. Note: this does not guarantee that the thread is migrated immediately to the affine CPU
+     * (e.g. if it's already enqueued in its current scheduling queue it will most likely do another
+     * run on its current CPU), but the migration will happen the next time the thread is scheduled
+     * to run. */
+    cpuinfo ci = struct_from_field(t->scheduling_queue, cpuinfo, thread_queue);
+    if (!bitmap_get(affinity, ci->id))
+        t->scheduling_queue = &cpuinfo_from_id(first_cpu)->thread_queue;
+
     rv = 0;
   out:
     thread_unlock(t);

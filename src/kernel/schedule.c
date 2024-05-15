@@ -61,18 +61,45 @@ static void wakeup_cpu(u64 cpu)
     }
 }
 
-static sched_task migrate_to_self(sched_task t, u64 first_cpu, u64 ncpus)
+static sched_task sched_dequeue_for_cpu(sched_queue sq, u64 cpu)
+{
+    u32 i;
+    sched_task task;
+    spin_lock(&sq->lock);
+
+    /* Note: due to weak ordering in the priority queue, this code does NOT guarantee that the
+     * chosen task is the highest priority (lowest runtime) task among all eligible tasks; however,
+     * choosing a potentially sub-optimal task minimizes the time spent walking the queue. */
+    for (i = 0; (task = pqueue_peek_at(sq->q, i)) != INVALID_ADDRESS; i++) {
+        if (bitmap_get(task->affinity, cpu)) {
+            pqueue_remove_at(sq->q, i);
+            break;
+        }
+    }
+
+    if (task != INVALID_ADDRESS) {
+        sched_debug("sq %p, dequeued for %ld task %p, index %u, runtime %T\n", sq, cpu, task, i,
+                    task->runtime - sq->min_runtime);
+        if (i == 0)
+            sq->min_runtime = task->runtime;
+        task->runtime -= sq->min_runtime;
+    }
+    spin_unlock(&sq->lock);
+    return task;
+}
+
+static sched_task migrate_to_self(sched_task t, u64 self, u64 first_cpu, u64 ncpus)
 {
     u64 cpu;
     while ((ncpus > 0) &&
             ((cpu = bitmap_range_get_first(idle_cpu_mask, first_cpu, ncpus)) != INVALID_PHYSICAL)) {
         cpuinfo cpui = cpuinfo_from_id(cpu);
         if (t == INVALID_ADDRESS) {
-            t = sched_dequeue(&cpui->thread_queue);
+            t = sched_dequeue_for_cpu(&cpui->thread_queue, self);
             if (t != INVALID_ADDRESS)
                 sched_debug("migrating thread from idle CPU %d to self\n", cpu);
         }
-        if ((t != INVALID_ADDRESS) && !sched_queue_empty(&cpui->thread_queue))
+        if (!sched_queue_empty(&cpui->thread_queue))
             wakeup_cpu(cpu);
         ncpus -= cpu - first_cpu + 1;
         first_cpu = cpu + 1;
@@ -89,7 +116,7 @@ static void migrate_from_self(cpuinfo ci, u64 first_cpu, u64 ncpus)
         sched_task task;
         if (!sched_queue_empty(&cpui->thread_queue)) {
             wakeup_cpu(cpu);
-        } else if ((task = sched_dequeue(&ci->thread_queue)) != INVALID_ADDRESS) {
+        } else if ((task = sched_dequeue_for_cpu(&ci->thread_queue, cpu)) != INVALID_ADDRESS) {
             sched_debug("migrating thread from self to idle CPU %d\n", cpu);
             sched_enqueue(&cpui->thread_queue, task);
             wakeup_cpu(cpu);
@@ -183,26 +210,27 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     boolean timer_updated = update_timer(here);
 
     if (!(shutting_down & SHUTDOWN_ONGOING)) {
+        u64 self = ci->id;
         sched_task t = sched_dequeue(&ci->thread_queue);
         if (t == INVALID_ADDRESS) {
             /* Try to steal a thread from an idle CPU (so that it doesn't
              * have to be woken up), and wake up CPUs that have a non-empty
              * thread queue). */
-            if (ci->id + 1 < total_processors)
-                t = migrate_to_self(t, ci->id + 1, total_processors - ci->id - 1);
+            if (self + 1 < total_processors)
+                t = migrate_to_self(t, self, self + 1, total_processors - self - 1);
             if (ci->id > 0)
-                t = migrate_to_self(t, 0, ci->id);
+                t = migrate_to_self(t, self, 0, self);
             if (t == INVALID_ADDRESS) {
                 /* No threads found in idle CPUs: try to steal a thread from a
                  * CPU that is currently running another thread. */
-                for (u64 cpu = ci->id + 1; ; cpu++) {
+                for (u64 cpu = self + 1; ; cpu++) {
                     if (cpu == total_processors)
                         cpu = 0;
-                    if (cpu == ci->id)
+                    if (cpu == self)
                         break;
                     cpuinfo cpui = cpuinfo_from_id(cpu);
                     if (cpui->state == cpu_user) {
-                        t = sched_dequeue(&cpui->thread_queue);
+                        t = sched_dequeue_for_cpu(&cpui->thread_queue, self);
                         if (t != INVALID_ADDRESS) {
                             sched_debug("migrating thread from CPU %d to self\n", cpu);
                             break;
@@ -213,10 +241,10 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
         } else {
             /* Wake up idle CPUs that have a non-empty thread queue, and if our
              * thread queue is non-empty, migrate our threads to idle CPUs. */
-            if (ci->id + 1 < total_processors)
-                migrate_from_self(ci, ci->id + 1, total_processors - ci->id - 1);
-            if (ci->id > 0)
-                migrate_from_self(ci, 0, ci->id);
+            if (self + 1 < total_processors)
+                migrate_from_self(ci, self + 1, total_processors - self - 1);
+            if (self > 0)
+                migrate_from_self(ci, 0, self);
         }
         if (t != INVALID_ADDRESS) {
             if (!timer_updated) {

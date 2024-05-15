@@ -219,7 +219,7 @@ static void thread_cputime_update(thread t)
     if (t->start_time != 0) {
         timestamp diff = now(CLOCK_ID_MONOTONIC_RAW) - t->start_time;
         t->utime += diff;
-        t->task.runtime = diff;
+        t->task.runtime += diff;
         t->start_time = 0;
         cputime_update(t, diff, true);
     }
@@ -276,8 +276,10 @@ closure_func_basic(thunk, void, thread_return)
     /* cover wake-before-sleep situations (e.g. sched yield, fs ops that don't go to disk, etc.) */
     t->syscall = 0;
 
-    /* If we migrated to a new CPU, remain on its thread queue. */
-    t->scheduling_queue = &ci->thread_queue;
+    /* Keep track of the CPU on which this thread is about to run, so that the thread will continue
+     * to be scheduled on the same CPU (unless the CPU affinity does not allow it). */
+    if ((t->scheduling_queue != &ci->thread_queue) && (bitmap_get(t->task.affinity, ci->id)))
+        t->scheduling_queue = &ci->thread_queue;
     thread_unlock(t);
 
     context_frame f = t->context.frame;
