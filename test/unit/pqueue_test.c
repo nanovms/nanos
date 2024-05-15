@@ -181,7 +181,9 @@ boolean basic_test(heap h)
     pqueue_insert(q, (void *)1);
     pqueue_insert(q, (void *)2);
     pqueue_insert(q, (void *)3);
-    if (!pqueue_remove(q, (void *)3) ||
+    if ((pqueue_peek_at(q, 0) != (void *)3) ||
+        (pqueue_peek_at(q, 3) != INVALID_ADDRESS) ||
+        !pqueue_remove(q, (void *)3) ||
         !peek_pop_check(q, 2) ||
         !peek_pop_check(q, 1) ||
         !peek_pop_check(q, INVALID_PHYSICAL)) {

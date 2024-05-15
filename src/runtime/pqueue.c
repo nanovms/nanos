@@ -83,22 +83,28 @@ boolean pqueue_remove(pqueue q, void *v)
     for (i = 0; i < vector_length(q->body); i++) {
         void *e = vector_get(q->body, i);
         if (e == v) {
-            void *n = vector_pop(q->body);
-            if (n != v) {
-                index idx = i + 1;
-                assert(vector_set(q->body, i, n));
-                if (idx > 1 && qcompare(q, idx >> 1, idx))
-                    heal_up(q, i + 1);
-                else
-                    heal_down(q, i + 1);
-            }
-#ifdef PQUEUE_PARANOIA
-            assert(pqueue_validate(q, 1));
-#endif
+            pqueue_remove_at(q, i);
             return true;
         }
     }
     return false;
+}
+
+void pqueue_remove_at(pqueue q, u32 i)
+{
+    vector body = q->body;
+    void *n = vector_pop(body);
+    if (i != vector_length(body)) {
+        index idx = i + 1;
+        assert(vector_set(body, i, n));
+        if (idx > 1 && qcompare(q, idx >> 1, idx))
+            heal_up(q, i + 1);
+        else
+            heal_down(q, i + 1);
+    }
+#ifdef PQUEUE_PARANOIA
+    assert(pqueue_validate(q, 1));
+#endif
 }
 
 void *pqueue_pop(pqueue q)
@@ -121,7 +127,14 @@ void *pqueue_pop(pqueue q)
 
 void *pqueue_peek(pqueue q)
 {
-    if (vector_length(q->body)) return(vector_get(q->body, 0));
+    return pqueue_peek_at(q, 0);
+}
+
+void *pqueue_peek_at(pqueue q, u32 i)
+{
+    vector body = q->body;
+    if (vector_length(body) > i)
+        return vector_get(body, i);
     return INVALID_ADDRESS;
 }
 
