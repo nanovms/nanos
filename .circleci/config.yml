@@ -16,7 +16,7 @@ jobs:
           command: |
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
-            make test-noaccel
+            make VCPUS=2 test-noaccel
       - run: test/extended_tests.py
       - run:
           command: |
@@ -56,7 +56,7 @@ jobs:
           command: |
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
-            make MEMDEBUG=all UBSAN=1 test-noaccel
+            make MEMDEBUG=all UBSAN=1 VCPUS=2 test-noaccel
 
   nightly-build:
     docker:
@@ -71,7 +71,7 @@ jobs:
           command: |
             OPS_DIR=$HOME/.ops
             PATH=$HOME/.ops/bin:$PATH
-            make test-noaccel
+            make VCPUS=2 test-noaccel
 
       - run: echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
@@ -162,7 +162,7 @@ jobs:
           environment:
             NANOS_TARGET_ROOT: ~/project/target-root
           command: |
-            make PLATFORM=virt runtime-tests-noaccel
+            make PLATFORM=virt VCPUS=2 runtime-tests-noaccel
       - run:
           command: |
             if [[ ! -v GCLOUD_SERVICE_KEY ]]; then
@@ -203,7 +203,7 @@ jobs:
           environment:
             NANOS_TARGET_ROOT: ~/project/target-root
           command: |
-            make PLATFORM=virt runtime-tests-noaccel
+            make PLATFORM=virt VCPUS=2 runtime-tests-noaccel
 
       - run: echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
@@ -243,7 +243,7 @@ jobs:
             NANOS_TARGET_ROOT: ~/project/target-root
             QEMU_PATH: ~/project/qemu/
           command: |
-            make PLATFORM=riscv-virt runtime-tests-noaccel
+            make PLATFORM=riscv-virt VCPUS=2 runtime-tests-noaccel
 
 workflows:
   version: 2

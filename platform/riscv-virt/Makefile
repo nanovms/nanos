@@ -362,10 +362,13 @@ QEMU_QMP=	-qmp unix:$(ROOTDIR)/qmp-sock,server,nowait
 #QEMU_QMP=	-qmp tcp:localhost:4444,server,nowait
 endif
 
+ifneq ($(VCPUS),)
+QEMU_FLAGS+=	-smp $(VCPUS)
+endif
+
 # various combinations of flags that are usefull when debugging
 #QEMU_FLAGS+=   -machine dumpdtb=riscv.dtb
 #QEMU_FLAGS+=	-d in_asm,cpu -D $(ROOTDIR)/asm.out
-#QEMU_FLAGS+=	-smp 4
 #QEMU_FLAGS+=	-d int -D $(ROOTDIR)/int.log
 #QEMU_FLAGS+=	-s -S
 #QEMU_FLAGS+=   -d int,trace:pci_cfg_write,trace:pci_cfg_read,trace:msix_write_config,trace:virtio_blk_req_complete,trace:virtio_blk_rw_complete,trace:virtio_blk_handle_read,trace:virtio_blk_handle_write,trace:virtio_blk_submit_multireq,trace:virtio_blk_handle_write,trace:virtio_blk_handle_read,trace:virtio_blk_submit_multireq,trace:virtio_queue_notify,trace:virtio_notify,trace:virtio_set_status,trace:virtio_notify_irqfd,guest_errors,trace:virtio_blk_data_plane_start,trace:virtio_input_queue_full,trace:kvm_irqchip_commit_routes,trace:kvm_irqchip_add_msi_route,trace:kvm_irqchip_update_msi_route,trace:kvm_irqchip_release_virq,trace:kvm_set_ioeventfd_mmio,trace:kvm_set_ioeventfd_pio,trace:kvm_set_user_memory,trace:kvm_clear_dirty_log,trace:kvm_resample_fd_notify,trace:kvm_run_exit,trace:kvm_ioctl,trace:kvm_vm_ioctl,trace:kvm_vcpu_ioctl,trace:kvm_device_ioctl -D $(ROOTDIR)/trace.out

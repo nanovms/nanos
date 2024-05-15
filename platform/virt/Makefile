@@ -433,6 +433,10 @@ QEMU_QMP=	-qmp unix:$(ROOTDIR)/qmp-sock,server,nowait
 #QEMU_QMP=	-qmp tcp:localhost:4444,server,nowait
 endif
 
+ifneq ($(VCPUS),)
+QEMU_FLAGS+=	-smp $(VCPUS)
+endif
+
 # for enabling the ARM Angel interface and passing exit codes from the program
 QEMU_FLAGS+=	-semihosting
 
