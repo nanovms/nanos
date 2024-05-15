@@ -62,14 +62,7 @@ closure_function(6, 0, void, startup,
     init_tracelog_config(root);
 #endif
 
-    /* kernel process is used as a handle for unix */
-    process kp = init_unix(kh, root, fs);
-    if (kp == INVALID_ADDRESS) {
-	s = timm("result", "unable to initialize unix instance");
-        goto out;
-    }
     status_handler start = bound(start);
-    closure_member(program_start, start, kp) = kp;
     heap general = heap_locked(kh);
 
     /* register root tuple with management and kick off interfaces, if any */
@@ -90,15 +83,19 @@ closure_function(6, 0, void, startup,
         rprintf("gitversion: %s\n", gitversion);
     }
     storage_when_ready(apply_merge(bound(m)));
-  out:
     apply(bound(completion), s);
     closure_finish();
 }
 
 thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m)
 {
+    /* kernel process is used as a handle for unix */
+    process kp = init_unix(kh, root, fs);
+    if (kp == INVALID_ADDRESS)
+        halt("%s: out of memory\n", func_ss);
+
     heap h = heap_locked(kh);
-    status_handler start = closure(h, program_start, 0, 0, false);
+    status_handler start = closure(h, program_start, kp, 0, false);
     *m = allocate_merge(h, start);
     return closure(h, startup, kh, root, fs, *m, start, apply_merge(*m));
 }
