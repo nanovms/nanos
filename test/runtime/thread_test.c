@@ -9,6 +9,8 @@
 #include <sys/syscall.h>
 #include <math.h>
 
+#include "../test_utils.h"
+
 typedef unsigned long long word;
 #define true 1
 #define false 0
@@ -129,7 +131,13 @@ void *terminus(void *k)
 
 static void test_affinity(void)
 {
+    cpu_set_t online_cpus;
+    int cpu_count;
     cpu_set_t set;
+
+    test_assert(sched_getaffinity(0, sizeof(online_cpus), &online_cpus) == 0);
+    cpu_count = CPU_COUNT(&online_cpus);
+    test_assert(cpu_count > 0);
 
     if ((sched_setaffinity(0, sizeof(set), NULL) == 0) || (errno != EFAULT))
         halt("sched_setaffinity() missing EFAULT\n");
@@ -138,6 +146,12 @@ static void test_affinity(void)
     if ((sched_getaffinity(0, sizeof(unsigned long) - 1, &set) == 0) || (errno != EINVAL))
         halt("sched_getaffinity() missing EINVAL\n");
     CPU_ZERO(&set);
+
+    /* assuming identifiers of online CPUs are contiguous from 0 to (cpu_count - 1) */
+    CPU_SET(cpu_count, &set);
+    test_assert((sched_setaffinity(0, sizeof(set), &set) == -1) && (errno == EINVAL));
+    CPU_CLR(cpu_count, &set);
+
     CPU_SET(0, &set);
     if (sched_setaffinity(0, sizeof(set), &set) < 0)
         halt("sched_setaffinity() failed\n");

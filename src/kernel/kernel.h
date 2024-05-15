@@ -64,6 +64,7 @@ void kernel_powerdown(void);
 
 typedef struct sched_task {
     thunk t;
+    bitmap affinity;
     timestamp runtime;
 } *sched_task;
 

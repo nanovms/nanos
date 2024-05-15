@@ -398,7 +398,7 @@ closure_func_basic(thunk, void, free_thread)
     thread t = struct_from_closure(thread, free);
     if (t->cpu_timers)
         deallocate_timerqueue(t->cpu_timers);
-    deallocate_bitmap(t->affinity);
+    deallocate_bitmap(t->task.affinity);
     /* XXX only free tids from non-leader threads. Leader threads will
      * need different handling */
     if (t->p->pid != t->tid)
@@ -452,10 +452,11 @@ thread create_thread(process p, u64 tid)
 
     t->signal_stack = 0;
     t->signal_stack_length = 0;
-    t->affinity = allocate_bitmap(h, h, total_processors);
-    if (t->affinity == INVALID_ADDRESS)
+    bitmap affinity = allocate_bitmap(h, h, total_processors);
+    if (affinity == INVALID_ADDRESS)
         goto fail_affinity;
-    bitmap_range_check_and_set(t->affinity, 0, total_processors, false, true);
+    bitmap_range_check_and_set(affinity, 0, total_processors, false, true);
+    t->task.affinity = affinity;
     t->syscall_complete = false;
     init_sigstate(&t->signals);
     t->signal_mask = 0;

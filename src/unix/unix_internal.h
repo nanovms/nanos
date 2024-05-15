@@ -330,7 +330,6 @@ typedef struct thread {
     void *signal_stack;
     u64 signal_stack_length;
 
-    bitmap affinity;
     struct list l_faultwait;
     struct spinlock lock;   /* generic lock for struct members without a specific lock */
 

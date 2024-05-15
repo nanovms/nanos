@@ -2329,19 +2329,37 @@ static thread lookup_thread(int pid)
 
 sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
 {
-    if (!fault_in_user_memory(mask, cpusetsize, false))
-        return set_syscall_error(current, EFAULT);
+    context ctx = get_current_context(current_cpu());
+    u64 first_cpu = -1ull;
+    u64 i;
+    if (context_set_err(ctx))
+        return -EFAULT;
+    for (i = 0; (first_cpu == -1ull) && (i + sizeof(u64) <= cpusetsize); i += sizeof(u64))
+        first_cpu = i * 8 + lsb(mask[i / sizeof(u64)]);
+    for (; (first_cpu == -1ull) && (i < cpusetsize); i++)
+        first_cpu = i * 8 + lsb(((u8 *)mask)[i]);
+    context_clear_err(ctx);
+    if (first_cpu >= total_processors)
+        return -EINVAL;
     thread t;
     if (!(t = lookup_thread(pid)))
             return set_syscall_error(current, EINVAL);
-    u64 cpus = pad(MIN(total_processors, 64 * (cpusetsize / sizeof(u64))), 64);
+    cpusetsize = MIN(cpusetsize, pad(total_processors, 8) / 8);
+    bitmap affinity = t->task.affinity;
+    sysreturn rv;
     thread_lock(t);
-    runtime_memcpy(bitmap_base(t->affinity), mask, cpus / 8);
+    if (!copy_from_user(mask, bitmap_base(affinity), cpusetsize)) {
+        rv = -EFAULT;
+        goto out;
+    }
+    u64 cpus = cpusetsize * 8;
     if (cpus < total_processors)
-        bitmap_range_check_and_set(t->affinity, cpus, total_processors - cpus, false, false);
+        bitmap_range_check_and_set(affinity, cpus, total_processors - cpus, false, false);
+    rv = 0;
+  out:
     thread_unlock(t);
     thread_release(t);
-    return 0;
+    return rv;
 }
 
 sysreturn sched_getaffinity(int pid, u64 cpusetsize, u64 *mask)
@@ -2355,7 +2373,7 @@ sysreturn sched_getaffinity(int pid, u64 cpusetsize, u64 *mask)
         return set_syscall_error(current, EINVAL);
     cpusetsize = pad(total_processors, 64) / 8;
     thread_lock(t);
-    runtime_memcpy(mask, bitmap_base(t->affinity), cpusetsize);
+    runtime_memcpy(mask, bitmap_base(t->task.affinity), cpusetsize);
     thread_unlock(t);
     thread_release(t);
     return cpusetsize;
