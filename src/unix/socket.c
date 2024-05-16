@@ -632,10 +632,11 @@ closure_function(3, 1, sysreturn, connect_bh,
     unixsock_conn_internal(s, peer);
     unixsock_conn_internal(peer, s);
     assert(enqueue(listener->conn_q, peer));
-    unixsock_notify_reader(listener);
     rv = 0;
 out:
     unixsock_unlock(s);
+    if (rv == 0)
+        unixsock_notify_reader(listener);
     socket_release(&s->sock);
     syscall_return(t, rv);
     closure_finish();
@@ -662,9 +663,9 @@ static sysreturn unixsock_connect(struct sock *sock, struct sockaddr *addr,
             rv = -ENOMEM;
         return blockq_check(listener->sock.txbq, ba, false);
     } else {
-        unixsock_lock(s);
         if (s->notify_handle != INVALID_ADDRESS)
             notify_remove(s->peer->sock.f.ns, s->notify_handle, false);
+        unixsock_lock(s);
         unixsock_disconnect(s);
         s->notify_handle = notify_add(listener->sock.f.ns, EPOLLOUT | EPOLLERR | EPOLLHUP,
                                       init_closure_func(&s->event_handler, event_handler,
