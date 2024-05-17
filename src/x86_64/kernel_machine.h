@@ -11,7 +11,7 @@
  */
 
 #define KERNEL_BASE             0xffffffff80000000ull
-#define KERNEL_LIMIT            0xfffffffffffff000ull // XXX ? klibs
+#define KERNEL_LIMIT            0xffffffffff600000ull   /* VSYSCALL_BASE */
 #define KMEM_LIMIT              0xffffbfff00000000ull
 #define LINEAR_BACKED_LIMIT     0xffffffff00000000ull
 #define LINEAR_BACKED_BASE      0xffffc00000000000ull
