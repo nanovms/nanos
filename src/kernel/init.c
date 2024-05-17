@@ -664,6 +664,7 @@ void kernel_runtime_init(kernel_heaps kh)
     init_symtab(kh);
     read_kernel_syms();
     shutdown_completions = allocate_vector(locked, SHUTDOWN_COMPLETIONS_SIZE);
+    count_cpus_present();
 
     init_debug("init_kernel_contexts");
     init_kernel_contexts(misc);
@@ -691,7 +692,6 @@ void kernel_runtime_init(kernel_heaps kh)
     init_net(kh);
 
     init_debug("start_secondary_cores");
-    count_cpus_present();
     init_scheduler_cpus(misc);
     start_secondary_cores(kh);
 

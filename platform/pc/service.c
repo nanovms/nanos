@@ -182,21 +182,6 @@ closure_func_basic(madt_handler, void, count_processors_handler,
     }
 }
 
-static void count_processors()
-{
-    if (acpi_walk_madt(stack_closure_func(madt_handler, count_processors_handler))) {
-        init_debug("ACPI reports %d processors", present_processors);
-    } else {
-        present_processors = 1;
-        rprintf("warning: ACPI MADT not found, default to 1 processor\n");
-    }
-}
-
-void count_cpus_present(void)
-{
-    count_processors();
-}
-
 void start_secondary_cores(kernel_heaps kh)
 {
     memory_barrier();
@@ -215,11 +200,23 @@ void start_secondary_cores(kernel_heaps kh)
 {
 }
 
+#endif
+
 void count_cpus_present(void)
 {
+    /* Read ACPI tables for MADT access */
+    init_acpi_tables(get_kernel_heaps());
+
+#ifdef SMP_ENABLE
+    if (acpi_walk_madt(stack_closure_func(madt_handler, count_processors_handler))) {
+        init_debug("ACPI reports %d processors", present_processors);
+        return;
+    }
+    rprintf("warning: ACPI MADT not found, default to 1 processor\n");
+#endif
+
     present_processors = 1;
 }
-#endif
 
 u64 xsave_features();
 

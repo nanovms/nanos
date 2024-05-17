@@ -362,9 +362,6 @@ void init_interrupts(kernel_heaps kh)
 {
     heap general = heap_general(kh);
 
-    /* Read ACPI tables for MADT access */
-    init_acpi_tables(kh);
-
     /* Exception handlers */
     handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
     assert(handlers != INVALID_ADDRESS);

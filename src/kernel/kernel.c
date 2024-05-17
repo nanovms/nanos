@@ -199,7 +199,7 @@ cpuinfo init_cpuinfo(heap backed, int cpu)
 
 void init_kernel_contexts(heap backed)
 {
-    cpuinfos = allocate_vector(backed, 1);
+    cpuinfos = allocate_vector(backed, present_processors);
     assert(cpuinfos != INVALID_ADDRESS);
     cpuinfo ci = init_cpuinfo(backed, 0);
     assert(ci != INVALID_ADDRESS);

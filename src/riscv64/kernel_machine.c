@@ -74,7 +74,11 @@ static struct spinlock ap_lock;
 
 static void ap_start_newstack(int cpuid)
 {
-    total_processors++;
+    int cpu;
+    for (cpu = 1; cpu < present_processors; cpu++)
+        if (!cpuinfo_from_id(cpu))
+            break;
+    total_processors = cpu;
     spin_unlock(&ap_lock);
     cpu_init(cpuid);
     run_percpu_init();
