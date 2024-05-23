@@ -115,7 +115,7 @@ jobs:
 
   nightly-build-mac:
     macos:
-        xcode: "14.0.0"
+        xcode: "15.3.0"
     steps:
       - checkout
       - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
