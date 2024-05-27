@@ -97,6 +97,8 @@ struct filesystem {
     u64 (*get_freeblocks)(filesystem fs);
     status_handler (*get_sync_handler)(filesystem fs, fsfile fsf, boolean datasync,
                                        status_handler completion);
+    fs_status (*get_seals)(filesystem fs, fsfile fsf, u64 *seals);
+    fs_status (*set_seals)(filesystem fs, fsfile fsf, u64 seals);
     void (*destroy_fs)(filesystem fs);
     tuple root;
 #ifdef KERNEL

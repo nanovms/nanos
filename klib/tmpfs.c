@@ -7,6 +7,7 @@
 typedef struct tmpfs_file {
     struct fsfile f;
     struct rangemap dirty;
+    u64 seals;
     closure_struct(sg_io, read);
     closure_struct(sg_io, write);
     closure_struct(pagecache_node_reserve, reserve);
@@ -140,6 +141,7 @@ static fs_status tmpfs_create(filesystem fs, tuple parent, string name, tuple md
             return fss;
         }
         init_rangemap(&fsf->dirty, h);
+        fsf->seals = 0;
         fsf->f.get_blocks = tmpfsfile_get_blocks;
         if (f)
             *f = &fsf->f;
@@ -179,6 +181,20 @@ static fs_status tmpfs_truncate(filesystem fs, fsfile f, u64 len)
     return FS_STATUS_OK;
 }
 
+static fs_status tmpfs_set_seals(filesystem fs, fsfile f, u64 seals)
+{
+    tmpfs_file fsf = (tmpfs_file)f;
+    fsf->seals = seals;
+    return FS_STATUS_OK;
+}
+
+static fs_status tmpfs_get_seals(filesystem fs, fsfile f, u64 *seals)
+{
+    tmpfs_file fsf = (tmpfs_file)f;
+    *seals = fsf->seals;
+    return FS_STATUS_OK;
+}
+
 static u64 tmpfs_freeblocks(filesystem fs)
 {
     return 0;
@@ -202,6 +218,8 @@ filesystem tmpfs_new(void)
         timm_dealloc(s);
         goto err_fsinit;
     }
+    fs->fs.get_seals = tmpfs_get_seals;
+    fs->fs.set_seals = tmpfs_set_seals;
     fs->files = allocate_table(h, identity_key, pointer_equal);
     if (fs->files == INVALID_ADDRESS)
         goto err_filetable;

@@ -1196,18 +1196,32 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         case FDESC_TYPE_REGULAR:
             thread_log(current, "   fd %d: file-backed (regular)", fd);
             vmap_mmap_type = VMAP_MMAP_TYPE_FILEBACKED;
-            allowed_flags = file_perms(p, (file)desc);
-            if (!(vmflags & VMAP_FLAG_SHARED))
+            file f = (file)desc;
+            fsf = f->fsf;
+            assert(fsf);
+            allowed_flags = file_perms(p, f);
+            if (!(vmflags & VMAP_FLAG_SHARED)) {
                 allowed_flags |= VMAP_FLAG_WRITABLE;
+            } else {
+                filesystem fs = fsf->fs;
+                if (fs->get_seals) {
+                    u64 seals;
+                    if ((fs->get_seals(fs, fsf, &seals) == FS_STATUS_OK) &&
+                        (seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE))) {
+                        if (vmflags & VMAP_FLAG_WRITABLE) {
+                            ret = -EPERM;
+                            goto out_unlock;
+                        }
+                        allowed_flags &= ~VMAP_FLAG_WRITABLE;
+                    }
+                }
+            }
             if (offset & PAGEMASK) {
                 thread_log(current, "   file-backed mapping must have aligned file offset (%ld)",
                            offset);
                 ret = -EINVAL;
                 goto out_unlock;
             }
-            file f = (file)desc;
-            fsf = f->fsf;
-            assert(fsf);
             node = fsfile_get_cachenode(fsf);
             thread_log(current, "   associated with cache node %p @ offset 0x%lx", node, offset);
             break;

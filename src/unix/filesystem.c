@@ -2,6 +2,9 @@
 #include <filesystem.h>
 #include <storage.h>
 
+#define FS_KNOWN_SEALS  \
+    (F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)
+
 sysreturn sysreturn_from_fs_status(fs_status s)
 {
     switch (s) {
@@ -498,6 +501,58 @@ fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
 fs_status fsfile_truncate(fsfile f, u64 len)
 {
     return (filesystem_truncate(get_root_fs(), f, len));
+}
+
+closure_function(2, 1, boolean, fsfile_seal_vmap_handler,
+                 pagecache_node, pn, boolean *, writable,
+                 vmap vm)
+{
+    if ((vm->cache_node == bound(pn)) && (vm->allowed_flags & VMAP_FLAG_WRITABLE)) {
+        *bound(writable) = true;
+        return false;
+    }
+    return true;
+}
+
+sysreturn fsfile_add_seals(fsfile f, u64 seals)
+{
+    if (seals & ~FS_KNOWN_SEALS)
+        return -EINVAL;
+    filesystem fs = f->fs;
+    if (!fs->set_seals)
+        return -EINVAL;
+    filesystem_lock(fs);
+    u64 current_seals;
+    fs_status fss = fs->get_seals(fs, f, &current_seals);
+    sysreturn rv;
+    if (fss == FS_STATUS_OK) {
+        if (current_seals & F_SEAL_SEAL) {
+            rv = -EPERM;
+            goto out;
+        }
+        if (seals & F_SEAL_WRITE) {
+            pagecache_node pn = fsfile_get_cachenode(f);
+            boolean writable_maps = false;
+            vmap_iterator(current->p, stack_closure(fsfile_seal_vmap_handler, pn, &writable_maps));
+            if (writable_maps) {
+                rv = -EBUSY;
+                goto out;
+            }
+        }
+        fss = fs->set_seals(fs, f, current_seals | seals);
+    }
+    rv = sysreturn_from_fs_status(fss);
+  out:
+    filesystem_unlock(fs);
+    return rv;
+}
+
+sysreturn fsfile_get_seals(fsfile f, u64 *seals)
+{
+    filesystem fs = f->fs;
+    if (!fs->get_seals)
+        return -EINVAL;
+    return sysreturn_from_fs_status(fs->get_seals(fs, f, seals));
 }
 
 notify_entry fs_watch(heap h, tuple n, u64 eventmask, event_handler eh, notify_set *s)

@@ -632,6 +632,25 @@ closure_func_basic(sg_file_io, sysreturn, file_sg_read,
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
+static sysreturn file_write_check(file f, u64 offset, u64 len)
+{
+    fsfile fsf = f->fsf;
+    if (!fsf)
+        return -EBADF;
+    if (len == 0)
+        return 0;
+    filesystem fs = f->fs;
+    if (fs->get_seals) {
+        u64 seals;
+        if (fs->get_seals(fs, fsf, &seals) == FS_STATUS_OK) {
+            if ((seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)) ||
+                ((seals & F_SEAL_GROW) && (offset + len > fsfile_get_length(fsf))))
+                return -EPERM;
+        }
+    }
+    return 0;
+}
+
 static void begin_file_write(file f, u64 len)
 {
     if (len > 0) {
@@ -692,8 +711,9 @@ closure_func_basic(file_io, sysreturn, file_write,
                func_ss, f, src, offset, is_file_offset ? ss("file") : ss("specified"),
                length, f->fsf ? fsfile_get_length(f->fsf) : 0);
 
-    if (!f->fsf)
-        return io_complete(completion, -EBADF);
+    sysreturn rv = file_write_check(f, offset, length);
+    if (rv < 0)
+        return io_complete(completion, rv);
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         thread_log(t, "   unable to allocate sg list");
@@ -753,10 +773,9 @@ closure_func_basic(sg_file_io, sysreturn, file_sg_write,
     thread_log(t, "%s: f %p, sg %p, offset %ld (%s), len %ld, file length %ld",
                func_ss, f, sg, offset, is_file_offset ? ss("file") : ss("specified"),
                len, f->fsf ? fsfile_get_length(f->fsf) : 0);
-    if (!f->fsf) {
-        rv = -EBADF;
+    rv = file_write_check(f, offset, len);
+    if (rv < 0)
         goto out;
-    }
     status_handler sg_complete = closure_from_context(ctx, file_sg_write_complete, f, len,
                                                       is_file_offset, completion, false);
     if (sg_complete == INVALID_ADDRESS) {
@@ -1332,8 +1351,17 @@ static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, long lengt
     if (length < 0) {
         return set_syscall_error(current, EINVAL);
     }
-    if (length == fsfile_get_length(fsf))
+    u64 cur_len = fsfile_get_length(fsf);
+    if (length == cur_len)
         return 0;
+    if (fs->get_seals) {
+        u64 seals;
+        if (fs->get_seals(fs, fsf, &seals) == FS_STATUS_OK) {
+            if (((seals & F_SEAL_SHRINK) && (length < cur_len)) ||
+                ((seals & F_SEAL_GROW) && (length > cur_len)))
+                return -EPERM;
+        }
+    }
     fs_status s = filesystem_truncate(fs, fsf, length);
     if (s == FS_STATUS_OK)
         truncate_file_maps(current->p, fsf, length);
@@ -2156,6 +2184,22 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
     case F_GETPIPE_SZ:
         if (f->type == FDESC_TYPE_PIPE) {
             rv = pipe_get_capacity(f);
+        } else {
+            rv = -EINVAL;
+        }
+        break;
+    case F_ADD_SEALS:
+        if (f->type == FDESC_TYPE_REGULAR)
+            rv = fsfile_add_seals(((file)f)->fsf, (int)arg);
+        else
+            rv = -EINVAL;
+        break;
+    case F_GET_SEALS:
+        if (f->type == FDESC_TYPE_REGULAR) {
+            u64 seals;
+            rv = fsfile_get_seals(((file)f)->fsf, &seals);
+            if (rv == 0)
+                rv = seals;
         } else {
             rv = -EINVAL;
         }

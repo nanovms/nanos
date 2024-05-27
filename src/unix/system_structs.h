@@ -136,6 +136,8 @@ typedef struct iovec {
 #define F_DUPFD_CLOEXEC (F_LINUX_SPECIFIC_BASE + 6)
 #define F_SETPIPE_SZ    (F_LINUX_SPECIFIC_BASE + 7)
 #define F_GETPIPE_SZ    (F_LINUX_SPECIFIC_BASE + 8)
+#define F_ADD_SEALS     (F_LINUX_SPECIFIC_BASE + 9)
+#define F_GET_SEALS     (F_LINUX_SPECIFIC_BASE + 10)
 
 /* Values for 'mode' argument of access/faccessat syscalls */
 #define F_OK    0x0
@@ -154,6 +156,12 @@ struct flock {
 #define F_RDLCK         0
 #define F_WRLCK         1
 #define F_UNLCK         2
+
+#define F_SEAL_SEAL         0x0001
+#define F_SEAL_SHRINK       0x0002
+#define F_SEAL_GROW         0x0004
+#define F_SEAL_WRITE        0x0008
+#define F_SEAL_FUTURE_WRITE 0x0010
 
 #define IOC_NR(req)     ((req) & 0x000000ff)
 #define IOC_TYPE(req)   (((req) & 0x0000ff00) >> 8)

@@ -790,6 +790,8 @@ status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean r
     fs->pv = pagecache_allocate_volume(size, fs->blocksize_order);
     if (fs->pv == INVALID_ADDRESS)
         return timm("result", "failed to allocate pagacache volume");
+    fs->get_seals = 0;
+    fs->set_seals = 0;
 #ifndef FS_READ_ONLY
     init_refcount(&fs->refcount, 1, init_closure_func(&fs->sync, thunk, fs_sync));
     fs->sync_complete = 0;
