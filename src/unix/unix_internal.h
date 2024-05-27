@@ -413,6 +413,9 @@ struct file {
     closure_struct(fdesc_close, close);
 };
 
+/* Allocates a file descriptor and returns its value (or an error code) */
+int unix_file_new(filesystem fs, tuple md, int type, int flags, fsfile fsf);
+
 sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap);
 
 void epoll_finish(epoll e);
