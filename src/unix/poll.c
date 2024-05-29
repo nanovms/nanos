@@ -449,6 +449,19 @@ static void check_fdesc(epollfd efd, epoll_blocked w)
     }
 }
 
+static void epoll_check_epollfds(epoll e, epoll_blocked w)
+{
+    bitmap_foreach_set(e->fds, fd) {
+        epollfd efd = vector_get(e->events, fd);
+        if (efd->zombie)
+            continue;
+        spin_lock(&efd->lock);
+        if (efd->registered)
+            check_fdesc(efd, w);
+        spin_unlock(&efd->lock);
+    }
+}
+
 /* It would be nice to devise a way to allow a poll waiter to continue
    to collect events between wakeup (first event) and running. */
 
@@ -523,21 +536,7 @@ sysreturn epoll_wait(int epfd,
     spin_unlock(&w->lock);
 
     spin_rlock(&e->fds_lock);
-    bitmap_foreach_set(e->fds, fd) {
-        epollfd efd = vector_get(e->events, fd);
-        assert(efd);
-        assert(efd->fd == fd);
-
-        if (efd->zombie)
-            continue;
-
-        /* event transitions may in some cases need to be polled for
-           (e.g. due to change in lwIP internal state), so request a check */
-        spin_lock(&efd->lock);
-        if (efd->registered)
-            check_fdesc(efd, w);
-        spin_unlock(&efd->lock);
-    }
+    epoll_check_epollfds(e, w);
     spin_runlock(&e->fds_lock);
 
     timestamp ts = (timeout > 0) ? milliseconds(timeout) : 0;
@@ -769,23 +768,9 @@ static sysreturn select_internal(int nfds,
     epoll e = thread_get_epoll(EPOLL_TYPE_SELECT);
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
-    epoll_blocked wt = alloc_epoll_blocked(e);
-    if (wt == INVALID_ADDRESS)
-        return -ENOMEM;
-    wt->nfds = nfds;
-    wt->rset = wt->wset = wt->eset = 0;
 
     epoll_debug("nfds %d, readfds %p, writefds %p, exceptfds %p\n"
-                "   epoll_blocked %p, timeout %d\n", nfds, readfds, writefds, exceptfds,
-                wt, timeout);
-    if (nfds == 0)
-        goto check_timeout;
-
-    wt->rset = readfds ? bitmap_wrap(e->h, readfds, nfds) : 0;
-    wt->wset = writefds ? bitmap_wrap(e->h, writefds, nfds) : 0;
-    wt->eset = exceptfds ? bitmap_wrap(e->h, exceptfds, nfds) : 0;
-
-    spin_wlock(&e->fds_lock);
+                "   timeout %d\n", nfds, readfds, writefds, exceptfds, timeout);
     bitmap_extend(e->fds, nfds - 1);
     u64 dummy = 0;
     u64 * rp = readfds ? readfds : &dummy;
@@ -860,7 +845,6 @@ static sysreturn select_internal(int nfds,
             if (!efd->registered)
                 register_epollfd(efd);
 
-            check_fdesc(efd, wt);
             spin_unlock(&efd->lock);
         }
 
@@ -871,8 +855,17 @@ static sysreturn select_internal(int nfds,
         if (exceptfds)
             ep++;
     }
-    spin_wunlock(&e->fds_lock);
-  check_timeout:
+    epoll_blocked wt = alloc_epoll_blocked(e);
+    if (wt == INVALID_ADDRESS)
+        return -ENOMEM;
+    wt->nfds = nfds;
+    if (readfds)
+        wt->rset = bitmap_wrap(e->h, readfds, nfds);
+    if (writefds)
+        wt->wset = bitmap_wrap(e->h, writefds, nfds);
+    if (exceptfds)
+        wt->eset = bitmap_wrap(e->h, exceptfds, nfds);
+    epoll_check_epollfds(e, wt);
     return blockq_check_timeout(wt->t->thread_bq,
                                 contextual_closure(select_bh, wt, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
@@ -968,13 +961,8 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
     epoll e = thread_get_epoll(EPOLL_TYPE_POLL);
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
-    epoll_blocked w = alloc_epoll_blocked(e);
-    if (w == INVALID_ADDRESS)
-        return -ENOMEM;
-    epoll_debug("epoll nfds %ld, new blocked %p, timeout %d\n", nfds, w, timeout);
-    w->poll_fds = wrap_buffer(e->h, fds, nfds * sizeof(struct pollfd));
 
-    spin_wlock(&e->fds_lock);
+    epoll_debug("epoll nfds %ld, timeout %d\n", nfds, timeout);
     bitmap remove_efds = bitmap_clone(e->fds); /* efds to remove */
     for (int i = 0; i < nfds; i++) {
         struct pollfd *pfd = fds + i;
@@ -1021,10 +1009,6 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
             register_epollfd(efd);
         }
 
-        epoll_debug("   register fd %d, eventmask 0x%x, applying check\n",
-            efd->fd, efd->eventmask);
-        if (efd->registered)
-            check_fdesc(efd, w);
         spin_unlock(&efd->lock);
     }
 
@@ -1035,9 +1019,13 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
         assert(efd != INVALID_ADDRESS);
         release_epollfd(efd);
     }
-    spin_wunlock(&e->fds_lock);
     deallocate_bitmap(remove_efds);
 
+    epoll_blocked w = alloc_epoll_blocked(e);
+    if (w == INVALID_ADDRESS)
+        return -ENOMEM;
+    w->poll_fds = wrap_buffer(e->h, fds, nfds * sizeof(struct pollfd));
+    epoll_check_epollfds(e, w);
     return blockq_check_timeout(w->t->thread_bq,
                                 contextual_closure(poll_bh, w, current, timeout), false,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
