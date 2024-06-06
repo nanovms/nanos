@@ -2608,23 +2608,23 @@ sysreturn getsockopt(int sockfd, int level, int optname, void *optval, socklen_t
 
 void register_net_syscalls(struct syscall *map)
 {
-    register_syscall(map, socket, socket, SYSCALL_F_SET_NET);
-    register_syscall(map, bind, bind, SYSCALL_F_SET_NET);
-    register_syscall(map, listen, listen, SYSCALL_F_SET_NET);
-    register_syscall(map, accept, accept, SYSCALL_F_SET_NET);
-    register_syscall(map, accept4, accept4, SYSCALL_F_SET_NET);
-    register_syscall(map, connect, connect, SYSCALL_F_SET_NET);
-    register_syscall(map, sendto, sendto, SYSCALL_F_SET_NET);
-    register_syscall(map, sendmsg, sendmsg, SYSCALL_F_SET_NET);
-    register_syscall(map, sendmmsg, sendmmsg, SYSCALL_F_SET_NET);
-    register_syscall(map, recvfrom, recvfrom, SYSCALL_F_SET_NET);
-    register_syscall(map, recvmsg, recvmsg, SYSCALL_F_SET_NET);
-    register_syscall(map, recvmmsg, recvmmsg, SYSCALL_F_SET_NET);
-    register_syscall(map, setsockopt, setsockopt, SYSCALL_F_SET_NET);
-    register_syscall(map, getsockname, getsockname, SYSCALL_F_SET_NET);
-    register_syscall(map, getpeername, getpeername, SYSCALL_F_SET_NET);
-    register_syscall(map, getsockopt, getsockopt, SYSCALL_F_SET_NET);
-    register_syscall(map, shutdown, shutdown, SYSCALL_F_SET_NET);
+    register_syscall(map, socket, socket);
+    register_syscall(map, bind, bind);
+    register_syscall(map, listen, listen);
+    register_syscall(map, accept, accept);
+    register_syscall(map, accept4, accept4);
+    register_syscall(map, connect, connect);
+    register_syscall(map, sendto, sendto);
+    register_syscall(map, sendmsg, sendmsg);
+    register_syscall(map, sendmmsg, sendmmsg);
+    register_syscall(map, recvfrom, recvfrom);
+    register_syscall(map, recvmsg, recvmsg);
+    register_syscall(map, recvmmsg, recvmmsg);
+    register_syscall(map, setsockopt, setsockopt);
+    register_syscall(map, getsockname, getsockname);
+    register_syscall(map, getpeername, getpeername);
+    register_syscall(map, getsockopt, getsockopt);
+    register_syscall(map, shutdown, shutdown);
 }
 
 boolean netsyscall_init(unix_heaps uh, tuple cfg)

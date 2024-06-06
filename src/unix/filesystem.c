@@ -119,7 +119,6 @@ closure_function(2, 2, void, fs_op_complete,
 {
     thread t = bound(t);
     sysreturn ret = sysreturn_from_fs_status(s);
-    thread_log(current, "%s: %d", func_ss, ret);
 
     fdesc_put(&bound(f)->f);
     syscall_return(t, ret);     /* returns on kernel context */
@@ -132,7 +131,6 @@ static sysreturn symlink_internal(filesystem fs, inode cwd, sstring path,
     sstring target_ss;
     if (!fault_in_user_string(target, &target_ss))
         return -EFAULT;
-    thread_log(current, "symlink 0x%lx %s -> %s", cwd, path, target_ss);
     return sysreturn_from_fs_status(filesystem_symlink(fs, cwd, path, target_ss));
 }
 
@@ -233,8 +231,6 @@ static timestamp time_from_utimens(const struct timespec *t)
 
 sysreturn utimensat(int dirfd, const char *filename, const struct timespec times[2], int flags)
 {
-    thread_log(current, "%s: dirfd %d, path %p, times %p, flags 0x%x", func_ss, dirfd, filename,
-               times, flags);
     timestamp atime, mtime;
     if (times) {
         context ctx = get_current_context(current_cpu());

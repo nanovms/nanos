@@ -110,12 +110,10 @@ closure_function(3, 1, sysreturn, futex_bh,
 {
     thread t = bound(t);
     struct futex *f = bound(f);
-    sstring func = func_ss;
     sysreturn rv;
 
     if (!(flags & BLOCKQ_ACTION_BLOCKED)) {
         futex_unlock(f);
-        thread_log(t, "%s: struct futex: %p, blocking", func, f);
         return BLOCKQ_BLOCK_REQUIRED;
     }
 
@@ -128,7 +126,6 @@ closure_function(3, 1, sysreturn, futex_bh,
         rv = 0; /* no timer expire + not us --> actual wakeup */
     }
 
-    thread_log(t, "%s: struct futex: %p, flags 0x%lx, rv %ld", func, f, flags, rv);
     closure_finish();
     return syscall_return(t, rv);
 }
@@ -383,8 +380,6 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
         !validate_user_memory(len, sizeof(*len), true))
         return -EFAULT;
 
-    thread_log(current, "get_robust_list syscall for pid %d", pid);
-
     thread t = 0;
     if (pid == 0) {
         t = current;
@@ -406,7 +401,6 @@ sysreturn get_robust_list(int pid, void *head, u64 *len)
 
 sysreturn set_robust_list(void *head, u64 len)
 {
-    thread_log(current, "set_robust_list syscall with head %p", head);
     if (len != sizeof(struct robust_list_head))
         return -EINVAL;
     if (!validate_process_memory(current->p, head, len, false))

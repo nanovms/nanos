@@ -15,6 +15,7 @@ PROGRAMS= \
 	sandbox \
 	shmem \
 	special_files \
+	strace \
 	syslog \
 	tmpfs \
 	tls \
@@ -60,6 +61,12 @@ SRCS-shmem= \
 
 SRCS-special_files= \
 	$(CURDIR)/special_files.c \
+
+SRCS-strace= \
+	$(CURDIR)/strace.c \
+	$(CURDIR)/strace_file.c \
+	$(CURDIR)/strace_mem.c \
+	$(CURDIR)/strace_misc.c \
 
 SRCS-syslog= \
 	$(CURDIR)/syslog.c \

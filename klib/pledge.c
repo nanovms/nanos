@@ -656,7 +656,7 @@ static boolean pledge_sendmmsg(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4,
 boolean pledge_init(sb_syscall syscalls, tuple cfg)
 {
     pldg.abilities = PLEDGE_ALL;
-    register_syscall(linux_syscalls, pledge, pledge, 0);
+    register_syscall(linux_syscalls, pledge, pledge);
     pledge_syscall_register_default(syscalls, read, PLEDGE_STDIO);
     pledge_syscall_register_default(syscalls, write, PLEDGE_STDIO);
     pledge_syscall_register_default(syscalls, close, PLEDGE_STDIO);

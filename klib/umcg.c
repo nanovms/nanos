@@ -519,6 +519,6 @@ int init(status_handler complete)
     list_init(&umcg.idle_workers);
     blockq_init(&umcg.server_bq, ss("umcg servers"));
     spin_lock_init(&umcg.lock);
-    register_syscall(linux_syscalls, umcg_ctl, umcg_ctl, SYSCALL_F_SET_PROC);
+    register_syscall(linux_syscalls, umcg_ctl, umcg_ctl);
     return KLIB_INIT_OK;
 }

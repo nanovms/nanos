@@ -310,6 +310,7 @@ struct utimbuf {
 #define FUTEX_WAIT_REQUEUE_PI	11
 #define FUTEX_CMP_REQUEUE_PI	12
 
+#define FUTEX_PRIVATE_FLAG      (1 << 7)
 #define FUTEX_CLOCK_REALTIME    (1 << 8)
 
 #define  FUTEX_OP_SET        0  /* uaddr2 = oparg; */

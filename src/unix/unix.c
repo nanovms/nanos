@@ -384,8 +384,6 @@ void init_thread_fault_handler(thread t)
 closure_func_basic(file_io, sysreturn, dummy_read,
                    void *dest, u64 length, u64 offset_arg, context ctx, boolean bh, io_completion completion)
 {
-    thread_log(current, "%s: dest %p, length %ld, offset_arg %ld",
-               func_ss, dest, length, offset_arg);
     if (completion)
         apply(completion, 0);
     return 0;
@@ -675,7 +673,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
     register_clock_syscalls(linux_syscalls);
     register_timer_syscalls(linux_syscalls);
     register_other_syscalls(linux_syscalls);
-    configure_syscalls(kernel_process);
 
     tuple coredumplimit = get(root, sym(coredumplimit));
     if (coredumplimit && is_string(coredumplimit)) {

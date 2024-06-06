@@ -1,7 +1,10 @@
 (
     boot:(
         children:(
-            klib:(children:(syslog:(contents:(host:output/klib/bin/syslog))))
+            klib:(children:(
+                strace:(contents:(host:output/klib/bin/strace))
+                syslog:(contents:(host:output/klib/bin/syslog))
+            ))
         )
     )
     children:(

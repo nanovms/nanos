@@ -66,19 +66,19 @@ def coredump_post(ctx):
 
 
 def notrace_post(ctx):
-    if re.search('    2 arch_prctl', ctx['output'], re.M) != None:
+    if re.search('\[2\] arch_prctl', ctx['output'], re.M) != None:
         return (-1, 'syscall was not excluded')
 
 
 def tracelist_post(ctx):
-    if re.search('    2 arch_prctl', ctx['output'], re.M) == None:
+    if re.search('\[2\] arch_prctl', ctx['output'], re.M) == None:
         return (-1, 'syscall was not found')
-    if re.search('    2 [^arch_prctl]', ctx['output'], re.M) != None:
+    if re.search('\[2\] [^arch_prctl]', ctx['output'], re.M) != None:
         return (-1, 'other syscalls were not excluded')
 
 
 def debugsyscalls_post(ctx):
-    if ctx['output'].find('direct return') == -1:
+    if ctx['output'].find('exit_group') == -1:
         return (-1, 'debugsyscalls does not appear to be activated')
 
 
@@ -120,7 +120,7 @@ def test_basic_options():
         'name': 'mmap',
         'option': 'missing_files:t'
     }, {
-        'name': 'mmap',
+        'name': 'hws',
         'option': 'syscall_summary:t'
     }, {
         'name': 'sigoverflow',
@@ -128,11 +128,11 @@ def test_basic_options():
         'post': coredump_post
     }, {
         'name': 'hws',
-        'option': 'trace:t\ notrace:[arch_prctl]',
+        'option': 'debugsyscalls:t\ notrace:[arch_prctl]',
         'post': notrace_post
     }, {
         'name': 'hws',
-        'option': 'trace:t\ tracelist:[arch_prctl]',
+        'option': 'debugsyscalls:t\ tracelist:[arch_prctl]',
         'post': tracelist_post
     }, {
         'name': 'hws',

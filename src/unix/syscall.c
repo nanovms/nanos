@@ -3,16 +3,8 @@
 #include <lwip.h>
 #include <storage.h>
 
-typedef struct syscall_stat {
-    u64 calls;
-    u64 errors;
-    u64 usecs;
-} *syscall_stat;
-
 static buffer hostname;
 
-static struct syscall_stat stats[SYS_MAX];
-BSS_RO_AFTER_INIT boolean do_syscall_stats;
 BSS_RO_AFTER_INIT static boolean do_missing_files;
 BSS_RO_AFTER_INIT static vector missing_files;
 
@@ -140,8 +132,6 @@ closure_function(4, 1, void, iov_read_complete,
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
-    thread_log(current, "%s: sg %p, completion %F, rv %ld", func_ss, sg, completion,
-               rv);
     if (rv > 0) {
         if (!sg_to_iov(sg, bound(iov), bound(iovcnt)))
             rv = -EFAULT;
@@ -157,8 +147,6 @@ closure_function(2, 1, void, iov_write_complete,
 {
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
-    thread_log(current, "%s: sg %p, completion %F, rv %ld", func_ss, sg, completion,
-               rv);
     sg_list_release(sg);
     deallocate_sg_list(sg);
     apply(completion, rv);
@@ -451,8 +439,6 @@ out_complete:
 /* requires infile to have sg_read method - so sendfile from special files isn't supported */
 static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
 {
-    thread_log(current, "%s: out %d, in %d, offset %p, *offset %d, count %ld",
-               func_ss, out_fd, in_fd, offset, offset ? *offset : 0, count);
     u64 read_offset;
     if (offset) {
         if (!get_user_value(offset, &read_offset))
@@ -541,7 +527,6 @@ closure_function(6, 1, void, file_read_complete,
     if (is_ok(s)) {
         file f = bound(f);
         u64 count = sg_copy_to_buf_and_release(bound(dest), sg, bound(limit));
-        thread_log(t, "   read count %ld", count);
         if (bound(is_file_offset)) /* vs specified offset (pread) */
             f->offset += count;
         rv = count;
@@ -854,7 +839,6 @@ int unix_file_new(filesystem fs, tuple md, int type, int flags, fsfile fsf)
     unix_heaps uh = get_unix_heaps();
     file f = type == FDESC_TYPE_SPECIAL ? spec_allocate(md) : unix_cache_alloc(uh, file);
     if (f == INVALID_ADDRESS) {
-        thread_log(t, "failed to allocate struct file");
         return -ENOMEM;
     }
     heap h = heap_locked(get_kernel_heaps());
@@ -880,7 +864,6 @@ int unix_file_new(filesystem fs, tuple md, int type, int flags, fsfile fsf)
         int spec_ret = spec_open(f, md);
         if (spec_ret != 0) {
             assert(spec_ret < 0);
-            thread_log(t, "spec_open failed (%d)", spec_ret);
             spec_deallocate(f);
             return spec_ret;
         }
@@ -896,7 +879,6 @@ int unix_file_new(filesystem fs, tuple md, int type, int flags, fsfile fsf)
     process p = t->p;
     int fd = allocate_fd(p, f);
     if (fd == INVALID_PHYSICAL) {
-        thread_log(t, "failed to allocate fd");
         file_release(f);
         return -EMFILE;
     }
@@ -1001,7 +983,6 @@ sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
             else
                 deallocate_buffer(b);
         }
-        thread_log(current, "\"%s\" - not found", name);
         return set_syscall_return(current, ret);
     }
 
@@ -1033,7 +1014,6 @@ sysreturn open(const char *name, int flags, int mode)
     sstring name_ss;
     if (!fault_in_user_string(name, &name_ss))
         return -EFAULT;
-    thread_log(current, "open: \"%s\", flags %x, mode %x", name_ss, flags, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -1045,12 +1025,10 @@ sysreturn open(const char *name, int flags, int mode)
 
 sysreturn dup(int fd)
 {
-    thread_log(current, "dup: fd %d", fd);
     fdesc f = resolve_fd(current->p, fd);
 
     int newfd = allocate_fd(current->p, f);
     if (newfd == INVALID_PHYSICAL) {
-        thread_log(current, "failed to allocate fd");
         fdesc_put(f);
         return set_syscall_error(current, EMFILE);
     }
@@ -1060,7 +1038,6 @@ sysreturn dup(int fd)
 
 sysreturn dup2(int oldfd, int newfd)
 {
-    thread_log(current, "%s: oldfd %d, newfd %d", func_ss, oldfd, newfd);
     process p = current->p;
     fdesc f = resolve_fd(p, oldfd);
     if (newfd != oldfd) {
@@ -1076,7 +1053,6 @@ sysreturn dup2(int oldfd, int newfd)
         } else {
             newfd = allocate_fd_gte(p, newfd, f);
             if (newfd == INVALID_PHYSICAL) {
-                thread_log(current, "  failed to use newfd");
                 fdesc_put(f);
                 return -EMFILE;
             }
@@ -1103,7 +1079,6 @@ sysreturn mkdir(const char *pathname, int mode)
     sstring pathname_ss;
     if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "mkdir: \"%s\", mode 0x%x", pathname_ss, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -1130,7 +1105,6 @@ sysreturn mkdirat(int dirfd, char *pathname, int mode)
     filesystem fs;
     inode cwd;
     cwd = resolve_dir(fs, dirfd, pathname, pathname_ss);
-    thread_log(current, "mkdirat: \"%s\", dirfd %d, mode 0x%x", pathname_ss, dirfd, mode);
 
     sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(fs, cwd, pathname_ss));
     filesystem_release(fs);
@@ -1142,7 +1116,6 @@ sysreturn creat(const char *pathname, int mode)
     sstring pathname_ss;
     if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "creat: \"%s\", mode 0x%x", pathname_ss, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -1380,7 +1353,6 @@ sysreturn truncate(const char *path, long length)
     filesystem cwd_fs = fs;
     fsfile fsf;
     fs_status fss = filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &t, &fsf);
-    thread_log(current, "%s \"%s\" %d", func_ss, path_ss, length);
     sysreturn rv;
     if (fss != FS_STATUS_OK) {
         rv = sysreturn_from_fs_status(fss);
@@ -1406,7 +1378,6 @@ sysreturn truncate(const char *path, long length)
 
 sysreturn ftruncate(int fd, long length)
 {
-    thread_log(current, "%s %d %d", func_ss, fd, length);
     file f = resolve_fd(current->p, fd);
     sysreturn rv;
     if (!(f->f.flags & (O_RDWR | O_WRONLY)) ||
@@ -1518,7 +1489,6 @@ sysreturn access(const char *pathname, int mode)
     sstring pathname_ss;
     if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "access: \"%s\", mode %d", pathname_ss, mode);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -1532,7 +1502,6 @@ sysreturn faccessat(int dirfd, const char *pathname, int mode)
     sstring pathname_ss;
     filesystem fs;
     inode cwd = resolve_dir(fs, dirfd, pathname, pathname_ss);
-    thread_log(current, "faccessat: dirfd %d, \"%s\", mode %d", dirfd, pathname_ss, mode);
     sysreturn rv = access_internal(fs, cwd, pathname_ss, mode);
     filesystem_release(fs);
     return rv;
@@ -1619,7 +1588,6 @@ static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s
 
 static sysreturn fstat(int fd, struct stat *s)
 {
-    thread_log(current, "fd %d, stat %p", fd, s);
     fdesc f = resolve_fd(current->p, fd);
     filesystem fs;
     tuple n;
@@ -1647,7 +1615,6 @@ static sysreturn fstat(int fd, struct stat *s)
     fill_stat(f->type, fs, fsf, n, s);
     if (n)
         filesystem_put_meta(fs, n);
-    thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx", s->st_ino, s->st_mode, s->st_size);
   out:
     fdesc_put(f);
     return rv;
@@ -1662,8 +1629,6 @@ static sysreturn stat_internal(filesystem fs, inode cwd, sstring name, boolean f
     if (!fault_in_user_memory(buf, sizeof(struct stat), true))
         return -EFAULT;
 
-    thread_log(current, "stat: cwd 0x%lx, \"%s\", %sfollow, buf %p", cwd, name,
-               follow ? sstring_empty() : ss("no "), buf);
     fs_status fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
     if (fss != FS_STATUS_OK)
         return sysreturn_from_fs_status(fss);
@@ -1672,8 +1637,6 @@ static sysreturn stat_internal(filesystem fs, inode cwd, sstring name, boolean f
     filesystem_put_node(fs, n);
     if (fsf)
         fsfile_release(fsf);
-    thread_log(current, "st_ino %lx, st_mode 0x%x, st_size %lx",
-               buf->st_ino, buf->st_mode, buf->st_size);
     return 0;
 }
 
@@ -1720,12 +1683,6 @@ static sysreturn newfstatat(int dfd, const char *name, struct stat *s, int flags
 
 sysreturn lseek(int fd, s64 offset, int whence)
 {
-    thread_log(current, "%s: fd %d offset %ld whence %s",
-               func_ss, fd, offset, whence == SEEK_SET ? ss("SEEK_SET") :
-               whence == SEEK_CUR ? ss("SEEK_CUR") :
-               whence == SEEK_END ? ss("SEEK_END") :
-               ss("invalid"));
-
     file f = resolve_fd(current->p, fd);
     s64 new;
     sysreturn rv;
@@ -1830,8 +1787,6 @@ sysreturn setrlimit(int resource, const struct rlimit *rlim)
 
 sysreturn getrlimit(int resource, struct rlimit *rlim)
 {
-    thread_log(current, "getrlimit: resource %d, rlim %p", resource, rlim);
-
     context ctx = get_current_context(current_cpu());
     if (!validate_user_memory(rlim, sizeof(struct rlimit), true) || context_set_err(ctx))
         return -EFAULT;
@@ -1868,9 +1823,6 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
 
 sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struct rlimit *old_limit)
 {
-    thread_log(current, "prlimit64: pid %d, resource %d, new_limit %p, old_limit %p",
-        pid, resource, new_limit, old_limit);
-
     if (old_limit) {
         sysreturn ret = getrlimit(resource, old_limit);
         if (ret < 0)
@@ -1883,7 +1835,6 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 
 static sysreturn getrusage(int who, struct rusage *usage)
 {
-    thread_log(current, "%s: who %d", func_ss, who);
     context ctx = get_current_context(current_cpu());
     if (!validate_user_memory(usage, sizeof(*usage), true) || context_set_err(ctx))
         return -EFAULT;
@@ -1981,7 +1932,6 @@ sysreturn readlink(const char *pathname, char *buf, u64 bufsiz)
     sstring pathname_ss;
     if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "readlink: \"%s\"", pathname_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -1995,7 +1945,6 @@ sysreturn readlinkat(int dirfd, const char *pathname, char *buf, u64 bufsiz)
     sstring pathname_ss;
     filesystem fs;
     inode cwd = resolve_dir(fs, dirfd, pathname, pathname_ss);
-    thread_log(current, "readlinkat: \"%s\", dirfd %d", pathname_ss, dirfd);
     sysreturn rv = readlink_internal(fs, cwd, pathname_ss, buf, bufsiz);
     filesystem_release(fs);
     return rv;
@@ -2006,7 +1955,6 @@ sysreturn unlink(const char *pathname)
     sstring pathname_ss;
     if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "unlink %s", pathname_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -2023,7 +1971,6 @@ sysreturn unlinkat(int dirfd, const char *pathname, int flags)
     sstring path_ss;
     filesystem fs;
     inode cwd = resolve_dir(fs, dirfd, pathname, path_ss);
-    thread_log(current, "unlinkat %d %s 0x%x", dirfd, path_ss, flags);
     sysreturn rv;
     rv = sysreturn_from_fs_status(filesystem_delete(fs, cwd, path_ss, !!(flags & AT_REMOVEDIR)));
     filesystem_release(fs);
@@ -2035,7 +1982,6 @@ sysreturn rmdir(const char *pathname)
     sstring pathname_ss;
     if (!fault_in_user_string(pathname, &pathname_ss))
         return -EFAULT;
-    thread_log(current, "rmdir %s", pathname_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -2049,7 +1995,6 @@ sysreturn rename(const char *oldpath, const char *newpath)
     sstring oldpath_ss, newpath_ss;
     if (!fault_in_user_string(oldpath, &oldpath_ss) || !fault_in_user_string(newpath, &newpath_ss))
         return -EFAULT;
-    thread_log(current, "rename \"%s\" \"%s\"", oldpath_ss, newpath_ss);
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
@@ -2066,7 +2011,6 @@ sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
     filesystem oldfs, newfs;
     inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
     inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
-    thread_log(current, "renameat %d \"%s\" %d \"%s\"", olddirfd, oldpath_ss, newdirfd, newpath_ss);
     sysreturn rv = sysreturn_from_fs_status(filesystem_rename(oldfs, oldwd, oldpath_ss,
                                                               newfs, newwd, newpath_ss, false));
     filesystem_release(oldfs);
@@ -2085,8 +2029,6 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
     filesystem oldfs, newfs;
     inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
     inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
-    thread_log(current, "renameat2 %d \"%s\" %d \"%s\", flags 0x%x", olddirfd, oldpath_ss,
-               newdirfd, newpath_ss, flags);
     fs_status fss;
     if (flags & RENAME_EXCHANGE) {
         fss = filesystem_exchange(oldfs, oldwd, oldpath_ss, newfs, newwd, newpath_ss);
@@ -2110,7 +2052,6 @@ sysreturn fs_rename(sstring oldpath, sstring newpath)
 
 sysreturn close(int fd)
 {
-    thread_log(current, "close: fd %d", fd);
     fdesc f = resolve_fd(current->p, fd);
     deallocate_fd(current->p, fd);
 
@@ -2128,8 +2069,6 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
     fdesc f = resolve_fd(current->p, fd);
     sysreturn rv = 0;
 
-    thread_log(current, "fcntl: fd %d, cmd %d, arg %d", fd, cmd, arg);
-
     fdesc_lock(f);
     switch (cmd) {
     case F_GETFD:
@@ -2142,8 +2081,6 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
         rv = f->flags & ~O_CLOEXEC;
         break;
     case F_SETFL:
-        thread_log(current, "fcntl: fd %d, F_SETFL, %x", fd, arg);
-
         /* Ignore file access mode and file creation flags. */
         arg &= ~(O_ACCMODE | O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC);
 
@@ -2166,7 +2103,6 @@ sysreturn fcntl(int fd, int cmd, s64 arg)
         }
         int newfd = allocate_fd_gte(current->p, arg, f);
         if (newfd == INVALID_PHYSICAL) {
-            thread_log(current, "failed to allocate fd");
             rv = -EMFILE;
         } else {
             fdesc_unlock(f);
@@ -2239,8 +2175,6 @@ sysreturn ioctl_generic(fdesc f, unsigned long request, vlist ap)
 
 sysreturn ioctl(int fd, unsigned long request, ...)
 {
-    thread_log(current, "ioctl: fd %d, request 0x%x", fd, request);
-
     // checks if fd is valid
     fdesc f = resolve_fd(current->p, fd);
 
@@ -2404,9 +2338,6 @@ sysreturn capget(cap_user_header_t hdrp, cap_user_data_t datap)
 
 sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 {
-    thread_log(current, "prctl: option %d, arg2 0x%lx, arg3 0x%lx, arg4 0x%lx, arg5 0x%lx",
-               option, arg2, arg3, arg4, arg5);
-
     switch (option) {
     case PR_SET_NAME:
         if (!copy_from_user((void *)arg2, current->name, sizeof(current->name)))
@@ -2464,141 +2395,118 @@ sysreturn getcpu(unsigned int *cpu, unsigned int *node, void *tcache)
 
 void register_file_syscalls(struct syscall *map)
 {
-    register_syscall(map, read, read, SYSCALL_F_SET_DESC);
-    register_syscall(map, pread64, pread, SYSCALL_F_SET_DESC);
-    register_syscall(map, write, write, SYSCALL_F_SET_DESC);
-    register_syscall(map, pwrite64, pwrite, SYSCALL_F_SET_DESC);
+    register_syscall(map, read, read);
+    register_syscall(map, pread64, pread);
+    register_syscall(map, write, write);
+    register_syscall(map, pwrite64, pwrite);
 #ifdef __x86_64__
-    register_syscall(map, open, open, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, dup2, dup2, SYSCALL_F_SET_DESC);
-    register_syscall(map, stat, stat, SYSCALL_F_SET_FILE);
-    register_syscall(map, lstat, lstat, SYSCALL_F_SET_FILE);
-    register_syscall(map, access, access, SYSCALL_F_SET_FILE);
-    register_syscall(map, readlink, readlink, SYSCALL_F_SET_FILE);
-    register_syscall(map, unlink, unlink, SYSCALL_F_SET_FILE);
-    register_syscall(map, rmdir, rmdir, SYSCALL_F_SET_FILE);
-    register_syscall(map, rename, rename, SYSCALL_F_SET_FILE);
-    register_syscall(map, getdents, getdents, SYSCALL_F_SET_DESC);
-    register_syscall(map, mkdir, mkdir, SYSCALL_F_SET_FILE);
-    register_syscall(map, pipe, pipe, SYSCALL_F_SET_DESC);
-    register_syscall(map, eventfd, eventfd, SYSCALL_F_SET_DESC);
-    register_syscall(map, creat, creat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, utime, utime, SYSCALL_F_SET_FILE);
-    register_syscall(map, utimes, utimes, SYSCALL_F_SET_FILE);
-    register_syscall(map, chown, syscall_ignore, SYSCALL_F_SET_FILE);
-    register_syscall(map, symlink, symlink, SYSCALL_F_SET_FILE);
-    register_syscall(map, inotify_init, inotify_init, SYSCALL_F_SET_DESC);
+    register_syscall(map, open, open);
+    register_syscall(map, dup2, dup2);
+    register_syscall(map, stat, stat);
+    register_syscall(map, lstat, lstat);
+    register_syscall(map, access, access);
+    register_syscall(map, readlink, readlink);
+    register_syscall(map, unlink, unlink);
+    register_syscall(map, rmdir, rmdir);
+    register_syscall(map, rename, rename);
+    register_syscall(map, getdents, getdents);
+    register_syscall(map, mkdir, mkdir);
+    register_syscall(map, pipe, pipe);
+    register_syscall(map, eventfd, eventfd);
+    register_syscall(map, creat, creat);
+    register_syscall(map, utime, utime);
+    register_syscall(map, utimes, utimes);
+    register_syscall(map, chown, syscall_ignore);
+    register_syscall(map, symlink, symlink);
+    register_syscall(map, inotify_init, inotify_init);
 #endif
-    register_syscall(map, inotify_init1, inotify_init1, SYSCALL_F_SET_DESC);
-    register_syscall(map, inotify_add_watch, inotify_add_watch, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, inotify_rm_watch, inotify_rm_watch, SYSCALL_F_SET_DESC);
-    register_syscall(map, openat, openat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, dup, dup, SYSCALL_F_SET_DESC);
-    register_syscall(map, dup3, dup3, SYSCALL_F_SET_DESC);
-    register_syscall(map, fallocate, fallocate, SYSCALL_F_SET_DESC);
-    register_syscall(map, faccessat, faccessat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, fadvise64, fadvise64, SYSCALL_F_SET_DESC);
-    register_syscall(map, fstat, fstat, SYSCALL_F_SET_DESC);
-    register_syscall(map, newfstatat, newfstatat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, readv, readv, SYSCALL_F_SET_DESC);
-    register_syscall(map, writev, writev, SYSCALL_F_SET_DESC);
-    register_syscall(map, preadv, preadv, SYSCALL_F_SET_DESC);
-    register_syscall(map, pwritev, pwritev, SYSCALL_F_SET_DESC);
-    register_syscall(map, sendfile, sendfile, SYSCALL_F_SET_DESC|SYSCALL_F_SET_NET);
-    register_syscall(map, truncate, truncate, SYSCALL_F_SET_FILE);
-    register_syscall(map, ftruncate, ftruncate, SYSCALL_F_SET_DESC);
-    register_syscall(map, fdatasync, fdatasync, SYSCALL_F_SET_DESC);
-    register_syscall(map, fsync, fsync, SYSCALL_F_SET_DESC);
-    register_syscall(map, sync, sync, 0);
-    register_syscall(map, syncfs, syncfs, SYSCALL_F_SET_DESC);
-    register_syscall(map, io_setup, io_setup, SYSCALL_F_SET_MEM);
-    register_syscall(map, io_submit, io_submit, 0);
-    register_syscall(map, io_getevents, io_getevents, 0);
-    register_syscall(map, io_destroy, io_destroy, SYSCALL_F_SET_MEM);
-    register_syscall(map, lseek, lseek, SYSCALL_F_SET_DESC);
-    register_syscall(map, fcntl, fcntl, SYSCALL_F_SET_DESC);
-    register_syscall(map, ioctl, (sysreturn (*)())ioctl, SYSCALL_F_SET_DESC);
-    register_syscall(map, getcwd, getcwd, SYSCALL_F_SET_FILE);
-    register_syscall(map, symlinkat, symlinkat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, readlinkat, readlinkat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, unlinkat, unlinkat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, renameat, renameat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, renameat2, renameat2, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, utimensat, utimensat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, close, close, SYSCALL_F_SET_DESC);
-    register_syscall(map, sched_yield, sched_yield, 0);
-    register_syscall(map, brk, brk, SYSCALL_F_SET_MEM);
-    register_syscall(map, uname, uname, 0);
-    register_syscall(map, getrlimit, getrlimit, 0);
-    register_syscall(map, setrlimit, setrlimit, 0);
-    register_syscall(map, prlimit64, prlimit64, 0);
-    register_syscall(map, getrusage, getrusage, 0);
-    register_syscall(map, getpid, getpid, 0);
-    register_syscall(map, exit_group, exit_group, SYSCALL_F_SET_PROC);
-    register_syscall(map, exit, (sysreturn (*)())exit, SYSCALL_F_SET_PROC);
-    register_syscall(map, getdents64, getdents64, SYSCALL_F_SET_DESC);
-    register_syscall(map, mkdirat, mkdirat, SYSCALL_F_SET_FILE|SYSCALL_F_SET_DESC);
-    register_syscall(map, getrandom, getrandom, 0);
-    register_syscall(map, pipe2, pipe2, SYSCALL_F_SET_DESC);
-    register_syscall(map, socketpair, socketpair, SYSCALL_F_SET_NET);
-    register_syscall(map, eventfd2, eventfd2, SYSCALL_F_SET_DESC);
-    register_syscall(map, chdir, chdir, SYSCALL_F_SET_FILE);
-    register_syscall(map, fchdir, fchdir, SYSCALL_F_SET_DESC);
-    register_syscall(map, sched_getaffinity, sched_getaffinity, 0);
-    register_syscall(map, sched_setaffinity, sched_setaffinity, 0);
-    register_syscall(map, getuid, syscall_ignore, 0);
-    register_syscall(map, geteuid, syscall_ignore, 0);
-    register_syscall(map, setgroups, syscall_ignore, 0);
-    register_syscall(map, setuid, syscall_ignore, 0);
-    register_syscall(map, setgid, syscall_ignore, 0);
-    register_syscall(map, capget, capget, 0);
-    register_syscall(map, capset, syscall_ignore, 0);
-    register_syscall(map, prctl, prctl, 0);
-    register_syscall(map, sysinfo, sysinfo, 0);
-    register_syscall(map, umask, umask, 0);
-    register_syscall(map, statfs, statfs, SYSCALL_F_SET_FILE);
-    register_syscall(map, fstatfs, fstatfs, SYSCALL_F_SET_DESC);
-    register_syscall(map, io_uring_setup, io_uring_setup, SYSCALL_F_SET_DESC);
-    register_syscall(map, io_uring_enter, io_uring_enter, SYSCALL_F_SET_DESC);
-    register_syscall(map, io_uring_register, io_uring_register, SYSCALL_F_SET_DESC);
-    register_syscall(map, getcpu, getcpu, 0);
+    register_syscall(map, inotify_init1, inotify_init1);
+    register_syscall(map, inotify_add_watch, inotify_add_watch);
+    register_syscall(map, inotify_rm_watch, inotify_rm_watch);
+    register_syscall(map, openat, openat);
+    register_syscall(map, dup, dup);
+    register_syscall(map, dup3, dup3);
+    register_syscall(map, fallocate, fallocate);
+    register_syscall(map, faccessat, faccessat);
+    register_syscall(map, fadvise64, fadvise64);
+    register_syscall(map, fstat, fstat);
+    register_syscall(map, newfstatat, newfstatat);
+    register_syscall(map, readv, readv);
+    register_syscall(map, writev, writev);
+    register_syscall(map, preadv, preadv);
+    register_syscall(map, pwritev, pwritev);
+    register_syscall(map, sendfile, sendfile);
+    register_syscall(map, truncate, truncate);
+    register_syscall(map, ftruncate, ftruncate);
+    register_syscall(map, fdatasync, fdatasync);
+    register_syscall(map, fsync, fsync);
+    register_syscall(map, sync, sync);
+    register_syscall(map, syncfs, syncfs);
+    register_syscall(map, io_setup, io_setup);
+    register_syscall(map, io_submit, io_submit);
+    register_syscall(map, io_getevents, io_getevents);
+    register_syscall(map, io_destroy, io_destroy);
+    register_syscall(map, lseek, lseek);
+    register_syscall(map, fcntl, fcntl);
+    register_syscall(map, ioctl, (sysreturn (*)())ioctl);
+    register_syscall(map, getcwd, getcwd);
+    register_syscall(map, symlinkat, symlinkat);
+    register_syscall(map, readlinkat, readlinkat);
+    register_syscall(map, unlinkat, unlinkat);
+    register_syscall(map, renameat, renameat);
+    register_syscall(map, renameat2, renameat2);
+    register_syscall(map, utimensat, utimensat);
+    register_syscall(map, close, close);
+    register_syscall(map, sched_yield, sched_yield);
+    register_syscall(map, brk, brk);
+    register_syscall(map, uname, uname);
+    register_syscall(map, getrlimit, getrlimit);
+    register_syscall(map, setrlimit, setrlimit);
+    register_syscall(map, prlimit64, prlimit64);
+    register_syscall(map, getrusage, getrusage);
+    register_syscall(map, getpid, getpid);
+    register_syscall(map, exit_group, exit_group);
+    register_syscall(map, exit, (sysreturn (*)())exit);
+    register_syscall(map, getdents64, getdents64);
+    register_syscall(map, mkdirat, mkdirat);
+    register_syscall(map, getrandom, getrandom);
+    register_syscall(map, pipe2, pipe2);
+    register_syscall(map, socketpair, socketpair);
+    register_syscall(map, eventfd2, eventfd2);
+    register_syscall(map, chdir, chdir);
+    register_syscall(map, fchdir, fchdir);
+    register_syscall(map, sched_getaffinity, sched_getaffinity);
+    register_syscall(map, sched_setaffinity, sched_setaffinity);
+    register_syscall(map, getuid, syscall_ignore);
+    register_syscall(map, geteuid, syscall_ignore);
+    register_syscall(map, setgroups, syscall_ignore);
+    register_syscall(map, setuid, syscall_ignore);
+    register_syscall(map, setgid, syscall_ignore);
+    register_syscall(map, capget, capget);
+    register_syscall(map, capset, syscall_ignore);
+    register_syscall(map, prctl, prctl);
+    register_syscall(map, sysinfo, sysinfo);
+    register_syscall(map, umask, umask);
+    register_syscall(map, statfs, statfs);
+    register_syscall(map, fstatfs, fstatfs);
+    register_syscall(map, io_uring_setup, io_uring_setup);
+    register_syscall(map, io_uring_enter, io_uring_enter);
+    register_syscall(map, io_uring_register, io_uring_register);
+    register_syscall(map, getcpu, getcpu);
 }
 
 
 struct syscall {
     void *handler;
-    sstring name;
-    u64 flags;
 };
 
 static struct syscall _linux_syscalls[SYS_MAX];
 struct syscall * const linux_syscalls = _linux_syscalls;
 
-void count_syscall(thread t, sysreturn rv)
-{
-    if (t->last_syscall == -1)
-        return;
-    syscall_stat ss = &stats[t->last_syscall];
-    t->last_syscall = -1;
-    fetch_and_add(&ss->calls, 1);
-    if (rv < 0 && rv >= -255)
-        fetch_and_add(&ss->errors, 1);
-    u64 us;
-    if (t->syscall_enter_ts)
-        us = usec_from_timestamp(now(CLOCK_ID_MONOTONIC_RAW) - t->syscall_enter_ts) + t->syscall_time;
-    else
-        us = t->syscall_time;
-    fetch_and_add(&ss->usecs, us);
-}
-
-static boolean debugsyscalls;
-
 static void syscall_context_pause(context ctx)
 {
     syscall_context sc = (syscall_context)ctx;
     syscall_accumulate_stime(sc);
-    if (sc->call >= 0)
-        count_syscall_save(sc->t);
     context_release_refcount(ctx);
 }
 
@@ -2608,8 +2516,6 @@ static void syscall_context_resume(context ctx)
     assert(sc->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     sc->start_time = here == 0 ? 1 : here;
-    if (sc->call >= 0)
-        count_syscall_resume(sc->t);
     context_reserve_refcount(ctx);
 }
 
@@ -2667,25 +2573,11 @@ void syscall_handler(thread t)
         goto out;
 
     if (call >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0])) {
-        thread_log(t, "invalid syscall %d", call);
         goto out;
     }
 
     /* In the future, interrupt enable can go here. */
-    if (do_syscall_stats) {
-        assert(t->last_syscall == -1);
-        t->last_syscall = call;
-        t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC_RAW);
-        t->syscall_time = 0;
-    }
     struct syscall *s = t->p->syscalls + call;
-    if (debugsyscalls) {
-        if (!sstring_is_null(s->name))
-            thread_log(t, "%s", s->name);
-        else
-            thread_log(t, "syscall %d", call);
-    }
-
     sysreturn (*h)(u64, u64, u64, u64, u64, u64) = s->handler;
     if (h) {
         t->syscall_complete = false;
@@ -2695,30 +2587,11 @@ void syscall_handler(thread t)
         assert(ctx->refcount.c > 1);
         context_release_refcount(ctx);
         set_syscall_return(t, rv);
-        if (do_syscall_stats)
-            count_syscall(t, rv);
-        if (debugsyscalls)
-            thread_log(t, "direct return: %ld, rsp 0x%lx", rv, f[SYSCALL_FRAME_SP]);
-    } else if (debugsyscalls) {
-        if (!sstring_is_null(s->name))
-            thread_log(t, "nosyscall %s", s->name);
-        else
-            thread_log(t, "nosyscall %d", call);
     }
-    if (do_syscall_stats)
-        count_syscall(t, 0);
   out:
     t->syscall = 0;
     schedule_thread(t);
     kern_yield();
-}
-
-boolean syscall_notrace(process p, int syscall)
-{
-    if (syscall < 0 || syscall >= sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]))
-        return false;
-    struct syscall *s = p->syscalls + syscall;
-    return (s->flags & SYSCALL_F_NOTRACE) != 0;
 }
 
 // should hang off the thread context, but the assembly handler needs
@@ -2753,71 +2626,6 @@ closure_func_basic(buffer_handler, status, hostname_done,
 closure_func_basic(io_completion, void, io_complete_ignore,
                    sysreturn rv)
 {
-}
-
-static boolean stat_compare(void *za, void *zb)
-{
-    syscall_stat sa = za;
-    syscall_stat sb = zb;
-    return sb->usecs > sa->usecs;
-}
-
-static inline sstring print_usecs(buffer b, u64 x)
-{
-    buffer_clear(b);
-    bprintf(b, "%d.%06d", x / MILLION, x % MILLION);
-    return buffer_to_sstring(b);
-}
-
-static inline sstring print_pct(buffer b, u64 x, u64 y)
-{
-    buffer_clear(b);
-    x *= 100;
-    bprintf(b, "%d.%02d", x / y, (x * 100 / y) % 100);
-    return buffer_to_sstring(b);
-}
-
-#define LINE "------"
-#define LINE2 LINE LINE
-#define LINE3 LINE LINE LINE
-#define SEPARATOR LINE " " LINE2 " " LINE2 " " LINE2 " " LINE2 " " LINE3 "\n"
-#define HDR_FMT "%6s %12s %12s %12s %12s %-18s\n"
-#define DATA_FMT "%6s %12s %12d %12d %12.0d %-18s\n"
-#define SUM_FMT "%6s %12s %12.0d %12d %12.0d %-18s\n"
-
-#define ROUNDED_IDIV(x, y) (((x)* 10 / (y) + 5) / 10)
-
-closure_func_basic(shutdown_handler, void, print_syscall_stats_cfn,
-                   int status, merge m)
-{
-    u64 tot_usecs = 0;
-    u64 tot_calls = 0;
-    u64 tot_errs = 0;
-    buffer tbuf = little_stack_buffer(24);
-    buffer pbuf = little_stack_buffer(24);
-    pqueue pq = allocate_pqueue(heap_locked(get_kernel_heaps()), stat_compare);
-    syscall_stat ss;
-
-    if (status != 0)
-        return;
-    rprintf("\n" HDR_FMT SEPARATOR, ss("% time"), ss("seconds"), ss("usecs/call"), ss("calls"),
-            ss("errors"), ss("syscall"));
-    for (int i = 0; i < SYS_MAX; i++) {
-        ss = &stats[i];
-        if (ss->calls == 0)
-            continue;
-        tot_usecs += ss->usecs;
-        pqueue_insert(pq, ss);
-    }
-    while ((ss = pqueue_pop(pq)) != INVALID_ADDRESS) {
-        tot_calls += ss->calls;
-        tot_errs += ss->errors;
-        rprintf(DATA_FMT, print_pct(pbuf, ss->usecs, tot_usecs), print_usecs(tbuf, ss->usecs),
-            ROUNDED_IDIV(ss->usecs, ss->calls), ss->calls, ss->errors, _linux_syscalls[ss - stats].name);
-    }
-    rprintf(SEPARATOR SUM_FMT, ss("100.00"), print_usecs(tbuf, tot_usecs), 0, tot_calls, tot_errs,
-            ss("total"));
-    deallocate_pqueue(pq);
 }
 
 static const sstring missing_files_exclude[] = {
@@ -2855,12 +2663,6 @@ void init_syscalls(process p)
         filesystem_read_entire(fs, hostname_t, h,
                                closure_func(h, buffer_handler, hostname_done), ignore_status);
     tuple root = p->process_root;
-    do_syscall_stats = get(root, sym(syscall_summary)) != 0;
-    if (do_syscall_stats) {
-        shutdown_handler print_syscall_stats = closure_func(h, shutdown_handler,
-                                                            print_syscall_stats_cfn);
-        add_shutdown_completion(print_syscall_stats);
-    }
     do_missing_files = get(root, sym(missing_files)) != 0;
     if (do_missing_files) {
         missing_files = allocate_vector(h, 8);
@@ -2871,18 +2673,10 @@ void init_syscalls(process p)
     }
 }
 
-void _init_syscall(struct syscall *m, int n, sstring name, u64 flags)
-{
-    m[n].name = name;
-    m[n].flags = flags;
-}
-
-void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), sstring name, u64 flags)
+void _register_syscall(struct syscall *m, int n, sysreturn (*f)())
 {
     assert(m[n].handler == 0);
     m[n].handler = f;
-    m[n].name = name;
-    m[n].flags = flags;
 }
 
 void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)())
@@ -2890,102 +2684,4 @@ void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)())
     sysreturn (*ret)() = m[n].handler;
     m[n].handler = f;
     return ret;
-}
-
-static struct trace_set {
-    sstring name;
-    u64 flag;
-} trace_sets[] = {
-    { ss_static_init("%file"), SYSCALL_F_SET_FILE },
-    { ss_static_init("%desc"), SYSCALL_F_SET_DESC },
-    { ss_static_init("%memory"), SYSCALL_F_SET_MEM },
-    { ss_static_init("%process"), SYSCALL_F_SET_PROC },
-    { ss_static_init("%signal"), SYSCALL_F_SET_SIG },
-    { ss_static_init("%net"), SYSCALL_F_SET_NET },
-    { ss_static_init("%network"), SYSCALL_F_SET_NET },
-};
-
-static void notrace_configure(process p, boolean set)
-{
-    for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
-        struct syscall *s = p->syscalls + i;
-        if (set)
-            s->flags |= SYSCALL_F_NOTRACE;
-        else
-            s->flags &= ~SYSCALL_F_NOTRACE;
-    }
-}
-
-closure_function(2, 2, boolean, notrace_each,
-                 process, p, boolean, set,
-                 value k, value v)
-{
-    if (peek_char(v) == '%') {
-        for (int j = 0; j < sizeof(trace_sets) / sizeof(trace_sets[0]); j++) {
-            struct trace_set *ts = trace_sets + j;
-            if (buffer_compare_with_sstring(v, ts->name))
-                continue;
-
-            for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
-                struct syscall *s = bound(p)->syscalls + i;
-                if (sstring_is_null(s->name) || !(s->flags & ts->flag))
-                    continue;
-
-                if (bound(set))
-                    s->flags |= SYSCALL_F_NOTRACE;
-                else
-                    s->flags &= ~SYSCALL_F_NOTRACE;
-            }
-            break;
-        }
-    } else {
-        for (int i = 0; i < sizeof(_linux_syscalls) / sizeof(_linux_syscalls[0]); i++) {
-            struct syscall *s = bound(p)->syscalls + i;
-            if (sstring_is_null(s->name) || buffer_compare_with_sstring(v, s->name))
-                continue;
-
-            if (bound(set))
-                s->flags |= SYSCALL_F_NOTRACE;
-            else
-                s->flags &= ~SYSCALL_F_NOTRACE;
-            break;
-        }
-    }
-    return true;
-}
-
-closure_func_basic(set_value_notify, boolean, debugsyscalls_notify,
-                   value v)
-{
-    debugsyscalls = !!v;
-    return true;
-}
-
-closure_function(1, 1, boolean, notrace_notify,
-                 process, p,
-                 value v)
-{
-    notrace_configure(bound(p), false);
-    if (is_composite(v))
-        iterate(v, stack_closure(notrace_each, bound(p), true));
-    return true;
-}
-
-closure_function(1, 1, boolean, tracelist_notify,
-                 process, p,
-                 value v)
-{
-    notrace_configure(bound(p), true);
-    if (is_composite(v))
-        iterate(v, stack_closure(notrace_each, bound(p), false));
-    return true;
-}
-
-void configure_syscalls(process p)
-{
-    heap h = heap_locked(&p->uh->kh);
-    register_root_notify(sym(debugsyscalls),
-                         closure_func(h, set_value_notify, debugsyscalls_notify));
-    register_root_notify(sym(notrace), closure(h, notrace_notify, p));
-    register_root_notify(sym(tracelist), closure(h, tracelist_notify, p));
 }

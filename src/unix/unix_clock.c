@@ -82,8 +82,6 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
 {
     thread t = bound(t);
     timestamp elapsed = now(bound(id)) - bound(start);
-    thread_log(t, "%s: start %T, interval %T, rem %p, elapsed %T, flags 0x%lx",
-               func_ss, bound(start), bound(interval), bound(rem), elapsed, flags);
     sysreturn rv = 0;
     if (flags & BLOCKQ_ACTION_NULLIFY) {
         if (bound(rem)) {
@@ -118,7 +116,6 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
     timestamp interval = time_from_timespec(req);
     context_clear_err(ctx);
     timestamp tnow = now(CLOCK_ID_MONOTONIC);
-    thread_log(current, "nanosleep: req %p (%T) rem %p, now %T", req, interval, rem, tnow);
     return blockq_check_timeout(current->thread_bq,
                                 contextual_closure(nanosleep_bh, current, tnow,
                                                    CLOCK_ID_MONOTONIC, interval, rem), false,
@@ -148,9 +145,6 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
     context_clear_err(ctx);
     timestamp tnow = now(id);
 
-    thread_log(current, "clock_nanosleep: clock id %d, flags 0x%x, req %p (%T) rem %p, now %T",
-               id, flags, req, treq, rem, tnow);
-
     return blockq_check_timeout(current->thread_bq,
                                 contextual_closure(nanosleep_bh, current, tnow, id, treq, rem), false,
                                 id, treq, (flags & TIMER_ABSTIME) != 0);
@@ -174,8 +168,6 @@ sysreturn times(struct tms *buf)
     buf->tms_utime = CLOCKS_PER_SEC * proc_utime(current->p) / TIMESTAMP_SECOND;
     buf->tms_stime = CLOCKS_PER_SEC * proc_stime(current->p) / TIMESTAMP_SECOND;
     buf->tms_cutime = buf->tms_cstime = 0;  /* there are no child processes */
-    thread_log(current, "times: user %ld, system %ld", buf->tms_utime,
-            buf->tms_stime);
     context_clear_err(ctx);
     return set_syscall_return(current,
             CLOCKS_PER_SEC * uptime() / TIMESTAMP_SECOND);
@@ -183,7 +175,6 @@ sysreturn times(struct tms *buf)
 
 sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 {
-    thread_log(current, "clock_gettime: clk_id %d, tp %p", clk_id, tp);
     process p = current->p;
     clock_id cid;
     thread cputime_thread = 0;
@@ -213,7 +204,6 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 
 sysreturn clock_settime(clockid_t clk_id, const struct timespec *tp)
 {
-    thread_log(current, "%s: clk_id %d, tp %p", func_ss, clk_id, tp);
     context ctx;
     switch (clk_id) {
     case CLOCK_REALTIME:
@@ -250,14 +240,14 @@ sysreturn clock_getres(clockid_t clk_id, struct timespec *res)
 void register_clock_syscalls(struct syscall *map)
 {
 #ifdef __x86_64__
-    register_syscall(map, time, sys_time, 0);
+    register_syscall(map, time, sys_time);
 #endif
-    register_syscall(map, clock_gettime, clock_gettime, 0);
-    register_syscall(map, clock_settime, clock_settime, 0);
-    register_syscall(map, clock_getres, clock_getres, 0);
-    register_syscall(map, clock_nanosleep, clock_nanosleep, 0);
-    register_syscall(map, gettimeofday, gettimeofday, 0);
-    register_syscall(map, settimeofday, settimeofday, 0);
-    register_syscall(map, nanosleep, nanosleep, 0);
-    register_syscall(map, times, times, 0);
+    register_syscall(map, clock_gettime, clock_gettime);
+    register_syscall(map, clock_settime, clock_settime);
+    register_syscall(map, clock_getres, clock_getres);
+    register_syscall(map, clock_nanosleep, clock_nanosleep);
+    register_syscall(map, gettimeofday, gettimeofday);
+    register_syscall(map, settimeofday, settimeofday);
+    register_syscall(map, nanosleep, nanosleep);
+    register_syscall(map, times, times);
 }

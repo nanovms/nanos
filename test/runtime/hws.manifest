@@ -1,4 +1,12 @@
 (
+    boot:(
+        children:(
+            klib:(children:(
+                strace:(contents:(host:output/klib/bin/strace))
+            ))
+        )
+    )
+    klibs:bootfs
     children:(
               #user program
               hws:(contents:(host:output/test/runtime/bin/hws)))

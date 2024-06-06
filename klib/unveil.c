@@ -658,7 +658,7 @@ boolean unveil_init(sb_syscall syscalls, tuple cfg)
 {
     unv.h = heap_locked(get_kernel_heaps());
     spin_rw_lock_init(&unv.lock);
-    register_syscall(linux_syscalls, unveil, unveil, 0);
+    register_syscall(linux_syscalls, unveil, unveil);
     unveil_syscall_register(syscalls, bind);
     unveil_syscall_register(syscalls, truncate);
     unveil_syscall_register(syscalls, chdir);

@@ -392,7 +392,6 @@ sysreturn rt_sigreturn(void)
 
     /* ftrace needs to know that this call stack does not return */
     ftrace_thread_noreturn(t);
-    count_syscall_noreturn(t);
     syscall_finish(false);
 }
 
@@ -1162,20 +1161,20 @@ boolean dispatch_signals(thread t)
 void register_signal_syscalls(struct syscall *map)
 {
 #ifdef __x86_64__
-    register_syscall(map, pause, pause, SYSCALL_F_SET_SIG);
-    register_syscall(map, signalfd, signalfd, SYSCALL_F_SET_DESC|SYSCALL_F_SET_SIG);
+    register_syscall(map, pause, pause);
+    register_syscall(map, signalfd, signalfd);
 #endif
-    register_syscall(map, kill, kill, SYSCALL_F_SET_SIG|SYSCALL_F_SET_PROC);
-    register_syscall(map, rt_sigaction, rt_sigaction, SYSCALL_F_SET_SIG);
-    register_syscall(map, rt_sigpending, rt_sigpending, SYSCALL_F_SET_SIG);
-    register_syscall(map, rt_sigprocmask, rt_sigprocmask, SYSCALL_F_SET_SIG);
-    register_syscall(map, rt_sigqueueinfo, rt_sigqueueinfo, SYSCALL_F_SET_SIG);
-    register_syscall(map, rt_tgsigqueueinfo, rt_tgsigqueueinfo, SYSCALL_F_SET_SIG|SYSCALL_F_SET_PROC);
-    register_syscall(map, rt_sigreturn, rt_sigreturn, SYSCALL_F_SET_SIG);
-    register_syscall(map, rt_sigsuspend, rt_sigsuspend, SYSCALL_F_SET_SIG);
-    register_syscall(map, rt_sigtimedwait, rt_sigtimedwait, SYSCALL_F_SET_SIG);
-    register_syscall(map, sigaltstack, sigaltstack, SYSCALL_F_SET_SIG);
-    register_syscall(map, signalfd4, signalfd4, SYSCALL_F_SET_SIG);
-    register_syscall(map, tgkill, tgkill, SYSCALL_F_SET_SIG|SYSCALL_F_SET_PROC);
-    register_syscall(map, tkill, tkill, SYSCALL_F_SET_SIG|SYSCALL_F_SET_PROC);
+    register_syscall(map, kill, kill);
+    register_syscall(map, rt_sigaction, rt_sigaction);
+    register_syscall(map, rt_sigpending, rt_sigpending);
+    register_syscall(map, rt_sigprocmask, rt_sigprocmask);
+    register_syscall(map, rt_sigqueueinfo, rt_sigqueueinfo);
+    register_syscall(map, rt_tgsigqueueinfo, rt_tgsigqueueinfo);
+    register_syscall(map, rt_sigreturn, rt_sigreturn);
+    register_syscall(map, rt_sigsuspend, rt_sigsuspend);
+    register_syscall(map, rt_sigtimedwait, rt_sigtimedwait);
+    register_syscall(map, sigaltstack, sigaltstack);
+    register_syscall(map, signalfd4, signalfd4);
+    register_syscall(map, tgkill, tgkill);
+    register_syscall(map, tkill, tkill);
 }

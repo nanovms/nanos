@@ -810,18 +810,18 @@ sysreturn alarm(unsigned int seconds)
 void register_timer_syscalls(struct syscall *map)
 {
 #ifdef __x86_64__
-    register_syscall(map, alarm, alarm, 0);
+    register_syscall(map, alarm, alarm);
 #endif
-    register_syscall(map, timerfd_create, timerfd_create, SYSCALL_F_SET_DESC);
-    register_syscall(map, timerfd_gettime, timerfd_gettime, SYSCALL_F_SET_DESC);
-    register_syscall(map, timerfd_settime, timerfd_settime, SYSCALL_F_SET_DESC);
-    register_syscall(map, timer_create, timer_create, 0);
-    register_syscall(map, timer_settime, timer_settime, 0);
-    register_syscall(map, timer_gettime, timer_gettime, 0);
-    register_syscall(map, timer_getoverrun, timer_getoverrun, 0);
-    register_syscall(map, timer_delete, timer_delete, 0);
-    register_syscall(map, getitimer, getitimer, 0);
-    register_syscall(map, setitimer, setitimer, 0);
+    register_syscall(map, timerfd_create, timerfd_create);
+    register_syscall(map, timerfd_gettime, timerfd_gettime);
+    register_syscall(map, timerfd_settime, timerfd_settime);
+    register_syscall(map, timer_create, timer_create);
+    register_syscall(map, timer_settime, timer_settime);
+    register_syscall(map, timer_gettime, timer_gettime);
+    register_syscall(map, timer_getoverrun, timer_getoverrun);
+    register_syscall(map, timer_delete, timer_delete);
+    register_syscall(map, getitimer, getitimer);
+    register_syscall(map, setitimer, setitimer);
 }
 
 boolean unix_timers_init(unix_heaps uh)

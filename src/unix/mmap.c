@@ -598,8 +598,6 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
 {
     process p = current->p;
     sysreturn rv;
-    thread_log(current, "mremap: old_address %p, old_size 0x%lx, new_size 0x%lx, flags 0x%x, "
-               "new_address %p", old_address, old_size, new_size, flags, new_address);
 
     old_size = pad(old_size, PAGESIZE);
     range old = irangel(u64_from_pointer(old_address), old_size);
@@ -746,9 +744,6 @@ static sysreturn mincore(void *addr, u64 length, u8 *vec)
 {
     u64 start, nr_pgs;
 
-    thread_log(current, "mincore: addr %p, length 0x%lx, vec %p",
-               addr, length, vec);
-
     start = u64_from_pointer(addr);
     if (start & MASK(PAGELOG))
         return -EINVAL;
@@ -893,7 +888,6 @@ static sysreturn vmap_update_protections_locked(heap h, rangemap pvmap, range q,
     assert((q.end & MASK(PAGELOG)) == 0);
     assert(range_span(q) > 0);
 
-    thread_log(current, "%s: validate %R", func_ss, q);
     vmap_debug("%s: q %R newflags 0x%x\n", func_ss, q, newflags);
     if (!validate_user_memory(pointer_from_u64(q.start), range_span(q), false) ||
         (rangemap_range_find_gaps(pvmap, q,
@@ -923,8 +917,6 @@ static sysreturn vmap_update_protections_locked(heap h, rangemap pvmap, range q,
 
 sysreturn mprotect(void * addr, u64 len, int prot)
 {
-    thread_log(current, "mprotect: addr %p, len 0x%lx, prot 0x%x", addr, len, prot);
-
     if (len == 0)
         return 0;
 
@@ -1068,9 +1060,6 @@ closure_func_basic(vmap_handler, boolean, msync_vmap,
 
 static sysreturn msync(void *addr, u64 length, int flags)
 {
-    thread_log(current, "%s: addr %p, length 0x%lx, flags %x", func_ss,
-               addr, length, flags);
-
     int syncflags = MS_ASYNC | MS_SYNC;
     if ((flags & ~(MS_ASYNC | MS_SYNC | MS_INVALIDATE)) ||
         (flags & syncflags) == syncflags)
@@ -1101,8 +1090,6 @@ static sysreturn msync(void *addr, u64 length, int flags)
 static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 offset)
 {
     process p = current->p;
-    thread_log(current, "mmap: addr %p, length 0x%lx, prot 0x%x, flags 0x%x, "
-               "fd %d, offset 0x%lx", addr, length, prot, flags, fd, offset);
 
     u64 len = pad(length, PAGESIZE);
     if (len == 0)
@@ -1125,17 +1112,11 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         vmflags |= VMAP_FLAG_EXEC;
 
     if (flags & MAP_UNINITIALIZED) {
-        thread_log(current, "   MAP_UNINITIALIZED is unsupported");
         return -EINVAL;
     }
     if (flags & MAP_GROWSDOWN) {
-        thread_log(current, "   MAP_GROWSDOWN is unsupported");
         return -EINVAL;
     }
-    if (flags & MAP_HUGETLB)
-        thread_log(current, "   MAP_HUGETLB not implemented; ignoring");
-    if (flags & MAP_SYNC)
-        thread_log(current, "   MAP_SYNC not implemented; ignoring");
 
     /* ignore MAP_DENYWRITE, MAP_EXECUTABLE, MAP_LOCKED, MAP_STACK, MAP_NORESERVE */
     int valid_flags = MAP_TYPE_MASK | MAP_FIXED | MAP_ANONYMOUS |
@@ -1148,7 +1129,6 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         (HUGETLB_FLAG_ENCODE_MASK << HUGETLB_FLAG_ENCODE_SHIFT);
     int unknown_flags = flags & ~valid_flags;
     if (unknown_flags) {
-        thread_log(current, "   unknown flag(s) 0x%x", unknown_flags);
         return -EINVAL;
     }
 
@@ -1161,11 +1141,9 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     if (fixed) {
 	/* Must be page-aligned */
 	if (q.start & MASK(PAGELOG)) {
-	    thread_log(current, "   attempt to map non-aligned FIXED address");
 	    goto out_unlock;
 	}
         if (!validate_mmap_range(p, q)) {
-	    thread_log(current, "   requested fixed range %R is out of bounds", q);
             goto out_unlock;
         }
         if ((flags & MAP_FIXED_NOREPLACE) &&
@@ -1217,8 +1195,6 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
                 }
             }
             if (offset & PAGEMASK) {
-                thread_log(current, "   file-backed mapping must have aligned file offset (%ld)",
-                           offset);
                 ret = -EINVAL;
                 goto out_unlock;
             }
@@ -1284,7 +1260,6 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     }
     ret = q.start;
   out:
-    thread_log(current, "   returning 0x%lx", ret);
     if (desc)
         fdesc_put(desc);
     return ret;
@@ -1296,7 +1271,6 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
 static sysreturn munmap(void *addr, u64 length)
 {
     process p = current->p;
-    thread_log(current, "munmap: addr %p, size 0x%lx", addr, length);
 
     u64 where = u64_from_pointer(addr);
     if ((where & MASK(PAGELOG)) || length == 0)
@@ -1450,11 +1424,11 @@ void mmap_process_init(process p, tuple root)
 
 void register_mmap_syscalls(struct syscall *map)
 {
-    register_syscall(map, mincore, mincore, SYSCALL_F_SET_MEM);
-    register_syscall(map, mmap, mmap, SYSCALL_F_SET_DESC|SYSCALL_F_SET_MEM);
-    register_syscall(map, mremap, mremap, SYSCALL_F_SET_MEM);
-    register_syscall(map, msync, msync, SYSCALL_F_SET_MEM);
-    register_syscall(map, munmap, munmap, SYSCALL_F_SET_MEM);
-    register_syscall(map, mprotect, mprotect, SYSCALL_F_SET_MEM);
-    register_syscall(map, madvise, syscall_ignore, SYSCALL_F_SET_MEM);
+    register_syscall(map, mincore, mincore);
+    register_syscall(map, mmap, mmap);
+    register_syscall(map, mremap, mremap);
+    register_syscall(map, msync, msync);
+    register_syscall(map, munmap, munmap);
+    register_syscall(map, mprotect, mprotect);
+    register_syscall(map, madvise, syscall_ignore);
 }

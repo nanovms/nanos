@@ -316,9 +316,6 @@ typedef struct thread {
 
     timestamp utime, stime;
     timestamp start_time;
-    int last_syscall;
-    timestamp syscall_enter_ts;
-    u64 syscall_time;
     closure_struct(clock_now, now);
     timerqueue cpu_timers;
 
@@ -804,48 +801,10 @@ struct rt_sigframe *get_rt_sigframe(thread t);
 boolean setup_sigframe(thread t, int signum, struct siginfo *si);
 void restore_ucontext(struct ucontext * uctx, thread t);
 
-void _init_syscall(struct syscall *m, int n, sstring name, u64 flags);
-void _register_syscall(struct syscall *m, int n, sysreturn (*f)(), sstring name, u64 flags);
+void _register_syscall(struct syscall *m, int n, sysreturn (*f)());
 void *swap_syscall_handler(struct syscall *m, int n, sysreturn (*f)());
 
-#define init_syscall(m, n, fl)        _init_syscall(m, SYS_##n, ss(#n), fl)
-#define register_syscall(m, n, f, fl) _register_syscall(m, SYS_##n, f, ss(#n), fl)
-
-#define SYSCALL_F_NOTRACE   0x1
-#define SYSCALL_F_SET_FILE  (1<<8)
-#define SYSCALL_F_SET_DESC  (1<<9)
-#define SYSCALL_F_SET_MEM   (1<<10)
-#define SYSCALL_F_SET_PROC  (1<<11)
-#define SYSCALL_F_SET_SIG   (1<<12)
-#define SYSCALL_F_SET_NET   (1<<13)
-
-void configure_syscalls(process p);
-boolean syscall_notrace(process p, int syscall);
-
-void count_syscall(thread t, sysreturn rv);
-
-extern boolean do_syscall_stats;
-static inline void count_syscall_save(thread t)
-{
-    if (do_syscall_stats && t && !t->syscall_complete && t->syscall_enter_ts) {
-        t->syscall_time += usec_from_timestamp(now(CLOCK_ID_MONOTONIC_RAW) - t->syscall_enter_ts);
-        t->syscall_enter_ts = 0;
-    }
-}
-
-static inline void count_syscall_resume(thread t)
-{
-    if (do_syscall_stats && t && !t->syscall_complete && t->syscall_enter_ts == 0)
-        t->syscall_enter_ts = now(CLOCK_ID_MONOTONIC_RAW);
-}
-
-static inline void count_syscall_noreturn(thread t)
-{
-    if (!do_syscall_stats)
-        return;
-    t->syscall_time = 0;
-    t->last_syscall = -1;
-}
+#define register_syscall(m, n, f) _register_syscall(m, SYS_##n, f)
 
 void register_file_syscalls(struct syscall *);
 void register_net_syscalls(struct syscall *);
@@ -943,8 +902,6 @@ static inline sysreturn syscall_return(thread t, sysreturn val)
     thread_lock(t);
     set_syscall_return(t, val);
     t->syscall_complete = true;
-    if (do_syscall_stats)
-        count_syscall(t, val);
     if (t->syscall && t->syscall->uc.blocked_on)
         thread_wakeup(t);
     thread_unlock(t);

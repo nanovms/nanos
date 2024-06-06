@@ -225,7 +225,6 @@ closure_function(2, 6, sysreturn, spec_read,
                  void *dest, u64 len, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     const special_file *sf = bound(sf);
-    thread_log(current, "spec_read: %s", sf->path);
     file f = bound(f);
     sysreturn nr;
     if (sf->read) {
@@ -250,7 +249,6 @@ closure_function(2, 6, sysreturn, spec_write,
                  void *dest, u64 len, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     const special_file *sf = bound(sf);
-    thread_log(current, "spec_write: %s", sf->path);
     file f = bound(f);
     sysreturn nr;
     if (sf->write) {
@@ -269,7 +267,6 @@ closure_function(2, 1, u32, spec_events,
                  thread t)
 {
     const special_file *sf = bound(sf);
-    thread_log(current, "spec_events: %s", sf->path);
     if (sf->events)
         return sf->events(bound(f));
     return 0;
@@ -280,7 +277,6 @@ closure_function(2, 2, sysreturn, spec_close,
                  context ctx, io_completion completion)
 {
     const special_file *sf = bound(sf);
-    thread_log(current, "spec_close: %s", sf->path);
     file f = bound(f);
     sysreturn ret;
     if (sf->close)
@@ -303,7 +299,6 @@ closure_function(1, 1, sysreturn, special_open,
     heap h = heap_locked(get_kernel_heaps());
     sysreturn ret;
 
-    thread_log(current, "spec_open: %s", sf->path);
     f->f.read = closure(h, spec_read, sf, f);
     if (f->f.read == INVALID_ADDRESS)
         goto no_mem;

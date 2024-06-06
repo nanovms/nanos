@@ -18,8 +18,6 @@ sysreturn set_tid_address(int *a)
 #ifdef __x86_64__
 sysreturn arch_prctl(int code, unsigned long addr)
 {
-    thread_log(current, "arch_prctl: code 0x%x, addr 0x%lx", code, addr);
-
     /* just validate the word at base */
     if ((code == ARCH_SET_FS || code == ARCH_SET_GS) &&
         !validate_user_memory((void *)addr, sizeof(u64), false))
@@ -105,9 +103,6 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, int *ctid, un
 sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long newtls, int *ctid)
 #endif
 {
-    thread_log(current, "clone: flags %lx, child_stack %p, ptid %p, ctid %p, newtls %lx",
-        flags, child_stack, ptid, ctid, newtls);
-
     struct clone_args_internal args = {
          .flags = flags,
          .child_tid = ctid,
@@ -123,11 +118,6 @@ sysreturn clone(unsigned long flags, void *child_stack, int *ptid, unsigned long
 
 sysreturn clone3(struct clone_args *args, bytes size)
 {
-     thread_log(current,
-         "clone3: args_size: %ld, pidfd: %p, child_tid: %p, parent_tid: %p, exit_signal: %ld, stack: %p, stack_size: 0x%lx, tls: %p",
-         size, args->pidfd, args->child_tid, args->parent_tid, args->exit_signal,
-         args->stack, args->stack_size, args->tls);
-
      if (size < sizeof(*args))
           return -EINVAL;
 
@@ -152,22 +142,20 @@ sysreturn clone3(struct clone_args *args, bytes size)
 
 void register_thread_syscalls(struct syscall *map)
 {
-    register_syscall(map, futex, futex, 0);
-    register_syscall(map, set_robust_list, set_robust_list, 0);
-    register_syscall(map, get_robust_list, get_robust_list, 0);
-    register_syscall(map, clone, clone, SYSCALL_F_SET_PROC);
-    register_syscall(map, clone3, clone3, SYSCALL_F_SET_PROC);
+    register_syscall(map, futex, futex);
+    register_syscall(map, set_robust_list, set_robust_list);
+    register_syscall(map, get_robust_list, get_robust_list);
+    register_syscall(map, clone, clone);
+    register_syscall(map, clone3, clone3);
 #ifdef __x86_64__
-    register_syscall(map, arch_prctl, arch_prctl, 0);
+    register_syscall(map, arch_prctl, arch_prctl);
 #endif
-    register_syscall(map, set_tid_address, set_tid_address, 0);
-    register_syscall(map, gettid, gettid, 0);
+    register_syscall(map, set_tid_address, set_tid_address);
+    register_syscall(map, gettid, gettid);
 }
 
 void thread_log_internal(thread t, sstring desc, ...)
 {
-    if (t->syscall && syscall_notrace(t->p, t->syscall->call))
-        return;
     vlist ap;
     vstart (ap, desc);
     buffer b = little_stack_buffer(512);
@@ -242,8 +230,6 @@ static void thread_resume(context ctx)
     assert(t->start_time == 0); // XXX tmp debug
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     t->start_time = here == 0 ? 1 : here;
-    if (do_syscall_stats && t->last_syscall == SYS_sched_yield)
-        count_syscall(t, 0);
     context_frame f = thread_frame(t);
     thread_frame_restore_tls(f);
     thread_frame_restore_fpsimd(f);
@@ -300,7 +286,6 @@ void thread_sleep_interruptible(void)
     if (is_syscall_context(&ctx->kc.context)) {
         thread t = ((syscall_context)ctx)->t;
         ftrace_thread_switch(t, 0);
-        count_syscall_save(t);
         syscall_yield();
     } else {
         kern_yield();
@@ -312,14 +297,12 @@ void thread_sleep_uninterruptible(thread t)
     t->syscall->uc.blocked_on = INVALID_ADDRESS;
     thread_log(current, "sleep uninterruptible");
     ftrace_thread_switch(t, 0);
-    count_syscall_save(t);
     thread_unlock(t);
     syscall_yield();
 }
 
 void thread_yield(void)
 {
-    thread_log(current, "yield %d, RIP=0x%lx", current->tid, thread_frame(current)[SYSCALL_FRAME_PC]);
     current->syscall = 0;
     set_syscall_return(current, 0);
     syscall_finish(false);
@@ -466,7 +449,6 @@ thread create_thread(process p, u64 tid)
     t->interrupting_syscall = false;
     t->utime = t->stime = 0;
     t->start_time = 0;
-    t->last_syscall = -1;
     t->cpu_timers = 0;
 
     list_init(&t->l_faultwait);
@@ -504,8 +486,6 @@ thread create_thread(process p, u64 tid)
 NOTRACE
 void exit_thread(thread t)
 {
-    thread_log(current, "exit_thread");
-
     spin_lock(&t->p->threads_lock);
     rbtree_remove_by_key(t->p->threads, &t->n);
     spin_unlock(&t->p->threads_lock);
