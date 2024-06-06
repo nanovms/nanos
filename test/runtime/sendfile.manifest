@@ -12,7 +12,6 @@
     # put all the tracing arguments in subtree
     #trace:
     #debugsyscalls:t
-    #futex_trace:t    
     fault:t
     arguments:[sendfile longargument]
     environment:(USER:bobby PWD:password)

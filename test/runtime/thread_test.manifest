@@ -6,5 +6,4 @@
     environment:(USER:bobby PWD:/)
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
 )

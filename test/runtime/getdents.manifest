@@ -33,7 +33,6 @@
     program:/getdents
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
 #    fault:t
     arguments:[/]
     environment:(USER:bobby PWD:/)

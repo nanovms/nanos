@@ -6,7 +6,6 @@
     program:/io_uring
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
     fault:t
     environment:()
     imagesize:30M

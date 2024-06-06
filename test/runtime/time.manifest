@@ -7,7 +7,6 @@
     program:/time
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
 #    fault:t
     arguments:[time -s]
     environment:(USER:bobby PWD:/)

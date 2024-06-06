@@ -5,7 +5,6 @@
     program:/paging
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
     fault:t
 # available tests: { write-exec, write-ro, exec-mmap, exec-heap, exec-stack }
     arguments:[paging write-exec]

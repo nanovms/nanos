@@ -7,7 +7,6 @@
     program:/aslr
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
 #    noaslr:t
     fault:t
     arguments:[aslr]

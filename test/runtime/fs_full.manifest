@@ -6,7 +6,6 @@
     program:/fs_full
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
     fault:t
     arguments:[fs_full]
     environment:(USER:bobby PWD:/)

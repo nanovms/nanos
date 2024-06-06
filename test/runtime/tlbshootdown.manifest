@@ -6,7 +6,6 @@
     program:/tlbshootdown
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
     fault:t
     arguments:[tlbshootdown]
     environment:(USER:bobby PWD:/)

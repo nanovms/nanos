@@ -9,7 +9,6 @@
     # put all the tracing arguments in subtree
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
 #    telnet:t
 #    http:t
 #    fault:t

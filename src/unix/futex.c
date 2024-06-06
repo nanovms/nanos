@@ -153,8 +153,6 @@ static timestamp get_timeout_timestamp(int futex_op, u64 val2)
     }
 }
 
-static boolean futex_verbose;
-
 sysreturn futex(int *uaddr, int futex_op, int val,
                 u64 val2, int *uaddr2, int val3)
 {
@@ -177,10 +175,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     context ctx = get_current_context(current_cpu());
     switch (op) {
     case FUTEX_WAIT: {
-        if (futex_verbose)
-            thread_log(current, "futex_wait [%ld %p %d] %d 0x%ld",
-                current->tid, uaddr, *uaddr, val, val2);
-
         sysreturn rv;
         futex_lock(f);
         if (context_set_err(ctx))
@@ -198,11 +192,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     }
 
     case FUTEX_WAKE: {
-        if (futex_verbose && !context_set_err(ctx)) {
-            thread_log(current, "futex_wake [%ld %p %d] %d",
-                current->tid, uaddr, *uaddr, val);
-            context_clear_err(ctx);
-        }
         futex_lock(f);
         int nr_woken = futex_wake_many(f, val);
         futex_unlock(f);
@@ -214,12 +203,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
 
         if (!validate_user_memory(uaddr2, sizeof(int), false))
             return set_syscall_error(current, EFAULT);
-
-        if (futex_verbose && !context_set_err(ctx)) {
-            thread_log(current, "futex_cmp_requeue [%ld %p %d] val: %d val2: %d uaddr2: %p %d val3: %d",
-                       current->tid, uaddr, *uaddr, val, val2, uaddr2, *uaddr2, val3);
-            context_clear_err(ctx);
-        }
 
         sysreturn rv;
         futex_lock(f);
@@ -243,8 +226,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             }
             requeued = blockq_transfer_waiters(new->bq, f->bq, val2,
                                                stack_closure(futex_requeue_handler, new));
-            if (futex_verbose)
-                thread_log(current, " awoken: %d, re-queued %d", woken, requeued);
         }
         rv = woken + requeued;
       cmp_requeue_done:
@@ -263,12 +244,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
 
         if (!validate_user_memory(uaddr2, sizeof(int), true))
             return set_syscall_error(current, EFAULT);
-
-        if (futex_verbose && !context_set_err(ctx)) {
-            thread_log(current, "futex_wake_op: [%ld %p %d] %p %d %d %d %d",
-                current->tid, uaddr, *uaddr, uaddr2, cmparg, oparg, cmp, op);
-            context_clear_err(ctx);
-        }
 
         struct futex *f2 = soft_create_futex(current->p, u64_from_pointer(uaddr2));
         if (f2 == INVALID_ADDRESS)
@@ -314,12 +289,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     }
 
     case FUTEX_WAIT_BITSET: {
-        if (futex_verbose && !context_set_err(ctx)) {
-            thread_log(current, "futex_wait_bitset [%ld %p %d] %d 0x%ld %d",
-                current->tid, uaddr, *uaddr, val, val2, val3);
-            context_clear_err(ctx);
-        }
-
         sysreturn rv;
         futex_lock(f);
         if (context_set_err(ctx))
@@ -349,13 +318,6 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     return set_syscall_error(current, ENOSYS);
 }
 
-closure_func_basic(set_value_notify, boolean, futex_trace_notify,
-                   value v)
-{
-    futex_verbose = !!v;
-    return true;
-}
-
 void
 init_futices(process p)
 {
@@ -363,7 +325,6 @@ init_futices(process p)
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     if (p->futices == INVALID_ADDRESS)
         halt("failed to allocate futex table\n");
-    register_root_notify(sym(futex_trace), closure_func(h, set_value_notify, futex_trace_notify));
 }
 
 /* robust mutex handling */

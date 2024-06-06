@@ -7,7 +7,6 @@
     program:/eventfd
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
 #    fault:t
     arguments:[test]
     environment:(USER:bobby PWD:/)

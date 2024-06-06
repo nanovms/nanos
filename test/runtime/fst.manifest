@@ -14,7 +14,6 @@
     program:/fst
     #trace:t
     #debugsyscalls:t
-    #futex_trace:t
     fault:t
     arguments:[webg poppy]
     environment:(USER:bobby PWD:/)

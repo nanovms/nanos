@@ -5,7 +5,6 @@
     program:/nullpage
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
     fault:t
     arguments:[nullpage]
     environment:(USER:bobby PWD:/)

@@ -7,7 +7,6 @@
     program:/aio
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
     fault:t
     arguments:[aio]
     environment:()

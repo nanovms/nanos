@@ -8,7 +8,6 @@
     program:/hwg
 #    trace:t
 #    debugsyscalls:t
-#    futex_trace:t
     fault:t
     arguments:[hwg poppy]
     environment:(USER:bobby PWD:/)
