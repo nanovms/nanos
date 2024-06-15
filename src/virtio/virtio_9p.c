@@ -20,7 +20,6 @@
 typedef struct virtio_9p {
     heap general;
     backed_heap backed;
-    vtdev dev;
     closure_struct(fs_init_handler, fs_init);
     virtqueue vq;
     u16 next_tag;
@@ -103,6 +102,9 @@ static boolean v9p_dev_attach(heap general, backed_heap backed, vtdev dev)
         goto err;
     }
     spin_lock_init(&v9p->lock);
+    v9p->general = general;
+    v9p->backed = backed;
+    vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
     u8 uuid[UUID_LEN];
     char label[VOLUME_LABEL_MAX_LEN];
     rsnprintf(label, sizeof(label), "virtfs%ld", attach_id);
@@ -112,10 +114,6 @@ static boolean v9p_dev_attach(heap general, backed_heap backed, vtdev dev)
         msg_err("failed to add volume\n");
         goto err;
     }
-    v9p->general = general;
-    v9p->backed = backed;
-    v9p->dev = dev;
-    vtdev_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
     return true;
   err:
     deallocate(general, v9p, sizeof(*v9p));
