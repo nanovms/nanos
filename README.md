@@ -20,7 +20,7 @@ Read more about the Nanos Charter [here](CHARTER.md).
 
 ### Getting Started
 
-Please use the [ops](https://ops.city) orchestrator to run your applications with Nanos unless you plan on hacking on Nanos itself.
+Please use the [ops](https://ops.city) build tool to run your applications with Nanos unless you plan on hacking on Nanos itself.
 Many ready-to-use examples for running applications on Nanos using ops are available [here](https://github.com/nanovms/ops-examples).
 
 #### Quick Start
@@ -48,6 +48,9 @@ You can build and run on mac and linux. Nanos supports KVM on linux and
 HVF on osx currently for acceleration. [ops](https://ops.city) has facilities to deploy to public clouds (AWS, GCE, Azure, and many others).
 
 #### Building From Source on a Mac
+
+Note: This is only recommended for those that wish to make code changes
+to Nanos itself.
 
 Install Homebrew:
 ```
@@ -96,6 +99,8 @@ You should also set the environment variable NANOS_TARGET_ROOT to the path of
 target-root created above in order to create the example and test images.
 
 #### Building From Source on Linux
+
+Note: This is only recommended for those that wish to make code changes to Nanos itself.
 
 Nanos doesn't need too many dependencies on Linux.
 
@@ -173,9 +178,9 @@ develop locally. If that's the case a commonly used idiom is to simply
 copy the 3 required files to an appropriate release:
 
 ```
-cp output/tools/bin/mkfs ~/.ops/0.1.17/.
-cp output/platform/pc/boot/boot.img ~/.ops/0.1.17/.
-cp output/platform/pc/bin/kernel.img ~/.ops/0.1.17/.
+cp output/tools/bin/mkfs ~/.ops/0.1.47/.
+cp output/platform/pc/boot/boot.img ~/.ops/0.1.47/.
+cp output/platform/pc/bin/kernel.img ~/.ops/0.1.47/.
 ```
 
 ### Contributing
@@ -197,6 +202,15 @@ wise to check in with us first before grabbing a tkt. Tickets tagged
 
 Please scan the issue list first to see if we are already tracking the
 bug.
+
+Please _do not_ create a new issue on a closed issue. If you think you are
+experiencing the same problem (is the error message the same?) you can
+open a new issue and link to it if you think it's the same.
+
+Please try to provide the most basic reproducible example you can. If
+you have an error message or dump please include that.
+
+Please try using the latest/nightly build first before reporting.
 
 Please attach debugging output (`--trace` in ops). Please provide the
 config.json and anything else that allows us to reproduce the issue.
@@ -245,17 +259,17 @@ feel free to open up a PR and list your project/company below.
 
 ### Getting Help
 
-We run a public mailing list at:
-
-  nanos-users@nanovms.com
-
-for general questions. We also have a [discussion forum](https://forums.nanovms.com/).
+If you need help using nanos or ops the the [discussion forum](https://forums.nanovms.com/) is your best route for general questions. You may feel free to report a bug noting the bug reporting section ahead or open an issue for a feature request.
 
 # Support
 
-If you'd like more in-depth help reach out to the nanovms folks via drift or email engineering.
+Note: Nanos is open source, Apache2, however the builds that NanoVMs
+provides are not. Those using binary builds with over 50 employees must
+get a commercial subscription or you may freely build from source.
 
-If you need something done *now* or want immediate attention to an issue
+Similarily if you need something done *now* or want immediate attention to an issue
 NanoVMs offers [paid support plans](https://nanovms.com/services/subscription).
 
-If you need email support you will need to sign up for a support plan.
+If you need email or drift support you will need to sign up for a support plan.
+
+If you'd like more in-depth help reach out to the nanovms folks via drift or email engineering.
