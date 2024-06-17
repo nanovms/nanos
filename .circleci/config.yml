@@ -93,27 +93,6 @@ jobs:
       - run: gsutil cp nanos-nightly-linux.timestamp gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.timestamp
 
-  build-mac:
-    macos:
-        xcode: "15.4.0"
-    resource_class: macos.m1.medium.gen1
-    steps:
-      - checkout
-      - run: CI=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
-      - run: brew update && brew install nasm go wget qemu ent
-      - run: brew install binutils
-      - run: brew install x86_64-elf-binutils
-      - run: mkdir target-root && cd target-root && wget https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xfvz target-root.tar.gz
-      - run: curl https://ops.city/get.sh -sSfL | sh
-      - run:
-          name: macbuild
-          environment:
-            NANOS_TARGET_ROOT: ~/project/target-root
-          command: |
-            OPS_DIR=$HOME/.ops
-            PATH=$HOME/.ops/bin:$PATH
-            make test-noaccel
-
   build-virt:
     docker:
       - image: cimg/go:1.20.0
