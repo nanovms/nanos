@@ -1252,6 +1252,16 @@ void pagecache_purge_node(pagecache_node pn, status_handler complete)
         apply(complete, s);
 }
 
+void pagecache_node_ref(pagecache_node pn)
+{
+    refcount_reserve(&pn->refcount);
+}
+
+void pagecache_node_unref(pagecache_node pn)
+{
+    refcount_release(&pn->refcount);
+}
+
 closure_func_basic(pp_handler, boolean, pagecache_pin_handler,
                    pagecache_page pp)
 {
@@ -1655,42 +1665,34 @@ void pagecache_node_fetch_pages(pagecache_node pn, range r)
     pagecache_node_fetch_internal(pn, r, 0, ignore_status);
 }
 
-static void map_page(pagecache pc, pagecache_page pp, u64 vaddr, pageflags flags, status_handler complete)
-{
-    assert(pp->refcount != 0);
-    assert(pp->kvirt != INVALID_ADDRESS);
-    map_with_complete(vaddr, pp->phys, cache_pagesize(pc), flags, complete);
-}
-
-closure_function(5, 1, void, map_page_finish,
-                 pagecache, pc, pagecache_page, pp, u64, vaddr, pageflags, flags, status_handler, complete,
+closure_function(2, 1, void, get_page_finish,
+                 pagecache_page, pp, pagecache_page_handler, handler,
                  status s)
 {
+    pagecache_page_handler handler = bound(handler);
     if (is_ok(s)) {
-        map_page(bound(pc), bound(pp), bound(vaddr), bound(flags), bound(complete));
+        apply(handler, bound(pp)->kvirt);
     } else {
-        apply(bound(complete), s);
+        apply(handler, INVALID_ADDRESS);
     }
     closure_finish();
 }
 
 /* not context restoring */
-void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
-                        status_handler complete)
+void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handler handler)
 {
     pagecache pc = pn->pv->pc;
     pagecache_lock_node(pn);
     u64 pi = node_offset >> pc->page_order;
     pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, pi);
-    pagecache_debug("%s: pn %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx, complete %F, pp %p\n",
-                    func_ss, pn, node_offset, vaddr, flags, complete, pp);
+    pagecache_debug("%s: pn %p, node_offset 0x%lx, handler %F, pp %p\n",
+                    func_ss, pn, node_offset, handler, pp);
     if (pp == INVALID_ADDRESS) {
         pagecache_unlock_node(pn);
-        apply(complete, timm_oom);
+        apply(handler, INVALID_ADDRESS);
         return;
     }
-    merge m = allocate_merge(pc->h, closure(pc->h, map_page_finish,
-                                            pc, pp, vaddr, flags, complete));
+    merge m = allocate_merge(pc->h, closure(pc->h, get_page_finish, pp, handler));
     status_handler k = apply_merge(m);
     touch_or_fill_page_nodelocked(pn, pp, m);
     pagecache_unlock_node(pn);
@@ -1698,23 +1700,37 @@ void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags
 }
 
 /* no-alloc / no-fill path */
-boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
-                                     status_handler complete)
+void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset)
 {
-    boolean mapped = false;
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pn->pv->pc->page_order);
-    pagecache_debug("%s: pn %p, node_offset 0x%lx, vaddr 0x%lx, flags 0x%lx, pp %p\n",
-                    func_ss, pn, node_offset, vaddr, flags.w, pp);
-    if (pp == INVALID_ADDRESS)
+    pagecache_debug("%s: pn %p, node_offset 0x%lx, pp %p\n", func_ss, pn, node_offset, pp);
+    void *kvirt;
+    if (pp == INVALID_ADDRESS) {
+        kvirt = INVALID_ADDRESS;
         goto out;
-    if (touch_or_fill_page_nodelocked(pn, pp, 0)) {
-        mapped = true;
-        map_page(pn->pv->pc, pp, vaddr, flags, complete);
     }
+    if (touch_or_fill_page_nodelocked(pn, pp, 0))
+        kvirt = pp->kvirt;
+    else
+        kvirt = INVALID_ADDRESS;
   out:
     pagecache_unlock_node(pn);
-    return mapped;
+    return kvirt;
+}
+
+void pagecache_release_page(pagecache_node pn, u64 node_offset)
+{
+    pagecache pc = pn->pv->pc;
+    pagecache_lock_node(pn);
+    pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pn->pv->pc->page_order);
+    pagecache_debug("%s: pn %p, node_offset 0x%lx, pp %p\n", func_ss, pn, node_offset, pp);
+    if (pp == INVALID_ADDRESS)
+        return;
+    pagecache_lock_state(pc);
+    pagecache_page_release_locked(pc, pp, true);
+    pagecache_unlock_state(pc);
+    pagecache_unlock_node(pn);
 }
 
 closure_function(4, 3, boolean, pagecache_unmap_page_nodelocked,

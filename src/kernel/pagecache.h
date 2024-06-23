@@ -3,6 +3,7 @@ typedef struct pagecache_volume *pagecache_volume;
 typedef struct pagecache_node *pagecache_node;
 
 closure_type(pagecache_node_reserve, status, range r);
+closure_type(pagecache_page_handler, void, void *kvirt);
 
 void pagecache_set_node_length(pagecache_node pn, u64 length);
 
@@ -12,6 +13,9 @@ void pagecache_node_finish_pending_writes(pagecache_node pn, status_handler comp
 
 void pagecache_sync_node(pagecache_node pn, status_handler complete);
 void pagecache_purge_node(pagecache_node pn, status_handler complete);
+
+void pagecache_node_ref(pagecache_node pn);
+void pagecache_node_unref(pagecache_node pn);
 
 void pagecache_nodelocked_pin(pagecache_node pn, range pages);
 void pagecache_node_unpin(pagecache_node pn, range pages);
@@ -45,11 +49,9 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
 
 void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */);
 
-void pagecache_map_page(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
-                        status_handler complete);
-
-boolean pagecache_map_page_if_filled(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags,
-                                     status_handler complete);
+void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handler handler);
+void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset);
+void pagecache_release_page(pagecache_node pn, u64 node_offset);
 
 void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset);
 #endif

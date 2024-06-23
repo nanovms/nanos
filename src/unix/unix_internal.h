@@ -260,19 +260,27 @@ struct ftrace_graph_entry;
 
 #include <notify.h>
 
-struct pending_fault;
-declare_closure_struct(3, 0, void, pending_fault_demand_file_page,
-                       struct vmap *, vm, u64, node_offset, pageflags, flags);
-
 typedef struct pending_fault {
-    struct rbnode n;            /* must be first */
     u64 addr;
-    u64 bss_start;              /* u16? */
     process p;
-    vector dependents;
+    context ctx;
+    enum {
+        PENDING_FAULT_ANONYMOUS,
+        PENDING_FAULT_FILEBACKED,
+    } type;
+    union {
+        struct {
+        } anonymous;
+        struct {
+            pagecache_node pn;
+            u64 node_offset;
+            closure_struct(pagecache_page_handler, demand_file_page);
+            void *page_kvirt;
+        } filebacked;
+    };
     struct list l_free;
-    closure_struct(pending_fault_demand_file_page, demand_file_page);
-    closure_struct(status_handler, complete);
+    closure_struct(thunk, async_handler);
+    closure_struct(thunk, complete);
 } *pending_fault;
 
 /* XXX probably should bite bullet and allocate these... */
@@ -327,7 +335,6 @@ typedef struct thread {
     void *signal_stack;
     u64 signal_stack_length;
 
-    struct list l_faultwait;
     struct spinlock lock;   /* generic lock for struct members without a specific lock */
 
 #ifdef CONFIG_TRACELOG
@@ -499,8 +506,6 @@ typedef struct process {
     struct aux        saved_aux[NAUX];
     char             *saved_args_begin;
     char             *saved_args_end;
-    struct rbtree     pending_faults; /* pending_faults in progress */
-    struct spinlock   faulting_lock;
     struct sigstate   signals;
     struct sigaction  sigactions[NSIG];
     notify_set        signalfds;
@@ -825,9 +830,12 @@ boolean unix_timers_init(unix_heaps uh);
 
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
+#define vmap_lock(p) u64 _savedflags = spin_lock_irq(&(p)->vmap_lock)
+#define vmap_unlock(p) spin_unlock_irq(&(p)->vmap_lock, _savedflags)
+
 extern sysreturn syscall_ignore();
 u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete);
-status do_demand_page(process p, context ctx, u64 vaddr, vmap vm);
+status do_demand_page(process p, context ctx, u64 vaddr, vmap vm, boolean *done);
 void demand_page_done(context ctx, u64 vaddr, status s);
 vmap vmap_from_vaddr(process p, u64 vaddr);
 void vmap_iterator(process p, vmap_handler vmh);

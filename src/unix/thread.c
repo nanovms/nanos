@@ -451,7 +451,6 @@ thread create_thread(process p, u64 tid)
     t->start_time = 0;
     t->cpu_timers = 0;
 
-    list_init(&t->l_faultwait);
     spin_lock_init(&t->lock);
 
     /* install gdb fault handler if gdb is inited */
