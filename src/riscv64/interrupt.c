@@ -350,7 +350,6 @@ void trap_exception(void)
             context_release_refcount(retctx);
             frame_return(retctx->frame);
         }
-        assert(!is_kernel_context(ctx));
         runloop();
     } else {
         console("\nno fault handler for frame\n");
