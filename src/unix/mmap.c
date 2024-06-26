@@ -844,11 +844,11 @@ struct vmap altered_vmap_key(vmap match, u32 flags, u64 offset_delta)
     return k;
 }
 
-void vmap_update_protections_intersection(heap h, rangemap pvmap, range q, u32 newflags,
+static void vmap_update_flags_intersection(rangemap pvmap, range q, u32 clear_mask, u32 set_mask,
                                           vmap match)
 {
     vmap_debug("%s: vm %p %R prev flags 0x%x\n", func_ss, match, match->node.r, match->flags);
-    if (newflags == match->flags)
+    if ((match->flags & clear_mask) == set_mask)
         return;
 
     range rn = match->node.r;
@@ -857,8 +857,7 @@ void vmap_update_protections_intersection(heap h, rangemap pvmap, range q, u32 n
     boolean head = ri.start > rn.start;
     boolean tail = ri.end < rn.end;
 
-    /* protection flags only */
-    newflags = (match->flags & ~(VMAP_FLAG_WRITABLE | VMAP_FLAG_EXEC)) | newflags;
+    u32 newflags = (match->flags & ~clear_mask) | set_mask;
 
     if (!head && !tail) {
         /* updating flags may result in adjacent maps with same attributes;
@@ -928,7 +927,7 @@ static sysreturn vmap_update_protections_locked(heap h, rangemap pvmap, range q,
     while (range_span(r)) {
         vmap vm = (vmap)rangemap_lookup(pvmap, r.start);
         vmap_assert(vm != INVALID_ADDRESS);
-        vmap_update_protections_intersection(h, pvmap, q, newflags, vm);
+        vmap_update_flags_intersection(pvmap, q, VMAP_FLAG_PROT_MASK, newflags, vm);
         r.start = MIN(r.end, vm->node.r.end);
     }
     update_map_flags(q.start, range_span(q), pageflags_from_vmflags(newflags));
