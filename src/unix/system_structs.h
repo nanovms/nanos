@@ -239,6 +239,10 @@ struct flock {
 #define MS_INVALIDATE 2
 #define MS_SYNC       4
 
+/* madvise */
+#define MADV_HUGEPAGE       14
+#define MADV_NOHUGEPAGE     15
+
 typedef int clockid_t;
 
 #define CLOCK_REALTIME              0

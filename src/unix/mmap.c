@@ -37,6 +37,7 @@ typedef struct vmap_heap {
 static struct {
     heap h;
     heap virtual_backed;
+    u64 thp_max_size;
 
     closure_struct(rb_key_compare, pf_compare);
     closure_struct(rbnode_handler, pf_print);
@@ -110,23 +111,93 @@ static pending_fault new_pending_fault_locked(process p, context ctx, u64 addr)
     return pf;
 }
 
-/* returns physical address */
-u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete)
+#define VMAP_PAGE_SHRINK(v, page_addr, page_size)   do {    \
+    page_size >>= 1;                                        \
+    if (page_addr + page_size <= v) {                       \
+        page_addr += page_size;                             \
+    }                                                       \
+} while (0)
+
+closure_function(3, 3, boolean, vmap_anon_ptes,
+                 u64, v, u64 *, page_addr, u64 *, page_size,
+                 int level, u64 curr, pteptr entry_p)
 {
-    assert((v & MASK(PAGELOG)) == 0);
-    void *m = allocate(mmap_info.virtual_backed, length);
-    if (m == INVALID_ADDRESS) {
-        vmap_debug("%s: cannot get physical page\n", func_ss);
-        return INVALID_PHYSICAL;
+    pte entry = pte_from_pteptr(entry_p);
+    if (!pte_is_present(entry) || !pte_is_mapping(level, entry))
+        return true;
+    range cur_mapping = irangel(curr, U64_FROM_BIT(pte_order(level, entry)));
+    u64 page_addr = *bound(page_addr);
+    u64 page_size = *bound(page_size);
+    pf_debug("  page_addr 0x%lx, page_size 0x%lx, current mapping %R\n", page_addr, page_size,
+             cur_mapping);
+    range ri = range_intersection(cur_mapping, irangel(page_addr, page_size));
+    u64 v = bound(v);
+    if (range_span(ri) == 0) {
+        if (cur_mapping.end <= v)
+            return true;
+        else    /* we are past (page_addr + page_size), PTE traversal can stop here */
+            return false;
     }
-    zero(m, length);
+    if (cur_mapping.end <= v) {
+        while (page_addr < cur_mapping.end)
+            VMAP_PAGE_SHRINK(v, page_addr, page_size);
+        pf_debug("  shrinking from head, page_addr 0x%lx, page_size 0x%lx\n", page_addr, page_size);
+        *bound(page_addr) = page_addr;
+        *bound(page_size) = page_size;
+        return true;
+    }
+    if (cur_mapping.start > v) {
+        while (page_addr + page_size > cur_mapping.start)
+            VMAP_PAGE_SHRINK(v, page_addr, page_size);
+        pf_debug("  shrinking from tail, page_addr 0x%lx, page_size 0x%lx\n", page_addr, page_size);
+        *bound(page_addr) = page_addr;
+        *bound(page_size) = page_size;
+        return false;
+    }
+
+    /* the current mapping includes v */
+    *bound(page_size) = 0;
+    return false;
+}
+
+/* returns true if successful */
+boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags)
+{
+    u64 page_addr = v & ~MASK(PAGELOG);
+    u64 page_size = PAGESIZE;
+    if (vm->flags & VMAP_FLAG_THP) {
+        u64 max_size = mmap_info.thp_max_size;
+        while ((page_size < max_size) && (page_addr >= vm->node.r.start) &&
+               (page_addr + page_size <= vm->node.r.end)) {
+            page_size <<= 1;
+            page_addr = v & ~(page_size - 1);
+            if ((page_addr < vm->node.r.start) || (page_addr + page_size > vm->node.r.end)) {
+                page_size >>= 1;
+                page_addr = v & ~(page_size - 1);
+                break;
+            }
+        }
+    }
+    pf_debug("%s: v 0x%lx, vmap %R, page_addr 0x%lx, page_size 0x%lx\n", func_ss, v, vm->node.r,
+             page_addr, page_size);
+    traverse_ptes(page_addr, page_size, stack_closure(vmap_anon_ptes, v, &page_addr, &page_size));
+    pf_debug("  after traversing PTEs: page_addr 0x%lx, page_size 0x%lx\n", page_addr, page_size);
+    if (page_size == 0)
+        /* The mapping must have been done in parallel by another CPU. */
+        return true;
+    void *m;
+    while ((m = allocate(mmap_info.virtual_backed, page_size)) == INVALID_ADDRESS) {
+        if (page_size == PAGESIZE) {
+            vmap_debug("%s: cannot get physical page\n", func_ss);
+            return false;
+        }
+        VMAP_PAGE_SHRINK(v, page_addr, page_size);
+    }
+    zero(m, page_size);
     write_barrier();
     u64 p = physical_from_virtual(m);
-    u64 mapped_p = map_with_complete(v, p, length, flags, complete);
-    if (mapped_p != p)
-        /* The mapping must have been done in parallel by another CPU. */
-        deallocate(mmap_info.virtual_backed, m, length);
-    return mapped_p;
+    map(page_addr, p, page_size, flags);
+    return true;
 }
 
 static void demand_page_major_fault(context ctx)
@@ -146,7 +217,7 @@ closure_func_basic(thunk, void, pending_fault_anonymous)
 static status demand_anonymous_page(process p, context ctx, u64 vaddr, vmap vm, pending_fault *pf)
 {
     pageflags flags = pageflags_from_vmflags(vm->flags);
-    if (new_zeroed_pages(vaddr & ~MASK(PAGELOG), PAGESIZE, flags, 0) != INVALID_PHYSICAL)
+    if (new_zeroed_pages(vaddr, vm, flags))
         return STATUS_OK;
     else if (*pf)
         return timm_oom;
@@ -1187,6 +1258,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     pagecache_node node = 0;
     if (flags & MAP_ANONYMOUS) {
         vmap_mmap_type = VMAP_MMAP_TYPE_ANONYMOUS;
+        vmflags |= VMAP_FLAG_THP;
         allowed_flags = anon_perms(p);
     } else {
         desc = resolve_fd(p, fd); /* must return via out label to release fdesc */
@@ -1302,6 +1374,51 @@ static sysreturn munmap(void *addr, u64 length)
     return 0;
 }
 
+closure_function(2, 1, boolean, madvise_vmap_validate,
+                 int, advice, sysreturn *, rv,
+                 rmnode n)
+{
+    return true;
+}
+
+sysreturn madvise(void *addr, s64 length, int advice)
+{
+    if ((u64_from_pointer(addr) & PAGEMASK) || (length < 0))
+        return -EINVAL;
+    u32 clear_mask = 0, set_mask = 0;
+    switch (advice) {
+    case MADV_HUGEPAGE:
+        set_mask = VMAP_FLAG_THP;
+        break;
+    case MADV_NOHUGEPAGE:
+        clear_mask = VMAP_FLAG_THP;
+        break;
+    default:
+        return 0;   /* ignore non-supported advice values */
+    }
+    process p = current->p;
+    rangemap vmaps = p->vmaps;
+    range q = irangel(u64_from_pointer(addr), pad(length, PAGESIZE));
+    sysreturn rv = 0;
+    rmnode_handler vmap_handler = stack_closure(madvise_vmap_validate, advice, &rv);
+    range_handler gap_handler = stack_closure_func(range_handler, vmap_validate_gap);
+    vmap_lock(p);
+    int res = rangemap_range_lookup_with_gaps(vmaps, q, vmap_handler, gap_handler);
+    if (res == RM_MATCH) {
+        while (range_span(q)) {
+            vmap vm = (vmap)rangemap_lookup(vmaps, q.start);
+            vmap_update_flags_intersection(vmaps, q, clear_mask, set_mask, vm);
+            q.start = MIN(q.end, vm->node.r.end);
+        }
+        rv = 0;
+    } else {
+        if (rv == 0)    /* either the address range is not mapped, or there are unmapped gaps */
+            rv = -ENOMEM;
+    }
+    vmap_unlock(p);
+    return rv;
+}
+
 /* kernel start */
 extern void * START;
 
@@ -1395,7 +1512,15 @@ void mmap_process_init(process p, tuple root)
     heap h = heap_locked(kh);
     boolean aslr = !get(root, sym(noaslr));
     mmap_info.h = h;
-    mmap_info.virtual_backed = (heap)kh->pages;
+    bytes memory_reserve;
+    if (is_low_memory_machine()) {
+        mmap_info.thp_max_size = PAGEHEAP_LOWMEM_PAGESIZE;
+        memory_reserve = PAGEHEAP_LOWMEM_MEMORY_RESERVE;
+    } else {
+        mmap_info.thp_max_size = PAGESIZE_2M;
+        memory_reserve = PAGEHEAP_MEMORY_RESERVE;
+    }
+    mmap_info.virtual_backed = reserve_heap_wrapper(h, (heap)heap_page_backed(kh), memory_reserve);
     spin_lock_init(&p->vmap_lock);
     u64 min_addr;
     if (get_u64(root, sym(mmap_min_addr), &min_addr))
@@ -1446,5 +1571,5 @@ void register_mmap_syscalls(struct syscall *map)
     register_syscall(map, msync, msync);
     register_syscall(map, munmap, munmap);
     register_syscall(map, mprotect, mprotect);
-    register_syscall(map, madvise, syscall_ignore);
+    register_syscall(map, madvise, madvise);
 }

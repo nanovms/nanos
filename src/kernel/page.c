@@ -559,7 +559,7 @@ closure_function(1, 1, boolean, page_dealloc,
 void unmap_and_free_phys(u64 virtual, u64 length)
 {
     unmap_pages_with_handler(virtual, length,
-                             stack_closure(page_dealloc, (heap)get_kernel_heaps()->pages));
+                             stack_closure(page_dealloc, (heap)heap_page_backed(get_kernel_heaps())));
 }
 
 void page_free_phys(u64 phys)

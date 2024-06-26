@@ -99,6 +99,16 @@ typedef struct {
 static char zero_data[PAGESIZE] = {0};
 static char landing_pad[PAGESIZE*2];
 
+static void timespec_sub(struct timespec *a, struct timespec *b, struct timespec *r)
+{
+    r->tv_sec = a->tv_sec - b->tv_sec;
+    r->tv_nsec = a->tv_nsec - b->tv_nsec;
+    if (a->tv_nsec < b->tv_nsec) {
+        r->tv_sec--;
+        r->tv_nsec += 1000000000ull;
+    }
+}
+
 /* 
  * Generate random power of 2 between 1B and 2GB
  */
@@ -729,6 +739,7 @@ static void mincore_test(void)
         if (addr == MAP_FAILED) {
             test_perror("mmap");
         }
+        test_assert(madvise(addr, PAGESIZE * 512, MADV_NOHUGEPAGE) == 0);
 
         for (i = 0; i < 512; i++) {
             if (i % 5 == 0) {
@@ -1422,6 +1433,92 @@ static void filebacked_sigbus_test(void)
     }
 }
 
+static void thp_test(void)
+{
+    size_t map_len = 16 * MB;
+    u8 *addr = mmap(NULL, map_len, PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (addr == MAP_FAILED) {
+        test_perror("mmap");
+    }
+    test_assert(madvise(addr, map_len, MADV_HUGEPAGE) == 0);
+
+    /* Trigger on-demand paging of different page sizes. */
+
+    /* Split vmap into 2 adjacent vmaps with a boundary aligned to 4 KB but non-aligned to larger
+     * page sizes. */
+    u8 *map_boundary = pointer_from_u64((u64_from_pointer(addr + 8 * MB) & ~MASK(PAGELOG_2M)) -
+                                        PAGESIZE);
+    test_assert(mprotect(map_boundary, addr + map_len - map_boundary, PROT_READ) == 0);
+    *(map_boundary - PAGESIZE) = 0;         /* 4KB */
+    *(map_boundary - 2 * PAGESIZE) = 0;     /* 8KB */
+    *(map_boundary - 4 * PAGESIZE) = 0;     /* 16KB */
+    *(map_boundary - 8 * PAGESIZE) = 0;     /* 32KB */
+    *(map_boundary - 16 * PAGESIZE) = 0;    /* 64KB */
+    *(map_boundary - 32 * PAGESIZE) = 0;    /* 128KB */
+    *(map_boundary - 64 * PAGESIZE) = 0;    /* 256KB */
+    *(map_boundary - 128 * PAGESIZE) = 0;   /* 512KB */
+    *(map_boundary - 256 * PAGESIZE) = 0;   /* 1MB */
+    *(map_boundary - 512 * PAGESIZE) = 0;   /* 2MB */
+
+    /* Again, make map boundary aligned to 4 KB but non-aligned to larger page sizes. */
+    map_boundary += 2 * PAGESIZE;
+    test_assert(mprotect(map_boundary, addr + map_len - map_boundary, PROT_WRITE) == 0);
+    test_assert(mprotect(addr, map_boundary - addr, PROT_READ) == 0);
+    *(map_boundary) = 0;                    /* 4KB */
+    *(map_boundary + 2 * PAGESIZE) = 0;     /* 8KB */
+    *(map_boundary + 4 * PAGESIZE) = 0;     /* 16KB */
+    *(map_boundary + 8 * PAGESIZE) = 0;     /* 32KB */
+    *(map_boundary + 16 * PAGESIZE) = 0;    /* 64KB */
+    *(map_boundary + 32 * PAGESIZE) = 0;    /* 128KB */
+    *(map_boundary + 64 * PAGESIZE) = 0;    /* 256KB */
+    *(map_boundary + 128 * PAGESIZE) = 0;   /* 512KB */
+    *(map_boundary + 256 * PAGESIZE) = 0;   /* 1MB */
+    *(map_boundary + 512 * PAGESIZE) = 0;   /* 2MB */
+
+    /* Fault-in an 8KB area straddling a 2MB boundary, then trigger on-demand paging at both sides
+     * of this area, creating 1MB pages that would have been 2MB if the 8KB area had not been
+     * faulted-in previously. */
+    u8 *no_thp_end = map_boundary + 6 * MB;
+    u8 *no_thp_start = no_thp_end - 2 * PAGESIZE;
+    test_assert(madvise(no_thp_start, no_thp_end - no_thp_start, MADV_NOHUGEPAGE) == 0);
+    *(no_thp_start) = 0;            /* 4KB */
+    *(no_thp_start + PAGESIZE) = 0; /* 4KB */
+    test_assert(madvise(no_thp_start, no_thp_end - no_thp_start, MADV_HUGEPAGE) == 0);
+    *(no_thp_start - 511 * PAGESIZE) = 0;   /* 1MB */
+    *(no_thp_end + 510 * PAGESIZE) = 0;   /* 1MB */
+
+    munmap(addr, map_len);
+
+    map_len = 512 * MB;
+    struct timespec start, end, elapsed;
+    test_assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
+    addr = mmap(NULL, map_len, PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    test_assert(addr != MAP_FAILED);
+    for (int i = 0; i < map_len; i += PAGESIZE) /* fault-in all mapped memory */
+        addr[i] = 0;
+    munmap(addr, map_len);
+    test_assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
+    timespec_sub(&end, &start, &elapsed);
+    unsigned long long ns = elapsed.tv_sec * 1000000000ull + elapsed.tv_nsec;
+    printf("%s: paged %lu bytes in %ld.%.9ld seconds (%lld MB/s)\n", __func__, map_len,
+           elapsed.tv_sec, elapsed.tv_nsec, (1000000000ull / MB) * map_len / ns);
+}
+
+static void madvise_test(void)
+{
+    size_t map_len = 2 * PAGESIZE;
+    void *addr = mmap(NULL, map_len, PROT_READ, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    if (addr == MAP_FAILED) {
+        test_perror("mmap");
+    }
+    munmap(addr, map_len / 2);
+    /* madvise on (partially) unmapped address range */
+    test_assert((madvise(addr, map_len, MADV_HUGEPAGE) == -1) && (errno == ENOMEM));
+    munmap(addr + map_len / 2, map_len / 2);
+
+    thp_test();
+}
+
 int main(int argc, char * argv[])
 {
     /*
@@ -1448,6 +1545,7 @@ int main(int argc, char * argv[])
     filebacked_test(h);
     multithread_filebacked_test(h, MT_N_THREADS);
     filebacked_sigbus_test();
+    madvise_test();
     check_fault_in_user_memory();
 
     printf("\n**** all tests passed ****\n");

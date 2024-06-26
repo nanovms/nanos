@@ -18,6 +18,7 @@
 #define VMAP_FLAG_PROG     0x1000
 #define VMAP_FLAG_BSS      0x2000
 #define VMAP_FLAG_TAIL_BSS 0x4000
+#define VMAP_FLAG_THP      0x8000   /* Transparent Huge Pages */
 
 #define VMAP_MMAP_TYPE_MASK       0x0f00
 #define VMAP_MMAP_TYPE_ANONYMOUS  0x0100
@@ -834,7 +835,6 @@ boolean unix_timers_init(unix_heaps uh);
 #define vmap_unlock(p) spin_unlock_irq(&(p)->vmap_lock, _savedflags)
 
 extern sysreturn syscall_ignore();
-u64 new_zeroed_pages(u64 v, u64 length, pageflags flags, status_handler complete);
 status do_demand_page(process p, context ctx, u64 vaddr, vmap vm, boolean *done);
 void demand_page_done(context ctx, u64 vaddr, status s);
 vmap vmap_from_vaddr(process p, u64 vaddr);
