@@ -287,6 +287,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
         }
     } else if (is_page_fault(ctx->frame)) {
         u64 vaddr = frame_fault_address(ctx->frame);
+        vmap_lock(p);
         vmap vm;
         if (vaddr >= MIN(p->mmap_min_addr, PAGESIZE) && vaddr < USER_LIMIT)
             vm = vmap_from_vaddr(p, vaddr);
@@ -295,6 +296,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
         pf_debug("page fault, vaddr 0x%lx, vmap %p, ctx %p, type %d, pc 0x%lx, user %d",
                  vaddr, vm, ctx, ctx->type, fault_pc, user);
         if (vm == INVALID_ADDRESS) {
+            vmap_unlock(p);
             /* We're assuming here that an unhandled fault on a user page from
                within a syscall context is actually a program bug - though
                there's a chance that a true kernel bug might materialize as a
@@ -310,6 +312,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
         }
 
         if (is_pte_error(ctx->frame)) {
+            vmap_unlock(p);
             /* no SEGV on reserved PTEs */
             errmsg = ss("bug: pte entries reserved or corrupt");
             dump_page_tables(vaddr, 8);
@@ -317,21 +320,28 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
         }
 
         if (is_instruction_fault(ctx->frame) && !user) {
+            vmap_unlock(p);
             msg_err("kernel instruction fault\n");
             goto bug;
         }
 
         if (is_protection_fault(ctx->frame)) {
             if (handle_protection_fault(ctx, vaddr, vm)) {
+                vmap_unlock(p);
                 if (!is_thread_context(ctx))
                     return ctx;   /* direct return */
                 schedule_thread(t);
                 return 0;
             }
+            vmap_unlock(p);
             goto error;
         }
 
-        status s = do_demand_page(p, ctx, vaddr, vm);
+        boolean paging_done;
+        status s = do_demand_page(p, ctx, vaddr, vm, &paging_done);
+        vmap_unlock(p);
+        if (!paging_done)
+            return 0;
         demand_page_done(ctx, vaddr, s);
         if (!is_ok(s) && user) {
             schedule_thread(t);

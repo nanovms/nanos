@@ -178,12 +178,12 @@
 
 #ifndef physical_from_virtual
 
-// XXX kernel addr, also should return INVALID_PHYSICAL if PAR_EL1.F is set
+// XXX kernel addr
 #define __physical_from_virtual_locked(v) ({                            \
             register u64 __r;                                           \
             register u64 __x = u64_from_pointer(v);                     \
             asm volatile("at S1E1R, %1; mrs %0, PAR_EL1" : "=r"(__r) : "r"(__x)); \
-            (__r & (MASK(47) & ~MASK(12))) | (__x & MASK(12));})
+            (__r & 0x1) ? INVALID_PHYSICAL : ((__r & (MASK(47) & ~MASK(12))) | (__x & MASK(12)));})
 
 physical physical_from_virtual(void *x);
 
