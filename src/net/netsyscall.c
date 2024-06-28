@@ -115,6 +115,8 @@ typedef struct netsock {
 
 #define DEFAULT_SO_RCVBUF   0x34000 /* same as Linux */
 
+#define TCP_CONG_CTRL_ALGO  "reno"  /* TCP congestion control algorithm name */
+
 int so_rcvbuf;
 
 static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
@@ -2449,6 +2451,95 @@ out:
     return rv;
 }
 
+static void netsock_get_tcpinfo(netsock s, struct tcp_info *info)
+{
+    zero(info, sizeof(*info));
+    struct tcp_pcb *lw = s->info.tcp.lw;
+    tcp_lock(lw);
+    u8 *state = &info->tcpi_state;
+    switch (lw->state) {
+    case CLOSED:
+        *state = TCP_CLOSE;
+        break;
+    case LISTEN:
+        *state = TCP_LISTEN;
+        info->tcpi_unacked = ((struct tcp_pcb_listen *)lw)->accepts_pending;
+        info->tcpi_sacked = ((struct tcp_pcb_listen *)lw)->backlog;
+        tcp_unlock(lw);
+        return;
+    case SYN_SENT:
+        *state = TCP_SYN_SENT;
+        break;
+    case SYN_RCVD:
+        *state = TCP_SYN_RECV;
+        break;
+    case ESTABLISHED:
+        *state = TCP_ESTABLISHED;
+        break;
+    case FIN_WAIT_1:
+        *state = TCP_FIN_WAIT1;
+        break;
+    case FIN_WAIT_2:
+        *state = TCP_FIN_WAIT2;
+        break;
+    case CLOSE_WAIT:
+        *state = TCP_CLOSE_WAIT;
+        break;
+    case CLOSING:
+        *state = TCP_CLOSING;
+        break;
+    case LAST_ACK:
+        *state = TCP_LAST_ACK;
+        break;
+    case TIME_WAIT:
+        *state = TCP_TIME_WAIT;
+        break;
+    }
+    info->tcpi_ca_state = (lw->flags & TF_INFR) ? TCP_CA_Recovery : TCP_CA_Open;
+    info->tcpi_retransmits = lw->nrtx;
+    info->tcpi_probes = lw->persist_probe;
+    info->tcpi_backoff = lw->persist_backoff;
+#if LWIP_TCP_TIMESTAMPS
+    if (lw->flags & TF_TIMESTAMP)
+        info->tcpi_options |= TCPI_OPT_TIMESTAMPS;
+#endif
+#if LWIP_TCP_SACK_OUT
+    if (lw->flags & TF_SACK)
+        info->tcpi_options |= TCPI_OPT_SACK;
+#endif
+    if (lw->flags & TF_WND_SCALE)
+        info->tcpi_options |= TCPI_OPT_WSCALE;
+    info->tcpi_snd_wscale = lw->snd_scale;
+    info->tcpi_rcv_wscale = lw->rcv_scale;
+    info->tcpi_rto = lw->rto * TCP_SLOW_INTERVAL * 1000;    /* microseconds */
+    info->tcpi_snd_mss = info->tcpi_rcv_mss = tcp_mss(lw);
+    struct tcp_seg *unacked = lw->unacked;
+    while (unacked) {
+        info->tcpi_unacked++;
+        unacked = unacked->next;
+    }
+#if LWIP_TCP_SACK_OUT
+    struct tcp_sack_range *sacks = *lw->rcv_sacks;
+    for (int i = 0; (i < LWIP_TCP_MAX_SACK_NUM) && LWIP_TCP_SACK_VALID(lw, i); i++)
+        info->tcpi_sacked += sacks[i].right - sacks[i].left;
+#endif
+    info->tcpi_retrans = lw->nrtx;
+    info->tcpi_rcv_ssthresh = info->tcpi_snd_ssthresh = lw->ssthresh;
+    info->tcpi_rtt = info->tcpi_rcv_rtt = info->tcpi_min_rtt =
+            lw->rttest * TCP_SLOW_INTERVAL * 1000;  /* microseconds */
+    info->tcpi_snd_cwnd = lw->cwnd;
+    info->tcpi_advmss = lw->mss;
+    info->tcpi_rcv_space = so_rcvbuf - s->sock.rx_len;
+    info->tcpi_notsent_bytes = lw->snd_lbb - lw->snd_nxt;
+    struct tcp_seg *ooo = lw->ooseq;
+    while (ooo) {
+        info->tcpi_rcv_ooopack++;
+        ooo = ooo->next;
+    }
+    info->tcpi_snd_wnd = lw->snd_wnd_max;
+    tcp_unlock(lw);
+}
+
 static sysreturn netsock_getsockopt(struct sock *sock, int level,
                                     int optname, void *optval, socklen_t *optlen)
 {
@@ -2461,6 +2552,8 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
     union {
         int val;
         struct linger linger;
+        char str[16];
+        struct tcp_info tcp_info;
     } ret_optval;
     int ret_optlen = sizeof(ret_optval.val);
 
@@ -2551,6 +2644,15 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             break;
         case TCP_WINDOW_CLAMP:
             ret_optval.val = TCP_WND_MAX(s->info.tcp.lw);
+            break;
+        case TCP_INFO:
+            netsock_get_tcpinfo(s, &ret_optval.tcp_info);
+            ret_optlen = sizeof(ret_optval.tcp_info);
+            break;
+        case TCP_CONGESTION:
+            zero(ret_optval.str, sizeof(ret_optval.str));
+            runtime_memcpy(ret_optval.str, TCP_CONG_CTRL_ALGO, sizeof(TCP_CONG_CTRL_ALGO));
+            ret_optlen = sizeof(ret_optval.str);
             break;
         case TCP_CORK:
         case TCP_DEFER_ACCEPT:

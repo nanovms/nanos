@@ -102,3 +102,109 @@ enum protocol_type {
 #define SHUT_WR   1
 #define SHUT_RDWR 2
 
+struct tcp_info {
+    u8 tcpi_state;
+    u8 tcpi_ca_state;
+    u8 tcpi_retransmits;
+    u8 tcpi_probes;
+    u8 tcpi_backoff;
+    u8 tcpi_options;
+    u8 tcpi_snd_wscale : 4, tcpi_rcv_wscale : 4;
+    u8 tcpi_delivery_rate_app_limited:1, tcpi_fastopen_client_fail:2;
+
+    u32 tcpi_rto;
+    u32 tcpi_ato;
+    u32 tcpi_snd_mss;
+    u32 tcpi_rcv_mss;
+
+    u32 tcpi_unacked;
+    u32 tcpi_sacked;
+    u32 tcpi_lost;
+    u32 tcpi_retrans;
+    u32 tcpi_fackets;
+
+    u32 tcpi_last_data_sent;
+    u32 tcpi_last_ack_sent;
+    u32 tcpi_last_data_recv;
+    u32 tcpi_last_ack_recv;
+
+    u32 tcpi_pmtu;
+    u32 tcpi_rcv_ssthresh;
+    u32 tcpi_rtt;
+    u32 tcpi_rttvar;
+    u32 tcpi_snd_ssthresh;
+    u32 tcpi_snd_cwnd;
+    u32 tcpi_advmss;
+    u32 tcpi_reordering;
+
+    u32 tcpi_rcv_rtt;
+    u32 tcpi_rcv_space;
+
+    u32 tcpi_total_retrans;
+
+    u64 tcpi_pacing_rate;
+    u64 tcpi_max_pacing_rate;
+    u64 tcpi_bytes_acked;
+    u64 tcpi_bytes_received;
+    u32 tcpi_segs_out;
+    u32 tcpi_segs_in;
+
+    u32 tcpi_notsent_bytes;
+    u32 tcpi_min_rtt;
+    u32 tcpi_data_segs_in;
+    u32 tcpi_data_segs_out;
+
+    u64 tcpi_delivery_rate;
+
+    u64 tcpi_busy_time;
+    u64 tcpi_rwnd_limited;
+    u64 tcpi_sndbuf_limited;
+
+    u32 tcpi_delivered;
+    u32 tcpi_delivered_ce;
+
+    u64 tcpi_bytes_sent;
+    u64 tcpi_bytes_retrans;
+    u32 tcpi_dsack_dups;
+    u32 tcpi_reord_seen;
+
+    u32 tcpi_rcv_ooopack;
+
+    u32 tcpi_snd_wnd;
+};
+
+/* values for tcp_info.tcpi_state */
+enum {
+    TCP_ESTABLISHED = 1,
+    TCP_SYN_SENT,
+    TCP_SYN_RECV,
+    TCP_FIN_WAIT1,
+    TCP_FIN_WAIT2,
+    TCP_TIME_WAIT,
+    TCP_CLOSE,
+    TCP_CLOSE_WAIT,
+    TCP_LAST_ACK,
+    TCP_LISTEN,
+    TCP_CLOSING,
+    TCP_NEW_SYN_RECV,
+    TCP_BOUND_INACTIVE,
+};
+
+/* values for tcp_info.tcpi_ca_state  */
+enum tcp_ca_state
+{
+  TCP_CA_Open = 0,
+  TCP_CA_Disorder,
+  TCP_CA_CWR,
+  TCP_CA_Recovery,
+  TCP_CA_Loss,
+};
+
+/* flags for tcp_info.tcpi_options  */
+# define TCPI_OPT_TIMESTAMPS    0x01
+# define TCPI_OPT_SACK          0x02
+# define TCPI_OPT_WSCALE        0x04
+# define TCPI_OPT_ECN           0x08
+# define TCPI_OPT_ECN_SEEN      0x10
+# define TCPI_OPT_SYN_DATA      0x20
+

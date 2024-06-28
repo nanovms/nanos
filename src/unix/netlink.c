@@ -1,6 +1,6 @@
-#include <net_system_structs.h>
 #include <unix_internal.h>
 #include <lwip.h>
+#include <net_system_structs.h>
 #include <socket.h>
 
 //#define NETLINK_DEBUG

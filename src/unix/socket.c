@@ -1,6 +1,6 @@
-#include <net_system_structs.h>
 #include <unix_internal.h>
 #include <filesystem.h>
+#include <net_system_structs.h>
 #include <socket.h>
 
 typedef struct sharedbuf {
