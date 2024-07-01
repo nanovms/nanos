@@ -435,8 +435,18 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
         exec_debug("initializing ltrace...\n");
         ltrace_init(ltrace, ex, load_offset);
     }
+    if (!static_map)
+        deallocate_buffer(ex);
 
     register_root_notify(sym(trace), closure(heap_locked(kh), trace_notify, proc));
+    string cwd = get_string(root, sym(cwd));
+    if (cwd) {
+        fs_status fss = filesystem_chdir(proc, buffer_to_sstring(cwd));
+        if (fss != FS_STATUS_OK) {
+            s = timm("result", "unable to change cwd to \"%b\"; %s", cwd, string_from_fs_status(fss));
+            goto out;
+        }
+    }
 
     if (interp) {
         program_set_perms(root, interp->md);
@@ -452,17 +462,6 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
         goto out;
     }
 
-    string cwd = get_string(root, sym(cwd));
-    if (cwd) {
-        fs_status fss = filesystem_chdir(proc, buffer_to_sstring(cwd));
-        if (fss != FS_STATUS_OK) {
-            s = timm("result", "unable to change cwd to \"%b\"; %s", cwd, string_from_fs_status(fss));
-            goto out;
-        }
-    }
-
-    if (!static_map)
-        deallocate_buffer(ex);
     exec_debug("starting process tid %d, start %p\n", t->tid, entry);
     start_process(t, entry);
   out:
