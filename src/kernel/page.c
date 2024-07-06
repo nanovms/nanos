@@ -205,6 +205,27 @@ boolean validate_virtual_writable(void * base, u64 length)
                          stack_closure_func(entry_handler, validate_entry_writable));
 }
 
+static pte pte_split(pteptr entry, range gap)
+{
+    u64 new_page_phys;
+    u64 *new_page = allocate_table_page(&new_page_phys);
+    pte new_pte;
+    if (new_page != INVALID_ADDRESS) {
+        u64 oldentry = pte_from_pteptr(entry);
+        u64 phys = page_from_pte(oldentry);
+        u64 flags = flags_from_pte(oldentry);
+        for (u64 i = 0; i < gap.start; i++)
+            new_page[i] = page_pte(phys + (i << PAGELOG), flags);
+        for (u64 i = gap.end; i < PAGESIZE / sizeof(*new_page); i++)
+            new_page[i] = page_pte(phys + (i << PAGELOG), flags);
+        new_pte = new_level_pte(new_page_phys);
+        pte_set(entry, new_pte);
+    } else {
+        new_pte = INVALID_PHYSICAL;
+    }
+    return new_pte;
+}
+
 /* called with lock held */
 closure_function(2, 3, boolean, update_pte_flags,
                  pageflags, flags, flush_entry, fe,
@@ -216,6 +237,7 @@ closure_function(2, 3, boolean, update_pte_flags,
         return true;
 
     pte_set(entry, (orig_pte & ~PAGE_PROT_FLAGS) | bound(flags).w);
+
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, orig_pte,
                pte_from_pteptr(entry));
@@ -225,7 +247,7 @@ closure_function(2, 3, boolean, update_pte_flags,
 }
 
 /* Update access protection flags for any pages mapped within a given area */
-void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete)
+void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 {
     flags = pageflags_no_minpage(flags);
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
@@ -234,7 +256,7 @@ void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, stat
     assert(!intersects_linear_backed(irangel(vaddr, length)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
-    page_invalidate_sync(fe, complete);
+    page_invalidate_sync(fe);
 #ifdef PAGE_DUMP_ALL
     early_debug("update_map_flags ");
     dump_page_tables(vaddr, length);
@@ -293,7 +315,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
                                           irange(vaddr_old, vaddr_old + length))));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, fe));
-    page_invalidate_sync(fe, 0);
+    page_invalidate_sync(fe);
 #ifdef PAGE_DUMP_ALL
     early_debug("remap ");
     dump_page_tables(vaddr_new, length);
@@ -349,7 +371,7 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(virtual, length, stack_closure(unmap_page, rh, fe));
-    page_invalidate_sync(fe, 0);
+    page_invalidate_sync(fe);
 #ifdef PAGE_DUMP_ALL
     early_debug("unmap ");
     dump_page_tables(virtual, length);
@@ -358,9 +380,8 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 
 #define next_addr(a, mask) (a = (a + (mask) + 1) & ~(mask))
 #define INDEX_MASK (PAGEMASK >> 3)
-/* If the flush_entry argument is non-null, the virtual address range is remapped, i.e. any existing
- * mapping is overwritten (and the overwritten pages are added to the flush entry to be subsequently
- * invalidated), otherwise any existing mapping is not touched. */
+/* The virtual address range is remapped, i.e. any existing mapping is overwritten (and the
+ * overwritten pages are added to the flush entry to be subsequently invalidated. */
 static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe)
 {
     int shift = pt_level_shift(level);
@@ -392,7 +413,6 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
     assert(table_ptr && table_ptr != INVALID_ADDRESS);
 
     for (int i = first_index; i <= last_index; i++, next_addr(v.start, mask)) {
-        boolean invalidate = false; /* page at v.start */
         page_init_debug("   index ");
         page_init_debug_u64(i);
         page_init_debug(", v.start ");
@@ -407,13 +427,11 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
             if (level == PT_PTE_LEVEL) {
                 pte = page_pte(*p, flags);
                 next_addr(*p, mask);
-                invalidate = true;
             } else if (!flags_has_minpage(flags) && level > PT_FIRST_LEVEL &&
                        (pagemem.levelmask & U64_FROM_BIT(level)) && (v.start & mask) == 0 &&
                        (*p & mask) == 0 && range_span(v) >= U64_FROM_BIT(shift)) {
                 pte = block_pte(*p, flags);
                 next_addr(*p, mask);
-                invalidate = true;
             } else {
                 page_init_debug("      new level: ");
                 void *tp;
@@ -441,14 +459,14 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
             page_init_debug_u64(pte);
             page_init_debug("\n");
             table_ptr[i] = pte;
-            if (invalidate)
-                page_invalidate(0, v.start | vmask);
         } else {
             /* Check if the page or block is already installed. */
+            u64 end = vlbase | (((u64)(i + 1)) << shift);
+            u64 len = MIN(range_span(v), end - v.start);
             if (pte_is_mapping(level, pte)) {
                 page_debug("would overwrite entry: level %d, v %R, pa 0x%lx, "
                            "flags 0x%lx, index %d, entry 0x%lx\n", level, v, *p, flags, i, pte);
-                if (fe) {
+                if (pte_map_size(level, pte) <= len) {
                     /* overwrite existing mapping */
                     table_ptr[i] = (level == PT_PTE_LEVEL) ?
                                    page_pte(*p, flags) : block_pte(*p, flags);
@@ -456,16 +474,14 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
                     next_addr(*p, mask);
                     continue;
                 }
-
-                /* assume the entire mapping has been done and return the mapped physical address */
-                *p = page_from_pte(pte);
-                next_addr(*p, mask);
-                return true;
+                int next_level_shift = pt_level_shift(level + 1);
+                pte = pte_split(table_ptr + i, irangel((v.start >> next_level_shift) & INDEX_MASK,
+                                                       len >> next_level_shift));
+                if (pte == INVALID_PHYSICAL)
+                    return false;
             }
             u64 nexttable = page_from_pte(pte);
             u64 *nexttable_ptr = pointer_from_pteaddr(nexttable);
-            u64 end = vlbase | (((u64)(i + 1)) << shift);
-            u64 len = MIN(range_span(v), end - v.start);
             if (!map_level(nexttable_ptr, level + 1, irangel(v.start | vmask, len), p, flags, fe))
                 return false;
         }
@@ -473,7 +489,7 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
     return true;
 }
 
-physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete)
+void map(u64 v, physical p, u64 length, pageflags flags)
 {
     page_init_debug("map: v ");
     page_init_debug_u64(v);
@@ -490,9 +506,10 @@ physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, statu
     assert((v & PAGEMASK) == 0);
     assert((p & PAGEMASK) == 0);
     range r = irangel(v, pad(length, PAGESIZE));
+    flush_entry fe = get_page_flush_entry();
     pagetable_lock();
     u64 *table_ptr = pointer_from_pteaddr(get_pagetable_base(v));
-    if (!map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, 0)) {
+    if (!map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, fe)) {
         pagetable_unlock();
         rprintf("ra %p\n", __builtin_return_address(0));
         print_frame_trace_from_here();
@@ -501,14 +518,11 @@ physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, statu
     }
     page_init_debug("map_level done\n");
     pagetable_unlock();
-    flush_tlb(false);
-    if (complete)
-        apply(complete, STATUS_OK);
+    page_invalidate_sync(fe);
 #ifdef PAGE_DUMP_ALL
     early_debug("map ");
     dump_page_tables(v, length);
 #endif
-    return p - length;
 }
 
 /* Set up a mapping, like the map() function but without acquiring the page table lock; this
@@ -518,23 +532,6 @@ void map_nolock(u64 v, physical p, u64 length, pageflags flags)
     range r = irangel(v, pad(length, PAGESIZE));
     u64 *table_ptr = pointer_from_pteaddr(get_pagetable_base(v));
     map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, 0);
-}
-
-void remap(u64 v, physical p, u64 length, pageflags flags)
-{
-    range r = irangel(v, pad(length, PAGESIZE));
-    flush_entry fe = get_page_flush_entry();
-    pagetable_lock();
-    u64 *table_ptr = pointer_from_pteaddr(get_pagetable_base(v));
-    if (!map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, fe)) {
-        pagetable_unlock();
-        rprintf("ra %p\n", __builtin_return_address(0));
-        print_frame_trace_from_here();
-        halt("remap failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
-             v, p, length, flags.w);
-    }
-    pagetable_unlock();
-    page_invalidate_sync(fe, 0);
 }
 
 void unmap(u64 virtual, u64 length)

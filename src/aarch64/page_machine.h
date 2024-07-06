@@ -364,7 +364,7 @@ static inline boolean pte_is_mapping(int level, pte entry)
 
 static inline u64 flags_from_pte(u64 pte)
 {
-    return pte & PAGE_FLAGS_MASK;
+    return pte & (PAGE_FLAGS_MASK & ~PAGE_L3_DESC_PAGE);
 }
 
 static inline pageflags pageflags_from_pte(pte pte)

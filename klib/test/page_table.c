@@ -27,7 +27,7 @@ static void pt_test_update_flags(heap vh, heap ph)
         assert(v != INVALID_PHYSICAL);
 
         /* read-only mapping */
-        assert(map_with_complete(v, p, size, ro_flags, 0) == p);
+        map(v, p, size, ro_flags);
         assert(physical_from_virtual(pointer_from_u64(v)) == p);
         ((volatile u8 *)v)[0];
         ((volatile u8 *)v)[size - 1];
@@ -95,6 +95,31 @@ static void pt_test_remap(heap vh, heap ph)
         size *= 3;
     }
     deallocate_vector(virt);
+
+    /* Test overwriting of existing mappings and splitting of block mappings into page mappings. */
+    size = PAGESIZE_2M;
+    while (true) {
+        v = allocate_u64(vh, size);
+        p = allocate_u64(ph, size);
+        if ((v == INVALID_PHYSICAL) || (p == INVALID_PHYSICAL)) {
+            if (v != INVALID_PHYSICAL)
+                deallocate_u64(vh, v, size);
+            if (p != INVALID_PHYSICAL)
+                deallocate_u64(ph, p, size);
+            break;
+        }
+        map(v, p, size, flags);
+        u64 offset = size - PAGESIZE;
+        *(u64 *)(v + offset - sizeof(u64)) = 0xaa;
+        map(v + offset, p + offset, PAGESIZE, pageflags_readonly(flags));   /* mapping split */
+        assert(*(u64 *)(v + offset - sizeof(u64)) == 0xaa);
+        *(u64 *)(v + offset - sizeof(u64)) = 0xbb;
+        map(v, p + offset - PAGESIZE, PAGESIZE, flags); /* mapping overwritten */
+        assert(*(u64 *)(v + PAGESIZE - sizeof(u64)) == 0xbb);
+        deallocate_u64(ph, p, size);
+        deallocate_u64(vh, v, size);
+        size <<= 1;
+    }
 }
 
 int init(status_handler complete)

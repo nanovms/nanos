@@ -25,31 +25,20 @@ void init_page_tables(heap pageheap);
 void init_flush(heap);
 flush_entry get_page_flush_entry();
 void page_invalidate(flush_entry f, u64 address);
-void page_invalidate_sync(flush_entry f, status_handler completion);
+void page_invalidate_sync(flush_entry f);
 void page_invalidate_flush();
 
 void invalidate(u64 page);
 void flush_tlb(boolean full_flush);
 
 /* mapping and flag update */
-physical map_with_complete(u64 v, physical p, u64 length, pageflags flags, status_handler complete);
-
-static inline void map(u64 v, physical p, u64 length, pageflags flags)
-{
-    map_with_complete(v, p, length, flags, 0);
-}
-
+/* overwrite any existing mappings in the virtual address range */
+void map(u64 v, physical p, u64 length, pageflags flags);
 void map_nolock(u64 v, physical p, u64 length, pageflags flags);
 
-void update_map_flags_with_complete(u64 vaddr, u64 length, pageflags flags, status_handler complete);
+void update_map_flags(u64 vaddr, u64 length, pageflags flags);
 
-static inline void update_map_flags(u64 vaddr, u64 length, pageflags flags)
-{
-    update_map_flags_with_complete(vaddr, length, flags, 0);
-}
-
-/* overwrite any existing mappings in the virtual address range */
-void remap(u64 v, physical p, u64 length, pageflags flags);
+#define remap(v, p, length, flags)  map(v, p, length, flags)
 
 void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);

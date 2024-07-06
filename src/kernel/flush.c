@@ -2,7 +2,6 @@
 
 #define FLUSH_THRESHOLD 32
 #define MAX_FLUSH_ENTRIES 1024
-#define COMP_QUEUE_SIZE (MAX_FLUSH_ENTRIES*2)
 #define ENTRIES_SERVICE_THRESHOLD (MAX_FLUSH_ENTRIES/2)
 
 BSS_RO_AFTER_INIT static boolean initialized;
@@ -13,7 +12,6 @@ static struct list entries;
 static int entries_count;
 static volatile boolean service_scheduled;
 BSS_RO_AFTER_INIT static thunk flush_service;
-BSS_RO_AFTER_INIT static queue flush_completion_queue;
 static struct rw_spinlock flush_lock;
 
 static void queue_flush_service(void);
@@ -25,7 +23,6 @@ struct flush_entry {
     boolean flush;
     u64 pages[FLUSH_THRESHOLD];
     int npages;
-    status_handler completion;
     closure_struct(thunk, finish);
 };
 
@@ -92,7 +89,7 @@ void page_invalidate(flush_entry f, u64 p)
     }
 }
 
-static void service_list(boolean trydefer)
+static void service_list(void)
 {
     list_foreach(&entries, l) {
         flush_entry f = struct_from_list(l, flush_entry, l);
@@ -100,29 +97,17 @@ static void service_list(boolean trydefer)
             continue;
         list_delete(&f->l);
         entries_count--;
-        if (f->completion) {
-            if (trydefer) {
-                if (!enqueue(flush_completion_queue, f->completion))
-                    async_apply_status_handler(f->completion, STATUS_OK);
-            } else {
-                async_apply_status_handler(f->completion, STATUS_OK);
-            }
-        }
         assert(enqueue(free_flush_entries, f));
     }
 }
 
 closure_function(0, 0, void, do_flush_service)
 {
-    status_handler c;
-
     while (service_scheduled) {
         service_scheduled = false;
         u64 flags = spin_wlock_irq(&flush_lock);
-        service_list(false);
+        service_list();
         spin_wunlock_irq(&flush_lock, flags);
-        while ((c = dequeue(flush_completion_queue)) != INVALID_ADDRESS)
-            async_apply_status_handler(c, STATUS_OK);
     }
 }
 
@@ -134,24 +119,15 @@ static void queue_flush_service(void)
     }
 }
 
-/* N.B. It is possible for the completion to be run with flush_lock held in
- * low flush resource situations, so it must not invoke operations that
- * could call page_invalidate_sync again or else face deadlock.
- */
-void page_invalidate_sync(flush_entry f, status_handler completion)
+void page_invalidate_sync(flush_entry f)
 {
     if (initialized) {
         if (f->npages == 0) {
             assert(enqueue(free_flush_entries, f));
-            if (completion) {
-                assert(enqueue(flush_completion_queue, completion));
-                queue_flush_service();
-            }
             return;
         }
         init_refcount(&f->ref, total_processors,
                       init_closure_func(&f->finish, thunk, flush_complete));
-        f->completion = completion;
 
         u64 flags = irq_disable_save();
         spin_wlock(&flush_lock);
@@ -159,7 +135,7 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
         /* The service thunk doesn't always get a chance to run before
          * running out of flush resources, so proactively service the list */
         if (entries_count > ENTRIES_SERVICE_THRESHOLD)
-            service_list(true);
+            service_list();
 
         /* Set flush true on all previous entries to avoid wasted
          * invalidations if this entry causes a flush */
@@ -180,8 +156,6 @@ void page_invalidate_sync(flush_entry f, status_handler completion)
         irq_restore(flags);
     } else {
         flush_tlb(false);
-        if (completion)
-            async_apply_status_handler(completion, STATUS_OK);
     }
 }
 
@@ -215,7 +189,6 @@ void init_flush(heap h)
     list_init(&entries);
     flush_service = closure(h, do_flush_service);
     free_flush_entries = allocate_queue(h, MAX_FLUSH_ENTRIES + 1);
-    flush_completion_queue = allocate_queue(h, COMP_QUEUE_SIZE);
     flush_entry fa = allocate(h, sizeof(struct flush_entry) * MAX_FLUSH_ENTRIES);
     assert(fa);
     for (flush_entry f = fa; f < fa + MAX_FLUSH_ENTRIES; f++)

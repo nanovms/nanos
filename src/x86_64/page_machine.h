@@ -146,7 +146,7 @@ static inline boolean pte_is_block_mapping(pte entry)
 
 static inline u64 flags_from_pte(u64 pte)
 {
-    return pte & (PAGE_FLAGS_MASK | page_encr_mask);
+    return pte & ((PAGE_FLAGS_MASK & ~PAGE_PS) | page_encr_mask);
 }
 
 static inline pageflags pageflags_from_pte(pte pte)
