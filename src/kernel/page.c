@@ -227,8 +227,8 @@ static pte pte_split(pteptr entry, range gap)
 }
 
 /* called with lock held */
-closure_function(2, 3, boolean, update_pte_flags,
-                 pageflags, flags, flush_entry, fe,
+closure_function(4, 3, boolean, update_pte_flags,
+                 u64, vstart, u64, len, pageflags, flags, flush_entry, fe,
                  int level, u64 addr, pteptr entry)
 {
     /* we only care about present ptes */
@@ -236,7 +236,25 @@ closure_function(2, 3, boolean, update_pte_flags,
     if (!pte_is_present(orig_pte) || !pte_is_mapping(level, orig_pte))
         return true;
 
-    pte_set(entry, (orig_pte & ~PAGE_PROT_FLAGS) | bound(flags).w);
+    u64 map_len = pte_map_size(level, orig_pte);
+    u64 vstart = bound(vstart);
+    u64 map_offset, offset;
+    if (addr >= vstart) {
+        map_offset = 0;
+        offset = addr - vstart;
+    } else {
+        map_offset = vstart - addr;
+        offset = 0;
+    }
+    u64 phys = page_from_pte(orig_pte);
+    u64 flags = bound(flags).w;
+    u64 update_len = MIN(map_len - map_offset, bound(len) - offset);
+    if (update_len == map_len) {
+        pte_set(entry, (level == PT_PTE_LEVEL) ? page_pte(phys, flags) : block_pte(phys, flags));
+    } else {
+        if (pte_split(entry, irange(0, 0)) == INVALID_PHYSICAL)
+            return false;
+    }
 
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("update 0x%lx: pte @ 0x%lx, 0x%lx -> 0x%lx\n", addr, entry, orig_pte,
@@ -255,7 +273,7 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
     /* Catch any attempt to change page flags in a linear_backed mapping */
     assert(!intersects_linear_backed(irangel(vaddr, length)));
     flush_entry fe = get_page_flush_entry();
-    traverse_ptes(vaddr, length, stack_closure(update_pte_flags, flags, fe));
+    traverse_ptes(vaddr, length, stack_closure(update_pte_flags, vaddr, length, flags, fe));
     page_invalidate_sync(fe);
 #ifdef PAGE_DUMP_ALL
     early_debug("update_map_flags ");
@@ -266,33 +284,46 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe);
 
 /* called with lock held */
-closure_function(3, 3, boolean, remap_entry,
-                 u64, new, u64, old, flush_entry, fe,
+closure_function(4, 3, boolean, remap_entry,
+                 u64, new, u64, old, u64, len, flush_entry, fe,
                  int level, u64 curr, pteptr entry)
 {
-    u64 offset = curr - bound(old);
     u64 oldentry = pte_from_pteptr(entry);
+    if (!pte_is_present(oldentry) || !pte_is_mapping(level, oldentry))
+        return true;
+    u64 old = bound(old);
+    u64 map_offset, offset;
+    if (curr >= old) {
+        map_offset = 0;
+        offset = curr - old;
+    } else {
+        map_offset = old - curr;
+        offset = 0;
+    }
     u64 new_curr = bound(new) + offset;
     u64 phys = page_from_pte(oldentry);
     u64 flags = flags_from_pte(oldentry);
-    int map_order = pte_order(level, oldentry);
+    u64 map_len = pte_map_size(level, oldentry);
+    u64 remap_len = MIN(map_len - map_offset, bound(len) - offset);
 
 #ifdef PAGE_UPDATE_DEBUG
     page_debug("level %d, old curr 0x%lx, phys 0x%lx, new curr 0x%lx, entry 0x%lx, *entry 0x%lx, flags 0x%lx\n",
                level, curr, phys, new_curr, entry, *entry, flags);
 #endif
 
-    /* only look at ptes at this point */
-    if (!pte_is_present(oldentry) || !pte_is_mapping(level, oldentry))
-        return true;
-
     /* transpose mapped page */
     assert(map_level(pointer_from_pteaddr(get_pagetable_base(new_curr)), PT_FIRST_LEVEL,
-                     irangel(new_curr, U64_FROM_BIT(map_order)),
+                     irangel(new_curr, remap_len),
                      &phys, flags, 0));
 
-    /* reset old entry */
-    *entry = 0;
+    if (remap_len == map_len) {
+        /* reset old entry */
+        *entry = 0;
+    } else {
+        range unmapped = range_rshift(irangel(map_offset, remap_len), PAGELOG);
+        if (pte_split(entry, unmapped) == INVALID_PHYSICAL)
+            return false;
+    }
 
     /* invalidate old mapping */
     page_invalidate(bound(fe), curr);
@@ -314,7 +345,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
     assert(range_empty(range_intersection(irange(vaddr_new, vaddr_new + length),
                                           irange(vaddr_old, vaddr_old + length))));
     flush_entry fe = get_page_flush_entry();
-    traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, fe));
+    traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, length, fe));
     page_invalidate_sync(fe);
 #ifdef PAGE_DUMP_ALL
     early_debug("remap ");
@@ -343,8 +374,8 @@ void zero_mapped_pages(u64 vaddr, u64 length)
 }
 
 /* called with lock held */
-closure_function(2, 3, boolean, unmap_page,
-                 range_handler, rh, flush_entry, fe,
+closure_function(4, 3, boolean, unmap_page,
+                 u64, vstart, u64, len, range_handler, rh, flush_entry, fe,
                  int level, u64 vaddr, pteptr entry)
 {
     range_handler rh = bound(rh);
@@ -354,11 +385,27 @@ closure_function(2, 3, boolean, unmap_page,
         page_debug("rh %p, level %d, vaddr 0x%lx, entry %p, *entry 0x%lx\n",
                    rh, level, vaddr, entry, *entry);
 #endif
-        *entry = 0;
+        u64 map_len = pte_map_size(level, old_entry);
+        u64 vstart = bound(vstart);
+        u64 map_offset, offset;
+        if (vaddr >= vstart) {
+            map_offset = 0;
+            offset = vaddr - vstart;
+        } else {
+            map_offset = vstart - vaddr;
+            offset = 0;
+        }
+        u64 unmap_len = MIN(map_len - map_offset, bound(len) - offset);
+        if (unmap_len == map_len) {
+            *entry = 0;
+        } else {
+            range unmapped = range_rshift(irangel(map_offset, unmap_len), PAGELOG);
+            if (pte_split(entry, unmapped) == INVALID_PHYSICAL)
+                return false;
+        }
         page_invalidate(bound(fe), vaddr);
         if (rh) {
-            apply(rh, irangel(page_from_pte(old_entry),
-                              pte_map_size(level, old_entry)));
+            apply(rh, irangel(page_from_pte(old_entry) + map_offset, map_len - map_offset));
         }
     }
     return true;
@@ -370,7 +417,7 @@ void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
 {
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
     flush_entry fe = get_page_flush_entry();
-    traverse_ptes(virtual, length, stack_closure(unmap_page, rh, fe));
+    traverse_ptes(virtual, length, stack_closure(unmap_page, virtual, length, rh, fe));
     page_invalidate_sync(fe);
 #ifdef PAGE_DUMP_ALL
     early_debug("unmap ");

@@ -573,7 +573,8 @@ static void all_mmap_flags_tests(void)
 
 static void munmap_test(void)
 {
-    void * mmap_addr;
+    u8 *mmap_addr;
+    int map_size, map_boundary;
 
     mmap_addr = mmap(NULL, PAGESIZE, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if (mmap_addr == MAP_FAILED) {
@@ -583,6 +584,16 @@ static void munmap_test(void)
     if (munmap(mmap_addr, PAGESIZE)) {
         test_perror("munmap");
     }
+
+    /* Test splitting of block-level mappings into page-level mappings. */
+    map_size = 2 * PAGESIZE_2M;
+    mmap_addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    test_assert(mmap_addr != MAP_FAILED);
+    map_boundary = (u8 *)pad(u64_from_pointer(mmap_addr), PAGESIZE_2M) + PAGESIZE - mmap_addr;
+    mmap_addr[map_boundary - 1] = 0xaa;
+    __munmap(mmap_addr + map_boundary, map_size - map_boundary);    /* mapping split */
+    test_assert(mmap_addr[map_boundary - 1] == 0xaa);
+    __munmap(mmap_addr, map_boundary);
 }
 
 static void mmap_test(void)
@@ -894,6 +905,22 @@ void mremap_test(void)
         map_size = new_size;
     }
 
+    /* Test splitting of block-level mappings into page-level mappings. */
+    do {
+        *(u64*)(map_addr) = 0xdeadbeef;
+        if (map_size > PAGESIZE)
+            *(u64*)(map_addr + PAGESIZE) = 0xbeefdead;
+        /* the remapping can potentially split an existing mapping */
+        tmp = mremap(map_addr, PAGESIZE, 2 * PAGESIZE, MREMAP_MAYMOVE);
+        test_assert(tmp != MAP_FAILED);
+        test_assert(*(u64*)tmp == 0xdeadbeef);
+        test_assert(munmap(tmp, 2 * PAGESIZE) == 0);
+        if (map_size > PAGESIZE)
+            test_assert(*(u64*)(map_addr + PAGESIZE) == 0xbeefdead);
+        map_addr += PAGESIZE;
+        map_size -= PAGESIZE;
+    } while (map_size > 0);
+
     free(vec);
     printf("** all mremap tests passed\n");
 }
@@ -902,6 +929,7 @@ void mprotect_test(void)
 {
     u8 *addr;
     int ret;
+    int map_size, map_boundary;
 
     printf("** starting mprotect tests\n");
     ret = mprotect(0, PAGESIZE, PROT_READ);
@@ -961,6 +989,16 @@ void mprotect_test(void)
     }
 
     __munmap(addr, 5 * PAGESIZE);
+
+    /* Test splitting of block-level mappings into page-level mappings. */
+    map_size = 2 * PAGESIZE_2M;
+    addr = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    test_assert(addr != MAP_FAILED);
+    map_boundary = (u8 *)pad(u64_from_pointer(addr), PAGESIZE_2M) + PAGESIZE - addr;
+    addr[map_boundary - 1] = 0;
+    test_assert(mprotect(addr + map_boundary, map_size - map_boundary, PROT_NONE) == 0);
+    addr[map_boundary - 1] = 0;
+    __munmap(addr, map_size);
 }
 
 const unsigned char test_sha[2][32] = {
