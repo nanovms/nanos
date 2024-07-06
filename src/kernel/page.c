@@ -267,7 +267,6 @@ closure_function(4, 3, boolean, update_pte_flags,
 /* Update access protection flags for any pages mapped within a given area */
 void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 {
-    flags = pageflags_no_minpage(flags);
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
 
     /* Catch any attempt to change page flags in a linear_backed mapping */

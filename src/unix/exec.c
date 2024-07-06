@@ -233,7 +233,7 @@ closure_function(4, 5, boolean, static_map,
         struct vmap k = ivmap(vmflags, bound(allowed_flags), 0, 0, 0);
         if (allocate_vmap(bound(p), r, k) == INVALID_ADDRESS)
             goto alloc_fail;
-        map(map_start, paddr, data_size, pageflags_user(pageflags_minpage(flags)));
+        map(map_start, paddr, data_size, pageflags_user(flags));
         map_start += data_size;
     }
     if (bss_size > 0) {
@@ -241,7 +241,7 @@ closure_function(4, 5, boolean, static_map,
         u64 paddr = allocate_u64((heap)heap_physical(bound(kh)), maplen);
         if (paddr == INVALID_PHYSICAL)
             goto alloc_fail;
-        map(map_start, paddr, maplen, pageflags_user(pageflags_minpage(flags)));
+        map(map_start, paddr, maplen, pageflags_user(flags));
         u64 vmflags = VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE | VMAP_FLAG_BSS;
         range r = irangel(map_start, maplen);
         exec_debug("   add bss vmap: %R vmflags 0x%lx\n", r, vmflags);
