@@ -198,9 +198,14 @@ closure_function(2, 1, boolean, dealloc_from_range,
         msg_err("heap %p: bitmap dealloc for range %R failed; leaking\n", i, q);
         return false;
     }
+    u64 pages_rounded = U64_FROM_BIT(order);
 
-    if (bit < get_next_bit(r, order))
+    /* Only set next_bit to properly aligned values, otherwise the heap may fail to respect the
+     * property that allocated values are aligned to the nearest power-of-2 value equal to or
+     * greater than the allocation size. */
+    if ((pages == pages_rounded) && !(ri.start & (pages - 1)) && (bit < get_next_bit(r, order)))
         set_next_bit(r, order, bit);
+
     u64 deallocated = pages << page_order(i);
     assert(i->allocated >= deallocated);
     i->allocated -= deallocated;
