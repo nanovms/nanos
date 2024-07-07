@@ -191,7 +191,7 @@ id_heap init_physical_id_heap(heap h)
         unmap(map_base, map_size);
     } else {
         u64 base = KERNEL_PHYS + kernel_size;
-        u64 end = base + get_memory_size(pointer_from_u64(DEVICETREE_BLOB_BASE));
+        u64 end = PHYSMEM_BASE + get_memory_size(pointer_from_u64(DEVICETREE_BLOB_BASE));
         u64 bootstrap_size = init_bootstrap_heap(end - base);
         map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
         base += bootstrap_size;
