@@ -264,11 +264,9 @@ static void pci_parse_iomem(pci_dev dev, boolean allocate)
 
 void pci_probe_device(pci_dev dev)
 {
-    u16 vendor = pci_get_vendor(dev);
-    if (vendor == 0xffff)
-        return;
     pci_debug("%s: %02x:%02x:%x: %04x:%04x\n",
-              func_ss, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev));
+              func_ss, dev->bus, dev->slot, dev->function,
+              pci_get_vendor(dev), pci_get_device(dev));
     pci_dev pcid;
     spin_lock(&pci_lock);
     int dev_index = pci_dev_find(dev);
@@ -297,8 +295,8 @@ void pci_probe_device(pci_dev dev)
     if (class == PCIC_BRIDGE && subclass == PCIS_BRIDGE_PCI) {
         u8 secbus = pci_cfgread(dev, PCIR_SECBUS_1, 1);
         pci_debug("%s: %02x:%02x:%x: %04x:%04x: class %02x:%02x: secondary bus %02x\n",
-                  func_ss, dev->bus, dev->slot, dev->function, vendor, pci_get_device(dev),
-            class, subclass, secbus);
+                  func_ss, dev->bus, dev->slot, dev->function,
+                  pci_get_vendor(dev), pci_get_device(dev), class, subclass, secbus);
         pci_probe_bus(secbus);
         return;
     }
@@ -379,13 +377,16 @@ pci_probe_bus(int bus)
     for (int i = 0; i <= PCI_SLOTMAX; i++) {
         struct pci_dev _dev = { .bus = bus, .slot = i, .function = 0 };
         pci_dev dev = &_dev;
+        if (pci_get_vendor(dev) == 0xffff)
+            continue;
         pci_probe_device(dev);
 
         // check multifunction devices
         if (pci_get_hdrtype(dev) & PCIM_MFDEV) {
             for (int f = 1; f <= PCI_FUNCMAX; f++) {
                 dev->function = f;
-                pci_probe_device(dev);
+                if (pci_get_vendor(dev) != 0xffff)
+                    pci_probe_device(dev);
             }
         }
     }
@@ -418,13 +419,9 @@ void pci_discover()
     pci_dev dev = &_dev;
 
     if ((pci_get_hdrtype(dev) & PCIM_MFDEV) == 0) {
-        /* Assume that 0.0.0 is always a host-to-pci bridge */
-        if (pci_get_class(dev) == PCIC_BRIDGE) {
-            pci_debug("%s: single\n", func_ss);
-            // single PCI host controller
-            pci_probe_bus(0);
-        } else
-            pci_debug("%s: no host-to-pci bridge found\n", func_ss);
+        pci_debug("%s: single\n", func_ss);
+        // single PCI host controller
+        pci_probe_bus(0);
     } else {
         // multiple PCI host controllers
         for (int f = 1; f < 8; f++) {
