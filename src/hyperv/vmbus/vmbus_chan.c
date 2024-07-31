@@ -81,9 +81,9 @@ vmbus_chan_msgprocs[VMBUS_CHANMSG_TYPE_MAX] = {
 static __inline void
 vmbus_chan_signal_tx(const struct vmbus_channel *chan)
 {
-    atomic_set64(chan->ch_evtflag, chan->ch_evtflag_mask);
+    __sync_fetch_and_or(chan->ch_evtflag, chan->ch_evtflag_mask);
     if (chan->ch_txflags & VMBUS_CHAN_TXF_HASMNF)
-        atomic_set32(chan->ch_montrig, chan->ch_montrig_mask);
+        __sync_fetch_and_or(chan->ch_montrig, chan->ch_montrig_mask);
     else
         hypercall_signal_event(chan->ch_monprm_dma.hv_paddr);
 }
@@ -92,7 +92,7 @@ static void
 vmbus_chan_ins_prilist(vmbus_dev sc, struct vmbus_channel *chan)
 {
 
-    if (atomic_testandset32(&chan->ch_stflags,
+    if (atomic_test_and_set_bit_32(&chan->ch_stflags,
         VMBUS_CHAN_ST_ONPRIL_SHIFT))
         halt("channel is already on the prilist");
     list_push_back(&sc->vmbus_prichans, &chan->ch_prilink);
@@ -103,7 +103,7 @@ vmbus_chan_ins_sublist(struct vmbus_channel *prichan,
     struct vmbus_channel *chan)
 {
 
-    if (atomic_testandset32(&chan->ch_stflags,
+    if (atomic_test_and_set_bit_32(&chan->ch_stflags,
         VMBUS_CHAN_ST_ONSUBL_SHIFT))
         halt("channel is already on the sublist");
     list_push_back(&prichan->ch_subchans, &chan->ch_sublink);
@@ -115,7 +115,7 @@ vmbus_chan_ins_sublist(struct vmbus_channel *prichan,
 static void
 vmbus_chan_ins_list(vmbus_dev sc, struct vmbus_channel *chan)
 {
-    if (atomic_testandset32(&chan->ch_stflags,
+    if (atomic_test_and_set_bit_32(&chan->ch_stflags,
         VMBUS_CHAN_ST_ONLIST_SHIFT))
         halt("channel is already on the list");
     list_push_back(&sc->vmbus_chans, &chan->ch_link);
@@ -173,7 +173,7 @@ vmbus_chan_open_br(struct vmbus_channel *chan, const struct vmbus_chan_br *cbr,
     zero(br, txbr_size + rxbr_size);
 
 
-    if (atomic_testandset32(&chan->ch_stflags,
+    if (atomic_test_and_set_bit_32(&chan->ch_stflags,
         VMBUS_CHAN_ST_OPENED_SHIFT))
         halt("double-open chan%d", chan->ch_id);
 
@@ -297,7 +297,7 @@ failed:
         vmbus_chan_gpadl_disconnect(chan, chan->ch_bufring_gpadl);
         chan->ch_bufring_gpadl = 0;
     }
-    atomic_clear32(&chan->ch_stflags, VMBUS_CHAN_ST_OPENED);
+    fetch_and_clear_32(&chan->ch_stflags, VMBUS_CHAN_ST_OPENED);
     return (error);
 }
 
@@ -683,7 +683,7 @@ vmbus_chan_task_nobatch(void *xchan, int pending_unused)
 }
 
 static __inline void
-vmbus_event_flags_proc(vmbus_dev sc, volatile u64 *event_flags,
+vmbus_event_flags_proc(vmbus_dev sc, u64 *event_flags,
     int flag_cnt)
 {
     int f;
@@ -696,7 +696,7 @@ vmbus_event_flags_proc(vmbus_dev sc, volatile u64 *event_flags,
         if (event_flags[f] == 0)
             continue;
 
-        flags = atomic_swap64(&event_flags[f], 0);
+        flags = atomic_swap_64(&event_flags[f], 0);
         chid_base = f << VMBUS_EVTFLAG_SHIFT;
 
         while ((chid_ofs = ffsl(flags)) != 0) {
@@ -742,7 +742,7 @@ vmbus_event_proc_compat(vmbus_dev sc, int cpu)
     struct vmbus_evtflags *eventf;
 
     eventf = VMBUS_PCPU_GET(sc, event_flags, cpu) + VMBUS_SINT_MESSAGE;
-    if (atomic_testandclear64(&eventf->evt_flags[0], 0)) {
+    if (atomic_test_and_clear_bit(&eventf->evt_flags[0], 0)) {
         vmbus_event_flags_proc(sc, sc->vmbus_rx_evtflags,
             VMBUS_CHAN_MAX_COMPAT >> VMBUS_EVTFLAG_SHIFT);
     }
@@ -765,7 +765,7 @@ vmbus_chan_update_evtflagcnt(vmbus_dev sc,
         old_flag_cnt = *flag_cnt_ptr;
         if (old_flag_cnt >= flag_cnt)
             break;
-        if (atomic_cmpset32(flag_cnt_ptr, old_flag_cnt, flag_cnt)) {
+        if (compare_and_swap_32((u32 *)flag_cnt_ptr, old_flag_cnt, flag_cnt)) {
             vmbus_chan_debug("chan%d update cpu%d flag_cnt to %d",
                     chan->ch_id, chan->ch_cpuid, flag_cnt);
             break;
@@ -890,7 +890,7 @@ vmbus_chan_add(struct vmbus_channel *newchan)
      * when this sub-channel is closed.
      */
     assert(newchan->ch_refs == 1); //"chan%u: invalid refcnt %d", newchan->ch_id, newchan->ch_refs
-    atomic_add32((u32*)&newchan->ch_refs, 1);
+    fetch_and_add_32((u32*)&newchan->ch_refs, 1);
 
     newchan->ch_prichan = prichan;
 
@@ -994,7 +994,7 @@ vmbus_chan_choffer_open_channel(vmbus_dev sc,
     int error = vmbus_chan_add(chan);
     if (error) {
         vmbus_chan_debug("add chan%d failed: %d", chan->ch_id, error);
-        atomic_subtract32((u32*)&chan->ch_refs, 1);
+        fetch_and_add_32((u32*)&chan->ch_refs, -1);
         vmbus_chan_free(chan);
         chan = NULL;
     }

@@ -682,7 +682,7 @@ hv_nv_on_send_completion(struct hv_device *device, struct vmbus_chanpkt_hdr *pkt
         net_vsc_pkt->compl.send.on_send_completion(
             net_vsc_pkt->compl.send.send_completion_context);
 
-        atomic_subtract32(&net_dev->num_outstanding_sends, 1);
+        fetch_and_add_32(&net_dev->num_outstanding_sends, -1);
     }
 }
 
@@ -728,7 +728,7 @@ hv_nv_on_send(struct hv_device *device, netvsc_packet *pkt)
 
     /* Record outstanding send only if send_packet() succeeded */
     if (ret == 0)
-        atomic_add32(&net_dev->num_outstanding_sends, 1);
+        fetch_and_add_32(&net_dev->num_outstanding_sends, 1);
 
     return (ret);
 }

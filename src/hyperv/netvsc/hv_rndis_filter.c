@@ -146,7 +146,7 @@ hv_rndis_request(rndis_device *device, uint32_t message_type,
      * as a template.
      */
     set = &rndis_mesg->msg.set_request;
-    set->request_id = atomic_fetchadd32(&device->new_request_id, 1);
+    set->request_id = fetch_and_add_32(&device->new_request_id, 1);
     /* Increment to get the new value (call above returns old value) */
     set->request_id += 1;
 
@@ -605,7 +605,7 @@ hv_rf_halt_device(rndis_device *device)
 
     /* Set up the rndis set */
     halt = &request->request_msg.msg.halt_request;
-    halt->request_id = atomic_fetchadd32(&device->new_request_id, 1);
+    halt->request_id = fetch_and_add_32(&device->new_request_id, 1);
     /* Increment to get the new value (call above returns old value) */
     halt->request_id += 1;
 

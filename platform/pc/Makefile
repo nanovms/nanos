@@ -120,6 +120,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/x86_64/crt0.s \
 	$(SRCDIR)/x86_64/elf64.c \
 	$(SRCDIR)/x86_64/hpet.c \
+	$(SRCDIR)/x86_64/hyperv.c \
 	$(SRCDIR)/x86_64/init.s \
 	$(SRCDIR)/x86_64/interrupt.c \
 	$(SRCDIR)/x86_64/kernel_machine.c \

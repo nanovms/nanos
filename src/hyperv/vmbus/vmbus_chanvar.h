@@ -126,7 +126,7 @@ struct vmbus_channel {
 	struct list			ch_link;	/* channel link */
 
 	uint32_t			ch_subidx;	/* subchan index */
-	volatile uint32_t		ch_stflags;	/* atomic-op */
+	uint32_t			ch_stflags;	/* atomic-op */
 							/* VMBUS_CHAN_ST_ */
 	struct hyperv_guid		ch_guid_type;
 	struct hyperv_guid		ch_guid_inst;

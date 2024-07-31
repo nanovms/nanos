@@ -175,6 +175,11 @@ static inline __attribute__((always_inline)) word fetch_and_add_32(u32 *variable
     return __sync_fetch_and_add(variable, value);
 }
 
+static inline __attribute__((always_inline)) u32 fetch_and_clear_32(u32 *target, u32 mask)
+{
+    return __sync_fetch_and_and(target, ~mask);
+}
+
 #define mk_atomic_swap(bits) \
     static inline __attribute__((always_inline)) u ## bits atomic_swap_ ## bits(u ## bits *variable, u ## bits value) \
     { return __atomic_exchange_n(variable, value, __ATOMIC_SEQ_CST); }
@@ -218,6 +223,13 @@ static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *tar
     asm volatile("lock btsq %2, %0\nsetc %1" : "+m"(*target), "=m"(oldbit) : "r"(bit) : "memory");
     #endif
     return oldbit;
+}
+
+static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit_32(u32 *target, u32 bit)
+{
+    u32 mask = 1 << bit;
+    u32 w = __atomic_fetch_or(target, mask, __ATOMIC_RELAXED);
+    return (w & mask) != 0;
 }
 
 static inline __attribute__((always_inline)) u8 atomic_test_and_clear_bit(u64 *target, u64 bit)

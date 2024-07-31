@@ -2,7 +2,6 @@
 #define _HYPERV_INTERNAL_H_
 
 #include "ctassert.h"
-#include "atomic.h"
 
 #define _KERNEL
 
@@ -60,13 +59,32 @@ typedef struct iovec {
 #define EOPNOTSUPP      95              /* Operation not supported */
 #define ENOBUFS         105             /* No buffer space available */
 
+struct hypercall_ctx {
+    void *hc_addr;
+    u64 hc_paddr;
+};
+
 typedef struct hv_device hv_device;
 typedef void task_fn_t(void *context, int pending);
+typedef uint64_t (*hyperv_tc64_t)(void);
 closure_type(vmbus_device_probe, boolean, hv_device *dev, storage_attach attach, boolean *attached);
 
 void register_vmbus_driver(const struct hyperv_guid *type, vmbus_device_probe probe);
 void init_netvsc(kernel_heaps kh);
 void init_storvsc(kernel_heaps kh);
+boolean init_vmbus_et_timer(heap general, u32 hyperv_features, hyperv_tc64_t hyperv_tc64,
+                            clock_timer *ct, thunk *per_cpu_init);
 void init_vmbus_shutdown(kernel_heaps kh);
+
+boolean hyperv_arch_detect(kernel_heaps kh);
+void hypercall_create(struct hypercall_ctx *hctx);
+u64 hypercall_md(volatile void *hc_addr, u64 in_val, u64 in_paddr, u64 out_paddr);
+
+#if defined(__x86_64__)
+
+#define hyperv_read_msr     read_msr
+#define hyperv_write_msr    write_msr
+
+#endif
 
 #endif //_HYPERV_INTERNAL_H_

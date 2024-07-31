@@ -88,8 +88,6 @@ struct hv_device {
         struct list l;
 };
 
-typedef uint64_t			(*hyperv_tc64_t)(void);
-
 int			hyperv_guid2str(const struct hyperv_guid *, char *,
 			    size_t);
 

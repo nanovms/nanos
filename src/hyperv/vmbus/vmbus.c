@@ -50,6 +50,7 @@ vmbus_handle_intr1(vmbus_dev sc, int cpu)
 
     msg_base = VMBUS_PCPU_GET(sc, message, cpu);
 
+#if defined(__x86_64__)
     /*
      * Check event timer.
      */
@@ -79,6 +80,7 @@ vmbus_handle_intr1(vmbus_dev sc, int cpu)
             write_msr(MSR_HV_EOM, 0);
         }
     }
+#endif
 
     /*
      * Check events.  Hot path for network and storage I/O data; high rate.
@@ -132,38 +134,39 @@ vmbus_synic_setup(vmbus_dev dev)
     /*
      * Setup the SynIC message.
      */
-    orig = read_msr(MSR_HV_SIMP);
+    orig = hyperv_read_msr(MSR_HV_SIMP);
     val = MSR_HV_SIMP_ENABLE | (orig & MSR_HV_SIMP_RSVD_MASK) |
         ((VMBUS_PCPU_GET(dev, message_dma.hv_paddr, cpu) >> PAGELOG) <<
          MSR_HV_SIMP_PGSHIFT);
-    write_msr(MSR_HV_SIMP, val);
+    hyperv_write_msr(MSR_HV_SIMP, val);
 
-    read_val = read_msr(MSR_HV_SIMP);
+    read_val = hyperv_read_msr(MSR_HV_SIMP);
     assert(val == read_val);
     /*
      * Setup the SynIC event flags.
      */
-    orig = read_msr(MSR_HV_SIEFP);
+    orig = hyperv_read_msr(MSR_HV_SIEFP);
     val = MSR_HV_SIEFP_ENABLE | (orig & MSR_HV_SIEFP_RSVD_MASK) |
         ((VMBUS_PCPU_GET(dev, event_flags_dma.hv_paddr, cpu)
           >> PAGELOG) << MSR_HV_SIEFP_PGSHIFT);
-    write_msr(MSR_HV_SIEFP, val);
+    hyperv_write_msr(MSR_HV_SIEFP, val);
 
-    read_val = read_msr(MSR_HV_SIEFP);
+    read_val = hyperv_read_msr(MSR_HV_SIEFP);
     assert(val == read_val);
 
     /*
      * Configure and unmask SINT for message and event flags.
      */
     sint = MSR_HV_SINT0 + VMBUS_SINT_MESSAGE;
-    orig = read_msr(sint);
+    orig = hyperv_read_msr(sint);
     val = dev->vmbus_idtvec | MSR_HV_SINT_AUTOEOI |
         (orig & MSR_HV_SINT_RSVD_MASK);
-    write_msr(sint, val);
+    hyperv_write_msr(sint, val);
 
-    read_val = read_msr(sint);
+    read_val = hyperv_read_msr(sint);
     assert(val == read_val);
 
+#if defined(__x86_64__)
     /*
      * Configure and unmask SINT for timer.
      */
@@ -175,14 +178,16 @@ vmbus_synic_setup(vmbus_dev dev)
 
     read_val = read_msr(sint);
     assert(val == read_val);
+#endif
+
     /*
      * All done; enable SynIC.
      */
-    orig = read_msr(MSR_HV_SCONTROL);
+    orig = hyperv_read_msr(MSR_HV_SCONTROL);
     val = MSR_HV_SCTRL_ENABLE | (orig & MSR_HV_SCTRL_RSVD_MASK);
-    write_msr(MSR_HV_SCONTROL, val);
+    hyperv_write_msr(MSR_HV_SCONTROL, val);
 
-    read_val = read_msr(MSR_HV_SCONTROL);
+    read_val = hyperv_read_msr(MSR_HV_SCONTROL);
     assert(val == read_val);
 }
 
@@ -349,7 +354,7 @@ vmbus_gpadl_alloc(vmbus_dev dev)
     uint32_t gpadl;
 
 again:
-    gpadl = atomic_fetchadd32(&dev->vmbus_gpadl, 1);
+    gpadl = fetch_and_add_32(&dev->vmbus_gpadl, 1);
     if (gpadl == 0)
         goto again;
     return (gpadl);
@@ -389,7 +394,7 @@ vmbus_msg_task(vmbus_dev sc, int num_messages)
              * This will cause message queue rescan to possibly
              * deliver another msg from the hypervisor
              */
-            write_msr(MSR_HV_EOM, 0);
+            hyperv_write_msr(MSR_HV_EOM, 0);
         }
     }
 }
@@ -546,7 +551,7 @@ vmbus_attach(kernel_heaps kh, vmbus_dev *result)
 
     dev->vmbus_pcpu[0].message_task = closure(dev->general, vmbus_msg_task_closure, dev);
 
-    dev->vmbus_idtvec = allocate_interrupt();
+    dev->vmbus_idtvec = allocate_mmio_interrupt();
     vmbus_debug("interrupt vector %d; registering", dev->vmbus_idtvec);
     dev->vmbus_intr_handler = closure(dev->general, vmbus_interrupt, dev);
     register_interrupt(dev->vmbus_idtvec, dev->vmbus_intr_handler, ss("vmbus"));

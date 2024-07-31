@@ -29,7 +29,6 @@
 #include "vmbus_icvar.h"
 #include "vmbus_icreg.h"
 #include "vmbus.h"
-#include "io.h"
 #include "hyperv_platform.h"
 
 #define VMBUS_SHUTDOWN_FWVER_MAJOR  3
@@ -44,11 +43,6 @@ static const struct hyperv_guid vmbus_shutdown_device_type = {
    .hv_guid = { 0x31, 0x60, 0x0b, 0x0e, 0x13, 0x52, 0x34, 0x49,
        0x81, 0x8b, 0x38, 0xd9, 0x0c, 0xed, 0x39, 0xdb }
 };
-
-closure_func_basic(halt_handler, void, hv_sync_complete,
-                   int status) {
-    HV_SHUTDOWN();
-}
 
 static void vmbus_shutdown_cb(struct vmbus_channel *chan, void *xsc)
 {
@@ -130,7 +124,6 @@ static status vmbus_shutdown_attach(kernel_heaps kh, hv_device* device)
     sc->hs_dev = device;
 
     vmbus_ic_attach(sc, vmbus_shutdown_cb);
-    vm_halt = closure_func(sc->general, halt_handler, hv_sync_complete);
 
     return STATUS_OK;
 }

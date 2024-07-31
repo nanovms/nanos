@@ -523,7 +523,7 @@ static int hv_storvsc_io_request(struct storvsc_softc *sc, struct hv_storvsc_req
     if (ret != 0) {
         rprintf("Unable to send packet %p ret %d", vstor_packet, ret);
     } else {
-        atomic_add32(&sc->hs_num_out_reqs, 1);
+        fetch_and_add_32(&sc->hs_num_out_reqs, 1);
     }
 
     return (ret);
@@ -561,7 +561,7 @@ static void hv_storvsc_on_iocompletion(struct storvsc_softc *sc,
     }
 
     storvsc_io_done(request);
-    atomic_subtract32(&sc->hs_num_out_reqs, 1);
+    fetch_and_add_32(&sc->hs_num_out_reqs, -1);
     storvsc_process_hcb_queue(sc);
 }
 
