@@ -59,6 +59,21 @@ boolean acpi_parse_spcr(spcr_handler h)
     return true;
 }
 
+u64 acpi_get_hv_id(void)
+{
+    ACPI_TABLE_HEADER *t;
+    ACPI_STATUS rv = AcpiGetTable(ACPI_SIG_FADT, 1, &t);
+    if (ACPI_FAILURE(rv))
+        return 0;
+    ACPI_TABLE_FADT *fadt = (ACPI_TABLE_FADT *)t;
+    acpi_debug("FADT length 0x%x", t->Length);
+    if (t->Length < ACPI_FADT_V6_SIZE)
+        return 0;
+    u64 hv_id = fadt->HypervisorId;
+    AcpiPutTable(t);
+    return hv_id;
+}
+
 u32 acpi_get_gt_irq(void)
 {
     ACPI_TABLE_HEADER *t;

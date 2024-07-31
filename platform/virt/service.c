@@ -6,12 +6,14 @@
 #include <boot/uefi.h>
 #include <drivers/acpi.h>
 #include <drivers/console.h>
+#include <drivers/dmi.h>
 #include <drivers/gve.h>
 #include <drivers/ns16550.h>
 #include <drivers/nvme.h>
 #include <management.h>
 #include <virtio/virtio.h>
 #include <devicetree.h>
+#include <hyperv_platform.h>
 #include "serial.h"
 
 #define SERIAL_16550_COMPATIBLE 0x00
@@ -375,6 +377,7 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
     u64 device_base = 0;
     if (x1) {
         struct uefi_boot_params *params = pointer_from_u64(x1);
+        smbios_entry_point = params->smbios;
         uefi_mem_map mem_map = &params->mem_map;
         int num_desc = mem_map->map_size / mem_map->desc_size;
         for (int i = 0; i < num_desc; i++) {
@@ -481,21 +484,34 @@ void init_platform_devices(kernel_heaps kh)
 
 void detect_hypervisor(kernel_heaps kh)
 {
+    if (hyperv_detect(kh)) {
+        init_debug("Hyper-V detected\n");
+    }
 }
 
 void detect_devices(kernel_heaps kh, storage_attach sa)
 {
     init_acpi(kh);
-    init_virtio_network(kh);
-    init_aws_ena(kh);
-    init_gve(kh);
-    init_virtio_blk(kh, sa);
-    init_virtio_scsi(kh, sa);
-    init_nvme(kh, sa);
-    init_virtio_balloon(kh);
-    init_virtio_rng(kh);
-    init_virtio_9p(kh);
-    init_virtio_socket(kh);
+    if (hyperv_detected()) {
+        boolean hv_storvsc_attached = false;
+        init_vmbus(kh);
+        status s = hyperv_probe_devices(sa, &hv_storvsc_attached);
+        if (!is_ok(s))
+            halt("Hyper-V probe failed: %v\n", s);
+        if (!hv_storvsc_attached)
+            msg_err("cannot detect Hyper-V storage device\n");
+    } else {
+        init_virtio_network(kh);
+        init_aws_ena(kh);
+        init_gve(kh);
+        init_virtio_blk(kh, sa);
+        init_virtio_scsi(kh, sa);
+        init_nvme(kh, sa);
+        init_virtio_balloon(kh);
+        init_virtio_rng(kh);
+        init_virtio_9p(kh);
+        init_virtio_socket(kh);
+    }
     if (!vm_halt) {
         vm_halt = closure_func(heap_locked(kh), halt_handler, psci_vm_halt);
         assert(vm_halt != INVALID_ADDRESS);

@@ -543,7 +543,19 @@ vector cpus_init_ids(heap h);
 u64 mpid_from_cpuid(int id);
 
 void aarch64_cpu_init(void);
-void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
+
+struct arm_hvc_ret {
+    u64 x0, x1;
+    /* return values in registers x2 to x17 are not supported */
+};
+struct arm_hvc_full_ret {
+    u64 x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15, x16, x17;
+};
+
+/* can be used with up to 8 arguments (registers x0 to x7) */
+struct arm_hvc_ret arm_hvc(u64 x0, ...);
+struct arm_hvc_full_ret arm_hvc_full(u64 x0, ...);
+
 void angel_shutdown(u64 x0);
 void psci_shutdown(void);
 void psci_reset(void);

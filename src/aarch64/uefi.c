@@ -15,7 +15,8 @@ void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer
         efi_configuration_table table = &system_table->configuration_table[i];
         if (!runtime_memcmp(&table->guid, &uefi_acpi20_table, sizeof(table->guid))) {
             boot_params.acpi_rsdp = u64_from_pointer(table->table);
-            break;
+        } else if (!runtime_memcmp(&table->guid, &uefi_smbios_table, sizeof(table->guid))) {
+            boot_params.smbios = u64_from_pointer(table->table);
         }
     }
     boot_params.efi_rt_svc = system_table->runtime_services;

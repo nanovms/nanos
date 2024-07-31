@@ -452,6 +452,7 @@ typedef struct uefi_mem_map {
 
 typedef struct uefi_boot_params {
     u64 acpi_rsdp;
+    u64 smbios;
     efi_runtime_services efi_rt_svc;
     struct uefi_mem_map mem_map;
 } *uefi_boot_params;

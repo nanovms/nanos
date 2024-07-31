@@ -47,6 +47,17 @@
 
 #define MSR_HV_SINT_AUTOEOI     0x00020000ULL
 
+#elif defined(__aarch64__)
+
+#define MSR_HV_GUEST_OS_ID      0x00090002
+#define MSR_HV_SINT0            0x000A0000
+#define MSR_HV_SCONTROL         0x000A0010
+#define MSR_HV_SIEFP            0x000A0012
+#define MSR_HV_SIMP             0x000A0013
+#define MSR_HV_EOM              0x000A0014
+
+#define MSR_HV_SINT_AUTOEOI     0x00000000ULL
+
 #endif
 
 #define MSR_HV_GUESTID_BUILD_MASK	0xffffULL

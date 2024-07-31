@@ -186,6 +186,25 @@ arm_hvc:
         hvc     #0
         ret
 
+        .globl arm_hvc_full
+arm_hvc_full:
+        sub     sp, sp, #0x10
+        stp     x8, x19, [sp]
+        hvc     #0
+        ldr     x19, [sp]
+        stp     x0, x1, [x19]
+        stp     x2, x3, [x19, #0x10]
+        stp     x4, x5, [x19, #0x20]
+        stp     x6, x7, [x19, #0x30]
+        stp     x8, x9, [x19, #0x40]
+        stp     x10, x11, [x19, #0x50]
+        stp     x12, x13, [x19, #0x60]
+        stp     x14, x15, [x19, #0x70]
+        stp     x16, x17, [x19, #0x80]
+        ldr     x19, [sp, #8]
+        add     sp, sp, #0x10
+        ret
+
 .macro  vector  path
         .align 7
         b entry_\path

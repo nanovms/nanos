@@ -85,6 +85,14 @@ u64 hypercall_md(volatile void *hc_addr, u64 in_val, u64 in_paddr, u64 out_paddr
 #define hyperv_read_msr     read_msr
 #define hyperv_write_msr    write_msr
 
+#elif defined(__aarch64__)
+
+u64 aarch64_hv_get_vreg(u32 msr);
+void aarch64_hv_set_vreg(u32 msr, u64 val);
+
+#define hyperv_read_msr     aarch64_hv_get_vreg
+#define hyperv_write_msr    aarch64_hv_set_vreg
+
 #endif
 
 #endif //_HYPERV_INTERNAL_H_
