@@ -89,8 +89,6 @@ struct simple_text_output_interface {
     simple_text_output_mode mode;
 };
 
-typedef struct efi_runtime_services *efi_runtime_services;
-
 #define EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL  0x00000001
 #define EFI_OPEN_PROTOCOL_GET_PROTOCOL        0x00000002
 #define EFI_OPEN_PROTOCOL_TEST_PROTOCOL       0x00000004
@@ -186,6 +184,9 @@ typedef struct efi_memory_desc {
     u64 number_of_pages;
     u64 attribute;
 } *efi_memory_desc;
+
+/* memory descriptor attribute flags */
+#define EFI_MEMORY_RUNTIME  U64_FROM_BIT(63)
 
 typedef enum {
     timer_cancel,
@@ -333,6 +334,88 @@ typedef struct efi_boot_services {
     efi_create_event_ex create_event_ex;
 } *efi_boot_services;
 
+typedef struct efi_time {
+    u16 year;
+    u8 month;
+    u8 day;
+    u8 hour;
+    u8 minute;
+    u8 second;
+    u8 pad1;
+    u32 nanosecond;
+    s16 timezone;
+    u8 daylight;
+    u8 pad2;
+} *efi_time;
+
+#define EFI_UNSPECIFIED_TIMEZONE    0x07FF
+
+typedef struct efi_time_capabilities {
+    u32 resolution;
+    u32 accuracy;
+    boolean sets_to_zero;
+} *efi_time_capabilities;
+
+typedef enum {
+    efi_reset_cold,
+    efi_reset_warm,
+    efi_reset_shutdown,
+    efi_reset_platform_specific
+} efi_reset_type;
+
+typedef struct efi_capsule_header {
+    struct efi_guid capsule_guid;
+    u32 header_size;
+    u32 flags;
+    u32 capsule_image_size;
+} *efi_capsule_header;
+
+typedef efi_status (EFIAPI *efi_get_time)(efi_time time, efi_time_capabilities capabilities);
+typedef efi_status (EFIAPI *efi_set_time)(efi_time time);
+typedef efi_status (EFIAPI *efi_get_wakeup_time)(boolean *enabled, boolean *pending, efi_time time);
+typedef efi_status (EFIAPI *efi_set_wakeup_time)(boolean *enable, efi_time time);
+typedef efi_status (EFIAPI *efi_set_virtual_address_map)(u32 memory_map_size, u32 descriptor_size,
+                                                         u32 descriptor_version,
+                                                         efi_memory_desc virtual_map);
+typedef efi_status (EFIAPI *efi_convert_pointer)(u32 debug_disposition, void **address);
+typedef efi_status (EFIAPI *efi_get_variable)(wchar_t *variable_name, efi_guid vendor_guid,
+                                              u32 *attributes, u32 *data_size, void *data);
+typedef efi_status (EFIAPI *efi_get_next_variable_name)(u32 *variable_name_size,
+                                                        wchar_t *variable_name,
+                                                        efi_guid vendor_guid);
+typedef efi_status (EFIAPI *efi_set_variable)(wchar_t *variable_name, efi_guid vendor_guid,
+                                              u32 attributes, u32 data_size, void *data);
+typedef efi_status (EFIAPI *efi_get_next_high_mono_count)(u32 *high_count);
+typedef void (EFIAPI *efi_reset_system)(efi_reset_type reset_type, efi_status reset_status,
+                                        u32 data_size, void *reset_data);
+typedef efi_status (EFIAPI *efi_update_capsule)(efi_capsule_header *capsule_header_array,
+                                                u32 capsule_count, u64 scatter_gather_list);
+typedef efi_status (EFIAPI *efi_query_capsule_caps)(efi_capsule_header *capsule_header_array,
+                                                    u32 capsule_count, u64 *maximum_capsule_size,
+                                                    efi_reset_type *reset_type);
+typedef efi_status (EFIAPI *efi_query_variable_info)(u32 attributes,
+                                                     u64 *maximum_variable_storage_size,
+                                                     u64 *remaining_variable_storage_size,
+                                                     u64 *maximum_variable_size);
+
+typedef struct efi_runtime_services {
+    struct efi_table_header hdr;
+    efi_get_time get_time;
+    efi_set_time set_time;
+    efi_get_wakeup_time get_wakeup_time;
+    efi_set_wakeup_time set_wakeup_time;
+    efi_set_virtual_address_map set_virtual_address_map;
+    efi_convert_pointer convert_pointer;
+    efi_get_variable get_variable;
+    efi_get_next_variable_name get_next_variable_name;
+    efi_set_variable set_variable;
+    efi_get_next_high_mono_count get_next_high_mono_count;
+    efi_reset_system reset_system;
+    efi_update_capsule update_capsule;
+    efi_query_capsule_caps query_capsule_capabilities;
+    efi_query_variable_info query_variable_info;
+} *efi_runtime_services;
+
 typedef struct efi_configuration_table {
     struct efi_guid guid;
     void *table;
@@ -369,6 +452,7 @@ typedef struct uefi_mem_map {
 
 typedef struct uefi_boot_params {
     u64 acpi_rsdp;
+    efi_runtime_services efi_rt_svc;
     struct uefi_mem_map mem_map;
 } *uefi_boot_params;
 

@@ -548,6 +548,8 @@ void angel_shutdown(u64 x0);
 void psci_shutdown(void);
 void psci_reset(void);
 
+void kaslr_fixup_rtc(void);
+
 void pci_platform_set_ecam(u64 ecam_base);
 
 #endif /* __ASSEMBLY__ */

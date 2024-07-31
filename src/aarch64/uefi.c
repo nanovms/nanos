@@ -18,6 +18,7 @@ void uefi_start_kernel(void *image_handle, efi_system_table system_table, buffer
             break;
         }
     }
+    boot_params.efi_rt_svc = system_table->runtime_services;
     uefi_exit_bs(&boot_params.mem_map);
 
     /* disable MMU */

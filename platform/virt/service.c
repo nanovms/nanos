@@ -166,7 +166,7 @@ id_heap init_physical_id_heap(heap h)
         u64 map_base = u64_from_pointer(boot_params.mem_map.map);
         u64 map_size = pad((map_base & PAGEMASK) + boot_params.mem_map.map_size, PAGESIZE);
         map_base &= ~PAGEMASK;
-        map(map_base, map_base, map_size, pageflags_memory());
+        /* map_base has been identity-mapped in ueft_rt_init_virt() */
         u64 mem_size = 0;
         uefi_mem_map_iterate(&boot_params.mem_map, stack_closure(get_mem_size, &mem_size));
         init_debug("\nmem size ");
@@ -241,6 +241,82 @@ void vm_reset(void)
 u64 total_processors = 1;
 BSS_RO_AFTER_INIT u64 present_processors;
 
+static void ueft_rt_init_virt(void)
+{
+    u64 virt_addr = KERNEL_BASE;
+    uefi_mem_map mem_map = &boot_params.mem_map;
+    u64 map_base = u64_from_pointer(mem_map->map);
+    u64 map_size = pad((map_base & PAGEMASK) + mem_map->map_size, PAGESIZE);
+    map_base &= ~PAGEMASK;
+    pageflags flags = pageflags_writable(pageflags_memory());
+    map(map_base, map_base, map_size, flags);   /* will be unmapped in init_physical_id_heap() */
+    int num_desc = mem_map->map_size / mem_map->desc_size;
+    u64 rt_svc_offset = 0;
+    for (int i = 0; i < num_desc; i++) {
+        efi_memory_desc d = mem_map->map + i * mem_map->desc_size;
+        if (d->type == efi_runtime_services_data) {
+            u64 phys_addr = d->physical_start;
+            u64 mem_len = d->number_of_pages * PAGESIZE;
+            map(phys_addr, phys_addr, mem_len, flags);
+            virt_addr -= mem_len;
+            init_debug("UEFI runtime services data at ");
+            init_debug_u64(phys_addr);
+            init_debug(", length ");
+            init_debug_u64(mem_len);
+            init_debug(", mapping at ");
+            init_debug_u64(virt_addr);
+            init_debug("\n");
+            map(virt_addr, phys_addr, mem_len, flags);
+            d->virtual_start = pointer_from_u64(virt_addr);
+            if (point_in_range(irangel(phys_addr, mem_len),
+                               u64_from_pointer(boot_params.efi_rt_svc)))
+                rt_svc_offset = virt_addr - phys_addr;
+        }
+    }
+    flags = pageflags_exec(pageflags_memory());
+
+    /* set_virtual_address_map() needs write access to code memory */
+    pageflags temp_flags = pageflags_writable(flags);
+
+    for (int i = 0; i < num_desc; i++) {
+        efi_memory_desc d = mem_map->map + i * mem_map->desc_size;
+        if ((d->attribute & EFI_MEMORY_RUNTIME) == EFI_MEMORY_RUNTIME) {
+            u64 phys_addr = d->physical_start;
+            u32 mem_type = d->type;
+            if (mem_type == efi_memory_mapped_io) { /* already mapped */
+                d->virtual_start = pointer_from_u64(DEVICE_BASE + (phys_addr & (DEV_MAP_SIZE - 1)));
+                continue;
+            } else if (mem_type == efi_runtime_services_code) {
+                u64 mem_len = d->number_of_pages * PAGESIZE;
+                map(phys_addr, phys_addr, mem_len, temp_flags);
+                virt_addr -= mem_len;
+                init_debug("UEFI runtime services code at ");
+                init_debug_u64(phys_addr);
+                init_debug(", length ");
+                init_debug_u64(mem_len);
+                init_debug(", mapping at ");
+                init_debug_u64(virt_addr);
+                init_debug("\n");
+                d->virtual_start = pointer_from_u64(virt_addr);
+                map(virt_addr, phys_addr, mem_len, flags);
+            }
+        }
+    }
+    efi_set_virtual_address_map svam = boot_params.efi_rt_svc->set_virtual_address_map;
+    assert(svam(mem_map->map_size, mem_map->desc_size, mem_map->desc_version, mem_map->map) ==
+           EFI_SUCCESS);
+
+    /* From now on, runtime services will only use virtual addresses: unmap physical addresses. */
+    for (int i = 0; i < num_desc; i++) {
+        efi_memory_desc d = mem_map->map + i * mem_map->desc_size;
+        u32 mem_type = d->type;
+        if ((mem_type == efi_runtime_services_code) || (mem_type == efi_runtime_services_data)) {
+            unmap(d->physical_start, d->number_of_pages * PAGESIZE);
+        }
+    }
+    boot_params.efi_rt_svc = (void *)boot_params.efi_rt_svc + rt_svc_offset;
+}
+
 static void __attribute__((noinline)) init_service_new_stack(void)
 {
     init_debug("in init_service_new_stack\n");
@@ -256,7 +332,10 @@ static void init_setup_stack(void)
 #if 0
     devicetree_dump(pointer_from_u64(DEVICETREE_BLOB_BASE));
 #endif
+    if (boot_params.mem_map.map)
+        ueft_rt_init_virt();
     kaslr();
+    kaslr_fixup_rtc();  /* needed because the RTC is initialized before KASLR */
     init_debug("in init_setup_stack, calling init_kernel_heaps\n");
     init_kernel_heaps();
     init_debug("allocating stack\n");
