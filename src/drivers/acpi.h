@@ -164,6 +164,7 @@ void acpi_register_irq_handler(int irq, thunk t, sstring name);
 boolean acpi_walk_madt(madt_handler mh);
 boolean acpi_walk_mcfg(mcfg_handler mh);
 boolean acpi_parse_spcr(spcr_handler h);
+u32 acpi_get_gt_irq(void);
 
 typedef struct acpi_mmio_dev {
     u64 membase;

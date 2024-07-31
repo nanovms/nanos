@@ -59,6 +59,18 @@ boolean acpi_parse_spcr(spcr_handler h)
     return true;
 }
 
+u32 acpi_get_gt_irq(void)
+{
+    ACPI_TABLE_HEADER *t;
+    ACPI_STATUS rv = AcpiGetTable(ACPI_SIG_GTDT, 1, &t);
+    if (ACPI_FAILURE(rv))
+        return 0;
+    ACPI_TABLE_GTDT *gtdt = (ACPI_TABLE_GTDT *)t;
+    u32 irq = gtdt->VirtualTimerInterrupt;
+    AcpiPutTable(t);
+    return irq;
+}
+
 closure_function(1, 0, void, acpi_eject,
                  ACPI_HANDLE, device)
 {

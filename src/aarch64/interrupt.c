@@ -1,4 +1,5 @@
 #include <kernel.h>
+#include <drivers/acpi.h>
 #include <symtab.h>
 #include <gic.h>
 
@@ -457,9 +458,12 @@ void init_interrupts(kernel_heaps kh)
     assert(mmio_vector_heap != INVALID_ADDRESS);
 
     /* timer init is minimal, stash irq setup here */
-    gic_set_int_config(GIC_TIMER_IRQ, GICD_ICFGR_LEVEL);
-    gic_set_int_priority(GIC_TIMER_IRQ, 0);
-    register_interrupt(GIC_TIMER_IRQ, init_closure(&_timer, arm_timer), ss("arm timer"));
+    u32 timer_irq = acpi_get_gt_irq();
+    if (!timer_irq)
+        timer_irq = GIC_TIMER_IRQ;
+    gic_set_int_config(timer_irq, GICD_ICFGR_LEVEL);
+    gic_set_int_priority(timer_irq, 0);
+    register_interrupt(timer_irq, init_closure(&_timer, arm_timer), ss("arm timer"));
 
     register_percpu_init(init_closure(&int_percpu_init, interrupt_percpu_init));
 }
