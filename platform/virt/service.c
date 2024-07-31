@@ -16,6 +16,7 @@
 
 #define SERIAL_16550_COMPATIBLE 0x00
 #define SERIAL_16550_SUBSET     0x01
+#define SERIAL_ARM_PL011        0x03
 #define SERIAL_16550_WITH_GAS   0x12
 
 //#define INIT_DEBUG
@@ -371,6 +372,10 @@ closure_function(2, 2, void, plat_spcr_handler,
     case SERIAL_16550_SUBSET:
     case SERIAL_16550_WITH_GAS:
         *bound(driver) = ns16550_console_init(bound(kh),
+            pointer_from_u64(DEVICE_BASE + (addr & (DEV_MAP_SIZE - 1))));
+        break;
+    case SERIAL_ARM_PL011:
+        *bound(driver) = pl011_console_init(bound(kh),
             pointer_from_u64(DEVICE_BASE + (addr & (DEV_MAP_SIZE - 1))));
         break;
     }
