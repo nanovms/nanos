@@ -24,6 +24,7 @@ typedef struct mm_cleaner {
 
 BSS_RO_AFTER_INIT filesystem root_fs;
 BSS_RO_AFTER_INIT halt_handler vm_halt;
+BSS_RO_AFTER_INIT u64 kernel_phys_offset;   /* offset between kernel location and ELF addresses */
 BSS_RO_AFTER_INIT u64 kas_kern_offset;
 BSS_RO_AFTER_INIT heap kas_heap;
 BSS_RO_AFTER_INIT static kernel_heaps init_heaps;
@@ -72,16 +73,20 @@ u64 init_bootstrap_heap(u64 phys_length)
 
 /* Kernel address space layout randomization.
  * Functions that call (directly or indirectly) this function must either not return to their
- * caller, or execute `return_offset(kas_kern_offset)` before returning to their caller. */
+ * caller, or execute `return_offset(kas_kern_offset - kernel_phys_offset)` before returning to
+ * their caller. */
 void kaslr(void)
 {
     extern u8 START, text_end, READONLY_END, bss_start, END;
     u64 ksize = pad(&END - &START, PAGESIZE);
     u64 random_offset = random_early_u64() % (KERNEL_LIMIT - KERNEL_BASE - ksize);
     u64 kbase = KERNEL_BASE + (random_offset & ~PAGEMASK);
-    u64 kern_offset = kbase - u64_from_pointer(&START);
+    u64 phys_offset = kernel_phys_offset;
+    u64 kern_offset = kbase - u64_from_pointer(&START) + phys_offset;
 #ifdef INIT_DEBUG
-    early_debug("kernel load offset 0x");
+    early_debug("kernel physical offset 0x");
+    early_debug_u64(phys_offset);
+    early_debug(", virtual offset 0x");
     early_debug_u64(kern_offset);
     early_debug("\n");
 #endif
@@ -98,12 +103,11 @@ void kaslr(void)
     /* the BSS may not be physically contiguous to the initialized data */
     kphys = physical_from_virtual(initdata_end);
     map(kbase + (initdata_end - &START), kphys, &END - initdata_end, pageflags_writable(flags));
-
-    jump_to_offset(kern_offset);
+    jump_to_offset(kern_offset - phys_offset);
     extern void *_DYNAMIC, *_DYNSYM;
-    elf_dyn_relocate(0, kern_offset, (Elf64_Dyn *)&_DYNAMIC, (Elf64_Sym *)&_DYNSYM);
+    elf_dyn_relocate(phys_offset, kern_offset, (Elf64_Dyn *)&_DYNAMIC, (Elf64_Sym *)&_DYNSYM);
     kas_kern_offset = kern_offset;
-    return_offset(kern_offset);
+    return_offset(kern_offset - phys_offset);
 }
 
 void init_kernel_heaps(void)

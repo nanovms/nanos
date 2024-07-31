@@ -171,7 +171,8 @@ id_heap init_physical_id_heap(heap h)
         init_debug("\nmem size ");
         init_debug_u64(mem_size);
         u64 bootstrap_size = init_bootstrap_heap(mem_size);
-        range reserved = irange(DEVICETREE_BLOB_BASE, KERNEL_PHYS + kernel_size);
+        range reserved = irange(DEVICETREE_BLOB_BASE + kernel_phys_offset,
+                                KERNEL_PHYS + kernel_size + kernel_phys_offset);
         u64 base = 0;
         uefi_mem_map_iterate(&boot_params.mem_map,
                              stack_closure(get_bootstrap_base, reserved, bootstrap_size, &base));
@@ -290,13 +291,24 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
     } while (p < end);
 
     init_debug("start\n\n");
+    kernel_phys_offset = u64_from_pointer(&START) - KERNEL_PHYS;
+    u64 device_base = 0;
     if (x1) {
         struct uefi_boot_params *params = pointer_from_u64(x1);
+        uefi_mem_map mem_map = &params->mem_map;
+        int num_desc = mem_map->map_size / mem_map->desc_size;
+        for (int i = 0; i < num_desc; i++) {
+            efi_memory_desc d = mem_map->map + i * mem_map->desc_size;
+            if (d->type == efi_memory_mapped_io) {
+                device_base = d->physical_start & ~(DEV_MAP_SIZE - 1);
+                break;
+            }
+        }
         runtime_memcpy(&boot_params, params, sizeof(boot_params));
     }
 
     init_debug("calling init_mmu\n");
-    init_mmu(irangel(INIT_PAGEMEM, PAGESIZE_2M), u64_from_pointer(init_setup_stack));
+    init_mmu(device_base, u64_from_pointer(init_setup_stack));
 
     while (1);
 }
@@ -304,7 +316,7 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
 static void platform_dtb_parse(kernel_heaps kh, vector cpu_ids)
 {
     struct fdt fdt;
-    if (!dtb_parse_init(pointer_from_u64(DEVICETREE_BLOB_BASE), &fdt))
+    if (!dtb_parse_init(pointer_from_u64(DEVICETREE_BLOB_BASE + kernel_phys_offset), &fdt))
         return;
     dt_node root = fdt_get_node(&fdt);
     if (!root)
@@ -327,7 +339,7 @@ static void platform_dtb_parse(kernel_heaps kh, vector cpu_ids)
                         map(ecam_base_virt, ecam_base, ecam_len,
                             pageflags_writable(pageflags_device()));
                     } else {
-                        ecam_base_virt = DEVICE_BASE + ecam_base;
+                        ecam_base_virt = DEVICE_BASE + (ecam_base & (DEV_MAP_SIZE - 1));
                     }
                     pci_platform_set_ecam(ecam_base_virt);
                     break;
@@ -358,7 +370,8 @@ closure_function(2, 2, void, plat_spcr_handler,
     case SERIAL_16550_COMPATIBLE:
     case SERIAL_16550_SUBSET:
     case SERIAL_16550_WITH_GAS:
-        *bound(driver) = ns16550_console_init(bound(kh), pointer_from_u64(DEVICE_BASE + addr));
+        *bound(driver) = ns16550_console_init(bound(kh),
+            pointer_from_u64(DEVICE_BASE + (addr & (DEV_MAP_SIZE - 1))));
         break;
     }
 }
@@ -368,7 +381,8 @@ void init_platform_devices(kernel_heaps kh)
     vector cpu_ids = cpus_init_ids(heap_general(kh));
     platform_dtb_parse(kh, cpu_ids);
     /* the device tree blob is never accessed from now on: reclaim the memory where it is located */
-    id_heap_add_range(heap_physical(kh), DEVICETREE_BLOB_BASE, INIT_PAGEMEM - DEVICETREE_BLOB_BASE);
+    id_heap_add_range(heap_physical(kh), DEVICETREE_BLOB_BASE + kernel_phys_offset,
+                      INIT_PAGEMEM - DEVICETREE_BLOB_BASE);
     struct console_driver *console_driver = 0;
     init_acpi_tables(kh);
     acpi_parse_spcr(stack_closure(plat_spcr_handler, kh, &console_driver));

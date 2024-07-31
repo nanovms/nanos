@@ -13,6 +13,10 @@ void runloop_target(void) __attribute__((noreturn));
 
 #include <kernel_machine.h>
 
+#ifndef PHYSMEM_BASE_MASK
+#define PHYSMEM_BASE_MASK   ~0ull
+#endif
+
 #include <log.h>
 #ifdef CONFIG_TRACELOG
 #include <tracelog.h>
@@ -753,6 +757,7 @@ void kernel_runtime_init(kernel_heaps kh);
 range kern_get_elf(void);
 void reclaim_regions(void);
 
+extern u64 kernel_phys_offset;
 extern u64 kas_kern_offset;
 extern heap kas_heap;
 

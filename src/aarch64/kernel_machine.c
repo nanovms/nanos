@@ -163,12 +163,12 @@ void start_secondary_cores(kernel_heaps kh)
     init_flush(heap_locked(kh));
     for (int i = 1; i < present_processors; i++)
         arm_hvc(PSCI_FN64_CPU_ON, mpid_from_cpuid(i),
-                u64_from_pointer((void *)ap_start_nommu - kas_kern_offset), 0);
+                u64_from_pointer((void *)ap_start_nommu - kas_kern_offset + kernel_phys_offset), 0);
     for (u64 to = 0; (total_processors != present_processors) && (to < AP_START_TIMEOUT_MS); to++)
         kernel_delay(milliseconds(1));
 
     /* The MMU has been enabled on secondary cores: unmap the temporary identity map. */
-    unmap(PHYSMEM_BASE, INIT_IDENTITY_SIZE);
+    unmap(PHYSMEM_BASE + kernel_phys_offset, INIT_IDENTITY_SIZE);
 }
 
 closure_func_basic(madt_handler, void, count_cpus_handler,

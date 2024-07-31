@@ -83,8 +83,9 @@ aarch64_cpu_init:
         msr     cpacr_el1, x0
 
         // temporary stack
-        mov     x0, (PHYSMEM_BASE + INIT_IDENTITY_SIZE)
-        mov     sp, x0
+        adr     x0, #0
+        and     x0, x0, ~PHYSMEM_BASE_MASK
+        add     sp, x0, INIT_IDENTITY_SIZE
 
         ret
 

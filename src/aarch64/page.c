@@ -32,9 +32,10 @@ void flush_tlb(boolean full_flush)
 
 extern void *START, *READONLY_END, *END;
 
-/* init_pt is a 2M block to use for inital ptes */
-void init_mmu(range init_pt, u64 vtarget)
+void init_mmu(u64 device_base, u64 vtarget)
 {
+    /* init_pt is a 2M block to use for inital ptes */
+    range init_pt = irangel(INIT_PAGEMEM + kernel_phys_offset, PAGESIZE_2M);
     page_init_debug("START ");
     page_init_debug_u64(u64_from_pointer(&START));
     page_init_debug(", PAGE TABLES ");
@@ -43,7 +44,6 @@ void init_mmu(range init_pt, u64 vtarget)
     page_init_debug_u64(init_pt.end);
     page_init_debug("\n");
 
-    assert(range_span(init_pt) == PAGESIZE_2M);
     assert((init_pt.start & MASK(PAGELOG_2M)) == 0);
 
     /* check capabilities */
@@ -60,12 +60,16 @@ void init_mmu(range init_pt, u64 vtarget)
     
     assert(allocate_table_page(&user_tablebase));
     assert(allocate_table_page(&kernel_tablebase));
-    
-    page_init_debug("map devices\n");
-    map_nolock(DEVICE_BASE, 0, DEV_MAP_SIZE, pageflags_writable(pageflags_device()));
+
+    page_init_debug("map devices (");
+    page_init_debug_u64(device_base);
+    page_init_debug(")\n");
+    map_nolock(DEVICE_BASE, device_base, DEV_MAP_SIZE, pageflags_writable(pageflags_device()));
 
     page_init_debug("map temporary identity mapping\n");
-    map_nolock(PHYSMEM_BASE, PHYSMEM_BASE, INIT_IDENTITY_SIZE, pageflags_writable(pageflags_memory()));
+    u64 physmem_base = PHYSMEM_BASE + kernel_phys_offset;
+    map_nolock(physmem_base, physmem_base, INIT_IDENTITY_SIZE,
+               pageflags_exec(pageflags_writable(pageflags_memory())));
 
     enable_mmu(vtarget);
 }

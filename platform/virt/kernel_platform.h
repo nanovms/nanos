@@ -1,4 +1,5 @@
 #define PHYSMEM_BASE          0x40000000
+#define PHYSMEM_BASE_MASK     0x3fffffff
 #define INIT_PAGEMEM          0x40200000
 #define INIT_IDENTITY_SIZE    0x00600000
 

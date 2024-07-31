@@ -25,6 +25,7 @@ static struct {
         u64 propbase;
         u64 pendbase;
     } redist;
+    u64 its_phys_base;
     u64 its_base;
     u8 *lpi_cfg_table;
     u64 its_typer;
@@ -348,7 +349,7 @@ void dev_irq_disable(u32 dev_id, int vector)
 void msi_format(u32 *address, u32 *data, int vector, u32 target_cpu)
 {
     if (gic.its_base) {
-        *address = gic.its_base + GITS_TRANSLATER - DEVICE_BASE;
+        *address = gic.its_phys_base + GITS_TRANSLATER;
         *data = vector - gic_msi_vector_base;
     } else {
         *address = DEV_BASE_GIC_V2M + GIC_V2M_MSI_SETSPI_NS;
@@ -483,13 +484,14 @@ closure_func_basic(madt_handler, void, gic_madt_handler,
 {
     switch (type) {
     case ACPI_MADT_GEN_DIST:
-        gic.dist_base = DEVICE_BASE + ((acpi_gen_dist)p)->base_address;
+        gic.dist_base = DEVICE_BASE + (((acpi_gen_dist)p)->base_address & (DEV_MAP_SIZE - 1));
         break;
     case ACPI_MADT_GEN_RDIST:
-        gic.redist.base = DEVICE_BASE + ((acpi_gen_redist)p)->base_address;
+        gic.redist.base = DEVICE_BASE + (((acpi_gen_redist)p)->base_address & (DEV_MAP_SIZE - 1));
         break;
     case ACPI_MADT_GEN_TRANS:
-        gic.its_base = DEVICE_BASE + ((acpi_gen_trans)p)->base_address;
+        gic.its_phys_base = ((acpi_gen_trans)p)->base_address;
+        gic.its_base = DEVICE_BASE + (gic.its_phys_base & (DEV_MAP_SIZE - 1));
         break;
     }
 }

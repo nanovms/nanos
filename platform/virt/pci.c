@@ -115,7 +115,7 @@ closure_func_basic(mcfg_handler, boolean, pci_mcfg_handler,
                    u64 addr, u16 segment, u8 bus_start, u8 bus_end)
 {
     if ((segment == 0) && (bus_start == 0)) {
-        pcie_ecam_base = DEVICE_BASE + addr;
+        pcie_ecam_base = DEVICE_BASE + (addr & (DEV_MAP_SIZE - 1));
         return true;
     }
     return false;

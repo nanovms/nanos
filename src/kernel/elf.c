@@ -328,16 +328,102 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
     return INVALID_ADDRESS;
 }
 
-closure_function(5, 1, void, elf_load_program,
-                 heap, h, Elf64_Phdr *, phdr, Elf64_Half, phnum, elf_loader, loader, status_handler, sh,
+closure_function(4, 1, void, elf_load_program_reloc,
+                 Elf64_Rela *, reltab, u64, reltab_size, u64, physmem_offset, status_handler, sh,
+                 status s)
+{
+    if (is_ok(s)) {
+        u64 offset = bound(physmem_offset);
+        arch_elf_relocate(bound(reltab), bound(reltab_size), 0, offset, offset);
+    }
+    apply(bound(sh), s);
+    closure_finish();
+}
+
+closure_function(6, 1, void, elf_load_program_parse_shdr,
+                 heap, h, Elf64_Shdr *, shdr, u64, shnum, u64, physmem_offset, elf_loader, loader, status_handler, sh,
+                 status s)
+{
+    status_handler sh = bound(sh);
+    boolean done = true;
+    if (is_ok(s)) {
+        Elf64_Shdr *shdr = bound(shdr);
+        u64 shnum = bound(shnum);
+        Elf64_Shdr *rel_section = 0;
+        for (int i = 0; i < shnum; i++) {
+            Elf64_Shdr *s = &shdr[i];
+            switch (s->sh_type) {
+            case SHT_RELA:
+                rel_section = s;
+                break;
+            }
+        }
+        if (rel_section) {
+            u64 reltab_size = rel_section->sh_size;
+            elf_debug("  relocation table size 0x%lx\n", reltab_size);
+            heap h = bound(h);
+            Elf64_Rela *reltab = allocate(h, reltab_size);
+            assert(reltab != INVALID_ADDRESS);
+            status_handler load_program_reloc = closure(h, elf_load_program_reloc,
+                                                        reltab, reltab_size, bound(physmem_offset),
+                                                        sh);
+            assert(load_program_reloc != INVALID_ADDRESS);
+            apply(bound(loader), rel_section->sh_offset, reltab_size, reltab, load_program_reloc);
+            done = false;
+        }
+    }
+    if (done)
+        apply(sh, s);
+    closure_finish();
+}
+
+closure_function(5, 1, void, elf_load_program_complete,
+                 heap, h, Elf64_Ehdr *, e, u64, physmem_offset, elf_loader, loader, status_handler, sh,
+                 status s)
+{
+    status_handler sh = bound(sh);
+    boolean done = true;
+    if (is_ok(s)) {
+        u64 physmem_offset = bound(physmem_offset);
+        elf_debug("program loaded, physmem offset 0x%lx\n", physmem_offset);
+        if (physmem_offset) {
+            Elf64_Ehdr *e = bound(e);
+            u64 shnum = e->e_shnum;
+            elf_debug("  %d section headers\n", shnum);
+            heap h = bound(h);
+            u64 shdr_size = e->e_shentsize * shnum;
+            Elf64_Shdr *shdr = allocate(h, shdr_size);
+            assert(shdr != INVALID_ADDRESS);
+            elf_loader loader = bound(loader);
+            status_handler load_program_parse_shdr = closure(h, elf_load_program_parse_shdr, h,
+                                                             shdr, shnum, physmem_offset, loader,
+                                                             sh);
+            assert(load_program_parse_shdr != INVALID_ADDRESS);
+            apply(loader, e->e_shoff, shdr_size, shdr, load_program_parse_shdr);
+            done = false;
+        }
+    }
+    if (done)
+        apply(sh, s);
+    closure_finish();
+}
+
+closure_function(6, 1, void, elf_load_program,
+                 heap, h, Elf64_Ehdr *, e, Elf64_Phdr *, phdr, u64, physmem_offset, elf_loader, loader, status_handler, sh,
                  status s)
 {
     heap h = bound(h);
+    Elf64_Ehdr *e = bound(e);
     Elf64_Phdr *phdr = bound(phdr);
-    Elf64_Half phnum = bound(phnum);
+    Elf64_Half phnum = e->e_phnum;
+    u64 physmem_offset = bound(physmem_offset);
     status_handler sh = bound(sh);
     if (is_ok(s)) {
-        merge m = allocate_merge(h, sh);
+        elf_loader loader = bound(loader);
+        status_handler load_program_complete = closure(h, elf_load_program_complete, h, e,
+                                                       physmem_offset, loader, sh);
+        assert(load_program_complete != INVALID_ADDRESS);
+        merge m = allocate_merge(h, load_program_complete);
         assert(m != INVALID_ADDRESS);
         sh = apply_merge(m);
         for (int i = 0; i < phnum; i++) {
@@ -345,7 +431,8 @@ closure_function(5, 1, void, elf_load_program,
             if ((p->p_type == PT_LOAD) && (p->p_filesz > 0)) {
                 elf_debug("    PT_LOAD paddr 0x%lx, offset 0x%lx, filesz 0x%lx\n",
                           p->p_paddr, p->p_offset, p->p_filesz);
-                apply(bound(loader), p->p_offset, p->p_filesz, pointer_from_u64(p->p_paddr),
+                apply(loader, p->p_offset, p->p_filesz,
+                      pointer_from_u64(p->p_paddr + physmem_offset),
                       apply_merge(m));
             }
         }
@@ -364,11 +451,18 @@ closure_function(5, 1, void, elf_load_phdr,
     elf_loader loader = bound(loader);
     status_handler sh = bound(sh);
     if (is_ok(s)) {
-        elf_debug("  %d program headers, entry %p\n", e->e_phnum, e->e_entry);
-        *(bound(entry)) = e->e_entry;
+        /* Calculate an offset so that the ELF is loaded at addresses corresponding to actual memory
+         * (the addresses in the ELF file may not correspond to valid memory locations). */
+        u64 physmem_base = u64_from_pointer(closure_self()) & ~PHYSMEM_BASE_MASK;
+        u64 physmem_offset = physmem_base - (e->e_entry & ~PHYSMEM_BASE_MASK);
+
+        elf_debug("  %d program headers, entry %p, physmem offset 0x%lx\n", e->e_phnum, e->e_entry,
+                  physmem_offset);
+        *(bound(entry)) = e->e_entry + physmem_offset;
         Elf64_Phdr *phdr = allocate(h, sizeof(Elf64_Phdr) * e->e_phnum);
         assert(phdr != INVALID_ADDRESS);
-        status_handler load_program = closure(h, elf_load_program, h, phdr, e->e_phnum, loader, sh);
+        status_handler load_program = closure(h, elf_load_program, h, e, phdr, physmem_offset,
+                                              loader, sh);
         assert(load_program != INVALID_ADDRESS);
         apply(loader, e->e_phoff, e->e_phentsize * e->e_phnum, phdr, load_program);
     } else {
