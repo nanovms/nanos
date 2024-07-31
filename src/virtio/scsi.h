@@ -111,6 +111,7 @@ struct scsi_res_inquiry
 {
     u8 device;
 #define SID_TYPE(inq_data) ((inq_data)->device & 0x1f)
+#define SID_TYPE_DIRECT     0x00    /* direct access block device */
 #define SID_QUAL(inq_data) (((inq_data)->device & 0xE0) >> 5)
 #define SID_QUAL_LU_CONNECTED   0x00    /*
                      * The specified peripheral device

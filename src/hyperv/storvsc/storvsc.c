@@ -867,17 +867,17 @@ closure_function(4, 0, void, storvsc_inquiry_done,
         return;
     }
 
-#ifdef STORVSC_DEBUG
     struct scsi_res_inquiry *res = (struct scsi_res_inquiry *) hcb->data;
-    storvsc_debug("%s: vendor %b, product %b, revision %b",
+    u8 dev_type = SID_TYPE(res);
+    storvsc_debug("%s: type 0x%x, vendor %b, product %b, revision %b",
         func_ss,
+        dev_type,
         alloca_wrap_buffer(res->vendor, sizeof(res->vendor)),
         alloca_wrap_buffer(res->product, sizeof(res->product)),
         alloca_wrap_buffer(res->revision, sizeof(res->revision)));
-#endif
 
-    // test unit ready
-    storvsc_test_unit_ready(bound(s), target, lun, 0, false);
+    if (dev_type == SID_TYPE_DIRECT)
+        storvsc_test_unit_ready(bound(s), target, lun, 0, false);
 
     closure_finish();
 }
