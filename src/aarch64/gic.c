@@ -181,25 +181,42 @@ boolean gic_int_is_pending(int irq)
     return pending;
 }
 
+closure_function(2, 2, void, gicr_madt_handler,
+                 u64, mpid, u64 *, redist_base,
+                 u8 type, void *p)
+{
+    if (type == ACPI_MADT_GEN_INT) {
+        acpi_gen_int gen_int = (acpi_gen_int)p;
+        if (gen_int->mpidr == bound(mpid))
+            *bound(redist_base) = DEVICE_BASE + (gen_int->gicr_base_addr & (DEV_MAP_SIZE - 1));
+    }
+}
+
 static void gicr_get_base(void)
 {
     cpuinfo ci = current_cpu();
     u64 mpid = read_mpid();
     u64 ptr = gic.redist.base;
-    u64 typer;
-    do {
-        typer = mmio_read_64(ptr + GICR_TYPER);
-        if ((MPIDR_AFF3(mpid) == GICR_TYPER_AFF3(typer)) &&
-            (MPIDR_AFF2(mpid) == GICR_TYPER_AFF2(typer)) &&
-            (MPIDR_AFF1(mpid) == GICR_TYPER_AFF1(typer)) &&
-            (MPIDR_AFF0(mpid) == GICR_TYPER_AFF0(typer))) {
-            ci->m.gic_rdist_base = ptr;
+    if (ptr) {
+        u64 typer;
+        do {
+            typer = mmio_read_64(ptr + GICR_TYPER);
+            if ((MPIDR_AFF3(mpid) == GICR_TYPER_AFF3(typer)) &&
+                (MPIDR_AFF2(mpid) == GICR_TYPER_AFF2(typer)) &&
+                (MPIDR_AFF1(mpid) == GICR_TYPER_AFF1(typer)) &&
+                (MPIDR_AFF0(mpid) == GICR_TYPER_AFF0(typer))) {
+                ci->m.gic_rdist_base = ptr;
+                return;
+            }
+            ptr += 2 * 64 * KB;     /* RD_base and SGI_base */
+            if (typer & GICR_TYPER_VLPIS)
+                ptr += 2 * 64 * KB; /* VLPI_base and reserved frame */
+        } while (!(typer & GICR_TYPER_LAST));
+    } else {
+        acpi_walk_madt(stack_closure(gicr_madt_handler, mpid, &ci->m.gic_rdist_base));
+        if (ci->m.gic_rdist_base)
             return;
-        }
-        ptr += 2 * 64 * KB;     /* RD_base and SGI_base */
-        if (typer & GICR_TYPER_VLPIS)
-            ptr += 2 * 64 * KB; /* VLPI_base and reserved frame */
-    } while (!(typer & GICR_TYPER_LAST));
+    }
     halt("failed to get GICR base for CPU %ld (MPID 0x%lx)\n", ci->id, mpid);
 }
 
@@ -498,11 +515,10 @@ closure_func_basic(madt_handler, void, gic_madt_handler,
 
 int init_gic(void)
 {
-    acpi_walk_madt(stack_closure_func(madt_handler, gic_madt_handler));
-    if (!gic.dist_base)
+    if (!acpi_walk_madt(stack_closure_func(madt_handler, gic_madt_handler))) {
         gic.dist_base = mmio_base_addr(GIC_DIST);
-    if (!gic.redist.base)
         gic.redist.base = mmio_base_addr(GIC_REDIST);
+    }
     gic_debug("dist %p, redist %p, its %p\n", gic.dist_base, gic.redist.base, gic.its_base);
     u64 aa64pfr0 = read_psr(ID_AA64PFR0_EL1);
     u8 gic_iface = field_from_u64(aa64pfr0, ID_AA64PFR0_EL1_GIC);
