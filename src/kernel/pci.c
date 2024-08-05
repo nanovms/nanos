@@ -247,7 +247,7 @@ static void pci_parse_iomem(pci_dev dev, boolean allocate)
     for (int bar = 0; bar <= max_bar; bar++) {
         u32 base = pci_cfgread(dev, PCIR_BAR(bar), 4);
         if (((base & PCI_BAR_B_TYPE_MASK) == PCI_BAR_MEMORY) &&
-            ((base & ~PCI_BAR_B_MEMORY_MASK) != 0)) {
+            (base != 0)) {
             u64 size = pci_bar_size(dev, PCI_BAR_MEMORY, base & PCI_BAR_B_MEMORY_MASK, bar);
             u64 addr = base & ~PCI_BAR_B_MEMORY_MASK;
             if (base & PCI_BAR_F_64BIT) {
