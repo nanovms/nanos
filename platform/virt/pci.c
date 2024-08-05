@@ -106,6 +106,11 @@ void pci_setup_irq_aff(pci_dev dev, thunk h, sstring name, range cpu_affinity)
     irq_register_handler(v, h, name, cpu_affinity);
 }
 
+void pci_platform_set_ecam(u64 ecam_base)
+{
+    pcie_ecam_base = ecam_base;
+}
+
 closure_func_basic(mcfg_handler, boolean, pci_mcfg_handler,
                    u64 addr, u16 segment, u8 bus_start, u8 bus_end)
 {
@@ -118,9 +123,8 @@ closure_func_basic(mcfg_handler, boolean, pci_mcfg_handler,
 
 void pci_platform_init(void)
 {
-    acpi_walk_mcfg(stack_closure_func(mcfg_handler, pci_mcfg_handler));
     if (!pcie_ecam_base)
-        pcie_ecam_base = mmio_base_addr(PCIE_ECAM);
+        acpi_walk_mcfg(stack_closure_func(mcfg_handler, pci_mcfg_handler));
 }
 
 /* Rudimentary resource allocation based on fixed offests for virt

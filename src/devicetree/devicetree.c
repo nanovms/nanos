@@ -509,3 +509,159 @@ range dtb_read_memory_range(void *dtb)
     return r;
 }
 
+static u32 fdt_token_len(fdt fdt, u32 token, void *data)
+{
+    void *end = fdt->end;
+    u32 data_len;
+    switch (token) {
+    case FDT_BEGIN_NODE:
+        data_len = 0;
+        while ((data + data_len < end) && (*(char *)(data + data_len) != '\0'))
+            data_len++;
+        data_len++; /* string terminator */
+        break;
+    case FDT_PROP:
+        data_len = sizeof(struct dt_prop) + dt_u32(((dt_prop)data)->data_length);
+        break;
+    default:
+        data_len = 0;
+    }
+    return sizeof(token) + pad(data_len, sizeof(u32));
+}
+
+static sstring fdt_prop_name(fdt fdt, dt_prop prop)
+{
+    char *cstr = fdt->strings_start + dt_u32(prop->name);
+    char *end = fdt->strings_end;
+    if (cstr >= end)
+        return sstring_null();
+    return sstring_from_cstring(cstr, end - cstr);
+}
+
+boolean dtb_parse_init(void *dtb, fdt fdt)
+{
+    dt_header hdr = dtb;
+    if (dt_u32(hdr->magic) != DTB_MAGIC)
+        return false;
+    fdt->ptr = dtb + dt_u32(hdr->off_dt_struct);
+    fdt->end = fdt->ptr + dt_u32(hdr->size_dt_struct);
+    fdt->strings_start = dtb + dt_u32(hdr->off_dt_strings);
+    fdt->strings_end = fdt->strings_start + dt_u32(hdr->size_dt_strings);
+    return true;
+}
+
+/* Retrieves the next child of the current node (or the root node if the current pointer is outside
+ * the root node). */
+dt_node fdt_get_node(fdt fdt)
+{
+    void *ptr = fdt->ptr;
+    void *end = fdt->end;
+    dt_node node = 0;
+    while ((ptr < end) && !node) {
+        u32 token = dt_u32(*(u32 *)ptr);
+        void *data = ptr + sizeof(token);
+        switch (token) {
+        case FDT_NOP:
+        case FDT_PROP:
+            break;
+        case FDT_BEGIN_NODE:
+            node = ptr;
+            break;
+        default:
+            fdt->ptr = ptr;
+            return 0;
+        }
+        ptr += fdt_token_len(fdt, token, data);
+    }
+    fdt->ptr = ptr;
+    return node;
+}
+
+static void fdt_exit_node(fdt fdt, int depth)
+{
+    void *ptr = fdt->ptr;
+    void *end = fdt->end;
+    boolean done = false;
+    while ((ptr < end) && !done) {
+        u32 token = dt_u32(*(u32 *)ptr);
+        void *data = ptr + sizeof(token);
+        switch (token) {
+        case FDT_BEGIN_NODE:
+            fdt->ptr = ptr + fdt_token_len(fdt, token, data);
+            fdt_exit_node(fdt, depth + 1);
+            return;
+        case FDT_END_NODE:
+            if (--depth == 0)
+                done = true;
+            break;
+        }
+        ptr += fdt_token_len(fdt, token, data);
+    }
+    fdt->ptr = ptr;
+}
+
+/* Retrieves the next sibling of the current node. */
+dt_node fdt_next_node(fdt fdt)
+{
+    fdt_exit_node(fdt, 1);
+    return fdt_get_node(fdt);
+}
+
+sstring fdt_node_name(fdt fdt, dt_node node)
+{
+    void *name = node->name;
+    return sstring_from_cstring(name, fdt->end - name);
+}
+
+/* Consumes all the properties of the current node (i.e. only children of the current node can be
+ * parsed after this function is called). */
+void fdt_get_cells(fdt fdt, u32 *acells, u32 *scells)
+{
+    *acells = 2;
+    *scells = 1;
+    void *ptr = fdt->ptr;
+    void *end = fdt->end;
+    while (ptr < end) {
+        u32 token = dt_u32(*(u32 *)ptr);
+        if (token != FDT_PROP)
+            break;
+        ptr += sizeof(token);
+        dt_prop p = ptr;
+        sstring name = fdt_prop_name(fdt, p);
+        if (!runtime_strcmp(name, ss("#address-cells")))
+            *acells = dtb_read_u32(p);
+        else if (!runtime_strcmp(name, ss("#size-cells")))
+            *scells = dtb_read_u32(p);
+        ptr += sizeof(*p) + pad(dt_u32(p->data_length), 4);
+    }
+    fdt->ptr = ptr;
+}
+
+/* Consumes all the properties of the current node (i.e. only children of the current node can be
+ * parsed after this function is called). */
+boolean fdt_get_reg(fdt fdt, u32 acells, u32 scells, dt_reg_iterator *iter)
+{
+    void *ptr = fdt->ptr;
+    void *end = fdt->end;
+    boolean found = false;
+    while (ptr < end) {
+        u32 token = dt_u32(*(u32 *)ptr);
+        if (token != FDT_PROP)
+            break;
+        ptr += sizeof(token);
+        dt_prop p = ptr;
+        u32 prop_len = dt_u32(p->data_length);
+        ptr += sizeof(*p) + pad(prop_len, 4);
+        sstring name = fdt_prop_name(fdt, p);
+        if (!runtime_strcmp(name, ss("reg"))) {
+            iter->data_ptr = (u32 *)p->data;
+            iter->data_end = (u32 *)(p->data + prop_len);
+            iter->address_cells = acells;
+            iter->size_cells = scells;
+            found = true;
+            break;
+        }
+    }
+    fdt->ptr = ptr;
+    return found;
+}

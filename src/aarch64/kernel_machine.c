@@ -108,6 +108,13 @@ BSS_RO_AFTER_INIT static buffer mpid_map;
 static struct spinlock ap_lock;
 static void (*init_mmu_target)(void);
 
+vector cpus_init_ids(heap h)
+{
+    mpid_map = allocate_vector(h, 2);
+    assert(mpid_map != INVALID_ADDRESS);
+    return mpid_map;
+}
+
 u64 mpid_from_cpuid(int id)
 {
     if (!mpid_map)
@@ -179,12 +186,12 @@ closure_func_basic(madt_handler, void, count_cpus_handler,
 
 void count_cpus_present(void)
 {
-    mpid_map = allocate_buffer(heap_general(get_kernel_heaps()), 16);
-    if (acpi_walk_madt(stack_closure_func(madt_handler, count_cpus_handler))) {
+    if (present_processors == 0)
+        acpi_walk_madt(stack_closure_func(madt_handler, count_cpus_handler));
+    if (present_processors > 1) {
         spin_lock_init(&ap_lock);
         init_mmu_target = ap_start;
     } else {
-        present_processors = 1;
         deallocate_buffer(mpid_map);
         mpid_map = 0;
     }

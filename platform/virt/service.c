@@ -171,7 +171,7 @@ id_heap init_physical_id_heap(heap h)
         init_debug("\nmem size ");
         init_debug_u64(mem_size);
         u64 bootstrap_size = init_bootstrap_heap(mem_size);
-        range reserved = irange(INIT_PAGEMEM, KERNEL_PHYS + kernel_size);
+        range reserved = irange(DEVICETREE_BLOB_BASE, KERNEL_PHYS + kernel_size);
         u64 base = 0;
         uefi_mem_map_iterate(&boot_params.mem_map,
                              stack_closure(get_bootstrap_base, reserved, bootstrap_size, &base));
@@ -301,6 +301,55 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
     while (1);
 }
 
+static void platform_dtb_parse(kernel_heaps kh, vector cpu_ids)
+{
+    struct fdt fdt;
+    if (!dtb_parse_init(pointer_from_u64(DEVICETREE_BLOB_BASE), &fdt))
+        return;
+    dt_node root = fdt_get_node(&fdt);
+    if (!root)
+        return;
+    u32 root_acells, root_scells;
+    fdt_get_cells(&fdt, &root_acells, &root_scells);
+    fdt_foreach_node(&fdt, node) {
+        sstring name = fdt_node_name(&fdt, node);
+        if (runtime_strstr(name, ss("pcie@")) == name.ptr) {
+            dt_reg_iterator iter;
+            if (fdt_get_reg(&fdt, root_acells, root_scells, &iter)) {
+                dt_reg_foreach(iter, r){
+                    u64 ecam_base = r.start;
+                    boolean highmem = (ecam_base >= (U64_FROM_BIT(32)));
+                    u64 ecam_base_virt;
+                    if (highmem) {
+                        u64 ecam_len = range_span(r);
+                        ecam_base_virt = allocate_u64((heap)heap_virtual_page(kh), ecam_len);
+                        assert(ecam_base_virt != INVALID_PHYSICAL);
+                        map(ecam_base_virt, ecam_base, ecam_len,
+                            pageflags_writable(pageflags_device()));
+                    } else {
+                        ecam_base_virt = DEVICE_BASE + ecam_base;
+                    }
+                    pci_platform_set_ecam(ecam_base_virt);
+                    break;
+                }
+            }
+        } else if (!runtime_strcmp(name, ss("cpus"))) {
+            u32 cpus_acells, cpus_scells;
+            fdt_get_cells(&fdt, &cpus_acells, &cpus_scells);
+            fdt_foreach_node(&fdt, node) {
+                dt_reg_iterator iter;
+                if (fdt_get_reg(&fdt, cpus_acells, cpus_scells, &iter)) {
+                    dt_reg_foreach(iter, r) {
+                        present_processors++;
+                        vector_push(cpu_ids, pointer_from_u64(r.start));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 closure_function(2, 2, void, plat_spcr_handler,
                  kernel_heaps, kh, struct console_driver **, driver,
                  u8 type, u64 addr)
@@ -316,6 +365,10 @@ closure_function(2, 2, void, plat_spcr_handler,
 
 void init_platform_devices(kernel_heaps kh)
 {
+    vector cpu_ids = cpus_init_ids(heap_general(kh));
+    platform_dtb_parse(kh, cpu_ids);
+    /* the device tree blob is never accessed from now on: reclaim the memory where it is located */
+    id_heap_add_range(heap_physical(kh), DEVICETREE_BLOB_BASE, INIT_PAGEMEM - DEVICETREE_BLOB_BASE);
     struct console_driver *console_driver = 0;
     init_acpi_tables(kh);
     acpi_parse_spcr(stack_closure(plat_spcr_handler, kh, &console_driver));

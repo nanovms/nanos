@@ -539,6 +539,7 @@ void deallocate_msi_interrupt(u64 v);
 u64 allocate_mmio_interrupt(void);
 void deallocate_mmio_interrupt(u64 v);
 
+vector cpus_init_ids(heap h);
 u64 mpid_from_cpuid(int id);
 
 void aarch64_cpu_init(void);
@@ -546,5 +547,7 @@ void arm_hvc(u64 x0, u64 x1, u64 x2, u64 x3);
 void angel_shutdown(u64 x0);
 void psci_shutdown(void);
 void psci_reset(void);
+
+void pci_platform_set_ecam(u64 ecam_base);
 
 #endif /* __ASSEMBLY__ */

@@ -42,6 +42,11 @@ typedef struct dt_value {
 
 closure_type(dt_node_handler, boolean, dt_node n, sstring name);
 
+typedef struct fdt {
+    void *ptr, *end;
+    char *strings_start, *strings_end;
+} *fdt;
+
 sstring dtb_string(void *dtb, u64 off);
 
 u32 dtb_read_u32(dt_prop p);
@@ -61,4 +66,12 @@ dt_value dtb_read_value(void *dtb, dt_node n, dt_prop p);
 
 void devicetree_dump(void *dtb);
 
+boolean dtb_parse_init(void *dtb, fdt fdt);
+dt_node fdt_get_node(fdt fdt);
+dt_node fdt_next_node(fdt fdt);
+sstring fdt_node_name(fdt fdt, dt_node node);
+void fdt_get_cells(fdt fdt, u32 *acells, u32 *scells);
+boolean fdt_get_reg(fdt fdt, u32 acells, u32 scells, dt_reg_iterator *iter);
 
+#define fdt_foreach_node(fdt, node) \
+    for (dt_node node = fdt_get_node(fdt); node; node = fdt_next_node(fdt))
