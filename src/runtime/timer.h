@@ -39,8 +39,6 @@ typedef struct timerqueue {
      * now() function) and its expiry value (retrieved via the timer_expiry() function). */
     clock_now now;
 
-    timestamp min;
-    timestamp max;
     u32 service_scheduled;  /* CAS */
     u32 update;             /* CAS; timer re-programming needed */
     boolean empty;          /* indicating the queue is empty */

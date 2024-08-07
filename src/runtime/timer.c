@@ -167,7 +167,6 @@ timerqueue allocate_timerqueue(heap h, clock_now now, sstring name)
     tq->empty = true;
     tq->next_expiry = 0;
     tq->service = 0;
-    tq->min = tq->max = 0;
 #endif
     return tq;
 }

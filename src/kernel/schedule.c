@@ -132,7 +132,7 @@ static inline boolean update_timer(timestamp here)
     if (!compare_and_swap_32(&kernel_timers->update, true, false))
         return false;
     s64 delta = next - here;
-    timestamp timeout = delta > (s64)kernel_timers->min ? MIN(delta, kernel_timers->max) : kernel_timers->min;
+    timestamp timeout = MAX(delta, (s64)microseconds(RUNLOOP_TIMER_MIN_PERIOD_US));
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
     current_cpu()->last_timer_update = next + timeout - delta;
     set_platform_timer(timeout);
@@ -254,10 +254,11 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
                    true time quantum per thread, this acts to prevent a thread
                    from running for too long and starving out other threads. */
                 s64 timeout = ci->last_timer_update - here;
-                if (kernel_timers->empty || (timeout > (s64)kernel_timers->max)) {
+                timestamp max_timeout = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
+                if (kernel_timers->empty || (timeout > (s64)max_timeout)) {
                     sched_debug("setting CPU scheduler timer\n");
-                    set_platform_timer(kernel_timers->max);
-                    ci->last_timer_update = here + kernel_timers->max;
+                    set_platform_timer(max_timeout);
+                    ci->last_timer_update = here + max_timeout;
                 }
             }
             apply(t->t);
@@ -292,8 +293,6 @@ void init_scheduler(heap h)
     /* timer init */
     kernel_timers = allocate_timerqueue(h, 0, ss("runloop"));
     assert(kernel_timers != INVALID_ADDRESS);
-    kernel_timers->min = microseconds(RUNLOOP_TIMER_MIN_PERIOD_US);
-    kernel_timers->max = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
     kernel_timers->service = closure(h, kernel_timers_service);
     timer_interrupt_handler = closure(h, timer_interrupt_handler_fn);
 
