@@ -49,46 +49,27 @@ struct net_lwip_timer {
 #define NET_LWIP_TIMER_INIT(interval, func, name)   {interval, func}
 #endif
 
-static struct net_lwip_timer net_lwip_timers[] = {
-    NET_LWIP_TIMER_INIT(TCP_TMR_INTERVAL, tcp_tmr, "tcp"),
-    NET_LWIP_TIMER_INIT(IP_TMR_INTERVAL, ip_reass_tmr, "ip"),
-    NET_LWIP_TIMER_INIT(ARP_TMR_INTERVAL, etharp_tmr, "arp"),
-    NET_LWIP_TIMER_INIT(DHCP_COARSE_TIMER_MSECS, dhcp_coarse_tmr, "dhcp coarse"),
-    NET_LWIP_TIMER_INIT(DHCP_FINE_TIMER_MSECS, dhcp_fine_tmr, "dhcp fine"),
-    NET_LWIP_TIMER_INIT(DNS_TMR_INTERVAL, dns_tmr, "dns"),
-    NET_LWIP_TIMER_INIT(ND6_TMR_INTERVAL, nd6_tmr, "nd6"),
-    NET_LWIP_TIMER_INIT(IP6_REASS_TMR_INTERVAL, ip6_reass_tmr, "ip6 reass"),
-    NET_LWIP_TIMER_INIT(MLD6_TMR_INTERVAL, mld6_tmr, "mld6"),
-    NET_LWIP_TIMER_INIT(DHCP6_TIMER_MSECS, dhcp6_tmr, "dhcp6"),
-};
+static struct {
+    struct timer t;
+    closure_struct(timer_handler, timer_func);
+} net_timer;
 
 closure_func_basic(timer_handler, void, dispatch_lwip_timer,
                    u64 expiry, u64 overruns)
 {
-    struct net_lwip_timer *lt = struct_from_field(closure_self(), struct net_lwip_timer *,
-                                                  timer_func);
 #ifdef LWIP_DEBUG
-    lwip_debug("dispatching timer for %s\n", lt->name);
+    lwip_debug("dispatching timer\n");
 #endif
-    if (overruns == timer_disabled)
-        closure_finish();
-    else
-        lt->handler();
+    sys_check_timeouts();
+    timestamp next_expiry = milliseconds(sys_timeouts_sleeptime());
+    register_timer(kernel_timers, &net_timer.t, CLOCK_ID_MONOTONIC, next_expiry, false, 0,
+                   (timer_handler)closure_self());
 }
 
-void sys_timeouts_init(void)
+u32 sys_now(void)
 {
-    int n = sizeof(net_lwip_timers) / sizeof(struct net_lwip_timer);
-    for (int i = 0; i < n; i++) {
-        struct net_lwip_timer * t = (struct net_lwip_timer *)&net_lwip_timers[i];
-        init_timer(&t->t);
-        timestamp interval = milliseconds(t->interval_ms);
-        register_timer(kernel_timers, &t->t, CLOCK_ID_MONOTONIC_RAW, interval, false, interval,
-                       init_closure_func(&t->timer_func, timer_handler, dispatch_lwip_timer));
-#ifdef LWIP_DEBUG
-        lwip_debug("registered %s timer with period of %ld ms\n", t->name, t->interval_ms);
-#endif
-    }
+    timestamp t = now(CLOCK_ID_MONOTONIC);
+    return msec_from_timestamp(t);
 }
 
 void lwip_debug_sstring(sstring format, ...)
@@ -441,4 +422,8 @@ void init_net(kernel_heaps kh)
     lwip_init();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, lwip_ext_callback);
+    init_timer(&net_timer.t);
+    timestamp expiry = milliseconds(sys_timeouts_sleeptime());
+    register_timer(kernel_timers, &net_timer.t, CLOCK_ID_MONOTONIC, expiry, false, 0,
+                   init_closure_func(&net_timer.timer_func, timer_handler, dispatch_lwip_timer));
 }
