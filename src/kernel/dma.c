@@ -1,6 +1,13 @@
 #include <kernel.h>
 #include <dma.h>
 
+closure_function(2, 3, void, dma_simple_io,
+                 sg_io_func, io, void *, priv,
+                 sg_list sg, range r, status_handler completion)
+{
+    bound(io)(bound(priv), sg, r, completion);
+}
+
 BSS_RO_AFTER_INIT static struct {
     heap general;
     heap io;
@@ -30,12 +37,9 @@ closure_function(6, 1, void, dma_sg_io_complete,
     closure_finish();
 }
 
-void dma_sg_io(sg_io op, sg_list sg, range r, boolean write, status_handler completion)
+static void dma_sg_io(sg_io_func op, void *priv, sg_list sg, range r, boolean write,
+                      status_handler completion)
 {
-    if (!dma.bounce_buffering) {
-        apply(op, sg, r, completion);
-        return;
-    }
     sg_list dma_sg = allocate_sg_list();
     if (dma_sg == INVALID_ADDRESS)
         goto oom;
@@ -54,7 +58,7 @@ void dma_sg_io(sg_io op, sg_list sg, range r, boolean write, status_handler comp
     sgb->refcount = 0;
     if (write)
         sg_copy_to_buf(buf, sg, len);
-    apply(op, dma_sg, r, dma_completion);
+    op(priv, dma_sg, r, dma_completion);
     return;
   err_closure:
     deallocate(dma.io, buf, len);
@@ -62,4 +66,40 @@ void dma_sg_io(sg_io op, sg_list sg, range r, boolean write, status_handler comp
     deallocate_sg_list(dma_sg);
   oom:
     apply(completion, timm_oom);
+}
+
+closure_function(2, 3, void, dma_read,
+                 sg_io_func, io, void *, priv,
+                 sg_list sg, range r, status_handler completion)
+{
+    dma_sg_io(bound(io), bound(priv), sg, r, false, completion);
+}
+
+sg_io dma_new_reader(heap h, sg_io_func read, void *priv)
+{
+    sg_io reader;
+    if (dma.bounce_buffering) {
+        reader = closure(h, dma_read, read, priv);
+    } else {
+        reader = closure(h, dma_simple_io, read, priv);
+    }
+    return reader;
+}
+
+closure_function(2, 3, void, dma_write,
+                 sg_io_func, io, void *, priv,
+                 sg_list sg, range r, status_handler completion)
+{
+    dma_sg_io(bound(io), bound(priv), sg, r, true, completion);
+}
+
+sg_io dma_new_writer(heap h, sg_io_func write, void *priv)
+{
+    sg_io writer;
+    if (dma.bounce_buffering) {
+        writer = closure(h, dma_write, write, priv);
+    } else {
+        writer = closure(h, dma_simple_io, write, priv);
+    }
+    return writer;
 }

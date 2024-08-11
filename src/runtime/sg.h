@@ -29,6 +29,7 @@ typedef struct sg_list {
 } *sg_list;
 
 closure_type(sg_io, void, sg_list sg, range r, status_handler complete);
+typedef void (*sg_io_func)(void *priv, sg_list sg, range r, status_handler complete);
 
 static inline sg_buf sg_list_tail_add(sg_list sg, word length)
 {

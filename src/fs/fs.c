@@ -3,6 +3,7 @@
 #else
 #include <runtime.h>
 #endif
+#include <dma.h>
 #include <pagecache.h>
 #include <fs.h>
 
@@ -764,12 +765,48 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
 
 #endif /* !FS_READ_ONLY */
 
-fs_status fsfile_init(filesystem fs, fsfile f, tuple md, sg_io fs_read, sg_io fs_write,
+#ifndef DMA_BUFFERING
+closure_function(2, 3, void, fs_io_func,
+                 fs_io, io, fsfile, f,
+                 sg_list sg, range r, status_handler completion)
+{
+    bound(io)(bound(f), sg, r, completion);
+}
+#endif
+
+fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
                       pagecache_node_reserve fs_reserve, thunk fs_free)
 {
-    pagecache_node pn = pagecache_allocate_node(fs->pv, fs_read, fs_write, fs_reserve);
-    if (pn == INVALID_ADDRESS)
+    heap h = fs->h;
+    sg_io fs_read, fs_write;
+#ifdef DMA_BUFFERING
+    fs_read = dma_new_reader(h, (sg_io_func)fs->file_read, f);
+#else
+    fs_read = closure(h, fs_io_func, fs->file_read, f);
+#endif
+    if (fs_read == INVALID_ADDRESS)
         return FS_STATUS_NOMEM;
+#ifndef FS_READ_ONLY
+#ifdef DMA_BUFFERING
+    fs_write = dma_new_writer(h, (sg_io_func)fs->file_write, f);
+#else
+    fs_write = closure(h, fs_io_func, fs->file_write, f);
+#endif
+    if (fs_write == INVALID_ADDRESS) {
+        deallocate_closure(fs_read);
+        return FS_STATUS_NOMEM;
+    }
+#else
+    fs_write = 0;
+#endif
+    pagecache_node pn = pagecache_allocate_node(fs->pv, fs_read, fs_write, fs_reserve);
+    if (pn == INVALID_ADDRESS) {
+        deallocate_closure(fs_read);
+#ifndef FS_READ_ONLY
+        deallocate_closure(fs_write);
+#endif
+        return FS_STATUS_NOMEM;
+    }
     f->fs = fs;
     f->md = md;
     f->length = 0;

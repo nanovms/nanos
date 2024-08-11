@@ -304,12 +304,11 @@ closure_function(3, 1, boolean, zero_hole,
 BSS_RO_AFTER_INIT io_status_handler ignore_io_status;
 
 /* whole block reads, file length resolved in cache */
-closure_function(2, 3, void, filesystem_storage_read,
-                 tfs, fs, tfsfile, f,
+static void tfs_read(fsfile fsf,
                  sg_list sg, range q, status_handler complete)
 {
-    tfs fs = bound(fs);
-    tfsfile f = bound(f);
+    tfs fs = (tfs)fsf->fs;
+    tfsfile f = (tfsfile)fsf;
     merge m = allocate_merge(fs->fs.h, complete);
     status_handler k = apply_merge(m);
     tfs_debug("%s: fsfile %p, sg %p, q %R, sh %F\n", func_ss, f, sg, q, complete);
@@ -799,12 +798,11 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
     return s;
 }
 
-closure_function(2, 3, void, filesystem_storage_write,
-                 tfs, fs, tfsfile, f,
+static void tfs_write(fsfile fsf,
                  sg_list sg, range q, status_handler complete)
 {
-    tfs fs = bound(fs);
-    tfsfile f = bound(f);
+    tfs fs = (tfs)fsf->fs;
+    tfsfile f = (tfsfile)fsf;
     assert((q.start & MASK(fs->fs.blocksize_order)) == 0);
     tfs_debug("%s: fsfile %p, q %R, sg %p, sg count 0x%lx, complete %F\n", func_ss,
               f, q, sg, sg ? sg->count : 0, complete);
@@ -1258,13 +1256,6 @@ tfsfile allocate_fsfile(tfs fs, tuple md)
     if (f == INVALID_ADDRESS)
         return f;
     fsfile fsf = &f->f;
-    sg_io fs_read = closure(h, filesystem_storage_read, fs, f);
-    sg_io fs_write =
-#ifndef TFS_READ_ONLY
-        closure(h, filesystem_storage_write, fs, f);
-#else
-    0;
-#endif
     pagecache_node_reserve fs_reserve =
 #ifndef TFS_READ_ONLY
         closure(h, filesystem_check_or_reserve_extent, fs, f);
@@ -1277,10 +1268,7 @@ tfsfile allocate_fsfile(tfs fs, tuple md)
 #else
         0;
 #endif
-    if (fsfile_init(&fs->fs, fsf, md, fs_read, fs_write, fs_reserve, fs_free) != FS_STATUS_OK) {
-        deallocate_closure(fs_read);
-        if (fs_write)
-            deallocate_closure(fs_write);
+    if (fsfile_init(&fs->fs, fsf, md, fs_reserve, fs_free) != FS_STATUS_OK) {
         if (fs_reserve)
             deallocate_closure(fs_reserve);
         if (fs_free)
@@ -1386,6 +1374,10 @@ void create_filesystem(heap h,
     fs->page_order = pagecache_get_page_order();
     fs->fs.lookup = fs_lookup;
     fs->fs.get_fsfile = tfs_get_fsfile;
+    fs->fs.file_read = tfs_read;
+#ifndef TFS_READ_ONLY
+    fs->fs.file_write = tfs_write;
+#endif
     fs->fs.get_inode = fs_get_inode;
     fs->fs.get_meta = tmpfs_get_meta;
 #ifndef TFS_READ_ONLY

@@ -30,17 +30,12 @@ typedef struct p9fs {
     void *transport;
 } *p9fs;
 
-declare_closure_struct(1, 3, void, p9_fsf_io,
-                       boolean, write,
-                       sg_list sg, range q, status_handler complete);
 typedef struct p9_fsfile {
     struct fsfile f;
     struct list l;
     u64 blocks;
     u32 iounit;
     p9_dentry dentry;
-    closure_struct(p9_fsf_io, read);
-    closure_struct(p9_fsf_io, write);
     closure_struct(pagecache_node_reserve, reserve);
     closure_struct(thunk, free);
 } *p9_fsfile;
@@ -117,16 +112,9 @@ static void p9_dentry_delete(p9fs fs, p9_dentry dentry)
     deallocate(fs->fs.h, dentry, sizeof(*dentry));
 }
 
-define_closure_function(1, 3, void, p9_fsf_io,
-                        boolean, write,
+static void p9_fsf_io(p9_fsfile fsf, boolean write,
                         sg_list sg, range q, status_handler complete)
 {
-    boolean write = bound(write);
-    p9_fsfile fsf;
-    if (write)
-        fsf = struct_from_field(closure_self(), p9_fsfile, write);
-    else
-        fsf = struct_from_field(closure_self(), p9_fsfile, read);
     p9_debug("%s file %p, sg %p, r %R, sh %F\n", write ? ss("write") : ss("read"), fsf, sg, q,
              complete);
     p9fs p9fs = (struct p9fs *)fsf->f.fs;
@@ -149,6 +137,16 @@ define_closure_function(1, 3, void, p9_fsf_io,
         len -= count;
     } while (len > 0);
     apply(complete, STATUS_OK);
+}
+
+static void p9_fsf_read(fsfile f, sg_list sg, range q, status_handler completion)
+{
+    p9_fsf_io((p9_fsfile)f, false, sg, q, completion);
+}
+
+static void p9_fsf_write(fsfile f, sg_list sg, range q, status_handler completion)
+{
+    p9_fsf_io((p9_fsfile)f, true, sg, q, completion);
 }
 
 closure_func_basic(pagecache_node_reserve, status, p9_fsf_reserve,
@@ -231,8 +229,6 @@ static p9_fsfile p9_fsfile_new(p9fs fs, p9_dentry dentry)
         return 0;
     fsf->dentry = dentry;
     fs_status s = fsfile_init(&fs->fs, &fsf->f, dentry->md,
-                              init_closure(&fsf->read, p9_fsf_io, false),
-                              init_closure(&fsf->write, p9_fsf_io, true),
                               init_closure_func(&fsf->reserve, pagecache_node_reserve,
                                                 p9_fsf_reserve),
                               init_closure_func(&fsf->free, thunk, p9_fsf_free));
@@ -727,6 +723,8 @@ void p9_create_fs(heap h, void *transport, boolean readonly, filesystem_complete
     fs->fs.truncate = p9_truncate;
     fs->fs.get_fsfile = p9_get_fsfile;
     fs->fs.get_inode = p9_get_inode;
+    fs->fs.file_read = p9_fsf_read;
+    fs->fs.file_write = p9_fsf_write;
     fs->fs.get_meta = p9_get_meta;
     fs->fs.get_sync_handler = p9_get_sync_handler;
     list_init(&fs->dentries);

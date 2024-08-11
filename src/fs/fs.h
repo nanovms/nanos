@@ -68,6 +68,8 @@ sstring string_from_fs_status(fs_status s);
 
 closure_type(fs_status_handler, void, fsfile fsf, fs_status fss);
 
+typedef void (*fs_io)(fsfile f, sg_list sg, range r, status_handler completion);
+
 void filesystem_alloc(fsfile f, long offset, long len,
         boolean keep_size, fs_status_handler completion);
 void filesystem_dealloc(fsfile f, long offset, long len,
@@ -75,7 +77,7 @@ void filesystem_dealloc(fsfile f, long offset, long len,
 fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len);
 fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len);
 
-fs_status fsfile_init(filesystem fs, fsfile f, tuple md, sg_io fs_read, sg_io fs_write,
+fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
                       pagecache_node_reserve fs_reserve, thunk fs_free);
 
 struct filesystem {
@@ -92,6 +94,8 @@ struct filesystem {
                         boolean *destruct_md);
     fs_status (*truncate)(filesystem fs, fsfile f, u64 len);
     fs_status (*get_fsfile)(filesystem fs, tuple md, fsfile *f);
+    fs_io file_read;
+    fs_io file_write;
     inode (*get_inode)(filesystem fs, tuple md);
     tuple (*get_meta)(filesystem fs, inode n);
     u64 (*get_freeblocks)(filesystem fs);

@@ -8,8 +8,6 @@ typedef struct tmpfs_file {
     struct fsfile f;
     struct rangemap dirty;
     u64 seals;
-    closure_struct(sg_io, read);
-    closure_struct(sg_io, write);
     closure_struct(pagecache_node_reserve, reserve);
     closure_struct(thunk, free);
 } *tmpfs_file;
@@ -24,7 +22,7 @@ static tuple tmpfs_get_meta(filesystem fs, inode n)
     return fs_tuple_from_inode(((tmpfs)fs)->files, n);
 }
 
-closure_func_basic(sg_io, void, tmpfsfile_read,
+static void tmpfsfile_read(fsfile f,
                    sg_list sg, range q, status_handler complete)
 {
     sg_zero_fill(sg, range_span(q));
@@ -44,10 +42,10 @@ closure_function(2, 1, boolean, tmpfsfile_write_handler,
     return true;
 }
 
-closure_func_basic(sg_io, void, tmpfsfile_write,
+static void tmpfsfile_write(fsfile f,
                    sg_list sg, range q, status_handler complete)
 {
-    tmpfs_file fsf = struct_from_field(closure_self(), tmpfs_file, write);
+    tmpfs_file fsf = (tmpfs_file)f;
     tmpfs fs = (tmpfs)fsf->f.fs;
     range pages = range_rshift_pad(q, fs->page_order);
     int res;
@@ -131,8 +129,7 @@ static fs_status tmpfs_create(filesystem fs, tuple parent, string name, tuple md
         fsf = allocate(h, sizeof(*fsf));
         if (fsf == INVALID_ADDRESS)
             return FS_STATUS_NOMEM;
-        fss = fsfile_init(fs, &fsf->f, md, init_closure_func(&fsf->read, sg_io, tmpfsfile_read),
-                          init_closure_func(&fsf->write, sg_io, tmpfsfile_write),
+        fss = fsfile_init(fs, &fsf->f, md,
                           init_closure_func(&fsf->reserve, pagecache_node_reserve,
                                             tmpfsfile_reserve),
                           init_closure_func(&fsf->free, thunk, tmpfsfile_free));
@@ -230,6 +227,8 @@ filesystem tmpfs_new(void)
     fs->fs.root = root;
     fs->fs.lookup = fs_lookup;
     fs->fs.get_fsfile = tmpfs_get_fsfile;
+    fs->fs.file_read = tmpfsfile_read;
+    fs->fs.file_write = tmpfsfile_write;
     fs->fs.get_inode = fs_get_inode;
     fs->fs.get_meta = tmpfs_get_meta;
     fs->fs.create = tmpfs_create;
