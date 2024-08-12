@@ -26,6 +26,8 @@ BSS_RO_AFTER_INIT static u64 pcie_ecam_base;
 u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 {
     u32 data = -1;
+    if (!pcie_ecam_base)
+        return data;
     u64 base = pcie_ecam_base
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
     pci_plat_debug("%s: dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx: ", func_ss,
@@ -47,6 +49,8 @@ u32 pci_cfgread(pci_dev dev, int reg, int bytes)
 
 void pci_cfgwrite(pci_dev dev, int reg, int bytes, u32 source)
 {
+    if (!pcie_ecam_base)
+        return;
     u64 base = pcie_ecam_base
         + (dev->bus << 20) + (dev->slot << 15) + (dev->function << 12) + reg;
     pci_plat_debug("%s: dev %p, bus %d, reg 0x%02x, bytes %d, base 0x%lx= 0x%x\n",
