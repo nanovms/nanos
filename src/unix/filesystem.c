@@ -71,7 +71,29 @@ void file_readahead(file f, u64 offset, u64 len)
     }
     if (ra_size > 0)
         pagecache_node_fetch_pages(fsfile_get_cachenode(f->fsf),
-            irangel(offset + len, ra_size));
+                                   irangel(offset + len, ra_size), 0, 0);
+}
+
+sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, sg_list *sgp)
+{
+    sg_list sg = sg_new(count);
+    if (sg == INVALID_ADDRESS)
+        return -ENOMEM;
+    sysreturn rv;
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto out;
+    }
+    iov_to_sg(sg, iov, count);
+    rv = 0;
+    *sgp = sg;
+  out:
+    if (rv != -EFAULT)
+        context_clear_err(ctx);
+    if (rv < 0)
+        deallocate_sg_list(sg);
+    return rv;
 }
 
 fs_status filesystem_chdir(process p, sstring path)
@@ -429,7 +451,7 @@ sysreturn fadvise64(int fd, s64 off, u64 len, int advice)
         pagecache_node pn = fsfile_get_cachenode(f->fsf);
         range r = (len != 0) ? irangel(off, len) :
                 irange(off, pagecache_get_node_length(pn));
-        pagecache_node_fetch_pages(pn, r);
+        pagecache_node_fetch_pages(pn, r, 0, 0);
         break;
     }
     case POSIX_FADV_DONTNEED:

@@ -355,7 +355,7 @@ struct vmap;
 
 closure_type(file_io, sysreturn, void *buf, u64 length, u64 offset, context ctx, boolean bh,
              io_completion completion);
-closure_type(sg_file_io, sysreturn, sg_list sg, u64 length, u64 offset, context ctx, boolean bh,
+closure_type(file_iov, sysreturn, struct iovec *iov, int count, u64 offset, context ctx, boolean bh,
              io_completion completion);
 closure_type(fdesc_events, u32, thread t);
 closure_type(fdesc_ioctl, sysreturn, unsigned long request, vlist ap);
@@ -379,7 +379,7 @@ closure_type(fdesc_et_handler, u64, u64 events, u64 lastevents);
 
 typedef struct fdesc {
     file_io read, write;
-    sg_file_io sg_read, sg_write;
+    file_iov readv, writev;
     fdesc_events events;
     fdesc_ioctl ioctl;
     fdesc_mmap mmap;
@@ -411,8 +411,8 @@ struct file {
     u64 offset;
     closure_struct(file_io, read);
     closure_struct(file_io, write);
-    closure_struct(sg_file_io, sg_read);
-    closure_struct(sg_file_io, sg_write);
+    closure_struct(file_iov, readv);
+    closure_struct(file_iov, writev);
     closure_struct(fdesc_events, events);
     closure_struct(fdesc_close, close);
 };
@@ -1087,18 +1087,15 @@ static inline boolean iov_to_sg(sg_list sg, struct iovec *iov, int iovlen)
     return true;
 }
 
-static inline boolean sg_to_iov(sg_list sg, struct iovec *iov, int iovlen)
+static inline void iov_to_buf(void *buf, struct iovec *iov, int iovlen)
 {
-    context ctx = get_current_context(current_cpu());
-    if (context_set_err(ctx)) {
-        sg_list_release(sg);
-        return false;
+    for (int i = 0; i < iovlen; i++) {
+        u64 len = iov[i].iov_len;
+        if (len == 0)
+            continue;
+        runtime_memcpy(buf, iov[i].iov_base, len);
+        buf += len;
     }
-    for (int i = 0; i < iovlen; i++)
-        if (sg_copy_to_buf(iov[i].iov_base, sg, iov[i].iov_len) == 0)
-            break;
-    context_clear_err(ctx);
-    return true;
 }
 
 static inline void check_syscall_context_replace(cpuinfo ci, context ctx)

@@ -86,7 +86,7 @@ closure_func_basic(thunk, void, pending_fault_complete)
         if (range_valid(ra)) {
             if (range_span(ra) > FILE_READAHEAD_DEFAULT)
                 ra.end = ra.start + FILE_READAHEAD_DEFAULT;
-            pagecache_node_fetch_pages(pn, ra);
+            pagecache_node_fetch_pages(pn, ra, 0, 0);
         }
         pagecache_node_unref(pn);
     }

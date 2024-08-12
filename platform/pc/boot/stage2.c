@@ -2,7 +2,6 @@
 #include <frame.h>
 #include <kernel_machine.h>
 #include <kernel_heaps.h>
-#include <pagecache.h>
 #include <tfs.h>
 #include <page.h>
 #include <elf64.h>
@@ -267,7 +266,6 @@ void newstack()
 
     setup_page_tables();
 
-    init_pagecache(h, h, PAGESIZE);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,

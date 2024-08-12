@@ -144,9 +144,37 @@ static void p9_fsf_read(fsfile f, sg_list sg, range q, status_handler completion
     p9_fsf_io((p9_fsfile)f, false, sg, q, completion);
 }
 
+closure_function(3, 1, void, p9_fsf_write_complete,
+                 fsfile, f, u64, write_end, status_handler, completion,
+                 status s)
+{
+    if (is_ok(s)) {
+        fsfile f = bound(f);
+        tuple md = f->md;
+        if (md)
+            filesystem_update_mtime(f->fs, md);
+        u64 write_end = bound(write_end);
+        if (write_end > f->length)
+            fsfile_set_length(f, write_end);
+    }
+    apply(bound(completion), s);
+    closure_finish();
+}
+
 static void p9_fsf_write(fsfile f, sg_list sg, range q, status_handler completion)
 {
-    p9_fsf_io((p9_fsfile)f, true, sg, q, completion);
+    context ctx = context_from_closure(completion);
+    status_handler write_complete;
+    if (ctx)    /* direct I/O */
+        write_complete = closure_from_context(ctx, p9_fsf_write_complete, f, q.end, completion);
+    else    /* I/O via page cache */
+        write_complete = closure(f->fs->h, p9_fsf_write_complete, f, q.end, completion);
+    if (write_complete != INVALID_ADDRESS) {
+        p9_fsf_io((p9_fsfile)f, true, sg, q, write_complete);
+    } else {
+        status s = timm("result", "out of memory");
+        apply(completion, timm_append(s, "fsstatus", "%d", FS_STATUS_NOMEM));
+    }
 }
 
 closure_func_basic(pagecache_node_reserve, status, p9_fsf_reserve,
@@ -213,6 +241,7 @@ closure_func_basic(thunk, void, p9_fsf_free)
         p9_md_cleanup(md);
         dentry->md = 0;
 
+        f->md = 0;  /* so that it won't be accessed by the file write completion */
         list_delete(&dentry->l);
     }
     list_delete(&fsf->l);

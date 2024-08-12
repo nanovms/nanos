@@ -47,7 +47,8 @@ void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* b
 
 boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags);
 
-void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */);
+void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */, sg_list sg,
+                                status_handler complete);
 
 void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handler handler);
 void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset);

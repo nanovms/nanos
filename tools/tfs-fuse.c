@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <pagecache.h>
 #include <tfs.h>
 #include <storage.h>
 #include <errno.h>
@@ -338,14 +337,13 @@ static int tfs_getattr(const char *name, struct stat *s)
     return 0;
 }
 
-closure_function(6, 1, void, file_read_complete,
-                 sg_list, sg, void *, dest, u64, limit, file, f, boolean, is_file_offset, int *, rv,
-                 status s)
+closure_function(3, 2, void, file_read_complete,
+                 file, f, boolean, is_file_offset, int *, rv,
+                 status s, bytes count)
 {
     int *rv = bound(rv);
     if (is_ok(s)) {
         file f = bound(f);
-        u64 count = sg_copy_to_buf_and_release(bound(dest), bound(sg), bound(limit));
         if (bound(is_file_offset)) /* vs specified offset (pread) */
             f->offset += count;
         *rv = count;
@@ -366,26 +364,20 @@ closure_func_basic(file_io, int, file_read,
     if (offset >= f->length) {
         return 0;
     }
-    sg_list sg = allocate_sg_list();
-    if (sg == INVALID_ADDRESS) {
-        fprintf(stderr, "   unable to allocate sg list");
-        return -ENOMEM;
-    }
     int rv;
-    apply(f->fs_read, sg, irangel(offset, length), closure(h, file_read_complete, sg, dest, length,
-                                                           f, is_file_offset, &rv));
+    io_status_handler completion = closure(h, file_read_complete, f, is_file_offset, &rv);
+    if (completion == INVALID_ADDRESS)
+        return -ENOMEM;
+    filesystem_read_linear(f->fsf, dest, irangel(offset, length), completion);
     return rv;
 }
 
-closure_function(5, 1, void, file_write_complete,
-                 file, f, sg_list, sg, u64, length, boolean, is_file_offset, int *, rv,
-                 status s)
+closure_function(3, 2, void, file_write_complete,
+                 file, f, boolean, is_file_offset, int *, rv,
+                 status s, bytes len)
 {
     tfs_fuse_debug("file_write_complete status %v\n", s);
-    sg_list_release(bound(sg));
-    deallocate_sg_list(bound(sg));
     file f = bound(f);
-    u64 len = bound(length);
     int *rv = bound(rv);
     if (is_ok(s)) {
         /* if regular file, update length */
@@ -407,22 +399,12 @@ closure_func_basic(file_io, int, file_write,
     boolean is_file_offset = offset_arg == infinity;
     u64 offset = is_file_offset ? f->offset : offset_arg;
 
-    sg_list sg = allocate_sg_list();
-    if (sg == INVALID_ADDRESS) {
-        fprintf(stderr, "   unable to allocate sg list");
-        return -ENOMEM;
-    }
-    sg_buf sgb = sg_list_tail_add(sg, length);
-    assert(sgb != INVALID_ADDRESS);
-    sgb->buf = src;
-    sgb->size = length;
-    sgb->offset = 0;
-    sgb->refcount = 0;
-
     int rv;
     tfs_fuse_debug("file_write range %R\n", irangel(offset, length));
-    apply(f->fs_write, sg, irangel(offset, length), closure(h, file_write_complete,
-                                                            f, sg, length, is_file_offset, &rv));
+    io_status_handler completion = closure(h, file_write_complete, f, is_file_offset, &rv);
+    if (completion == INVALID_ADDRESS)
+        return -ENOMEM;
+    filesystem_write_linear(f->fsf, src, irangel(offset, length), completion);
     return rv;
 }
 
@@ -935,7 +917,6 @@ int main(int argc, char **argv)
     dfd = fd;
     --argc;
     h = init_process_runtime();
-    init_pagecache(h, h, PAGESIZE);
     u64 length;
     u64 offset = get_fs_offset(fd, partition, false, &length);
     create_filesystem(h,

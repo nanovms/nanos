@@ -24,8 +24,8 @@ typedef struct unixsock {
     notify_entry notify_handle;
     closure_struct(file_io, read);
     closure_struct(file_io, write);
-    closure_struct(sg_file_io, sg_read);
-    closure_struct(sg_file_io, sg_write);
+    closure_struct(file_iov, readv);
+    closure_struct(file_iov, writev);
     closure_struct(fdesc_events, events);
     closure_struct(fdesc_ioctl, ioctl);
     closure_struct(fdesc_close, close);
@@ -178,11 +178,12 @@ static void unixsock_addr_copy(struct sockaddr_un *dest, struct sockaddr_un *src
 }
 
 closure_function(7, 1, sysreturn, unixsock_read_bh,
-                 unixsock, s, void *, dest, sg_list, sg, u64, length, io_completion, completion, struct sockaddr_un *, from_addr, socklen_t *, from_length,
+                 unixsock, s, void *, dest, struct iovec *, iov, u64, length, io_completion, completion, struct sockaddr_un *, from_addr, socklen_t *, from_length,
                  u64 flags)
 {
     unixsock s = bound(s);
     void *dest = bound(dest);
+    struct iovec *iov = bound(iov);
     u64 length = bound(length);
 
     sharedbuf shb;
@@ -216,25 +217,35 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
             read_done = true;
         goto out;
     }
+    u64 buf_offset = 0;
     do {
         buffer b = shb->b;
-        u64 xfer = MIN(buffer_length(b), length);
+        u64 xfer;
         if (dest) {
-            buffer_read(b, dest, xfer);
-            dest = (u8 *)dest + xfer;
-        } else if (xfer > 0) {
-            sg_buf sgb = sg_list_tail_add(bound(sg), xfer);
-            if (sgb == INVALID_ADDRESS)
-                break;
-            sharedbuf_reserve(shb);
-            sgb->buf = buffer_ref(b, 0);
-            sgb->size = xfer;
-            sgb->offset = 0;
-            sgb->refcount = &shb->refcount;
-            buffer_consume(b, xfer);
+            xfer = MIN(buffer_length(b), length);
+            buffer_read(b, dest + buf_offset, xfer);
+            buf_offset += xfer;
+            length -= xfer;
+        } else {
+            xfer = 0;
+            do {
+                u64 partial_xfer;
+                do {
+                    partial_xfer = MIN(buffer_length(b), iov->iov_len - buf_offset);
+                    if (partial_xfer == 0) {
+                        iov++;
+                        length--;
+                        buf_offset = 0;
+                    }
+                } while ((partial_xfer == 0) && length);
+                if (!length)
+                    break;
+                buffer_read(b, iov->iov_base + buf_offset, partial_xfer);
+                buf_offset += partial_xfer;
+                xfer += partial_xfer;
+            } while (buffer_length(b));
         }
         rv += xfer;
-        length -= xfer;
         s->sock.rx_len -= xfer;
         if (!buffer_length(b) || (s->sock.type != SOCK_STREAM)) {
             if (s->sock.type == SOCK_DGRAM) {
@@ -292,7 +303,7 @@ static sysreturn unixsock_write_check(unixsock s, u64 len)
     return 1;   /* any value > 0 will do */
 }
 
-static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
+static sysreturn unixsock_write_to(void *src, struct iovec *iov, u64 length,
                                    unixsock dest, unixsock from)
 {
     if ((dest->sock.rx_len >= so_rcvbuf) || queue_full(dest->data)) {
@@ -300,9 +311,11 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
     }
 
     context ctx = get_current_context(current_cpu());
+    u64 buf_offset = 0;
     sysreturn rv = 0;
     do {
-        u64 xfer = MIN(UNIXSOCK_BUF_MAX_SIZE, length);
+        u64 xfer = src ? length : iov_total_len(iov, length);
+        xfer = MIN(UNIXSOCK_BUF_MAX_SIZE, xfer);
         if (from->sock.type == SOCK_STREAM)
             xfer = MIN(xfer, so_rcvbuf - dest->sock.rx_len);
         sharedbuf shb = sharedbuf_allocate(dest->sock.h, xfer);
@@ -321,18 +334,35 @@ static sysreturn unixsock_write_to(void *src, sg_list sg, u64 length,
             break;
         }
         if (src) {
-            assert(buffer_write(shb->b, src, xfer));
-            src = (u8 *) src + xfer;
+            assert(buffer_write(shb->b, src + buf_offset, xfer));
+            buf_offset += xfer;
+            length -= xfer;
         } else {
-            u64 len = sg_copy_to_buf(buffer_ref(shb->b, 0), sg, xfer);
-            assert(len == xfer);
-            buffer_produce(shb->b, xfer);
+            u64 xfer_limit = xfer;
+            do {
+                u64 partial_xfer;
+                do {
+                    partial_xfer = MIN(xfer_limit, iov->iov_len - buf_offset);
+                    if (partial_xfer == 0) {
+                        iov++;
+                        length--;
+                        buf_offset = 0;
+                    }
+                } while (partial_xfer == 0);
+                buffer_write(shb->b, iov->iov_base + buf_offset, partial_xfer);
+                buf_offset += partial_xfer;
+                xfer_limit -= partial_xfer;
+            } while (xfer_limit);
+            if (buf_offset == iov->iov_len) {
+                iov++;
+                length--;
+                buf_offset = 0;
+            }
         }
         context_clear_err(ctx);
         assert(enqueue(dest->data, shb));
         dest->sock.rx_len += xfer;
         rv += xfer;
-        length -= xfer;
     } while ((length > 0) && (dest->sock.rx_len < so_rcvbuf) && !queue_full(dest->data));
     return rv;
 }
@@ -371,7 +401,7 @@ static sysreturn lookup_socket(unixsock *s, struct sockaddr *addr, socklen_t add
 }
 
 closure_function(6, 1, sysreturn, unixsock_write_bh,
-                 unixsock, s, void *, src, sg_list, sg, u64, length, io_completion, completion, unixsock, dest,
+                 unixsock, s, void *, src, struct iovec *, iov, u64, length, io_completion, completion, unixsock, dest,
                  u64 flags)
 {
     unixsock s = bound(s);
@@ -393,7 +423,7 @@ closure_function(6, 1, sysreturn, unixsock_write_bh,
         goto out;
     }
 
-    rv = unixsock_write_to(src, bound(sg), length, dest, s);
+    rv = unixsock_write_to(src, bound(iov), length, dest, s);
     if ((rv == -EAGAIN) && !(s->sock.f.flags & SOCK_NONBLOCK)) {
         unixsock_unlock(dest);
         return blockq_block_required((unix_context)get_current_context(current_cpu()), flags);
@@ -439,22 +469,22 @@ closure_func_basic(file_io, sysreturn, unixsock_write,
     return unixsock_write_with_addr(s, src, length, offset, ctx, bh, completion, dest);
 }
 
-closure_func_basic(sg_file_io, sysreturn, unixsock_sg_read,
-                   sg_list sg, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
+closure_func_basic(file_iov, sysreturn, unixsock_readv,
+                   struct iovec *iov, int count, u64 offset, context ctx, boolean bh, io_completion completion)
 {
-    unixsock s = struct_from_field(closure_self(), unixsock, sg_read);
-    blockq_action ba = closure_from_context(ctx, unixsock_read_bh, s, 0, sg, length,
+    unixsock s = struct_from_field(closure_self(), unixsock, readv);
+    blockq_action ba = closure_from_context(ctx, unixsock_read_bh, s, 0, iov, count,
                                             completion, 0, 0);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, -ENOMEM);
     return blockq_check(s->sock.rxbq, ba, bh);
 }
 
-closure_func_basic(sg_file_io, sysreturn, unixsock_sg_write,
-                   sg_list sg, u64 length, u64 offset, context ctx, boolean bh, io_completion completion)
+closure_func_basic(file_iov, sysreturn, unixsock_writev,
+                   struct iovec *iov, int count, u64 offset, context ctx, boolean bh, io_completion completion)
 {
-    unixsock s = struct_from_field(closure_self(), unixsock, sg_write);
-    sysreturn rv = unixsock_write_check(s, length);
+    unixsock s = struct_from_field(closure_self(), unixsock, writev);
+    sysreturn rv = unixsock_write_check(s, iov_total_len(iov, count));
     if (rv <= 0)
         return io_complete(completion, rv);
     unixsock_lock(s);
@@ -465,7 +495,7 @@ closure_func_basic(sg_file_io, sysreturn, unixsock_sg_write,
     if (!dest)
         return io_complete(completion, -ENOTCONN);
     blockq_action ba = closure_from_context(ctx, unixsock_write_bh, s,
-                                            0, sg, length, completion, dest);
+                                            0, iov, count, completion, dest);
     if (ba == INVALID_ADDRESS) {
         refcount_release(&dest->refcount);
         return io_complete(completion, -ENOMEM);
@@ -876,77 +906,23 @@ sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
         (io_completion)&sock->f.io_complete, src_addr, addrlen);
 }
 
-closure_function(2, 1, void, sendmsg_complete,
-                 sg_list, sg, io_completion, completion,
-                 sysreturn rv)
-{
-    sg_list sg = bound(sg);
-    deallocate_sg_list(sg);
-    apply(bound(completion), rv);
-    closure_finish();
-}
-
 sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,
                            int flags, boolean in_bh, io_completion completion)
 {
-    sg_list sg = allocate_sg_list();
-    sysreturn rv;
-    if (sg == INVALID_ADDRESS) {
-        rv = -ENOMEM;
-        goto out;
-    }
-    if (!iov_to_sg(sg, msg->msg_iov, msg->msg_iovlen))
-        goto err_dealloc_sg;
-    io_completion complete = closure(sock->h, sendmsg_complete, sg, completion);
-    if (complete == INVALID_ADDRESS)
-        goto err_dealloc_sg;
     context ctx = get_current_context(current_cpu());
-    return apply(sock->f.sg_write, sg, sg->count, 0, ctx, in_bh, complete);
-  err_dealloc_sg:
-    deallocate_sg_list(sg);
-    rv = -ENOMEM;
-  out:
-    return io_complete(completion, rv);
-}
-
-closure_function(4, 1, void, recvmsg_complete,
-                 sg_list, sg, struct iovec *, iov, int, iovlen, io_completion, completion,
-                 sysreturn rv)
-{
-    sg_list sg = bound(sg);
-    if ((rv > 0) && !sg_to_iov(sg, bound(iov), bound(iovlen)))
-        rv = -EFAULT;
-    deallocate_sg_list(sg);
-    apply(bound(completion), rv);
-    closure_finish();
+    return apply(sock->f.writev, msg->msg_iov, msg->msg_iovlen, 0, ctx, in_bh, completion);
 }
 
 sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
                            io_completion completion)
 {
-    sg_list sg = allocate_sg_list();
-    sysreturn rv;
-    if (sg == INVALID_ADDRESS) {
-        rv = -ENOMEM;
-        goto out;
-    }
-    io_completion complete = closure(sock->h, recvmsg_complete, sg,
-                                     msg->msg_iov, msg->msg_iovlen, completion);
-    if (complete == INVALID_ADDRESS)
-        goto err_dealloc_sg;
     blockq_action ba = contextual_closure(unixsock_read_bh, (unixsock)sock,
-                                          0, sg, iov_total_len(msg->msg_iov, msg->msg_iovlen),
-                                          complete, msg->msg_name, &msg->msg_namelen);
+                                          0, msg->msg_iov, msg->msg_iovlen,
+                                          completion, msg->msg_name, &msg->msg_namelen);
     if (ba == INVALID_ADDRESS) {
-        deallocate_closure(complete);
-        goto err_dealloc_sg;
+        return io_complete(completion, -ENOMEM);
     }
     return blockq_check(sock->rxbq, ba, in_bh);
-  err_dealloc_sg:
-    deallocate_sg_list(sg);
-    rv = -ENOMEM;
-  out:
-    return io_complete(completion, rv);
 }
 
 static unixsock unixsock_alloc(heap h, int type, u32 flags, boolean alloc_fd)
@@ -967,8 +943,8 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags, boolean alloc_fd)
     }
     s->sock.f.read = init_closure_func(&s->read, file_io, unixsock_read);
     s->sock.f.write = init_closure_func(&s->write, file_io, unixsock_write);
-    s->sock.f.sg_read = init_closure_func(&s->sg_read, sg_file_io, unixsock_sg_read);
-    s->sock.f.sg_write = init_closure_func(&s->sg_write, sg_file_io, unixsock_sg_write);
+    s->sock.f.readv = init_closure_func(&s->readv, file_iov, unixsock_readv);
+    s->sock.f.writev = init_closure_func(&s->writev, file_iov, unixsock_writev);
     s->sock.f.events = init_closure_func(&s->events, fdesc_events, unixsock_events);
     s->sock.f.ioctl = init_closure_func(&s->ioctl, fdesc_ioctl, unixsock_ioctl);
     s->sock.f.close = init_closure_func(&s->close, fdesc_close, unixsock_close);

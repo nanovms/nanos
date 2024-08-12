@@ -10,7 +10,9 @@ u64 fsfile_get_length(fsfile f);
 void fsfile_set_length(fsfile f, u64 length);
 sg_io fsfile_get_reader(fsfile f);
 sg_io fsfile_get_writer(fsfile f);
+#ifdef KERNEL
 pagecache_node fsfile_get_cachenode(fsfile f);
+#endif
 
 // turn these into method gets rather than call
 void filesystem_read_sg(fsfile f, sg_list sg, range q, status_handler completion);
@@ -78,14 +80,16 @@ fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len);
 fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len);
 
 fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
-                      pagecache_node_reserve fs_reserve, thunk fs_free);
+#ifdef KERNEL
+                      pagecache_node_reserve fs_reserve,
+#endif
+                      thunk fs_free);
 
 struct filesystem {
     u64 size;
     heap h;
     int blocksize_order;
     boolean ro; /* true for read-only filesystem */
-    pagecache_volume pv;
     tuple (*lookup)(filesystem fs, tuple parent, string name);
     fs_status (*create)(filesystem fs, tuple parent, string name, tuple md, fsfile *f);
     fs_status (*unlink)(filesystem fs, tuple parent, string name, tuple md, boolean *destruct_md);
@@ -106,6 +110,7 @@ struct filesystem {
     void (*destroy_fs)(filesystem fs);
     tuple root;
 #ifdef KERNEL
+    pagecache_volume pv;
     struct mutex lock;
 #endif
     struct refcount refcount;
@@ -116,7 +121,9 @@ struct filesystem {
 
 struct fsfile {
     filesystem fs;
+#ifdef KERNEL
     pagecache_node cache_node;
+#endif
     u64 length;
     tuple md;
     sg_io read;

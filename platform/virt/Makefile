@@ -226,7 +226,6 @@ UEFI_SRCS= \
 	$(SRCDIR)/aarch64/uefi.c \
 	$(SRCDIR)/boot/uefi.c \
 	$(SRCDIR)/kernel/elf.c \
-	$(SRCDIR)/kernel/pagecache.c \
 	$(SRCDIR)/runtime/buffer.c \
 	$(SRCDIR)/runtime/format.c \
 	$(SRCDIR)/runtime/memops.c \

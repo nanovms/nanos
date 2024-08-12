@@ -314,6 +314,7 @@ static void tfs_read(fsfile fsf,
     tfs_debug("%s: fsfile %p, sg %p, q %R, sh %F\n", func_ss, f, sg, q, complete);
 
     /* read extent data and zero gaps */
+    q.end = MIN(q.end, fsf->length);
     range blocks = range_rshift_pad(q, fs->fs.blocksize_order);
     filesystem_lock(&fs->fs);
     rangemap_range_lookup_with_gaps(f->extentmap, blocks,
@@ -485,20 +486,6 @@ static void remove_extent_from_file(tfsfile f, extent ex)
         set(extents, offs, 0);
     }
     rangemap_remove_node(f->extentmap, &ex->node);
-}
-
-static fs_status add_extents(tfs fs, range i, rangemap rm)
-{
-    extent ex;
-    fs_status fss;
-    while (range_span(i)) {
-        fss = create_extent(fs, i, true, &ex);
-        if (fss != FS_STATUS_OK)
-            return fss;
-        assert(rangemap_insert(rm, &ex->node));
-        i.start = ex->node.r.end;
-    }
-    return FS_STATUS_OK;
 }
 
 define_closure_function(2, 1, void, uninited_complete,
@@ -781,23 +768,6 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
     return STATUS_OK;
 }
 
-closure_function(2, 1, status, filesystem_check_or_reserve_extent,
-                 tfs, fs, tfsfile, f,
-                 range q)
-{
-    tfs fs = bound(fs);
-    tfsfile f = bound(f);
-    tfs_debug("%s: file %p range %R\n", func_ss, f, q);
-    if (fs->fs.ro) {
-        status s = timm("result", "read-only filesystem");
-        return timm_append(s, "fsstatus", "%d", FS_STATUS_READONLY);
-    }
-    filesystem_lock(&fs->fs);
-    status s = extents_range_handler(fs, f, q, 0, 0);
-    filesystem_unlock(&fs->fs);
-    return s;
-}
-
 static void tfs_write(fsfile fsf,
                  sg_list sg, range q, status_handler complete)
 {
@@ -860,6 +830,38 @@ static status_handler tfs_get_sync_handler(filesystem fs, fsfile fsf, boolean da
     else
         flush_log = true;
     return closure(fs->h, fs_cache_sync_complete, (tfs)fs, completion, flush_log);
+}
+
+#ifdef KERNEL
+closure_function(2, 1, status, filesystem_check_or_reserve_extent,
+                 tfs, fs, tfsfile, f,
+                 range q)
+{
+    tfs fs = bound(fs);
+    tfsfile f = bound(f);
+    tfs_debug("%s: file %p range %R\n", func_ss, f, q);
+    if (fs->fs.ro) {
+        status s = timm("result", "read-only filesystem");
+        return timm_append(s, "fsstatus", "%d", FS_STATUS_READONLY);
+    }
+    filesystem_lock(&fs->fs);
+    status s = extents_range_handler(fs, f, q, 0, 0);
+    filesystem_unlock(&fs->fs);
+    return s;
+}
+
+static fs_status add_extents(tfs fs, range i, rangemap rm)
+{
+    extent ex;
+    fs_status fss;
+    while (range_span(i)) {
+        fss = create_extent(fs, i, true, &ex);
+        if (fss != FS_STATUS_OK)
+            return fss;
+        assert(rangemap_insert(rm, &ex->node));
+        i.start = ex->node.r.end;
+    }
+    return FS_STATUS_OK;
 }
 
 closure_function(2, 1, void, filesystem_op_complete,
@@ -964,13 +966,10 @@ void filesystem_dealloc(fsfile f, long offset, long len,
        range. The null sg is propagated to the storage write for
        extent removal. */
     status_handler sh;
-#ifdef KERNEL
     sh = contextual_closure(filesystem_op_complete, f, completion);
-#else
-    sh = closure(f->fs->h, filesystem_op_complete, f, completion);
-#endif
-    filesystem_write_sg(f, 0, irangel(offset, len), sh);
+    apply(pagecache_node_get_writer(fsfile_get_cachenode(f)), 0, irangel(offset, len), sh);
 }
+#endif
 
 closure_func_basic(binding_handler, boolean, cleanup_directory_each,
                    value s, value v)
@@ -1111,7 +1110,9 @@ tfsfile allocate_fsfile(tfs fs, tuple md);
 static void deallocate_fsfile(tfs fs, tfsfile f, rmnode_handler extent_destructor)
 {
     deallocate_rangemap(f->extentmap, extent_destructor);
+#ifdef KERNEL
     pagecache_deallocate_node(f->f.cache_node);
+#endif
     deallocate(fs->fs.h, f, sizeof(*f));
 }
 
@@ -1243,8 +1244,12 @@ closure_function(1, 0, void, free_extents,
                  fsfile, f)
 {
     fsfile f = bound(f);
-    pagecache_purge_node(f->cache_node, init_closure_func(&f->sync_complete, status_handler,
-                                                          tfsfile_sync_complete));
+    status_handler sh = init_closure_func(&f->sync_complete, status_handler, tfsfile_sync_complete);
+#ifdef KERNEL
+    pagecache_purge_node(f->cache_node, sh);
+#else
+    apply(sh, STATUS_OK);
+#endif
 }
 
 #endif /* !TFS_READ_ONLY */
@@ -1256,11 +1261,9 @@ tfsfile allocate_fsfile(tfs fs, tuple md)
     if (f == INVALID_ADDRESS)
         return f;
     fsfile fsf = &f->f;
+#ifdef KERNEL
     pagecache_node_reserve fs_reserve =
-#ifndef TFS_READ_ONLY
         closure(h, filesystem_check_or_reserve_extent, fs, f);
-#else
-    0;
 #endif
     thunk fs_free =
 #ifndef TFS_READ_ONLY
@@ -1268,9 +1271,15 @@ tfsfile allocate_fsfile(tfs fs, tuple md)
 #else
         0;
 #endif
-    if (fsfile_init(&fs->fs, fsf, md, fs_reserve, fs_free) != FS_STATUS_OK) {
+    if (fsfile_init(&fs->fs, fsf, md,
+#ifdef KERNEL
+                    fs_reserve,
+#endif
+                    fs_free) != FS_STATUS_OK) {
+#ifdef KERNEL
         if (fs_reserve)
             deallocate_closure(fs_reserve);
+#endif
         if (fs_free)
             deallocate_closure(fs_free);
         deallocate(h, f, sizeof(struct tfsfile));
@@ -1367,15 +1376,19 @@ void create_filesystem(heap h,
     if (!ignore_io_status)
         ignore_io_status = closure_func(h, io_status_handler, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
-    fs->zero_page = pagecache_get_zero_page();
-    assert(fs->zero_page);
     fs->req_handler = req_handler;
     fs->fs.root = 0;
-    fs->page_order = pagecache_get_page_order();
     fs->fs.lookup = fs_lookup;
     fs->fs.get_fsfile = tfs_get_fsfile;
     fs->fs.file_read = tfs_read;
 #ifndef TFS_READ_ONLY
+#ifdef KERNEL
+    fs->page_order = pagecache_get_page_order();
+    fs->zero_page = pagecache_get_zero_page();
+#else
+    fs->page_order = PAGESIZE;
+    fs->zero_page = allocate_zero(h, PAGESIZE);
+#endif
     fs->fs.file_write = tfs_write;
 #endif
     fs->fs.get_inode = fs_get_inode;

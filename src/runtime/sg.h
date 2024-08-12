@@ -88,10 +88,12 @@ static inline void sg_list_release(sg_list sg)
     }
 }
 
+sg_list sg_new(u64 sgb_count);
 sg_list allocate_sg_list(void);
 void deallocate_sg_list(sg_list sg);
 void init_sg(heap h);
 void sg_consume(sg_list sg, u64 length);
+word sg_total_len(sg_list sg);
 u64 sg_copy_to_buf(void *target, sg_list sg, u64 length);
 u64 sg_copy_from_buf(void *src, sg_list sg, u64 length);
 u64 sg_copy_to_buf_and_release(void *dest, sg_list src, u64 limit);

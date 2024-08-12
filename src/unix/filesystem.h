@@ -30,6 +30,8 @@ sysreturn sysreturn_from_fs_status_value(status s);
  * not to the range to be read ahead. */
 void file_readahead(file f, u64 offset, u64 len);
 
+sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, sg_list *sgp);
+
 fs_status filesystem_chdir(process p, sstring path);
 
 void filesystem_update_relatime(filesystem fs, tuple md);

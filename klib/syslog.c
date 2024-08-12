@@ -97,7 +97,7 @@ static void syslog_file_rotate(void)
         /* Continue logging on a new file. */
         syslog.fsf = fsfile_open_or_create(file_path, true);
         syslog.file_offset = 0;
-        syslog.fs_write = fsfile_get_writer(syslog.fsf);
+        syslog.fs_write = pagecache_node_get_writer(fsfile_get_cachenode(syslog.fsf));
     } else {
         syslog.fs_write = 0;    /* stop logging */
     }
@@ -461,7 +461,7 @@ int init(status_handler complete)
             rprintf("cannot create syslog output file\n");
             return KLIB_INIT_FAILED;
         }
-        syslog.fs_write = fsfile_get_writer(syslog.fsf);
+        syslog.fs_write = pagecache_node_get_writer(fsfile_get_cachenode(syslog.fsf));
         syslog.file_offset = fsfile_get_length(syslog.fsf); /* append to existing contents */
     }
     if (!sstring_is_null(syslog.server)) {

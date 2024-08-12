@@ -8,7 +8,6 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/mman.h>
-#include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
 #include <dirent.h>
@@ -731,7 +730,6 @@ int main(int argc, char **argv)
         parser_feed(p, read_stdin(h));
     }
 
-    init_pagecache(h, h, PAGESIZE);
     mkfs_write_status = closure_func(h, io_status_handler, mkfs_write_handler);
 
     if (root && !empty_fs) {

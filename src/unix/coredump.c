@@ -224,7 +224,7 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
         goto error;
     }
 
-    sg_io write = fsfile_get_writer(f);
+    sg_io write = pagecache_node_get_writer(fsfile_get_cachenode(f));
     sg_list sg = allocate_sg_list();
     if (sg == INVALID_ADDRESS) {
         core_debug("failed to allocate sg\n");

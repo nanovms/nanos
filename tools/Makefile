@@ -11,7 +11,6 @@ ADDITIONAL_PROGRAMS=tfs-fuse
 
 SRCS-dump= \
 	$(CURDIR)/dump.c \
-	$(SRCDIR)/kernel/pagecache.c \
 	$(RUNTIME) \
 	$(SRCDIR)/fs/fs.c \
 	$(SRCDIR)/fs/tfs.c \
@@ -20,7 +19,6 @@ SRCS-dump= \
 
 SRCS-tfs-fuse= \
 	$(CURDIR)/tfs-fuse.c \
-	$(SRCDIR)/kernel/pagecache.c \
 	$(RUNTIME) \
 	$(SRCDIR)/fs/fs.c \
 	$(SRCDIR)/fs/tfs.c \
@@ -29,7 +27,6 @@ SRCS-tfs-fuse= \
 LIBS-tfs-fuse=	-lfuse -lpthread
 
 SRCS-mkfs= \
-	$(SRCDIR)/kernel/pagecache.c \
 	$(CURDIR)/mkfs.c \
 	$(RUNTIME) \
 	$(SRCDIR)/fs/fs.c \

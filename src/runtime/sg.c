@@ -54,6 +54,16 @@ void sg_consume(sg_list sg, u64 length)
     }
 }
 
+word sg_total_len(sg_list sg)
+{
+    word len = sg->count;
+    /* Check if the head buffer has been partially consumed. */
+    sg_buf sgb = sg_list_head_peek(sg);
+    if (sgb != INVALID_ADDRESS)
+        len -= sgb->offset;
+    return len;
+}
+
 /* TODO clean up redundant parts of loop with macros or static closures */
 
 static u64 sg_copy(void *buf, sg_list sg, u64 n, boolean to_buf)
@@ -187,21 +197,25 @@ boolean sg_fault_in(sg_list sg, u64 n)
 
 #endif
 
-sg_list allocate_sg_list(void)
+sg_list sg_new(u64 sgb_count)
 {
     sg_lock();
     list l = list_get_next(&free_sg_lists);
     if (l) {
-        list_delete(l);
+        sg_list sg = struct_from_list(l, sg_list, l);
+        if (!buffer_extend(sg->b, sizeof(struct sg_buf) * sgb_count))
+            sg = INVALID_ADDRESS;
+        else
+            list_delete(l);
         sg_unlock();
-        return struct_from_list(l, sg_list, l);
+        return sg;
     }
     sg_unlock();
 
     sg_list sg = allocate(sg_heap, sizeof(struct sg_list));
     if (!sg)
         return sg;
-    sg->b = allocate_buffer(sg_heap, sizeof(struct sg_buf) * DEFAULT_SG_FRAGS);
+    sg->b = allocate_buffer(sg_heap, sizeof(struct sg_buf) * sgb_count);
     if (sg->b == INVALID_ADDRESS) {
         deallocate(sg_heap, sg, sizeof(struct sg_list));
         return INVALID_ADDRESS;
@@ -209,6 +223,11 @@ sg_list allocate_sg_list(void)
     list_init(&sg->l);
     sg->count = 0;
     return sg;
+}
+
+sg_list allocate_sg_list(void)
+{
+    return sg_new(DEFAULT_SG_FRAGS);
 }
 
 void deallocate_sg_list(sg_list sg)

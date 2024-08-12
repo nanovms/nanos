@@ -7,7 +7,6 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <stdio.h>
-#include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
 #include <errno.h>
@@ -298,7 +297,6 @@ int main(int argc, char **argv)
         dump_klog(fd);
 
     heap h = init_process_runtime();
-    init_pagecache(h, h, PAGESIZE);
     create_filesystem(h,
                       SECTOR_SIZE,
                       infinity,

@@ -641,7 +641,7 @@ static void init_tracelog_file_writer(value v)
     }
     filesystem_put_node(fs, file);
     tracelog.logfile = fsf;
-    tracelog.fs_write = fsfile_get_writer(tracelog.logfile);
+    tracelog.fs_write = pagecache_node_get_writer(fsfile_get_cachenode(tracelog.logfile));
     tracelog.file_offset = fsfile_get_length(tracelog.logfile); /* append */
     add_shutdown_completion(closure_func(tracelog.h, shutdown_handler, tracelog_shutdown_handler));
     schedule_collator_timer();

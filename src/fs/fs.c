@@ -1,10 +1,10 @@
 #ifdef KERNEL
 #include <kernel.h>
+#include <pagecache.h>
 #else
 #include <runtime.h>
 #endif
 #include <dma.h>
-#include <pagecache.h>
 #include <fs.h>
 
 //#define FS_DEBUG
@@ -70,7 +70,9 @@ u64 fsfile_get_length(fsfile f)
 void fsfile_set_length(fsfile f, u64 length)
 {
     f->length = length;
+#ifdef KERNEL
     pagecache_set_node_length(f->cache_node, length);
+#endif
 }
 
 sg_io fsfile_get_reader(fsfile f)
@@ -83,10 +85,12 @@ sg_io fsfile_get_writer(fsfile f)
     return f->write;
 }
 
+#ifdef KERNEL
 pagecache_node fsfile_get_cachenode(fsfile f)
 {
     return f->cache_node;
 }
+#endif
 
 void fsfile_reserve(fsfile f)
 {
@@ -166,31 +170,99 @@ void filesystem_set_rdev(filesystem fs, tuple t, u64 rdev)
     set(t, sym(rdev), rdev_val);
 }
 
-/* TODO moving sg up to syscall level means eliminating this extra step */
-closure_function(4, 1, void, filesystem_read_complete,
-                 void *, dest, u64, limit, io_status_handler, io_complete, sg_list, sg,
+closure_function(7, 1, void, filesystem_read_complete,
+                 filesystem, fs, void *, dest, range, q, void *, head_buf, void *, tail_buf, io_status_handler, io_complete, sg_list, sg,
                  status s)
 {
     fs_debug("%s: dest %p, status %v\n", func_ss, bound(dest), s);
-    u64 count = 0;
+    range q = bound(q);
+    u64 count = range_span(q);
     if (is_ok(s)) {
-        count = sg_copy_to_buf_and_release(bound(dest), bound(sg), bound(limit));
+        filesystem fs = bound(fs);
+        u64 block_size = fs_blocksize(fs);
+        heap h = fs->h;
+        void *dest = bound(dest);
+        void *head_buf = bound(head_buf);
+        if (head_buf) {
+            u64 head_len = block_size - (q.start & (block_size - 1));
+            runtime_memcpy(dest, head_buf + block_size - head_len, MIN(head_len, count));
+            deallocate(h, head_buf, block_size);
+        }
+        void *tail_buf = bound(tail_buf);
+        if (tail_buf) {
+            u64 tail_len = q.end & (block_size - 1);
+            runtime_memcpy(dest + count - tail_len, tail_buf, tail_len);
+            deallocate(h, tail_buf, block_size);
+        }
     }
+    deallocate_sg_list(bound(sg));
     apply(bound(io_complete), s, count);
     closure_finish();
 }
 
 void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler io_complete)
 {
-    sg_list sg = allocate_sg_list();
+    sg_list sg = sg_new(3);
     if (sg == INVALID_ADDRESS) {
         status s = timm("result", "failed to allocate sg list");
         apply(io_complete, timm_append(s,
                                 "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
     }
-    filesystem_read_sg(f, sg, q, closure(f->fs->h, filesystem_read_complete,
-                                         dest, range_span(q), io_complete, sg));
+    filesystem fs = f->fs;
+    u64 block_size = fs_blocksize(fs);
+    range padded_q = q;
+    heap h = fs->h;
+    u64 head_len = block_size - (q.start & (block_size - 1));
+    void *head_buf;
+    if (head_len == block_size) {
+        head_len = 0;
+        head_buf = 0;
+    } else {
+        head_buf = allocate(h, block_size);
+        if (head_buf == INVALID_ADDRESS)
+            goto err_nomem;
+        sg_buf sgb = sg_list_tail_add(sg, block_size);
+        sgb->buf = head_buf;
+        sgb->size = block_size;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+        padded_q.start -= block_size - head_len;
+        if (padded_q.end < padded_q.start + block_size)
+            padded_q.end = padded_q.start + block_size;
+    }
+    u64 tail_len = padded_q.end & (block_size - 1);
+    s64 trimmed_len = range_span(q) - head_len - tail_len;
+    if (trimmed_len > 0) {
+        sg_buf sgb = sg_list_tail_add(sg, trimmed_len);
+        sgb->buf = dest + head_len;
+        sgb->size = trimmed_len;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+    }
+    void *tail_buf;
+    if (tail_len) {
+        tail_buf = allocate(h, block_size);
+        if (tail_buf == INVALID_ADDRESS) {
+            if (head_buf)
+                deallocate(h, head_buf, block_size);
+            goto err_nomem;
+        }
+        sg_buf sgb = sg_list_tail_add(sg, block_size);
+        sgb->buf = tail_buf;
+        sgb->size = block_size;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+        padded_q.end += block_size - tail_len;
+    } else {
+        tail_buf = 0;
+    }
+    filesystem_read_sg(f, sg, padded_q, closure(f->fs->h, filesystem_read_complete, fs, dest, q,
+                                                head_buf, tail_buf, io_complete, sg));
+    return;
+  err_nomem:
+    deallocate_sg_list(sg);
+    apply(io_complete, timm("result", "out of memory"), 0);
 }
 
 closure_function(5, 1, void, read_entire_complete,
@@ -202,14 +274,7 @@ closure_function(5, 1, void, read_entire_complete,
     fsfile f = bound(f);
     sg_list sg = bound(sg);
     if (is_ok(s)) {
-        u64 copy_len = fsfile_get_length(f) - buffer_length(b);
-        u64 len = sg_copy_to_buf(buffer_end(b), sg, copy_len);
-        buffer_produce(b, len);
-        if (len < copy_len) {
-            filesystem_read_sg(f, sg, irangel(buffer_length(b), copy_len - len),
-                               (status_handler)closure_self());
-            return;
-        }
+        buffer_produce(b, fsfile_get_length(f));
         report_sha256(b);
         apply(bound(bh), b);
     } else {
@@ -236,15 +301,21 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
     }
 
     u64 length = fsfile_get_length(f);
-    buffer b = allocate_buffer(bufheap, pad(length, bufheap->pagesize));
+    u64 padded_len = pad(length, fs_blocksize(f->fs));
+    buffer b = allocate_buffer(bufheap, padded_len);
     if (b == INVALID_ADDRESS)
         goto alloc_fail;
 
-    sg_list sg = allocate_sg_list();
+    sg_list sg = sg_new(1);
     if (sg == INVALID_ADDRESS) {
         deallocate_buffer(b);
         goto alloc_fail;
     }
+    sg_buf sgb = sg_list_tail_add(sg, padded_len);
+    sgb->buf = buffer_ref(b, 0);
+    sgb->size = padded_len;
+    sgb->offset = 0;
+    sgb->refcount = 0;
     filesystem_read_sg(f, sg, irange(0, length),
                       closure(fs->h, read_entire_complete, sg, c, b, f, sh));
     return;
@@ -271,39 +342,63 @@ fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
     return fsf;
 }
 
-closure_function(3, 1, void, filesystem_write_complete,
-                 sg_list, sg, u64, length, io_status_handler, io_complete,
+closure_function(5, 1, void, filesystem_write_complete,
+                 filesystem, fs, sg_list, sg, u64, length, void *, tail_buf, io_status_handler, io_complete,
                  status s)
 {
     deallocate_sg_list(bound(sg));
+    void *tail_buf = bound(tail_buf);
+    if (tail_buf) {
+        filesystem fs = bound(fs);
+        deallocate(fs->h, tail_buf, fs_blocksize(fs));
+    }
     apply(bound(io_complete), s, bound(length));
     closure_finish();
 }
 
 void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_complete)
 {
-    sg_list sg = allocate_sg_list();
+    u64 length = range_span(q);
+    if (length == 0) {
+        apply(io_complete, STATUS_OK, length);
+        return;
+    }
+    filesystem fs = f->fs;
+    u64 block_size = fs_blocksize(fs);
+    assert((q.start & (block_size - 1)) == 0);
+    sg_list sg = sg_new(2);
     if (sg == INVALID_ADDRESS) {
         status s = timm("result", "failed to allocate sg list");
         apply(io_complete, timm_append(s,
                                 "fsstatus", "%d", FS_STATUS_NOMEM), 0);
         return;
     }
-    u64 length = range_span(q);
-    sg_buf sgb = sg_list_tail_add(sg, length);
-    if (sgb == INVALID_ADDRESS) {
-        deallocate_sg_list(sg);
-        status s = timm("result", "failed to allocate sg buf");
-        apply(io_complete, timm_append(s,
-                                "fsstatus", "%d", FS_STATUS_NOMEM), 0);
-        return;
-    }
+    u64 tail_len = length & (block_size - 1);
+    sg_buf sgb = sg_list_tail_add(sg, length - tail_len);
     sgb->buf = src;
-    sgb->size = length;
+    sgb->size = length - tail_len;
     sgb->offset = 0;
     sgb->refcount = 0;
-    filesystem_write_sg(f, sg, q, closure(f->fs->h, filesystem_write_complete,
-                                          sg, length, io_complete));
+    void *tail_buf;
+    if (tail_len) {
+        tail_buf = allocate(fs->h, block_size);
+        if (tail_buf == INVALID_ADDRESS) {
+            deallocate_sg_list(sg);
+            apply(io_complete, timm("result", "failed to allocate tail buffer"), 0);
+            return;
+        }
+        sgb = sg_list_tail_add(sg, block_size);
+        runtime_memcpy(tail_buf, src + length - tail_len, tail_len);
+        zero(tail_buf + tail_len, block_size - tail_len);
+        sgb->buf = tail_buf;
+        sgb->size = block_size;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+    } else {
+        tail_buf = 0;
+    }
+    filesystem_write_sg(f, sg, q, closure(fs->h, filesystem_write_complete,
+                                          fs, sg, length, tail_buf, io_complete));
 }
 
 fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
@@ -323,7 +418,11 @@ void filesystem_flush(filesystem fs, status_handler completion)
         apply(completion, timm("result", "failed to allocate closure"));
         return;
     }
+#ifdef KERNEL
     pagecache_sync_volume(fs->pv, sh);
+#else
+    apply(sh, STATUS_OK);
+#endif
 }
 
 void fsfile_flush(fsfile fsf, boolean datasync, status_handler completion)
@@ -338,7 +437,11 @@ void fsfile_flush(fsfile fsf, boolean datasync, status_handler completion)
         fsf->status &= ~FSF_DIRTY_DATASYNC;
     else
         fsf->status &= ~FSF_DIRTY;
+#ifdef KERNEL
     pagecache_sync_node(fsf->cache_node, sh);
+#else
+    apply(sh, STATUS_OK);
+#endif
 }
 
 void filesystem_reserve(filesystem fs)
@@ -775,7 +878,10 @@ closure_function(2, 3, void, fs_io_func,
 #endif
 
 fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
-                      pagecache_node_reserve fs_reserve, thunk fs_free)
+#ifdef KERNEL
+                      pagecache_node_reserve fs_reserve,
+#endif
+                      thunk fs_free)
 {
     heap h = fs->h;
     sg_io fs_read, fs_write;
@@ -799,20 +905,20 @@ fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
 #else
     fs_write = 0;
 #endif
+#ifdef KERNEL
     pagecache_node pn = pagecache_allocate_node(fs->pv, fs_read, fs_write, fs_reserve);
     if (pn == INVALID_ADDRESS) {
         deallocate_closure(fs_read);
-#ifndef FS_READ_ONLY
         deallocate_closure(fs_write);
-#endif
         return FS_STATUS_NOMEM;
     }
+    f->cache_node = pn;
+#endif
     f->fs = fs;
     f->md = md;
     f->length = 0;
-    f->cache_node = pn;
-    f->read = pagecache_node_get_reader(pn);
-    f->write = pagecache_node_get_writer(pn);
+    f->read = fs_read;
+    f->write = fs_write;
     init_refcount(&f->refcount, 1, fs_free);
     f->status = 0;
     return FS_STATUS_OK;
@@ -824,9 +930,11 @@ status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean r
     fs->size = size;
     assert((blocksize & (blocksize - 1)) == 0);
     fs->blocksize_order = find_order(blocksize);
+#ifdef KERNEL
     fs->pv = pagecache_allocate_volume(size, fs->blocksize_order);
     if (fs->pv == INVALID_ADDRESS)
         return timm("result", "failed to allocate pagacache volume");
+#endif
     fs->get_seals = 0;
     fs->set_seals = 0;
 #ifndef FS_READ_ONLY
@@ -840,7 +948,9 @@ status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean r
 
 void filesystem_deinit(filesystem fs)
 {
+#ifdef KERNEL
     pagecache_dealloc_volume(fs->pv);
+#endif
 }
 
 fs_status fs_get_fsfile(table files, tuple n, fsfile *f)
