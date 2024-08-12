@@ -429,7 +429,9 @@ closure_func_basic(file_io, int, file_write,
 closure_func_basic(fdesc_close, void, file_close)
 {
     file f = struct_from_closure(file, close);
-    fsfile_release(f->fsf);
+    fsfile fsf = f->fsf;
+    if (fsf)
+        fsfile_release(fsf);
     deallocate(h, f, sizeof(struct file));
 }
 
@@ -478,8 +480,8 @@ static int open_internal(const char *name, int flags, int mode)
     f->f.write = init_closure_func(&f->write, file_io, file_write);
     f->f.close = init_closure_func(&f->close, fdesc_close, file_close);
     f->fs = rootfs;
+    f->fsf = fsf;
     if (type == FDESC_TYPE_REGULAR) {
-        f->fsf = fsf;
         f->fs_read = fsfile_get_reader(fsf);
         assert(f->fs_read);
         f->fs_write = fsfile_get_writer(fsf);
