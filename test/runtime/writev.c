@@ -1,5 +1,7 @@
+#define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -22,6 +24,55 @@
         close(fd);          \
         test_perror("lseek");               \
     }
+
+static void writev_test_direct(void)
+{
+    const char *file_name = "test_direct";
+    const int alignment = 512;
+    int fd = open(file_name, O_CREAT | O_RDWR | O_DIRECT, S_IRUSR | S_IWUSR);
+    test_assert(fd >= 0);
+    unsigned char wbuf[3 * alignment];
+    unsigned char rbuf[3 * alignment];
+    struct iovec iovs[2];
+    unsigned char *ptr;
+
+    /* unaligned base pointers: writev() may or may not fail with EINVAL (it fails on Nanos and
+     * succeeds on Linux with ext4 filesystem) */
+    if ((intptr_t)wbuf & (alignment - 1))
+        ptr = wbuf;
+    else
+        ptr = wbuf + 1;
+    iovs[0].iov_base = ptr;
+    iovs[1].iov_base = ptr + alignment;
+    iovs[0].iov_len = iovs[1].iov_len = alignment;
+    if (writev(fd, iovs, 2) > 0)
+        test_assert(lseek(fd, 0, SEEK_SET) == 0);
+    else
+        test_assert(errno == EINVAL);
+
+    /* unaligned buffer length */
+    ptr = (unsigned char *)((intptr_t)(wbuf - 1) & ~(alignment - 1)) + alignment;
+    iovs[0].iov_base = ptr;
+    iovs[1].iov_base = ptr + alignment;
+    iovs[0].iov_len = 1;
+    test_assert((writev(fd, iovs, 2) == -1) && (errno == EINVAL));
+
+    /* aligned buffer address and length */
+    for (int i = 0; i < 2 * alignment; i += sizeof(uint64_t))
+        *(uint64_t *)(ptr + i) = i;
+    iovs[0].iov_len = alignment;
+    test_assert(writev(fd, iovs, 2) == 2 * alignment);
+
+    /* aligned buffer address and length */
+    test_assert(lseek(fd, 0, SEEK_SET) == 0);
+    ptr = (unsigned char *)((intptr_t)(rbuf - 1) & ~(alignment - 1)) + alignment;
+    test_assert(read(fd, ptr, 2 * alignment) == 2 * alignment);
+
+    test_assert(!memcmp(ptr, iovs[0].iov_base, alignment));
+    test_assert(!memcmp(ptr + alignment, iovs[1].iov_base, alignment));
+    close(fd);
+    unlink(file_name);
+}
 
 int main()
 {
@@ -130,6 +181,8 @@ int main()
     if (close(fd) < 0) {
         test_perror("close read-only");
     }
+
+    writev_test_direct();
 
     printf("write test passed\n");
 

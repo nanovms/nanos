@@ -450,6 +450,9 @@ static void file_io_complete(file f, range r, boolean is_file_offset, sg_list sg
     if (is_ok(s)) {
         u64 len = range_span(r);
         len -= sg_total_len(sg);
+        u64 file_len = fsfile_get_length(f->fsf);
+        if (r.start + len > file_len)   /* can happen with direct I/O */
+            len = file_len - r.start;
         if (is_file_offset) /* vs specified offset (pread/pwrite) */
             f->offset += len;
         rv = len;
@@ -482,6 +485,15 @@ static void begin_file_read(file f, u64 length)
         fs_notify_event(md, IN_ACCESS);
         filesystem_put_meta(f->fs, md);
     }
+}
+
+static void file_do_read(file f, sg_list sg, range q, status_handler sh)
+{
+    u64 len = range_span(q);
+    begin_file_read(f, len);
+    apply(f->fs_read, sg, q, sh);
+    if (!(f->f.flags & O_DIRECT))
+        file_readahead(f, q.start, len);
 }
 
 closure_function(5, 1, void, file_read_complete,
@@ -521,9 +533,7 @@ closure_func_basic(file_io, sysreturn, file_read,
         deallocate_sg_list(sg);
         return io_complete(completion, -ENOMEM);
     }
-    begin_file_read(f, length);
-    apply(f->fs_read, sg, irangel(offset, length), sh);
-    file_readahead(f, offset, length);
+    file_do_read(f, sg, r, sh);
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
@@ -551,10 +561,7 @@ closure_func_basic(file_iov, sysreturn, file_readv,
         deallocate_sg_list(sg);
         return io_complete(completion, -ENOMEM);
     }
-    u64 length = range_span(r);
-    begin_file_read(f, length);
-    apply(f->fs_read, sg, r, sh);
-    file_readahead(f, offset, length);
+    file_do_read(f, sg, r, sh);
 
     /* possible direct return in top half */
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
@@ -750,10 +757,15 @@ int unix_file_new(filesystem fs, tuple md, int type, int flags, fsfile fsf)
     f->fsf = fsf;
     u64 length;
     if (fsf) {
-        pagecache_node pn = fsfile_get_cachenode(fsf);
-        f->fs_read = pagecache_node_get_reader(pn);
+        if (flags & O_DIRECT) {
+            f->fs_read = fsfile_get_reader(fsf);
+            f->fs_write = fsfile_get_writer(fsf);
+        } else {
+            pagecache_node pn = fsfile_get_cachenode(fsf);
+            f->fs_read = pagecache_node_get_reader(pn);
+            f->fs_write = pagecache_node_get_writer(pn);
+        }
         assert(f->fs_read);
-        f->fs_write = pagecache_node_get_writer(pn);
         assert(f->fs_write);
         f->fadv = POSIX_FADV_NORMAL;
         length = fsfile_get_length(fsf);

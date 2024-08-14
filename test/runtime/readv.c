@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -19,6 +20,45 @@
     if (expected != actual) { \
         test_error("\"%ld\" != \"%ld\"", (long)expected, (long)actual); \
     }
+
+static void readv_test_direct(void)
+{
+    const int alignment = 512;
+    int fd = open("hello", O_RDONLY | O_DIRECT);
+    test_assert(fd >= 0);
+    unsigned char buf[3 * alignment];
+    struct iovec iovs[2];
+    unsigned char *ptr;
+    int file_len;
+
+    /* unaligned base pointers: readv() may or may not fail with EINVAL (it fails on Nanos and
+     * succeeds on Linux with ext4 filesystem) */
+    if ((intptr_t)buf & (alignment - 1))
+        ptr = buf;
+    else
+        ptr = buf + 1;
+    iovs[0].iov_base = ptr;
+    iovs[1].iov_base = ptr + alignment;
+    iovs[0].iov_len = iovs[1].iov_len = alignment;
+    if (readv(fd, iovs, 2) > 0)
+        test_assert(lseek(fd, 0, SEEK_SET) == 0);
+    else
+        test_assert(errno == EINVAL);
+
+    /* unaligned buffer length */
+    ptr = (unsigned char *)((intptr_t)(buf - 1) & ~(alignment - 1)) + alignment;
+    iovs[0].iov_base = ptr;
+    iovs[1].iov_base = ptr + alignment;
+    iovs[0].iov_len = 1;
+    test_assert((readv(fd, iovs, 2) == -1) && (errno == EINVAL));
+
+    /* aligned buffer address and length */
+    iovs[0].iov_len = alignment;
+    file_len = readv(fd, iovs, 2);
+    test_assert((file_len > 0) && (file_len < 2 * alignment));
+
+    close(fd);
+}
 
 int main()
 {
@@ -128,6 +168,8 @@ int main()
         test_error("readv with faulting iov_base test (%d, %d)", rv, errno);
     }
     close(fd);
+
+    readv_test_direct();
 
     printf("readv test PASSED\n");
 

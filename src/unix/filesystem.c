@@ -74,6 +74,66 @@ void file_readahead(file f, u64 offset, u64 len)
                                    irangel(offset + len, ra_size), 0, 0);
 }
 
+static sysreturn file_io_init_internal(file f, u64 offset, struct iovec *iov, int count, sg_list sg)
+{
+    if (!(f->f.flags & O_DIRECT)) {
+        iov_to_sg(sg, iov, count);
+        return 0;
+    }
+    u64 block_mask = fs_blocksize(f->fs) - 1;
+    if (offset & block_mask)
+        return -EINVAL;
+    for (int i = 0; i < count; i++) {
+        u64 len = iov[i].iov_len;
+        if (len == 0)
+            continue;
+        void *ptr = iov[i].iov_base;
+        if ((u64_from_pointer(ptr) & block_mask) || (len & block_mask))
+            return -EINVAL;
+        touch_memory(ptr, len);
+        u64 phys = physical_from_virtual(ptr);
+        if (phys == INVALID_PHYSICAL)
+            return -EFAULT;
+        void *end = ptr + len;
+        /* ensure each SG buffer references a physically contiguous memory range */
+        void *contiguous_base = ptr;
+        u64 contiguous_len;
+        if ((u64_from_pointer(end - 1) & ~PAGEMASK) == (u64_from_pointer(ptr) & ~PAGEMASK)) {
+            contiguous_len = end - ptr; /* range fits in a single page */
+        } else {
+            ptr = pointer_from_u64(pad(u64_from_pointer(ptr + 1), PAGESIZE));
+            contiguous_len = ptr - contiguous_base;
+            phys += contiguous_len;
+            for (; ptr < end; ptr += PAGESIZE, phys += PAGESIZE) {
+                u64 next_phys = physical_from_virtual(ptr);
+                if ((next_phys != phys) || (contiguous_len + PAGESIZE >= U64_FROM_BIT(32))) {
+                    if (next_phys == INVALID_PHYSICAL)
+                        return -EFAULT;
+                    sg_buf sgb = sg_list_tail_add(sg, contiguous_len);
+                    if (sgb == INVALID_ADDRESS)
+                        return -ENOMEM;
+                    sgb->buf = contiguous_base;
+                    sgb->size = contiguous_len;
+                    sgb->offset = 0;
+                    sgb->refcount = 0;
+                    contiguous_base = ptr;
+                    contiguous_len = 0;
+                    phys = next_phys;
+                }
+                contiguous_len += MIN(end - ptr, PAGESIZE);
+            }
+        }
+        sg_buf sgb = sg_list_tail_add(sg, contiguous_len);
+        if (sgb == INVALID_ADDRESS)
+            return -ENOMEM;
+        sgb->buf = contiguous_base;
+        sgb->size = contiguous_len;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+    }
+    return 0;
+}
+
 sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, sg_list *sgp)
 {
     sg_list sg = sg_new(count);
@@ -85,9 +145,9 @@ sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, sg_l
         rv = -EFAULT;
         goto out;
     }
-    iov_to_sg(sg, iov, count);
-    rv = 0;
-    *sgp = sg;
+    rv = file_io_init_internal(f, offset, iov, count, sg);
+    if (!rv)
+        *sgp = sg;
   out:
     if (rv != -EFAULT)
         context_clear_err(ctx);

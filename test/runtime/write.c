@@ -8,6 +8,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -473,6 +474,83 @@ static void write_exec_test(const char *prog)
     }
 }
 
+static void write_test_direct(void)
+{
+    const char *file_name = "test_direct";
+    const int alignment = 512;
+    const int page_size = 4096;
+    int fd = open(file_name, O_CREAT | O_RDWR | O_DIRECT, S_IRUSR | S_IWUSR);
+    test_assert(fd >= 0);
+    unsigned char wbuf[2 * alignment];
+    unsigned char rbuf[2 * alignment];
+    unsigned char *wptr, *rptr;
+
+    /* unaligned buffer address: write() may or may not fail with EINVAL (it fails on Nanos and
+     * succeeds on Linux with ext4 filesystem) */
+    if ((intptr_t)wbuf & (alignment - 1))
+        wptr = wbuf;
+    else
+        wptr = wbuf + 1;
+    if (write(fd, wptr, alignment) > 0)
+        test_assert(lseek(fd, 0, SEEK_SET) == 0);
+    else
+        test_assert(errno == EINVAL);
+
+    /* unaligned buffer length */
+    wptr = (unsigned char *)((intptr_t)(wbuf - 1) & ~(alignment - 1)) + alignment;
+    test_assert((write(fd, wptr, 1) == -1) && (errno == EINVAL));
+
+    /* aligned buffer address and length */
+    for (int i = 0; i < alignment; i += sizeof(uint64_t))
+        *(uint64_t *)(wptr + i) = i;
+    test_assert(write(fd, wptr, alignment) == alignment);
+
+    /* unaligned file offset */
+    test_assert(lseek(fd, 1, SEEK_SET) == 1);
+    test_assert((write(fd, wptr, alignment) == -1) && (errno == EINVAL));
+
+    /* aligned buffer address and length */
+    rptr = (unsigned char *)((intptr_t)(rbuf - 1) & ~(alignment - 1)) + alignment;
+    test_assert(pread(fd, rptr, alignment, 0) == alignment);
+    test_assert(!memcmp(rptr, wptr, alignment));
+
+    test_assert((pwrite(fd, FAULT_ADDR, alignment, 0) == -1) && (errno == EFAULT));
+
+    size_t map_size = 8 << 20;
+    void *wmap = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+    void *rmap = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+    test_assert((wmap != MAP_FAILED) && (rmap != MAP_FAILED));
+    for (int i = 0; i < map_size; i += sizeof(uint64_t))
+        *(uint64_t *)(wmap + i) = i;
+
+    /* single page */
+    wptr = (unsigned char *)((intptr_t)(wmap - 1) & ~(page_size - 1)) + page_size;
+    test_assert(pwrite(fd, wptr, page_size, 0) == page_size);
+    test_assert(pread(fd, rmap, page_size, 0) == page_size);
+    test_assert(!memcmp(rmap, wptr, page_size));
+
+    /* sub-page range fitting in a single page */
+    wptr += alignment;
+    test_assert(pwrite(fd, wptr, page_size - alignment, 0) == page_size - alignment);
+    test_assert(pread(fd, rmap, page_size - alignment, 0) == page_size - alignment);
+    test_assert(!memcmp(rmap, wptr, page_size - alignment));
+
+    /* range straddling 2 pages */
+    wptr += alignment;
+    test_assert(pwrite(fd, wptr, page_size - alignment, 0) == page_size - alignment);
+    test_assert(pread(fd, rmap, page_size - alignment, 0) == page_size - alignment);
+    test_assert(!memcmp(rmap, wptr, page_size - alignment));
+
+    test_assert(pwrite(fd, wmap, map_size, 0) == map_size);
+    test_assert(pread(fd, rmap, map_size, 0) == map_size);
+    test_assert(!memcmp(rmap, wmap, map_size));
+
+    munmap(wmap, map_size);
+    munmap(rmap, map_size);
+    close(fd);
+    unlink(file_name);
+}
+
 /* isn't this in a std include somewhere? */
 static inline void timerspec_sub(struct timespec *a, struct timespec *b, struct timespec *r)
 {
@@ -848,6 +926,7 @@ int main(int argc, char **argv)
         sync_write_test();
         truncate_test(argv[0]);
         write_exec_test(argv[0]);
+        write_test_direct();
         fs_stress_test();
     }
 
