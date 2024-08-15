@@ -1512,14 +1512,19 @@ void mmap_process_init(process p, tuple root)
     heap h = heap_locked(kh);
     boolean aslr = !get(root, sym(noaslr));
     mmap_info.h = h;
-    bytes memory_reserve;
-    if (is_low_memory_machine()) {
-        mmap_info.thp_max_size = PAGEHEAP_LOWMEM_PAGESIZE;
-        memory_reserve = PAGEHEAP_LOWMEM_MEMORY_RESERVE;
-    } else {
-        mmap_info.thp_max_size = PAGESIZE_2M;
-        memory_reserve = PAGEHEAP_MEMORY_RESERVE;
+    boolean low_memory = is_low_memory_machine();
+    value transparent_hugepage = get(root, sym(transparent_hugepage));
+    if (transparent_hugepage) {
+        if (is_string(transparent_hugepage)) {
+            if (!buffer_strcmp(transparent_hugepage, "never"))
+                mmap_info.thp_max_size = PAGESIZE;
+        }
+        if (!mmap_info.thp_max_size)
+            msg_err("invalid 'transparent_hugepage' value '%v'\n", transparent_hugepage);
     }
+    if (!mmap_info.thp_max_size)
+        mmap_info.thp_max_size = low_memory ? PAGEHEAP_LOWMEM_PAGESIZE : PAGESIZE_2M;
+    bytes memory_reserve = low_memory ? PAGEHEAP_LOWMEM_MEMORY_RESERVE : PAGEHEAP_MEMORY_RESERVE;
     mmap_info.virtual_backed = reserve_heap_wrapper(h, (heap)heap_page_backed(kh), memory_reserve);
     spin_lock_init(&p->vmap_lock);
     u64 min_addr;
