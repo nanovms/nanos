@@ -61,8 +61,11 @@ def coredump_post(ctx):
                            check=True)
         except:
             return (-1, 'dump failed')
-        if not os.path.isfile(tmp + '/coredumps/core'):
+        coredump_path = tmp + '/coredumps/core'
+        if not os.path.isfile(coredump_path):
             return (-1, 'coredump not generated')
+        elif os.path.getsize(coredump_path) == 0:
+            return (-1, 'empty coredump')
 
 
 def notrace_post(ctx):

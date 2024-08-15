@@ -170,15 +170,6 @@ closure_function(3, 1, boolean, additional_threads_status,
     return add_thread_status(bound(b), t, bound(si));
 }
 
-closure_function(2, 1, void, dump_complete,
-                 fsfile, f, status_handler, completion,
-                 status s)
-{
-    fsfile_release(bound(f));
-    apply(bound(completion), s);
-    closure_finish();
-}
-
 closure_function(8, 1, void, dump_write_complete,
                  fsfile, f, sg_io, write, sg_list, sg, Elf64_Phdr *, phdr, Elf64_Phdr *, phdr_end, buffer, b, status_handler, completion, u64, limit_remain,
                  status s)
@@ -366,7 +357,6 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
     deallocate_vector(v);
 
     /* write dump header and first phdr */
-    status_handler completion = closure(h, dump_complete, f, complete);
     add_to_sgl(sg, buffer_ref(bhdr, 0), buffer_length(bhdr));
     u64 limit_remain = coredump_limit;
     u64 wlen = sg->count;
@@ -374,7 +364,7 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
         wlen = limit_remain;
     limit_remain -= wlen;
     apply(write, sg, irangel(0, wlen),
-        closure(h, dump_write_complete, f, write, sg, phdr_begin, phdr_end, bhdr, completion, limit_remain));
+        closure(h, dump_write_complete, f, write, sg, phdr_begin, phdr_end, bhdr, complete, limit_remain));
     return;
 error:
     apply(complete, s);
