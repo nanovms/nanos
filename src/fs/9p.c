@@ -157,16 +157,9 @@ closure_func_basic(pagecache_node_reserve, status, p9_fsf_reserve,
     p9_fsfile fsf = struct_from_field(closure_self(), p9_fsfile, reserve);
     p9_debug("reserve file %p range %R\n", fsf, q);
     fsfile f = &fsf->f;
-    fs_status s;
-    if (f->length >= q.end) {
-        s = FS_STATUS_OK;
-    } else {
-        s = v9p_setattr(((p9fs)fsf->f.fs)->transport, fsf->dentry->fid, P9_SETATTR_SIZE, 0, 0, 0,
-                        q.end, 0, 0);
-        if (s == FS_STATUS_OK)
-            f->length = q.end;
-    }
-    return (s == FS_STATUS_OK) ? STATUS_OK : timm("result", "setattr failed (%d)", s);
+    if (f->length < q.end)
+        f->length = q.end;
+    return STATUS_OK;
 }
 
 static s64 p9_get_blocks(fsfile f)
@@ -216,7 +209,7 @@ closure_func_basic(thunk, void, p9_fsf_free)
     }
     p9_dentry dentry = fsf->dentry;
     tuple md = dentry->md;
-    if (!fs_file_is_busy(fs, md)) {
+    if (md && !fs_file_is_busy(fs, md)) {
         /* dentry will be deallocated when the pagecache sync is done: delete its metadata tuple now
          * so that it cannot be looked up (e.g. via its parent tuple). */
         p9_md_cleanup(md);
@@ -470,7 +463,6 @@ static fs_status p9_rename(filesystem fs, tuple old_parent, string old_name, tup
         p9_dentry dentry = p9_get_dentry_from_md(p9fs, new_md);
         if (dentry) {
             dentry->md = 0;
-            p9_dentry_delete(p9fs, dentry);
         }
         *destruct_md = true;
     }
@@ -489,7 +481,6 @@ static fs_status p9_unlink(filesystem fs, tuple parent, string name, tuple md, b
         p9_dentry dentry = p9_get_dentry_from_md(p9fs, md);
         if (dentry) {
             dentry->md = 0;
-            p9_dentry_delete(p9fs, dentry);
         }
         *destruct_md = true;
     }
