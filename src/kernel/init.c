@@ -730,26 +730,31 @@ void add_shutdown_completion(shutdown_handler h)
     vector_push(shutdown_completions, h);
 }
 
-closure_function(1, 1, void, sync_complete,
-                 u8, code,
+closure_function(3, 1, void, storage_shutdown,
+                 int, status, boolean, save_klog, boolean, sync_storage,
                  status s)
 {
-    vm_exit(bound(code));
-    closure_finish();
-}
-
-closure_func_basic(shutdown_handler, void, storage_shutdown,
-                   int status, merge m)
-{
-    if (status != 0)
-        klog_save(status, apply_merge(m));
-    storage_sync(apply_merge(m));
+    if (!is_ok(s)) {
+        rprintf("%b\n", get_string(s, sym(result)));
+        timm_dealloc(s);
+    }
+    int status = bound(status);
+    if ((status != 0) && bound(save_klog)) {
+        bound(save_klog) = false;
+        klog_save(status, (status_handler)closure_self());
+    } else if (bound(sync_storage)) {
+        bound(sync_storage) = false;
+        storage_sync((status_handler)closure_self());
+    } else {
+        vm_exit(status);
+    }
 }
 
 void __attribute__((noreturn)) kernel_shutdown(int status)
 {
+    boolean do_sync = !!root_fs;
     heap locked = heap_locked(init_heaps);
-    status_handler completion = closure(locked, sync_complete, status);
+    status_handler completion = closure(locked, storage_shutdown, status, do_sync, do_sync);
     merge m = allocate_merge(locked, completion);
     status_handler sh = apply_merge(m);
     shutdown_handler h;
@@ -760,24 +765,16 @@ void __attribute__((noreturn)) kernel_shutdown(int status)
     shutting_down |= SHUTDOWN_ONGOING;
     wakeup_or_interrupt_cpu_all();
 
-    if (root_fs)
-        vector_push(shutdown_completions,
-                    closure_func(locked, shutdown_handler, storage_shutdown));
-
-    if (vector_length(shutdown_completions) > 0) {
-        cpuinfo ci = current_cpu();
-        vector_foreach(shutdown_completions, h)
-            apply(h, status, m);
-        apply(sh, STATUS_OK);
-        if (ci->state == cpu_interrupt) {
-            interrupt_exit();
-            context c = get_current_context(ci);
-            c->frame[FRAME_FULL] = false;
-        }
-        runloop();
-    }
+    vector_foreach(shutdown_completions, h)
+        apply(h, status, m);
     apply(sh, STATUS_OK);
-    while(1);
+    cpuinfo ci = current_cpu();
+    if (ci->state == cpu_interrupt) {
+        interrupt_exit();
+        context c = get_current_context(ci);
+        c->frame[FRAME_FULL] = false;
+    }
+    runloop();
 }
 
 static boolean vm_exit_match(u8 exit_code, tuple config, symbol option, boolean match_on_t)
