@@ -404,7 +404,7 @@ closure_function(4, 3, boolean, unmap_page,
         }
         page_invalidate(bound(fe), vaddr);
         if (rh) {
-            apply(rh, irangel(page_from_pte(old_entry) + map_offset, map_len - map_offset));
+            apply(rh, irangel(page_from_pte(old_entry) + map_offset, unmap_len));
         }
     }
     return true;
