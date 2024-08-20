@@ -1074,15 +1074,19 @@ static inline boolean iov_to_sg(sg_list sg, struct iovec *iov, int iovlen)
 {
     for (int i = 0; i < iovlen; i++) {
         u64 len = iov[i].iov_len;
-        if (len == 0)
-            continue;
-        sg_buf sgb = sg_list_tail_add(sg, len);
-        if (sgb == INVALID_ADDRESS)
-            return false;
-        sgb->buf = iov[i].iov_base;
-        sgb->size = len;
-        sgb->offset = 0;
-        sgb->refcount = 0;
+        u64 offset = 0;
+        while (len > 0) {
+            u64 buf_len = MIN(len, U32_MAX & ~PAGEMASK);
+            sg_buf sgb = sg_list_tail_add(sg, buf_len);
+            if (sgb == INVALID_ADDRESS)
+                return false;
+            sgb->buf = iov[i].iov_base + offset;
+            sgb->size = buf_len;
+            sgb->offset = 0;
+            sgb->refcount = 0;
+            len -= buf_len;
+            offset += buf_len;
+        }
     }
     return true;
 }

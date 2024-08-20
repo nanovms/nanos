@@ -77,8 +77,7 @@ void file_readahead(file f, u64 offset, u64 len)
 static sysreturn file_io_init_internal(file f, u64 offset, struct iovec *iov, int count, sg_list sg)
 {
     if (!(f->f.flags & O_DIRECT)) {
-        iov_to_sg(sg, iov, count);
-        return 0;
+        return iov_to_sg(sg, iov, count) ? 0 : -ENOMEM;
     }
     u64 block_mask = fs_blocksize(f->fs) - 1;
     if (offset & block_mask)
