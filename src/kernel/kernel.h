@@ -3,6 +3,7 @@
 #include <kernel_heaps.h>
 #ifdef KERNEL
 #include <debug.h>
+#include <mutex.h>
 #endif
 
 closure_type(cmdline_handler, void, const char *str, int len);
@@ -71,47 +72,6 @@ typedef struct sched_task {
     bitmap affinity;
     timestamp runtime;
 } *sched_task;
-
-typedef struct sched_queue {
-    pqueue q;
-    timestamp min_runtime;
-    struct spinlock lock;
-} *sched_queue;
-
-/* per-cpu, architecture-independent invariants */
-typedef struct cpuinfo *cpuinfo;
-
-struct cpuinfo {
-    struct cpuinfo_machine m;
-    u32 id;
-    int state;
-    queue cpu_queue;
-    struct sched_queue thread_queue;
-    timestamp last_timer_update;
-    int targeted_irqs;
-    u64 inval_gen; /* Generation number for invalidates */
-
-    cpuinfo mcs_prev;
-    cpuinfo mcs_next;
-    boolean mcs_waiting;
-
-    /* multiple producers, single consumer */
-    queue free_kernel_contexts;
-    queue free_syscall_contexts;
-    queue free_process_contexts;
-#ifdef CONFIG_FTRACE
-    int graph_idx;
-    struct ftrace_graph_entry * graph_stack;
-#endif
-#ifdef CONFIG_TRACELOG
-    void *tracelog_buffer;
-#endif
-#ifdef LOCK_STATS
-    boolean lock_stats_disable;
-    table lock_stats_table;
-    heap lock_stats_heap;
-#endif
-};
 
 extern vector cpuinfos;
 
@@ -279,6 +239,47 @@ static inline void spin_wunlock(rw_spinlock l) {
 #endif
 
 #ifdef KERNEL
+typedef struct sched_queue {
+    pqueue q;
+    timestamp min_runtime;
+    struct spinlock lock;
+} *sched_queue;
+
+/* per-cpu, architecture-independent invariants */
+typedef struct cpuinfo *cpuinfo;
+
+struct cpuinfo {
+    struct cpuinfo_machine m;
+    u32 id;
+    int state;
+    queue cpu_queue;
+    struct sched_queue thread_queue;
+    timestamp last_timer_update;
+    int targeted_irqs;
+    u64 inval_gen; /* Generation number for invalidates */
+
+    cpuinfo mcs_prev;
+    cpuinfo mcs_next;
+    boolean mcs_waiting;
+
+    /* multiple producers, single consumer */
+    queue free_kernel_contexts;
+    queue free_syscall_contexts;
+    queue free_process_contexts;
+#ifdef CONFIG_FTRACE
+    int graph_idx;
+    struct ftrace_graph_entry * graph_stack;
+#endif
+#ifdef CONFIG_TRACELOG
+    void *tracelog_buffer;
+#endif
+#ifdef LOCK_STATS
+    boolean lock_stats_disable;
+    table lock_stats_table;
+    heap lock_stats_heap;
+#endif
+};
+
 #define _IRQSAFE_1(rtype, name, t0)              \
     static inline rtype name ## _irqsafe (t0 a0) \
     {                                            \
@@ -408,6 +409,7 @@ static inline boolean is_thread_context(context c)
     return c->type == CONTEXT_TYPE_THREAD;
 }
 
+#ifdef KERNEL
 static inline __attribute__((always_inline)) context get_current_context(cpuinfo ci)
 {
     return ci->m.current_context;
@@ -418,7 +420,6 @@ static inline __attribute__((always_inline)) void set_current_context(cpuinfo ci
     ci->m.current_context = c;
 }
 
-#ifdef KERNEL
 static inline boolean in_interrupt(void)
 {
     return current_cpu()->state == cpu_interrupt;
@@ -738,6 +739,16 @@ static inline boolean is_kernel_memory(void *a)
         return false;
     return true;
 }
+
+boolean sched_queue_init(sched_queue sq, heap h);
+void sched_enqueue(sched_queue sq, sched_task task);
+sched_task sched_dequeue(sched_queue sq);
+u64 sched_queue_length(sched_queue sq);
+
+static inline boolean sched_queue_empty(sched_queue sq)
+{
+    return (sched_queue_length(sq) == 0);
+}
 #endif /* KERNEL */
 
 #define BREAKPOINT_INSTRUCTION 00
@@ -855,16 +866,6 @@ void init_scheduler(heap);
 void init_scheduler_cpus(heap h);
 void mm_service(boolean flush);
 
-boolean sched_queue_init(sched_queue sq, heap h);
-void sched_enqueue(sched_queue sq, sched_task task);
-sched_task sched_dequeue(sched_queue sq);
-u64 sched_queue_length(sched_queue sq);
-
-static inline boolean sched_queue_empty(sched_queue sq)
-{
-    return (sched_queue_length(sq) == 0);
-}
-
 closure_type(mem_cleaner, u64, u64 clean_bytes);
 boolean mm_register_mem_cleaner(mem_cleaner cleaner);
 
@@ -906,6 +907,8 @@ void wakeup_or_interrupt_cpu_all();
 
 closure_type(halt_handler, void, int status);
 extern halt_handler vm_halt;
+
+sstring string_from_errno(int errno);
 
 void early_debug_sstring(sstring s);
 #define early_debug(s)  early_debug_sstring(ss(s))

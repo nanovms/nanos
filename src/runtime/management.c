@@ -223,15 +223,21 @@ typedef struct tuple_notifier {
 typedef struct tuple_notifier_cow {
     struct tuple_notifier tn;
     value parent_copy;
+#ifdef KERNEL
     struct spinlock lock;
+#endif
 } *tuple_notifier_cow;
 
 #ifdef KERNEL
+
+#define tn_cow_init_lock(tn)    spin_lock_init(&(tn)->lock)
 
 #define tn_cow_lock(tn)     spin_lock(&(tn)->lock)
 #define tn_cow_unlock(tn)   spin_unlock(&(tn)->lock)
 
 #else
+
+#define tn_cow_init_lock(tn)
 
 #define tn_cow_lock(tn)
 #define tn_cow_unlock(tn)
@@ -477,7 +483,7 @@ tuple_notifier tuple_notifier_wrap(value parent, boolean copy_on_write)
                               closure(management.h, tuple_notifier_iterate, tn);
     if (copy_on_write) {
         tn_cow->parent_copy = INVALID_ADDRESS;
-        spin_lock_init(&tn_cow->lock);
+        tn_cow_init_lock(tn_cow);
     }
 
     /* The special /wrapped attribute is probed by print_value and friends.

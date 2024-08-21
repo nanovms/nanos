@@ -1,5 +1,8 @@
 #include <runtime.h>
+
+#ifdef KERNEL
 #include <log.h>
+#endif
 
 buffer allocate_buffer(heap h, bytes s)
 {
@@ -88,5 +91,7 @@ int buffer_strstr(buffer b, sstring str) {
 void buffer_print(buffer b)
 {
     console_write(buffer_ref(b, 0), buffer_length(b));
+#ifdef KERNEL
     klog_write(buffer_ref(b, 0), buffer_length(b));
+#endif
 }

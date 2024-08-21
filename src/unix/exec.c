@@ -441,9 +441,9 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
     register_root_notify(sym(trace), closure(heap_locked(kh), trace_notify, proc));
     string cwd = get_string(root, sym(cwd));
     if (cwd) {
-        fs_status fss = filesystem_chdir(proc, buffer_to_sstring(cwd));
-        if (fss != FS_STATUS_OK) {
-            s = timm("result", "unable to change cwd to \"%b\"; %s", cwd, string_from_fs_status(fss));
+        int fss = filesystem_chdir(proc, buffer_to_sstring(cwd));
+        if (fss != 0) {
+            s = timm("result", "unable to change cwd to \"%b\"; %s", cwd, string_from_errno(-fss));
             goto out;
         }
     }

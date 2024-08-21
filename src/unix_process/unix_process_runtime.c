@@ -102,11 +102,6 @@ heap malloc_allocator()
     return h;
 }
 
-heap heap_dma(void)
-{
-    return malloc_heap;
-}
-
 void halt_with_code(u8 code, sstring format, ...)
 {
     buffer z = little_stack_buffer(500);
@@ -210,10 +205,6 @@ sstring errno_sstring(void)
 void console_write(const char *s, bytes count)
 {
     igr(write(1, s, count));
-}
-
-void klog_write(const char *s, bytes count)
-{
 }
 
 u64 physical_from_virtual(void *__x)

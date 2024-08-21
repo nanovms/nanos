@@ -109,9 +109,9 @@ closure_function(2, 2, void, volume_link,
     volume v = bound(v);
     if (is_ok(s)) {
         inode mount_dir = bound(mount_dir);
-        fs_status fss = filesystem_mount(storage.root_fs, mount_dir, fs);
-        if (fss != FS_STATUS_OK) {
-            msg_err("cannot mount filesystem: %s\n", string_from_fs_status(fss));
+        int fss = filesystem_mount(storage.root_fs, mount_dir, fs);
+        if (fss != 0) {
+            msg_err("cannot mount filesystem: %s\n", string_from_errno(-fss));
         } else {
             v->fs = fs;
             v->mount_dir = mount_dir;
@@ -142,9 +142,9 @@ static void volume_mount(volume v, buffer mount_point)
     filesystem fs = storage.root_fs;
     tuple root = filesystem_getroot(storage.root_fs);
     tuple mount_dir_t;
-    fs_status fss = filesystem_get_node(&fs, fs->get_inode(fs, root), cmount_point,
+    int fss = filesystem_get_node(&fs, fs->get_inode(fs, root), cmount_point,
         false, false, false, false, &mount_dir_t, 0);
-    if (fss != FS_STATUS_OK) {
+    if (fss != 0) {
         msg_err("mount point %s not found\n", cmount_point);
         return;
     }

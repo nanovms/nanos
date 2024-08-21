@@ -5,52 +5,16 @@
 #define FS_KNOWN_SEALS  \
     (F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)
 
-sysreturn sysreturn_from_fs_status(fs_status s)
-{
-    switch (s) {
-    case FS_STATUS_NOSPACE:
-        return -ENOSPC;
-    case FS_STATUS_IOERR:
-        return -EIO;
-    case FS_STATUS_NOENT:
-        return -ENOENT;
-    case FS_STATUS_EXIST:
-        return -EEXIST;
-    case FS_STATUS_INVAL:
-        return -EINVAL;
-    case FS_STATUS_NOTDIR:
-        return -ENOTDIR;
-    case FS_STATUS_ISDIR:
-        return -EISDIR;
-    case FS_STATUS_NOTEMPTY:
-        return -ENOTEMPTY;
-    case FS_STATUS_NOMEM:
-        return -ENOMEM;
-    case FS_STATUS_LINKLOOP:
-        return -ELOOP;
-    case FS_STATUS_NAMETOOLONG:
-        return -ENAMETOOLONG;
-    case FS_STATUS_XDEV:
-        return -EXDEV;
-    case FS_STATUS_FAULT:
-        return -EFAULT;
-    case FS_STATUS_READONLY:
-        return -EROFS;
-    default:
-        return 0;
-    }
-}
-
 sysreturn sysreturn_from_fs_status_value(status s)
 {
     if (is_ok(s))
         return 0;
-    u64 fss;
+    s64 fss;
     sysreturn rv;
 
     /* block r/w errors won't include an fs status, so assume I/O error if none found */
-    if (get_u64(s, sym(fsstatus), &fss))
-        rv = sysreturn_from_fs_status(fss);
+    if (get_s64(s, sym(fsstatus), &fss))
+        rv = fss;
     else
         rv = -EIO;
     return rv;
@@ -155,17 +119,17 @@ sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, sg_l
     return rv;
 }
 
-fs_status filesystem_chdir(process p, sstring path)
+int filesystem_chdir(process p, sstring path)
 {
     process_lock(p);
     filesystem fs = p->cwd_fs;
-    fs_status fss;
+    int fss;
     tuple n;
     fss = filesystem_get_node(&fs, p->cwd, path, false, false, false, false, &n, 0);
-    if (fss != FS_STATUS_OK)
+    if (fss != 0)
         goto out;
     if (!is_dir(n)) {
-        fss = FS_STATUS_NOENT;
+        fss = -ENOENT;
     } else {
         if (fs != p->cwd_fs) {
             filesystem_release(p->cwd_fs);
@@ -173,7 +137,7 @@ fs_status filesystem_chdir(process p, sstring path)
             p->cwd_fs = fs;
         }
         p->cwd = fs->get_inode(fs, n);
-        fss = FS_STATUS_OK;
+        fss = 0;
     }
     filesystem_put_node(fs, n);
   out:
@@ -194,12 +158,11 @@ void filesystem_update_relatime(filesystem fs, tuple md)
         filesystem_set_atime(fs, md, here);
 }
 
-closure_function(2, 2, void, fs_op_complete,
+closure_function(2, 1, void, fs_op_complete,
                  thread, t, file, f,
-                 fsfile fsf, fs_status s)
+                 int ret)
 {
     thread t = bound(t);
-    sysreturn ret = sysreturn_from_fs_status(s);
 
     fdesc_put(&bound(f)->f);
     syscall_return(t, ret);     /* returns on kernel context */
@@ -212,7 +175,7 @@ static sysreturn symlink_internal(filesystem fs, inode cwd, sstring path,
     sstring target_ss;
     if (!fault_in_user_string(target, &target_ss))
         return -EFAULT;
-    return sysreturn_from_fs_status(filesystem_symlink(fs, cwd, path, target_ss));
+    return filesystem_symlink(fs, cwd, path, target_ss);
 }
 
 sysreturn symlink(const char *target, const char *linkpath)
@@ -249,15 +212,11 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
         return -EFAULT;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
-    fs_status fss = filesystem_get_node(&fs, cwd, filename_ss, false, false, false, false, &t, 0);
-    sysreturn rv;
-    if (fss != FS_STATUS_OK) {
-        rv = sysreturn_from_fs_status(fss);
-    } else {
+    sysreturn rv = filesystem_get_node(&fs, cwd, filename_ss, false, false, false, false, &t, 0);
+    if (rv == 0) {
         filesystem_set_atime(fs, t, actime);
         filesystem_set_mtime(fs, t, modtime);
         filesystem_put_node(fs, t);
-        rv = 0;
     }
     filesystem_release(cwd_fs);
     return rv;
@@ -335,9 +294,8 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
         sstring filename_ss;
         inode cwd = resolve_dir(fs, dirfd, filename, filename_ss);
         cwd_fs = fs;
-        fs_status fss = filesystem_get_node(&fs, cwd, filename_ss, !!(flags & AT_SYMLINK_NOFOLLOW),
+        rv = filesystem_get_node(&fs, cwd, filename_ss, !!(flags & AT_SYMLINK_NOFOLLOW),
                                             false, false, false, &t, 0);
-        rv = sysreturn_from_fs_status(fss);
         if (rv)
             filesystem_release(cwd_fs);
     } else {
@@ -404,12 +362,9 @@ sysreturn statfs(const char *path, struct statfs *buf)
         rv = -EFAULT;
         goto out;
     }
-    fs_status fss = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &t, 0);
-    if (fss != FS_STATUS_OK) {
-        rv = sysreturn_from_fs_status(fss);
-    } else {
+    rv = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &t, 0);
+    if (rv == 0)
         rv = statfs_internal(fs, t, buf);
-    }
   out:
     if (t)
         filesystem_put_node(fs, t);
@@ -542,10 +497,10 @@ fsfile fsfile_open(sstring file_path)
     tuple file;
     fsfile fsf;
     filesystem fs = get_root_fs();
-    fs_status s = filesystem_get_node(&fs, fs->get_inode(fs, filesystem_getroot(fs)),
+    int s = filesystem_get_node(&fs, fs->get_inode(fs, filesystem_getroot(fs)),
                                       file_path,
                                       true, false, false, false, &file, &fsf);
-    if (s == FS_STATUS_OK) {
+    if (s == 0) {
         filesystem_put_node(fs, file);
         return fsf;
     }
@@ -559,15 +514,15 @@ fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
     filesystem fs = get_root_fs();
     tuple root = filesystem_getroot(fs);
     char *separator = runtime_strrchr(file_path, '/');
-    fs_status s;
+    int s;
     if (separator > file_path.ptr) {
         s = filesystem_mkdirpath(fs, 0, isstring(file_path.ptr, separator - file_path.ptr), true);
-        if ((s != FS_STATUS_OK) && (s != FS_STATUS_EXIST))
+        if ((s != 0) && (s != -EEXIST))
             return 0;
     }
     s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_path, true, true, false, truncate,
                             &file, &fsf);
-    if (s == FS_STATUS_OK) {
+    if (s == 0) {
         filesystem_put_node(fs, file);
         return fsf;
     }
@@ -575,7 +530,7 @@ fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
 }
 
 /* Can be used for files in the root filesystem only. */
-fs_status fsfile_truncate(fsfile f, u64 len)
+int fsfile_truncate(fsfile f, u64 len)
 {
     return (filesystem_truncate(get_root_fs(), f, len));
 }
@@ -600,9 +555,9 @@ sysreturn fsfile_add_seals(fsfile f, u64 seals)
         return -EINVAL;
     filesystem_lock(fs);
     u64 current_seals;
-    fs_status fss = fs->get_seals(fs, f, &current_seals);
+    int fss = fs->get_seals(fs, f, &current_seals);
     sysreturn rv;
-    if (fss == FS_STATUS_OK) {
+    if (fss == 0) {
         if (current_seals & F_SEAL_SEAL) {
             rv = -EPERM;
             goto out;
@@ -618,7 +573,7 @@ sysreturn fsfile_add_seals(fsfile f, u64 seals)
         }
         fss = fs->set_seals(fs, f, current_seals | seals);
     }
-    rv = sysreturn_from_fs_status(fss);
+    rv = fss;
   out:
     filesystem_unlock(fs);
     return rv;
@@ -629,7 +584,7 @@ sysreturn fsfile_get_seals(fsfile f, u64 *seals)
     filesystem fs = f->fs;
     if (!fs->get_seals)
         return -EINVAL;
-    return sysreturn_from_fs_status(fs->get_seals(fs, f, seals));
+    return fs->get_seals(fs, f, seals);
 }
 
 notify_entry fs_watch(heap h, tuple n, u64 eventmask, event_handler eh, notify_set *s)

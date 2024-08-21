@@ -1,5 +1,8 @@
+#include <errno.h>
 #include <tfs_internal.h>
+#ifdef KERNEL
 #include <dma.h>
+#endif
 
 //#define TFS_DEBUG
 #if defined(TFS_DEBUG)
@@ -327,20 +330,20 @@ static void tfs_read(fsfile fsf,
 #ifndef TFS_READ_ONLY
 static tuple cleanup_directory(tuple dir);
 
-fs_status filesystem_write_tuple(tfs fs, tuple t)
+int filesystem_write_tuple(tfs fs, tuple t)
 {
     if (fs->fs.ro)
-        return FS_STATUS_READONLY;
+        return -EROFS;
     if (log_write(fs->tl, t) && (!fs->temp_log || log_write(fs->temp_log, t)))
-        return FS_STATUS_OK;
+        return 0;
     else
-        return FS_STATUS_NOSPACE;
+        return -ENOSPC;
 }
 
-fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean cleanup)
+int filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean cleanup)
 {
     if (fs->fs.ro)
-        return FS_STATUS_READONLY;
+        return -EROFS;
     tuple parent = cleanup ? cleanup_directory(v) : 0;
     boolean success = log_write_eav(fs->tl, t, a, v);
     if (success && fs->temp_log) {
@@ -353,25 +356,25 @@ fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean clean
     if (cleanup)
         fixup_directory(parent, v);
     if (success)
-        return FS_STATUS_OK;
+        return 0;
     else
-        return FS_STATUS_NOSPACE;
+        return -ENOSPC;
 }
 
-static fs_status tfs_truncate(filesystem fs, fsfile f, u64 len)
+static int tfs_truncate(filesystem fs, fsfile f, u64 len)
 {
     if (f->md) {
         value v = value_from_u64(len);
         if (v == INVALID_ADDRESS)
-            return FS_STATUS_NOMEM;
+            return -ENOMEM;
         symbol l = sym(filelength);
-        fs_status s = filesystem_write_eav((tfs)fs, f->md, l, v, false);
-        if (s != FS_STATUS_OK)
+        int s = filesystem_write_eav((tfs)fs, f->md, l, v, false);
+        if (s != 0)
             return s;
         set(f->md, l, v);
         f->status |= FSF_DIRTY_DATASYNC;
     }
-    return FS_STATUS_OK;
+    return 0;
 }
 
 /* create a new extent in the filesystem
@@ -385,7 +388,7 @@ static fs_status tfs_truncate(filesystem fs, fsfile f, u64 len)
 
 */
 
-static fs_status create_extent(tfs fs, range blocks, boolean uninited, extent *ex)
+static int create_extent(tfs fs, range blocks, boolean uninited, extent *ex)
 {
     assert(!fs->fs.ro);
     heap h = fs->fs.h;
@@ -395,7 +398,7 @@ static fs_status create_extent(tfs fs, range blocks, boolean uninited, extent *e
     tfs_debug("create_extent: blocks %R, uninited %p, nblocks %ld\n", blocks, uninited, nblocks);
     if (!filesystem_reserve_log_space(fs, &fs->next_extend_log_offset, 0, 0) ||
         !filesystem_reserve_log_space(fs, &fs->next_new_log_offset, 0, 0))
-        return FS_STATUS_NOSPACE;
+        return -ENOSPC;
 
     u64 start_block = filesystem_allocate_storage(fs, nblocks);
     while (start_block == u64_from_pointer(INVALID_ADDRESS)) {
@@ -405,7 +408,7 @@ static fs_status create_extent(tfs fs, range blocks, boolean uninited, extent *e
         start_block = filesystem_allocate_storage(fs, nblocks);
     }
     if (start_block == u64_from_pointer(INVALID_ADDRESS))
-        return FS_STATUS_NOSPACE;
+        return -ENOSPC;
 
     range storage_blocks = irangel(start_block, nblocks);
     tfs_debug("   storage_blocks %R\n", storage_blocks);
@@ -413,11 +416,11 @@ static fs_status create_extent(tfs fs, range blocks, boolean uninited, extent *e
         blocks.end = blocks.start + nblocks;
     *ex = allocate_extent(h, blocks, storage_blocks);
     if (*ex == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     (*ex)->md = 0;
     if (uninited)
         (*ex)->uninited = INVALID_ADDRESS;
-    return FS_STATUS_OK;
+    return 0;
 }
 
 static void destroy_extent(tfs fs, extent ex)
@@ -430,7 +433,7 @@ static void destroy_extent(tfs fs, extent ex)
     deallocate(fs->fs.h, ex, sizeof(*ex));
 }
 
-static fs_status add_extent_to_file(tfsfile f, extent ex)
+static int add_extent_to_file(tfsfile f, extent ex)
 {
     tuple md = f->f.md;
     if (md) {
@@ -439,8 +442,8 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
         symbol a = sym(extents);
         if (!(extents = get_tuple(md, a))) {
             extents = allocate_tuple();
-            fs_status s = filesystem_write_eav(fs, md, a, extents, false);
-            if (s != FS_STATUS_OK) {
+            int s = filesystem_write_eav(fs, md, a, extents, false);
+            if (s != 0) {
                 deallocate_value(extents);
                 return s;
             }
@@ -456,8 +459,8 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
         if (ex->uninited == INVALID_ADDRESS)
             set(e, sym(uninited), null_value);
         symbol offs = intern_u64(ex->node.r.start);
-        fs_status s = filesystem_write_eav(fs, extents, offs, e, false);
-        if (s != FS_STATUS_OK) {
+        int s = filesystem_write_eav(fs, extents, offs, e, false);
+        if (s != 0) {
             destruct_value(e, true);
             return s;
         }
@@ -469,7 +472,7 @@ static fs_status add_extent_to_file(tfsfile f, extent ex)
         rbtree_dump(&f->extentmap->t, RB_INORDER);
         assert(0);
     }
-    return FS_STATUS_OK;
+    return 0;
 }
 
 static void remove_extent_from_file(tfsfile f, extent ex)
@@ -537,8 +540,8 @@ static u64 write_extent(tfsfile f, extent ex, sg_list sg, range blocks, merge m)
             assert(ex->md);
             symbol a = sym(uninited);
             tfs_debug("%s: log write %p, %p\n", func_ss, ex->md, a);
-            fs_status fss = filesystem_write_eav(fs, ex->md, a, 0, false);
-            if (fss != FS_STATUS_OK) {
+            int fss = filesystem_write_eav(fs, ex->md, a, 0, false);
+            if (fss != 0) {
                 status s = timm("result", "failed to write log");
                 apply(apply_merge(m), timm_append(s,
                                            "fsstatus", "%d", fss));
@@ -579,33 +582,33 @@ static u64 write_extent(tfsfile f, extent ex, sg_list sg, range blocks, merge m)
     return i.end;
 }
 
-static fs_status fill_gap(tfsfile f, sg_list sg, range blocks, merge m, u64 *edge)
+static int fill_gap(tfsfile f, sg_list sg, range blocks, merge m, u64 *edge)
 {
     tfs_debug("   %s: writing new extent blocks %R\n", func_ss, blocks);
     extent ex;
     tfs fs = tfs_from_file(f);
-    fs_status fss = create_extent(fs, blocks, m ? false : true, &ex);
-    if (fss != FS_STATUS_OK)
+    int fss = create_extent(fs, blocks, m ? false : true, &ex);
+    if (fss != 0)
         return fss;
     blocks = ex->node.r;
     fss = add_extent_to_file(f, ex);
-    if (fss != FS_STATUS_OK) {
+    if (fss != 0) {
         destroy_extent(fs, ex);
         return fss;
     }
     if (m)
         write_extent(f, ex, sg, blocks, m);
     *edge = blocks.end;
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status update_extent(tfsfile f, extent ex, symbol l, u64 val)
+static int update_extent(tfsfile f, extent ex, symbol l, u64 val)
 {
     if (f->f.md) {
         assert(ex->md);
         value v = value_from_u64(val);
-        fs_status s = filesystem_write_eav(tfs_from_file(f), ex->md, l, v, false);
-        if (s != FS_STATUS_OK)
+        int s = filesystem_write_eav(tfs_from_file(f), ex->md, l, v, false);
+        if (s != 0)
             return s;
         value oldval = get(ex->md, l);
         assert(oldval);
@@ -613,33 +616,33 @@ static fs_status update_extent(tfsfile f, extent ex, symbol l, u64 val)
         set(ex->md, l, v);
         f->f.status |= FSF_DIRTY_DATASYNC;
     }
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status update_extent_allocated(tfsfile f, extent ex, u64 allocated)
+static int update_extent_allocated(tfsfile f, extent ex, u64 allocated)
 {
-    fs_status s = update_extent(f, ex, sym(allocated), allocated);
-    if (s != FS_STATUS_OK)
+    int s = update_extent(f, ex, sym(allocated), allocated);
+    if (s != 0)
         return s;
     tfs_debug("   %s: was 0x%lx, now 0x%lx\n", func_ss, ex->allocated, allocated);
     ex->allocated = allocated;
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status update_extent_length(tfsfile f, extent ex, u64 new_length)
+static int update_extent_length(tfsfile f, extent ex, u64 new_length)
 {
-    fs_status s = update_extent(f, ex, sym(length), new_length);
-    if (s != FS_STATUS_OK)
+    int s = update_extent(f, ex, sym(length), new_length);
+    if (s != 0)
         return s;
 
     /* TODO cheating; should be reinsert - update rangemap interface? */
     tfs_debug("   %s: was %R\n", func_ss, ex->node.r);
     ex->node.r = irangel(ex->node.r.start, new_length);
     tfs_debug("   %s: now %R\n", func_ss, ex->node.r);
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status extend(tfsfile f, extent ex, sg_list sg, range blocks, merge m, u64 *edge)
+static int extend(tfsfile f, extent ex, sg_list sg, range blocks, merge m, u64 *edge)
 {
     tfs fs = tfs_from_file(f);
     blocks.end = MIN(blocks.end, ex->node.r.start + (MAX_EXTENT_SIZE >> fs->fs.blocksize_order));
@@ -651,8 +654,8 @@ static fs_status extend(tfsfile f, extent ex, sg_list sg, range blocks, merge m,
         if (new.end > limit)
             new.end = limit;
         if (range_span(new) && filesystem_reserve_storage(fs, new)) {
-            fs_status s = update_extent_allocated(f, ex, ex->allocated + range_span(new));
-            if (s == FS_STATUS_OK) {
+            int s = update_extent_allocated(f, ex, ex->allocated + range_span(new));
+            if (s == 0) {
                 r.end = blocks.end;
                 free = r.end - ex->node.r.end;
             } else {
@@ -664,13 +667,13 @@ static fs_status extend(tfsfile f, extent ex, sg_list sg, range blocks, merge m,
     tfs_debug("   %s: node %R, free 0x%lx (%R), i %R\n", func_ss, ex->node.r, free, r, i);
     if (range_span(i) == 0) {
         *edge = blocks.start;
-        return FS_STATUS_OK;
+        return 0;
     }
     assert(blocks.start >= ex->node.r.end); // XXX temp
     assert(ex->node.r.end <= i.start); // XXX temp
     range z = irange(ex->node.r.end, i.start);
-    fs_status s = update_extent_length(f, ex, i.end - ex->node.r.start);
-    if (s == FS_STATUS_OK) {
+    int s = update_extent_length(f, ex, i.end - ex->node.r.start);
+    if (s == 0) {
         if (m) {
             if (range_span(z) > 0) {
                 tfs_debug("      zero %R\n", z);
@@ -708,14 +711,14 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
     do {
         tfs_debug("   prev %p, next %p\n", prev, next);
         u64 limit = next == INVALID_ADDRESS ? blocks.end : MIN(blocks.end, next->r.start);
-        fs_status fss;
+        int fss;
         if (!m || sg) {
             if (blocks.start < limit) {
                 /* try to extend previous node */
                 if (prev != INVALID_ADDRESS && prev->r.end < limit) {
                     tfs_debug("   extent start 0x%lx, limit 0x%lx\n", blocks.start, limit);
                     fss = extend(f, (extent)prev, sg, irange(blocks.start, limit), m, &blocks.start);
-                    if (fss != FS_STATUS_OK) {
+                    if (fss != 0) {
                         status s = timm("result", "unable to extend extent");
                         return timm_append(s, "fsstatus", "%d", fss);
                     }
@@ -725,7 +728,7 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
                 while (blocks.start < limit) {
                     tfs_debug("   fill start 0x%lx, limit 0x%lx\n", blocks.start, limit);
                     fss = fill_gap(f, sg, irange(blocks.start, limit), m, &blocks.start);
-                    if (fss != FS_STATUS_OK) {
+                    if (fss != 0) {
                         status s = timm("result", "unable to create extent");
                         return timm_append(s, "fsstatus", "%d", fss);
                     }
@@ -759,8 +762,8 @@ static status extents_range_handler(tfs fs, tfsfile f, range q, sg_list sg, merg
 
     if (fsfile_get_length(&f->f) < q.end) {
         tfs_debug("   append; update length to %ld\n", q.end);
-        fs_status fss = filesystem_truncate_locked(&fs->fs, &f->f, q.end);
-        if (fss != FS_STATUS_OK) {
+        int fss = filesystem_truncate_locked(&fs->fs, &f->f, q.end);
+        if (fss != 0) {
             status s = timm("result", "unable to set file length");
             return timm_append(s, "fsstatus", "%d", fss);
         }
@@ -778,7 +781,7 @@ static void tfs_write(fsfile fsf,
               f, q, sg, sg ? sg->count : 0, complete);
     if (fs->fs.ro) {
         status s = timm("result", "read-only filesystem");
-        apply(complete, timm_append(s, "fsstatus", "%d", FS_STATUS_READONLY));
+        apply(complete, timm_append(s, "fsstatus", "%d", -EROFS));
         return;
     }
 
@@ -842,7 +845,7 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
     tfs_debug("%s: file %p range %R\n", func_ss, f, q);
     if (fs->fs.ro) {
         status s = timm("result", "read-only filesystem");
-        return timm_append(s, "fsstatus", "%d", FS_STATUS_READONLY);
+        return timm_append(s, "fsstatus", "%d", -EROFS);
     }
     filesystem_lock(&fs->fs);
     status s = extents_range_handler(fs, f, q, 0, 0);
@@ -850,26 +853,26 @@ closure_function(2, 1, status, filesystem_check_or_reserve_extent,
     return s;
 }
 
-static fs_status add_extents(tfs fs, range i, rangemap rm)
+static int add_extents(tfs fs, range i, rangemap rm)
 {
     extent ex;
-    fs_status fss;
+    int fss;
     while (range_span(i)) {
         fss = create_extent(fs, i, true, &ex);
-        if (fss != FS_STATUS_OK)
+        if (fss != 0)
             return fss;
         assert(rangemap_insert(rm, &ex->node));
         i.start = ex->node.r.end;
     }
-    return FS_STATUS_OK;
+    return 0;
 }
 
-closure_function(2, 1, void, filesystem_op_complete,
-                 fsfile, f, fs_status_handler, sh,
+closure_function(1, 1, void, filesystem_op_complete,
+                 fs_status_handler, sh,
                  status s)
 {
-    tfs_debug("%s: status %v\n", func_ss);
-    apply(bound(sh), bound(f), is_ok(s) ? FS_STATUS_OK : FS_STATUS_IOERR);
+    tfs_debug("%s: status %v\n", func_ss, s);
+    apply(bound(sh), is_ok(s) ? 0 : -EIO);
     closure_finish();
 }
 
@@ -887,16 +890,16 @@ closure_func_basic(rmnode_handler, boolean, assert_no_node,
     halt("tfs: temporary rangemap not empty on dealloc\n");
 }
 
-static fs_status add_extents_to_file(tfsfile f, rangemap rm)
+static int add_extents_to_file(tfsfile f, rangemap rm)
 {
     tfs_debug("%s: tuple %p\n", func_ss, f->f.md);
     rangemap_foreach(rm, node) {
         rangemap_remove_node(rm, node);
-        fs_status s = add_extent_to_file(f, (extent) node);
-        if (s != FS_STATUS_OK)
+        int s = add_extent_to_file(f, (extent) node);
+        if (s != 0)
             return s;
     }
-    return FS_STATUS_OK;
+    return 0;
 }
 
 /* no longer async, but keep completion to match dealloc... */
@@ -906,7 +909,7 @@ void filesystem_alloc(fsfile f, long offset, long len,
     assert(f);
     filesystem fs = f->fs;
     if (!fs_is_tfs(fs)) {
-        apply(completion, f, FS_STATUS_INVAL);
+        apply(completion, -EINVAL);
         return;
     }
 
@@ -916,7 +919,7 @@ void filesystem_alloc(fsfile f, long offset, long len,
 
     rangemap new_rm = allocate_rangemap(fs->h);
     assert(new_rm != INVALID_ADDRESS);
-    fs_status status = FS_STATUS_OK;
+    int status = 0;
 
     tfsfile fsf = (tfsfile)f;
     tfs tfs = (struct tfs *)fs;
@@ -928,7 +931,7 @@ void filesystem_alloc(fsfile f, long offset, long len,
         range i = range_intersection(irange(lastedge, edge), blocks);
         if (range_span(i)) {
             status = add_extents(tfs, i, new_rm);
-            if (status != FS_STATUS_OK)
+            if (status != 0)
                 goto done;
         }
         lastedge = curr->r.end;
@@ -939,12 +942,12 @@ void filesystem_alloc(fsfile f, long offset, long len,
     range i = range_intersection(irange(lastedge, blocks.end), blocks);
     if (range_span(i)) {
         status = add_extents(tfs, i, new_rm);
-        if (status != FS_STATUS_OK)
+        if (status != 0)
             goto done;
     }
 
     status = add_extents_to_file(fsf, new_rm);
-    if (status != FS_STATUS_OK)
+    if (status != 0)
         goto done;
     u64 end = offset + len;
     if (!keep_size && (end > fsfile_get_length(f))) {
@@ -952,10 +955,10 @@ void filesystem_alloc(fsfile f, long offset, long len,
     }
 done:
     filesystem_unlock(fs);
-    deallocate_rangemap(new_rm, (status == FS_STATUS_OK ?
+    deallocate_rangemap(new_rm, (status == 0 ?
                                  stack_closure_func(rmnode_handler, assert_no_node) :
                                  stack_closure(destroy_extent_node, tfs)));
-    apply(completion, f, status);
+    apply(completion, status);
 }
 
 void filesystem_dealloc(fsfile f, long offset, long len,
@@ -966,7 +969,7 @@ void filesystem_dealloc(fsfile f, long offset, long len,
        range. The null sg is propagated to the storage write for
        extent removal. */
     status_handler sh;
-    sh = contextual_closure(filesystem_op_complete, f, completion);
+    sh = contextual_closure(filesystem_op_complete, completion);
     apply(pagecache_node_get_writer(fsfile_get_cachenode(f)), 0, irangel(offset, len), sh);
 }
 #endif
@@ -1005,22 +1008,22 @@ static boolean tfs_file_unlink(tfs fs, tuple t)
     return (get(t, sym(no_encode)) != 0);
 }
 
-static fs_status do_mkentry(tfs fs, tuple parent, sstring name, tuple entry,
+static int do_mkentry(tfs fs, tuple parent, sstring name, tuple entry,
                             boolean persistent)
 {
     symbol name_sym = sym_sstring(name);
     tuple c = children(parent);
-    fs_status s;
+    int s;
 
     /* XXX rather than ignore, there should be a wakeup on a sync blockq */
     if (persistent) {
         s = filesystem_write_eav(fs, c, name_sym, entry, false);
     } else {
         set(entry, sym(no_encode), null_value);
-        s = FS_STATUS_OK;
+        s = 0;
     }
 
-    if (s == FS_STATUS_OK) {
+    if (s == 0) {
         set(c, name_sym, entry);
         table_set(fs->files, entry, INVALID_ADDRESS);
         fs_notify_create(entry, parent, name_sym);
@@ -1029,19 +1032,19 @@ static fs_status do_mkentry(tfs fs, tuple parent, sstring name, tuple entry,
     return s;
 }
 
-fs_status filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry, boolean persistent, boolean recursive)
+int filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry, boolean persistent, boolean recursive)
 {
     if (fs->ro)
-        return FS_STATUS_READONLY;
+        return -EROFS;
     if (!fs_is_tfs(fs))
-        return FS_STATUS_INVAL;
+        return -EINVAL;
     tfs tfs = (struct tfs *)fs;
     filesystem_lock(fs);
     tuple parent = cwd ? cwd : fs->root;
     assert(children(parent));
 
     sstring token, rest;
-    fs_status status = FS_STATUS_OK;
+    int status = 0;
 
     /* find the folder we need to mkentry in */
     sstring delim = ss("/");
@@ -1056,7 +1059,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry, 
                     tuple dir = fs_new_entry(fs);
                     set(dir, sym(children), allocate_tuple());
                     status = do_mkentry(tfs, parent, token, dir, persistent);
-                    if (status != FS_STATUS_OK)
+                    if (status != 0)
                         break;
 
                     parent = dir;
@@ -1065,7 +1068,7 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry, 
                 }
 
                 msg_err("a path component (\"%s\") is missing\n", token);
-                status = FS_STATUS_NOENT;
+                status = -ENOENT;
                 break;
             }
 
@@ -1075,13 +1078,13 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry, 
 
         if (final) {
             msg_debug("final path component (\"%s\") already exists\n", token);
-            status = FS_STATUS_EXIST;
+            status = -EEXIST;
             break;
         }
 
         if (!children(t)) {
             msg_debug("a path component (\"%s\") is not a folder\n", token);
-            status = FS_STATUS_NOTDIR;
+            status = -ENOTDIR;
             break;
         }
 
@@ -1093,11 +1096,11 @@ fs_status filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry, 
     return status;
 }
 
-fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, sstring fp,
+int filesystem_mkdirpath(filesystem fs, tuple cwd, sstring fp,
         boolean persistent)
 {
     if (!fs_is_tfs(fs))
-        return FS_STATUS_INVAL;
+        return -EINVAL;
     tuple dir = fs_new_entry(fs);
     /* 'make it a folder' by attaching a children node to the tuple */
     set(dir, sym(children), allocate_tuple());
@@ -1124,17 +1127,17 @@ closure_function(1, 1, boolean, free_extent,
     return true;
 }
 
-static fs_status tfs_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
+static int tfs_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
 {
     tfs tfs = (struct tfs *)fs;
     tfsfile fsf = 0;
-    fs_status fss;
+    int fss;
     if (!md || is_regular(md)) {
         if (md)
             set(md, sym(extents), allocate_tuple());
         fsf = allocate_fsfile(tfs, md);
         if (fsf == INVALID_ADDRESS)
-            return FS_STATUS_NOMEM;
+            return -ENOMEM;
         if (f) {
             *f = &fsf->f;
         }
@@ -1142,7 +1145,7 @@ static fs_status tfs_create(filesystem fs, tuple parent, string name, tuple md, 
     if (parent && name && md) {
         fss = filesystem_write_eav(tfs, children(parent), intern(name), md, false);
         if (fsf) {
-            if (fss == FS_STATUS_OK) {
+            if (fss == 0) {
                 fsfile_reserve(&fsf->f);
             } else {
                 table_set(tfs->files, md, 0);
@@ -1150,37 +1153,37 @@ static fs_status tfs_create(filesystem fs, tuple parent, string name, tuple md, 
             }
         }
     } else {
-        fss = FS_STATUS_OK;
+        fss = 0;
     }
-    if ((fss == FS_STATUS_OK) && !fsf)
+    if ((fss == 0) && !fsf)
         table_set(tfs->files, md, INVALID_ADDRESS);
     return fss;
 }
 
-static fs_status tfs_unlink(filesystem fs, tuple parent, string name, tuple md,
+static int tfs_unlink(filesystem fs, tuple parent, string name, tuple md,
                             boolean *destruct_md)
 {
     tfs tfs = (struct tfs *)fs;
-    fs_status fss = filesystem_write_eav(tfs, children(parent), intern(name), 0, false);
-    if (fss == FS_STATUS_OK) {
+    int fss = filesystem_write_eav(tfs, children(parent), intern(name), 0, false);
+    if (fss == 0) {
         *destruct_md = tfs_file_unlink(tfs, md);
     }
     return fss;
 }
 
-static fs_status tfs_rename(filesystem fs, tuple old_parent, string old_name, tuple old_md,
+static int tfs_rename(filesystem fs, tuple old_parent, string old_name, tuple old_md,
                             tuple new_parent, string new_name, tuple new_md, boolean exchange,
                             boolean *destruct_md)
 {
-    fs_status s = fs_check_rename(old_parent, old_md, new_parent, new_md, exchange);
-    if (s != FS_STATUS_OK)
+    int s = fs_check_rename(old_parent, old_md, new_parent, new_md, exchange);
+    if (s != 0)
         return s;
     tfs tfs = (struct tfs *)fs;
     s = filesystem_write_eav(tfs, children(new_parent), intern(new_name), old_md, true);
-    if (s == FS_STATUS_OK)
+    if (s == 0)
         s = filesystem_write_eav(tfs, children(old_parent), intern(old_name), exchange ? new_md : 0,
                                  exchange && new_md);
-    if ((s == FS_STATUS_OK) && !exchange && new_md)
+    if ((s == 0) && !exchange && new_md)
         *destruct_md = tfs_file_unlink(tfs, new_md);
     return s;
 }
@@ -1275,7 +1278,7 @@ tfsfile allocate_fsfile(tfs fs, tuple md)
 #ifdef KERNEL
                     fs_reserve,
 #endif
-                    fs_free) != FS_STATUS_OK) {
+                    fs_free) != 0) {
 #ifdef KERNEL
         if (fs_reserve)
             deallocate_closure(fs_reserve);
@@ -1351,7 +1354,7 @@ boolean filesystem_reserve_log_space(tfs fs, u64 *next_offset, u64 *offset, u64 
     return true;
 }
 
-static fs_status tfs_get_fsfile(filesystem fs, tuple n, fsfile *f)
+static int tfs_get_fsfile(filesystem fs, tuple n, fsfile *f)
 {
     return fs_get_fsfile(((tfs)fs)->files, n, f);
 }
@@ -1381,19 +1384,10 @@ void create_filesystem(heap h,
     fs->fs.lookup = fs_lookup;
     fs->fs.get_fsfile = tfs_get_fsfile;
     fs->fs.file_read = tfs_read;
-#ifndef TFS_READ_ONLY
-#ifdef KERNEL
-    fs->page_order = pagecache_get_page_order();
-    fs->zero_page = pagecache_get_zero_page();
-#else
-    fs->page_order = PAGESIZE;
-    fs->zero_page = allocate_zero(h, PAGESIZE);
-#endif
-    fs->fs.file_write = tfs_write;
-#endif
     fs->fs.get_inode = fs_get_inode;
     fs->fs.get_meta = tmpfs_get_meta;
 #ifndef TFS_READ_ONLY
+    fs->fs.file_write = tfs_write;
     fs->fs.create = tfs_create;
     fs->fs.unlink = tfs_unlink;
     fs->fs.rename = tfs_rename;
@@ -1403,7 +1397,14 @@ void create_filesystem(heap h,
     fs->fs.destroy_fs = destroy_filesystem;
     fs->storage = allocate_rangemap(h);
     assert(fs->storage != INVALID_ADDRESS);
+#ifdef KERNEL
     spin_lock_init(&fs->storage_lock);
+    fs->page_order = pagecache_get_page_order();
+    fs->zero_page = pagecache_get_zero_page();
+#else
+    fs->page_order = PAGESIZE;
+    fs->zero_page = allocate_zero(h, PAGESIZE);
+#endif
     fs->temp_log = 0;
 #else
     fs->storage = 0;
@@ -1415,7 +1416,11 @@ void create_filesystem(heap h,
         runtime_memcpy(fs->label, label.ptr, label_len);
         fs->label[label_len] = '\0';
     }
+#ifdef KERNEL
     fs->dma = heap_dma();
+#else
+    fs->dma = h;
+#endif
     fs->next_extend_log_offset = INVALID_PHYSICAL;
     fs->next_new_log_offset = INVALID_PHYSICAL;
     fs->tl = log_create(h, fs, !sstring_is_null(label), closure(h, log_complete, complete, fs));

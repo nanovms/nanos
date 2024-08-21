@@ -1276,7 +1276,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
                 filesystem fs = fsf->fs;
                 if (fs->get_seals) {
                     u64 seals;
-                    if ((fs->get_seals(fs, fsf, &seals) == FS_STATUS_OK) &&
+                    if ((fs->get_seals(fs, fsf, &seals) == 0) &&
                         (seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE))) {
                         if (vmflags & VMAP_FLAG_WRITABLE) {
                             ret = -EPERM;

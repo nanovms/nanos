@@ -175,7 +175,7 @@ static sysreturn unveil(const char *path, const char *permissions)
     tuple n;
     process_get_cwd(current->p, &cwd_fs, &cwd);
     fs = cwd_fs;
-    if (filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &n, 0) == FS_STATUS_OK) {
+    if (filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &n, 0) == 0) {
         if (is_dir(n)) {
             rv = unveil_set_dir_perms(fs, n, perms);
         } else {
@@ -200,8 +200,7 @@ static sysreturn unveil(const char *path, const char *permissions)
         } else {
             parent_path = ss(".");
         }
-        if (filesystem_get_node(&fs, cwd, parent_path, false, false, false, false, &n, 0) ==
-            FS_STATUS_OK) {
+        if (filesystem_get_node(&fs, cwd, parent_path, false, false, false, false, &n, 0) == 0) {
             sstring dir_entry;
             if (dir_separator) {
                 dir_entry.ptr = dir_separator + 1;
@@ -254,10 +253,10 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, sstring pa
                                             u64 perms)
 {
     tuple n;
-    fs_status fss = filesystem_get_node(&fs, cwd, path, nofollow,
+    int fss = filesystem_get_node(&fs, cwd, path, nofollow,
                                         false, false, false, &n, 0);
     u64 unveil_perms = 0;
-    if (fss == FS_STATUS_OK) {
+    if (fss == 0) {
         do {
             unveil_perms = unveil_get_perms(fs, n);
             if ((unveil_perms & UNVEIL_PERMS_VALID) || (n == filesystem_getroot(fs))) {
@@ -267,7 +266,7 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, sstring pa
             inode ino = fs->get_inode(fs, n);
             filesystem_put_node(fs, n);
             fss = filesystem_get_node(&fs, ino, ss(".."), true, false, false, false, &n, 0);
-        } while (fss == FS_STATUS_OK);
+        } while (fss == 0);
     } else {
         /* Nonexistent path: look for the parent directory. */
         char *dir_separator = path_find_last_delim(path);
@@ -283,7 +282,7 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, sstring pa
             parent_path = ss(".");
         }
         fss = filesystem_get_node(&fs, cwd, parent_path, false, false, false, false, &n, 0);
-        if (fss == FS_STATUS_OK) {
+        if (fss == 0) {
             unveil_dir dir = unveil_find_dir(fs, n);
             if (dir && dir->dir_entries) {
                 sstring dir_entry;
@@ -511,8 +510,8 @@ static boolean unveil_unlinkat(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4,
             return false;
         filesystem fs = cwd_fs;
         tuple n;
-        fs_status fss = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &n, 0);
-        if (fss == FS_STATUS_OK) {
+        int fss = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &n, 0);
+        if (fss == 0) {
             struct unveil_dir d = {
                 .fs = fs,
                 .ino = fs->get_inode(fs, n),

@@ -1,3 +1,7 @@
+#ifdef KERNEL
+#include <lock.h>
+#endif
+
 typedef struct timer *timer;
 
 /* On timer expiration, the registered timer handler will be invoked with the

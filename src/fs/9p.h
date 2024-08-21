@@ -374,6 +374,5 @@ void p9_strcpy(struct p9_string *dest, sstring str);
 void p9_bufcpy(struct p9_string *dest, buffer b);
 int p9_strcmp(struct p9_string *s1, sstring s2);
 
-fs_status p9_parse_minimal_resp(u8 req_type, union p9_minimal_resp *resp, u32 resp_len);
-fs_status p9_parse_qid_resp(u8 req_type, union p9_qid_resp *resp, u32 resp_len, u64 *qid);
-fs_status p9_ecode_to_fs_status(u32 ecode);
+int p9_parse_minimal_resp(u8 req_type, union p9_minimal_resp *resp, u32 resp_len);
+int p9_parse_qid_resp(u8 req_type, union p9_qid_resp *resp, u32 resp_len, u64 *qid);

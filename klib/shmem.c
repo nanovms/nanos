@@ -16,18 +16,18 @@ sysreturn memfd_create(const char *name, unsigned int flags)
     filesystem fs = shmem.fs;
     fsfile fsf;
     filesystem_lock(fs);
-    fs_status fss = filesystem_creat_unnamed(fs, &fsf);
-    if (fss == FS_STATUS_OK) {
+    int fss = filesystem_creat_unnamed(fs, &fsf);
+    if (fss == 0) {
         if (!(flags & MFD_ALLOW_SEALING))
             fss = fs->set_seals(fs, fsf, F_SEAL_SEAL);
     } else {
         fsf = 0;
     }
     sysreturn rv;
-    if (fss == FS_STATUS_OK)
+    if (fss == 0)
         rv = unix_file_new(fs, fs->root, FDESC_TYPE_REGULAR, O_RDWR | O_TMPFILE, fsf);
     else
-        rv = sysreturn_from_fs_status(fss);
+        rv = fss;
     filesystem_unlock(fs);
     if ((rv < 0) && fsf)
         fsfile_release(fsf);

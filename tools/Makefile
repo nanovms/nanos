@@ -39,7 +39,6 @@ SRCS-vdsogen=	$(CURDIR)/vdsogen.c
 CFLAGS+=-O3 \
 	-I$(ARCHDIR) \
 	-I$(SRCDIR) \
-	-I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/fs \
 	-I$(SRCDIR)/unix_process

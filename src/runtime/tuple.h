@@ -187,6 +187,14 @@ static inline boolean get_u64(value e, symbol a, u64 *result)
     return u64_from_value(v, result);
 }
 
+static inline boolean get_s64(value e, symbol a, s64 *result)
+{
+    value v = get(e, a);
+    if (!v)
+        return false;
+    return s64_from_value(v, result);
+}
+
 /* really just for parser output */
 static inline boolean is_null_string(value v)
 {

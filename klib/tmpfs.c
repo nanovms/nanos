@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <kernel.h>
 #include <pagecache.h>
 #include <fs.h>
@@ -12,7 +13,7 @@ typedef struct tmpfs_file {
     closure_struct(thunk, free);
 } *tmpfs_file;
 
-static fs_status tmpfs_get_fsfile(filesystem fs, tuple n, fsfile *f)
+static int tmpfs_get_fsfile(filesystem fs, tuple n, fsfile *f)
 {
     return fs_get_fsfile(((tmpfs)fs)->files, n, f);
 }
@@ -67,8 +68,8 @@ closure_func_basic(pagecache_node_reserve, status, tmpfsfile_reserve,
 {
     tmpfs_file fsf = struct_from_field(closure_self(), tmpfs_file, reserve);
     if (fsfile_get_length(&fsf->f) < q.end) {
-        fs_status fss = filesystem_truncate(fsf->f.fs, &fsf->f, q.end);
-        if (fss != FS_STATUS_OK) {
+        int fss = filesystem_truncate(fsf->f.fs, &fsf->f, q.end);
+        if (fss != 0) {
             status s = timm("result", "failed to update file length");
             return timm_append(s, "fsstatus", "%d", fss);
         }
@@ -119,21 +120,21 @@ static s64 tmpfsfile_get_blocks(fsfile f)
     return (pages << ((tmpfs)f->fs)->page_order) >> SECTOR_OFFSET;
 }
 
-static fs_status tmpfs_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
+static int tmpfs_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
 {
     tmpfs tmpfs = (struct tmpfs *)fs;
     tmpfs_file fsf;
-    fs_status fss;
+    int fss;
     if (!md || is_regular(md)) {
         heap h = fs->h;
         fsf = allocate(h, sizeof(*fsf));
         if (fsf == INVALID_ADDRESS)
-            return FS_STATUS_NOMEM;
+            return -ENOMEM;
         fss = fsfile_init(fs, &fsf->f, md,
                           init_closure_func(&fsf->reserve, pagecache_node_reserve,
                                             tmpfsfile_reserve),
                           init_closure_func(&fsf->free, thunk, tmpfsfile_free));
-        if (fss != FS_STATUS_OK) {
+        if (fss != 0) {
             deallocate(h, fsf, sizeof(*fsf));
             return fss;
         }
@@ -146,50 +147,50 @@ static fs_status tmpfs_create(filesystem fs, tuple parent, string name, tuple md
             fsfile_reserve(&fsf->f);
     } else {
         fsf = INVALID_ADDRESS;
-        fss = FS_STATUS_OK;
+        fss = 0;
     }
     if (md)
         table_set(tmpfs->files, md, fsf);
     return fss;
 }
 
-static fs_status tmpfs_unlink(filesystem fs, tuple parent, string name, tuple md,
+static int tmpfs_unlink(filesystem fs, tuple parent, string name, tuple md,
                             boolean *destruct_md)
 {
     fs_unlink(((tmpfs)fs)->files, md);
     *destruct_md = true;
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status tmpfs_rename(filesystem fs, tuple old_parent, string old_name, tuple old_md,
+static int tmpfs_rename(filesystem fs, tuple old_parent, string old_name, tuple old_md,
                               tuple new_parent, string new_name, tuple new_md, boolean exchange,
                               boolean *destruct_md)
 {
-    fs_status s = fs_check_rename(old_parent, old_md, new_parent, new_md, exchange);
-    if ((s == FS_STATUS_OK) && !exchange && new_md) {
+    int s = fs_check_rename(old_parent, old_md, new_parent, new_md, exchange);
+    if ((s == 0) && !exchange && new_md) {
         fs_unlink(((tmpfs)fs)->files, new_md);
         *destruct_md = true;
     }
     return s;
 }
 
-static fs_status tmpfs_truncate(filesystem fs, fsfile f, u64 len)
+static int tmpfs_truncate(filesystem fs, fsfile f, u64 len)
 {
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status tmpfs_set_seals(filesystem fs, fsfile f, u64 seals)
+static int tmpfs_set_seals(filesystem fs, fsfile f, u64 seals)
 {
     tmpfs_file fsf = (tmpfs_file)f;
     fsf->seals = seals;
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status tmpfs_get_seals(filesystem fs, fsfile f, u64 *seals)
+static int tmpfs_get_seals(filesystem fs, fsfile f, u64 *seals)
 {
     tmpfs_file fsf = (tmpfs_file)f;
     *seals = fsf->seals;
-    return FS_STATUS_OK;
+    return 0;
 }
 
 static u64 tmpfs_freeblocks(filesystem fs)

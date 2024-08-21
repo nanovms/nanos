@@ -50,10 +50,6 @@ void console_write(const char *s, bytes count)
     uefi_system_table->con_out->output_string(uefi_system_table->con_out, buf);
 }
 
-void klog_write(const char *s, bytes count)
-{
-}
-
 void print_frame_trace_from_here(void)
 {
 }
@@ -98,11 +94,6 @@ void halt_with_code(u8 code, sstring format, ...)
     buffer_print(b);
     UBS->exit(uefi_image_handle, EFI_LOAD_ERROR, 0, 0); /* does not return */
     while(1);   /* to honor "noreturn" attribute */
-}
-
-heap heap_dma(void)
-{
-    return &general;
 }
 
 static u64 uefi_alloc(heap h, bytes b)

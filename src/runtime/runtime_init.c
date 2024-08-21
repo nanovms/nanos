@@ -1,5 +1,8 @@
 #include <runtime.h>
+
+#ifdef KERNEL
 #include <log.h>
+#endif
 
 void initialize_buffer();
 
@@ -154,7 +157,9 @@ void init_runtime(heap general, heap safe)
 void rput_sstring(sstring s)
 {
     console_write(s.ptr, s.len);
+#ifdef KERNEL
     klog_write(s.ptr, s.len);
+#endif
 }
 
 #define STACK_CHK_GUARD 0x595e9fbd94fda766

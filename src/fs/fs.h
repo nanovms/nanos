@@ -48,27 +48,7 @@ void fsfile_flush(fsfile f, boolean datasync, status_handler completion);
 
 #define fsfile_get_blocks(f)    (f)->get_blocks(f)  /* returns the number of allocated blocks */
 
-typedef enum {
-    FS_STATUS_OK = 0,
-    FS_STATUS_NOSPACE,
-    FS_STATUS_IOERR,
-    FS_STATUS_NOENT,
-    FS_STATUS_EXIST,
-    FS_STATUS_INVAL,
-    FS_STATUS_NOTDIR,
-    FS_STATUS_ISDIR,
-    FS_STATUS_NOTEMPTY,
-    FS_STATUS_NOMEM,
-    FS_STATUS_LINKLOOP,
-    FS_STATUS_NAMETOOLONG,
-    FS_STATUS_XDEV,
-    FS_STATUS_FAULT,
-    FS_STATUS_READONLY,
-} fs_status;
-
-sstring string_from_fs_status(fs_status s);
-
-closure_type(fs_status_handler, void, fsfile fsf, fs_status fss);
+closure_type(fs_status_handler, void, int status);
 
 typedef void (*fs_io)(fsfile f, sg_list sg, range r, status_handler completion);
 
@@ -76,10 +56,10 @@ void filesystem_alloc(fsfile f, long offset, long len,
         boolean keep_size, fs_status_handler completion);
 void filesystem_dealloc(fsfile f, long offset, long len,
         fs_status_handler completion);
-fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len);
-fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len);
+int filesystem_truncate(filesystem fs, fsfile f, u64 len);
+int filesystem_truncate_locked(filesystem fs, fsfile f, u64 len);
 
-fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
+int fsfile_init(filesystem fs, fsfile f, tuple md,
 #ifdef KERNEL
                       pagecache_node_reserve fs_reserve,
 #endif
@@ -91,13 +71,13 @@ struct filesystem {
     int blocksize_order;
     boolean ro; /* true for read-only filesystem */
     tuple (*lookup)(filesystem fs, tuple parent, string name);
-    fs_status (*create)(filesystem fs, tuple parent, string name, tuple md, fsfile *f);
-    fs_status (*unlink)(filesystem fs, tuple parent, string name, tuple md, boolean *destruct_md);
-    fs_status (*rename)(filesystem fs, tuple old_parent, string old_name, tuple old_md,
+    int (*create)(filesystem fs, tuple parent, string name, tuple md, fsfile *f);
+    int (*unlink)(filesystem fs, tuple parent, string name, tuple md, boolean *destruct_md);
+    int (*rename)(filesystem fs, tuple old_parent, string old_name, tuple old_md,
                         tuple new_parent, string new_name, tuple new_md, boolean exchange,
                         boolean *destruct_md);
-    fs_status (*truncate)(filesystem fs, fsfile f, u64 len);
-    fs_status (*get_fsfile)(filesystem fs, tuple md, fsfile *f);
+    int (*truncate)(filesystem fs, fsfile f, u64 len);
+    int (*get_fsfile)(filesystem fs, tuple md, fsfile *f);
     fs_io file_read;
     fs_io file_write;
     inode (*get_inode)(filesystem fs, tuple md);
@@ -105,8 +85,8 @@ struct filesystem {
     u64 (*get_freeblocks)(filesystem fs);
     status_handler (*get_sync_handler)(filesystem fs, fsfile fsf, boolean datasync,
                                        status_handler completion);
-    fs_status (*get_seals)(filesystem fs, fsfile fsf, u64 *seals);
-    fs_status (*set_seals)(filesystem fs, fsfile fsf, u64 seals);
+    int (*get_seals)(filesystem fs, fsfile fsf, u64 *seals);
+    int (*set_seals)(filesystem fs, fsfile fsf, u64 seals);
     void (*destroy_fs)(filesystem fs);
     tuple root;
 #ifdef KERNEL
@@ -169,30 +149,30 @@ static inline u64 sector_from_offset(filesystem fs, bytes b)
 tuple fs_new_entry(filesystem fs);
 
 boolean file_tuple_is_ancestor(tuple t1, tuple t2, tuple p2);
-fs_status fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_md,
+int fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_md,
                           boolean exchange);
 
-fs_status filesystem_mkdir(filesystem fs, inode cwd, sstring path);
-fs_status filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
+int filesystem_mkdir(filesystem fs, inode cwd, sstring path);
+int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
                               boolean create, boolean exclusive, boolean truncate, tuple *n,
                               fsfile *f);
 void filesystem_put_node(filesystem fs, tuple n);
 tuple filesystem_get_meta(filesystem fs, inode n);
 void filesystem_put_meta(filesystem fs, tuple n);
-fs_status filesystem_creat_unnamed(filesystem fs, fsfile *f);
-fs_status filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target);
-fs_status filesystem_delete(filesystem fs, inode cwd, sstring path, boolean directory);
-fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
+int filesystem_creat_unnamed(filesystem fs, fsfile *f);
+int filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target);
+int filesystem_delete(filesystem fs, inode cwd, sstring path, boolean directory);
+int filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
                             filesystem newfs, inode newwd, sstring newpath,
                             boolean noreplace);
-fs_status filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
+int filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
                               filesystem fs2, inode wd2, sstring path2);
 
-fs_status filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s, inode *n);
-fs_status filesystem_get_socket(filesystem *fs, inode cwd, sstring path, tuple *n, void **s);
-fs_status filesystem_clear_socket(filesystem fs, inode n);
+int filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s, inode *n);
+int filesystem_get_socket(filesystem *fs, inode cwd, sstring path, tuple *n, void **s);
+int filesystem_clear_socket(filesystem fs, inode n);
 
-fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child);
+int filesystem_mount(filesystem parent, inode mount_dir, filesystem child);
 void filesystem_unmount(filesystem parent, inode mount_dir, filesystem child, thunk complete);
 
 tuple filesystem_getroot(filesystem fs);
@@ -219,7 +199,7 @@ static inline tuple fs_tuple_from_inode(table files, inode n)
     return table_find(files, t) ? t : 0;
 }
 
-fs_status fs_get_fsfile(table files, tuple n, fsfile *f);
+int fs_get_fsfile(table files, tuple n, fsfile *f);
 void fs_unlink(table files, tuple n);
 
 extern const sstring gitversion;

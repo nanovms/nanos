@@ -25,10 +25,10 @@ void destroy_filesystem(filesystem fs);
 fsfile fsfile_from_node(filesystem fs, tuple n);
 tfsfile allocate_fsfile(tfs fs, tuple md);
 
-fs_status filesystem_write_tuple(tfs fs, tuple t);
-fs_status filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean cleanup);
+int filesystem_write_tuple(tfs fs, tuple t);
+int filesystem_write_eav(tfs fs, tuple t, symbol a, value v, boolean cleanup);
 
-fs_status filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry,
+int filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry,
     boolean persistent, boolean recursive);
-fs_status filesystem_mkdirpath(filesystem fs, tuple cwd, sstring fp,
+int filesystem_mkdirpath(filesystem fs, tuple cwd, sstring fp,
         boolean persistent);

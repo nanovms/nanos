@@ -14,7 +14,7 @@
 #include <errno.h>
 #include <limits.h>
 
-#include <region.h>
+#include <kernel/region.h>
 
 #define string_ends_with(str, substr) ({                \
     int slen = strlen(str);                             \

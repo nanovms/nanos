@@ -9,6 +9,7 @@
 
 #include <kernel.h>
 #include <dma.h>
+#include <errno.h>
 #include <pagecache.h>
 #include <pagecache_internal.h>
 #include <tfs.h>
@@ -573,7 +574,7 @@ closure_function(6, 1, void, pagecache_write_sg_finish,
         use_fault_handler(saved_ctx->fault_handler);
         if (!sg_fault_in(sg, q.end - (bound(pi) << page_order) - offset)) {
             s = timm("result", "invalid user memory");
-            s = timm_append(s, "fsstatus", "%d", FS_STATUS_FAULT);
+            s = timm_append(s, "fsstatus", "%d", -EFAULT);
             clear_fault_handler();
         }
     }
@@ -1379,7 +1380,7 @@ closure_function(4, 1, void, pagecache_read_sg_finish,
         /* Fault in memory now to avoid page faults while spinlocks are held. */
         if (!sg_fault_in(sg, range_span(q))) {
             s = timm("result", "invalid user memory");
-            s = timm_append(s, "fsstatus", "%d", FS_STATUS_FAULT);
+            s = timm_append(s, "fsstatus", "%d", -EFAULT);
         }
         struct pagecache_page k;
         int page_order = pc->page_order;
@@ -1431,7 +1432,7 @@ closure_function(1, 3, void, pagecache_read_sg,
                                       read_sg_finish);
     } else {
         status s = timm("result", "out of memory");
-        apply(completion, timm_append(s, "fsstatus", "%d", FS_STATUS_NOMEM));
+        apply(completion, timm_append(s, "fsstatus", "%d", -ENOMEM));
     }
 }
 

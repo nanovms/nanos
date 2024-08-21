@@ -138,9 +138,6 @@ static inline void wait_for_interrupt(void)
 #define cmdline_consume(o, h)   (void)(h)
 #define boot_params_apply(t)
 
-/* locking constructs */
-#include <mutex.h>
-
 /* device mmio region access */
 #define MK_MMIO_READ(BITS, ISUFFIX) \
     static inline u##BITS mmio_read_##BITS(u64 addr)                    \

@@ -576,7 +576,7 @@ static sysreturn file_write_check(file f, u64 offset, struct iovec *iov, int cou
     if (fs->get_seals) {
         u64 len = iov_total_len(iov, count);
         u64 seals;
-        if ((len > 0) && (fs->get_seals(fs, fsf, &seals) == FS_STATUS_OK)) {
+        if ((len > 0) && (fs->get_seals(fs, fsf, &seals) == 0)) {
             if ((seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)) ||
                 ((seals & F_SEAL_GROW) && (offset + len > fsfile_get_length(fsf))))
                 return -EPERM;
@@ -837,10 +837,9 @@ int file_open(filesystem fs, tuple n, int flags, fsfile fsf)
     int type;
 
     if (flags & O_TMPFILE) {
-        fs_status fss = filesystem_creat_unnamed(fs, &fsf);
-        if (fss != FS_STATUS_OK) {
-            return sysreturn_from_fs_status(fss);
-        }
+        int fss = filesystem_creat_unnamed(fs, &fsf);
+        if (fss != 0)
+            return fss;
         type = FDESC_TYPE_REGULAR;
     } else {
         type = file_type_from_tuple(n);
@@ -867,10 +866,9 @@ sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
     buffer b = 0;
 
     fsfile fsf = 0;
-    fs_status fss = filesystem_get_node(&fs, cwd, name, !!(flags & O_NOFOLLOW),
+    ret = filesystem_get_node(&fs, cwd, name, !!(flags & O_NOFOLLOW),
                                         !!(flags & O_CREAT), !!(flags & O_EXCL),
                                         !!(flags & O_TRUNC), &n, &fsf);
-    ret = sysreturn_from_fs_status(fss);
     if (ret == -EFAULT)
         return ret;
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
@@ -997,7 +995,7 @@ sysreturn mkdir(const char *pathname, int mode)
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(cwd_fs, cwd, pathname_ss));
+    sysreturn rv = filesystem_mkdir(cwd_fs, cwd, pathname_ss);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1021,7 +1019,7 @@ sysreturn mkdirat(int dirfd, char *pathname, int mode)
     inode cwd;
     cwd = resolve_dir(fs, dirfd, pathname, pathname_ss);
 
-    sysreturn rv = sysreturn_from_fs_status(filesystem_mkdir(fs, cwd, pathname_ss));
+    sysreturn rv = filesystem_mkdir(fs, cwd, pathname_ss);
     filesystem_release(fs);
     return rv;
 }
@@ -1204,7 +1202,7 @@ sysreturn chdir(const char *path)
     sstring path_ss;
     if (!fault_in_user_string(path, &path_ss))
         return -EFAULT;
-    return sysreturn_from_fs_status(filesystem_chdir(current->p, path_ss));
+    return filesystem_chdir(current->p, path_ss);
 }
 
 sysreturn fchdir(int dirfd)
@@ -1244,16 +1242,16 @@ static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, long lengt
         return 0;
     if (fs->get_seals) {
         u64 seals;
-        if (fs->get_seals(fs, fsf, &seals) == FS_STATUS_OK) {
+        if (fs->get_seals(fs, fsf, &seals) == 0) {
             if (((seals & F_SEAL_SHRINK) && (length < cur_len)) ||
                 ((seals & F_SEAL_GROW) && (length > cur_len)))
                 return -EPERM;
         }
     }
-    fs_status s = filesystem_truncate(fs, fsf, length);
-    if (s == FS_STATUS_OK)
+    int s = filesystem_truncate(fs, fsf, length);
+    if (s == 0)
         truncate_file_maps(current->p, fsf, length);
-    return sysreturn_from_fs_status(s);
+    return s;
 }
 
 sysreturn truncate(const char *path, long length)
@@ -1267,12 +1265,9 @@ sysreturn truncate(const char *path, long length)
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fsfile fsf;
-    fs_status fss = filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &t, &fsf);
-    sysreturn rv;
-    if (fss != FS_STATUS_OK) {
-        rv = sysreturn_from_fs_status(fss);
+    sysreturn rv = filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &t, &fsf);
+    if (rv != 0)
         goto out;
-    }
     if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE))
         rv = -EACCES;
     else if (is_dir(t))
@@ -1385,9 +1380,9 @@ sysreturn fdatasync(int fd)
 static sysreturn access_internal(filesystem fs, inode cwd, sstring pathname, int mode)
 {
     tuple m = 0;
-    fs_status fss = filesystem_get_node(&fs, cwd, pathname, false, false, false, false, &m, 0);
-    if (fss != FS_STATUS_OK)
-        return sysreturn_from_fs_status(fss);
+    int fss = filesystem_get_node(&fs, cwd, pathname, false, false, false, false, &m, 0);
+    if (fss != 0)
+        return fss;
     u32 perms = file_meta_perms(current->p, m);
     filesystem_put_node(fs, m);
     if (mode == F_OK)
@@ -1544,9 +1539,9 @@ static sysreturn stat_internal(filesystem fs, inode cwd, sstring name, boolean f
     if (!fault_in_user_memory(buf, sizeof(struct stat), true))
         return -EFAULT;
 
-    fs_status fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
-    if (fss != FS_STATUS_OK)
-        return sysreturn_from_fs_status(fss);
+    int fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
+    if (fss != 0)
+        return fss;
 
     fill_stat(file_type_from_tuple(n), fs, fsf, n, buf);
     filesystem_put_node(fs, n);
@@ -1824,9 +1819,9 @@ static sysreturn readlink_internal(filesystem fs, inode cwd, sstring pathname, c
         return set_syscall_error(current, EFAULT);
     }
     tuple n;
-    fs_status fss = filesystem_get_node(&fs, cwd, pathname, true, false, false, false, &n, 0);
-    if (fss != FS_STATUS_OK)
-        return sysreturn_from_fs_status(fss);
+    int fss = filesystem_get_node(&fs, cwd, pathname, true, false, false, false, &n, 0);
+    if (fss != 0)
+        return fss;
     sysreturn rv;
     if (is_symlink(n)) {
         buffer target = linktarget(n);
@@ -1873,7 +1868,7 @@ sysreturn unlink(const char *pathname)
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_delete(cwd_fs, cwd, pathname_ss, false));
+    sysreturn rv = filesystem_delete(cwd_fs, cwd, pathname_ss, false);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1887,7 +1882,7 @@ sysreturn unlinkat(int dirfd, const char *pathname, int flags)
     filesystem fs;
     inode cwd = resolve_dir(fs, dirfd, pathname, path_ss);
     sysreturn rv;
-    rv = sysreturn_from_fs_status(filesystem_delete(fs, cwd, path_ss, !!(flags & AT_REMOVEDIR)));
+    rv = filesystem_delete(fs, cwd, path_ss, !!(flags & AT_REMOVEDIR));
     filesystem_release(fs);
     return rv;
 }
@@ -1900,7 +1895,7 @@ sysreturn rmdir(const char *pathname)
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_delete(cwd_fs, cwd, pathname_ss, true));
+    sysreturn rv = filesystem_delete(cwd_fs, cwd, pathname_ss, true);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1913,8 +1908,7 @@ sysreturn rename(const char *oldpath, const char *newpath)
     filesystem cwd_fs;
     inode cwd;
     process_get_cwd(current->p, &cwd_fs, &cwd);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_rename(cwd_fs, cwd, oldpath_ss,
-                                                              cwd_fs, cwd, newpath_ss, false));
+    sysreturn rv = filesystem_rename(cwd_fs, cwd, oldpath_ss, cwd_fs, cwd, newpath_ss, false);
     filesystem_release(cwd_fs);
     return rv;
 }
@@ -1926,8 +1920,7 @@ sysreturn renameat(int olddirfd, const char *oldpath, int newdirfd,
     filesystem oldfs, newfs;
     inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
     inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
-    sysreturn rv = sysreturn_from_fs_status(filesystem_rename(oldfs, oldwd, oldpath_ss,
-                                                              newfs, newwd, newpath_ss, false));
+    sysreturn rv = filesystem_rename(oldfs, oldwd, oldpath_ss, newfs, newwd, newpath_ss, false);
     filesystem_release(oldfs);
     filesystem_release(newfs);
     return rv;
@@ -1944,7 +1937,7 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
     filesystem oldfs, newfs;
     inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
     inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
-    fs_status fss;
+    int fss;
     if (flags & RENAME_EXCHANGE) {
         fss = filesystem_exchange(oldfs, oldwd, oldpath_ss, newfs, newwd, newpath_ss);
     }
@@ -1954,7 +1947,7 @@ sysreturn renameat2(int olddirfd, const char *oldpath, int newdirfd,
     }
     filesystem_release(oldfs);
     filesystem_release(newfs);
-    return sysreturn_from_fs_status(fss);
+    return fss;
 }
 
 /* File paths are treated as absolute paths. */
@@ -1962,7 +1955,7 @@ sysreturn fs_rename(sstring oldpath, sstring newpath)
 {
     filesystem fs = get_root_fs();
     inode root = fs->get_inode(fs, filesystem_getroot(fs));
-    return sysreturn_from_fs_status(filesystem_rename(fs, root, oldpath, fs, root, newpath, false));
+    return filesystem_rename(fs, root, oldpath, fs, root, newpath, false);
 }
 
 sysreturn close(int fd)

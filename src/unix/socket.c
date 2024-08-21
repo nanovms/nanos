@@ -390,14 +390,14 @@ static sysreturn lookup_socket(unixsock *s, struct sockaddr *addr, socklen_t add
     process p = current->p;
     filesystem fs = p->cwd_fs;
     tuple n;
-    fs_status fss = filesystem_get_socket(&fs, p->cwd, path, &n, (void **)s);
-    if (fss == FS_STATUS_INVAL)
+    int fss = filesystem_get_socket(&fs, p->cwd, path, &n, (void **)s);
+    if (fss == -EINVAL)
         return -ECONNREFUSED;
-    if (fss == FS_STATUS_OK) {
+    if (fss == 0) {
         refcount_reserve(&(*s)->refcount);
         filesystem_put_node(fs, n);
     }
-    return sysreturn_from_fs_status(fss);
+    return fss;
 }
 
 closure_function(6, 1, sysreturn, unixsock_write_bh,
@@ -586,9 +586,9 @@ static sysreturn unixsock_bind(struct sock *sock, struct sockaddr *addr,
 
     process p = current->p;
     s->fs = p->cwd_fs;
-    fs_status fss = filesystem_mk_socket(&s->fs, p->cwd, path, s, &s->fs_entry);
-    if (fss != FS_STATUS_OK) {
-        ret = (fss == FS_STATUS_EXIST) ? -EADDRINUSE : sysreturn_from_fs_status(fss);
+    int fss = filesystem_mk_socket(&s->fs, p->cwd, path, s, &s->fs_entry);
+    if (fss != 0) {
+        ret = (fss == -EEXIST) ? -EADDRINUSE : fss;
         goto out;
     }
     runtime_memcpy(&s->local_addr, addr, addrlen);

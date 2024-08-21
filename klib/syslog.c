@@ -119,7 +119,7 @@ closure_function(4, 1, void, syslog_file_write_complete,
                 syslog_file_rotate();
             } else {
                 /* Delete old logs instead of rotating. */
-                if (fsfile_truncate(syslog.fsf, 0) == FS_STATUS_OK) {
+                if (fsfile_truncate(syslog.fsf, 0) == 0) {
                     syslog.file_offset = 0;
                 } else {
                     fsfile_release(syslog.fsf);

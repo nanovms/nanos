@@ -332,12 +332,10 @@ sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     tuple n;
-    fs_status fss = filesystem_get_node(&fs, cwd, pathname_ss, (mask & IN_DONT_FOLLOW) != 0, false,
+    rv = filesystem_get_node(&fs, cwd, pathname_ss, (mask & IN_DONT_FOLLOW) != 0, false,
                                         false, false, &n, 0);
-    if (fss != FS_STATUS_OK) {
-        rv = sysreturn_from_fs_status(fss);
+    if (rv != 0)
         goto out;
-    }
     if ((mask & IN_ONLYDIR) && !is_dir(n)) {
         rv = -ENOTDIR;
         filesystem_put_node(fs, n);

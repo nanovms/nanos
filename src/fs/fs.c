@@ -1,10 +1,11 @@
 #ifdef KERNEL
 #include <kernel.h>
+#include <dma.h>
 #include <pagecache.h>
 #else
 #include <runtime.h>
 #endif
-#include <dma.h>
+#include <errno.h>
 #include <fs.h>
 
 //#define FS_DEBUG
@@ -37,30 +38,6 @@ static inline void report_sha256(buffer b)
 #else
 #define report_sha256(b)
 #endif
-
-sstring string_from_fs_status(fs_status s)
-{
-    switch (s) {
-    case FS_STATUS_NOSPACE:
-        return ss("no space");
-    case FS_STATUS_IOERR:
-        return ss("I/O error");
-    case FS_STATUS_NOENT:
-        return ss("no entry");
-    case FS_STATUS_EXIST:
-        return ss("file exists");
-    case FS_STATUS_NOTDIR:
-        return ss("not a directory");
-    case FS_STATUS_NOMEM:
-        return ss("out of memory");
-    case FS_STATUS_LINKLOOP:
-        return ss("maximum link hops reached");
-    case FS_STATUS_READONLY:
-        return ss("filesystem read-only");
-    default:
-        return ss("unknown error");
-    }
-}
 
 u64 fsfile_get_length(fsfile f)
 {
@@ -206,7 +183,7 @@ void filesystem_read_linear(fsfile f, void *dest, range q, io_status_handler io_
     if (sg == INVALID_ADDRESS) {
         status s = timm("result", "failed to allocate sg list");
         apply(io_complete, timm_append(s,
-                                "fsstatus", "%d", FS_STATUS_NOMEM), 0);
+                                "fsstatus", "%d", -ENOMEM), 0);
         return;
     }
     filesystem fs = f->fs;
@@ -291,9 +268,9 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
     fs_debug("filesystem_read_entire: t %p, bufheap %p, buffer_handler %p, status_handler %p\n",
              t, bufheap, c, sh);
     fsfile f;
-    fs_status fss = fs->get_fsfile(fs, t, &f);
+    int fss = fs->get_fsfile(fs, t, &f);
     status s;
-    if ((fss != FS_STATUS_OK) || !f) {
+    if ((fss != 0) || !f) {
         s = timm("result", "no such file %v", t);
         apply(sh, timm_append(s,
                        "fsstatus", "%d", fss));
@@ -322,18 +299,18 @@ void filesystem_read_entire(filesystem fs, tuple t, heap bufheap, buffer_handler
   alloc_fail:
     s = timm("result", "allocation failure");
     apply(sh, timm_append(s,
-                   "fsstatus", "%d", FS_STATUS_NOMEM));
+                   "fsstatus", "%d", -ENOMEM));
     return;
 }
 
 #ifndef FS_READ_ONLY
 
-fs_status filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
+int filesystem_truncate_locked(filesystem fs, fsfile f, u64 len)
 {
     if (fs->ro)
-        return FS_STATUS_READONLY;
-    fs_status fsf = fs->truncate(fs, f, len);
-    if (fsf == FS_STATUS_OK) {
+        return -EROFS;
+    int fsf = fs->truncate(fs, f, len);
+    if (fsf == 0) {
         tuple md = f->md;
         if (md)
             filesystem_update_mtime(fs, md);
@@ -370,7 +347,7 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
     if (sg == INVALID_ADDRESS) {
         status s = timm("result", "failed to allocate sg list");
         apply(io_complete, timm_append(s,
-                                "fsstatus", "%d", FS_STATUS_NOMEM), 0);
+                                "fsstatus", "%d", -ENOMEM), 0);
         return;
     }
     u64 tail_len = length & (block_size - 1);
@@ -401,10 +378,10 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
                                           fs, sg, length, tail_buf, io_complete));
 }
 
-fs_status filesystem_truncate(filesystem fs, fsfile f, u64 len)
+int filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {
     filesystem_lock(fs);
-    fs_status fss = filesystem_truncate_locked(fs, f, len);
+    int fss = filesystem_truncate_locked(fs, f, len);
     if (f->md)
         fs_notify_modify(f->md);
     filesystem_unlock(fs);
@@ -483,12 +460,12 @@ tuple fs_new_entry(filesystem fs)
     return t;
 }
 
-static fs_status fs_create_dir_entry(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
+static int fs_create_dir_entry(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
 {
     if (fs->ro)
-        return FS_STATUS_READONLY;
-    fs_status s = fs->create(fs, parent, name, md, f);
-    if (s == FS_STATUS_OK) {
+        return -EROFS;
+    int s = fs->create(fs, parent, name, md, f);
+    if (s == 0) {
         symbol name_sym = intern(name);
         set(children(parent), name_sym, md);
         set(md, sym_this(".."), parent);
@@ -519,27 +496,27 @@ static void file_unlink(tuple t, boolean destruct_md)
         iterate(t, stack_closure(file_unlink_each, t));
 }
 
-fs_status filesystem_mkdir(filesystem fs, inode cwd, sstring path)
+int filesystem_mkdir(filesystem fs, inode cwd, sstring path)
 {
     tuple cwd_t = filesystem_get_meta(fs, cwd);
     if (!cwd_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple parent;
-    fs_status fss = filesystem_resolve_sstring(&fs, cwd_t, path, 0, &parent);
-    if ((fss != FS_STATUS_NOENT) || !parent) {
-        if (fss == FS_STATUS_OK)
-            fss = FS_STATUS_EXIST;
+    int fss = filesystem_resolve_sstring(&fs, cwd_t, path, 0, &parent);
+    if ((fss != -ENOENT) || !parent) {
+        if (fss == 0)
+            fss = -EEXIST;
         goto out;
     }
     buffer name = little_stack_buffer(NAME_MAX + 1);
     if (!dirname_from_path(name, path)) {
-        fss = FS_STATUS_NAMETOOLONG;
+        fss = -ENAMETOOLONG;
         goto out;
     }
     tuple dir = fs_new_entry(fs);
     set(dir, sym(children), allocate_tuple());
     fss = fs_create_dir_entry(fs, parent, name, dir, 0);
-    if (fss != FS_STATUS_OK)
+    if (fss != 0)
         destruct_value(dir, true);
   out:
     filesystem_unlock(fs);
@@ -547,47 +524,47 @@ fs_status filesystem_mkdir(filesystem fs, inode cwd, sstring path)
     return fss;
 }
 
-fs_status filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
+int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
                               boolean create, boolean exclusive, boolean truncate, tuple *n,
                               fsfile *f)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
     if (!cwd_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple parent, t;
     fsfile fsf = 0;
-    fs_status fss;
+    int fss;
     if (nofollow)
         fss = filesystem_resolve_sstring(fs, cwd_t, path, &t, &parent);
     else
         fss = filesystem_resolve_sstring_follow(fs, cwd_t, path, &t, &parent);
-    if (fss == FS_STATUS_NOENT) {
+    if (fss == -ENOENT) {
         if (create) {
             if (!parent)
                 goto out;
             t = fs_new_entry(*fs);
             buffer name = alloca_wrap_sstring(filename_from_path(path));
             fss = fs_create_dir_entry(*fs, parent, name, t, f);
-            if (fss != FS_STATUS_OK)
+            if (fss != 0)
                 destruct_value(t, true);
         }
-    } else if (fss == FS_STATUS_OK) {
+    } else if (fss == 0) {
         if (exclusive) {
-            fss = FS_STATUS_EXIST;
+            fss = -EEXIST;
         } else if (is_regular(t) && (f || truncate)) {
             fss = (*fs)->get_fsfile(*fs, t, &fsf);
-            if ((fss == FS_STATUS_OK) && fsf) {
+            if ((fss == 0) && fsf) {
                 if (truncate)
                     fss = filesystem_truncate_locked(*fs, fsf, 0);
-                if (!f || (fss != FS_STATUS_OK))
+                if (!f || (fss != 0))
                     fsfile_release(fsf);
             }
         }
-        if (f && (fss == FS_STATUS_OK))
+        if (f && (fss == 0))
             *f = fsf;
     }
   out:
-    if (fss == FS_STATUS_OK) {
+    if (fss == 0) {
         *n = t;
     } else {
         filesystem_unlock(*fs);
@@ -619,32 +596,32 @@ void filesystem_put_meta(filesystem fs, tuple n)
 }
 
 /* Called with fs locked. */
-fs_status filesystem_creat_unnamed(filesystem fs, fsfile *f)
+int filesystem_creat_unnamed(filesystem fs, fsfile *f)
 {
     if (fs->ro)
-        return FS_STATUS_READONLY;
+        return -EROFS;
     return fs->create(fs, 0, 0, 0, f);
 }
 
-fs_status filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target)
+int filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target)
 {
     int target_len = target.len;
     if (target_len >= PATH_MAX)
-        return FS_STATUS_NAMETOOLONG;
+        return -ENAMETOOLONG;
     tuple cwd_t = filesystem_get_meta(fs, cwd);
     if (!cwd_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple parent;
-    fs_status fss = filesystem_resolve_sstring(&fs, cwd_t, path, 0, &parent);
-    if (fss == FS_STATUS_OK) {
-        fss = FS_STATUS_EXIST;
+    int fss = filesystem_resolve_sstring(&fs, cwd_t, path, 0, &parent);
+    if (fss == 0) {
+        fss = -EEXIST;
         goto out;
     }
-    if ((fss != FS_STATUS_NOENT) || !parent)
+    if ((fss != -ENOENT) || !parent)
         goto out;
     string target_s = allocate_string(target_len);
     if (target_s == INVALID_ADDRESS) {
-        fss = FS_STATUS_NOMEM;
+        fss = -ENOMEM;
         goto out;
     }
     buffer_write_sstring(target_s, target);
@@ -652,7 +629,7 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring tar
     set(link, sym(linktarget), target_s);
     string name = alloca_wrap_sstring(filename_from_path(path));
     fss = fs_create_dir_entry(fs, parent, name, link, 0);
-    if (fss != FS_STATUS_OK)
+    if (fss != 0)
         destruct_value(link, true);
   out:
     filesystem_unlock(fs);
@@ -660,40 +637,40 @@ fs_status filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring tar
     return fss;
 }
 
-fs_status filesystem_delete(filesystem fs, inode cwd, sstring path, boolean directory)
+int filesystem_delete(filesystem fs, inode cwd, sstring path, boolean directory)
 {
     tuple cwd_t = filesystem_get_meta(fs, cwd);
     if (!cwd_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple parent, t;
-    fs_status fss = filesystem_resolve_sstring(&fs, cwd_t, path, &t, &parent);
-    if (fss != FS_STATUS_OK)
+    int fss = filesystem_resolve_sstring(&fs, cwd_t, path, &t, &parent);
+    if (fss != 0)
         goto out;
     tuple c = children(t);
     if (directory) {
         if (!c) {
-            fss = FS_STATUS_NOTDIR;
+            fss = -ENOTDIR;
             goto out;
         }
         boolean notempty = (tuple_count(c) != 0);
         if (notempty) {
-            fss = FS_STATUS_NOTEMPTY;
+            fss = -ENOTEMPTY;
             goto out;
         }
     } else {
         if (c) {
-            fss = FS_STATUS_ISDIR;
+            fss = -EISDIR;
             goto out;
         }
     }
     if (fs->ro) {
-        fss = FS_STATUS_READONLY;
+        fss = -EROFS;
         goto out;
     }
     string name = alloca_wrap_sstring(filename_from_path(path));
     boolean destruct_md;
     fss = fs->unlink(fs, parent, name, t, &destruct_md);
-    if (fss == FS_STATUS_OK) {
+    if (fss == 0) {
         symbol name_sym = intern(name);
         set(children(parent), name_sym, 0);
         fs_notify_delete(t, parent, name_sym);
@@ -706,19 +683,19 @@ fs_status filesystem_delete(filesystem fs, inode cwd, sstring path, boolean dire
     return fss;
 }
 
-fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
+int filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
                             filesystem newfs, inode newwd, sstring newpath,
                             boolean noreplace)
 {
     if (sstring_is_empty(oldpath) || sstring_is_empty(newpath))
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple oldwd_t = filesystem_get_meta(oldfs, oldwd);
     if (!oldwd_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple old, oldparent;
     filesystem fs_to_unlock;
-    fs_status s = filesystem_resolve_sstring(&oldfs, oldwd_t, oldpath, &old, &oldparent);
-    if (s != FS_STATUS_OK) {
+    int s = filesystem_resolve_sstring(&oldfs, oldwd_t, oldpath, &old, &oldparent);
+    if (s != 0) {
         fs_to_unlock = oldfs;
         newfs = 0;
         goto out;
@@ -731,7 +708,7 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     }
     tuple newwd_t = newfs->get_meta(newfs, newwd);
     if (!newwd_t) {
-        s = FS_STATUS_NOENT;
+        s = -ENOENT;
         fs_to_unlock = newfs;
         newfs = 0;
         goto out;
@@ -739,18 +716,18 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     tuple new, newparent;
     s = filesystem_resolve_sstring(&newfs, newwd_t, newpath, &new, &newparent);
     fs_to_unlock = newfs;
-    if ((s != FS_STATUS_OK) && (s != FS_STATUS_NOENT))
+    if ((s != 0) && (s != -ENOENT))
         goto out;
     if (!newparent) {
-        s = FS_STATUS_NOENT;
+        s = -ENOENT;
         goto out;
     }
     if (oldfs != newfs) {
-        s = FS_STATUS_XDEV;
+        s = -EXDEV;
         goto out;
     }
     if (oldfs->ro) {
-        s = FS_STATUS_READONLY;
+        s = -EROFS;
         goto out;
     }
     /* oldfs may have been unlocked in the process of resolving newpath, so check (now that the
@@ -758,16 +735,16 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     old = oldfs->get_meta(oldfs, old_n);
     oldparent = oldfs->get_meta(oldfs, oldparent_n);
     if (!old || !oldparent) {
-        s = FS_STATUS_NOENT;
+        s = -ENOENT;
         goto out;
     }
 
-    if ((s == FS_STATUS_OK) && noreplace) {
-        s = FS_STATUS_EXIST;
+    if ((s == 0) && noreplace) {
+        s = -EEXIST;
         goto out;
     }
     if ((newparent == oldparent) && (new == old)) {
-        s = FS_STATUS_OK;
+        s = 0;
         goto out;
     }
     string oldname = alloca_wrap_sstring(filename_from_path(oldpath));
@@ -776,7 +753,7 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     symbol new_s = intern(newname);
     boolean destruct_md;
     s = oldfs->rename(oldfs, oldparent, oldname, old, newparent, newname, new, false, &destruct_md);
-    if (s == FS_STATUS_OK) {
+    if (s == 0) {
         set(children(oldparent), old_s, 0);
         set(children(newparent), new_s, old);
         set(old, sym_this(".."), newparent);
@@ -795,17 +772,17 @@ fs_status filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     return s;
 }
 
-fs_status filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
+int filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
                               filesystem fs2, inode wd2, sstring path2)
 {
     tuple wd1_t = filesystem_get_meta(fs1, wd1);
     if (!wd1_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple n1, n2;
     tuple parent1, parent2;
     filesystem fs_to_unlock;
-    fs_status s = filesystem_resolve_sstring(&fs1, wd1_t, path1, &n1, &parent1);
-    if (s != FS_STATUS_OK) {
+    int s = filesystem_resolve_sstring(&fs1, wd1_t, path1, &n1, &parent1);
+    if (s != 0) {
         fs_to_unlock = fs1;
         fs2 = 0;
         goto out;
@@ -818,21 +795,21 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
     }
     tuple wd2_t = fs2->get_meta(fs2, wd2);
     if (!wd2_t) {
-        s = FS_STATUS_NOENT;
+        s = -ENOENT;
         fs_to_unlock = fs2;
         fs2 = 0;
         goto out;
     }
     s = filesystem_resolve_sstring(&fs2, wd2_t, path2, &n2, &parent2);
     fs_to_unlock = fs2;
-    if (s != FS_STATUS_OK)
+    if (s != 0)
         goto out;
     if (fs1 != fs2) {
-        s = FS_STATUS_XDEV;
+        s = -EXDEV;
         goto out;
     }
     if (fs1->ro) {
-        s = FS_STATUS_READONLY;
+        s = -EROFS;
         goto out;
     }
     /* fs1 may have been unlocked in the process of resolving path2, so check (now that the
@@ -840,7 +817,7 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
     n1 = fs1->get_meta(fs1, ino1);
     parent1 = fs1->get_meta(fs1, ino1_parent);
     if (!n1 || !parent1) {
-        s = FS_STATUS_NOENT;
+        s = -ENOENT;
         goto out;
     }
 
@@ -849,7 +826,7 @@ fs_status filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
     string name1 = alloca_wrap_sstring(filename_from_path(path1));
     string name2 = alloca_wrap_sstring(filename_from_path(path2));
     s = fs1->rename(fs1, parent1, name1, n1, parent2, name2, n2, true, 0);
-    if (s == FS_STATUS_OK) {
+    if (s == 0) {
         set(children(parent1), intern(name1), n2);
         set(n2, sym_this(".."), parent1);
         set(children(parent2), intern(name2), n1);
@@ -877,7 +854,7 @@ closure_function(2, 3, void, fs_io_func,
 }
 #endif
 
-fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
+int fsfile_init(filesystem fs, fsfile f, tuple md,
 #ifdef KERNEL
                       pagecache_node_reserve fs_reserve,
 #endif
@@ -891,7 +868,7 @@ fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
     fs_read = closure(h, fs_io_func, fs->file_read, f);
 #endif
     if (fs_read == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
 #ifndef FS_READ_ONLY
 #ifdef DMA_BUFFERING
     fs_write = dma_new_writer(h, (sg_io_func)fs->file_write, f);
@@ -900,7 +877,7 @@ fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
 #endif
     if (fs_write == INVALID_ADDRESS) {
         deallocate_closure(fs_read);
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     }
 #else
     fs_write = 0;
@@ -910,7 +887,7 @@ fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
     if (pn == INVALID_ADDRESS) {
         deallocate_closure(fs_read);
         deallocate_closure(fs_write);
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     }
     f->cache_node = pn;
 #endif
@@ -921,7 +898,7 @@ fs_status fsfile_init(filesystem fs, fsfile f, tuple md,
     f->write = fs_write;
     init_refcount(&f->refcount, 1, fs_free);
     f->status = 0;
-    return FS_STATUS_OK;
+    return 0;
 }
 
 status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean ro)
@@ -953,17 +930,17 @@ void filesystem_deinit(filesystem fs)
 #endif
 }
 
-fs_status fs_get_fsfile(table files, tuple n, fsfile *f)
+int fs_get_fsfile(table files, tuple n, fsfile *f)
 {
     fsfile fsf = table_find(files, n);
     if (!fsf)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     if (fsf == INVALID_ADDRESS) /* non-regular file */
         fsf = 0;
     else
         fsfile_reserve(fsf);
     *f = fsf;
-    return FS_STATUS_OK;
+    return 0;
 }
 
 void fs_unlink(table files, tuple n)
@@ -1113,13 +1090,13 @@ int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entr
     int nbytes;
     int err;
 
-    if (sstring_is_empty(f))    /* an empty path should result in FS_STATUS_NOENT */
+    if (sstring_is_empty(f))    /* an empty path should result in -ENOENT */
         t = 0;
     while (!sstring_is_empty(f)) {
         c = utf8_decode(f, &nbytes);
         if (!nbytes) {
             msg_err("Invalid UTF-8 sequence.\n");
-            err = FS_STATUS_NOENT;
+            err = -ENOENT;
             p = false;
             goto done;
         }
@@ -1127,7 +1104,7 @@ int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entr
             if (buffer_length(a)) {
                 t = lookup_follow(fs, t, a, &p);
                 if (!t) {
-                    err = FS_STATUS_NOENT;
+                    err = -ENOENT;
                     goto done;
                 }
                 err = filesystem_follow_links(fs, t, p, &t);
@@ -1136,12 +1113,12 @@ int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entr
                     goto done;
                 }
                 if (!children(t))
-                    return FS_STATUS_NOTDIR;
+                    return -ENOTDIR;
                 buffer_clear(a);
             }
         } else {
             if (!push_character(a, c)) {
-                err = FS_STATUS_NAMETOOLONG;
+                err = -ENAMETOOLONG;
                 t = 0;
                 goto done;
             }
@@ -1152,10 +1129,10 @@ int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entr
 
     if (buffer_length(a)) {
         if (!children(t))
-            return FS_STATUS_NOTDIR;
+            return -ENOTDIR;
         t = lookup_follow(fs, t, a, &p);
     }
-    err = FS_STATUS_NOENT;
+    err = -ENOENT;
 done:
     if (!t && (f.len > 1) && (f.ptr[0] == '/'))
         /* The path being resolved contains entries under a non-existent
@@ -1213,7 +1190,7 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
         }
         if (is_symlink(target_t)) {
             if (hop_count++ == SYMLINK_HOPS_MAX) {
-                return FS_STATUS_LINKLOOP;
+                return -ELOOP;
             }
         }
         link = target_t;
@@ -1222,33 +1199,33 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
 
 #ifdef KERNEL
 
-fs_status filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s, inode *n)
+int filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s, inode *n)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
     if (!cwd_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple sock, parent;
-    fs_status fss = filesystem_resolve_sstring(fs, cwd_t, path, &sock, &parent);
-    if (fss == FS_STATUS_OK) {
-        fss = FS_STATUS_EXIST;
+    int fss = filesystem_resolve_sstring(fs, cwd_t, path, &sock, &parent);
+    if (fss == 0) {
+        fss = -EEXIST;
         goto out;
     }
-    if ((fss != FS_STATUS_NOENT) || !parent)
+    if ((fss != -ENOENT) || !parent)
         goto out;
     sock = allocate_tuple();
     if (sock == INVALID_ADDRESS) {
-        fss = FS_STATUS_NOMEM;
+        fss = -ENOMEM;
         goto out;
     }
     tuple sock_handle = allocate_tuple();
     if (sock_handle == INVALID_ADDRESS) {
-        fss = FS_STATUS_NOMEM;
+        fss = -ENOMEM;
         goto err;
     }
     set(sock, sym(handle), sock_handle);
     buffer b = allocate_buffer((*fs)->h, sizeof(u64));
     if (b == INVALID_ADDRESS) {
-        fss = FS_STATUS_NOMEM;
+        fss = -ENOMEM;
         goto err;
     }
     buffer_write_le64(b, u64_from_pointer(s));
@@ -1257,7 +1234,7 @@ fs_status filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s,
     set(sock, sym(socket), null_value);
     string name = alloca_wrap_sstring(filename_from_path(path));
     fss = fs_create_dir_entry(*fs, parent, name, sock, 0);
-    if (fss == FS_STATUS_OK) {
+    if (fss == 0) {
         *n = (*fs)->get_inode(*fs, sock);
         filesystem_reserve(*fs);
         goto out;
@@ -1270,75 +1247,75 @@ fs_status filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s,
     return fss;
 }
 
-fs_status filesystem_get_socket(filesystem *fs, inode cwd, sstring path, tuple *n, void **s)
+int filesystem_get_socket(filesystem *fs, inode cwd, sstring path, tuple *n, void **s)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
     if (!cwd_t)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     tuple t, sock_handle;
-    fs_status fss = filesystem_resolve_sstring(fs, cwd_t, path, &t, 0);
-    if (fss != FS_STATUS_OK)
+    int fss = filesystem_resolve_sstring(fs, cwd_t, path, &t, 0);
+    if (fss != 0)
         goto out;
     if (!get(t, sym(socket)) || !(sock_handle = get(t, sym(handle)))) {
-        fss = FS_STATUS_INVAL;
+        fss = -EINVAL;
         goto out;
     }
     buffer b = get(sock_handle, sym(value));    // XXX untyped binary
     if (!b || (buffer_length(b) != sizeof(*s))) {
-        fss = FS_STATUS_INVAL;
+        fss = -EINVAL;
         goto out;
     }
     *n = t;
     *s = pointer_from_u64(*((u64 *)buffer_ref(b, 0)));
-    return FS_STATUS_OK;
+    return 0;
   out:
     filesystem_unlock(*fs);
     filesystem_release(*fs);
     return fss;
 }
 
-fs_status filesystem_clear_socket(filesystem fs, inode n)
+int filesystem_clear_socket(filesystem fs, inode n)
 {
     tuple t = filesystem_get_meta(fs, n);
-    fs_status fss;
+    int fss;
     if (t) {
         tuple sock_handle = get_tuple(t, sym(handle));
         buffer b = get(sock_handle, sym(value));    // XXX untyped binary
         buffer_clear(b);
-        fss = FS_STATUS_OK;
+        fss = 0;
         filesystem_unlock(fs);
     } else {
-        fss = FS_STATUS_NOENT;
+        fss = -ENOENT;
     }
     filesystem_release(fs);
     return fss;
 }
 
-fs_status filesystem_mount(filesystem parent, inode mount_dir, filesystem child)
+int filesystem_mount(filesystem parent, inode mount_dir, filesystem child)
 {
     filesystem_lock(parent);
     tuple mount_dir_t = parent->get_meta(parent, mount_dir);
-    fs_status fss;
+    int fss;
     if (!mount_dir_t) {
-        fss = FS_STATUS_NOENT;
+        fss = -ENOENT;
         goto out;
     }
     tuple mount = allocate_tuple();
     if (mount == INVALID_ADDRESS) {
-        fss = FS_STATUS_NOMEM;
+        fss = -ENOMEM;
         goto out;
     }
     buffer b = allocate_buffer(parent->h, sizeof(u64));
     if (b == INVALID_ADDRESS) {
         deallocate_value(mount);
-        fss = FS_STATUS_NOMEM;
+        fss = -ENOMEM;
         goto out;
     }
     buffer_write_le64(b, u64_from_pointer(child));
     set(mount, sym(fs), b);
     set(mount, sym(no_encode), null_value); /* non-persistent entry */
     set(mount_dir_t, sym(mount), mount);
-    fss = FS_STATUS_OK;
+    fss = 0;
   out:
     filesystem_unlock(parent);
     return fss;
@@ -1464,7 +1441,7 @@ boolean file_tuple_is_ancestor(tuple t1, tuple t2, tuple p2)
     return true;
 }
 
-fs_status fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_md,
+int fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_md,
                           boolean exchange)
 {
     if (!exchange) {
@@ -1472,19 +1449,19 @@ fs_status fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tupl
             tuple c = children(new_md);
             if (c) {
                 if (!is_dir(old_md))
-                    return FS_STATUS_ISDIR;
+                    return -EISDIR;
                 boolean notempty = (tuple_count(c) != 0);
                 if (notempty)
-                    return FS_STATUS_NOTEMPTY;
+                    return -ENOTEMPTY;
             } else if (is_dir(old_md))
-                return FS_STATUS_NOTDIR;
+                return -ENOTDIR;
         }
         if (file_tuple_is_ancestor(old_md, new_md, new_parent))
-            return FS_STATUS_INVAL;
+            return -EINVAL;
     } else {
         if (file_tuple_is_ancestor(old_md, new_md, new_parent) ||
             file_tuple_is_ancestor(new_md, old_md, old_parent))
-            return FS_STATUS_INVAL;
+            return -EINVAL;
     }
-    return FS_STATUS_OK;
+    return 0;
 }

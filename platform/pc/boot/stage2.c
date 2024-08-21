@@ -76,15 +76,6 @@ void console_write(const char *s, bytes count)
     }
 }
 
-void klog_write(const char *s, bytes count)
-{
-}
-
-heap heap_dma(void)
-{
-    return general;
-}
-
 closure_function(1, 1, void, stage2_bios_read,
                  u64, offset,
                  storage_req req)

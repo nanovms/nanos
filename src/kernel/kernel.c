@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <kernel.h>
 #include <symtab.h>
 
@@ -315,6 +316,30 @@ void irq_put_target_cpu(u32 cpu_id)
 {
     cpuinfo ci = cpuinfo_from_id(cpu_id);
     ci->targeted_irqs--;
+}
+
+sstring string_from_errno(int errno)
+{
+    switch (errno) {
+    case ENOSPC:
+        return ss("no space");
+    case EIO:
+        return ss("I/O error");
+    case ENOENT:
+        return ss("no entry");
+    case EEXIST:
+        return ss("file exists");
+    case ENOTDIR:
+        return ss("not a directory");
+    case ENOMEM:
+        return ss("out of memory");
+    case ELOOP:
+        return ss("maximum link hops reached");
+    case EROFS:
+        return ss("filesystem read-only");
+    default:
+        return ss("unknown error");
+    }
 }
 
 #ifndef CONFIG_TRACELOG

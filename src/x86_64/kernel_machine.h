@@ -166,9 +166,6 @@ void set_ist(struct cpuinfo_machine *cpu, int i, u64 sp);
 void install_gdt64_and_tss(void *tss_desc, void *tss, void *gdt, void *gdt_pointer);
 
 #ifdef KERNEL
-/* locking constructs */
-#include <mutex.h>
-
 void cmdline_consume(sstring opt_name, cmdline_handler h);
 void boot_params_apply(tuple t);
 #endif

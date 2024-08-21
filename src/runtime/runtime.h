@@ -86,8 +86,6 @@ void print_frame_trace_from_here();
 #define string_literal(s)           (char []){s}
 #define assert_string_literal(s)    (void)string_literal(s)
 
-#include <lock.h>
-
 void runtime_memcpy(void *a, const void *b, bytes len);
 
 void runtime_memset(u8 *a, u8 b, bytes len);

@@ -131,7 +131,6 @@ CFLAGS+=	-O3 \
 		-I$(ARCHDIR) \
 		-I$(SRCDIR) \
 		-I$(SRCDIR)/http \
-		-I$(SRCDIR)/kernel \
 		-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix_process \
 		-I$(SRCDIR)/unix \

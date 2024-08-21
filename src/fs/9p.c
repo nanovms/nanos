@@ -173,7 +173,7 @@ static void p9_fsf_write(fsfile f, sg_list sg, range q, status_handler completio
         p9_fsf_io((p9_fsfile)f, true, sg, q, write_complete);
     } else {
         status s = timm("result", "out of memory");
-        apply(completion, timm_append(s, "fsstatus", "%d", FS_STATUS_NOMEM));
+        apply(completion, timm_append(s, "fsstatus", "%d", -ENOMEM));
     }
 }
 
@@ -257,11 +257,11 @@ static p9_fsfile p9_fsfile_new(p9fs fs, p9_dentry dentry)
     if (fsf == INVALID_ADDRESS)
         return 0;
     fsf->dentry = dentry;
-    fs_status s = fsfile_init(&fs->fs, &fsf->f, dentry->md,
+    int s = fsfile_init(&fs->fs, &fsf->f, dentry->md,
                               init_closure_func(&fsf->reserve, pagecache_node_reserve,
                                                 p9_fsf_reserve),
                               init_closure_func(&fsf->free, thunk, p9_fsf_free));
-    if (s != FS_STATUS_OK) {
+    if (s != 0) {
         deallocate(h, fsf, sizeof(*fsf));
         return 0;
     }
@@ -318,7 +318,7 @@ closure_function(4, 1, void, p9_cache_sync_complete,
         void *transport = fs->transport;
         boolean datasync = bound(datasync);
         p9_debug("  file %p, datasync %d\n", f, datasync);
-        fs_status fss;
+        int fss;
         filesystem_lock(&fs->fs);
         if (f)
             fss = v9p_fsync(transport, f->dentry->fid, datasync);
@@ -326,11 +326,11 @@ closure_function(4, 1, void, p9_cache_sync_complete,
             list_foreach(&fs->fsfiles, e) {
                 f = struct_from_list(e, p9_fsfile, l);
                 fss = v9p_fsync(transport, f->dentry->fid, datasync);
-                if (fss != FS_STATUS_OK)
+                if (fss != 0)
                     break;
             }
         filesystem_unlock(&fs->fs);
-        if (fss != FS_STATUS_OK)
+        if (fss != 0)
             s = timm("result", "fsync failed (%d)", fss);
     }
     async_apply_status_handler(bound(completion), s);
@@ -355,20 +355,20 @@ closure_function(2, 2, boolean, p9_dir_cleanup,
     return true;
 }
 
-static fs_status p9_readdir(p9fs fs, u32 fid, tuple md)
+static int p9_readdir(p9fs fs, u32 fid, tuple md)
 {
     p9_debug("readdir: fid %d, md %p\n", fid, md);
     u64 qid;
     u32 iounit;
-    fs_status s = v9p_lopen(fs->transport, fid, O_RDONLY, &qid, &iounit);
-    if (s == FS_STATUS_INVAL)   /* this happens if fid has been already opened */
-        s = FS_STATUS_OK;
-    else if (s != FS_STATUS_OK)
+    int s = v9p_lopen(fs->transport, fid, O_RDONLY, &qid, &iounit);
+    if (s == -EINVAL)   /* this happens if fid has been already opened */
+        s = 0;
+    else if (s != 0)
         return s;
     const int iobuf_size = PAGESIZE;
     u8 *buf = v9p_get_iobuf(fs->transport, iobuf_size);
     if (buf == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     tuple old_c = children(md);
     tuple new_c = allocate_tuple();
     u64 offset = 0;
@@ -376,14 +376,14 @@ static fs_status p9_readdir(p9fs fs, u32 fid, tuple md)
     p9_readdir_entry entry;
     do {
         s = v9p_readdir(fs->transport, fid, offset, buf, iobuf_size, &count);
-        if (s != FS_STATUS_OK)
+        if (s != 0)
             break;
         u64 buf_offset = 0;
         while (count > buf_offset + sizeof(*entry)) {
             entry = (void *)buf + buf_offset;
             if ((entry->name.length > NAME_MAX) ||
                 (buf_offset + sizeof(*entry) + entry->name.length > count)) {
-                s = FS_STATUS_IOERR;
+                s = -EIO;
                 break;
             }
             if (p9_strcmp(&entry->name, ss(".")) && p9_strcmp(&entry->name, ss(".."))) {
@@ -406,7 +406,7 @@ static fs_status p9_readdir(p9fs fs, u32 fid, tuple md)
                     dentry = p9_dentry_new(fs, P9_NOFID, entry->qid.path, t);
                     if (!dentry) {
                         deallocate_value(t);
-                        s = FS_STATUS_NOMEM;
+                        s = -ENOMEM;
                         break;
                     }
                 }
@@ -434,11 +434,11 @@ static fs_status p9_readdir(p9fs fs, u32 fid, tuple md)
             offset = entry->offset;
             buf_offset += sizeof(*entry) + entry->name.length;
         }
-        if (s != FS_STATUS_OK)
+        if (s != 0)
             break;
     } while (count > sizeof(*entry));
     v9p_put_iobuf(fs->transport, buf, iobuf_size);
-    if (s == FS_STATUS_OK) {
+    if (s == 0) {
         if (old_c) {
             iterate(old_c, stack_closure(p9_dir_cleanup, fs, new_c));
             deallocate_value(old_c);
@@ -451,13 +451,13 @@ static fs_status p9_readdir(p9fs fs, u32 fid, tuple md)
     return s;
 }
 
-static fs_status p9_readlink(p9fs fs, u32 fid, tuple md)
+static int p9_readlink(p9fs fs, u32 fid, tuple md)
 {
     buffer target = allocate_buffer(fs->fs.h, PATH_MAX);
     if (target == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
-    fs_status s = v9p_readlink(fs->transport, fid, target);
-    if (s != FS_STATUS_OK) {
+        return -ENOMEM;
+    int s = v9p_readlink(fs->transport, fid, target);
+    if (s != 0) {
         deallocate_buffer(target);
         return s;
     }
@@ -466,25 +466,25 @@ static fs_status p9_readlink(p9fs fs, u32 fid, tuple md)
     if (old_target && (old_target != null_value))
         deallocate_buffer(old_target);
     set(md, target_sym, target);
-    return FS_STATUS_OK;
+    return 0;
 }
 
-static fs_status p9_rename(filesystem fs, tuple old_parent, string old_name, tuple old_md,
+static int p9_rename(filesystem fs, tuple old_parent, string old_name, tuple old_md,
                            tuple new_parent, string new_name, tuple new_md, boolean exchange,
                            boolean *destruct_md)
 {
     if (exchange)
-        return FS_STATUS_INVAL; /* not supported */
+        return -EINVAL; /* not supported */
     p9fs p9fs = (struct p9fs *)fs;
     p9_dentry oldp_dentry = p9_get_dentry_from_md(p9fs, old_parent);
     if (!oldp_dentry)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     p9_dentry newp_dentry = p9_get_dentry_from_md(p9fs, new_parent);
     if (!newp_dentry)
-        return FS_STATUS_NOENT;
-    fs_status s = v9p_renameat(p9fs->transport, oldp_dentry->fid, old_name,
+        return -ENOENT;
+    int s = v9p_renameat(p9fs->transport, oldp_dentry->fid, old_name,
                                newp_dentry->fid, new_name);
-    if ((s == FS_STATUS_OK) && new_md) {
+    if ((s == 0) && new_md) {
         p9_dentry dentry = p9_get_dentry_from_md(p9fs, new_md);
         if (dentry) {
             dentry->md = 0;
@@ -494,15 +494,15 @@ static fs_status p9_rename(filesystem fs, tuple old_parent, string old_name, tup
     return s;
 }
 
-static fs_status p9_unlink(filesystem fs, tuple parent, string name, tuple md, boolean *destruct_md)
+static int p9_unlink(filesystem fs, tuple parent, string name, tuple md, boolean *destruct_md)
 {
     p9fs p9fs = (struct p9fs *)fs;
     p9_dentry parent_dentry = p9_get_dentry_from_md(p9fs, parent);
     if (!parent_dentry)
-        return FS_STATUS_NOENT;
-    fs_status s = v9p_unlinkat(p9fs->transport, parent_dentry->fid, name,
+        return -ENOENT;
+    int s = v9p_unlinkat(p9fs->transport, parent_dentry->fid, name,
                                is_dir(md) ? P9_DOTL_AT_REMOVEDIR : 0);
-    if (s == FS_STATUS_OK) {
+    if (s == 0) {
         p9_dentry dentry = p9_get_dentry_from_md(p9fs, md);
         if (dentry) {
             dentry->md = 0;
@@ -512,7 +512,7 @@ static fs_status p9_unlink(filesystem fs, tuple parent, string name, tuple md, b
     return s;
 }
 
-static fs_status p9_get_fsfile(filesystem fs, tuple md, fsfile *f)
+static int p9_get_fsfile(filesystem fs, tuple md, fsfile *f)
 {
     p9_debug("get fsfile, md %p\n", md);
     p9fs p9fs = (struct p9fs *)fs;
@@ -522,24 +522,24 @@ static fs_status p9_get_fsfile(filesystem fs, tuple md, fsfile *f)
             p9_fsfile_cache_hit(p9fs, fsf);
             fsfile_reserve(&fsf->f);
             *f = &fsf->f;
-            return FS_STATUS_OK;
+            return 0;
         }
     }
     p9_dentry dentry = p9_get_dentry_from_md(p9fs, md);
     if (!dentry)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     p9_fsfile fsf = p9_fsfile_new(p9fs, dentry);
     if (!fsf)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     struct p9_getattr_resp resp;
-    fs_status s = v9p_getattr(p9fs->transport, dentry->fid, P9_GETATTR_BASIC, &resp);
-    if ((s == FS_STATUS_OK) && ((resp.valid & P9_GETATTR_BASIC) != P9_GETATTR_BASIC))
-        s = FS_STATUS_IOERR;
-    if (s == FS_STATUS_OK)
+    int s = v9p_getattr(p9fs->transport, dentry->fid, P9_GETATTR_BASIC, &resp);
+    if ((s == 0) && ((resp.valid & P9_GETATTR_BASIC) != P9_GETATTR_BASIC))
+        s = -EIO;
+    if (s == 0)
         s = v9p_lopen(p9fs->transport, dentry->fid, O_RDWR, &dentry->qid, &fsf->iounit);
-    if (s == FS_STATUS_INVAL) { /* this happens if fid has been already opened */
-        s = FS_STATUS_OK;
-    } else if (s != FS_STATUS_OK) {
+    if (s == -EINVAL) { /* this happens if fid has been already opened */
+        s = 0;
+    } else if (s != 0) {
         p9_fsfile_delete(p9fs, fsf);
         return s;
     }
@@ -550,7 +550,7 @@ static fs_status p9_get_fsfile(filesystem fs, tuple md, fsfile *f)
         fsf->iounit = p9fs->msize - P9_IOHDR_SIZE;
     fsfile_set_length(&fsf->f, resp.size);
     *f = &fsf->f;
-    return FS_STATUS_OK;
+    return 0;
 }
 
 
@@ -579,12 +579,12 @@ static tuple p9_lookup(filesystem fs, tuple parent, string name)
     if (!parent_dentry)
         return 0;
     if (!buffer_strcmp(name, "."))
-        return (p9_readdir(p9fs, parent_dentry->fid, parent) == FS_STATUS_OK) ? parent : 0;
+        return (p9_readdir(p9fs, parent_dentry->fid, parent) == 0) ? parent : 0;
     parent_dentry->pinned = true;
     u32 fid = p9_fid_new(p9fs);
     parent_dentry->pinned = false;
     struct p9_qid qid;
-    if (v9p_walk(p9fs->transport, parent_dentry->fid, fid, name, &qid) != FS_STATUS_OK) {
+    if (v9p_walk(p9fs->transport, parent_dentry->fid, fid, name, &qid) != 0) {
         deallocate_u64(p9fs->fid_h, fid, 1);
         return 0;
     }
@@ -604,11 +604,11 @@ static tuple p9_lookup(filesystem fs, tuple parent, string name)
     }
     switch (qid.type) {
     case P9_QID_TYPE_DIR:
-        if (p9_readdir(p9fs, fid, md) != FS_STATUS_OK)
+        if (p9_readdir(p9fs, fid, md) != 0)
             goto error;
         break;
     case P9_QID_TYPE_SYMLINK:
-        if (p9_readlink(p9fs, fid, md) != FS_STATUS_OK)
+        if (p9_readlink(p9fs, fid, md) != 0)
             goto error;
         break;
     }
@@ -627,19 +627,19 @@ static tuple p9_lookup(filesystem fs, tuple parent, string name)
     return md;
 }
 
-static fs_status p9_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
+static int p9_create(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
 {
     if (!name)
-        return FS_STATUS_INVAL;
+        return -EOPNOTSUPP;
     p9_debug("create parent %p name '%b' md %p f %p\n", parent, name, md, f);
     p9fs p9fs = (struct p9fs *)fs;
     p9_dentry parent_dentry = p9_get_dentry_from_md(p9fs, parent);
     if (!parent_dentry)
-        return FS_STATUS_NOENT;
+        return -ENOENT;
     p9_dentry dentry = p9_dentry_new(p9fs, P9_NOFID, 0, md);
     if (!dentry)
-        return FS_STATUS_NOMEM;
-    fs_status ret;
+        return -ENOMEM;
+    int ret;
     if (is_dir(md)) {
         ret = v9p_mkdir(p9fs->transport, parent_dentry->fid, name, 0777, &dentry->qid);
     } else if (is_symlink(md)) {
@@ -665,17 +665,17 @@ static fs_status p9_create(filesystem fs, tuple parent, string name, tuple md, f
         } else {
             p9_fsfile fsf = p9_fsfile_new(p9fs, dentry);
             if (!fsf) {
-                ret = FS_STATUS_NOMEM;
+                ret = -ENOMEM;
                 goto out;
             }
             parent_dentry->pinned = true;
             dentry->fid = p9_fid_new(p9fs);
             parent_dentry->pinned = false;
             ret = v9p_walk(p9fs->transport, parent_dentry->fid, dentry->fid, 0, 0);
-            if (ret == FS_STATUS_OK)
+            if (ret == 0)
                 ret = v9p_lcreate(p9fs->transport, dentry->fid, name, O_RDWR, 0644, &dentry->qid,
                                   &fsf->iounit);
-            if (ret == FS_STATUS_OK) {
+            if (ret == 0) {
                 if (fsf->iounit == 0)
                     fsf->iounit = p9fs->msize - P9_IOHDR_SIZE;
                 *f = &fsf->f;
@@ -685,21 +685,21 @@ static fs_status p9_create(filesystem fs, tuple parent, string name, tuple md, f
         }
     }
   out:
-    if (ret != FS_STATUS_OK) {
+    if (ret != 0) {
         dentry->md = 0;
         p9_dentry_delete(p9fs, dentry);
     }
     return ret;
 }
 
-static fs_status p9_truncate(filesystem fs, fsfile f, u64 len)
+static int p9_truncate(filesystem fs, fsfile f, u64 len)
 {
     p9_dentry dentry = ((p9_fsfile)f)->dentry;
-    fs_status s = v9p_setattr(((p9fs)fs)->transport, dentry->fid, P9_SETATTR_SIZE, 0, 0, 0, len,
+    int s = v9p_setattr(((p9fs)fs)->transport, dentry->fid, P9_SETATTR_SIZE, 0, 0, 0, len,
                               0, 0);
-    if (s != FS_STATUS_OK)
+    if (s != 0)
         return s;
-    return FS_STATUS_OK;
+    return 0;
 }
 
 static status_handler p9_get_sync_handler(filesystem fs, fsfile fsf, boolean datasync,
@@ -722,19 +722,19 @@ void p9_create_fs(heap h, void *transport, boolean readonly, filesystem_complete
         goto dealloc_fs;
     }
     fs->root.fid = p9_fid_new(fs);
-    fs_status fss = v9p_version(transport, 64 * MB, ss("9P2000.L"), &fs->msize);
-    if (fss != FS_STATUS_OK) {
+    int fss = v9p_version(transport, 64 * MB, ss("9P2000.L"), &fs->msize);
+    if (fss != 0) {
         s = timm("result", "failed to negotiate protocol version (%d)", fss);
         goto dealloc_fid_h;
     }
     fss = v9p_attach(transport, fs->root.fid, &fs->root.qid);
-    if (fss != FS_STATUS_OK) {
+    if (fss != 0) {
         s = timm("result", "failed to establish connection (%d)", fss);
         goto dealloc_fid_h;
     }
     struct p9_statfs_resp stat_fs;
     fss = v9p_statfs(transport, fs->root.fid, &stat_fs);
-    if (fss != FS_STATUS_OK) {
+    if (fss != 0) {
         s = timm("result", "failed to get filesystem information (%d)", fss);
         goto clunk_root;
     }
@@ -793,40 +793,22 @@ int p9_strcmp(struct p9_string *s1, sstring s2)
     return (int)(s1->length - s2.len);
 }
 
-fs_status p9_parse_minimal_resp(u8 req_type, union p9_minimal_resp *resp, u32 resp_len)
+int p9_parse_minimal_resp(u8 req_type, union p9_minimal_resp *resp, u32 resp_len)
 {
     if (resp_len < sizeof(resp->hdr))
-        return FS_STATUS_IOERR;
+        return -EIO;
     if (resp->hdr.type == req_type + 1)
-        return FS_STATUS_OK;
-    return p9_ecode_to_fs_status(resp->err.ecode);
+        return 0;
+    return -resp->err.ecode;
 }
 
-fs_status p9_parse_qid_resp(u8 req_type, union p9_qid_resp *resp, u32 resp_len, u64 *qid)
+int p9_parse_qid_resp(u8 req_type, union p9_qid_resp *resp, u32 resp_len, u64 *qid)
 {
     if (resp_len < sizeof(struct p9_lerror))
-        return FS_STATUS_IOERR;
+        return -EIO;
     if (resp->hdr.type == req_type + 1) {
         *qid = resp->qid.path;
-        return FS_STATUS_OK;
+        return 0;
     }
-    return p9_ecode_to_fs_status(resp->err.ecode);
-}
-
-fs_status p9_ecode_to_fs_status(u32 ecode)
-{
-    switch (ecode) {
-    case ENOENT:
-        return FS_STATUS_NOENT;
-    case EEXIST:
-        return FS_STATUS_EXIST;
-    case ENOTDIR:
-        return FS_STATUS_NOTDIR;
-    case EISDIR:
-        return FS_STATUS_ISDIR;
-    case ENOTEMPTY:
-        return FS_STATUS_NOTEMPTY;
-    default:
-        return FS_STATUS_INVAL;
-    }
+    return -resp->err.ecode;
 }

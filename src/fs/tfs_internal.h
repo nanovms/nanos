@@ -1,9 +1,9 @@
 #ifdef KERNEL
 #include <kernel.h>
+#include <pagecache.h>
 #else
 #include <runtime.h>
 #endif
-#include <pagecache.h>
 #include <storage.h>
 #include <tfs.h>
 
@@ -14,7 +14,9 @@ typedef struct log *log;
 typedef struct tfs {
     struct filesystem fs;   /* must be first */
     rangemap storage;
+#ifdef KERNEL
     struct spinlock storage_lock;
+#endif
     int alignment_order;        /* in blocks */
     int page_order;
     u8 uuid[UUID_LEN];

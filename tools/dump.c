@@ -7,12 +7,12 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <kernel/log.h>
 #include <storage.h>
 #include <tfs.h>
 #include <errno.h>
 #include <string.h>
 #include <limits.h>
-#include <log.h>
 
 #define DUMP_OPT_TREE  (1U << 0)
 

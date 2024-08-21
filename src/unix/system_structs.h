@@ -1,6 +1,8 @@
 /* architecture-independent syscall types and definitions -
    arch-specific bits live in corresponding unix_machine.h */
 
+#include <errno.h>
+
 /* limits */
 #define S_IFMT   00170000
 #define S_IFSOCK 0140000
@@ -46,60 +48,6 @@ typedef struct iovec {
     void *iov_base;
     u64 iov_len;
 } *iovec;
-
-#define EPERM           1               /* Operation not permitted */
-#define ENOENT          2               /* No such file or directory */
-#define ESRCH           3               /* No such process */
-#define EINTR           4               /* Interrupted system call */
-#define EIO             5               /* Input/output error */
-#define ENXIO           6               /* Device not configured */
-#define E2BIG           7               /* Argument list too long */
-#define ENOEXEC         8               /* Exec format error */
-#define EBADF           9               /* Bad file descriptor */
-#define ECHILD          10              /* No child processes */
-#define EAGAIN          11              /* Resource deadlock avoided */
-#define ENOMEM          12              /* Cannot allocate memory */
-#define EACCES          13              /* Permission denied */
-#define EFAULT          14              /* Bad address */
-#define EBUSY           16              /* Device busy */
-#define EEXIST          17              /* File exists */
-#define EXDEV           18              /* Cross-device link */
-#define ENODEV          19              /* Operation not supported by device */
-#define ENOTDIR         20              /* Not a directory */
-#define EISDIR          21              /* Is a directory */
-#define EINVAL          22              /* Invalid argument */
-#define ENFILE          23              /* Too many open files in system */
-#define EMFILE          24              /* Too many open files */
-#define ENOTTY          25              /* Inappropriate ioctl for device */
-#define EFBIG           27              /* File too large */
-#define ENOSPC          28              /* No space left on device */
-#define ESPIPE          29              /* Illegal seek */
-#define EROFS           30              /* Read-only filesystem */
-#define EMLINK          31              /* Too many links */
-#define EPIPE           32              /* Broken pipe */
-#define ERANGE          34              /* Math result not representable */
-#define ENAMETOOLONG    36              /* File name too long */
-
-#define ENOSYS          38              /* Invalid system call number */
-#define ENOTEMPTY       39              /* Directory not empty */
-#define ELOOP           40              /* Too many symbolic links */
-#define ENOPROTOOPT     42              /* Protocol not available */
-
-#define ENODATA         61		/* No data available */
-#define ETIME           62		/* Timer expired */
-#define EOVERFLOW       75		/* Value too large for defined data type */
-#define EBADFD          77		/* File descriptor in bad state */
-#define EDESTADDRREQ    89		/* Destination address required */
-#define EMSGSIZE        90		/* Message too long */
-#define EPROTOTYPE      91		/* Wrong protocol type for socket */
-#define EOPNOTSUPP      95		/* Operation not supported */
-#define ECONNABORTED    103             /* Software caused connection abort */
-#define EISCONN         106
-#define ENOTCONN        107
-#define ETIMEDOUT       110             /* Connection timed out */
-#define EALREADY        114
-#define EINPROGRESS     115
-#define ECANCELED       125             /* Used for timer cancel on RTC shift */
 
 #define ERESTARTSYS     512
 #define ERESTARTNOHAND  514

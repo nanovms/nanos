@@ -2,6 +2,7 @@
 #include <pagecache.h>
 #include <fs.h>
 #include <9p.h>
+#include <errno.h>
 #include <storage.h>
 
 #include "virtio_internal.h"
@@ -150,21 +151,21 @@ void v9p_put_iobuf(void *priv, void *buf, u64 size)
     deallocate((heap)v9p->backed, buf, size);
 }
 
-fs_status v9p_statfs(void *priv, u32 fid, struct p9_statfs_resp *resp)
+int v9p_statfs(void *priv, u32 fid, struct p9_statfs_resp *resp)
 {
     v9p_debug("statfs fid %d\n", fid);
     virtio_9p v9p = priv;
     u64 phys;
     struct p9_statfs *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TSTATFS);
     xaction->req.fid = fid;
     u32 ret_len = v9p_request(v9p, phys, sizeof(xaction->req),
                               phys + sizeof(xaction->req), sizeof(xaction->resp));
-    fs_status s;
+    int s;
     if (ret_len < sizeof(xaction->resp.hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     if (xaction->resp.hdr.type == P9_RSTATFS) {
@@ -177,46 +178,46 @@ fs_status v9p_statfs(void *priv, u32 fid, struct p9_statfs_resp *resp)
         resp->ffree = xaction->resp.ffree;
         resp->fsid = xaction->resp.fsid;
         resp->namelen = xaction->resp.namelen;
-        s = FS_STATUS_OK;
+        s = 0;
     } else {
-        s = p9_ecode_to_fs_status(xaction->resp.err.ecode);
+        s = -xaction->resp.err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
     return s;
 }
 
-fs_status v9p_lopen(void *priv, u32 fid, u32 flags, u64 *qid, u32 *iounit)
+int v9p_lopen(void *priv, u32 fid, u32 flags, u64 *qid, u32 *iounit)
 {
     v9p_debug("lopen fid %d flags 0x%x\n", fid, flags);
     virtio_9p v9p = priv;
     u64 phys;
     struct p9_lopen *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TLOPEN);
     xaction->req.fid = fid;
     xaction->req.flags = flags;
     u32 ret_len = v9p_request(v9p, phys, sizeof(xaction->req),
                               phys + sizeof(xaction->req), sizeof(xaction->resp));
-    fs_status s;
+    int s;
     if (ret_len < sizeof(xaction->resp.hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     if (xaction->resp.hdr.type == P9_RLOPEN) {
         *qid = xaction->resp.qid.path;
         *iounit = xaction->resp.iounit;
-        s = FS_STATUS_OK;
+        s = 0;
     } else {
-        s = p9_ecode_to_fs_status(xaction->resp.err.ecode);
+        s = -xaction->resp.err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
     return s;
 }
 
-fs_status v9p_lcreate(void *priv, u32 fid, string name, u32 flags, u32 mode, u64 *qid, u32 *iounit)
+int v9p_lcreate(void *priv, u32 fid, string name, u32 flags, u32 mode, u64 *qid, u32 *iounit)
 {
     v9p_debug("lcreate fid %d name '%b' flags 0x%x mode 0x%x\n", fid, name, flags, mode);
     virtio_9p v9p = priv;
@@ -227,7 +228,7 @@ fs_status v9p_lcreate(void *priv, u32 fid, string name, u32 flags, u32 mode, u64
     u64 phys;
     struct p9_msg_hdr *xaction = alloc_map(v9p->backed, req_len + sizeof(*resp), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, xaction, req_len, P9_TLCREATE);
     void *req_body = xaction + 1;
     *(u32 *)req_body = fid;
@@ -237,24 +238,24 @@ fs_status v9p_lcreate(void *priv, u32 fid, string name, u32 flags, u32 mode, u64
     *(u32 *)(req_body + 4 + name_len + 8) = 0;  /* gid */
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, sizeof(*resp));
     resp = (void *)xaction + req_len;
-    fs_status s;
+    int s;
     if (ret_len < sizeof(resp->hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     if (resp->hdr.type == P9_RLCREATE) {
         *qid = resp->qid.path;
         *iounit = resp->iounit;
-        s = FS_STATUS_OK;
+        s = 0;
     } else {
-        s = p9_ecode_to_fs_status(resp->err.ecode);
+        s = -resp->err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, xaction, phys, req_len + sizeof(*resp));
     return s;
 }
 
-fs_status v9p_symlink(void *priv, u32 dfid, string name, string target, u64 *qid)
+int v9p_symlink(void *priv, u32 dfid, string name, string target, u64 *qid)
 {
     v9p_debug("symlink dfid %d name '%b' target '%b'\n", dfid, name, target);
     virtio_9p v9p = priv;
@@ -265,7 +266,7 @@ fs_status v9p_symlink(void *priv, u32 dfid, string name, string target, u64 *qid
     u64 phys;
     struct p9_msg_hdr *xaction = alloc_map(v9p->backed, req_len + sizeof(*resp), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, xaction, req_len, P9_TSYMLINK);
     void *req_body = xaction + 1;
     *(u32 *)req_body = dfid;
@@ -274,12 +275,12 @@ fs_status v9p_symlink(void *priv, u32 dfid, string name, string target, u64 *qid
     *(u32 *)(req_body + 4 + name_len + target_len) = 0; /* gid */
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, sizeof(*resp));
     resp = (void *)xaction + req_len;
-    fs_status s = p9_parse_qid_resp(P9_TSYMLINK, resp, ret_len, qid);
+    int s = p9_parse_qid_resp(P9_TSYMLINK, resp, ret_len, qid);
     dealloc_unmap(v9p->backed, xaction, phys, req_len + sizeof(*resp));
     return s;
 }
 
-fs_status v9p_mknod(void *priv, u32 dfid, string name, u32 mode, u32 major, u32 minor, u64 *qid)
+int v9p_mknod(void *priv, u32 dfid, string name, u32 mode, u32 major, u32 minor, u64 *qid)
 {
     v9p_debug("mknod dfid %d name '%b' mode 0x%x major %d minor %d\n", dfid, name, mode,
               major, minor);
@@ -291,7 +292,7 @@ fs_status v9p_mknod(void *priv, u32 dfid, string name, u32 mode, u32 major, u32 
     u64 phys;
     struct p9_msg_hdr *xaction = alloc_map(v9p->backed, req_len + sizeof(*resp), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, xaction, req_len, P9_TMKNOD);
     void *req_body = xaction + 1;
     *(u32 *)req_body = dfid;
@@ -302,12 +303,12 @@ fs_status v9p_mknod(void *priv, u32 dfid, string name, u32 mode, u32 major, u32 
     *(u32 *)(req_body + 4 + name_len + 12) = 0; /* gid */
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, sizeof(*resp));
     resp = (void *)xaction + req_len;
-    fs_status s = p9_parse_qid_resp(P9_TMKNOD, resp, ret_len, qid);
+    int s = p9_parse_qid_resp(P9_TMKNOD, resp, ret_len, qid);
     dealloc_unmap(v9p->backed, xaction, phys, req_len + sizeof(*resp));
     return s;
 }
 
-fs_status v9p_readlink(void *priv, u32 fid, buffer target)
+int v9p_readlink(void *priv, u32 fid, buffer target)
 {
     v9p_debug("readlink fid %d\n", fid);
     virtio_9p v9p = priv;
@@ -316,48 +317,48 @@ fs_status v9p_readlink(void *priv, u32 fid, buffer target)
     u64 xaction_len = sizeof(*xaction) + buffer_space(target);
     xaction = alloc_map(v9p->backed, xaction_len, &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TREADLINK);
     xaction->req.fid = fid;
     u32 ret_len = v9p_request(v9p, phys, sizeof(xaction->req),
                               phys + offsetof(struct p9_readlink *, resp),
                               sizeof(xaction->resp) + buffer_space(target));
-    fs_status s;
+    int s;
     if (ret_len < sizeof(xaction->resp.hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     if (xaction->resp.hdr.type == P9_RREADLINK) {
         if (xaction->resp.target.length <= buffer_space(target)) {
             buffer_write(target, xaction->resp.target.str, xaction->resp.target.length);
-            s = FS_STATUS_OK;
+            s = 0;
         } else {
-            s = FS_STATUS_IOERR;
+            s = -EIO;
         }
     } else {
-        s = p9_ecode_to_fs_status(xaction->resp.err.ecode);
+        s = -xaction->resp.err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, xaction, phys, xaction_len);
     return s;
 }
 
-fs_status v9p_getattr(void *priv, u32 fid, u64 req_mask, struct p9_getattr_resp *resp)
+int v9p_getattr(void *priv, u32 fid, u64 req_mask, struct p9_getattr_resp *resp)
 {
     v9p_debug("getattr fid %d req_mask 0x%lx\n", fid, req_mask);
     virtio_9p v9p = priv;
     u64 phys;
     struct p9_getattr *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TGETATTR);
     xaction->req.fid = fid;
     xaction->req.request_mask = req_mask;
     u32 ret_len = v9p_request(v9p, phys, sizeof(xaction->req),
                               phys + offsetof(struct p9_getattr *, resp), sizeof(xaction->resp));
-    fs_status s;
+    int s;
     if (ret_len < sizeof(xaction->resp.hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     if (xaction->resp.hdr.type == P9_RGETATTR) {
@@ -374,16 +375,16 @@ fs_status v9p_getattr(void *priv, u32 fid, u64 req_mask, struct p9_getattr_resp 
         resp->atime = seconds(xaction->resp.atime_sec) + nanoseconds(xaction->resp.atime_nsec);
         resp->mtime = seconds(xaction->resp.mtime_sec) + nanoseconds(xaction->resp.mtime_nsec);
         resp->ctime = seconds(xaction->resp.ctime_sec) + nanoseconds(xaction->resp.ctime_nsec);
-        s = FS_STATUS_OK;
+        s = 0;
     } else {
-        s = p9_ecode_to_fs_status(xaction->resp.err.ecode);
+        s = -xaction->resp.err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
     return s;
 }
 
-fs_status v9p_setattr(void *priv, u32 fid, u32 valid, u32 mode, u32 uid, u32 gid, u64 size,
+int v9p_setattr(void *priv, u32 fid, u32 valid, u32 mode, u32 uid, u32 gid, u64 size,
                       timestamp atime, timestamp mtime)
 {
     v9p_debug("setattr fid %d valid 0x%x\n", fid, valid);
@@ -391,7 +392,7 @@ fs_status v9p_setattr(void *priv, u32 fid, u32 valid, u32 mode, u32 uid, u32 gid
     u64 phys;
     struct p9_setattr *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TSETATTR);
     xaction->req.fid = fid;
     xaction->req.valid = valid;
@@ -405,35 +406,35 @@ fs_status v9p_setattr(void *priv, u32 fid, u32 valid, u32 mode, u32 uid, u32 gid
     xaction->req.mtime_nsec = (truncate_seconds(mtime) * BILLION) / TIMESTAMP_SECOND;
     u32 ret_len = v9p_request(v9p, phys, sizeof(xaction->req),
                               phys + offsetof(struct p9_setattr *, resp), sizeof(xaction->resp));
-    fs_status s = p9_parse_minimal_resp(P9_TSETATTR, &xaction->resp, ret_len);
+    int s = p9_parse_minimal_resp(P9_TSETATTR, &xaction->resp, ret_len);
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
     return s;
 }
 
-fs_status v9p_readdir(void *priv, u32 fid, u64 offset, void *buf, u32 count, u32 *ret_count)
+int v9p_readdir(void *priv, u32 fid, u64 offset, void *buf, u32 count, u32 *ret_count)
 {
     v9p_debug("readdir fid %d offset %ld count %d\n", fid, offset, count);
     virtio_9p v9p = priv;
     u64 phys;
     struct p9_readdir *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TREADDIR);
     xaction->req.fid = fid;
     xaction->req.offset = offset;
     xaction->req.count = count;
-    fs_status s;
+    int s;
     context ctx = get_current_context(current_cpu());
     u32 ret_len;
     vqfinish finish = closure(v9p->general, v9p_req_complete, ctx, &ret_len);
     if (finish == INVALID_ADDRESS) {
-        s = FS_STATUS_NOMEM;
+        s = -ENOMEM;
         goto out;
     }
     vqmsg m = allocate_vqmsg(v9p->vq);
     if (m == INVALID_ADDRESS) {
         deallocate_closure(finish);
-        s = FS_STATUS_NOMEM;
+        s = -ENOMEM;
         goto out;
     }
     vqmsg_push(v9p->vq, m, phys, sizeof(xaction->req), false);
@@ -443,39 +444,39 @@ fs_status v9p_readdir(void *priv, u32 fid, u64 offset, void *buf, u32 count, u32
     vqmsg_commit(v9p->vq, m, finish);
     context_suspend();
     if (ret_len < sizeof(xaction->resp.hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     if (xaction->resp.hdr.type == P9_RREADDIR) {
         *ret_count = xaction->resp.count;
-        s = FS_STATUS_OK;
+        s = 0;
     } else {
-        s = p9_ecode_to_fs_status(xaction->resp.err.ecode);
+        s = -xaction->resp.err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
     return s;
 }
 
-fs_status v9p_fsync(void *priv, u32 fid, u32 datasync)
+int v9p_fsync(void *priv, u32 fid, u32 datasync)
 {
     v9p_debug("fsync fid %d datasync %d\n", fid, datasync);
     virtio_9p v9p = priv;
     u64 phys;
     struct p9_fsync *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TFSYNC);
     xaction->req.fid = fid;
     xaction->req.datasync = datasync;
     u32 ret_len = v9p_request(v9p, phys, sizeof(xaction->req),
                               phys + offsetof(struct p9_fsync *, resp), sizeof(xaction->resp));
-    fs_status s = p9_parse_minimal_resp(P9_TFSYNC, &xaction->resp, ret_len);
+    int s = p9_parse_minimal_resp(P9_TFSYNC, &xaction->resp, ret_len);
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
     return s;
 }
 
-fs_status v9p_mkdir(void *priv, u32 dfid, string name, u32 mode, u64 *qid)
+int v9p_mkdir(void *priv, u32 dfid, string name, u32 mode, u64 *qid)
 {
     v9p_debug("mkdir dfid %d name '%b'\n", dfid, name);
     virtio_9p v9p = priv;
@@ -485,7 +486,7 @@ fs_status v9p_mkdir(void *priv, u32 dfid, string name, u32 mode, u64 *qid)
     u64 phys;
     struct p9_msg_hdr *xaction = alloc_map(v9p->backed, req_len + sizeof(*resp), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, xaction, req_len, P9_TMKDIR);
     void *req_body = xaction + 1;
     *(u32 *)req_body = dfid;
@@ -494,12 +495,12 @@ fs_status v9p_mkdir(void *priv, u32 dfid, string name, u32 mode, u64 *qid)
     *(u32 *)(req_body + 4 + name_len + 4) = 0;  /* gid */
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, sizeof(*resp));
     resp = (void *)xaction + req_len;
-    fs_status s = p9_parse_qid_resp(P9_TMKDIR, resp, ret_len, qid);
+    int s = p9_parse_qid_resp(P9_TMKDIR, resp, ret_len, qid);
     dealloc_unmap(v9p->backed, xaction, phys, req_len + sizeof(*resp));
     return s;
 }
 
-fs_status v9p_renameat(void *priv, u32 old_dfid, string old_name, u32 new_dfid, string new_name)
+int v9p_renameat(void *priv, u32 old_dfid, string old_name, u32 new_dfid, string new_name)
 {
     v9p_debug("renameat old_dfid %d old_name '%b' new_dfid %d new_name '%b'\n", old_dfid, old_name,
               new_dfid, new_name);
@@ -512,7 +513,7 @@ fs_status v9p_renameat(void *priv, u32 old_dfid, string old_name, u32 new_dfid, 
     u64 phys;
     struct p9_msg_hdr *xaction = alloc_map(v9p->backed, req_len + sizeof(*resp), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, xaction, req_len, P9_TRENAMEAT);
     void *req_body = xaction + 1;
     *(u32 *)req_body = old_dfid;
@@ -521,12 +522,12 @@ fs_status v9p_renameat(void *priv, u32 old_dfid, string old_name, u32 new_dfid, 
     p9_bufcpy(req_body + 4 + old_len + 4, new_name);
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, sizeof(*resp));
     resp = (void *)xaction + req_len;
-    fs_status s = p9_parse_minimal_resp(P9_TRENAMEAT, resp, ret_len);
+    int s = p9_parse_minimal_resp(P9_TRENAMEAT, resp, ret_len);
     dealloc_unmap(v9p->backed, xaction, phys, req_len + sizeof(*resp));
     return s;
 }
 
-fs_status v9p_unlinkat(void *priv, u32 dfid, string name, u32 flags)
+int v9p_unlinkat(void *priv, u32 dfid, string name, u32 flags)
 {
     v9p_debug("unlinkat dfid %d name '%b' flags 0x%x\n", dfid, name, flags);
     virtio_9p v9p = priv;
@@ -536,7 +537,7 @@ fs_status v9p_unlinkat(void *priv, u32 dfid, string name, u32 flags)
     u64 phys;
     struct p9_msg_hdr *xaction = alloc_map(v9p->backed, req_len + sizeof(*resp), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, xaction, req_len, P9_TUNLINKAT);
     void *req_body = xaction + 1;
     *(u32 *)req_body = dfid;
@@ -544,12 +545,12 @@ fs_status v9p_unlinkat(void *priv, u32 dfid, string name, u32 flags)
     *(u32 *)(req_body + 4 + name_len) = flags;
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, sizeof(*resp));
     resp = (void *)xaction + req_len;
-    fs_status s = p9_parse_minimal_resp(P9_TUNLINKAT, resp, ret_len);
+    int s = p9_parse_minimal_resp(P9_TUNLINKAT, resp, ret_len);
     dealloc_unmap(v9p->backed, xaction, phys, req_len + sizeof(*resp));
     return s;
 }
 
-fs_status v9p_version(void *priv, u32 msize, sstring version, u32 *ret_msize)
+int v9p_version(void *priv, u32 msize, sstring version, u32 *ret_msize)
 {
     v9p_debug("version %s msize 0x%x\n", version, msize);
     virtio_9p v9p = priv;
@@ -561,34 +562,34 @@ fs_status v9p_version(void *priv, u32 msize, sstring version, u32 *ret_msize)
     u64 phys;
     req = alloc_map(v9p->backed, req_len + resp_len, &phys);
     if (req == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     p9_fill_hdr(&req->hdr, req_len, P9_TVERSION, P9_NOTAG);
     req->msize = msize;
     p9_strcpy(&req->version, version);
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, resp_len);
-    fs_status s;
+    int s;
     if (ret_len < sizeof(resp->hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     resp = (void *)req + req_len;
     if (resp->hdr.type == P9_RVERSION) {
         if (!p9_strcmp(&resp->version, version)) {
             *ret_msize = resp->msize;
-            s = FS_STATUS_OK;
+            s = 0;
         } else {
             msg_err("version %s not supported\n", version);
-            s = FS_STATUS_INVAL;
+            s = -EINVAL;
         }
     } else {
-        s = p9_ecode_to_fs_status(resp->err.ecode);
+        s = -resp->err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, req, phys, req_len + resp_len);
     return s;
 }
 
-fs_status v9p_attach(void *priv, u32 root_fid, u64 *root_qid)
+int v9p_attach(void *priv, u32 root_fid, u64 *root_qid)
 {
     v9p_debug("attach\n");
     virtio_9p v9p = priv;
@@ -602,7 +603,7 @@ fs_status v9p_attach(void *priv, u32 root_fid, u64 *root_qid)
     u64 phys;
     struct p9_msg_hdr *xaction = alloc_map(v9p->backed, req_len + sizeof(*resp), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, xaction, req_len, P9_TATTACH);
     void *req_body = xaction + 1;
     *(u32 *)req_body = root_fid;
@@ -612,12 +613,12 @@ fs_status v9p_attach(void *priv, u32 root_fid, u64 *root_qid)
     *(u32 *)(req_body + 8 + uname_len + aname_len) = P9_NONUNAME;
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, sizeof(*resp));
     resp = (void *)xaction + req_len;
-    fs_status s = p9_parse_qid_resp(P9_TATTACH, resp, ret_len, root_qid);
+    int s = p9_parse_qid_resp(P9_TATTACH, resp, ret_len, root_qid);
     dealloc_unmap(v9p->backed, xaction, phys, req_len + sizeof(*resp));
     return s;
 }
 
-fs_status v9p_walk(void *priv, u32 fid, u32 newfid, string wname, struct p9_qid *qid)
+int v9p_walk(void *priv, u32 fid, u32 newfid, string wname, struct p9_qid *qid)
 {
     v9p_debug("walk fid %d newfid %d\n", fid, newfid);
     virtio_9p v9p = priv;
@@ -629,7 +630,7 @@ fs_status v9p_walk(void *priv, u32 fid, u32 newfid, string wname, struct p9_qid 
     u64 phys;
     req = alloc_map(v9p->backed, req_len + resp_len, &phys);
     if (req == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_hdr(v9p, &req->hdr, req_len, P9_TWALK);
     req->fid = fid;
     req->newfid = newfid;
@@ -637,37 +638,37 @@ fs_status v9p_walk(void *priv, u32 fid, u32 newfid, string wname, struct p9_qid 
     if (wname)
         p9_bufcpy((void *)(req + 1), wname);
     u32 ret_len = v9p_request(v9p, phys, req_len, phys + req_len, resp_len);
-    fs_status s;
+    int s;
     if (ret_len < sizeof(resp->hdr)) {
-        s = FS_STATUS_IOERR;
+        s = -EIO;
         goto out;
     }
     resp = (void *)req + req_len;
     if (resp->hdr.type == P9_RWALK) {
         if (resp->nwqid)
             runtime_memcpy(qid, resp->wqid, sizeof(struct p9_qid));
-        s = FS_STATUS_OK;
+        s = 0;
     } else {
-        s = p9_ecode_to_fs_status(resp->err.ecode);
+        s = -resp->err.ecode;
     }
   out:
     dealloc_unmap(v9p->backed, req, phys, req_len + resp_len);
     return s;
 }
 
-fs_status v9p_clunk(void *priv, u32 fid)
+int v9p_clunk(void *priv, u32 fid)
 {
     v9p_debug("clunk fid %d\n", fid);
     virtio_9p v9p = priv;
     u64 phys;
     struct p9_clunk *xaction = alloc_map(v9p->backed, sizeof(*xaction), &phys);
     if (xaction == INVALID_ADDRESS)
-        return FS_STATUS_NOMEM;
+        return -ENOMEM;
     v9p_fill_req_hdr(v9p, xaction, P9_TCLUNK);
     xaction->req.fid = fid;
     u32 ret_len = v9p_request(v9p, phys, sizeof(xaction->req),
                               phys + offsetof(struct p9_clunk *, resp), sizeof(xaction->resp));
-    fs_status s = p9_parse_minimal_resp(P9_TCLUNK, &xaction->resp, ret_len);
+    int s = p9_parse_minimal_resp(P9_TCLUNK, &xaction->resp, ret_len);
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
     return s;
 }
@@ -728,7 +729,7 @@ void v9p_read(void *priv, u32 fid, u64 offset, u32 count, void *dest, status_han
   dealloc_req:
     dealloc_unmap(v9p->backed, xaction, phys, sizeof(*xaction));
   error:
-    s = timm_append(s, "fsstatus", "%d", FS_STATUS_NOMEM);
+    s = timm_append(s, "fsstatus", "%d", -ENOMEM);
     apply(complete, s);
 }
 
@@ -792,6 +793,6 @@ void v9p_write(void *priv, u32 fid, u64 offset, u32 count, void *src, status_han
   dealloc_req:
     dealloc_unmap(v9p->backed, req, phys, sizeof(*req) + sizeof(*resp));
   error:
-    s = timm_append(s, "fsstatus", "%d", FS_STATUS_NOMEM);
+    s = timm_append(s, "fsstatus", "%d", -ENOMEM);
     apply(complete, s);
 }

@@ -342,8 +342,8 @@ boolean create_special_file(sstring path, spec_file_open open, u64 size, u64 rde
     filesystem fs = get_root_fs();
     if (rdev)
         filesystem_set_rdev(fs, entry, rdev);
-    fs_status s = filesystem_mkentry(fs, 0, path, entry, false, true);
-    if (s == FS_STATUS_OK)
+    int s = filesystem_mkentry(fs, 0, path, entry, false, true);
+    if (s == 0)
         return true;
     deallocate_value(entry);
     return false;
@@ -356,13 +356,13 @@ void register_special_files(process p)
     tuple self_exe;
     heap h = heap_locked((kernel_heaps)p->uh);
 
-    fs_status fss = filesystem_get_node(&fs, p->cwd, self_exe_path, false, false, false, false,
+    int fss = filesystem_get_node(&fs, p->cwd, self_exe_path, false, false, false, false,
         &self_exe, 0);
-    if (fss == FS_STATUS_OK) {
+    if (fss == 0) {
         filesystem_put_node(fs, self_exe);
     } else {
         fss = filesystem_mkdirpath(p->root_fs, 0, ss("/proc/self"), true);
-        if ((fss == FS_STATUS_OK) || (fss == FS_STATUS_EXIST)) {
+        if ((fss == 0) || (fss == -EEXIST)) {
             value program = get(p->process_root, sym(program));
             assert(program);
             buffer b = allocate_buffer(h, buffer_length(program) + 1);

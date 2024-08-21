@@ -335,7 +335,6 @@ CFLAGS+=	-O3 -DENABLE_MSG_DEBUG
 CFLAGS+=	-I$(ARCHDIR) \
 		-I$(SRCDIR) \
 		-I$(SRCDIR)/http \
-		-I$(SRCDIR)/kernel \
 		-I$(SRCDIR)/runtime \
 		-I$(SRCDIR)/unix \
 		-I$(SRCDIR)/unix_process

@@ -2,7 +2,9 @@
 
 #include <kernel.h>
 
+#ifdef KERNEL
 struct spinlock pt_lock;
+#endif
 
 //#define PAGE_INIT_DEBUG
 //#define PAGE_DEBUG

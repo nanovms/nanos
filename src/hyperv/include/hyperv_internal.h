@@ -1,6 +1,8 @@
 #ifndef _HYPERV_INTERNAL_H_
 #define _HYPERV_INTERNAL_H_
 
+#include <errno.h>
+
 #include "ctassert.h"
 
 #define _KERNEL
@@ -50,14 +52,6 @@ typedef struct iovec {
     void *iov_base;
     u64 iov_len;
 } *iovec;
-
-#define EIO             5               /* Input/output error */
-#define ENXIO           6               /* Device not configured */
-#define EAGAIN          11              /* Resource deadlock avoided */
-#define ENODEV          19              /* Operation not supported by device */
-#define EINVAL          22              /* Invalid argument */
-#define EOPNOTSUPP      95              /* Operation not supported */
-#define ENOBUFS         105             /* No buffer space available */
 
 struct hypercall_ctx {
     void *hc_addr;

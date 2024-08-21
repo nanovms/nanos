@@ -22,7 +22,6 @@
     cwd; \
 })
 
-sysreturn sysreturn_from_fs_status(fs_status s);
 sysreturn sysreturn_from_fs_status_value(status s);
 
 /* Perform read-ahead following a userspace read request.
@@ -32,7 +31,7 @@ void file_readahead(file f, u64 offset, u64 len);
 
 sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, sg_list *sgp);
 
-fs_status filesystem_chdir(process p, sstring path);
+int filesystem_chdir(process p, sstring path);
 
 void filesystem_update_relatime(filesystem fs, tuple md);
 
@@ -57,7 +56,7 @@ void file_release(file f);
 
 fsfile fsfile_open(sstring file_path);
 fsfile fsfile_open_or_create(sstring file_path, boolean truncate);
-fs_status fsfile_truncate(fsfile f, u64 len);
+int fsfile_truncate(fsfile f, u64 len);
 
 sysreturn fsfile_add_seals(fsfile f, u64 seals);
 sysreturn fsfile_get_seals(fsfile f, u64 *seals);

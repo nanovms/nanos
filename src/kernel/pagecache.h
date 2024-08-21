@@ -38,7 +38,6 @@ sg_io pagecache_node_get_reader(pagecache_node pn);
 
 sg_io pagecache_node_get_writer(pagecache_node pn);
 
-#ifdef KERNEL
 void pagecache_node_add_shared_map(pagecache_node pn , range v /* bytes */, u64 node_offset);
 
 void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */, flush_entry fe);
@@ -55,9 +54,6 @@ void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset);
 void pagecache_release_page(pagecache_node pn, u64 node_offset);
 
 void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset);
-#endif
-
-
 
 pagecache_volume pagecache_allocate_volume(u64 length, int block_order);
 void pagecache_dealloc_volume(pagecache_volume pv);
