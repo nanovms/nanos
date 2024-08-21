@@ -1386,8 +1386,8 @@ closure_function(4, 1, void, pagecache_read_sg_finish,
         u64 page_size = U64_FROM_BIT(page_order);
         k.state_offset = q.start >> page_order;
         u64 offset = q.start & MASK(page_order);
-        pagecache_lock_state(pc);
         pagecache_lock_node(pn);
+        pagecache_lock_state(pc);
         pagecache_page pp = (pagecache_page)rbtree_lookup(&pn->pages, &k.rbnode);
         while (pp != INVALID_ADDRESS) {
             u32 copy_len = MIN(page_size - offset, range_span(q));
@@ -1403,8 +1403,8 @@ closure_function(4, 1, void, pagecache_read_sg_finish,
             pagecache_page_release_locked(pc, pp, false);
             pp = next;
         }
-        pagecache_unlock_node(pn);
         pagecache_unlock_state(pc);
+        pagecache_unlock_node(pn);
         if (ctx != user_ctx)
             clear_fault_handler();
     }
