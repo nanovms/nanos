@@ -239,6 +239,14 @@ void synchronous_handler(void)
         context retctx = apply(fh, ctx);
         if (retctx) {
             context_release_refcount(retctx);
+            if (is_usermode_fault(f))
+                /* Before returning to EL0, restore the EL1 stack pointer (i.e. unconsume the stack
+                 * space consumed by this function), otherwise the handler of the next exception
+                 * taken from EL0 may use the modified stack pointer (and consume more stack space),
+                 * which could lead to a stack overflow if a large number of such exceptions occurs
+                 * before the next runloop invocation. */
+                asm volatile("mov sp, %0" :: "r"(frame_get_stack_top(ci->m.kernel_context->frame)) :
+                             "memory");
             frame_return(retctx->frame);
         }
         runloop();
