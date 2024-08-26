@@ -126,17 +126,15 @@ static void migrate_from_self(cpuinfo ci, u64 first_cpu, u64 ncpus)
     }
 }
 
-static inline boolean update_timer(timestamp here)
+static inline timestamp update_timer(timestamp here)
 {
     timestamp next = kernel_timers->next_expiry;
     if (!compare_and_swap_32(&kernel_timers->update, true, false))
-        return false;
+        return 0;
     s64 delta = next - here;
     timestamp timeout = MAX(delta, (s64)microseconds(RUNLOOP_TIMER_MIN_PERIOD_US));
     sched_debug("set platform timer: delta %lx, timeout %lx\n", delta, timeout);
-    current_cpu()->last_timer_update = next + timeout - delta;
-    set_platform_timer(timeout);
-    return true;
+    return (next + timeout - delta);
 }
 
 closure_function(0, 0, void, kernel_timers_service)
@@ -190,6 +188,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     ci->state = cpu_kernel;
     /* Make sure TLB entries are appropriately flushed before doing any work */
     page_invalidate_flush();
+    timestamp timeout = 0;
 
   retry:
     /* queue for cpu specific operations */
@@ -207,7 +206,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     mm_service(false);
 
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
-    boolean timer_updated = update_timer(here);
+    timestamp next_timeout = update_timer(here);
+    if (next_timeout)
+        timeout = next_timeout;
 
     if (!(shutting_down & SHUTDOWN_ONGOING)) {
         u64 self = ci->id;
@@ -247,19 +248,22 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
                 migrate_from_self(ci, 0, self);
         }
         if (t != INVALID_ADDRESS) {
-            if (!timer_updated) {
+            if (!timeout) {
                 /* Before we schedule a thread on this CPU, we want to be sure
                    that a timer will fire on this core within the interval
                    kernel_timers->max into the future. Taking the place of a
                    true time quantum per thread, this acts to prevent a thread
                    from running for too long and starving out other threads. */
-                s64 timeout = ci->last_timer_update - here;
-                timestamp max_timeout = microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
-                if (kernel_timers->empty || (timeout > (s64)max_timeout)) {
+                timeout = ci->last_timer_update;
+                timestamp max_timeout = here + microseconds(RUNLOOP_TIMER_MAX_PERIOD_US);
+                if (!timeout || (timeout > max_timeout)) {
                     sched_debug("setting CPU scheduler timer\n");
-                    set_platform_timer(max_timeout);
-                    ci->last_timer_update = here + max_timeout;
+                    timeout = max_timeout;
                 }
+            }
+            if (timeout != ci->last_timer_update) {
+                ci->last_timer_update = timeout;
+                set_platform_timer(timeout - here);
             }
             apply(t->t);
         }
@@ -274,6 +278,10 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
         (!(shutting_down & SHUTDOWN_ONGOING) && !sched_queue_empty(&ci->thread_queue)))
         goto retry;
 
+    if (timeout && (timeout != ci->last_timer_update)) {
+        ci->last_timer_update = timeout;
+        set_platform_timer(timeout - here);
+    }
     kernel_sleep();
 }
 

@@ -164,7 +164,6 @@ timerqueue allocate_timerqueue(heap h, clock_now now, sstring name)
 #ifdef KERNEL
     spin_lock_init(&tq->lock);
     tq->service_scheduled = tq->update = false;
-    tq->empty = true;
     tq->next_expiry = 0;
     tq->service = 0;
 #endif

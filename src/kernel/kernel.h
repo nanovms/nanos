@@ -731,6 +731,9 @@ static inline void schedule_timer_service(void)
 {
     if (compare_and_swap_32(&kernel_timers->service_scheduled, false, true))
         async_apply_bh(kernel_timers->service);
+
+    /* This serves as an indication to the scheduler that the timer in this CPU is not armed. */
+    current_cpu()->last_timer_update = 0;
 }
 
 static inline boolean is_kernel_memory(void *a)

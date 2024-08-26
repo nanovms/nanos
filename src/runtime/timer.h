@@ -45,7 +45,6 @@ typedef struct timerqueue {
 
     u32 service_scheduled;  /* CAS */
     u32 update;             /* CAS; timer re-programming needed */
-    boolean empty;          /* indicating the queue is empty */
     sstring name;
 } *timerqueue;
 
@@ -139,13 +138,11 @@ static inline void timer_get_remaining(timerqueue tq, timer t, timestamp *remain
 static inline void refresh_timer_update_locked(timerqueue tq, timer next)
 {
     if (next == INVALID_ADDRESS) {
-        tq->empty = true;
         return;
     }
     timestamp n = timerqueue_expiry(tq, next);
     if (n != tq->next_expiry)
         tq->next_expiry = n;
-    tq->empty = false;
     tq->update = true;
 }
 
