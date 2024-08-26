@@ -651,8 +651,10 @@ static int extend(tfsfile f, extent ex, sg_list sg, range blocks, merge m, u64 *
     if (blocks.end > r.end) {
         range new = irangel(ex->start_block + ex->allocated, blocks.end - r.end);
         u64 limit = fs->fs.size >> fs->fs.blocksize_order;
-        if (new.end > limit)
+        if (new.end > limit) {
+            blocks.end -= new.end - limit;
             new.end = limit;
+        }
         if (range_span(new) && filesystem_reserve_storage(fs, new)) {
             int s = update_extent_allocated(f, ex, ex->allocated + range_span(new));
             if (s == 0) {
