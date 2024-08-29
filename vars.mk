@@ -11,12 +11,14 @@ PATCHDIR=	$(ROOTDIR)/patches
 UNAME_s=	$(shell uname -s)
 UNAME_m=	$(shell uname -m)
 
+HOST_ARCH=	$(UNAME_m)
+ifeq ($(HOST_ARCH),arm64)
+override HOST_ARCH:=	aarch64
+endif
+
 # If no platform is specified, try to guess it from the host architecture.
 ifeq ($(PLATFORM),)
-ARCH?=	$(UNAME_m)
-ifeq ($(ARCH),arm64)
-override ARCH:=		aarch64
-endif
+ARCH?=	$(HOST_ARCH)
 ifeq ($(ARCH),aarch64)
 PLATFORM?=	virt
 endif
@@ -37,7 +39,7 @@ endif
 ifeq ($(PLATFORM),riscv-virt)
 ARCH?=		riscv64
 endif
-ifneq ($(ARCH),$(UNAME_m))
+ifneq ($(ARCH),$(HOST_ARCH))
 CROSS_COMPILE?=	$(ARCH)-linux-gnu-
 endif
 endif

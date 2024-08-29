@@ -1,6 +1,6 @@
 include ../vars.mk
 
-override ARCH=$(shell uname -m)
+override ARCH=$(HOST_ARCH)
 override CROSS_COMPILE=
 ifeq ($(shell uname -s),Darwin)
 override CC=cc
