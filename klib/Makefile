@@ -222,10 +222,6 @@ $(KLIB_SYMS): $(PROGRAM_BINARIES)
 # delete linker script backup file
 	$(Q) $(RM) $(KLIB_SYMS).bak
 
-ifeq ($(findstring clang,$(COMPILER_VERSION)),clang)
-ELF_TARGET=     -target $(ARCH)-elf
-CFLAGS+=        $(ELF_TARGET)
-endif
 LD=             $(CROSS_COMPILE)ld
 
 INCLUDES= \

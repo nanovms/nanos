@@ -103,7 +103,11 @@ ifeq ($(ARCH),riscv64)
 KERNCFLAGS+=	-march=rv64gc -mabi=lp64d
 endif
 
-KERNCFLAGS+=	-fno-omit-frame-pointer
+ifeq ($(findstring clang,$(COMPILER_VERSION)),clang)
+TARGET_CFLAGS=	-target $(ARCH)-elf
+endif
+
+KERNCFLAGS+=	$(TARGET_CFLAGS) -fno-omit-frame-pointer
 KERNLDFLAGS=	--gc-sections -z notext -z noexecstack -z max-page-size=4096 -L $(OUTDIR)/klib -pie --no-dynamic-linker
 
 ifneq ($(UBSAN),)

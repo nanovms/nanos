@@ -236,7 +236,7 @@ VDSO_SRCDIR=    $(SRCDIR)/kernel
 VDSO_OBJDIR=    $(OBJDIR)/vdso
 VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/vdso-now.c
 VDSO_OBJS=      $(patsubst $(VDSO_SRCDIR)/%.c,$(VDSO_OBJDIR)/%.o,$(VDSO_SRCS))
-VDSO_CFLAGS=    -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(OUTDIR) -I$(SRCDIR) -fPIC -c
+VDSO_CFLAGS=    $(TARGET_CFLAGS) -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(OUTDIR) -I$(SRCDIR) -fPIC -c
 VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(ARCHDIR)/vdso.lds
 VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
@@ -350,9 +350,6 @@ $(OBJDIR)/frame.inc: $(ARCHDIR)/frame.h
 	$(call cmd,sed)
 
 ifeq ($(UNAME_s),Darwin)
-ELF_TARGET=     -target x86_64-elf
-CFLAGS+=        $(ELF_TARGET)
-VDSO_CFLAGS+=   $(ELF_TARGET)
 VDSO_LDFLAGS+=  -undefined dynamic_lookup
 LD=             x86_64-elf-ld
 OBJDUMP=        x86_64-elf-objdump

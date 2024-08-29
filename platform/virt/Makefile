@@ -213,7 +213,7 @@ VDSO_SRCDIR=    $(SRCDIR)/kernel
 VDSO_OBJDIR=    $(OBJDIR)/vdso
 VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/vdso-now.c
 VDSO_OBJS=      $(patsubst $(VDSO_SRCDIR)/%.c,$(VDSO_OBJDIR)/%.o,$(VDSO_SRCS))
-VDSO_CFLAGS=    -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(SRCDIR) -fPIC -c
+VDSO_CFLAGS=    $(TARGET_CFLAGS) -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(SRCDIR) -fPIC -c
 VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(ARCHDIR)/vdso.lds
 VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S
@@ -248,7 +248,7 @@ UEFI_OBJS=      $(patsubst $(SRCDIR)/%.c,$(UEFI_OBJDIR)/%.o,$(UEFI_SRCS)) \
 	$(UEFI_OBJDIR)/aarch64/uefi-crt0.o
 UEFI_OBJDIRS=	$(sort $(dir $(UEFI_OBJS))) $(UEFI_OBJDIR)
 UEFI_DEPS=      $(patsubst %.o,%.d,$(UEFI_OBJS))
-UEFI_CFLAGS=    -Wall -Werror -fpic -fshort-wchar -O3 -std=gnu11 \
+UEFI_CFLAGS=    $(TARGET_CFLAGS) -Wall -Werror -fpic -fshort-wchar -O3 -std=gnu11 \
 	-ffreestanding -DBOOT -DUEFI $(call cc-option, -mno-outline-atomics, "") \
 	-I$(SRCDIR) -I$(SRCDIR)/aarch64 -I$(SRCDIR)/boot -I$(SRCDIR)/kernel \
 	-I$(SRCDIR)/runtime -I$(SRCDIR)/fs -I$(PLATFORMDIR) -I$(OBJDIR)

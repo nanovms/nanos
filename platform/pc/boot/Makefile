@@ -91,7 +91,7 @@ DEPS-uefi= $(patsubst %.o,%.d,$(OBJS-uefi))
 AFLAGS-uefi= -felf64
 CFLAGS-uefi= \
 	-Wall -Werror -fpic -fshort-wchar -mno-red-zone -mno-avx -O3 -std=gnu11 \
-	-ffreestanding \
+	$(TARGET_CFLAGS) -ffreestanding \
 	-I$(SRCDIR) -I$(SRCDIR)/boot -I$(SRCDIR)/kernel -I$(SRCDIR)/runtime \
 	-I$(SRCDIR)/fs -I$(SRCDIR)/x86_64 -I$(OBJDIR) \
 	-DBOOT -DUEFI -DEFIAPI="__attribute__((ms_abi))"
@@ -136,7 +136,6 @@ $(PROG-stage2.elf): linker_script
 
 ifeq ($(UNAME_s),Darwin)
 CFLAGS+=	-target i386-elf
-CFLAGS-uefi+=	-target x86_64-elf
 LD=		x86_64-elf-ld
 STRIP=		x86_64-elf-strip
 OBJCOPY=	/usr/local/opt/binutils/bin/objcopy
