@@ -136,15 +136,12 @@ $(PROG-stage2.elf): linker_script
 
 ifeq ($(UNAME_s),Darwin)
 CFLAGS+=	-target i386-elf
-LD=		x86_64-elf-ld
-STRIP=		x86_64-elf-strip
-OBJCOPY=	/usr/local/opt/binutils/bin/objcopy
 SIZE_CMD=	stat -f %z
 else
-LD=		$(CROSS_COMPILE)ld
 CFLAGS+=	-m32
 SIZE_CMD=	stat -c %s
 endif
+LD=		$(CROSS_COMPILE)ld
 CFLAGS-uefi+=	$(if $(filter gcc, $(CC)), -maccumulate-outgoing-args)
 
 msg_uefi_as=    AS	$@
