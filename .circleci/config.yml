@@ -10,7 +10,7 @@ jobs:
       - run: sudo apt-get install nasm qemu-system-x86 ent ruby rustc fuse libfuse-dev
       - run: cd .. && git clone git@github.com:nanovms/ops.git
       - run: make
-      - run: make tfs-fuse
+      - run: make tools && make tfs-fuse
       - run: curl https://ops.city/get.sh -sSfL | sh
       - run:
           command: |

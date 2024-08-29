@@ -127,7 +127,19 @@ If you wish to use FUSE you'll also want to install
 sudo apt-get install libfuse-dev fuse
 ```
 
-#### To build:
+#### To build the kernel (in addition to the bootloaders and klibs):
+```
+make kernel
+```
+
+#### To run an example program from the test/runtime folder:
+With hardware acceleration:
+
+```
+make run
+```
+Without hardware acceleration:
+
 ```
 make run-noaccel
 ```

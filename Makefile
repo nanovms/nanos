@@ -57,18 +57,17 @@ $(ACPICA_DIR)/.vendored: GITFLAGS= --depth 1  https://github.com/acpica/acpica.g
 $(LWIPDIR)/.vendored: GITFLAGS= --depth 1  https://github.com/nanovms/lwip.git -b STABLE-2_1_x
 $(MBEDTLS_DIR)/.vendored: GITFLAGS= --depth 1 https://github.com/nanovms/mbedtls.git
 
-image: $(THIRD_PARTY) tools
-	$(Q) $(MAKE) -C klib
-	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
-
-release: $(THIRD_PARTY) tools
+kernel: $(THIRD_PARTY) contgen
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
 	$(Q) $(MAKE) -C klib
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
+
+image: kernel
+	$(Q) $(MAKE) -C $(PLATFORMDIR) image TARGET=$(TARGET)
+
+release: kernel
 	$(Q) $(RM) -r release
 	$(Q) $(MKDIR) release
-	$(CP) $(MKFS) release
-	$(CP) $(DUMP) release
 	if [ -f $(BOOTIMG) ]; then $(CP) $(BOOTIMG) release; fi
 	if [ -f $(UEFI_LOADER) ]; then $(CP) $(UEFI_LOADER) release; fi
 	$(CP) $(KERNEL) release

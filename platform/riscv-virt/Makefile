@@ -275,14 +275,7 @@ endif
 	@ $(MKDIR) $(dir $(IMAGE))
 	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) -k $(KERNEL) $(TRACELOG_MKFS_OPTS) $(IMAGE)
 
-release: mkfs kernel
-	$(Q) $(RM) -r release
-	$(Q) $(MKDIR) release
-	$(CP) $(MKFS) release
-	$(CP) $(KERNEL) release
-	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
-
-.PHONY: mkfs vdsogen kernel target image release
+.PHONY: mkfs vdsogen boot kernel target image
 
 $(VDSOGEN):
 	@$(MAKE) -C $(ROOTDIR)/tools vdsogen
