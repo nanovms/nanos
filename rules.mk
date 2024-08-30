@@ -30,11 +30,7 @@ ASDEPFLAGS=
 endif
 
 ifeq ($(UNAME_s),Darwin)
-ifeq ($(ARCH),aarch64)
-CC=		$(CROSS_COMPILE)gcc
-else
 CC=		cc
-endif
 else
 CC=		$(CROSS_COMPILE)gcc
 endif

@@ -375,7 +375,7 @@ $(BOOTIMG): mbr.hex
 
 $(UEFI_OBJDIR)/aarch64/uefi-crt0.o:	$(SRCDIR)/aarch64/uefi-crt0.s
 	@$(MKDIR) $(dir $@)
-	$(call cmd,uefi_cc)
+	$(call cmd,as)
 
 $(UEFI_OBJDIR)/%.o: $(SRCDIR)/%.c $(GENHEADERS)
 	@$(MKDIR) $(dir $@)

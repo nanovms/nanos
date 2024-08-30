@@ -181,14 +181,14 @@ static inline void disable_interrupts(void)
 
 static inline u64 irq_enable_save(void)
 {
-    register u32 daif;
+    register u64 daif;
     asm volatile("mrs %0, daif; msr daifclr, #2" : "=r"(daif));
     return daif;
 }
 
 static inline u64 irq_disable_save(void)
 {
-    register u32 daif;
+    register u64 daif;
     asm volatile("mrs %0, daif; msr daifset, #2" : "=r"(daif));
     return daif;
 }
@@ -235,9 +235,9 @@ MK_MMIO_WRITE(64, "", "x");
 
 /* special register access */
 #define read_psr(reg) ({ register u64 r; asm volatile("mrs %0, " #reg : "=r"(r)); r;})
-#define write_psr(reg, v) do { asm volatile("msr " #reg ", %0" : : "r"(v)); } while (0)
+#define write_psr(reg, v) do { asm volatile("msr " #reg ", %0" : : "r"((u64)(v))); } while (0)
 #define read_psr_s(rstr) ({ register u64 r; asm volatile("mrs %0, " rstr : "=r"(r)); r;})
-#define write_psr_s(rstr, v) do { asm volatile("msr " rstr ", %0" : : "r"(v)); } while (0)
+#define write_psr_s(rstr, v) do { asm volatile("msr " rstr ", %0" : : "r"((u64)(v))); } while (0)
 
 struct cpuinfo_machine {
     /*** Fields accessed by low-level entry points. ***/

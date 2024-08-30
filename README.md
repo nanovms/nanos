@@ -73,9 +73,12 @@ brew install nanovms/homebrew-qemu/qemu
 ```
 
 For ARM-based Macs (M1/M2):
+
 ```
-brew update && brew install go wget ent qemu aarch64-elf-gcc aarch64-elf-binutils
-# To build and link runtime tests or aarch64 linux user programs:
+brew update && brew install go wget ent qemu aarch64-elf-binutils
+```
+##### To build and link runtime tests or aarch64 linux user programs:
+```
 brew tap nanovms/homebrew-toolchains
 brew install aarch64-linux-binutils
 ```
@@ -84,12 +87,14 @@ Create a Chroot:
 (this isn't absolutely necessary)
 
 For Intel-based Macs:
+
 ```
 mkdir target-root && cd target-root && wget
 https://storage.googleapis.com/testmisc/target-root.tar.gz && tar xzf target-root.tar.gz
 ```
 
 For ARM-based Macs (M1/M2):
+
 ```
 mkdir target-root && cd target-root && wget
 https://storage.googleapis.com/testmisc/arm64-target-root-new.tar.gz && tar xzf arm64-target-root-new.tar.gz
