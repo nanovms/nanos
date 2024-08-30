@@ -1,0 +1,20 @@
+name: Build
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'fix/**'
+  pull_request:
+jobs:
+  mac-build:
+    name: Mac Build
+    runs-on: macos-latest
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+    - name: Install tools
+      run: brew install nasm x86_64-elf-binutils aarch64-elf-binutils
+    - name: x86 build
+      run: make -j`sysctl -n hw.ncpu` kernel PLATFORM=pc
+    - name: ARM build
+      run: make -j`sysctl -n hw.ncpu` kernel PLATFORM=virt
