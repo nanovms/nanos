@@ -277,7 +277,9 @@ void pci_probe_device(pci_dev dev)
             spin_unlock(&pci_lock);
             return;
         }
-        *new_dev = *dev;
+        new_dev->bus = dev->bus;
+        new_dev->slot = dev->slot;
+        new_dev->function = dev->function;
         new_dev->driver = 0;
         pci_parse_iomem(new_dev, true);
         vector_push(devices, new_dev);
