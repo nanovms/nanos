@@ -6,7 +6,7 @@
 #define KERNEL_BASE      0xffffffff80000000ull
 #define DEVICE_BASE      0xffffffff00000000ull
 
-#define KERNEL_PHYS 0x80200000ull /* must match linker script - XXX extern? */
+#define KERNEL_PHYS 0x80200000ULL /* must match linker script - XXX extern? */
 
 #include <kernel_platform.h>
 

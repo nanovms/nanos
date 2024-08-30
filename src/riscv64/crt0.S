@@ -1,7 +1,7 @@
 #define __ASSEMBLY__
 #include <frame.h>
 #include <kernel_machine.h>
-#define U64_FROM_BIT(x) (1ull<<(x))
+#define U64_FROM_BIT(x) (1ULL<<(x))
 
 .macro global_func name
         .global \name
@@ -110,8 +110,9 @@ trap_handler:
         csrr t1, scause
         sd t1, FRAME_CAUSE*8(t0)
         srli t1, t1, 63
-        bnez t1, trap_interrupt
+        bnez t1, 1f
         j trap_exception
+1:      j trap_interrupt
 
 .globl frame_return
 frame_return:
