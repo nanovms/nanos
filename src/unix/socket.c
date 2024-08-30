@@ -3,12 +3,10 @@
 #include <net_system_structs.h>
 #include <socket.h>
 
-typedef struct sharedbuf {
+typedef struct unixsock_msg {
     buffer b;
-    struct refcount refcount;
-    closure_struct(thunk, free);
     struct sockaddr_un from_addr;
-} *sharedbuf;
+} *unixsock_msg;
 
 #define UNIXSOCK_BUF_MAX_SIZE   PAGESIZE
 #define UNIXSOCK_QUEUE_MAX_LEN  64
@@ -37,16 +35,11 @@ typedef struct unixsock {
 #define unixsock_lock(s)    spin_lock(&(s)->sock.f.lock)
 #define unixsock_unlock(s)  spin_unlock(&(s)->sock.f.lock)
 
-static inline void sharedbuf_deallocate(sharedbuf shb)
+static inline void unixsock_msg_dealloc(unixsock_msg shb)
 {
     heap h = shb->b->h;
     deallocate_buffer(shb->b);
     deallocate(h, shb, sizeof(*shb));
-}
-
-closure_func_basic(thunk, void, sharedbuf_free)
-{
-    sharedbuf_deallocate(struct_from_closure(sharedbuf, free));
 }
 
 static boolean unixsock_type_is_supported(int type)
@@ -82,9 +75,9 @@ closure_func_basic(thunk, void, unixsock_free)
     deallocate(s->sock.h, s, sizeof(*s));
 }
 
-static inline sharedbuf sharedbuf_allocate(heap h, u64 len)
+static unixsock_msg unixsock_msg_alloc(heap h, u64 len)
 {
-    sharedbuf shb = allocate(h, sizeof(*shb));
+    unixsock_msg shb = allocate(h, sizeof(*shb));
     if (shb == INVALID_ADDRESS)
         return shb;
     shb->b = allocate_buffer(h, len);
@@ -92,19 +85,7 @@ static inline sharedbuf sharedbuf_allocate(heap h, u64 len)
         deallocate(h, shb, sizeof(*shb));
         return INVALID_ADDRESS;
     }
-    init_closure_func(&shb->free, thunk, sharedbuf_free);
-    init_refcount(&shb->refcount, 1, (thunk)&shb->free);
     return shb;
-}
-
-static inline void sharedbuf_reserve(sharedbuf shb)
-{
-    refcount_reserve(&shb->refcount);
-}
-
-static inline void sharedbuf_release(sharedbuf shb)
-{
-    refcount_release(&shb->refcount);
 }
 
 static inline boolean unixsock_is_connected(unixsock s)
@@ -186,7 +167,7 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
     struct iovec *iov = bound(iov);
     u64 length = bound(length);
 
-    sharedbuf shb;
+    unixsock_msg shb;
     sysreturn rv;
 
     unixsock_lock(s);
@@ -257,7 +238,7 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
             }
             assert(dequeue(s->data) == shb);
             s->sock.rx_len -= buffer_length(b);
-            sharedbuf_release(shb);
+            unixsock_msg_dealloc(shb);
             shb = queue_peek(s->data);
             if (shb == INVALID_ADDRESS) { /* no more data available to read */
                 break;
@@ -318,7 +299,7 @@ static sysreturn unixsock_write_to(void *src, struct iovec *iov, u64 length,
         xfer = MIN(UNIXSOCK_BUF_MAX_SIZE, xfer);
         if (from->sock.type == SOCK_STREAM)
             xfer = MIN(xfer, so_rcvbuf - dest->sock.rx_len);
-        sharedbuf shb = sharedbuf_allocate(dest->sock.h, xfer);
+        unixsock_msg shb = unixsock_msg_alloc(dest->sock.h, xfer);
         if (shb == INVALID_ADDRESS) {
             if (rv == 0) {
                 rv = -ENOMEM;
@@ -328,7 +309,7 @@ static sysreturn unixsock_write_to(void *src, struct iovec *iov, u64 length,
         if (from && from->sock.type == SOCK_DGRAM)
             runtime_memcpy(&shb->from_addr, &from->local_addr, sizeof(struct sockaddr_un));
         if (context_set_err(ctx)) {
-            sharedbuf_deallocate(shb);
+            unixsock_msg_dealloc(shb);
             if (rv == 0)
                 rv = -EFAULT;
             break;
