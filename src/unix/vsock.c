@@ -773,7 +773,7 @@ err_incoming:
 
 void vsock_init(void)
 {
-    vsock_priv.h = heap_locked(&get_unix_heaps()->kh);
+    vsock_priv.h = heap_locked(get_kernel_heaps());
     vsock_priv.bound = allocate_table(vsock_priv.h, identity_key, pointer_equal);
     assert(vsock_priv.bound != INVALID_ADDRESS);
     vsock_priv.connections = allocate_table(vsock_priv.h, vsock_conn_key, vsock_conn_equals);

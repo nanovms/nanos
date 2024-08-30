@@ -42,8 +42,9 @@ struct pipe {
 
 boolean pipe_init(unix_heaps uh)
 {
-    heap h = heap_locked((kernel_heaps)uh);
-    heap backed = (heap)heap_page_backed((kernel_heaps)uh);
+    kernel_heaps kh = get_kernel_heaps();
+    heap h = heap_locked(kh);
+    heap backed = (heap)heap_page_backed(kh);
 
     uh->pipe_cache = allocate_objcache(h, backed, sizeof(struct pipe), PAGESIZE, true);
     return (uh->pipe_cache == INVALID_ADDRESS ? false : true);
@@ -273,8 +274,6 @@ closure_func_basic(fdesc_events, u32, pipe_write_events,
 
 int do_pipe2(int fds[2], int flags)
 {
-    unix_heaps uh = get_unix_heaps();
-
     pipe pipe = unix_cache_alloc(get_unix_heaps(), pipe);
     if (pipe == INVALID_ADDRESS) {
         msg_err("failed to allocate struct pipe\n");
@@ -289,7 +288,7 @@ int do_pipe2(int fds[2], int flags)
         return -EOPNOTSUPP;
     }
 
-    pipe->h = heap_locked((kernel_heaps)uh);
+    pipe->h = heap_locked(get_kernel_heaps());
     pipe->data = INVALID_ADDRESS;
     pipe->proc = current->p;
 

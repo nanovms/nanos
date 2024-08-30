@@ -1104,7 +1104,7 @@ sysreturn netlink_open(int type, int family)
     default:
         return -EPROTONOSUPPORT;
     }
-    heap h = heap_locked(&get_unix_heaps()->kh);
+    heap h = heap_locked(get_kernel_heaps());
     nlsock s = allocate(h, sizeof(*s));
     if (s == INVALID_ADDRESS)
         return -ENOMEM;
@@ -1143,7 +1143,7 @@ sysreturn netlink_open(int type, int family)
 
 void netlink_init(void)
 {
-    heap h = heap_locked(&get_unix_heaps()->kh);
+    heap h = heap_locked(get_kernel_heaps());
     netlink.pids = create_id_heap(h, h, 1, U32_MAX, 1, false);
     assert(netlink.pids != INVALID_ADDRESS);
     netlink.sockets = allocate_vector(h, 8);

@@ -1313,7 +1313,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, boolean alloc_f
         goto err_sock;
     }
 
-    heap h = heap_locked((kernel_heaps)p->uh);
+    heap h = heap_locked(get_kernel_heaps());
     if (socket_init(h, af, type, flags, &s->sock) < 0)
         goto err_sock_init;
     s->sock.f.read = init_closure_func(&s->read, file_io, socket_read);
@@ -2721,7 +2721,7 @@ boolean netsyscall_init(unix_heaps uh, tuple cfg)
         so_rcvbuf = MIN(MAX(rcvbuf, 256), MASK(sizeof(so_rcvbuf) * 8 - 1));
     else
         so_rcvbuf = DEFAULT_SO_RCVBUF;
-    kernel_heaps kh = (kernel_heaps)uh;
+    kernel_heaps kh = get_kernel_heaps();
     heap h = heap_locked(kh);
     caching_heap socket_cache = allocate_objcache(h, (heap)heap_page_backed(kh),
                                                   sizeof(struct netsock), PAGESIZE, true);

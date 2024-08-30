@@ -318,7 +318,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
 void
 init_futices(process p)
 {
-    heap h = heap_locked(&p->uh->kh);
+    heap h = heap_locked(get_kernel_heaps());
     p->futices = allocate_table(h, futex_key_function, futex_key_equal);
     if (p->futices == INVALID_ADDRESS)
         halt("failed to allocate futex table\n");

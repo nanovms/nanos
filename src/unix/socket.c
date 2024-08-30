@@ -985,8 +985,7 @@ err_queue:
 }
 
 sysreturn unixsock_open(int type, int protocol) {
-    unix_heaps uh = get_unix_heaps();
-    heap h = heap_locked((kernel_heaps)uh);
+    heap h = heap_locked(get_kernel_heaps());
     unixsock s;
 
     if (!unixsock_type_is_supported(type))
@@ -999,8 +998,7 @@ sysreturn unixsock_open(int type, int protocol) {
 }
 
 sysreturn socketpair(int domain, int type, int protocol, int sv[2]) {
-    unix_heaps uh = get_unix_heaps();
-    heap h = heap_locked((kernel_heaps)uh);
+    heap h = heap_locked(get_kernel_heaps());
     unixsock s1, s2;
 
     if (domain != AF_UNIX) {

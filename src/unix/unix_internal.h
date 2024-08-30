@@ -130,8 +130,6 @@ typedef struct user_cap_data {
 
 /* unix-specific memory objects and ids */
 typedef struct unix_heaps {
-    struct kernel_heaps kh;	/* must be first */
-
     /* object caches */
     caching_heap file_cache;
     caching_heap pipe_cache;

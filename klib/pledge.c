@@ -135,7 +135,7 @@ static sysreturn pledge(const char *promises, const char *execpromises)
     sstring promises_ss;
     if (!fault_in_user_string(promises, &promises_ss))
         return -EFAULT;
-    heap h = heap_locked(&get_unix_heaps()->kh);
+    heap h = heap_locked(get_kernel_heaps());
     u64 new_abilities = 0;
     vector prom = split(h, alloca_wrap_sstring(promises_ss), ' ');
     string pr;

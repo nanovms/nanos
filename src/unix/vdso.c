@@ -58,6 +58,6 @@ void init_vdso(process p)
 
 #ifdef __x86_64__
     /* init legacy vsyscall mappings */
-    init_vsyscall((heap)heap_physical(&p->uh->kh));
+    init_vsyscall((heap)heap_physical(get_kernel_heaps()));
 #endif
 }

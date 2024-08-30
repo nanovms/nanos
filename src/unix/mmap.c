@@ -1552,7 +1552,7 @@ boolean fault_in_user_memory(const void *buf, bytes length, boolean writable)
 
 void mmap_process_init(process p, tuple root)
 {
-    kernel_heaps kh = &p->uh->kh;
+    kernel_heaps kh = get_kernel_heaps();
     heap h = heap_locked(kh);
     boolean aslr = !get(root, sym(noaslr));
     mmap_info.h = h;

@@ -356,7 +356,7 @@ static void exec_elf_finish(buffer ex, fsfile f, process kp,
     unix_heaps uh = kp->uh;
     tuple root = kp->process_root;
     filesystem fs = kp->root_fs;
-    kernel_heaps kh = (kernel_heaps)uh;
+    kernel_heaps kh = get_kernel_heaps();
     process proc = create_process(uh, root, fs);
     thread t = create_thread(proc, proc->pid);
     fsfile interp;
@@ -541,7 +541,7 @@ closure_function(4, 2, void, exec_elf_read,
 void exec_elf(process kp, string program_path, status_handler complete)
 {
     exec_debug("%s: path \"%b\", complete %p (%F)\n", func_ss, program_path, complete, complete);
-    kernel_heaps kh = (kernel_heaps)(kp->uh);
+    kernel_heaps kh = get_kernel_heaps();
     heap general = heap_locked(kh);
     tuple root = kp->process_root;
     fsfile f = fsfile_open(buffer_to_sstring(program_path));

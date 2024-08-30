@@ -826,7 +826,7 @@ void register_timer_syscalls(struct syscall *map)
 
 boolean unix_timers_init(unix_heaps uh)
 {
-    unix_timer_heap = heap_locked((kernel_heaps)uh);
+    unix_timer_heap = heap_locked(get_kernel_heaps());
     spin_lock_init(&timer_cancel_lock);
     list_init(&timer_cancel_list);
     return true;

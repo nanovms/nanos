@@ -354,7 +354,7 @@ void register_special_files(process p)
     filesystem fs = p->root_fs;
     sstring self_exe_path = ss("/proc/self/exe");
     tuple self_exe;
-    heap h = heap_locked((kernel_heaps)p->uh);
+    heap h = heap_locked(get_kernel_heaps());
 
     int fss = filesystem_get_node(&fs, p->cwd, self_exe_path, false, false, false, false,
         &self_exe, 0);

@@ -368,7 +368,7 @@ timerqueue thread_get_cpu_timer_queue(thread t)
 {
     thread_lock(t);
     if (!t->cpu_timers) {
-        timerqueue tq = allocate_timerqueue(heap_locked((kernel_heaps)&t->uh),
+        timerqueue tq = allocate_timerqueue(heap_locked(get_kernel_heaps()),
                                             init_closure_func(&t->now, clock_now, thread_now),
                                             sstring_from_cstring(t->name, sizeof(t->name)));
         if (tq != INVALID_ADDRESS)
@@ -394,7 +394,7 @@ closure_func_basic(thunk, void, free_thread)
 
 thread create_thread(process p, u64 tid)
 {
-    heap h = heap_locked((kernel_heaps)p->uh);
+    heap h = heap_locked(get_kernel_heaps());
 
     thread t = allocate(h, sizeof(struct thread));
     if (t == INVALID_ADDRESS)
@@ -541,7 +541,7 @@ void threads_to_vector(process p, vector v)
 
 void init_threads(process p)
 {
-    heap h = heap_locked((kernel_heaps)p->uh);
+    heap h = heap_locked(get_kernel_heaps());
     p->threads = allocate_rbtree(h, closure_func(h, rb_key_compare, thread_tid_compare),
                                  closure_func(h, rbnode_handler, tid_print_key));
     spin_lock_init(&p->threads_lock);

@@ -175,8 +175,7 @@ closure_func_basic(fdesc_close, sysreturn, efd_close,
 
 int do_eventfd2(unsigned int count, int flags)
 {
-    unix_heaps uh = get_unix_heaps();
-    heap h = heap_locked((kernel_heaps)uh);
+    heap h = heap_locked(get_kernel_heaps());
     struct efd *efd;
 
     if (flags & ~(EFD_CLOEXEC | EFD_NONBLOCK | EFD_SEMAPHORE)) {

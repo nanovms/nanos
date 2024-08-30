@@ -1065,5 +1065,5 @@ void register_poll_syscalls(struct syscall *map)
 
 boolean poll_init(unix_heaps uh)
 {
-    return ((epoll_heap = heap_locked((kernel_heaps)uh)) != INVALID_ADDRESS);
+    return ((epoll_heap = heap_locked(get_kernel_heaps())) != INVALID_ADDRESS);
 }

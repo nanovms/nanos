@@ -436,7 +436,7 @@ closure_func_basic(fdesc_events, u32, std_input_events,
 
 static boolean create_stdfiles(unix_heaps uh, process p)
 {
-    heap h = heap_locked((kernel_heaps)uh);
+    heap h = heap_locked(get_kernel_heaps());
     file in = unix_cache_alloc(uh, file);
     file out = unix_cache_alloc(uh, file);
     file err = unix_cache_alloc(uh, file);
@@ -523,7 +523,7 @@ closure_func_basic(clock_now, timestamp, process_now)
 
 process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
-    kernel_heaps kh = (kernel_heaps)uh;
+    kernel_heaps kh = get_kernel_heaps();
     heap locked = heap_locked(kh);
     process p = allocate(locked, sizeof(struct process));
     assert(p != INVALID_ADDRESS);
@@ -633,7 +633,6 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 	return INVALID_ADDRESS;
 
     u_heap = uh;
-    uh->kh = *kh;
     uh->processes = locking_heap_wrapper(h, (heap)create_id_heap(h, h, 1, 65535, 1, false));
     uh->file_cache = allocate_objcache(h, (heap)heap_page_backed(kh), sizeof(struct file),
                                        PAGESIZE, true);
@@ -765,7 +764,7 @@ static void dump_heap_stats(buffer b, sstring name, heap h)
 void dump_mem_stats(buffer b)
 {
     unix_heaps uh = get_unix_heaps();
-    kernel_heaps kh = &uh->kh;
+    kernel_heaps kh = get_kernel_heaps();
     bprintf(b, "Kernel heaps:\n");
     dump_heap_stats(b, ss("general"), heap_general(kh));
     dump_heap_stats(b, ss("physical"), (heap)heap_physical(kh));
