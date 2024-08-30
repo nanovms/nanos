@@ -150,7 +150,6 @@ static struct {
         strace_syscall_init(io_uring_enter, STRACE_SC_F_SET_DESC),
         strace_syscall_init(io_uring_register, STRACE_SC_F_SET_DESC),
         strace_syscall_init(getcpu, 0),
-        strace_syscall_init(futex, 0),
         strace_syscall_init(set_robust_list, 0),
         strace_syscall_init(get_robust_list, 0),
         strace_syscall_init(clone, STRACE_SC_F_SET_PROC),
