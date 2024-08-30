@@ -547,9 +547,9 @@ static void deallocate_vmap_locked(rangemap rm, vmap vm)
     deallocate(rm->h, vm, sizeof(struct vmap));
 }
 
-static vmap allocate_vmap_locked(rangemap rm, range q, struct vmap k)
+static vmap allocate_vmap_locked(rangemap rm, struct vmap *k)
 {
-    k.node.r = q;
+    range q = k->node.r;
     vmap vm;
 
     vmap_debug("%s: q %R\n", func_ss, q);
@@ -559,12 +559,12 @@ static vmap allocate_vmap_locked(rangemap rm, range q, struct vmap k)
         if (vm->node.r.end > q.start)
             return INVALID_ADDRESS;
         next = (vmap)rangemap_next_node(rm, &vm->node);
-        if (vm->node.r.end == q.start && vmap_compare_attributes(vm, &k)) {
+        if (vm->node.r.end == q.start && vmap_compare_attributes(vm, k)) {
             range new = irange(vm->node.r.start, q.end);
             if (next != INVALID_ADDRESS) {
                 if (next->node.r.start < q.end)
                     return INVALID_ADDRESS;
-                if (next->node.r.start == q.end && vmap_compare_attributes(next, &k)) {
+                if (next->node.r.start == q.end && vmap_compare_attributes(next, k)) {
                     new.end = next->node.r.end;
                     vmap_debug("   removing %R\n", next->node.r);
                     rangemap_remove_node(rm, &next->node);
@@ -581,7 +581,7 @@ static vmap allocate_vmap_locked(rangemap rm, range q, struct vmap k)
     }
 
     if (vm == INVALID_ADDRESS && next != INVALID_ADDRESS &&
-        q.end == next->node.r.start && vmap_compare_attributes(next, &k)) {
+        q.end == next->node.r.start && vmap_compare_attributes(next, k)) {
         vm = next;
         range new = irange(q.start, vm->node.r.end);
         vmap_debug("   advance vm %p, was %R, new %R\n", vm, vm->node.r, new);
@@ -601,11 +601,11 @@ static vmap allocate_vmap_locked(rangemap rm, range q, struct vmap k)
         return vm;
     vmap_debug("   allocated new vmap %p\n", vm);
     rmnode_init(&vm->node, q);
-    vm->flags = k.flags;
-    vm->allowed_flags = k.allowed_flags;
-    vm->node_offset = k.node_offset;
-    vm->cache_node = k.cache_node;
-    vm->fd = k.fd;
+    vm->flags = k->flags;
+    vm->allowed_flags = k->allowed_flags;
+    vm->node_offset = k->node_offset;
+    vm->cache_node = k->cache_node;
+    vm->fd = k->fd;
     if (!rangemap_insert(rm, &vm->node)) {
         deallocate(rm->h, vm, sizeof(struct vmap));
         return INVALID_ADDRESS;
@@ -618,8 +618,9 @@ static vmap allocate_vmap_locked(rangemap rm, range q, struct vmap k)
 
 vmap allocate_vmap(process p, range q, struct vmap k)
 {
+    k.node.r = q;
     vmap_lock(p);
-    vmap v = allocate_vmap_locked(p->vmaps, q, k);
+    vmap v = allocate_vmap_locked(p->vmaps, &k);
     vmap_unlock(p);
     return v;
 }
@@ -698,7 +699,8 @@ static u64 process_allocate_range_locked(process p, u64 size, struct vmap k, ran
 {
     u64 virt_addr = process_get_virt_range_locked(p, size, region);
     if (virt_addr != INVALID_PHYSICAL) {
-        vmap vm = allocate_vmap_locked(p->vmaps, irangel(virt_addr, size), k);
+        k.node.r = irangel(virt_addr, size);
+        vmap vm = allocate_vmap_locked(p->vmaps, &k);
         if (vm == INVALID_ADDRESS)
             virt_addr = INVALID_PHYSICAL;
     }
@@ -764,7 +766,8 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     }
 
     /* only remap mmap, non-custom regions */
-    struct vmap k = *old_vmap;
+    struct vmap k;
+    runtime_memcpy(&k, old_vmap, sizeof(k));
     if ((k.flags & VMAP_FLAG_MMAP) == 0 || (k.flags & VMAP_MMAP_TYPE_CUSTOM)) {
         rv = -EINVAL;
         goto unlock_out;
@@ -825,7 +828,8 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
         process_remove_range_locked(p, new, true);
 
     /* create new vmap with old attributes */
-    if (allocate_vmap_locked(p->vmaps, new, k) == INVALID_ADDRESS) {
+    k.node.r = new;
+    if (allocate_vmap_locked(p->vmaps, &k) == INVALID_ADDRESS) {
         msg_err("failed to allocate vmap\n");
         rv = -ENOMEM;
         goto unlock_out;
@@ -947,16 +951,14 @@ static void vmap_set_offsets(vmap to, vmap from, u64 delta)
    i:          |------------|
 */
 
-struct vmap altered_vmap_key(vmap match, u32 flags, u64 offset_delta)
+static void alter_vmap_key(vmap k, vmap match, u32 flags, u64 offset_delta)
 {
-    struct vmap k;
-    k.flags = flags;
-    k.allowed_flags = match->allowed_flags;
-    k.cache_node = match->cache_node;
+    k->flags = flags;
+    k->allowed_flags = match->allowed_flags;
+    k->cache_node = match->cache_node;
     if (!(flags & VMAP_FLAG_TAIL_BSS))
-        k.fd = match->fd;
-    vmap_set_offsets(&k, match, offset_delta);
-    return k;
+        k->fd = match->fd;
+    vmap_set_offsets(k, match, offset_delta);
 }
 
 static void vmap_update_flags_intersection(rangemap pvmap, range q, u32 clear_mask, u32 set_mask,
@@ -979,7 +981,7 @@ static void vmap_update_flags_intersection(rangemap pvmap, range q, u32 clear_ma
            removing and reinserting the node will take care of merging */
         rangemap_remove_node(pvmap, &match->node);
         match->flags = newflags;
-        vmap_assert(allocate_vmap_locked(pvmap, match->node.r, *match) != INVALID_ADDRESS);
+        vmap_assert(allocate_vmap_locked(pvmap, match) != INVALID_ADDRESS);
         deallocate_vmap_locked(pvmap, match);
         return;
     }
@@ -990,22 +992,25 @@ static void vmap_update_flags_intersection(rangemap pvmap, range q, u32 clear_ma
         vmap_assert(rangemap_reinsert(pvmap, &match->node, irange(rn.start, ri.start)));
 
         /* create node for intersection */
-        k = altered_vmap_key(match, newflags, ri.start - rn.start);
-        vmap_assert(allocate_vmap_locked(pvmap, ri, k) != INVALID_ADDRESS);
+        alter_vmap_key(&k, match, newflags, ri.start - rn.start);
+        k.node.r = ri;
+        vmap_assert(allocate_vmap_locked(pvmap, &k) != INVALID_ADDRESS);
 
         if (tail) {
             /* create node at tail end */
-            k = altered_vmap_key(match, match->flags, ri.end - rn.start);
-            vmap_assert(allocate_vmap_locked(pvmap, irange(ri.end, rn.end), k) != INVALID_ADDRESS);
+            alter_vmap_key(&k, match, match->flags, ri.end - rn.start);
+            k.node.r = irange(ri.end, rn.end);
+            vmap_assert(allocate_vmap_locked(pvmap, &k) != INVALID_ADDRESS);
         }
     } else {
         /* move node start back */
         vmap_assert(rangemap_reinsert(pvmap, &match->node, irange(ri.end, rn.end)));
-        struct vmap l = altered_vmap_key(match, newflags, ri.start - rn.start);
+        alter_vmap_key(&k, match, newflags, ri.start - rn.start);
         vmap_set_offsets(match, match, ri.end - rn.start);
 
         /* create node for intersection */
-        vmap_assert(allocate_vmap_locked(pvmap, ri, l) != INVALID_ADDRESS);
+        k.node.r = ri;
+        vmap_assert(allocate_vmap_locked(pvmap, &k) != INVALID_ADDRESS);
     }
 }
 
@@ -1099,16 +1104,19 @@ closure_function(3, 1, boolean, vmap_remove_intersection,
         vmap_assert(rangemap_reinsert(pvmap, node, irange(rn.start, ri.start)));
 
         if (tail) {
-            struct vmap k = altered_vmap_key(match, match->flags, ri.end - rn.start);
+            struct vmap k;
+            alter_vmap_key(&k, match, match->flags, ri.end - rn.start);
             /* create node at tail end */
-            vmap_assert(allocate_vmap_locked(pvmap, irange(ri.end, rn.end), k) != INVALID_ADDRESS);
+            k.node.r = irange(ri.end, rn.end);
+            vmap_assert(allocate_vmap_locked(pvmap, &k) != INVALID_ADDRESS);
         }
     } else {
         /* tail only: move node start back */
         vmap_assert(rangemap_reinsert(pvmap, node, irange(ri.end, rn.end)));
     }
     if (bound(unmap)) {
-        struct vmap k = altered_vmap_key(match, match->flags, ri.start - rn.start);
+        struct vmap k;
+        alter_vmap_key(&k, match, match->flags, ri.start - rn.start);
         k.node.r = ri;
         apply(bound(unmap), &k);
     }
@@ -1383,7 +1391,8 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     }
     if (fixed)
         process_remove_range_locked(p, q, vmap_mmap_type != VMAP_MMAP_TYPE_CUSTOM);
-    vmap_assert(allocate_vmap_locked(p->vmaps, q, k) != INVALID_ADDRESS);
+    k.node.r = q;
+    vmap_assert(allocate_vmap_locked(p->vmaps, &k) != INVALID_ADDRESS);
     vmap_unlock(p);
 
     if (vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED && (vmflags & VMAP_FLAG_SHARED))
@@ -1596,17 +1605,20 @@ void mmap_process_init(process p, tuple root)
     vvar_size = VVAR_NR_PAGES * PAGESIZE;
 
     p->vdso_base = process_get_virt_range_locked(p, vdso_size + vvar_size, PROCESS_VIRTUAL_MMAP_RANGE);
-    vmap_assert(allocate_vmap_locked(p->vmaps, irangel(p->vdso_base, vdso_size/*+vvar_size*/),
-                                     ivmap(VMAP_FLAG_EXEC, 0, 0, 0, 0)) != INVALID_ADDRESS);
+    struct vmap k = ivmap(VMAP_FLAG_EXEC, 0, 0, 0, 0);
+    k.node.r = irangel(p->vdso_base, vdso_size);
+    vmap_assert(allocate_vmap_locked(p->vmaps, &k) != INVALID_ADDRESS);
 
     /* vvar goes right after the vdso */
-    vmap_assert(allocate_vmap_locked(p->vmaps, irangel(p->vdso_base + vdso_size, vvar_size),
-                                     ivmap(0, 0, 0, 0, 0)) != INVALID_ADDRESS);
+    k = ivmap(0, 0, 0, 0, 0);
+    k.node.r = irangel(p->vdso_base + vdso_size, vvar_size);
+    vmap_assert(allocate_vmap_locked(p->vmaps, &k) != INVALID_ADDRESS);
 
 #ifdef __x86_64__
     /* Track vsyscall page */
-    vmap_assert(allocate_vmap_locked(p->vmaps, irangel(VSYSCALL_BASE, PAGESIZE),
-                                     ivmap(VMAP_FLAG_EXEC, 0, 0, 0, 0)) != INVALID_ADDRESS);
+    k = ivmap(VMAP_FLAG_EXEC, 0, 0, 0, 0);
+    k.node.r = irangel(VSYSCALL_BASE, PAGESIZE);
+    vmap_assert(allocate_vmap_locked(p->vmaps, &k) != INVALID_ADDRESS);
 #endif
 
     list_init(&mmap_info.pf_freelist);
