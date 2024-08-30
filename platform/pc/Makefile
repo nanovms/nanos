@@ -187,88 +187,22 @@ INCLUDES=\
 
 AFLAGS+=-I$(ARCHDIR)/
 
-CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3
-CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=-DCONFIG_LTRACE
 CFLAGS+=-DDMA_BUFFERING	# required by memory encryption
-CFLAGS+=$(INCLUDES)
 
-# Enable tracing by specifying TRACE=ftrace on command line
-ifneq (,$(findstring ftrace,$(TRACE)))
-CFLAGS+= -DCONFIG_FTRACE -pg
-SRCS-kernel.elf+= \
-	$(SRCDIR)/unix/ftrace.c \
-	$(ARCHDIR)/ftrace.s
-endif
-
-ifneq (,$(findstring tracelog,$(TRACE)))
-CFLAGS+= -DCONFIG_TRACELOG
-SRCS-kernel.elf+= \
-	$(SRCDIR)/kernel/tracelog.c
-ifneq ($(TRACELOG_FILE),)
-TRACELOG_MKFS_OPTS="-t (tracelog:(file:$(TRACELOG_FILE)))"
-endif
-endif
-
-ifneq (,$(findstring lockstats,$(TRACE)))
-CFLAGS+= -DLOCK_STATS
-SRCS-kernel.elf+= \
-	$(SRCDIR)/kernel/lockstats.c
-endif
-
-ifeq ($(MANAGEMENT),telnet)
-CFLAGS+= -DMANAGEMENT_TELNET
-SRCS-kernel.elf+= \
-	$(SRCDIR)/kernel/management_telnet.c
-endif
-
-ifneq ($(NOSMP),)
-CFLAGS+=	-DSPIN_LOCK_DEBUG_NOSMP
-else
-CFLAGS+=	-DSMP_ENABLE
-endif
-#CFLAGS+=	-DLWIPDIR_DEBUG -DEPOLL_DEBUG -DNETSYSCALL_DEBUG -DKERNEL_DEBUG
 AFLAGS+=	-felf64 -I$(OBJDIR)/
-LDFLAGS+=	$(KERNLDFLAGS) --undefined=_start -T linker_script
 
-VDSOGEN=	$(TOOLDIR)/vdsogen
-VDSO_SRCDIR=    $(SRCDIR)/kernel
-VDSO_OBJDIR=    $(OBJDIR)/vdso
-VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/vdso-now.c
-VDSO_OBJS=      $(patsubst $(VDSO_SRCDIR)/%.c,$(VDSO_OBJDIR)/%.o,$(VDSO_SRCS))
-VDSO_CFLAGS=    $(TARGET_CFLAGS) -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(OUTDIR) -I$(SRCDIR) -fPIC -c
-VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(ARCHDIR)/vdso.lds
-VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 OBJDUMPFLAGS=	-d -S -M intel-mnemonic
-STRIPFLAGS=	-g
 
 DEPFILES+=      $(VDSO_DEPS)
 CLEANFILES+=    $(foreach f,gitversion.c frame.inc kernel.dis kernel.elf src/unix/ftrace.* $(ARCHDIR)/ftrace.*,$(OBJDIR)/$f) $(VDSO_OBJDIR)/vdso.so $(VDSO_OBJDIR)/vdso-image.c $(VDSO_OBJS) $(VDSO_DEPS) $(KERNEL)
-CLEANDIRS+=     $(foreach d,output/platform output src src/aws src/hyperv vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src vendor/lwip/src/netif vendor/lwip/src/netif/ppp vendor/acpica vendor/acpica/source vendor/acpica/source/components platform,$(OBJDIR)/$d)
-
-msg_vdsogen=    VDSOGEN	$@
-cmd_vdsogen=    $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so $@
-
-msg_vdso_cc=    CC	$@
-cmd_vdso_cc=    $(CC) $(DEPFLAGS) $(VDSO_CFLAGS) -c $< -o $@
-
-msg_vdso_ld=    LD	$@
-cmd_vdso_ld=    $(LD) $(VDSO_LDFLAGS) $(VDSO_OBJS) -o $@ 
-
-msg_objdump=	OBJDUMP	$@
-cmd_objdump=	$(OBJDUMP) $(OBJDUMPFLAGS) $(OBJDUMPFLAGS_$(@F)) $< $< >$@
-
-msg_sed=	SED	$@
-cmd_sed=	$(SED) -e 's/\#/%/' <$^ >$@
-
-msg_version=	VERSION	$@
-cmd_version=	$(MKDIR) $(dir $@); $(ECHO) "\#include <runtime.h>\nconst sstring gitversion = ss_static_init(\"$(shell $(GIT) rev-parse HEAD)\");" >$@
-
-include ../../rules.mk
+CLEANDIRS+=     $(foreach d,output/platform output src/aws src/hyperv vdso/src/$(ARCH) vdso/src vdso vendor vendor/lwip vendor/lwip/src vendor/lwip/src/netif vendor/lwip/src/netif/ppp vendor/acpica vendor/acpica/source vendor/acpica/source/components platform,$(OBJDIR)/$d)
 
 MKFS=		$(TOOLDIR)/mkfs
 BOOTIMG=	$(OBJDIR)/boot/boot.img
 KERNEL=		$(OBJDIR)/bin/kernel.img
+
+include ../../kernel.mk
 
 ifneq ($(ARCH),x86_64)
 $(error The pc platform only supports the x86_64 architecture.)
@@ -276,26 +210,12 @@ endif
 
 all: kernel.dis boot
 
-mkfs vdsogen:
-	$(Q) $(MAKE) -C $(ROOTDIR)/tools $@
-
 boot:
 	$(Q) $(MAKE) -C boot
 
 kernel: $(KERNEL)
 
 kernel.dis: $(KERNEL) $(OBJDIR)/kernel.dis
-
-target:
-ifeq ($(TARGET),)
-	@echo TARGET variable not specified
-	@false
-endif
-	$(Q) $(MAKE) -C $(ROOTDIR)/test/runtime $(TARGET)
-
-ifneq ($(NANOS_TARGET_ROOT),)
-TARGET_ROOT_OPT=	-r $(NANOS_TARGET_ROOT)
-endif
 
 ifneq ($(ENABLE_UEFI),)
 MKFS_UEFI=	-u $(OBJDIR)/boot/bootx64.efi
@@ -308,33 +228,9 @@ ifeq ($(IMAGE),)
 endif
 	@ echo "MKFS	$@"
 	@ $(MKDIR) $(dir $(IMAGE))
-	$(Q) cd $(ROOTDIR); $(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | $(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) $(MKFS_UEFI) -k $(KERNEL) -t "(debug_exit:t)" $(TRACELOG_MKFS_OPTS) $(EXTRA_MKFS_OPTS) $(IMAGE)
-
-.PHONY: mkfs vdsogen boot kernel kernel.dis target image
-
-$(VDSOGEN):
-	@$(MAKE) -C $(ROOTDIR)/tools vdsogen
-
-$(OBJDIR)/kernel.dis: $(PROG-kernel.elf)
-	$(call cmd,objdump)
-
-$(VDSO_OBJDIR)/%.o: $(VDSO_SRCDIR)/%.c
-	@$(MKDIR) $(dir $@)
-	$(call cmd,vdso_cc)
-
-$(VDSO_OBJDIR)/vdso.so: $(VDSO_OBJS)
-	$(call cmd,vdso_ld)
-
-$(VDSO_OBJDIR)/vdso-image.c: $(VDSOGEN) $(VDSO_OBJDIR)/vdso.so
-	$(call cmd,vdsogen)
-
-$(PROG-kernel.elf): linker_script $(OUTDIR)/klib/klib-syms.lds $(VDSO_OBJDIR)/vdso-image.c
-
-$(KERNEL): $(PROG-kernel.elf)
-	$(call cmd,strip)
-
-$(OBJDIR)/gitversion.c: $(ROOTDIR)/.git/index $(ROOTDIR)/.git/HEAD
-	$(call cmd,version)
+	$(Q) cd $(ROOTDIR); \
+		$(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}/ARCH_DIR/{gsub("ARCH_DIR","$(PLATFORMOBJDIR)")}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | \
+		$(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) $(MKFS_UEFI) -k $(KERNEL) -t "(debug_exit:t)" $(TRACELOG_MKFS_OPTS) $(EXTRA_MKFS_OPTS) $(IMAGE)
 
 $(OBJDIR)/src/$(ARCH)/crt0.o: $(OBJDIR)/frame.inc
 

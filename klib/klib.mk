@@ -1,9 +1,8 @@
-include ../vars.mk
+KLIB_DIR= $(ROOTDIR)/klib
 
-LWIPDIR=		$(VENDORDIR)/lwip
 MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
-PROGRAMS= \
+KLIBS= \
 	azure \
 	cloud_init \
 	cloudwatch \
@@ -22,64 +21,64 @@ PROGRAMS= \
 	tun \
 
 SRCS-azure= \
-	$(CURDIR)/azure.c \
-	$(CURDIR)/azure_diagnostics.c \
+	$(KLIB_DIR)/azure.c \
+	$(KLIB_DIR)/azure_diagnostics.c \
 
 SRCS-cloud_init= \
-	$(CURDIR)/cloud_azure.c \
-	$(CURDIR)/cloud_init.c \
-	$(CURDIR)/net_utils.c \
-	$(CURDIR)/xml.c \
+	$(KLIB_DIR)/cloud_azure.c \
+	$(KLIB_DIR)/cloud_init.c \
+	$(KLIB_DIR)/net_utils.c \
+	$(KLIB_DIR)/xml.c \
 
 SRCS-cloudwatch= \
-	$(CURDIR)/aws.c \
-	$(CURDIR)/cloudwatch.c \
+	$(KLIB_DIR)/aws.c \
+	$(KLIB_DIR)/cloudwatch.c \
 
 SRCS-digitalocean= \
-	$(CURDIR)/crc32.c \
-	$(CURDIR)/digitalocean.c \
+	$(KLIB_DIR)/crc32.c \
+	$(KLIB_DIR)/digitalocean.c \
 
 SRCS-firewall= \
-	$(CURDIR)/firewall.c \
+	$(KLIB_DIR)/firewall.c \
 
 SRCS-gcp= \
-	$(CURDIR)/gcp.c \
+	$(KLIB_DIR)/gcp.c \
 
 SRCS-ntp= \
-	$(CURDIR)/ntp.c \
+	$(KLIB_DIR)/ntp.c \
 
 SRCS-radar= \
-	$(CURDIR)/radar.c \
+	$(KLIB_DIR)/radar.c \
 
 SRCS-sandbox= \
-	$(CURDIR)/pledge.c \
-	$(CURDIR)/sandbox.c \
-	$(CURDIR)/unveil.c \
+	$(KLIB_DIR)/pledge.c \
+	$(KLIB_DIR)/sandbox.c \
+	$(KLIB_DIR)/unveil.c \
 
 SRCS-shmem= \
-	$(CURDIR)/shmem.c \
+	$(KLIB_DIR)/shmem.c \
 
 SRCS-special_files= \
-	$(CURDIR)/special_files.c \
+	$(KLIB_DIR)/special_files.c \
 
 SRCS-strace= \
-	$(CURDIR)/strace.c \
-	$(CURDIR)/strace_file.c \
-	$(CURDIR)/strace_mem.c \
-	$(CURDIR)/strace_misc.c \
+	$(KLIB_DIR)/strace.c \
+	$(KLIB_DIR)/strace_file.c \
+	$(KLIB_DIR)/strace_mem.c \
+	$(KLIB_DIR)/strace_misc.c \
 
 SRCS-syslog= \
-	$(CURDIR)/syslog.c \
+	$(KLIB_DIR)/syslog.c \
 
 SRCS-tls= \
-	$(CURDIR)/mbedtls.c \
+	$(KLIB_DIR)/mbedtls.c \
 	$(SRCS-mbedtls)
 
 SRCS-tmpfs= \
-	$(CURDIR)/tmpfs.c \
+	$(KLIB_DIR)/tmpfs.c \
 
 SRCS-tun= \
-	$(CURDIR)/tun.c \
+	$(KLIB_DIR)/tun.c \
 
 SRCS-mbedtls= $(SRCS-mbedtls-crypto) $(SRCS-mbedtls-x509) $(SRCS-mbedtls-tls)
 
@@ -172,88 +171,44 @@ SRCS-mbedtls-tls= \
 
 ifeq ($(ARCH),x86_64)
 
-PROGRAMS+= umcg
+KLIBS+= umcg
 
 SRCS-umcg= \
-	$(CURDIR)/umcg.c \
+	$(KLIB_DIR)/umcg.c \
 
 endif
 
-ADDITIONAL_PROGRAMS= \
+KLIBS+= \
 	test/klib \
 	test/lock \
 	test/page_table \
 
 SRCS-test/klib= \
-	$(CURDIR)/test/klib.c
+	$(KLIB_DIR)/test/klib.c
 
 SRCS-test/lock= \
-	$(CURDIR)/test/lock.c
+	$(KLIB_DIR)/test/lock.c
 
 SRCS-test/page_table= \
-	$(CURDIR)/test/page_table.c
+	$(KLIB_DIR)/test/page_table.c
 
-all: klib-syms $(ADDITIONAL_PROGRAMS)
-
-KLIB_SYMS= $(OBJDIR)/klib-syms.lds
-
-DEBUG_STRIP= y
-STRIPFLAGS= -g
-
-include ../rules.mk
-
-msg_add_syms=	KLIB_SYMS	$@
-cmd_add_syms=	$(foreach prog, $(PROGRAM_BINARIES), $(call add_syms,$(prog)))
-
-# append list of undefined symbols to linker script
-define add_syms
-
-	$(Q) $(OBJDUMP) -R $1 | $(SED) -n -E 's/.*(GLOB_DAT|JUMP_SLOT|RISCV_64)[[:space:]]*/EXTERN(/p' | $(SED) -n 's/$$/)/p' >> $(KLIB_SYMS)
-
-endef
-
-klib-syms: $(KLIB_SYMS)
-
-$(KLIB_SYMS): $(PROGRAM_BINARIES)
-	$(Q) $(RM) $(KLIB_SYMS)
-	$(call cmd,add_syms)
-# remove duplicated lines in linker script
-	$(Q) $(SED) -i.bak -n 'G; s/\n/&&/; /^\([^\n]*\n\).*\n\1/d; s/\n//; h; P' $(KLIB_SYMS)
-# delete linker script backup file
-	$(Q) $(RM) $(KLIB_SYMS).bak
-
-LD=             $(CROSS_COMPILE)ld
-
-INCLUDES= \
-	-I$(CURDIR) \
-	-I$(OUTDIR) \
-	-I$(ARCHDIR) \
-	-I$(LWIPDIR)/src/include \
+KLIB_INCLUDES= \
+	-I$(KLIB_DIR) \
 	-I$(MBEDTLS_DIR)/include \
 	-I$(MBEDTLS_DIR)/library \
-	-I$(SRCDIR) \
-	-I$(SRCDIR)/http \
-	-I$(SRCDIR)/kernel \
-	-I$(SRCDIR)/net \
-	-I$(SRCDIR)/runtime \
-	-I$(SRCDIR)/unix \
-	-I$(SRCDIR)/fs \
-	-I$(PLATFORMDIR)
 
-DEFINES= \
-	-DKERNEL -DKLIB \
+KLIB_DEFINES= \
+	-DKLIB \
 	-DMBEDTLS_USER_CONFIG_FILE=\"mbedtls_conf.h\" \
 
-ifneq ($(NOSMP),)
-DEFINES+=	-DSPIN_LOCK_DEBUG_NOSMP
-else
-DEFINES+=	-DSMP_ENABLE
-endif
+KLIB_CFLAGS= $(CFLAGS) $(KLIB_INCLUDES) -fPIC $(KLIB_DEFINES)
 
-CFLAGS+=	$(KERNCFLAGS) -O3 $(INCLUDES) -fPIC $(DEFINES)
+KLIB_LDFLAGS= -shared -Bsymbolic -nostdlib -T$(ARCHDIR)/klib.lds
 
-LDFLAGS+=	-shared -Bsymbolic -nostdlib -T$(ARCHDIR)/klib.lds
+KLIB_BINARIES= $(foreach prog, $(KLIBS), $(OBJDIR)/bin/$(prog))
+KLIB_SYMS= $(OBJDIR)/klib-syms.lds
 
 CLEANFILES+=	$(KLIB_SYMS)
-CLEANDIRS+=	$(OUTDIR)/klib/vendor $(OUTDIR)/klib/vendor/mbedtls \
+CLEANDIRS+=		\
+	$(OBJDIR)/vendor/mbedtls \
 	$(OBJDIR)/bin/test

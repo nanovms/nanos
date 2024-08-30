@@ -2,7 +2,7 @@
     boot:(
           children:(
                     klib:(children:(
-                            sandbox:(contents:(host:output/klib/bin/sandbox))
+                            sandbox:(contents:(host:ARCH_DIR/bin/sandbox))
                         ))
                     )
           )

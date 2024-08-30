@@ -1,5 +1,4 @@
-#include <klib.h>
-#include <runtime.h>
+#include <kernel.h>
 
 #define Z_LEN 1024
 

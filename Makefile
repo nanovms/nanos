@@ -1,12 +1,12 @@
 include vars.mk
 
-SUBDIR=		$(PLATFORMDIR) klib test tools
+SUBDIR=		$(PLATFORMDIR) test tools
 
 # runtime tests / ready-to-use targets
 TARGET=		webg
 
 CLEANFILES+=	$(IMAGE)
-CLEANDIRS+=	$(OUTDIR)/image $(OUTDIR)/platform/$(PLATFORM) $(OUTDIR)/platform
+CLEANDIRS+=	$(OUTDIR)/image $(OUTDIR)/platform/$(PLATFORM)
 
 ACPICA_DIR=	$(VENDORDIR)/acpica
 LWIPDIR=	$(VENDORDIR)/lwip
@@ -59,7 +59,6 @@ $(MBEDTLS_DIR)/.vendored: GITFLAGS= --depth 1 https://github.com/nanovms/mbedtls
 
 kernel: $(THIRD_PARTY) contgen
 	$(Q) $(MAKE) -C $(PLATFORMDIR) boot
-	$(Q) $(MAKE) -C klib
 	$(Q) $(MAKE) -C $(PLATFORMDIR) kernel
 
 image: kernel
@@ -72,7 +71,7 @@ release: kernel
 	if [ -f $(UEFI_LOADER) ]; then $(CP) $(UEFI_LOADER) release; fi
 	$(CP) $(KERNEL) release
 	$(Q) $(MKDIR) release/klibs
-	bash -O extglob -c "$(CP) $(OUTDIR)/klib/bin/!(test) release/klibs"
+	bash -O extglob -c "$(CP) $(PLATFORMOBJDIR)/bin/!(test|*.dbg|kernel.*) release/klibs"
 	cd release && $(TAR) -czvf nanos-release-$(REL_OS)-${version}.tar.gz *
 
 target: contgen

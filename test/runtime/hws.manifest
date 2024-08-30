@@ -2,7 +2,7 @@
     boot:(
         children:(
             klib:(children:(
-                strace:(contents:(host:output/klib/bin/strace))
+                strace:(contents:(host:ARCH_DIR/bin/strace))
             ))
         )
     )

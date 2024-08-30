@@ -106,7 +106,7 @@ all: boot
 include ../../../rules.mk
 
 CLEANFILES+=	$(foreach f,boot.img stage1 stage1.lst stage2.pad stage2.bin stage2.strip uefi.so bootx64.efi,$(OBJDIR)/$f) $(OBJS-uefi) $(DEPS-uefi)
-CLEANDIRS+=     $(OBJDIR)/platform/pc $(OBJDIR)/platform $(OBJDIRS-uefi)
+CLEANDIRS+=     $(OBJDIR)/platform/pc $(OBJDIR)/platform $(OBJDIR) $(OBJDIRS-uefi)
 
 .PHONY: boot
 

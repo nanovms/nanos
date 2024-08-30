@@ -2,8 +2,8 @@
     boot:(
         children:(
             klib:(children:(
-                tmpfs:(contents:(host:output/klib/bin/tmpfs))
-                shmem:(contents:(host:output/klib/bin/shmem))
+                tmpfs:(contents:(host:ARCH_DIR/bin/tmpfs))
+                shmem:(contents:(host:ARCH_DIR/bin/shmem))
             ))
         )
     )

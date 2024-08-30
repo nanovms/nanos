@@ -104,7 +104,7 @@ TARGET_CFLAGS=	-target $(ARCH)-elf
 endif
 
 KERNCFLAGS+=	$(TARGET_CFLAGS) -fno-omit-frame-pointer
-KERNLDFLAGS=	--gc-sections -z notext -z noexecstack -z max-page-size=4096 -L $(OUTDIR)/klib -pie --no-dynamic-linker
+KERNLDFLAGS=	--gc-sections -z notext -z noexecstack -z max-page-size=4096 -L $(OBJDIR) -pie --no-dynamic-linker
 
 ifneq ($(UBSAN),)
 KERNCFLAGS+= -fsanitize=undefined -fno-sanitize=alignment,null -fsanitize-undefined-trap-on-error
@@ -260,7 +260,7 @@ pre-clean:
 do-clean: pre-clean
 	$(foreach d,$(SUBDIR),$(call execute_command,$(Q) $(MAKE) -C $d clean))
 	$(Q) $(RM) $(CLEANFILES)
-	$(Q) $(RM) -d $(call reverse,$(sort $(CLEANDIRS))) $(OBJDIR)
+	$(Q) $(RM) -d $(call reverse,$(sort $(CLEANDIRS)))
 
 post-clean: do-clean
 

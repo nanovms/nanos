@@ -1,7 +1,7 @@
 (
     boot:(
         children:(
-            klib:(children:(tun:(contents:(host:output/klib/bin/tun))))
+            klib:(children:(tun:(contents:(host:ARCH_DIR/bin/tun))))
         )
     )
     children:(

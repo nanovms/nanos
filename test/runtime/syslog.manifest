@@ -2,8 +2,8 @@
     boot:(
         children:(
             klib:(children:(
-                strace:(contents:(host:output/klib/bin/strace))
-                syslog:(contents:(host:output/klib/bin/syslog))
+                strace:(contents:(host:ARCH_DIR/bin/strace))
+                syslog:(contents:(host:ARCH_DIR/bin/syslog))
             ))
         )
     )

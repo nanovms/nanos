@@ -33,7 +33,7 @@ jobs:
           name: copy build artifacts
           command: |
             shopt -s extglob
-            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/platform/pc/bin/!(test|*.dbg|kernel.*) temp/klibs
       - run: echo "export COMMIT_ID="`git rev-parse --short=7 HEAD` >> $BASH_ENV
       - run: cd temp && tar cvzf ../nanos-release-linux-${COMMIT_ID}.tar.gz *
       - run: gsutil cp nanos-release-linux-${COMMIT_ID}.tar.gz gs://nanos/release/${COMMIT_ID}/
@@ -85,7 +85,7 @@ jobs:
           name: copy build artifacts
           command: |
             shopt -s extglob
-            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+            mkdir temp && cp output/platform/pc/bin/kernel.img temp/ && cp output/platform/pc/boot/boot.img temp/ && cp output/platform/pc/boot/bootx64.efi temp/ && mkdir temp/klibs && cp output/platform/pc/bin/!(test|*.dbg|kernel.*) temp/klibs
       - run: cd temp && tar cvzf nanos-nightly-linux.tar.gz * && gsutil cp nanos-nightly-linux.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux.tar.gz
       - run: rm -r temp
@@ -126,7 +126,7 @@ jobs:
           name: copy build artifacts
           command: |
             shopt -s extglob
-            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/platform/virt/bin/!(test|*.dbg|kernel.*) temp/klibs
 
       - run: echo "export COMMIT_ID="`git rev-parse --short=7 HEAD` >> $BASH_ENV
       - run: cd temp && tar cvzf ../nanos-release-linux-${COMMIT_ID}-virt.tar.gz *
@@ -162,7 +162,7 @@ jobs:
           name: copy build artifacts
           command: |
             shopt -s extglob
-            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/klib/bin/!(test|*.dbg) temp/klibs
+            mkdir temp && cp output/platform/virt/bin/kernel.img temp/ && cp output/platform/virt/boot/bootaa64.efi temp/ && mkdir temp/klibs && cp output/platform/virt/bin/!(test|*.dbg|kernel.*) temp/klibs
 
       - run: cd temp && tar cvzf nanos-nightly-linux-virt.tar.gz * && gsutil cp nanos-nightly-linux-virt.tar.gz gs://nanos/release/nightly
       - run: gsutil acl ch -u AllUsers:R gs://nanos/release/nightly/nanos-nightly-linux-virt.tar.gz

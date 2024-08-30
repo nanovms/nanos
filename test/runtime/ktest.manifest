@@ -3,9 +3,9 @@
           children:(
                     klib:(children:(
                         test:(children:(
-                            klib:(contents:(host:output/klib/bin/test/klib))
-                            lock:(contents:(host:output/klib/bin/test/lock))
-                            page_table:(contents:(host:output/klib/bin/test/page_table))
+                            klib:(contents:(host:ARCH_DIR/bin/test/klib))
+                            lock:(contents:(host:ARCH_DIR/bin/test/lock))
+                            page_table:(contents:(host:ARCH_DIR/bin/test/page_table))
                             ))
                         ))
                     )

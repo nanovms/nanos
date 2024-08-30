@@ -1,7 +1,7 @@
 # paths
 makefile_dir=	$(patsubst %/,%,$(dir $(abspath $(firstword $(filter $1, $(MAKEFILE_LIST))))))
 CURDIR=		$(call makefile_dir, Makefile)
-ROOTDIR=	$(call makefile_dir, %rules.mk)
+ROOTDIR=	$(call makefile_dir, %vars.mk)
 SRCDIR=		$(ROOTDIR)/src
 OUTDIR=		$(ROOTDIR)/output
 OBJDIR=		$(subst $(ROOTDIR),$(OUTDIR),$(CURDIR))

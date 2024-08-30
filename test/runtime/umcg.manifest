@@ -1,7 +1,7 @@
 (
     boot:(
         children:(
-            klib:(children:(umcg:(contents:(host:output/klib/bin/umcg))))
+            klib:(children:(umcg:(contents:(host:ARCH_DIR/bin/umcg))))
         )
     )
     children:(
