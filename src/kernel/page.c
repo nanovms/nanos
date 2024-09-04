@@ -302,7 +302,7 @@ closure_function(4, 3, boolean, remap_entry,
         offset = 0;
     }
     u64 new_curr = bound(new) + offset;
-    u64 phys = page_from_pte(oldentry);
+    u64 phys = page_from_pte(oldentry) + map_offset;
     u64 flags = flags_from_pte(oldentry);
     u64 map_len = pte_map_size(level, oldentry);
     u64 remap_len = MIN(map_len - map_offset, bound(len) - offset);
