@@ -44,6 +44,7 @@
 
 #define PROCESS_STACK_SIZE          (2 * MB)
 #define PROCESS_STACK_PREALLOC_SIZE PAGESIZE
+#define PROCESS_STACK_GUARD_GAP     (256 * PAGESIZE)    /* same as default value on Linux */
 
 /* restrict the area in which ELF segments can be placed */
 #define PROCESS_ELF_LOAD_END        (3ull * GB) /* 3gb hard upper limit */

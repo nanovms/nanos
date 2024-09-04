@@ -35,6 +35,8 @@ __Page Protections__:
 
 * Text no write
 
+* Guard gap between process stack and adjacent mapping
+
 __Random Number Generation__:
 
 * virtio-rng driver

@@ -613,21 +613,42 @@ static inline boolean validate_mmap_range(process p, range q)
     return range_valid(q) && q.start >= p->mmap_min_addr && q.end <= USER_LIMIT;
 }
 
-closure_function(3, 1, boolean, proc_virt_gap_handler,
-                 u64, size, boolean, randomize, u64 *, addr,
+closure_function(1, 1, boolean, proc_virt_gap_handler,
+                 u64 *, addr,
                  range r)
 {
-    u64 size = bound(size);
-    if (range_span(r) <= size)
-        return true;
+    *bound(addr) = r.start;
+    return true;
+}
 
-    u64 offset;
-    if (bound(randomize))
-        offset = (random_u64() % ((range_span(r) - size) >> PAGELOG)) << PAGELOG;
-    else
-        offset = 0;
-    *bound(addr) = r.start + offset;
-    return false;           /* finished, not failure */
+u64 vmap_select_addr(u64 size, range r, boolean randomize)
+{
+    if (randomize)
+        /* ensure there is non-zero room for randomization */
+        r.end -= PAGESIZE;
+    if (size > range_span(r))
+        return INVALID_PHYSICAL;
+    if (randomize) {
+        u64 offset = (random_u64() % ((range_span(r) + 2 * PAGESIZE - size) >> PAGELOG)) << PAGELOG;
+        return r.start + offset;
+    }
+    return r.start;
+}
+
+closure_function(3, 1, boolean, proc_virt_node_handler,
+                 u64, size, boolean, randomize, u64 *, addr,
+                 rmnode n)
+{
+    u64 candidate_addr = *bound(addr);
+    if (candidate_addr == INVALID_PHYSICAL)
+        return true;
+    u64 limit = n->r.start;
+    vmap next = (vmap)n;
+    if (next->flags & VMAP_FLAG_STACK)
+        limit -= PROCESS_STACK_GUARD_GAP;
+    candidate_addr = vmap_select_addr(bound(size), irange(candidate_addr, limit), bound(randomize));
+    *bound(addr) = candidate_addr;
+    return (candidate_addr == INVALID_PHYSICAL);
 }
 
 /* Does NOT mark the returned address as allocated in the virtual heap. */
@@ -636,9 +657,16 @@ static u64 process_get_virt_range_locked(process p, u64 size, range region)
     assert(!(size & PAGEMASK));
     vmap_heap vmh = (vmap_heap)p->virtual;
     u64 addr = INVALID_PHYSICAL;
-    rangemap_range_find_gaps(p->vmaps, region,
-                             stack_closure(proc_virt_gap_handler, size,
-                                           vmh->randomize, &addr));
+    boolean randomize = vmh->randomize;
+    int res = rangemap_range_lookup_with_gaps(p->vmaps, region,
+                                              stack_closure(proc_virt_node_handler, size, randomize,
+                                                            &addr),
+                                              stack_closure(proc_virt_gap_handler, &addr));
+    if ((res == RM_MATCH) && (addr != INVALID_PHYSICAL))
+        /* The gap handler set a candidate address, but there are no nodes after the last gap, thus
+         * the node handler did not have a chance to select an address from the candidate address.
+         */
+        addr = vmap_select_addr(size, irange(addr, region.end), randomize);
     return addr;
 }
 
