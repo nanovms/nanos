@@ -409,7 +409,23 @@ status do_demand_page(process p, context ctx, u64 vaddr, vmap vm, boolean *done)
 
 vmap vmap_from_vaddr(process p, u64 vaddr)
 {
-    return (vmap)rangemap_lookup(p->vmaps, vaddr);
+    rangemap rm = p->vmaps;
+    vmap vm = (vmap)rangemap_lookup_at_or_next(rm, vaddr);
+    if ((vm != INVALID_ADDRESS) && (vm->node.r.start > vaddr)) {
+        /* vm does not cover this address; if it is a stack mapping, check whether it can be
+         * expanded downwards. */
+        if (!(vm->flags & VMAP_FLAG_STACK) || (vm->node.r.end > vaddr + PROCESS_STACK_SIZE))
+            return INVALID_ADDRESS;
+        vmap prev = (vmap)rangemap_prev_node(rm, &vm->node);
+        vaddr &= ~PAGEMASK;
+        if ((prev == INVALID_ADDRESS) || (prev->node.r.end <= vaddr - PROCESS_STACK_GUARD_GAP))
+            /* expand stack mapping */
+            vm->node.r.start = vaddr;
+        else
+            /* cannot expand stack mapping because of insufficient gap with previous mapping */
+            vm = INVALID_ADDRESS;
+    }
+    return vm;
 }
 
 void vmap_iterator(process p, vmap_handler vmh)
@@ -1234,7 +1250,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         return -EINVAL;
     }
     if (flags & MAP_GROWSDOWN) {
-        return -EINVAL;
+        vmflags |= VMAP_FLAG_STACK;
     }
 
     /* ignore MAP_DENYWRITE, MAP_EXECUTABLE, MAP_LOCKED, MAP_STACK, MAP_NORESERVE */

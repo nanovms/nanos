@@ -13,6 +13,7 @@
 #include <pthread.h>
 
 #include <sys/mman.h>
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -442,6 +443,53 @@ static void sparse_anon_mmap_test(void)
     free(mmaps);
 }
 
+static void *mmap_growsdown_thread(void *stack_limit)
+{
+    /* Expand the stack by recursively calling this function until the stack pointer reaches a point
+     * close to the limit. */
+    if (__builtin_frame_address(0) >= stack_limit + PAGESIZE / 2)
+        mmap_growsdown_thread(stack_limit);
+    return NULL;
+}
+
+static void mmap_growsdown_test(void)
+{
+    const size_t guard_gap = 256 * PAGESIZE;
+    struct rlimit stack_limit;
+    if (getrlimit(RLIMIT_STACK, &stack_limit) < 0)
+        test_perror("getrlimit");
+    size_t map_len = guard_gap + stack_limit.rlim_cur;
+
+    /* For stack of the child thread, allocate a range large enough so that the stack can grow up to
+     * its limit. */
+    void *addr = mmap(NULL, map_len, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_GROWSDOWN, -1, 0);
+    if (addr == MAP_FAILED)
+        test_perror("mmap");
+
+    /* unmap most of the stack area, leaving only a small area at the top */
+    const size_t initial_stack_size =
+#ifdef PTHREAD_STACK_MIN
+        PTHREAD_STACK_MIN;
+#else
+        4 * PAGESIZE;
+#endif
+    munmap(addr, map_len - initial_stack_size);
+
+    void *stack = addr + map_len - initial_stack_size;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    if (pthread_attr_setstack(&attr, stack, initial_stack_size))
+        test_error("pthread_attr_setstack");
+    pthread_t thread;
+    if (pthread_create(&thread, &attr, mmap_growsdown_thread, addr + guard_gap))
+        test_error("pthread_create");
+    pthread_attr_destroy(&attr);
+    pthread_join(thread, NULL);
+    if (munmap(addr, map_len) < 0)
+        test_perror("munmap");
+}
+
 static void mmap_flags_test(const char  * filename, void * target_addr,
         unsigned long size, unsigned long flags)
 {
@@ -621,6 +669,7 @@ static void mmap_test(void)
     printf("  performing sparse_anon_mmap_test with seed=%d...\n", seed);
     sparse_anon_mmap_test();
 
+    mmap_growsdown_test();
     all_mmap_flags_tests();
 
     printf("  performing munmap test...\n");
