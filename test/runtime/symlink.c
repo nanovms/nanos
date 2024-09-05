@@ -102,6 +102,7 @@ int main(int argc, char **argv)
     test_assert(readlink("target", buf, sizeof(buf)) == -1);
     test_assert(errno == EINVAL);
     test_assert((lstat("link", &s) == 0) && ((s.st_mode & S_IFMT) == S_IFLNK));
+    test_assert(s.st_size == sizeof("target") - 1);
     test_assert((stat("link", &s) == 0) && ((s.st_mode & S_IFMT) == S_IFREG));
     test_assert(fstatat(AT_FDCWD, "link", &s, AT_SYMLINK_NOFOLLOW) == 0);
     test_assert((s.st_mode & S_IFMT) == S_IFLNK);

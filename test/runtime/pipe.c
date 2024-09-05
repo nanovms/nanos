@@ -6,6 +6,7 @@
 #include <poll.h>
 #include <string.h>
 #include <pthread.h>
+#include <sys/stat.h>
 
 #include <runtime.h>
 
@@ -14,6 +15,13 @@
 int __pipe(int fildes[2])
 {
     return syscall(SYS_pipe2, fildes, 0);
+}
+
+static void test_pipe_fd(int fd)
+{
+    struct stat s;
+
+    test_assert((fstat(fd, &s) == 0) && ((s.st_mode & S_IFMT) == S_IFIFO));
 }
 
 void basic_test(heap h, int * fds)
@@ -196,6 +204,8 @@ int main(int argc, char **argv)
     if (status == -1)
         test_perror("pipe");
 
+    test_pipe_fd(fds[0]);
+    test_pipe_fd(fds[1]);
     printf("PIPE-CREATE - SUCCESS, fds %d %d\n", fds[0], fds[1]);
 
     basic_test(h, fds);

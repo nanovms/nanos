@@ -1447,42 +1447,26 @@ sysreturn openat(int dirfd, const char *name, int flags, int mode)
 static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s)
 {
     zero(s, sizeof(struct stat));
+    s->st_mode = file_mode_from_type(type);
     switch (type) {
     case FDESC_TYPE_REGULAR:
-        s->st_mode = S_IFREG | 0644;
-        break;
-    case FDESC_TYPE_DIRECTORY:
-        s->st_mode = S_IFDIR | 0777;
-        break;
-    case FDESC_TYPE_STDIO:
-        s->st_mode = S_IFCHR;
-        /* Describing stdout as a pseudo-tty makes glibc apply line buffering (instead of full
-         * buffering) when the process writes to stdout. */
-        s->st_rdev = makedev(UNIX98_PTY_SLAVE_MAJOR, 0);
-        break;
-    case FDESC_TYPE_SPECIAL:
-        s->st_mode = S_IFCHR;   /* assuming only character devs now */
-        s->st_rdev = filesystem_get_rdev(fs, n);
-        break;
-    case FDESC_TYPE_SOCKET:
-        s->st_mode = S_IFSOCK;
-        break;
-    case FDESC_TYPE_PIPE:
-        s->st_mode = S_IFIFO;
-        break;
-    case FDESC_TYPE_EPOLL:
-        s->st_mode = S_IFCHR;   /* XXX not clear - EBADF? */
-        break;
-    case FDESC_TYPE_SYMLINK:
-        s->st_mode = S_IFLNK;
-        break;
-    }
-    if (type == FDESC_TYPE_REGULAR) {
         if (f) {
             s->st_size = fsfile_get_length(f);
             s->st_blocks = fsfile_get_blocks(f);
         }
         s->st_blksize = PAGESIZE;   /* "preferred" block size for efficient filesystem I/O */
+        break;
+    case FDESC_TYPE_STDIO:
+        /* Describing stdout as a pseudo-tty makes glibc apply line buffering (instead of full
+         * buffering) when the process writes to stdout. */
+        s->st_rdev = makedev(UNIX98_PTY_SLAVE_MAJOR, 0);
+        break;
+    case FDESC_TYPE_SPECIAL:
+        s->st_rdev = filesystem_get_rdev(fs, n);
+        break;
+    case FDESC_TYPE_SYMLINK:
+        s->st_size = buffer_length(linktarget(n));
+        break;
     }
     if (n) {
         s->st_ino = fs->get_inode(fs, n);

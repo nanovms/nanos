@@ -24,6 +24,8 @@
 
 sysreturn sysreturn_from_fs_status_value(status s);
 
+u16 file_mode_from_type(int type);
+
 /* Perform read-ahead following a userspace read request.
  * offset and len arguments refer to the byte range being read from userspace,
  * not to the range to be read ahead. */

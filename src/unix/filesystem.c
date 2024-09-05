@@ -20,6 +20,26 @@ sysreturn sysreturn_from_fs_status_value(status s)
     return rv;
 }
 
+u16 file_mode_from_type(int type)
+{
+    switch (type) {
+    case FDESC_TYPE_REGULAR:
+        return S_IFREG | 0644;
+    case FDESC_TYPE_DIRECTORY:
+        return S_IFDIR | 0777;
+    case FDESC_TYPE_STDIO:
+    case FDESC_TYPE_SPECIAL:    /* assuming only character devices */
+        return S_IFCHR;
+    case FDESC_TYPE_SOCKET:
+        return S_IFSOCK;
+    case FDESC_TYPE_PIPE:
+        return S_IFIFO;
+    case FDESC_TYPE_SYMLINK:
+        return S_IFLNK;
+    }
+    return 0;
+}
+
 void file_readahead(file f, u64 offset, u64 len)
 {
     u64 ra_size = 0;
