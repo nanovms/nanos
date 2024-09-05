@@ -28,6 +28,64 @@ static void strace_print_stat(strace_sc_ctx ctx, const void *data)
             s->st_ino, s->st_mode, s->st_size);
 }
 
+static void strace_print_statx_mask(buffer trace_buf, const unsigned int mask)
+{
+    boolean empty = true;
+    if ((mask & STATX_BASIC_STATS) == STATX_BASIC_STATS) {
+        buffer_write_cstring(trace_buf, "STATX_BASIC_STATS");
+        empty = false;
+    } else {
+        TRACEBUF_WRITE_FLAG(mask, STATX_TYPE);
+        TRACEBUF_WRITE_FLAG(mask, STATX_MODE);
+        TRACEBUF_WRITE_FLAG(mask, STATX_NLINK);
+        TRACEBUF_WRITE_FLAG(mask, STATX_UID);
+        TRACEBUF_WRITE_FLAG(mask, STATX_GID);
+        TRACEBUF_WRITE_FLAG(mask, STATX_ATIME);
+        TRACEBUF_WRITE_FLAG(mask, STATX_MTIME);
+        TRACEBUF_WRITE_FLAG(mask, STATX_CTIME);
+        TRACEBUF_WRITE_FLAG(mask, STATX_INO);
+        TRACEBUF_WRITE_FLAG(mask, STATX_SIZE);
+        TRACEBUF_WRITE_FLAG(mask, STATX_BLOCKS);
+    }
+    TRACEBUF_WRITE_FLAG(mask, STATX_BTIME);
+    TRACEBUF_WRITE_FLAG(mask, STATX_MNT_ID);
+    TRACEBUF_WRITE_FLAG(mask, STATX_DIOALIGN);
+    u32 unknown_flags = mask & 0xffffc000;
+    if (unknown_flags) {
+        if (!empty)
+            push_u8(trace_buf, '|');
+        bprintf(trace_buf, "0x%x", unknown_flags);
+    }
+}
+
+static void strace_print_statx(strace_sc_ctx ctx, const void *data)
+{
+    buffer trace_buf = ctx->trace_buf;
+    const struct statx *s = data;
+    u32 mask = s->stx_mask;
+    buffer_write_cstring(trace_buf, "[{stx_mask=");
+    strace_print_statx_mask(trace_buf, mask);
+    if (mask & (STATX_TYPE | STATX_MODE))
+        bprintf(trace_buf, ", stx_mode=0x%x", s->stx_mode);
+    if (mask & STATX_ATIME)
+        bprintf(trace_buf, ", stx_atime={tv_sec=%ld, tv_nsec=%u}",
+                s->stx_atime.tv_sec, s->stx_atime.tv_nsec);
+    if (mask & STATX_MTIME)
+        bprintf(trace_buf, ", stx_mtime={tv_sec=%ld, tv_nsec=%u}",
+                s->stx_mtime.tv_sec, s->stx_mtime.tv_nsec);
+    if (mask & STATX_INO)
+        bprintf(trace_buf, ", stx_ino=%lu", s->stx_ino);
+    if (mask & STATX_SIZE)
+        bprintf(trace_buf, ", stx_size=%lu", s->stx_size);
+    if (mask & STATX_BLOCKS)
+        bprintf(trace_buf, ", stx_blocks=%lu", s->stx_blocks);
+    if (mask & STATX_DIOALIGN)
+        bprintf(trace_buf, ", stx_dio_mem_align=%u, stx_dio_offset_align=%u", s->stx_dio_mem_align,
+                s->stx_dio_offset_align);
+    bprintf(trace_buf, ", stx_blksize=%u, stx_rdev_major=%u, stx_rdev_minor=%u}]", s->stx_blksize,
+            s->stx_rdev_major, s->stx_rdev_minor);
+}
+
 static void strace_print_iocb(strace_sc_ctx ctx, const void *data)
 {
     const struct iocb *iocb = data;
@@ -211,6 +269,31 @@ static void strace_newfstatat_exit(thread t, strace_sc_ctx ctx)
             bprintf(trace_buf, "%p", s);
         bprintf(trace_buf, ", %d", flags);
     }
+}
+
+static void strace_statx_enter(thread t, strace_sc_ctx ctx)
+{
+    ctx->priv = pointer_from_u64(sc_arg4(t));
+    buffer trace_buf = ctx->trace_buf;
+    bprintf(trace_buf, "%d, ", sc_arg0(t));
+    strace_print_user_string(ctx, pointer_from_u64(sc_arg1(t)));
+    bprintf(trace_buf, ", 0x%x, ", sc_arg2(t));
+    strace_print_statx_mask(trace_buf, sc_arg3(t));
+    push_u8(ctx->trace_buf, ',');
+    ctx->rv_fmt = STRACE_RV_DE;
+}
+
+static void strace_statx_exit(thread t, strace_sc_ctx ctx)
+{
+    const struct statx *s = ctx->priv;
+    buffer trace_buf = ctx->trace_buf;
+    push_u8(trace_buf, ' ');
+    if (sc_retval(t) == 0)
+        strace_print_user_data(ctx, s, strace_print_statx);
+    else if (s)
+        bprintf(trace_buf, "%p", s);
+    else
+        buffer_write_cstring(trace_buf, "NULL");
 }
 
 static void strace_faccessat_enter(thread t, strace_sc_ctx ctx)
@@ -455,6 +538,7 @@ void strace_file_init(void)
     strace_register_sc_entry_handler(ftruncate);
     strace_register_sc_handlers(SYS_fstat, strace_fstat_enter, strace_stat_exit);
     strace_register_sc_handlers(SYS_newfstatat, strace_newfstatat_enter, strace_newfstatat_exit);
+    strace_register_sc_handlers(SYS_statx, strace_statx_enter, strace_statx_exit);
     strace_register_sc_entry_handler(faccessat);
     strace_register_sc_entry_handler(chdir);
     strace_register_sc_entry_handler(mkdirat);

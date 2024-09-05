@@ -3,12 +3,16 @@
 #define __USE_GNU
 #include <fcntl.h>
 #include <limits.h>
+#include <linux/stat.h>
 #include <poll.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "../test_utils.h"
+
+#define __statx(...)   syscall(SYS_statx, __VA_ARGS__)
 
 int main(int argc, char **argv)
 {
@@ -18,6 +22,7 @@ int main(int argc, char **argv)
     char path_too_long[PATH_MAX + 1];
     struct pollfd pfd;
     struct stat s;
+    struct statx sx;
     char *cwd;
 
     test_assert(readlink("/proc/self/exe", buf, sizeof(buf)) > 0);
@@ -108,8 +113,23 @@ int main(int argc, char **argv)
     test_assert((s.st_mode & S_IFMT) == S_IFLNK);
     test_assert(fstatat(AT_FDCWD, "link", &s, 0) == 0);
     test_assert((s.st_mode & S_IFMT) == S_IFREG);
+    test_assert(__statx(AT_FDCWD, "link", 0, STATX_BASIC_STATS, &sx) == 0);
+    test_assert((sx.stx_mask & STATX_TYPE) && ((sx.stx_mode & S_IFMT) == S_IFREG));
+    test_assert((sx.stx_mask & STATX_SIZE) && (sx.stx_size == 0));
+    test_assert(__statx(AT_FDCWD, "link", AT_SYMLINK_NOFOLLOW, STATX_BASIC_STATS, &sx) == 0);
+    test_assert((sx.stx_mask & STATX_TYPE) && ((sx.stx_mode & S_IFMT) == S_IFLNK));
+    test_assert((sx.stx_mask & STATX_SIZE) && (sx.stx_size == sizeof("target") - 1));
     fd = open("link", O_RDONLY);
     test_assert(fd >= 0);
+    test_assert(__statx(fd, "", AT_EMPTY_PATH, STATX_BASIC_STATS, &sx) == 0);
+    test_assert((sx.stx_mask & STATX_TYPE) && ((sx.stx_mode & S_IFMT) == S_IFREG));
+    test_assert((sx.stx_mask & STATX_SIZE) && (sx.stx_size == 0));
+    close(fd);
+    fd = openat(AT_FDCWD, "link", O_PATH | O_NOFOLLOW);
+    test_assert(fd >= 0);
+    test_assert(__statx(fd, "", AT_EMPTY_PATH, STATX_BASIC_STATS, &sx) == 0);
+    test_assert((sx.stx_mask & STATX_TYPE) && ((sx.stx_mode & S_IFMT) == S_IFLNK));
+    test_assert((sx.stx_mask & STATX_SIZE) && (sx.stx_size == sizeof("target") - 1));
     close(fd);
 
     test_assert(truncate("link", 1) == 0);

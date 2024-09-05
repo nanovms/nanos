@@ -716,7 +716,7 @@ closure_func_basic(fdesc_events, u32, file_events,
     return events;
 }
 
-static int file_type_from_tuple(tuple n)
+int file_type_from_tuple(tuple n)
 {
     if (is_dir(n))
         return FDESC_TYPE_DIRECTORY;
@@ -2323,6 +2323,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fadvise64, fadvise64);
     register_syscall(map, fstat, fstat);
     register_syscall(map, newfstatat, newfstatat);
+    register_syscall(map, statx, statx);
     register_syscall(map, readv, readv);
     register_syscall(map, writev, writev);
     register_syscall(map, preadv, preadv);

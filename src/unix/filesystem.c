@@ -349,6 +349,129 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
     return rv;
 }
 
+static sysreturn statx_internal(filesystem fs, int type, tuple n, fsfile f, struct statx *statxbuf)
+{
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(statxbuf, sizeof(struct rlimit), true) || context_set_err(ctx))
+        return -EFAULT;
+    zero(statxbuf, sizeof(*statxbuf));
+    statxbuf->stx_mode = file_mode_from_type(type);
+    statxbuf->stx_mask = STATX_TYPE | STATX_MODE;
+    switch (type) {
+    case FDESC_TYPE_REGULAR:
+        statxbuf->stx_size = fsfile_get_length(f);
+        statxbuf->stx_blocks = fsfile_get_blocks(f);
+        statxbuf->stx_blksize = PAGESIZE;
+        statxbuf->stx_dio_mem_align = statxbuf->stx_dio_offset_align = SECTOR_SIZE;
+        statxbuf->stx_mask |= STATX_SIZE | STATX_BLOCKS | STATX_DIOALIGN;
+        break;
+    case FDESC_TYPE_SYMLINK:
+        statxbuf->stx_size = buffer_length(linktarget(n));
+        statxbuf->stx_mask |= STATX_SIZE;
+        break;
+    case FDESC_TYPE_STDIO:
+        /* Describing stdout as a pseudo-tty makes glibc apply line buffering (instead of full
+         * buffering) when the process writes to stdout. */
+        statxbuf->stx_rdev_major = UNIX98_PTY_SLAVE_MAJOR;
+        statxbuf->stx_rdev_minor = 0;
+        break;
+    case FDESC_TYPE_SPECIAL:
+        if (n) {
+            u64 rdev = filesystem_get_rdev(fs, n);
+            statxbuf->stx_rdev_major = MAJOR(rdev);
+            statxbuf->stx_rdev_minor = MINOR(rdev);
+        }
+        break;
+    }
+    if (n) {
+        statxbuf->stx_ino = fs->get_inode(fs, n);
+        statxbuf->stx_mask |= STATX_INO;
+        timestamp t;
+        struct timespec ts;
+        t = filesystem_get_atime(fs, n);
+        if (t) {
+            timespec_from_time(&ts, t);
+            statxbuf->stx_atime.tv_sec = ts.tv_sec;
+            statxbuf->stx_atime.tv_nsec = ts.tv_nsec;
+            statxbuf->stx_mask |= STATX_ATIME;
+        }
+        t = filesystem_get_mtime(fs, n);
+        if (t) {
+            timespec_from_time(&ts, t);
+            statxbuf->stx_mtime.tv_sec = ts.tv_sec;
+            statxbuf->stx_mtime.tv_nsec = ts.tv_nsec;
+            statxbuf->stx_mask |= STATX_MTIME;
+        }
+    }
+    context_clear_err(ctx);
+    return 0;
+}
+
+static sysreturn statx_node(filesystem fs, inode cwd, sstring pathname, int flags,
+                            struct statx *statxbuf)
+{
+    tuple n;
+    fsfile f;
+    sysreturn rv = filesystem_get_node(&fs, cwd, pathname, !!(flags & AT_SYMLINK_NOFOLLOW), false,
+                                       false, false, &n, &f);
+    if (rv == 0) {
+        rv = statx_internal(fs, file_type_from_tuple(n), n, f, statxbuf);
+        filesystem_put_node(fs, n);
+        if (f)
+            fsfile_release(f);
+    }
+    return rv;
+}
+
+sysreturn statx(int dirfd, const char *pathname, int flags, unsigned int mask,
+                struct statx *statxbuf)
+{
+    if ((flags & ~(AT_EMPTY_PATH | AT_NO_AUTOMOUNT | AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT |
+                   AT_STATX_FORCE_SYNC | AT_STATX_DONT_SYNC)) || (mask & STATX__RESERVED))
+        return -EINVAL;
+    filesystem fs;
+    sysreturn rv;
+    if (flags & AT_EMPTY_PATH) {
+        process p = current->p;
+        if (dirfd == AT_FDCWD) {
+            inode cwd;
+            process_get_cwd(p, &fs, &cwd);
+            rv = statx_node(fs, cwd, ss("."), flags, statxbuf);
+            filesystem_release(fs);
+        } else {
+            fdesc f = resolve_fd(p, dirfd);
+            int type = f->type;
+            tuple n;
+            fsfile fsf = 0;
+            switch (type) {
+            case FDESC_TYPE_REGULAR:
+                fsf = ((file)f)->fsf;
+                /* no break */
+            case FDESC_TYPE_DIRECTORY:
+            case FDESC_TYPE_SPECIAL:
+            case FDESC_TYPE_SYMLINK:
+                fs = ((file)f)->fs;
+                n = filesystem_get_meta(fs, ((file)f)->n);
+                break;
+            default:
+                fs = 0;
+                n = 0;
+                break;
+            }
+            rv = statx_internal(fs, type, n, fsf, statxbuf);
+            if (n)
+                filesystem_put_meta(fs, n);
+            fdesc_put(f);
+        }
+    } else {
+        sstring name_ss;
+        inode cwd = resolve_dir(fs, dirfd, pathname, name_ss);
+        rv = statx_node(fs, cwd, name_ss, flags, statxbuf);
+        filesystem_release(fs);
+    }
+    return rv;
+}
+
 static sysreturn statfs_internal(filesystem fs, tuple t, struct statfs *buf)
 {
     if (!fault_in_user_memory(buf, sizeof(struct statfs), true))

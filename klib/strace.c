@@ -88,6 +88,7 @@ static struct {
         strace_syscall_init(fadvise64, STRACE_SC_F_SET_DESC),
         strace_syscall_init(fstat, STRACE_SC_F_SET_DESC),
         strace_syscall_init(newfstatat, STRACE_SC_F_SET_FILE | STRACE_SC_F_SET_DESC),
+        strace_syscall_init(statx, STRACE_SC_F_SET_FILE | STRACE_SC_F_SET_DESC),
         strace_syscall_init(readv, STRACE_SC_F_SET_DESC),
         strace_syscall_init(writev, STRACE_SC_F_SET_DESC),
         strace_syscall_init(preadv, STRACE_SC_F_SET_DESC),

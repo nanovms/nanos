@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <errno.h>
+#include <linux/stat.h>
 #include <poll.h>
 #include <string.h>
 #include <pthread.h>
@@ -12,6 +13,8 @@
 
 #include "../test_utils.h"
 
+#define __statx(...)   syscall(SYS_statx, __VA_ARGS__)
+
 int __pipe(int fildes[2])
 {
     return syscall(SYS_pipe2, fildes, 0);
@@ -20,8 +23,11 @@ int __pipe(int fildes[2])
 static void test_pipe_fd(int fd)
 {
     struct stat s;
+    struct statx sx;
 
     test_assert((fstat(fd, &s) == 0) && ((s.st_mode & S_IFMT) == S_IFIFO));
+    test_assert(__statx(fd, "", AT_EMPTY_PATH, STATX_BASIC_STATS, &sx) == 0);
+    test_assert((sx.stx_mask & STATX_TYPE) && ((sx.stx_mode & S_IFMT) == S_IFIFO));
 }
 
 void basic_test(heap h, int * fds)

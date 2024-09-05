@@ -151,6 +151,10 @@ struct flock {
 #define AT_NO_AUTOMOUNT     0x800       /* Suppress terminal automount traversal */
 #define AT_EMPTY_PATH       0x1000      /* Allow empty relative pathname */
 
+#define AT_STATX_SYNC_AS_STAT   0x0000
+#define AT_STATX_FORCE_SYNC     0x2000
+#define AT_STATX_DONT_SYNC      0x4000
+
 #define MAP_SHARED          0x01
 #define MAP_PRIVATE         0x02
 #define MAP_SHARED_VALIDATE 0x03
@@ -700,6 +704,54 @@ struct clone_args {
 #define EPOLLET		(1u << 31)
 
 typedef struct aux {u64 tag; u64 val;} *aux;
+
+struct statx_timestamp {
+    s64 tv_sec;
+    u32 tv_nsec;
+};
+
+struct statx {
+    u32 stx_mask;
+    u32 stx_blksize;
+    u64 stx_attributes;
+    u32 stx_nlink;
+    u32 stx_uid;
+    u32 stx_gid;
+    u16 stx_mode;
+    u64 stx_ino;
+    u64 stx_size;
+    u64 stx_blocks;
+    u64 stx_attributes_mask;
+    struct statx_timestamp stx_atime;
+    struct statx_timestamp stx_btime;
+    struct statx_timestamp stx_ctime;
+    struct statx_timestamp stx_mtime;
+    u32 stx_rdev_major;
+    u32 stx_rdev_minor;
+    u32 stx_dev_major;
+    u32 stx_dev_minor;
+    u64 stx_mnt_id;
+    u32 stx_dio_mem_align;
+    u32 stx_dio_offset_align;
+};
+
+/* statx mask flags */
+#define STATX_TYPE          0x00000001U
+#define STATX_MODE          0x00000002U
+#define STATX_NLINK         0x00000004U
+#define STATX_UID           0x00000008U
+#define STATX_GID           0x00000010U
+#define STATX_ATIME         0x00000020U
+#define STATX_MTIME         0x00000040U
+#define STATX_CTIME         0x00000080U
+#define STATX_INO           0x00000100U
+#define STATX_SIZE          0x00000200U
+#define STATX_BLOCKS        0x00000400U
+#define STATX_BASIC_STATS   0x000007ffU
+#define STATX_BTIME         0x00000800U
+#define STATX_MNT_ID        0x00001000U
+#define STATX_DIOALIGN      0x00002000U
+#define STATX__RESERVED     0x80000000U
 
 struct statfs {
     long f_type;

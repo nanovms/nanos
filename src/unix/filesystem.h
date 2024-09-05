@@ -44,6 +44,9 @@ sysreturn utime(const char *filename, const struct utimbuf *times);
 sysreturn utimes(const char *filename, const struct timeval times[2]);
 sysreturn utimensat(int dirfd, const char *filename, const struct timespec times[2], int flags);
 
+sysreturn statx(int dirfd, const char *pathname, int flags, unsigned int mask,
+                struct statx *statxbuf);
+
 sysreturn statfs(const char *path, struct statfs *buf);
 sysreturn fstatfs(int fd, struct statfs *buf);
 
@@ -55,6 +58,7 @@ sysreturn fs_rename(sstring oldpath, sstring newpath);
 
 int file_open(filesystem fs, tuple n, int flags, fsfile fsf);
 void file_release(file f);
+int file_type_from_tuple(tuple n);
 
 fsfile fsfile_open(sstring file_path);
 fsfile fsfile_open_or_create(sstring file_path, boolean truncate);
