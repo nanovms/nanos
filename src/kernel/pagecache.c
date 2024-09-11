@@ -1375,6 +1375,8 @@ closure_function(4, 1, void, pagecache_read_sg_finish,
         sg_list sg = bound(sg);
         context user_ctx = context_from_closure(completion);
         context ctx = get_current_context(current_cpu());
+        if (!user_ctx)
+            user_ctx = ctx;
         if (ctx != user_ctx)
             use_fault_handler(user_ctx->fault_handler);
         /* Fault in memory now to avoid page faults while spinlocks are held. */
