@@ -92,7 +92,7 @@ closure_func_basic(thunk, void, pending_fault_complete)
     }
 }
 
-static pending_fault new_pending_fault_locked(process p, context ctx, u64 addr)
+pending_fault new_pending_fault_locked(process p, context ctx, u64 addr)
 {
     pending_fault pf;
     list l;
@@ -362,7 +362,7 @@ static status demand_page_internal(process p, context ctx, u64 vaddr, vmap vm, p
             anonymous = false;
             break;
         default:
-            halt("%s: invalid vmap type %d, flags 0x%lx\n", func_ss, mmap_type, vm->flags);
+            return vm->fault(p, ctx, vaddr, vm, pf);
         }
     } else if (vm->flags & VMAP_FLAG_PROG) {
         pf_debug("   file-backed program page fault\n");
@@ -1392,7 +1392,9 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     if (fixed)
         process_remove_range_locked(p, q, vmap_mmap_type != VMAP_MMAP_TYPE_CUSTOM);
     k.node.r = q;
-    vmap_assert(allocate_vmap_locked(p->vmaps, &k) != INVALID_ADDRESS);
+    vmap vm = allocate_vmap_locked(p->vmaps, &k);
+    vmap_assert(vm != INVALID_ADDRESS);
+    vm->fault = k.fault;
     vmap_unlock(p);
 
     if (vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED && (vmflags & VMAP_FLAG_SHARED))

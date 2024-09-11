@@ -267,6 +267,7 @@ typedef struct pending_fault {
     enum {
         PENDING_FAULT_ANONYMOUS,
         PENDING_FAULT_FILEBACKED,
+        PENDING_FAULT_CUSTOM,
     } type;
     union {
         struct {
@@ -277,11 +278,14 @@ typedef struct pending_fault {
             closure_struct(pagecache_page_handler, demand_file_page);
             void *page_kvirt;
         } filebacked;
+        void *custom;
     };
     struct list l_free;
     closure_struct(thunk, async_handler);
     closure_struct(thunk, complete);
 } *pending_fault;
+
+pending_fault new_pending_fault_locked(process p, context ctx, u64 addr);
 
 /* XXX probably should bite bullet and allocate these... */
 #define FRAME_MAX_PADDED ((FRAME_MAX + 15) & ~15)
@@ -433,6 +437,7 @@ typedef struct vmap {
         fdesc fd;
         u64 bss_offset;
     };
+    status (*fault)(process p, context ctx, u64 vaddr, struct vmap *vm, pending_fault *pf);
 } *vmap;
 
 #define ivmap(__f, __af, __o, __c, __fd) (struct vmap) {    \
