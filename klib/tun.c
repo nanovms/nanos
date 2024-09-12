@@ -70,29 +70,31 @@ static err_t tun_if_output(struct netif *netif, struct pbuf *p, const ip4_addr_t
     int ret = ERR_WOULDBLOCK;
     spin_lock(&t->lock);
     tun_file f = t->next_tx;
-    do {
-        if (f->attached) {
-            u64 len = queue_length(f->pq);
-            if (len == 0) {
-                selected = f;
-                break;
+    if (f) {
+        do {
+            if (f->attached) {
+                u64 len = queue_length(f->pq);
+                if (len == 0) {
+                    selected = f;
+                    break;
+                }
+                if (len < min_ql) {
+                    selected = f;
+                    min_ql = len;
+                }
             }
-            if (len < min_ql) {
-                selected = f;
-                min_ql = len;
-            }
+            list next = f->l.next;
+            if (next == &t->files)
+                next = next->next;
+            f = struct_from_list(next, tun_file, l);
+        } while (f != t->next_tx);
+        if (selected && enqueue(selected->pq, p)) {
+            pbuf_ref(p);
+            if (blockq_wake_one(selected->bq) == INVALID_ADDRESS)
+                notify_events(&selected->f->f);
+            t->next_tx = selected;
+            ret = ERR_OK;
         }
-        list next = f->l.next;
-        if (next == &t->files)
-            next = next->next;
-        f = struct_from_list(next, tun_file, l);
-    } while (f != t->next_tx);
-    if (selected && enqueue(selected->pq, p)) {
-        pbuf_ref(p);
-        if (blockq_wake_one(selected->bq) == INVALID_ADDRESS)
-            notify_events(&selected->f->f);
-        t->next_tx = selected;
-        ret = ERR_OK;
     }
     spin_unlock(&t->lock);
     return ret;
@@ -376,6 +378,7 @@ closure_func_basic(fdesc_close, sysreturn, tun_close,
         spin_lock(&tun->lock);
         list_delete(&tf->l);
         if (list_empty(&tun->files)) {
+            tun->next_tx = 0;
             spin_unlock(&tun->lock);
             netif_remove(&tun->ndev.n);
             deallocate(tun_heap, tun, sizeof(struct tun_file));
