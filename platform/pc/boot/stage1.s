@@ -21,12 +21,13 @@ init:
 	;; setting a20 allows us to address all of 'extended' memory
 	call seta20
 
+	call readsectors
+
         ;;;  disable 8259
         mov al, 0xff
         out 0xa1, al
         out 0x21, al
 
-        call readsectors
 	call e820
 
 	cli
