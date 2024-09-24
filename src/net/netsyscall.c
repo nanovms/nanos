@@ -446,7 +446,7 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
               s->sock.fd, ctx, iov, length, flags, bqflags, err);
     assert(s->sock.type == SOCK_STREAM || s->sock.type == SOCK_DGRAM);
 
-    if ((s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) || 
+    if ((s->sock.type == SOCK_STREAM && s->info.tcp.state != TCP_SOCK_OPEN) ||
             (s->sock.type == SOCK_DGRAM && s->info.udp.state == UDP_SOCK_SHUTDOWN)) {
         rv = 0;
         goto out_unlock;
@@ -892,7 +892,7 @@ closure_func_basic(file_iov, sysreturn, socket_writev,
 {
     netsock ns = struct_from_field(closure_self(), netsock, writev);
     struct sock *s = &ns->sock;
-    net_debug("sock %d, type %d, length %ld, offset %ld\n", s->fd, s->type, length, offset);
+    net_debug("sock %d, type %d, count %d, offset %ld\n", s->fd, s->type, count, offset);
     return socket_write_internal(s, 0, iov, count, 0, 0, 0, ctx, bh, completion);
 }
 
@@ -1247,7 +1247,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
         rv = -ENOTCONN;
         goto out;
     }
-    
+
     rv = 0;
   out:
     /* Wake up any blockers waiting on the socket */
