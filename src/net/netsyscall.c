@@ -2088,7 +2088,12 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
         }
         goto unlock_out;
     }
-    struct tcp_pcb * lw = tcp_listen_with_backlog(s->info.tcp.lw, backlog);
+    err_t err;
+    struct tcp_pcb * lw = tcp_listen_with_backlog_and_err(s->info.tcp.lw, backlog, &err);
+    if (!lw) {
+        rv = lwip_to_errno(err);
+        goto unlock_out;
+    }
     tcp_unref(s->info.tcp.lw);
     tcp_ref(lw);
     s->info.tcp.lw = lw;
