@@ -1684,6 +1684,19 @@ static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
     return rv;
 }
 
+static inline void set_loopback_if_any(ip_addr_t *ipaddr)
+{
+    if (ipaddr->type == IPADDR_TYPE_V4) {
+        // Check if the IPv4 address is "0.0.0.0"
+        if (ip4_addr_isany(ip_2_ip4(ipaddr)))
+            ip4_addr_set_loopback(ip_2_ip4(ipaddr)); // "127.0.0.1"
+    } else if (ipaddr->type == IPADDR_TYPE_V6) {
+        // Check if the IPv6 address is "::"
+        if (ip6_addr_isany(ip_2_ip6(ipaddr)))
+            ip6_addr_set_loopback(ip_2_ip6(ipaddr)); // "::1"
+    }
+}
+
 static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen)
 {
@@ -1710,9 +1723,11 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
             msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sock->fd);
             ret = -EINVAL;
         } else {
+            set_loopback_if_any(&ipaddr);
             ret = connect_tcp(s, &ipaddr, port);
         }
     } else if (s->sock.type == SOCK_DGRAM) {
+        set_loopback_if_any(&ipaddr);
         /* Set remote endpoint */
         ret = lwip_to_errno(udp_connect(s->info.udp.lw, &ipaddr, port));
     } else {
