@@ -207,7 +207,8 @@ sstring string_from_mmap_type(int type)
             ss("unknown"));
 }
 
-#define format_protection_violation(vaddr, ctx, vm)             \
+#define pf_debug_protection_violation(vaddr, ctx, vm)           \
+    pf_debug(                                                   \
     "page_protection_violation\naddr 0x%lx, pc 0x%lx, "         \
     "error %c%c%c vm->flags (%s%s %s%s%s)\n",                   \
         vaddr, frame_fault_pc(ctx->frame),                      \
@@ -218,7 +219,8 @@ sstring string_from_mmap_type(int type)
         string_from_mmap_type(vm->flags & VMAP_MMAP_TYPE_MASK), \
         (vm->flags & VMAP_FLAG_READABLE) ? ss("readable ") : sstring_empty(),   \
         (vm->flags & VMAP_FLAG_WRITABLE) ? ss("writable ") : sstring_empty(),   \
-        (vm->flags & VMAP_FLAG_EXEC) ? ss("executable ") : sstring_empty()
+        (vm->flags & VMAP_FLAG_EXEC) ? ss("executable ") : sstring_empty()      \
+    )
 
 static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
 {
@@ -238,7 +240,7 @@ static boolean handle_protection_fault(context ctx, u64 vaddr, vmap vm)
     }
 
     if (is_thread_context(ctx)) {
-        pf_debug(format_protection_violation(vaddr, ctx, vm));
+        pf_debug_protection_violation(vaddr, ctx, vm);
         deliver_fault_signal(SIGSEGV, (thread)ctx, vaddr, SEGV_ACCERR);
         return true;
     }
