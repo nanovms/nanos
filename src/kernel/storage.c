@@ -271,7 +271,7 @@ closure_function(1, 2, boolean, volume_add_mount_each,
 
 boolean volume_add(u8 *uuid, char *label, void *priv, fs_init_handler init_handler, int attach_id)
 {
-    storage_debug("new volume (%ld bytes)", size);
+    storage_debug("new volume");
     volume v = allocate(storage.h, sizeof(*v));
     if (v == INVALID_ADDRESS)
         return false;
