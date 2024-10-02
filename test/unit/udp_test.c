@@ -29,7 +29,8 @@ int main(int argc, char ** argv)
     buffer target = vector_pop(unassoc);
     u32 daddr;
     u16 dport;
-    parse_v4_address_and_port(target, &daddr, &dport);
+    if (!parse_v4_address_and_port(target, &daddr, &dport))
+        test_perror("parse");
 
     u16 lport = DEFAULT_LOCAL_PORT;
     u64 result;
