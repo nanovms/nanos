@@ -122,6 +122,11 @@ For tests you'll also need the following installed:
 sudo apt-get install ent ruby
 ```
 
+Ops:
+```
+curl https://ops.city/get.sh -sSfL | sh
+```
+
 Rust:
 ```
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
