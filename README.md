@@ -109,11 +109,12 @@ Note: This is only recommended for those that wish to make code changes to Nanos
 
 Nanos doesn't need too many dependencies on Linux.
 
-To build you need to install nasm && qemu:
+To build you need to install nasm, qemu and go (If you don't want to install go, choose a different target, see below):
 
 ```
-sudo apt-get install qemu-system-x86 nasm
+sudo apt-get install qemu-system-x86 nasm golang-go
 ```
+
 
 For tests you'll also need the following installed:
 
