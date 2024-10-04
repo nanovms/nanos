@@ -30,7 +30,7 @@ int main(int argc, char ** argv)
     u32 daddr;
     u16 dport;
     if (!parse_v4_address_and_port(target, &daddr, &dport))
-        test_perror("parse");
+        test_error("failed to parse address and port");
 
     u16 lport = DEFAULT_LOCAL_PORT;
     u64 result;
