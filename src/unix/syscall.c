@@ -1673,9 +1673,17 @@ sysreturn uname(struct utsname *v)
     return 0;
 }
 
-// we dont limit anything now.
 sysreturn setrlimit(int resource, const struct rlimit *rlim)
 {
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(rlim, sizeof(struct rlimit), false) || context_set_err(ctx))
+        return -EFAULT;
+    switch (resource) {
+    case RLIMIT_STACK:
+        current->p->rlimit_stack = rlim->rlim_cur;
+        break;
+    }
+    context_clear_err(ctx);
     return 0;
 }
 
@@ -1693,8 +1701,8 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
                 heap_total(&heap_physical(get_kernel_heaps())->h);
         break;
     case RLIMIT_STACK:
-        rlim->rlim_cur = 2*1024*1024;
-        rlim->rlim_max = 2*1024*1024;
+        rlim->rlim_cur = current->p->rlimit_stack;
+        rlim->rlim_max = infinity;
         break;
     case RLIMIT_CORE:
         rlim->rlim_cur = rlim->rlim_max = 0;    // core dump not supported
@@ -1723,7 +1731,8 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
             return ret;
     }
 
-    // setting new limits is not implemented
+    if (new_limit)
+        return setrlimit(resource, new_limit);
     return 0;
 }
 

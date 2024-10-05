@@ -566,6 +566,7 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     assert(p->cpu_timers != INVALID_ADDRESS);
     p->aio_ids = create_id_heap(locked, locked, 0, S32_MAX, 1, false);
     p->aio = allocate_vector(locked, 8);
+    p->rlimit_stack = PROCESS_STACK_SIZE;
     p->trace = 0;
     p->trap = 0;
     if ((u64)p->pid - 1 < MAX_PROCESSES)

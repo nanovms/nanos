@@ -65,17 +65,18 @@ static void build_exec_stack(process p, thread t, Elf64_Ehdr * e, void *start,
     exec_debug("build_exec_stack start %p, tid %d, va 0x%lx\n", start, t->tid, va);
 
     /* allocate process stack at top of 32-bit address space */
-    u64 stack_start = 0x100000000 - PROCESS_STACK_SIZE;
+    u64 stack_size = p->rlimit_stack;
+    u64 stack_start = 0x100000000 - stack_size;
     if (aslr)
         stack_start = (stack_start - PROCESS_STACK_ASLR_RANGE) +
             get_aslr_offset(PROCESS_STACK_ASLR_RANGE);
 
-    p->stack_map = allocate_vmap(p, irangel(stack_start, PROCESS_STACK_SIZE),
+    p->stack_map = allocate_vmap(p, irangel(stack_start, stack_size),
                                  ivmap(VMAP_FLAG_STACK | VMAP_FLAG_READABLE | VMAP_FLAG_WRITABLE,
                                        0, 0, 0, 0));
     assert(p->stack_map != INVALID_ADDRESS);
 
-    u64 *s = (pointer_from_u64(stack_start) + PROCESS_STACK_SIZE);
+    u64 *s = (pointer_from_u64(stack_start) + stack_size);
     void *as = stack_prealloc((void*)s, PROCESS_STACK_PREALLOC_SIZE);
 
     /* 16 bytes of random data for userspace (e.g. SSP guard init) */

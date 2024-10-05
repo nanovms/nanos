@@ -522,6 +522,7 @@ typedef struct process {
     timerqueue        cpu_timers;
     id_heap           aio_ids;
     vector            aio;
+    u64               rlimit_stack;
     u8                trace;
     boolean           trap;         /* do not run threads when set */
     struct spinlock   lock; /* generic lock for struct members without a specific lock */

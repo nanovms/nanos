@@ -414,7 +414,7 @@ vmap vmap_from_vaddr(process p, u64 vaddr)
     if ((vm != INVALID_ADDRESS) && (vm->node.r.start > vaddr)) {
         /* vm does not cover this address; if it is a stack mapping, check whether it can be
          * expanded downwards. */
-        if (!(vm->flags & VMAP_FLAG_STACK) || (vm->node.r.end > vaddr + PROCESS_STACK_SIZE))
+        if (!(vm->flags & VMAP_FLAG_STACK) || (vm->node.r.end > vaddr + p->rlimit_stack))
             return INVALID_ADDRESS;
         vmap prev = (vmap)rangemap_prev_node(rm, &vm->node);
         vaddr &= ~PAGEMASK;
