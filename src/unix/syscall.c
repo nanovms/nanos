@@ -1447,7 +1447,7 @@ sysreturn openat(int dirfd, const char *name, int flags, int mode)
 static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s)
 {
     zero(s, sizeof(struct stat));
-    s->st_mode = file_mode_from_type(type);
+    s->st_mode = stat_mode(current->p, type, n);
     switch (type) {
     case FDESC_TYPE_REGULAR:
         if (f) {

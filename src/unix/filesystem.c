@@ -20,24 +20,40 @@ sysreturn sysreturn_from_fs_status_value(status s)
     return rv;
 }
 
-u16 file_mode_from_type(int type)
+u16 stat_mode(process p, int type, tuple meta)
 {
+    u16 mode;
     switch (type) {
     case FDESC_TYPE_REGULAR:
-        return S_IFREG | 0644;
+        mode = S_IFREG;
+        break;
     case FDESC_TYPE_DIRECTORY:
-        return S_IFDIR | 0777;
+        mode = S_IFDIR;
+        break;
     case FDESC_TYPE_STDIO:
     case FDESC_TYPE_SPECIAL:    /* assuming only character devices */
-        return S_IFCHR;
+        mode = S_IFCHR;
+        break;
     case FDESC_TYPE_SOCKET:
-        return S_IFSOCK;
+        mode = S_IFSOCK;
+        break;
     case FDESC_TYPE_PIPE:
-        return S_IFIFO;
+        mode = S_IFIFO;
+        break;
     case FDESC_TYPE_SYMLINK:
-        return S_IFLNK;
+        mode = S_IFLNK;
+        break;
+    default:
+        return 0;
     }
-    return 0;
+    u32 perms = file_meta_perms(p, meta);
+    if (perms & ACCESS_PERM_READ)
+        mode |= 0444;
+    if (perms & ACCESS_PERM_WRITE)
+        mode |= 0222;
+    if (perms & ACCESS_PERM_EXEC)
+        mode |= 0111;
+    return mode;
 }
 
 void file_readahead(file f, u64 offset, u64 len)
@@ -355,7 +371,7 @@ static sysreturn statx_internal(filesystem fs, int type, tuple n, fsfile f, stru
     if (!validate_user_memory(statxbuf, sizeof(struct rlimit), true) || context_set_err(ctx))
         return -EFAULT;
     zero(statxbuf, sizeof(*statxbuf));
-    statxbuf->stx_mode = file_mode_from_type(type);
+    statxbuf->stx_mode = stat_mode(current->p, type, n);
     statxbuf->stx_mask = STATX_TYPE | STATX_MODE;
     switch (type) {
     case FDESC_TYPE_REGULAR:
