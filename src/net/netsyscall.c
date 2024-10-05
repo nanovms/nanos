@@ -426,9 +426,8 @@ struct udp_entry {
 };
 
 static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
-                                       io_completion completion, u64 bqflags)
+                                       io_completion completion, u64 bqflags, context ctx)
 {
-    context ctx = get_current_context(current_cpu());
     sysreturn rv = 0;
     if (context_set_err(ctx)) {
         rv = -EFAULT;
@@ -592,7 +591,7 @@ closure_function(7, 1, sysreturn, sock_read_bh,
         .msg_iov = &iov,
         .msg_iovlen = 1,
     };
-    context ctx = get_current_context(current_cpu());
+    context ctx = context_from_closure(closure_self());
     sysreturn rv = 0;
     if (msg.msg_name) {
         if (!context_set_err(ctx)) {
@@ -603,7 +602,7 @@ closure_function(7, 1, sysreturn, sock_read_bh,
         }
     }
     if (!rv)
-        rv = sock_read_bh_internal(bound(s), &msg, bound(flags), bound(completion), flags);
+        rv = sock_read_bh_internal(bound(s), &msg, bound(flags), bound(completion), flags, ctx);
     else
         apply(bound(completion), rv);
     if (rv != BLOCKQ_BLOCK_REQUIRED) {
@@ -623,7 +622,7 @@ closure_function(4, 1, sysreturn, recvmsg_bh,
                  u64 flags)
 {
     sysreturn rv = sock_read_bh_internal(bound(s), bound(msg), bound(flags), bound(completion),
-                                        flags);
+                                         flags, context_from_closure(closure_self()));
     if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
     return rv;
@@ -675,7 +674,7 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
         goto out_unlock;
     }
 
-    context ctx = get_current_context(current_cpu());
+    context ctx = context_from_closure(closure_self());
     struct tcp_pcb *tcp_lw = s->info.tcp.lw;
     tcp_ref(tcp_lw);
     netsock_unlock(s);

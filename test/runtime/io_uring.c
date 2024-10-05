@@ -1,5 +1,7 @@
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -7,6 +9,7 @@
 #include <string.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #include <time.h>
@@ -1209,6 +1212,49 @@ static void iour_test_register_files(void)
     test_assert(iour_exit(&iour) == 0);
 }
 
+static void iour_test_socket(void)
+{
+    struct iour iour;
+    int tx_fd, rx_fd;
+    struct sockaddr_in addr;
+    uint8_t read_buf[BUF_SIZE], write_buf[BUF_SIZE];
+    struct io_uring_cqe *cqe;
+
+    memset(&iour.params, 0, sizeof(iour.params));
+    test_assert(iour_init(&iour, 1) == 0);
+    tx_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(tx_fd > 0);
+    rx_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(rx_fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(1234);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(bind(rx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+
+    /* start an asynchronous read when there is nothing to be read */
+    iour_setup_read(&iour, rx_fd, read_buf, BUF_SIZE, 0, 0);
+    test_assert(iour_submit(&iour, 1, 0) == 1);
+    test_assert(iour_get_cqe(&iour) == NULL);
+
+    /* do a write and wait for the asynchronous read to complete */
+    for (uint64_t i = 0; i < BUF_SIZE; i += sizeof(i))
+        memcpy(write_buf + i, &i, sizeof(i));
+    test_assert(write(tx_fd, write_buf, BUF_SIZE) == BUF_SIZE);
+    for (int retry = 0; retry < INT_MAX; retry++) {
+        cqe = iour_get_cqe(&iour);
+        if (cqe)
+            break;
+    }
+    test_assert(cqe && (cqe->user_data == 0) && (cqe->res == BUF_SIZE));
+    for (uint64_t i = 0; i < BUF_SIZE; i += sizeof(i))
+        test_assert(memcmp(read_buf + i, &i, sizeof(i)) == 0);
+
+    close(tx_fd);
+    close(rx_fd);
+    test_assert(iour_exit(&iour) == 0);
+}
+
 int main(int argc, char **argv)
 {
     iour_test_basic();
@@ -1222,6 +1268,7 @@ int main(int argc, char **argv)
     iour_test_close();
     iour_test_sig();
     iour_test_register_files();
+    iour_test_socket();
     printf("IO uring test OK\n");
     return EXIT_SUCCESS;
 }

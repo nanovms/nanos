@@ -177,7 +177,7 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
-    context ctx = get_current_context(current_cpu());
+    context ctx = context_from_closure(closure_self());
     shb = queue_peek(s->data);
     if (shb == INVALID_ADDRESS) {
         if (disconnected) {
@@ -407,7 +407,7 @@ closure_function(6, 1, sysreturn, unixsock_write_bh,
     rv = unixsock_write_to(src, bound(iov), length, dest, s);
     if ((rv == -EAGAIN) && !(s->sock.f.flags & SOCK_NONBLOCK)) {
         unixsock_unlock(dest);
-        return blockq_block_required((unix_context)get_current_context(current_cpu()), flags);
+        return blockq_block_required((unix_context)context_from_closure(closure_self()), flags);
     }
     full = (dest->sock.rx_len >= so_rcvbuf) || queue_full(dest->data);
 out:

@@ -765,7 +765,7 @@ closure_function(8, 1, sysreturn, nl_read_bh,
         rv = -ERESTARTSYS;
         goto out;
     }
-    context ctx = get_current_context(current_cpu());
+    context ctx = context_from_closure(closure_self());
     nl_lock(s);
     struct nlmsghdr *hdr = dequeue(s->data);
     if (hdr == INVALID_ADDRESS) {

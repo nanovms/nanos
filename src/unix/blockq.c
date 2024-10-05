@@ -217,8 +217,7 @@ sysreturn blockq_check_timeout(blockq bq, blockq_action a, boolean in_bh,
     blockq_lock(bq);
     thread_lock(t);
     t->bq_action = a;
-    if (!in_bh)
-        t->blocked_on = bq;
+    t->blocked_on = bq;
     if (timeout > 0) {
         t->bq_timer_pending = true;
         t->bq_clkid = clkid;
