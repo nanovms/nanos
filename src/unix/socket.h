@@ -153,6 +153,10 @@ static inline void socket_flush_q(struct sock *s)
 sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap);
 sysreturn socket_accept4(fdesc f, struct sockaddr *addr, socklen_t *addrlen, int flags, context ctx,
                          boolean in_bh, io_completion completion);
+sysreturn socket_send(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
+                      io_completion completion);
+sysreturn socket_recv(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
+                      io_completion completion);
 
 static inline boolean validate_msghdr(const struct msghdr *mh, boolean write)
 {

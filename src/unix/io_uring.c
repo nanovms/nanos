@@ -1,4 +1,6 @@
 #include <unix_internal.h>
+#include <filesystem.h>
+#include <socket.h>
 
 #define IORING_SETUP_CQSIZE     (1 << 3)
 
@@ -36,12 +38,18 @@ struct io_uring_sqe {
     u8 flags;
     u16 ioprio;
     s32 fd;
-    u64 off;
+    union {
+        u64 off;
+        u64 addr2;
+    };
     u64 addr;
     u32 len;
     union {
+        u32 open_flags;
+        u32 accept_flags;
         u32 rw_flags;
         u32 fsync_flags;
+        u32 statx_flags;
         u16 poll_events;
         u32 sync_range_flags;
         u32 msg_flags;
@@ -50,8 +58,13 @@ struct io_uring_sqe {
     u64 user_data;
     union{
         u16 buf_index;
-        u64 __pad2[3];
+        u16 buf_group;
     };
+    u16 personality;
+    union {
+        u32 file_index;
+    };
+    u64 __pad2[2];
 };
 
 struct io_uring_cqe {
@@ -85,6 +98,10 @@ enum iour_enter_opcode {
     IORING_OP_STATX,
     IORING_OP_READ,
     IORING_OP_WRITE,
+    IORING_OP_FADVISE,
+    IORING_OP_MADVISE,
+    IORING_OP_SEND,
+    IORING_OP_RECV,
     IORING_OP_LAST,
 };
 
@@ -634,6 +651,30 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
     }
 }
 
+static void iour_txrx(io_uring iour, fdesc f, boolean write, void *buf, u32 len, u64 user_data)
+{
+    iour_debug("%s at %p, len %d", write ? ss("tx") : ss("rx"), buf, len);
+    process_context pc = get_process_context();
+    io_completion completion;
+    if (pc != INVALID_ADDRESS) {
+        completion = closure(iour->h, iour_fdesc_complete, iour, f, user_data, &pc->uc.kc.context);
+        if (completion == INVALID_ADDRESS)
+            context_release_refcount(&pc->uc.kc.context);
+    } else {
+        completion = INVALID_ADDRESS;
+    }
+    if (completion == INVALID_ADDRESS) {
+        fdesc_put(f);
+        iour_complete(iour, user_data, -ENOMEM, false, false);
+    } else {
+        fetch_and_add(&iour->noncancelable_ops, 1);
+        if (write)
+            socket_send(f, buf, len, &pc->uc.kc.context, true, completion);
+        else
+            socket_recv(f, buf, len, &pc->uc.kc.context, true, completion);
+    }
+}
+
 define_closure_function(2, 2, u64, iour_poll_notify,
                         io_uring, iour, iour_poll, p,
                         u64 events, void *arg)
@@ -881,8 +922,11 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
     case IORING_OP_READ_FIXED:
     case IORING_OP_WRITE_FIXED:
     case IORING_OP_POLL_ADD:
+    case IORING_OP_ACCEPT:
     case IORING_OP_READ:
     case IORING_OP_WRITE:
+    case IORING_OP_SEND:
+    case IORING_OP_RECV:
         if (sqe->flags & IOSQE_FIXED_FILE) {
             iour_lock(iour);
             int fd = sqe->fd;
@@ -985,6 +1029,36 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         }
         iour_timeout_remove(iour, sqe->addr, sqe->user_data);
         break;
+    case IORING_OP_ACCEPT: {
+        if (sqe->file_index) {
+            res = -EOPNOTSUPP;
+            goto complete;
+        }
+        io_completion completion;
+        process_context pc = get_process_context();
+        if (pc != INVALID_ADDRESS) {
+            completion = closure(iour->h, iour_fdesc_complete, iour, f, sqe->user_data,
+                                 &pc->uc.kc.context);
+            if (completion == INVALID_ADDRESS)
+                context_release_refcount(&pc->uc.kc.context);
+        } else {
+            completion = INVALID_ADDRESS;
+        }
+        if (completion == INVALID_ADDRESS) {
+            res = -ENOMEM;
+            goto complete;
+        }
+        fetch_and_add(&iour->noncancelable_ops, 1);
+        socket_accept4(f, pointer_from_u64(sqe->addr), pointer_from_u64(sqe->addr2),
+                       sqe->accept_flags, &pc->uc.kc.context, true, completion);
+        break;
+    }
+    case IORING_OP_OPENAT:
+        if (!sqe->file_index)
+            res = openat(sqe->fd, pointer_from_u64(sqe->addr), sqe->open_flags, sqe->len);
+        else
+            res = -EOPNOTSUPP;
+        goto complete;
     case IORING_OP_CLOSE:
         if (sqe->ioprio || sqe->addr || sqe->len || sqe->off || sqe->buf_index
                 || sqe->rw_flags) {
@@ -1028,21 +1102,34 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         res = iour_register_files_update(iour, (int *)sqe->addr, sqe->len,
             sqe->off);
         goto complete;
+    case IORING_OP_STATX:
+        res = statx(sqe->fd, pointer_from_u64(sqe->addr), sqe->statx_flags, sqe->len,
+                    pointer_from_u64(sqe->off));
+        goto complete;
     case IORING_OP_READ:
     case IORING_OP_WRITE:
+    case IORING_OP_SEND:
+    case IORING_OP_RECV:
         if (sqe->buf_index) {
             res = -EINVAL;
             goto complete;
         } else {
             void *buf = pointer_from_u64(sqe->addr);
             u32 len = sqe->len;
-            boolean write = sqe->opcode == IORING_OP_WRITE;
-
-            if (!validate_user_memory(buf, len, !write)) {
-                res = -EFAULT;
-                goto complete;
+            u8 opcode = sqe->opcode;
+            boolean write = ((opcode == IORING_OP_WRITE) || (opcode == IORING_OP_SEND));
+            switch (opcode) {
+            case IORING_OP_READ:
+            case IORING_OP_WRITE:
+                if (!validate_user_memory(buf, len, !write)) {
+                    res = -EFAULT;
+                    goto complete;
+                }
+                iour_rw(iour, f, write, buf, len, sqe->off, sqe->user_data);
+                break;
+            default:
+                iour_txrx(iour, f, write, buf, len, sqe->user_data);
             }
-            iour_rw(iour, f, write, buf, len, sqe->off, sqe->user_data);
         }
         break;
     default:
@@ -1336,8 +1423,13 @@ static sysreturn iour_register_probe(struct io_uring_probe *probe,
             probe->ops[IORING_OP_POLL_REMOVE].flags =
             probe->ops[IORING_OP_TIMEOUT].flags =
             probe->ops[IORING_OP_TIMEOUT_REMOVE].flags =
+            probe->ops[IORING_OP_ACCEPT].flags =
+            probe->ops[IORING_OP_OPENAT].flags =
             probe->ops[IORING_OP_CLOSE].flags =
             probe->ops[IORING_OP_FILES_UPDATE].flags =
+            probe->ops[IORING_OP_STATX].flags =
+            probe->ops[IORING_OP_SEND].flags =
+            probe->ops[IORING_OP_RECV].flags =
             probe->ops[IORING_OP_READ].flags =
             probe->ops[IORING_OP_WRITE].flags = IO_URING_OP_SUPPORTED;
     context_clear_err(ctx);

@@ -1796,6 +1796,17 @@ sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
     return sock->sendto(sock, buf, len, flags, dest_addr, addrlen, ctx, false, completion);
 }
 
+sysreturn socket_send(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
+                      io_completion completion)
+{
+    if (f->type != FDESC_TYPE_SOCKET)
+        return io_complete(completion, -ENOTSOCK);
+    if (!validate_user_memory(buf, len, false))
+        return io_complete(completion, -EFAULT);
+    struct sock *sock = struct_from_field(f, struct sock *, f);
+    return sock->sendto(sock, buf, len, 0, 0, 0, ctx, in_bh, completion);
+}
+
 static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg, int flags,
                                  boolean in_bh, io_completion completion)
 {
@@ -1933,6 +1944,17 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
     context ctx = get_current_context(current_cpu());
     io_completion completion = (io_completion)&sock->f.io_complete;
     return sock->recvfrom(sock, buf, len, flags, src_addr, addrlen, ctx, false, completion);
+}
+
+sysreturn socket_recv(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
+                      io_completion completion)
+{
+    if (f->type != FDESC_TYPE_SOCKET)
+        return io_complete(completion, -ENOTSOCK);
+    if (!validate_user_memory(buf, len, true))
+        return io_complete(completion, -EFAULT);
+    struct sock *sock = struct_from_field(f, struct sock *, f);
+    return sock->recvfrom(sock, buf, len, 0, 0, 0, ctx, in_bh, completion);
 }
 
 static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,

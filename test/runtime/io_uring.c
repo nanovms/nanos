@@ -152,6 +152,10 @@ enum {
     IORING_OP_STATX,
     IORING_OP_READ,
     IORING_OP_WRITE,
+    IORING_OP_FADVISE,
+    IORING_OP_MADVISE,
+    IORING_OP_SEND,
+    IORING_OP_RECV,
 };
 
 #define IORING_FEAT_SINGLE_MMAP (1 << 0)
@@ -390,6 +394,42 @@ static void iour_setup_write(struct iour *iour, int fd, uint8_t *buf,
         user_data);
 }
 
+static void iour_setup_accept(struct iour *iour, int fd, struct sockaddr *addr, socklen_t *addr_len,
+                              int flags, uint64_t user_data)
+{
+    struct io_uring_sqe *sqe = iour_get_sqe(iour);
+
+    test_assert(sqe);
+    memset(sqe, 0, sizeof(*sqe));
+    sqe->opcode = IORING_OP_ACCEPT;
+    sqe->fd = fd;
+    sqe->addr = (uint64_t)addr;
+    sqe->addr2 = (uint64_t)addr_len;
+    sqe->accept_flags = flags;
+    sqe->user_data = user_data;
+    write_barrier();
+    (*iour->sq_tail)++;
+}
+
+static void iour_setup_txrx(struct iour *iour, boolean tx, int fd, uint8_t *buf, uint32_t len,
+                            int flags, uint64_t user_data)
+{
+    struct io_uring_sqe *sqe = iour_get_sqe(iour);
+
+    test_assert(sqe);
+    memset(sqe, 0, sizeof(*sqe));
+    sqe->opcode = tx ? IORING_OP_SEND : IORING_OP_RECV;
+    sqe->fd = fd;
+    sqe->off = 0;
+    sqe->addr = (uint64_t)buf;
+    sqe->len = len;
+    sqe->msg_flags = flags;
+    sqe->user_data = user_data;
+    sqe->buf_index = 0;
+    write_barrier();
+    (*iour->sq_tail)++;
+}
+
 static int iour_submit(struct iour *iour, unsigned int count,
                        unsigned int min_complete)
 {
@@ -486,10 +526,15 @@ static void iour_test_basic(void)
         case IORING_OP_POLL_REMOVE:
         case IORING_OP_TIMEOUT:
         case IORING_OP_TIMEOUT_REMOVE:
+        case IORING_OP_ACCEPT:
+        case IORING_OP_OPENAT:
         case IORING_OP_CLOSE:
         case IORING_OP_FILES_UPDATE:
+        case IORING_OP_STATX:
         case IORING_OP_READ:
         case IORING_OP_WRITE:
+        case IORING_OP_SEND:
+        case IORING_OP_RECV:
             test_assert(probe->ops[i].flags & IO_URING_OP_SUPPORTED);
             break;
         default:
@@ -1249,6 +1294,49 @@ static void iour_test_socket(void)
     test_assert(cqe && (cqe->user_data == 0) && (cqe->res == BUF_SIZE));
     for (uint64_t i = 0; i < BUF_SIZE; i += sizeof(i))
         test_assert(memcmp(read_buf + i, &i, sizeof(i)) == 0);
+
+    iour_setup_txrx(&iour, true, 0, write_buf, BUF_SIZE, 0, 0); /* non-socket file descriptor */
+    test_assert(iour_submit(&iour, 1, 1) == 1);
+    cqe = iour_get_cqe(&iour);
+    test_assert(cqe && (cqe->user_data == 0) && (cqe->res == -ENOTSOCK));
+
+    iour_setup_txrx(&iour, true, tx_fd, write_buf, BUF_SIZE, 0, 0);
+    test_assert(iour_submit(&iour, 1, 1) == 1);
+    cqe = iour_get_cqe(&iour);
+    test_assert(cqe && (cqe->user_data == 0) && (cqe->res == BUF_SIZE));
+    iour_setup_txrx(&iour, false, rx_fd, read_buf, BUF_SIZE, 0, 0);
+    test_assert(iour_submit(&iour, 1, 1) == 1);
+    cqe = iour_get_cqe(&iour);
+    test_assert(cqe && (cqe->user_data == 0) && (cqe->res == BUF_SIZE));
+
+    close(tx_fd);
+    close(rx_fd);
+    tx_fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(tx_fd > 0);
+    rx_fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(rx_fd > 0);
+    test_assert(bind(rx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(listen(rx_fd, 1) == 0);
+
+    /* start an asynchronous accept when there is no peer waiting to be connected */
+    iour_setup_accept(&iour, rx_fd, NULL, NULL, 0, 0);
+    test_assert(iour_submit(&iour, 1, 0) == 1);
+    test_assert(iour_get_cqe(&iour) == NULL);
+
+    /* do a connect and wait for the asynchronous accept to complete */
+    test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    for (int retry = 0; retry < INT_MAX; retry++) {
+        cqe = iour_get_cqe(&iour);
+        if (cqe)
+            break;
+    }
+    test_assert(cqe && (cqe->user_data == 0));
+    close(rx_fd);
+    rx_fd = cqe->res;
+    test_assert(rx_fd > 0);
+
+    test_assert(write(tx_fd, write_buf, 1) == 1);
+    test_assert(read(rx_fd, read_buf, 1) == 1);
 
     close(tx_fd);
     close(rx_fd);

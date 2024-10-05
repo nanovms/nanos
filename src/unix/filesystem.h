@@ -37,6 +37,8 @@ int filesystem_chdir(process p, sstring path);
 
 void filesystem_update_relatime(filesystem fs, tuple md);
 
+sysreturn openat(int dirfd, const char *name, int flags, int mode);
+
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
 
