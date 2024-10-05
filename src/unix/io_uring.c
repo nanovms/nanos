@@ -567,7 +567,7 @@ static void iour_complete_timeout(io_uring iour, u64 user_data)
     }
 }
 
-closure_function(4, 1, void, iour_rw_complete,
+closure_function(4, 1, void, iour_fdesc_complete,
                  io_uring, iour, fdesc, f, u64, user_data, context, proc_ctx,
                  sysreturn rv)
 {
@@ -583,7 +583,7 @@ static void iour_iov(io_uring iour, fdesc f, boolean write, struct iovec *iov,
     io_completion completion;
     process_context pc = get_process_context();
     if (pc != INVALID_ADDRESS) {
-        completion = closure(iour->h, iour_rw_complete, iour, f, user_data, &pc->uc.kc.context);
+        completion = closure(iour->h, iour_fdesc_complete, iour, f, user_data, &pc->uc.kc.context);
         if (completion == INVALID_ADDRESS)
             context_release_refcount(&pc->uc.kc.context);
     } else {
@@ -615,7 +615,8 @@ static void iour_rw(io_uring iour, fdesc f, boolean write, void *addr, u32 len,
     } else {
         pc = get_process_context();
         if (pc != INVALID_ADDRESS) {
-            completion = closure(iour->h, iour_rw_complete, iour, f, user_data, &pc->uc.kc.context);
+            completion = closure(iour->h, iour_fdesc_complete, iour, f, user_data,
+                                 &pc->uc.kc.context);
             if (completion == INVALID_ADDRESS)
                 context_release_refcount(&pc->uc.kc.context);
         } else {
