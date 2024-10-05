@@ -88,16 +88,19 @@ struct sock {
     sysreturn (*connect)(struct sock *sock, struct sockaddr *addr,
             socklen_t addrlen);
     sysreturn (*accept4)(struct sock *sock, struct sockaddr *addr,
-            socklen_t *addrlen, int flags);
+                         socklen_t *addrlen, int flags, context ctx, boolean in_bh,
+                         io_completion completion);
     sysreturn (*getsockname)(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen);
     sysreturn (*getsockopt)(struct sock *sock, int level,
                             int optname, void *optval, socklen_t *optlen);
     sysreturn (*setsockopt)(struct sock *sock, int level,
                             int optname, void *optval, socklen_t optlen);
     sysreturn (*sendto)(struct sock *sock, void *buf, u64 len, int flags,
-             struct sockaddr *dest_addr, socklen_t addrlen);
+                        struct sockaddr *dest_addr, socklen_t addrlen, context ctx, boolean in_bh,
+                        io_completion completion);
     sysreturn (*recvfrom)(struct sock *sock, void *buf, u64 len, int flags,
-             struct sockaddr *dest_addr, socklen_t *addrlen);
+                          struct sockaddr *dest_addr, socklen_t *addrlen, context ctx,
+                          boolean in_bh, io_completion completion);
     sysreturn (*sendmsg)(struct sock *sock, const struct msghdr *msg,
                          int flags, boolean in_bh, io_completion completion);
     sysreturn (*recvmsg)(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
@@ -148,6 +151,8 @@ static inline void socket_flush_q(struct sock *s)
 }
 
 sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap);
+sysreturn socket_accept4(fdesc f, struct sockaddr *addr, socklen_t *addrlen, int flags, context ctx,
+                         boolean in_bh, io_completion completion);
 
 static inline boolean validate_msghdr(const struct msghdr *mh, boolean write)
 {

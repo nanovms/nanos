@@ -985,30 +985,29 @@ static sysreturn nl_getsockname(struct sock *sock, struct sockaddr *addr, sockle
 }
 
 static sysreturn nl_sendto(struct sock *sock, void *buf, u64 len, int flags,
-        struct sockaddr *dest_addr, socklen_t addrlen)
+                           struct sockaddr *dest_addr, socklen_t addrlen, context ctx,
+                           boolean in_bh, io_completion completion)
 {
     nl_debug("sendto: len %ld, flags 0x%x", len, flags);
     sysreturn rv = nl_check_dest(dest_addr, addrlen);
     if (rv) {
-        socket_release(sock);
-        return rv;
+        return io_complete(completion, rv);
     }
-    context ctx = get_current_context(current_cpu());
-    return apply(sock->f.write, buf, len, 0, ctx, false, (io_completion)&sock->f.io_complete);
+    return apply(sock->f.write, buf, len, 0, ctx, in_bh, completion);
 }
 
 static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
-                             struct sockaddr *src_addr, socklen_t *addrlen)
+                             struct sockaddr *src_addr, socklen_t *addrlen, context ctx,
+                             boolean in_bh, io_completion completion)
 {
     nl_debug("recvfrom: len %ld, flags 0x%x", len, flags);
     nlsock s = (nlsock)sock;
-    blockq_action ba = contextual_closure(nl_read_bh, s, buf, len, 0, flags, src_addr, addrlen,
-                                          (io_completion)&sock->f.io_complete);
+    blockq_action ba = closure_from_context(ctx, nl_read_bh, s, buf, len, 0, flags,
+                                            src_addr, addrlen, completion);
     if (ba == INVALID_ADDRESS) {
-        socket_release(sock);
-        return -ENOMEM;
+        return io_complete(completion, -ENOMEM);
     }
-    return blockq_check(s->sock.rxbq, ba, false);
+    return blockq_check(s->sock.rxbq, ba, in_bh);
 }
 
 static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int flags, boolean in_bh,

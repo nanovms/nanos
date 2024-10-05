@@ -695,11 +695,10 @@ out:
 }
 
 closure_function(5, 1, sysreturn, accept_bh,
-                 unixsock, s, thread, t, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
+                 unixsock, s, struct sockaddr *, addr, socklen_t *, addrlen, int, flags, io_completion, completion,
                  u64 bqflags)
 {
     unixsock s = bound(s);
-    thread t = bound(t);
     struct sockaddr *addr = bound(addr);
     sysreturn rv;
 
@@ -711,15 +710,17 @@ closure_function(5, 1, sysreturn, accept_bh,
     unixsock child = dequeue(s->conn_q);
     boolean empty = queue_empty(s->conn_q);
     unixsock_unlock(s);
+    context ctx = context_from_closure(closure_self());
     if (child == INVALID_ADDRESS) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
             rv = -EAGAIN;
             goto out;
         }
-        return blockq_block_required(&t->syscall->uc, bqflags);
+        return blockq_block_required((unix_context)ctx, bqflags);
     }
 
-    child->sock.fd = allocate_fd(current->p, child);
+    process p = is_syscall_context(ctx) ? ((syscall_context)ctx)->t->p : ((process_context)ctx)->p;
+    child->sock.fd = allocate_fd(p, child);
     if (child->sock.fd == INVALID_PHYSICAL) {
         apply(child->sock.f.close, 0, io_completion_ignore);
         rv = -ENFILE;
@@ -732,7 +733,6 @@ closure_function(5, 1, sysreturn, accept_bh,
     child->sock.f.flags |= bound(flags);
     rv = child->sock.fd;
     if (addr) {
-        context ctx = get_current_context(current_cpu());
         if (context_set_err(ctx)) {
             rv = -EFAULT;
             goto out;
@@ -742,14 +742,14 @@ closure_function(5, 1, sysreturn, accept_bh,
     }
     unixsock_notify_writer(s);
 out:
-    socket_release(&s->sock);
-    syscall_return(t, rv);
+    apply(bound(completion), rv);
     closure_finish();
     return rv;
 }
 
 static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
-        socklen_t *addrlen, int flags)
+                                  socklen_t *addrlen, int flags, context ctx, boolean in_bh,
+                                  io_completion completion)
 {
     unixsock s = (unixsock) sock;
     sysreturn rv;
@@ -761,12 +761,14 @@ static sysreturn unixsock_accept4(struct sock *sock, struct sockaddr *addr,
         rv = -EINVAL;
         goto out;
     }
-    blockq_action ba = contextual_closure(accept_bh, s, current, addr, addrlen,
-            flags);
-    return blockq_check(sock->rxbq, ba, false);
+    blockq_action ba = closure_from_context(ctx, accept_bh, s, addr, addrlen, flags, completion);
+    if (ba == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
+    return blockq_check(sock->rxbq, ba, in_bh);
 out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, rv);
 }
 
 static sysreturn unixsock_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen)
@@ -839,7 +841,8 @@ out:
 }
 
 sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
-        struct sockaddr *dest_addr, socklen_t addrlen)
+                          struct sockaddr *dest_addr, socklen_t addrlen, context ctx,
+                          boolean in_bh, io_completion completion)
 {
     unixsock s = (unixsock) sock;
     unixsock dest;
@@ -867,24 +870,22 @@ sysreturn unixsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
         rv = -ENOTCONN;
         goto out;
     }
-    return unixsock_write_with_addr(s, buf, len, 0, get_current_context(current_cpu()), false,
-        (io_completion)&sock->f.io_complete, dest);
+    return unixsock_write_with_addr(s, buf, len, 0, ctx, in_bh, completion, dest);
 out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, rv);
 }
 
 sysreturn unixsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
-        struct sockaddr *src_addr, socklen_t *addrlen)
+                            struct sockaddr *src_addr, socklen_t *addrlen, context ctx,
+                            boolean in_bh, io_completion completion)
 {
     if (src_addr || addrlen) {
         if (!(src_addr && addrlen)) {
-            socket_release(sock);
-            return -EFAULT;
+            return io_complete(completion, -EFAULT);
         }
     }
-    return unixsock_read_with_addr((unixsock)sock, buf, len, 0, get_current_context(current_cpu()), false,
-        (io_completion)&sock->f.io_complete, src_addr, addrlen);
+    return unixsock_read_with_addr((unixsock)sock, buf, len, 0, ctx, in_bh, completion,
+                                   src_addr, addrlen);
 }
 
 sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,

@@ -125,16 +125,19 @@ static sysreturn netsock_listen(struct sock *sock, int backlog);
 static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
         socklen_t addrlen);
 static sysreturn netsock_accept4(struct sock *sock, struct sockaddr *addr,
-        socklen_t *addrlen, int flags);
+                                 socklen_t *addrlen, int flags, context ctx, boolean in_bh,
+                                 io_completion completion);
 static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen);
 static sysreturn netsock_getsockopt(struct sock *sock, int level,
                                     int optname, void *optval, socklen_t *optlen);
 static sysreturn netsock_setsockopt(struct sock *sock, int level,
                                     int optname, void *optval, socklen_t optlen);
 static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
-        int flags, struct sockaddr *dest_addr, socklen_t addrlen);
+                                int flags, struct sockaddr *dest_addr, socklen_t addrlen,
+                                context ctx, boolean in_bh, io_completion completion);
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
-        int flags, struct sockaddr *src_addr, socklen_t *addrlen);
+                                  int flags, struct sockaddr *src_addr, socklen_t *addrlen,
+                                  context ctx, boolean in_bh, io_completion completion);
 static sysreturn netsock_sendmsg(struct sock *sock, const struct msghdr *msg,
                                  int flags, boolean in_bh, io_completion completion);
 static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
@@ -1763,16 +1766,15 @@ static sysreturn sendto_prepare(struct sock *sock, int flags)
 }
 
 static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
-        int flags, struct sockaddr *dest_addr, socklen_t addrlen)
+                                int flags, struct sockaddr *dest_addr, socklen_t addrlen,
+                                context ctx, boolean in_bh, io_completion completion)
 {
     sysreturn rv = sendto_prepare(sock, flags);
     if (rv < 0) {
-        socket_release(sock);
-        return set_syscall_return(current, rv);
+        return io_complete(completion, rv);
     }
     return socket_write_internal(sock, buf, 0, len, flags, dest_addr, addrlen,
-                                 get_current_context(current_cpu()), false,
-                                 (io_completion)&sock->f.io_complete);
+                                 ctx, in_bh, completion);
 }
 
 sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
@@ -1789,7 +1791,9 @@ sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
         socket_release(sock);
         return -EOPNOTSUPP;
     }
-    return sock->sendto(sock, buf, len, flags, dest_addr, addrlen);
+    context ctx = get_current_context(current_cpu());
+    io_completion completion = (io_completion)&sock->f.io_complete;
+    return sock->sendto(sock, buf, len, flags, dest_addr, addrlen, ctx, false, completion);
 }
 
 static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg, int flags,
@@ -1883,7 +1887,8 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
 }
 
 static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
-        int flags, struct sockaddr *src_addr, socklen_t *addrlen)
+                                  int flags, struct sockaddr *src_addr, socklen_t *addrlen,
+                                  context ctx, boolean in_bh, io_completion completion)
 {
     netsock s = (netsock) sock;
     sysreturn rv;
@@ -1897,12 +1902,15 @@ static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
         goto out;
     }
 
-    blockq_action ba = contextual_closure(sock_read_bh, s, buf, len, flags,
-                                          src_addr, addrlen, (io_completion)&sock->f.io_complete);
-    return blockq_check(sock->rxbq, ba, false);
+    blockq_action ba = closure_from_context(ctx, sock_read_bh, s, buf, len, flags,
+                                            src_addr, addrlen, completion);
+    if (ba == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
+    return blockq_check(sock->rxbq, ba, in_bh);
   out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, rv);
 }
 
 sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
@@ -1922,7 +1930,9 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
         socket_release(sock);
         return -EOPNOTSUPP;
     }
-    return sock->recvfrom(sock, buf, len, flags, src_addr, addrlen);
+    context ctx = get_current_context(current_cpu());
+    io_completion completion = (io_completion)&sock->f.io_complete;
+    return sock->recvfrom(sock, buf, len, flags, src_addr, addrlen, ctx, false, completion);
 }
 
 static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
@@ -2119,16 +2129,15 @@ sysreturn listen(int sockfd, int backlog)
 }
 
 closure_function(5, 1, sysreturn, accept_bh,
-                 netsock, s, thread, t, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
+                 netsock, s, struct sockaddr *, addr, socklen_t *, addrlen, int, flags, io_completion, completion,
                  u64 bqflags)
 {
     netsock s = bound(s);
-    thread t = bound(t);
     netsock child = INVALID_ADDRESS;
     sysreturn rv = 0;
 
     err_t err = get_lwip_error(s);
-    net_debug("sock %d, target thread %ld, lwip err %d\n", s->sock.fd, t->tid,
+    net_debug("sock %d, lwip err %d\n", s->sock.fd,
             err);
 
     if (err != ERR_OK) {
@@ -2141,7 +2150,7 @@ closure_function(5, 1, sysreturn, accept_bh,
         goto out;
     }
 
-    context ctx = get_current_context(current_cpu());
+    context ctx = context_from_closure(closure_self());
     child = dequeue(s->incoming);
     if (child == INVALID_ADDRESS) {
         if (s->sock.f.flags & SOCK_NONBLOCK) {
@@ -2205,15 +2214,15 @@ closure_function(5, 1, sysreturn, accept_bh,
   out:
     if ((rv < 0) && (child != INVALID_ADDRESS))
         apply(child->sock.f.close, 0, io_completion_ignore);
-    syscall_return(t, rv);
+    apply(bound(completion), rv);
 
-    socket_release(&s->sock);
     closure_finish();
     return rv;
 }
 
 static sysreturn netsock_accept4(struct sock *sock, struct sockaddr *addr,
-        socklen_t *addrlen, int flags)
+                                 socklen_t *addrlen, int flags, context ctx, boolean in_bh,
+                                 io_completion completion)
 {
     netsock s = (netsock) sock;
     sysreturn rv;
@@ -2228,11 +2237,14 @@ static sysreturn netsock_accept4(struct sock *sock, struct sockaddr *addr,
         goto out;
     }
 
-    blockq_action ba = contextual_closure(accept_bh, s, current, addr, addrlen, flags);
-    return blockq_check(sock->rxbq, ba, false);
+    blockq_action ba = closure_from_context(ctx, accept_bh, s, addr, addrlen, flags, completion);
+    if (ba == INVALID_ADDRESS) {
+        rv = -ENOMEM;
+        goto out;
+    }
+    return blockq_check(sock->rxbq, ba, in_bh);
   out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, rv);
 }
 
 sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
@@ -2240,19 +2252,28 @@ sysreturn accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
 {
     net_debug("sock %d, addr %p, addrlen %p, flags %x\n", sockfd, addr, addrlen,
             flags);
+    fdesc f = resolve_fd(current->p, sockfd);
+    context ctx = get_current_context(current_cpu());
+    return socket_accept4(f, addr, addrlen, flags, ctx, false, (io_completion)&f->io_complete);
+}
+
+sysreturn socket_accept4(fdesc f, struct sockaddr *addr, socklen_t *addrlen, int flags, context ctx,
+                         boolean in_bh, io_completion completion)
+{
+    if (f->type != FDESC_TYPE_SOCKET)
+        return io_complete(completion, -ENOTSOCK);
 
     /* Use a dummy value for the address length, instead of reading it from addrlen (the value
      * pointed to by addrlen might change before this syscall completes). */
     if (addr && (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
                  !validate_user_memory(addr, PAGESIZE, true)))
-        return -EFAULT;
+        return io_complete(completion, -EFAULT);
 
-    struct sock *sock = resolve_socket(current->p, sockfd);
+    struct sock *sock = struct_from_field(f, struct sock *, f);
     if (!sock->accept4) {
-        socket_release(sock);
-        return -EOPNOTSUPP;
+        return io_complete(completion, -EOPNOTSUPP);
     }
-    return sock->accept4(sock, addr, addrlen, flags);
+    return sock->accept4(sock, addr, addrlen, flags, ctx, in_bh, completion);
 }
 
 sysreturn accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)

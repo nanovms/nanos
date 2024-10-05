@@ -562,14 +562,13 @@ static sysreturn vsock_connect(struct sock *sock, struct sockaddr *addr, socklen
     return rv;
 }
 
-closure_function(4, 1, sysreturn, vsock_accept_bh,
-                 vsock, s, struct sockaddr *, addr, socklen_t *, addrlen, int, flags,
+closure_function(5, 1, sysreturn, vsock_accept_bh,
+                 vsock, s, struct sockaddr *, addr, socklen_t *, addrlen, int, flags, io_completion, completion,
                  u64 bqflags)
 {
     vsock s = bound(s);
     sysreturn rv;
     context ctx = context_from_closure(closure_self());
-    thread t = ((syscall_context)ctx)->t;
     if (bqflags & BLOCKQ_ACTION_NULLIFY) {
         rv = -ERESTARTSYS;
         goto out;
@@ -585,9 +584,10 @@ closure_function(4, 1, sysreturn, vsock_accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return blockq_block_required(&((syscall_context)ctx)->uc, bqflags);
+        return blockq_block_required((unix_context)ctx, bqflags);
     }
-    child->sock.fd = allocate_fd(t->p, child);
+    process p = is_syscall_context(ctx) ? ((syscall_context)ctx)->t->p : ((process_context)ctx)->p;
+    child->sock.fd = allocate_fd(p, child);
     if (child->sock.fd == INVALID_PHYSICAL) {
         apply(child->sock.f.close, 0, io_completion_ignore);
         rv = -ENFILE;
@@ -618,14 +618,13 @@ closure_function(4, 1, sysreturn, vsock_accept_bh,
     if (empty)
         fdesc_notify_events(&s->sock.f);    /* reset EPOLLIN event */
   out:
+    apply(bound(completion), rv);
     closure_finish();
-    socket_release(&s->sock);
-    syscall_return(t, rv);
     return rv;
 }
 
 static sysreturn vsock_accept4(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen,
-                               int flags)
+                               int flags, context ctx, boolean in_bh, io_completion completion)
 {
     vsock s = (vsock)sock;
     sysreturn rv;
@@ -633,35 +632,34 @@ static sysreturn vsock_accept4(struct sock *sock, struct sockaddr *addr, socklen
         rv = -EINVAL;
         goto out;
     }
-    blockq_action ba = contextual_closure(vsock_accept_bh, s, addr, addrlen, flags);
+    blockq_action ba = closure_from_context(ctx, vsock_accept_bh, s, addr, addrlen, flags,
+                                            completion);
     if (ba == INVALID_ADDRESS) {
         rv = -ENOMEM;
         goto out;
     }
-    return blockq_check(sock->rxbq, ba, false);
+    return blockq_check(sock->rxbq, ba, in_bh);
 out:
-    socket_release(sock);
-    return rv;
+    return io_complete(completion, rv);
 }
 
 static sysreturn vsock_sendto(struct sock *sock, void *buf, u64 len, int flags,
-                              struct sockaddr *dest_addr, socklen_t addrlen)
+                              struct sockaddr *dest_addr, socklen_t addrlen, context ctx,
+                              boolean in_bh, io_completion completion)
 {
     if (dest_addr || addrlen) {
         vsock s = (vsock)sock;
         sysreturn rv = (s->state == VSOCK_STATE_CONNECTED) ? -EISCONN : -EOPNOTSUPP;
-        socket_release(sock);
-        return rv;
+        return io_complete(completion, rv);
     }
-    return apply(sock->f.write, buf, len, infinity, get_current_context(current_cpu()), false,
-                 (io_completion)&sock->f.io_complete);
+    return apply(sock->f.write, buf, len, infinity, ctx, in_bh, completion);
 }
 
 static sysreturn vsock_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
-                                struct sockaddr *src_addr, socklen_t *addrlen)
+                                struct sockaddr *src_addr, socklen_t *addrlen, context ctx,
+                                boolean in_bh, io_completion completion)
 {
-    return apply(sock->f.read, buf, len, infinity, get_current_context(current_cpu()), false,
-                 (io_completion)&sock->f.io_complete);
+    return apply(sock->f.read, buf, len, infinity, ctx, in_bh, completion);
 }
 
 static sysreturn vsock_getsockname(struct sock *sock, struct sockaddr *addr, socklen_t *addrlen)
