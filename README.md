@@ -71,6 +71,7 @@ brew install x86_64-elf-binutils
 brew tap nanovms/homebrew-qemu
 brew install nanovms/homebrew-qemu/qemu
 ```
+(note: ```go``` is only needed for certain [examples](#examples), but not for building the kernel)
 
 For ARM-based Macs (M1/M2):
 
@@ -109,12 +110,12 @@ Note: This is only recommended for those that wish to make code changes to Nanos
 
 Nanos doesn't need too many dependencies on Linux.
 
-To build you need to install nasm, qemu and go (If you don't want to install go, choose a different target, see below):
+To build you need to install nasm, qemu and go:
 
 ```
 sudo apt-get install qemu-system-x86 nasm golang-go
 ```
-
+(note: ```go``` is only needed for certain [examples](#examples), but not for building the kernel)
 
 For tests you'll also need the following installed:
 
@@ -143,7 +144,11 @@ sudo apt-get install libfuse-dev fuse
 make kernel
 ```
 
-#### To run an example program from the test/runtime folder:
+#### Examples
+
+
+To run an example program from the test/runtime folder:
+
 With hardware acceleration:
 
 ```
@@ -154,6 +159,15 @@ Without hardware acceleration:
 ```
 make run-noaccel
 ```
+
+Set ```TARGET``` to run a specific example:
+```
+make TARGET=<example> run
+```
+
+Check out [test/runtime](test/runtime/README.md) for a list of examples. Certain examples require ```go``` to be built. 
+
+More examples can be found in [docs/examples#examples](https://docs.ops.city/ops/examples#examples).
 
 ### Documentation
 
