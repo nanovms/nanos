@@ -68,7 +68,7 @@ msg_sed=	SED	$@
 cmd_sed=	$(SED) -e 's/\#/%/' <$^ >$@
 
 msg_version=	VERSION	$@
-cmd_version=	$(MKDIR) $(dir $@); $(ECHO) "\#include <runtime.h>\nconst sstring gitversion = ss_static_init(\"$(shell $(GIT) rev-parse HEAD)\");" >$@
+cmd_version=	$(MKDIR) $(dir $@); ( $(ECHO) "\#include <runtime.h>"; $(ECHO) "const sstring gitversion = ss_static_init(\"$(shell $(GIT) rev-parse HEAD)\");" ) >$@
 
 include ../../klib/klib.mk
 
