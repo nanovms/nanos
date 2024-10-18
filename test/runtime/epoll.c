@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <sys/eventfd.h>
 #include <errno.h>
+#include <poll.h>
 
 #include "../test_utils.h"
 
@@ -312,6 +313,67 @@ static void test_epollexclusive(void)
     close(evfd);
 }
 
+static void test_poll_nested(void)
+{
+    int sock_fd, polled_efd, efd;
+    struct pollfd pfd;
+    fd_set rfds, wfds, efds;
+    struct timeval tv;
+    struct epoll_event event;
+
+    polled_efd = epoll_create1(0);
+    if (polled_efd < 0)
+        test_perror("epoll_create1");
+    efd = epoll_create1(0);
+    if (efd < 0)
+        test_perror("epoll_create1");
+    event.events = EPOLLIN | EPOLLOUT;
+    event.data.fd = polled_efd;
+    test_assert(epoll_ctl(efd, EPOLL_CTL_ADD, polled_efd, &event) == 0);
+
+    /* try to put an epoll file descriptor into its own file descriptor set */
+    test_assert((epoll_ctl(efd, EPOLL_CTL_ADD, efd, &event) == -1) && (errno == EINVAL));
+
+    /* polled_efd not is not ready for I/O */
+    pfd.fd = polled_efd;
+    pfd.events = POLLIN | POLLOUT;
+    test_assert(poll(&pfd, 1, 0) == 0);
+    FD_ZERO(&rfds);
+    FD_SET(polled_efd, &rfds);
+    FD_ZERO(&wfds);
+    FD_SET(polled_efd, &wfds);
+    FD_ZERO(&efds);
+    FD_SET(polled_efd, &wfds);
+    tv.tv_sec = tv.tv_usec = 0;
+    test_assert(select(polled_efd + 1, &rfds, &wfds, &efds, &tv) == 0);
+    event.events = EPOLLIN | EPOLLOUT;
+    test_assert(epoll_wait(efd, &event, 1, 0) == 0);
+
+    /* add a socket file descriptor to polled_efd to make it ready for I/O */
+    sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock_fd < 0)
+        test_perror("socket");
+    event.events = EPOLLIN | EPOLLOUT;
+    test_assert(epoll_ctl(polled_efd, EPOLL_CTL_ADD, sock_fd, &event) == 0);
+
+    /* polled_efd is ready for I/O */
+    test_assert((poll(&pfd, 1, 0) == 1) && (pfd.revents == POLLIN));
+    FD_ZERO(&rfds);
+    FD_SET(polled_efd, &rfds);
+    FD_ZERO(&wfds);
+    FD_SET(polled_efd, &wfds);
+    FD_ZERO(&efds);
+    FD_SET(polled_efd, &wfds);
+    test_assert(select(polled_efd + 1, &rfds, &wfds, &efds, &tv) == 1);
+    test_assert(FD_ISSET(polled_efd, &rfds));
+    test_assert(epoll_wait(efd, &event, 1, 0) == 1);
+    test_assert((event.data.fd == polled_efd) && (event.events == EPOLLIN));
+
+    close(efd);
+    close(polled_efd);
+    close(sock_fd);
+}
+
 int main(int argc, char **argv)
 {
     test_ctl();
@@ -319,6 +381,7 @@ int main(int argc, char **argv)
     test_edgetrigger();
     test_eventfd_et();
     test_epollexclusive();
+    test_poll_nested();
 
     printf("test passed\n");
     return EXIT_SUCCESS;
