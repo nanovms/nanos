@@ -33,6 +33,7 @@ static struct {
     void *its_cmd_queue;
     struct list devices;
     table its_irq_map;  /* maps interrupt vectors to target CPUs */
+    struct spinlock lock;
 } gic;
 
 typedef struct its_dev {
@@ -54,6 +55,9 @@ typedef struct its_dev {
 #define gits_read_64(reg)           mmio_read_64(gic.its_base + GITS_ ## reg)
 #define gits_write_32(reg, value)   mmio_write_32(gic.its_base + GITS_ ## reg, value)
 #define gits_write_64(reg, value)   mmio_write_64(gic.its_base + GITS_ ## reg, value)
+
+#define gic_lock()      spin_lock(&gic.lock)
+#define gic_unlock()    spin_unlock(&gic.lock)
 
 static void gic_its_cmd(u64 dw0, u64 dw1, u64 dw2, u64 dw3)
 {
@@ -305,6 +309,7 @@ boolean dev_irq_enable(u32 dev_id, int vector, u32 target_cpu)
     gic_debug("dev 0x%x, irq %d\n", dev_id, vector);
     if ((vector >= gic_msi_vector_base) && gic.its_base) {
         its_dev dev = 0;
+        gic_lock();
         list_foreach(&gic.devices, l) {
             its_dev d = struct_from_list(l, its_dev, l);
             if (d->id == dev_id) {
@@ -316,8 +321,10 @@ boolean dev_irq_enable(u32 dev_id, int vector, u32 target_cpu)
             assert(dev_id < gic.dev_id_limit);
             kernel_heaps kh = get_kernel_heaps();
             dev = allocate(heap_locked(kh), sizeof(*dev));
-            if (dev == INVALID_ADDRESS)
+            if (dev == INVALID_ADDRESS) {
+                gic_unlock();
                 return false;
+            }
 
             /* The number of interrupt table entries must be a power of 2. */
             u64 ite_num = U64_FROM_BIT(find_order(gic_msi_vector_num));
@@ -327,6 +334,7 @@ boolean dev_irq_enable(u32 dev_id, int vector, u32 target_cpu)
             u64 pa;
             dev->itt = alloc_map(heap_linear_backed(kh), itt_size, &pa);
             if (dev->itt == INVALID_ADDRESS) {
+                gic_unlock();
                 deallocate(heap_locked(kh), dev, sizeof(*dev));
                 return false;
             }
@@ -344,6 +352,7 @@ boolean dev_irq_enable(u32 dev_id, int vector, u32 target_cpu)
         cpuinfo ci = cpuinfo_from_id(target_cpu);
         gic_its_cmd(ITS_CMD_SYNC, 0, ci->m.gic_rdist_rdbase << 16, 0);
         table_set(gic.its_irq_map, pointer_from_u64((u64)vector), ci);
+        gic_unlock();
     } else {
         gic_set_int_target(vector, target_cpu);
     }
@@ -355,11 +364,13 @@ void dev_irq_disable(u32 dev_id, int vector)
     gic_debug("dev 0x%x, irq %d\n", dev_id, vector);
     if ((vector >= gic_msi_vector_base) && gic.its_base) {
         u32 event_id = vector - gic_msi_vector_base;
+        gic_lock();
         gic_its_cmd(((u64)dev_id << 32) | ITS_CMD_DISCARD, event_id, 0, 0);
         gic_its_cmd(((u64)dev_id << 32) | ITS_CMD_INV, event_id, 0, 0);
         cpuinfo ci = table_remove(gic.its_irq_map, pointer_from_u64((u64)vector));
         if (ci)
             gic_its_cmd(ITS_CMD_SYNC, 0, ci->m.gic_rdist_rdbase << 16, 0);
+        gic_unlock();
     }
 }
 
@@ -377,7 +388,9 @@ void msi_format(u32 *address, u32 *data, int vector, u32 target_cpu)
 void msi_get_config(u32 address, u32 data, int *vector, u32 *target_cpu) {
     if (gic.its_base) {
         *vector = data + gic_msi_vector_base;
+        gic_lock();
         cpuinfo ci = table_find(gic.its_irq_map, pointer_from_u64((u64)*vector));
+        gic_unlock();
         if (ci)
             *target_cpu = ci->id;
         else
@@ -435,7 +448,9 @@ static void gits_percpu_init(void)
     ci->m.gic_rdist_rdbase = rdbase;
 
     /* map an interrupt collection to the redistributor associated to this CPU */
+    gic_lock();
     gic_its_cmd(ITS_CMD_MAPC, 0, ITS_MAPC_V | (rdbase << 16) | GIC_ICID(ci->id), 0);
+    gic_unlock();
 }
 
 static void init_gits(kernel_heaps kh)
@@ -481,6 +496,7 @@ static void init_gits(kernel_heaps kh)
     gic.its_irq_map = allocate_table(h, identity_key, pointer_equal);
     assert(gic.its_irq_map != INVALID_ADDRESS);
     list_init(&gic.devices);
+    spin_lock_init(&gic.lock);
 
     /* Set up the command queue. */
     gic.its_cmd_queue = alloc_map(backed, GIC_CMD_QUEUE_SIZE, &pa);
