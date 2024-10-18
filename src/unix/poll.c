@@ -635,6 +635,10 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 
     /* XXX verify that fd is not an epoll instance*/
     epoll e = resolve_fd(current->p, epfd);
+    if ((e->f.type != FDESC_TYPE_EPOLL) || (f == &e->f)) {
+        rv = -EINVAL;
+        goto out;
+    }
     spin_wlock(&e->fds_lock);
     switch(op) {
     case EPOLL_CTL_ADD:
@@ -655,6 +659,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     }
     spin_wunlock(&e->fds_lock);
 
+  out:
     fdesc_put(&e->f);
     return rv;
 }

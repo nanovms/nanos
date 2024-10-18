@@ -43,6 +43,9 @@ void test_ctl()
     event.data.fd = fd;
     event.events = EPOLLIN;
 
+    /* epoll operation on non-epoll file descriptor */
+    test_assert((epoll_ctl(fd, EPOLL_CTL_ADD, 0, &event) == -1) && (errno == EINVAL));
+
     if ((epoll_ctl(efd, EPOLL_CTL_ADD, fd, NULL) != -1) || (errno != EFAULT)) {
         test_error("NULL event pointer is not allowed for EPOLL_CTL_ADD");
     }
