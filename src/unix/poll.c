@@ -63,6 +63,7 @@ struct epoll {
     struct list blocked_head;   /* an epoll_blocked per thread (in epoll_wait)  */
     struct refcount refcount;
     enum epoll_type epoll_type;
+    closure_struct(fdesc_events, fd_events);
     closure_struct(fdesc_close, close);
     closure_struct(thunk, free);
     heap h;
@@ -285,6 +286,30 @@ void epoll_finish(epoll e)
     refcount_release(&e->refcount);
 }
 
+closure_func_basic(fdesc_events, u32, epoll_events,
+                   thread t)
+{
+    epoll e = struct_from_closure(epoll, fd_events);
+    u32 events = 0;
+    spin_rlock(&e->fds_lock);
+    bitmap_foreach_set(e->fds, fd) {
+        epollfd efd = vector_get(e->events, fd);
+        if (efd->zombie)
+            continue;
+        spin_lock(&efd->lock);
+        if (efd->registered) {
+            fdesc f = efd->f;
+            events = apply(f->events, t) & (efd->eventmask | POLL_EXCEPTIONS);
+            events = report_from_notify_events(efd, events);
+        }
+        spin_unlock(&efd->lock);
+        if (events)
+            break;
+    }
+    spin_runlock(&e->fds_lock);
+    return events ? EPOLLIN : 0;
+}
+
 closure_func_basic(fdesc_close, sysreturn, epoll_close,
                    context ctx, io_completion completion)
 {
@@ -301,6 +326,7 @@ sysreturn epoll_create(int flags)
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
     init_fdesc(e->h, &e->f, FDESC_TYPE_EPOLL);
+    e->f.events = init_closure_func(&e->fd_events, fdesc_events, epoll_events);
     e->f.close = init_closure_func(&e->close, fdesc_close, epoll_close);
     u64 fd = allocate_fd(current->p, e);
     if (fd == INVALID_PHYSICAL) {
@@ -633,8 +659,11 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     if (rv)
         return rv;
 
-    /* XXX verify that fd is not an epoll instance*/
     epoll e = resolve_fd(current->p, epfd);
+    if ((e->f.type != FDESC_TYPE_EPOLL) || (f == &e->f)) {
+        rv = -EINVAL;
+        goto out;
+    }
     spin_wlock(&e->fds_lock);
     switch(op) {
     case EPOLL_CTL_ADD:
@@ -655,6 +684,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     }
     spin_wunlock(&e->fds_lock);
 
+  out:
     fdesc_put(&e->f);
     return rv;
 }
