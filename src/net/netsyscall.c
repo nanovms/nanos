@@ -412,6 +412,7 @@ static inline s64 lwip_to_errno(s8 err)
     case ERR_RST: return -ECONNRESET;
     case ERR_CLSD: return -ENOTCONN;
     case ERR_ARG: return -EIO;
+    case ERR_MSGSIZE: return -EMSGSIZE;
     }
     return -EINVAL;		/* XXX unknown - check return value */
 }
@@ -2386,6 +2387,24 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
     int int_optval;
     sysreturn rv;
     switch (level) {
+    case IPPROTO_IP:
+        switch (optname) {
+        case IP_MTU_DISCOVER:
+            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            if (rv)
+                goto out;
+            if (s->sock.type == SOCK_STREAM) {
+                struct tcp_pcb *tcp_lw = netsock_tcp_get(s);
+                tcp_lw->pmtudisc = int_optval;
+                netsock_tcp_put(tcp_lw);
+            } else {
+                s->info.udp.lw->pmtudisc = int_optval;
+            }
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
     case IPPROTO_IPV6:
         switch (optname) {
         case IPV6_V6ONLY:
@@ -2691,6 +2710,21 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         case TCP_QUICKACK:
         case TCP_FASTOPEN:
             ret_optval.val = 0; /* unsupported options */
+            break;
+        default:
+            goto unimplemented;
+        }
+        break;
+    case IPPROTO_IP:
+        switch (optname) {
+        case IP_MTU_DISCOVER:
+            if (s->sock.type == SOCK_STREAM) {
+                struct tcp_pcb *tcp_lw = netsock_tcp_get(s);
+                ret_optval.val = tcp_lw->pmtudisc;
+                netsock_tcp_put(tcp_lw);
+            } else {
+                ret_optval.val = s->info.udp.lw->pmtudisc;
+            }
             break;
         default:
             goto unimplemented;
