@@ -34,7 +34,7 @@ u64 notify_get_eventmask_union(notify_set s);
 
 void notify_dispatch(notify_set s, u64 events);
 
-void notify_dispatch_with_arg(notify_set s, u64 events, void *arg);
+boolean notify_dispatch_with_arg(notify_set s, u64 events, void *arg);
 
 #define notify_dispatch_for_thread  notify_dispatch_with_arg
 

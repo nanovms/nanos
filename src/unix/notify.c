@@ -77,7 +77,7 @@ u64 notify_get_eventmask_union(notify_set s)
     return u;
 }
 
-void notify_dispatch_with_arg(notify_set s, u64 events, void *arg)
+boolean notify_dispatch_with_arg(notify_set s, u64 events, void *arg)
 {
     boolean consumed = false;
     spin_lock(&s->lock);
@@ -97,6 +97,7 @@ void notify_dispatch_with_arg(notify_set s, u64 events, void *arg)
         }
     }
     spin_unlock(&s->lock);
+    return consumed;
 }
 
 void notify_dispatch(notify_set s, u64 events)
