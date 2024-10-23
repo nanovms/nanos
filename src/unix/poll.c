@@ -63,6 +63,7 @@ struct epoll {
     struct list blocked_head;   /* an epoll_blocked per thread (in epoll_wait)  */
     struct refcount refcount;
     enum epoll_type epoll_type;
+    closure_struct(fdesc_events, fd_events);
     closure_struct(fdesc_close, close);
     closure_struct(thunk, free);
     heap h;
@@ -214,24 +215,30 @@ closure_function(1, 2, u64, wait_notify,
     epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
                 efd->fd, events, w, efd->zombie);
 
-    if (!w)
+    if (w) {
+        if (t && t != w->t)
+            goto out;
+    } else if (epoll_type != EPOLL_TYPE_EPOLL) {
         goto out;
-
-    if (t && t != w->t)
-        goto out;
+    }
 
     switch (epoll_type) {
     case EPOLL_TYPE_POLL:
         poll_notify(efd, w, events);
         break;
     case EPOLL_TYPE_EPOLL:
-        if (epoll_wait_notify(efd, w, events))
-            rv |= NOTIFY_RESULT_CONSUMED;
-        if (!(rv & NOTIFY_RESULT_CONSUMED) || !(efd->eventmask & EPOLLEXCLUSIVE)) {
-            l = l->next;
-            if (l != &efd->e->blocked_head)
-                goto notify_blocked;
+        if (w) {
+            if (epoll_wait_notify(efd, w, events))
+                rv |= NOTIFY_RESULT_CONSUMED;
+            if (!(rv & NOTIFY_RESULT_CONSUMED) || !(efd->eventmask & EPOLLEXCLUSIVE)) {
+                l = l->next;
+                if (l != &e->blocked_head)
+                    goto notify_blocked;
+            }
         }
+        if (events && (!(rv & NOTIFY_RESULT_CONSUMED) || !(efd->eventmask & EPOLLEXCLUSIVE)) &&
+            notify_dispatch_for_thread(e->f.ns, EPOLLIN, t))
+            rv |= NOTIFY_RESULT_CONSUMED;
         break;
     case EPOLL_TYPE_SELECT:
         select_notify(efd, w, events);
@@ -287,6 +294,30 @@ void epoll_finish(epoll e)
     refcount_release(&e->refcount);
 }
 
+closure_func_basic(fdesc_events, u32, epoll_events,
+                   thread t)
+{
+    epoll e = struct_from_closure(epoll, fd_events);
+    u32 events = 0;
+    spin_rlock(&e->fds_lock);
+    bitmap_foreach_set(e->fds, fd) {
+        epollfd efd = vector_get(e->events, fd);
+        if (efd->zombie)
+            continue;
+        spin_lock(&efd->lock);
+        if (efd->registered) {
+            fdesc f = efd->f;
+            events = apply(f->events, t) & (efd->eventmask | POLL_EXCEPTIONS);
+            events = report_from_notify_events(efd, events);
+        }
+        spin_unlock(&efd->lock);
+        if (events)
+            break;
+    }
+    spin_runlock(&e->fds_lock);
+    return events ? EPOLLIN : 0;
+}
+
 closure_func_basic(fdesc_close, sysreturn, epoll_close,
                    context ctx, io_completion completion)
 {
@@ -303,6 +334,7 @@ sysreturn epoll_create(int flags)
     if (e == INVALID_ADDRESS)
         return -ENOMEM;
     init_fdesc(e->h, &e->f, FDESC_TYPE_EPOLL);
+    e->f.events = init_closure_func(&e->fd_events, fdesc_events, epoll_events);
     e->f.close = init_closure_func(&e->close, fdesc_close, epoll_close);
     u64 fd = allocate_fd(current->p, e);
     if (fd == INVALID_PHYSICAL) {
@@ -635,7 +667,6 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
     if (rv)
         return rv;
 
-    /* XXX verify that fd is not an epoll instance*/
     epoll e = resolve_fd(current->p, epfd);
     if ((e->f.type != FDESC_TYPE_EPOLL) || (f == &e->f)) {
         rv = -EINVAL;
