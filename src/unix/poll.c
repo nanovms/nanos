@@ -201,12 +201,14 @@ closure_function(1, 2, u64, wait_notify,
     }
 
     u32 events = (u32)notify_events;
-    if (efd->e->epoll_type == EPOLL_TYPE_EPOLL)
+    epoll e = efd->e;
+    enum epoll_type epoll_type = e->epoll_type;
+    if (epoll_type == EPOLL_TYPE_EPOLL)
         events = report_from_notify_events(efd, events);
     u64 rv = 0;
     epoll_blocked w;
-    spin_lock(&efd->e->blocked_lock);
-    list l = list_get_next(&efd->e->blocked_head);
+    spin_lock(&e->blocked_lock);
+    list l = list_get_next(&e->blocked_head);
   notify_blocked:
     w = l ? struct_from_list(l, epoll_blocked, blocked_list) : 0;
     epoll_debug("efd->fd %d, events 0x%x, blocked %p, zombie %d\n",
@@ -218,7 +220,7 @@ closure_function(1, 2, u64, wait_notify,
     if (t && t != w->t)
         goto out;
 
-    switch (efd->e->epoll_type) {
+    switch (epoll_type) {
     case EPOLL_TYPE_POLL:
         poll_notify(efd, w, events);
         break;
@@ -238,7 +240,7 @@ closure_function(1, 2, u64, wait_notify,
         assert(0);
     }
 out:
-    spin_unlock(&efd->e->blocked_lock);
+    spin_unlock(&e->blocked_lock);
     spin_unlock(&efd->lock);
     return rv;
 }
