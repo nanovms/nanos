@@ -42,6 +42,9 @@ typedef struct dt_value {
 
 closure_type(dt_node_handler, boolean, dt_node n, sstring name);
 
+unsigned int dt_prop_cell_count(dt_prop prop);
+u32 dt_prop_get_cell(dt_prop prop, unsigned int index);
+
 typedef struct fdt {
     void *ptr, *end;
     char *strings_start, *strings_end;
@@ -72,6 +75,7 @@ dt_node fdt_next_node(fdt fdt);
 sstring fdt_node_name(fdt fdt, dt_node node);
 void fdt_get_cells(fdt fdt, u32 *acells, u32 *scells);
 boolean fdt_get_reg(fdt fdt, u32 acells, u32 scells, dt_reg_iterator *iter);
+dt_prop fdt_get_prop(fdt fdt, sstring name);
 
 #define fdt_foreach_node(fdt, node) \
     for (dt_node node = fdt_get_node(fdt); node; node = fdt_next_node(fdt))

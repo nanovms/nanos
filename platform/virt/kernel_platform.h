@@ -32,6 +32,7 @@
 
 #define VIRT_PCIE_IRQ_BASE 3
 #define VIRT_PCIE_IRQ_NUM  4
+#define VIRT_GPIO_IRQ      7
 #define VIRT_MMIO_IRQ_BASE 16
 #define VIRT_MMIO_IRQ_NUM  32
 

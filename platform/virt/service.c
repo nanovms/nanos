@@ -13,6 +13,8 @@
 #include <management.h>
 #include <virtio/virtio.h>
 #include <devicetree.h>
+#include <gic.h>
+#include <gpio.h>
 #include <hyperv_platform.h>
 #include "serial.h"
 
@@ -31,6 +33,8 @@
 #define init_debug_u64(n)
 #define init_dump(p, len)
 #endif
+
+static RO_AFTER_INIT u8 gpio_key_power = -1;
 
 BSS_RO_AFTER_INIT struct uefi_boot_params boot_params;
 
@@ -396,6 +400,12 @@ void __attribute__((noreturn)) start(u64 x0, u64 x1)
     while (1);
 }
 
+closure_func_basic(thunk, void, gpio_key_handler)
+{
+    kernel_powerdown();
+    gpio_irq_clear(U64_FROM_BIT(gpio_key_power));
+}
+
 static void platform_dtb_parse(kernel_heaps kh, vector cpu_ids)
 {
     struct fdt fdt;
@@ -439,6 +449,18 @@ static void platform_dtb_parse(kernel_heaps kh, vector cpu_ids)
                         vector_push(cpu_ids, pointer_from_u64(r.start));
                         break;
                     }
+                }
+            }
+        } else if (!runtime_strcmp(name, ss("gpio-keys"))) {
+            fdt_foreach_node(&fdt, node) {
+                if (!runtime_strcmp(fdt_node_name(&fdt, node), ss("poweroff"))) {
+                    dt_prop gpio_prop = fdt_get_prop(&fdt, ss("gpios"));
+                    if ((gpio_prop != INVALID_ADDRESS) &&
+                        (dt_prop_cell_count(gpio_prop) >= 2))
+                        /* cell #0: phandle of GPIO controller
+                         * cell #1: GPIO number
+                         */
+                        gpio_key_power = dt_prop_get_cell(gpio_prop, 1);
                 }
             }
         }
@@ -491,6 +513,13 @@ void detect_hypervisor(kernel_heaps kh)
 
 void detect_devices(kernel_heaps kh, storage_attach sa)
 {
+    if (gpio_key_power != (typeof(gpio_key_power))-1) {
+        thunk handler = closure_func(heap_locked(kh), thunk, gpio_key_handler);
+        assert(handler != INVALID_ADDRESS);
+        irq_register_handler(GIC_SPI_INTS_START + VIRT_GPIO_IRQ, handler, ss("gpio-keys"),
+                             irange(0, 0));
+        gpio_irq_enable(U64_FROM_BIT(gpio_key_power));
+    }
     init_acpi(kh);
     if (hyperv_detected()) {
         boolean hv_storvsc_attached = false;

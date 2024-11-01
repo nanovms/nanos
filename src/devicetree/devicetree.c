@@ -87,6 +87,17 @@ static struct prop_value_map {
     { ss_static_init("cpu"), DT_VALUE_PHANDLE },
 };
 
+unsigned int dt_prop_cell_count(dt_prop prop)
+{
+    return dt_u32(prop->data_length) / sizeof(u32);
+}
+
+u32 dt_prop_get_cell(dt_prop prop, unsigned int index)
+{
+    void *ptr = prop->data + index * sizeof(u32);
+    return dt_u32(*((u32 *)ptr));
+}
+
 sstring dtb_string(void *dtb, u64 off)
 {
     dt_header fdt = dtb;
@@ -664,4 +675,26 @@ boolean fdt_get_reg(fdt fdt, u32 acells, u32 scells, dt_reg_iterator *iter)
     }
     fdt->ptr = ptr;
     return found;
+}
+
+/* Consumes all the properties of the current node (i.e. only children of the current node can be
+ * parsed after this function is called). */
+dt_prop fdt_get_prop(fdt fdt, sstring name)
+{
+    void *ptr = fdt->ptr;
+    void *end = fdt->end;
+    dt_prop prop = INVALID_ADDRESS;
+    while (ptr < end) {
+        u32 token = dt_u32(*(u32 *)ptr);
+        if (token != FDT_PROP)
+            break;
+        ptr += sizeof(token);
+        dt_prop p = ptr;
+        u32 prop_len = dt_u32(p->data_length);
+        ptr += sizeof(*p) + pad(prop_len, 4);
+        if (!runtime_strcmp(fdt_prop_name(fdt, p), name))
+            prop = p;
+    }
+    fdt->ptr = ptr;
+    return prop;
 }
