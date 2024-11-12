@@ -222,7 +222,7 @@ cp output/platform/pc/bin/kernel.img ~/.ops/0.1.52/.
 You may also copy the klibs over if you wish to use any of those:
 
 ```
-cp output/platform/pc/bin/!(test|*.dbg|kernel.*) ~/.ops/0.1.52/.
+cp output/platform/pc/bin/!(test|*.dbg|kernel.*) ~/.ops/0.1.52/klibs/.
 ```
 
 ### Contributing
