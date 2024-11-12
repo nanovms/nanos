@@ -212,12 +212,17 @@ make TARGET=mynewtarget run
 
 You may also wish to use [ops](https://github.com/nanovms/ops) to
 develop locally. If that's the case a commonly used idiom is to simply
-copy the 3 required files to an appropriate release:
+copy the 2 required files to an appropriate release:
 
 ```
-cp output/tools/bin/mkfs ~/.ops/0.1.47/.
-cp output/platform/pc/boot/boot.img ~/.ops/0.1.47/.
-cp output/platform/pc/bin/kernel.img ~/.ops/0.1.47/.
+cp output/platform/pc/boot/boot.img ~/.ops/0.1.52/.
+cp output/platform/pc/bin/kernel.img ~/.ops/0.1.52/.
+```
+
+You may also copy the klibs over if you wish to use any of those:
+
+```
+cp output/platform/pc/bin/!(test|*.dbg|kernel.*) ~/.ops/0.1.52/klibs/.
 ```
 
 ### Contributing
