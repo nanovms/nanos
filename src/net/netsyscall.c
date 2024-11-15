@@ -868,11 +868,8 @@ static sysreturn socket_write_internal(struct sock *sock, void *source, struct i
         blockq_action ba = closure_from_context(ctx, socket_write_tcp_bh, s, source, iov, length,
                                                 flags, completion);
         return blockq_check(sock->txbq, ba, bh);
-    } else if (sock->type == SOCK_DGRAM) {
-        rv = socket_write_udp(s, source, iov, length, dest_addr, addrlen);
     } else {
-	msg_err("socket type %d unsupported\n", sock->type);
-	rv = -EINVAL;
+        rv = socket_write_udp(s, source, iov, length, dest_addr, addrlen);
     }
     net_debug("completed\n");
 out:
@@ -1512,17 +1509,13 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
 	}
 	net_debug("calling tcp_bind, pcb %p, port %d\n", s->info.tcp.lw, port);
 	err = tcp_bind(s->info.tcp.lw, &ipaddr, port);
-    } else if (sock->type == SOCK_DGRAM) {
+    } else {
         if (s->info.udp.lw->local_port != 0) {
             ret = -EINVAL; /* already bound */
             goto unlock_out;
         }
         net_debug("calling udp_bind, pcb %p, port %d\n", s->info.udp.lw, port);
         err = udp_bind(s->info.udp.lw, &ipaddr, port);
-    } else {
-        msg_warn("unsupported socket type %d\n", s->sock.type);
-        ret = -EINVAL;
-        goto unlock_out;
     }
     ret = lwip_to_errno(err);
   unlock_out:
@@ -1715,12 +1708,9 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
         } else {
             ret = connect_tcp(s, &ipaddr, port);
         }
-    } else if (s->sock.type == SOCK_DGRAM) {
+    } else {
         /* Set remote endpoint */
         ret = lwip_to_errno(udp_connect(s->info.udp.lw, &ipaddr, port));
-    } else {
-        msg_err("can't connect on socket type %d\n", s->sock.type);
-        ret = -EINVAL;
     }
     netsock_unlock(s);
   out:
@@ -2322,18 +2312,13 @@ static sysreturn netsock_getsockname(struct sock *sock, struct sockaddr *addr, s
             port = 0;
             ip_addr = (ip_addr_t *)IP_ADDR_ANY;
         }
-    } else if (s->sock.type == SOCK_DGRAM) {
+    } else {
         netsock_lock(s);
         port = s->info.udp.lw->local_port;
         ip_addr = &s->info.udp.lw->local_ip;
-    } else {
-        msg_warn("not supported for socket type %d\n", s->sock.type);
-        rv = -EINVAL;
-        goto unlock_out;
     }
     addrport_to_sockaddr(s->sock.domain, ip_addr, port, addr, addrlen);
     rv = 0;
-  unlock_out:
     if (s->sock.type == SOCK_STREAM) {
         if (tcp_lw)
             netsock_tcp_put(tcp_lw);
