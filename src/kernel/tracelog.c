@@ -632,11 +632,11 @@ static void init_tracelog_file_writer(value v)
     }
     filesystem fs = get_root_fs();
     tuple root = filesystem_getroot(fs);
-    fs_status s = filesystem_get_node(&fs, fs->get_inode(fs, root),
+    int s = filesystem_get_node(&fs, fs->get_inode(fs, root),
                                       buffer_to_sstring((buffer)v),
                                       true, true, false, false, &file, &fsf);
-    if (s != FS_STATUS_OK) {
-        msg_err("failed to open tracelog file: %s\n", string_from_fs_status(s));
+    if (s < 0) {
+        msg_err("failed to open tracelog file: %s\n", string_from_errno(-s));
         return;
     }
     filesystem_put_node(fs, file);
