@@ -442,7 +442,7 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     file in = unix_cache_alloc(uh, file);
     file out = unix_cache_alloc(uh, file);
     file err = unix_cache_alloc(uh, file);
-    if (!in || !out || !err) {
+    if ((in == INVALID_ADDRESS) || (out == INVALID_ADDRESS) || (err == INVALID_ADDRESS)) {
         msg_err("failed to allocate files\n");
         return false;
     }
