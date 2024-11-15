@@ -435,7 +435,7 @@ closure_func_basic(status_handler, void, fs_free,
                    status s)
 {
     if (!is_ok(s)) {
-        msg_warn("failed to flush filesystem: %v\n", s);
+        msg_warn("filesystem failed to flush: %v", s);
         timm_dealloc(s);
     }
     filesystem fs = struct_from_closure(filesystem, free);
@@ -1095,7 +1095,7 @@ int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entr
     while (!sstring_is_empty(f)) {
         c = utf8_decode(f, &nbytes);
         if (!nbytes) {
-            msg_err("Invalid UTF-8 sequence.\n");
+            msg_warn("%s: invalid UTF-8 sequence", func_ss);
             err = -ENOENT;
             p = false;
             goto done;

@@ -286,7 +286,7 @@ static void firewall_dealloc_l3_constraint(heap h, firewall_constraint c)
 static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, boolean ipv6)
 {
     if (!is_tuple(spec)) {
-        rprintf("firewall: invalid value '%v'\n", spec);
+        msg_err("firewall: invalid value '%v'", spec);
         return false;
     }
     rule->l3_match = allocate_vector(h, 2);
@@ -294,7 +294,7 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
     string src = get(spec, sym(src));
     if (src) {
         if (!is_string(src) || !buffer_length(src)) {
-            rprintf("firewall: invalid ip src value '%v'\n", src);
+            msg_err("firewall: invalid ip src value '%v'", src);
             return false;
         }
         sstring src_str = buffer_to_sstring(src);
@@ -316,7 +316,7 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
         else
             parsed = ip4addr_aton(src_str, &addr.u_addr.ip4);
         if (!parsed) {
-            rprintf("firewall: invalid IPv%c address '%s'\n", ipv6 ? '6' : '4', src_str);
+            msg_err("firewall: invalid IPv%c address '%s'", ipv6 ? '6' : '4', src_str);
             return false;
         }
         u64 netmask;
@@ -326,7 +326,7 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
             buffer netmask_str = alloca_wrap_sstring(src_str);
             if (!parse_int(netmask_str, 10, &netmask) || buffer_length(netmask_str) ||
                 (netmask == 0) || (netmask > (ipv6 ? 128 : 32))) {
-                rprintf("firewall: invalid network mask '%s'\n", src_str);
+                msg_err("firewall: invalid network mask '%s'", src_str);
                 return false;
             }
         } else {
@@ -397,7 +397,7 @@ static void firewall_rule_add_l4_proto(heap h, firewall_rule rule, u8 proto)
 static boolean firewall_rule_parse_l4(heap h, firewall_rule rule, value spec, u8 proto)
 {
     if (!is_tuple(spec)) {
-        rprintf("firewall: invalid transport protocol value '%v'\n", spec);
+        msg_err("firewall: invalid transport protocol value '%v'", spec);
         return false;
     }
     rule->l4_match = allocate_vector(h, 2);
@@ -406,7 +406,7 @@ static boolean firewall_rule_parse_l4(heap h, firewall_rule rule, value spec, u8
     if (dest) {
         firewall_constraint_val c = firewall_create_constraint_val(h, dest, 2);
         if (!c) {
-            rprintf("firewall: invalid transport protocol dest value '%v'\n", dest);
+            msg_err("firewall: invalid transport protocol dest value '%v'", dest);
             return false;
         }
         c->c.type = FW_L4_DEST;
@@ -452,7 +452,7 @@ static void firewall_dealloc_udp_constraint(heap h, firewall_constraint c)
 static boolean firewall_create_rule(heap h, value spec)
 {
     if (!is_tuple(spec)) {
-        rprintf("invalid firewall rule '%v'\n", spec);
+        msg_err("firewall: invalid rule '%v'", spec);
         return false;
     }
     firewall_rule rule = allocate(h, sizeof(*rule));
@@ -469,7 +469,7 @@ static boolean firewall_create_rule(heap h, value spec)
     value ip6 = get(spec, sym(ip6));
     if (ip6) {
         if (ip4) {
-            rprintf("firewall: found both IPv4 and IPv6 in the same rule %v\n", spec);
+            msg_err("firewall: found both IPv4 and IPv6 in the same rule %v", spec);
             return false;
         }
         if (!firewall_rule_parse_ip6(h, rule, ip6))
@@ -483,7 +483,7 @@ static boolean firewall_create_rule(heap h, value spec)
     l4 = get(spec, sym(udp));
     if (l4) {
         if (rule->l4_proto) {
-            rprintf("firewall: found different transport protocols in the same rule %v\n", spec);
+            msg_err("firewall: found different transport protocols in the same rule %v", spec);
             return false;
         }
         if (!firewall_rule_parse_udp(h, rule, l4))
@@ -492,7 +492,7 @@ static boolean firewall_create_rule(heap h, value spec)
     value action = get(spec, sym(action));
     if (action) {
         if (!is_string(action)) {
-            rprintf("firewall: invalid action value %v\n", action);
+            msg_err("firewall: invalid action value %v", action);
             return false;
         }
         if (!buffer_strcmp(action, "accept")) {
@@ -500,7 +500,7 @@ static boolean firewall_create_rule(heap h, value spec)
         } else if (!buffer_strcmp(action, "drop")) {
             rule->drop = true;
         } else {
-            rprintf("firewall: invalid action '%b'\n", action);
+            msg_err("firewall: invalid action '%b'", action);
             return false;
         }
     } else {    /* default action */
@@ -552,14 +552,14 @@ int init(status_handler complete)
     if (!config)
         return KLIB_INIT_OK;
     if (!is_tuple(config)) {
-        rprintf("invalid firewall configuration\n");
+        msg_err("firewall: invalid configuration");
         return KLIB_INIT_FAILED;
     }
     value rules = get(config, sym(rules));
     if (!rules)
         return KLIB_INIT_OK;
     if (!is_composite(rules)) {
-        rprintf("invalid firewall rules\n");
+        msg_err("firewall: invalid rules");
         return KLIB_INIT_FAILED;
     }
     list_init(&firewall.rules);

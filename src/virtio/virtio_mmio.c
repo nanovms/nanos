@@ -137,7 +137,7 @@ static boolean vtmmio_negotatiate_features(vtmmio dev, u64 mask)
     virtio_mmio_debug("device features 0x%lx, mask 0x%lx",
                       virtio_dev->dev_features, mask);
     if (!(virtio_dev->dev_features & VIRTIO_F_VERSION_1)) {
-        msg_err("unsupported device features 0x%lx for device at 0x%x\n",
+        msg_err("vtmmio: unsupported device features 0x%lx for device at 0x%x",
             virtio_dev->dev_features, dev->membase);
         return false;
     }
@@ -162,7 +162,7 @@ boolean attach_vtmmio(heap h, backed_heap page_allocator, vtmmio d, u64 feature_
     virtio_mmio_debug("attaching device at 0x%lx, irq %d", d->membase, d->irq);
     vtmmio_set_status(d, VIRTIO_CONFIG_STATUS_DRIVER);
     if (!vtmmio_negotatiate_features(d, feature_mask)) {
-        msg_err("could not negotiate features for device at 0x%x\n",
+        msg_err("vtmmio: could not negotiate features for device at 0x%x",
             d->membase);
         return false;
     }

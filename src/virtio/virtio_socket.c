@@ -102,13 +102,13 @@ static boolean virtio_sock_dev_attach(heap general, backed_heap backed, vtdev de
     virtio_sock_debug("  guest CID %d", vs->guest_cid);
     status s = virtio_alloc_virtqueue(dev, ss("virtio socket rx"), 0, &vs->rxq);
     if (!is_ok(s)) {
-        msg_err("failed to allocate rx virtqueue: %v\n", s);
+        msg_err("%s: failed to allocate rx virtqueue: %v", func_ss, s);
         timm_dealloc(s);
         goto err;
     }
     s = virtio_alloc_virtqueue(dev, ss("virtio socket tx"), 1, &vs->txq);
     if (!is_ok(s)) {
-        msg_err("failed to allocate tx virtqueue: %v\n", s);
+        msg_err("%s: failed to allocate tx virtqueue: %v", func_ss, s);
         timm_dealloc(s);
         goto err;
     }
@@ -117,7 +117,7 @@ static boolean virtio_sock_dev_attach(heap general, backed_heap backed, vtdev de
      * about an "attempt to use virtio queue that is not marked ready". */
     s = virtio_alloc_virtqueue(dev, ss("virtio socket events"), 2, &vs->eventq);
     if (!is_ok(s)) {
-        msg_err("failed to allocate event virtqueue: %v\n", s);
+        msg_err("%s: failed to allocate event virtqueue: %v", func_ss, s);
         timm_dealloc(s);
         goto err;
     }

@@ -198,7 +198,7 @@ void riscv_timer(void)
 static boolean invoke_handlers_for_vector(cpuinfo ci, int v)
 {
     if (list_empty(&handlers[v])) {
-        rprintf("\nno handler for %s %d\n", v <= PLIC_MAX_INT ? ss("interrupt") : ss("IPI"), v);
+        msg_err("irq: no handler for %s %d", v <= PLIC_MAX_INT ? ss("interrupt") : ss("IPI"), v);
         return false;
     }
 
@@ -253,7 +253,7 @@ void trap_interrupt(void)
                      (f[FRAME_STATUS] & STATUS_SPP) ? ss("false") : ss("true"));
 
             if (i > PLIC_MAX_INT) {
-                rprintf("\ndispatched interrupt %d exceeds PLIC_MAX_INT\n", i);
+                msg_err("%s: dispatched interrupt %d exceeds PLIC_MAX_INT", func_ss, i);
                 goto exit_fault;
             }
 
@@ -454,7 +454,7 @@ void __attribute__((noreturn)) __stack_chk_fail(void)
 {
     cpuinfo ci = current_cpu();
     context ctx = get_current_context(ci);
-    rprintf("stack check failed on cpu %d\n", ci->id);
+    msg_err("stack check failed on cpu %d", ci->id);
     dump_context(ctx);
     vm_exit(VM_EXIT_FAULT);
 }

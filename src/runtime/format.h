@@ -1,8 +1,5 @@
 extern void vbprintf(buffer s, sstring fmt, vlist *ap);
 
-extern void log_vprintf(sstring prefix, sstring log_format, vlist *a);
-extern void log_printf(sstring prefix, sstring log_format, ...);
-
 struct formatter_state {
     int state;
     int format;    // format character ('s', 'd', ...)

@@ -429,7 +429,7 @@ define_closure_function(1, 1, void, gcp_setup_complete,
          * right after instance startup (e.g. HTTP 500 response with "Failed to authenticate request
          * (Type 0)". */
         if (retry_backoff > seconds(1))
-            msg_err("setup failed: %v\n", s);
+            msg_err("GCP setup failed: %v", s);
 
         timm_dealloc(s);
         if (retry_backoff < seconds(3600))
@@ -448,11 +448,11 @@ static void gcp_dns_cb(sstring name, const ip_addr_t *addr, void *cb_arg)
     connection_handler ch = cb_arg;
     if (addr) {
         if (tls_connect((ip_addr_t *)addr, 443, ch) < 0) {
-            msg_err("failed to connect to server %s\n", name);
+            msg_err("%s: failed to connect to server %s", func_ss, name);
             apply(ch, 0);
         }
     } else {
-        msg_err("failed to resolve server name %s\n", name);
+        msg_err("%s: failed to resolve server name %s", func_ss, name);
         apply(ch, 0);
     }
 }
@@ -512,7 +512,7 @@ closure_func_basic(value_handler, void, gcp_log_vh,
             /* The access token must have expired: renew it. */
             gcp_setup();
         } else {
-            msg_err("unexpected response %v\n", v);
+            msg_err("%s: unexpected response %v", func_ss, v);
             gcp_log_pending_delete();
         }
         gcp.log_resp_recved = true;
@@ -530,7 +530,7 @@ closure_func_basic(input_buffer_handler, boolean, gcp_log_in_handler,
                 return true;
             }
         } else {
-            msg_err("failed to parse response: %v\n", s);
+            msg_err("%s: failed to parse response: %v", func_ss, s);
             timm_dealloc(s);
             apply(gcp.log_out, 0);
             return true;
@@ -621,7 +621,7 @@ static boolean gcp_log_post(void)
     status s = http_request(gcp.h, gcp.log_out, HTTP_REQUEST_METHOD_POST, req, body);
     success = is_ok(s);
     if (!success) {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
   req_done:
@@ -790,7 +790,7 @@ static boolean gcp_metrics_post(void)
     status s = http_request(gcp.h, gcp.metrics_out, HTTP_REQUEST_METHOD_POST, req, body);
     success = is_ok(s);
     if (!success) {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
   req_done:
@@ -824,7 +824,7 @@ closure_func_basic(input_buffer_handler, boolean, gcp_metrics_in_handler,
             if (!gcp.metrics_out)
                 return true;
         } else {
-            msg_err("failed to parse response: %v\n", s);
+            msg_err("%s: failed to parse response: %v", func_ss, s);
             timm_dealloc(s);
             apply(gcp.metrics_out, 0);
             return true;
@@ -845,7 +845,7 @@ closure_func_basic(value_handler, void, gcp_metrics_value_handler,
             /* The access token must have expired: renew it. */
             gcp_setup();
         } else if (buffer_strcmp(status_code, "200")) {
-            msg_err("unexpected response %v\n", v);
+            msg_err("%s: unexpected response %v", func_ss, v);
         }
     }
     apply(gcp.metrics_out, 0);
@@ -887,7 +887,7 @@ int init(status_handler complete)
         u64 interval;
         if (get_u64(metrics, sym(interval), &interval)) {
             if (interval < min_interval) {
-                rprintf("GCP: invalid metrics interval (minimum allowed value %ld seconds)\n",
+                msg_err("GCP: invalid metrics interval (minimum allowed value %ld seconds)",
                         min_interval);
                 return KLIB_INIT_FAILED;
             }

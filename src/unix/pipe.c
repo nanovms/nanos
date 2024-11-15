@@ -276,7 +276,7 @@ int do_pipe2(int fds[2], int flags)
 {
     pipe pipe = unix_cache_alloc(get_unix_heaps(), pipe);
     if (pipe == INVALID_ADDRESS) {
-        msg_err("failed to allocate struct pipe\n");
+        msg_err("pipe: failed to allocate structure");
         return -ENOMEM;
     }
 
@@ -284,7 +284,7 @@ int do_pipe2(int fds[2], int flags)
         return -EINVAL;
 
     if (flags & O_DIRECT) {
-        msg_err("O_DIRECT unsupported\n");
+        msg_err("pipe: O_DIRECT unsupported");
         return -EOPNOTSUPP;
     }
 
@@ -305,7 +305,7 @@ int do_pipe2(int fds[2], int flags)
 
     pipe->data = allocate_buffer(pipe->h, INITIAL_PIPE_DATA_SIZE);
     if (pipe->data == INVALID_ADDRESS) {
-        msg_err("failed to allocate pipe's data buffer\n");
+        msg_err("pipe: failed to allocate data buffer");
         goto err;
     }
     spin_lock_init(&pipe->lock);
@@ -323,13 +323,13 @@ int do_pipe2(int fds[2], int flags)
 
         reader->bq = allocate_blockq(pipe->h, ss("pipe read"));
         if (reader->bq == INVALID_ADDRESS) {
-            msg_err("failed to allocate blockq\n");
+            msg_err("pipe: failed to allocate blockq");
             apply(reader->f.close, 0, io_completion_ignore);
             return -ENOMEM;
         }
         reader->fd = fds[PIPE_READ] = allocate_fd(pipe->proc, reader);
         if (reader->fd == INVALID_PHYSICAL) {
-            msg_err("failed to allocate fd\n");
+            msg_err("pipe: failed to allocate fd");
             apply(reader->f.close, 0, io_completion_ignore);
             return -EMFILE;
         }
@@ -348,7 +348,7 @@ int do_pipe2(int fds[2], int flags)
 
         writer->bq = allocate_blockq(pipe->h, ss("pipe write"));
         if (writer->bq == INVALID_ADDRESS) {
-            msg_err("failed to allocate blockq\n");
+            msg_err("pipe: failed to allocate blockq");
             apply(writer->f.close, 0, io_completion_ignore);
             deallocate_fd(pipe->proc, fds[PIPE_READ]);
             fdesc_put(&pipe->files[PIPE_READ].f);
@@ -356,7 +356,7 @@ int do_pipe2(int fds[2], int flags)
         }
         writer->fd = fds[PIPE_WRITE] = allocate_fd(pipe->proc, writer);
         if (writer->fd == INVALID_PHYSICAL) {
-            msg_err("failed to allocate fd\n");
+            msg_err("pipe: failed to allocate fd");
             apply(writer->f.close, 0, io_completion_ignore);
             deallocate_fd(pipe->proc, fds[PIPE_READ]);
             fdesc_put(&pipe->files[PIPE_READ].f);

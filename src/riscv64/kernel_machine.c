@@ -168,7 +168,7 @@ void count_cpus_present(void)
     vector_set(hartids_by_cpuid, 0, (void*)boot_hartid);
     dt_node n = dtb_find_node_by_path(DEVICETREE, ss("/cpus"));
     if (n == INVALID_ADDRESS) {
-        msg_err("unable to find \"/cpus/cpu-map/cluster0\" in device tree; resorting to single cpu\n");
+        msg_err("device tree: unable to find \"/cpus/cpu-map/cluster0\"; resorting to single cpu");
         return;
     }
 

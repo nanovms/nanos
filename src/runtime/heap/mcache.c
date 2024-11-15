@@ -304,18 +304,18 @@ heap allocate_mcache(heap meta, heap parent, int min_order, int max_order, bytes
 {
     if (pagesize < parent->pagesize ||
 	((pagesize - 1) & pagesize)) {
-	msg_err("pagesize (%d) must be a power-of-2 >= parent pagesize (%d)\n",
+	msg_err("mcache pagesize (%d) must be a power-of-2 >= parent pagesize (%d)",
 		pagesize, parent->pagesize);
 	return INVALID_ADDRESS;
     }
 
     if (U64_FROM_BIT(max_order) >= pagesize) {
-	msg_err("max obj size (%d) must be less than pagesize %d\n", U64_FROM_BIT(max_order), pagesize);
+	msg_err("mcache max obj size (%d) must be less than pagesize %d", U64_FROM_BIT(max_order), pagesize);
 	return INVALID_ADDRESS;
     }
 
     if (min_order > max_order) {
-	msg_err("min_order (%d) cannot exceed max_order (%d)\n", min_order, max_order);
+	msg_err("mcache min_order (%d) cannot exceed max_order (%d)", min_order, max_order);
 	return INVALID_ADDRESS;
     }
 

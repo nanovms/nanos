@@ -825,7 +825,7 @@ closure_func_basic(filesystem_complete, void, fsc,
                    filesystem fs, status s)
 {
     if (!is_ok(s)) {
-        rprintf("failed to initialize filesystem: %v\n", s);
+        msg_err("tfs-fuse: failed to initialize filesystem: %v", s);
         exit(EXIT_FAILURE);
     }
 

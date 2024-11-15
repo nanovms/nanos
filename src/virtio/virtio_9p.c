@@ -99,7 +99,7 @@ static boolean v9p_dev_attach(heap general, backed_heap backed, vtdev dev)
     v9p_debug("  attachment ID %ld\n", attach_id);
     status s = virtio_alloc_virtqueue(dev, ss("virtio 9p"), 0, &v9p->vq);
     if (!is_ok(s)) {
-        msg_err("failed to allocate virtqueue: %v\n", s);
+        msg_err("v9p: failed to allocate virtqueue: %v", s);
         goto err;
     }
     spin_lock_init(&v9p->lock);
@@ -112,7 +112,7 @@ static boolean v9p_dev_attach(heap general, backed_heap backed, vtdev dev)
     if (!volume_add(uuid, label, v9p,
                     init_closure_func(&v9p->fs_init, fs_init_handler, v9p_fs_init),
                     (int)attach_id)) {
-        msg_err("failed to add volume\n");
+        msg_err("v9p: failed to add volume");
         goto err;
     }
     return true;
@@ -578,7 +578,7 @@ int v9p_version(void *priv, u32 msize, sstring version, u32 *ret_msize)
             *ret_msize = resp->msize;
             s = 0;
         } else {
-            msg_err("version %s not supported\n", version);
+            msg_err("v9p version %s not supported", version);
             s = -EINVAL;
         }
     } else {

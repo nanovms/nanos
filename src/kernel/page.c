@@ -75,7 +75,7 @@ void *allocate_table_page(u64 *phys)
         page_init_debug(" [new alloc, pa: ");
         u64 pa = allocate_u64(pagemem.pageheap, PAGEMEM_ALLOC_SIZE);
         if (pa == INVALID_PHYSICAL) {
-            msg_err("failed to allocate page table memory\n");
+            msg_err("page table: failed to allocate memory");
             return INVALID_ADDRESS;
         }
         page_init_debug_u64(pa);
@@ -485,7 +485,6 @@ static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, 
                 void *tp;
                 u64 tp_phys;
                 if ((tp = allocate_table_page(&tp_phys)) == INVALID_ADDRESS) {
-                    msg_err("failed to allocate page table memory\n");
                     return false;
                 }
                 /* user and writable are AND of flags from all levels */
@@ -559,7 +558,6 @@ void map(u64 v, physical p, u64 length, pageflags flags)
     u64 *table_ptr = pointer_from_pteaddr(get_pagetable_base(v));
     if (!map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, fe)) {
         pagetable_unlock();
-        rprintf("ra %p\n", __builtin_return_address(0));
         print_frame_trace_from_here();
         halt("map failed for v 0x%lx, p 0x%lx, len 0x%lx, flags 0x%lx\n",
              v, p, length, flags.w);

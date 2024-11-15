@@ -45,16 +45,14 @@ closure_function(1, 4, void, elf_symtable_add,
     range r = irangel(a + bound(load_offset), len);
     boolean match = rangemap_range_intersects(elf_symtable, r);
     if (match) {
-#ifdef ELF_SYMTAB_DEBUG
-	msg_err("\"%s\" %R would overlap in rangemap; skipping\n", name, r);
-#endif
+	msg_warn("%s: \"%s\" %R would overlap in rangemap; skipping", func_ss, name, r);
 	return;
     }
 
     elfsym es = allocate_elfsym(r, name);
     if (!rangemap_insert(elf_symtable, &es->node)) {
         /* shouldn't ever happen, so bark if it does */
-        msg_err("unable to add symbol \"%s\" of range %R to map; skipping\n",
+        msg_err("%s: unable to add symbol \"%s\" of range %R to map; skipping", func_ss,
                 name, r);
     }
 }

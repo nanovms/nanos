@@ -254,7 +254,7 @@ closure_function(1, 1, status, http_recv,
             if (x == '\r') {
                 if (p->s == sym(Content-Length)) {
                     if (!parse_int(p->word, 10, &p->content_length))
-                        msg_err("failed to parse content length\n");
+                        msg_err("%s: failed to parse content length", func_ss);
 
                     /* unconsume the bytes consumed by parse_int() */
                     p->word->start = 0;

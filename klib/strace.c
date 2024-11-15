@@ -915,6 +915,6 @@ int init(status_handler complete)
     strace_misc_init();
     return KLIB_INIT_OK;
   oom:
-    msg_err("out of memory\n");
+    msg_err("strace: out of memory");
     return KLIB_INIT_FAILED;
 }

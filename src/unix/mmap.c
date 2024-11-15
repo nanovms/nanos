@@ -78,7 +78,7 @@ closure_func_basic(thunk, void, pending_fault_complete)
     vmap_unlock(p);
     pf_debug("%s: vaddr 0x%lx, status %v\n", func_ss, vaddr, s);
     if (!is_ok(s)) {
-        msg_err("page fill failed with %v\n", s);
+        msg_err("page fill failed with %v", s);
     }
     demand_page_done(ctx, vaddr, s);
     context_schedule_return(ctx);
@@ -339,7 +339,7 @@ static status demand_page_internal(process p, context ctx, u64 vaddr, vmap vm, p
 {
     if ((vm->flags & (VMAP_FLAG_MMAP | VMAP_FLAG_STACK | VMAP_FLAG_HEAP |
                       VMAP_FLAG_BSS | VMAP_FLAG_PROG)) == 0) {
-        msg_err("vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
+        msg_err("page fault: vaddr 0x%lx matched vmap with invalid flags (0x%x)",
                 vaddr, vm->flags);
         return timm("result", "vaddr 0x%lx matched vmap with invalid flags (0x%x)\n",
                 vaddr, vm->flags);
@@ -516,7 +516,7 @@ closure_function(1, 1, boolean, vmap_paranoia_node,
     vmap v = (vmap)n;
     vmap last = *bound(last);
     if (last && vmap_compare_attributes(last, v) && last->node.r.end == v->node.r.start) {
-        rprintf("%s: check failed; adjacent nodes %p (%R) and %p (%R) share same attributes\n",
+        msg_err("%s: check failed; adjacent nodes %p (%R) and %p (%R) share same attributes",
                 func_ss, last, last->node.r, v, v->node.r);
         return false;
     }
@@ -800,7 +800,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
                 }
                 u64 vnew = process_get_virt_range_locked(p, new_size, PROCESS_VIRTUAL_MMAP_RANGE);
                 if (vnew == (u64)INVALID_ADDRESS) {
-                    msg_err("failed to allocate virtual memory, size %ld\n", new_size);
+                    msg_err("%s: failed to allocate virtual memory, size %ld", func_ss, new_size);
                     rv = -ENOMEM;
                     goto unlock_out;
                 }
@@ -830,7 +830,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
     /* create new vmap with old attributes */
     k.node.r = new;
     if (allocate_vmap_locked(p->vmaps, &k) == INVALID_ADDRESS) {
-        msg_err("failed to allocate vmap\n");
+        msg_err("%s: failed to allocate vmap", func_ss);
         rv = -ENOMEM;
         goto unlock_out;
     }
@@ -876,7 +876,7 @@ closure_function(3, 3, boolean, mincore_fill_vec,
 closure_func_basic(range_handler, boolean, mincore_vmap_gap,
                    range r)
 {
-    thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
+    msg_info("mincore: found gap [0x%lx, 0x%lx)", r.start, r.end);
     return false;
 }
 
@@ -1018,7 +1018,7 @@ closure_func_basic(range_handler, boolean, vmap_update_protections_gap,
                    range r)
 {
     vmap_debug("%s: gap %R\n", func_ss, r);
-    thread_log(current, "   found gap [0x%lx, 0x%lx)", r.start, r.end);
+    msg_info("mprotect: found gap [0x%lx, 0x%lx)", r.start, r.end);
     return false;
 }
 
@@ -1291,7 +1291,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         }
         if ((flags & MAP_FIXED_NOREPLACE) &&
             rangemap_range_intersects(p->vmaps, q)) {
-            thread_log(current, "   MAP_FIXED_NOREPLACE and collision in range %R", q);
+            msg_info("%s: MAP_FIXED_NOREPLACE and collision in range %R", func_ss, q);
             ret = -EEXIST;
             goto out_unlock;
         }
@@ -1348,7 +1348,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         default:
             thread_log(current, "   fd %d: custom", fd);
             if (!desc->mmap) {
-                thread_log(current, "   fail: attempt to mmap file of invalid type %d", desc->type);
+                msg_info("%s: invalid file type %d", func_ss, desc->type);
                 ret = -EINVAL;
                 goto out_unlock;
             }
@@ -1358,7 +1358,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         }
     }
     if ((vmflags & VMAP_FLAG_PROT_MASK) & ~allowed_flags) {
-        thread_log(current, "   fail: forbidden access type 0x%x (allowed 0x%x)",
+        msg_info("%s: forbidden access type 0x%x (allowed 0x%x)", func_ss,
                    vmflags & VMAP_FLAG_PROT_MASK, allowed_flags);
         ret = -EACCES;
         goto out_unlock;
@@ -1376,7 +1376,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         u64 vaddr = process_get_virt_range_locked(p, len, alloc_region);
         if (vaddr == INVALID_PHYSICAL) {
             ret = -ENOMEM;
-            thread_log(current, "   failed to get virtual address range");
+            msg_warn("%s failed to get virtual address range", func_ss);
             goto out_unlock;
         }
         q = irangel(vaddr, len);
@@ -1385,7 +1385,7 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
         k.node.r = q;
         ret = apply(desc->mmap, &k, offset);
         if (ret < 0) {
-            thread_log(current, "   custom_mmap() failed with %ld", ret);
+            msg_info("%s: custom handler failed with %ld", func_ss, ret);
             goto out_unlock;
         }
     }
@@ -1575,7 +1575,7 @@ void mmap_process_init(process p, tuple root)
                 mmap_info.thp_max_size = PAGESIZE;
         }
         if (!mmap_info.thp_max_size)
-            msg_err("invalid 'transparent_hugepage' value '%v'\n", transparent_hugepage);
+            msg_err("transparent_hugepage: invalid value '%v'", transparent_hugepage);
     }
     if (!mmap_info.thp_max_size)
         mmap_info.thp_max_size = low_memory ? PAGEHEAP_LOWMEM_PAGESIZE : PAGESIZE_2M;

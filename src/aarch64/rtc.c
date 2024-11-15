@@ -115,7 +115,7 @@ static boolean rtc_detect(void)
             rtc.set_seconds = pl031_set_seconds;
             return true;
         }
-        rprintf("No RTC detected!\n");
+        msg_err("RTC not detected");
     }
     return !!rtc.get_seconds;
 }

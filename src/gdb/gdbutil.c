@@ -76,7 +76,7 @@ void putpacket_deferred(gdb g, string b)
     u64 flags = spin_lock_irq(&g->send_lock);
     if (g->sending) {
         spin_unlock_irq(&g->send_lock, flags);
-        rprintf("putpacket_deferred dropped, already sending\n");
+        msg_err("gdbserver: %s dropped, already sending", func_ss);
         return;
     }
     g->sending = true;
@@ -90,7 +90,7 @@ void putpacket(gdb g, string b)
     u64 flags = spin_lock_irq(&g->send_lock);
     if (g->sending) {
         spin_unlock_irq(&g->send_lock, flags);
-        rprintf("putpacket dropped, already sending\n");
+        msg_err("gdbserver: %s dropped, already sending", func_ss);
         return;
     }
     put_sendstring(g, b);

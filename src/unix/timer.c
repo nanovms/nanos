@@ -557,7 +557,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
             break;
         case SIGEV_THREAD:
             /* should never see this, but bark if we do */
-            msg_err("SIGEV_THREAD should be handled by libc / nptl\n");
+            msg_err("%s: SIGEV_THREAD should be handled by libc / nptl", func_ss);
             /* no break */
         default:
             rv = -EINVAL;
@@ -634,7 +634,7 @@ sysreturn timer_create(int clockid, struct sigevent *sevp, u32 *timerid)
 sysreturn getitimer(int which, struct itimerval *curr_value)
 {
     if (which == ITIMER_VIRTUAL) {
-        msg_err("timer type %d not yet supported\n", which);
+        msg_err("%s: timer type %d not supported", func_ss, which);
         return -EOPNOTSUPP;
     } else if ((which != ITIMER_REAL) && (which != ITIMER_PROF)) {
         return -EINVAL;
@@ -755,7 +755,7 @@ sysreturn setitimer(int which, const struct itimerval *new_value,
                     struct itimerval *old_value)
 {
     if (which == ITIMER_VIRTUAL) {
-        msg_err("timer type %d not yet supported\n", which);
+        msg_err("%s: timer type %d not supported", func_ss, which);
         return -EOPNOTSUPP;
     } else if ((which != ITIMER_REAL) && (which != ITIMER_PROF)) {
         return -EINVAL;

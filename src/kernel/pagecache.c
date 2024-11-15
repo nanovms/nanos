@@ -280,7 +280,7 @@ closure_function(3, 1, void, pagecache_read_page_complete,
 
     if (!is_ok(s)) {
         /* TODO need policy for capturing/reporting I/O errors... */
-        msg_err("error reading page 0x%lx: %v\n", page_offset(pp) << pc->page_order, s);
+        msg_err("pagecache: error reading page 0x%lx: %v", page_offset(pp) << pc->page_order, s);
     }
     pagecache_lock_state(pc);
     change_page_state_locked(bound(pc), pp, PAGECACHE_PAGESTATE_NEW);
@@ -951,7 +951,7 @@ define_closure_function(3, 1, void, pagecache_commit_dirty_ranges,
         rp->end = MIN(rp->end, limit);
         sg_list sg = allocate_sg_list();
         if (sg == INVALID_ADDRESS) {
-            msg_err("unable to allocate sg list\n");
+            msg_err("%s: unable to allocate sg list", func_ss);
             if (committing == 0)
                 s = timm("result", "unable to allocate sg list");
             break;
@@ -973,7 +973,7 @@ define_closure_function(3, 1, void, pagecache_commit_dirty_ranges,
             } else {
                 sgb = sg_list_tail_add(sg, len);
                 if (sgb == INVALID_ADDRESS) {
-                    msg_warn("sgbuf alloc fail\n");
+                    msg_warn("%s: sgbuf alloc fail", func_ss);
                     if (committing == 0)
                         s = timm("result", "unable to allocate sg buffer");
                     r.end = start;

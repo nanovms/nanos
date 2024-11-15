@@ -591,7 +591,7 @@ static sysreturn unixsock_listen(struct sock *sock, int backlog)
         if (!s->conn_q) {
             s->conn_q = allocate_queue(sock->h, backlog);
             if (s->conn_q == INVALID_ADDRESS) {
-                msg_err("failed to allocate connection queue\n");
+                msg_err("%s: failed to allocate connection queue", func_ss);
                 s->conn_q = 0;
                 ret = -ENOMEM;
             }
@@ -832,7 +832,7 @@ static sysreturn unixsock_getsockopt(struct sock *sock, int level,
     rv = sockopt_copy_to_user(optval, optlen, &ret_optval, ret_optlen);
     goto out;
 unimplemented:
-    msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
+    msg_err("getsockopt unimplemented: fd %d, level %d, optname %d",
             sock->fd, level, optname);
     rv = -ENOPROTOOPT;
 out:
@@ -911,16 +911,16 @@ static unixsock unixsock_alloc(heap h, int type, u32 flags, boolean alloc_fd)
 {
     unixsock s = allocate(h, sizeof(*s));
     if (s == INVALID_ADDRESS) {
-        msg_err("failed to allocate socket structure\n");
+        msg_err("unixsock: failed to allocate socket structure");
         return 0;
     }
     s->data = allocate_queue(h, UNIXSOCK_QUEUE_MAX_LEN);
     if (s->data == INVALID_ADDRESS) {
-        msg_err("failed to allocate data buffer\n");
+        msg_err("unixsock: failed to allocate data buffer");
         goto err_queue;
     }
     if (socket_init(h, AF_UNIX, type, flags, &s->sock) < 0) {
-        msg_err("failed to initialize socket\n");
+        msg_err("unixsock: failed to initialize socket");
         goto err_socket;
     }
     s->sock.f.read = init_closure_func(&s->read, file_io, unixsock_read);

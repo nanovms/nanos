@@ -502,7 +502,7 @@ closure_function(2, 1, void, log_switch_complete,
     rangemap_foreach(to_be_destroyed->extensions, ext) {
         tlog_debug("  deallocating extension at %R\n", __func__, ext->r);
         if (!filesystem_free_storage(fs, ext->r))
-            msg_err("failed to mark to_be_destroyed log at %R as free", ext->r);
+            msg_err("tlog: failed to mark to_be_destroyed log at %R as free", ext->r);
     }
 
     run_flush_completions(old_tl, s);
@@ -578,7 +578,7 @@ void log_flush(log tl, status_handler completion)
   fail_log_ext_close:
         close_log_extension(new_ext);
         if (!filesystem_free_storage(fs, new_ext->sectors))
-            msg_err("failed to mark new_ext at %R as free", new_ext->sectors);
+            msg_err("tlog: failed to mark new_ext at %R as free", new_ext->sectors);
   fail_log_destroy:
         log_destroy(new_tl);
     }
@@ -886,7 +886,7 @@ log log_create(heap h, tfs fs, boolean initialize, status_handler sh)
 #ifndef TLOG_READ_ONLY
     range sectors = irange(0, TFS_LOG_INITIAL_SIZE >> fs->fs.blocksize_order);
     if (!filesystem_reserve_storage(fs, sectors)) {
-        msg_err("failed to reserve sectors in allocation map");
+        msg_err("tlog: failed to reserve sectors in allocation map");
         return INVALID_ADDRESS;
     }
 #endif

@@ -98,11 +98,11 @@ static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
 {
     buffer src = get(config, sym(src));
     if (!src) {
-        rprintf("cloud_init: missing download source in %v\n", config);
+        msg_err("cloud_init: missing download source in %v", config);
         return KLIB_INIT_FAILED;
     }
     if (!is_string(src) || (buffer_length(src) < 8)) {
-        rprintf("cloud_init: invalid download source %v\n", src);
+        msg_err("cloud_init: invalid download source %v", src);
         return KLIB_INIT_FAILED;
     }
     if (!runtime_memcmp(buffer_ref(src, 0), "http://", 7)) {
@@ -114,7 +114,7 @@ static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
         parsed_cfg->server_port = 443;
         parsed_cfg->tls = true;
     } else {
-        rprintf("cloud_init: invalid download source %b\n", src);
+        msg_err("cloud_init: invalid download source %b", src);
         return KLIB_INIT_FAILED;
     }
     parsed_cfg->server_host.contents = buffer_ref(src, 0);
@@ -134,14 +134,14 @@ static int cloud_download_parse(tuple config, cloud_download_cfg parsed_cfg)
     host_end = buffer_strchr(&parsed_cfg->server_host, ':');
     if (host_end >= 0) {
         if (host_end == buffer_length(&parsed_cfg->server_host) - 1) {
-            rprintf("cloud_init: invalid download source %b\n", src);
+            msg_err("cloud_init: invalid download source %b", src);
             return KLIB_INIT_FAILED;
         }
         buffer b = alloca_wrap_buffer(buffer_ref(&parsed_cfg->server_host, host_end + 1),
             buffer_length(&parsed_cfg->server_host) - host_end - 1);
         u64 port;
         if (!u64_from_value(b, &port) || (port > U16_MAX)) {
-            rprintf("invalid server port in download source %b\n", src);
+            msg_err("cloud_init: invalid server port in download source %b", src);
             return KLIB_INIT_FAILED;
         }
         parsed_cfg->server_port = port;
@@ -501,16 +501,16 @@ static int cloud_download_file_parse(tuple config, vector tasks)
         return ret;
     parsed_cfg->file_path = get(config, sym(dest));
     if (!parsed_cfg->file_path) {
-        rprintf("cloud_init: missing download destination in %v\n", config);
+        msg_err("cloud_init: missing download destination in %v", config);
         return KLIB_INIT_FAILED;
     }
     if (!is_string(parsed_cfg->file_path)) {
-        rprintf("cloud_init: invalid download destination %v\n", parsed_cfg->file_path);
+        msg_err("cloud_init: invalid download destination %v", parsed_cfg->file_path);
         return KLIB_INIT_FAILED;
     }
     fsfile f = fsfile_open_or_create(buffer_to_sstring(parsed_cfg->file_path), false);
     if (!f) {
-        rprintf("cloud_init: download destination file '%b' cannot be created\n",
+        msg_err("cloud_init: download destination file '%b' cannot be created",
             parsed_cfg->file_path);
         return KLIB_INIT_FAILED;
     }
@@ -646,7 +646,7 @@ static int cloud_download_env_parse(tuple config, vector tasks)
     value path = get(config, sym(path));
     if (path) {
         if (!is_string(path)) {
-            rprintf("download_env: invalid path %v\n", path);
+            msg_err("cloud_init download_env: invalid path %v", path);
             return KLIB_INIT_FAILED;
         }
         cfg->attribute_path = split(cloud_heap, path, '/');
@@ -674,7 +674,7 @@ int init(status_handler complete)
     if (!config)
         return KLIB_INIT_OK;
     if (!is_tuple(config)) {
-        rprintf("invalid cloud_init configuration\n");
+        msg_err("cloud_init: invalid configuration");
         return KLIB_INIT_FAILED;
     }
     vector tasks = allocate_vector(cloud_heap, 8);
@@ -684,7 +684,7 @@ int init(status_handler complete)
     if (download) {
         ret = cloud_init_parse_vector(download, cloud_download_file_parse, tasks);
         if (ret != KLIB_INIT_OK) {
-            rprintf("invalid cloud_init download configuration\n");
+            msg_err("cloud_init: invalid download configuration");
             goto error;
         }
     }
@@ -692,7 +692,7 @@ int init(status_handler complete)
     if (download_env) {
         ret = cloud_init_parse_vector(download_env, cloud_download_env_parse, tasks);
         if (ret != KLIB_INIT_OK) {
-            rprintf("invalid cloud_init download_env configuration\n");
+            msg_err("cloud_init: invalid download_env configuration");
             goto error;
         }
     }

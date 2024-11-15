@@ -58,7 +58,7 @@ closure_func_basic(timer_handler, void, dispatch_lwip_timer,
                    u64 expiry, u64 overruns)
 {
 #ifdef LWIP_DEBUG
-    lwip_debug("dispatching timer\n");
+    rprintf("lwIP: dispatching timer\n");
 #endif
     sys_check_timeouts();
     timestamp next_expiry = milliseconds(sys_timeouts_sleeptime());
@@ -70,13 +70,6 @@ u32 sys_now(void)
 {
     timestamp t = now(CLOCK_ID_MONOTONIC);
     return msec_from_timestamp(t);
-}
-
-void lwip_debug_sstring(sstring format, ...)
-{
-    vlist a;
-    vstart(a, format);
-    log_vprintf(ss("LWIP"), format, &a);
 }
 
 void *lwip_allocate(u64 size)
@@ -131,13 +124,13 @@ static void lwip_ext_callback(struct netif* netif, netif_nsc_reason_t reason,
     ifname.len = netif_name_cpy(ifname.ptr, netif);
     if (reason & LWIP_NSC_IPV4_ADDRESS_CHANGED) {
         u8 *n = (u8 *)&netif->ip_addr;
-        rprintf("%s: assigned %d.%d.%d.%d\n", ifname, n[0], n[1], n[2], n[3]);
+        msg_print("%s: assigned %d.%d.%d.%d", ifname, n[0], n[1], n[2], n[3]);
         check_netif_ready(netif, false);
     }
     if ((reason & LWIP_NSC_IPV6_ADDR_STATE_CHANGED) &&
        (netif_ip6_addr_state(netif, args->ipv6_addr_state_changed.addr_index) & IP6_ADDR_VALID)) {
         char addr[IP6ADDR_STRLEN_MAX];
-        rprintf("%s: assigned %s\n", ifname,
+        msg_print("%s: assigned %s", ifname,
                 isstring(addr, ipaddr_ntoa_r(args->ipv6_addr_state_changed.address,
                                               addr, sizeof(addr))));
         check_netif_ready(netif, true);
@@ -257,10 +250,11 @@ static boolean get_static_config(tuple t, struct netif *n, sstring ifname, boole
 
     if (trace) {
         char addr[IP4ADDR_STRLEN_MAX];
-        rprintf("NET: static IP config for interface %s:\n", ifname);
-        rprintf(" address\t%s\n", isstring(addr, ip4addr_ntoa_r(&ip, addr, sizeof(addr))));
-        rprintf(" netmask\t%s\n", isstring(addr, ip4addr_ntoa_r(&netmask, addr, sizeof(addr))));
-        rprintf(" gateway\t%s\n", isstring(addr, ip4addr_ntoa_r(&gw, addr, sizeof(addr))));
+        msg_print("NET: static IP config for interface %s:\n"
+                  "\taddress\t%s\n\tnetmask\t%s\n\tgateway\t%s", ifname,
+                  isstring(addr, ip4addr_ntoa_r(&ip, addr, sizeof(addr))),
+                  isstring(addr, ip4addr_ntoa_r(&netmask, addr, sizeof(addr))),
+                  isstring(addr, ip4addr_ntoa_r(&gw, addr, sizeof(addr))));
     }
 
     netif_set_addr(n, &ip, &netmask, &gw);
@@ -276,7 +270,7 @@ static boolean get_static_ip6_config(tuple t, struct netif *n, sstring ifname, b
         ip6_addr_t ip6;
         if (ip6addr_aton(str, &ip6)) {
             if (trace)
-                rprintf("NET: static IPv6 address for interface %s: %s\n", ifname, str);
+                msg_print("NET: static IPv6 address for interface %s: %s", ifname, str);
             netif_add_ip6_address(n, &ip6, 0);
             return true;
         }
@@ -306,7 +300,7 @@ static void net_complete_cfg(tuple t, symbol opt, struct netif *n, boolean ipv6,
         return;
     u64 timeout;
     if (!u64_from_value(v, &timeout)) {
-        rprintf("option '%b' has invalid time, ignoring\n", symbol_string(opt));
+        msg_err("%b: invalid time, ignoring", symbol_string(opt));
         return;
     }
     if (timeout == 0 || timeout > 180)
@@ -328,7 +322,7 @@ static void net_complete_cfg(tuple t, symbol opt, struct netif *n, boolean ipv6,
 void init_network_iface(tuple root, merge m) {
     struct netif *n;
     struct netif *default_iface = 0;
-    boolean trace = !!(trace_get_flags(get(root, sym(trace))) & TRACE_OTHER);
+    boolean trace = klog_level_enabled(LOG_INFO);
 
     /* NETIF_FOREACH traverses interfaces in reverse order...so go by index */
     for (int i = 1; (n = netif_get_by_index(i)); i++) {
@@ -360,21 +354,22 @@ void init_network_iface(tuple root, merge m) {
         netif_dev dev = n->state;
         netif_dev_setup setup = (netif_dev_setup)&dev->setup;
         if (*setup && !apply(setup, t))
-            msg_err("failed to set up %s\n", ifname);
+            msg_err("NET: failed to set up interface %s", ifname);
         u64 mtu;
         if (t) {
             if (get_u64(t, sym(mtu), &mtu)) {
                 if (mtu < U64_FROM_BIT(16)) {
                     if (trace)
-                        rprintf("NET: setting MTU for interface %s to %ld\n", ifname, mtu);
+                        msg_print("NET: setting MTU for interface %s to %ld", ifname, mtu);
                     n->mtu = mtu;
                 } else {
-                    rprintf("NET: invalid MTU %ld for interface %s; ignored\n", mtu, ifname);
+                    msg_err("NET: invalid MTU %ld for interface %s; ignored", mtu, ifname);
                 }
             }
 
             if (get(t, sym(default))) {
-                rprintf("NET: setting interface %s as default\n", ifname);
+                if (trace)
+                    msg_print("NET: setting interface %s as default", ifname);
                 default_iface = n;
             }
         }
@@ -386,12 +381,12 @@ void init_network_iface(tuple root, merge m) {
 
         if (!t || !get_static_config(t, n, ifname, trace)) {
             if (trace)
-                rprintf("NET: starting DHCP for interface %s\n", ifname);
+                msg_print("NET: starting DHCP for interface %s", ifname);
             dhcp_start(n);
         }
         if (!t || !get_static_ip6_config(t, n, ifname, trace)) {
             if (trace)
-                rprintf("NET: starting DHCPv6 for interface %s\n", ifname);
+                msg_print("NET: starting DHCPv6 for interface %s", ifname);
             dhcp6_enable_stateful(n);
         }
         if (t) {
@@ -409,7 +404,7 @@ void init_network_iface(tuple root, merge m) {
         ip_addr_t dns_server = IPADDR4_INIT_BYTES(1, 1, 1, 1);
         dns_setserver(0, &dns_server);
     } else {
-        rprintf("NET: no network interface found\n");
+        msg_err("NET: no network interface found");
     }
 }
 

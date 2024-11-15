@@ -272,7 +272,8 @@ static void xennet_service_tx_ring(xennet_dev xd)
 
             if (tx->status != NETIF_RSP_OKAY) {
                 /* XXX counters */
-                msg_err("cons %d, tx resp id %d, status %d\n", cons, tx->id, tx->status);
+                msg_err("%s error: cons %d, tx resp id %d, status %d",
+                        func_ss, cons, tx->id, tx->status);
             }
 
             xennet_tx_page txp = xennet_get_tx_page(txb, xennet_tx_page_idx_from_id(tx->id));
@@ -543,7 +544,7 @@ static void xennet_populate_rx_ring(xennet_dev xd)
         xennet_rx_buf rxb = xennet_get_rxbuf(xd);
         if (!rxb) {
             /* not a ring underrun, but we still want to know if we're close */
-            msg_err("xennet_get_rxbuf underrun\n");
+            msg_err("xennet_get_rxbuf underrun");
             break;
         }
 
@@ -635,7 +636,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
             struct netif *n = &xd->ndev.n;
             err_enum_t err = n->input((struct pbuf *)&rxb->p, n);
             if (err != ERR_OK) {
-                msg_err("xennet: rx drop by stack, err %d\n", err);
+                msg_err("xennet: rx drop by stack, err %d", err);
                 xennet_return_rxbuf((struct pbuf *)&rxb->p);
             }
         }
@@ -840,7 +841,7 @@ closure_function(1, 3, boolean, xennet_probe,
     xennet_debug("probe for id %d, meta: %v", id, meta);
     status s = xennet_attach(bound(kh), id, frontend, meta);
     if (!is_ok(s)) {
-        msg_err("attach failed with status %v\n", s);
+        msg_err("xennet attach failed with status %v", s);
         return false;
     }
     return true;

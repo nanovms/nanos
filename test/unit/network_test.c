@@ -102,7 +102,7 @@ closure_function(8, 0, void, startconn,
 closure_func_basic(status_handler, void, connection_error,
                    status s)
 {
-    rprintf("connection error! %v\n", s);
+    msg_err("connection error %v", s);
     exit(1);
 }
 

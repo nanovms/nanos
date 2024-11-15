@@ -253,7 +253,7 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
             struct netif *n = &vn->ndev.n;
             err_enum_t err = n->input((struct pbuf *)rxb, n);
             if (err != ERR_OK) {
-                msg_err("vmxnet3: rx drop by stack, err %d\n", err);
+                msg_err("vmxnet3: rx drop by stack, err %d", err);
                 receive_buffer_release((struct pbuf *)rxb);
             }
         }

@@ -236,7 +236,7 @@ printer_init(struct ftrace_printer * p, unsigned long flags)
 {
     p->b = allocate_buffer(ftrace_heap, TRACE_PRINTER_INIT_SIZE);
     if (p->b == INVALID_ADDRESS) {
-        msg_err("failed to allocate ftrace buffer\n");
+        msg_err("ftrace: failed to allocate buffer");
         return -1;
     }
     init_timer(&p->t);
@@ -442,7 +442,7 @@ rbuf_init(struct rbuf * rbuf, unsigned long buffer_size_kb)
     rbuf->trace_array = allocate(rbuf_heap,
             sizeof(struct rbuf_entry) * rbuf->size);
     if (rbuf->trace_array == INVALID_ADDRESS) {
-        msg_err("failed to allocate ftrace trace array\n");
+        msg_err("ftrace: failed to allocate trace array");
         return -ENOMEM;
     }
     spin_lock_init(&rbuf->rb_lock);
@@ -1420,7 +1420,7 @@ FTRACE_FN(trace_pipe, events)(file f)
 static sysreturn
 FTRACE_FN(tracing_enable_on, get)(struct ftrace_printer * p)
 {
-    rprintf("ftrace recording on\n");
+    msg_info("ftrace recording on");
     tracing_on = 1;
     return 0;
 }
@@ -1429,7 +1429,7 @@ static sysreturn
 FTRACE_FN(tracing_enable_off, get)(struct ftrace_printer * p)
 {
     tracing_on = 0;
-    rprintf("ftrace recording off\n");
+    msg_info("ftrace recording off");
     return 0;
 }
 
@@ -1596,7 +1596,7 @@ ftrace_send_http_chunked_response(http_responder handler)
 
     s = send_http_chunked_response(handler, timm("ContentType", "text/html"));
     if (!is_ok(s))
-        msg_err("ftrace: failed to send HTTP response\n");
+        msg_err("ftrace: failed to send HTTP response");
 }
 
 static void
@@ -1606,7 +1606,7 @@ ftrace_send_http_response(http_responder handler, buffer b)
 
     s = send_http_response(handler, timm("ContentType", "text/html"), b);
     if (!is_ok(s))
-        msg_err("ftrace: failed to send HTTP response\n");
+        msg_err("ftrace: failed to send HTTP response");
 }
 
 static void
@@ -1619,7 +1619,7 @@ ftrace_send_http_uri_not_found(http_responder handler)
                    "<body><h1>Not Found</h1></body></html>\r\n")
     );
     if (!is_ok(s))
-        msg_err("ftrace: failed to send HTTP response\n");
+        msg_err("ftrace: failed to send HTTP response");
 }
 
 static void
@@ -1632,7 +1632,7 @@ ftrace_send_http_no_method(http_responder handler, http_method method)
                    "<body><h1>Not Implemented</h1></body></html>\r\n")
     );
     if (!is_ok(s))
-        msg_err("ftrace: failed to send HTTP response\n");
+        msg_err("ftrace: failed to send HTTP response");
 }
 
 static void
@@ -1645,7 +1645,7 @@ ftrace_send_http_server_error(http_responder handler)
                    "<body><h1>Internal Server Error</h1></body></html>\r\n")
     );
     if (!is_ok(s))
-        msg_err("ftrace: failed to send HTTP response\n");
+        msg_err("ftrace: failed to send HTTP response");
 }
 
 
@@ -1658,7 +1658,7 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
 
     /* no real error handling for http get here */
     if (ret < 0) {
-        msg_err("get failed with %d\n", ret);
+        msg_err("ftrace HTTP: get failed with %d", ret);
         return false;
     }
 
@@ -1670,7 +1670,7 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
         /* reset printer for next chunk */
         p->flags &= ~TRACE_FLAG_HEADER;
         if (printer_init(p, p->flags) < 0) {
-            msg_err("printer_init failed (alloc)\n");
+            msg_err("ftrace HTTP: printer_init failed (alloc)");
             return false;
         }
 
@@ -1699,7 +1699,7 @@ __ftrace_send_http_chunk_internal(struct ftrace_routine * routine, struct ftrace
     return false;
 
 send_http_chunk_failed:
-    msg_err("send_http_chunk failed with %v\n", s);
+    msg_err("ftrace: send_http_chunk failed with %v", s);
     return false;
 }
 
@@ -1853,7 +1853,7 @@ init_http_listener(void)
 
     ftrace_hl = allocate_http_listener(ftrace_heap, FTRACE_TRACE_PORT);
     if (ftrace_hl == INVALID_ADDRESS) {
-        msg_err("could not allocate ftrace HTTP listener\n");
+        msg_err("ftrace: could not allocate HTTP listener");
         return -1;
     }
 
@@ -1867,14 +1867,14 @@ init_http_listener(void)
         connection_handler_from_http_listener(ftrace_hl)
     );
     if (!is_ok(s)) {
-        msg_err("listen_port(port=%d) failed for ftrace HTTP listener\n",
+        msg_err("ftrace HTTP: listen_port(port=%d) failed",
             FTRACE_TRACE_PORT
         );
         deallocate_http_listener(ftrace_heap, ftrace_hl);
         return -1;
     }
 
-    rprintf("started DEBUG http listener on port %d\n", FTRACE_TRACE_PORT);
+    msg_info("ftrace: started HTTP listener on port %d", FTRACE_TRACE_PORT);
 
     return 0;
 }
@@ -1890,7 +1890,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
 
     cpu_rbufs = allocate_vector(ftrace_heap, total_processors);
     if (cpu_rbufs == INVALID_ADDRESS) {
-        msg_err("unable to allocate rbufs vector\n");
+        msg_err("ftrace: unable to allocate rbufs vector");
         return -1;
     }
     u64 per_cpu_kb = DEFAULT_TRACE_ARRAY_SIZE_KB / total_processors;
@@ -1898,7 +1898,7 @@ ftrace_init(unix_heaps uh, filesystem fs)
     vector_foreach(cpuinfos, ci) {
         struct rbuf *rb = allocate_rbuf(ftrace_heap, per_cpu_kb);
         if (rb == INVALID_ADDRESS) {
-            msg_err("unable to allocate cpu rbuf\n");
+            msg_err("ftrace: unable to allocate cpu rbuf");
             return -1;
         }
         vector_set(cpu_rbufs, ci->id, rb);
@@ -1936,7 +1936,7 @@ ftrace_cpu_init(cpuinfo ci)
         sizeof(struct ftrace_graph_entry) * FTRACE_RETFUNC_DEPTH
     );
     if (ci->graph_stack == INVALID_ADDRESS) {
-        msg_err("failed to allocare ftrace return stack array\n");
+        msg_err("ftrace: failed to allocate return stack array");
         return -ENOMEM;
     }
 

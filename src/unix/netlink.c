@@ -318,7 +318,7 @@ static void nl_enqueue(nlsock s, void *msg, u64 msg_len)
         blockq_wake_one(s->sock.rxbq);
         fdesc_notify_events(&s->sock.f);
     } else {
-        msg_err("failed to enqueue message\n");
+        msg_err("netlink: failed to enqueue message");
         deallocate(s->sock.h, msg, msg_len);
     }
 }
@@ -331,7 +331,7 @@ static void nl_enqueue_ifinfo(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
         resp_len += RTA_SPACE(netif->hwaddr_len);
     struct nlmsghdr *hdr = allocate(s->sock.h, resp_len);
     if (hdr == INVALID_ADDRESS) {
-        msg_err("failed to allocate message\n");
+        msg_err("%s: failed to allocate message", func_ss);
         return;
     }
     hdr->nlmsg_len = resp_len;
@@ -369,7 +369,7 @@ static void nl_enqueue_ifaddr(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, s
         RTA_SPACE(addr_len) + RTA_SPACE(sizeof(netif->name) + 2));
     struct nlmsghdr *hdr = allocate(s->sock.h, resp_len);
     if (hdr == INVALID_ADDRESS) {
-        msg_err("failed to allocate message\n");
+        msg_err("%s: failed to allocate message", func_ss);
         return;
     }
     hdr->nlmsg_len = resp_len;
@@ -441,7 +441,7 @@ static void nl_enqueue_rtmsg(nlsock s, u16 type, u16 flags, u32 seq, u32 pid, st
     }
     struct nlmsghdr *hdr = allocate(s->sock.h, resp_len);
     if (hdr == INVALID_ADDRESS) {
-        msg_err("failed to allocate message\n");
+        msg_err("%s: failed to allocate message", func_ss);
         return;
     }
     hdr->nlmsg_len = resp_len;
@@ -505,7 +505,7 @@ static void nl_enqueue_done(nlsock s, struct nlmsghdr *req)
 {
     struct nlmsghdr *hdr = allocate(s->sock.h, NLMSG_HDRLEN);
     if (hdr == INVALID_ADDRESS) {
-        msg_err("failed to allocate message\n");
+        msg_err("%s: failed to allocate message", func_ss);
         return;
     }
     hdr->nlmsg_len = NLMSG_HDRLEN;
@@ -521,7 +521,7 @@ static void nl_enqueue_error(nlsock s, struct nlmsghdr *msg, int errno)
     int errmsg_len = NLMSG_ALIGN(sizeof(struct nlmsghdr) + sizeof(struct nlmsgerr));
     struct nlmsghdr *hdr = allocate(s->sock.h, errmsg_len);
     if (hdr == INVALID_ADDRESS) {
-        msg_err("failed to allocate message\n");
+        msg_err("%s: failed to allocate message", func_ss);
         return;
     }
     hdr->nlmsg_len = errmsg_len;

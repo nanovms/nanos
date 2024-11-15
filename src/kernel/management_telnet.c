@@ -45,5 +45,5 @@ void init_management_telnet(heap h, value meta)
 {
     // XXX config port
     listen_port(h, 9090, closure(h, each_telnet_connection, h));
-    rprintf("Debug telnet server started on port 9090\n");
+    msg_info("Debug telnet server started on port 9090");
 }

@@ -183,7 +183,7 @@ int do_eventfd2(unsigned int count, int flags)
     }
     efd = allocate(h, sizeof(*efd));
     if (efd == INVALID_ADDRESS) {
-        msg_err("failed to allocate eventfd structure\n");
+        msg_err("eventfd: failed to allocate structure");
         goto err_efd;
     }
 
@@ -199,13 +199,13 @@ int do_eventfd2(unsigned int count, int flags)
 
     efd->read_bq = allocate_blockq(h, ss("eventfd read"));
     if (efd->read_bq == INVALID_ADDRESS) {
-        msg_err("failed to allocated blockq\n");
+        msg_err("eventfd: failed to allocate read blockq");
         goto err_read_bq;
     }
 
     efd->write_bq = allocate_blockq(h, ss("eventfd write"));
     if (efd->write_bq == INVALID_ADDRESS) {
-        msg_err("failed to allocate blockq\n");
+        msg_err("eventfd: failed to allocate write blockq");
         goto err_write_bq;
     }
 
@@ -213,7 +213,7 @@ int do_eventfd2(unsigned int count, int flags)
     efd->io_event = false;
     efd->fd = allocate_fd(current->p, efd);
     if (efd->fd == INVALID_PHYSICAL) {
-        msg_err("failed to allocate fd\n");
+        msg_err("eventfd: failed to allocate fd");
         apply(efd->f.close, 0, io_completion_ignore);
         return -EMFILE;
     }

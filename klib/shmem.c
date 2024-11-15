@@ -38,7 +38,7 @@ int init(status_handler complete)
 {
     shmem.fs = tmpfs_new();
     if (shmem.fs == INVALID_ADDRESS) {
-        rprintf("shmem: failed to create tmpfs\n");
+        msg_err("shmem: failed to create tmpfs");
         return KLIB_INIT_FAILED;
     }
     swap_syscall_handler(linux_syscalls, SYS_memfd_create, memfd_create);

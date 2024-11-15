@@ -369,7 +369,7 @@ closure_function(2, 1, void, vnet_cmd_mq_complete,
     if (s == STATUS_OK) {
         netif_set_link_up(&bound(vn)->ndev.n);
     } else {
-        msg_err("status %v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
     closure_finish();
@@ -421,7 +421,7 @@ closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
     if (dev->features & VIRTIO_NET_F_MQ) {
         max_vq_pairs = vtdev_cfg_read_2(dev, VIRTIO_NET_R_MAX_VQ);
         if (max_vq_pairs == 0) {
-            msg_err("device reports 0 virtqueue pairs\n");
+            msg_err("%s error: device reports 0 virtqueue pairs", func_ss);
             return false;
         }
         if (config && get_u64(config, sym_this("io-queues"), &vq_pairs) && (vq_pairs > 0))
@@ -453,7 +453,7 @@ closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
         int vq_index = 2 * i;
         status s = virtio_alloc_vq_aff(dev, ss("virtio net rx"), vq_index, cpu_affinity, &vq);
         if (!is_ok(s)) {
-            msg_err("failed to allocate vq: %v\n", s);
+            msg_err("%s: failed to allocate vq: %v", func_ss, s);
             timm_dealloc(s);
             goto err2;
         }
@@ -464,7 +464,7 @@ closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
         vq_index++;
         s = virtio_alloc_vq_aff(dev, ss("virtio net tx"), vq_index, cpu_affinity, &vq);
         if (!is_ok(s)) {
-            msg_err("failed to allocate vq: %v\n", s);
+            msg_err("%s: failed to allocate vq: %v", func_ss, s);
             timm_dealloc(s);
             goto err2;
         }
@@ -476,7 +476,7 @@ closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
     if (vq_pairs > 1) {
         status s = virtio_alloc_virtqueue(dev, ss("virtio net ctrl"), 2 * max_vq_pairs, &vn->ctl);
         if (!is_ok(s)) {
-            msg_err("failed to allocate vq: %v\n", s);
+            msg_err("%s: failed to allocate vq: %v", func_ss, s);
             timm_dealloc(s);
             goto err2;
         }
@@ -498,7 +498,7 @@ closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
         goto err3;
     for (u16 i = 0; i < vq_pairs; i++)
         if (post_receive(vn, vn->rx + i) == 0) {
-            msg_err("failed to fill rx queues (%d)\n", rxq_entries);
+            msg_err("%s: failed to fill rx queues (%d)", func_ss, rxq_entries);
             goto err4;
         }
     if (vq_pairs > 1) {
@@ -529,7 +529,7 @@ closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
   err1:
     deallocate(h, rx, vq_pairs * sizeof(*rx));
   err:
-    msg_err("vq pairs %d (max %d)\n", vq_pairs, max_vq_pairs);
+    msg_err("%s error: vq pairs %d (max %d)", func_ss, vq_pairs, max_vq_pairs);
     return false;
 }
 

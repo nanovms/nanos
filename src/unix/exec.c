@@ -52,7 +52,7 @@ closure_function(1, 2, boolean, fill_arguments_each,
 {
     u64 i;
     if (!u64_from_attribute(a, &i)) {
-        msg_err("arguments attribute %v is not an index\n", a);
+        msg_err("arguments attribute %v is not an index", a);
         return false;
     }
     vector_set(bound(r), i, v);
@@ -260,7 +260,7 @@ closure_function(4, 5, boolean, static_map,
     }
     return true;
   alloc_fail:
-    msg_err("failed to allocate interp vmap\n");
+    msg_err("exec: failed to allocate vmap");
     return false;
 }
 
@@ -306,7 +306,7 @@ closure_function(4, 5, boolean, faulting_map,
     }
     return true;
   alloc_fail:
-    msg_err("failed to allocate vmap\n");
+    msg_err("exec: failed to allocate vmap");
     return false;
 }
 

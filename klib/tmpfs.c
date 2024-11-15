@@ -212,7 +212,7 @@ filesystem tmpfs_new(void)
         return INVALID_ADDRESS;
     status s = filesystem_init(&fs->fs, h, 0, 1, false);
     if (!is_ok(s)) {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
         goto err_fsinit;
     }

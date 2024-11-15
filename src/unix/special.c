@@ -123,7 +123,7 @@ closure_function(1, 4, void, mounts_handler,
             }
         }
         /* something has gone wrong looking up mount point */
-        msg_err("error looking up mount point for volume '%s'\n", label);
+        msg_err("%s: error looking up mount point for volume '%s'", func_ss, label);
         b->end = saved_end;
         return;
     } else {    /* root filesystem */

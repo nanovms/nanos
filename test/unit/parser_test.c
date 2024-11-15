@@ -8,14 +8,14 @@
 /* s must be a string literal */
 #define test_strings_equal(b, s) do {        \
 if (buffer_strcmp(b, s) != 0) {                         \
-    msg_err("\"%b\" != \"%s\" -- failed at %s:%d\n", b, ss(s), file_ss, __LINE__); \
+    msg_err("%s: \"%b\" != \"%s\" -- failed at %s:%d", func_ss, b, ss(s), file_ss, __LINE__); \
     return false; \
 } \
 } while (0)
 
 #define test_no_errors() do { \
     if (errors_count) { \
-        msg_err("%d parse error(s), last: %b\n", errors_count, last_error); \
+        msg_err("%s: %d parse error(s), last: %b", func_ss, errors_count, last_error); \
     } \
     test_assert(errors_count == 0); \
 } while (0)
@@ -864,7 +864,8 @@ int main(int argc, char **argv)
     }
 
     if (failure) {
-        msg_err("Test failed\n"); exit(EXIT_FAILURE);
+        msg_err("Parser test failed");
+        exit(EXIT_FAILURE);
     }
     exit(EXIT_SUCCESS);
 }

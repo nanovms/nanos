@@ -12,7 +12,7 @@ bitmap test_alloc(heap h) {
     bitmap b = allocate_bitmap(h, h, 4096);
     bitmap_foreach_set(b, i) {
         if (i) {
-            msg_err("!!! allocation failed for bitmap\n");
+            msg_err("%s failed for bitmap", func_ss);
             return NULL; 
         }
     }
@@ -32,12 +32,12 @@ boolean test_clone(bitmap b) {
     bitmap_foreach_set(b, j) {
         // implicit test for bitmap_foreach_set
         if (!bitmap_get(b, j)) {
-            msg_err("!!! foreach_set failed for bitmap\n");
+            msg_err("%s: foreach_set failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
         if (!bitmap_get(b_cpy, j)) {
-            msg_err("!!! cloning failed for bitmap\n");
+            msg_err("%s: cloning failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
@@ -46,12 +46,12 @@ boolean test_clone(bitmap b) {
     bitmap_foreach_set(b_cpy, j) {
         // implicit test for bitmap_foreach_set
         if (!bitmap_get(b_cpy, j)) {
-            msg_err("!!! foreach_set failed for bitmap\n");
+            msg_err("%s: foreach_set failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
         if (!bitmap_get(b, j)) {
-            msg_err("!!! cloning failed for bitmap\n");
+            msg_err("%s: cloning failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
@@ -76,12 +76,12 @@ boolean test_copy(heap h, bitmap b) {
     bitmap_foreach_set(b, j) {
         // implicit test for bitmap_foreach_set
         if (!bitmap_get(b, j)) {
-            msg_err("!!! foreach_set failed for bitmap\n");
+            msg_err("%s: foreach_set failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
         if (!bitmap_get(b_cpy, j)) {
-            msg_err("!!! cloning failed for bitmap\n");
+            msg_err("%s: copy failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
@@ -90,12 +90,12 @@ boolean test_copy(heap h, bitmap b) {
     bitmap_foreach_set(b_cpy, j) {
         // implicit test for bitmap_foreach_set
         if (!bitmap_get(b_cpy, j)) {
-            msg_err("!!! foreach_set failed for bitmap\n");
+            msg_err("%s: foreach_set failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
         if (!bitmap_get(b, j)) {
-            msg_err("!!! cloning failed for bitmap\n");
+            msg_err("%s: copy failed for bitmap", func_ss);
             deallocate_bitmap(b_cpy);
             return false;
         }
@@ -112,7 +112,7 @@ boolean test_set_and_get(bitmap b) {
     u64 i = rand();
     bitmap_set(b, i, 1);
     if (!bitmap_get(b, i)) {
-        msg_err("!!! set and get failed for bitmap\n");
+        msg_err("%s failed for bitmap", func_ss);
         return false;
     }
     return true;
@@ -129,7 +129,7 @@ boolean test_wrap(heap h) {
     for (int i = 0; i < 64; i++) {
         if (((map & (1ULL << i)) && !bitmap_get(b, i)) || 
             (!(map & (1ULL << i)) && bitmap_get(b, i))) {
-            msg_err("!!! wrap failed for bitmap at bit %d | map: %ld bitmap: %ld\n", 
+            msg_err("%s: wrap failed for bitmap at bit %d | map: %ld bitmap: %ld", func_ss,
                 i, (map & (1ULL << i)), bitmap_get(b, i));
             bitmap_unwrap(b);
             return false;
@@ -150,7 +150,7 @@ boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
         first = bitmap_alloc_within_range(b, nbits, start, end);
         if (first != INVALID_PHYSICAL) {
             if (nbits > (end-start)) {
-                msg_err("!!! invalid value for nbits: %ld end-start: %ld\n", nbits, (end-start));
+                msg_err("%s: nbits (%ld) > end-start (%ld)", func_ss, nbits, (end-start));
                 return false;
             }
             break;
@@ -161,16 +161,16 @@ boolean test_bitmap_alloc(bitmap b, u64 start, u64 end) {
     // check that specified range is set properly
     for (int i = first; i < first + nbits; i++) {
         if (bitmap_get(b, i) != 1) {
-            msg_err("!!! bitmap_alloc failed for bitmap at bit %d | expected: %d actual: %d\n", 
+            msg_err("%s failed at bit %d | expected: %d actual: %d", func_ss,
                 i, 1, bitmap_get(b, i));
             if (!bitmap_dealloc(b, first, nbits))
-                msg_err("!!! bitmap_dealloc failed for bitmap\n");
+                msg_err("%s: bitmap_dealloc failed", func_ss);
             return false;
         }
     }
     // check that dealloc is successful
     if (!bitmap_dealloc(b, first, nbits)) {
-        msg_err("!!! bitmap_dealloc failed for bitmap\n");
+        msg_err("%s: bitmap_dealloc failed", func_ss);
         return false;
     }
     return true;
@@ -188,7 +188,7 @@ boolean test_range_check_set(bitmap b) {
     // check that specified range is set properly
     for (int i = start; i < start + nbits; i++) {
         if (bitmap_get(b, i) != set) {
-            msg_err("!!! range check and set failed for bitmap at bit %d | expected: %d actual: %d\n", 
+            msg_err("%s failed for bitmap at bit %d | expected: %d actual: %d", func_ss,
                 i, set, bitmap_get(b, i));
             return false;
         }
@@ -201,12 +201,12 @@ boolean test_range_get_first(bitmap b) {
         u64 first = bitmap_range_get_first(b, start, nbits);
         if (first != INVALID_PHYSICAL) {
             if (!point_in_range(irangel(start, nbits), first)) {
-                msg_err("range_get_first() returned %ld, expected range %R\n", first,
+                msg_err("%s error: returned %ld, expected range %R", func_ss, first,
                     irangel(start, nbits));
                 return false;
             }
             if (!bitmap_get(b, first)) {
-                msg_err("range_get_first() failed at bit %ld, expected 1 (start %ld, nbits %ld)\n",
+                msg_err("%s failed at bit %ld, expected 1 (start %ld, nbits %ld)", func_ss,
                     first, start, nbits);
                 return false;
             }
@@ -215,8 +215,8 @@ boolean test_range_get_first(bitmap b) {
         }
         for (u64 i = start; i < first; i++) {
             if (bitmap_get(b, i)) {
-                msg_err("range_get_first() failed at bit %ld, expected 0 "
-                    "(start %ld, nbits %ld, first %ld)\n", i, start, nbits, first);
+                msg_err("%s failed at bit %ld, expected 0 (start %ld, nbits %ld, first %ld)",
+                        func_ss, i, start, nbits, first);
                 return false;
             }
         }
@@ -272,7 +272,7 @@ int main(int argc, char **argv)
     msg_debug("test passed\n");
     exit(EXIT_SUCCESS);
   fail:
-    msg_err("test failed\n");
+    msg_err("Bitmap test failed");
     exit(EXIT_FAILURE);
 }
 

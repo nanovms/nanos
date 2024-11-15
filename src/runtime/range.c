@@ -25,7 +25,7 @@ boolean rangemap_insert(rangemap rm, rmnode n)
             break;
         range i = range_intersection(curr->r, n->r);
         if (range_span(i)) {
-            msg_warn("attempt to insert %p (%R) but overlap with %p (%R)\n",
+            msg_warn("rangemap: attempt to insert %p (%R) but overlap with %p (%R)",
                      n, n->r, curr, curr->r);
             return false;
         }

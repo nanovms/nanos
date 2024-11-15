@@ -55,7 +55,7 @@ void elf_symbols(buffer elf, elf_sym_handler each)
     }
 
     if (!symbols || !symbol_strings) {
-        msg_warn("failed: symtab not found\n");
+        msg_warn("%s failed: symtab not found", func_ss);
         return;
     }
 
@@ -70,7 +70,7 @@ void elf_symbols(buffer elf, elf_sym_handler each)
     }
     return;
   out_elf_fail:
-    msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
+    msg_err("%s: failed to parse file, len %d", func_ss, buffer_length(elf));
 }
 
 closure_function(6, 1, boolean, elf_sym_relocate,
@@ -170,7 +170,7 @@ boolean elf_dyn_parse(buffer elf, Elf64_Shdr **symtab, Elf64_Shdr **strtab, Elf6
     ELF_CHECK_PTR(*strtab, Elf64_Shdr);
     return true;
   out_elf_fail:
-    msg_err("failed to parse elf, len %d\n", buffer_length(elf));
+    msg_err("%s failed, len %d", func_ss, buffer_length(elf));
     return false;
 }
 
@@ -313,8 +313,8 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
                   p->p_memsz - p->p_filesz, flags);
         if (!apply(mapper, p->p_vaddr + load_offset, p->p_offset, p->p_filesz,
                    p->p_memsz - p->p_filesz, flags)) {
-            msg_err("call to mapper %F failed (vaddr 0x%lx, offset 0x%lx, "
-                    "data size 0x%lx, bss size 0x%lx, flags 0x%lx)\n",
+            msg_err("elf load: call to mapper %F failed (vaddr 0x%lx, offset 0x%lx, "
+                    "data size 0x%lx, bss size 0x%lx, flags 0x%lx)",
                     mapper, p->p_vaddr + load_offset, p->p_offset, p->p_filesz,
                     p->p_memsz - p->p_filesz, flags);
             goto out_elf_fail;
@@ -324,7 +324,7 @@ void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper)
     elf_debug("   done; entry 0x%lx\n", entry);
     return pointer_from_u64(entry);
   out_elf_fail:
-    msg_err("failed to parse elf file, len %d; check file image consistency\n", buffer_length(elf));
+    msg_err("elf load: failed to parse file, len %d", buffer_length(elf));
     return INVALID_ADDRESS;
 }
 

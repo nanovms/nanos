@@ -65,7 +65,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
     if (ir == INVALID_ADDRESS)
 	return ir;
     if (!rangemap_insert(i->ranges, &ir->n)) {
-        msg_err("range insertion failure; conflict with range %R\n", ir->n.r);
+        msg_err("%s failed: conflict with range %R", func_ss, ir->n.r);
         goto fail;
     }
 
@@ -77,7 +77,7 @@ static id_range id_add_range(id_heap i, u64 base, u64 length)
 
     ir->b = allocate_bitmap(i->meta, i->map, pages + page_start_mask);
     if (ir->b == INVALID_ADDRESS) {
-        msg_err("failed to allocate bitmap for range %R\n", ir->n.r);
+        msg_err("%s: failed to allocate bitmap for range %R", func_ss, ir->n.r);
         goto fail;
     }
     if (page_start_mask)
@@ -195,7 +195,7 @@ closure_function(2, 1, boolean, dealloc_from_range,
     u64 pages = range_span(ri);
     int order = find_order(pages);
     if (!bitmap_dealloc(r->b, bit, pages)) {
-        msg_err("heap %p: bitmap dealloc for range %R failed; leaking\n", i, q);
+        msg_err("id heap %p: bitmap dealloc for range %R failed; leaking", i, q);
         return false;
     }
     u64 pages_rounded = U64_FROM_BIT(order);
@@ -216,7 +216,7 @@ closure_function(2, 1, boolean, dealloc_gap,
                  id_heap, h, range, q,
                  range r)
 {
-    msg_err("heap %p: gap %R found while deallocating %R\n", bound(h), r, bound(q));
+    msg_err("id heap %p: gap %R found while deallocating %R", bound(h), r, bound(q));
     return false;
 }
 
@@ -228,7 +228,7 @@ static inline void id_dealloc(heap h, u64 a, bytes count)
 	return;
 
     if ((a & page_mask(i)) != 0 || (count & page_mask(i)) != 0) {
-        msg_err("heap %p: a 0x%lx, count 0x%lx not page-aligned; leaking\n", h, a, count);
+        msg_err("id heap %p: a 0x%lx, count 0x%lx not page-aligned; leaking", h, a, count);
         return;
     }
 
@@ -236,7 +236,7 @@ static inline void id_dealloc(heap h, u64 a, bytes count)
     rmnode_handler nh = stack_closure(dealloc_from_range, i, q);
     range_handler rh = stack_closure(dealloc_gap, i, q);
     if (rangemap_range_lookup_with_gaps(i->ranges, q, nh, rh) == RM_ABORT)
-        msg_err("failed, ra %p\n", __builtin_return_address(0));
+        msg_err("%s failed, ra %p", func_ss, __builtin_return_address(0));
 }
 
 closure_function(1, 1, boolean, destruct_id_range,
@@ -298,7 +298,7 @@ closure_function(2, 1, boolean, set_gap,
                  range r)
 {
     /* really no reason to ever set across ranges, so we should know if it happens... */
-    msg_err("heap: %p, gap %R found while setting %R\n", bound(i), r, bound(q));
+    msg_err("id heap %p: gap %R found while setting %R", bound(i), r, bound(q));
     return false;
 }
 

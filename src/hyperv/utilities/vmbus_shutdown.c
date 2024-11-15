@@ -135,7 +135,7 @@ closure_function(1, 3, boolean, vmbus_shutdown_probe,
 {
     status s = vmbus_shutdown_attach(bound(kh), device);
     if (!is_ok(s)) {
-        msg_err("attach failed with status %v\n", s);
+        msg_err("vmbus_shutdown attach failed with status %v", s);
         return false;
     }
     return true;

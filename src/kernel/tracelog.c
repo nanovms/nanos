@@ -187,8 +187,8 @@ static void close_trace_entry(cpuinfo ci, tracelog_buffer tb)
                    isstring(te->str, te->str_len));
     buffer_produce(b, TRACELOG_ENTRY_SIZE - entry_len);
     if (!buffer_extend(b, TRACELOG_ENTRY_SIZE)) { /* for next */
-        msg_err("failed to extend tracelog buffer; reduce collate threshold, reduce "
-                "volume of traces or increase memory; disabling tracing\n");
+        msg_err("tracelog: failed to extend buffer; reduce collate threshold, reduce "
+                "volume of traces or increase memory; disabling tracing");
         /* TODO consider eating up oldest entries to keep system alive through shutdown */
         tracelog.disabled = true;
     }
@@ -332,7 +332,8 @@ closure_function(4, 1, void, tracelog_file_write_complete,
                  status s)
 {
     if (!is_ok(s))
-        msg_err("failed to %s tracelog: %v\n", bound(flushing) ? ss("flush") : ss("write to"), s);
+        msg_err("tracelog: failed to %s log: %v", bound(flushing) ? ss("flush") : ss("write to"),
+                s);
     if (bound(flushing)) {
         async_apply_status_handler(bound(complete), s);
         closure_finish();
@@ -396,7 +397,7 @@ static void tracelog_file_write(status_handler complete)
   fail_dealloc_sg:
     deallocate_sg_list(sg);
   fail:
-    msg_err("out of memory\n");
+    msg_err("%s: out of memory", func_ss);
     if (complete)
         async_apply_status_handler(complete, timm_oom);
 }
@@ -423,7 +424,7 @@ static void tracelog_collate(status_handler complete)
         cpuinfo ci = cpuinfo_from_id(i);
         tracelog_buffer nb = tracelog.disabled ? 0 : allocate_tracelog_buffer_locked();
         if (nb == INVALID_ADDRESS) {
-            msg_err("failed to allocate tracelog buffer for cpu %d; disabling tracing\n", i);
+            msg_err("%s: failed to allocate buffer for cpu %d; disabling tracing", func_ss, i);
             tracelog.disabled = true;
             nb = 0;
         }
@@ -449,7 +450,7 @@ static void tracelog_collate(status_handler complete)
         }
         continue;
       timeout:
-        msg_err("timeout while waiting for busy tracelog buffer on cpu %d\n", i);
+        msg_err("%s: timeout while waiting for busy buffer on cpu %d", func_ss, i);
     }
 
     tracelog_buffer tb;
@@ -479,7 +480,7 @@ closure_func_basic(thunk, void, tracelog_collator)
     tracelog_collate(0);
 }
 
-#define catch_err(s) do {if (!is_ok(s)) msg_err("tracelog: failed to send HTTP response: %v\n", (s));} while(0)
+#define catch_err(s) do {if (!is_ok(s)) msg_err("tracelog: failed to send HTTP response: %v", (s));} while(0)
 
 static inline void tracelog_send_http_response(http_responder handler, buffer b)
 {
@@ -605,9 +606,9 @@ static void init_tracelog_http_listener(void)
     connection_handler ch = connection_handler_from_http_listener(tracelog.http_listener);
     status s = listen_port(tracelog.h, TRACELOG_HTTP_PORT, ch);
     if (is_ok(s)) {
-        rprintf("started tracelog http listener on port %d\n", TRACELOG_HTTP_PORT);
+        msg_info("tracelog: started HTTP listener on port %d", TRACELOG_HTTP_PORT);
     } else {
-        msg_err("listen_port() (port %d) failed for tracelog HTTP listener\n",
+        msg_err("tracelog HTTP: listen_port() (port %d) failed",
                 TRACELOG_HTTP_PORT);
         deallocate_http_listener(tracelog.h, tracelog.http_listener);
     }
@@ -627,7 +628,7 @@ static void init_tracelog_file_writer(value v)
     fsfile fsf;
 
     if (!is_string(v)) {
-        msg_err("invalid tracelog filename: %v\n", v);
+        msg_err("tracelog: invalid filename: %v", v);
         return;
     }
     filesystem fs = get_root_fs();
@@ -636,7 +637,7 @@ static void init_tracelog_file_writer(value v)
                                       buffer_to_sstring((buffer)v),
                                       true, true, false, false, &file, &fsf);
     if (s < 0) {
-        msg_err("failed to open tracelog file: %s\n", string_from_errno(-s));
+        msg_err("tracelog: failed to open file: %s", string_from_errno(-s));
         return;
     }
     filesystem_put_node(fs, file);
@@ -645,7 +646,7 @@ static void init_tracelog_file_writer(value v)
     tracelog.file_offset = fsfile_get_length(tracelog.logfile); /* append */
     add_shutdown_completion(closure_func(tracelog.h, shutdown_handler, tracelog_shutdown_handler));
     schedule_collator_timer();
-    rprintf("tracelog file opened, offset %ld\n", tracelog.file_offset);
+    msg_info("tracelog file opened, offset %ld", tracelog.file_offset);
 }
 
 void init_tracelog_config(tuple root)
@@ -659,7 +660,7 @@ void init_tracelog_config(tuple root)
     if (get(tl, sym(disable))) {
         /* don't trace on startup */
         tracelog.disabled = true;
-        rprintf("tracelog disabled on start\n");
+        msg_info("tracelog disabled on start");
     }
 
     bytes alloc_size;

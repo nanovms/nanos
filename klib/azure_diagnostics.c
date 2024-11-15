@@ -75,7 +75,7 @@ static boolean azure_metric_get_interval(tuple metrics, sstring name, const u64 
     u64 interval;
     if (get_u64(metrics, sym_sstring(name), &interval)) {
         if (interval < min_value) {
-            rprintf("Azure diagnostics: invalid metrics %s (minimum allowed value %ld seconds)\n",
+            msg_err("Azure diagnostics: invalid metrics %s (minimum allowed value %ld seconds)",
                     name, min_value);
             return false;
         }
@@ -158,11 +158,11 @@ static void azdiag_resolve_cb(sstring name, const ip_addr_t *addr, void *cb_arg)
     if (addr) {
         azdiag_debug("connecting to server (%F)", ch);
         if (tls_connect((ip_addr_t *)addr, 443, ch) < 0) {
-            msg_err("failed to connect to server %s\n", name);
+            msg_err("%s: failed to connect to server %s", func_ss, name);
             apply(ch, 0);
         }
     } else {
-        msg_err("failed to resolve server name %s\n", name);
+        msg_err("%s: failed to resolve server name %s", func_ss, name);
         apply(ch, 0);
     }
 }
@@ -193,7 +193,7 @@ static boolean azure_metrics_table_post(az_diag diag, sstring resource, buffer c
     status s = http_request(diag->h, diag->metrics.out, HTTP_REQUEST_METHOD_POST, req, body);
     boolean success = is_ok(s);
     if (!success) {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
     deallocate_value(req);
@@ -253,7 +253,7 @@ closure_func_basic(status_handler, void, azdiag_setup_complete,
          * instance startup (a few seconds might elapse before the network interface acquires a DHCP
          * address). */
         if (setup->retry_backoff > seconds(2))
-            msg_err("%v\n", s);
+            msg_err("%s error %v", func_ss, s);
         else
             azdiag_debug("setup error %v, retrying", s);
 
@@ -268,7 +268,7 @@ closure_func_basic(status_handler, void, azdiag_setup_complete,
                            false, 0, setup_retry);
             return;
         } else {
-            msg_err("out of memory\n");
+            msg_err("%s: out of memory", func_ss);
         }
     }
     deallocate(h, setup, sizeof(*setup));
@@ -357,12 +357,12 @@ static boolean azure_metrics_post(az_diag diag)
 {
     timestamp ts = diag->metrics.ts;
     if ((ts >= diag->metrics.table_switch) && !azure_metrics_table_switch(diag)) {
-        msg_err("failed to create table\n");
+        msg_err("%s: failed to create table", func_ss);
         return false;
     }
     buffer b = allocate_buffer(diag->h, 1024);
     if (b == INVALID_ADDRESS) {
-        msg_err("out of memory\n");
+        msg_err("%s: out of memory", func_ss);
         return false;
     }
     u64 secs = sec_from_timestamp(ts);
@@ -419,7 +419,7 @@ closure_func_basic(input_buffer_handler, boolean, azure_metrics_in_handler,
             if (!diag->metrics.out)
                 return true;
         } else {
-            msg_err("failed to parse response: %v\n", s);
+            msg_err("%s: failed to parse response: %v", func_ss, s);
             timm_dealloc(s);
             apply(diag->metrics.out, 0);
             return true;
@@ -449,13 +449,13 @@ closure_func_basic(value_handler, void, azure_metrics_value_handler,
         }
         if (i == _countof(expected_codes)) {
             if (status_code == 403)
-                rprintf("Azure: invalid storage account SAS token\n");
+                msg_err("Azure: invalid storage account SAS token");
             else
                 status_code = 0;
         }
     }
     if (!status_code)
-        msg_err("unexpected response %v\n", v);
+        msg_err("%s: unexpected response %v", func_ss, v);
     apply(diag->metrics.out, 0);
     diag->metrics.out = 0;  /* signal to input buffer handler that connection is closed */
 }
@@ -474,8 +474,8 @@ int azure_diag_init(tuple cfg)
     tuple metrics = get_tuple(cfg, sym_this("metrics"));
     if (metrics) {
         if (!diag->storage_account || !diag->storage_account_sas) {
-            rprintf("Azure diagnostics: missing storage account or SAS token, "
-                    "required for metrics\n");
+            msg_err("Azure diagnostics: missing storage account or SAS token, "
+                    "required for metrics");
             return KLIB_INIT_FAILED;
         }
         if (!azure_metric_get_interval(metrics, ss("sample_interval"), 15, 15,
@@ -524,7 +524,7 @@ int azure_diag_init(tuple cfg)
         extension->name = ss("Microsoft.Azure.Diagnostics.LinuxDiagnostic");
         extension->version = ss("3.0.142");
         if (!azure_register_ext(extension)) {
-            rprintf("Azure diagnostics: failed to register extension\n");
+            msg_err("Azure diagnostics: failed to register extension");
             return KLIB_INIT_FAILED;
         }
         azdiag_setup_s setup = allocate(h, sizeof(*setup));

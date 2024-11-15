@@ -319,7 +319,7 @@ static boolean gve_adminq_execute_cmd(gve adapter, struct gve_adminq_command *cm
 {
     u32 index = gve_adminq_issue_cmd(adapter);
     if (!gve_adminq_wait(adapter, index)) {
-        msg_err("command %d timed out\n", be32toh(cmd->opcode));
+        msg_err("%s: command %d timed out", func_ss, be32toh(cmd->opcode));
         return false;
     }
     read_barrier();
@@ -544,7 +544,7 @@ closure_func_basic(thunk, void, gve_rx_service)
         if (length <= GVE_RX_PADDING)
             continue;
         if (desc->flags_seq & (GVE_RXF_ERR | GVE_RXF_PKT_CONT)) {
-            msg_err("unexpected flags 0x%x\n", desc->flags_seq);
+            msg_err("%s: unexpected flags 0x%x", func_ss, desc->flags_seq);
             continue;
         }
         u32 qpl_index = rx->qpl_head + rx->qpl_available;
@@ -565,7 +565,7 @@ closure_func_basic(thunk, void, gve_rx_service)
             if (p) {
                 pbuf_take(p, payload, length);
             } else {
-                msg_err("failed to allocate pbuf\n");
+                msg_err("%s: failed to allocate pbuf", func_ss);
                 continue;
             }
         }
@@ -796,19 +796,19 @@ static boolean gve_init(gve adapter)
     pci_bar_write_4(&adapter->reg_bar, GVE_REG_ADMINQ_PFN,
                     htobe32(physical_from_virtual(adapter->adminq) >> PAGELOG));
     if (!gve_describe_device(adapter)) {
-        msg_err("failed to describe device\n");
+        msg_err("GVE: failed to describe device");
         goto err1;
     }
     if (!gve_cfg_device_resources(adapter)) {
-        msg_err("failed to configure device resources\n");
+        msg_err("GVE: failed to configure device resources");
         goto err1;
     }
     if (!gve_init_interrupts(adapter)) {
-        msg_err("failed to initialize interrupts\n");
+        msg_err("GVE: failed to initialize interrupts");
         goto err2;
     }
     if (!gve_setup_queues(adapter)) {
-        msg_err("failed to set up TX/RX queues\n");
+        msg_err("GVE: failed to set up TX/RX queues");
         goto err3;
     }
     return true;

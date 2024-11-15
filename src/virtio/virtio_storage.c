@@ -166,7 +166,7 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
     vqmsg_commit(vq, m, c);
     return;
   out_inval:
-    msg_err("%s", err);               /* yes, bark */
+    msg_err("vtblk R/W error: %s", err);
     apply(sh, timm("result", "%s", err));
 }
 

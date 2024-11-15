@@ -1081,7 +1081,7 @@ static void filebacked_test(heap h)
     sha256(sha, b);
     munmap(p, PAGESIZE);
     if (!buffer_compare(sha, test)) {
-        rprintf("   sha mismatch for faulted page: %X\n", sha);
+        msg_err("%s: sha mismatch for faulted page: %X", func_ss, sha);
         close(fd);
         exit(EXIT_FAILURE);
     }
@@ -1126,7 +1126,7 @@ static void filebacked_test(heap h)
     munmap(p, PAGESIZE);
     close(fd);
     if (!buffer_compare(sha, test)) {
-        rprintf("   sha mismatch for faulted page 2: %X\n", sha);
+        msg_err("%s: sha mismatch for faulted page 2: %X", func_ss, sha);
         close(fd);
         exit(EXIT_FAILURE);
     }

@@ -154,7 +154,7 @@ void ingest_extent(tfsfile f, symbol off, tuple value)
     tfs fs = tfs_from_file(f);
     if (!filesystem_reserve_storage(fs, storage_blocks)) {
         /* soft error... */
-        msg_err("unable to reserve storage blocks %R\n", storage_blocks);
+        msg_err("TFS %s: unable to reserve storage blocks %R", func_ss, storage_blocks);
     }
     range r = irangel(file_offset, length);
     extent ex = allocate_extent(fs->fs.h, r, storage_blocks);
@@ -427,7 +427,7 @@ static void destroy_extent(tfs fs, extent ex)
 {
     range q = irangel(ex->start_block, ex->allocated);
     if (!filesystem_free_storage(fs, q))
-        msg_err("failed to mark extent at %R as free", q);
+        msg_err("TFS: failed to mark extent at %R as free", q);
     if (ex->uninited && ex->uninited != INVALID_ADDRESS)
         refcount_release(&ex->uninited->refcount);
     deallocate(fs->fs.h, ex, sizeof(*ex));
@@ -1069,7 +1069,7 @@ int filesystem_mkentry(filesystem fs, tuple cwd, sstring fp, tuple entry, boolea
                     continue;
                 }
 
-                msg_err("a path component (\"%s\") is missing\n", token);
+                msg_err("%s: a path component (\"%s\") is missing", func_ss, token);
                 status = -ENOENT;
                 break;
             }
@@ -1237,7 +1237,7 @@ closure_func_basic(status_handler, void, tfsfile_sync_complete,
                    status s)
 {
     if (!is_ok(s)) {
-        msg_err("failed to purge page cache node: %v\n", s);
+        msg_err("TFS: failed to purge page cache node: %v", s);
         timm_dealloc(s);
     }
     tfsfile f = (tfsfile)struct_from_closure(fsfile, sync_complete);

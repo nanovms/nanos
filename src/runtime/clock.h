@@ -83,7 +83,8 @@ static inline timestamp now(clock_id id)
         s64 interval = t - last_raw;
         t += clock_freq_adjust(interval);
         if (t < last_raw) {
-            msg_err("t(%T) < last_raw(%T) after freq adjust (%f)\n", t, last_raw, __vdso_dat->base_freq);
+            msg_err("%s error: t(%T) < last_raw(%T) after freq adjust (%f)",
+                    func_ss, t, last_raw, __vdso_dat->base_freq);
             t = last_raw;
         }
         switch (id) {

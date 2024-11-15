@@ -54,7 +54,7 @@ static void netconsole_config(void *_d, tuple r)
     netconsole_driver nd = _d;
     nd->pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
     if (!nd->pcb) {
-        msg_err("failed to allocate pcb\n");
+        msg_err("netconsole: failed to allocate pcb");
         return;
     }
 
@@ -62,23 +62,23 @@ static void netconsole_config(void *_d, tuple r)
     sstring b = dst_ip ? buffer_to_sstring(dst_ip) : ss(DEFAULT_IP);
 
     if (b.len > IPADDR_STRLEN_MAX) {
-        msg_err("ip address too long\n");
+        msg_err("netconsole: ip address too long");
         return;
     }
 
     if (!ipaddr_aton(b, &nd->dst_ip)) {
-        msg_err("failed to translate ip address\n");
+        msg_err("netconsole: failed to translate ip address");
         return;
     }
 
     buffer dst_port = get(r, sym(netconsole_port));
     u64 port = DEFAULT_PORT;
     if (dst_port && !parse_int(dst_port, 10, &port)) {
-        msg_err("failed to parse port\n");
+        msg_err("netconsole: failed to parse port");
         return;
     }
     if (port >= U64_FROM_BIT(16)) {
-        msg_err("port out of range\n");
+        msg_err("netconsole: port out of range");
         return;
     }
     nd->port = (u16)port;

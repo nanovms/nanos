@@ -447,7 +447,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
                     if (breakpoint_remove(g->h, addr, closure(g->h, send_ok, g)))
                         return false;
                     else {
-                        rprintf("hardware breakpoint could not be found\n");
+                        msg_err("gdbserver: hardware breakpoint could not be found");
                         bprintf(output, "E08");
                     }
                 }
@@ -462,7 +462,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
             check(b, ',');
             parse_hex_pair(b, &addr, &length);
             if (addr >= USER_LIMIT) {
-                rprintf("kernel breakpoints not currently allowed\n");
+                msg_err("gdbserver: kernel breakpoints not currently allowed");
                 bprintf(output, "E08");
                 break;
             }
@@ -472,7 +472,7 @@ static boolean handle_request(gdb g, buffer b, buffer output)
                     if (breakpoint_insert(g->h, addr, 0, 8, closure(g->h, send_ok, g)))
                         return false;
                     else {
-                        rprintf("maximum number of hardware breakpoints reached\n");
+                        msg_err("gdbserver: maximum number of hardware breakpoints reached");
                         bprintf(output, "E08");
                     }
                 }

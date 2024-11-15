@@ -500,8 +500,10 @@ closure_function(5, 1, void, file_read_complete,
                  sg_list, sg, range, r, file, f, boolean, is_file_offset, io_completion, completion,
                  status s)
 {
-    thread t = current;
-    thread_log(t, "%s: status %v", func_ss, s);
+    if (!is_ok(s)) {
+        sstring err_string = string_from_errno(-sysreturn_from_fs_status_value(s));
+        msg_info("file read error: %s, status %v", err_string, s);
+    }
     file_io_complete(bound(f), bound(r), bound(is_file_offset), bound(sg), bound(completion),
                      s);
     closure_finish();
@@ -611,8 +613,10 @@ closure_function(6, 1, void, file_write_complete,
     }
     sg_list sg = bound(sg);
     io_completion completion = bound(completion);
-    thread_log(current, "%s: f %p, sg, %p, completion %F, status %v",
-               func_ss, f, sg, completion, s);
+    if (!is_ok(s)) {
+        sstring err_string = string_from_errno(-sysreturn_from_fs_status_value(s));
+        msg_info("file write error: %s, status %v", err_string, s);
+    }
     file_io_complete(f, bound(r), bound(is_file_offset), sg, completion, s);
     closure_finish();
 }
@@ -981,9 +985,6 @@ sysreturn dup3(int oldfd, int newfd, int flags)
     }
 
     /* Setting file descriptor flags on newfd is not supported. */
-    if (flags & O_CLOEXEC) {
-        msg_warn("close-on-exec flag not supported, ignored\n");
-    }
     return dup2(oldfd, newfd);
 }
 
@@ -1959,7 +1960,7 @@ sysreturn close(int fd)
     if (fetch_and_add(&f->refcnt, -2) == 2) {
         if (f->close)
             return apply(f->close, get_current_context(current_cpu()), syscall_io_complete);
-        msg_err("no close handler for fd %d\n", fd);
+        msg_err("close: no handler for fd %d", fd);
     }
 
     return 0;

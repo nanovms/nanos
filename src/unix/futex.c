@@ -32,14 +32,14 @@ static struct futex * soft_create_futex(process p, u64 key)
 
     f = allocate(h, sizeof(struct futex));
     if (f == INVALID_ADDRESS) {
-        msg_err("failed to allocate futex\n");
+        msg_err("futex: failed to allocate structure");
         goto out;
     }
 
     f->h = h;
     f->bq = allocate_blockq(f->h, ss("futex"));
     if (f->bq == INVALID_ADDRESS) {
-        msg_err("failed to allocate futex blockq\n");
+        msg_err("futex: failed to allocate blockq");
         deallocate(f->h, f, sizeof(struct futex));
         f = INVALID_ADDRESS;
         goto out;
@@ -302,14 +302,9 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         return rv;
     }
 
-    case FUTEX_REQUEUE: rprintf("futex_requeue not implemented\n"); break;
-    case FUTEX_WAKE_BITSET: rprintf("futex_wake_bitset not implemented\n"); break;
-    case FUTEX_LOCK_PI: rprintf("futex_lock_pi not implemented\n"); break;
-    case FUTEX_TRYLOCK_PI: rprintf("futex_trylock_pi not implemented\n"); break;
-    case FUTEX_UNLOCK_PI: rprintf("futex_unlock_pi not implemented\n"); break;
-    case FUTEX_CMP_REQUEUE_PI: rprintf("futex_cmp_requeue_pi not implemented\n"); break;
-    case FUTEX_WAIT_REQUEUE_PI: rprintf("futex_wait_requeue_pi not implemented\n"); break;
-    default: rprintf("futex op %d not implemented\n", op); break;
+    default:
+        msg_err("futex op %d not implemented", op);
+        break;
     }
 
     return set_syscall_error(current, ENOSYS);

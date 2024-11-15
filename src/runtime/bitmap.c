@@ -191,13 +191,13 @@ boolean bitmap_dealloc(bitmap b, u64 bit, u64 size)
     assert(mapbase);
 
     if (bit + size > b->maxbits) {
-	msg_err("bitmap %p, bit %ld, order %ld: exceeds bit length %ld\n",
+	msg_err("bitmap %p, bit %ld, order %ld: exceeds bit length %ld",
 		b, bit, order, b->maxbits);
 	return false;
     }
 
     if (!for_range_in_map(mapbase, bit, size, false, true)) {
-	msg_err("bitmap %p, bit %ld, order %ld: not allocated in map; leaking\n",
+	msg_err("bitmap %p, bit %ld, order %ld: not allocated in map; leaking",
 		b, bit, order);
 	return false;
     }

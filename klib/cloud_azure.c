@@ -75,7 +75,7 @@ closure_func_basic(timer_handler, void, az_report_th,
     if (is_ok(s)) {
         az->goalstate_pending = true;
     } else {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
 }
@@ -85,7 +85,7 @@ static void az_report_status(azure az)
     heap h = az->h;
     buffer blob = allocate_buffer(h, KB);
     if (blob == INVALID_ADDRESS) {
-        msg_err("out of memory\n");
+        msg_err("%s: out of memory", func_ss);
         return;
     }
     status s;
@@ -169,7 +169,7 @@ static void az_report_status(azure az)
     s = net_http_req(req_params);
   done:
     if (!is_ok(s)) {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
         deallocate_buffer(blob);
     }
@@ -184,7 +184,7 @@ closure_func_basic(value_handler, void, az_get_ext_vh,
     deallocate_value(req_data->req);
     deallocate(az->h, req_data, sizeof(*req_data));
     if (!v) {
-        msg_err("failed to get response\n");
+        msg_err("%s: failed to get response", func_ss);
         return;
     }
     buffer content = get(v, sym(content));
@@ -277,10 +277,10 @@ closure_func_basic(value_handler, void, az_get_ext_vh,
         return;
     }
   parse_error:
-    msg_err("failed to parse response\n");
+    msg_err("%s: failed to parse response", func_ss);
     return;
   alloc_error:
-    msg_err("out of memory\n");
+    msg_err("%s: out of memory", func_ss);
 }
 
 static void az_get_ext_config(azure az)
@@ -330,7 +330,7 @@ static void az_get_ext_config(azure az)
     if (req_data != INVALID_ADDRESS)
         deallocate(h, req_data, sizeof(*req_data));
     if (!is_ok(s)) {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
 }
@@ -340,7 +340,7 @@ closure_func_basic(value_handler, void, az_status_upload_vh,
 {
     azure az = struct_from_closure(azure, status_upload.vh);
     if (!v) {
-        msg_err("failed to get response\n");
+        msg_err("%s: failed to get response", func_ss);
         return;
     }
     value start_line = get(v, sym(start_line));
@@ -355,12 +355,12 @@ closure_func_basic(value_handler, void, az_status_upload_vh,
         if (is_ok(s)) {
             az->status_upload.last_update = kern_now(CLOCK_ID_REALTIME);
         } else {
-            msg_err("failed to upload blob page: %v\n", s);
+            msg_err("%s: failed to upload blob page: %v", func_ss, s);
             timm_dealloc(s);
             deallocate_buffer(req_params->body);
         }
     } else {
-        msg_err("unexpected response %v\n", v);
+        msg_err("%s: unexpected response %v", func_ss, v);
     }
 }
 
@@ -370,7 +370,7 @@ closure_func_basic(value_handler, void, az_goalstate_vh,
     azure az = struct_from_closure(azure, goalstate_vh);
     az->goalstate_pending = false;
     if (!v) {
-        msg_err("failed to get response\n");
+        msg_err("%s: failed to get response", func_ss);
         return;
     }
     buffer content = get(v, sym(content));
@@ -415,7 +415,7 @@ closure_func_basic(value_handler, void, az_goalstate_vh,
         return;
     }
   exit:
-    msg_err("failed to parse response %v\n", v);
+    msg_err("%s: failed to parse response %v", func_ss, v);
 }
 
 closure_func_basic(value_handler, void, az_ready_vh,

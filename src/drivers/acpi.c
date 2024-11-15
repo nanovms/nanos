@@ -102,7 +102,7 @@ closure_function(1, 0, void, acpi_eject,
     arg_list.Pointer = &arg;
     ACPI_STATUS rv = AcpiEvaluateObject(device, "_EJ0", &arg_list, NULL);
     if (ACPI_FAILURE(rv))
-        msg_err("failed to eject device (%d)\n", rv);
+        msg_err("ACPI: failed to eject device (%d)", rv);
     closure_finish();
 }
 
@@ -119,7 +119,7 @@ static void acpi_pci_notify(ACPI_HANDLE device, UINT32 value, void *context)
     ACPI_STATUS rv = AcpiEvaluateObjectTyped(device, METHOD_NAME__ADR, NULL,
                                              &retb, ACPI_TYPE_INTEGER);
     if (ACPI_FAILURE(rv)) {
-        msg_err("failed to get device address (%d)\n", rv);
+        msg_err("%s: failed to get device address (%d)", func_ss, rv);
         return;
     }
     u32 adr = obj.Integer.Value;
@@ -135,7 +135,7 @@ static void acpi_pci_notify(ACPI_HANDLE device, UINT32 value, void *context)
         if (complete != INVALID_ADDRESS)
             pci_remove_device(&dev, complete);
         else
-            msg_err("failed to allocate device ejection closure\n");
+            msg_err("%s: failed to allocate device ejection closure", func_ss);
         break;
     }
 }
@@ -183,7 +183,7 @@ static ACPI_STATUS acpi_device_handler(ACPI_HANDLE object, u32 nesting_level, vo
             if (ACPI_SUCCESS(rv))
                 pci_bridge_set_iomem(ctx.bridge_window, iomem);
             else
-                msg_err("cannot retrieve PCI root bridge resources: %d\n", rv);
+                msg_err("ACPI: cannot retrieve PCI root bridge resources: %d", rv);
         }
         ACPI_FREE(dev_info);
     }
@@ -202,7 +202,7 @@ static ACPI_STATUS acpi_device_handler(ACPI_HANDLE object, u32 nesting_level, vo
             rv = AcpiInstallNotifyHandler(object, ACPI_SYSTEM_NOTIFY, acpi_pci_notify,
                                           pointer_from_u64(parent_info->Address));
             if (ACPI_FAILURE(rv))
-                msg_err("cannot install PCI notify handler: %d\n", rv);
+                msg_err("ACPI: cannot install PCI notify handler: %d", rv);
         }
         ACPI_FREE(parent_info);
     }
@@ -229,22 +229,22 @@ static UINT32 acpi_sleep(void *context)
     const u64 sleep_state = 3;  /* S3 state */
     ACPI_STATUS rv = AcpiEnterSleepStatePrep(sleep_state);
     if (ACPI_FAILURE(rv)) {
-        msg_err("failed to prepare to sleep (%d)\n", rv);
+        msg_err("ACPI: failed to prepare to sleep (%d)", rv);
         goto exit;
     }
     rv = AcpiEnterSleepState(sleep_state);
     if (ACPI_FAILURE(rv)) {
-        msg_err("failed to enter sleep state (%d)\n", rv);
+        msg_err("ACPI: failed to enter sleep state (%d)", rv);
         goto exit;
     }
     rv = AcpiLeaveSleepStatePrep(sleep_state);
     if (ACPI_FAILURE(rv)) {
-        msg_err("failed to prepare to leave sleep state (%d)\n", rv);
+        msg_err("ACPI: failed to prepare to leave sleep state (%d)", rv);
         goto exit;
     }
     rv = AcpiLeaveSleepState(sleep_state);
     if (ACPI_FAILURE(rv))
-        msg_err("failed to leave sleep state (%d)\n", rv);
+        msg_err("ACPI: failed to leave sleep state (%d)", rv);
   exit:
     return ACPI_INTERRUPT_HANDLED;
 }
@@ -292,7 +292,7 @@ static ACPI_STATUS acpi_pwrbtn_probe(ACPI_HANDLE object, u32 nesting_level, void
     ACPI_STATUS rv = AcpiInstallNotifyHandler(object, ACPI_DEVICE_NOTIFY,
                                               acpi_pwrbtn_handler, NULL);
     if (ACPI_FAILURE(rv))
-        msg_err("failed to install power button handler: %d\n", rv);
+        msg_err("ACPI: failed to install power button handler: %d", rv);
     return rv;
 }
 
@@ -332,7 +332,7 @@ static ACPI_STATUS acpi_ged_res_probe(ACPI_RESOURCE *resource, void *context)
             default:
                 rv = AcpiGetHandle(context, "_EVT", &event);
                 if (ACPI_FAILURE(rv)) {
-                    msg_err("failed to locate _EVT method: %d\n", rv);
+                    msg_err("ACPI GED: failed to locate _EVT method: %d", rv);
                     return rv;
                 }
             }

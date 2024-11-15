@@ -5,31 +5,31 @@ static boolean klib_test_rw_spinlock(void)
     struct rw_spinlock l;
     spin_rw_lock_init(&l);
     if (!spin_tryrlock(&l)) {
-        msg_err("couldn't rlock unlocked spinlock\n");
+        msg_err("%s: couldn't rlock unlocked spinlock", func_ss);
         return false;
     }
     if (spin_trywlock(&l)) {
-        msg_err("could wlock rlocked spinlock\n");
+        msg_err("%s: could wlock rlocked spinlock", func_ss);
         return false;
     }
 #if defined(SMP_ENABLE)
     if (!spin_tryrlock(&l)) {
-        msg_err("couldn't rlock rlocked spinlock\n");
+        msg_err("%s: couldn't rlock rlocked spinlock", func_ss);
         return false;
     }
     spin_runlock(&l);
 #endif
     spin_runlock(&l);
     if (!spin_trywlock(&l)) {
-        msg_err("couldn't wlock unlocked spinlock\n");
+        msg_err("%s: couldn't wlock unlocked spinlock", func_ss);
         return false;
     }
     if (spin_tryrlock(&l)) {
-        msg_err("could rlock wlocked spinlock\n");
+        msg_err("%s: could rlock wlocked spinlock", func_ss);
         return false;
     }
     if (spin_trywlock(&l)) {
-        msg_err("could wlock wlocked spinlock\n");
+        msg_err("%s: could wlock wlocked spinlock", func_ss);
         return false;
     }
     spin_wunlock(&l);

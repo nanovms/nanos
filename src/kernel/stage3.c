@@ -78,10 +78,7 @@ closure_function(6, 0, void, startup,
     program_set_perms(root, pro);
     init_network_iface(root, bound(m));
     closure_member(program_start, start, path) = (string)p;
-    if (trace_get_flags(get(root, sym(trace))) & TRACE_OTHER) {
-        rprintf("read program complete: %p ", root);
-        rprintf("gitversion: %s\n", gitversion);
-    }
+    msg_info("gitversion: %s", gitversion);
     storage_when_ready(apply_merge(bound(m)));
     apply(bound(completion), s);
     closure_finish();

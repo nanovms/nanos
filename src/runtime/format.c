@@ -97,23 +97,6 @@ void vbprintf(buffer d, sstring fmt, vlist *ap)
     }
 }
 
-// XXX fixme
-/* XXX the various debug stuff needs to be folded into one log facility...somewhere */
-void log_vprintf(sstring prefix, sstring log_format, vlist *a)
-{
-    buffer b = little_stack_buffer(1024);
-    bprintf(b, "[%T] %s: ", now(CLOCK_ID_BOOTTIME), prefix);
-    vbprintf(b, log_format, a);
-    buffer_print(b);
-}
-
-void log_printf(sstring prefix, sstring log_format, ...)
-{
-    vlist a;
-    vstart(a, log_format);
-    log_vprintf(prefix, log_format, &a);
-}
-
 buffer aprintf_sstring(heap h, sstring fmt, ...)
 {
     buffer b = allocate_buffer(h, 80);
@@ -136,7 +119,7 @@ int rsnprintf_sstring(char *str, u64 size, sstring fmt, ...)
 {
     buffer b = allocate_buffer(transient, size);
     if (b == INVALID_ADDRESS) {
-        msg_err("buffer allocation failed\n");
+        msg_err("%s: buffer allocation failed", func_ss);
         if (size > 0)
             str[0] = '\0';
         return 0;

@@ -117,7 +117,7 @@ void ltrace_init(value cfg, buffer exe, u64 load_offset)
     if (!elf_dyn_parse(exe, &symtab, &strtab, &reltab, &relcount))
         halt("ltrace: failed to parse dynamic section\n");
     if (!symtab || !strtab || !reltab) {
-        rprintf("ltrace: not a dynamically linked executable\n");
+        msg_err("ltrace: not a dynamically linked executable");
         return;
     }
     u64 plt_addr, plt_offset, plt_size;

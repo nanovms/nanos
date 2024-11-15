@@ -451,7 +451,7 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
                 return null_value;
             }
             if (!old_encoding)
-                rprintf("%s: warning: untyped buffer, len %ld, offset %d: %B\n", func_ss,
+                msg_warn("%s: untyped buffer, len %ld, offset %d: %B", func_ss,
                         len, source->start, alloca_wrap_buffer(buffer_ref(source, 0), len));
 
             /* address a long-standing bug in bootloaders; untyped buffers must be tagged */
@@ -510,7 +510,7 @@ static void encode_value_internal(buffer dest, table dictionary, value v, u64 *t
         encode_string(dest, (string)v);
     } else {
         if (v != null_value) {
-            rprintf("%s: untyped value %v, len %d, from %p\n", func_ss, v,
+            msg_err("%s: untyped value %v, len %d, from %p", func_ss, v,
                     buffer_length((buffer)v), __builtin_return_address(0));
             print_frame_trace_from_here();
         }

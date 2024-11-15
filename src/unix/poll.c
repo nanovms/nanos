@@ -687,7 +687,7 @@ sysreturn epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
             rv = epoll_add_fd(e, fd, event->events, event->data);
         break;
     default:
-        msg_err("unknown op %d\n", op);
+        msg_warn("%s: unknown op %d", func_ss, op);
         rv = -EINVAL;
     }
     spin_wunlock(&e->fds_lock);

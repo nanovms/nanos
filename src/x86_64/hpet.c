@@ -188,7 +188,7 @@ closure_function(0, 0, timestamp, hpet_now)
 boolean init_hpet(kernel_heaps kh) {
     void *hpet_page = allocate((heap)heap_virtual_page(kh), PAGESIZE);
     if (hpet_page == INVALID_ADDRESS) {
-        msg_err("failed to allocate page for HPET\n");
+        msg_err("HPET: failed to allocate page");
         return false;
     }
 
@@ -214,6 +214,6 @@ boolean init_hpet(kernel_heaps kh) {
                                       0 /* no per-cpu init */);
         return true;
     }
-    msg_err("failed to initialize HPET; main counter not incrementing\n");
+    msg_err("HPET init failed; main counter not incrementing");
     return false;
 }

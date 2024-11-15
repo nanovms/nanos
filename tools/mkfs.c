@@ -243,7 +243,7 @@ closure_func_basic(parse_finish, void, finish,
 closure_func_basic(parse_error, void, perr,
                    string s)
 {
-    rprintf("manifest parse error %b\n", s);
+    msg_err("manifest parse error: %b", s);
     exit(EXIT_FAILURE);
 }
 
@@ -341,7 +341,7 @@ closure_func_basic(io_status_handler, void, mkfs_write_handler,
                    status s, bytes length)
 {
     if (!is_ok(s)) {
-        rprintf("write failed with %v\n", s);
+        msg_err("write failed with %v", s);
         exit(EXIT_FAILURE);
     }
 }
@@ -584,7 +584,7 @@ closure_func_basic(parse_finish, void, cmdline_tuple_finish,
                    void *v)
 {
     if (!is_tuple(v)) {
-        rprintf("parsed cmdline value is not a tuple: %v\n", v);
+        msg_err("cmdline value is not a tuple: %v", v);
         exit(EXIT_FAILURE);
     }
     vector_push(cmdline_tuples, v);
@@ -593,7 +593,7 @@ closure_func_basic(parse_finish, void, cmdline_tuple_finish,
 closure_func_basic(parse_error, void, cmdline_tuple_err,
                    string s)
 {
-    rprintf("cmdline tuple parse error %b\n", s);
+    msg_err("cmdline tuple parse error: %b", s);
     exit(EXIT_FAILURE);
 }
 

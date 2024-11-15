@@ -251,7 +251,8 @@ static inline s64 fpdiv(s64 dividend, s64 divisor)
     u128 d = ((u128)dividend) << CLOCK_FP_BITS;
     s64 q = div128_64(d, divisor);
     if (q == -1) {
-        msg_err("%f / %f quotient out of range at %p!\n", dividend, divisor, __builtin_return_address(0));
+        msg_err("%s: %f / %f quotient out of range at %p", func_ss, dividend, divisor,
+                __builtin_return_address(0));
         q = fpmax;
     }
     if (neg)
@@ -308,7 +309,7 @@ static void ntp_query(ntp_server server)
     runtime_memcpy(&server->last_originate_time, &t, sizeof(t));
     err_t err = udp_sendto(ntp.pcb, p, &server->ip_addr, server->port);
     if (err != ERR_OK) {
-        msg_err("failed to send request: %d\n", err);
+        msg_err("%s: failed to send request: %d", func_ss, err);
         ntp_query_complete(false);
     }
     pbuf_free(p);
@@ -511,18 +512,19 @@ static boolean chrony_new_sample(timestamp t, s64 off, s64 pdelay, s64 pdisp, s6
         return true;
     s64 est_off, est_freq, sd, skew;
     if (!regression(&est_off, &est_freq, &sd, &skew)) {
-        msg_err("regression computation failed\n");
+        msg_err("%s: regression computation failed", func_ss);
         if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS)
             goto badlimit;
         return false;
     }
     /* if the frequency is out of range then assume bad data or misbehaving clock and clamp */
     if (ABS(ntp.base_freq + est_freq) > ntp.max_base_freq) {
-        msg_err("freq out of range: %f limit=%f\n", ABS(ntp.base_freq + est_freq), ntp.max_base_freq);
+        msg_err("%s: freq out of range: %f limit=%f", func_ss, ABS(ntp.base_freq + est_freq),
+                ntp.max_base_freq);
         /* if too many bad regressions in a row, then toss everything and start over */
         if (++ntp.bad_regressions == MAX_BAD_REGRESSIONS) {
 badlimit:
-            msg_err("too many bad regressions; starting over\n");
+            msg_err("%s: too many bad regressions; starting over", func_ss);
             stop_slew();
             ntp_reset_state();
             clock_set_freq(0);
@@ -635,7 +637,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
     struct ntp_packet *pkt = p->payload;
     boolean success;
     if (p->len != sizeof(*pkt)) {
-        msg_err("invalid response length %d\n", p->len);
+        msg_err("%s: invalid response length %d", func_ss, p->len);
         success = false;
         goto done;
     }
@@ -649,7 +651,7 @@ static void ntp_input(void *z, struct udp_pcb *pcb, struct pbuf *p,
             goto exit;
         }
         if (!sanity_checks(server, pkt)) {
-            msg_err("packet sanity checks failed; discarded\n");
+            msg_err("%s: packet sanity checks failed; discarded", func_ss);
             success = false;
             goto done;
         }
@@ -706,7 +708,7 @@ static void ntp_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callback_arg
         server->ip_addr = *ipaddr;
         ntp_query(server);
     } else {
-        msg_err("failed to resolve hostname %s\n", name);
+        msg_err("NTP: failed to resolve hostname %s", name);
         ntp_query_complete(false);
     }
 }
@@ -717,7 +719,7 @@ static boolean ntp_resolve_and_query(ntp_server server)
     if (err == ERR_OK) {
         ntp_query(server);
     } else if (err != ERR_INPROGRESS) {
-        msg_err("failed to resolve hostname %s: %d\n", server->addr, err);
+        msg_err("NTP: failed to resolve hostname %s: %d", server->addr, err);
         return false;
     }
     return true;
@@ -732,7 +734,7 @@ closure_func_basic(timer_handler, void, ntp_query_func,
         if ((ntp.current_server < 0) || (ntp.query_errors >= NTP_QUERY_ATTEMPTS)) {
             timestamp t = kern_now(CLOCK_ID_MONOTONIC_RAW) - ntp.resp_time;
             if (t >= seconds(ntp.no_resp_warn_time * 60)) {
-                rprintf("NTP: failed to receive any valid server response in the past %d minutes\n",
+                msg_err("NTP: failed to receive any valid server response in the past %d minutes",
                         ntp.no_resp_warn_time);
                 if (ntp.no_resp_warn_time <= 30)
                     ntp.no_resp_warn_time <<= 1;
@@ -827,7 +829,7 @@ int init(status_handler complete)
 {
     tuple root = get_root_tuple();
     if (!root) {
-        rprintf("NTP: failed to get root tuple\n");
+        msg_err("NTP: failed to get root tuple");
         return KLIB_INIT_FAILED;
     }
     heap h = heap_locked(get_kernel_heaps());
@@ -842,18 +844,18 @@ int init(status_handler complete)
                         if (ptp_clock_now)
                             ntp.ptp_clock = true;
                         else
-                            rprintf("chrony: PTP clock not available, using NTP\n");
+                            msg_err("chrony: PTP clock not available, using NTP");
                     } else {
                         refclock_ok = false;
                     }
                 }
                 if (!refclock_ok) {
-                    rprintf("chrony: invalid refclock %v\n", refclock);
+                    msg_err("chrony: invalid refclock %v", refclock);
                     return KLIB_INIT_FAILED;
                 }
             }
         } else  {
-            rprintf("chrony: invalid configuration %v\n", chrony);
+            msg_err("chrony: invalid configuration %v", chrony);
             return KLIB_INIT_FAILED;
         }
     }
@@ -876,12 +878,12 @@ int init(status_handler complete)
             string server;
             for (int i = 0; (server = get_string(servers, integer_key(i))); i++) {
                 if (!ntp_server_parse(h, server)) {
-                    rprintf("NTP: invalid server '%b'\n", server);
+                    msg_err("NTP: invalid server '%b'", server);
                     return KLIB_INIT_FAILED;
                 }
             }
             if (vector_length(ntp.servers) == 0) {
-                rprintf("NTP: invalid servers %v\n", servers);
+                msg_err("NTP: invalid servers %v", servers);
                 return KLIB_INIT_FAILED;
             }
         } else {
@@ -895,7 +897,7 @@ int init(status_handler complete)
         u64 interval;
         if (!u64_from_value(pollmin, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
                 (interval > NTP_QUERY_INTERVAL_MAX)) {
-            rprintf("NTP: invalid minimum poll interval\n");
+            msg_err("NTP: invalid minimum poll interval");
             return KLIB_INIT_FAILED;
         }
         ntp.pollmin = interval;
@@ -907,13 +909,13 @@ int init(status_handler complete)
         u64 interval;
         if (!u64_from_value(pollmax, &interval) || (interval < NTP_QUERY_INTERVAL_MIN) ||
                 (interval > NTP_QUERY_INTERVAL_MAX)) {
-            rprintf("NTP: invalid maximum poll interval\n");
+            msg_err("NTP: invalid maximum poll interval");
             return KLIB_INIT_FAILED;
         }
         ntp.pollmax = interval;
         if (interval < ntp.pollmin) {
             if (pollmin) {
-                rprintf("NTP: maximum poll interval smaller than minimum poll interval\n");
+                msg_err("NTP: maximum poll interval smaller than minimum poll interval");
                 return KLIB_INIT_FAILED;
             }
             ntp.pollmin = interval;
@@ -924,7 +926,7 @@ int init(status_handler complete)
     if (reset_thresh) {
         u64 thresh;
         if (!u64_from_value(reset_thresh, &thresh) || (thresh > 0 && thresh < NTP_RESET_THRESHOLD_MIN)) {
-            rprintf("NTP: invalid reset threshold\n");
+            msg_err("NTP: invalid reset threshold");
             return KLIB_INIT_FAILED;
         }
         ntp.reset_threshold = seconds(thresh);
@@ -934,7 +936,7 @@ int init(status_handler complete)
     if (corr_freq) {
         u64 ppm;
         if (!u64_from_value(corr_freq, &ppm) || (ppm > 0 && ppm < NTP_MAX_SLEW_LIMIT)) {
-            rprintf("NTP: invalid max slew frequency\n");
+            msg_err("NTP: invalid max slew frequency");
             return KLIB_INIT_FAILED;
         }
         ntp.max_corr_freq = PPM_SCALE(ppm);
@@ -944,7 +946,7 @@ int init(status_handler complete)
     if (base_freq) {
         u64 ppm;
         if (!u64_from_value(base_freq, &ppm) || (ppm > 0 && ppm < NTP_MAX_FREQ_LIMIT)) {
-            rprintf("NTP: invalid max base frequency\n");
+            msg_err("NTP: invalid max base frequency");
             return KLIB_INIT_FAILED;
         }
         ntp.max_base_freq = PPM_SCALE(ppm);
@@ -954,7 +956,7 @@ int init(status_handler complete)
     } else {
         ntp.pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!ntp.pcb) {
-            rprintf("NTP: failed to create PCB\n");
+            msg_err("NTP: failed to create PCB");
             return KLIB_INIT_FAILED;
         }
         udp_recv(ntp.pcb, ntp_input, 0);

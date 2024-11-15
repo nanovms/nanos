@@ -205,7 +205,7 @@ closure_func_basic(status_handler, void, p9fsf_sync_complete,
                    status s)
 {
     if (!is_ok(s)) {
-        msg_err("failed to sync page cache node: %v\n", s);
+        msg_err("9p: failed to sync page cache node: %v", s);
         timm_dealloc(s);
     }
     fsfile f = struct_from_closure(fsfile, sync_complete);

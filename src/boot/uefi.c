@@ -64,14 +64,14 @@ u64 random_u64()
         efi_status status = UBS->locate_handle_buffer(by_protocol, &uefi_rng_proto, 0,
             &handle_count, &handle_buffer);
         if (EFI_ERROR(status)) {
-            msg_err("failed to locate RNG handles: %d\n", status);
+            msg_err("%s: failed to locate RNG handles: %d", func_ss, status);
             return 0;
         }
         for (u64 index = 0; index < handle_count; index++) {
             status = UBS->open_protocol(handle_buffer[index], &uefi_rng_proto, (void **)&rng,
                 uefi_image_handle, 0, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
             if (EFI_ERROR(status))
-                msg_err("failed to open RNG protocol: %d\n", status);
+                msg_err("%s: failed to open RNG protocol: %d", func_ss, status);
             else
                 break;
         }
@@ -250,7 +250,7 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
     efi_status status = UBS->locate_handle_buffer(by_protocol, &uefi_block_io_proto, 0,
         &handle_count, &handle_buffer);
     if (EFI_ERROR(status)) {
-        msg_err("failed to locate block I/O handles: %d\n", status);
+        msg_err("%s: failed to locate block I/O handles: %d", func_ss, status);
         return status;
     }
     for (u64 index = 0; index < handle_count; index++) {
@@ -262,7 +262,7 @@ efi_status efi_main(void *image_handle, efi_system_table system_table)
         u8 mbr[SECTOR_SIZE];
         status = block_io->read_blocks(block_io, block_io->media->media_id, 0, SECTOR_SIZE, &mbr);
         if (EFI_ERROR(status)) {
-            msg_err("failed to read first sector: %d\n", status);
+            msg_warn("%s: failed to read first sector: %d", func_ss, status);
             continue;
         }
         struct partition_entry *bootfs_part = partition_get(mbr, PARTITION_BOOTFS);

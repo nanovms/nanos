@@ -302,7 +302,7 @@ closure_func_basic(status_handler, void, do_setup_complete,
          * instance startup (a few seconds might elapse before the network interface acquires a DHCP
          * address). */
         if (digitalocean.retry_backoff > seconds(2))
-            msg_err("setup failed: %v\n", s);
+            msg_err("DigitalOcean setup failed: %v", s);
 
         timm_dealloc(s);
         if (digitalocean.retry_backoff < seconds(3600))
@@ -398,7 +398,7 @@ static boolean do_metrics_post(void)
                                 req, body);
         success = is_ok(s);
         if (!success) {
-            msg_err("%v\n", s);
+            msg_err("%s error %v", func_ss, s);
             timm_dealloc(s);
         }
     }
@@ -437,7 +437,7 @@ closure_func_basic(input_buffer_handler, boolean, do_metrics_in_handler,
             if (!digitalocean.metrics.out)
                 return true;
         } else {
-            msg_err("failed to parse response: %v\n", s);
+            msg_err("%s: failed to parse response: %v", func_ss, s);
             timm_dealloc(s);
             apply(digitalocean.metrics.out, 0);
             return true;
@@ -454,7 +454,7 @@ closure_func_basic(value_handler, void, do_metrics_value_handler,
     value resp = get(v, sym(start_line));
     buffer status_code = get(resp, integer_key(1));
     if (!status_code || peek_char(status_code) != '2')
-        msg_err("unexpected response %v\n", v);
+        msg_err("%s: unexpected response %v", func_ss, v);
     apply(digitalocean.metrics.out, 0);
     digitalocean.metrics.out = 0;   /* signal to input buffer handler that connection is closed */
 }
@@ -475,8 +475,8 @@ int init(status_handler complete)
         u64 interval;
         if (get_u64(metrics, sym_this("interval"), &interval)) {
             if (interval < min_interval) {
-                rprintf("DigitalOcean: invalid metrics interval (minimum allowed value %ld "
-                        "seconds)\n", min_interval);
+                msg_err("DigitalOcean: invalid metrics interval (minimum allowed value %ld "
+                        "seconds)", min_interval);
                 return KLIB_INIT_FAILED;
             }
         } else {

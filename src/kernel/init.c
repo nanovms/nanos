@@ -231,7 +231,7 @@ closure_function(1, 1, void, kern_start,
         thunk stage3 = bound(stage3);
         apply(stage3);
     } else {
-        msg_err("%v\n", s);
+        msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
     closure_finish();
@@ -266,6 +266,9 @@ closure_function(4, 2, void, fsstarted,
     tuple root = (tuple)wrapped_root;
     boot_params_apply(root);
     reclaim_regions();  /* for pc: no accessing regions after this point */
+    string klog_level = get_string(root, sym_this("log_level"));
+    if (klog_level)
+        klog_set_level(klog_level);
     tuple mounts = get_tuple(root, sym(mounts));
     if (mounts)
         storage_set_mountpoints(mounts);
@@ -551,7 +554,7 @@ closure_function(6, 1, void, mbr_read,
 {
     init_debug("%s", func_ss);
     if (!is_ok(s)) {
-        msg_err("unable to read partitions: %v\n", s);
+        msg_err("storage: unable to read partitions: %v", s);
         goto out;
     }
     u8 *mbr = bound(mbr);
@@ -567,9 +570,9 @@ closure_function(6, 1, void, mbr_read,
             if (fs_init != INVALID_ADDRESS)
                 volume_add(uuid, label, req_handler, fs_init, bound(attach_id));
             else
-                msg_err("failed to allocate closure, skipping volume\n");
+                msg_err("storage: failed to allocate closure, skipping volume");
         } else {
-            msg_err("failed to probe filesystem: %v\n", get(s, sym_this("result")));
+            msg_err("storage: failed to probe filesystem: %v", get(s, sym_this("result")));
             timm_dealloc(s);
         }
         deallocate((heap)heap_linear_backed(init_heaps), mbr, PAGESIZE);
@@ -594,13 +597,13 @@ closure_function(2, 3, void, attach_storage,
     /* Read partition table from disk, use backed heap for guaranteed alignment */
     u8 *mbr = allocate(bh, PAGESIZE);
     if (mbr == INVALID_ADDRESS) {
-        msg_err("cannot allocate memory for MBR sector\n");
+        msg_err("storage: cannot allocate memory for MBR sector");
         return;
     }
     status_handler sh = closure(h, mbr_read, mbr, req_handler, length, attach_id,
                                 bound(start), bound(complete));
     if (sh == INVALID_ADDRESS) {
-        msg_err("cannot allocate MBR read closure\n");
+        msg_err("storage: cannot allocate MBR read closure");
         deallocate(bh, mbr, PAGESIZE);
         return;
     }
@@ -735,7 +738,7 @@ closure_function(3, 1, void, storage_shutdown,
                  status s)
 {
     if (!is_ok(s)) {
-        rprintf("%b\n", get_string(s, sym(result)));
+        msg_err("%s error: %b", func_ss, get_string(s, sym(result)));
         timm_dealloc(s);
     }
     int status = bound(status);

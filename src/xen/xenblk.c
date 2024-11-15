@@ -269,7 +269,7 @@ static void xenblk_remove(xenblk_dev xbd)
     status s = xenbus_watch_state(xbd->dev.backend, (xenstore_watch_handler)&xbd->watch_handler,
                                   false);
     if (!is_ok(s)) {
-        msg_err("failed to unwatch backend state: %v\n", s);
+        msg_err("%s: failed to unwatch backend state: %v", func_ss, s);
         timm_dealloc(s);
         return;
     }
@@ -294,7 +294,7 @@ closure_func_basic(thunk, void, xenblk_watch_service)
     XenbusState backend_state;
     status s = xenbus_get_state(xbd->dev.backend, &backend_state);
     if (!is_ok(s)) {
-        msg_err("failed to get backend state: %v\n", s);
+        msg_err("%s: failed to get backend state: %v", func_ss, s);
         timm_dealloc(s);
         return;
     }
@@ -306,11 +306,11 @@ closure_func_basic(thunk, void, xenblk_watch_service)
         u64 sector_size;
         s = xenstore_read_u64(0, xd->backend, ss("sector-size"), &sector_size);
         if (!is_ok(s)) {
-            msg_err("cannot read sector size: %v\n", s);
+            msg_err("%s: cannot read sector size: %v", func_ss, s);
             timm_dealloc(s);
             goto remove;
         } else if (sector_size != SECTOR_SIZE) {
-            msg_err("unsupported sector size %ld\n", sector_size);
+            msg_err("%s: unsupported sector size %ld", func_ss, sector_size);
             goto remove;
         }
         s = xenstore_read_u64(0, xd->backend, ss("physical-sector-size"),
@@ -319,26 +319,26 @@ closure_func_basic(thunk, void, xenblk_watch_service)
             /* physical sector size is the same as logical sector size */
             timm_dealloc(s);
         } else if (sector_size != SECTOR_SIZE) {
-            msg_err("unsupported physical sector size %ld\n", sector_size);
+            msg_err("%s: unsupported physical sector size %ld", func_ss, sector_size);
             goto remove;
         }
         u64 sectors;
         s = xenstore_read_u64(0, xd->backend, ss("sectors"), &sectors);
         if (!is_ok(s)) {
-            msg_err("cannot read number of sectors: %v\n", s);
+            msg_err("%s: cannot read number of sectors: %v", func_ss, s);
             timm_dealloc(s);
             goto remove;
         }
         xbd->capacity = sector_size * sectors;
         s = xenbus_set_state(0, xd->frontend, XenbusStateConnected);
         if (!is_ok(s)) {
-            msg_err("cannot set frontend state to connected: %v\n", s);
+            msg_err("%s: cannot set frontend state to connected: %v", func_ss, s);
             timm_dealloc(s);
             goto remove;
         }
         int rv = xen_unmask_evtchn(xbd->evtchn);
         if (rv < 0) {
-            msg_err("failed to unmask event channel %d: rv %d\n", xbd->evtchn, rv);
+            msg_err("%s: failed to unmask event channel %d: rv %d", func_ss, xbd->evtchn, rv);
             goto remove;
         }
         int attach_id;
@@ -489,7 +489,7 @@ closure_function(2, 3, boolean, xenblk_probe,
     heap h = heap_locked(kh);
     xenblk_dev xbd = allocate(h, sizeof(*xbd));
     if (xbd == INVALID_ADDRESS) {
-        msg_err("cannot allocate device structure\n");
+        msg_err("%s: cannot allocate device structure", func_ss);
         return false;
     }
     xen_dev xd = &xbd->dev;
@@ -497,13 +497,13 @@ closure_function(2, 3, boolean, xenblk_probe,
     xbd->contiguous = (heap)heap_linear_backed(kh);
     status s = xendev_attach(xd, id, frontend, meta);
     if (!is_ok(s)) {
-        msg_err("cannot attach Xen device: %v\n", s);
+        msg_err("%s: cannot attach Xen device: %v", func_ss, s);
         timm_dealloc(s);
         goto dealloc_xbd;
     }
     xbd->rreqs = allocate_vector(h, XENBLK_RING_SIZE);
     if (xbd->rreqs == INVALID_ADDRESS) {
-        msg_err("cannot allocate request vector\n");
+        msg_err("%s: cannot allocate request vector", func_ss);
         goto dealloc_xbd;
     }
     list_init(&xbd->pending);
@@ -515,7 +515,7 @@ closure_function(2, 3, boolean, xenblk_probe,
     xbd->meta = meta;
     s = xenblk_enable(xbd);
     if (!is_ok(s)) {
-        msg_err("cannot enable device: %v\n", s);
+        msg_err("%s: cannot enable device: %v", func_ss, s);
         timm_dealloc(s);
         goto dealloc_reqs;
     }

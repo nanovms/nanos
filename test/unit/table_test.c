@@ -27,14 +27,14 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
     table_validate(t, ss("basic_table_tests: alloc"));
 
     if (table_elements(t) != 0) {
-        msg_err("table_elements() not zero on empty table\n");
+        msg_err("%s error: table_elements() not zero on empty table", func_ss);
         return false;
     }
 
     table_foreach(t, n, v) {
         (void) n;
         (void) v;
-        msg_err("table_foreach() on empty table\n");
+        msg_err("%s error: table_foreach() on empty table", func_ss);
         return false;
     }
 
@@ -52,15 +52,15 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
     count = 0;
     table_foreach(t, n, v) {
         if ((u64)v != (u64)n + 1) {
-            msg_err("table_foreach() invalid value %d for name %d, "
-                    "should be %d\n", (u64)v, (u64)n, (u64)n + 1);
+            msg_err("%s error: table_foreach() invalid value %ld for name %ld, should be %ld",
+                    func_ss, (u64)v, (u64)n, (u64)n + 1);
             return false;
         }
         count++;
     }
 
     if (count != n_elem) {
-        msg_err("table_foreach() invalid iteration count %d\n", count);
+        msg_err("%s error: table_foreach() invalid iteration count %ld", func_ss, count);
         return false;
     }
 
@@ -68,30 +68,30 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
         u64 v = (u64)table_find(t, (void *)count);
 
         if (!v) {
-            msg_err("element %d not found\n", count);
+            msg_err("%s error: element %ld not found", func_ss, count);
             return false;
         }
         if (v != count + 1) {
-            msg_err("element %d invalid value %d, should be %d\n", count, v,
+            msg_err("%s error: element %ld invalid value %ld, should be %ld", func_ss, count, v,
                     count + 1);
             return false;
         }
     }
 
     if (table_find(t, (void *)count)) {
-        msg_err("found unexpected element %d\n", count);
+        msg_err("%s error: unexpected element %ld", func_ss, count);
         return false;
     }
 
     if (table_set_noreplace(t, pointer_from_u64(n_elem / 2), pointer_from_u64(1))) {
-        msg_err("could replace element %ld\n", n_elem / 2);
+        msg_err("%s error: could replace element %ld", func_ss, n_elem / 2);
         return false;
     }
 
     /* Remove one element from the table. */
     table_set(t, 0, 0);
     if (table_find(t, 0)) {
-        msg_err("found unexpected element 0\n");
+        msg_err("%s error: unexpected element 0", func_ss);
         return false;
     }
 
@@ -99,21 +99,21 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
 
     count = table_elements(t);
     if (count != n_elem - 1) {
-        msg_err("invalid table_elements() %d, should be %d\n", count,
+        msg_err("%s error: invalid table_elements() %ld, should be %ld", func_ss, count,
                 n_elem - 1);
         return false;
     }
 
     val = u64_from_pointer(table_remove(t, (pointer_from_u64(1))));
     if (val != 2) {
-        msg_err("invalid element %ld removed, should be 2\n", val);
+        msg_err("%s error: invalid element %ld removed, should be 2", func_ss, val);
         return false;
     }
     table_validate(t, ss("basic_table_tests: after table_remove()"));
     count = table_elements(t);
     if (count != n_elem - 2) {
-        msg_err("invalid table_elements() %ld after table_remove(), should be %ld\n",
-                count, n_elem - 2);
+        msg_err("%s error: invalid table_elements() %ld after table_remove(), should be %ld",
+                func_ss, count, n_elem - 2);
         return false;
     }
 
@@ -131,23 +131,25 @@ static boolean basic_table_tests(heap h, u64 (*key_function)(void *x), u64 n_ele
 
     count = table_elements(t);
     if (count != 0) {
-        msg_err("invalid table_elements() %d, should be 0\n");
+        msg_err("%s error: invalid table_elements() %ld, should be 0", func_ss, count);
         return false;
     }
 
     if (!table_set_noreplace(t, pointer_from_u64(0), pointer_from_u64(n_elem))) {
-        msg_err("could not set element at 0\n");
+        msg_err("%s failed to set element at 0", func_ss);
         return false;
     }
     val = u64_from_pointer(table_find(t, pointer_from_u64(0)));
     if (val != n_elem) {
-        msg_err("unexpected element %ld at 0 after table_set_noreplace()\n", val);
+        msg_err("%s error: unexpected element %ld at 0 after table_set_noreplace()",
+                func_ss, val);
         return false;
     }
 
     deallocate_table(t);
     if (heap_allocated(h) != heap_occupancy) {
-        msg_err("leak: heap_allocated(h) %ld, originally %ld\n", heap_allocated(h), heap_occupancy);
+        msg_err("%s leak: heap_allocated(h) %ld, originally %ld",
+                func_ss, heap_allocated(h), heap_occupancy);
         return false;
     }
     return true;
@@ -170,25 +172,25 @@ static boolean one_elem_table_tests(heap h, u64 n_elem)
     count = 0;
     table_foreach(t, n, v) {
         if (n != 0) {
-            msg_err("table_foreach() invalid name %d\n", (u64)n);
+            msg_err("%s error: table_foreach() invalid name %ld", func_ss, (u64)n);
             return false;
         }
         if ((u64)v != n_elem) {
-            msg_err("table_foreach() invalid value %d for name %d, "
-                    "should be %d\n", (u64)v, (u64)n, n_elem);
+            msg_err("%s error: table_foreach() invalid value %ld for name %ld, should be %ld",
+                    func_ss, (u64)v, (u64)n, n_elem);
             return false;
         }
         count++;
     }
 
     if (count != 1) {
-        msg_err("table_foreach() invalid iteration count %d\n", count);
+        msg_err("%s error: table_foreach() invalid iteration count %ld", func_ss, count);
         return false;
     }
 
     count = table_elements(t);
     if (count != 1) {
-        msg_err("invalid table_elements() %d, should be 1\n", count);
+        msg_err("%s error: invalid table_elements() %ld, should be 1", func_ss, count);
         return false;
     }
 
@@ -196,35 +198,36 @@ static boolean one_elem_table_tests(heap h, u64 n_elem)
         u64 v = (u64)table_find(t, (void *)count);
 
         if (!v) {
-            msg_err("element %d not found\n", count);
+            msg_err("%s error: element %ld not found", func_ss, count);
             return false;
         }
         if (v != n_elem) {
-            msg_err("element %d invalid value %d, should be %d\n", count, v,
+            msg_err("%s error: element %ld invalid value %ld, should be %ld", func_ss, count, v,
                     n_elem);
             return false;
         }
     }
 
     if (!table_find(t, (void *)count)) {
-        msg_err("element %d not found\n", count);
+        msg_err("%s error: element %ld not found", func_ss, count);
         return false;
     }
 
     table_clear(t);
     if (table_find(t, (void *)count)) {
-        msg_err("element found after table_clear()\n");
+        msg_err("%s error: element found after table_clear()", func_ss);
         return false;
     }
     count = table_elements(t);
     if (count != 0) {
-        msg_err("invalid table_elements() %d after table_clear()\n", count);
+        msg_err("%s error: invalid table_elements() %ld after table_clear()", func_ss, count);
         return false;
     }
 
     deallocate_table(t);
     if (heap_allocated(h) != heap_occupancy) {
-        msg_err("leak: heap_allocated(h) %ld, originally %ld\n", heap_allocated(h), heap_occupancy);
+        msg_err("%s leak: heap_allocated(h) %ld, originally %ld",
+                func_ss, heap_allocated(h), heap_occupancy);
         return false;
     }
     return true;
@@ -248,7 +251,7 @@ static boolean preallocated_table_tests(heap h, u64 (*key_function)(void *x), u6
     table_validate(t, ss("preallocated_table_tests: alloc"));
 
     if (table_elements(t) != 0) {
-        msg_err("table_elements() not zero on empty table\n");
+        msg_err("%s error: table_elements() not zero on empty table", func_ss);
         return false;
     }
     for (count = 0; count < n_elem; count++) {
@@ -258,13 +261,14 @@ static boolean preallocated_table_tests(heap h, u64 (*key_function)(void *x), u6
     table_validate(t, ss("preallocated_table_tests: after fill"));
 
     if (heap_allocated(h) != heap_occupancy) {
-        msg_err("unexpected allocation: heap_allocated(h) %llu, originally %llu\n", heap_allocated(h), heap_occupancy);
+        msg_err("%s error: unexpected allocation: heap_allocated(h) %lu, originally %lu",
+                func_ss, heap_allocated(h), heap_occupancy);
         return false;
     }
 
     table_set(t, 0, 0);
     if (table_find(t, 0)) {
-        msg_err("found unexpected element 0\n");
+        msg_err("%s error: unexpected element 0", func_ss);
         return false;
     }
     table_validate(t, ss("preallocated_table_tests: after remove one"));
@@ -277,7 +281,8 @@ static boolean preallocated_table_tests(heap h, u64 (*key_function)(void *x), u6
     destroy_heap(pageheap);
 
     if (heap_allocated(h) != heap_occupancy_before) {
-        msg_err("leak: heap_allocated(h) %ld, originally %ld\n", heap_allocated(h), heap_occupancy_before);
+        msg_err("%s leak: heap_allocated(h) %lu, originally %lu",
+                func_ss, heap_allocated(h), heap_occupancy_before);
         return false;
     }
     return true;

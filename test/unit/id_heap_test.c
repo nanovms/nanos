@@ -28,12 +28,12 @@ static boolean basic_test(heap h)
 	    for (int i=0; i < pages; i += n) {
 		u64 a = allocate_u64(id, pagesize * n);
 		if (a == INVALID_PHYSICAL) {
-		    msg_err("!!! allocation failed for page %ld\n", i);
+		    msg_err("%s: allocation failed for page %ld", func_ss, i);
 		    return false;
 		}
 		u64 expect = base + i * pagesize;
 		if (a != expect) {
-		    msg_err("!!! allocation for page %ld returned %lx, expecting %lx\n",
+		    msg_err("%s: allocation for page %ld returned 0x%lx, expecting 0x%lx", func_ss,
 			    i, a, expect);
 		    return false;
 		}
@@ -51,7 +51,7 @@ static boolean basic_test(heap h)
 	    id_heap_set_next((id_heap)id, pagesize * n, 0);
 	}
 	if (heap_allocated(id) > 0) {
-	    msg_err("heap allocated should be zero; fail\n");
+	    msg_err("%s: heap allocated should be zero; fail", func_ss);
 	    return false;
 	}
         destroy_heap(id);
@@ -93,7 +93,7 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 	    alloc_result_vec[o] = allocate_u64(id, alloc_size_vec[o]);
 	    msg_debug("alloc %d, size %ld, result %lx\n", o, alloc_size_vec[o], alloc_result_vec[o]);
 	    if (alloc_result_vec[o] == INVALID_PHYSICAL) {
-		msg_err("alloc of size %ld failed\n", alloc_size_vec[o]);
+		msg_err("%s: alloc of size %ld failed", func_ss, alloc_size_vec[o]);
 		goto fail;
 	    }
 	}
@@ -111,7 +111,7 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
 
 		if ((i_first >= j_first && i_first <= j_last) ||
 		    (i_last >= j_first && i_last <= j_last)) {
-		    msg_err("results %d and %d intersect\n", i, j);
+		    msg_err("%s error: results %d and %d intersect", func_ss, i, j);
 		    goto fail;
 		}
 	    }
@@ -133,15 +133,15 @@ static boolean random_test(heap h, heap rh, u64 page_order, int churn)
     } while(churn-- > 0);
 
     if (heap_allocated(id) > 0) {
-	msg_err("heap allocated (%d) should be zero; fail\n", heap_allocated(id));
+	msg_err("%s: heap allocated (%d) should be zero; fail", func_ss, heap_allocated(id));
 	return false;
     }
     destroy_heap(id);
     return true;
   fail:
-    msg_err("test vector:\ni\t(alloc,\tresult)\n");
+    msg_err("%s error: test vector:\ni\t(alloc,\tresult)", func_ss);
     for (int i=0; i < VEC_LEN; i++) {
-	rprintf("%d\t(%ld,\t%lx)\n", i, alloc_size_vec[i], alloc_result_vec[i]);
+        msg_err("%d\t(%ld,\t%lx)", i, alloc_size_vec[i], alloc_result_vec[i]);
     }
     return false;
 }
@@ -176,22 +176,22 @@ static boolean alloc_gte_test(heap h)
 {
     id_heap idh = create_id_heap(h, h, 0, GTE_TEST_MAX, 1, false);
     if (idh == INVALID_ADDRESS) {
-        msg_err("cannot create heap\n");
+        msg_err("%s error: cannot create heap", func_ss);
         return false;
     }
     if (id_heap_alloc_gte(idh, 1, GTE_TEST_MAX) != INVALID_PHYSICAL) {
-        msg_err("allocation should have failed for id %ld\n", GTE_TEST_MAX);
+        msg_err("%s error: allocation should have failed for id %ld", func_ss, GTE_TEST_MAX);
         return false;
     }
     for (u64 id = 0; id < GTE_TEST_MAX; id++) {
         u64 allocated = id_heap_alloc_gte(idh, 1, id);
         if (allocated != id) {
             if (allocated == INVALID_PHYSICAL) {
-                msg_err("allocation failed for id %ld\n", id);
+                msg_err("%s: allocation failed for id %ld", func_ss, id);
                 return false;
             }
             else {
-                msg_err("allocation returned %ld, expecting %ld\n", allocated,
+                msg_err("%s error: allocation returned %ld, expecting %ld", func_ss, allocated,
                         id);
                 return false;
             }
@@ -204,11 +204,11 @@ static boolean alloc_gte_test(heap h)
         u64 allocated = id_heap_alloc_gte(idh, 1, id);
         if (allocated != id) {
             if (allocated == INVALID_PHYSICAL) {
-                msg_err("allocation failed for id %ld\n", id);
+                msg_err("%s: allocation failed for id %ld", func_ss, id);
                 return false;
             }
             else {
-                msg_err("allocation returned %ld, expecting %ld\n", allocated,
+                msg_err("%s error: allocation returned %ld, expecting %ld", func_ss, allocated,
                         id);
                 return false;
             }
@@ -221,13 +221,13 @@ static boolean alloc_gte_test(heap h)
         u64 allocated = id_heap_alloc_gte(idh, 1, 0);
         if (allocated == INVALID_PHYSICAL) {
             if (id != GTE_TEST_MAX) {
-                msg_err("allocation failed for id %ld\n", id);
+                msg_err("%s: allocation failed for id %ld", func_ss, id);
                 return false;
             }
             break;
         }
         else if (id == GTE_TEST_MAX) {
-            msg_err("allocation should have failed for id %ld\n", GTE_TEST_MAX);
+            msg_err("%s error: allocation should have failed for id %ld", func_ss, GTE_TEST_MAX);
             return false;
         }
     }
@@ -235,19 +235,19 @@ static boolean alloc_gte_test(heap h)
         deallocate_u64((heap)idh, id, 1);
     }
     if (heap_allocated((heap)idh) > 0) {
-        msg_err("heap allocated is %d, should be zero\n", heap_allocated((heap)idh));
+        msg_err("%s error: non-zero heap allocated (%d)", func_ss, heap_allocated((heap)idh));
         return false;
     }
     destroy_heap((heap)idh);
 
     idh = create_id_heap(h, h, 1, 2, 1, false);
     if (idh == INVALID_ADDRESS) {
-        msg_err("cannot create heap\n");
+        msg_err("%s error: cannot create heap", func_ss);
         return false;
     }
     u64 id = id_heap_alloc_gte(idh, 1, 1);
     if (id != 1) {
-        msg_err("allocation returned %ld, expecting 1\n", id);
+        msg_err("%s error: allocation returned %ld, expecting 1", func_ss, id);
         return false;
     }
     deallocate_u64((heap)idh, id, 1);
@@ -267,25 +267,25 @@ static boolean alloc_subrange_test(heap h)
 
     id_heap id = create_id_heap(h, h, SUBRANGE_TEST_MIN, SUBRANGE_TEST_LENGTH, PAGESIZE, false);
     if (id == INVALID_ADDRESS) {
-        msg_err("cannot create heap\n");
+        msg_err("%s error: cannot create heap", func_ss);
         return false;
     }
 
     /* these should fail */
     if (id_heap_alloc_subrange(id, PAGESIZE, 0, SUBRANGE_TEST_MIN) != INVALID_PHYSICAL) {
-        msg_err("should have failed for lower non-intersecting subrange\n");
+        msg_err("%s error: should have failed for lower non-intersecting subrange", func_ss);
         return false;
     }
 
     if (id_heap_alloc_subrange(id, 1, SUBRANGE_TEST_END - PAGESIZE + 1,
                                SUBRANGE_TEST_END + PAGESIZE) != INVALID_PHYSICAL) {
-        msg_err("should have failed for upper non-intersecting subrange\n");
+        msg_err("%s error: should have failed for upper non-intersecting subrange", func_ss);
         return false;
     }
 
     if (id_heap_alloc_subrange(id, PAGESIZE, SUBRANGE_TEST_MIN + PAGESIZE + 1,
                                SUBRANGE_TEST_MIN + 2 * PAGESIZE + 1) != INVALID_PHYSICAL) {
-        msg_err("should have failed for unaligned subrange\n");
+        msg_err("%s error: should have failed for unaligned subrange", func_ss);
         return false;
     }
 
@@ -299,14 +299,14 @@ static boolean alloc_subrange_test(heap h)
     u64 res;
     for (int i = 0; i < allocs; i++) {
         if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != expect) {
-            msg_err("subrange alloc expected 0x%lx, got 0x%lx\n", expect, res);
+            msg_err("%s error: subrange alloc expected 0x%lx, got 0x%lx", func_ss, expect, res);
             return false;
         }
         pages_remaining--;
         expect += PAGESIZE;
     }
     if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != INVALID_PHYSICAL) {
-        msg_err("superfluous subrange alloc should have failed, got 0x%lx\n", res);
+        msg_err("%s error: superfluous subrange alloc did not fail, got 0x%lx", func_ss, res);
         return false;
     }
 
@@ -319,20 +319,22 @@ static boolean alloc_subrange_test(heap h)
 
     for (int i = 0; i < allocs; i++) {
         if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != expect) {
-            msg_err("multi-page subrange alloc expected 0x%lx, got 0x%lx\n", expect, res);
+            msg_err("%s error: multi-page subrange alloc expected 0x%lx, got 0x%lx",
+                    func_ss, expect, res);
             return false;
         }
         pages_remaining -= 3;
         expect += 4 * PAGESIZE;
     }
     if ((res = id_heap_alloc_subrange(id, alloc_size, start, end)) != INVALID_PHYSICAL) {
-        msg_err("multi-page superfluous subrange alloc should have failed, got 0x%lx\n", res);
+        msg_err("%s error: multi-page superfluous subrange alloc should have failed, got 0x%lx",
+                func_ss, res);
         return false;
     }
 
     /* we should have a remainder page for each 3-page alloc plus the skipped page above */
     if (pages_remaining != allocs + 1) {
-        msg_err("test bug, pages_remaining %d, should be %d\n", pages_remaining, allocs + 1);
+        msg_err("%s error: pages_remaining %d, should be %d", func_ss, pages_remaining, allocs + 1);
         return false;
     }
 
@@ -345,14 +347,15 @@ static boolean alloc_subrange_test(heap h)
             expect = SUBRANGE_TEST_MIN; /* should wrap around and pick up skipped page from above */
 
         if ((res = allocate_u64((heap)id, PAGESIZE)) != expect) {
-            msg_err("remainder alloc returned 0x%lx, should be 0x%lx (iter %d)\n", res, expect, i);
+            msg_err("%s error: remainder alloc returned 0x%lx, should be 0x%lx (iter %d)",
+                    func_ss, res, expect, i);
             return false;
         }
     }
 
     /* we should have exhausted the number space */
     if ((res = allocate_u64((heap)id, PAGESIZE)) != INVALID_PHYSICAL) {
-        msg_err("should have exhausted number space, got 0x%lx\n", res);
+        msg_err("%s error: should have exhausted number space, got 0x%lx", func_ss, res);
         return false;
     }
 
@@ -366,13 +369,13 @@ static boolean alloc_align_test(heap h)
     const u64 heap_size = 0x20000;
     id_heap id = create_id_heap(h, h, unaligned_base, heap_size, 1, false);
     if (id == INVALID_ADDRESS) {
-        msg_err("cannot create heap\n");
+        msg_err("%s failed to create heap", func_ss);
         return false;
     }
     for (int size = 1; pad(unaligned_base, size) + size <= unaligned_base + heap_size; size <<= 1) {
         u64 i = allocate_u64((heap)id, size);
         if (i != pad(unaligned_base, size)) {
-            msg_err("unexpected allocation 0x%lx for size 0x%x\n", i, size);
+            msg_err("%s error: unexpected allocation 0x%lx for size 0x%x", func_ss, i, size);
             return false;
         }
         deallocate_u64((heap)id, i, size);
@@ -409,6 +412,6 @@ int main(int argc, char **argv)
     msg_debug("test passed\n");
     exit(EXIT_SUCCESS);
   fail:
-    msg_err("test failed\n");
+    msg_err("Id heap test failed");
     exit(EXIT_FAILURE);
 }

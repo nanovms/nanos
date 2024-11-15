@@ -130,7 +130,7 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
 
     /* Report any attempted use of CLOCK_PROCESS_CPUTIME_ID */
     if (_clock_id == CLOCK_PROCESS_CPUTIME_ID) {
-        rprintf("%s: CLOCK_PROCESS_CPUTIME_ID not yet supported\n", func_ss);
+        msg_err("%s: CLOCK_PROCESS_CPUTIME_ID not supported", func_ss);
         return -EINVAL;
     }
 

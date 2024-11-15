@@ -220,7 +220,7 @@ int tls_set_cacert(void *cert, u64 len)
     mbedtls_x509_crt_init(&tls.cacert);
     int ret = mbedtls_x509_crt_parse(&tls.cacert, cert, len);
     if (ret < 0) {
-        msg_err("cannot parse certificate (%d)\n", ret);
+        msg_err("%s: cannot parse certificate (%d)", func_ss, ret);
         return ret;
     }
     mbedtls_ssl_conf_ca_chain(&tls.conf, &tls.cacert, NULL);
@@ -236,7 +236,7 @@ int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
     mbedtls_ssl_init(&conn->ssl);
     int ret = mbedtls_ssl_setup(&conn->ssl, &tls.conf);
     if (ret) {
-        msg_err("cannot set up SSL context\n");
+        msg_err("%s: cannot set up SSL context", func_ss);
         goto err_ssl_setup;
     }
     conn->app_ch = ch;
@@ -265,7 +265,7 @@ int init(status_handler complete)
     mbedtls_ctr_drbg_init(&tls.ctr_drbg);
     mbedtls_entropy_init(&tls.entropy);
     if (mbedtls_ctr_drbg_seed(&tls.ctr_drbg, mbedtls_entropy_func, &tls.entropy, 0, 0)) {
-        rprintf("TLS init: cannot seed entropy source\n");
+        msg_err("TLS init: cannot seed entropy source");
         return KLIB_INIT_FAILED;
     }
     mbedtls_ssl_config_defaults(&tls.conf, MBEDTLS_SSL_IS_CLIENT,

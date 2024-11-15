@@ -99,7 +99,7 @@ closure_function(2, 5, boolean, klib_elf_map,
     }
     return true;
   alloc_fail:
-    msg_err("failed to allocate klib mapping\n");
+    msg_err("%s: failed to allocate mapping", func_ss);
     return false;
 }
 

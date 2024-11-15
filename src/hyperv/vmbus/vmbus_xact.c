@@ -223,7 +223,7 @@ vmbus_xact_return(struct vmbus_xact *xact, size_t *resp_len)
          * Orphaned and no response was received yet; fake up
          * an one byte response.
          */
-        rprintf("vmbus: xact ctx was orphaned w/ pending xact\n");
+        msg_err("vmbus: xact ctx was orphaned w/ pending xact");
         vmbus_xact_save_resp(ctx->xc_active, &b, sizeof(b));
     }
     assert(xact->x_resp != NULL); //no response
@@ -324,7 +324,7 @@ vmbus_xact_save_resp(struct vmbus_xact *xact, const void *data, size_t dlen)
     size_t cplen = dlen;
 
     if (cplen > ctx->xc_resp_size) {
-        rprintf("vmbus: xact response truncated %zu -> %zu\n",
+        msg_warn("vmbus: xact response truncated %zu -> %zu",
             cplen, ctx->xc_resp_size);
         cplen = ctx->xc_resp_size;
     }
@@ -349,7 +349,7 @@ vmbus_xact_wakeup(struct vmbus_xact *xact, const void *data, size_t dlen)
         vmbus_xact_save_resp(xact, data, dlen);
     } else {
         assert(ctx->xc_flags & VMBUS_XACT_CTXF_DESTROY); //no active xact pending
-        rprintf("vmbus: drop xact response\n");
+        msg_warn("vmbus: drop xact response");
     }
     spin_unlock_irq(&ctx->xc_lock, flags);
 }

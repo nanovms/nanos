@@ -185,7 +185,7 @@ static boolean log_output(pqueue pq, buffer b)
     return true;
 }
 
-#define catch_err(s) do {if (!is_ok(s)) msg_err("lockstat: failed to send HTTP response: %v\n", (s));} while(0)
+#define catch_err(s) do {if (!is_ok(s)) msg_err("lockstats: failed to send HTTP response: %v", (s));} while(0)
 
 static void
 lockstats_send_http_response(http_responder handler, buffer b)
@@ -281,7 +281,7 @@ init_http_listener(void)
 
     lockstats_hl = allocate_http_listener(lockstats_heap, LOCKSTATS_PORT);
     if (lockstats_hl == INVALID_ADDRESS) {
-        msg_err("could not allocate lock stat HTTP listener\n");
+        msg_err("lockstats: could not allocate HTTP listener");
         return -1;
     }
 
@@ -295,14 +295,14 @@ init_http_listener(void)
         connection_handler_from_http_listener(lockstats_hl)
     );
     if (!is_ok(s)) {
-        msg_err("listen_port(port=%d) failed for lockstat HTTP listener\n",
+        msg_err("lockstats: listen_port(port=%d) failed",
             LOCKSTATS_PORT
         );
         deallocate_http_listener(lockstats_heap, lockstats_hl);
         return -1;
     }
 
-    rprintf("started lockstat http listener on port %d\n", LOCKSTATS_PORT);
+    msg_info("lockstats: started HTTP listener on port %d", LOCKSTATS_PORT);
 
     return 0;
 }
@@ -320,5 +320,5 @@ void lockstats_init(kernel_heaps kh)
     }
     int ret = init_http_listener();
     if (ret != 0)
-        msg_err("failed to start http listener\n");
+        msg_err("lockstats: failed to start HTTP listener");
 }

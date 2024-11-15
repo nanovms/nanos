@@ -181,17 +181,32 @@ typedef struct flush_entry *flush_entry;
 #include <vector.h>
 #include <format.h>
 
-/* XXX: Note that printing function names will reveal our internals to
-   some degree. All the logging stuff needs more time in the oven. */
+#ifdef KERNEL
 
-#define msg_err(fmt, ...) rprintf("%s error: " fmt, func_ss,    \
-				  ##__VA_ARGS__)
+enum log_level {
+    LOG_ALWAYS = -1,
+    LOG_ERR,
+    LOG_WARN,
+    LOG_INFO,
+};
+
+#define msg_print(fmt, ...) log_printf(LOG_ALWAYS, ss(fmt), ##__VA_ARGS__)
+#define msg_err(fmt, ...)   log_printf(LOG_ERR, ss(fmt), ##__VA_ARGS__)
+#define msg_warn(fmt, ...)  log_printf(LOG_WARN, ss(fmt), ##__VA_ARGS__)
+#define msg_info(fmt, ...)  log_printf(LOG_INFO, ss(fmt), ##__VA_ARGS__)
+
+void log_printf(enum log_level level, sstring fmt, ...);
+
+#else
+
+#define msg_err(fmt, ...)   rprintf(fmt "\n", ##__VA_ARGS__)
 
 #ifdef ENABLE_MSG_WARN
-#define msg_warn(fmt, ...) rprintf("%s warning: " fmt, func_ss, \
-				  ##__VA_ARGS__)
+#define msg_warn(fmt, ...)  rprintf(fmt "\n", ##__VA_ARGS__)
 #else
 #define msg_warn(fmt, ...)
+#endif
+
 #endif
 
 #ifdef ENABLE_MSG_DEBUG

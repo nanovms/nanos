@@ -820,7 +820,7 @@ static sysreturn socket_write_udp(netsock s, void *source, struct iovec *iov, u6
     struct pbuf *pbuf = pbuf_alloc(PBUF_TRANSPORT, xfer_len, PBUF_RAM);
     if (!pbuf) {
         netsock_unlock(s);
-        msg_err("failed to allocate pbuf for udp_send()\n");
+        msg_err("%s: failed to allocate pbuf for udp_send()", func_ss);
         return -ENOBUFS;
     }
     if (context_set_err(ctx)) {
@@ -1209,7 +1209,7 @@ static sysreturn netsock_shutdown(struct sock *sock, int how)
         shut_tx = 1;
         break;
     default:
-        msg_warn("Wrong value passed for direction sock %d, type %d\n", sock->fd, s->sock.type);
+        msg_warn("%s: invalid 'how' value %d", func_ss, how);
         rv = -EINVAL;
         goto out;
     }
@@ -1298,7 +1298,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	s->sock.rx_len += p->tot_len;
 	wakeup_sock(s, WAKEUP_SOCK_RX);
     } else {
-	msg_err("null pbuf\n");
+	msg_err("%s error: null pbuf", func_ss);
     }
 }
 
@@ -1309,7 +1309,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, boolean alloc_f
 
     s = unix_cache_alloc(p->uh, socket);
     if (s == INVALID_ADDRESS) {
-	msg_err("failed to allocate struct sock\n");
+        msg_err("netsock: failed to allocate structure");
         goto err_sock;
     }
 
@@ -1326,7 +1326,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, boolean alloc_f
 
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     if (s->incoming == INVALID_ADDRESS) {
-        msg_err("failed to allocate queue\n");
+        msg_err("netsock: failed to allocate queue");
         goto err_queue;
     }
 
@@ -1408,7 +1408,7 @@ sysreturn socket(int domain, int type, int protocol)
     case AF_VSOCK:
         return vsock_open(type, protocol);
     default:
-        msg_warn("domain %d not supported\n", domain);
+        msg_warn("socket domain %d not supported", domain);
         return -EAFNOSUPPORT;
     }
 
@@ -1418,11 +1418,10 @@ sysreturn socket(int domain, int type, int protocol)
     if (check_flags_and_clear(flags, SOCK_NONBLOCK))
         nonblock = true;
 
-    if (check_flags_and_clear(flags, SOCK_CLOEXEC))
-	msg_warn("close-on-exec not applicable; ignored\n");
+    flags &= ~SOCK_CLOEXEC;
 
     if ((flags & ~SOCK_TYPE_MASK) != 0)
-        msg_warn("unhandled type flags 0x%x\n", flags);
+        msg_warn("%s: unhandled flags 0x%x", func_ss, flags);
 
     type &= SOCK_TYPE_MASK;
     if (type == SOCK_STREAM) {
@@ -1448,7 +1447,7 @@ sysreturn socket(int domain, int type, int protocol)
         net_debug("new udp fd %d, pcb %p\n", fd, p);
         return fd;
     }
-    msg_warn("unsupported socket type %d\n", type);
+    msg_warn("%s: unsupported type %d", func_ss, type);
     return -EINVAL;
 }
 
@@ -1462,7 +1461,7 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
 
     if (err != ERR_OK) {
         /* shouldn't happen according to lwIP sources; just report */
-        msg_err("Unexpected error from lwIP: %d\n", err);
+        msg_err("%s error from lwIP: %d", func_ss, err);
     }
 
     /* A null pbuf indicates connection closed. */
@@ -1470,7 +1469,7 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
     if (p) {
         if ((s->sock.rx_len + p->tot_len > so_rcvbuf) || !enqueue(s->incoming, p)) {
 	    netsock_unlock(s);
-	    msg_err("incoming queue full\n");
+            msg_err("%s error: incoming queue full", func_ss);
             return ERR_BUF;     /* XXX verify */
         }
         s->sock.rx_len += p->tot_len;
@@ -1703,7 +1702,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
         } else if (s->info.tcp.state == TCP_SOCK_OPEN) {
             ret = -EISCONN;
         } else if (s->info.tcp.state == TCP_SOCK_LISTENING) {
-            msg_warn("attempt to connect on listening socket fd = %d; ignored\n", sock->fd);
+            msg_warn("%s: attempt to connect on listening socket fd = %d", func_ss, sock->fd);
             ret = -EINVAL;
         } else {
             ret = connect_tcp(s, &ipaddr, port);
@@ -1734,24 +1733,24 @@ static sysreturn sendto_prepare(struct sock *sock, int flags)
 {
     /* Process flags */
     if (flags & MSG_CONFIRM)
-	msg_warn("MSG_CONFIRM unimplemented; ignored\n");
+        msg_warn("send flag MSG_CONFIRM ignored");
 
     if (flags & MSG_DONTROUTE)
-	msg_warn("MSG_DONTROUTE unimplemented; ignored\n");
+        msg_warn("send flag MSG_DONTROUTE ignored");
 
     if (flags & MSG_EOR) {
-	msg_warn("MSG_EOR unimplemented\n");
+	msg_err("send flag MSG_EOR unimplemented");
 	return -EOPNOTSUPP;
     }
 
     if (flags & MSG_MORE)
-	msg_warn("MSG_MORE unimplemented; ignored\n");
+        msg_warn("send flag MSG_MORE ignored");
 
     if (flags & MSG_NOSIGNAL)
-	msg_warn("MSG_NOSIGNAL unimplemented; ignored\n");
+        msg_warn("send flag MSG_NOSIGNAL ignored");
 
     if (flags & MSG_OOB)
-	msg_warn("MSG_OOB unimplemented; ignored\n");
+        msg_warn("send flag MSG_OOB ignored");
 
     return 0;
 }
@@ -2076,7 +2075,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
     tcp_err(lw, lwip_tcp_conn_err);
     tcp_sent(lw, lwip_tcp_sent);
     if (!enqueue(s->incoming, sn)) {
-        msg_err("queue overrun; shouldn't happen with lwIP listen backlog\n");
+        msg_err("%s queue overrun", func_ss);
         err = ERR_BUF;      /* lwIP will do tcp_abort */
         goto unlock_out;
     }
@@ -2479,7 +2478,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
     rv = 0;
     goto out;
 unimplemented:
-    msg_warn("setsockopt unimplemented: fd %d, level %d, optname %d\n",
+    msg_warn("setsockopt unimplemented: fd %d, level %d, optname %d",
              sock->fd, level, optname);
     rv = 0;
 out:
@@ -2731,7 +2730,7 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
     rv = sockopt_copy_to_user(optval, optlen, &ret_optval, ret_optlen);
     goto out;
 unimplemented:
-    msg_err("getsockopt unimplemented optname: fd %d, level %d, optname %d\n",
+    msg_err("getsockopt unimplemented: fd %d, level %d, optname %d",
             sock->fd, level, optname);
     rv = -ENOPROTOOPT;
 out:

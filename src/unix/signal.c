@@ -430,18 +430,18 @@ sysreturn rt_sigaction(int signum,
 
     /* XXX we should sanitize values ... */
     if (act->sa_flags & SA_NOCLDSTOP)
-        msg_warn("Warning: SA_NOCLDSTOP unsupported.\n");
+        msg_warn("sigaction flag SA_NOCLDSTOP unsupported");
 
     if (act->sa_flags & SA_NOCLDWAIT)
-        msg_warn("Warning: SA_NOCLDWAIT unsupported.\n");
+        msg_warn("sigaction flag SA_NOCLDWAIT unsupported");
 
     if (act->sa_flags & SA_RESETHAND)
-        msg_warn("Warning: SA_RESETHAND unsupported.\n");
+        msg_warn("sigaction flag SA_RESETHAND unsupported");
 
 #ifdef __x86_64__
     /* libc should always set this on x64 ... */
     if (!(act->sa_flags & SA_RESTORER)) {
-        msg_err("sigaction without SA_RESTORER not supported.\n");
+        msg_err("sigaction without SA_RESTORER not supported");
         return -EINVAL;
     }
 #endif
@@ -968,7 +968,7 @@ static sysreturn allocate_signalfd(const u64 *mask, int flags)
   err_mem_bq:
     deallocate(h, sfd, sizeof(*sfd));
   err_mem:
-    msg_err("failed to allocate\n");
+    msg_err("signalfd: failed to allocate structure");
     return set_syscall_error(current, ENOMEM);
 }
 
@@ -1087,7 +1087,6 @@ static void default_signal_action(thread t, queued_signal qs)
             dump_context(&t->syscall->uc.kc.context);
         }
     }
-    thread_log(t, "%s", fate);
     halt_with_code(VM_EXIT_SIGNAL(signum), ss("%s\n"), fate);
 }
 

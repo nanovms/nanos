@@ -32,7 +32,7 @@ u64 allocate_fd(process p, void *f)
     process_lock(p);
     u64 fd = allocate_u64((heap)p->fdallocator, 1);
     if (fd == INVALID_PHYSICAL) {
-        msg_err("fail; maxed out\n");
+        msg_err("fd allocation failed");
         goto out;
     }
     if (!vector_set(p->files, fd, f)) {
@@ -49,7 +49,7 @@ u64 allocate_fd_gte(process p, u64 min, void *f)
     process_lock(p);
     u64 fd = id_heap_alloc_gte(p->fdallocator, 1, min);
     if (fd == INVALID_PHYSICAL) {
-        msg_err("failed\n");
+        msg_err("fd allocation failed");
     }
     else {
         if (!vector_set(p->files, fd, f)) {
@@ -142,7 +142,7 @@ void demand_page_done(context ctx, u64 vaddr, status s)
             oom_last_time = here;
             spin_unlock(&oom_lock);
             if (here - last < seconds(1) && oom_count >= 10) {
-                msg_err("out of memory in multiple page faults; program killed\n");
+                msg_err("page fault: out of memory, program killed");
                 deliver_fault_signal(SIGKILL, t, vaddr, 0);
             } else {
                 deliver_fault_signal(SIGBUS, t, vaddr, BUS_ADRERR);
@@ -323,7 +323,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
 
         if (is_instruction_fault(ctx->frame) && !user) {
             vmap_unlock(p);
-            msg_err("kernel instruction fault\n");
+            msg_err("%s: kernel instruction fault", func_ss);
             goto bug;
         }
 
@@ -443,7 +443,7 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     file out = unix_cache_alloc(uh, file);
     file err = unix_cache_alloc(uh, file);
     if ((in == INVALID_ADDRESS) || (out == INVALID_ADDRESS) || (err == INVALID_ADDRESS)) {
-        msg_err("failed to allocate files\n");
+        msg_err("Unix: failed to allocate standard files");
         return false;
     }
     assert(allocate_fd(p, in) == 0);
@@ -706,7 +706,7 @@ process init_unix(kernel_heaps kh, tuple root, filesystem fs)
 out:
     return kernel_process;
   alloc_fail:
-    msg_err("failed to allocate kernel objects\n");
+    msg_err("%s: failed to allocate kernel objects", func_ss);
     return INVALID_ADDRESS;
 }
 

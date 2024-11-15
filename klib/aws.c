@@ -42,12 +42,12 @@ closure_function(5, 1, boolean, aws_metadata_in,
             heap h = bound(h);
             value_handler vh = closure(h, aws_metadata_recv, handler, &bound(done));
             if (vh == INVALID_ADDRESS) {
-                msg_err("failed to allocate value handler\n");
+                msg_err("%s: failed to allocate value handler", func_ss);
                 goto error;
             }
             bound(parser) = allocate_http_parser(h, vh);
             if (bound(parser) == INVALID_ADDRESS) {
-                msg_err("failed to allocate HTTP parser\n");
+                msg_err("%s: failed to allocate HTTP parser", func_ss);
                 deallocate_closure(vh);
                 goto error;
             }
@@ -61,7 +61,7 @@ closure_function(5, 1, boolean, aws_metadata_in,
                 return false;
             }
         } else {
-            msg_err("failed to parse HTTP response: %v\n", s);
+            msg_err("%s: failed to parse HTTP response: %v", func_ss, s);
             timm_dealloc(s);
         }
     } else {  /* connection closed */
@@ -84,19 +84,19 @@ closure_function(3, 1, input_buffer_handler, aws_metadata_ch,
     heap h = bound(h);
     buffer_handler handler = bound(handler);
     if (!out) {
-        msg_err("failed to connect to server\n");
+        msg_err("%s: failed to connect to server", func_ss);
         goto error;
     }
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
-        msg_err("failed to allocate request\n");
+        msg_err("%s: failed to allocate request", func_ss);
         goto error;
     }
     set(req, sym(url), alloca_wrap_sstring(bound(uri)));
     status s = http_request(h, out, HTTP_REQUEST_METHOD_GET, req, 0);
     deallocate_value(req);
     if (!is_ok(s)) {
-        msg_err("failed to send HTTP request: %v\n", s);
+        msg_err("%s: failed to send HTTP request: %v", func_ss, s);
         timm_dealloc(s);
         goto error;
     }
@@ -127,10 +127,10 @@ void aws_metadata_get(heap h, sstring uri, buffer_handler handler)
         status s = direct_connect(h, &md_server, 80, ch);
         if (is_ok(s))
             return;
-        msg_err("failed to connect to server: %v\n", s);
+        msg_err("%s: failed to connect to server: %v", func_ss, s);
         timm_dealloc(s);
     } else {
-        msg_err("failed to allocate closure\n");
+        msg_err("%s: failed to allocate closure", func_ss);
     }
     apply(handler, 0);
 }
@@ -157,7 +157,7 @@ static boolean aws_cred_parse_item(buffer data, sstring name, buffer value)
     data->start = 0;    /* rewind buffer start, so that it can be re-used to parse other items */
     return true;
   error:
-    msg_err("parsing of %s failed (%b)\n", name, data);
+    msg_err("%s: parsing of %s failed (%b)", func_ss, name, data);
     return false;
 }
 
@@ -190,13 +190,13 @@ closure_function(2, 1, status, aws_iam_role_get,
     aws_cred_handler handler = bound(handler);
     closure_finish();
     if (!data || (buffer_length(data) == 0)) {
-        msg_err("no IAM role associated to instance\n");
+        msg_err("%s: no role associated to instance", func_ss);
         goto error;
     }
     buffer uri = wrap_string_cstring(AWS_CRED_URI);
     push_u8(uri, '/');
     if (!push_buffer(uri, data)) {
-        msg_err("failed to build URI\n");
+        msg_err("%s: failed to build URI", func_ss);
         deallocate_buffer(uri);
         goto error;
     }
@@ -205,7 +205,7 @@ closure_function(2, 1, status, aws_iam_role_get,
         aws_metadata_get(h, buffer_to_sstring(uri), cred_parser);
         return STATUS_OK;
     } else {
-        msg_err("failed to allocate closure\n");
+        msg_err("%s: failed to allocate closure", func_ss);
         deallocate_buffer(uri);
     }
   error:
@@ -219,7 +219,7 @@ void aws_cred_get(heap h, aws_cred_handler handler)
     if (role_handler != INVALID_ADDRESS) {
         aws_metadata_get(h, ss(AWS_CRED_URI), role_handler);
     } else {
-        msg_err("failed to allocate closure\n");
+        msg_err("%s: failed to allocate closure", func_ss);
         apply(handler, 0);
     }
 }

@@ -480,7 +480,7 @@ void __attribute__((noreturn)) __stack_chk_fail(void)
 {
     cpuinfo ci = current_cpu();
     context ctx = get_current_context(ci);
-    rprintf("stack check failed on cpu %d\n", ci->id);
+    msg_err("stack check failed on cpu %d", ci->id);
     dump_context(ctx);
     vm_exit(VM_EXIT_FAULT);
 }

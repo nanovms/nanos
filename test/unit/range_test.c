@@ -29,12 +29,12 @@ closure_func_basic(rmnode_handler, boolean, basic_test_validate,
     range r = range_from_rmnode(node);
     int val = ((test_node)node)->val;
     if (count >= nresults) {
-        msg_err("range lookup extraneous result: %R, %p\n", r, val);
+        msg_err("%s error: range lookup extraneous result: %R, %p", func_ss, r, val);
         exit(EXIT_FAILURE);
     }
     if (!range_equal(r, rm_results[count].r) || val != rm_results[count].val) {
-        msg_err("count %d, range lookup result mismatch, expected %R, %d but got %R, %d\n",
-                count, rm_results[count].r, rm_results[count].val, r, val);
+        msg_err("%s error: count %d, range lookup result mismatch, expected %R, %d, got %R, %d",
+                func_ss, count, rm_results[count].r, rm_results[count].val, r, val);
         exit(EXIT_FAILURE);
     }
     count++;
@@ -65,7 +65,7 @@ boolean basic_test(heap h)
     char * msg = "";
     rangemap rm = allocate_rangemap(h);
     if (rm == INVALID_ADDRESS) {
-        msg_err("failed to allocate rangemap\n");
+        msg_err("%s failed to allocate rangemap", func_ss);
         return false;
     }
 
@@ -182,7 +182,8 @@ static void rangemap_verify_ranges(rangemap rm, int expected_count, u64 expected
     u64 previous_end = 0;
     rangemap_foreach(rm, n) {
         if ((count++ > 0) && (n->r.start <= previous_end)) {
-            msg_err("unexpected range %R, previous end %ld)\n", n->r, previous_end);
+            msg_err("%s error: unexpected range %R, previous end %ld)",
+                    func_ss, n->r, previous_end);
             exit(EXIT_FAILURE);
         }
         length += range_span(n->r);
@@ -205,7 +206,7 @@ static boolean rangemap_merge_test(heap h)
 {
     rangemap rm = allocate_rangemap(h);
     if (rm == INVALID_ADDRESS) {
-        msg_err("failed to allocate rangemap\n");
+        msg_err("%s failed to allocate rangemap", func_ss);
         return false;
     }
     rangemap_verify_ranges(rm, 0, 0);
@@ -257,6 +258,6 @@ int main(int argc, char **argv)
     msg_debug("range test passed\n");
     exit(EXIT_SUCCESS);
   fail:
-    msg_err("range test failed\n");
+    msg_err("Range test failed");
     exit(EXIT_FAILURE);
 }

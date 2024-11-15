@@ -53,7 +53,7 @@ closure_function(1, 1, void, azure_instance_md_parsed,
 closure_func_basic(parse_error, void, azure_instance_md_err,
                    string data)
 {
-    msg_err("failed to parse JSON: %b\n", data);
+    msg_err("%s: failed to parse JSON: %b", func_ss, data);
 }
 
 closure_func_basic(value_handler, void, azure_instance_md_vh,
@@ -62,7 +62,7 @@ closure_func_basic(value_handler, void, azure_instance_md_vh,
     az_instance_md_req req_data = struct_from_closure(az_instance_md_req, vh);
     deallocate_value(req_data->req);
     if (!v) {
-        msg_err("failed to retrieve instance metadata\n");
+        msg_err("%s: failed to retrieve metadata", func_ss);
         goto done;
     }
     value start_line = get(v, sym(start_line));
@@ -74,7 +74,7 @@ closure_func_basic(value_handler, void, azure_instance_md_vh,
     else
         content = 0;
     if (!content) {
-        msg_err("unexpected metadata server response %v\n", v);
+        msg_err("%s: unexpected server response %v", func_ss, v);
         goto done;
     }
     tuple md = 0;
@@ -106,12 +106,12 @@ void azure_instance_md_get(az_instance_md_handler complete)
     req_params.method = HTTP_REQUEST_METHOD_GET;
     az_instance_md_req req_data = allocate(azure.h, sizeof(*req_data));
     if (req_data == INVALID_ADDRESS) {
-        msg_err("out of memory\n");
+        msg_err("%s: out of memory", func_ss);
         goto error;
     }
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
-        msg_err("out of memory\n");
+        msg_err("%s: out of memory", func_ss);
         deallocate(azure.h, req_data, sizeof(*req_data));
         goto error;
     }

@@ -521,7 +521,7 @@ static int hv_storvsc_io_request(struct storvsc_softc *sc, struct hv_storvsc_req
     }
 
     if (ret != 0) {
-        rprintf("Unable to send packet %p ret %d", vstor_packet, ret);
+        msg_err("storvsc: unable to send packet %p, ret %d", vstor_packet, ret);
     } else {
         fetch_and_add_32(&sc->hs_num_out_reqs, 1);
     }
@@ -1308,7 +1308,7 @@ closure_function(1, 3, boolean, storvsc_probe,
 {
     status s = storvsc_attach(bound(kh), device, a);
     if (!is_ok(s)) {
-        msg_err("attach failed with status %v\n", s);
+        msg_err("storvsc attach failed with status %v", s);
         return false;
     }
     *storvsc_attached = true;

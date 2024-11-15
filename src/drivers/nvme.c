@@ -468,16 +468,16 @@ static void nvme_ns_resp_parse(nvme n, u32 ns_id, void *ns_resp,
     nvme_debug("identify namespace response (cmd ID %d)", NVME_CMD_ID(cqe->dw3));
     int sc = NVME_STATUS_CODE(cqe->dw3);
     if (sc != NVME_SC_OK) {
-        msg_err("failed to identify namespace: status code 0x%x\n", sc);
+        msg_err("NVMe: failed to identify namespace: status code 0x%x", sc);
         for (int i = 0; i < U64_FROM_BIT(n->asq.order); i++) {
             struct nvme_sqe *sqe = &n->asq.ring[i];
-            rprintf("sqe %x %x %x %x %x %x %x %x %x %x %x %x\n",
+            msg_err("\tsqe %x %x %x %x %x %x %x %x %x %x %x %x",
                     sqe->cdw0, sqe->nsid, sqe->reserved, sqe->mptr, sqe->dptr.prp1, sqe->dptr.prp2,
                     sqe->cdw10, sqe->cdw11, sqe->cdw12, sqe->cdw13, sqe->cdw14, sqe->cdw15);
         }
         for (int i = 0; i < U64_FROM_BIT(n->acq.order); i++) {
             struct nvme_cqe *cqe = &n->acq.ring[i];
-            rprintf("cqe %x %x %x %x\n", cqe->dw0, cqe->dw1, cqe->dw2, cqe->dw3);
+            msg_err("\tcqe %x %x %x %x", cqe->dw0, cqe->dw1, cqe->dw2, cqe->dw3);
         }
         return;
     }
@@ -488,13 +488,13 @@ static void nvme_ns_resp_parse(nvme n, u32 ns_id, void *ns_resp,
     u32 lbaf = *(u32 *)(ns_resp + 128 + flbas); /* LBA format */
     int lbads = 1 << ((lbaf >> 16) & 0xFF);     /* LBA data size */
     if (lbads != SECTOR_SIZE) {
-        msg_err("unsupported sector size %ld", lbads);
+        msg_err("%s: unsupported sector size %ld", func_ss, lbads);
         return;
     }
     u64 disk_size = nsze * lbads;
     thunk ns_attach = closure(n->general, nvme_ns_attach, n, ns_id, disk_size, a);
     if (ns_attach == INVALID_ADDRESS)
-        msg_err("failed to allocate NS attach closure\n");
+        msg_err("%s: failed to allocate NS attach closure", func_ss);
     else
         async_apply_bh(ns_attach);
 }
@@ -565,7 +565,7 @@ closure_function(3, 1, void, nvme_identify_controller_resp,
     void *resp = bound(resp);
     int sc = NVME_STATUS_CODE(cqe->dw3);
     if (sc != NVME_SC_OK) {
-        msg_err("failed to identify controller: status code 0x%x\n", sc);
+        msg_err("NVMe: failed to identify controller: status code 0x%x", sc);
         goto error;
     }
     u16 vid = *(u16 *)resp; /* PCI Vendor ID */
@@ -594,7 +594,7 @@ closure_function(3, 1, void, nvme_identify_controller_resp,
         nvme_ns_query_next(n, 1, nn, resp);
         goto done;
     } else {
-        msg_err("failed to allocate completion handler\n");
+        msg_err("%s: failed to allocate completion handler", func_ss);
     }
   error:
     deallocate(n->contiguous, resp, NVME_IDENTIFY_RESP_SIZE);
@@ -606,12 +606,12 @@ static boolean nvme_identify_controller(nvme n, storage_attach a)
 {
     void *resp = allocate(n->contiguous, NVME_IDENTIFY_RESP_SIZE);
     if (resp == INVALID_ADDRESS) {
-        msg_err("failed to allocate response\n");
+        msg_err("%s: failed to allocate response", func_ss);
         return false;
     }
     n->ac_handler = closure(n->general, nvme_identify_controller_resp, n, resp, a);
     if (n->ac_handler == INVALID_ADDRESS) {
-        msg_err("failed to allocate completion handler\n");
+        msg_err("%s: failed to allocate completion handler", func_ss);
         deallocate(n->contiguous, resp, NVME_IDENTIFY_RESP_SIZE);
         return false;
     }
@@ -633,12 +633,12 @@ closure_function(3, 1, void, nvme_get_active_namespaces_resp,
     void *resp = bound(resp);
     int sc = NVME_STATUS_CODE(cqe->dw3);
     if (sc != NVME_SC_OK) {
-        msg_err("failed to get active namespaces: status code 0x%x\n", sc);
+        msg_err("NVMe: failed to get active namespaces: status code 0x%x", sc);
         goto error;
     }
     void *ns_resp = allocate(n->contiguous, NVME_IDENTIFY_RESP_SIZE);
     if (ns_resp == INVALID_ADDRESS) {
-        msg_err("failed to allocate namespace data response\n");
+        msg_err("%s: failed to allocate namespace data response", func_ss);
         goto error;
     }
     n->ac_handler = closure(n->general, nvme_ns_query_resp_active, n, resp, 0, ns_resp, bound(a));
@@ -646,7 +646,7 @@ closure_function(3, 1, void, nvme_get_active_namespaces_resp,
         nvme_ns_query_next_active(n, resp, 0, ns_resp);
         goto done;
     } else {
-        msg_err("failed to allocate completion handler\n");
+        msg_err("%s: failed to allocate completion handler", func_ss);
         deallocate(n->contiguous, ns_resp, NVME_IDENTIFY_RESP_SIZE);
     }
   error:
@@ -659,12 +659,12 @@ static boolean nvme_get_active_namespaces(nvme n, u32 start_id, storage_attach a
 {
     void *resp = allocate(n->contiguous, NVME_IDENTIFY_RESP_SIZE);
     if (resp == INVALID_ADDRESS) {
-        msg_err("failed to allocate response\n");
+        msg_err("%s: failed to allocate response", func_ss);
         return false;
     }
     n->ac_handler = closure(n->general, nvme_get_active_namespaces_resp, n, resp, a);
     if (n->ac_handler == INVALID_ADDRESS) {
-        msg_err("failed to allocate completion handler\n");
+        msg_err("%s: failed to allocate completion handler", func_ss);
         deallocate(n->contiguous, resp, NVME_IDENTIFY_RESP_SIZE);
         return false;
     }
@@ -693,7 +693,7 @@ closure_function(2, 1, void, nvme_create_iosq_resp,
         else
             nvme_identify_controller(n, a);
     } else {
-        msg_err("failed to create I/O SQ: status code 0x%x\n", sc);
+        msg_err("NVMe: failed to create I/O SQ: status code 0x%x", sc);
     }
     closure_finish();
 }
@@ -701,12 +701,12 @@ closure_function(2, 1, void, nvme_create_iosq_resp,
 static boolean nvme_create_iosq(nvme n, storage_attach a)
 {
     if (!nvme_init_sq(n, &n->iosq, n->ioq_order)) {
-        msg_err("failed to initialize queue\n");
+        msg_err("NVMe: failed to initialize I/O SQ");
         return false;
     }
     n->ac_handler = closure(n->general, nvme_create_iosq_resp, n, a);
     if (n->ac_handler == INVALID_ADDRESS) {
-        msg_err("failed to allocate completion handler\n");
+        msg_err("%s: failed to allocate completion handler", func_ss);
         nvme_deinit_sq(n, &n->iosq);
         return false;
     }
@@ -737,7 +737,7 @@ closure_function(2, 1, void, nvme_create_iocq_resp,
         nvme_debug("I/O CQ created");
         nvme_create_iosq(n, bound(a));
     } else {
-        msg_err("failed to create I/O CQ: status code 0x%x\n", sc);
+        msg_err("NVMe: failed to create I/O CQ: status code 0x%x", sc);
     }
     closure_finish();
 }
@@ -745,18 +745,18 @@ closure_function(2, 1, void, nvme_create_iocq_resp,
 static boolean nvme_create_iocq(nvme n, storage_attach a)
 {
     if (!nvme_init_cq(n, &n->iocq, n->ioq_order)) {
-        msg_err("failed to initialize queue\n");
+        msg_err("NVMe: failed to initialize I/O CQ");
         return false;
     }
     n->ac_handler = closure(n->general, nvme_create_iocq_resp, n, a);
     if (n->ac_handler == INVALID_ADDRESS) {
-        msg_err("failed to allocate completion handler\n");
+        msg_err("%s: failed to allocate completion handler", func_ss);
         nvme_deinit_cq(n, &n->iocq);
         return false;
     }
     if (pci_setup_msix(n->d, NVME_IOQ_MSIX, init_closure_func(&n->io_irq, thunk, nvme_io_irq),
                        ss("nvme I/O")) == INVALID_PHYSICAL) {
-        msg_err("failed to allocate MSI-X vector\n");
+        msg_err("%s: failed to allocate MSI-X vector", func_ss);
         return false;
     }
     struct nvme_sqe *cmd = nvme_get_sqe(&n->asq);
@@ -812,7 +812,7 @@ closure_function(3, 1, boolean, nvme_probe,
         if (retries++ <= 8) {
             kernel_delay(milliseconds(1 << retries));
         } else {
-            msg_err("failed to reset controller\n");
+            msg_err("%s: failed to reset controller", func_ss);
             goto deinit_acq;
         }
     }
@@ -828,7 +828,7 @@ closure_function(3, 1, boolean, nvme_probe,
                NVME_VS_MJR(n->vs), NVME_VS_MNR(n->vs), NVME_VS_TER(n->vs), mqes, n->ioq_order);
     n->cmds = allocate_vector(general, NVME_CID_MAX + 1);
     if (n->cmds == INVALID_ADDRESS) {
-        msg_err("failed to allocate request vector\n");
+        msg_err("%s: failed to allocate request vector", func_ss);
         goto deinit_acq;
     }
     pci_bar_write_4(&n->bar, NVME_AQA, NVME_AQA_ACQS(U64_FROM_BIT(NVME_ACQ_ORDER)) |
@@ -844,7 +844,7 @@ closure_function(3, 1, boolean, nvme_probe,
         if (retries++ <= 8) {
             kernel_delay(milliseconds(1 << retries));
         } else {
-            msg_err("failed to enable controller\n");
+            msg_err("%s: failed to enable controller", func_ss);
             goto free_cmds;
         }
     }
@@ -852,7 +852,7 @@ closure_function(3, 1, boolean, nvme_probe,
     pci_enable_msix(d);
     if (pci_setup_msix(d, NVME_AQ_MSIX, init_closure_func(&n->admin_irq, thunk, nvme_admin_irq),
                        ss("nvme admin")) == INVALID_PHYSICAL) {
-        msg_err("failed to allocate MSI-X vector\n");
+        msg_err("%s: failed to allocate MSI-X vector", func_ss);
         goto free_cmds;
     }
     n->attach_id = -1;
@@ -904,7 +904,7 @@ closure_func_basic(pci_remove, void, nvme_remove,
     if (nvme_complete != INVALID_ADDRESS)
         storage_detach((storage_req_handler)&n->req_handler, nvme_complete);
     else
-        msg_err("failed to allocate completion closure\n");
+        msg_err("%s: failed to allocate completion closure", func_ss);
 }
 
 void init_nvme(kernel_heaps kh, storage_attach a)

@@ -15,7 +15,7 @@ void page_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length)
     page_backed_heap pbh = (page_backed_heap)bh;
     u64 padlen = pad(length, pbh->bh.h.pagesize);
     if (x & (pbh->bh.h.pagesize - 1)) {
-	msg_err("attempt to free unaligned area at %lx, length %x; leaking\n", x, length);
+	msg_err("%s error: unaligned area at %lx, length %x; leaking", func_ss, x, length);
 	return;
     }
 
@@ -48,7 +48,7 @@ static inline void page_backed_dealloc_unmap(backed_heap bh, void *virt, u64 phy
 {
     page_backed_heap pbh = (page_backed_heap)bh;
     if (u64_from_pointer(virt) & (pbh->bh.h.pagesize - 1)) {
-        msg_err("attempt to free unaligned area at %lx, length %x; leaking\n", virt, len);
+        msg_err("%s error: unaligned area at %lx, length %x; leaking", func_ss, virt, len);
         return;
     }
     if (phys == 0) {

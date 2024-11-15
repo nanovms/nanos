@@ -76,7 +76,7 @@ static void telemetry_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callba
 {
     connection_handler ch = callback_arg;
     if (!ipaddr) {
-        rprintf("Radar: failed to look up server hostname\n");
+        msg_err("Radar: failed to look up server hostname");
         goto error;
     }
     thunk t = closure(telemetry.h, telemetry_connect, *ipaddr, ch);
@@ -137,11 +137,11 @@ closure_function(2, 1, boolean, telemetry_recv,
             if (parser != INVALID_ADDRESS) {
                 status s = apply(parser, data);
                 if (!is_ok(s)) {
-                    rprintf("Radar: failed to parse HTTP response: %v\n", s);
+                    msg_err("Radar: failed to parse HTTP response: %v", s);
                     timm_dealloc(s);
                 }
             } else {
-                rprintf("Radar: failed to allocate HTTP parser\n");
+                msg_err("Radar: failed to allocate HTTP parser");
                 apply(vh, 0);
             }
         }
@@ -383,7 +383,7 @@ static void telemetry_stats_send(void)
 {
     buffer b = allocate_buffer(telemetry.h, 128);
     if (b == INVALID_ADDRESS) {
-        msg_err("failed to allocate buffer\n");
+        msg_err("%s: failed to allocate buffer", func_ss);
         return;
     }
     bprintf(b, "{\"bootID\":%ld,\"memUsed\":[", telemetry.boot_id);
@@ -394,7 +394,7 @@ static void telemetry_stats_send(void)
     storage_iterate(stack_closure(telemetry_vh, b, 0));
     buffer_write_cstring(b, "]}\r\n");
     if (!telemetry_send(ss("/api/v1/machine-stats"), b, 0)) {
-        msg_err("failed to send stats\n");
+        msg_err("Radar: failed to send stats");
         deallocate_buffer(b);
     }
 }
@@ -433,7 +433,7 @@ int init(status_handler complete)
     telemetry.h = heap_locked(kh);
     telemetry.phys = (heap)heap_physical(kh);
     if (tls_set_cacert(RADAR_CA_CERT, sizeof(RADAR_CA_CERT)) != 0) {
-        rprintf("Radar: failed to set CA certificate\n");
+        msg_err("Radar: failed to set CA certificate");
         return KLIB_INIT_FAILED;
     }
     telemetry.env = get_environment();
@@ -445,12 +445,12 @@ int init(status_handler complete)
     init_closure_func(&telemetry.stats_func, timer_handler, telemetry_stats);
     telemetry.dump = allocate(telemetry.h, sizeof(*telemetry.dump));
     if (telemetry.dump == INVALID_ADDRESS) {
-        rprintf("Radar: failed to allocate log dump\n");
+        msg_err("Radar: failed to allocate log dump");
         return KLIB_INIT_FAILED;
     }
     status_handler sh = closure_func(telemetry.h, status_handler, klog_dump_loaded);
     if (sh == INVALID_ADDRESS) {
-        rprintf("Radar: failed to allocate log dump load handler\n");
+        msg_err("Radar: failed to allocate log dump load handler");
         deallocate(telemetry.h, telemetry.dump, sizeof(*telemetry.dump));
         return KLIB_INIT_FAILED;
     }

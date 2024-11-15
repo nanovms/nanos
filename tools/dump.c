@@ -157,7 +157,7 @@ closure_function(3, 2, void, fsc,
     heap h = bound(h);
 
     if (!is_ok(s)) {
-        rprintf("failed to initialize filesystem: %v\n", s);
+        msg_err("dump: failed to initialize filesystem: %v", s);
         exit(EXIT_FAILURE);
     }
 

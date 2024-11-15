@@ -361,18 +361,18 @@ closure_func_basic(binding_handler, boolean, syslog_cfg,
 {
     if (s == sym(file)) {
         if (!is_string(v)) {
-            rprintf("invalid syslog file\n");
+            msg_err("syslog: invalid file");
             return false;
         }
         syslog.file_path = v;
     } else if (s == sym(file_max_size)) {
         if (!is_string(v)) {
-            rprintf("invalid syslog file max size\n");
+            msg_err("syslog: invalid file max size");
             return false;
         }
         buffer b = alloca_wrap(v);
         if (!parse_int(b, 10, &syslog.file_max_size)) {
-            rprintf("invalid syslog file max size\n");
+            msg_err("syslog: invalid file max size");
             return false;
         }
         if (buffer_length(b) == 1) {
@@ -392,32 +392,32 @@ closure_func_basic(binding_handler, boolean, syslog_cfg,
                 size = syslog.file_max_size * GB;
                 break;
             default:
-                rprintf("invalid syslog file max size suffix '%c'\n", suffix);
+                msg_err("syslog: invalid file max size suffix '%c'", suffix);
                 return false;
             }
             if (size < syslog.file_max_size) {
                 /* Size value cannot be represented in 64 bits. */
-                rprintf("invalid syslog file max size\n");
+                msg_err("syslog: invalid file max size");
                 return false;
             }
             syslog.file_max_size = size;
         } else if (buffer_length(b) > 1) {
-            rprintf("invalid syslog file max size\n");
+            msg_err("syslog: invalid file max size");
             return false;
         }
     } else if (s == sym(file_rotate)) {
         if (!(is_string(v) || is_integer(v)) ||
             !u64_from_value(v, &syslog.file_rotate)) {
-            rprintf("invalid syslog file rotate count\n");
+            msg_err("syslog: invalid file rotate count");
             return false;
         } else if (syslog.file_rotate > SYSLOG_FILE_ROTATE_MAX) {
-            rprintf("syslog file rotate count greater than %d not supported\n",
+            msg_err("syslog: file rotate count greater than %d not supported",
                 SYSLOG_FILE_ROTATE_MAX);
             return false;
         }
     } else if (s == sym(server)) {
         if (!is_string(v)) {
-            rprintf("invalid syslog server\n");
+            msg_err("syslog: invalid server");
             return false;
         }
         syslog.server = buffer_to_sstring(v);
@@ -425,12 +425,12 @@ closure_func_basic(binding_handler, boolean, syslog_cfg,
         u64 port;
         if (!(is_string(v) || is_integer(v)) ||
             !u64_from_value(v, &port) || (port > U16_MAX)) {
-            rprintf("invalid syslog port\n");
+            msg_err("syslog: invalid server port");
             return false;
         }
         syslog.server_port = port;
     } else {
-        rprintf("invalid syslog option '%v'\n", s);
+        msg_err("syslog: invalid option '%v'", s);
         return false;
     }
     return true;
@@ -442,7 +442,7 @@ int init(status_handler complete)
     tuple root = get_root_tuple();
     tuple cfg = get(root, sym(syslog));
     if (!cfg) {
-        rprintf("syslog configuration not specified\n");
+        msg_err("syslog configuration not specified");
         return KLIB_INIT_FAILED;
     }
 
@@ -452,13 +452,13 @@ int init(status_handler complete)
     syslog.server_port = SYSLOG_UDP_PORT_DEFAULT;
 
     if (!is_tuple(cfg) || !iterate(cfg, stack_closure_func(binding_handler, syslog_cfg))) {
-        rprintf("invalid syslog configuration\n");
+        msg_err("syslog: invalid configuration");
         return KLIB_INIT_FAILED;
     }
     if (syslog.file_path) {
         syslog.fsf = fsfile_open_or_create(buffer_to_sstring(syslog.file_path), false);
         if (!syslog.fsf) {
-            rprintf("cannot create syslog output file\n");
+            msg_err("syslog: cannot create output file");
             return KLIB_INIT_FAILED;
         }
         syslog.fs_write = pagecache_node_get_writer(fsfile_get_cachenode(syslog.fsf));
@@ -474,7 +474,7 @@ int init(status_handler complete)
                 buffer_length(syslog.program) + 7;
         syslog.udp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY);
         if (!syslog.udp_pcb) {
-            rprintf("syslog: unable to create UDP PCB\n");
+            msg_err("syslog: unable to create UDP PCB");
             return KLIB_INIT_FAILED;
         }
         list_init(&syslog.udp_msgs);

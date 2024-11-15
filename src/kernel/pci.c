@@ -273,7 +273,7 @@ void pci_probe_device(pci_dev dev)
     if (dev_index < 0) {
         pci_dev new_dev = allocate(devices->h, sizeof(*new_dev));
         if (new_dev == INVALID_ADDRESS) {
-            msg_err("cannot allocate memory for PCI device\n");
+            msg_err("PCI: cannot allocate memory for device");
             spin_unlock(&pci_lock);
             return;
         }
@@ -356,7 +356,7 @@ void pci_remove_device(pci_dev dev, thunk completion)
         if (pci_completion != INVALID_ADDRESS)
             completion = pci_completion;
         else
-            msg_err("cannot allocate completion closure\n");
+            msg_err("%s: cannot allocate completion closure", func_ss);
         driver = d->driver;
         driver_data = d->driver_data;
         d->driver_data = 0;

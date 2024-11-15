@@ -120,14 +120,14 @@ static int ent_get_stats(char *path, struct ent_stat_entry *stats)
 
     f = popen(&ent_cmd[0], "r");
     if (!f) {
-        msg_err("Can't start ent, perhaps it is not installed?\n");
+        msg_err("%s failed to start ent", func_ss);
         return -1;
     }
 
     matched = fread(&ent_buf[0], 1024, 1, f);
     if (ferror(f)) {
         pclose(f);
-        msg_err("Can't read ent statistics, matched=%d.\n", matched);
+        msg_err("%s failed to read ent statistics, matched=%d", func_ss, matched);
         return -1;
     }
 
@@ -153,7 +153,7 @@ static int ent_get_stats(char *path, struct ent_stat_entry *stats)
         else if (linenum == 1)
             sscanf(s, "%lf", &stats[nfield - (ENT_NSTATS + 1)].val);
         else if (linenum < 0) {
-            msg_err("unable to parse\n");
+            msg_err("%s error: unable to parse", func_ss);
             pclose(f);
             return -1;
         }
@@ -187,7 +187,7 @@ static int ent_test(struct ent_stat_entry *stats)
     double val;
 
     if (!ent_stat_get(stats, "Entropy", &val)) {
-        msg_err("Cannot get bytestream entropy.\n");
+        msg_err("%s failed to get bytestream entropy", func_ss);
         goto out_fail;
     }
 
@@ -199,12 +199,12 @@ static int ent_test(struct ent_stat_entry *stats)
     }
 
     if (comp > COMPRESS_PASS_THRESH) {
-        msg_err("Insufficient entropy.\n");
+        msg_err("%s error: insufficient entropy", func_ss);
         goto out_fail;
     }
 
     if (!ent_stat_get(stats, "Mean", &val)) {
-        msg_err("Cannot get sequence mean\n");
+        msg_err("%s failed to get sequence mean", func_ss);
         goto out_fail;
     }
 
@@ -216,7 +216,7 @@ static int ent_test(struct ent_stat_entry *stats)
     }
 
     if (fabs(mean_dev) > MEAN_DEV_THRESH) {
-        msg_err("Mean deviation too large.\n");
+        msg_err("%s error: mean deviation too large", func_ss);
         goto out_fail;
     }
 
@@ -262,7 +262,7 @@ int main(int argc, char **argv)
     rm_bytestream("/tmp/test");
 
     if (result != EXIT_SUCCESS)
-        msg_err("Test failed.\n");
+        msg_err("Random test failed");
 
     exit(result);
 }

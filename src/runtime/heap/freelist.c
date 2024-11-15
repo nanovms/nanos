@@ -24,7 +24,6 @@ static void freelist_deallocate(heap h, u64 x, bytes size)
     freelist f = (freelist)h;
     *(void **)pointer_from_u64(x) = f->free;
     f->free = pointer_from_u64(x);
-    //    rprintf("freelist deallocate %p\n", x);
     size = MAX(size, sizeof(void *));
     assert(f->count >= size);
     f->count -= size;

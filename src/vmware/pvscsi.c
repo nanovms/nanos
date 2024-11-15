@@ -180,7 +180,7 @@ closure_function(6, 0, void, pvscsi_io_done,
                                     bound(len));
             return;
         }
-        rprintf("scsi_status not ok: %d\n", hcb->scsi_status);
+        msg_err("pvscsi: scsi_status not ok: %d", hcb->scsi_status);
         scsi_dump_sense(hcb->sense, sizeof(hcb->sense));
         st = timm("result", "status %d", hcb->scsi_status);
     }
@@ -237,7 +237,7 @@ closure_function(5, 0, void, pvscsi_read_capacity_done,
 
     pvscsi_disk d = allocate(s->general, sizeof(*d));
     if (d == INVALID_ADDRESS) {
-        msg_err("cannot allocate PVSCSI disk\n");
+        msg_err("pvscsi: cannot allocate disk");
         goto out;
     }
 

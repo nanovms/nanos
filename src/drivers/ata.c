@@ -257,7 +257,7 @@ void ata_io_cmd(void * _dev, int cmd, void * buf, range blocks, status_handler s
 
 timeout:
     err = ss("ata_io_cmd: device timeout");
-    msg_err("%s\n", err);
+    msg_err("%s", err);
     apply(s, timm_sstring(ss("result"), err));
 }
 
@@ -345,7 +345,7 @@ boolean ata_probe(struct ata *dev)
 
     // identify
     if (ata_wait(dev, 0) < 0) {
-        msg_err("drive busy\n");
+        msg_err("%s: drive busy", func_ss);
         return false;
     }
     ata_out8(dev, ATA_COMMAND, ATA_ATA_IDENTIFY);

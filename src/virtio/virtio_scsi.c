@@ -163,7 +163,7 @@ static void virtio_scsi_detach_disk(virtio_scsi s, u16 target, u16 lun)
         return;
     }
     spin_unlock(&s->lock);
-    msg_err("target %d lun %d not found\n", target, lun);
+    msg_err("%s: target %d lun %d not found", func_ss, target, lun);
 }
 
 closure_function(2, 1, void, virtio_scsi_event_complete,
@@ -174,7 +174,7 @@ closure_function(2, 1, void, virtio_scsi_event_complete,
     virtio_scsi s = bound(s);
     virtio_scsi_debug("event 0x%x\n", e->event);
     if (e->event & VIRTIO_SCSI_EVENT_LOST)
-        msg_err("scsi event reported lost due to missing buffers\n");
+        msg_err("vitio_scsi event lost due to missing buffers");
     switch (e->event & ~VIRTIO_SCSI_EVENT_LOST) {
     case VIRTIO_SCSI_T_TRANSPORT_RESET: {
         u16 target = e->lun[1];
@@ -472,7 +472,7 @@ closure_function(5, 2, void, virtio_scsi_read_capacity_done,
     spin_unlock(&s->lock);
     d = allocate(s->v->virtio_dev.general, sizeof(*d));
     if (d == INVALID_ADDRESS) {
-        msg_err("cannot allocate SCSI disk\n");
+        msg_err("virtio_scsi: cannot allocate disk");
         goto out;
     }
 
@@ -619,7 +619,7 @@ static void send_lun_inquiry(virtio_scsi s, u16 target, u16 lun)
     vsr_complete completion = closure(s->v->virtio_dev.general, virtio_scsi_inquiry_done, s->sa,
                                       target, lun, -1, 0, 0);
     if (completion == INVALID_ADDRESS) {
-        msg_err("failed to allocate completion\n");
+        msg_err("virtio_scsi LUN inquiry: failed to allocate completion");
         return;
     }
     virtio_scsi_inquiry_vpd(s, target, lun, SCSI_VPD_DEVID, completion);
@@ -723,7 +723,7 @@ static void virtio_scsi_attach(heap general, storage_attach a, backed_heap page_
         for (int i = 0; i < VIRTIO_SCSI_NUM_EVENTS; i++)
             virtio_scsi_enqueue_event(s, s->events + i, 0);
     else
-        msg_err("failed to allocate events\n");
+        msg_err("%s: failed to allocate events", func_ss);
 
     // scan bus
     for (u16 target = 0; target <= s->max_target; target++)

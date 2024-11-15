@@ -289,7 +289,7 @@ closure_function(1, 3, boolean, netvsc_probe,
 {
     status s = netvsc_attach(bound(kh), device);
     if (!is_ok(s)) {
-        msg_err("attach failed with status %v\n", s);
+        msg_err("netvsc attach failed with status %v", s);
         return false;
     }
     return true;
@@ -404,7 +404,7 @@ netvsc_recv(struct hv_device *device_ctx, netvsc_packet *packet)
 
     err_enum_t err = n->input((struct pbuf *)x, n);
     if (err != ERR_OK) {
-        msg_err("netvsc: rx drop by stack, err %d\n", err);
+        msg_err("netvsc: rx drop by stack, err %d", err);
         receive_buffer_release((struct pbuf *)x);
     }
     return 0;

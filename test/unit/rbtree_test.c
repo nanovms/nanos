@@ -48,7 +48,7 @@ closure_function(3, 1, boolean, test_max_lte_node,
         rbnode ml = rbtree_lookup_max_lte(bound(t), &k.node);
         rbnode x = *bound(last) ? *bound(last) : INVALID_ADDRESS;
         if (ml != x) {
-            rprintf("%s: lookup max lte returned %p, should be last (%p)\n",
+            msg_err("%s error: lookup max lte returned %p, should be last (%p)",
                     func_ss, ml, x);
             *bound(result) = false;
             return false;
@@ -68,8 +68,8 @@ static boolean test_max_lte(rbtree t)
         k.key = ((testnode)last)->key + 1;
         rbnode ml = rbtree_lookup_max_lte(t, &k.node);
         if (ml != last) {
-            rprintf("%s: lookup max lte for key %d after last node "
-                    "returned %p instead of last (%p)\n", func_ss,
+            msg_err("%s error: lookup max lte for key %d after last node "
+                    "returned %p instead of last (%p)", func_ss,
                     k.key, ml, last);
             return false;
         }
@@ -115,7 +115,7 @@ static boolean test_remove(heap h, rbtree t, int key, boolean expect)
     rbtest_debug("deleting by key %d\n", key);
     boolean result = rbtree_remove_by_key(t, &tk.node);
     if (result != expect) {
-        msg_err("delete failed (result %d)\n", result);
+        msg_err("%s: delete failed (result %d)", func_ss, result);
         return false;
     }
 #ifdef RBTEST_DEBUG
@@ -123,13 +123,13 @@ static boolean test_remove(heap h, rbtree t, int key, boolean expect)
 #endif
     status s = rbtree_validate(t);
     if (!is_ok(s)) {
-        msg_err("validate failed: %v\n", s);
+        msg_err("%s: validate failed: %v", func_ss, s);
         return false;
     }
     rbtest_debug("lookup:\n");
     rbnode r = rbtree_lookup(t, &tk.node);
     if (r != INVALID_ADDRESS) {
-        msg_err("lookup for key %d should have failed (returned %p, key %d)\n",
+        msg_err("%s error: lookup for key %d should have failed (returned %p, key %d)", func_ss,
                 key, r, ((testnode)r)->key);
         return false;
     }
@@ -222,12 +222,12 @@ closure_function(3, 1, boolean, validate_preorder_vec,
     int *p = bound(vec) + i;
     rbtest_debug("index %d, expect %d, tn->key %d\n", i, *p, tn->key);
     if (*p == -1) {
-        rprintf("%s: result vec exceeded at index %d\n", func_ss, i);
+        msg_err("%s: result vec exceeded at index %d", func_ss, i);
         *bound(match) = false;
         return false;
     }
     if (*p != tn->key) {
-        rprintf("%s: key %d at index %d, expected %d\n", func_ss, tn->key, i, *p);
+        msg_err("%s: key %d at index %d, expected %d", func_ss, tn->key, i, *p);
         *bound(match) = false;
         return false;
     }
@@ -250,7 +250,7 @@ static boolean do_transformation_test(rbtree t, heap h, int i, boolean insert)
         rbtest_debug("   %d: %d\n", j, k);
         boolean result = insert ? test_insert(h, t, k, true) : test_remove(h, t, k, true);
         if (!result) {
-            rprintf("%s: %s failed for test %d, idx %d, key %d\n", func_ss, op, i, j, k);
+            msg_err("%s: %s failed for test %d, idx %d, key %d", func_ss, op, i, j, k);
             return false;   /* XXX leak */
         }
     }
@@ -265,13 +265,13 @@ static boolean do_transformation_test(rbtree t, heap h, int i, boolean insert)
                     stack_closure(validate_preorder_vec, rvec, &index, &match));
     if (match) {
         if (rvec[index] != -1) {
-            rprintf("%s: in-order traversal for %s test %d gave incomplete results, end index %d\n",
+            msg_err("%s: in-order traversal for %s test %d gave incomplete results, end index %d",
                     func_ss, op, i, index);
             return false;
         }
     }
     if (!match) {
-        rprintf("%s: validate for %s test %d failed\n", func_ss, op, i);
+        msg_err("%s: validate for %s test %d failed", func_ss, op, i);
         return false;
     }
     rbtest_debug("passed\n\n");
@@ -303,7 +303,7 @@ static boolean basic_test(heap h)
     rbtree t = allocate_rbtree(h, closure_func(h, rb_key_compare, test_compare),
                                closure_func(h, rbnode_handler, dump_node));
     if (t == INVALID_ADDRESS) {
-        msg_err("allocate_rbtree() failed\n");
+        msg_err("%s: allocate_rbtree() failed", func_ss);
         return false;
     }
 
@@ -322,7 +322,7 @@ static boolean basic_test(heap h)
     rbtest_debug("attempt to insert duplicates\n");
     for (int i = 0; i < 200; i++) {
         if (test_insert(h, t, i, false)) {
-            msg_err("insert should have failed\n");
+            msg_err("%s error: insert should have failed", func_ss);
             return false;
         }
     }
@@ -336,7 +336,7 @@ static boolean basic_test(heap h)
     destruct_rbtree(t, stack_closure(dealloc_testnode, h));
     status s = rbtree_validate(t);
     if (!is_ok(s)) {
-        rprintf("validate failed after tree destruct: %v\n", s);
+        msg_err("%s: validate failed after tree destruct: %v", func_ss, s);
         return false;
     }
     boolean result = true;
@@ -354,7 +354,7 @@ static boolean random_test(heap h)
                                closure_func(h, rbnode_handler, dump_node));
     assert(rbtree_get_count(t) == 0);
     if (t == INVALID_ADDRESS) {
-        msg_err("allocate_rbtree() failed\n");
+        msg_err("%s: allocate_rbtree() failed", func_ss);
         return false;
     }
 
@@ -369,11 +369,11 @@ static boolean random_test(heap h)
             tn.key = vec[i];
             rbnode rn = rbtree_lookup(t, &tn.node);
             if (rn == INVALID_ADDRESS) {
-                msg_err("both insert and lookup failed\n");
+                msg_err("%s: both insert and lookup failed", func_ss);
                 return false;
             }
             if (((testnode)rn)->key != vec[i]) {
-                msg_err("found node key mismatch\n");
+                msg_err("%s error: node key mismatch", func_ss);
                 return false;
             }
             goto redo;
@@ -389,7 +389,7 @@ static boolean random_test(heap h)
     destruct_rbtree(t, stack_closure(dealloc_testnode, h));
     status s = rbtree_validate(t);
     if (!is_ok(s)) {
-        rprintf("validate failed after tree destruct: %v\n", s);
+        msg_err("%s: validate failed after tree destruct: %v", func_ss, s);
         return false;
     }
     boolean result = true;
@@ -413,6 +413,6 @@ int main(int argc, char **argv)
     msg_debug("test passed\n");
     exit(EXIT_SUCCESS);
   fail:
-    msg_err("test failed\n");
+    msg_err("Rbtree test failed");
     exit(EXIT_FAILURE);
 }

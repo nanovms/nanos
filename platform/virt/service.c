@@ -528,7 +528,7 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
         if (!is_ok(s))
             halt("Hyper-V probe failed: %v\n", s);
         if (!hv_storvsc_attached)
-            msg_err("cannot detect Hyper-V storage device\n");
+            msg_err("Hyper-V: cannot detect storage device");
     } else {
         init_virtio_network(kh);
         init_aws_ena(kh);

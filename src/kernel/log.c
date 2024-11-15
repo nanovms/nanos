@@ -48,6 +48,7 @@ static struct {
     u64 disk_offset;
     storage_req_handler disk_handler;
     closure_struct(klog_load_sh, load_sh);
+    enum log_level level;
 } klog __attribute__ ((aligned(SECTOR_SIZE)));
 
 #define klog_lock()     u64 _irqflags = spin_lock_irq(&klog.lock)
@@ -143,4 +144,35 @@ void klog_dump_clear(void)
         .completion = ignore_status,
     };
     apply(klog.disk_handler, &req);
+}
+
+void klog_set_level(string level)
+{
+    if (!buffer_strcmp(level, "info"))
+        klog.level = LOG_INFO;
+    else if (!buffer_strcmp(level, "warn"))
+        klog.level = LOG_WARN;
+    else if (!buffer_strcmp(level, "err"))
+        klog.level = LOG_ERR;
+    else
+        msg_err("log_level: invalid value '%b'", level);
+}
+
+boolean klog_level_enabled(enum log_level level)
+{
+    return (level <= klog.level);
+}
+
+void log_printf(enum log_level level, sstring fmt, ...)
+{
+    if (level <= klog.level) {
+        vlist a;
+        vstart(a, fmt);
+        buffer b = little_stack_buffer(1024);
+        bprintf(b, "[%T] ", now(CLOCK_ID_BOOTTIME));
+        vbprintf(b, fmt, &a);
+        vend(a);
+        push_u8(b, '\n');
+        buffer_print(b);
+    }
 }

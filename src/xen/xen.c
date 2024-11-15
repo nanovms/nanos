@@ -168,11 +168,11 @@ static boolean xen_grant_init(kernel_heaps kh)
     qs.dom = DOMID_SELF;
     int rv = HYPERVISOR_grant_table_op(GNTTABOP_query_size, &qs, 1);
     if (rv < 0) {
-        msg_err("failed to query grant table size (rv %d)\n", rv);
+        msg_err("xen: failed to query grant table size (rv %d)", rv);
         return false;
     }
     if (qs.status != GNTST_okay) {
-        msg_err("grant table query returned error status %d\n", qs.status);
+        msg_err("xen: grant table query returned error status %d", qs.status);
         return false;
     }
     gt->n_entries = qs.max_nr_frames * (PAGESIZE / sizeof(grant_entry_v2_t));
@@ -181,7 +181,7 @@ static boolean xen_grant_init(kernel_heaps kh)
     heap table_heap = (heap)heap_linear_backed(kh);
     gt->table = allocate_zero(table_heap, qs.max_nr_frames * PAGESIZE);
     if (gt->table == INVALID_ADDRESS) {
-        msg_err("failed to allocate grant table\n");
+        msg_err("xen: failed to allocate grant table");
         return false;
     }
     xen_debug("%s: table v 0x%lx, p 0x%lx", func_ss, gt->table, physical_from_virtual(gt->table));
@@ -191,14 +191,14 @@ static boolean xen_grant_init(kernel_heaps kh)
     gt->entry_heap = (heap)create_id_heap(h, h, GTAB_RESERVED_ENTRIES + 1,
                                           gt->n_entries - GTAB_RESERVED_ENTRIES, 1, true);
     if (gt->entry_heap == INVALID_ADDRESS) {
-        msg_err("failed to allocate grant table occupancy heap\n");
+        msg_err("xen: failed to allocate grant table occupancy heap");
         goto fail_dealloc_table;
     }
 
     /* We have this feature on the platforms we care about now, but we
        can add support for the other case if need be. */
     if (!xen_feature_supported(XENFEAT_auto_translated_physmap)) {
-        msg_err("auto translated physmap feature required\n");
+        msg_err("%s error: auto translated physmap feature required", func_ss);
         goto fail_dealloc_heap;
     }
 
@@ -216,7 +216,7 @@ static boolean xen_grant_init(kernel_heaps kh)
         xen_debug("grant page %d, gpfn %x", xatp.idx, xatp.gpfn);
         rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
         if (rv < 0) {
-            msg_err("failed to add grant table page (rv %d)\n", rv);
+            msg_err("xen: failed to add grant table page (rv %d)", rv);
             goto fail_dealloc_heap;
         }
     }
@@ -266,7 +266,7 @@ closure_func_basic(clock_timer, void, xen_runloop_timer,
     sst.flags = 0;
     int rv = HYPERVISOR_vcpu_op(VCPUOP_set_singleshot_timer, vcpu, &sst);
     if (rv != 0) {
-        msg_err("failed on cpu %d; rv %d\n", vcpu, rv);
+        msg_err("%s failed on cpu %d; rv %d", func_ss, vcpu, rv);
     }
 }
 
@@ -286,7 +286,7 @@ static void xenstore_watch_event(struct xsd_sockmsg *msg)
     do {
         s64 r = xenstore_read_internal(b, length);
         if (r < 0) {
-            msg_err("failed to read\n");
+            msg_err("%s: failed to read", func_ss);
             return;
         }
         length -= r;
@@ -295,13 +295,13 @@ static void xenstore_watch_event(struct xsd_sockmsg *msg)
     sstring path = sstring_from_cstring(buffer_ref(b, 0), msg->len);
     bytes path_len = path.len;
     if (path_len == msg->len) {
-        msg_err("no string terminator for xenstore path\n");
+        msg_err("%s: no string terminator for xenstore path", func_ss);
         return;
     }
     buffer_consume(b, path_len + 1);
     u64 token;
     if (!parse_int(b, 16, &token)) {
-        msg_err("failed to parse token\n");
+        msg_err("%s: failed to parse token", func_ss);
         return;
     }
 
@@ -345,7 +345,7 @@ static int xen_setup_vcpu(int vcpu, u64 shared_info_phys)
     vrvi.offset = vci_pa & (PAGESIZE - 1);
     int rv = HYPERVISOR_vcpu_op(VCPUOP_register_vcpu_info, vcpu, &vrvi);
     if (rv < 0) {
-        msg_err("failed to register vcpu info for cpu %d (rv %d)\n", vcpu, rv);
+        msg_err("xen: failed to register vcpu info for cpu %d (rv %d)", vcpu, rv);
         return rv;
     }
 
@@ -354,7 +354,7 @@ static int xen_setup_vcpu(int vcpu, u64 shared_info_phys)
     xen_debug("stopping periodic tick timer on cpu %d...", vcpu);
     rv = HYPERVISOR_vcpu_op(VCPUOP_stop_periodic_timer, vcpu, 0);
     if (rv < 0) {
-        msg_err("unable to stop periodic timer on cpu %d (rv %d)\n", vcpu, rv);
+        msg_err("xen: unable to stop periodic timer on cpu %d (rv %d)", vcpu, rv);
         return rv;
     }
 
@@ -364,7 +364,7 @@ static int xen_setup_vcpu(int vcpu, u64 shared_info_phys)
     eop.u.bind_virq.vcpu = vcpu;
     rv = HYPERVISOR_event_channel_op(&eop);
     if (rv < 0) {
-        msg_err("failed to bind virtual timer IRQ for cpu %d (rv %d)\n", vcpu, rv);
+        msg_err("xen: failed to bind virtual timer IRQ for cpu %d (rv %d)", vcpu, rv);
         return rv;
     }
     evtchn_port_t timer_evtchn = eop.u.bind_virq.port;
@@ -430,7 +430,7 @@ boolean xen_detect(kernel_heaps kh)
 
     cpuid(XEN_CPUID_LEAF(2), 0, v);
     if (v[0] != 1) {
-        msg_err("xen reporting %d hypercall pages; not supported\n", v[0]);
+        msg_err("xen reporting %d hypercall pages; not supported", v[0]);
         return false;
     }
     xen_info.msr_base = v[1];
@@ -460,14 +460,14 @@ boolean xen_detect(kernel_heaps kh)
     xfi.submap_idx = 0;
     int rv = HYPERVISOR_xen_version(XENVER_get_features, &xfi);
     if (rv < 0) {
-        msg_err("failed to get xen features map (rv %d)\n", rv);
+        msg_err("xen: failed to get features map (rv %d)", rv);
         return false;
     }
     xen_info.features = xfi.submap;
     xen_debug("reported features map 0x%x", xen_info.features);
 
     if (!xen_feature_supported(XENFEAT_hvm_safe_pvclock)) {
-        msg_err("failed to init; XENFEAT_hvm_safe_pvclock required\n");
+        msg_err("xen failed to init; XENFEAT_hvm_safe_pvclock required");
         return false;
     }
 
@@ -478,7 +478,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_hvm_param.index = HVM_PARAM_STORE_PFN;
     rv = HYPERVISOR_hvm_op(HVMOP_get_param, &xen_hvm_param);
     if (rv < 0) {
-        msg_err("failed to get xenstore page address (rv %d)\n", rv);
+        msg_err("xen: failed to get xenstore page address (rv %d)", rv);
         return false;
     }
     xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
@@ -495,7 +495,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_hvm_param.index = HVM_PARAM_STORE_EVTCHN;
     rv = HYPERVISOR_hvm_op(HVMOP_get_param, &xen_hvm_param);
     if (rv < 0) {
-        msg_err("failed to get xenstore event channel (rv %d)\n", rv);
+        msg_err("xen: failed to get xenstore event channel (rv %d)", rv);
         return false;
     }
 
@@ -515,13 +515,13 @@ boolean xen_detect(kernel_heaps kh)
     xatp.gpfn = shared_info_phys >> PAGELOG;
     rv = HYPERVISOR_memory_op(XENMEM_add_to_physmap, &xatp);
     if (rv < 0) {
-        msg_err("failed to add shared info map (rv %d)\n", rv);
+        msg_err("xen: failed to add shared info map (rv %d)", rv);
         goto out_dealloc_shared_page;
     }
     xen_debug("shared info page: %p, phys 0x%lx", shared_info, shared_info_phys);
 
     if (!xen_feature_supported(XENFEAT_hvm_callback_vector)) {
-        msg_err("HVM callback vector must be supported; xen setup failed (features mask 0x%x)\n",
+        msg_err("xen setup failed: HVM callback vector must be supported (features mask 0x%x)",
                 xen_info.features);
         goto out_dealloc_shared_page;
     }
@@ -536,7 +536,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_hvm_param.value = (2ull << 56) | irq;
     rv = HYPERVISOR_hvm_op(HVMOP_set_param, &xen_hvm_param);
     if (rv < 0) {
-        msg_err("failed to register event channel interrupt vector (rv %d)\n", rv);
+        msg_err("xen: failed to register event channel interrupt vector (rv %d)", rv);
         goto out_unregister_irq;
     }
 
@@ -560,7 +560,7 @@ boolean xen_detect(kernel_heaps kh)
     assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
 
     if (!xen_grant_init(kh)) {
-        msg_err("failed to set up grant tables\n");
+        msg_err("xen: failed to set up grant tables");
         goto out_unregister_irq;
     }
 
@@ -569,7 +569,7 @@ boolean xen_detect(kernel_heaps kh)
                               init_closure_func(&xen_info.shutdown_watcher, xenstore_watch_handler,
                                                 xen_shutdown_watcher),
                               true)))
-        msg_err("failed to register shutdown handler\n");
+        msg_err("xen: failed to register shutdown handler");
 
     xen_debug("xen initialization complete");
     list_init(&xen_info.driver_list);
@@ -1095,7 +1095,7 @@ closure_func_basic(thunk, void, xen_scan_service)
     status s = xen_scan();
     atomic_clear_bit(&xen_info.scanning, 0);
     if (!is_ok(s)) {
-        msg_warn("cannot scan devices: %v\n", s);
+        msg_warn("xen: cannot scan devices: %v", s);
         timm_dealloc(s);
     }
 }
@@ -1112,7 +1112,7 @@ status xen_probe_devices(void)
                                              xen_watch_handler),
                            true);
         if (!is_ok(s)) {
-            msg_warn("cannot watch devices: %v\n", s);
+            msg_warn("xen: cannot watch devices: %v", s);
             timm_dealloc(s);
             s = STATUS_OK;
         }

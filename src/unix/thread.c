@@ -55,7 +55,7 @@ static sysreturn clone_internal(struct clone_args_internal *args)
           return -EINVAL;
 
      if (!(flags & CLONE_THREAD)) {
-          thread_log(current, "attempted to create new process, aborting.");
+          msg_warn("clone: attempted to create new process");
           return -ENOSYS;
      }
 
@@ -478,7 +478,7 @@ thread create_thread(process p, u64 tid)
     destruct_context(&t->context);
     deallocate(h, t, sizeof(struct thread));
   fail:
-    msg_err("failed to allocate\n");
+    msg_err("thread: failed to allocate structure");
     return INVALID_ADDRESS;
 }
 

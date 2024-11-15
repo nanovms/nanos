@@ -115,12 +115,12 @@ static inline int socket_init(heap h, int domain, int type, u32 flags, struct so
     runtime_memset((u8 *) s, 0, sizeof(*s));
     s->rxbq = allocate_blockq(h, ss("sock receive"));
     if (s->rxbq == INVALID_ADDRESS) {
-        msg_err("failed to allocate blockq\n");
+        msg_err("%s: failed to allocate blockq", func_ss);
         goto err_rx;
     }
     s->txbq = allocate_blockq(h, ss("sock transmit"));
     if (s->txbq == INVALID_ADDRESS) {
-        msg_err("failed to allocate blockq\n");
+        msg_err("%s: failed to allocate blockq", func_ss);
         goto err_tx;
     }
     s->rx_len = 0;

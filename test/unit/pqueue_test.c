@@ -387,6 +387,6 @@ int main(int argc, char **argv)
     msg_debug("pqueue test passed\n");
     exit(EXIT_SUCCESS);
   fail:
-    msg_err("pqueue test failed\n");
+    msg_err("Pqueue test failed");
     exit(EXIT_FAILURE);
 }

@@ -9,7 +9,7 @@
 
 #define test_assert(expr) do { \
 if (expr) ; else { \
-    msg_err("%s -- failed at %s:%d\n", ss(#expr), file_ss, __LINE__); \
+    msg_err("%s: %s -- failed at %s:%d", func_ss, ss(#expr), file_ss, __LINE__); \
     goto fail; \
 } \
 } while (0)
@@ -371,7 +371,7 @@ int main(int argc, char **argv)
     failure |= encode_decode_lengthy_test(h);
 
     if (failure) {
-        msg_err("Test failed\n");
+        msg_err("Tuple test failed");
         exit(EXIT_FAILURE);
     }
     exit(EXIT_SUCCESS);

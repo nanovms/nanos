@@ -113,7 +113,7 @@ static direct direct_alloc(heap h, connection_handler ch)
         return d;
     d->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
     if (!d->p) {
-        msg_err("PCB creation failed\n");
+        msg_err("DNET: PCB creation failed");
         deallocate(h, d, sizeof(struct direct));
         return INVALID_ADDRESS;
     }
@@ -215,7 +215,7 @@ static void direct_conn_send_internal(direct_conn dc, qbuf q, boolean lwip_locke
 
         err = tcp_output(dc->p);
         if (err != ERR_OK) {
-            msg_err("tcp_output failed with %d\n", err);
+            msg_err("DNET: tcp_output failed with %d", err);
             break;
         }
 
@@ -290,7 +290,7 @@ static void direct_conn_err(void *z, err_t err)
         direct_conn_enqueue(dc, 0);
         return;
     }
-    msg_err("dc %p, err %d\n", dc, err);
+    msg_err("%s: dc %p, err %d", func_ss, dc, err);
     dc->pending_err = err;
 }
 
@@ -326,14 +326,14 @@ static direct_conn direct_conn_alloc(direct d, struct tcp_pcb *pcb)
   fail_dealloc:
     deallocate(d->h, dc, sizeof(struct direct_conn));
   fail:
-    msg_err("failed to establish direct connection\n");
+    msg_err("%s failed", func_ss);
     return INVALID_ADDRESS;
 }
 
 static void direct_listen_err(void *z, err_t err)
 {
     direct d = z;
-    msg_err("d %p, err %d\n", d, err);
+    msg_err("%s: d %p, err %d", func_ss, d, err);
     /* XXX TODO */
 }
 

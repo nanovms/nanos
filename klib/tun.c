@@ -251,19 +251,19 @@ static void get_tun_config(sstring name, ip4_addr_t *ipaddr, ip4_addr_t *netmask
     if (ipb) {
         sstring ip = buffer_to_sstring(ipb);
         if (!ip4addr_aton(ip, ipaddr)) {
-            rprintf("tun: invalid ipaddress %s\n", ip);
+            msg_err("tun: invalid ipaddress %s", ip);
         }
     }
     buffer nmb = get(cfg, sym(netmask));
     if (nmb) {
         sstring nm = buffer_to_sstring(nmb);
         if (!ip4addr_aton(nm, netmask) || !ip4_addr_netmask_valid(netmask->addr)) {
-            rprintf("tun: invalid netmask %s\n", nm);
+            msg_err("tun: invalid netmask %s", nm);
         }
     }
     if (get_u64(cfg, sym(mtu), mtu)) {
         if (*mtu >= U64_FROM_BIT(16)) {
-            rprintf("tun: invalid mtu %ld; ignored\n", *mtu);
+            msg_err("tun: invalid mtu %ld; ignored", *mtu);
             *mtu = 0;
         }
     }
@@ -432,7 +432,7 @@ int init(status_handler complete)
         return KLIB_INIT_FAILED;
     tun_cfg = get(root, sym(tun));
     if (tun_cfg && !is_tuple(tun_cfg)) {
-        rprintf("invalid tun cfg\n");
+        msg_err("tun: invalid configuration");
         return KLIB_INIT_FAILED;
     }
     spec_file_open open = closure_func(tun_heap, spec_file_open, tun_open);

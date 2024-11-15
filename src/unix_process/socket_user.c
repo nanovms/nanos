@@ -394,7 +394,7 @@ notifier create_epoll_notifier(heap h)
 {
     descriptor f;
     if ((f = epoll_create(1)) < 0) {
-	msg_err("epoll_create failed, %s (%d)\n", errno_sstring(), errno);
+	msg_err("epoll_create failed, %s (%d)", errno_sstring(), errno);
 	return 0;
     }
     epoll_notifier e = allocate(h, sizeof(struct epoll_notifier));
@@ -526,7 +526,7 @@ void connection(heap h,
     // this is still blocking!
     int res = connect(s, (struct sockaddr *)&where, sizeof(struct sockaddr_in));
     if (res) {
-        rprintf("zikkay %d %p\n", res, failure);        
+        msg_err("zikkay %d %p", res, failure);
         apply(failure, timm("errno", "%d", errno));
     } else {
         register_descriptor_write(h, n, s, closure(h, connection_start, h, s, n, c));

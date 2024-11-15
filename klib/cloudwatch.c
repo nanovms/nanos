@@ -160,7 +160,7 @@ static void cw_dns_cb(sstring name, const ip_addr_t *ipaddr, void *callback_arg)
     if (t != INVALID_ADDRESS)
         async_apply(t);
     else
-        msg_err("failed to allocate closure\n");
+        msg_err("%s: failed to allocate closure", func_ss);
 }
 
 static void cw_connect(sstring server, void (*handler)(const ip_addr_t *server))
@@ -201,7 +201,7 @@ closure_function(1, 1, void, cw_logstream_vh,
     buffer content = get_string(v, sym(content));
     if (content && (buffer_strstr(content, ss("ResourceAlreadyExistsException")) >= 0))
         goto success;
-    msg_err("unexpected response %v\n", v);
+    msg_err("%s: unexpected response %v", func_ss, v);
     return;
   success:
     spin_lock(&cw.lock);
@@ -216,7 +216,7 @@ closure_function(3, 1, boolean, cw_log_meta_ibh,
 {
     status s = apply(bound(parser), data);
     if (!is_ok(s)) {
-        msg_err("failed to parse response: %v\n", s);
+        msg_err("%s: failed to parse response: %v", func_ss, s);
         timm_dealloc(s);
         if (data) {
             apply(bound(out), 0);
@@ -239,12 +239,12 @@ closure_function(2, 1, input_buffer_handler, cw_logstream_ch,
     buffer_handler parser = bound(parser);
     boolean success = false;
     if (!out) {
-        msg_err("connection failed\n");
+        msg_err("%s: connection failed", func_ss);
         goto exit;
     }
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
-        msg_err("failed to allocate request\n");
+        msg_err("%s: failed to allocate request", func_ss);
         goto exit;
     }
     set(req, sym(url), alloca_wrap_cstring("/"));
@@ -259,7 +259,7 @@ closure_function(2, 1, input_buffer_handler, cw_logstream_ch,
             cw.log_group, cw.log_stream);
     input_buffer_handler ibh = closure(cw.h, cw_log_meta_ibh, parser, bound(parsed), out);
     if (ibh == INVALID_ADDRESS) {
-        msg_err("failed to allocate input buffer handler\n");
+        msg_err("%s: failed to allocate input buffer handler", func_ss);
         goto req_done;
     }
     success = cw_aws_req_send(ss(CLOUDWATCH_LOG_SERVICE_NAME), ss("Logs_20140328.CreateLogStream"),
@@ -284,29 +284,29 @@ closure_function(2, 1, input_buffer_handler, cw_logstream_ch,
 static void cw_logstream_create(const ip_addr_t *server)
 {
     if (!server) {
-        msg_err("failed to get server address\n");
+        msg_err("%s: failed to get server address", func_ss);
         return;
     }
     value_handler vh = closure(cw.h, cw_logstream_vh, false);
     if (vh == INVALID_ADDRESS) {
-        msg_err("failed to allocate value handler\n");
+        msg_err("%s: failed to allocate value handler", func_ss);
         return;
     }
     buffer_handler parser = allocate_http_parser(cw.h, vh);
     if (parser == INVALID_ADDRESS) {
-        msg_err("failed to allocate HTTP parser\n");
+        msg_err("%s: failed to allocate HTTP parser", func_ss);
         deallocate_closure(vh);
         return;
     }
     connection_handler ch = closure(cw.h, cw_logstream_ch, parser,
                                     &closure_member(cw_logstream_vh, vh, parsed));
     if (ch == INVALID_ADDRESS) {
-        msg_err("failed to allocate connection handler\n");
+        msg_err("%s: failed to allocate connection handler", func_ss);
         goto dealloc_parser;
     }
     if (tls_connect((ip_addr_t *)server, 443, ch) == 0)
         return;
-    msg_err("failed to connect to server\n");
+    msg_err("%s: failed to connect to server", func_ss);
     deallocate_closure(ch);
   dealloc_parser:
     apply(parser, 0);
@@ -327,7 +327,7 @@ closure_function(1, 1, void, cw_loggroup_vh,
     buffer content = get_string(v, sym(content));
     if (content && (buffer_strstr(content, ss("ResourceAlreadyExistsException")) >= 0))
         goto success;
-    msg_err("unexpected response %v\n", v);
+    msg_err("%s: unexpected response %v", func_ss, v);
     return;
   success:
     cw_connect(isstring(cw.log_servername, cw.log_servername_len), cw_logstream_create);
@@ -340,12 +340,12 @@ closure_function(2, 1, input_buffer_handler, cw_loggroup_ch,
     buffer_handler parser = bound(parser);
     boolean success = false;
     if (!out) {
-        msg_err("connection failed\n");
+        msg_err("%s: connection failed", func_ss);
         goto exit;
     }
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
-        msg_err("failed to allocate request\n");
+        msg_err("%s: failed to allocate request", func_ss);
         goto exit;
     }
     set(req, sym(url), alloca_wrap_cstring("/"));
@@ -359,7 +359,7 @@ closure_function(2, 1, input_buffer_handler, cw_loggroup_ch,
     bprintf(body, "{\"logGroupName\":\"%b\"}", cw.log_group);
     input_buffer_handler ibh = closure(cw.h, cw_log_meta_ibh, parser, bound(parsed), out);
     if (ibh == INVALID_ADDRESS) {
-        msg_err("failed to allocate input buffer handler\n");
+        msg_err("%s: failed to allocate input buffer handler", func_ss);
         goto req_done;
     }
     success = cw_aws_req_send(ss(CLOUDWATCH_LOG_SERVICE_NAME), ss("Logs_20140328.CreateLogGroup"),
@@ -384,29 +384,29 @@ closure_function(2, 1, input_buffer_handler, cw_loggroup_ch,
 static void cw_loggroup_create(const ip_addr_t *server)
 {
     if (!server) {
-        msg_err("failed to get server address\n");
+        msg_err("%s: failed to get server address", func_ss);
         return;
     }
     value_handler vh = closure(cw.h, cw_loggroup_vh, false);
     if (vh == INVALID_ADDRESS) {
-        msg_err("failed to allocate value handler\n");
+        msg_err("%s: failed to allocate value handler", func_ss);
         return;
     }
     buffer_handler parser = allocate_http_parser(cw.h, vh);
     if (parser == INVALID_ADDRESS) {
-        msg_err("failed to allocate HTTP parser\n");
+        msg_err("%s: failed to allocate HTTP parser", func_ss);
         deallocate_closure(vh);
         return;
     }
     connection_handler ch = closure(cw.h, cw_loggroup_ch, parser,
                                     &closure_member(cw_loggroup_vh, vh, parsed));
     if (ch == INVALID_ADDRESS) {
-        msg_err("failed to allocate connection handler\n");
+        msg_err("%s: failed to allocate connection handler", func_ss);
         goto dealloc_parser;
     }
     if (tls_connect((ip_addr_t *)server, 443, ch) == 0)
         return;
-    msg_err("failed to connect to server\n");
+    msg_err("%s: failed to connect to server", func_ss);
     deallocate_closure(ch);
   dealloc_parser:
     apply(parser, 0);
@@ -456,7 +456,7 @@ define_closure_function(1, 1, void, cw_aws_setup_complete,
         if (cw.log_entries)
             cw_log_setup();
     } else {
-        msg_err("setup failed: %v\n", s);
+        msg_err("CloudWatch setup failed: %v", s);
         timm_dealloc(s);
         timestamp retry_backoff = bound(retry_backoff);
         if (retry_backoff < seconds(3600))
@@ -531,7 +531,7 @@ define_closure_function(1, 1, boolean, cw_metrics_in_handler,
                 aws_cred_get(cw.h, init_closure(&cw.aws_cred_handler, cw_aws_cred_handler,
                                                 (status_handler)&cw.aws_setup_complete));
             } else {
-                msg_err("server response: '%b'\n", data);
+                msg_err("%s error: server response: '%b'", func_ss, data);
             }
         }
         apply(bound(out), 0);
@@ -668,7 +668,7 @@ closure_func_basic(value_handler, void, cw_log_vh,
             aws_cred_get(cw.h, init_closure(&cw.aws_cred_handler, cw_aws_cred_handler,
                          (status_handler)&cw.aws_setup_complete));
         } else {
-            msg_err("unexpected response %v\n", v);
+            msg_err("%s: unexpected response %v", func_ss, v);
             cw_log_pending_delete();
         }
     }
@@ -686,7 +686,7 @@ closure_func_basic(input_buffer_handler, boolean, cw_log_in_handler,
                 return true;
             }
         } else {
-            msg_err("failed to parse response: %v\n", s);
+            msg_err("%s: failed to parse response: %v", func_ss, s);
             timm_dealloc(s);
             apply(cw.log_out, 0);
             return true;
@@ -836,7 +836,7 @@ int init(status_handler complete)
     if (metrics_interval) {
         u64 interval;
         if (!u64_from_value(metrics_interval, &interval)) {
-            rprintf("CloudWatch: invalid memory metrics interval\n");
+            msg_err("CloudWatch: invalid memory metrics interval");
             return KLIB_INIT_FAILED;
         }
         cw.metrics_interval = seconds(interval);

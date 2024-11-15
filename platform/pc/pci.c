@@ -171,13 +171,13 @@ void pci_platform_init_bar(pci_dev dev, int bar)
     if (base & (is_io ? ~PCI_BAR_B_IOPORT_MASK : ~PCI_BAR_B_MEMORY_MASK))
         return; /* BAR configured by BIOS */
     if (is_io) {
-        msg_err("I/O port resource allocation not supported (%d:%d:%d, bar %d)\n",
+        msg_err("%s: I/O port resource allocation not supported (%d:%d:%d, bar %d)", func_ss,
                 dev->bus, dev->slot, dev->function, bar);
         return;
     }
     id_heap iomem = pci_bus_get_iomem(dev->bus);
     if (!iomem) {
-        msg_err("I/O memory heap not available for bus %d\n", dev->bus);
+        msg_err("%s: I/O memory heap not available for bus %d", func_ss, dev->bus);
         return;
     }
     base = id_heap_alloc_subrange(iomem,
@@ -188,7 +188,7 @@ void pci_platform_init_bar(pci_dev dev, int bar)
         if (flags & PCI_BAR_F_64BIT)
             pci_cfgwrite(dev, PCIR_BAR(bar + 1), 4, base >> 32);
     } else {
-        msg_err("failed to allocate I/O memory (%d:%d:%d, bar %d)\n",
+        msg_err("%s: failed to allocate I/O memory (%d:%d:%d, bar %d)", func_ss,
                 dev->bus, dev->slot, dev->function, bar);
     }
 }

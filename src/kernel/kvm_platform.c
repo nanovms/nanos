@@ -43,7 +43,7 @@ static boolean probe_kvm_pvclock(kernel_heaps kh, u32 cpuid_fn)
     kvm_debug("after write msr");
     if (vc->system_time == 0) {
         /* noise, but we should know if this happens */
-        msg_err("kvm pvclock probe failed: detected kvm pvclock, but system_time == 0\n");
+        msg_err("kvm pvclock probe failed: detected kvm pvclock, but system_time == 0");
         return false;
     }
     init_pvclock(heap_general(kh), vc, (struct pvclock_wall_clock *)(vc + 1));
@@ -65,7 +65,7 @@ boolean kvm_detect(kernel_heaps kh)
     if (fn == KVM_CPUID_END)
         return false;
     if (!probe_kvm_pvclock(kh, fn)) {
-        msg_err("unable to probe pvclock\n");
+        msg_err("kvm: unable to probe pvclock");
         return false;
     }
 

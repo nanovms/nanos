@@ -106,7 +106,7 @@ init_vmbus(kernel_heaps kh)
 
     status s = vmbus_attach(kh, &hyperv_info.vmbus);
     if (!is_ok(s)) {
-        msg_err("attach failed with status %v\n", s);
+        msg_err("vmbus attach failed with status %v", s);
         return;
     }
 

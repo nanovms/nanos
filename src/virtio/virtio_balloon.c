@@ -152,7 +152,7 @@ static u64 virtio_balloon_inflate(u64 n_balloon_pages)
                or assertion failure, however we can't completely account for
                effects of fragmentation in the physical id heap. Emit a
                warning and quit inflating for now. */
-            msg_err("failed to allocate balloon page from physical heap\n");
+            msg_err("%s: failed to allocate balloon page from physical heap", func_ss);
             break;
         }
 
@@ -392,7 +392,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
         virtio_balloon_init_statsq();
     return true;
   fail:
-    msg_err("failed to attach: %v\n", s);
+    msg_err("vtbln failed to attach: %v", s);
     return false;
 }
 

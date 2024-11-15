@@ -66,7 +66,7 @@ closure_function(1, 2, boolean, config_console_each,
                  value a, value v)
 {
     if (!is_string(v)) {
-        msg_err("value (attr %v) not a string\n", a);
+        msg_err("consoles: value (attr %v) not a string", a);
         return false;
     }
     if (buffer_length(v) < 2)
@@ -105,9 +105,9 @@ void config_console(tuple root)
     if (v == 0)
         return;
     if (!is_composite(v)) {
-        msg_err("consoles config is neither vector nor tuple\n");
+        msg_err("consoles config is neither vector nor tuple");
         return;
     }
     if (!iterate(v, stack_closure(config_console_each, root)))
-        msg_err("error parsing consoles from manifest\n");
+        msg_err("consoles parsing error");
 }

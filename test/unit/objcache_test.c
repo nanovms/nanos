@@ -15,7 +15,7 @@
 static inline boolean validate(heap h)
 {
     if (!objcache_validate(h)) {
-	msg_err("objcache_validate failed\n");
+	msg_err("objcache_validate failed");
 	return false;
     }
 
@@ -26,7 +26,7 @@ static inline boolean validate_obj(heap h, void * obj)
 {
     heap o = objcache_from_object(u64_from_pointer(obj), TEST_PAGESIZE);
     if (o != h) {
-	msg_err("objcache_from_object returned %p, doesn't match heap %p\n", o, h);
+	msg_err("objcache_from_object returned %p, doesn't match heap %p", o, h);
 	return false;
     }
     return true;
@@ -35,7 +35,7 @@ static inline boolean validate_obj(heap h, void * obj)
 static boolean alloc_vec(heap h, int n, int s, vector v)
 {
     if (!validate(h)) {
-        msg_err("tb: failed first heap validation\n");
+        msg_err("%s: failed first heap validation", func_ss);
         return false;
     }
     for (int i=0; i < n; i++) {
@@ -43,14 +43,14 @@ static boolean alloc_vec(heap h, int n, int s, vector v)
         if (p == INVALID_ADDRESS)
             return false;
         if (!validate_obj(h, p)) {
-            msg_err("tb: failed object validation\n");
+            msg_err("%s: failed object validation", func_ss);
             return false;
         }
 
         vector_set(v, i, p);
     }
     if (!validate(h)) {
-        msg_err("tb: failed second heap validation\n");
+        msg_err("%s: failed second heap validation", func_ss);
         return false;
     }
 
@@ -87,14 +87,14 @@ boolean objcache_test(heap meta, heap parent, int objsize)
     msg_debug("objs %p, heap %p\n", objs, h);
 
     if (h == INVALID_ADDRESS) {
-        msg_err("tb: failed to allocate objcache heap\n");
+        msg_err("%s: failed to allocate objcache heap", func_ss);
         deallocate_vector(objs);
         return false;
     }
 
     /* allocate a page's worth */
     if (!alloc_vec(h, opp, objsize, objs)) {
-        msg_err("tb: failed to allocate object\n");
+        msg_err("%s: failed to allocate object", func_ss);
         return false;
     }
 
@@ -104,7 +104,7 @@ boolean objcache_test(heap meta, heap parent, int objsize)
 
     /* re-allocate a page's worth + 1 to trigger parent allocation */
     if (!alloc_vec(h, opp + 1, objsize, objs)) {
-        msg_err("tb: failed to allocate object\n");
+        msg_err("%s: failed to allocate object", func_ss);
         return false;
     }
 
@@ -113,7 +113,7 @@ boolean objcache_test(heap meta, heap parent, int objsize)
         return false;
 
     if (heap_allocated(h) > 0) {
-        msg_err("allocated (%d) should be 0; fail\n", heap_allocated(h));
+        msg_err("%s: allocated (%d) should be 0; fail", func_ss, heap_allocated(h));
         return false;
     }
     destroy_heap(h);
@@ -135,7 +135,7 @@ boolean preallocated_objcache_test(heap meta, heap parent, int objsize, boolean 
     msg_debug("objs %p, heap %p\n", objs, h);
 
     if (h == INVALID_ADDRESS) {
-        msg_err("tb: failed to allocate objcache heap\n");
+        msg_err("%s: failed to allocate objcache heap", func_ss);
         deallocate_vector(objs);
         return false;
     }
@@ -155,7 +155,7 @@ boolean preallocated_objcache_test(heap meta, heap parent, int objsize, boolean 
 
     /* re-allocate a page + 1 worth to trigger parent allocation */
     if (!(alloc_vec(h, opp + 1, objsize, objs) != prealloc_only)) {
-        msg_err("tb: unexpectedly %s to allocate object\n",
+        msg_err("%s: unexpectedly %s to allocate object", func_ss,
                 prealloc_only ? ss("able") : ss("failed"));
         return false;
     }
@@ -166,7 +166,7 @@ boolean preallocated_objcache_test(heap meta, heap parent, int objsize, boolean 
             return false;
 
         if (heap_allocated(h) > 0) {
-            msg_err("allocated (%d) should be 0; fail\n", heap_allocated(h));
+            msg_err("%s: allocated (%d) should be 0; fail", func_ss, heap_allocated(h));
             return false;
         }
     }

@@ -111,7 +111,7 @@ closure_function(2, 2, void, volume_link,
         inode mount_dir = bound(mount_dir);
         int fss = filesystem_mount(storage.root_fs, mount_dir, fs);
         if (fss != 0) {
-            msg_err("cannot mount filesystem: %s\n", string_from_errno(-fss));
+            msg_err("%s: cannot mount filesystem: %s", func_ss, string_from_errno(-fss));
         } else {
             v->fs = fs;
             v->mount_dir = mount_dir;
@@ -119,7 +119,7 @@ closure_function(2, 2, void, volume_link,
             notify_mount_change_locked();
         }
     } else {
-        msg_err("cannot mount filesystem: %v\n", s);
+        msg_err("%s: cannot mount filesystem: %v", func_ss, s);
     }
     v->mounting = false;
     if (!v->fs && (fs != INVALID_ADDRESS))
@@ -145,20 +145,20 @@ static void volume_mount(volume v, buffer mount_point)
     int fss = filesystem_get_node(&fs, fs->get_inode(fs, root), cmount_point,
         false, false, false, false, &mount_dir_t, 0);
     if (fss != 0) {
-        msg_err("mount point %s not found\n", cmount_point);
+        msg_err("storage: mount point %s not found", cmount_point);
         return;
     }
     inode mount_dir = fs->get_inode(fs, mount_dir_t);
     boolean ok = (fs == storage.root_fs) && (mount_dir_t != root) && children(mount_dir_t);
     filesystem_put_node(fs, mount_dir_t);
     if (!ok) {
-        msg_err("invalid mount point %s\n", cmount_point);
+        msg_err("storage: invalid mount point %s", cmount_point);
         return;
     }
     filesystem_complete complete = closure(storage.h, volume_link,
         v, mount_dir);
     if (complete == INVALID_ADDRESS) {
-        msg_err("cannot allocate closure\n");
+        msg_err("%s: cannot allocate closure", func_ss);
         return;
     }
     storage_debug("mounting volume%s at %s", readonly ? ss(" readonly") : sstring_empty(),
