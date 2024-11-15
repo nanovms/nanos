@@ -291,12 +291,6 @@ closure_function(2, 1, void, bwrite,
     apply(req->completion, STATUS_OK);
 }
 
-closure_func_basic(status_handler, void, err,
-                   status s)
-{
-    rprintf("reported error\n");
-}
-
 static buffer get_file_contents(heap h, const char *target_root, value v)
 {
     value path = table_find((table)v, sym(host));
@@ -311,10 +305,10 @@ static buffer get_file_contents(heap h, const char *target_root, value v)
 }
 
 static value translate(heap h, vector worklist,
-                       const char *target_root, filesystem fs, value v, status_handler sh);
+                       const char *target_root, filesystem fs, value v);
 
-closure_function(6, 2, boolean, translate_each,
-                 heap, h, vector, worklist, const char *, target_root, filesystem, fs, status_handler, sh, tuple, out,
+closure_function(5, 2, boolean, translate_each,
+                 heap, h, vector, worklist, const char *, target_root, filesystem, fs, tuple, out,
                  value k, value child)
 {
     assert(is_symbol(k));
@@ -322,7 +316,7 @@ closure_function(6, 2, boolean, translate_each,
         vector_push(bound(worklist), build_vector(bound(h), bound(out), child));
     } else {
         set(bound(out), k, translate(bound(h), bound(worklist), bound(target_root),
-                                     bound(fs), child, bound(sh)));
+                                     bound(fs), child));
     }
     return true;
 }
@@ -330,11 +324,11 @@ closure_function(6, 2, boolean, translate_each,
 // dont really like the file/tuple duality, but we need to get something running today,
 // so push all the bodies onto a worklist
 static value translate(heap h, vector worklist,
-                       const char *target_root, filesystem fs, value v, status_handler sh)
+                       const char *target_root, filesystem fs, value v)
 {
     if (is_tuple(v)) {
         tuple out = allocate_tuple();
-        iterate((tuple)v, stack_closure(translate_each, h, worklist, target_root, fs, sh, out));
+        iterate((tuple)v, stack_closure(translate_each, h, worklist, target_root, fs, out));
         return out;
     }
     return v;
@@ -362,8 +356,7 @@ closure_function(4, 2, void, fsc,
 
     heap h = bound(h);
     vector worklist = allocate_vector(h, 10);
-    tuple md = translate(h, worklist, bound(target_root), fs, root,
-                         closure_func(h, status_handler, err));
+    tuple md = translate(h, worklist, bound(target_root), fs, root);
 
     buffer b = allocate_buffer(transient, 64);
     u8 uuid[UUID_LEN];
