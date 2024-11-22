@@ -416,5 +416,12 @@ void init_virtio_balloon(kernel_heaps kh)
 {
     virtio_balloon_debug("%s\n", func_ss);
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, vtpci_balloon_probe, h, heap_linear_backed(kh), heap_physical(kh)), 0);
+    backed_heap backed = heap_linear_backed(kh);
+    id_heap physical = heap_physical(kh);
+    pci_probe probe = closure(h, vtpci_balloon_probe, h, backed, physical);
+    if (probe == INVALID_ADDRESS) {
+        msg_err("%s: out of memory", func_ss);
+        return;
+    }
+    register_pci_driver(probe, 0);
 }
