@@ -414,6 +414,20 @@ closure_function(3, 1, boolean, vtpci_balloon_probe,
     return virtio_balloon_attach(bound(general), bound(backed), bound(physical), v);
 }
 
+closure_function(3, 1, void, vtmmio_balloon_probe,
+                 heap, general, backed_heap, backed, id_heap, physical,
+                 vtmmio dev)
+{
+    virtio_balloon_debug("MMIO probe\n", func_ss);
+    if ((vtmmio_get_u32(dev, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_BALLOON) ||
+        (dev->memsize < VTMMIO_OFFSET_CONFIG + sizeof(struct virtio_balloon_config)))
+        return;
+    heap general = bound(general);
+    backed_heap backed = bound(backed);
+    if (attach_vtmmio(general, backed, dev, VIRTIO_BALLOON_DRV_FEATURES))
+        virtio_balloon_attach(general, backed, bound(physical), &dev->virtio_dev);
+}
+
 void init_virtio_balloon(kernel_heaps kh)
 {
     virtio_balloon_debug("%s\n", func_ss);
@@ -426,4 +440,5 @@ void init_virtio_balloon(kernel_heaps kh)
         return;
     }
     register_pci_driver(probe, 0);
+    vtmmio_probe_devs(stack_closure(vtmmio_balloon_probe, h, backed, physical));
 }
