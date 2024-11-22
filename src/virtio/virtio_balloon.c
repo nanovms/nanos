@@ -26,7 +26,9 @@
 #define VIRTIO_BALLOON_PAGE_ORDER PAGELOG
 
 /* These are units that we allocate from the physical heap. */
-#define VIRTIO_BALLOON_ALLOC_ORDER 21
+/* The maximum number of pages supported by AWS Firecracker in a single inflate descriptor is 256,
+ * which corresponds to 1 MB of memory, and the balloon allocation unit is sized accordingly. */
+#define VIRTIO_BALLOON_ALLOC_ORDER 20
 #define VIRTIO_BALLOON_ALLOC_SIZE U64_FROM_BIT(VIRTIO_BALLOON_ALLOC_ORDER)
 #define VIRTIO_BALLOON_PAGES_PER_ALLOC U64_FROM_BIT(VIRTIO_BALLOON_ALLOC_ORDER - \
                                                     VIRTIO_BALLOON_PAGE_ORDER)
@@ -85,6 +87,8 @@ struct virtio_balloon_config {
 
 #define VIRTIO_BALLOON_R_NUM_PAGES (offsetof(struct virtio_balloon_config *, num_pages))
 #define VIRTIO_BALLOON_R_ACTUAL    (offsetof(struct virtio_balloon_config *, actual))
+
+#define VIRTIO_BALLOON_DRV_FEATURES (VIRTIO_BALLOON_F_STATS_VQ | VIRTIO_BALLOON_F_MUST_TELL_HOST)
 
 static inline boolean balloon_must_tell_host(void)
 {
@@ -406,14 +410,35 @@ closure_function(3, 1, boolean, vtpci_balloon_probe,
 
     virtio_balloon_debug("   attaching\n", __func__);
     vtdev v = (vtdev)attach_vtpci(bound(general), bound(backed), d,
-                                  (VIRTIO_BALLOON_F_STATS_VQ |
-                                   VIRTIO_BALLOON_F_MUST_TELL_HOST));
+                                  VIRTIO_BALLOON_DRV_FEATURES);
     return virtio_balloon_attach(bound(general), bound(backed), bound(physical), v);
+}
+
+closure_function(3, 1, void, vtmmio_balloon_probe,
+                 heap, general, backed_heap, backed, id_heap, physical,
+                 vtmmio dev)
+{
+    virtio_balloon_debug("MMIO probe\n", func_ss);
+    if ((vtmmio_get_u32(dev, VTMMIO_OFFSET_DEVID) != VIRTIO_ID_BALLOON) ||
+        (dev->memsize < VTMMIO_OFFSET_CONFIG + sizeof(struct virtio_balloon_config)))
+        return;
+    heap general = bound(general);
+    backed_heap backed = bound(backed);
+    if (attach_vtmmio(general, backed, dev, VIRTIO_BALLOON_DRV_FEATURES))
+        virtio_balloon_attach(general, backed, bound(physical), &dev->virtio_dev);
 }
 
 void init_virtio_balloon(kernel_heaps kh)
 {
     virtio_balloon_debug("%s\n", func_ss);
     heap h = heap_locked(kh);
-    register_pci_driver(closure(h, vtpci_balloon_probe, h, heap_linear_backed(kh), heap_physical(kh)), 0);
+    backed_heap backed = heap_linear_backed(kh);
+    id_heap physical = heap_physical(kh);
+    pci_probe probe = closure(h, vtpci_balloon_probe, h, backed, physical);
+    if (probe == INVALID_ADDRESS) {
+        msg_err("%s: out of memory", func_ss);
+        return;
+    }
+    register_pci_driver(probe, 0);
+    vtmmio_probe_devs(stack_closure(vtmmio_balloon_probe, h, backed, physical));
 }

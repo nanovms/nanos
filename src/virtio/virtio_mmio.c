@@ -46,6 +46,7 @@ closure_function(1, 1, void, vtmmio_new_dev,
     dev->vbase += page_offset;
     dev->irq_vector = 0;
     dev->vq_handlers = allocate_vector(h, 2);
+    dev->cfg_chg_handler = 0;
     assert(dev->vq_handlers != INVALID_ADDRESS);
     vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
     list_push_back(&vtmmio_devices, &dev->l);
@@ -184,6 +185,23 @@ closure_func_basic(thunk, void, vtmmio_irq)
             apply(vq_handler);
         }
     }
+    if (status & VTMMIO_INT_CONFIG) {
+        thunk handler = dev->cfg_chg_handler;
+        if (handler)
+            apply(handler);
+    }
+}
+
+static void vtmmio_irq_setup(vtmmio dev, range cpu_affinity)
+{
+    u64 irq_vector = allocate_mmio_interrupt();
+    assert(irq_vector != INVALID_PHYSICAL);
+    register_interrupt(irq_vector, init_closure_func(&dev->irq_handler, thunk, vtmmio_irq),
+                       ss("vtmmio"));
+    dev->irq_vector = irq_vector;
+#ifdef __x86_64__
+    ioapic_set_int(dev->irq, irq_vector, irq_get_target_cpu(cpu_affinity));
+#endif
 }
 
 status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affinity,
@@ -203,15 +221,7 @@ status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affin
     if (!is_ok(s))
         return s;
     if (!dev->irq_vector) {
-        dev->irq_vector = allocate_mmio_interrupt();
-        assert(dev->irq_vector != INVALID_PHYSICAL);
-        register_interrupt(dev->irq_vector,
-                           init_closure_func(&dev->irq_handler, thunk, vtmmio_irq),
-                           name);
-        // XXX arm
-#ifdef __x86_64__
-        ioapic_set_int(dev->irq, dev->irq_vector, irq_get_target_cpu(cpu_affinity));
-#endif
+        vtmmio_irq_setup(dev, cpu_affinity);
     }
     vector_push(dev->vq_handlers, handler);
     vtmmio_set_u32(dev, VTMMIO_OFFSET_QUEUENUM, size);
@@ -220,5 +230,14 @@ status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affin
     vtmmio_set_u64(dev, VTMMIO_OFFSET_QUEUEUSEDLOW, virtqueue_used_paddr(vq));
     vtmmio_set_u32(dev, VTMMIO_OFFSET_QUEUEREADY, 1);
     *result = vq;
+    return STATUS_OK;
+}
+
+status vtmmio_register_config_change_handler(vtmmio dev, thunk handler)
+{
+    virtio_mmio_debug("registering config change handler %F", handler);
+    if (!dev->irq_vector)
+        vtmmio_irq_setup(dev, irangel(0, 0));
+    dev->cfg_chg_handler = handler;
     return STATUS_OK;
 }

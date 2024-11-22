@@ -122,7 +122,7 @@ status virtio_register_config_change_handler(vtdev dev, thunk handler)
 {
     switch (dev->transport) {
     case VTIO_TRANSPORT_MMIO:
-        return timm("status", "not implemented");
+        return vtmmio_register_config_change_handler((vtmmio)dev, handler);
     case VTIO_TRANSPORT_PCI:
         return vtpci_register_config_change_handler((vtpci)dev, handler);
     default:
