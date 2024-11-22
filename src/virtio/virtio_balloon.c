@@ -26,7 +26,9 @@
 #define VIRTIO_BALLOON_PAGE_ORDER PAGELOG
 
 /* These are units that we allocate from the physical heap. */
-#define VIRTIO_BALLOON_ALLOC_ORDER 21
+/* The maximum number of pages supported by AWS Firecracker in a single inflate descriptor is 256,
+ * which corresponds to 1 MB of memory, and the balloon allocation unit is sized accordingly. */
+#define VIRTIO_BALLOON_ALLOC_ORDER 20
 #define VIRTIO_BALLOON_ALLOC_SIZE U64_FROM_BIT(VIRTIO_BALLOON_ALLOC_ORDER)
 #define VIRTIO_BALLOON_PAGES_PER_ALLOC U64_FROM_BIT(VIRTIO_BALLOON_ALLOC_ORDER - \
                                                     VIRTIO_BALLOON_PAGE_ORDER)
