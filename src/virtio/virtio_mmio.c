@@ -186,6 +186,18 @@ closure_func_basic(thunk, void, vtmmio_irq)
     }
 }
 
+static void vtmmio_irq_setup(vtmmio dev, range cpu_affinity)
+{
+    u64 irq_vector = allocate_mmio_interrupt();
+    assert(irq_vector != INVALID_PHYSICAL);
+    register_interrupt(irq_vector, init_closure_func(&dev->irq_handler, thunk, vtmmio_irq),
+                       ss("vtmmio"));
+    dev->irq_vector = irq_vector;
+#ifdef __x86_64__
+    ioapic_set_int(dev->irq, irq_vector, irq_get_target_cpu(cpu_affinity));
+#endif
+}
+
 status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affinity,
                               struct virtqueue **result)
 {
@@ -203,15 +215,7 @@ status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affin
     if (!is_ok(s))
         return s;
     if (!dev->irq_vector) {
-        dev->irq_vector = allocate_mmio_interrupt();
-        assert(dev->irq_vector != INVALID_PHYSICAL);
-        register_interrupt(dev->irq_vector,
-                           init_closure_func(&dev->irq_handler, thunk, vtmmio_irq),
-                           name);
-        // XXX arm
-#ifdef __x86_64__
-        ioapic_set_int(dev->irq, dev->irq_vector, irq_get_target_cpu(cpu_affinity));
-#endif
+        vtmmio_irq_setup(dev, cpu_affinity);
     }
     vector_push(dev->vq_handlers, handler);
     vtmmio_set_u32(dev, VTMMIO_OFFSET_QUEUENUM, size);
