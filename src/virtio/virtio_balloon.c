@@ -86,6 +86,8 @@ struct virtio_balloon_config {
 #define VIRTIO_BALLOON_R_NUM_PAGES (offsetof(struct virtio_balloon_config *, num_pages))
 #define VIRTIO_BALLOON_R_ACTUAL    (offsetof(struct virtio_balloon_config *, actual))
 
+#define VIRTIO_BALLOON_DRV_FEATURES (VIRTIO_BALLOON_F_STATS_VQ | VIRTIO_BALLOON_F_MUST_TELL_HOST)
+
 static inline boolean balloon_must_tell_host(void)
 {
     return (virtio_balloon.dev->features & VIRTIO_BALLOON_F_MUST_TELL_HOST) != 0;
@@ -406,8 +408,7 @@ closure_function(3, 1, boolean, vtpci_balloon_probe,
 
     virtio_balloon_debug("   attaching\n", __func__);
     vtdev v = (vtdev)attach_vtpci(bound(general), bound(backed), d,
-                                  (VIRTIO_BALLOON_F_STATS_VQ |
-                                   VIRTIO_BALLOON_F_MUST_TELL_HOST));
+                                  VIRTIO_BALLOON_DRV_FEATURES);
     return virtio_balloon_attach(bound(general), bound(backed), bound(physical), v);
 }
 
