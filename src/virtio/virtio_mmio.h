@@ -32,6 +32,7 @@ typedef struct vtmmio_dev {
     closure_struct(vtdev_notify, notify);
     closure_struct(thunk, irq_handler);
     vector vq_handlers;
+    thunk cfg_chg_handler;
 } *vtmmio;
 
 #define vtmmio_get_u8(dev, offset) (*((volatile u8 *)((dev)->vbase + offset)))
@@ -67,3 +68,4 @@ void vtmmio_set_status(vtmmio dev, u8 status);
 boolean attach_vtmmio(heap h, backed_heap page_allocator, vtmmio d, u64 feature_mask);
 status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affinity,
                               struct virtqueue **result);
+status vtmmio_register_config_change_handler(vtmmio dev, thunk handler);

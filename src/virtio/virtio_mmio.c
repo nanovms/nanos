@@ -46,6 +46,7 @@ closure_function(1, 1, void, vtmmio_new_dev,
     dev->vbase += page_offset;
     dev->irq_vector = 0;
     dev->vq_handlers = allocate_vector(h, 2);
+    dev->cfg_chg_handler = 0;
     assert(dev->vq_handlers != INVALID_ADDRESS);
     vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_RESET);
     list_push_back(&vtmmio_devices, &dev->l);
@@ -184,6 +185,11 @@ closure_func_basic(thunk, void, vtmmio_irq)
             apply(vq_handler);
         }
     }
+    if (status & VTMMIO_INT_CONFIG) {
+        thunk handler = dev->cfg_chg_handler;
+        if (handler)
+            apply(handler);
+    }
 }
 
 static void vtmmio_irq_setup(vtmmio dev, range cpu_affinity)
@@ -224,5 +230,14 @@ status vtmmio_alloc_virtqueue(vtmmio dev, sstring name, int idx, range cpu_affin
     vtmmio_set_u64(dev, VTMMIO_OFFSET_QUEUEUSEDLOW, virtqueue_used_paddr(vq));
     vtmmio_set_u32(dev, VTMMIO_OFFSET_QUEUEREADY, 1);
     *result = vq;
+    return STATUS_OK;
+}
+
+status vtmmio_register_config_change_handler(vtmmio dev, thunk handler)
+{
+    virtio_mmio_debug("registering config change handler %F", handler);
+    if (!dev->irq_vector)
+        vtmmio_irq_setup(dev, irangel(0, 0));
+    dev->cfg_chg_handler = handler;
     return STATUS_OK;
 }
