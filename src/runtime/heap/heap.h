@@ -1,6 +1,5 @@
 // should consider a drain function
 struct heap {
-    struct table metadata;
     u64 (*alloc)(struct heap *h, bytes b);
     void (*dealloc)(struct heap *h, u64 a, bytes b);
     void (*destroy)(struct heap *h);
