@@ -1,6 +1,4 @@
-#ifdef KERNEL
 #include <lock.h>
-#endif
 
 typedef struct timer *timer;
 
