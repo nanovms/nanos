@@ -25,9 +25,9 @@ u64 machine_random_seed(void)
 
 extern void *START, *END;
 
-id_heap init_physical_id_heap(heap h)
+void init_physical_heap(void)
 {
-    init_debug("init_physical_id_heap\n");
+    init_debug("init_physical_heap\n");
     u64 kernel_size = pad(u64_from_pointer(&END) -
                           u64_from_pointer(&START), PAGESIZE);
 
@@ -45,20 +45,17 @@ id_heap init_physical_id_heap(heap h)
 
     u64 base = KERNEL_PHYS + kernel_size;
     u64 end = PHYSMEM_BASE + mem_size;
-    u64 bootstrap_size = init_bootstrap_heap(end - base);
-    map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
-    base += bootstrap_size;
+    map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+    base += BOOTSTRAP_SIZE;
     init_debug("\nfree base ");
     init_debug_u64(base);
     init_debug("\nend ");
     init_debug_u64(end);
     init_debug("\n");
-    id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
-    if (!id_heap_add_range(physical, base, end - base)) {
-        halt("init_physical_id_heap: failed to add range %R\n",
+    if (!pageheap_add_range(base, end - base)) {
+        halt("init_physical_heap: failed to add range %R\n",
              irange(base, end));
     }
-    return physical;
 }
 
 range kern_get_elf(void)

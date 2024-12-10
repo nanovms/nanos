@@ -56,21 +56,6 @@ static u64 bootstrap_alloc(heap h, bytes length)
 BSS_RO_AFTER_INIT static struct kernel_heaps heaps;
 BSS_RO_AFTER_INIT static vector shutdown_completions;
 
-u64 init_bootstrap_heap(u64 phys_length)
-{
-    u64 page_count = phys_length >> PAGELOG;
-
-    /* In theory, when initializing the physical heap, the bootstrap heap must accommodate 1 bit per
-     * physical memory page (as needed by the id heap bitmap); but due to the way buffer extension
-     * works, when an id heap is pre-allocated, its bitmap allocates twice the amount of memory
-     * needed; thus, the bootstrap heap needs twice the theoretical amount of memory.
-     * In addition, we need some extra space for various initial allocations. */
-    u64 bootstrap_size = 8 * PAGESIZE + pad(page_count >> 2, PAGESIZE);
-
-    bootstrap_limit = BOOTSTRAP_BASE + bootstrap_size;
-    return bootstrap_size;
-}
-
 /* Kernel address space layout randomization.
  * Functions that call (directly or indirectly) this function must either not return to their
  * caller, or execute `return_offset(kas_kern_offset - kernel_phys_offset)` before returning to
@@ -115,9 +100,10 @@ void init_kernel_heaps(void)
     BSS_RO_AFTER_INIT static struct heap bootstrap;
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
+    bootstrap_limit = BOOTSTRAP_BASE + BOOTSTRAP_SIZE;
 
-    heaps.physical = init_physical_id_heap(&bootstrap);
-    assert(heaps.physical != INVALID_ADDRESS);
+    heaps.physical = pageheap_init(&bootstrap);
+    init_physical_heap();
 
     heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical, irange(0, 0));
 #if defined(MEMDEBUG_BACKED) || defined(MEMDEBUG_ALL)
@@ -138,18 +124,19 @@ void init_kernel_heaps(void)
     heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, kmem_base,
                                         KMEM_LIMIT - kmem_base, HUGE_PAGESIZE, true);
 
-    /* Pre-allocate all memory that might be needed for the physical and virtual huge heaps, so that
+    /* Pre-allocate all memory that might be needed for the virtual huge heap, so that
      * during runtime all allocations on the bootstrap heap come from a single source protected by a
      * lock (i.e. the virtual page heap). */
-    id_heap_prealloc(heaps.physical);
     id_heap_prealloc(heaps.virtual_huge);
 
     heaps.virtual_page = create_id_heap_backed(&bootstrap, &bootstrap,
                                                (heap)heaps.virtual_huge, PAGESIZE, true);
+    u64 virt_base;
     boolean kernmem_equals_dmamem = (pageflags_kernel_data().w == pageflags_dma().w);
     if (kernmem_equals_dmamem) {
         heaps.page_backed = heaps.linear_backed;
         init_page_tables((heap)heaps.physical);
+        virt_base = LINEAR_BACKED_BASE;
     } else {
         /* The linear_backed heap cannot be used for non-DMA kernel data, thus we need another
          * linear mapping for the page tables: do this mapping, then use it to create the
@@ -159,15 +146,14 @@ void init_kernel_heaps(void)
 #if defined(MEMDEBUG_BACKED) || defined(MEMDEBUG_ALL)
         heaps.page_backed = mem_debug_backed(&bootstrap, heaps.page_backed, PAGESIZE_2M, true);
 #endif
+        virt_base = mapped_virt.start;
     }
 
     boolean is_lowmem = is_low_memory_machine();
+    pageheap_init_done(pointer_from_u64(virt_base),
+                       is_lowmem ? PAGEHEAP_LOWMEM_PAGESIZE : PAGESIZE_2M);
     u64 memory_reserve = is_lowmem ? PAGEHEAP_LOWMEM_MEMORY_RESERVE : PAGEHEAP_MEMORY_RESERVE;
-    heaps.pages = allocate_objcache(&bootstrap,
-                                    reserve_heap_wrapper(&bootstrap, (heap)heaps.page_backed,
-                                                         memory_reserve),
-                                    PAGESIZE, is_lowmem ? PAGEHEAP_LOWMEM_PAGESIZE : PAGESIZE_2M,
-                                    true);
+    heaps.pages = reserve_heap_wrapper(&bootstrap, (heap)heaps.page_backed, memory_reserve);
     int max_mcache_order = is_lowmem ? MAX_LOWMEM_MCACHE_ORDER : MAX_MCACHE_ORDER;
     bytes pagesize = is_lowmem ? U64_FROM_BIT(max_mcache_order + 1) : PAGESIZE_2M;
     heaps.general = allocate_mcache(&bootstrap, (heap)heaps.page_backed, 5, max_mcache_order,
@@ -441,10 +427,6 @@ static u64 mm_clean(u64 clean_bytes)
     }
     spin_unlock(&mm_lock);
     u64 cleaned = clean_bytes - remain;
-    if (cleaned)
-        /* Memory cleaners may have deallocated page heap memory: drain the page heap, so that
-         * deallocated memory can be returned to the physical heap. */
-        cache_drain(init_heaps->pages, cleaned, 0);
     return cleaned;
 }
 

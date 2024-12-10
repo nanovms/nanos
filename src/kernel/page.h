@@ -18,7 +18,7 @@ typedef struct pageflags {
 } pageflags;
 
 void init_page_initial_map(void *initial_map, range phys);
-range init_page_map_all(id_heap phys, id_heap virt_heap);
+range init_page_map_all(heap phys, id_heap virt_heap);
 void init_page_tables(heap pageheap);
 
 /* tlb shootdown */

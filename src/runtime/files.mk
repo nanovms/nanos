@@ -7,6 +7,7 @@ RUNTIME=$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/heap/freelist.c \
 	$(SRCDIR)/runtime/heap/id.c \
 	$(SRCDIR)/runtime/heap/mcache.c \
+	$(SRCDIR)/runtime/heap/page.c \
 	$(SRCDIR)/runtime/heap/reserve.c \
 	$(SRCDIR)/runtime/heap/objcache.c \
 	$(SRCDIR)/runtime/json.c \

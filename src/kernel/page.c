@@ -26,7 +26,7 @@ struct spinlock pt_lock;
 #define page_init_debug_u64(x)
 #endif
 
-#define PAGEMEM_ALLOC_SIZE PAGESIZE_2M
+#define PAGEMEM_ALLOC_SIZE  PAGEHEAP_LOWMEM_PAGESIZE
 
 static struct {
     range current_phys;
@@ -651,7 +651,7 @@ closure_function(6, 1, boolean, init_page_map_all_rh,
     return true;
 }
 
-range init_page_map_all(id_heap phys, id_heap virt_heap)
+range init_page_map_all(heap phys, id_heap virt_heap)
 {
     u64 initial_alloc = virt_heap->h.pagesize;
     range pagevirt = irangel(allocate_u64((heap)virt_heap, initial_alloc), initial_alloc);
@@ -662,7 +662,7 @@ range init_page_map_all(id_heap phys, id_heap virt_heap)
      * in the physical heap). */
     range init_pages = irange(pagemem.physbase & ~(margin - 1),
                               pad(pagemem.current_phys.end, margin));
-    id_heap_range_foreach(phys, stack_closure(init_page_map_all_rh, &pagevirt, virt_heap, margin,
+    pageheap_range_foreach(stack_closure(init_page_map_all_rh, &pagevirt, virt_heap, margin,
                                               flags, 0, &init_pages));
     if (range_span(init_pages))
         assert(init_page_map(init_pages, &pagevirt, virt_heap, flags));

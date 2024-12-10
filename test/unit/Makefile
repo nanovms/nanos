@@ -14,6 +14,7 @@ PROGRAMS= \
 	memops_test \
 	network_test \
 	objcache_test \
+	pageheap_test \
 	parser_test \
 	pqueue_test \
 	queue_test \
@@ -66,6 +67,11 @@ SRCS-objcache_test= \
 	$(SRCDIR)/runtime/heap/objcache.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(SRCDIR)/unix_process/mmap_heap.c
+
+SRCS-pageheap_test= \
+	$(CURDIR)/pageheap_test.c \
+	$(RUNTIME)\
+	$(SRCDIR)/unix_process/unix_process_runtime.c
 
 SRCS-parser_test= \
 	$(CURDIR)/parser_test.c \
