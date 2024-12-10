@@ -24,6 +24,7 @@
 
 /* Virtio interface is always 4K pages. */
 #define VIRTIO_BALLOON_PAGE_ORDER PAGELOG
+#define VIRTIO_BALLOON_PAGE_SIZE  U64_FROM_BIT(VIRTIO_BALLOON_PAGE_ORDER)
 
 /* These are units that we allocate from the physical heap. */
 /* The maximum number of pages supported by AWS Firecracker in a single inflate descriptor is 256,
@@ -100,11 +101,6 @@ static inline boolean balloon_has_stats_vq(void)
     return (virtio_balloon.dev->features & VIRTIO_BALLOON_F_STATS_VQ) != 0;
 }
 
-static u64 phys_base_from_balloon_page(balloon_page bp)
-{
-    return bp->addrs[0] << VIRTIO_BALLOON_PAGE_ORDER;
-}
-
 static void update_actual_pages(s64 delta)
 {
     assert(delta > 0 || virtio_balloon.actual_pages >= -delta);
@@ -119,8 +115,7 @@ closure_function(1, 1, void, inflate_complete,
                  u64 len)
 {
     balloon_page bp = bound(bp);
-    virtio_balloon_verbose("%s: balloon_page %p (phys base 0x%lx)\n", func_ss, bp,
-                           phys_base_from_balloon_page(bp));
+    virtio_balloon_verbose("%s: balloon_page %p\n", func_ss, bp);
     list_insert_after(&virtio_balloon.in_balloon, &bp->l);
     update_actual_pages(VIRTIO_BALLOON_PAGES_PER_ALLOC);
     closure_finish();
@@ -150,28 +145,32 @@ static u64 virtio_balloon_inflate(u64 n_balloon_pages)
         if (heap_free((heap)virtio_balloon.physical) <
             (BALLOON_MEMORY_MINIMUM + VIRTIO_BALLOON_ALLOC_SIZE))
             break;
-        u64 phys = allocate_u64((heap)virtio_balloon.physical, VIRTIO_BALLOON_ALLOC_SIZE);
-        if (phys == INVALID_PHYSICAL) {
-            /* We shouldn't get down to the minimum. This ought to be an error
-               or assertion failure, however we can't completely account for
-               effects of fragmentation in the physical id heap. Emit a
-               warning and quit inflating for now. */
-            msg_err("%s: failed to allocate balloon page from physical heap", func_ss);
+        balloon_page bp = allocate_balloon_page();
+        int page_count;
+        for (page_count = 0; page_count < VIRTIO_BALLOON_PAGES_PER_ALLOC; page_count++) {
+            u64 phys = allocate_u64(virtio_balloon.physical, VIRTIO_BALLOON_PAGE_SIZE);
+            if (phys == INVALID_PHYSICAL) {
+                msg_err("%s: failed to allocate balloon page", func_ss);
+                break;
+            }
+            bp->addrs[page_count] = phys >> VIRTIO_BALLOON_PAGE_ORDER;
+        }
+        if (page_count < VIRTIO_BALLOON_PAGES_PER_ALLOC) {
+            for (page_count--; page_count >= 0; page_count--)
+                deallocate_u64(virtio_balloon.physical,
+                               ((u64)bp->addrs[page_count]) << VIRTIO_BALLOON_PAGE_ORDER,
+                               VIRTIO_BALLOON_PAGE_SIZE);
+            list_push(&virtio_balloon.free, &bp->l);
             break;
         }
 
-        balloon_page bp = allocate_balloon_page();
-        assert(bp != INVALID_ADDRESS);
         vqmsg m = allocate_vqmsg(vq);
         assert(m != INVALID_ADDRESS);
-        u32 base_pfn = phys >> VIRTIO_BALLOON_PAGE_ORDER;
-        for (int i = 0; i < VIRTIO_BALLOON_PAGES_PER_ALLOC; i++)
-            bp->addrs[i] = base_pfn + i;
         vqmsg_push(vq, m, bp->phys, sizeof(bp->addrs), false);
         vqfinish c = closure(virtio_balloon.general, inflate_complete, bp);
         assert(c != INVALID_ADDRESS);
-        virtio_balloon_verbose("   alloc: phys 0x%lx, bp %p, complete %p, phys heap free: %ld\n",
-                               phys, bp, c, heap_free((heap)virtio_balloon.physical));
+        virtio_balloon_verbose("   alloc: bp %p, complete %p, phys heap free: %ld\n",
+                               bp, c, heap_free(virtio_balloon.physical));
         vqmsg_commit(vq, m, c);
         inflated++;
     }
@@ -181,9 +180,10 @@ static u64 virtio_balloon_inflate(u64 n_balloon_pages)
 
 static void return_balloon_page_memory(balloon_page bp)
 {
-    u64 phys_base = phys_base_from_balloon_page(bp);
-    virtio_balloon_verbose("%s: balloon_page %p (phys base 0x%lx)\n", func_ss, bp, phys_base);
-    deallocate_u64((heap)virtio_balloon.physical, phys_base, VIRTIO_BALLOON_ALLOC_SIZE);
+    virtio_balloon_verbose("%s: balloon_page %p\n", func_ss, bp);
+    for (int page = 0; page < VIRTIO_BALLOON_PAGES_PER_ALLOC; page++)
+        deallocate_u64(virtio_balloon.physical, ((u64)bp->addrs[page]) << VIRTIO_BALLOON_PAGE_ORDER,
+                       VIRTIO_BALLOON_PAGE_SIZE);
     virtio_balloon_verbose("   phys heap free: %ld\n", heap_free((heap)virtio_balloon.physical));
 }
 
