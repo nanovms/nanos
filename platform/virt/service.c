@@ -69,33 +69,24 @@ static void uefi_mem_map_iterate(uefi_mem_map mem_map, range_handler h)
     }
 }
 
-closure_function(1, 1, boolean, get_mem_size,
-                 u64 *, mem_size,
+closure_function(2, 1, boolean, get_bootstrap_base,
+                 range, rsvd, u64 *, base,
                  range r)
 {
-    *bound(mem_size) += range_span(r);
-    return true;
-}
-
-closure_function(3, 1, boolean, get_bootstrap_base,
-                 range, rsvd, u64, bootstrap_size, u64 *, base,
-                 range r)
-{
-    u64 bootstrap_size = bound(bootstrap_size);
     range r1, r2;
     range_difference(r, bound(rsvd), &r1, &r2);
-    if (range_span(r1) >= bootstrap_size) {
+    if (range_span(r1) >= BOOTSTRAP_SIZE) {
         *bound(base) = r1.start;
         return false;
     }
-    if (range_span(r2) >= bootstrap_size) {
+    if (range_span(r2) >= BOOTSTRAP_SIZE) {
         *bound(base) = r2.start;
         return false;
     }
     return true;
 }
 
-static void add_heap_range_internal(id_heap h, range r, range *remainder)
+static void add_heap_range_internal(range r, range *remainder)
 {
     if (remainder) {
         if (range_empty(*remainder)) {
@@ -121,31 +112,30 @@ static void add_heap_range_internal(id_heap h, range r, range *remainder)
     init_debug(" 0x");
     init_debug_u64(r.end);
     init_debug(")\n");
-    id_heap_add_range(h, r.start, range_span(r));
+    pageheap_add_range(r.start, range_span(r));
 }
 
-static inline void add_heap_range_helper(id_heap h, range r, range rsvd, range *remainder)
+static inline void add_heap_range_helper(range r, range rsvd, range *remainder)
 {
     if (!range_empty(r)) {
         range r1, r2;
         range_difference(r, rsvd, &r1, &r2);
         if (!range_empty(r1))
-            add_heap_range_internal(h, r1, remainder);
+            add_heap_range_internal(r1, remainder);
         if (!range_empty(r2))
-            add_heap_range_internal(h, r2, remainder);
+            add_heap_range_internal(r2, remainder);
     }
 }
 
-closure_function(4, 1, boolean, add_heap_range,
-                 id_heap, h, range, rsvd1, range, rsvd2, range *, remainder,
+closure_function(3, 1, boolean, add_heap_range,
+                 range, rsvd1, range, rsvd2, range *, remainder,
                  range r)
 {
-    id_heap h = bound(h);
     range *remainder = bound(remainder);
     range r1, r2;
     range_difference(r, bound(rsvd1), &r1, &r2);
-    add_heap_range_helper(h, r1, bound(rsvd2), remainder);
-    add_heap_range_helper(h, r2, bound(rsvd2), remainder);
+    add_heap_range_helper(r1, bound(rsvd2), remainder);
+    add_heap_range_helper(r2, bound(rsvd2), remainder);
     return true;
 }
 
@@ -158,63 +148,51 @@ static u64 get_memory_size(void *dtb)
 }
 
 extern void *START, *END;
-id_heap init_physical_id_heap(heap h)
+void init_physical_heap(void)
 {
-    init_debug("init_physical_id_heap\n");
+    init_debug("init_physical_heap\n");
     u64 kernel_size = pad(u64_from_pointer(&END) -
                           u64_from_pointer(&START), PAGESIZE);
 
     init_debug("init_setup_stack: kernel size ");
     init_debug_u64(kernel_size);
 
-    id_heap physical;
     if (boot_params.mem_map.map) {
         u64 map_base = u64_from_pointer(boot_params.mem_map.map);
         u64 map_size = pad((map_base & PAGEMASK) + boot_params.mem_map.map_size, PAGESIZE);
         map_base &= ~PAGEMASK;
         /* map_base has been identity-mapped in ueft_rt_init_virt() */
-        u64 mem_size = 0;
-        uefi_mem_map_iterate(&boot_params.mem_map, stack_closure(get_mem_size, &mem_size));
-        init_debug("\nmem size ");
-        init_debug_u64(mem_size);
-        u64 bootstrap_size = init_bootstrap_heap(mem_size);
         range reserved = irange(DEVICETREE_BLOB_BASE + kernel_phys_offset,
                                 KERNEL_PHYS + kernel_size + kernel_phys_offset);
         u64 base = 0;
         uefi_mem_map_iterate(&boot_params.mem_map,
-                             stack_closure(get_bootstrap_base, reserved, bootstrap_size, &base));
+                             stack_closure(get_bootstrap_base, reserved, &base));
         init_debug("\nbootstrap base ");
         init_debug_u64(base);
-        init_debug(", size ");
-        init_debug_u64(bootstrap_size);
         init_debug("\n");
         assert(!(base & PAGEMASK));
-        map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
-        physical = allocate_id_heap(h, h, PAGESIZE, true);
+        map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
         range remainder = irange(0, 0);
-        uefi_mem_map_iterate(&boot_params.mem_map, stack_closure(add_heap_range, physical, reserved,
-                                                                 irangel(base, bootstrap_size),
+        uefi_mem_map_iterate(&boot_params.mem_map, stack_closure(add_heap_range, reserved,
+                                                                 irangel(base, BOOTSTRAP_SIZE),
                                                                  &remainder));
-        add_heap_range_internal(physical, remainder, 0);
+        add_heap_range_internal(remainder, 0);
         unmap(map_base, map_size);
     } else {
         u64 base = KERNEL_PHYS + kernel_size;
         u64 end = PHYSMEM_BASE + get_memory_size(pointer_from_u64(DEVICETREE_BLOB_BASE));
-        u64 bootstrap_size = init_bootstrap_heap(end - base);
-        map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
-        base += bootstrap_size;
+        map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+        base += BOOTSTRAP_SIZE;
         init_debug("\nfree base ");
         init_debug_u64(base);
         init_debug("\nend ");
         init_debug_u64(end);
         init_debug("\n");
-        physical = allocate_id_heap(h, h, PAGESIZE, true);
-        if (!id_heap_add_range(physical, base, end - base)) {
-            halt("init_physical_id_heap: failed to add range %R\n",
+        if (!pageheap_add_range(base, end - base)) {
+            halt("init_physical_heap: failed to add range %R\n",
                  irange(base, end));
         }
     }
-    return physical;
 }
 
 range kern_get_elf(void)
@@ -255,7 +233,7 @@ static void ueft_rt_init_virt(void)
     u64 map_size = pad((map_base & PAGEMASK) + mem_map->map_size, PAGESIZE);
     map_base &= ~PAGEMASK;
     pageflags flags = pageflags_writable(pageflags_memory());
-    map(map_base, map_base, map_size, flags);   /* will be unmapped in init_physical_id_heap() */
+    map(map_base, map_base, map_size, flags);   /* will be unmapped in init_physical_heap() */
     int num_desc = mem_map->map_size / mem_map->desc_size;
     u64 rt_svc_offset = 0;
     for (int i = 0; i < num_desc; i++) {
@@ -490,7 +468,7 @@ void init_platform_devices(kernel_heaps kh)
     vector cpu_ids = cpus_init_ids(heap_general(kh));
     platform_dtb_parse(kh, cpu_ids);
     /* the device tree blob is never accessed from now on: reclaim the memory where it is located */
-    id_heap_add_range(heap_physical(kh), DEVICETREE_BLOB_BASE + kernel_phys_offset,
+    pageheap_add_range(DEVICETREE_BLOB_BASE + kernel_phys_offset,
                       INIT_PAGEMEM - DEVICETREE_BLOB_BASE);
     struct console_driver *console_driver = 0;
     init_acpi_tables(kh);

@@ -58,7 +58,7 @@ struct virtio_balloon_stat {
 struct virtio_balloon {
     heap general;
     backed_heap backed;
-    id_heap physical;
+    heap physical;
     vtdev dev;
     virtqueue inflateq;
     virtqueue deflateq;
@@ -349,7 +349,7 @@ closure_func_basic(timer_handler, void, virtio_balloon_timer_task,
     }
 }
 
-static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap physical, vtdev v)
+static boolean virtio_balloon_attach(heap general, backed_heap backed, heap physical, vtdev v)
 {
     virtio_balloon_debug("   dev_features 0x%lx, features 0x%lx\n",
                          v->dev_features, v->features);
@@ -401,7 +401,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, id_heap p
 }
 
 closure_function(3, 1, boolean, vtpci_balloon_probe,
-                 heap, general, backed_heap, backed, id_heap, physical,
+                 heap, general, backed_heap, backed, heap, physical,
                  pci_dev d)
 {
     virtio_balloon_debug("%s\n", func_ss);
@@ -415,7 +415,7 @@ closure_function(3, 1, boolean, vtpci_balloon_probe,
 }
 
 closure_function(3, 1, void, vtmmio_balloon_probe,
-                 heap, general, backed_heap, backed, id_heap, physical,
+                 heap, general, backed_heap, backed, heap, physical,
                  vtmmio dev)
 {
     virtio_balloon_debug("MMIO probe\n", func_ss);
@@ -433,7 +433,7 @@ void init_virtio_balloon(kernel_heaps kh)
     virtio_balloon_debug("%s\n", func_ss);
     heap h = heap_locked(kh);
     backed_heap backed = heap_linear_backed(kh);
-    id_heap physical = heap_physical(kh);
+    heap physical = heap_physical(kh);
     pci_probe probe = closure(h, vtpci_balloon_probe, h, backed, physical);
     if (probe == INVALID_ADDRESS) {
         msg_err("%s: out of memory", func_ss);

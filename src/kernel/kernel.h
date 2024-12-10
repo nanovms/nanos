@@ -597,10 +597,10 @@ static inline boolean sched_queue_empty(sched_queue sq)
 #define BREAKPOINT_READ_WRITE 11
 
 #define BOOTSTRAP_BASE  KMEM_BASE
+#define BOOTSTRAP_SIZE  (8 * PAGESIZE)
 
 void kaslr(void);
-u64 init_bootstrap_heap(u64 phys_length);
-id_heap init_physical_id_heap(heap h);
+void init_physical_heap(void);
 void init_kernel_heaps(void);
 void init_platform_devices(kernel_heaps kh);
 void init_cpuinfo_machine(cpuinfo ci, heap backed);
@@ -635,7 +635,7 @@ backed_heap allocate_page_backed_heap(heap meta, heap virtual, heap physical,
                                       u64 pagesize, boolean locking);
 void page_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
 
-backed_heap allocate_linear_backed_heap(heap meta, id_heap physical, range mapped_virt);
+backed_heap allocate_linear_backed_heap(heap meta, heap physical, range mapped_virt);
 
 static inline boolean is_linear_backed_address(u64 address)
 {
