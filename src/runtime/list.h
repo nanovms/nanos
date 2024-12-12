@@ -90,6 +90,18 @@ static inline struct list *list_end(struct list  *head)
     return head;
 }
 
+static inline void list_push(struct list *list, struct list *elem)
+{
+    list_insert_after(list_end(list), elem);
+}
+
+static inline struct list *list_pop(struct list *list)
+{
+    struct list *first = list_begin(list);
+    list_delete(first);
+    return first;
+}
+
 static inline void list_push_back(struct list *list, struct list *elem)
 {
     list_insert_before(list_end(list), elem);

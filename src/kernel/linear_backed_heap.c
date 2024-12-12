@@ -10,7 +10,7 @@
 typedef struct linear_backed_heap {
     struct backed_heap bh;
     heap meta;
-    id_heap physical;
+    heap physical;
     bitmap mapped;
     u64 virt_base;
     u64 phys_limit;
@@ -26,9 +26,14 @@ static inline u64 linear_backed_base_from_index(linear_backed_heap hb, int index
 static inline u64 linear_backed_alloc_internal(linear_backed_heap hb, bytes size)
 {
     u64 len = pad(size, hb->bh.h.pagesize);
-    u64 p = id_heap_alloc_subrange(hb->physical, len, 0, hb->phys_limit);
+    heap phys = hb->physical;
+    u64 p = allocate_u64(phys, len);
     if (p == INVALID_PHYSICAL)
         return p;
+    if (p + len > hb->phys_limit) {
+        deallocate_u64(phys, p, len);
+        return INVALID_PHYSICAL;
+    }
     u64 v = p + hb->virt_base;
     linear_backed_debug("%s: size 0x%lx, len 0x%lx, p 0x%lx, v 0x%lx\n",
                         func_ss, size, len, p, v);
@@ -119,11 +124,11 @@ closure_function(1, 1, boolean, physmem_range_handler,
 
 static void linear_backed_init_maps(linear_backed_heap hb)
 {
-    /* iterate through phys id heap ranges and add mappings */
-    id_heap_range_foreach(hb->physical, stack_closure(physmem_range_handler, hb));
+    /* iterate through physical heap ranges and add mappings */
+    pageheap_range_foreach(stack_closure(physmem_range_handler, hb));
 }
 
-backed_heap allocate_linear_backed_heap(heap meta, id_heap physical, range mapped_virt)
+backed_heap allocate_linear_backed_heap(heap meta, heap physical, range mapped_virt)
 {
     linear_backed_heap hb = allocate(meta, sizeof(*hb));
     if (hb == INVALID_ADDRESS)
@@ -132,7 +137,7 @@ backed_heap allocate_linear_backed_heap(heap meta, id_heap physical, range mappe
     hb->bh.h.dealloc = linear_backed_dealloc;
     hb->bh.h.allocated = linear_backed_allocated;
     hb->bh.h.total = linear_backed_total;
-    hb->bh.h.pagesize = physical->h.pagesize;
+    hb->bh.h.pagesize = physical->pagesize;
     hb->bh.h.management = 0;
     hb->bh.alloc_map = linear_backed_alloc_map;
     hb->bh.dealloc_unmap = linear_backed_dealloc_unmap;

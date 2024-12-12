@@ -237,6 +237,7 @@ closure_type(thunk, void);
 
 /* heaps that depend on above structures */
 #include <heap/id.h>
+#include <heap/page.h>
 
 /* clocksource and timer facilities */
 #include <clock.h>

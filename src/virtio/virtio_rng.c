@@ -123,7 +123,7 @@ static boolean virtio_rng_attach(heap general, backed_heap backed, vtdev v)
 }
 
 closure_function(3, 1, boolean, vtpci_rng_probe,
-                 heap, general, backed_heap, backed, id_heap, physical,
+                 heap, general, backed_heap, backed, heap, physical,
                  pci_dev d)
 {
     virtio_rng_debug("%s\n", func_ss);

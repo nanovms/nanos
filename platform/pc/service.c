@@ -121,7 +121,7 @@ void reclaim_regions(void)
     for_regions(e) {
         if (e->type == REGION_RECLAIM) {
             unmap(e->base, e->length);
-            if (!id_heap_add_range(heap_physical(get_kernel_heaps()), e->base, e->length))
+            if (!pageheap_add_range(e->base, e->length))
                 halt("%s: add range for physical heap failed (%R)\n",
                      func_ss, irange(e->base, e->base + e->length));
         }
@@ -262,9 +262,9 @@ static void find_initial_pages(void)
     halt("no initial pages region found; halt\n");
 }
 
-id_heap init_physical_id_heap(heap h)
+void init_physical_heap(void)
 {
-    u64 phys_length = 0;
+    /* Carve the bootstrap heap out of a physical memory region. */
     for_regions(e) {
         if (e->type == REGION_PHYSICAL) {
             /* Remove low memory area from physical memory regions, so that it can be used for
@@ -279,27 +279,18 @@ id_heap init_physical_id_heap(heap h)
                 }
             }
 
-            phys_length += e->length;
-        }
-    }
-    u64 bootstrap_size = init_bootstrap_heap(phys_length);
-
-    /* Carve the bootstrap heap out of a physical memory region. */
-    for_regions(e) {
-        if (e->type == REGION_PHYSICAL) {
             u64 base = pad(e->base, PAGESIZE);
             u64 end = e->base + e->length;
             u64 length = (end & ~MASK(PAGELOG)) - base;
-            if (length >= bootstrap_size) {
-                map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
-                e->base = base + bootstrap_size;
+            if (length >= BOOTSTRAP_SIZE) {
+                map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+                e->base = base + BOOTSTRAP_SIZE;
                 e->length = end - e->base;
                 break;
             }
         }
     }
 
-    id_heap physical = allocate_id_heap(h, h, PAGESIZE, true);
     boolean found = false;
     early_init_debug("physical memory:");
     for_regions(e) {
@@ -315,7 +306,7 @@ id_heap init_physical_id_heap(heap h)
 	    early_debug_u64(base + length);
 	    early_debug(")\n");
 #endif
-	    if (!id_heap_add_range(physical, base, length))
+	    if (!pageheap_add_range(base, length))
 		halt("    - id_heap_add_range failed\n");
 	    found = true;
 	}
@@ -323,7 +314,6 @@ id_heap init_physical_id_heap(heap h)
     if (!found) {
 	halt("no valid physical regions found; halt\n");
     }
-    return physical;
 }
 
 static void setup_initmap(void)

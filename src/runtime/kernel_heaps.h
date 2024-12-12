@@ -9,9 +9,9 @@
 */
 
 typedef struct kernel_heaps {
-    /* Allocations of physical address space outside of pages are made
-       from the physical id heap. Accesses are protected by spinlock. */
-    id_heap physical;
+    /* Allocations of physical address space (physical pages) are made
+       from the physical heap. Accesses are protected by spinlock. */
+    heap physical;
 
     /* These two id heaps manage virtual address space aside from
        pages and tagged regions. virtual_huge allocations are 2^32
@@ -34,9 +34,9 @@ typedef struct kernel_heaps {
        of DMA memory. */
     backed_heap linear_backed;
 
-    /* Caching heap for allocations of single pages. Avoids complete exhaustion of physical memory,
-     * and minimizes memory fragmentation. */
-    caching_heap pages;
+    /* Heap for allocations of kernel-mapped pages. Avoids complete exhaustion of physical memory.
+     */
+    heap pages;
 
     /* The general heap is an mcache used for allocations of arbitrary
        sizes from 32B to 1MB. It is the heap that is closest to being
@@ -60,7 +60,7 @@ typedef struct kernel_heaps {
     heap dma;
 } *kernel_heaps;
 
-static inline id_heap heap_physical(kernel_heaps heaps)
+static inline heap heap_physical(kernel_heaps heaps)
 {
     return heaps->physical;
 }

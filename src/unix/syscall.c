@@ -1699,7 +1699,7 @@ sysreturn getrlimit(int resource, struct rlimit *rlim)
     case RLIMIT_DATA:
         /* not entirely accurate, but a reasonable approximation */
         rlim->rlim_cur = rlim->rlim_max =
-                heap_total(&heap_physical(get_kernel_heaps())->h);
+                heap_total(heap_physical(get_kernel_heaps()));
         break;
     case RLIMIT_STACK:
         rlim->rlim_cur = current->p->rlimit_stack;
