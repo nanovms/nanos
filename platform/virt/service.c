@@ -157,15 +157,10 @@ static u64 get_memory_size(void *dtb)
     return range_span(r);
 }
 
-extern void *START, *END;
+extern void *START;
 id_heap init_physical_id_heap(heap h)
 {
     init_debug("init_physical_id_heap\n");
-    u64 kernel_size = pad(u64_from_pointer(&END) -
-                          u64_from_pointer(&START), PAGESIZE);
-
-    init_debug("init_setup_stack: kernel size ");
-    init_debug_u64(kernel_size);
 
     id_heap physical;
     if (boot_params.mem_map.map) {
@@ -178,8 +173,7 @@ id_heap init_physical_id_heap(heap h)
         init_debug("\nmem size ");
         init_debug_u64(mem_size);
         u64 bootstrap_size = init_bootstrap_heap(mem_size);
-        range reserved = irange(DEVICETREE_BLOB_BASE + kernel_phys_offset,
-                                KERNEL_PHYS + kernel_size + kernel_phys_offset);
+        range reserved = irangel(PHYSMEM_BASE + kernel_phys_offset, INIT_IDENTITY_SIZE);
         u64 base = 0;
         uefi_mem_map_iterate(&boot_params.mem_map,
                              stack_closure(get_bootstrap_base, reserved, bootstrap_size, &base));
@@ -198,7 +192,7 @@ id_heap init_physical_id_heap(heap h)
         add_heap_range_internal(physical, remainder, 0);
         unmap(map_base, map_size);
     } else {
-        u64 base = KERNEL_PHYS + kernel_size;
+        u64 base = PHYSMEM_BASE + INIT_IDENTITY_SIZE;
         u64 end = PHYSMEM_BASE + get_memory_size(pointer_from_u64(DEVICETREE_BLOB_BASE));
         u64 bootstrap_size = init_bootstrap_heap(end - base);
         map(BOOTSTRAP_BASE, base, bootstrap_size, pageflags_writable(pageflags_memory()));
