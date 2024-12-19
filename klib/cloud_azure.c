@@ -43,6 +43,7 @@ typedef struct azure {
     vector extensions;
     struct spinlock lock;
     boolean goalstate_pending;
+    boolean goalstate_print_errors;
     boolean provisioned;
 } *azure;
 
@@ -75,9 +76,11 @@ closure_func_basic(timer_handler, void, az_report_th,
     if (is_ok(s)) {
         az->goalstate_pending = true;
     } else {
-        msg_err("%s error %v", func_ss, s);
+        if (az->goalstate_print_errors)
+            msg_err("%s error %v", func_ss, s);
         timm_dealloc(s);
     }
+    az->goalstate_print_errors = true;
 }
 
 static void az_report_status(azure az)
@@ -563,6 +566,9 @@ boolean azure_cloud_init(heap h)
     spin_lock_init(&az->lock);
     az->container_id_len = az->instance_id_len = 0;
     az->goalstate_pending = az->provisioned = false;
+    /* Do not print error messages if the Azure Wire Server is unreachable just after instance
+     * startup (a few seconds may elapse before the network interface acquires a DHCP address). */
+    az->goalstate_print_errors = false;
     az_status_upload_init(az);
     init_timer(&az->report_timer);
     register_timer(kernel_timers, &az->report_timer, CLOCK_ID_MONOTONIC, seconds(2), false,
