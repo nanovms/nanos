@@ -251,12 +251,13 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
                    context ctx)
 {
     sstring errmsg = sstring_empty();
-    u64 fault_pc = frame_fault_pc(ctx->frame);
+    context_frame f = ctx->frame;
+    u64 fault_pc = frame_fault_pc(f);
     boolean user = (current_cpu()->state == cpu_user);
     process p = struct_from_field(closure_self(), process, fault_handler);
     thread t = user ? (thread)ctx : 0;
 
-    if (is_div_by_zero(ctx->frame)) {
+    if (is_div_by_zero(f)) {
         if (user) {
             deliver_fault_signal(SIGFPE, t, fault_pc, FPE_INTDIV);
             schedule_thread(t);
@@ -265,7 +266,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
             errmsg = ss("Divide by zero occurs in kernel mode");
             goto bug;
         }
-    } else if (is_illegal_instruction(ctx->frame)) {
+    } else if (is_illegal_instruction(f)) {
         if (user) {
             pf_debug("invalid opcode fault in user mode, rip 0x%lx", fault_pc);
             deliver_fault_signal(SIGILL, t, fault_pc, ILL_ILLOPC);
@@ -275,20 +276,20 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
             errmsg = ss("Illegal instruction in kernel mode");
             goto bug;
         }
-    } else if (is_trap(ctx->frame)) {
+    } else if (is_trap(f)) {
         if (user) {
             pf_debug("trap in user mode, rip 0x%lx", fault_pc);
-            if (!ltrace_handle_trap(ctx->frame))
+            if (!ltrace_handle_trap(f))
                 deliver_fault_signal(SIGTRAP, t, fault_pc,
-                                     is_breakpoint(ctx->frame) ? TRAP_BRKPT : TRAP_TRACE);
+                                     is_breakpoint(f) ? TRAP_BRKPT : TRAP_TRACE);
             schedule_thread(t);
             return 0;
         } else {
             errmsg = ss("Breakpoint in kernel mode");
             goto bug;
         }
-    } else if (is_page_fault(ctx->frame)) {
-        u64 vaddr = frame_fault_address(ctx->frame);
+    } else if (is_page_fault(f)) {
+        u64 vaddr = frame_fault_address(f);
         vmap_lock(p);
         vmap vm;
         if (vaddr >= MIN(p->mmap_min_addr, PAGESIZE) && vaddr < USER_LIMIT)
@@ -313,7 +314,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
             return 0;
         }
 
-        if (is_pte_error(ctx->frame)) {
+        if (is_pte_error(f)) {
             vmap_unlock(p);
             /* no SEGV on reserved PTEs */
             errmsg = ss("bug: pte entries reserved or corrupt");
@@ -321,13 +322,13 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
             goto bug;
         }
 
-        if (is_instruction_fault(ctx->frame) && !user) {
+        if (is_instruction_fault(f) && !user) {
             vmap_unlock(p);
             msg_err("%s: kernel instruction fault", func_ss);
             goto bug;
         }
 
-        if (is_protection_fault(ctx->frame)) {
+        if (is_protection_fault(f)) {
             if (handle_protection_fault(ctx, vaddr, vm)) {
                 vmap_unlock(p);
                 if (!is_thread_context(ctx))
@@ -354,7 +355,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
     }
     /* XXX arch dep */
 #ifdef __x86_64__
-    else if (ctx->frame[FRAME_VECTOR] == 13) {
+    else if (f[FRAME_VECTOR] == 13) {
         if (user) {
             pf_debug("general protection fault in user mode, rip 0x%lx", fault_pc);
             deliver_fault_signal(SIGSEGV, t, 0, SI_KERNEL);
@@ -367,7 +368,7 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
 error:
     if (context_err_is_set(ctx)) {
         kernel_context kc = (kernel_context)ctx;
-        err_frame_apply(kc->err_frame, ctx->frame);
+        err_frame_apply(kc->err_frame, f);
         context_clear_err(ctx);
         return ctx;
     }
@@ -377,7 +378,7 @@ bug:
     rprintf("\n%s\n", errmsg);
     rprintf("cpu: %d, context type: %d\n", current_cpu()->id, ctx->type);
     dump_context(ctx);
-    ctx->frame[FRAME_FULL] = false;
+    f[FRAME_FULL] = false;
 
     if (get(p->process_root, sym(fault))) {
         rputs("TODO: in-kernel gdb needs revisiting\n");
