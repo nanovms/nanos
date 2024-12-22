@@ -88,6 +88,33 @@ void clone_frame_pstate(context_frame dest, context_frame src)
     runtime_memcpy(dest, src, sizeof(u64) * FRAME_N_PSTATE);
 }
 
+boolean insn_emulate(context_frame f)
+{
+#define CASE_SYSREG(id) case SYSREG_##id: val = read_psr(id); break
+
+    u32 *insn_ptr = (u32 *)frame_fault_pc(f);
+    u32 insn = *insn_ptr;
+    if ((insn & 0xfff80000) == 0xd5380000) {
+        /* read from non-debug system registers and special-purpose registers (op0 = 3) */
+        u64 val;
+        switch (insn & 0x001fffe0) {
+        CASE_SYSREG(ID_AA64PFR0_EL1);
+        CASE_SYSREG(ID_AA64ISAR0_EL1);
+        CASE_SYSREG(ID_AA64ISAR1_EL1);
+        case SYSREG_ID_AA64ZFR0_EL1:
+            val = sysreg_get_id_aa64zfr0();
+            break;
+        default:
+            return false;
+        }
+        u64 *dest = &f[FRAME_X0] + (insn & 0x0000001f); /* destination register */
+        *dest = val;
+        frame_set_insn_ptr(f, u64_from_pointer(insn_ptr + 1));  /* go to next instruction */
+        return true;
+    }
+    return false;
+}
+
 void interrupt_exit(void)
 {
     gic_eoi(gic_dispatch_int());

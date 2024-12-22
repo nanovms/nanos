@@ -180,6 +180,11 @@ context_suspend:
         ldr     x0, [x18]
         b context_suspend_finish
 
+.globl sysreg_get_id_aa64zfr0
+sysreg_get_id_aa64zfr0:
+        .long (INSN_MRS(0) | SYSREG_ID_AA64ZFR0_EL1)
+        ret
+
         .globl arm_hvc
 arm_hvc:
         // incomplete, just enough to issue power off

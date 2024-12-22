@@ -365,6 +365,8 @@ static inline void frame_disable_interrupts(context_frame f)
 extern void xsave(context_frame f);
 extern void clone_frame_pstate(context_frame dest, context_frame src);
 
+#define insn_emulate(f) false
+
 static inline boolean is_protection_fault(context_frame f)
 {
     return (f[FRAME_ERROR_CODE] & FRAME_ERROR_PF_P) != 0;

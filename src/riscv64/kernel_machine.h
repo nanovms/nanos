@@ -195,6 +195,8 @@ static inline cpuinfo current_cpu(void)
 
 extern void clone_frame_pstate(context_frame dest, context_frame src);
 
+#define insn_emulate(f) false
+
 static inline boolean is_pte_error(context_frame f)
 {
     // riscv equivalent?
