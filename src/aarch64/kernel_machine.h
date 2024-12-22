@@ -21,6 +21,16 @@
 
 #define VIRTUAL_ADDRESS_BITS 48
 
+#define INSN_MRS(Rt)    (0xd5300000 | Rt)
+
+#define SYSREG(op0, op1, CRn, CRm, op2) \
+    (((op0) << 19) | ((op1) << 16) | ((CRn) << 12) | ((CRm) << 8) | ((op2) << 5))
+
+#define SYSREG_ID_AA64PFR0_EL1  SYSREG(3, 0, 0, 4, 0)
+#define SYSREG_ID_AA64ZFR0_EL1  SYSREG(3, 0, 0, 4, 4)
+#define SYSREG_ID_AA64ISAR0_EL1 SYSREG(3, 0, 0, 6, 0)
+#define SYSREG_ID_AA64ISAR1_EL1 SYSREG(3, 0, 0, 6, 1)
+
 #define CNTV_CTL_EL0_ISTATUS 4
 #define CNTV_CTL_EL0_MASK    2
 #define CNTV_CTL_EL0_ENABLE  1
@@ -240,6 +250,10 @@ MK_MMIO_WRITE(64, "", "x");
 #define read_psr_s(rstr) ({ register u64 r; asm volatile("mrs %0, " rstr : "=r"(r)); r;})
 #define write_psr_s(rstr, v) do { asm volatile("msr " rstr ", %0" : : "r"((u64)(v))); } while (0)
 
+/* Manually encoded system register access instructions for registers that are not supported with
+ * the processor features enabled in the `-march` compiler flags. */
+u64 sysreg_get_id_aa64zfr0(void);
+
 struct cpuinfo_machine {
     /*** Fields accessed by low-level entry points. ***/
     /* Don't move these without updating x18-relative accesses in crt0.s ***/
@@ -272,6 +286,8 @@ static inline cpuinfo current_cpu(void)
 
 extern void clone_frame_pstate(context_frame dest, context_frame src);
 extern void init_extended_frame(context_frame f);
+
+boolean insn_emulate(context_frame f);
 
 static inline boolean is_pte_error(context_frame f)
 {

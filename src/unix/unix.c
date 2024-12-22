@@ -269,7 +269,8 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
     } else if (is_illegal_instruction(f)) {
         if (user) {
             pf_debug("invalid opcode fault in user mode, rip 0x%lx", fault_pc);
-            deliver_fault_signal(SIGILL, t, fault_pc, ILL_ILLOPC);
+            if (!insn_emulate(f))
+                deliver_fault_signal(SIGILL, t, fault_pc, ILL_ILLOPC);
             schedule_thread(t);
             return 0;
         } else {
