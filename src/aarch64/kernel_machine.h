@@ -38,6 +38,7 @@
 #define ESR_EC_UNKNOWN        0x00
 #define ESR_EC_ILL_EXEC       0x0e
 #define ESR_EC_SVC_AARCH64    0x15
+#define ESR_EC_MSR_MRS        0x18
 #define ESR_EC_INST_ABRT_LEL  0x20
 #define ESR_EC_INST_ABRT      0x21
 #define ESR_EC_PC_ALIGN_FAULT 0x22
@@ -367,8 +368,11 @@ static inline boolean is_illegal_instruction(context_frame f)
 {
     u64 esr = esr_from_frame(f);
     u32 ec = field_from_u64(esr, ESR_EC);
-    if (ec == ESR_EC_UNKNOWN)
+    switch (ec) {
+    case ESR_EC_UNKNOWN:
+    case ESR_EC_MSR_MRS:
         return true;
+    }
     return false;
 }
 
