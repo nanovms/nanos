@@ -86,6 +86,60 @@ static boolean firewall_ip4_match(vector constraints, void *buf, unsigned int le
     return true;
 }
 
+static u8 firewall_ip6_get_hdr(void *buf, unsigned int len, u8 hdr_type, void **hdr_ptr)
+{
+    u8 *hdr = &IP6H_NEXTH((struct ip6_hdr *)buf);
+    buf += IP6_HLEN;
+    len -= IP6_HLEN;
+    while (*hdr != IP6_NEXTH_NONE) {
+        u16 hlen;
+        u8 *nexth;
+        switch (*hdr) {
+        case IP6_NEXTH_HOPBYHOP: {
+            struct ip6_hbh_hdr *hbh_hdr = (struct ip6_hbh_hdr *)buf;
+            if (len < sizeof(*hbh_hdr))
+                return false;
+            hlen = 8 * (1 + hbh_hdr->_hlen);
+            nexth = &IP6_HBH_NEXTH(hbh_hdr);
+            break;
+        }
+        case IP6_NEXTH_DESTOPTS: {
+            struct ip6_dest_hdr *dest_hdr = (struct ip6_dest_hdr *)buf;
+            if (len < sizeof(*dest_hdr))
+                return false;
+            hlen = 8 * (1 + dest_hdr->_hlen);
+            nexth = &IP6_DEST_NEXTH(dest_hdr);
+            break;
+        }
+        case IP6_NEXTH_ROUTING: {
+            struct ip6_rout_hdr *rout_hdr = (struct ip6_rout_hdr *)buf;
+            if (len < sizeof(*rout_hdr))
+                return false;
+            hlen = 8 * (1 + rout_hdr->_hlen);
+            nexth = &IP6_ROUT_NEXTH(rout_hdr);
+            break;
+        }
+        case IP6_NEXTH_FRAGMENT:
+            hlen = 8;
+            nexth = &IP6_FRAG_NEXTH((struct ip6_frag_hdr *)buf);
+            break;
+        default:
+            hlen = 0;
+        }
+        if (len < hlen) {
+            buf = 0;
+            break;
+        }
+        if ((*hdr == hdr_type) || !hlen)
+            break;
+        hdr = nexth;
+        buf += hlen;
+        len -= hlen;
+    }
+    *hdr_ptr = buf;
+    return *hdr;
+}
+
 static boolean firewall_ip6_match(vector constraints, void *buf, unsigned int len, void **l4_hdr)
 {
     if (len < IP6_HLEN)
@@ -99,58 +153,13 @@ static boolean firewall_ip6_match(vector constraints, void *buf, unsigned int le
                 return false;
             break;
         case FW_L3_PROTO: {
-            boolean options_done = false;
-            u8 *nexth = &IP6H_NEXTH(hdr);
-            buf += IP6_HLEN;
-            len -= IP6_HLEN;
-            while (*nexth != IP6_NEXTH_NONE) {
-                u16 hlen;
-                switch (*nexth) {
-                case IP6_NEXTH_HOPBYHOP: {
-                    struct ip6_hbh_hdr *hbh_hdr = (struct ip6_hbh_hdr *)buf;
-                    if (len < sizeof(*hbh_hdr))
-                        return false;
-                    hlen = 8 * (1 + hbh_hdr->_hlen);
-                    nexth = &IP6_HBH_NEXTH(hbh_hdr);
-                    break;
-                }
-                case IP6_NEXTH_DESTOPTS: {
-                    struct ip6_dest_hdr *dest_hdr = (struct ip6_dest_hdr *)buf;
-                    if (len < sizeof(*dest_hdr))
-                        return false;
-                    hlen = 8 * (1 + dest_hdr->_hlen);
-                    nexth = &IP6_DEST_NEXTH(dest_hdr);
-                    break;
-                }
-                case IP6_NEXTH_ROUTING: {
-                    struct ip6_rout_hdr *rout_hdr = (struct ip6_rout_hdr *)buf;
-                    if (len < sizeof(*rout_hdr))
-                        return false;
-                    hlen = 8 * (1 + rout_hdr->_hlen);
-                    nexth = &IP6_ROUT_NEXTH(rout_hdr);
-                    break;
-                }
-                case IP6_NEXTH_FRAGMENT:
-                    hlen = 8;
-                    nexth = &IP6_FRAG_NEXTH((struct ip6_frag_hdr *)buf);
-                    break;
-                default:
-                    options_done = true;
-                }
-                if (options_done)
-                    break;
-                if (len < hlen)
-                    return false;
-                buf += hlen;
-                len -= hlen;
-            }
-            if (!firewall_match_val(*nexth, c))
+            u8 proto = firewall_ip6_get_hdr(buf, len, IP6_NEXTH_NONE, l4_hdr);
+            if (!*l4_hdr || !firewall_match_val(proto, c))
                 return false;
             break;
         }
         }
     }
-    *l4_hdr = buf;
     return true;
 }
 
