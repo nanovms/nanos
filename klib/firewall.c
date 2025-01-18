@@ -82,7 +82,7 @@ static boolean firewall_ip4_match(vector constraints, void *buf, unsigned int le
             break;
         }
     }
-    *l4_hdr = buf + hdr_len;
+    *l4_hdr = ((IPH_OFFSET(hdr) & lwip_htons(IP_OFFMASK)) == 0) ? (buf + hdr_len) : 0;
     return true;
 }
 
@@ -140,11 +140,21 @@ static u8 firewall_ip6_get_hdr(void *buf, unsigned int len, u8 hdr_type, void **
     return *hdr;
 }
 
+static boolean firewall_ip6_is_fragment(struct ip6_hdr *hdr, unsigned int len)
+{
+    struct ip6_frag_hdr *frag_hdr;
+    u8 hdr_type = firewall_ip6_get_hdr(hdr, len, IP6_NEXTH_FRAGMENT, (void **)&frag_hdr);
+    return (hdr_type == IP6_NEXTH_FRAGMENT) && frag_hdr &&
+           (frag_hdr->_fragment_offset & PP_HTONS(IP6_FRAG_OFFSET_MASK));
+}
+
 static boolean firewall_ip6_match(vector constraints, void *buf, unsigned int len, void **l4_hdr)
 {
     if (len < IP6_HLEN)
         return false;
     struct ip6_hdr *hdr = buf;
+    boolean frag_parsed = false;
+    boolean is_fragment;
     firewall_constraint c;
     vector_foreach(constraints, c) {
         switch (c->type) {
@@ -156,6 +166,10 @@ static boolean firewall_ip6_match(vector constraints, void *buf, unsigned int le
             u8 proto = firewall_ip6_get_hdr(buf, len, IP6_NEXTH_NONE, l4_hdr);
             if (!*l4_hdr || !firewall_match_val(proto, c))
                 return false;
+            if (!frag_parsed)
+                is_fragment = firewall_ip6_is_fragment(hdr, len);
+            if (is_fragment)
+                *l4_hdr = 0;
             break;
         }
         }
@@ -211,6 +225,8 @@ static boolean firewall_match(struct pbuf *p, firewall_rule rule)
         return false;
     if (!rule->l4_match)
         return true;
+    if (!l4_hdr)
+        return false;
     boolean (*l4_match_func)(vector, void *, unsigned int);
     switch (rule->l4_proto) {
     case IP_PROTO_TCP:
