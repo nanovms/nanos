@@ -18,6 +18,7 @@ typedef struct firewall_constraint {
 
 enum firewall_l3_constraint {
     FW_L3_SRC,
+    FW_L3_FRAG,
     FW_L3_PROTO,
 };
 
@@ -74,6 +75,10 @@ static boolean firewall_ip4_match(vector constraints, void *buf, unsigned int le
         switch (c->type) {
         case FW_L3_SRC:
             if (!firewall_match_buf(&hdr->src, c))
+                return false;
+            break;
+        case FW_L3_FRAG:
+            if (!firewall_match_val((IPH_OFFSET(hdr) & lwip_htons(IP_OFFMASK)) != 0, c))
                 return false;
             break;
         case FW_L3_PROTO:
@@ -160,6 +165,12 @@ static boolean firewall_ip6_match(vector constraints, void *buf, unsigned int le
         switch (c->type) {
         case FW_L3_SRC:
             if (!firewall_match_buf(&hdr->src, c))
+                return false;
+            break;
+        case FW_L3_FRAG:
+            if (!frag_parsed)
+                is_fragment = firewall_ip6_is_fragment(hdr, len);
+            if (!firewall_match_val(is_fragment, c))
                 return false;
             break;
         case FW_L3_PROTO: {
@@ -300,6 +311,7 @@ static void firewall_dealloc_l3_constraint(heap h, firewall_constraint c)
         deallocate(h, c_buf, sizeof(*c_buf) + pad(c_buf->len, 8) / 8);
         break;
     }
+    case FW_L3_FRAG:
     case FW_L3_PROTO: {
         firewall_constraint_val c_val = (firewall_constraint_val)c;
         deallocate(h, c_val, sizeof(*c_val));
@@ -364,6 +376,24 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
         c->c.equals = !neq;
         c->len = netmask;
         runtime_memcpy(&c->buf, &addr, byte_count);
+        vector_push(rule->l3_match, c);
+    }
+    string fragment = get_string(spec, sym(fragment));
+    if (fragment) {
+        boolean is_fragment;
+        if (!buffer_strcmp(fragment, "y")) {
+            is_fragment = true;
+        } else if (!buffer_strcmp(fragment, "n")) {
+            is_fragment = false;
+        } else {
+            msg_err("firewall: invalid ip fragment rule '%s'", buffer_to_sstring(fragment));
+            return false;
+        }
+        firewall_constraint_val c = allocate(h, sizeof(*c));
+        assert(c != INVALID_ADDRESS);
+        c->c.type = FW_L3_FRAG;
+        c->c.equals = true;
+        c->val = is_fragment;
         vector_push(rule->l3_match, c);
     }
     rule->ip_version = ipv6 ? 6 : 4;
