@@ -21,8 +21,11 @@ struct flush_entry {
     u64 gen;
     struct refcount ref;
     boolean flush;
+    volatile boolean wait;
+    u32 joined;
     u64 pages[FLUSH_THRESHOLD];
     int npages;
+    thunk completion;
     closure_struct(thunk, finish);
 };
 
@@ -56,6 +59,11 @@ static void _flush_handler(void)
                     for (int i = 0; i < f->npages; i++)
                         invalidate(f->pages[i]);
                 }
+            }
+            if (f->wait) {
+                fetch_and_add_32(&f->joined, 1);
+                while (f->wait)
+                    kern_pause();
             }
             refcount_release(&f->ref);
         }
@@ -97,6 +105,9 @@ static void service_list(void)
             continue;
         list_delete(&f->l);
         entries_count--;
+        thunk completion = f->completion;
+        if (completion)
+            async_apply(completion);
         assert(enqueue(free_flush_entries, f));
     }
 }
@@ -119,7 +130,7 @@ static void queue_flush_service(void)
     }
 }
 
-void page_invalidate_sync(flush_entry f)
+void page_invalidate_sync(flush_entry f, thunk completion, boolean wait)
 {
     if (initialized) {
         if (f->npages == 0) {
@@ -151,11 +162,27 @@ void page_invalidate_sync(flush_entry f)
         f->gen = fetch_and_add((word *)&inval_gen, 1) + 1;
         spin_wunlock(&flush_lock);
 
-        send_ipi(TARGET_EXCLUSIVE_BROADCAST, flush_ipi);
+        f->wait = false;
         _flush_handler();
+        f->wait = wait;
+        if (wait) {
+            f->joined = 1;
+            f->completion = 0;
+        } else {
+            f->completion = completion;
+        }
+        send_ipi(TARGET_EXCLUSIVE_BROADCAST, flush_ipi);
         irq_restore(flags);
+        if (wait) {
+            while (((volatile flush_entry)f)->joined < total_processors)
+                kern_pause();
+            apply(completion);
+            f->wait = false;
+        }
     } else {
         flush_tlb(false);
+        if (completion)
+            async_apply(completion);
     }
 }
 

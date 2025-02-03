@@ -223,6 +223,18 @@ static inline boolean pte_is_dirty(pte entry)
     return (entry & PAGE_DIRTY) != 0;
 }
 
+static inline boolean pte_is_accessed(pte entry)
+{
+    return (entry & PAGE_ACCESSED) != 0;
+}
+
+static inline boolean pte_clear_accessed(pteptr pp)
+{
+    boolean accessed = !!(*pp & PAGE_ACCESSED);
+    *pp &= ~PAGE_ACCESSED;
+    return accessed;
+}
+
 static inline u64 page_from_pte(pte p)
 {
     /* page directory pointer base address [51:12] */

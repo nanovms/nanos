@@ -203,7 +203,7 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     service_thunk_queue(runqueue);
 
     /* should be a list of per-runloop checks - also low-pri background */
-    mm_service(false);
+//    mm_service(false);
 
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     timestamp next_timeout = update_timer(here);

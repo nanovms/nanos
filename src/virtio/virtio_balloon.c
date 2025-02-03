@@ -174,6 +174,8 @@ static u64 virtio_balloon_inflate(u64 n_balloon_pages)
         vqmsg_commit(vq, m, c);
         inflated++;
     }
+    if (inflated < n_balloon_pages)
+        mm_service(false);
 
     return inflated;
 }
@@ -390,7 +392,7 @@ static boolean virtio_balloon_attach(heap general, backed_heap backed, heap phys
     virtio_balloon_update();
     mem_cleaner bd = closure_func(general, mem_cleaner, virtio_balloon_deflater);
     assert(bd != INVALID_ADDRESS);
-    if (!mm_register_mem_cleaner(bd))
+    if (0 && !mm_register_mem_cleaner(bd))
         deallocate_closure(bd);
     if (balloon_has_stats_vq())
         virtio_balloon_init_statsq();

@@ -38,19 +38,19 @@ sg_io pagecache_node_get_reader(pagecache_node pn);
 
 sg_io pagecache_node_get_writer(pagecache_node pn);
 
-void pagecache_node_add_shared_map(pagecache_node pn , range v /* bytes */, u64 node_offset);
+void pagecache_node_add_mapping(pagecache_node pn , range v /* bytes */, u64 node_offset,
+                                boolean shared);
 
-void pagecache_node_close_shared_pages(pagecache_node pn, range q /* bytes */, flush_entry fe);
-
-void pagecache_node_scan_and_commit_shared_pages(pagecache_node pn, range q /* bytes */);
+void pagecache_node_scan(pagecache_node pn, range q /* bytes */, status_handler complete);
 
 boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr, pageflags flags);
 
 void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */, sg_list sg,
                                 status_handler complete);
 
-void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handler handler);
-void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset);
+void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
+                        pagecache_page_handler handler);
+void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private);
 void pagecache_release_page(pagecache_node pn, u64 node_offset);
 
 void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset);

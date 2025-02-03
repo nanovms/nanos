@@ -277,6 +277,7 @@ typedef struct pending_fault {
             u64 node_offset;
             closure_struct(pagecache_page_handler, demand_file_page);
             void *page_kvirt;
+            boolean private_page;
         } filebacked;
         void *custom;
     };
