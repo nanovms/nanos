@@ -451,7 +451,9 @@ static void file_io_complete(file f, range r, boolean is_file_offset, sg_list sg
         u64 len = range_span(r);
         len -= sg_total_len(sg);
         u64 file_len = fsfile_get_length(f->fsf);
-        if (r.start + len > file_len)   /* can happen with direct I/O */
+        if (r.start >= file_len)
+            len = 0;
+        else if (r.start + len > file_len)   /* can happen with direct I/O */
             len = file_len - r.start;
         if (is_file_offset) /* vs specified offset (pread/pwrite) */
             f->offset += len;
