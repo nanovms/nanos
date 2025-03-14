@@ -550,6 +550,7 @@ void exec_elf(process kp, string program_path, status_handler complete)
         apply(complete, timm("result", "unable to open program file %v", program_path));
         return;
     }
+    program_set_perms(root, f->md);
 
     /* any of these options force a full program read */
     boolean static_map = get(root, sym(ltrace)) || get(root, sym(static_map_program));

@@ -50,11 +50,10 @@ static void init_kernel_heaps_management(tuple root)
     set(root, sym(heaps), heaps);
 }
 
-closure_function(6, 0, void, startup,
-                 kernel_heaps, kh, tuple, root, filesystem, fs, merge, m, status_handler, start, status_handler, completion)
+closure_function(5, 0, void, startup,
+                 tuple, root, filesystem, fs, merge, m, status_handler, start, status_handler, completion)
 {
     status s = STATUS_OK;
-    kernel_heaps kh = bound(kh);
     tuple root = bound(root);
     filesystem fs = bound(fs);
 
@@ -63,7 +62,6 @@ closure_function(6, 0, void, startup,
 #endif
 
     status_handler start = bound(start);
-    heap general = heap_locked(kh);
 
     /* register root tuple with management and kick off interfaces, if any */
     init_management_root(root);
@@ -72,10 +70,6 @@ closure_function(6, 0, void, startup,
         filesystem_set_readonly(fs);
     value p = get(root, sym(program));
     assert(p && is_string(p));
-    tuple pro = resolve_path(filesystem_getroot(fs), split(general, p, '/'));
-    if (!pro)
-        halt("unable to resolve program path \"%b\"\n", p);
-    program_set_perms(root, pro);
     init_network_iface(root, bound(m));
     closure_member(program_start, start, path) = (string)p;
     msg_info("gitversion: %s", gitversion);
@@ -94,7 +88,7 @@ thunk create_init(kernel_heaps kh, tuple root, filesystem fs, merge *m)
     heap h = heap_locked(kh);
     status_handler start = closure(h, program_start, kp, 0, false);
     *m = allocate_merge(h, start);
-    return closure(h, startup, kh, root, fs, *m, start, apply_merge(*m));
+    return closure(h, startup, root, fs, *m, start, apply_merge(*m));
 }
 
 closure_function(5, 1, status, kernel_read_complete,
