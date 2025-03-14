@@ -658,7 +658,7 @@ fsfile fsfile_open(sstring file_path)
     filesystem fs = get_root_fs();
     int s = filesystem_get_node(&fs, fs->get_inode(fs, filesystem_getroot(fs)),
                                       file_path,
-                                      true, false, false, false, &file, &fsf);
+                                      false, false, false, false, &file, &fsf);
     if (s == 0) {
         filesystem_put_node(fs, file);
         return fsf;
