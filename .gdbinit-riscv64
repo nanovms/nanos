@@ -1,5 +1,4 @@
 set architecture riscv:rv64
-display/i $pc
+file ./output/platform/riscv-virt/bin/kernel.elf -o 0xfffffffeffe00000
 target remote :1234
-symbol-file ./output/platform/riscv-virt/bin/kernel.elf
 
