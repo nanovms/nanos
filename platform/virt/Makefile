@@ -173,7 +173,6 @@ INCLUDES=\
 	-I$(ACPICA_DIR)/source/include \
 	-I$(LWIPDIR)/src/include \
 	-I$(VDSO_OBJDIR) \
-	-I$(OUTDIR)
 
 AFLAGS+=-I$(ARCHDIR)
 

@@ -2,7 +2,7 @@
 #include <runtime.h>
 #include <kernel_heaps.h>
 #ifdef KERNEL
-#include <debug.h>
+#include <kconfig.h>
 #include <mutex.h>
 #endif
 

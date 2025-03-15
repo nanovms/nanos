@@ -1,3 +1,27 @@
+.PHONY: $(OBJDIR)/kconfig.h.tmp
+$(OBJDIR)/kconfig.h.tmp:
+	@$(MKDIR) $(dir $@)
+	@$(CAT) /dev/null > $@
+ifneq ($(KCONFIG),)
+	@$(ECHO) $(KCONFIG) | $(TR) '[:lower:]' '[:upper:]' | $(SED) -e 's/-/_/g' -e 's/,/\n/g' | \
+		$(SED) -e 's/^\(.*\)$$/\#define \1/' >> $@
+endif
+ifeq ($(DEBUG),all)
+	@$(CAT) $(SRCDIR)/debug_all.h >> $@
+else
+ifneq ($(DEBUG),)
+	@$(ECHO) $(DEBUG) | $(TR) '[:lower:]' '[:upper:]' | $(SED) -e 's/\s*//g' -e 's/,/\n/g' | \
+		$(SED) -e 's/^\(.*\)$$/\#define \1_DEBUG/' >> $@
+endif
+endif
+
+$(OBJDIR)/kconfig.h: $(OBJDIR)/kconfig.h.tmp
+	@if ! (cmp -s $< $@); then $(ECHO) KCONFIG $@; $(CP) $< $@; fi
+
+GENHEADERS+=	$(OBJDIR)/kconfig.h
+
+CLEANFILES+= $(OBJDIR)/kernel.dis.old $(OBJDIR)/kconfig.h $(OBJDIR)/kconfig.h.tmp
+
 CFLAGS+=$(KERNCFLAGS) -DKERNEL -O3
 CFLAGS+=-Wno-address # lwIP build sadness
 CFLAGS+=$(INCLUDES)
