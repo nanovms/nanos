@@ -63,8 +63,12 @@ BSS_RO_AFTER_INIT static vector shutdown_completions;
 void kaslr(void)
 {
     extern u8 START, text_end, READONLY_END, bss_start, END;
+#ifndef NO_KASLR
     u64 ksize = pad(&END - &START, PAGESIZE);
     u64 random_offset = random_early_u64() % (KERNEL_LIMIT - KERNEL_BASE - ksize);
+#else
+    u64 random_offset = 0;
+#endif
     u64 kbase = KERNEL_BASE + (random_offset & ~PAGEMASK);
     u64 phys_offset = kernel_phys_offset;
     u64 kern_offset = kbase - u64_from_pointer(&START) + phys_offset;

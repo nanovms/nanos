@@ -1,0 +1,4 @@
+set architecture i386:x86-64
+file ./output/platform/pc/bin/kernel.elf -o 0xffffffff7fe00000
+target remote :1234
+
