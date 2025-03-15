@@ -118,24 +118,6 @@ else ifeq ($(MEMDEBUG),all)
 CFLAGS+= -DMEMDEBUG_ALL
 endif
 
-.PHONY: $(OUTDIR)/debug.h.tmp
-$(OUTDIR)/debug.h.tmp:
-	@$(MKDIR) $(dir $@)
-ifeq ($(DEBUG),all)
-	@$(CP) $(SRCDIR)/debug_all.h $@
-else
-ifneq ($(DEBUG),)
-	@echo $(DEBUG) | $(TR) '[:lower:]' '[:upper:]' | $(SORT) | $(SED) -e 's/\s*//g' -e 's/,/\n/g' | $(SED) -e 's/^\(.*\)$$/\#define \1_DEBUG/g' > $@
-else
-	@$(CAT) /dev/null > $@
-endif
-endif
-
-$(OUTDIR)/debug.h: $(OUTDIR)/debug.h.tmp
-	@if ! (cmp -s $< $@); then $(CP) $< $@; fi
-
-GENHEADERS+=	$(OUTDIR)/debug.h
-
 ##############################################################################
 # functions
 
@@ -314,8 +296,6 @@ ifdef BUILD_KERNEL_DIS
 DEFAULT_KERNEL_TARGET=	kernel.dis
 BUILD_KERNEL_DIS= $(OBJDIR)/kernel.dis
 endif
-
-CLEANFILES+= $(OBJDIR)/kernel.dis.old $(OUTDIR)/debug.h $(OUTDIR)/debug.h.tmp
 
 # Stack Smashing Protection
 ifeq ($(WITHOUT_SSP),)

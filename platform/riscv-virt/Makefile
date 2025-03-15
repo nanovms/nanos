@@ -147,7 +147,6 @@ INCLUDES=\
 	-I$(SRCDIR)/xen/public \
 	-I$(LWIPDIR)/src/include \
 	-I$(VDSO_OBJDIR) \
-	-I$(OUTDIR)
 
 AFLAGS+=-I$(ARCHDIR) -march=rv64gc -mabi=lp64d
 AFLAGS+=	-I$(OBJDIR)/

@@ -183,7 +183,6 @@ INCLUDES=\
 	-I$(SRCDIR)/hyperv/include \
 	-I$(ACPICA_DIR)/source/include \
 	-I$(LWIPDIR)/src/include \
-	-I$(OUTDIR)
 
 AFLAGS+=-I$(ARCHDIR)/
 
