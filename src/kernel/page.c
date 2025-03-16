@@ -271,8 +271,10 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 {
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
 
+#ifdef KERNEL
     /* Catch any attempt to change page flags in a linear_backed mapping */
     assert(!intersects_linear_backed(irangel(vaddr, length)));
+#endif
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, vaddr, length, flags, fe));
     page_invalidate_sync(fe);

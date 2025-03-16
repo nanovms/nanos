@@ -33,6 +33,36 @@
 
 #include <system_structs.h>
 
+typedef s64 sysreturn;
+
+static inline timestamp time_from_timeval(const struct timeval *t)
+{
+    return seconds(t->tv_sec) + microseconds(t->tv_usec);
+}
+
+static inline void timeval_from_time(struct timeval *d, timestamp t)
+{
+    d->tv_sec = t / TIMESTAMP_SECOND;
+    d->tv_usec = usec_from_timestamp(truncate_seconds(t));
+}
+
+static inline timestamp time_from_timespec(const struct timespec *t)
+{
+    return seconds(t->tv_sec) + nanoseconds(t->tv_nsec);
+}
+
+static inline void timespec_from_time(struct timespec *ts, timestamp t)
+{
+    ts->tv_sec = sec_from_timestamp(t);
+    ts->tv_nsec = nsec_from_timestamp(truncate_seconds(t));
+}
+
+static inline time_t time_t_from_time(timestamp t)
+{
+    return t / TIMESTAMP_SECOND;
+}
+
+#ifdef KERNEL
 /* arch dependent bits */
 #include <unix_machine.h>
 
@@ -60,8 +90,6 @@
 #define VVAR_NR_PAGES               2
 
 extern unsigned long vdso_raw_length;
-
-typedef s64 sysreturn;
 
 // conditionalize
 // fix config/build, remove this include to take off network
@@ -742,33 +770,6 @@ static inline u64 get_aslr_offset(u64 range)
     return random_u64() & ((range - 1) & ~MASK(PAGELOG));
 }
 
-static inline timestamp time_from_timeval(const struct timeval *t)
-{
-    return seconds(t->tv_sec) + microseconds(t->tv_usec);
-}
-
-static inline void timeval_from_time(struct timeval *d, timestamp t)
-{
-    d->tv_sec = t / TIMESTAMP_SECOND;
-    d->tv_usec = usec_from_timestamp(truncate_seconds(t));
-}
-
-static inline timestamp time_from_timespec(const struct timespec *t)
-{
-    return seconds(t->tv_sec) + nanoseconds(t->tv_nsec);
-}
-
-static inline void timespec_from_time(struct timespec *ts, timestamp t)
-{
-    ts->tv_sec = sec_from_timestamp(t);
-    ts->tv_nsec = nsec_from_timestamp(truncate_seconds(t));
-}
-
-static inline time_t time_t_from_time(timestamp t)
-{
-    return t / TIMESTAMP_SECOND;
-}
-
 void init_sigstate(sigstate ss);
 void sigstate_flush_queue(sigstate ss);
 void sigstate_reset_thread(thread t);
@@ -1130,4 +1131,5 @@ static inline void __attribute__((noreturn)) syscall_yield(void)
     check_syscall_context_replace(ci, get_current_context(ci));
     kern_yield();
 }
+#endif
 

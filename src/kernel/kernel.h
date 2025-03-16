@@ -7,16 +7,16 @@
 #endif
 
 closure_type(cmdline_handler, void, const char *str, int len);
-
-#ifdef KERNEL
-void runloop_target(void) __attribute__((noreturn));
-#endif
+closure_type(clock_timer, void, timestamp t);
 
 #include <kernel_machine.h>
 
 #ifndef PHYSMEM_BASE_MASK
 #define PHYSMEM_BASE_MASK   ~0ull
 #endif
+
+#ifdef KERNEL
+void runloop_target(void) __attribute__((noreturn));
 
 #include <log.h>
 #ifdef CONFIG_TRACELOG
@@ -49,6 +49,7 @@ typedef struct kernel_context {
 } *kernel_context;
 
 void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q);
+#endif
 
 #include <management.h>
 #include <page.h>
@@ -214,7 +215,6 @@ static inline void spin_lock_2(spinlock l1, spinlock l2)
         spin_lock(l1);
     }
 }
-#endif
 
 /* subsume with introspection */
 struct mm_stats {
@@ -246,7 +246,6 @@ static inline boolean is_thread_context(context c)
     return c->type == CONTEXT_TYPE_THREAD;
 }
 
-#ifdef KERNEL
 static inline __attribute__((always_inline)) context get_current_context(cpuinfo ci)
 {
     return ci->m.current_context;
@@ -267,8 +266,6 @@ extern queue runqueue;
 extern queue async_queue_1;
 extern timerqueue kernel_timers;
 extern thunk timer_interrupt_handler;
-
-closure_type(clock_timer, void, timestamp t);
 
 extern clock_timer platform_timer;
 
@@ -589,7 +586,6 @@ static inline boolean sched_queue_empty(sched_queue sq)
 {
     return (sched_queue_length(sq) == 0);
 }
-#endif /* KERNEL */
 
 #define BREAKPOINT_INSTRUCTION 00
 #define BREAKPOINT_WRITE 01
@@ -660,8 +656,6 @@ static inline u64 phys_from_linear_backed_virt(u64 virt)
 
 void unmap_and_free_phys(u64 virtual, u64 length);
 void page_free_phys(u64 phys);
-
-#if !defined(BOOT)
 
 heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize, boolean locking);
 heap locking_heap_wrapper(heap meta, heap parent);

@@ -1,5 +1,5 @@
-#if !(defined(KERNEL) || defined(BOOT))
-#error must be in kernel or bootloader build
+#if !(defined(KERNEL) || defined(BUILD_VDSO) || defined(BOOT))
+#error must be in kernel or VDSO or bootloader build
 #endif
 
 #define KERNEL_LIMIT     0xfffffffffffff000ull
@@ -250,6 +250,7 @@ MK_MMIO_WRITE(64, "", "x");
 #define read_psr_s(rstr) ({ register u64 r; asm volatile("mrs %0, " rstr : "=r"(r)); r;})
 #define write_psr_s(rstr, v) do { asm volatile("msr " rstr ", %0" : : "r"((u64)(v))); } while (0)
 
+#ifdef KERNEL
 /* Manually encoded system register access instructions for registers that are not supported with
  * the processor features enabled in the `-march` compiler flags. */
 u64 sysreg_get_id_aa64zfr0(void);
@@ -530,6 +531,7 @@ static inline void return_offset(u64 offset) {
 
 /* syscall entry */
 #define init_syscall_handler()   /* stub */
+#endif
 
 /* for vdso */
 #define do_syscall(sysnr, arg0, arg1) ({                                \

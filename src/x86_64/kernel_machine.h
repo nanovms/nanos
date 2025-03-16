@@ -1,5 +1,5 @@
-#if !(defined(KERNEL) || defined(BOOT))
-#error must be in kernel or bootloader build
+#if !(defined(KERNEL) || defined(BUILD_VDSO) || defined(BOOT))
+#error must be in kernel or VDSO or bootloader build
 #endif
 
 #define MBR_ADDRESS 0x7c00
@@ -165,11 +165,6 @@ void init_cpu_features();
 void set_ist(struct cpuinfo_machine *cpu, int i, u64 sp);
 void install_gdt64_and_tss(void *tss_desc, void *tss, void *gdt, void *gdt_pointer);
 
-#ifdef KERNEL
-void cmdline_consume(sstring opt_name, cmdline_handler h);
-void boot_params_apply(tuple t);
-#endif
-
 /* device mmio region access */
 static inline u32 mmio_read_32(u64 addr)
 {
@@ -247,6 +242,10 @@ static inline void xgetbv(u32 ecx, u32 *eax, u32 *edx)
 {
     asm volatile("xgetbv" : "=a" (*eax), "=d" (*edx) : "c" (ecx));
 }
+
+#ifdef KERNEL
+void cmdline_consume(sstring opt_name, cmdline_handler h);
+void boot_params_apply(tuple t);
 
 /* syscall entry */
 
@@ -483,6 +482,7 @@ static inline boolean validate_frame_ptr(u64 *fp)
         return false;
     return true;
 }
+#endif
 
 static inline u64 *get_frame_ra_ptr(u64 *fp, u64 **nfp)
 {

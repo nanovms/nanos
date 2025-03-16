@@ -1,5 +1,5 @@
-#ifndef KERNEL
-#error must be in kernel build
+#if !(defined(KERNEL) || defined(BUILD_VDSO))
+#error must be in kernel or VDSO build
 #endif
 
 #define KERNEL_LIMIT     0xfffffffffffff000ull
@@ -193,6 +193,7 @@ static inline cpuinfo current_cpu(void)
     return (cpuinfo)pointer_from_u64(r);
 }
 
+#ifdef KERNEL
 extern void clone_frame_pstate(context_frame dest, context_frame src);
 
 #define insn_emulate(f) false
@@ -327,6 +328,7 @@ static inline boolean validate_frame_ptr(u64 *fp)
         return false;
     return true;
 }
+#endif
 
 static inline u64 *get_frame_ra_ptr(u64 *fp, u64 **nfp)
 {

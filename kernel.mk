@@ -41,7 +41,7 @@ VDSO_SRCDIR=    $(SRCDIR)/kernel
 VDSO_OBJDIR=    $(OBJDIR)/vdso
 VDSO_SRCS=      $(VDSO_SRCDIR)/vdso.c $(VDSO_SRCDIR)/vdso-now.c
 VDSO_OBJS=      $(patsubst $(VDSO_SRCDIR)/%.c,$(VDSO_OBJDIR)/%.o,$(VDSO_SRCS))
-VDSO_CFLAGS=    $(TARGET_CFLAGS) -DKERNEL -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(OUTDIR) -I$(SRCDIR) -fPIC -c
+VDSO_CFLAGS=    $(TARGET_CFLAGS) -DBUILD_VDSO -I$(INCLUDES) -I$(OBJDIR) -I$(OUTDIR) -I$(SRCDIR) -fPIC -c
 VDSO_LDFLAGS=   -nostdlib -fPIC -shared --build-id=none --hash-style=both --eh-frame-hdr -T$(ARCHDIR)/vdso.lds
 VDSO_DEPS=      $(patsubst %.o,%.d,$(VDSO_OBJS))
 
