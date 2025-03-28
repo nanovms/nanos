@@ -22,6 +22,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/drivers/gve.c \
 	$(SRCDIR)/drivers/nvme.c \
 	$(SRCDIR)/drivers/netconsole.c \
+	$(SRCDIR)/drivers/ramdisk.c \
 	$(SRCDIR)/drivers/vga.c \
 	$(SRCDIR)/gdb/gdbstub.c \
 	$(SRCDIR)/gdb/gdbtcp.c \

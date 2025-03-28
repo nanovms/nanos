@@ -396,6 +396,7 @@ write_xmsr:
 .end:
 
 _start:
+        xor edx, edx
         call init_service
         hlt
 .end:
