@@ -297,6 +297,7 @@ typedef struct pending_fault {
         PENDING_FAULT_FILEBACKED,
         PENDING_FAULT_CUSTOM,
     } type;
+    void *page_kvirt;
     union {
         struct {
         } anonymous;
@@ -304,7 +305,6 @@ typedef struct pending_fault {
             pagecache_node pn;
             u64 node_offset;
             closure_struct(pagecache_page_handler, demand_file_page);
-            void *page_kvirt;
         } filebacked;
         void *custom;
     };

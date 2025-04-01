@@ -273,7 +273,7 @@ closure_func_basic(pagecache_page_handler, void, pending_fault_page_handler,
                    void *kvirt)
 {
     pending_fault pf = struct_from_closure(pending_fault, filebacked.demand_file_page);
-    pf->filebacked.page_kvirt = kvirt;
+    pf->page_kvirt = kvirt;
     thunk complete = (thunk)&pf->complete;
     apply(complete);
 }
@@ -327,7 +327,7 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
     }
     if (((*pf)->filebacked.pn != pn) || ((*pf)->filebacked.node_offset != node_offset))
         return STATUS_OK;
-    kvirt = (*pf)->filebacked.page_kvirt;
+    kvirt = (*pf)->page_kvirt;
     if (kvirt == INVALID_ADDRESS)
         s = timm_oom;
     else
