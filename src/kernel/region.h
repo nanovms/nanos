@@ -56,7 +56,6 @@ static inline u64 allocate_region(heap h, bytes size)
         r = e;
         break;
     }
-    assert(r != 0);
     if (base == 0)
         return u64_from_pointer(INVALID_ADDRESS);
 
