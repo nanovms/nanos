@@ -208,10 +208,9 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
         work_done = service_async_1(async_queue_1) || work_done;
 
         work_done = service_thunk_queue(runqueue) || work_done;
-    } while (work_done);
 
-    /* should be a list of per-runloop checks - also low-pri background */
-    mm_service(false);
+        work_done = work_done || mem_service();
+    } while (work_done);
 
     timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
     timestamp next_timeout = update_timer(here);

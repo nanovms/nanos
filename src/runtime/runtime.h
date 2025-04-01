@@ -143,6 +143,14 @@ typedef struct heap *heap;
 #include <table.h>
 #include <heap/heap.h>
 
+#define MEM_ZERO        U32_FROM_BIT(0)
+#define MEM_NOWAIT      U32_FROM_BIT(1)
+#define MEM_NOFAIL      U32_FROM_BIT(2)
+
+void *mem_alloc(heap h, bytes size, u32 flags);
+
+#define mem_alloc_u64(h, s, f)  u64_from_pointer(mem_alloc(h, s, f))
+
 // transient is supposed to be cleaned up when we can guarantee that
 // its out of scope - so we argue its ok to make it global. however
 // there isn't a very good definition of what the lifetime of it is.

@@ -176,4 +176,14 @@ void __attribute__((noreturn)) __stack_chk_fail(void)
 {
     halt("stack check failed\n");
 }
+
+void *mem_alloc(heap h, bytes size, u32 flags)
+{
+    void *p = allocate(h, size);
+    if ((p == INVALID_ADDRESS) && (flags & MEM_NOFAIL))
+        halt("Out of memory: cannot allocate %d bytes\n", size);
+    if (flags & MEM_ZERO)
+        zero(p, size);
+    return p;
+}
 #endif
