@@ -1701,6 +1701,14 @@ void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
     pagecache_lock_node(pn);
     u64 pi = node_offset >> pc->page_order;
     pagecache_page pp = page_lookup_or_alloc_nodelocked(pn, pi);
+    while (pp == INVALID_ADDRESS) {
+        pagecache_unlock_node(pn);
+        u64 cleaned = mem_clean(cache_pagesize(pc), true);
+        pagecache_lock_node(pn);
+        pp = page_lookup_or_alloc_nodelocked(pn, pi);
+        if (cleaned == 0)
+            break;
+    }
     pagecache_debug("%s: pn %p, node_offset 0x%lx, handler %F, pp %p\n",
                     func_ss, pn, node_offset, handler, pp);
     if (pp == INVALID_ADDRESS) {
