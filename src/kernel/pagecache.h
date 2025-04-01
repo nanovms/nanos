@@ -49,8 +49,9 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
 void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */, sg_list sg,
                                 status_handler complete);
 
-void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handler handler);
-void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset);
+void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
+                        pagecache_page_handler handler);
+void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private);
 void pagecache_release_page(pagecache_node pn, u64 node_offset);
 
 void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset);

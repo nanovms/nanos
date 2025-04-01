@@ -242,7 +242,6 @@ static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, void
 {
     u64 vmap_offset = page_addr - vm->node.r.start;
     boolean pagecache_map;
-    status s;
     pagetable_lock();
     u64 p = __physical_from_virtual_locked(pointer_from_u64(page_addr));
     if (p == INVALID_PHYSICAL) {
@@ -251,17 +250,8 @@ static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, void
         if (vm->flags & VMAP_FLAG_TAIL_BSS) {
             u64 bss_offset = vm->bss_offset;
             if (point_in_range(irangel(vmap_offset, PAGESIZE), bss_offset)) {
-                pagecache_map = false;
-                void *new_page = allocate(mmap_info.virtual_backed, PAGESIZE);
-                if (new_page == INVALID_ADDRESS) {
-                    vmap_debug("%s: cannot get physical page\n", func_ss);
-                    s = timm_oom;
-                    goto out;
-                }
                 u64 bss_start = bss_offset - vmap_offset;
-                runtime_memcpy(new_page, kvirt, bss_start);
-                zero(new_page + bss_start, PAGESIZE - bss_start);
-                p = physical_from_virtual(new_page);
+                zero(kvirt + bss_start, PAGESIZE - bss_start);
             }
         }
         map_nolock(page_addr, p, PAGESIZE, flags);
@@ -269,12 +259,10 @@ static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, void
         /* The mapping must have been done in parallel by another CPU. */
         pagecache_map = false;
     }
-    s = STATUS_OK;
-  out:
     pagetable_unlock();
     if (!pagecache_map)
         pagecache_release_page(vm->cache_node, vm->node_offset + vmap_offset);
-    return s;
+    return STATUS_OK;
 }
 
 closure_func_basic(pagecache_page_handler, void, pending_fault_page_handler,
@@ -292,7 +280,8 @@ closure_func_basic(thunk, void, pending_fault_filebacked)
     pagecache_page_handler h = init_closure_func(&pf->filebacked.demand_file_page,
                                                  pagecache_page_handler,
                                                  pending_fault_page_handler);
-    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, h);
+    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, pf->filebacked.private_page,
+                       h);
 }
 
 static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm, pending_fault *pf)
@@ -303,7 +292,8 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
     pagecache_node pn = vm->cache_node;
     u64 node_offset = vm->node_offset + vmap_offset;
     boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
-    if (!shared && !(vm->flags & VMAP_FLAG_PROG))
+    boolean private_page = (vm->flags & VMAP_FLAG_PROG) && (vm->flags & VMAP_FLAG_WRITABLE);
+    if (!shared && !private_page)
         flags = pageflags_readonly(flags); /* cow */
 
     pf_debug("   node %p (start 0x%lx), offset 0x%lx, vm flags 0x%lx, pageflags 0x%lx\n",
@@ -319,7 +309,7 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
     void *kvirt;
     status s;
     if (!*pf) {
-        kvirt = pagecache_get_page_if_filled(pn, node_offset);
+        kvirt = pagecache_get_page_if_filled(pn, node_offset, private_page);
         if (kvirt != INVALID_ADDRESS)
             return mmap_filebacked_page(vm, page_addr, flags, kvirt);
         pending_fault new_pf = new_pending_fault_locked(p, ctx, vaddr);
@@ -329,6 +319,7 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
             new_pf->filebacked.pn = pn;
             new_pf->filebacked.node_offset = node_offset;
             init_closure_func(&new_pf->async_handler, thunk, pending_fault_filebacked);
+            new_pf->filebacked.private_page = private_page;
         }
         *pf = new_pf;
         return STATUS_OK;
