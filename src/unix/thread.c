@@ -399,7 +399,8 @@ thread create_thread(process p, u64 tid)
     thread t = allocate(h, sizeof(struct thread));
     if (t == INVALID_ADDRESS)
         goto fail;
-    init_context(&t->context, CONTEXT_TYPE_THREAD);
+    if (!init_context(&t->context, CONTEXT_TYPE_THREAD, 0))
+        goto fail_ctx;
     t->context.pause = thread_pause;
     t->context.resume = thread_resume;
     t->context.schedule_return = thread_schedule_return;
@@ -476,6 +477,7 @@ thread create_thread(process p, u64 tid)
     deallocate_blockq(t->thread_bq);
   fail_bq:
     destruct_context(&t->context);
+  fail_ctx:
     deallocate(h, t, sizeof(struct thread));
   fail:
     msg_err("thread: failed to allocate structure");

@@ -202,7 +202,7 @@ typedef struct unix_context {
     struct spinlock lock;
 } *unix_context;
 
-void init_unix_context(unix_context uc, int type, int size, queue free_ctx_q);
+boolean init_unix_context(unix_context uc, int type, int size, queue free_ctx_q, u32 alloc_flags);
 
 typedef struct process_context {
     struct unix_context uc;
