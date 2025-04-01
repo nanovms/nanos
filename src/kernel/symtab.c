@@ -12,12 +12,10 @@ typedef struct elfsym {
 
 static inline elfsym allocate_elfsym(range r, sstring name)
 {
-    elfsym es = allocate(general, sizeof(struct elfsym));
-    assert(es != INVALID_ADDRESS);
+    elfsym es = mem_alloc(general, sizeof(struct elfsym), MEM_NOWAIT | MEM_NOFAIL);
     rmnode_init(&es->node, r);
     int bytes = name.len;
-    es->name.ptr = allocate(general, bytes);
-    assert(es->name.ptr != INVALID_ADDRESS);
+    es->name.ptr = mem_alloc(general, bytes, MEM_NOWAIT | MEM_NOFAIL);
     runtime_memcpy(es->name.ptr, name.ptr, bytes);
     es->name.len = bytes;
     return es;

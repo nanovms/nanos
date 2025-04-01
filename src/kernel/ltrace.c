@@ -133,8 +133,7 @@ void ltrace_init(value cfg, buffer exe, u64 load_offset)
     Elf64_Sym *syms = buffer_ref(exe, symtab->sh_offset);
     u64 sym_count = symtab->sh_size / symtab->sh_entsize;
     heap h = heap_locked(get_kernel_heaps());
-    ltrace = allocate(h, sizeof(*ltrace));
-    assert(ltrace != INVALID_ADDRESS);
+    ltrace = mem_alloc(h, sizeof(*ltrace), MEM_NOFAIL);
     ltrace->plt_map = allocate_rbtree(h,
                                       init_closure_func(&ltrace->brkpt_compare, rb_key_compare,
                                                         ltrace_brkpt_compare),
@@ -163,8 +162,7 @@ void ltrace_init(value cfg, buffer exe, u64 load_offset)
             ltrace_debug("PLT entry at 0x%lx: cannot find symbol at 0x%lx", plt_addr, sym_offset);
             continue;
         }
-        ltrace_brkpt brkpt = allocate(h, sizeof(*brkpt));
-        assert(brkpt != INVALID_ADDRESS);
+        ltrace_brkpt brkpt = mem_alloc(h, sizeof(*brkpt), MEM_NOFAIL);
         brkpt->plt_entry = plt_entry;
         brkpt->addr = plt_addr + load_offset;
         runtime_memcpy(brkpt->insn, plt_entry, sizeof(swbkp_insn));

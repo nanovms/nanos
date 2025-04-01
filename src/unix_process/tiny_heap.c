@@ -40,8 +40,7 @@ static void destroy(heap h)
 
 heap make_tiny_heap(heap parent)
 {
-    void *x = allocate(parent, parent->pagesize);
-    assert(x != INVALID_ADDRESS);
+    void *x = mem_alloc(parent, parent->pagesize, MEM_NOFAIL);
     tiny t = (tiny)x;
     t->h.alloc = alloc;
     t->h.dealloc = leak;

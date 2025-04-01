@@ -46,8 +46,7 @@ void *bootstrap_page_tables(heap initial)
 {
     /* page table setup */
     init_page_tables(initial, irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT));
-    void *pgdir = allocate_zero(initial, PAGESIZE);
-    assert(pgdir != INVALID_ADDRESS);
+    void *pgdir = mem_alloc(initial, PAGESIZE, MEM_ZERO | MEM_NOFAIL);
     pagebase = u64_from_pointer(pgdir);
     return pgdir;
 }

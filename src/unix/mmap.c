@@ -1595,8 +1595,7 @@ void mmap_process_init(process p, tuple root)
         p->mmap_min_addr = PAGESIZE;
     p->vmaps = allocate_rangemap(h);
     assert(p->vmaps != INVALID_ADDRESS);
-    vmap_heap vmh = allocate(h, sizeof(struct vmap_heap));
-    assert(vmh != INVALID_ADDRESS);
+    vmap_heap vmh = mem_alloc(h, sizeof(struct vmap_heap), MEM_NOFAIL);
     vmh->h.alloc = vmh_alloc;
     vmh->h.dealloc = vmh_dealloc;
     vmh->h.allocated = vmh_allocated;

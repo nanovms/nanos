@@ -208,8 +208,8 @@ void pci_disable_msix(pci_dev dev)
 
 void register_pci_driver(pci_probe probe, pci_remove remove)
 {
-    struct pci_driver *d = allocate(drivers->h, sizeof(struct pci_driver));
-    assert(d != INVALID_ADDRESS); 
+    struct pci_driver *d = mem_alloc(drivers->h, sizeof(struct pci_driver),
+                                     MEM_NOWAIT | MEM_NOFAIL);
     d->probe = probe;
     d->remove = remove;
     vector_push(drivers, d);
@@ -397,8 +397,7 @@ pci_probe_bus(int bus)
 void pci_bridge_set_iomem(range window, id_heap iomem)
 {
     pci_debug("PCI bridge window %R\n", window);
-    pci_bridge bridge = allocate(pci_bridges->h, sizeof(*bridge));
-    assert(bridge != INVALID_ADDRESS);
+    pci_bridge bridge = mem_alloc(pci_bridges->h, sizeof(*bridge), MEM_NOWAIT | MEM_NOFAIL);
     rmnode_init(&bridge->window, window);
     bridge->iomem = iomem;
     assert(rangemap_insert(pci_bridges, &bridge->window));

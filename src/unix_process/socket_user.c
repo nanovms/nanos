@@ -181,8 +181,7 @@ static void select_spin(notifier n)
 
 notifier create_select_notifier(heap h)
 {
-    select_notifier s = allocate(h, sizeof(struct select_notifier));
-    assert(s != INVALID_ADDRESS);
+    select_notifier s = mem_alloc(h, sizeof(struct select_notifier), MEM_NOFAIL);
     s->n.h = h;
     s->n._register = select_register;
     s->n.reset_fd = select_reset_fd;
@@ -300,8 +299,7 @@ static void poll_spin(notifier n)
 
 notifier create_poll_notifier(heap h)
 {
-    poll_notifier p = allocate(h, sizeof(struct select_notifier));
-    assert(p != INVALID_ADDRESS);
+    poll_notifier p = mem_alloc(h, sizeof(struct select_notifier), MEM_NOFAIL);
     p->n.h = h;
     p->n._register = poll_register;
     p->n.reset_fd = poll_reset_fd;
@@ -397,8 +395,7 @@ notifier create_epoll_notifier(heap h)
 	msg_err("epoll_create failed, %s (%d)", errno_sstring(), errno);
 	return 0;
     }
-    epoll_notifier e = allocate(h, sizeof(struct epoll_notifier));
-    assert(e != INVALID_ADDRESS);
+    epoll_notifier e = mem_alloc(h, sizeof(struct epoll_notifier), MEM_NOFAIL);
     e->n.h = h;
     e->n._register = epoll_register;
     e->n.reset_fd = epoll_reset_fd;
@@ -471,8 +468,7 @@ closure_func_basic(buffer_handler, status, connection_output,
 
 static void register_conn_descriptor(heap h, notifier n, descriptor f, connection_handler nc)
 {
-    conn_handler ch = allocate(h, sizeof(*ch));
-    assert(ch != INVALID_ADDRESS);
+    conn_handler ch = mem_alloc(h, sizeof(*ch), MEM_NOFAIL);
     ch->h = h;
     ch->n = n;
     ch->f = f;

@@ -358,20 +358,17 @@ void centry()
     assert(backed != INVALID_ADDRESS);
 
     /* allocate stage2 (and early stage3) stack */
-    stack_base = allocate_u64(backed, STAGE2_STACK_SIZE);
-    assert(stack_base != INVALID_PHYSICAL);
+    stack_base = mem_alloc_u64(backed, STAGE2_STACK_SIZE, MEM_NOFAIL);
     create_region(stack_base, STAGE2_STACK_SIZE, REGION_RECLAIM);
 
     /* allocate larger space for stage2 working (to accomodate tfs meta, etc.) */
-    working_p = allocate_u64(backed, STAGE2_WORKING_HEAP_SIZE);
-    assert(working_p != INVALID_PHYSICAL);
+    working_p = mem_alloc_u64(backed, STAGE2_WORKING_HEAP_SIZE, MEM_NOFAIL);
     working_saved_base = working_p;
     working_end = working_p + STAGE2_WORKING_HEAP_SIZE;
 
     /* allocate identity region for page tables */
     initial_pages_size = INITIAL_PAGES_SIZE;
-    initial_pages_base = allocate_u64(backed, INITIAL_PAGES_SIZE);
-    assert(initial_pages_base != INVALID_PHYSICAL);
+    initial_pages_base = mem_alloc_u64(backed, INITIAL_PAGES_SIZE, MEM_NOFAIL);
     if (initial_pages_base < INITIAL_MAP_SIZE) {
         /* we don't want the initial pages to overlap with the initial map area */
         initial_pages_size -= INITIAL_MAP_SIZE - initial_pages_base;

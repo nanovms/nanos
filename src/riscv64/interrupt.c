@@ -397,8 +397,8 @@ void send_ipi(u64 cpu, u8 vector)
 void init_interrupts(kernel_heaps kh)
 {
     int_general = heap_locked(kh);
-    handlers = allocate_zero(int_general, (IPI_MAX_INT + 1) * sizeof(handlers[0]));
-    assert(handlers != INVALID_ADDRESS);
+    handlers = mem_alloc(int_general, (IPI_MAX_INT + 1) * sizeof(handlers[0]),
+                         MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     ipi_heap = create_id_heap(int_general, int_general, IPI_BASE_INT,
                               IPI_MAX_INT - IPI_BASE_INT + 1, 1, true);
     assert(ipi_heap != INVALID_ADDRESS);

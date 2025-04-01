@@ -17,8 +17,7 @@ static rangemap rsvd_mem;
 
 static void rsvd_mem_add(range r)
 {
-    rmnode n = allocate(uefi_heap, sizeof(*n));
-    assert(n != INVALID_ADDRESS);
+    rmnode n = mem_alloc(uefi_heap, sizeof(*n), MEM_NOFAIL);
     rmnode_init(n, r);
     assert(rangemap_insert(rsvd_mem, n));
 }
@@ -52,8 +51,7 @@ void uefi_arch_setup(heap general, heap aligned, uefi_arch_options options)
     rsvd_mem = allocate_rangemap(general);
     assert(rsvd_mem != INVALID_ADDRESS);
     u64 initial_pages_size = INITIAL_PAGES_SIZE;
-    u64 initial_pages = allocate_u64(aligned, initial_pages_size);
-    assert(initial_pages != INVALID_PHYSICAL);
+    u64 initial_pages = mem_alloc_u64(aligned, initial_pages_size, MEM_NOFAIL);
     if (initial_pages < INITIAL_MAP_SIZE) {
         /* we don't want the initial pages to overlap with the initial map area */
         initial_pages_size -= INITIAL_MAP_SIZE - initial_pages;

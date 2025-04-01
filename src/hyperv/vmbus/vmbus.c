@@ -489,30 +489,27 @@ closure_function(1, 0, void, vmbus_msg_task_closure,
 static void
 vmbus_dma_alloc(struct vmbus_dev *dev)
 {
-    dev->vmbus_pcpu[0].message = allocate_zero(dev->contiguous, PAGESIZE);
-    assert(dev->vmbus_pcpu[0].message != INVALID_ADDRESS);
+    dev->vmbus_pcpu[0].message = mem_alloc(dev->contiguous, PAGESIZE,
+                                           MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     dev->vmbus_pcpu[0].message_dma.hv_paddr = physical_from_virtual(dev->vmbus_pcpu[0].message);
     assert(dev->vmbus_pcpu[0].message_dma.hv_paddr != INVALID_PHYSICAL);
 
-    dev->vmbus_pcpu[0].event_flags = allocate_zero(dev->contiguous, PAGESIZE);
-    assert(dev->vmbus_pcpu[0].event_flags != INVALID_ADDRESS);
+    dev->vmbus_pcpu[0].event_flags = mem_alloc(dev->contiguous, PAGESIZE,
+                                               MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     dev->vmbus_pcpu[0].event_flags_dma.hv_paddr = physical_from_virtual(dev->vmbus_pcpu[0].event_flags);
     assert(dev->vmbus_pcpu[0].event_flags_dma.hv_paddr != INVALID_PHYSICAL);
 
-    dev->vmbus_evtflags = allocate_zero(dev->contiguous, PAGESIZE);
-    assert(dev->vmbus_evtflags != INVALID_ADDRESS);
+    dev->vmbus_evtflags = mem_alloc(dev->contiguous, PAGESIZE, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     dev->vmbus_rx_evtflags = dev->vmbus_evtflags;
     dev->vmbus_tx_evtflags = dev->vmbus_evtflags + (PAGESIZE / 2);
     dev->vmbus_evtflags_dma.hv_paddr = physical_from_virtual(dev->vmbus_evtflags);
     assert(dev->vmbus_evtflags_dma.hv_paddr != INVALID_PHYSICAL);
 
-    dev->vmbus_mnf1 = allocate_zero(dev->contiguous, PAGESIZE);
-    assert(dev->vmbus_mnf1 != INVALID_ADDRESS);
+    dev->vmbus_mnf1 = mem_alloc(dev->contiguous, PAGESIZE, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     dev->vmbus_mnf1_dma.hv_paddr = physical_from_virtual(dev->vmbus_mnf1);
     assert(dev->vmbus_mnf1_dma.hv_paddr != INVALID_PHYSICAL);
 
-    dev->vmbus_mnf2 = allocate_zero(dev->contiguous, PAGESIZE);
-    assert(dev->vmbus_mnf2 != INVALID_ADDRESS);
+    dev->vmbus_mnf2 = mem_alloc(dev->contiguous, PAGESIZE, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     dev->vmbus_mnf2_dma.hv_paddr = physical_from_virtual(dev->vmbus_mnf2);
     assert(dev->vmbus_mnf2_dma.hv_paddr != INVALID_PHYSICAL);
 }
@@ -534,8 +531,7 @@ status
 vmbus_attach(kernel_heaps kh, vmbus_dev *result)
 {
     heap h = heap_general(kh);
-    vmbus_dev dev = allocate_zero(h, sizeof(struct vmbus_dev));
-    assert(dev != INVALID_ADDRESS);
+    vmbus_dev dev = mem_alloc(h, sizeof(struct vmbus_dev), MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
 
     dev->general = h;
     dev->contiguous = (heap)heap_linear_backed(kh);

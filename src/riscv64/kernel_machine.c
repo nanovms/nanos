@@ -54,8 +54,7 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
     /* start off kernel context in resumed state */
     context_reserve_refcount(&kc->context);
     kc->context.active_cpu = ci->id;
-    void *p = allocate(backed, TRAP_STACK_SIZE);
-    assert(p != INVALID_ADDRESS);
+    void *p = mem_alloc(backed, TRAP_STACK_SIZE, MEM_NOWAIT | MEM_NOFAIL);
     ci->m.tstack_top = p + TRAP_STACK_SIZE;
     ci->m.current_context = ci->m.kernel_context = &kc->context;
     ci->m.hartid = ci->id == 0 ? boot_hartid : -1ull;

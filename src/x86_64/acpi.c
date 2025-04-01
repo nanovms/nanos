@@ -40,8 +40,7 @@ static u64 find_rsdp(kernel_heaps kh)
     u64 va, edba_pa, rsdp;
     heap vh = (heap)heap_virtual_page(kh);
 
-    va = allocate_u64(vh, BIOS_SEARCH_LENGTH);
-    assert(va != INVALID_PHYSICAL);
+    va = mem_alloc_u64(vh, BIOS_SEARCH_LENGTH, MEM_NOWAIT | MEM_NOFAIL);
 
     if (saved_rsdp) {
         u64 mapstart = saved_rsdp & ~PAGEMASK;

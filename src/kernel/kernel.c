@@ -25,8 +25,7 @@ void *memset(void *a, u8 b, bytes len)
 void *allocate_stack(heap h, u64 size)
 {
     u64 padsize = pad(size, h->pagesize);
-    void *base = allocate_zero(h, padsize);
-    assert(base != INVALID_ADDRESS);
+    void *base = mem_alloc(h, padsize, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     return base + padsize - STACK_ALIGNMENT;
 }
 

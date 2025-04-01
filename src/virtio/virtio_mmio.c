@@ -33,14 +33,13 @@ closure_function(1, 1, void, vtmmio_new_dev,
     virtio_mmio_debug("new device");
     kernel_heaps kh = bound(kh);
     heap h = heap_general(kh);
-    vtmmio dev = allocate(h, sizeof(*dev));
-    assert(dev != INVALID_ADDRESS);
+    vtmmio dev = mem_alloc(h, sizeof(*dev), MEM_NOWAIT | MEM_NOFAIL);
     dev->membase = adev->membase;
     dev->memsize = adev->memsize;
     dev->irq = adev->irq;
     u64 page_offset = dev->membase & PAGEMASK;
-    dev->vbase = allocate((heap)heap_virtual_huge(kh), page_offset + dev->memsize);
-    assert(dev->vbase != INVALID_ADDRESS);
+    dev->vbase = mem_alloc((heap)heap_virtual_huge(kh), page_offset + dev->memsize,
+                           MEM_NOWAIT | MEM_NOFAIL);
     map(u64_from_pointer(dev->vbase), dev->membase - page_offset, page_offset + dev->memsize,
         pageflags_writable(pageflags_device()));
     dev->vbase += page_offset;

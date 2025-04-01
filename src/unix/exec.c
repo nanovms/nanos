@@ -16,8 +16,7 @@
 
 static void *stack_prealloc(void *start, u64 size)
 {
-    u64 sphys = allocate_u64((heap)heap_physical(get_kernel_heaps()), size);
-    assert(sphys != INVALID_PHYSICAL);
+    u64 sphys = mem_alloc_u64((heap)heap_physical(get_kernel_heaps()), size, MEM_NOFAIL);
     start -= size;
     exec_debug("stack prealloc at %p, size 0x%lx, phys 0x%lx\n", start, size, sphys);
     map(u64_from_pointer(start), sphys, size, pageflags_writable(pageflags_default_user()));

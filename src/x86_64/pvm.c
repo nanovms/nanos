@@ -48,8 +48,8 @@ range pvm_get_addr_range(void)
 closure_func_basic(thunk, void, pvm_cpu_init)
 {
     /* the PVM vCPU struct must be page-aligned */
-    struct pvm_vcpu *pvm = allocate_zero((heap)heap_page_backed(get_kernel_heaps()), PAGESIZE);
-    assert(pvm != INVALID_ADDRESS);
+    struct pvm_vcpu *pvm = mem_alloc((heap)heap_page_backed(get_kernel_heaps()), PAGESIZE,
+                                     MEM_NOWAIT | MEM_NOFAIL | MEM_ZERO);
 
     /* PVM requires user-mode segment selectors to have the same values as used on Linux */
     pvm->user_ss = 0x2b;

@@ -92,8 +92,8 @@ hyperv_detected(void)
 void
 register_vmbus_driver(const struct hyperv_guid *type, vmbus_device_probe probe)
 {
-    vmbus_driver vd = allocate(hyperv_info.general, sizeof(struct vmbus_driver));
-    assert(vd != INVALID_ADDRESS);
+    vmbus_driver vd = mem_alloc(hyperv_info.general, sizeof(struct vmbus_driver),
+                                MEM_NOWAIT | MEM_NOFAIL);
     vd->type = type;
     vd->probe = probe;
     list_insert_before(&hyperv_info.driver_list, &vd->l);

@@ -354,8 +354,8 @@ void init_interrupts(kernel_heaps kh)
     heap general = heap_general(kh);
 
     /* Exception handlers */
-    handlers = allocate_zero(general, n_interrupt_vectors * sizeof(thunk));
-    assert(handlers != INVALID_ADDRESS);
+    handlers = mem_alloc(general, n_interrupt_vectors * sizeof(thunk),
+                         MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     interrupt_vector_heap = create_id_heap(general, heap_locked(kh), INTERRUPT_VECTOR_START,
                                            n_interrupt_vectors - INTERRUPT_VECTOR_START, 1, true);
     assert(interrupt_vector_heap != INVALID_ADDRESS);
@@ -364,8 +364,7 @@ void init_interrupts(kernel_heaps kh)
 
     /* IDT setup */
     heap backed = (heap)heap_page_backed(kh);
-    idt = allocate(backed, backed->pagesize);
-    assert(idt != INVALID_ADDRESS);
+    idt = mem_alloc(backed, backed->pagesize, MEM_NOWAIT | MEM_NOFAIL);
 
     /* Rely on ISTs in lieu of TSS stack switch. */
     u64 vector_base = u64_from_pointer(&interrupt_vectors);

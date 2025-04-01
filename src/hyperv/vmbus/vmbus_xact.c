@@ -51,23 +51,20 @@ static void            vmbus_xact_save_resp(struct vmbus_xact *,
 static struct vmbus_xact *
 vmbus_xact_alloc(vmbus_dev dev, struct vmbus_xact_ctx *ctx)
 {
-    struct vmbus_xact *xact = allocate_zero(dev->general, sizeof(*xact));
-    assert(xact != INVALID_ADDRESS);
+    struct vmbus_xact *xact = mem_alloc(dev->general, sizeof(*xact),
+                                        MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     xact->x_ctx = ctx;
 
     /* XXX assume that page aligned is enough */
-    xact->x_req = allocate(dev->contiguous, ctx->xc_req_size);
-    assert(xact->x_req != INVALID_ADDRESS);
+    xact->x_req = mem_alloc(dev->contiguous, ctx->xc_req_size, MEM_NOWAIT | MEM_NOFAIL);
     assert((u64)xact->x_req == pad((u64)xact->x_req, PAGESIZE));
     xact->x_req_dma.hv_paddr = physical_from_virtual(xact->x_req);
     assert(xact->x_req_dma.hv_paddr != INVALID_PHYSICAL);
 
     if (ctx->xc_priv_size != 0) {
-        xact->x_priv = allocate(dev->general, ctx->xc_priv_size);
-        assert(xact->x_priv != INVALID_ADDRESS);
+        xact->x_priv = mem_alloc(dev->general, ctx->xc_priv_size, MEM_NOWAIT | MEM_NOFAIL);
     }
-    xact->x_resp0 = allocate(dev->general, ctx->xc_resp_size);
-    assert(xact->x_resp0 != INVALID_ADDRESS);
+    xact->x_resp0 = mem_alloc(dev->general, ctx->xc_resp_size, MEM_NOWAIT | MEM_NOFAIL);
 
     return (xact);
 }

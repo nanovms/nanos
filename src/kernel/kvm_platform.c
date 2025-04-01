@@ -32,8 +32,8 @@ static boolean probe_kvm_pvclock(kernel_heaps kh, u32 cpuid_fn)
         return false;
     }
     kvm_debug("pvclock detected");
-    struct pvclock_vcpu_time_info * vc = allocate(backed, backed->pagesize);
-    assert(vc != INVALID_ADDRESS);
+    struct pvclock_vcpu_time_info * vc = mem_alloc(backed, backed->pagesize,
+                                                   MEM_NOWAIT | MEM_NOFAIL);
     zero(vc, sizeof(struct pvclock_vcpu_time_info));
     kvm_debug("before write msr");
     physical vc_phys = physical_from_virtual(vc);
