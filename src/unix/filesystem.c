@@ -56,6 +56,15 @@ u16 stat_mode(process p, int type, tuple meta)
     return mode;
 }
 
+closure_function(2, 0, void, file_cache_async,
+                 pagecache_node, pn, range, r)
+{
+    pagecache_node pn = bound(pn);
+    pagecache_node_fetch_pages(pn, bound(r), 0, 0);
+    pagecache_node_unref(pn);
+    closure_finish();
+}
+
 void file_readahead(file f, u64 offset, u64 len)
 {
     u64 ra_size = 0;
@@ -69,9 +78,15 @@ void file_readahead(file f, u64 offset, u64 len)
         ra_size = 2 * FILE_READAHEAD_DEFAULT;
         break;
     }
-    if (ra_size > 0)
-        pagecache_node_fetch_pages(fsfile_get_cachenode(f->fsf),
-                                   irangel(offset + len, ra_size), 0, 0);
+    if (ra_size > 0) {
+        pagecache_node pn = fsfile_get_cachenode(f->fsf);
+        thunk t = closure(heap_locked(get_kernel_heaps()), file_cache_async, pn,
+                          irangel(offset + len, ra_size));
+        if (t != INVALID_ADDRESS) {
+            pagecache_node_ref(pn);
+            async_apply(t);
+        }
+    }
 }
 
 static sysreturn file_io_init_internal(file f, u64 offset, struct iovec *iov, int count, sg_list sg)
