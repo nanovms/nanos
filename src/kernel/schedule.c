@@ -149,8 +149,9 @@ closure_function(0, 0, void, timer_interrupt_handler_fn)
     schedule_timer_service();
 }
 
-static inline void service_thunk_queue(queue q)
+static inline boolean service_thunk_queue(queue q)
 {
+    boolean dequeued = false;
     thunk t;
     context c;
     while ((t = dequeue(q)) != INVALID_ADDRESS) {
@@ -160,11 +161,14 @@ static inline void service_thunk_queue(queue q)
             context_apply(c, t);
         else
             apply(t);
+        dequeued = true;
     }
+    return dequeued;
 }
 
-static inline void service_async_1(queue q)
+static inline boolean service_async_1(queue q)
 {
+    boolean dequeued = false;
     struct applied_async_1 aa;
     while (dequeue_n_irqsafe(q, (void **)&aa, sizeof(aa) / sizeof(u64))) {
         sched_debug(" run: %F arg0: 0x%lx\n", aa.a, aa.arg0);
@@ -173,7 +177,9 @@ static inline void service_async_1(queue q)
             context_apply_1(c, aa.a, aa.arg0);
         else
             apply(aa.a, aa.arg0);
+        dequeued = true;
     }
+    return dequeued;
 }
 
 NOTRACE void __attribute__((noreturn)) runloop_internal(void)
@@ -190,17 +196,19 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
     page_invalidate_flush();
     timestamp timeout = 0;
 
-  retry:
-    /* queue for cpu specific operations */
-    service_thunk_queue(ci->cpu_queue);
+    boolean work_done;
+    do {
+        /* queue for cpu specific operations */
+        work_done = service_thunk_queue(ci->cpu_queue);
 
-    /* bhqueue is for deferred operations, enqueued by interrupt handlers */
-    service_thunk_queue(bhqueue);
+        /* bhqueue is for deferred operations, enqueued by interrupt handlers */
+        work_done = service_thunk_queue(bhqueue) || work_done;
 
-    /* serve deferred status_handlers, some of which may not return */
-    service_async_1(async_queue_1);
+        /* serve deferred status_handlers, some of which may not return */
+        work_done = service_async_1(async_queue_1) || work_done;
 
-    service_thunk_queue(runqueue);
+        work_done = service_thunk_queue(runqueue) || work_done;
+    } while (work_done);
 
     /* should be a list of per-runloop checks - also low-pri background */
     mm_service(false);
@@ -268,15 +276,6 @@ NOTRACE void __attribute__((noreturn)) runloop_internal(void)
             apply(t->t);
         }
     }
-
-    /* We want to pick up items that were enqueued during this last pass, else
-       runnable items may get stuck waiting for the next interrupt.
-
-       Find cost of sleep / wakeup and consider spinning this check for that interval. */
-    if (queue_length(ci->cpu_queue) || queue_length(async_queue_1) ||
-        queue_length(bhqueue) || queue_length(runqueue) ||
-        (!(shutting_down & SHUTDOWN_ONGOING) && !sched_queue_empty(&ci->thread_queue)))
-        goto retry;
 
     if (timeout && (timeout != ci->last_timer_update)) {
         ci->last_timer_update = timeout;
