@@ -1653,13 +1653,40 @@ void pagecache_node_fetch_pages(pagecache_node pn, range r, sg_list sg, status_h
     pagecache_node_fetch_internal(pn, r, ph, complete ? complete : ignore_status);
 }
 
-closure_function(2, 1, void, get_page_finish,
-                 pagecache_page, pp, pagecache_page_handler, handler,
+static void *pagecache_get_private_page(pagecache_page pp)
+{
+    void *kvirt;
+    pagecache pc = global_pagecache;
+    pagecache_lock_state(pc);
+    if ((pp->refcount == 2) && !pp->evicted) {
+        /* A refcount == 2 means that this read request is the only ongoing request for this page:
+         * to get a private copy of this page without allocating a new page and copying to it,
+         * "steal" the page from the cache. */
+        kvirt = pp->kvirt;
+        pp->refcount = 0;
+        change_page_state_locked(pc, pp, PAGECACHE_PAGESTATE_FREE);
+        fetch_and_add(&pc->total_pages, -1);
+        pagecache_page_delete_locked(pc, pp);
+    } else {
+        u64 pagesize = cache_pagesize(pc);
+        kvirt = allocate(pc->contiguous, pagesize);
+        if (kvirt != INVALID_ADDRESS)
+            runtime_memcpy(kvirt, pp->kvirt, pagesize);
+        pagecache_page_release_locked(pc, pp, true);
+    }
+    pagecache_unlock_state(pc);
+    return kvirt;
+}
+
+closure_function(3, 1, void, get_page_finish,
+                 pagecache_page, pp, boolean, private, pagecache_page_handler, handler,
                  status s)
 {
     pagecache_page_handler handler = bound(handler);
     if (is_ok(s)) {
-        apply(handler, bound(pp)->kvirt);
+        pagecache_page pp = bound(pp);
+        void *kvirt = !bound(private) ? pp->kvirt : pagecache_get_private_page(pp);
+        apply(handler, kvirt);
     } else {
         apply(handler, INVALID_ADDRESS);
     }
@@ -1667,7 +1694,8 @@ closure_function(2, 1, void, get_page_finish,
 }
 
 /* not context restoring */
-void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handler handler)
+void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
+                        pagecache_page_handler handler)
 {
     pagecache pc = pn->pv->pc;
     pagecache_lock_node(pn);
@@ -1680,7 +1708,7 @@ void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handl
         apply(handler, INVALID_ADDRESS);
         return;
     }
-    merge m = allocate_merge(pc->h, closure(pc->h, get_page_finish, pp, handler));
+    merge m = allocate_merge(pc->h, closure(pc->h, get_page_finish, pp, private, handler));
     status_handler k = apply_merge(m);
     touch_or_fill_page_nodelocked(pn, pp, m);
     pagecache_unlock_node(pn);
@@ -1688,7 +1716,7 @@ void pagecache_get_page(pagecache_node pn, u64 node_offset, pagecache_page_handl
 }
 
 /* no-alloc / no-fill path */
-void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset)
+void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private)
 {
     pagecache_lock_node(pn);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pn->pv->pc->page_order);
@@ -1699,7 +1727,7 @@ void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset)
         goto out;
     }
     if (touch_or_fill_page_nodelocked(pn, pp, 0))
-        kvirt = pp->kvirt;
+        kvirt = !private ? pp->kvirt : pagecache_get_private_page(pp);
     else
         kvirt = INVALID_ADDRESS;
   out:
