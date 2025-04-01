@@ -48,7 +48,8 @@ typedef struct kernel_context {
     u64 err_frame[ERR_FRAME_SIZE];  /* must contain all callee-saved registers */
 } *kernel_context;
 
-void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q);
+boolean init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q,
+                            u32 alloc_flags);
 #endif
 
 #include <management.h>
@@ -312,7 +313,7 @@ static inline void async_apply_1(void *a, void *arg0)
 
 #define CONTEXT_RESUME_SPIN_LIMIT (1ull << 24)
 
-void init_context_machine(context c);
+boolean init_context_machine(context c, u32 alloc_flags);
 kernel_context allocate_kernel_context(cpuinfo ci);
 void deallocate_kernel_context(kernel_context kc);
 void init_kernel_contexts(heap backed);
@@ -325,7 +326,7 @@ static inline void zero_context_frame(context_frame f)
     zero(f, CONTEXT_FRAME_SIZE);
 }
 
-static inline void init_context(context c, int type)
+static inline boolean init_context(context c, int type, u32 alloc_flags)
 {
     c->type = type;
     c->transient_heap = 0;
@@ -333,7 +334,7 @@ static inline void init_context(context c, int type)
     list_init_member(&c->mutex_l);
     c->active_cpu = -1;
     zero_context_frame(c->frame);
-    init_context_machine(c);
+    return init_context_machine(c, alloc_flags);
 }
 
 static inline void __attribute__((always_inline)) context_reserve_refcount(context ctx)

@@ -113,12 +113,15 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
 #ifdef KERNEL
 BSS_RO_AFTER_INIT struct x86_pv_ops pv_ops;
 
-void init_context_machine(context c)
+boolean init_context_machine(context c, u32 alloc_flags)
 {
-    void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
-    assert(e != INVALID_ADDRESS);
+    void *e = mem_alloc((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size,
+                        alloc_flags | MEM_ZERO);
+    if (e == INVALID_ADDRESS)
+        return false;
     c->frame[FRAME_EXTENDED] = u64_from_pointer(e);
     xsave(c->frame);
+    return true;
 }
 
 void destruct_context(context c)

@@ -138,10 +138,12 @@ closure_func_basic(thunk, void, kernel_context_return)
 
 static void kernel_context_pre_suspend(context ctx);
 
-void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q)
+boolean init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q,
+                            u32 alloc_flags)
 {
     context c = &kc->context;
-    init_context(c, type);
+    if (!init_context(c, type, alloc_flags))
+        return false;
     init_refcount(&c->refcount, 1, init_closure(&kc->free, free_kernel_context,
                                                 free_ctx_q, false));
     c->pause = kernel_context_pause;
@@ -155,16 +157,22 @@ void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q
     frame_set_stack_top(c->frame, stack_top);
     kc->size = size;
     context_clear_err(c);
+    return true;
 }
 
 kernel_context allocate_kernel_context(cpuinfo ci)
 {
     build_assert((KERNEL_CONTEXT_SIZE & (KERNEL_CONTEXT_SIZE - 1)) == 0);
-    kernel_context kc = allocate(heap_locked(get_kernel_heaps()),
-                                 KERNEL_CONTEXT_SIZE);
+    heap h = heap_locked(get_kernel_heaps());
+    u32 alloc_flags = MEM_NOWAIT;   /* this function can be called when suspending a context */
+    kernel_context kc = mem_alloc(h, KERNEL_CONTEXT_SIZE, alloc_flags);
     if (kc == INVALID_ADDRESS)
         return kc;
-    init_kernel_context(kc, CONTEXT_TYPE_KERNEL, KERNEL_CONTEXT_SIZE, ci->free_kernel_contexts);
+    if (!init_kernel_context(kc, CONTEXT_TYPE_KERNEL, KERNEL_CONTEXT_SIZE, ci->free_kernel_contexts,
+                             alloc_flags)) {
+        deallocate(h, kc, KERNEL_CONTEXT_SIZE);
+        return INVALID_ADDRESS;
+    }
     return kc;
 }
 

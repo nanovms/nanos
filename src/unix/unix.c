@@ -473,10 +473,12 @@ static boolean create_stdfiles(unix_heaps uh, process p)
     return true;
 }
 
-void init_unix_context(unix_context uc, int type, int size, queue free_ctx_q)
+boolean init_unix_context(unix_context uc, int type, int size, queue free_ctx_q, u32 alloc_flags)
 {
-    init_kernel_context(&uc->kc, type, size, free_ctx_q);
+    if (!init_kernel_context(&uc->kc, type, size, free_ctx_q, alloc_flags))
+        return false;
     blockq_thread_init(uc);
+    return true;
 }
 
 static void process_context_pause(context ctx)
@@ -506,11 +508,16 @@ process_context get_process_context(void)
         refcount_set_count(&pc->uc.kc.context.refcount, 1);
         return pc;
     }
-    pc = allocate(heap_locked(get_kernel_heaps()), PROCESS_CONTEXT_SIZE);
+    heap h = heap_locked(get_kernel_heaps());
+    u32 alloc_flags = 0;
+    pc = mem_alloc(h, PROCESS_CONTEXT_SIZE, alloc_flags);
     if (pc == INVALID_ADDRESS)
         return pc;
-    init_unix_context(&pc->uc, CONTEXT_TYPE_PROCESS, PROCESS_CONTEXT_SIZE,
-                      ci->free_process_contexts);
+    if (!init_unix_context(&pc->uc, CONTEXT_TYPE_PROCESS, PROCESS_CONTEXT_SIZE,
+                           ci->free_process_contexts, alloc_flags)) {
+        deallocate(h, pc, PROCESS_CONTEXT_SIZE);
+        return INVALID_ADDRESS;
+    }
     pc->p = t->p;
     context c = &pc->uc.kc.context;
     c->pause = process_context_pause;
