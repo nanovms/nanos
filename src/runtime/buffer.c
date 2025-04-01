@@ -51,6 +51,15 @@ boolean buffer_append(buffer b,
     return buffer_write(b, body, length);
 }
 
+void *buffer_pop(buffer b, bytes len)
+{
+    if (buffer_length(b) < len)
+        return 0;
+    void *ptr = buffer_ref(b, 0);
+    buffer_consume(b, len);
+    return ptr;
+}
+
 /* The string in the buffer may or may not be null-terminated. */
 int buffer_compare_with_sstring(buffer b, sstring str)
 {

@@ -439,7 +439,11 @@ static inline void __attribute__((always_inline)) context_switch(context ctx)
     }
 }
 
+u64 context_stack_space(void);
+
+closure_type(async_task, void, status_handler complete);
 status wait_for(void (*func)(status_handler complete));
+status wait_for_task(async_task task);
 
 __attribute__((returns_twice)) boolean err_frame_save(context_frame err_f);
 void err_frame_apply(context_frame err_f, context_frame f);

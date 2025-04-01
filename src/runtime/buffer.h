@@ -280,6 +280,8 @@ static inline boolean buffer_write_byte(buffer b, u8 x)
     return true;
 }
 
+void *buffer_pop(buffer b, bytes len);
+
 static inline buffer sub_buffer(heap h, 
                                 buffer b,
                                 bytes start,

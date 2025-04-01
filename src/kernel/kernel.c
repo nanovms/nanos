@@ -260,6 +260,14 @@ void __attribute__((noreturn)) context_switch_finish(context prev, context next,
     runloop();
 }
 
+u64 context_stack_space(void)
+{
+    context ctx = get_current_context(current_cpu());
+    void *stack_bottom = (void *)ctx + sizeof(struct kernel_context);
+    void *stack_pointer = __builtin_frame_address(0);
+    return (stack_pointer - stack_bottom);
+}
+
 closure_function(2, 1, void, wait_for_complete,
                  context, ctx, status *, sp,
                  status s)
@@ -275,6 +283,17 @@ status wait_for(void (*func)(status_handler complete))
     status_handler completion = stack_closure(wait_for_complete, ctx, &s);
     context_pre_suspend(ctx);
     func(completion);
+    context_suspend();
+    return s;
+}
+
+status wait_for_task(async_task task)
+{
+    context ctx = get_current_context(current_cpu());
+    status s;
+    status_handler completion = stack_closure(wait_for_complete, ctx, &s);
+    context_pre_suspend(ctx);
+    apply(task, completion);
     context_suspend();
     return s;
 }
