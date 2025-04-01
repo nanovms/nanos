@@ -83,11 +83,7 @@ static inline int subdivide(int quantum, int per, int s, int o)
 #define deallocate_u64(__h, __b, __s) ((__h)->dealloc(__h, __b, __s))
 #define deallocate(__h, __b, __s) deallocate_u64(__h, u64_from_pointer(__b), __s)
 
-#define allocate_zero(__h, __b) ({\
-            u64 __len =  __b;\
-            void *x = allocate(__h, __len);       \
-            if (x != INVALID_ADDRESS) zero(x, __len);    \
-            x; })
+#define allocate_zero(__h, __b) mem_alloc(__h, __b, MEM_ZERO | MEM_NOWAIT)
 
 #define destroy_heap(__h) do { if (__h) (__h)->destroy(__h); } while(0)
 

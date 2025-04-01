@@ -36,6 +36,26 @@ void deallocate_stack(heap h, u64 size, void *stack)
     deallocate(h, u64_from_pointer(stack) - padsize + STACK_ALIGNMENT, padsize);
 }
 
+void *mem_alloc(heap h, bytes size, u32 flags)
+{
+    void *p = allocate(h, size);
+    while (p == INVALID_ADDRESS) {
+        u64 cleaned = mem_clean(size, !(flags & MEM_NOWAIT));
+        p = allocate(h, size);
+        if (cleaned == 0)
+            break;
+    }
+    if (p != INVALID_ADDRESS) {
+        if (flags & MEM_ZERO)
+            zero(p, size);
+    } else if (flags & MEM_NOFAIL) {
+        msg_err("Out of memory: cannot allocate %ld bytes", size);
+        print_frame_trace_from_here();
+        kernel_shutdown(VM_EXIT_HALT);
+    }
+    return p;
+}
+
 void print_frame_trace(u64 *fp)
 {
     u64 *nfp;
@@ -231,6 +251,25 @@ void __attribute__((noreturn)) context_switch_finish(context prev, context next,
     }
     ((void (*)(u64, u64))a)(arg0, arg1);
     runloop();
+}
+
+closure_function(2, 1, void, wait_for_complete,
+                 context, ctx, status *, sp,
+                 status s)
+{
+    *bound(sp) = s;
+    context_schedule_return(bound(ctx));
+}
+
+status wait_for(void (*func)(status_handler complete))
+{
+    context ctx = get_current_context(current_cpu());
+    status s;
+    status_handler completion = stack_closure(wait_for_complete, ctx, &s);
+    context_pre_suspend(ctx);
+    func(completion);
+    context_suspend();
+    return s;
 }
 
 void register_percpu_init(thunk t)

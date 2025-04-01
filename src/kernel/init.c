@@ -22,6 +22,15 @@ typedef struct mm_cleaner {
     mem_cleaner cleaner;
 } *mm_cleaner;
 
+typedef struct mm_wcleaner {
+    struct list l;
+    mem_wcleaner cleaner;
+} *mm_wcleaner;
+
+static struct list mm_cleaners;
+static struct list mm_wcleaners;
+static struct spinlock mm_lock;
+
 BSS_RO_AFTER_INIT filesystem root_fs;
 BSS_RO_AFTER_INIT halt_handler vm_halt;
 BSS_RO_AFTER_INIT u64 kernel_phys_offset;   /* offset between kernel location and ELF addresses */
@@ -120,6 +129,9 @@ void init_kernel_heaps(void)
 
     heaps.physical = pageheap_init(&bootstrap);
     init_physical_heap();
+    list_init(&mm_cleaners);
+    list_init(&mm_wcleaners);
+    spin_lock_init(&mm_lock);
 
     range kas = kas_range();
     if ((kvmem.r.start < LINEAR_BACKED_BASE) && (kas.start >= LINEAR_BACKED_LIMIT)) {
@@ -428,19 +440,22 @@ void cmdline_apply(char *cmdline_start, int cmdline_len, tuple t)
 #define mm_debug(x, ...) do { } while(0)
 #endif
 
-static struct list mm_cleaners;
-static struct spinlock mm_lock;
-
-static u64 mm_clean(u64 clean_bytes)
+static u64 mm_clean(u64 clean_bytes, boolean wcleaners, u32 flags)
 {
+    list cleaners = wcleaners ? &mm_wcleaners : &mm_cleaners;
     s64 remain = clean_bytes;
     spin_lock(&mm_lock);
-    list end = list_end(&mm_cleaners);
+    list end = list_end(cleaners);
     list last = end->prev;
-    list e = list_begin(&mm_cleaners);
+    list e = list_begin(cleaners);
     while (e != end) {
-        mm_cleaner mmc = struct_from_list(e, mm_cleaner, l);
-        remain -= apply(mmc->cleaner, remain);
+        if (!wcleaners) {
+            mm_cleaner mmc = struct_from_list(e, mm_cleaner, l);
+            remain -= apply(mmc->cleaner, remain);
+        } else {
+            mm_wcleaner mmc = struct_from_list(e, mm_wcleaner, l);
+            remain -= apply(mmc->cleaner, remain, flags);
+        }
         if (remain <= 0)
             break;
 
@@ -448,7 +463,7 @@ static u64 mm_clean(u64 clean_bytes)
          * de-prioritize it for future requests. */
         list next = e->next;
         list_delete(e);
-        list_push_back(&mm_cleaners, e);
+        list_push_back(cleaners, e);
 
         if (e == last)
             /* any further elements down the list are cleaners that couldn't satisfy this request */
@@ -457,6 +472,62 @@ static u64 mm_clean(u64 clean_bytes)
     }
     spin_unlock(&mm_lock);
     u64 cleaned = clean_bytes - remain;
+    mm_debug("fast-cleaned %ld / %ld requested%s\n",
+             cleaned, clean_bytes, wcleaners ? ss(" (wcleaners)") : sstring_empty());
+    return cleaned;
+}
+
+static u64 mm_clean_and_wait(u64 clean_bytes, u32 flags)
+{
+    s64 remain = clean_bytes;
+    u64 cleaned;
+    list end = list_end(&mm_wcleaners);
+    list last;
+
+    /* The mm_lock must not be held during cleaner execution, because a cleaner could suspend and/or
+     * require a CPU rendezvous; therefore, the list is traversed without the lock, which means that
+     * some cleaners might be skipped or invoked more than once. */
+    flags |= MEMCLEAN_CANWAIT;
+  begin:
+    do {
+        last = ((volatile list)end)->prev;
+    } while (last == end);
+    list e;
+    for (e = list_begin(&mm_wcleaners); e && (e != end); e = e->next) {
+        mm_wcleaner mmc = struct_from_list(e, mm_wcleaner, l);
+        remain -= apply(mmc->cleaner, remain, flags);
+        if (remain <= 0)
+            goto done;
+        if (e == last)
+            last = 0;
+    }
+    if (!e || last)
+        /* The list has been modified by another thread during our traversal: traverse it again, to
+         * minimize chances of skipping cleaners. */
+        goto begin;
+    if ((remain > 0) && root_fs) {
+        status s = wait_for(storage_sync);
+        if (!is_ok(s)) {
+            mm_debug("%s: storage sync failed: %v\n", func_ss, s);
+            timm_dealloc(s);
+        }
+    }
+  done:
+    cleaned = clean_bytes - remain;
+    mm_debug("slow-cleaned %ld / %ld requested\n", cleaned, clean_bytes);
+    return cleaned;
+}
+
+u64 mem_clean(u64 clean_bytes, boolean can_wait)
+{
+    u32 clean_flags = MEMCLEAN_OOM;
+    u64 cleaned = mm_clean(clean_bytes, false, clean_flags);
+    if (cleaned < clean_bytes) {
+        if (!can_wait)
+            cleaned += mm_clean(clean_bytes - cleaned, true, clean_flags);
+        else
+            cleaned += mm_clean_and_wait(clean_bytes - cleaned, clean_flags);
+    }
     return cleaned;
 }
 
@@ -472,20 +543,28 @@ boolean mm_register_mem_cleaner(mem_cleaner cleaner)
     return true;
 }
 
-closure_function(1, 1, void, mm_service_sync,
-                 context, ctx,
-                 status s)
+boolean mm_register_mem_wcleaner(mem_wcleaner cleaner)
 {
-    if (!is_ok(s)) {
-        mm_debug("%s: storage sync failed: %v\n", func_ss, s);
-        timm_dealloc(s);
-    }
-    context_schedule_return(bound(ctx));
-    closure_finish();
+    mm_wcleaner mmc = allocate(heap_locked(init_heaps), sizeof(*mmc));
+    if (mmc == INVALID_ADDRESS)
+        return false;
+    mmc->cleaner = cleaner;
+    spin_lock(&mm_lock);
+    list_push_back(&mm_wcleaners, &mmc->l);
+    spin_unlock(&mm_lock);
+    return true;
 }
 
-void mm_service(boolean flush)
+boolean mem_service(void)
 {
+    static struct {
+        unsigned int ongoing:1;
+        unsigned int wcleaners:1;
+        unsigned int waiting:1;
+    } mem_svc;  /* not bothering with SMP-safe access to this variable */
+    if (mem_svc.ongoing)
+        return false;
+    mem_svc.ongoing = 1;
     heap phys = (heap)heap_physical(init_heaps);
     u64 total = heap_total(phys);
     u64 free = total - heap_allocated(phys);
@@ -494,21 +573,28 @@ void mm_service(boolean flush)
         threshold = MEM_CLEAN_THRESHOLD;
     mm_debug("%s: total %ld, alloc %ld, free %ld\n", func_ss,
              heap_total(phys), heap_allocated(phys), free);
+    u64 cleaned;
     if (free < threshold) {
         u64 clean_bytes = threshold - free;
-        u64 cleaned = mm_clean(clean_bytes);
-        if (cleaned > 0)
-            mm_debug("   cleaned %ld / %ld requested...\n", cleaned, clean_bytes);
-        if ((cleaned < clean_bytes) && flush) {
-            context ctx = get_current_context(current_cpu());
-            status_handler complete = closure(heap_locked(init_heaps), mm_service_sync, ctx);
-            if (complete != INVALID_ADDRESS) {
-                context_pre_suspend(ctx);
-                storage_sync(complete);
-                context_suspend();
+        if (!mem_svc.waiting) {
+            cleaned = mm_clean(clean_bytes, mem_svc.wcleaners, 0);
+            if (cleaned < clean_bytes) {
+                mem_svc.wcleaners = !mem_svc.wcleaners;
+                cleaned += mm_clean(clean_bytes - cleaned, mem_svc.wcleaners, 0);
+                if (cleaned < clean_bytes)
+                    mem_svc.waiting = 1;
             }
+        } else {
+            cleaned = mm_clean_and_wait(clean_bytes, 0);
+            if (cleaned < clean_bytes)
+                mem_svc.waiting = mem_svc.wcleaners = 0;
         }
+    } else {
+        cleaned = 0;
+        mem_svc.waiting = 0;
     }
+    mem_svc.ongoing = 0;
+    return (cleaned > 0);
 }
 
 kernel_heaps get_kernel_heaps(void)
@@ -670,8 +756,6 @@ void kernel_runtime_init(kernel_heaps kh)
     timm_oom = timm("result", "out of memory");
     init_sg(locked);
     dma_init(kh);
-    list_init(&mm_cleaners);
-    spin_lock_init(&mm_lock);
     init_pagecache(locked, (heap)kh->pages, PAGESIZE);
     mem_cleaner pc_cleaner = closure_func(misc, mem_cleaner, mm_pagecache_cleaner);
     assert(pc_cleaner != INVALID_ADDRESS);

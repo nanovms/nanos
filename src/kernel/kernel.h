@@ -438,6 +438,8 @@ static inline void __attribute__((always_inline)) context_switch(context ctx)
     }
 }
 
+status wait_for(void (*func)(status_handler complete));
+
 __attribute__((returns_twice)) boolean err_frame_save(context_frame err_f);
 void err_frame_apply(context_frame err_f, context_frame f);
 
@@ -696,10 +698,19 @@ void irq_put_target_cpu(u32 cpu_id);
 
 void init_scheduler(heap);
 void init_scheduler_cpus(heap h);
-void mm_service(boolean flush);
+boolean mem_service(void);
+u64 mem_clean(u64 clean_bytes, boolean can_wait);
 
 closure_type(mem_cleaner, u64, u64 clean_bytes);
 boolean mm_register_mem_cleaner(mem_cleaner cleaner);
+
+#define MEMCLEAN_CANWAIT    U32_FROM_BIT(0)
+#define MEMCLEAN_OOM        U32_FROM_BIT(1)
+
+/* "Waiting" cleaner, i.e. a cleaner that can optionally wait (for work to be done by peripherals or
+ * other CPUs) when releasing memory. */
+closure_type(mem_wcleaner, u64, u64 clean_bytes, u32 flags);
+boolean mm_register_mem_wcleaner(mem_wcleaner cleaner);
 
 kernel_heaps get_kernel_heaps(void);
 

@@ -753,8 +753,8 @@ closure_function(1, 3, void, pagecache_write_sg,
     if (!sstring_is_null(err_msg)) {
         if (!mem_cleaned || (pi != r.start)) {
             pagecache_debug("   trying to free memory (r %R, pi 0x%lx)\n", r, pi);
-            mm_service(true);
-            mem_cleaned = true;
+            if (mem_clean(cache_pagesize(pc), true) == 0)
+                mem_cleaned = true;
             r.start = pi;
             pagecache_lock_node(pn);
             goto begin;
@@ -1341,8 +1341,8 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
         if (!mem_cleaned || (pi != k.state_offset)) {
             pagecache_debug("   trying to free memory (r %R, pi 0x%lx)\n",
                             irange(k.state_offset, end), pi);
-            mm_service(true);
-            mem_cleaned = true;
+            if (mem_clean(cache_pagesize(pc), true) == 0)
+                mem_cleaned = true;
             k.state_offset = pi;
             goto begin;
         }

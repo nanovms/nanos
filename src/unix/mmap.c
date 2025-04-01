@@ -161,11 +161,11 @@ closure_function(3, 3, boolean, vmap_anon_ptes,
 }
 
 /* returns true if successful */
-boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags)
+boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags, void *kvirt)
 {
     u64 page_addr = v & ~MASK(PAGELOG);
     u64 page_size = PAGESIZE;
-    if (vm->flags & VMAP_FLAG_THP) {
+    if ((kvirt == INVALID_ADDRESS) && (vm->flags & VMAP_FLAG_THP)) {
         u64 max_size = mmap_info.thp_max_size;
         while ((page_size < max_size) && (page_addr >= vm->node.r.start) &&
                (page_addr + page_size <= vm->node.r.end)) {
@@ -182,16 +182,23 @@ boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags)
              page_addr, page_size);
     traverse_ptes(page_addr, page_size, stack_closure(vmap_anon_ptes, v, &page_addr, &page_size));
     pf_debug("  after traversing PTEs: page_addr 0x%lx, page_size 0x%lx\n", page_addr, page_size);
-    if (page_size == 0)
+    if (page_size == 0) {
         /* The mapping must have been done in parallel by another CPU. */
+        if (kvirt != INVALID_ADDRESS)
+            deallocate(mmap_info.virtual_backed, kvirt, PAGESIZE);
         return true;
+    }
     void *m;
-    while ((m = allocate(mmap_info.virtual_backed, page_size)) == INVALID_ADDRESS) {
-        if (page_size == PAGESIZE) {
-            vmap_debug("%s: cannot get physical page\n", func_ss);
-            return false;
+    if (kvirt == INVALID_ADDRESS) {
+        while ((m = allocate(mmap_info.virtual_backed, page_size)) == INVALID_ADDRESS) {
+            if (page_size == PAGESIZE) {
+                vmap_debug("%s: cannot get physical page\n", func_ss);
+                return false;
+            }
+            VMAP_PAGE_SHRINK(v, page_addr, page_size);
         }
-        VMAP_PAGE_SHRINK(v, page_addr, page_size);
+    } else {
+        m = kvirt;
     }
     zero(m, page_size);
     smp_write_barrier();
@@ -209,7 +216,7 @@ static void demand_page_major_fault(context ctx)
 closure_func_basic(thunk, void, pending_fault_anonymous)
 {
     pending_fault pf = struct_from_closure(pending_fault, async_handler);
-    mm_service(true);
+    pf->page_kvirt = mem_alloc(mmap_info.virtual_backed, PAGESIZE, 0);
     thunk complete = (thunk)&pf->complete;
     apply(complete);
 }
@@ -217,7 +224,8 @@ closure_func_basic(thunk, void, pending_fault_anonymous)
 static status demand_anonymous_page(process p, context ctx, u64 vaddr, vmap vm, pending_fault *pf)
 {
     pageflags flags = pageflags_from_vmflags(vm->flags);
-    if (new_zeroed_pages(vaddr, vm, flags))
+    void *kvirt = *pf ? (*pf)->page_kvirt : INVALID_ADDRESS;
+    if (new_zeroed_pages(vaddr, vm, flags, kvirt))
         return STATUS_OK;
     else if (*pf)
         return timm_oom;
