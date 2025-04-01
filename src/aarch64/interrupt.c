@@ -441,8 +441,8 @@ void init_interrupts(kernel_heaps kh)
     /* initialize interrupt controller */
     int gic_max_int = init_gic();
 
-    handlers = allocate_zero(int_general, gic_max_int * sizeof(handlers[0]));
-    assert(handlers != INVALID_ADDRESS);
+    handlers = mem_alloc(int_general, gic_max_int * sizeof(handlers[0]),
+                         MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     for (int i = 0; i < gic_max_int; i++)
         list_init(&handlers[i]);
 

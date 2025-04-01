@@ -362,8 +362,7 @@ closure_function(6, 1, void, elf_load_program_parse_shdr,
             u64 reltab_size = rel_section->sh_size;
             elf_debug("  relocation table size 0x%lx\n", reltab_size);
             heap h = bound(h);
-            Elf64_Rela *reltab = allocate(h, reltab_size);
-            assert(reltab != INVALID_ADDRESS);
+            Elf64_Rela *reltab = mem_alloc(h, reltab_size, MEM_NOFAIL);
             status_handler load_program_reloc = closure(h, elf_load_program_reloc,
                                                         reltab, reltab_size, bound(physmem_offset),
                                                         sh);
@@ -392,8 +391,7 @@ closure_function(5, 1, void, elf_load_program_complete,
             elf_debug("  %d section headers\n", shnum);
             heap h = bound(h);
             u64 shdr_size = e->e_shentsize * shnum;
-            Elf64_Shdr *shdr = allocate(h, shdr_size);
-            assert(shdr != INVALID_ADDRESS);
+            Elf64_Shdr *shdr = mem_alloc(h, shdr_size, MEM_NOFAIL);
             elf_loader loader = bound(loader);
             status_handler load_program_parse_shdr = closure(h, elf_load_program_parse_shdr, h,
                                                              shdr, shnum, physmem_offset, loader,
@@ -459,8 +457,7 @@ closure_function(5, 1, void, elf_load_phdr,
         elf_debug("  %d program headers, entry %p, physmem offset 0x%lx\n", e->e_phnum, e->e_entry,
                   physmem_offset);
         *(bound(entry)) = e->e_entry + physmem_offset;
-        Elf64_Phdr *phdr = allocate(h, sizeof(Elf64_Phdr) * e->e_phnum);
-        assert(phdr != INVALID_ADDRESS);
+        Elf64_Phdr *phdr = mem_alloc(h, sizeof(Elf64_Phdr) * e->e_phnum, MEM_NOFAIL);
         status_handler load_program = closure(h, elf_load_program, h, e, phdr, physmem_offset,
                                               loader, sh);
         assert(load_program != INVALID_ADDRESS);
@@ -475,8 +472,7 @@ closure_function(5, 1, void, elf_load_phdr,
 
 void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh)
 {
-    Elf64_Ehdr *e = allocate(h, sizeof(Elf64_Ehdr));
-    assert(e != INVALID_ADDRESS);
+    Elf64_Ehdr *e = mem_alloc(h, sizeof(Elf64_Ehdr), MEM_NOFAIL);
     status_handler load_phdr = closure(h, elf_load_phdr, h, e, loader, entry, sh);
     assert(load_phdr != INVALID_ADDRESS);
     apply(loader, 0, sizeof(Elf64_Ehdr), e, load_phdr);

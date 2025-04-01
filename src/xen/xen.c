@@ -484,8 +484,8 @@ boolean xen_detect(kernel_heaps kh)
     xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
     xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping", xen_info.xenstore_paddr);
-    xen_info.xenstore_interface = allocate((heap)heap_virtual_page(kh), PAGESIZE);
-    assert(xen_info.xenstore_interface != INVALID_ADDRESS);
+    xen_info.xenstore_interface = mem_alloc((heap)heap_virtual_page(kh), PAGESIZE,
+                                            MEM_NOWAIT | MEM_NOFAIL);
     map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE,
         pageflags_writable(pageflags_memory()));
     xen_debug("xenstore page mapped at %p", xen_info.xenstore_interface);
@@ -503,8 +503,7 @@ boolean xen_detect(kernel_heaps kh)
     xen_debug("event channel %ld, allocating and mapping shared info page", xen_info.xenstore_evtchn);
 
     heap shared_info_heap = (heap)heap_linear_backed(kh);
-    void *shared_info = allocate_zero(shared_info_heap, PAGESIZE);
-    assert(shared_info != INVALID_ADDRESS);
+    void *shared_info = mem_alloc(shared_info_heap, PAGESIZE, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     u64 shared_info_phys = physical_from_virtual(shared_info);
     assert(shared_info_phys != INVALID_PHYSICAL);
     xen_info.shared_info = shared_info;
@@ -1122,8 +1121,7 @@ status xen_probe_devices(void)
 
 void register_xen_driver(sstring name, xen_device_probe probe)
 {
-    xen_driver xd = allocate(xen_info.h, sizeof(struct xen_driver));
-    assert(xd != INVALID_ADDRESS);
+    xen_driver xd = mem_alloc(xen_info.h, sizeof(struct xen_driver), MEM_NOWAIT | MEM_NOFAIL);
     xd->name = name;
     xd->probe = probe;
     list_insert_before(&xen_info.driver_list, &xd->l);

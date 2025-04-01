@@ -282,8 +282,7 @@ static firewall_constraint_val firewall_create_constraint_val(heap h, value v, i
     u64 val;
     if (!parse_int(v, 10, &val))
         return 0;
-    firewall_constraint_val c = allocate(h, sizeof(*c));
-    assert(c != INVALID_ADDRESS);
+    firewall_constraint_val c = mem_alloc(h, sizeof(*c), MEM_NOFAIL);
     c->c.equals = !neq;
     switch (val_size) {
     case 1:
@@ -370,8 +369,7 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
             netmask = (ipv6 ? 128 : 32);
         }
         u64 byte_count = pad(netmask, 8) / 8;
-        firewall_constraint_buf c = allocate(h, sizeof(*c) + byte_count);
-        assert(c != INVALID_ADDRESS);
+        firewall_constraint_buf c = mem_alloc(h, sizeof(*c) + byte_count, MEM_NOFAIL);
         c->c.type = FW_L3_SRC;
         c->c.equals = !neq;
         c->len = netmask;
@@ -389,8 +387,7 @@ static boolean firewall_rule_parse_l3(heap h, firewall_rule rule, value spec, bo
             msg_err("firewall: invalid ip fragment rule '%s'", buffer_to_sstring(fragment));
             return false;
         }
-        firewall_constraint_val c = allocate(h, sizeof(*c));
-        assert(c != INVALID_ADDRESS);
+        firewall_constraint_val c = mem_alloc(h, sizeof(*c), MEM_NOFAIL);
         c->c.type = FW_L3_FRAG;
         c->c.equals = true;
         c->val = is_fragment;
@@ -440,8 +437,7 @@ static void firewall_rule_add_l4_proto(heap h, firewall_rule rule, u8 proto)
         rule->l3_match = allocate_vector(h, 2);
         assert(rule->l3_match != INVALID_ADDRESS);
     }
-    firewall_constraint_val c = allocate(h, sizeof(*c));
-    assert(c != INVALID_ADDRESS);
+    firewall_constraint_val c = mem_alloc(h, sizeof(*c), MEM_NOFAIL);
     c->c.type = FW_L3_PROTO;
     c->c.equals = true;
     c->val = proto;
@@ -510,8 +506,7 @@ static boolean firewall_create_rule(heap h, value spec)
         msg_err("firewall: invalid rule '%v'", spec);
         return false;
     }
-    firewall_rule rule = allocate(h, sizeof(*rule));
-    assert(rule != INVALID_ADDRESS);
+    firewall_rule rule = mem_alloc(h, sizeof(*rule), MEM_NOFAIL);
     rule->ip_version = 0;
     rule->l4_proto = 0;
     rule->l3_match = rule->l4_match = 0;

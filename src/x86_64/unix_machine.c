@@ -37,8 +37,7 @@ vsyscall_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 void init_vsyscall(heap phys)
 {
     /* build vsyscall vectors */
-    u64 p = allocate_u64(phys, PAGESIZE);
-    assert(p != INVALID_PHYSICAL);
+    u64 p = mem_alloc_u64(phys, PAGESIZE, MEM_NOFAIL);
     pageflags flags = pageflags_exec(pageflags_default_user());
     map(VSYSCALL_BASE, p, PAGESIZE, pageflags_writable(flags));
 

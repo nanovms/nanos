@@ -775,8 +775,7 @@ closure_func_basic(timer_handler, void, ntp_raw_update_func,
 static void ntp_server_add(heap h, buffer addr, u16 port)
 {
     ntp_debug("adding server %b (port %d)\n", addr, port);
-    ntp_server server = allocate(h, sizeof(*server));
-    assert(server != INVALID_ADDRESS);
+    ntp_server server = mem_alloc(h, sizeof(*server), MEM_NOFAIL);
     server->addr = buffer_to_sstring(addr);
     server->port = port;
     vector_push(ntp.servers, server);

@@ -112,8 +112,8 @@ static void init_setup_stack(void)
     init_kernel_heaps();
     init_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
-    void *stack_base = allocate((heap)heap_page_backed(get_kernel_heaps()), stack_size);
-    assert(stack_base != INVALID_ADDRESS);
+    void *stack_base = mem_alloc((heap)heap_page_backed(get_kernel_heaps()), stack_size,
+                                 MEM_NOWAIT | MEM_NOFAIL);
     init_debug("stack base at ");
     init_debug_u64(u64_from_pointer(stack_base));
     init_debug("\n");

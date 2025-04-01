@@ -1936,8 +1936,7 @@ static inline void page_list_init(struct pagelist *pl)
 
 void init_pagecache(heap general, heap contiguous, u64 pagesize)
 {
-    pagecache pc = allocate(general, sizeof(struct pagecache));
-    assert (pc != INVALID_ADDRESS);
+    pagecache pc = mem_alloc(general, sizeof(struct pagecache), MEM_NOWAIT | MEM_NOFAIL);
 
     pc->total_pages = 0;
     pc->page_order = find_order(pagesize);
@@ -1945,8 +1944,7 @@ void init_pagecache(heap general, heap contiguous, u64 pagesize)
     pc->h = general;
     pc->contiguous = contiguous;
     heap dma = heap_dma();
-    pc->zero_page = allocate_zero(dma, pagesize);
-    assert(pc->zero_page != INVALID_ADDRESS);
+    pc->zero_page = mem_alloc(dma, pagesize, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
 
     pc->completions = (heap)allocate_objcache(general, general, sizeof(struct page_completion),
                                               PAGESIZE, true);

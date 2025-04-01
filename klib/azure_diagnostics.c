@@ -463,8 +463,7 @@ closure_func_basic(value_handler, void, azure_metrics_value_handler,
 int azure_diag_init(tuple cfg)
 {
     heap h = heap_locked(get_kernel_heaps());
-    az_diag diag = allocate(h, sizeof(*diag));
-    assert(diag != INVALID_ADDRESS);
+    az_diag diag = mem_alloc(h, sizeof(*diag), MEM_NOFAIL);
     diag->h = h;
     init_buffer(&diag->vm_name, 0, false, h, 0);
     init_buffer(&diag->vm_resource_id, 0, false, h, 0);
@@ -527,8 +526,7 @@ int azure_diag_init(tuple cfg)
             msg_err("Azure diagnostics: failed to register extension");
             return KLIB_INIT_FAILED;
         }
-        azdiag_setup_s setup = allocate(h, sizeof(*setup));
-        assert(setup != INVALID_ADDRESS);
+        azdiag_setup_s setup = mem_alloc(h, sizeof(*setup), MEM_NOFAIL);
         setup->diag = diag;
         setup->retry_backoff = seconds(1);
         init_closure_func(&setup->complete, status_handler, azdiag_setup_complete);

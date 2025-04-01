@@ -305,8 +305,7 @@ static void net_complete_cfg(tuple t, symbol opt, struct netif *n, boolean ipv6,
     }
     if (timeout == 0 || timeout > 180)
         timeout = 5;
-    net_complete c = allocate(lwip_heap, sizeof(*c));
-    assert(c != INVALID_ADDRESS);
+    net_complete c = mem_alloc(lwip_heap, sizeof(*c), MEM_NOFAIL);
     c->netif = n;
     c->ipv6 = ipv6;
     c->complete = apply_merge(m);

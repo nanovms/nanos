@@ -498,8 +498,8 @@ closure_function(1, 1, input_buffer_handler, each_http_connection,
 /* just top level of abs_path */
 void http_register_uri_handler(http_listener hl, sstring uri, http_request_handler each)
 {
-    http_listener_registrant r = allocate(hl->h, sizeof(struct http_listener_registrant));
-    assert(r != INVALID_ADDRESS); /* no error path, this is pretty much init only */
+    http_listener_registrant r = mem_alloc(hl->h, sizeof(struct http_listener_registrant),
+                                           MEM_NOFAIL); /* no error path, this is init only */
     r->uri = uri;
     r->each = each;
     list_insert_before(&hl->registrants, &r->l);

@@ -88,8 +88,7 @@ static void netconsole_config(void *_d, tuple r)
 void netconsole_register(kernel_heaps kh, console_attach a)
 {
     heap h = heap_locked(kh);
-    netconsole_driver nd = allocate_zero(h, sizeof(struct netconsole_driver));
-    assert(nd != INVALID_ADDRESS);
+    netconsole_driver nd = mem_alloc(h, sizeof(struct netconsole_driver), MEM_NOWAIT | MEM_NOFAIL);
     nd->h = h;
     nd->c.write = netconsole_write;
     nd->c.name = ss("net");

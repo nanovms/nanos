@@ -778,11 +778,10 @@ vmbus_chan_alloc(vmbus_dev sc)
 {
     struct vmbus_channel *chan;
 
-    chan = allocate_zero(sc->general, sizeof(*chan));
-    assert(chan != INVALID_ADDRESS);
+    chan = mem_alloc(sc->general, sizeof(*chan), MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
 
-    chan->ch_monprm = allocate_zero(sc->contiguous, sizeof(struct hyperv_mon_param));
-    assert(chan->ch_monprm != INVALID_ADDRESS);
+    chan->ch_monprm = mem_alloc(sc->contiguous, sizeof(struct hyperv_mon_param),
+                                MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     assert((u64)chan->ch_monprm == pad((u64)chan->ch_monprm, HYPERCALL_PARAM_ALIGN));
     chan->ch_monprm_dma.hv_paddr = physical_from_virtual(chan->ch_monprm);
     assert(chan->ch_monprm_dma.hv_paddr != INVALID_PHYSICAL);

@@ -115,9 +115,9 @@ static void hyperv_init_clock(kernel_heaps kh)
     }
 
     hyperv_debug("Enabling Reference Time Stamp Counter support");
-    hyperv_aarch_info->hyperv_ref_tsc.tsc_ref = allocate_zero((heap)heap_linear_backed(kh),
-                                                              sizeof(struct hyperv_reftsc));
-    assert(hyperv_aarch_info->hyperv_ref_tsc.tsc_ref != INVALID_ADDRESS);
+    hyperv_aarch_info->hyperv_ref_tsc.tsc_ref = mem_alloc((heap)heap_linear_backed(kh),
+                                                          sizeof(struct hyperv_reftsc),
+                                                          MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     hyperv_aarch_info->hyperv_ref_tsc.tsc_ref_dma.hv_paddr =
         physical_from_virtual(hyperv_aarch_info->hyperv_ref_tsc.tsc_ref);
     assert(hyperv_aarch_info->hyperv_ref_tsc.tsc_ref_dma.hv_paddr != INVALID_PHYSICAL);
@@ -158,8 +158,7 @@ boolean hyperv_arch_detect(kernel_heaps kh) {
     }
 
     heap h = heap_general(kh);
-    hyperv_aarch_info = allocate(h, sizeof(*hyperv_aarch_info));
-    assert(hyperv_aarch_info != INVALID_ADDRESS);
+    hyperv_aarch_info = mem_alloc(h, sizeof(*hyperv_aarch_info), MEM_NOWAIT | MEM_NOFAIL);
     hyperv_aarch_info->features = v[0];
 
     cpuid(CPUID_LEAF_HV_IDENTITY, 0, v);

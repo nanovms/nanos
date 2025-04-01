@@ -529,14 +529,12 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
 {
     kernel_heaps kh = get_kernel_heaps();
     heap locked = heap_locked(kh);
-    process p = allocate(locked, sizeof(struct process));
-    assert(p != INVALID_ADDRESS);
+    process p = mem_alloc(locked, sizeof(struct process), MEM_NOFAIL);
 
     spin_lock_init(&p->lock);
     p->uh = uh;
     p->brk = 0;
-    p->pid = allocate_u64((heap)uh->processes, 1);
-    assert(p->pid != INVALID_PHYSICAL);
+    p->pid = mem_alloc_u64((heap)uh->processes, 1, MEM_NOFAIL);
 
     /* don't need these for kernel process */
     if (p->pid > 1) {
