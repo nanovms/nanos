@@ -32,6 +32,12 @@ typedef struct pagecache_page_entry {
     pagecache_page pp;
 } *pagecache_page_entry;
 
+typedef struct pagecache_drain_work {
+    buffer page_entries;
+    closure_struct(thunk, inval_complete);
+    int freed_pages;
+} *pagecache_drain_work;
+
 #define pagecache_lock_mappings()   pagecache_lock(global_pagecache)
 #define pagecache_unlock_mappings() pagecache_unlock(global_pagecache)
 
@@ -808,7 +814,76 @@ static void pagecache_delete_pages_locked(pagecache pc)
     }
 }
 
-u64 pagecache_drain(u64 drain_bytes)
+closure_function(3, 3, boolean, pagecache_check_old_page,
+                 pagecache_map, pcm, flush_entry, fe, buffer, page_entries,
+                 int level, u64 vaddr, pteptr entry)
+{
+    pagecache pc = global_pagecache;
+    pagecache_map pcm = bound(pcm);
+    pte old_entry = pte_from_pteptr(entry);
+    boolean abort = false;
+    if (pte_is_present(old_entry) && pte_is_mapping(level, old_entry) && !pte_is_dirty(old_entry)) {
+        u64 pi = (pcm->node_offset + vaddr - pcm->n.r.start) >> pc->page_order;
+        pagecache_node pn = pcm->pn;
+        pagecache_lock_node(pn);
+        pagecache_page pp = page_lookup_nodelocked(pn, pi);
+        if ((pp != INVALID_ADDRESS) && (page_from_pte(old_entry) == pp->phys)) {
+            flush_entry fe = bound(fe);
+            if (pte_clear_accessed(entry)) {
+                page_invalidate(fe, vaddr);
+                pagecache_lock_state(pc);
+                touch_page_locked(pn, pp, 0);
+                pagecache_unlock_state(pc);
+            } else if (pp->evicted) {
+                buffer page_entries = bound(page_entries);
+                if (buffer_space(page_entries) >= sizeof(struct pagecache_page_entry)) {
+                    page_invalidate(fe, vaddr);
+                    pagecache_page_entry e = buffer_end(page_entries);
+                    e->pte_ptr = entry;
+                    e->pp = pp;
+                    buffer_produce(page_entries, sizeof(*e));
+                } else {
+                    abort = true;
+                }
+            }
+        }
+        pagecache_unlock_node(pn);
+    }
+    return !abort;
+}
+
+static void pagecache_scan_old_maps(list head, flush_entry fe, buffer page_entries)
+{
+    list_foreach(head, l) {
+        pagecache_map pcm = struct_from_list(l, pagecache_map, l);
+        if (!traverse_ptes(pcm->n.r.start, range_span(pcm->n.r),
+                           stack_closure(pagecache_check_old_page, pcm, fe, page_entries)))
+            return;
+    }
+}
+
+closure_func_basic(thunk, void, pagecache_inval_complete)
+{
+    pagecache_drain_work drain_work = struct_from_closure(pagecache_drain_work, inval_complete);
+    pagecache_page_entry entry;
+    pagecache pc = global_pagecache;
+    pagecache_lock_state(pc);
+    while ((entry = buffer_pop(drain_work->page_entries, sizeof(*entry))) != 0) {
+        pteptr pte_ptr = entry->pte_ptr;
+        pagecache_page pp = entry->pp;
+        pte pt_entry = pte_from_pteptr(pte_ptr);
+        if (pte_is_present(pt_entry) && (page_from_pte(pt_entry) == pp->phys) &&
+            !pte_is_dirty(pt_entry) && !pte_is_accessed(pt_entry)) {
+            pte_set(pte_ptr, 0);
+            if (pp->refcount == 1)
+                drain_work->freed_pages++;
+            pagecache_page_release_locked(pc, pp, true);
+        }
+    }
+    pagecache_unlock_state(pc);
+}
+
+u64 pagecache_drain(u64 drain_bytes, u32 flags)
 {
     pagecache pc = global_pagecache;
     u64 pages = pad(drain_bytes, cache_pagesize(pc)) >> pc->page_order;
@@ -825,6 +900,31 @@ u64 pagecache_drain(u64 drain_bytes)
     if (drained < drain_bytes)
         drained += cache_drain((caching_heap)pc->completions, drain_bytes - drained,
                                PAGECACHE_COMPLETIONS_RETAIN * sizeof(struct page_completion));
+    if ((drained < drain_bytes) && (flags & MEMCLEAN_CANWAIT)) {
+        timestamp here = now(CLOCK_ID_MONOTONIC_RAW);
+        boolean purge_mappings;
+        if (flags & MEMCLEAN_OOM)
+            purge_mappings = true;
+        else {
+            purge_mappings = ((here - pc->map_purge) >= seconds(PAGECACHE_SCAN_PERIOD_SECONDS));
+        }
+        if (purge_mappings) {
+            pc->map_purge = here;
+            struct pagecache_drain_work drain_work;
+            buffer page_entries = drain_work.page_entries =
+                    little_stack_buffer(context_stack_space() / 2);
+            flush_entry fe = get_page_flush_entry();
+            pagecache_lock_mappings();
+            pagecache_scan_old_maps(&pc->shared_maps, fe, page_entries);
+            pagecache_scan_old_maps(&pc->private_maps, fe, page_entries);
+            pagecache_unlock_mappings();
+            drain_work.freed_pages = 0;
+            page_invalidate_sync(fe, init_closure_func(&drain_work.inval_complete, thunk,
+                                                       pagecache_inval_complete),
+                                 true);
+            drained += drain_work.freed_pages * cache_pagesize(pc);
+        }
+    }
     return drained;
 }
 
@@ -2139,6 +2239,7 @@ void init_pagecache(heap general, heap contiguous, u64 pagesize)
     list_init(&pc->private_maps);
     init_closure_func(&pc->page_compare, rb_key_compare, pagecache_page_compare);
     init_closure_func(&pc->page_print_key, rbnode_handler, pagecache_page_print_key);
+    pc->map_purge = 0;
 
     pc->writeback_in_progress = false;
     init_timer(&pc->scan_timer);

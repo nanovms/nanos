@@ -278,7 +278,8 @@ closure_function(4, 5, boolean, faulting_map,
         u64 vmflags = VMAP_FLAG_READABLE | VMAP_FLAG_PROG;
         if (pageflags_is_exec(flags))
             vmflags |= VMAP_FLAG_EXEC;
-        if (pageflags_is_writable(flags))
+        boolean rw = pageflags_is_writable(flags);
+        if (rw)
             vmflags |= VMAP_FLAG_WRITABLE;
         if (tail_bss > 0)
             vmflags |= VMAP_FLAG_TAIL_BSS;
@@ -286,12 +287,17 @@ closure_function(4, 5, boolean, faulting_map,
         exec_debug("%s: add %s to vmap: %R vmflags 0x%lx, offset 0x%lx, data_size 0x%lx, tail_bss 0x%lx\n",
                    func_ss, pageflags_is_exec(flags) ? ss("text") : ss("data"),
                    r, vmflags, offset, data_size, tail_bss);
+        pagecache_node pn = fsfile_get_cachenode(bound(f));
         struct vmap k = ivmap(vmflags, bound(allowed_flags), offset,
-                              fsfile_get_cachenode(bound(f)), 0);
+                              pn, 0);
         if (tail_bss > 0)
             k.bss_offset = data_size;
         if (allocate_vmap(bound(p), r, k) == INVALID_ADDRESS)
             goto alloc_fail;
+        if (!rw)
+            /* Make the page cache aware of this mapping so that it can evict relevant pages on
+             * memory pressure. */
+            pagecache_node_add_mapping(pn, r, offset, false);
         map_start += data_map_size;
         bss_size -= tail_bss;
     }
