@@ -7,6 +7,6 @@
     "Kernel": "../../../output/test/e2e/kernel.img",
     "ManifestPassthrough": {
         "debug_exit":"t",
-        "expected_exit_code":["9", "11"]
+        "expected_exit_code":["6", "9", "11"]
     }
 }

@@ -34,6 +34,7 @@ typedef struct pagecache {
     struct list volumes;
     struct list shared_maps;
     struct list private_maps;
+    timestamp map_purge;
 
     boolean writeback_in_progress;
     struct timer scan_timer;

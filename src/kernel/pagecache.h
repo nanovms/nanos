@@ -28,7 +28,7 @@ int pagecache_get_page_order(void);
 
 u64 pagecache_get_occupancy(void);
 
-u64 pagecache_drain(u64 drain_bytes);
+u64 pagecache_drain(u64 drain_bytes, u32 flags);
 
 pagecache_node pagecache_allocate_node(pagecache_volume pv, sg_io fs_read, sg_io fs_write, pagecache_node_reserve fs_reserve);
 

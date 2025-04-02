@@ -714,10 +714,10 @@ closure_function(2, 3, void, attach_storage,
     apply(req_handler, &req);
 }
 
-closure_func_basic(mem_cleaner, u64, mm_pagecache_cleaner,
-                   u64 clean_bytes)
+closure_func_basic(mem_wcleaner, u64, mm_pagecache_cleaner,
+                   u64 clean_bytes, u32 flags)
 {
-    return pagecache_drain(clean_bytes);
+    return pagecache_drain(clean_bytes, flags);
 }
 
 static void read_kernel_syms(void)
@@ -757,9 +757,9 @@ void kernel_runtime_init(kernel_heaps kh)
     init_sg(locked);
     dma_init(kh);
     init_pagecache(locked, (heap)kh->pages, PAGESIZE);
-    mem_cleaner pc_cleaner = closure_func(misc, mem_cleaner, mm_pagecache_cleaner);
+    mem_wcleaner pc_cleaner = closure_func(misc, mem_wcleaner, mm_pagecache_cleaner);
     assert(pc_cleaner != INVALID_ADDRESS);
-    assert(mm_register_mem_cleaner(pc_cleaner));
+    assert(mm_register_mem_wcleaner(pc_cleaner));
     init_extra_prints();
     init_pci(kh);
     init_console(kh);
