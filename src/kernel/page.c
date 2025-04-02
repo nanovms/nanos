@@ -273,7 +273,7 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, vaddr, length, flags, fe));
-    page_invalidate_sync(fe);
+    page_invalidate_sync(fe, 0, false);
 #ifdef PAGE_DUMP_ALL
     early_debug("update_map_flags ");
     dump_page_tables(vaddr, length);
@@ -345,7 +345,7 @@ void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length)
                                           irange(vaddr_old, vaddr_old + length))));
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr_old, length, stack_closure(remap_entry, vaddr_new, vaddr_old, length, fe));
-    page_invalidate_sync(fe);
+    page_invalidate_sync(fe, 0, false);
 #ifdef PAGE_DUMP_ALL
     early_debug("remap ");
     dump_page_tables(vaddr_new, length);
@@ -374,10 +374,9 @@ void zero_mapped_pages(u64 vaddr, u64 length)
 
 /* called with lock held */
 closure_function(4, 3, boolean, unmap_page,
-                 u64, vstart, u64, len, range_handler, rh, flush_entry, fe,
+                 u64, vstart, u64, len, buffer, phys_ranges, flush_entry, fe,
                  int level, u64 vaddr, pteptr entry)
 {
-    range_handler rh = bound(rh);
     u64 old_entry = pte_from_pteptr(entry);
     if (pte_is_present(old_entry) && pte_is_mapping(level, old_entry)) {
 #ifdef PAGE_UPDATE_DEBUG
@@ -403,21 +402,21 @@ closure_function(4, 3, boolean, unmap_page,
                 return false;
         }
         page_invalidate(bound(fe), vaddr);
-        if (rh) {
-            apply(rh, irangel(page_from_pte(old_entry) + map_offset, unmap_len));
+        buffer phys_ranges = bound(phys_ranges);
+        if (phys_ranges) {
+            range r = irangel(page_from_pte(old_entry) + map_offset, unmap_len);
+            return buffer_write(phys_ranges, &r, sizeof(r));
         }
     }
     return true;
 }
 
-/* Be warned: the page table lock is held when rh is called; don't try
-   to modify the page table while traversing it */
-void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh)
+void unmap(u64 virtual, u64 length)
 {
     assert(!((virtual & PAGEMASK) || (length & PAGEMASK)));
     flush_entry fe = get_page_flush_entry();
-    traverse_ptes(virtual, length, stack_closure(unmap_page, virtual, length, rh, fe));
-    page_invalidate_sync(fe);
+    traverse_ptes(virtual, length, stack_closure(unmap_page, virtual, length, 0, fe));
+    page_invalidate_sync(fe, 0, false);
 #ifdef PAGE_DUMP_ALL
     early_debug("unmap ");
     dump_page_tables(virtual, length);
@@ -562,7 +561,7 @@ void map(u64 v, physical p, u64 length, pageflags flags)
     }
     page_init_debug("map_level done\n");
     pagetable_unlock();
-    page_invalidate_sync(fe);
+    page_invalidate_sync(fe, 0, false);
 #ifdef PAGE_DUMP_ALL
     early_debug("map ");
     dump_page_tables(v, length);
@@ -578,29 +577,55 @@ void map_nolock(u64 v, physical p, u64 length, pageflags flags)
     map_level(table_ptr, PT_FIRST_LEVEL, r, &p, flags.w, 0);
 }
 
-void unmap(u64 virtual, u64 length)
+#ifdef KERNEL
+closure_function(2, 0, void, unmap_and_free_phys_complete,
+                 buffer, phys_ranges, boolean, on_stack)
 {
-    page_init_debug("unmap v: ");
-    page_init_debug_u64(virtual);
-    page_init_debug(", length: ");
-    page_init_debug_u64(length);
-    page_init_debug("\n");
-    unmap_pages(virtual, length);
+    heap h = heap_physical(get_kernel_heaps());
+    buffer phys_ranges = bound(phys_ranges);
+    range *r;
+    while ((r = buffer_pop(phys_ranges, sizeof(*r))))
+        deallocate(h, r->start, range_span(*r));
+    if (bound(on_stack)) {
+        /* clear the buffer so it can be reused if there are other iterations */
+        buffer_clear(phys_ranges);
+    } else {
+        deallocate_buffer(phys_ranges);
+        closure_finish();
+    }
 }
 
-closure_function(1, 1, boolean, page_dealloc,
-                 heap, pageheap,
-                 range r)
+static void unmap_and_free_phys_sync(u64 virtual, u64 length)
 {
-    u64 virt = pagemem.pagevirt.start + r.start;
-    deallocate_u64(bound(pageheap), virt, range_span(r));
-    return true;
+    buffer phys_ranges = little_stack_buffer(context_stack_space() / 2);
+    thunk completion = stack_closure(unmap_and_free_phys_complete, phys_ranges, true);
+    boolean done, progress;
+    do {
+        flush_entry fe = get_page_flush_entry();
+        done = traverse_ptes(virtual, length,
+                             stack_closure(unmap_page, virtual, length, phys_ranges, fe));
+        progress = buffer_length(phys_ranges) != 0;
+        page_invalidate_sync(fe, completion, true);
+    } while (!done && progress);
 }
 
 void unmap_and_free_phys(u64 virtual, u64 length)
 {
-    unmap_pages_with_handler(virtual, length,
-                             stack_closure(page_dealloc, (heap)heap_page_backed(get_kernel_heaps())));
+    heap h = heap_locked(get_kernel_heaps());
+    buffer phys_ranges = allocate_buffer(h, 64 * sizeof(range));
+    if (phys_ranges == INVALID_ADDRESS)
+        return unmap_and_free_phys_sync(virtual, length);
+    thunk completion = closure(h, unmap_and_free_phys_complete, phys_ranges, false);
+    if (completion == INVALID_ADDRESS) {
+        deallocate_buffer(phys_ranges);
+        return unmap_and_free_phys_sync(virtual, length);
+    }
+    flush_entry fe = get_page_flush_entry();
+    boolean success = traverse_ptes(virtual, length,
+                                    stack_closure(unmap_page, virtual, length, phys_ranges, fe));
+    page_invalidate_sync(fe, completion, !success);
+    if (!success)
+        unmap_and_free_phys_sync(virtual, length);
 }
 
 void page_free_phys(u64 phys)
@@ -608,6 +633,7 @@ void page_free_phys(u64 phys)
     u64 virt = pagemem.pagevirt.start + phys;
     deallocate_u64((heap)get_kernel_heaps()->pages, virt, PAGESIZE);
 }
+#endif
 
 static boolean init_page_map(range phys, range *curr_virt, id_heap virt_heap, pageflags flags)
 {

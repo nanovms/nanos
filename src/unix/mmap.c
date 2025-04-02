@@ -1195,7 +1195,7 @@ closure_func_basic(vmap_handler, boolean, msync_vmap,
         (vm->flags & VMAP_FLAG_MMAP) &&
         (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
         vmap_assert(vm->cache_node);
-        pagecache_node_scan_and_commit_shared_pages(vm->cache_node, vm->node.r);
+        pagecache_node_scan(vm->cache_node, vm->node.r, 0);
     }
     return true;
 }
@@ -1396,8 +1396,9 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     vm->fault = k.fault;
     vmap_unlock(p);
 
-    if (vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED && (vmflags & VMAP_FLAG_SHARED))
-        pagecache_node_add_shared_map(node, irangel(q.start, len), offset);
+    if (vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED)
+        pagecache_node_add_mapping(node, irangel(q.start, len), offset,
+                                   !!(vmflags & VMAP_FLAG_SHARED));
 
     /* as man page suggests, ignore MAP_POPULATE if MAP_NONBLOCK is specified */
     if ((flags & (MAP_POPULATE | MAP_NONBLOCK)) == MAP_POPULATE && (prot & PROT_READ)) {

@@ -25,7 +25,7 @@ void init_page_tables(heap pageheap, range pagevirt);
 void init_flush(heap);
 flush_entry get_page_flush_entry();
 void page_invalidate(flush_entry f, u64 address);
-void page_invalidate_sync(flush_entry f);
+void page_invalidate_sync(flush_entry f, thunk completion, boolean rendezvous);
 void page_invalidate_flush();
 
 void invalidate(u64 page);
@@ -43,12 +43,8 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags);
 void zero_mapped_pages(u64 vaddr, u64 length);
 void remap_pages(u64 vaddr_new, u64 vaddr_old, u64 length);
 void unmap(u64 virtual, u64 length);
-void unmap_pages_with_handler(u64 virtual, u64 length, range_handler rh);
 
-static inline void unmap_pages(u64 virtual, u64 length)
-{
-    unmap_pages_with_handler(virtual, length, 0);
-}
+#define unmap_pages(virtual, length)    unmap(virtual, length)
 
 #include <page_machine.h>
 
