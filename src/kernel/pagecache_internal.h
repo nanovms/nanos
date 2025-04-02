@@ -33,6 +33,7 @@ typedef struct pagecache {
     struct pagelist writing;
     struct list volumes;
     struct list shared_maps;
+    struct list private_maps;
 
     boolean writeback_in_progress;
     struct timer scan_timer;
@@ -61,10 +62,12 @@ typedef struct pagecache_node {
     struct spinlock pages_lock;
 #endif
     struct rbtree pages;
-    rangemap shared_maps;       /* shared mappings associated with this node */
     struct rangemap dirty;
     struct list ops;
     u64 length;
+
+    /* shared and private mappings associated with this node; protected by pagecache global lock */
+    struct rangemap mappings;
 
     sg_io cache_read;
     sg_io cache_write;
@@ -97,12 +100,13 @@ struct pagecache_node_op_complete {
     status_handler sh;
 };
 
-typedef struct pagecache_shared_map {
-    struct rmnode n;            /* pn->shared */
-    struct list l;              /* pc->shared_maps */
+typedef struct pagecache_map {
+    struct rmnode n;            /* pn->mappings */
+    struct list l;              /* pc->shared_maps or pc->private_maps */
     pagecache_node pn;
     u64 node_offset;            /* file offset of va.start */
-} *pagecache_shared_map;
+    boolean shared;
+} *pagecache_map;
 
 #define PAGECACHE_PAGESTATE_SHIFT   61
 
