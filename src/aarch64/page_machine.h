@@ -407,9 +407,21 @@ static inline boolean pte_is_dirty(pte entry)
     return false;
 }
 
+static inline boolean pte_is_accessed(pte entry)
+{
+    return (entry & PAGE_ATTR_AF) != 0;
+}
+
 static inline void pt_pte_clean(pteptr pte)
 {
     // XXX TODO
+}
+
+static inline boolean pte_clear_accessed(pteptr pp)
+{
+    boolean accessed = !!(*pp & PAGE_ATTR_AF);
+    *pp &= ~PAGE_ATTR_AF;
+    return accessed;
 }
 
 static inline u64 page_from_pte(pte pte)

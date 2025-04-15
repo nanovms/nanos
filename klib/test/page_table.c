@@ -23,8 +23,7 @@ static void pt_test_update_flags(heap vh, heap ph)
     u64 p, v;
     u64 size = PAGESIZE;
     while ((p = allocate_u64(ph, size)) != INVALID_PHYSICAL) {
-        v = allocate_u64(vh, size);
-        assert(v != INVALID_PHYSICAL);
+        v = mem_alloc_u64(vh, size, MEM_NOFAIL);
 
         /* read-only mapping */
         map(v, p, size, ro_flags);
@@ -66,8 +65,7 @@ static void pt_test_remap(heap vh, heap ph)
     u64 p, v;
     u64 size = PAGESIZE;
     while ((p = allocate_u64(ph, size)) != INVALID_PHYSICAL) {
-        v = allocate_u64(vh, 2 * size);
-        assert(v != INVALID_PHYSICAL);
+        v = mem_alloc_u64(vh, 2 * size, MEM_NOFAIL);
         map(v, p, size, flags);
         assert(traverse_ptes(v, size, stack_closure(pt_test_entry_handler, true)));
 

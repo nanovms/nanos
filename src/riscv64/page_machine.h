@@ -16,6 +16,7 @@ static inline u64 get_pagetable_base(u64 vaddr)
 #define PAGE_EXEC       U64_FROM_BIT(3)
 #define PAGE_USER       U64_FROM_BIT(4)
 #define PAGE_GLOBAL     U64_FROM_BIT(5)
+#define PAGE_ACCESSED   U64_FROM_BIT(6)
 #define PAGE_DIRTY      U64_FROM_BIT(7)
 #define PAGE_NO_BLOCK   U64_FROM_BIT(8) // RSW[0]
 #define PAGE_DEFAULT_PERMISSIONS (PAGE_READABLE)
@@ -213,9 +214,21 @@ static inline boolean pte_is_dirty(pte entry)
     return (entry & PAGE_DIRTY) != 0;
 }
 
+static inline boolean pte_is_accessed(pte entry)
+{
+    return (entry & PAGE_ACCESSED) != 0;
+}
+
 static inline void pt_pte_clean(pteptr pte)
 {
     *pte &= ~PAGE_DIRTY;
+}
+
+static inline boolean pte_clear_accessed(pteptr pp)
+{
+    boolean accessed = !!(*pp & PAGE_ACCESSED);
+    *pp &= ~PAGE_ACCESSED;
+    return accessed;
 }
 
 static inline u64 page_from_pte(pte pte)

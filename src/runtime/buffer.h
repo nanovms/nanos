@@ -280,6 +280,8 @@ static inline boolean buffer_write_byte(buffer b, u8 x)
     return true;
 }
 
+void *buffer_pop(buffer b, bytes len);
+
 static inline buffer sub_buffer(heap h, 
                                 buffer b,
                                 bytes start,
@@ -393,11 +395,12 @@ int buffer_strstr(buffer b, sstring str);
 #define little_stack_buffer(__length)                                   \
     ({                                                                  \
         buffer __b = stack_allocate(sizeof(struct buffer));             \
-        __b->contents = stack_allocate(__length);                       \
+        bytes __size = __length;                                        \
+        __b->contents = stack_allocate(__size);                         \
         ((u8 *)__b->contents)[0] = 0; /* quiet uninitialized warning */ \
         __b->start = 0;                                                 \
         __b->end = 0;                                                   \
-        __b->length = (__length);                                       \
+        __b->length = (__size);                                         \
         __b->wrapped = true; /* it's not wrapped, but we don't want a resize */ \
         __b;                                                            \
     })

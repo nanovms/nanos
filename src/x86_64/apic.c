@@ -190,8 +190,7 @@ BSS_RO_AFTER_INIT static void *ioapic_vbase;
 
 static void ioapic_init(kernel_heaps kh, u64 membase)
 {
-    ioapic_vbase = allocate((heap)heap_virtual_page(kh), PAGESIZE);
-    assert(ioapic_vbase != INVALID_ADDRESS);
+    ioapic_vbase = mem_alloc((heap)heap_virtual_page(kh), PAGESIZE, MEM_NOWAIT | MEM_NOFAIL);
     map(u64_from_pointer(ioapic_vbase), membase, PAGESIZE,
         pageflags_writable(pageflags_device()));
 }

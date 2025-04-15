@@ -48,7 +48,8 @@ typedef struct kernel_context {
     u64 err_frame[ERR_FRAME_SIZE];  /* must contain all callee-saved registers */
 } *kernel_context;
 
-void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q);
+boolean init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q,
+                            u32 alloc_flags);
 #endif
 
 #include <management.h>
@@ -312,7 +313,7 @@ static inline void async_apply_1(void *a, void *arg0)
 
 #define CONTEXT_RESUME_SPIN_LIMIT (1ull << 24)
 
-void init_context_machine(context c);
+boolean init_context_machine(context c, u32 alloc_flags);
 kernel_context allocate_kernel_context(cpuinfo ci);
 void deallocate_kernel_context(kernel_context kc);
 void init_kernel_contexts(heap backed);
@@ -325,7 +326,7 @@ static inline void zero_context_frame(context_frame f)
     zero(f, CONTEXT_FRAME_SIZE);
 }
 
-static inline void init_context(context c, int type)
+static inline boolean init_context(context c, int type, u32 alloc_flags)
 {
     c->type = type;
     c->transient_heap = 0;
@@ -333,7 +334,7 @@ static inline void init_context(context c, int type)
     list_init_member(&c->mutex_l);
     c->active_cpu = -1;
     zero_context_frame(c->frame);
-    init_context_machine(c);
+    return init_context_machine(c, alloc_flags);
 }
 
 static inline void __attribute__((always_inline)) context_reserve_refcount(context ctx)
@@ -437,6 +438,12 @@ static inline void __attribute__((always_inline)) context_switch(context ctx)
         context_release(prev);
     }
 }
+
+u64 context_stack_space(void);
+
+closure_type(async_task, void, status_handler complete);
+status wait_for(void (*func)(status_handler complete));
+status wait_for_task(async_task task);
 
 __attribute__((returns_twice)) boolean err_frame_save(context_frame err_f);
 void err_frame_apply(context_frame err_f, context_frame f);
@@ -698,10 +705,19 @@ void irq_put_target_cpu(u32 cpu_id);
 
 void init_scheduler(heap);
 void init_scheduler_cpus(heap h);
-void mm_service(boolean flush);
+boolean mem_service(void);
+u64 mem_clean(u64 clean_bytes, boolean can_wait);
 
 closure_type(mem_cleaner, u64, u64 clean_bytes);
 boolean mm_register_mem_cleaner(mem_cleaner cleaner);
+
+#define MEMCLEAN_CANWAIT    U32_FROM_BIT(0)
+#define MEMCLEAN_OOM        U32_FROM_BIT(1)
+
+/* "Waiting" cleaner, i.e. a cleaner that can optionally wait (for work to be done by peripherals or
+ * other CPUs) when releasing memory. */
+closure_type(mem_wcleaner, u64, u64 clean_bytes, u32 flags);
+boolean mm_register_mem_wcleaner(mem_wcleaner cleaner);
 
 kernel_heaps get_kernel_heaps(void);
 

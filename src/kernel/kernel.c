@@ -23,8 +23,7 @@ void *memset(void *a, u8 b, bytes len)
 void *allocate_stack(heap h, u64 size)
 {
     u64 padsize = pad(size, h->pagesize);
-    void *base = allocate_zero(h, padsize);
-    assert(base != INVALID_ADDRESS);
+    void *base = mem_alloc(h, padsize, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     return base + padsize - STACK_ALIGNMENT;
 }
 
@@ -32,6 +31,26 @@ void deallocate_stack(heap h, u64 size, void *stack)
 {
     u64 padsize = pad(size, h->pagesize);
     deallocate(h, u64_from_pointer(stack) - padsize + STACK_ALIGNMENT, padsize);
+}
+
+void *mem_alloc(heap h, bytes size, u32 flags)
+{
+    void *p = allocate(h, size);
+    while (p == INVALID_ADDRESS) {
+        u64 cleaned = mem_clean(size, !(flags & MEM_NOWAIT));
+        p = allocate(h, size);
+        if (cleaned == 0)
+            break;
+    }
+    if (p != INVALID_ADDRESS) {
+        if (flags & MEM_ZERO)
+            zero(p, size);
+    } else if (flags & MEM_NOFAIL) {
+        msg_err("Out of memory: cannot allocate %ld bytes", size);
+        print_frame_trace_from_here();
+        kernel_shutdown(VM_EXIT_HALT);
+    }
+    return p;
 }
 
 void print_frame_trace(u64 *fp)
@@ -117,10 +136,12 @@ closure_func_basic(thunk, void, kernel_context_return)
 
 static void kernel_context_pre_suspend(context ctx);
 
-void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q)
+boolean init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q,
+                            u32 alloc_flags)
 {
     context c = &kc->context;
-    init_context(c, type);
+    if (!init_context(c, type, alloc_flags))
+        return false;
     init_refcount(&c->refcount, 1, init_closure(&kc->free, free_kernel_context,
                                                 free_ctx_q, false));
     c->pause = kernel_context_pause;
@@ -134,16 +155,22 @@ void init_kernel_context(kernel_context kc, int type, int size, queue free_ctx_q
     frame_set_stack_top(c->frame, stack_top);
     kc->size = size;
     context_clear_err(c);
+    return true;
 }
 
 kernel_context allocate_kernel_context(cpuinfo ci)
 {
     build_assert((KERNEL_CONTEXT_SIZE & (KERNEL_CONTEXT_SIZE - 1)) == 0);
-    kernel_context kc = allocate(heap_locked(get_kernel_heaps()),
-                                 KERNEL_CONTEXT_SIZE);
+    heap h = heap_locked(get_kernel_heaps());
+    u32 alloc_flags = MEM_NOWAIT;   /* this function can be called when suspending a context */
+    kernel_context kc = mem_alloc(h, KERNEL_CONTEXT_SIZE, alloc_flags);
     if (kc == INVALID_ADDRESS)
         return kc;
-    init_kernel_context(kc, CONTEXT_TYPE_KERNEL, KERNEL_CONTEXT_SIZE, ci->free_kernel_contexts);
+    if (!init_kernel_context(kc, CONTEXT_TYPE_KERNEL, KERNEL_CONTEXT_SIZE, ci->free_kernel_contexts,
+                             alloc_flags)) {
+        deallocate(h, kc, KERNEL_CONTEXT_SIZE);
+        return INVALID_ADDRESS;
+    }
     return kc;
 }
 
@@ -229,6 +256,44 @@ void __attribute__((noreturn)) context_switch_finish(context prev, context next,
     }
     ((void (*)(u64, u64))a)(arg0, arg1);
     runloop();
+}
+
+u64 context_stack_space(void)
+{
+    context ctx = get_current_context(current_cpu());
+    void *stack_bottom = (void *)ctx + sizeof(struct kernel_context);
+    void *stack_pointer = __builtin_frame_address(0);
+    return (stack_pointer - stack_bottom);
+}
+
+closure_function(2, 1, void, wait_for_complete,
+                 context, ctx, status *, sp,
+                 status s)
+{
+    *bound(sp) = s;
+    context_schedule_return(bound(ctx));
+}
+
+status wait_for(void (*func)(status_handler complete))
+{
+    context ctx = get_current_context(current_cpu());
+    status s;
+    status_handler completion = stack_closure(wait_for_complete, ctx, &s);
+    context_pre_suspend(ctx);
+    func(completion);
+    context_suspend();
+    return s;
+}
+
+status wait_for_task(async_task task)
+{
+    context ctx = get_current_context(current_cpu());
+    status s;
+    status_handler completion = stack_closure(wait_for_complete, ctx, &s);
+    context_pre_suspend(ctx);
+    apply(task, completion);
+    context_suspend();
+    return s;
 }
 
 void register_percpu_init(thunk t)

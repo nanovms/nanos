@@ -26,7 +26,7 @@ void page_invalidate(flush_entry f, u64 address)
     flush_tlb(true);
 }
 
-void page_invalidate_sync(flush_entry f)
+void page_invalidate_sync(flush_entry f, thunk completion, boolean wait)
 {
 }
 
@@ -46,8 +46,7 @@ void *bootstrap_page_tables(heap initial)
 {
     /* page table setup */
     init_page_tables(initial);
-    void *pgdir = allocate_zero(initial, PAGESIZE);
-    assert(pgdir != INVALID_ADDRESS);
+    void *pgdir = mem_alloc(initial, PAGESIZE, MEM_ZERO | MEM_NOFAIL);
     pagebase = u64_from_pointer(pgdir);
     return pgdir;
 }

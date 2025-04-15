@@ -72,8 +72,7 @@ static boolean detect(apic_iface i, kernel_heaps kh)
 {
     /* not really a detect, but the default if x2apic isn't
        available...so must be called last */
-    xapic_vbase = allocate_u64((heap)heap_virtual_page(kh), PAGESIZE);
-    assert(xapic_vbase != INVALID_PHYSICAL);
+    xapic_vbase = mem_alloc_u64((heap)heap_virtual_page(kh), PAGESIZE, MEM_NOWAIT | MEM_NOFAIL);
     map(xapic_vbase, APIC_BASE, PAGESIZE, pageflags_writable(pageflags_device()));
     xapic_debug("xAPIC mode initialized\n");
     return true;

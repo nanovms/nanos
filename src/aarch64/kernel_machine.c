@@ -226,12 +226,14 @@ void count_cpus_present(void)
 
 #ifdef KERNEL
 #define EXTENDED_FRAME_SIZE (FRAME_EXTENDED_MAX * sizeof(u64))
-void init_context_machine(context c)
+boolean init_context_machine(context c, u32 alloc_flags)
 {
-    void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()),
-                            EXTENDED_FRAME_SIZE);
-    assert(e != INVALID_ADDRESS);
+    void *e = mem_alloc((heap)heap_page_backed(get_kernel_heaps()), EXTENDED_FRAME_SIZE,
+                        alloc_flags | MEM_ZERO);
+    if (e == INVALID_ADDRESS)
+        return false;
     c->frame[FRAME_EXTENDED] = u64_from_pointer(e);
+    return true;
 }
 
 void destruct_context(context c)

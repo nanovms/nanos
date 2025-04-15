@@ -21,14 +21,54 @@ struct flush_entry {
     u64 gen;
     struct refcount ref;
     boolean flush;
+    volatile boolean wait;
+    u32 joined;
     u64 pages[FLUSH_THRESHOLD];
     int npages;
+    thunk completion;
     closure_struct(thunk, finish);
 };
 
 closure_func_basic(thunk, void, flush_complete)
 {
     queue_flush_service();
+}
+
+/* Can temporarily drop the reader lock while waiting on a given flush entry. */
+static boolean flush_gen_rlocked(word gen, cpuinfo ci, boolean full_flush)
+{
+    word oldgen = ci->inval_gen;
+    ci->inval_gen = gen;
+    list_foreach(&entries, l) {
+        flush_entry f = struct_from_list(l, flush_entry, l);
+        if (f->gen <= oldgen)
+            continue;
+        if (f->gen > gen)
+            break;
+        if (!full_flush) {
+            if (f->flush) {
+                full_flush = true;
+            } else {
+                for (int i = 0; i < f->npages; i++)
+                    invalidate(f->pages[i]);
+            }
+        }
+        if (f->wait) {
+            /* To avoid deadlock if another CPU is doing the flush service (for which it needs
+             * to acquire the lock as writer), temporarily drop the reader lock while waiting.
+             * It is OK to drop the lock while in the middle of list traversal, because:
+             * - only entries before the current entry in the list can be deleted
+             * - only entries after the current entry in the list can be added
+             */
+            spin_runlock(&flush_lock);
+            fetch_and_add_32(&f->joined, 1);
+            while (f->wait)
+                kern_pause();
+            spin_rlock(&flush_lock);
+        }
+        refcount_release(&f->ref);
+    }
+    return full_flush;
 }
 
 /* must be called with interrupts off */
@@ -40,26 +80,8 @@ static void _flush_handler(void)
     boolean full_flush = inval_gen - ci->inval_gen > FLUSH_THRESHOLD;
 
     spin_rlock(&flush_lock);
-    while (ci->inval_gen != inval_gen) {
-        word oldgen = ci->inval_gen;
-        ci->inval_gen = inval_gen;
-        list_foreach(&entries, l) {
-            flush_entry f = struct_from_list(l, flush_entry, l);
-            if (f->gen <= oldgen)
-                continue;
-            if (f->gen > ci->inval_gen)
-                break;
-            if (!full_flush) {
-                if (f->flush)
-                    full_flush = true;
-                else {
-                    for (int i = 0; i < f->npages; i++)
-                        invalidate(f->pages[i]);
-                }
-            }
-            refcount_release(&f->ref);
-        }
-    }
+    while (ci->inval_gen != inval_gen)
+        full_flush = flush_gen_rlocked(inval_gen, ci, full_flush);
     spin_runlock(&flush_lock);
 
     flush_tlb(full_flush);
@@ -97,6 +119,9 @@ static void service_list(void)
             continue;
         list_delete(&f->l);
         entries_count--;
+        thunk completion = f->completion;
+        if (completion)
+            async_apply(completion);
         assert(enqueue(free_flush_entries, f));
     }
 }
@@ -119,7 +144,7 @@ static void queue_flush_service(void)
     }
 }
 
-void page_invalidate_sync(flush_entry f)
+void page_invalidate_sync(flush_entry f, thunk completion, boolean rendezvous)
 {
     if (initialized) {
         if (f->npages == 0) {
@@ -128,6 +153,13 @@ void page_invalidate_sync(flush_entry f)
         }
         init_refcount(&f->ref, total_processors,
                       init_closure_func(&f->finish, thunk, flush_complete));
+        f->wait = rendezvous;
+        if (rendezvous) {
+            f->joined = 1;
+            f->completion = 0;  /* the completion is invoked during the rendez-vous */
+        } else {
+            f->completion = completion; /* the completion is invoked asynchronously */
+        }
 
         u64 flags = irq_disable_save();
         spin_wlock(&flush_lock);
@@ -148,14 +180,32 @@ void page_invalidate_sync(flush_entry f)
         }
         list_push_back(&entries, &f->l);
         entries_count++;
-        f->gen = fetch_and_add((word *)&inval_gen, 1) + 1;
+        word prev_gen = fetch_and_add((word *)&inval_gen, 1);
+        f->gen = prev_gen + 1;
         spin_wunlock(&flush_lock);
 
         send_ipi(TARGET_EXCLUSIVE_BROADCAST, flush_ipi);
+        if (rendezvous) {
+            boolean full_flush = false;
+            while (((volatile flush_entry)f)->joined < total_processors) {
+                /* Another CPU might be waiting for us to join another rendezvous: to avoid
+                 * deadlock, handle any flush entries older than the current entry. */
+                spin_rlock(&flush_lock);
+                full_flush = flush_gen_rlocked(prev_gen, current_cpu(), full_flush);
+                spin_runlock(&flush_lock);
+                kern_pause();
+            }
+            apply(completion);
+            f->wait = false;
+            if (full_flush)
+                flush_tlb(full_flush);
+        }
         _flush_handler();
         irq_restore(flags);
     } else {
         flush_tlb(false);
+        if (completion)
+            async_apply(completion);
     }
 }
 
@@ -166,16 +216,15 @@ flush_entry get_page_flush_entry(void)
     if (!initialized)
         return 0;
 
-    u64 flags = irq_disable_save();
-    /* Do the flush work here if this cpu gets too far behind which
-        * can happen with large mapping operations */
-    if (inval_gen - current_cpu()->inval_gen > FLUSH_THRESHOLD)
-        _flush_handler();
-    irq_restore(flags);
-
     /* This spins because it must succeed */
-    while ((fe = dequeue(free_flush_entries)) == INVALID_ADDRESS)
+    while ((fe = dequeue(free_flush_entries)) == INVALID_ADDRESS) {
+        /* Do the flush work to ensure the free queue is not starved by this CPU getting too far
+         * behind. */
+        u64 flags = irq_disable_save();
+        _flush_handler();
+        irq_restore(flags);
         kern_pause();
+    }
 
     assert(fe != INVALID_ADDRESS);
     runtime_memset((void *)fe, 0, sizeof(*fe));

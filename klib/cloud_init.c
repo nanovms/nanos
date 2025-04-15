@@ -488,8 +488,7 @@ define_closure_function(2, 2, void, cloud_download_task,
 
 static int cloud_download_file_parse(tuple config, vector tasks)
 {
-    cloud_download_file parsed_cfg = allocate(cloud_heap, sizeof(*parsed_cfg));
-    assert(parsed_cfg != INVALID_ADDRESS);
+    cloud_download_file parsed_cfg = mem_alloc(cloud_heap, sizeof(*parsed_cfg), MEM_NOFAIL);
     status_handler sh = (status_handler)&parsed_cfg->download.complete;
     download_recv recv = init_closure(&parsed_cfg->recv, cloud_download_file_recv,
                                       INVALID_ADDRESS, 0, 0, sh);
@@ -634,8 +633,7 @@ closure_func_basic(thunk, void, cloud_download_env_cleanup)
 
 static int cloud_download_env_parse(tuple config, vector tasks)
 {
-    cloud_download_env cfg = allocate(cloud_heap, sizeof(*cfg));
-    assert(cfg != INVALID_ADDRESS);
+    cloud_download_env cfg = mem_alloc(cloud_heap, sizeof(*cfg), MEM_NOFAIL);
     download_recv recv = init_closure(&cfg->recv, cloud_download_env_recv,
                                       INVALID_ADDRESS, STATUS_OK);
     thunk cleanup = init_closure_func(&cfg->cleanup, thunk, cloud_download_env_cleanup);

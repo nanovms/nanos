@@ -23,8 +23,7 @@ u64 mmapheap_alloc(heap h, bytes size)
 
 heap allocate_mmapheap(heap meta, bytes size)
 {
-    heap h = allocate_zero(meta, sizeof(struct heap));
-    assert(h != INVALID_ADDRESS);
+    heap h = mem_alloc(meta, sizeof(struct heap), MEM_ZERO | MEM_NOFAIL);
     h->alloc = mmapheap_alloc;
     h->dealloc = mmapheap_dealloc;
     h->pagesize = pad(size, 4096);

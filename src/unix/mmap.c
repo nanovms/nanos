@@ -161,11 +161,11 @@ closure_function(3, 3, boolean, vmap_anon_ptes,
 }
 
 /* returns true if successful */
-boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags)
+boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags, void *kvirt)
 {
     u64 page_addr = v & ~MASK(PAGELOG);
     u64 page_size = PAGESIZE;
-    if (vm->flags & VMAP_FLAG_THP) {
+    if ((kvirt == INVALID_ADDRESS) && (vm->flags & VMAP_FLAG_THP)) {
         u64 max_size = mmap_info.thp_max_size;
         while ((page_size < max_size) && (page_addr >= vm->node.r.start) &&
                (page_addr + page_size <= vm->node.r.end)) {
@@ -182,16 +182,23 @@ boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags)
              page_addr, page_size);
     traverse_ptes(page_addr, page_size, stack_closure(vmap_anon_ptes, v, &page_addr, &page_size));
     pf_debug("  after traversing PTEs: page_addr 0x%lx, page_size 0x%lx\n", page_addr, page_size);
-    if (page_size == 0)
+    if (page_size == 0) {
         /* The mapping must have been done in parallel by another CPU. */
+        if (kvirt != INVALID_ADDRESS)
+            deallocate(mmap_info.virtual_backed, kvirt, PAGESIZE);
         return true;
+    }
     void *m;
-    while ((m = allocate(mmap_info.virtual_backed, page_size)) == INVALID_ADDRESS) {
-        if (page_size == PAGESIZE) {
-            vmap_debug("%s: cannot get physical page\n", func_ss);
-            return false;
+    if (kvirt == INVALID_ADDRESS) {
+        while ((m = allocate(mmap_info.virtual_backed, page_size)) == INVALID_ADDRESS) {
+            if (page_size == PAGESIZE) {
+                vmap_debug("%s: cannot get physical page\n", func_ss);
+                return false;
+            }
+            VMAP_PAGE_SHRINK(v, page_addr, page_size);
         }
-        VMAP_PAGE_SHRINK(v, page_addr, page_size);
+    } else {
+        m = kvirt;
     }
     zero(m, page_size);
     write_barrier();
@@ -209,7 +216,7 @@ static void demand_page_major_fault(context ctx)
 closure_func_basic(thunk, void, pending_fault_anonymous)
 {
     pending_fault pf = struct_from_closure(pending_fault, async_handler);
-    mm_service(true);
+    pf->page_kvirt = mem_alloc(mmap_info.virtual_backed, PAGESIZE, 0);
     thunk complete = (thunk)&pf->complete;
     apply(complete);
 }
@@ -217,7 +224,8 @@ closure_func_basic(thunk, void, pending_fault_anonymous)
 static status demand_anonymous_page(process p, context ctx, u64 vaddr, vmap vm, pending_fault *pf)
 {
     pageflags flags = pageflags_from_vmflags(vm->flags);
-    if (new_zeroed_pages(vaddr, vm, flags))
+    void *kvirt = *pf ? (*pf)->page_kvirt : INVALID_ADDRESS;
+    if (new_zeroed_pages(vaddr, vm, flags, kvirt))
         return STATUS_OK;
     else if (*pf)
         return timm_oom;
@@ -234,7 +242,6 @@ static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, void
 {
     u64 vmap_offset = page_addr - vm->node.r.start;
     boolean pagecache_map;
-    status s;
     pagetable_lock();
     u64 p = __physical_from_virtual_locked(pointer_from_u64(page_addr));
     if (p == INVALID_PHYSICAL) {
@@ -243,17 +250,8 @@ static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, void
         if (vm->flags & VMAP_FLAG_TAIL_BSS) {
             u64 bss_offset = vm->bss_offset;
             if (point_in_range(irangel(vmap_offset, PAGESIZE), bss_offset)) {
-                pagecache_map = false;
-                void *new_page = allocate(mmap_info.virtual_backed, PAGESIZE);
-                if (new_page == INVALID_ADDRESS) {
-                    vmap_debug("%s: cannot get physical page\n", func_ss);
-                    s = timm_oom;
-                    goto out;
-                }
                 u64 bss_start = bss_offset - vmap_offset;
-                runtime_memcpy(new_page, kvirt, bss_start);
-                zero(new_page + bss_start, PAGESIZE - bss_start);
-                p = physical_from_virtual(new_page);
+                zero(kvirt + bss_start, PAGESIZE - bss_start);
             }
         }
         map_nolock(page_addr, p, PAGESIZE, flags);
@@ -261,19 +259,17 @@ static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, void
         /* The mapping must have been done in parallel by another CPU. */
         pagecache_map = false;
     }
-    s = STATUS_OK;
-  out:
     pagetable_unlock();
     if (!pagecache_map)
         pagecache_release_page(vm->cache_node, vm->node_offset + vmap_offset);
-    return s;
+    return STATUS_OK;
 }
 
 closure_func_basic(pagecache_page_handler, void, pending_fault_page_handler,
                    void *kvirt)
 {
     pending_fault pf = struct_from_closure(pending_fault, filebacked.demand_file_page);
-    pf->filebacked.page_kvirt = kvirt;
+    pf->page_kvirt = kvirt;
     thunk complete = (thunk)&pf->complete;
     apply(complete);
 }
@@ -284,7 +280,8 @@ closure_func_basic(thunk, void, pending_fault_filebacked)
     pagecache_page_handler h = init_closure_func(&pf->filebacked.demand_file_page,
                                                  pagecache_page_handler,
                                                  pending_fault_page_handler);
-    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, h);
+    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, pf->filebacked.private_page,
+                       h);
 }
 
 static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm, pending_fault *pf)
@@ -295,7 +292,8 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
     pagecache_node pn = vm->cache_node;
     u64 node_offset = vm->node_offset + vmap_offset;
     boolean shared = (vm->flags & VMAP_FLAG_SHARED) != 0;
-    if (!shared && !(vm->flags & VMAP_FLAG_PROG))
+    boolean private_page = (vm->flags & VMAP_FLAG_PROG) && (vm->flags & VMAP_FLAG_WRITABLE);
+    if (!shared && !private_page)
         flags = pageflags_readonly(flags); /* cow */
 
     pf_debug("   node %p (start 0x%lx), offset 0x%lx, vm flags 0x%lx, pageflags 0x%lx\n",
@@ -311,7 +309,7 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
     void *kvirt;
     status s;
     if (!*pf) {
-        kvirt = pagecache_get_page_if_filled(pn, node_offset);
+        kvirt = pagecache_get_page_if_filled(pn, node_offset, private_page);
         if (kvirt != INVALID_ADDRESS)
             return mmap_filebacked_page(vm, page_addr, flags, kvirt);
         pending_fault new_pf = new_pending_fault_locked(p, ctx, vaddr);
@@ -321,13 +319,14 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
             new_pf->filebacked.pn = pn;
             new_pf->filebacked.node_offset = node_offset;
             init_closure_func(&new_pf->async_handler, thunk, pending_fault_filebacked);
+            new_pf->filebacked.private_page = private_page;
         }
         *pf = new_pf;
         return STATUS_OK;
     }
     if (((*pf)->filebacked.pn != pn) || ((*pf)->filebacked.node_offset != node_offset))
         return STATUS_OK;
-    kvirt = (*pf)->filebacked.page_kvirt;
+    kvirt = (*pf)->page_kvirt;
     if (kvirt == INVALID_ADDRESS)
         s = timm_oom;
     else
@@ -1196,7 +1195,7 @@ closure_func_basic(vmap_handler, boolean, msync_vmap,
         (vm->flags & VMAP_FLAG_MMAP) &&
         (vm->flags & VMAP_MMAP_TYPE_MASK) == VMAP_MMAP_TYPE_FILEBACKED) {
         vmap_assert(vm->cache_node);
-        pagecache_node_scan_and_commit_shared_pages(vm->cache_node, vm->node.r);
+        pagecache_node_scan(vm->cache_node, vm->node.r, 0);
     }
     return true;
 }
@@ -1397,8 +1396,9 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
     vm->fault = k.fault;
     vmap_unlock(p);
 
-    if (vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED && (vmflags & VMAP_FLAG_SHARED))
-        pagecache_node_add_shared_map(node, irangel(q.start, len), offset);
+    if (vmap_mmap_type == VMAP_MMAP_TYPE_FILEBACKED)
+        pagecache_node_add_mapping(node, irangel(q.start, len), offset,
+                                   !!(vmflags & VMAP_FLAG_SHARED));
 
     /* as man page suggests, ignore MAP_POPULATE if MAP_NONBLOCK is specified */
     if ((flags & (MAP_POPULATE | MAP_NONBLOCK)) == MAP_POPULATE && (prot & PROT_READ)) {
@@ -1587,8 +1587,7 @@ void mmap_process_init(process p, tuple root)
         p->mmap_min_addr = PAGESIZE;
     p->vmaps = allocate_rangemap(h);
     assert(p->vmaps != INVALID_ADDRESS);
-    vmap_heap vmh = allocate(h, sizeof(struct vmap_heap));
-    assert(vmh != INVALID_ADDRESS);
+    vmap_heap vmh = mem_alloc(h, sizeof(struct vmap_heap), MEM_NOFAIL);
     vmh->h.alloc = vmh_alloc;
     vmh->h.dealloc = vmh_dealloc;
     vmh->h.allocated = vmh_allocated;

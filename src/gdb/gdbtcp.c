@@ -40,8 +40,7 @@ static err_t gdb_accept(void *z, struct tcp_pcb *pcb, err_t b)
 // should use unix api?
 void init_tcp_gdb(heap h, process p, u16 port)
 {
-    tcpgdb g = (tcpgdb) allocate(h, sizeof(struct tcpgdb));
-    assert(g != INVALID_ADDRESS);
+    tcpgdb g = mem_alloc(h, sizeof(struct tcpgdb), MEM_NOFAIL);
     g->p = tcp_new_ip_type(IPADDR_TYPE_ANY);
     // XXX threads lock taken here...shouldn't be issue but validate
     g->input = init_gdb(h, p, closure(h, gdb_send, g));

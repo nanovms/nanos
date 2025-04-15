@@ -318,8 +318,8 @@ static void init_setup_stack(void)
     init_kernel_heaps();
     init_debug("allocating stack\n");
     u64 stack_size = 32 * PAGESIZE;
-    void *stack_base = allocate((heap)heap_page_backed(get_kernel_heaps()), stack_size);
-    assert(stack_base != INVALID_ADDRESS);
+    void *stack_base = mem_alloc((heap)heap_page_backed(get_kernel_heaps()), stack_size,
+                                 MEM_NOWAIT | MEM_NOFAIL);
     init_debug("stack base at ");
     init_debug_u64(u64_from_pointer(stack_base));
     init_debug("\n");
@@ -399,8 +399,8 @@ static void platform_dtb_parse(kernel_heaps kh, vector cpu_ids)
                     u64 ecam_base_virt;
                     if (highmem) {
                         u64 ecam_len = range_span(r);
-                        ecam_base_virt = allocate_u64((heap)heap_virtual_page(kh), ecam_len);
-                        assert(ecam_base_virt != INVALID_PHYSICAL);
+                        ecam_base_virt = mem_alloc_u64((heap)heap_virtual_page(kh), ecam_len,
+                                                       MEM_NOWAIT | MEM_NOFAIL);
                         map(ecam_base_virt, ecam_base, ecam_len,
                             pageflags_writable(pageflags_device()));
                     } else {

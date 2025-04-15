@@ -124,8 +124,7 @@ closure_function(3, 1, status, load_klib_complete,
 {
     heap h = heap_locked(klib_kh);
     klib_handler complete = bound(complete);
-    klib kl = allocate(h, sizeof(struct klib));
-    assert(kl != INVALID_ADDRESS);
+    klib kl = mem_alloc(h, sizeof(struct klib), MEM_NOFAIL);
 
     kl->mappings = allocate_rangemap(h);
     assert(kl->mappings != INVALID_ADDRESS);
@@ -136,8 +135,7 @@ closure_function(3, 1, status, load_klib_complete,
     klib_debug("%s: klib %b, read length %ld\n", func_ss, kl->name, buffer_length(b));
     kl->load_range = irange(0, 0);
     walk_elf(b, stack_closure(klib_elf_walk, kl));
-    u64 where = allocate_u64(kas_heap, range_span(kl->load_range));
-    assert(where != INVALID_PHYSICAL);
+    u64 where = mem_alloc_u64(kas_heap, range_span(kl->load_range), MEM_NOFAIL);
     kl->load_range = range_add(kl->load_range, where);
 
     klib_debug("   loading klib @ %R, resolving relocations\n", kl->load_range);
@@ -361,8 +359,7 @@ void init_klib(kernel_heaps kh, void *fs, tuple config_root, status_handler comp
         c = children(test_dir);
     }
     if (c) {
-        klib_autoload autoload = allocate(h, sizeof(*autoload));
-        assert(autoload != INVALID_ADDRESS);
+        klib_autoload autoload = mem_alloc(h, sizeof(*autoload), MEM_NOFAIL);
         list_init(&autoload->retry_klibs);
         status_handler kl_complete = init_closure_func(&autoload->kl_complete, status_handler,
                                                        klibs_complete);

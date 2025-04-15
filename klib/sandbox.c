@@ -31,8 +31,7 @@ int init(status_handler complete)
     heap h = heap_locked(get_kernel_heaps());
     for (int i = 0; i < SYS_MAX; i++) {
         bytes handler_memsize = 2 * sizeof(sb_syscall_handler);
-        void *handlers_mem = allocate(h, handler_memsize);
-        assert(handlers_mem != INVALID_ADDRESS);
+        void *handlers_mem = mem_alloc(h, handler_memsize, MEM_NOFAIL);
         init_buffer(&sb_syscalls[i].sb_handlers, handler_memsize, false, h, handlers_mem);
     }
     tuple pledge_cfg = get_tuple(sb_config, sym(pledge));

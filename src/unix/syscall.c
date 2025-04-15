@@ -2432,13 +2432,17 @@ static void syscall_context_pre_suspend(context ctx)
 syscall_context allocate_syscall_context(cpuinfo ci)
 {
     build_assert((SYSCALL_CONTEXT_SIZE & (SYSCALL_CONTEXT_SIZE - 1)) == 0);
-    syscall_context sc = allocate(heap_locked(get_kernel_heaps()),
-                                  SYSCALL_CONTEXT_SIZE);
+    heap h = heap_locked(get_kernel_heaps());
+    u32 alloc_flags = MEM_NOWAIT;   /* this function can be called when suspending a context */
+    syscall_context sc = mem_alloc(h, SYSCALL_CONTEXT_SIZE, alloc_flags);
     if (sc == INVALID_ADDRESS)
         return sc;
     context c = &sc->uc.kc.context;
-    init_unix_context(&sc->uc, CONTEXT_TYPE_SYSCALL, SYSCALL_CONTEXT_SIZE,
-                      ci->free_syscall_contexts);
+    if (!init_unix_context(&sc->uc, CONTEXT_TYPE_SYSCALL, SYSCALL_CONTEXT_SIZE,
+                           ci->free_syscall_contexts, alloc_flags)) {
+        deallocate(h, sc, SYSCALL_CONTEXT_SIZE);
+        return INVALID_ADDRESS;
+    }
     c->pause = syscall_context_pause;
     c->resume = syscall_context_resume;
     c->pre_suspend = syscall_context_pre_suspend;
