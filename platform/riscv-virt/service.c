@@ -63,6 +63,11 @@ range kern_get_elf(void)
     return irange(INVALID_PHYSICAL, INVALID_PHYSICAL);
 }
 
+range kern_get_ramdisk(void)
+{
+    return irange(INVALID_PHYSICAL, INVALID_PHYSICAL);
+}
+
 void reclaim_regions(void)
 {
     /* mmu init complete; unmap temporary identity map */

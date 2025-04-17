@@ -602,6 +602,7 @@ void init_platform_devices(kernel_heaps kh);
 void init_cpuinfo_machine(cpuinfo ci, heap backed);
 void kernel_runtime_init(kernel_heaps kh);
 range kern_get_elf(void);
+range kern_get_ramdisk(void);
 void reclaim_regions(void);
 
 extern u64 kernel_phys_offset;

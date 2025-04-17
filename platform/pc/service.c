@@ -18,12 +18,15 @@
 #include <pci.h>
 #include <xen_platform.h>
 #include <virtio/virtio.h>
+#include <drivers/ramdisk.h>
 #include <vmware/vmware.h>
 #include "serial.h"
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
 #define BOOT_PARAM_OFFSET_BOOT_FLAG     0x01FE
 #define BOOT_PARAM_OFFSET_HEADER        0x0202
+#define BOOT_PARAM_OFFSET_RAMDISK_IMAGE 0x0218
+#define BOOT_PARAM_OFFSET_RAMDISK_SIZE  0x021C
 #define BOOT_PARAM_OFFSET_CMD_LINE_PTR  0x0228
 #define BOOT_PARAM_OFFSET_CMDLINE_SIZE  0x0238
 #define BOOT_PARAM_OFFSET_E820_TABLE    0x02D0
@@ -64,12 +67,30 @@ typedef struct hvm_memmap_entry {
     u32 reserved;
 } *hvm_memmap_entry;
 
+typedef struct hvm_modlist_entry {
+    u64 paddr;
+    u64 size;
+    u64 cmdline_paddr;
+    u64 reserved;
+} *hvm_modlist_entry;
+
 extern u8 START, END;
+
+boolean cmdline_verbose_logging = false;
 
 range kern_get_elf(void)
 {
     for_regions(e) {
         if (e->type == REGION_KERNIMAGE)
+            return irangel(e->base, e->length);
+    }
+    return irange(INVALID_PHYSICAL, INVALID_PHYSICAL);
+}
+
+range kern_get_ramdisk(void)
+{
+    for_regions(e) {
+        if (e->type == REGION_RAMDISK)
             return irangel(e->base, e->length);
     }
     return irange(INVALID_PHYSICAL, INVALID_PHYSICAL);
@@ -292,20 +313,21 @@ void init_physical_heap(void)
     }
 
     boolean found = false;
-    early_init_debug("physical memory:");
+    if (cmdline_verbose_logging)
+        early_debug("Physical memory: \n");
     for_regions(e) {
 	if (e->type == REGION_PHYSICAL) {
 	    u64 base = e->base;
 	    u64 length = e->length;
 	    if (length == 0)
 		continue;
-#ifdef INIT_DEBUG
-	    early_debug("INIT:  [");
-	    early_debug_u64(base);
-	    early_debug(", ");
-	    early_debug_u64(base + length);
-	    early_debug(")\n");
-#endif
+        if (cmdline_verbose_logging) {
+            early_debug("\t[");
+            early_debug_u64(base);
+            early_debug(", ");
+            early_debug_u64(base + length);
+            early_debug(")\n");
+        }
 	    if (!pageheap_add_range(base, length))
 		halt("    - id_heap_add_range failed\n");
 	    found = true;
@@ -319,19 +341,59 @@ void init_physical_heap(void)
 static void setup_initmap(void)
 {
     u64 kernel_size = u64_from_pointer(&END) - KERNEL_BASE_PHYS;
+    create_region(KERNEL_BASE_PHYS, kernel_size, REGION_KERN_LOAD);
+
     region page_region = 0;
     for_regions(r) {
-        if ((r->type == REGION_PHYSICAL) && (r->base <= KERNEL_BASE_PHYS) &&
-                (r->base + r->length > KERNEL_BASE_PHYS)) {
-            /* This is the memory region where the kernel has been loaded: adjust the region
-             * boundaries so that the memory occupied by the kernel code does not appear as free
-             * memory, and possibly and make a new memory region. */
-            if (r->base < KERNEL_BASE_PHYS)
-                create_region(r->base, KERNEL_BASE_PHYS - r->base, r->type);
-            region_resize(r, r->base - pad(KERNEL_BASE_PHYS + kernel_size, PAGESIZE));
+        if (r->type == REGION_PHYSICAL) {
+            for_regions(s) {
+                if (s->type != REGION_PHYSICAL &&
+                    s->length != 0 &&
+                    r->base <= s->base &&
+                    r->base + r->length > s->base) {
+                    u64 inner_start = s->base;
+                    u64 inner_end = s->base + s->length;
 
-            page_region = r;
-            break;
+                    if (inner_end > r->base + r->length) {
+                        inner_end = r->base + r->length;
+                    }
+                    if (cmdline_verbose_logging) {
+                        early_debug("Reserving region: [");
+                        early_debug_u64(r->base);
+                        early_debug(" - ");
+                        early_debug_u64(r->base + r->length);
+                        early_debug("] (physmem), [");
+                        early_debug_u64(inner_start);
+                        early_debug(" - ");
+                        early_debug_u64(inner_end);
+                        early_debug("] (");
+                        early_debug_u64(s->type);
+                        early_debug(")\n");
+                    }
+                    if (r->base < inner_start) {
+                        create_region(r->base, inner_start - r->base, r->type);
+                        if (cmdline_verbose_logging) {
+                            early_debug("\tcreate: ");
+                            early_debug_u64(r->base);
+                            early_debug(" - ");
+                            early_debug_u64(inner_start);
+                            early_debug("\n");
+                        }
+                    }
+                    region_resize(r, r->base - pad(inner_end, PAGESIZE));
+                    if (cmdline_verbose_logging) {
+                        early_debug("\tshrink: ");
+                        early_debug_u64(r->base);
+                        early_debug(" - ");
+                        early_debug_u64(r->base + r->length);
+                        early_debug("\n");
+                    }
+                    if (s->type == REGION_KERN_LOAD) {
+                        assert(!page_region);
+                        page_region = r;
+                    }
+                }
+            }
         }
     }
     assert(page_region);
@@ -366,11 +428,14 @@ static void setup_initmap(void)
 }
 
 // init linker set
-void init_service(u64 rdi, u64 rsi)
+void init_service(u64 rdi, u64 rsi, hvm_start_info start_info)
 {
     u8 *params = pointer_from_u64(rsi);
+    boolean should_setup_initmap = false;
     const char *cmdline = 0;
     u32 cmdline_size;
+    void *ramdisk = 0;
+    u32 ramdisk_size;
 
     if (params && (*(u16 *)(params + BOOT_PARAM_OFFSET_BOOT_FLAG) == 0xAA55) &&
             (*(u32 *)(params + BOOT_PARAM_OFFSET_HEADER) == 0x53726448)) {
@@ -389,8 +454,54 @@ void init_service(u64 rdi, u64 rsi)
                 BOOT_PARAM_OFFSET_CMD_LINE_PTR)));
         cmdline_size = *((u32 *)(params + BOOT_PARAM_OFFSET_CMDLINE_SIZE));
 
-        setup_initmap();
+        ramdisk = pointer_from_u64((u64)*((u32 *)(params +
+                BOOT_PARAM_OFFSET_RAMDISK_IMAGE)));
+        ramdisk_size = *((u32 *)(params + BOOT_PARAM_OFFSET_RAMDISK_SIZE));
+
+        should_setup_initmap = true;
+    } else if (start_info)
+    {
+        cmdline = pointer_from_u64(start_info->cmdline_paddr);
+        cmdline_size = 0;
+        const char *cmdline_p = cmdline;
+        while (*cmdline_p)
+        {
+            cmdline_size++;
+            cmdline_p++;
+        }
+
+        if (start_info->nr_modules)
+        {
+            hvm_modlist_entry ramdisk_entry = pointer_from_u64(start_info->modlist_paddr);
+            ramdisk = pointer_from_u64(ramdisk_entry->paddr); 
+            ramdisk_size = ramdisk_entry->size;
+        }
+        should_setup_initmap = true;
     }
+
+    if (cmdline) {
+        create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);
+        sstring input = sstring_from_cstring(cmdline, cmdline_size);
+        sstring token, rest;
+        sstring delim = ss(" ");
+        token = runtime_strtok_r(&input, delim, &rest);
+        while (!sstring_is_null(token)) {
+            if(runtime_strcmp(token, ss("verbose")) == 0) {
+                cmdline_verbose_logging = true;
+            }
+            token = runtime_strtok_r(0, delim, &rest);
+        }
+    }
+
+    if (ramdisk)
+        create_region(u64_from_pointer(ramdisk), ramdisk_size, REGION_RAMDISK);
+
+#ifdef INIT_DEBUG
+    cmdline_verbose_logging = true;
+#endif
+
+    if (should_setup_initmap)
+        setup_initmap();
 
     serial_init();
     early_init_debug("init_service");
@@ -402,8 +513,6 @@ void init_service(u64 rdi, u64 rsi)
     init_hwrand();
     kaslr();
     init_kernel_heaps();
-    if (cmdline)
-        create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);
     u64 stack_size = 32*PAGESIZE;
     u64 stack_location = allocate_u64((heap)heap_page_backed(get_kernel_heaps()), stack_size);
     stack_location += stack_size - STACK_ALIGNMENT;
@@ -421,8 +530,7 @@ void pvh_start(hvm_start_info start_info)
         if (mem_table[i].type == HVM_MEMMAP_TYPE_RAM)
             create_region(mem_table[i].addr, mem_table[i].size, REGION_PHYSICAL);
     }
-    setup_initmap();
-    init_service(0, 0);
+    init_service(0, 0, start_info);
 }
 
 RO_AFTER_INIT static struct console_driver serial_console_driver = {
@@ -499,6 +607,7 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
         init_pvscsi(kh, sa);
         init_nvme(kh, sa);
         init_ata_pci(kh, sa);
+        init_ramdisk(kh, sa);
 
         init_virtio_9p(kh);
         init_virtio_socket(kh);
