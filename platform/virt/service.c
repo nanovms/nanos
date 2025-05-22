@@ -165,7 +165,7 @@ void init_physical_heap(void)
         init_debug_u64(base);
         init_debug("\n");
         assert(!(base & PAGEMASK));
-        map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+        map(kvmem.r.start, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
         range remainder = irange(0, 0);
         uefi_mem_map_iterate(&boot_params.mem_map, stack_closure(add_heap_range, reserved,
                                                                  irangel(base, BOOTSTRAP_SIZE),
@@ -175,7 +175,7 @@ void init_physical_heap(void)
     } else {
         u64 base = PHYSMEM_BASE + INIT_IDENTITY_SIZE;
         u64 end = PHYSMEM_BASE + get_memory_size(pointer_from_u64(DEVICETREE_BLOB_BASE));
-        map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+        map(kvmem.r.start, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
         base += BOOTSTRAP_SIZE;
         init_debug("\nfree base ");
         init_debug_u64(base);

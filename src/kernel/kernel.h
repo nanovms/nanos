@@ -570,11 +570,14 @@ static inline void schedule_timer_service(void)
     current_cpu()->last_timer_update = 0;
 }
 
+extern struct kvmem {
+    range r;        /* range of allowed kernel virtual addresses */
+    range linear;   /* linear mapping of physical memory */
+} kvmem;
+
 static inline boolean is_kernel_memory(void *a)
 {
-    if ((u64)a < KMEM_BASE || (u64)a > KERNEL_LIMIT)
-        return false;
-    return true;
+    return point_in_range(kvmem.r, u64_from_pointer(a));
 }
 
 boolean sched_queue_init(sched_queue sq, heap h);
@@ -592,7 +595,6 @@ static inline boolean sched_queue_empty(sched_queue sq)
 #define BREAKPOINT_IO 10
 #define BREAKPOINT_READ_WRITE 11
 
-#define BOOTSTRAP_BASE  KMEM_BASE
 #define BOOTSTRAP_SIZE  (8 * PAGESIZE)
 
 void kaslr(void);
@@ -631,27 +633,21 @@ backed_heap allocate_page_backed_heap(heap meta, heap virtual, heap physical,
                                       u64 pagesize, boolean locking);
 void page_backed_dealloc_virtual(backed_heap bh, u64 x, bytes length);
 
-backed_heap allocate_linear_backed_heap(heap meta, heap physical, range mapped_virt);
+backed_heap allocate_linear_backed_heap(heap meta, heap physical, range virt, boolean mapped);
 
 static inline boolean is_linear_backed_address(u64 address)
 {
-    return address >= LINEAR_BACKED_BASE && address < LINEAR_BACKED_LIMIT;
-}
-
-static inline boolean intersects_linear_backed(range r)
-{
-    return ranges_intersect(r, irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT));
+    return point_in_range(kvmem.linear, address);
 }
 
 static inline u64 virt_from_linear_backed_phys(u64 address)
 {
-    assert(address < LINEAR_BACKED_BASE);
-    return address | LINEAR_BACKED_BASE;
+    return address + kvmem.linear.start;
 }
 
 static inline u64 phys_from_linear_backed_virt(u64 virt)
 {
-    return virt & ~LINEAR_BACKED_BASE;
+    return virt - kvmem.linear.start;
 }
 
 void unmap_and_free_phys(u64 virtual, u64 length);

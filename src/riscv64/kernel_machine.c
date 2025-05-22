@@ -14,7 +14,9 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize, boolean lo
     heap h = heap_locked(kh);
     heap p = (heap)heap_physical(kh);
     assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
-    u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
+    u64 tagged_mem_limit = kvmem.linear.start & ~MASK(VA_TAG_OFFSET + VA_TAG_WIDTH);
+    u64 tagged_mem_base = tagged_mem_limit - U64_FROM_BIT(VA_TAG_OFFSET + VA_TAG_WIDTH);
+    u64 tag_base = tagged_mem_base | (tag << VA_TAG_OFFSET);
     u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
     heap v = (heap)create_id_heap(h, h, tag_base, tag_length, p->pagesize, false);
     assert(v != INVALID_ADDRESS);

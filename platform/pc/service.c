@@ -283,7 +283,7 @@ void init_physical_heap(void)
             u64 end = e->base + e->length;
             u64 length = (end & ~MASK(PAGELOG)) - base;
             if (length >= BOOTSTRAP_SIZE) {
-                map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+                map(kvmem.r.start, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
                 e->base = base + BOOTSTRAP_SIZE;
                 e->length = end - e->base;
                 break;

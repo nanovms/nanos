@@ -26,7 +26,7 @@ typedef struct kernel_heaps {
     backed_heap page_backed;
 
     /* The linear_backed heap serves physical allocations via a large, linear
-       mapping of the entire physical memory (up to LINEAR_BACKED_PHYSLIMIT)
+       mapping of the entire physical memory (up to the heap limit)
        that is made on initialization. As such, it avoids both allocations
        from a virtual heap and the need to (un)map pages on (de)allocation. It
        uses the largest page mappings provided by the architecture, minimizing

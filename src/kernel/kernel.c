@@ -9,6 +9,8 @@ const sstring context_type_strings[CONTEXT_TYPE_MAX] = {
     ss_static_init("thread"),
 };
 
+BSS_RO_AFTER_INIT struct kvmem kvmem;
+
 struct mm_stats mm_stats;
 
 #ifdef __riscv

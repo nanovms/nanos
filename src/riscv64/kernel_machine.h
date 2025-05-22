@@ -13,10 +13,8 @@
 #define KMEM_BASE               0xffff800000000000ull
 #define LINEAR_BACKED_LIMIT     0xffffffff00000000ull
 #define LINEAR_BACKED_BASE      0xffffc00000000000ull
-#define LINEAR_BACKED_PHYSLIMIT 0x00003fff00000000ull
 #define LINEAR_BACKED_PAGELOG   30
 #define HUGE_PAGESIZE           0x100000000ull
-#define KMEM_LIMIT              LINEAR_BACKED_BASE
 
 #define STACK_ALIGNMENT     16
 
