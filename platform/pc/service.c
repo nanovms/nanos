@@ -398,6 +398,7 @@ void init_service(u64 rdi, u64 rsi, hvm_start_info start_info)
     serial_init();
     early_init_debug("init_service");
 
+    pv_ops.cpuid = x86_cpuid;
     if (do_setup_initmap)
         setup_initmap();
     find_initial_pages();
@@ -406,6 +407,13 @@ void init_service(u64 rdi, u64 rsi, hvm_start_info start_info)
     init_page_initial_map(pointer_from_u64(initial_pages.start), initial_pages);
     init_hwrand();
     kaslr();
+
+    /* Apply the kernel relocation offset to function pointers that have been assigned before the
+     * relocation; avoid direct pointer arithmetic because UBSan doesn't like it.*/
+    u64 offset_cpuid = u64_from_pointer(pv_ops.cpuid) + kas_kern_offset - kernel_phys_offset;
+    pv_ops.cpuid = pointer_from_u64(offset_cpuid);
+
+    pv_ops.frame_return = x86_frame_return;
     init_kernel_heaps();
     if (cmdline)
         create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);

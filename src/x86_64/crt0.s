@@ -124,9 +124,8 @@ interrupt_entry:
         interrupt_common_bottom
         hlt                     ; no return
 
-global frame_return
-frame_return:
-        mov qword [rdi+FRAME_FULL*8], 0
+global x86_frame_return
+x86_frame_return:
         ; check for syscall (CS CPL==2)
         mov al, [rdi+FRAME_CS*8]
         and al, 3

@@ -2,6 +2,8 @@
 #error must be in kernel or VDSO or bootloader build
 #endif
 
+#include "x86.h"
+
 #define MBR_ADDRESS 0x7c00
 
 /*
@@ -219,11 +221,6 @@ extern void write_xmsr(u64, u64);
 #define CPUID_SEV           (1 << 1)
 /* EBX */
 #define CPUID_SME_C_BIT(v)  ((v) & 0x3f)
-
-static inline void cpuid(u32 fn, u32 ecx, u32 * v)
-{
-    asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
-}
 
 static inline u32 cpuid_highest_fn(boolean extended)
 {

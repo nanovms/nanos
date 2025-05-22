@@ -111,6 +111,8 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
 }
 
 #ifdef KERNEL
+BSS_RO_AFTER_INIT struct x86_pv_ops pv_ops;
+
 void init_context_machine(context c)
 {
     void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
@@ -125,5 +127,11 @@ void destruct_context(context c)
         deallocate_u64((heap)heap_page_backed(get_kernel_heaps()), c->frame[FRAME_EXTENDED], extended_frame_size);
         c->frame[FRAME_EXTENDED] = 0;
     }
+}
+
+void __attribute__((noreturn)) frame_return(context_frame f)
+{
+    f[FRAME_FULL] = 0;
+    pv_ops.frame_return(f);
 }
 #endif

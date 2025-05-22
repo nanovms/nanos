@@ -316,7 +316,7 @@ void init_context_machine(context c);
 kernel_context allocate_kernel_context(cpuinfo ci);
 void deallocate_kernel_context(kernel_context kc);
 void init_kernel_contexts(heap backed);
-void frame_return(context_frame f);
+void frame_return(context_frame f) __attribute__((noreturn));
 
 #define CONTEXT_FRAME_SIZE (FRAME_SIZE * sizeof(u64))
 
