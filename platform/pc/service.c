@@ -366,11 +366,12 @@ static void setup_initmap(void)
 }
 
 // init linker set
-void init_service(u64 rdi, u64 rsi)
+void init_service(u64 rdi, u64 rsi, hvm_start_info start_info)
 {
     u8 *params = pointer_from_u64(rsi);
     const char *cmdline = 0;
-    u32 cmdline_size;
+    u32 cmdline_size = 0;
+    boolean do_setup_initmap = false;
 
     if (params && (*(u16 *)(params + BOOT_PARAM_OFFSET_BOOT_FLAG) == 0xAA55) &&
             (*(u32 *)(params + BOOT_PARAM_OFFSET_HEADER) == 0x53726448)) {
@@ -389,12 +390,16 @@ void init_service(u64 rdi, u64 rsi)
                 BOOT_PARAM_OFFSET_CMD_LINE_PTR)));
         cmdline_size = *((u32 *)(params + BOOT_PARAM_OFFSET_CMDLINE_SIZE));
 
-        setup_initmap();
+        do_setup_initmap = true;
+    } else if (start_info) {
+        do_setup_initmap = true;
     }
 
     serial_init();
     early_init_debug("init_service");
 
+    if (do_setup_initmap)
+        setup_initmap();
     find_initial_pages();
     if (!pagebase)
         init_mmu();
@@ -421,8 +426,7 @@ void pvh_start(hvm_start_info start_info)
         if (mem_table[i].type == HVM_MEMMAP_TYPE_RAM)
             create_region(mem_table[i].addr, mem_table[i].size, REGION_PHYSICAL);
     }
-    setup_initmap();
-    init_service(0, 0);
+    init_service(0, 0, start_info);
 }
 
 RO_AFTER_INIT static struct console_driver serial_console_driver = {

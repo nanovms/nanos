@@ -396,6 +396,7 @@ write_xmsr:
 .end:
 
 _start:
+        xor rdx, rdx
         call init_service
         hlt
 .end:
