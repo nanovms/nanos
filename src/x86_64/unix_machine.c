@@ -34,15 +34,16 @@ vsyscall_getcpu(unsigned * cpu, unsigned * node, void * tcache)
 /*
  * Init legacy vsyscall support
  */
-void init_vsyscall(heap phys)
+void init_vsyscall(void)
 {
     /* build vsyscall vectors */
-    u64 p = allocate_u64(phys, PAGESIZE);
-    assert(p != INVALID_PHYSICAL);
+    u64 p;
+    void *vsyscall_page = alloc_map(heap_page_backed(get_kernel_heaps()), PAGESIZE, &p);
+    assert(vsyscall_page != INVALID_ADDRESS);
     pageflags flags = pageflags_exec(pageflags_default_user());
-    map(VSYSCALL_BASE, p, PAGESIZE, pageflags_writable(flags));
+    map(VSYSCALL_BASE, p, PAGESIZE, flags);
 
-    buffer b = alloca_wrap_buffer(pointer_from_u64(VSYSCALL_BASE), PAGESIZE);
+    buffer b = alloca_wrap_buffer(vsyscall_page, PAGESIZE);
     b->end = VSYSCALL_OFFSET_VGETTIMEOFDAY;
     mov_64_imm(b, 0, u64_from_pointer(vsyscall_gettimeofday));
     jump_indirect(b, 0);
@@ -54,7 +55,6 @@ void init_vsyscall(heap phys)
     b->end = VSYSCALL_OFFSET_VGETCPU;
     mov_64_imm(b, 0, u64_from_pointer(vsyscall_getcpu));
     jump_indirect(b, 0);
-    update_map_flags(VSYSCALL_BASE, PAGESIZE, flags);
 
     /* allow user execution for vsyscall pages */
     u64 vs = u64_from_pointer(&vsyscall_start);

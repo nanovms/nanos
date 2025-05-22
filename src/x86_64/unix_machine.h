@@ -222,7 +222,7 @@ struct rt_sigframe {
 /* fixed address per deprecated API */
 #define VSYSCALL_BASE               0xffffffffff600000ull
 
-void init_vsyscall(heap phys);
+void init_vsyscall(void);
 
 static inline pageflags pageflags_from_vmflags(u64 vmflags)
 {
