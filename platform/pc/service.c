@@ -19,6 +19,7 @@
 #include <xen_platform.h>
 #include <virtio/virtio.h>
 #include <vmware/vmware.h>
+#include "pvm.h"
 #include "serial.h"
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
@@ -283,7 +284,7 @@ void init_physical_heap(void)
             u64 end = e->base + e->length;
             u64 length = (end & ~MASK(PAGELOG)) - base;
             if (length >= BOOTSTRAP_SIZE) {
-                map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+                map(kvmem.r.start, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
                 e->base = base + BOOTSTRAP_SIZE;
                 e->length = end - e->base;
                 break;
@@ -366,11 +367,12 @@ static void setup_initmap(void)
 }
 
 // init linker set
-void init_service(u64 rdi, u64 rsi)
+void init_service(u64 rdi, u64 rsi, hvm_start_info start_info)
 {
     u8 *params = pointer_from_u64(rsi);
     const char *cmdline = 0;
-    u32 cmdline_size;
+    u32 cmdline_size = 0;
+    boolean do_setup_initmap = false;
 
     if (params && (*(u16 *)(params + BOOT_PARAM_OFFSET_BOOT_FLAG) == 0xAA55) &&
             (*(u32 *)(params + BOOT_PARAM_OFFSET_HEADER) == 0x53726448)) {
@@ -389,18 +391,38 @@ void init_service(u64 rdi, u64 rsi)
                 BOOT_PARAM_OFFSET_CMD_LINE_PTR)));
         cmdline_size = *((u32 *)(params + BOOT_PARAM_OFFSET_CMDLINE_SIZE));
 
-        setup_initmap();
+        do_setup_initmap = true;
+    } else if (start_info) {
+        do_setup_initmap = true;
     }
 
     serial_init();
     early_init_debug("init_service");
 
+    if (pvm_detect()) {
+        kvmem.r = pvm_get_addr_range();
+        pv_ops.cpuid = pvm_cpuid;
+    } else {
+        pv_ops.cpuid = x86_cpuid;
+    }
+    if (do_setup_initmap)
+        setup_initmap();
     find_initial_pages();
     if (!pagebase)
         init_mmu();
     init_page_initial_map(pointer_from_u64(initial_pages.start), initial_pages);
     init_hwrand();
     kaslr();
+
+    /* Apply the kernel relocation offset to function pointers that have been assigned before the
+     * relocation; avoid direct pointer arithmetic because UBSan doesn't like it.*/
+    u64 offset_cpuid = u64_from_pointer(pv_ops.cpuid) + kas_kern_offset - kernel_phys_offset;
+    pv_ops.cpuid = pointer_from_u64(offset_cpuid);
+
+    if (pvm_detected)
+        pv_ops.frame_return = pvm_frame_return;
+    else
+        pv_ops.frame_return = x86_frame_return;
     init_kernel_heaps();
     if (cmdline)
         create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);
@@ -421,8 +443,7 @@ void pvh_start(hvm_start_info start_info)
         if (mem_table[i].type == HVM_MEMMAP_TYPE_RAM)
             create_region(mem_table[i].addr, mem_table[i].size, REGION_PHYSICAL);
     }
-    setup_initmap();
-    init_service(0, 0);
+    init_service(0, 0, start_info);
 }
 
 RO_AFTER_INIT static struct console_driver serial_console_driver = {
@@ -442,6 +463,8 @@ extern boolean init_tsc_timer(kernel_heaps kh);
 
 void detect_hypervisor(kernel_heaps kh)
 {
+    if (pvm_detected)
+        pvm_setup(kh);
     if (!kvm_detect(kh)) {
         init_debug("probing for Xen hypervisor");
         if (!xen_detect(kh)) {

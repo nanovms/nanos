@@ -31,7 +31,7 @@ BSS_RO_AFTER_INIT static kernel_heaps init_heaps;
 
 #define SHUTDOWN_COMPLETIONS_SIZE 8
 
-static u64 bootstrap_base = BOOTSTRAP_BASE;
+static u64 bootstrap_base;
 BSS_RO_AFTER_INIT static u64 bootstrap_limit;
 static u64 bootstrap_alloc(heap h, bytes length)
 {
@@ -56,6 +56,14 @@ static u64 bootstrap_alloc(heap h, bytes length)
 BSS_RO_AFTER_INIT static struct kernel_heaps heaps;
 BSS_RO_AFTER_INIT static vector shutdown_completions;
 
+static range kas_range(void)
+{
+    range r = kvmem.r;
+    if ((r.start < KERNEL_BASE) && (r.end >= KERNEL_LIMIT))
+        return irange(KERNEL_BASE, KERNEL_LIMIT);
+    return irange(r.end - 2UL * GB, r.end);
+}
+
 /* Kernel address space layout randomization.
  * Functions that call (directly or indirectly) this function must either not return to their
  * caller, or execute `return_offset(kas_kern_offset - kernel_phys_offset)` before returning to
@@ -63,13 +71,16 @@ BSS_RO_AFTER_INIT static vector shutdown_completions;
 void kaslr(void)
 {
     extern u8 START, text_end, READONLY_END, bss_start, END;
+    if (range_span(kvmem.r) == 0)
+        kvmem.r = irange(KMEM_BASE, KERNEL_LIMIT);
+    range kas = kas_range();
 #ifndef NO_KASLR
     u64 ksize = pad(&END - &START, PAGESIZE);
-    u64 random_offset = random_early_u64() % (KERNEL_LIMIT - KERNEL_BASE - ksize);
+    u64 random_offset = random_early_u64() % (range_span(kas) - ksize);
 #else
     u64 random_offset = 0;
 #endif
-    u64 kbase = KERNEL_BASE + (random_offset & ~PAGEMASK);
+    u64 kbase = kas.start + (random_offset & ~PAGEMASK);
     u64 phys_offset = kernel_phys_offset;
     u64 kern_offset = kbase - u64_from_pointer(&START) + phys_offset;
 #ifdef INIT_DEBUG
@@ -104,12 +115,22 @@ void init_kernel_heaps(void)
     BSS_RO_AFTER_INIT static struct heap bootstrap;
     bootstrap.alloc = bootstrap_alloc;
     bootstrap.dealloc = leak;
-    bootstrap_limit = BOOTSTRAP_BASE + BOOTSTRAP_SIZE;
+    bootstrap_base = kvmem.r.start;
+    bootstrap_limit = bootstrap_base + BOOTSTRAP_SIZE;
 
     heaps.physical = pageheap_init(&bootstrap);
     init_physical_heap();
 
-    heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical, irange(0, 0));
+    range kas = kas_range();
+    if ((kvmem.r.start < LINEAR_BACKED_BASE) && (kas.start >= LINEAR_BACKED_LIMIT)) {
+        kvmem.linear = irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT);
+    } else {
+        kvmem.linear.end = kas.start & ~MASK(LINEAR_BACKED_PAGELOG);
+        kvmem.linear.start = (kvmem.linear.end - heap_total(heaps.physical)) &
+                             ~MASK(LINEAR_BACKED_PAGELOG);
+    }
+    heaps.linear_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical, kvmem.linear,
+                                                      false);
 #if defined(MEMDEBUG_BACKED) || defined(MEMDEBUG_ALL)
     heaps.linear_backed = mem_debug_backed(&bootstrap, heaps.linear_backed, PAGESIZE_2M, true);
 #endif
@@ -123,10 +144,11 @@ void init_kernel_heaps(void)
      * which may need up to double the theoretical amount of memory; plus, this allocated memory
      * needs to coexist with previously allocated memory (because deallocation is not implemented);
      * thus, the bootstrap heap needs 4 times the theoretical amount of memory. */
-    u64 kmem_base = pad(bootstrap_limit + ((KMEM_LIMIT - bootstrap_limit) >> (PAGELOG + 1)),
+    u64 kmem_limit = kvmem.linear.start & ~(HUGE_PAGESIZE - 1);
+    u64 kmem_base = pad(bootstrap_limit + ((kmem_limit - bootstrap_limit) >> (PAGELOG + 1)),
                         HUGE_PAGESIZE);
     heaps.virtual_huge = create_id_heap(&bootstrap, &bootstrap, kmem_base,
-                                        KMEM_LIMIT - kmem_base, HUGE_PAGESIZE, true);
+                                        kmem_limit - kmem_base, HUGE_PAGESIZE, true);
 
     /* Pre-allocate all memory that might be needed for the virtual huge heap, so that
      * during runtime all allocations on the bootstrap heap come from a single source protected by a
@@ -139,14 +161,15 @@ void init_kernel_heaps(void)
     boolean kernmem_equals_dmamem = (pageflags_kernel_data().w == pageflags_dma().w);
     if (kernmem_equals_dmamem) {
         heaps.page_backed = heaps.linear_backed;
-        init_page_tables((heap)heaps.physical);
-        virt_base = LINEAR_BACKED_BASE;
+        init_page_tables((heap)heaps.physical, kvmem.linear);
+        virt_base = kvmem.linear.start;
     } else {
         /* The linear_backed heap cannot be used for non-DMA kernel data, thus we need another
          * linear mapping for the page tables: do this mapping, then use it to create the
          * page_backed heap. */
         range mapped_virt = init_page_map_all(heaps.physical, heaps.virtual_huge);
-        heaps.page_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical, mapped_virt);
+        heaps.page_backed = allocate_linear_backed_heap(&bootstrap, heaps.physical, mapped_virt,
+                                                        true);
 #if defined(MEMDEBUG_BACKED) || defined(MEMDEBUG_ALL)
         heaps.page_backed = mem_debug_backed(&bootstrap, heaps.page_backed, PAGESIZE_2M, true);
 #endif
@@ -184,7 +207,7 @@ void init_kernel_heaps(void)
     assert(heaps.malloc != INVALID_ADDRESS);
 
     id_heap kas_ih = create_id_heap(heaps.general, heaps.locked,
-                                    KERNEL_BASE, KERNEL_LIMIT - KERNEL_BASE, PAGESIZE, true);
+                                    kas.start, range_span(kas), PAGESIZE, true);
     assert(kas_ih != INVALID_ADDRESS);
     id_heap_set_randomize(kas_ih, true);
     extern u8 START, END;

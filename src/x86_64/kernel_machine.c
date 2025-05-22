@@ -41,7 +41,9 @@ heap allocate_tagged_region(kernel_heaps kh, u64 tag, bytes pagesize, boolean lo
     heap h = heap_locked(kh);
     heap p = (heap)heap_physical(kh);
     assert(tag < U64_FROM_BIT(VA_TAG_WIDTH));
-    u64 tag_base = KMEM_BASE | (tag << VA_TAG_OFFSET);
+    u64 tagged_mem_limit = kvmem.linear.start & ~MASK(VA_TAG_OFFSET + VA_TAG_WIDTH);
+    u64 tagged_mem_base = tagged_mem_limit - U64_FROM_BIT(VA_TAG_OFFSET + VA_TAG_WIDTH);
+    u64 tag_base = tagged_mem_base | (tag << VA_TAG_OFFSET);
     u64 tag_length = U64_FROM_BIT(VA_TAG_OFFSET);
     heap v = (heap)create_id_heap(h, h, tag_base, tag_length, p->pagesize, false);
     assert(v != INVALID_ADDRESS);
@@ -109,6 +111,8 @@ void init_cpuinfo_machine(cpuinfo ci, heap backed)
 }
 
 #ifdef KERNEL
+BSS_RO_AFTER_INIT struct x86_pv_ops pv_ops;
+
 void init_context_machine(context c)
 {
     void *e = allocate_zero((heap)heap_page_backed(get_kernel_heaps()), extended_frame_size);
@@ -123,5 +127,11 @@ void destruct_context(context c)
         deallocate_u64((heap)heap_page_backed(get_kernel_heaps()), c->frame[FRAME_EXTENDED], extended_frame_size);
         c->frame[FRAME_EXTENDED] = 0;
     }
+}
+
+void __attribute__((noreturn)) frame_return(context_frame f)
+{
+    f[FRAME_FULL] = 0;
+    pv_ops.frame_return(f);
 }
 #endif

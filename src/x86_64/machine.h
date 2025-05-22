@@ -10,7 +10,6 @@
 /* kernel or userland */
 #include <def64.h>
 
-#define KMEM_BASE   0xffff800000000000ull
 #define USER_LIMIT  0x0000800000000000ull
 
 static inline __attribute__((always_inline)) u8 is_immediate(value v)
@@ -25,14 +24,13 @@ static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
 
 #ifdef KERNEL
 
-#define VA_TAG_BASE   KMEM_BASE
+/* Tagged memory is (VA_TAG_OFFSET + VA_TAG_WIDTH) bits long, and needs to be aligned to its length.
+ * The PVM hypervisor allocates 44 bits of address space for the guest; to ensure tagged memory can
+ * be carved out from this space without touching its limits (because memory regions around its
+ * limits are used for other purposes), tagged memory must be at least 2 bits shorter than the total
+ * address space. */
 #define VA_TAG_OFFSET 38
-#define VA_TAG_WIDTH  8
-
-/* not for immediates */
-static inline __attribute__((always_inline)) void *tag(void* v, value_tag t) {
-    return pointer_from_u64(VA_TAG_BASE | (((u64)t) << VA_TAG_OFFSET) | u64_from_pointer(v));
-}
+#define VA_TAG_WIDTH  4
 
 static inline __attribute__((always_inline)) value_tag tagof(void* v) {
     u64 x = u64_from_pointer(v);

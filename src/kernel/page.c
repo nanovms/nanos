@@ -271,10 +271,6 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 {
     page_debug("vaddr 0x%lx, length 0x%lx, flags 0x%lx\n", vaddr, length, flags.w);
 
-#ifdef KERNEL
-    /* Catch any attempt to change page flags in a linear_backed mapping */
-    assert(!intersects_linear_backed(irangel(vaddr, length)));
-#endif
     flush_entry fe = get_page_flush_entry();
     traverse_ptes(vaddr, length, stack_closure(update_pte_flags, vaddr, length, flags, fe));
     page_invalidate_sync(fe);
@@ -677,14 +673,14 @@ range init_page_map_all(heap phys, id_heap virt_heap)
 }
 
 /* pageheap must be a physical memory heap. */
-void init_page_tables(heap pageheap)
+void init_page_tables(heap pageheap, range pagevirt)
 {
     page_init_debug("init_page_tables: pageheap ");
     page_init_debug_u64(u64_from_pointer(pageheap));
     page_init_debug("\n");
     pagemem.current_phys = irange(0, 0);
     pagemem.pageheap = pageheap;
-    pagemem.pagevirt = irange(LINEAR_BACKED_BASE, LINEAR_BACKED_LIMIT);
+    pagemem.pagevirt = pagevirt;
     pagemem.physbase = 0;
 }
 

@@ -1,20 +1,9 @@
         ;;  this isn't c runtime zero, just some assembly stuff
 
-default rel
+%include "x86.inc"
 
-%macro global_func 1
-	global %1:function (%1.end - %1)
-%endmacro
-%macro global_data 1
-	global %1:data (%1.end - %1)
-%endmacro
-        
 global_func _start
 extern  init_service
-
-%include "frame.inc"
-%define FS_MSR        0xc0000100
-%define KERNEL_GS_MSR 0xc0000102
 
 %ifdef DEBUG
 %include "debug.inc"
@@ -42,38 +31,6 @@ extern  init_service
         wrmsr
 %endmacro
 
-extern use_xsave
-
-%macro load_extended_registers 1
-        mov rcx, [%1+FRAME_EXTENDED*8]
-        mov al, [use_xsave]
-        test al, al
-        jnz %%xs
-        fxrstor [rcx]
-        jmp %%out
-%%xs:
-        mov edx, 0xffffffff
-        mov eax, edx
-        xrstor [rcx]
-%%out:
-%endmacro
-
-%macro save_extended_registers 1
-        mov rcx, [%1+FRAME_EXTENDED*8]
-        mov al, [use_xsave]
-        test al, al
-        jnz %%xs
-        fxsave [rcx]  ; we wouldn't have to do this if we could guarantee no other user thread ran before us
-        jmp %%out
-%%xs:
-        mov edx, 0xffffffff
-        mov eax, edx
-        xsave [rcx]
-%%out:
-%endmacro
-
-        
-      
 ;;;  helper so userspace can save a frame without
 ;;; 
 global xsave        
@@ -167,9 +124,8 @@ interrupt_entry:
         interrupt_common_bottom
         hlt                     ; no return
 
-global frame_return
-frame_return:
-        mov qword [rdi+FRAME_FULL*8], 0
+global x86_frame_return
+x86_frame_return:
         ; check for syscall (CS CPL==2)
         mov al, [rdi+FRAME_CS*8]
         and al, 3
@@ -396,6 +352,7 @@ write_xmsr:
 .end:
 
 _start:
+        xor rdx, rdx
         call init_service
         hlt
 .end:

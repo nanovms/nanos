@@ -2,6 +2,8 @@
 #error must be in kernel or VDSO or bootloader build
 #endif
 
+#include "x86.h"
+
 #define MBR_ADDRESS 0x7c00
 
 /*
@@ -10,12 +12,11 @@
   bits 45:38 - tag
  */
 
+#define KMEM_BASE               0xffff800000000000ull
 #define KERNEL_BASE             0xffffffff80000000ull
 #define KERNEL_LIMIT            0xffffffffff600000ull   /* VSYSCALL_BASE */
-#define KMEM_LIMIT              0xffffbfff00000000ull
 #define LINEAR_BACKED_LIMIT     0xffffffff00000000ull
 #define LINEAR_BACKED_BASE      0xffffc00000000000ull
-#define LINEAR_BACKED_PHYSLIMIT 0x00003fff00000000ull
 #define LINEAR_BACKED_PAGELOG   30
 #define HUGE_PAGESIZE           0x100000000ull
 
@@ -221,11 +222,6 @@ extern void write_xmsr(u64, u64);
 /* EBX */
 #define CPUID_SME_C_BIT(v)  ((v) & 0x3f)
 
-static inline void cpuid(u32 fn, u32 ecx, u32 * v)
-{
-    asm volatile("cpuid" : "=a" (v[0]), "=b" (v[1]), "=c" (v[2]), "=d" (v[3]) : "0" (fn), "2" (ecx));
-}
-
 static inline u32 cpuid_highest_fn(boolean extended)
 {
     u32 v[4];
@@ -244,25 +240,30 @@ static inline void xgetbv(u32 ecx, u32 *eax, u32 *edx)
 }
 
 #ifdef KERNEL
+#include "pvm.h"
+
 void cmdline_consume(sstring opt_name, cmdline_handler h);
 void boot_params_apply(tuple t);
 
 /* syscall entry */
 
-static inline void set_syscall_handler(void *syscall_entry)
-{
-    write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
-    u32 selectors = ((USER_CODE32_SELECTOR | 0x3) << 16) | KERNEL_CODE_SELECTOR;
-    write_msr(STAR_MSR, (u64)selectors << 32);
-    write_msr(SFMASK_MSR, U64_FROM_BIT(EFLAG_INTERRUPT) | U64_FROM_BIT(EFLAG_TRAP));
-    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
-}
-
 extern void syscall_enter(void);
 
 static inline void init_syscall_handler()
 {
-    set_syscall_handler(syscall_enter);
+    void *syscall_entry;
+    if (pvm_detected) {
+        /* Do not set the STAR MSR, because PVM does not allow setting the user-mode selector to a
+         * different value than the value used on Linux. */
+        syscall_entry = pvm_syscall_entry;
+    } else {
+        u32 selectors = ((USER_CODE32_SELECTOR | 0x3) << 16) | KERNEL_CODE_SELECTOR;
+        write_msr(STAR_MSR, (u64)selectors << 32);
+        syscall_entry = syscall_enter;
+    }
+    write_msr(LSTAR_MSR, u64_from_pointer(syscall_entry));
+    write_msr(SFMASK_MSR, U64_FROM_BIT(EFLAG_INTERRUPT) | U64_FROM_BIT(EFLAG_TRAP));
+    write_msr(EFER_MSR, read_msr(EFER_MSR) | EFER_SCE);
 }
 
 static inline void set_page_write_protect(boolean enable)
@@ -328,6 +329,8 @@ struct cpuinfo_machine {
     /* Monotonic clock timestamp when the lapic timer is supposed to fire; used to re-arm the timer
      * when it fires too early (based on what the monotonic clock source says). */
     timestamp lapic_timer_expiry;
+
+    struct pvm_vcpu *pvm;
 };
 
 typedef struct cpuinfo *cpuinfo;

@@ -16,11 +16,11 @@ typedef struct linear_backed_heap {
     u64 phys_limit;
 } *linear_backed_heap;
 
-#define LINEAR_BACKED_IDX_LIMIT ((LINEAR_BACKED_LIMIT - LINEAR_BACKED_BASE) >> LINEAR_BACKED_PAGELOG)
+#define LINEAR_BACKED_IDX_LIMIT(lbh) ((lbh)->phys_limit >> LINEAR_BACKED_PAGELOG)
 
 static inline u64 linear_backed_base_from_index(linear_backed_heap hb, int index)
 {
-    return LINEAR_BACKED_BASE + ((u64)index << LINEAR_BACKED_PAGELOG);
+    return hb->virt_base + ((u64)index << LINEAR_BACKED_PAGELOG);
 }
 
 static inline u64 linear_backed_alloc_internal(linear_backed_heap hb, bytes size)
@@ -87,7 +87,7 @@ static void linear_backed_dealloc_unmap(backed_heap bh, void *virt, u64 phys, by
    needed if we ever have to support hotplug memory. Just leave it. */
 static void add_linear_backed_page(linear_backed_heap hb, int index)
 {
-    assert(index <= LINEAR_BACKED_IDX_LIMIT);
+    assert(index <= LINEAR_BACKED_IDX_LIMIT(hb));
     if (!bitmap_get(hb->mapped, index)) {
         u64 length = U64_FROM_BIT(LINEAR_BACKED_PAGELOG);
         u64 vbase = linear_backed_base_from_index(hb, index);
@@ -108,8 +108,9 @@ closure_function(1, 1, boolean, physmem_range_handler,
     print_u64(r.end);
     console("); ");
 #endif
+    linear_backed_heap hb = bound(hb);
     r = range_rshift(r, LINEAR_BACKED_PAGELOG);
-    r.end = MIN(r.end, LINEAR_BACKED_IDX_LIMIT);
+    r.end = MIN(r.end, LINEAR_BACKED_IDX_LIMIT(hb));
 #ifdef DEBUG_LINEAR_BACKED_HEAP
     console("idx [");
     print_u64(r.start);
@@ -118,7 +119,7 @@ closure_function(1, 1, boolean, physmem_range_handler,
     console(")\n");
 #endif
     for (int i = r.start; i <= r.end; i++)
-        add_linear_backed_page(bound(hb), i);
+        add_linear_backed_page(hb, i);
     return true;
 }
 
@@ -128,7 +129,7 @@ static void linear_backed_init_maps(linear_backed_heap hb)
     pageheap_range_foreach(stack_closure(physmem_range_handler, hb));
 }
 
-backed_heap allocate_linear_backed_heap(heap meta, heap physical, range mapped_virt)
+backed_heap allocate_linear_backed_heap(heap meta, heap physical, range virt, boolean mapped)
 {
     linear_backed_heap hb = allocate(meta, sizeof(*hb));
     if (hb == INVALID_ADDRESS)
@@ -143,15 +144,13 @@ backed_heap allocate_linear_backed_heap(heap meta, heap physical, range mapped_v
     hb->bh.dealloc_unmap = linear_backed_dealloc_unmap;
     hb->meta = meta;
     hb->physical = physical;
-    if (range_span(mapped_virt)) {
+    hb->virt_base = virt.start;
+    hb->phys_limit = range_span(virt);
+    if (mapped) {
         hb->mapped = 0;
-        hb->virt_base = mapped_virt.start;
-        hb->phys_limit = range_span(mapped_virt);
     } else {
-        hb->mapped = allocate_bitmap(meta, meta, LINEAR_BACKED_IDX_LIMIT);
+        hb->mapped = allocate_bitmap(meta, meta, LINEAR_BACKED_IDX_LIMIT(hb));
         linear_backed_init_maps(hb);
-        hb->virt_base = LINEAR_BACKED_BASE;
-        hb->phys_limit = LINEAR_BACKED_PHYSLIMIT;
     }
     return &hb->bh;
 }

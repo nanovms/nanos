@@ -45,7 +45,7 @@ void init_physical_heap(void)
 
     u64 base = KERNEL_PHYS + kernel_size;
     u64 end = PHYSMEM_BASE + mem_size;
-    map(BOOTSTRAP_BASE, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
+    map(kvmem.r.start, base, BOOTSTRAP_SIZE, pageflags_writable(pageflags_memory()));
     base += BOOTSTRAP_SIZE;
     init_debug("\nfree base ");
     init_debug_u64(base);

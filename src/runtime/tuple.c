@@ -196,7 +196,7 @@ static inline void srecord(table dictionary, void *x)
 // region?
 tuple allocate_tuple(void)
 {
-    return tag(allocate_table(theap, key_from_symbol, pointer_equal), tag_table_tuple);
+    return (tuple)allocate_table(theap, key_from_symbol, pointer_equal);
 }
 
 closure_function(1, 2, boolean, clone_tuple_each,

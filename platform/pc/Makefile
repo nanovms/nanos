@@ -126,6 +126,8 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/x86_64/kernel_machine.c \
 	$(SRCDIR)/x86_64/mp.c \
 	$(SRCDIR)/x86_64/page.c \
+	$(SRCDIR)/x86_64/pvm.c \
+	$(SRCDIR)/x86_64/pvm_asm.s \
 	$(SRCDIR)/x86_64/rtc.c \
 	$(SRCDIR)/x86_64/serial.c \
 	$(SRCDIR)/x86_64/synth.c \
@@ -231,7 +233,10 @@ endif
 		$(AWK) 'BEGIN{getline l < "$(PLATFORMDIR)/test-libs"}/TEST-LIBS/{gsub("TEST-LIBS",l)}/ARCH_DIR/{gsub("ARCH_DIR","$(PLATFORMOBJDIR)")}1' $(ROOTDIR)/test/runtime/$(TARGET).manifest | \
 		$(MKFS) $(TARGET_ROOT_OPT) -b $(BOOTIMG) $(MKFS_UEFI) -k $(KERNEL) -t "(debug_exit:t)" $(TRACELOG_MKFS_OPTS) $(EXTRA_MKFS_OPTS) $(IMAGE)
 
-$(OBJDIR)/src/$(ARCH)/crt0.o: $(OBJDIR)/frame.inc
+$(OBJDIR)/src/$(ARCH)/crt0.o \
+$(OBJDIR)/src/$(ARCH)/pvm_asm.o \
+$(OBJDIR)/src/$(ARCH)/frtace.o \
+: $(OBJDIR)/frame.inc
 
 $(OBJDIR)/frame.inc: $(ARCHDIR)/frame.h
 	$(call cmd,sed)
