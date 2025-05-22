@@ -10,6 +10,7 @@
 
 #include <kernel_platform.h>
 
+#define KMEM_BASE               0x00ff000000000000ull
 #define LINEAR_BACKED_LIMIT     0x00ffff0000000000ull
 #define LINEAR_BACKED_BASE      0x00ff800000000000ull
 #define LINEAR_BACKED_PHYSLIMIT 0x00007f0000000000ull

@@ -10,7 +10,6 @@
 /* kernel or userland */
 #include <def64.h>
 
-#define KMEM_BASE   0xffff800000000000ull
 #define USER_LIMIT  0x0000800000000000ull
 
 static inline __attribute__((always_inline)) u8 is_immediate(value v)
@@ -25,14 +24,8 @@ static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
 
 #ifdef KERNEL
 
-#define VA_TAG_BASE   KMEM_BASE
 #define VA_TAG_OFFSET 38
 #define VA_TAG_WIDTH  8
-
-/* not for immediates */
-static inline __attribute__((always_inline)) void *tag(void* v, value_tag t) {
-    return pointer_from_u64(VA_TAG_BASE | (((u64)t) << VA_TAG_OFFSET) | u64_from_pointer(v));
-}
 
 static inline __attribute__((always_inline)) value_tag tagof(void* v) {
     u64 x = u64_from_pointer(v);

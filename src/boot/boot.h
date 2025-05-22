@@ -42,12 +42,6 @@ static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
     return ((word)v & 0x3) == 1;
 }
 
-static inline value tag(void *v, value_tag tval)
-{
-    *((u8 *)v-1) = tval;
-    return v;
-}
-
 static inline value_tag tagof(value v)
 {
     if (is_immediate_integer(v))

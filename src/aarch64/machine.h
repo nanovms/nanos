@@ -117,13 +117,10 @@ __bswap64(u64 _x)
 #endif
 
 #ifndef KERNEL
-#define VA_TAG_BASE      0
 #define VA_TAG_OFFSET    USER_VA_TAG_OFFSET
 #define VA_TAG_WIDTH     USER_VA_TAG_WIDTH
 #else
-#define KMEM_BASE        0x00ff000000000000ull
 #define USER_LIMIT       0x0001000000000000ull  /* 4-level page tables -> 48-bit addresses */
-#define VA_TAG_BASE      KMEM_BASE
 #define VA_TAG_OFFSET    56
 #define VA_TAG_WIDTH     8
 #endif
@@ -144,7 +141,7 @@ static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
 }
 
 static inline __attribute__((always_inline)) value tag(void *v, value_tag t) {
-    return pointer_from_u64(VA_TAG_BASE | (((u64)t) << VA_TAG_OFFSET) |
+    return pointer_from_u64((((u64)t) << VA_TAG_OFFSET) |
                             u64_from_pointer(v));
 }
 
