@@ -24,8 +24,13 @@ static inline __attribute__((always_inline)) u8 is_immediate_integer(value v)
 
 #ifdef KERNEL
 
+/* Tagged memory is (VA_TAG_OFFSET + VA_TAG_WIDTH) bits long, and needs to be aligned to its length.
+ * The PVM hypervisor allocates 44 bits of address space for the guest; to ensure tagged memory can
+ * be carved out from this space without touching its limits (because memory regions around its
+ * limits are used for other purposes), tagged memory must be at least 2 bits shorter than the total
+ * address space. */
 #define VA_TAG_OFFSET 38
-#define VA_TAG_WIDTH  8
+#define VA_TAG_WIDTH  4
 
 static inline __attribute__((always_inline)) value_tag tagof(void* v) {
     u64 x = u64_from_pointer(v);

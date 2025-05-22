@@ -12,7 +12,6 @@
 #define int_debug(x, ...)
 #endif
 
-#define INTERRUPT_VECTOR_START 32 /* end of exceptions; defined by architecture */
 #define MAX_INTERRUPT_VECTORS  256 /* as defined by architecture; we may have less */
 
 typedef struct inthandler {

@@ -19,6 +19,7 @@
 #include <xen_platform.h>
 #include <virtio/virtio.h>
 #include <vmware/vmware.h>
+#include "pvm.h"
 #include "serial.h"
 
 #define BOOT_PARAM_OFFSET_E820_ENTRIES  0x01E8
@@ -398,7 +399,12 @@ void init_service(u64 rdi, u64 rsi, hvm_start_info start_info)
     serial_init();
     early_init_debug("init_service");
 
-    pv_ops.cpuid = x86_cpuid;
+    if (pvm_detect()) {
+        kvmem.r = pvm_get_addr_range();
+        pv_ops.cpuid = pvm_cpuid;
+    } else {
+        pv_ops.cpuid = x86_cpuid;
+    }
     if (do_setup_initmap)
         setup_initmap();
     find_initial_pages();
@@ -413,7 +419,10 @@ void init_service(u64 rdi, u64 rsi, hvm_start_info start_info)
     u64 offset_cpuid = u64_from_pointer(pv_ops.cpuid) + kas_kern_offset - kernel_phys_offset;
     pv_ops.cpuid = pointer_from_u64(offset_cpuid);
 
-    pv_ops.frame_return = x86_frame_return;
+    if (pvm_detected)
+        pv_ops.frame_return = pvm_frame_return;
+    else
+        pv_ops.frame_return = x86_frame_return;
     init_kernel_heaps();
     if (cmdline)
         create_region(u64_from_pointer(cmdline), cmdline_size, REGION_CMDLINE);
@@ -454,6 +463,8 @@ extern boolean init_tsc_timer(kernel_heaps kh);
 
 void detect_hypervisor(kernel_heaps kh)
 {
+    if (pvm_detected)
+        pvm_setup(kh);
     if (!kvm_detect(kh)) {
         init_debug("probing for Xen hypervisor");
         if (!xen_detect(kh)) {

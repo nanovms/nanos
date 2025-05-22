@@ -1,6 +1,8 @@
 #ifndef X86_H_
 #define X86_H_
 
+#define INTERRUPT_VECTOR_START  32  /* end of exceptions */
+
 #ifdef KERNEL
 extern struct x86_pv_ops {
     void (*cpuid)(u32 leaf, u32 subleaf, u32 *v);
@@ -22,5 +24,7 @@ static inline void x86_cpuid(u32 leaf, u32 subleaf, u32 *v)
 }
 
 void x86_frame_return(u64 *f) __attribute__((noreturn));
+
+void common_handler(void);
 
 #endif
