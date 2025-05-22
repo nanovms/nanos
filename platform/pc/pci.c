@@ -171,8 +171,9 @@ void pci_platform_init_bar(pci_dev dev, int bar)
     if (base & (is_io ? ~PCI_BAR_B_IOPORT_MASK : ~PCI_BAR_B_MEMORY_MASK))
         return; /* BAR configured by BIOS */
     if (is_io) {
-        msg_err("%s: I/O port resource allocation not supported (%d:%d:%d, bar %d)", func_ss,
-                dev->bus, dev->slot, dev->function, bar);
+        /* rudimentary I/O resource allocation based on PCI device identifier and BAR index */
+        base = (dev->bus << 12) | (dev->slot << 8) | (dev->function << 6) | (bar << 3);
+        pci_cfgwrite(dev, PCIR_BAR(bar), 4, base);
         return;
     }
     id_heap iomem = pci_bus_get_iomem(dev->bus);
