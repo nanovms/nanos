@@ -162,6 +162,16 @@ static vqmsg vnet_rxq_push(vnet vn, xpbuf x, int *desc_count)
     return m;
 }
 
+static u64 vnet_rx_hdr_remove(vnet vn, xpbuf x, u64 len)
+{
+    struct pbuf *p = &x->p.pbuf;
+    bytes hdr_len = vn->net_header_len;
+    len -= hdr_len;
+    p->tot_len = p->len = len;
+    p->payload += hdr_len;
+    return len;
+}
+
 static void receive_buffer_release(struct pbuf *p)
 {
     xpbuf x  = (void *)p;
@@ -207,6 +217,7 @@ closure_func_basic(vqfinish, void, vnet_input,
         boolean first_msg = (saved_hdr == 0);
         if (first_msg) {
             saved_hdr = (struct virtio_net_hdr_mrg_rxbuf *)x->p.pbuf.payload;
+            len = vnet_rx_hdr_remove(vn, x, len);
             if (saved_hdr->num_buffers == 1) {
                 pkt_complete = true;
             } else {
@@ -221,7 +232,6 @@ closure_func_basic(vqfinish, void, vnet_input,
             if (--saved_hdr->num_buffers > 0) {
                 pkt_complete = false;
             } else {
-                hdr = &saved_hdr->hdr;
                 x = head_pbuf;
                 len = head_pbuf->p.pbuf.tot_len;
                 rx->hdr = 0;
@@ -229,20 +239,12 @@ closure_func_basic(vqfinish, void, vnet_input,
             }
         }
         rx->seqno++;
-        if (!first_msg)
-            goto msg_processed;
+        if (!pkt_complete)
+            goto out;
+        hdr = &saved_hdr->hdr;
     } else {
-        pkt_complete = true;
-    }
-    hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
-    len -= vn->net_header_len;
-    assert(len <= x->p.pbuf.len);
-    x->p.pbuf.tot_len = x->p.pbuf.len = len;
-    x->p.pbuf.payload += vn->net_header_len;
-  msg_processed:
-    if (!pkt_complete) {
-        post_receive(vn, rx);
-        return;
+        hdr = (struct virtio_net_hdr *)x->p.pbuf.payload;
+        len = vnet_rx_hdr_remove(vn, x, len);
     }
     if (hdr->flags & VIRTIO_NET_HDR_F_NEEDS_CSUM) {
         if (hdr->csum_start + hdr->csum_offset <= len - sizeof(u16)) {
