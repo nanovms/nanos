@@ -194,7 +194,7 @@ boolean new_zeroed_pages(u64 v, vmap vm, pageflags flags)
         VMAP_PAGE_SHRINK(v, page_addr, page_size);
     }
     zero(m, page_size);
-    write_barrier();
+    smp_write_barrier();
     u64 p = physical_from_virtual(m);
     map(page_addr, p, page_size, flags);
     return true;

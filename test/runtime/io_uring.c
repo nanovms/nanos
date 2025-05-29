@@ -265,7 +265,7 @@ static void iour_setup_sqe(struct iour *iour, uint8_t opcode, int fd,
     sqe->len = len;
     sqe->off = offset;
     sqe->user_data = user_data;
-    write_barrier();
+    smp_write_barrier();
     (*iour->sq_tail)++;
 }
 
@@ -303,7 +303,7 @@ static void iour_setup_rw_fixed(struct iour *iour, int fd, uint16_t buf_index,
     sqe->len = len;
     sqe->user_data = user_data;
     sqe->buf_index = buf_index;
-    write_barrier();
+    smp_write_barrier();
     (*iour->sq_tail)++;
 }
 
@@ -318,7 +318,7 @@ static void iour_setup_poll_add(struct iour *iour, int fd, uint16_t events,
     sqe->fd = fd;
     sqe->poll_events = events;
     sqe->user_data = user_data;
-    write_barrier();
+    smp_write_barrier();
     (*iour->sq_tail)++;
 }
 
@@ -340,7 +340,7 @@ static void iour_setup_poll_fixed_file(struct iour *iour, int fd_index,
     sqe->fd = fd_index;
     sqe->poll_events = events;
     sqe->user_data = user_data;
-    write_barrier();
+    smp_write_barrier();
     (*iour->sq_tail)++;
 }
 
@@ -358,7 +358,7 @@ static void iour_setup_timeout(struct iour *iour, struct timespec *ts,
     sqe->len = 1;
     sqe->timeout_flags = flags;
     sqe->user_data = user_data;
-    write_barrier();
+    smp_write_barrier();
     (*iour->sq_tail)++;
 }
 
@@ -407,7 +407,7 @@ static void iour_setup_accept(struct iour *iour, int fd, struct sockaddr *addr, 
     sqe->addr2 = (uint64_t)addr_len;
     sqe->accept_flags = flags;
     sqe->user_data = user_data;
-    write_barrier();
+    smp_write_barrier();
     (*iour->sq_tail)++;
 }
 
@@ -426,7 +426,7 @@ static void iour_setup_txrx(struct iour *iour, boolean tx, int fd, uint8_t *buf,
     sqe->msg_flags = flags;
     sqe->user_data = user_data;
     sqe->buf_index = 0;
-    write_barrier();
+    smp_write_barrier();
     (*iour->sq_tail)++;
 }
 
@@ -441,7 +441,7 @@ static struct io_uring_cqe *iour_get_cqe(struct iour *iour)
 {
     struct io_uring_cqe *cqe;
 
-    read_barrier();
+    smp_read_barrier();
     if (*iour->cq_tail == *iour->cq_head)
         return NULL;
     test_assert(*iour->cq_tail > *iour->cq_head);

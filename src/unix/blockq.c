@@ -138,7 +138,6 @@ unix_context blockq_wake_one(blockq bq)
        before the blockq lock is taken and the thread is added to the waiter
        list. See blockq_check_timeout() for more detail. */
     bq->wake = true;
-    write_barrier();
     blockq_unlock(bq);
     return INVALID_ADDRESS;
 }
@@ -207,7 +206,7 @@ sysreturn blockq_check_timeout(blockq bq, blockq_action a, boolean in_bh,
     */
 
     bq->wake = false;
-    write_barrier();
+    smp_write_barrier();
     sysreturn rv = apply(a, 0);
     if (rv != BLOCKQ_BLOCK_REQUIRED) {
         blockq_debug(" - direct return: %ld\n", rv);

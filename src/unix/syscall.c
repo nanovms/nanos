@@ -1793,7 +1793,7 @@ static sysreturn brk(void *addr)
         if (u64_from_pointer(addr) < p->heap_base ||
             !adjust_process_heap(p, irange(p->heap_base, new_end)))
             goto out;
-        write_barrier();
+        smp_write_barrier();
         unmap_and_free_phys(new_end, old_end - new_end);
     } else if (new_end > old_end) {
         u64 alloc = new_end - old_end;
