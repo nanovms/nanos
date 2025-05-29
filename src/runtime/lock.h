@@ -61,7 +61,7 @@ static inline void spin_unlock(spinlock l)
 #ifdef LOCK_STATS
     LOCKSTATS_RECORD_UNLOCK(l->s);
 #endif
-    compiler_barrier();
+    smp_write_barrier();
     *(volatile u64 *)&l->w = 0;
 }
 

@@ -73,7 +73,7 @@ static inline timestamp now(clock_id id)
     do {
         gen = __vdso_dat->vdso_gen & ~1ull;
         s64 last_raw = __vdso_dat->last_raw;
-        read_barrier();
+        smp_read_barrier();
 #endif
         t = apply(platform_monotonic_now);
 #if defined(KERNEL) || defined(BUILD_VDSO)
@@ -96,7 +96,7 @@ static inline timestamp now(clock_id id)
         default:
             break;
         }
-        read_barrier();
+        smp_read_barrier();
     } while (gen != __vdso_dat->vdso_gen);
 #endif
 

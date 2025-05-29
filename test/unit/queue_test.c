@@ -116,7 +116,7 @@ static void thread_test(void)
     vec_count = RESULTS_VEC_SIZE;
     zero(results, RESULTS_VEC_SIZE * sizeof(u64));
     drain_and_exit = false;
-    write_barrier();
+    smp_write_barrier();
     queuetest_debug("spawning threads...\n");
     for (int i = 0; i < N_THREADS; i++) {
         if (pthread_create(&threads[i], NULL, test_child, q))

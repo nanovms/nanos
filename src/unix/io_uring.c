@@ -505,7 +505,7 @@ static void iour_complete_locked(io_uring iour, u64 user_data, s32 res,
         cqe->user_data = user_data;
         cqe->res = res;
         cqe->flags = 0;
-        write_barrier();
+        smp_write_barrier();
         rings->cq_tail++;
     } else {
         iour_debug("overflow");
@@ -1211,7 +1211,6 @@ sysreturn io_uring_enter(int fd, unsigned int to_submit,
         }
     }
     io_rings rings = iour->rings;
-    read_barrier();
     iour_debug("SQ head %d, SQ tail %d", rings->sq_head, rings->sq_tail);
     unsigned int submitted;
     for (submitted = 0; submitted < to_submit;) {

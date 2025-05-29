@@ -58,7 +58,7 @@ static inline boolean _enqueue_common(queue q, void *p, boolean multi, int n)
         *dest = p;
     else
         runtime_memcpy(dest, p, sizeof(u64) * n);
-    write_barrier();
+    smp_write_barrier();
 
     /* multi-producer: wait for previous enqueues to commit */
     if (multi) {
@@ -100,7 +100,7 @@ static inline void _dequeue_common(queue q, void **p, boolean multi, int n)
         *p = *src;
     else
         runtime_memcpy(p, src, sizeof(u64) * n);
-    read_barrier();
+    smp_read_barrier();
 
     /* multi-consumer: wait for previous dequeues to commit */
     if (multi) {
@@ -202,7 +202,6 @@ static inline void queue_init(queue q, int order, void ** buf)
     q->d = buf;
     q->h = 0;
     zero(buf, queue_data_size(order));
-    write_barrier();
 }
 
 /* will round up size to next power-of-2 */

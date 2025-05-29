@@ -122,7 +122,7 @@ static inline void put_tracelog_buffer(cpuinfo ci)
 {
     u64 v = u64_from_pointer(ci->tracelog_buffer);
     assert(v & TRACELOG_BUFFER_BUSY);
-    write_barrier();
+    smp_write_barrier();
     ci->tracelog_buffer = pointer_from_u64(v ^ TRACELOG_BUFFER_BUSY);
 }
 

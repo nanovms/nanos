@@ -163,6 +163,12 @@ static inline __attribute__((always_inline)) void memory_barrier(void)
     asm volatile("mfence" ::: "memory");
 }
 
+/* For cached memory, the architecture guarantees LoadLoad and StoreStore ordering, thus a memory
+ * fence is not needed.
+ */
+#define smp_write_barrier()    compiler_barrier()
+#define smp_read_barrier()     compiler_barrier()
+
 static inline __attribute__((always_inline)) word fetch_and_add(word *variable, word value)
 {
     return __sync_fetch_and_add(variable, value);

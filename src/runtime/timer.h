@@ -109,7 +109,7 @@ static inline timestamp timer_expiry(timer t)
             break;
         }
         expiry -= clock_freq_adjust(interval);
-        read_barrier();
+        smp_read_barrier();
     } while (gen != __vdso_dat->vdso_gen);
 #endif
 

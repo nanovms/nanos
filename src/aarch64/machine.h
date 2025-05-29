@@ -209,6 +209,9 @@ static inline __attribute__((always_inline)) void memory_barrier(void)
     asm volatile("dmb sy" ::: "memory");
 }
 
+#define smp_write_barrier()    write_barrier()
+#define smp_read_barrier()     read_barrier()
+
 /* XXX something b0rked with ldset here...ordering, or asm constraints? */
 static inline __attribute__((always_inline)) u8 atomic_test_and_set_bit(u64 *target, u64 bit)
 {

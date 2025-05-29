@@ -107,7 +107,7 @@ vdso_now(clock_id id)
         default:
             break;
         }
-        read_barrier();
+        smp_read_barrier();
     } while (__vdso_dat->vdso_gen != _gen);
 
     if (_now == VDSO_NO_NOW)
