@@ -213,6 +213,7 @@ closure_func_basic(vqfinish, void, vnet_input,
             kern_pause();
         }
 
+        smp_read_barrier();
         struct virtio_net_hdr_mrg_rxbuf *saved_hdr = rx->hdr;
         boolean first_msg = (saved_hdr == 0);
         if (first_msg) {
@@ -238,6 +239,7 @@ closure_func_basic(vqfinish, void, vnet_input,
                 pkt_complete = true;
             }
         }
+        smp_write_barrier();
         rx->seqno++;
         if (!pkt_complete)
             goto out;
