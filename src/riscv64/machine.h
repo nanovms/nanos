@@ -215,6 +215,9 @@ static inline __attribute__((always_inline)) void memory_barrier(void)
     asm volatile("fence.tso" ::: "memory");
 }
 
+#define smp_write_barrier()    write_barrier()
+#define smp_read_barrier()     read_barrier()
+
 static inline __attribute__((always_inline)) word fetch_and_add(word *target, word num)
 {
     return __sync_fetch_and_add(target, num);

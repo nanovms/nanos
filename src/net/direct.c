@@ -45,7 +45,6 @@ closure_func_basic(thunk, void, direct_receive_service)
 {
     direct d = struct_from_closure(direct, receive_service);
     d->receive_service_scheduled = 0;
-    write_barrier();
     spin_lock(&d->conn_lock);
     list_foreach(&d->conn_head, l) {
         direct_conn dc = struct_from_list(l, direct_conn, l);

@@ -120,7 +120,7 @@ static inline boolean mutex_lock_internal(mutex m, boolean wait)
 
     /* prev write must occur before next */
     ci->mcs_prev = prev;
-    write_barrier();
+    smp_write_barrier();
     prev->mcs_next = ci;
 
     /* limited spin to acquire lock */
