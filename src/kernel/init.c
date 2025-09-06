@@ -206,6 +206,9 @@ void init_kernel_heaps(void)
     heaps.malloc = locking_heap_wrapper(heaps.general, heaps.malloc);
     assert(heaps.malloc != INVALID_ADDRESS);
 
+    heaps.vmem = create_vmem_heap();
+    assert(heaps.vmem != INVALID_ADDRESS);
+
     id_heap kas_ih = create_id_heap(heaps.general, heaps.locked,
                                     kas.start, range_span(kas), PAGESIZE, true);
     assert(kas_ih != INVALID_ADDRESS);

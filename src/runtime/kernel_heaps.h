@@ -58,6 +58,11 @@ typedef struct kernel_heaps {
 
     /* mcache for allocations of DMA memory. Protected by spinlock. */
     heap dma;
+
+    /* Heap for allocating large chunks of virtually contiguous memory that does not have to be
+     * physically contiguous. Mapping and unmapping of virtual addresses is done during allocation
+     * and deallocation. */
+    heap vmem;
 } *kernel_heaps;
 
 static inline heap heap_physical(kernel_heaps heaps)

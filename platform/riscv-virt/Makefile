@@ -46,6 +46,7 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/storage.c \
 	$(SRCDIR)/kernel/symtab.c \
 	$(SRCDIR)/kernel/vdso-now.c \
+	$(SRCDIR)/kernel/vmem_heap.c \
 	$(SRCDIR)/net/direct.c \
 	$(SRCDIR)/net/net.c \
 	$(SRCDIR)/net/netsyscall.c \

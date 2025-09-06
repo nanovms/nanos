@@ -197,7 +197,13 @@ static log log_new(heap h, tfs fs)
     tl->dictionary = allocate_table(h, identity_key, pointer_equal);
     if (tl->dictionary == INVALID_ADDRESS)
         goto fail_dealloc_log;
-    tl->tuple_staging = allocate_buffer(h, PAGESIZE /* arbitrary */);
+    heap staging_heap;
+#ifdef KERNEL
+    staging_heap = get_kernel_heaps()->vmem;
+#else
+    staging_heap = h;
+#endif
+    tl->tuple_staging = allocate_buffer(staging_heap, PAGESIZE /* arbitrary */);
     if (tl->tuple_staging == INVALID_ADDRESS)
         goto fail_dealloc_dict;
     tl->encoding_lengths = allocate_vector(h, 512);

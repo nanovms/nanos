@@ -650,6 +650,8 @@ static inline u64 phys_from_linear_backed_virt(u64 virt)
     return virt - kvmem.linear.start;
 }
 
+heap create_vmem_heap(void);
+
 void unmap_and_free_phys(u64 virtual, u64 length);
 void page_free_phys(u64 phys);
 
