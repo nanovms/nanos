@@ -121,6 +121,8 @@ SRCS-kernel.elf= \
 	$(VDSO_OBJDIR)/vdso-image.c \
 	$(SRCS-lwip)
 
+# Allow FP/SIMD instructions in assembly files
+CFLAGS-crt0.S=	-march=armv8-a
 
 SRCS-lwip= \
 	$(LWIPDIR)/src/core/def.c \
