@@ -19,6 +19,7 @@ KLIBS= \
 	tmpfs \
 	tls \
 	tun \
+	userdata \
 
 SRCS-azure= \
 	$(KLIB_DIR)/azure.c \
@@ -79,6 +80,10 @@ SRCS-tmpfs= \
 
 SRCS-tun= \
 	$(KLIB_DIR)/tun.c \
+
+SRCS-userdata= \
+	$(KLIB_DIR)/userdata.c \
+	$(KLIB_DIR)/net_utils.c \
 
 SRCS-mbedtls= $(SRCS-mbedtls-crypto) $(SRCS-mbedtls-x509) $(SRCS-mbedtls-tls)
 
