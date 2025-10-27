@@ -3,7 +3,7 @@ jobs:
   build-pc:
     docker:
       # specify the version
-      - image: cimg/go:1.20.0
+      - image: cimg/go:1.25.0
     steps:
       - checkout
       - run: sudo apt-get update
@@ -44,7 +44,7 @@ jobs:
   build-pc-debug:
     docker:
       # specify the version
-      - image: cimg/go:1.20.0
+      - image: cimg/go:1.25.0
     steps:
       - checkout
       - run: sudo apt-get update
@@ -60,7 +60,7 @@ jobs:
 
   nightly-build:
     docker:
-      - image: cimg/go:1.20.0
+      - image: cimg/go:1.25.0
     steps:
       - checkout
       - run: sudo apt-get update
@@ -95,7 +95,7 @@ jobs:
 
   build-virt:
     docker:
-      - image: cimg/go:1.20.0
+      - image: cimg/go:1.25.0
     steps:
       - checkout
       - run: sudo apt-get update
@@ -136,7 +136,7 @@ jobs:
 
   nightly-build-virt:
     docker:
-      - image: cimg/go:1.20.0
+      - image: cimg/go:1.25.0
     steps:
       - checkout
       - run: sudo apt-get update

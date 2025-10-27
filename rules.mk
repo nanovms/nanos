@@ -76,7 +76,7 @@ KERNCFLAGS+=	-mno-mmx -mno-sse -mno-sse2
 endif
 
 ifeq ($(ARCH),aarch64)
-KERNCFLAGS+=	-march=armv8-a+nosimd -mcpu=cortex-a72 -ffixed-x18
+KERNCFLAGS+=	-march=armv8-a+nofp+nosimd -mcpu=cortex-a72 -ffixed-x18
 
 # Workaround for GCC 12/13 bug to avoid incorrect pointer analysis https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105523
 CCMAJ=$(shell $(CC) -dumpversion | awk -F. '{print $$1}')

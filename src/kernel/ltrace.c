@@ -27,11 +27,16 @@ static boolean ltrace_plt_parse(void *plt_entry, u64 addr, u64 *entry_size, u64 
         *sym_offset = *(s32 *)(plt_entry + 2) + addr + 6;
         /* if the second instruction is pushq, than this entry is used for lazy binding */
         *entry_size = (*(u8 *)(plt_entry + 6) == pushq) ? 16 : 8;
-    } else if (!runtime_memcmp(plt_entry, endbr64, sizeof(endbr64)) &&
-               !runtime_memcmp(plt_entry + 4, bndjmp, sizeof(bndjmp))) {
+    } else if (!runtime_memcmp(plt_entry, endbr64, sizeof(endbr64))) {
         /* first instruction: endbr64 */
-        /* second instruction: bnd jmp *0x11223344(%rip) */
-        *sym_offset = *(s32 *)(plt_entry + 7) + addr + 11;
+        if (!runtime_memcmp(plt_entry + 4, bndjmp, sizeof(bndjmp)))
+            /* second instruction: bnd jmp *0x11223344(%rip) */
+            *sym_offset = *(s32 *)(plt_entry + 7) + addr + 11;
+        else if (!runtime_memcmp(plt_entry + 4, jmpq, sizeof(jmpq)))
+            /* second instruction: jmp *0x11223344(%rip) */
+            *sym_offset = *(s32 *)(plt_entry + 6) + addr + 10;
+        else
+            return false;
         *entry_size = 16;
     } else {
         return false;
