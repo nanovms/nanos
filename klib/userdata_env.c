@@ -24,6 +24,7 @@ enum cloud_provider {
     PROVIDER_AZURE,
     PROVIDER_DIGITALOCEAN,
     PROVIDER_OPENSTACK,
+    PROVIDER_HETZNER,
     PROVIDER_MAX,
     PROVIDER_UNKNOWN
 };
@@ -98,6 +99,18 @@ static const struct provider_config providers[] = {
         .detect_header_value = sstring_null_init,
         .detect_method = HTTP_REQUEST_METHOD_GET,
         .userdata_path = ss_static_init("/openstack/latest/user-data"),
+        .userdata_header_name = sstring_null_init,
+        .userdata_header_value = sstring_null_init,
+        .needs_base64_decode = false,
+        .needs_token = false,
+    },
+    [PROVIDER_HETZNER] = {
+        .name = ss_static_init("Hetzner"),
+        .detect_path = ss_static_init("/hetzner/v1/metadata"),
+        .detect_header_name = sstring_null_init,
+        .detect_header_value = sstring_null_init,
+        .detect_method = HTTP_REQUEST_METHOD_GET,
+        .userdata_path = ss_static_init("/hetzner/v1/userdata"),
         .userdata_header_name = sstring_null_init,
         .userdata_header_value = sstring_null_init,
         .needs_base64_decode = false,
