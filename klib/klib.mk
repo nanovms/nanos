@@ -19,7 +19,7 @@ KLIBS= \
 	tmpfs \
 	tls \
 	tun \
-	userdata_env \
+	userdata \
 
 SRCS-azure= \
 	$(KLIB_DIR)/azure.c \
@@ -81,8 +81,8 @@ SRCS-tmpfs= \
 SRCS-tun= \
 	$(KLIB_DIR)/tun.c \
 
-SRCS-userdata_env= \
-	$(KLIB_DIR)/userdata_env.c \
+SRCS-userdata= \
+	$(KLIB_DIR)/userdata.c \
 	$(KLIB_DIR)/net_utils.c \
 	$(MBEDTLS_DIR)/library/base64.c \
 

@@ -1,4 +1,5 @@
-#include <kernel.h>
+#include <unix_internal.h>
+#include <filesystem.h>
 #include <lwip.h>
 #include "net_utils.h"
 
@@ -11,10 +12,10 @@
 #define MAX_NETWORK_RETRIES     5
 #define RETRY_INTERVAL_SECONDS  3
 
-#ifdef USERDATA_ENV_DEBUG
-#define userdata_env_debug(fmt, ...)   tprintf(sym(userdata_env), 0, ss(fmt "\n"), ##__VA_ARGS__)
+#ifdef USERDATA_DEBUG
+#define userdata_debug(fmt, ...)   tprintf(sym(userdata), 0, ss(fmt "\n"), ##__VA_ARGS__)
 #else
-#define userdata_env_debug(fmt, ...)
+#define userdata_debug(fmt, ...)
 #endif
 
 /* Cloud provider types */
@@ -118,7 +119,7 @@ static const struct provider_config providers[] = {
     },
 };
 
-typedef struct userdata_env {
+typedef struct userdata {
     heap h;
     status_handler complete;
     enum cloud_provider current_provider;
@@ -126,11 +127,12 @@ typedef struct userdata_env {
     boolean detecting;
     boolean started;  /* true after first provider attempt */
     int retry_count;
+    buffer save_file_path;  /* path to save raw userdata if configured */
     closure_struct(value_handler, userdata_vh);
     closure_struct(value_handler, detect_vh);
-} *userdata_env;
+} *userdata;
 
-static userdata_env ue;
+static userdata ue;
 
 /* Forward declarations */
 static void try_next_provider(void);
@@ -180,7 +182,7 @@ static void parse_and_set_env_line(buffer line)
             symbol var_sym = intern(name_buf);
             set(get_environment(), var_sym, value_buf);
 
-            userdata_env_debug("Set environment variable: %b=%b", name_buf, value_buf);
+            userdata_debug("Set environment variable: %b=%b", name_buf, value_buf);
         }
     }
 
@@ -245,11 +247,24 @@ static buffer decode_base64(buffer encoded)
     }
 }
 
+/* Completion handler for file write operation */
+closure_function(4, 2, void, userdata_write_complete,
+                 fsfile, f, buffer, decoded, buffer, content, status_handler, complete,
+                 status s, bytes len)
+{
+    /* Deallocate decoded buffer if it was allocated (base64 decode) */
+    if (bound(decoded) != bound(content))
+        deallocate_buffer(bound(decoded));
+    fsfile_release(bound(f));
+    apply(bound(complete), s);
+    closure_finish();
+}
+
 closure_func_basic(value_handler, void, userdata_vh,
                    value v)
 {
     if (!v) {
-        msg_err("userdata_env: failed to fetch userdata");
+        msg_err("userdata: failed to fetch userdata");
         try_next_provider();
         return;
     }
@@ -259,7 +274,7 @@ closure_func_basic(value_handler, void, userdata_vh,
 
     if (!status_code || buffer_length(status_code) < 1 || byte(status_code, 0) != '2') {
         /* Not a 2xx response, try next provider */
-        userdata_env_debug("Non-2xx response from %s: %v",
+        userdata_debug("Non-2xx response from %s: %v",
                           providers[ue->current_provider].name, start_line);
         try_next_provider();
         return;
@@ -267,7 +282,7 @@ closure_func_basic(value_handler, void, userdata_vh,
 
     buffer content = get(v, sym_this("content"));
     if (!content || buffer_length(content) == 0) {
-        userdata_env_debug("Empty userdata from %s", providers[ue->current_provider].name);
+        userdata_debug("Empty userdata from %s", providers[ue->current_provider].name);
         /* Empty userdata is OK, just complete */
         apply(ue->complete, STATUS_OK);
         return;
@@ -278,23 +293,53 @@ closure_func_basic(value_handler, void, userdata_vh,
     if (providers[ue->current_provider].needs_base64_decode) {
         decoded = decode_base64(content);
         if (!decoded) {
-            msg_err("userdata_env: failed to decode base64 userdata");
+            msg_err("userdata: failed to decode base64 userdata");
             try_next_provider();
             return;
         }
     }
 
-    userdata_env_debug("Got userdata from %s, parsing environment variables",
-                      providers[ue->current_provider].name);
+    /* Check if we should save to file or parse environment variables */
+    if (ue->save_file_path) {
+        /* Save to file mode */
+        userdata_debug("Saving userdata from %s to file: %b",
+                          providers[ue->current_provider].name, ue->save_file_path);
 
-    /* Parse and set environment variables */
-    parse_userdata(decoded);
+        fsfile f = fsfile_open_or_create(buffer_to_sstring(ue->save_file_path), true);
+        if (!f) {
+            status s = timm("result", "userdata: failed to open file '%b'", ue->save_file_path);
+            if (decoded != content)
+                deallocate_buffer(decoded);
+            apply(ue->complete, s);
+            return;
+        }
 
-    if (decoded != content)
-        deallocate_buffer(decoded);
+        /* Create io_status_handler for write completion */
+        io_status_handler io_sh = closure(ue->h, userdata_write_complete, f, decoded, content, ue->complete);
+        if (io_sh == INVALID_ADDRESS) {
+            status s = timm("result", "userdata: failed to allocate I/O status handler");
+            fsfile_release(f);
+            if (decoded != content)
+                deallocate_buffer(decoded);
+            apply(ue->complete, s);
+            return;
+        }
 
-    /* Success! */
-    apply(ue->complete, STATUS_OK);
+        bytes len = buffer_length(decoded);
+        filesystem_write_linear(f, buffer_ref(decoded, 0), irangel(0, len), io_sh);
+    } else {
+        /* Parse environment variables mode */
+        userdata_debug("Got userdata from %s, parsing environment variables",
+                          providers[ue->current_provider].name);
+
+        parse_userdata(decoded);
+
+        if (decoded != content)
+            deallocate_buffer(decoded);
+
+        /* Success! */
+        apply(ue->complete, STATUS_OK);
+    }
 }
 
 closure_func_basic(value_handler, void, detect_vh,
@@ -310,7 +355,7 @@ closure_func_basic(value_handler, void, detect_vh,
 
     if (status_code && buffer_length(status_code) >= 1 && byte(status_code, 0) == '2') {
         /* Detected! */
-        userdata_env_debug("Detected cloud provider: %s", providers[ue->current_provider].name);
+        userdata_debug("Detected cloud provider: %s", providers[ue->current_provider].name);
 
         /* Set PROVIDER environment variable for debugging */
         sstring provider_name = providers[ue->current_provider].name;
@@ -318,7 +363,7 @@ closure_func_basic(value_handler, void, detect_vh,
         if (provider_buf != INVALID_ADDRESS) {
             buffer_write_sstring(provider_buf, provider_name);
             set(get_environment(), sym(USERDATA_ENV_PROVIDER), provider_buf);
-            userdata_env_debug("Set PROVIDER=%s", provider_name);
+            userdata_debug("Set PROVIDER=%s", provider_name);
         }
 
         /* For AWS, save the token for userdata fetch */
@@ -327,7 +372,7 @@ closure_func_basic(value_handler, void, detect_vh,
             if (token) {
                 ue->aws_token = clone_buffer(ue->h, token);
                 if (ue->aws_token == INVALID_ADDRESS) {
-                    msg_err("userdata_env: failed to allocate AWS token buffer");
+                    msg_err("userdata: failed to allocate AWS token buffer");
                     apply(ue->complete, STATUS_OK);
                     return;
                 }
@@ -355,7 +400,7 @@ static void fetch_userdata(enum cloud_provider provider)
 
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
-        msg_err("userdata_env: failed to allocate request tuple");
+        msg_err("userdata: failed to allocate request tuple");
         apply(ue->complete, STATUS_OK);
         return;
     }
@@ -364,7 +409,7 @@ static void fetch_userdata(enum cloud_provider provider)
     buffer url = allocate_buffer(ue->h, 128);
     if (url == INVALID_ADDRESS) {
         deallocate_value(req);
-        msg_err("userdata_env: failed to allocate URL buffer");
+        msg_err("userdata: failed to allocate URL buffer");
         apply(ue->complete, STATUS_OK);
         return;
     }
@@ -382,7 +427,7 @@ static void fetch_userdata(enum cloud_provider provider)
             header_val = allocate_buffer(ue->h, cfg->userdata_header_value.len);
             if (header_val == INVALID_ADDRESS) {
                 deallocate_value(req);
-                msg_err("userdata_env: failed to allocate header buffer");
+                msg_err("userdata: failed to allocate header buffer");
                 apply(ue->complete, STATUS_OK);
                 return;
             }
@@ -399,7 +444,7 @@ static void fetch_userdata(enum cloud_provider provider)
 
     status s = net_http_req(&params);
     if (!is_ok(s)) {
-        msg_err("userdata_env: HTTP request failed: %v", s);
+        msg_err("userdata: HTTP request failed: %v", s);
         timm_dealloc(s);
         deallocate_value(req);
         apply(ue->complete, STATUS_OK);
@@ -413,7 +458,7 @@ static void try_provider(enum cloud_provider provider)
     ue->current_provider = provider;
     ue->detecting = true;
 
-    userdata_env_debug("Trying provider: %s", cfg->name);
+    userdata_debug("Trying provider: %s", cfg->name);
 
     struct net_http_req_params params;
     params.host = METADATA_SERVER_ADDR;
@@ -423,7 +468,7 @@ static void try_provider(enum cloud_provider provider)
 
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
-        msg_err("userdata_env: failed to allocate request tuple");
+        msg_err("userdata: failed to allocate request tuple");
         try_next_provider();
         return;
     }
@@ -432,7 +477,7 @@ static void try_provider(enum cloud_provider provider)
     buffer url = allocate_buffer(ue->h, 128);
     if (url == INVALID_ADDRESS) {
         deallocate_value(req);
-        msg_err("userdata_env: failed to allocate URL buffer");
+        msg_err("userdata: failed to allocate URL buffer");
         try_next_provider();
         return;
     }
@@ -444,7 +489,7 @@ static void try_provider(enum cloud_provider provider)
         buffer header_val = allocate_buffer(ue->h, cfg->detect_header_value.len);
         if (header_val == INVALID_ADDRESS) {
             deallocate_value(req);
-            msg_err("userdata_env: failed to allocate header buffer");
+            msg_err("userdata: failed to allocate header buffer");
             try_next_provider();
             return;
         }
@@ -460,7 +505,7 @@ static void try_provider(enum cloud_provider provider)
 
     status s = net_http_req(&params);
     if (!is_ok(s)) {
-        userdata_env_debug("Detection request failed for %s: %v", cfg->name, s);
+        userdata_debug("Detection request failed for %s: %v", cfg->name, s);
         timm_dealloc(s);
         deallocate_value(req);
         try_next_provider();
@@ -480,7 +525,7 @@ static void try_next_provider(void)
         try_provider(ue->current_provider);
     } else {
         /* Exhausted all providers */
-        userdata_env_debug("No cloud provider detected or no userdata available");
+        userdata_debug("No cloud provider detected or no userdata available");
         apply(ue->complete, STATUS_OK);
     }
 }
@@ -495,18 +540,18 @@ closure_function(1, 2, void, retry_detection,
     ue->retry_count++;
 
     if (ue->retry_count > MAX_NETWORK_RETRIES) {
-        userdata_env_debug("Max retries (%d) reached, network not available", MAX_NETWORK_RETRIES);
+        userdata_debug("Max retries (%d) reached, network not available", MAX_NETWORK_RETRIES);
         apply(ue->complete, STATUS_OK);
         closure_finish();
         return;
     }
 
-    userdata_env_debug("Retry %d/%d: checking if network is available",
+    userdata_debug("Retry %d/%d: checking if network is available",
                       ue->retry_count, MAX_NETWORK_RETRIES);
 
     /* Check if metadata server is reachable now */
     if (!metadata_server_reachable()) {
-        userdata_env_debug("Metadata server still not reachable, scheduling retry %d",
+        userdata_debug("Metadata server still not reachable, scheduling retry %d",
                           ue->retry_count + 1);
 
         /* Schedule another retry */
@@ -521,13 +566,13 @@ closure_function(1, 2, void, retry_detection,
         }
 
         /* Failed to allocate timer, give up */
-        userdata_env_debug("Failed to schedule retry, giving up");
+        userdata_debug("Failed to schedule retry, giving up");
         apply(ue->complete, STATUS_OK);
         closure_finish();
         return;
     }
 
-    userdata_env_debug("Network is now available, starting cloud provider detection");
+    userdata_debug("Network is now available, starting cloud provider detection");
     /* started flag is already false, try_next_provider will handle initialization */
     try_next_provider();
 
@@ -563,10 +608,21 @@ int init(status_handler complete)
     ue->aws_token = 0;
     ue->retry_count = 0;
     ue->started = false;
+    ue->save_file_path = 0;
+
+    /* Retrieve configuration parameters */
+    tuple config = get(get_root_tuple(), sym(userdata));
+    if (config && is_tuple(config)) {
+        buffer save_to = get(config, sym(save_to_file));
+        if (save_to && is_string(save_to) && buffer_length(save_to) > 0) {
+            ue->save_file_path = save_to;
+            userdata_debug("save_to_file configured: %b", save_to);
+        }
+    }
 
     /* Check if metadata server is reachable */
     if (!metadata_server_reachable()) {
-        userdata_env_debug("Metadata server not reachable, will retry up to %d times (every %d seconds)",
+        userdata_debug("Metadata server not reachable, will retry up to %d times (every %d seconds)",
                           MAX_NETWORK_RETRIES, RETRY_INTERVAL_SECONDS);
 
         /* Schedule retry (network might not be ready yet) */
