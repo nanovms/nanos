@@ -120,7 +120,6 @@ static const struct provider_config providers[] = {
 };
 
 typedef struct userdata {
-    heap h;
     status_handler complete;
     enum cloud_provider current_provider;
     buffer aws_token;  /* for AWS IMDSv2 */
@@ -133,6 +132,7 @@ typedef struct userdata {
 } *userdata;
 
 static userdata ue;
+static heap userdata_heap;
 
 /* Forward declarations */
 static void try_next_provider(void);
@@ -155,7 +155,7 @@ static void parse_and_set_env_line(buffer line)
         return;  /* no equals sign or it's at the start */
 
     /* Extract variable name */
-    buffer name_buf = allocate_buffer(ue->h, eq_pos);
+    buffer name_buf = allocate_buffer(userdata_heap, eq_pos);
     if (name_buf == INVALID_ADDRESS)
         return;
 
@@ -174,7 +174,7 @@ static void parse_and_set_env_line(buffer line)
     }
 
     if (value_len > 0) {
-        buffer value_buf = allocate_buffer(ue->h, value_len);
+        buffer value_buf = allocate_buffer(userdata_heap, value_len);
         if (value_buf != INVALID_ADDRESS) {
             buffer_write(value_buf, buffer_ref(line, eq_pos + 1), value_len);
 
@@ -195,7 +195,7 @@ static void parse_userdata(buffer content)
     if (!content || buffer_length(content) == 0)
         return;
 
-    buffer line = allocate_buffer(ue->h, 512);
+    buffer line = allocate_buffer(userdata_heap, 512);
     if (line == INVALID_ADDRESS)
         return;
 
@@ -219,7 +219,7 @@ static void parse_userdata(buffer content)
     deallocate_buffer(line);
 }
 
-/* Decode base64 content (for Azure) */
+/* Decode base64 content (e.g. for Azure) */
 static buffer decode_base64(buffer encoded)
 {
     if (!encoded || buffer_length(encoded) == 0)
@@ -229,7 +229,7 @@ static buffer decode_base64(buffer encoded)
     bytes encoded_len = buffer_length(encoded);
     bytes decoded_len = (encoded_len * 3) / 4 + 4;  /* upper bound */
 
-    buffer decoded = allocate_buffer(ue->h, decoded_len);
+    buffer decoded = allocate_buffer(userdata_heap, decoded_len);
     if (decoded == INVALID_ADDRESS)
         return 0;
 
@@ -247,14 +247,18 @@ static buffer decode_base64(buffer encoded)
     }
 }
 
-/* Completion handler for file write operation */
-closure_function(4, 2, void, userdata_write_complete,
-                 fsfile, f, buffer, decoded, buffer, content, status_handler, complete,
-                 status s, bytes len)
+/* Completion handler for file write operation (syslog-style) */
+closure_function(4, 1, void, userdata_write_complete,
+                 fsfile, f, buffer, write_buf, sg_list, sg, status_handler, complete,
+                 status s)
 {
-    /* Deallocate decoded buffer if it was allocated (base64 decode) */
-    if (bound(decoded) != bound(content))
-        deallocate_buffer(bound(decoded));
+    /* NOTE: This is an async callback that may execute after ue is invalid.
+     * Do not access ue or ue->h from here.
+     */
+
+    /* Clean up sg_list and buffer */
+    deallocate_sg_list(bound(sg));
+    deallocate_buffer(bound(write_buf));
     fsfile_release(bound(f));
     apply(bound(complete), s);
     closure_finish();
@@ -307,17 +311,19 @@ closure_func_basic(value_handler, void, userdata_vh,
 
         fsfile f = fsfile_open_or_create(buffer_to_sstring(ue->save_file_path), true);
         if (!f) {
-            status s = timm("result", "userdata: failed to open file '%b'", ue->save_file_path);
+            userdata_debug("Failed to open file: %b", ue->save_file_path);
+            status s = timm("result", "userdata: failed to open file %b", ue->save_file_path);
             if (decoded != content)
                 deallocate_buffer(decoded);
             apply(ue->complete, s);
             return;
         }
 
-        /* Create io_status_handler for write completion */
-        io_status_handler io_sh = closure(ue->h, userdata_write_complete, f, decoded, content, ue->complete);
-        if (io_sh == INVALID_ADDRESS) {
-            status s = timm("result", "userdata: failed to allocate I/O status handler");
+        /* Clone buffer using global heap */
+        buffer write_buf = clone_buffer(userdata_heap, decoded);
+        if (write_buf == INVALID_ADDRESS) {
+            userdata_debug("Failed to clone buffer");
+            status s = timm("result", "userdata: failed to clone buffer");
             fsfile_release(f);
             if (decoded != content)
                 deallocate_buffer(decoded);
@@ -325,8 +331,62 @@ closure_func_basic(value_handler, void, userdata_vh,
             return;
         }
 
-        bytes len = buffer_length(decoded);
-        filesystem_write_linear(f, buffer_ref(decoded, 0), irangel(0, len), io_sh);
+        /* Clean up decoded buffer after cloning */
+        if (decoded != content)
+            deallocate_buffer(decoded);
+
+        /* Create merge for async completion handling */
+        merge m = allocate_merge(userdata_heap, ue->complete);
+        status_handler sh = apply_merge(m);
+
+        /* Get pagecache writer */
+        sg_io fs_write = pagecache_node_get_writer(fsfile_get_cachenode(f));
+        if (!fs_write) {
+            userdata_debug("Failed to get pagecache writer");
+            deallocate_buffer(write_buf);
+            fsfile_release(f);
+            apply(sh, timm("result", "failed to get pagecache writer"));
+            return;
+        }
+
+        /* Get buffer data and length */
+        void *buf_ptr = buffer_ref(write_buf, 0);
+        bytes len = buffer_length(write_buf);
+
+        /* Create sg_list for write operation */
+        sg_list sg = sg_new(1);
+        if (sg == INVALID_ADDRESS) {
+            userdata_debug("Failed to allocate sg_list");
+            deallocate_buffer(write_buf);
+            fsfile_release(f);
+            apply(sh, timm("result", "failed to allocate sg_list"));
+            return;
+        }
+
+        /* Add buffer to sg_list */
+        sg_buf sgb = sg_list_tail_add(sg, len);
+        sgb->buf = buf_ptr;
+        sgb->size = len;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+
+        /* Create completion handler with sg_list */
+        status_handler io_sh = closure(userdata_heap, userdata_write_complete, f, write_buf, sg, sh);
+        if (io_sh == INVALID_ADDRESS) {
+            userdata_debug("Failed to allocate completion handler");
+            deallocate_sg_list(sg);
+            deallocate_buffer(write_buf);
+            fsfile_release(f);
+            apply(sh, timm("result", "failed to allocate completion handler"));
+            return;
+        }
+
+        /* Write userdata to file */
+        userdata_debug("Writing %d bytes to %b", len, ue->save_file_path);
+        apply(fs_write, sg, irangel(0, len), io_sh);
+
+        /* Cleanup handled by async completion handler */
+        return;
     } else {
         /* Parse environment variables mode */
         userdata_debug("Got userdata from %s, parsing environment variables",
@@ -357,20 +417,20 @@ closure_func_basic(value_handler, void, detect_vh,
         /* Detected! */
         userdata_debug("Detected cloud provider: %s", providers[ue->current_provider].name);
 
-        /* Set PROVIDER environment variable for debugging */
+        /* Set USERDATA_PROVIDER environment variable */
         sstring provider_name = providers[ue->current_provider].name;
-        buffer provider_buf = allocate_buffer(ue->h, provider_name.len);
+        buffer provider_buf = allocate_buffer(userdata_heap, provider_name.len);
         if (provider_buf != INVALID_ADDRESS) {
             buffer_write_sstring(provider_buf, provider_name);
-            set(get_environment(), sym(USERDATA_ENV_PROVIDER), provider_buf);
-            userdata_debug("Set PROVIDER=%s", provider_name);
+            set(get_environment(), sym(USERDATA_PROVIDER), provider_buf);
+            userdata_debug("Set USERDATA_PROVIDER=%s", provider_name);
         }
 
         /* For AWS, save the token for userdata fetch */
         if (providers[ue->current_provider].needs_token) {
             buffer token = get(v, sym_this("content"));
             if (token) {
-                ue->aws_token = clone_buffer(ue->h, token);
+                ue->aws_token = clone_buffer(userdata_heap, token);
                 if (ue->aws_token == INVALID_ADDRESS) {
                     msg_err("userdata: failed to allocate AWS token buffer");
                     apply(ue->complete, STATUS_OK);
@@ -406,7 +466,7 @@ static void fetch_userdata(enum cloud_provider provider)
     }
 
     /* Set URL */
-    buffer url = allocate_buffer(ue->h, 128);
+    buffer url = allocate_buffer(userdata_heap, 128);
     if (url == INVALID_ADDRESS) {
         deallocate_value(req);
         msg_err("userdata: failed to allocate URL buffer");
@@ -424,7 +484,7 @@ static void fetch_userdata(enum cloud_provider provider)
         if (cfg->needs_token && ue->aws_token) {
             header_val = ue->aws_token;
         } else {
-            header_val = allocate_buffer(ue->h, cfg->userdata_header_value.len);
+            header_val = allocate_buffer(userdata_heap, cfg->userdata_header_value.len);
             if (header_val == INVALID_ADDRESS) {
                 deallocate_value(req);
                 msg_err("userdata: failed to allocate header buffer");
@@ -474,7 +534,7 @@ static void try_provider(enum cloud_provider provider)
     }
 
     /* Set URL */
-    buffer url = allocate_buffer(ue->h, 128);
+    buffer url = allocate_buffer(userdata_heap, 128);
     if (url == INVALID_ADDRESS) {
         deallocate_value(req);
         msg_err("userdata: failed to allocate URL buffer");
@@ -486,7 +546,7 @@ static void try_provider(enum cloud_provider provider)
 
     /* Set provider-specific header if needed */
     if (!sstring_is_null(cfg->detect_header_name)) {
-        buffer header_val = allocate_buffer(ue->h, cfg->detect_header_value.len);
+        buffer header_val = allocate_buffer(userdata_heap, cfg->detect_header_value.len);
         if (header_val == INVALID_ADDRESS) {
             deallocate_value(req);
             msg_err("userdata: failed to allocate header buffer");
@@ -557,7 +617,7 @@ closure_function(1, 2, void, retry_detection,
         /* Schedule another retry */
         struct timer retry_timer = {0};
         init_timer(&retry_timer);
-        timer_handler th = closure(ue->h, retry_detection, retry_timer);
+        timer_handler th = closure(userdata_heap, retry_detection, retry_timer);
         if (th != INVALID_ADDRESS) {
             register_timer(kernel_timers, &closure_member(retry_detection, th, timer),
                           CLOCK_ID_MONOTONIC, seconds(RETRY_INTERVAL_SECONDS), false, 0, th);
@@ -595,14 +655,14 @@ static boolean metadata_server_reachable(void)
 
 int init(status_handler complete)
 {
+    /* Set global heap like cloud_init */
+    userdata_heap = heap_locked(get_kernel_heaps());
     /* Allocate our global state */
-    heap h = heap_locked(get_kernel_heaps());
-    ue = allocate(h, sizeof(*ue));
+    ue = allocate(userdata_heap, sizeof(*ue));
     if (ue == INVALID_ADDRESS)
         return KLIB_INIT_FAILED;
 
     zero(ue, sizeof(*ue));
-    ue->h = h;
     ue->complete = complete;
     ue->current_provider = 0;
     ue->aws_token = 0;
@@ -628,9 +688,9 @@ int init(status_handler complete)
         /* Schedule retry (network might not be ready yet) */
         struct timer retry_timer = {0};
         init_timer(&retry_timer);
-        timer_handler th = closure(h, retry_detection, retry_timer);
+        timer_handler th = closure(userdata_heap, retry_detection, retry_timer);
         if (th == INVALID_ADDRESS) {
-            deallocate(h, ue, sizeof(*ue));
+            deallocate(userdata_heap, ue, sizeof(*ue));
             return KLIB_INIT_FAILED;
         }
 
