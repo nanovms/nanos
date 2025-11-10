@@ -26,8 +26,7 @@ enum cloud_provider {
     PROVIDER_DIGITALOCEAN,
     PROVIDER_OPENSTACK,
     PROVIDER_HETZNER,
-    PROVIDER_MAX,
-    PROVIDER_UNKNOWN
+    PROVIDER_MAX
 };
 
 /* Provider detection/fetch configuration */
@@ -120,19 +119,20 @@ static const struct provider_config providers[] = {
 };
 
 typedef struct userdata {
+    heap h;
     status_handler complete;
     enum cloud_provider current_provider;
-    buffer aws_token;  /* for AWS IMDSv2 */
-    boolean detecting;
+    buffer token;  /* for IMDSv2 */
     boolean started;  /* true after first provider attempt */
     int retry_count;
     buffer save_file_path;  /* path to save raw userdata if configured */
+    struct timer retry_timer;
     closure_struct(value_handler, userdata_vh);
     closure_struct(value_handler, detect_vh);
+    closure_struct(timer_handler, retry_th);
 } *userdata;
 
 static userdata ue;
-static heap userdata_heap;
 
 /* Forward declarations */
 static void try_next_provider(void);
@@ -154,13 +154,6 @@ static void parse_and_set_env_line(buffer line)
     if (eq_pos <= 0)
         return;  /* no equals sign or it's at the start */
 
-    /* Extract variable name */
-    buffer name_buf = allocate_buffer(userdata_heap, eq_pos);
-    if (name_buf == INVALID_ADDRESS)
-        return;
-
-    buffer_write(name_buf, buffer_ref(line, 0), eq_pos);
-
     /* Extract value (rest of line after '=') */
     int value_len = buffer_length(line) - eq_pos - 1;
 
@@ -174,19 +167,18 @@ static void parse_and_set_env_line(buffer line)
     }
 
     if (value_len > 0) {
-        buffer value_buf = allocate_buffer(userdata_heap, value_len);
+        buffer value_buf = allocate_buffer(ue->h, value_len);
         if (value_buf != INVALID_ADDRESS) {
             buffer_write(value_buf, buffer_ref(line, eq_pos + 1), value_len);
 
-            /* Set environment variable */
-            symbol var_sym = intern(name_buf);
+            /* Set environment variable using sstring approach */
+            sstring name_ss = isstring(buffer_ref(line, 0), eq_pos);
+            symbol var_sym = intern(alloca_wrap_sstring(name_ss));
             set(get_environment(), var_sym, value_buf);
 
-            userdata_debug("Set environment variable: %b=%b", name_buf, value_buf);
+            userdata_debug("Set environment variable: %v=%b", var_sym, value_buf);
         }
     }
-
-    deallocate_buffer(name_buf);
 }
 
 /* Parse userdata content for environment variables */
@@ -195,7 +187,7 @@ static void parse_userdata(buffer content)
     if (!content || buffer_length(content) == 0)
         return;
 
-    buffer line = allocate_buffer(userdata_heap, 512);
+    buffer line = allocate_buffer(ue->h, 512);
     if (line == INVALID_ADDRESS)
         return;
 
@@ -229,7 +221,7 @@ static buffer decode_base64(buffer encoded)
     bytes encoded_len = buffer_length(encoded);
     bytes decoded_len = (encoded_len * 3) / 4 + 4;  /* upper bound */
 
-    buffer decoded = allocate_buffer(userdata_heap, decoded_len);
+    buffer decoded = allocate_buffer(ue->h, decoded_len);
     if (decoded == INVALID_ADDRESS)
         return 0;
 
@@ -279,7 +271,7 @@ closure_func_basic(value_handler, void, userdata_vh,
     if (!status_code || buffer_length(status_code) < 1 || byte(status_code, 0) != '2') {
         /* Not a 2xx response, try next provider */
         userdata_debug("Non-2xx response from %s: %v",
-                          providers[ue->current_provider].name, start_line);
+                       providers[ue->current_provider].name, start_line);
         try_next_provider();
         return;
     }
@@ -320,7 +312,7 @@ closure_func_basic(value_handler, void, userdata_vh,
         }
 
         /* Clone buffer using global heap */
-        buffer write_buf = clone_buffer(userdata_heap, decoded);
+        buffer write_buf = clone_buffer(ue->h, decoded);
         if (write_buf == INVALID_ADDRESS) {
             userdata_debug("Failed to clone buffer");
             status s = timm("result", "userdata: failed to clone buffer");
@@ -335,17 +327,13 @@ closure_func_basic(value_handler, void, userdata_vh,
         if (decoded != content)
             deallocate_buffer(decoded);
 
-        /* Create merge for async completion handling */
-        merge m = allocate_merge(userdata_heap, ue->complete);
-        status_handler sh = apply_merge(m);
-
         /* Get pagecache writer */
         sg_io fs_write = pagecache_node_get_writer(fsfile_get_cachenode(f));
         if (!fs_write) {
             userdata_debug("Failed to get pagecache writer");
             deallocate_buffer(write_buf);
             fsfile_release(f);
-            apply(sh, timm("result", "failed to get pagecache writer"));
+            apply(ue->complete, timm("result", "failed to get pagecache writer"));
             return;
         }
 
@@ -359,7 +347,7 @@ closure_func_basic(value_handler, void, userdata_vh,
             userdata_debug("Failed to allocate sg_list");
             deallocate_buffer(write_buf);
             fsfile_release(f);
-            apply(sh, timm("result", "failed to allocate sg_list"));
+            apply(ue->complete, timm("result", "failed to allocate sg_list"));
             return;
         }
 
@@ -371,13 +359,13 @@ closure_func_basic(value_handler, void, userdata_vh,
         sgb->refcount = 0;
 
         /* Create completion handler with sg_list */
-        status_handler io_sh = closure(userdata_heap, userdata_write_complete, f, write_buf, sg, sh);
+        status_handler io_sh = closure(ue->h, userdata_write_complete, f, write_buf, sg, ue->complete);
         if (io_sh == INVALID_ADDRESS) {
             userdata_debug("Failed to allocate completion handler");
             deallocate_sg_list(sg);
             deallocate_buffer(write_buf);
             fsfile_release(f);
-            apply(sh, timm("result", "failed to allocate completion handler"));
+            apply(ue->complete, timm("result", "failed to allocate completion handler"));
             return;
         }
 
@@ -419,7 +407,7 @@ closure_func_basic(value_handler, void, detect_vh,
 
         /* Set USERDATA_PROVIDER environment variable */
         sstring provider_name = providers[ue->current_provider].name;
-        buffer provider_buf = allocate_buffer(userdata_heap, provider_name.len);
+        buffer provider_buf = allocate_buffer(ue->h, provider_name.len);
         if (provider_buf != INVALID_ADDRESS) {
             buffer_write_sstring(provider_buf, provider_name);
             set(get_environment(), sym(USERDATA_PROVIDER), provider_buf);
@@ -430,9 +418,9 @@ closure_func_basic(value_handler, void, detect_vh,
         if (providers[ue->current_provider].needs_token) {
             buffer token = get(v, sym_this("content"));
             if (token) {
-                ue->aws_token = clone_buffer(userdata_heap, token);
-                if (ue->aws_token == INVALID_ADDRESS) {
-                    msg_err("userdata: failed to allocate AWS token buffer");
+                ue->token = clone_buffer(ue->h, token);
+                if (ue->token == INVALID_ADDRESS) {
+                    msg_err("userdata: failed to allocate token buffer");
                     apply(ue->complete, STATUS_OK);
                     return;
                 }
@@ -440,7 +428,6 @@ closure_func_basic(value_handler, void, detect_vh,
         }
 
         /* Now fetch userdata */
-        ue->detecting = false;
         fetch_userdata(ue->current_provider);
     } else {
         /* Detection failed, try next */
@@ -466,7 +453,7 @@ static void fetch_userdata(enum cloud_provider provider)
     }
 
     /* Set URL */
-    buffer url = allocate_buffer(userdata_heap, 128);
+    buffer url = allocate_buffer(ue->h, 128);
     if (url == INVALID_ADDRESS) {
         deallocate_value(req);
         msg_err("userdata: failed to allocate URL buffer");
@@ -481,10 +468,10 @@ static void fetch_userdata(enum cloud_provider provider)
         buffer header_val;
 
         /* For AWS, use the token we fetched */
-        if (cfg->needs_token && ue->aws_token) {
-            header_val = ue->aws_token;
+        if (cfg->needs_token && ue->token) {
+            header_val = ue->token;
         } else {
-            header_val = allocate_buffer(userdata_heap, cfg->userdata_header_value.len);
+            header_val = allocate_buffer(ue->h, cfg->userdata_header_value.len);
             if (header_val == INVALID_ADDRESS) {
                 deallocate_value(req);
                 msg_err("userdata: failed to allocate header buffer");
@@ -516,7 +503,6 @@ static void try_provider(enum cloud_provider provider)
     const struct provider_config *cfg = &providers[provider];
 
     ue->current_provider = provider;
-    ue->detecting = true;
 
     userdata_debug("Trying provider: %s", cfg->name);
 
@@ -534,7 +520,7 @@ static void try_provider(enum cloud_provider provider)
     }
 
     /* Set URL */
-    buffer url = allocate_buffer(userdata_heap, 128);
+    buffer url = allocate_buffer(ue->h, 128);
     if (url == INVALID_ADDRESS) {
         deallocate_value(req);
         msg_err("userdata: failed to allocate URL buffer");
@@ -546,7 +532,7 @@ static void try_provider(enum cloud_provider provider)
 
     /* Set provider-specific header if needed */
     if (!sstring_is_null(cfg->detect_header_name)) {
-        buffer header_val = allocate_buffer(userdata_heap, cfg->detect_header_value.len);
+        buffer header_val = allocate_buffer(ue->h, cfg->detect_header_value.len);
         if (header_val == INVALID_ADDRESS) {
             deallocate_value(req);
             msg_err("userdata: failed to allocate header buffer");
@@ -590,10 +576,11 @@ static void try_next_provider(void)
     }
 }
 
-closure_function(1, 2, void, retry_detection,
-                 struct timer, timer,
-                 u64 expiry, u64 overruns)
+closure_func_basic(timer_handler, void, retry_detection,
+                   u64 expiry, u64 overruns)
 {
+    userdata ue = struct_from_field(closure_self(), userdata, retry_th);
+
     if (overruns == timer_disabled)
         return;
 
@@ -602,7 +589,6 @@ closure_function(1, 2, void, retry_detection,
     if (ue->retry_count > MAX_NETWORK_RETRIES) {
         userdata_debug("Max retries (%d) reached, network not available", MAX_NETWORK_RETRIES);
         apply(ue->complete, STATUS_OK);
-        closure_finish();
         return;
     }
 
@@ -612,31 +598,18 @@ closure_function(1, 2, void, retry_detection,
     /* Check if metadata server is reachable now */
     if (!metadata_server_reachable()) {
         userdata_debug("Metadata server still not reachable, scheduling retry %d",
-                          ue->retry_count + 1);
+                        ue->retry_count + 1);
 
-        /* Schedule another retry */
-        struct timer retry_timer = {0};
-        init_timer(&retry_timer);
-        timer_handler th = closure(userdata_heap, retry_detection, retry_timer);
-        if (th != INVALID_ADDRESS) {
-            register_timer(kernel_timers, &closure_member(retry_detection, th, timer),
-                          CLOCK_ID_MONOTONIC, seconds(RETRY_INTERVAL_SECONDS), false, 0, th);
-            closure_finish();
-            return;
-        }
-
-        /* Failed to allocate timer, give up */
-        userdata_debug("Failed to schedule retry, giving up");
-        apply(ue->complete, STATUS_OK);
-        closure_finish();
+        /* Schedule another retry using existing timer */
+        register_timer(kernel_timers, &ue->retry_timer, CLOCK_ID_MONOTONIC,
+                      seconds(RETRY_INTERVAL_SECONDS), false, 0,
+                      (timer_handler)&ue->retry_th);
         return;
     }
 
     userdata_debug("Network is now available, starting cloud provider detection");
     /* started flag is already false, try_next_provider will handle initialization */
     try_next_provider();
-
-    closure_finish();
 }
 
 static boolean metadata_server_reachable(void)
@@ -655,20 +628,18 @@ static boolean metadata_server_reachable(void)
 
 int init(status_handler complete)
 {
-    /* Set global heap like cloud_init */
-    userdata_heap = heap_locked(get_kernel_heaps());
+    /* Set up heap */
+    heap h = heap_locked(get_kernel_heaps());
     /* Allocate our global state */
-    ue = allocate(userdata_heap, sizeof(*ue));
+    ue = allocate(h, sizeof(*ue));
     if (ue == INVALID_ADDRESS)
         return KLIB_INIT_FAILED;
 
     zero(ue, sizeof(*ue));
+    ue->h = h;
     ue->complete = complete;
-    ue->current_provider = 0;
-    ue->aws_token = 0;
-    ue->retry_count = 0;
-    ue->started = false;
-    ue->save_file_path = 0;
+    init_timer(&ue->retry_timer);
+    init_closure_func(&ue->retry_th, timer_handler, retry_detection);
 
     /* Retrieve configuration parameters */
     tuple config = get(get_root_tuple(), sym(userdata));
@@ -683,19 +654,12 @@ int init(status_handler complete)
     /* Check if metadata server is reachable */
     if (!metadata_server_reachable()) {
         userdata_debug("Metadata server not reachable, will retry up to %d times (every %d seconds)",
-                          MAX_NETWORK_RETRIES, RETRY_INTERVAL_SECONDS);
+                        MAX_NETWORK_RETRIES, RETRY_INTERVAL_SECONDS);
 
         /* Schedule retry (network might not be ready yet) */
-        struct timer retry_timer = {0};
-        init_timer(&retry_timer);
-        timer_handler th = closure(userdata_heap, retry_detection, retry_timer);
-        if (th == INVALID_ADDRESS) {
-            deallocate(userdata_heap, ue, sizeof(*ue));
-            return KLIB_INIT_FAILED;
-        }
-
-        register_timer(kernel_timers, &closure_member(retry_detection, th, timer),
-                      CLOCK_ID_MONOTONIC, seconds(RETRY_INTERVAL_SECONDS), false, 0, th);
+        register_timer(kernel_timers, &ue->retry_timer, CLOCK_ID_MONOTONIC,
+                      seconds(RETRY_INTERVAL_SECONDS), false, 0,
+                      (timer_handler)&ue->retry_th);
 
         return KLIB_INIT_IN_PROGRESS;
     }
