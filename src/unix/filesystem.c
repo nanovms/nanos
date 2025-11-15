@@ -176,7 +176,7 @@ int filesystem_chdir(process p, sstring path)
     filesystem fs = p->cwd_fs;
     int fss;
     tuple n;
-    fss = filesystem_get_node(&fs, p->cwd, path, false, false, false, false, &n, 0);
+    fss = filesystem_get_node(&fs, p->cwd, path, FS_NODE_FOLLOW, &n, 0);
     if (fss != 0)
         goto out;
     if (!is_dir(n)) {
@@ -263,7 +263,7 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
         return -EFAULT;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
-    sysreturn rv = filesystem_get_node(&fs, cwd, filename_ss, false, false, false, false, &t, 0);
+    sysreturn rv = filesystem_get_node(&fs, cwd, filename_ss, FS_NODE_FOLLOW, &t, 0);
     if (rv == 0) {
         filesystem_set_atime(fs, t, actime);
         filesystem_set_mtime(fs, t, modtime);
@@ -345,8 +345,8 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
         sstring filename_ss;
         inode cwd = resolve_dir(fs, dirfd, filename, filename_ss);
         cwd_fs = fs;
-        rv = filesystem_get_node(&fs, cwd, filename_ss, !!(flags & AT_SYMLINK_NOFOLLOW),
-                                            false, false, false, &t, 0);
+        rv = filesystem_get_node(&fs, cwd, filename_ss,
+                                 (flags & AT_SYMLINK_NOFOLLOW) ? 0 : FS_NODE_FOLLOW, &t, 0);
         if (rv)
             filesystem_release(cwd_fs);
     } else {
@@ -443,8 +443,9 @@ static sysreturn statx_node(filesystem fs, inode cwd, sstring pathname, int flag
 {
     tuple n;
     fsfile f;
-    sysreturn rv = filesystem_get_node(&fs, cwd, pathname, !!(flags & AT_SYMLINK_NOFOLLOW), false,
-                                       false, false, &n, &f);
+    sysreturn rv = filesystem_get_node(&fs, cwd, pathname,
+                                       (flags & AT_SYMLINK_NOFOLLOW) ? 0 : FS_NODE_FOLLOW,
+                                       &n, &f);
     if (rv == 0) {
         rv = statx_internal(fs, file_type_from_tuple(n), n, f, statxbuf);
         filesystem_put_node(fs, n);
@@ -536,7 +537,7 @@ sysreturn statfs(const char *path, struct statfs *buf)
         rv = -EFAULT;
         goto out;
     }
-    rv = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &t, 0);
+    rv = filesystem_get_node(&fs, cwd, path_ss, 0, &t, 0);
     if (rv == 0)
         rv = statfs_internal(fs, t, buf);
   out:
@@ -673,7 +674,7 @@ fsfile fsfile_open(sstring file_path)
     filesystem fs = get_root_fs();
     int s = filesystem_get_node(&fs, fs->get_inode(fs, filesystem_getroot(fs)),
                                       file_path,
-                                      false, false, false, false, &file, &fsf);
+                                      FS_NODE_FOLLOW, &file, &fsf);
     if (s == 0) {
         filesystem_put_node(fs, file);
         return fsf;
@@ -694,7 +695,8 @@ fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
         if ((s != 0) && (s != -EEXIST))
             return 0;
     }
-    s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_path, true, true, false, truncate,
+    s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_path,
+                            FS_NODE_CREATE | (truncate ? FS_NODE_TRUNC : 0),
                             &file, &fsf);
     if (s == 0) {
         filesystem_put_node(fs, file);

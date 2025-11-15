@@ -396,9 +396,17 @@ static int open_internal(const char *name, int flags, int mode)
     int ret;
 
     sstring name_ss = isstring((char *)name, strlen(name));
+    u8 fs_flags = 0;
+    if (!(flags & O_NOFOLLOW))
+        fs_flags |= FS_NODE_FOLLOW;
+    if (flags & O_CREAT)
+        fs_flags |= FS_NODE_CREATE;
+    if (flags & O_EXCL)
+        fs_flags |= FS_NODE_EXCL;
+    if (flags & O_TRUNC)
+        fs_flags |= FS_NODE_TRUNC;
     fsfile fsf;
-    ret = filesystem_get_node(&rootfs, cwd_inode, name_ss, !!(flags & O_NOFOLLOW),
-        !!(flags & O_CREAT), !!(flags & O_EXCL), !!(flags & O_TRUNC), &n, &fsf);
+    ret = filesystem_get_node(&rootfs, cwd_inode, name_ss, fs_flags, &n, &fsf);
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
         filesystem_put_node(rootfs, n);
         ret = -ELOOP;

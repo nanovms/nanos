@@ -524,8 +524,7 @@ int filesystem_mkdir(filesystem fs, inode cwd, sstring path)
     return fss;
 }
 
-int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
-                              boolean create, boolean exclusive, boolean truncate, tuple *n,
+int filesystem_get_node(filesystem *fs, inode cwd, sstring path, u8 flags, tuple *n,
                               fsfile *f)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
@@ -534,12 +533,12 @@ int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollo
     tuple parent, t;
     fsfile fsf = 0;
     int fss;
-    if (nofollow)
+    if (!(flags & FS_NODE_FOLLOW))
         fss = filesystem_resolve_sstring(fs, cwd_t, path, &t, &parent);
     else
         fss = filesystem_resolve_sstring_follow(fs, cwd_t, path, &t, &parent);
     if (fss == -ENOENT) {
-        if (create) {
+        if (flags & FS_NODE_CREATE) {
             if (!parent)
                 goto out;
             t = fs_new_entry(*fs);
@@ -549,12 +548,12 @@ int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollo
                 destruct_value(t, true);
         }
     } else if (fss == 0) {
-        if (exclusive) {
+        if (flags & FS_NODE_EXCL) {
             fss = -EEXIST;
-        } else if (is_regular(t) && (f || truncate)) {
+        } else if (is_regular(t) && (f || (flags & FS_NODE_TRUNC))) {
             fss = (*fs)->get_fsfile(*fs, t, &fsf);
             if ((fss == 0) && fsf) {
-                if (truncate)
+                if (flags & FS_NODE_TRUNC)
                     fss = filesystem_truncate_locked(*fs, fsf, 0);
                 if (!f || (fss != 0))
                     fsfile_release(fsf);
