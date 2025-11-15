@@ -872,9 +872,16 @@ sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
     buffer b = 0;
 
     fsfile fsf = 0;
-    ret = filesystem_get_node(&fs, cwd, name, !!(flags & O_NOFOLLOW),
-                                        !!(flags & O_CREAT), !!(flags & O_EXCL),
-                                        !!(flags & O_TRUNC), &n, &fsf);
+    u8 fs_flags = 0;
+    if (!(flags & O_NOFOLLOW))
+        fs_flags |= FS_NODE_FOLLOW;
+    if (flags & O_CREAT)
+        fs_flags |= FS_NODE_CREATE;
+    if (flags & O_EXCL)
+        fs_flags |= FS_NODE_EXCL;
+    if (flags & O_TRUNC)
+        fs_flags |= FS_NODE_TRUNC;
+    ret = filesystem_get_node(&fs, cwd, name, fs_flags, &n, &fsf);
     if (ret == -EFAULT)
         return ret;
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
@@ -1268,7 +1275,7 @@ sysreturn truncate(const char *path, long length)
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fsfile fsf;
-    sysreturn rv = filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &t, &fsf);
+    sysreturn rv = filesystem_get_node(&fs, cwd, path_ss, FS_NODE_FOLLOW, &t, &fsf);
     if (rv != 0)
         goto out;
     if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE))
@@ -1383,7 +1390,7 @@ sysreturn fdatasync(int fd)
 static sysreturn access_internal(filesystem fs, inode cwd, sstring pathname, int mode)
 {
     tuple m = 0;
-    int fss = filesystem_get_node(&fs, cwd, pathname, false, false, false, false, &m, 0);
+    int fss = filesystem_get_node(&fs, cwd, pathname, FS_NODE_FOLLOW, &m, 0);
     if (fss != 0)
         return fss;
     u32 perms = file_meta_perms(current->p, m);
@@ -1526,7 +1533,7 @@ static sysreturn stat_internal(filesystem fs, inode cwd, sstring name, boolean f
     if (!fault_in_user_memory(buf, sizeof(struct stat), true))
         return -EFAULT;
 
-    int fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
+    int fss = filesystem_get_node(&fs, cwd, name, follow ? FS_NODE_FOLLOW : 0, &n, &fsf);
     if (fss != 0)
         return fss;
 
@@ -1815,7 +1822,7 @@ static sysreturn readlink_internal(filesystem fs, inode cwd, sstring pathname, c
         return set_syscall_error(current, EFAULT);
     }
     tuple n;
-    int fss = filesystem_get_node(&fs, cwd, pathname, true, false, false, false, &n, 0);
+    int fss = filesystem_get_node(&fs, cwd, pathname, 0, &n, 0);
     if (fss != 0)
         return fss;
     sysreturn rv;

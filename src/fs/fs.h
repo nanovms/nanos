@@ -119,6 +119,11 @@ struct fsfile {
 #define FSF_DIRTY_OTHER     (1 << 1)    /* any other metadata */
 #define FSF_DIRTY           (FSF_DIRTY_DATASYNC | FSF_DIRTY_OTHER)
 
+#define FS_NODE_FOLLOW  (1 << 0)
+#define FS_NODE_CREATE  (1 << 1)
+#define FS_NODE_EXCL    (1 << 2)
+#define FS_NODE_TRUNC   (1 << 3)
+
 status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean ro);
 void filesystem_deinit(filesystem fs);
 
@@ -153,8 +158,7 @@ int fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_
                           boolean exchange);
 
 int filesystem_mkdir(filesystem fs, inode cwd, sstring path);
-int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
-                              boolean create, boolean exclusive, boolean truncate, tuple *n,
+int filesystem_get_node(filesystem *fs, inode cwd, sstring path, u8 flags, tuple *n,
                               fsfile *f);
 void filesystem_put_node(filesystem fs, tuple n);
 tuple filesystem_get_meta(filesystem fs, inode n);
