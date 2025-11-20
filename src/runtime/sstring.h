@@ -20,6 +20,10 @@ typedef struct sstring {
     .ptr = string_literal(x),   \
 }
 
+/* Static initialization for null sstring.
+ * For runtime use, sstring_null() is more appropriate. */
+#define sstring_null_init   {.ptr = 0}
+
 #define sstring_foreach(__i, __c, __s)              \
     for (bytes __i = 0, __c, __limit = (__s).len;     \
          (__c = (__s).ptr[__i]), (__i) < __limit;   \
