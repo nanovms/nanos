@@ -1,13 +1,12 @@
 (
     children:(
               #user program
-	      symlink:(contents:(host:output/test/runtime/bin/symlink))
+	      links:(contents:(host:output/test/runtime/bin/links))
 	      )
     # filesystem path to elf for kernel to run
-    program:/symlink
+    program:/links
 #    trace:t
 #    debugsyscalls:t
     fault:t
-    arguments:[symlink]
     environment:()
 )

@@ -14,7 +14,7 @@
 
 #define __statx(...)   syscall(SYS_statx, __VA_ARGS__)
 
-int main(int argc, char **argv)
+static void test_sym_links(void)
 {
     int fd;
     char buf[8];
@@ -188,7 +188,11 @@ int main(int argc, char **argv)
     test_assert(chdir("/dir_link") == 0);
     cwd = getcwd(buf, sizeof(buf));
     test_assert(cwd && !strcmp(cwd, "/dir"));
+}
 
+int main(int argc, char **argv)
+{
+    test_sym_links();
     printf("Test passed\n");
     return EXIT_SUCCESS;
 }
