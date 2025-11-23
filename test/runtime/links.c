@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <linux/stat.h>
 #include <poll.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
@@ -167,6 +168,7 @@ static void test_sym_links(void)
     test_assert((open("link2", O_RDONLY) == -1) && (errno == ENOENT));
     test_assert((open("link3", O_RDONLY) == -1) && (errno == ENOENT));
     test_assert((open("/dir/link", O_RDONLY) == -1) && (errno == ENOENT));
+    test_assert(unlink("/dir/link") == 0);
 
     test_assert(symlink("link_to_self", "link_to_self") == 0);
     test_assert((open("link_to_self", O_RDONLY) == -1) && (errno == ELOOP));
@@ -190,9 +192,63 @@ static void test_sym_links(void)
     test_assert(cwd && !strcmp(cwd, "/dir"));
 }
 
+static void test_hard_links(void)
+{
+    int fd;
+    const uint64_t test_pattern = 0xdeadbeef12345678ULL;
+    uint8_t read_buf[32];
+
+    test_assert((link(FAULT_ADDR, FAULT_ADDR) == -1) && (errno == EFAULT));
+
+    test_assert((linkat(AT_FDCWD, "", AT_FDCWD, "dummy", 0) == -1) && (errno == ENOENT));
+    test_assert((linkat(AT_FDCWD, "nonexistent", AT_FDCWD, "dummy", 0) == -1) && (errno == ENOENT));
+
+    fd = creat("file1", S_IRWXU);
+    test_assert(fd >= 0);
+    test_assert(write(fd, &test_pattern, sizeof(test_pattern)) == sizeof(test_pattern));
+    test_assert((linkat(fd, "foo", AT_FDCWD, "file2", -0) == -1) && (errno == ENOTDIR));
+    close(fd);
+    test_assert((linkat(AT_FDCWD, "file1", AT_FDCWD, FAULT_ADDR, 0) == -1) && (errno == EFAULT));
+    test_assert((linkat(AT_FDCWD, "file1", AT_FDCWD, "file1", 0) == -1) && (errno == EEXIST));
+    test_assert((linkat(AT_FDCWD, "file1", AT_FDCWD, "dir/file", 0) == -1) && (errno == ENOENT));
+    test_assert((linkat(AT_FDCWD, "file1", AT_FDCWD, "", 0) == -1) && (errno == ENOENT));
+    test_assert((linkat(AT_FDCWD, "file1", AT_FDCWD, "file2", -1) == -1) && (errno == EINVAL));
+    test_assert((linkat(AT_FDCWD, "file1/f", AT_FDCWD, "file2", -0) == -1) && (errno == ENOTDIR));
+    test_assert(linkat(AT_FDCWD, "file1", AT_FDCWD, "file2", 0) == 0);
+    test_assert(unlink("file1") == 0);
+    fd = open("file2", O_RDONLY);
+    test_assert(fd >= 0);
+    test_assert(read(fd, read_buf, sizeof(read_buf)) == sizeof(test_pattern));
+    test_assert(!memcmp(read_buf, &test_pattern, sizeof(test_pattern)));
+    close(fd);
+    test_assert(link("file2", "file3") == 0);
+    fd = open("file3", O_RDONLY);
+    test_assert(fd >= 0);
+    test_assert(read(fd, read_buf, sizeof(read_buf)) == sizeof(test_pattern));
+    test_assert(!memcmp(read_buf, &test_pattern, sizeof(test_pattern)));
+    close(fd);
+    test_assert(unlink("file2") == 0);
+    test_assert(unlink("file3") == 0);
+
+    test_assert(symlink("nonexistent", "broken_link") == 0);
+    test_assert(linkat(AT_FDCWD, "broken_link", AT_FDCWD, "link", AT_SYMLINK_FOLLOW) == -1);
+    test_assert(errno == ENOENT);
+    test_assert(linkat(AT_FDCWD, "broken_link", AT_FDCWD, "link", 0) == 0);
+    test_assert(unlink("link") == 0);
+    test_assert(unlink("broken_link") == 0);
+
+    test_assert(mkdir("dir1", S_IRWXU) == 0);
+    test_assert((linkat(AT_FDCWD, "dir1", AT_FDCWD, "dir2", 0) == -1) && (errno == EPERM));
+    test_assert(rmdir("dir1") == 0);
+
+    test_assert((linkat(AT_FDCWD, "nonexistent", AT_FDCWD, "link", 0) == -1) && (errno == ENOENT));
+    test_assert((linkat(0xbadf, "dummy", AT_FDCWD, "link", 0) == -1) && (errno == EBADF));
+}
+
 int main(int argc, char **argv)
 {
     test_sym_links();
+    test_hard_links();
     printf("Test passed\n");
     return EXIT_SUCCESS;
 }

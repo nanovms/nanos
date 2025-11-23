@@ -2338,6 +2338,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, utime, utime);
     register_syscall(map, utimes, utimes);
     register_syscall(map, chown, syscall_ignore);
+    register_syscall(map, link, link);
     register_syscall(map, symlink, symlink);
     register_syscall(map, inotify_init, inotify_init);
 #endif
@@ -2372,6 +2373,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fcntl, fcntl);
     register_syscall(map, ioctl, (sysreturn (*)())ioctl);
     register_syscall(map, getcwd, getcwd);
+    register_syscall(map, linkat, linkat);
     register_syscall(map, symlinkat, symlinkat);
     register_syscall(map, readlinkat, readlinkat);
     register_syscall(map, unlinkat, unlinkat);

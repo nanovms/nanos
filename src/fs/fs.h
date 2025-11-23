@@ -72,6 +72,7 @@ struct filesystem {
     boolean ro; /* true for read-only filesystem */
     tuple (*lookup)(filesystem fs, tuple parent, string name);
     int (*create)(filesystem fs, tuple parent, string name, tuple md, fsfile *f);
+    int (*link)(filesystem fs, tuple parent, string name, tuple md);
     int (*unlink)(filesystem fs, tuple parent, string name, tuple md, boolean *destruct_md);
     int (*rename)(filesystem fs, tuple old_parent, string old_name, tuple old_md,
                         tuple new_parent, string new_name, tuple new_md, boolean exchange,
@@ -164,6 +165,8 @@ void filesystem_put_node(filesystem fs, tuple n);
 tuple filesystem_get_meta(filesystem fs, inode n);
 void filesystem_put_meta(filesystem fs, tuple n);
 int filesystem_creat_unnamed(filesystem fs, fsfile *f);
+int filesystem_link(filesystem oldfs, inode oldwd, sstring oldpath,
+                    filesystem newfs, inode newwd, sstring newpath, boolean follow);
 int filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target);
 int filesystem_delete(filesystem fs, inode cwd, sstring path, boolean directory);
 int filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
@@ -204,7 +207,7 @@ static inline tuple fs_tuple_from_inode(table files, inode n)
 }
 
 int fs_get_fsfile(table files, tuple n, fsfile *f);
-void fs_unlink(table files, tuple n);
+u64 fs_unlink(table files, tuple n);
 
 extern const sstring gitversion;
 

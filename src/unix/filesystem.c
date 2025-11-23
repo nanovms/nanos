@@ -220,6 +220,35 @@ closure_function(2, 1, void, fs_op_complete,
     closure_finish();
 }
 
+sysreturn link(const char *oldpath, const char *newpath)
+{
+    sstring oldpath_ss, newpath_ss;
+    if (!fault_in_user_string(oldpath, &oldpath_ss) || !fault_in_user_string(newpath, &newpath_ss))
+        return -EFAULT;
+    filesystem cwd_fs;
+    inode cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    sysreturn rv = filesystem_link(cwd_fs, cwd, oldpath_ss, cwd_fs, cwd, newpath_ss, 0);
+    filesystem_release(cwd_fs);
+    return rv;
+}
+
+sysreturn linkat(int olddirfd, const char *oldpath,
+                 int newdirfd, const char *newpath, int flags)
+{
+    if (flags & ~AT_SYMLINK_FOLLOW)
+        return -EINVAL;
+    sstring oldpath_ss, newpath_ss;
+    filesystem oldfs, newfs;
+    inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
+    inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
+    sysreturn rv = filesystem_link(oldfs, oldwd, oldpath_ss, newfs, newwd, newpath_ss,
+                                   !!(flags & AT_SYMLINK_FOLLOW));
+    filesystem_release(oldfs);
+    filesystem_release(newfs);
+    return rv;
+}
+
 static sysreturn symlink_internal(filesystem fs, inode cwd, sstring path,
         const char *target)
 {
