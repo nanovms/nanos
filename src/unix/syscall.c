@@ -2382,6 +2382,9 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fchdir, fchdir);
     register_syscall(map, sched_getaffinity, sched_getaffinity);
     register_syscall(map, sched_setaffinity, sched_setaffinity);
+    register_syscall(map, sched_get_priority_min, syscall_ignore);
+    register_syscall(map, sched_get_priority_max, syscall_ignore);
+    register_syscall(map, sched_setscheduler, syscall_ignore);
     register_syscall(map, getuid, syscall_ignore);
     register_syscall(map, geteuid, syscall_ignore);
     register_syscall(map, setgroups, syscall_ignore);
