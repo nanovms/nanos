@@ -382,8 +382,6 @@ int filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {
     filesystem_lock(fs);
     int fss = filesystem_truncate_locked(fs, f, len);
-    if (f->md)
-        fs_notify_modify(f->md);
     filesystem_unlock(fs);
     return fss;
 }
@@ -431,6 +429,12 @@ void filesystem_release(filesystem fs)
     refcount_release(&fs->refcount);
 }
 
+static void fsdir_set_parent(tuple n, tuple parent)
+{
+    if (is_dir(n))
+        set(n, sym(..), parent);
+}
+
 closure_func_basic(status_handler, void, fs_free,
                    status s)
 {
@@ -468,7 +472,7 @@ static int fs_create_dir_entry(filesystem fs, tuple parent, string name, tuple m
     if (s == 0) {
         symbol name_sym = intern(name);
         set(children(parent), name_sym, md);
-        set(md, sym_this(".."), parent);
+        fsdir_set_parent(md, parent);
         filesystem_update_mtime(fs, parent);
         fs_notify_create(md, parent, name_sym);
     }
@@ -758,7 +762,7 @@ int filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     if (s == 0) {
         set(children(oldparent), old_s, 0);
         set(children(newparent), new_s, old);
-        set(old, sym_this(".."), newparent);
+        fsdir_set_parent(old, newparent);
         filesystem_update_mtime(oldfs, oldparent);
         if (newparent != oldparent)
             filesystem_update_mtime(oldfs, newparent);
@@ -830,9 +834,9 @@ int filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
     s = fs1->rename(fs1, parent1, name1, n1, parent2, name2, n2, true, 0);
     if (s == 0) {
         set(children(parent1), intern(name1), n2);
-        set(n2, sym_this(".."), parent1);
+        fsdir_set_parent(n2, parent1);
         set(children(parent2), intern(name2), n1);
-        set(n1, sym_this(".."), parent2);
+        fsdir_set_parent(n1, parent2);
         filesystem_update_mtime(fs1, parent1);
         if (parent2 != parent1)
             filesystem_update_mtime(fs1, parent2);

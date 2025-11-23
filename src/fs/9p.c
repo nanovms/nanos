@@ -416,6 +416,7 @@ static int p9_readdir(p9fs fs, u32 fid, tuple md)
                     attr = sym(children);
                     if (!get(t, attr))
                         set(t, attr, allocate_tuple());
+                    set(t, sym(..), md);
                     break;
                 case DT_LNK:
                     attr = sym(linktarget);
@@ -429,7 +430,6 @@ static int p9_readdir(p9fs fs, u32 fid, tuple md)
                     break;
                 }
                 set(new_c, name_sym, t);
-                set(t, sym(..), md);
             }
             offset = entry->offset;
             buf_offset += sizeof(*entry) + entry->name.length;
@@ -600,7 +600,8 @@ static tuple p9_lookup(filesystem fs, tuple parent, string name)
         md = dentry->md;
     } else {
         md = allocate_tuple();
-        set(md, sym_this(".."), parent);
+        if (qid.type == P9_QID_TYPE_DIR)
+            set(md, sym(..), parent);
     }
     switch (qid.type) {
     case P9_QID_TYPE_DIR:

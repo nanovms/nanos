@@ -64,9 +64,10 @@ closure_function(1, 2, boolean, fixup_directory_each,
 void fixup_directory(tuple parent, tuple n)
 {
     tuple c = children(n);
-    if (c)
+    if (c) {
         iterate(c, stack_closure(fixup_directory_each, n));
-    set(n, sym_this(".."), parent);
+        set(n, sym(..), parent);
+    }
 }
 
 static inline boolean ingest_parse_int(tuple e, symbol a, u64 * i)

@@ -708,7 +708,15 @@ fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
 /* Can be used for files in the root filesystem only. */
 int fsfile_truncate(fsfile f, u64 len)
 {
-    return (filesystem_truncate(get_root_fs(), f, len));
+    filesystem fs = get_root_fs();
+    int ret = filesystem_truncate(fs, f, len);
+    if (!ret) {
+        filesystem_lock(fs);
+        if (f->md)
+            fs_notify_event(f->md, 0, IN_MODIFY);
+        filesystem_unlock(fs);
+    }
+    return ret;
 }
 
 closure_function(2, 1, boolean, fsfile_seal_vmap_handler,
@@ -798,13 +806,19 @@ static void fs_notify_internal(tuple md, u64 event, symbol name, u32 cookie)
     }
 }
 
-void fs_notify_event(tuple n, u64 event)
+void fs_notify_event(tuple n, tuple parent, u64 event)
 {
     if (is_dir(n))
         event |= IN_ISDIR;
     fs_notify_internal(n, event, 0, 0);
-    tuple parent = get_tuple(n, sym_this(".."));
-    if (parent != n)
+    symbol parent_sym = sym(..);
+    if (!parent)
+        parent = get_tuple(n, parent_sym);
+    else if (event == IN_OPEN)
+        /* Store the parent from which this file has been opened, so that it can be used for
+         * subsequent events generated via the open file descriptor. */
+        set(n, parent_sym, parent);
+    if (parent && (parent != n))
         fs_notify_internal(parent, event, tuple_get_symbol(children(parent), n), 0);
 }
 
@@ -823,6 +837,7 @@ void fs_notify_move(tuple t, tuple old_parent, symbol old_name, tuple new_parent
     u32 cookie = random_u64();
     fs_notify_internal(old_parent, IN_MOVED_FROM | flags, old_name, cookie);
     fs_notify_internal(new_parent, IN_MOVED_TO | flags, new_name, cookie);
+    set(t, sym(..), new_parent);
 }
 
 void fs_notify_delete(tuple t, tuple parent, symbol name)
@@ -830,11 +845,6 @@ void fs_notify_delete(tuple t, tuple parent, symbol name)
     u64 flags = is_dir(t) ? IN_ISDIR : 0;
     fs_notify_internal(t, IN_DELETE_SELF | flags, 0, 0);
     fs_notify_internal(parent, IN_DELETE | flags, name, 0);
-}
-
-void fs_notify_modify(tuple t)
-{
-    fs_notify_event(t, IN_MODIFY);
 }
 
 void fs_notify_release(tuple t, boolean unmounted)

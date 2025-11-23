@@ -223,7 +223,7 @@ static sysreturn unveil(const char *path, const char *permissions)
 
 /* Given a filesystem node, retrieves its permissions by traversing the node path up to the root
  * node, until an unveil entry is found. */
-static u64 unveil_get_perms(filesystem fs, tuple md)
+static u64 unveil_get_perms(filesystem fs, tuple md, tuple parent)
 {
     spin_rlock(&unv.lock);
     unveil_dir dir = unveil_find_dir(fs, md);
@@ -231,7 +231,8 @@ static u64 unveil_get_perms(filesystem fs, tuple md)
     if (dir)
         perms = dir->perms;
     while (!(perms & UNVEIL_PERMS_VALID)) {
-        tuple parent = get_tuple(md, sym_this(".."));
+        if (!parent)
+            parent = get_tuple(md, sym(..));
         if (parent == md)
             break;
         dir = unveil_find_dir(fs, parent);
@@ -244,6 +245,7 @@ static u64 unveil_get_perms(filesystem fs, tuple md)
                 perms = dir->perms;
         }
         md = parent;
+        parent = 0;
     }
     spin_runlock(&unv.lock);
     return perms;
@@ -258,7 +260,7 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, sstring pa
     u64 unveil_perms = 0;
     if (fss == 0) {
         do {
-            unveil_perms = unveil_get_perms(fs, n);
+            unveil_perms = unveil_get_perms(fs, n, parent);
             if ((unveil_perms & UNVEIL_PERMS_VALID) || (n == filesystem_getroot(fs))) {
                 filesystem_put_node(fs, n);
                 break;
@@ -309,7 +311,7 @@ static sysreturn unveil_check_path_internal(filesystem fs, inode cwd, sstring pa
             } else {
                 tuple md = filesystem_get_meta(fs, cwd);
                 if (md) {
-                    unveil_perms = unveil_get_perms(fs, md);
+                    unveil_perms = unveil_get_perms(fs, md, 0);
                     filesystem_put_meta(fs, md);
                 }
             }
