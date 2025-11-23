@@ -119,6 +119,7 @@ RUNTIME_TESTS=	\
 	inotify \
 	io_uring \
 	ktest \
+	links \
 	mkdir \
 	mmap \
 	netlink \
@@ -132,7 +133,6 @@ RUNTIME_TESTS=	\
 	signal \
 	sigoverflow \
 	socketpair \
-	symlink \
 	syslog \
 	thread_test \
 	time \

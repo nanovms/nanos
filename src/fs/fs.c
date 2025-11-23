@@ -382,8 +382,6 @@ int filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {
     filesystem_lock(fs);
     int fss = filesystem_truncate_locked(fs, f, len);
-    if (f->md)
-        fs_notify_modify(f->md);
     filesystem_unlock(fs);
     return fss;
 }
@@ -431,6 +429,12 @@ void filesystem_release(filesystem fs)
     refcount_release(&fs->refcount);
 }
 
+static void fsdir_set_parent(tuple n, tuple parent)
+{
+    if (is_dir(n))
+        set(n, sym(..), parent);
+}
+
 closure_func_basic(status_handler, void, fs_free,
                    status s)
 {
@@ -460,15 +464,16 @@ tuple fs_new_entry(filesystem fs)
     return t;
 }
 
-static int fs_create_dir_entry(filesystem fs, tuple parent, string name, tuple md, fsfile *f)
+static int fs_create_dir_entry(filesystem fs, tuple parent, string name, tuple md, boolean link,
+                               fsfile *f)
 {
     if (fs->ro)
         return -EROFS;
-    int s = fs->create(fs, parent, name, md, f);
+    int s = link ? fs->link(fs, parent, name, md) : fs->create(fs, parent, name, md, f);
     if (s == 0) {
         symbol name_sym = intern(name);
         set(children(parent), name_sym, md);
-        set(md, sym_this(".."), parent);
+        fsdir_set_parent(md, parent);
         filesystem_update_mtime(fs, parent);
         fs_notify_create(md, parent, name_sym);
     }
@@ -515,7 +520,7 @@ int filesystem_mkdir(filesystem fs, inode cwd, sstring path)
     }
     tuple dir = fs_new_entry(fs);
     set(dir, sym(children), allocate_tuple());
-    fss = fs_create_dir_entry(fs, parent, name, dir, 0);
+    fss = fs_create_dir_entry(fs, parent, name, dir, false, 0);
     if (fss != 0)
         destruct_value(dir, true);
   out:
@@ -524,8 +529,8 @@ int filesystem_mkdir(filesystem fs, inode cwd, sstring path)
     return fss;
 }
 
-int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollow,
-                              boolean create, boolean exclusive, boolean truncate, tuple *n,
+int filesystem_get_node(filesystem *fs, inode cwd, sstring path, u8 flags, tuple *n,
+                        tuple *parent_n,
                               fsfile *f)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
@@ -534,27 +539,27 @@ int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollo
     tuple parent, t;
     fsfile fsf = 0;
     int fss;
-    if (nofollow)
+    if (!(flags & FS_NODE_FOLLOW))
         fss = filesystem_resolve_sstring(fs, cwd_t, path, &t, &parent);
     else
         fss = filesystem_resolve_sstring_follow(fs, cwd_t, path, &t, &parent);
     if (fss == -ENOENT) {
-        if (create) {
+        if (flags & FS_NODE_CREATE) {
             if (!parent)
                 goto out;
             t = fs_new_entry(*fs);
             buffer name = alloca_wrap_sstring(filename_from_path(path));
-            fss = fs_create_dir_entry(*fs, parent, name, t, f);
+            fss = fs_create_dir_entry(*fs, parent, name, t, false, f);
             if (fss != 0)
                 destruct_value(t, true);
         }
     } else if (fss == 0) {
-        if (exclusive) {
+        if (flags & FS_NODE_EXCL) {
             fss = -EEXIST;
-        } else if (is_regular(t) && (f || truncate)) {
+        } else if (is_regular(t) && (f || (flags & FS_NODE_TRUNC))) {
             fss = (*fs)->get_fsfile(*fs, t, &fsf);
             if ((fss == 0) && fsf) {
-                if (truncate)
+                if (flags & FS_NODE_TRUNC)
                     fss = filesystem_truncate_locked(*fs, fsf, 0);
                 if (!f || (fss != 0))
                     fsfile_release(fsf);
@@ -566,6 +571,8 @@ int filesystem_get_node(filesystem *fs, inode cwd, sstring path, boolean nofollo
   out:
     if (fss == 0) {
         *n = t;
+        if (parent_n)
+          *parent_n = parent;
     } else {
         filesystem_unlock(*fs);
         filesystem_release(*fs);
@@ -603,6 +610,91 @@ int filesystem_creat_unnamed(filesystem fs, fsfile *f)
     return fs->create(fs, 0, 0, 0, f);
 }
 
+int filesystem_link(filesystem oldfs, inode oldwd, sstring oldpath,
+                    filesystem newfs, inode newwd, sstring newpath, boolean follow)
+{
+    if (sstring_is_empty(oldpath) || sstring_is_empty(newpath))
+        return -ENOENT;
+    tuple oldwd_t = filesystem_get_meta(oldfs, oldwd);
+    if (!oldwd_t)
+        return -ENOENT;
+    tuple old, oldparent;
+    filesystem fs_to_unlock;
+    int ret;
+    if (follow)
+        ret = filesystem_resolve_sstring_follow(&oldfs, oldwd_t, oldpath, &old, &oldparent);
+    else
+        ret = filesystem_resolve_sstring(&oldfs, oldwd_t, oldpath, &old, &oldparent);
+    if (!ret && is_dir(old))
+        ret = -EPERM;
+    if (ret) {
+        fs_to_unlock = oldfs;
+        newfs = 0;
+        goto out;
+    }
+    inode old_n = oldfs->get_inode(oldfs, old);
+    inode oldparent_n = oldfs->get_inode(oldfs, oldparent);
+    if (newfs != oldfs) {
+        filesystem_unlock(oldfs);
+        filesystem_lock(newfs);
+    }
+    tuple newwd_t = newfs->get_meta(newfs, newwd);
+    if (!newwd_t) {
+        ret = -ENOENT;
+        fs_to_unlock = newfs;
+        newfs = 0;
+        goto out;
+    }
+    tuple new, newparent;
+    ret = filesystem_resolve_sstring(&newfs, newwd_t, newpath, &new, &newparent);
+    fs_to_unlock = newfs;
+    if (!ret)
+        ret = -EEXIST;
+    if ((ret != -ENOENT) || !newparent)
+        goto out;
+    if (oldfs != newfs) {
+        ret = -EXDEV;
+        goto out;
+    }
+    if (!newfs->link) {
+        ret = -EPERM;
+        goto out;
+    }
+    if (newfs->ro) {
+        ret = -EROFS;
+        goto out;
+    }
+
+    /* oldfs may have been unlocked in the process of resolving newpath, so check (now that the
+     * filesystem is locked again) whether previously found inodes are still valid. */
+    old = oldfs->get_meta(oldfs, old_n);
+    oldparent = oldfs->get_meta(oldfs, oldparent_n);
+    if (!old || !oldparent) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    symbol nlink = sym(nlink);
+    u64 link_count;
+    if (!get_u64(old, nlink, &link_count)) {
+        link_count = 1;
+    } else if (link_count == U64_MAX) {
+        ret = -EMLINK;
+        goto out;
+    }
+    set(old, nlink, value_from_u64(link_count + 1));
+    string newname = alloca_wrap_sstring(filename_from_path(newpath));
+    ret = fs_create_dir_entry(newfs, newparent, newname, old, true, 0);
+    if (ret)
+        set(old, nlink, value_from_u64(link_count));    /* roll-back the link count */
+  out:
+    filesystem_unlock(fs_to_unlock);
+    filesystem_release(oldfs);
+    if (newfs)
+        filesystem_release(newfs);
+    return ret;
+}
+
 int filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target)
 {
     int target_len = target.len;
@@ -628,7 +720,7 @@ int filesystem_symlink(filesystem fs, inode cwd, sstring path, sstring target)
     tuple link = fs_new_entry(fs);
     set(link, sym(linktarget), target_s);
     string name = alloca_wrap_sstring(filename_from_path(path));
-    fss = fs_create_dir_entry(fs, parent, name, link, 0);
+    fss = fs_create_dir_entry(fs, parent, name, link, false, 0);
     if (fss != 0)
         destruct_value(link, true);
   out:
@@ -756,7 +848,7 @@ int filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     if (s == 0) {
         set(children(oldparent), old_s, 0);
         set(children(newparent), new_s, old);
-        set(old, sym_this(".."), newparent);
+        fsdir_set_parent(old, newparent);
         filesystem_update_mtime(oldfs, oldparent);
         if (newparent != oldparent)
             filesystem_update_mtime(oldfs, newparent);
@@ -828,9 +920,9 @@ int filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
     s = fs1->rename(fs1, parent1, name1, n1, parent2, name2, n2, true, 0);
     if (s == 0) {
         set(children(parent1), intern(name1), n2);
-        set(n2, sym_this(".."), parent1);
+        fsdir_set_parent(n2, parent1);
         set(children(parent2), intern(name2), n1);
-        set(n1, sym_this(".."), parent2);
+        fsdir_set_parent(n1, parent2);
         filesystem_update_mtime(fs1, parent1);
         if (parent2 != parent1)
             filesystem_update_mtime(fs1, parent2);
@@ -912,6 +1004,7 @@ status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean r
     if (fs->pv == INVALID_ADDRESS)
         return timm("result", "failed to allocate pagacache volume");
 #endif
+    fs->link = 0;
     fs->get_seals = 0;
     fs->set_seals = 0;
 #ifndef FS_READ_ONLY
@@ -943,15 +1036,24 @@ int fs_get_fsfile(table files, tuple n, fsfile *f)
     return 0;
 }
 
-void fs_unlink(table files, tuple n)
+u64 fs_unlink(table files, tuple n)
 {
-    fsfile fsf = table_remove(files, n);
-    if (fsf == INVALID_ADDRESS)   /* directory entry other than regular file */
-        fsf = 0;
-    if (fsf) {
-        fsf->md = 0;
-        fsfile_release(fsf);
+    symbol nlink = sym(nlink);
+    u64 link_count;
+    if (!get_u64(n, nlink, &link_count))
+        link_count = 1;
+    if (--link_count == 0) {
+        fsfile fsf = table_remove(files, n);
+        if (fsf == INVALID_ADDRESS)   /* directory entry other than regular file */
+            fsf = 0;
+        if (fsf) {
+            fsf->md = 0;
+            fsfile_release(fsf);
+        }
+    } else {
+        set(n, nlink, value_from_u64(link_count));
     }
+    return link_count;
 }
 
 /* Note: This function is used to retrieve the root metadata for a given
@@ -1233,7 +1335,7 @@ int filesystem_mk_socket(filesystem *fs, inode cwd, sstring path, void *s, inode
     set(sock_handle, sym(no_encode), null_value);
     set(sock, sym(socket), null_value);
     string name = alloca_wrap_sstring(filename_from_path(path));
-    fss = fs_create_dir_entry(*fs, parent, name, sock, 0);
+    fss = fs_create_dir_entry(*fs, parent, name, sock, false, 0);
     if (fss == 0) {
         *n = (*fs)->get_inode(*fs, sock);
         filesystem_reserve(*fs);

@@ -484,7 +484,7 @@ static void begin_file_read(file f, u64 length)
     if (md) {
         if (!(f->f.flags & O_NOATIME))
             filesystem_update_relatime(f->fs, md);
-        fs_notify_event(md, IN_ACCESS);
+        fs_notify_event(md, 0, IN_ACCESS);
         filesystem_put_meta(f->fs, md);
     }
 }
@@ -595,7 +595,7 @@ static void begin_file_write(file f, u64 len)
         tuple md = filesystem_get_meta(f->fs, f->n);
         if (md) {
             filesystem_update_mtime(f->fs, md);
-            fs_notify_event(md, IN_MODIFY);
+            fs_notify_event(md, 0, IN_MODIFY);
             filesystem_put_meta(f->fs, md);
         }
     }
@@ -695,7 +695,7 @@ closure_func_basic(fdesc_close, sysreturn, file_close,
     file f = struct_from_field(closure_self(), file, close);
     tuple md = filesystem_get_meta(f->fs, f->n);
     if (md) {
-        fs_notify_event(md, ((f->f.flags & O_ACCMODE) == O_RDONLY) ?
+        fs_notify_event(md, 0, ((f->f.flags & O_ACCMODE) == O_RDONLY) ?
                         IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
         filesystem_put_meta(f->fs, md);
     }
@@ -807,7 +807,7 @@ int unix_file_new(filesystem fs, tuple md, int type, int flags, fsfile fsf)
     return fd;
 }
 
-int file_open(filesystem fs, tuple n, int flags, fsfile fsf)
+int file_open(filesystem fs, tuple n, tuple parent, int flags, fsfile fsf)
 {
     thread t = current;
     process p = t->p;
@@ -858,7 +858,7 @@ int file_open(filesystem fs, tuple n, int flags, fsfile fsf)
 
     int fd = unix_file_new(fs, n, type, flags, fsf);
     if (fd >= 0)
-        fs_notify_event(n, IN_OPEN);
+        fs_notify_event(n, parent, IN_OPEN);
     else if (flags & O_TMPFILE)
         fsfile_release(fsf);
     return fd;
@@ -868,13 +868,21 @@ sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
                         int mode)
 {
     tuple n;
+    tuple parent;
     int ret;
     buffer b = 0;
 
     fsfile fsf = 0;
-    ret = filesystem_get_node(&fs, cwd, name, !!(flags & O_NOFOLLOW),
-                                        !!(flags & O_CREAT), !!(flags & O_EXCL),
-                                        !!(flags & O_TRUNC), &n, &fsf);
+    u8 fs_flags = 0;
+    if (!(flags & O_NOFOLLOW))
+        fs_flags |= FS_NODE_FOLLOW;
+    if (flags & O_CREAT)
+        fs_flags |= FS_NODE_CREATE;
+    if (flags & O_EXCL)
+        fs_flags |= FS_NODE_EXCL;
+    if (flags & O_TRUNC)
+        fs_flags |= FS_NODE_TRUNC;
+    ret = filesystem_get_node(&fs, cwd, name, fs_flags, &n, &parent, &fsf);
     if (ret == -EFAULT)
         return ret;
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
@@ -905,7 +913,7 @@ sysreturn open_internal(filesystem fs, inode cwd, sstring name, int flags,
         return set_syscall_return(current, ret);
     }
 
-    ret = file_open(fs, n, flags, fsf);
+    ret = file_open(fs, n, parent, flags, fsf);
     if (ret < 0)
         goto out;
 
@@ -1176,7 +1184,7 @@ static sysreturn getdents_internal(int fd, void *dirp, unsigned int count, boole
     symbol parent_sym = sym_this("..");
     if (apply(h, sym_this("."), md) && apply(h, parent_sym, get_tuple(md, parent_sym)))
         iterate(c, h);
-    fs_notify_event(md, IN_ACCESS);
+    fs_notify_event(md, 0, IN_ACCESS);
     filesystem_update_relatime(f->fs, md);
     f->offset = read_sofar;
     if (r < 0 && written_sofar == 0)
@@ -1235,7 +1243,7 @@ sysreturn fchdir(int dirfd)
     return rv;
 }
 
-static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, long length)
+static sysreturn truncate_internal(filesystem fs, fsfile fsf, inode n, inode parent, long length)
 {
     if (length < 0) {
         return set_syscall_error(current, EINVAL);
@@ -1252,8 +1260,14 @@ static sysreturn truncate_internal(filesystem fs, fsfile fsf, file f, long lengt
         }
     }
     int s = filesystem_truncate(fs, fsf, length);
-    if (s == 0)
+    if (s == 0) {
         truncate_file_maps(current->p, fsf, length);
+        tuple md = filesystem_get_meta(fs, n);
+        if (md) {
+          fs_notify_event(md, parent ? fs->get_meta(fs, parent) : 0, IN_MODIFY);
+          filesystem_put_meta(fs, md);
+        }
+    }
     return s;
 }
 
@@ -1263,12 +1277,13 @@ sysreturn truncate(const char *path, long length)
     if (!fault_in_user_string(path, &path_ss))
         return -EFAULT;
     tuple t;
+    tuple parent;
     filesystem fs;
     inode cwd;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
     fsfile fsf;
-    sysreturn rv = filesystem_get_node(&fs, cwd, path_ss, false, false, false, false, &t, &fsf);
+    sysreturn rv = filesystem_get_node(&fs, cwd, path_ss, FS_NODE_FOLLOW, &t, &parent, &fsf);
     if (rv != 0)
         goto out;
     if (!(file_meta_perms(current->p, t) & ACCESS_PERM_WRITE))
@@ -1279,9 +1294,11 @@ sysreturn truncate(const char *path, long length)
         rv = -EINVAL;
     else
         rv = 0;
+    inode n = fs_get_inode(fs, t);
+    inode parent_n = fs_get_inode(fs, parent);
     filesystem_put_node(fs, t);
     if (rv == 0)
-        rv = truncate_internal(fs, fsf, 0, length);
+        rv = truncate_internal(fs, fsf, n, parent_n, length);
     if (fsf)
         fsfile_release(fsf);
   out:
@@ -1297,7 +1314,7 @@ sysreturn ftruncate(int fd, long length)
             (f->f.type != FDESC_TYPE_REGULAR)) {
         rv = -EINVAL;
     } else {
-        rv = truncate_internal(f->fs, f->fsf, f, length);
+        rv = truncate_internal(f->fs, f->fsf, f->n, 0, length);
     }
     fdesc_put(&f->f);
     return rv;
@@ -1383,7 +1400,7 @@ sysreturn fdatasync(int fd)
 static sysreturn access_internal(filesystem fs, inode cwd, sstring pathname, int mode)
 {
     tuple m = 0;
-    int fss = filesystem_get_node(&fs, cwd, pathname, false, false, false, false, &m, 0);
+    int fss = filesystem_get_node(&fs, cwd, pathname, FS_NODE_FOLLOW, &m, 0, 0);
     if (fss != 0)
         return fss;
     u32 perms = file_meta_perms(current->p, m);
@@ -1526,7 +1543,7 @@ static sysreturn stat_internal(filesystem fs, inode cwd, sstring name, boolean f
     if (!fault_in_user_memory(buf, sizeof(struct stat), true))
         return -EFAULT;
 
-    int fss = filesystem_get_node(&fs, cwd, name, !follow, false, false, false, &n, &fsf);
+    int fss = filesystem_get_node(&fs, cwd, name, follow ? FS_NODE_FOLLOW : 0, &n, 0, &fsf);
     if (fss != 0)
         return fss;
 
@@ -1815,7 +1832,7 @@ static sysreturn readlink_internal(filesystem fs, inode cwd, sstring pathname, c
         return set_syscall_error(current, EFAULT);
     }
     tuple n;
-    int fss = filesystem_get_node(&fs, cwd, pathname, true, false, false, false, &n, 0);
+    int fss = filesystem_get_node(&fs, cwd, pathname, 0, &n, 0, 0);
     if (fss != 0)
         return fss;
     sysreturn rv;
@@ -2321,6 +2338,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, utime, utime);
     register_syscall(map, utimes, utimes);
     register_syscall(map, chown, syscall_ignore);
+    register_syscall(map, link, link);
     register_syscall(map, symlink, symlink);
     register_syscall(map, inotify_init, inotify_init);
 #endif
@@ -2355,6 +2373,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, fcntl, fcntl);
     register_syscall(map, ioctl, (sysreturn (*)())ioctl);
     register_syscall(map, getcwd, getcwd);
+    register_syscall(map, linkat, linkat);
     register_syscall(map, symlinkat, symlinkat);
     register_syscall(map, readlinkat, readlinkat);
     register_syscall(map, unlinkat, unlinkat);

@@ -39,6 +39,9 @@ void filesystem_update_relatime(filesystem fs, tuple md);
 
 sysreturn openat(int dirfd, const char *name, int flags, int mode);
 
+sysreturn link(const char *oldpath, const char *newpath);
+sysreturn linkat(int olddirfd, const char *oldpath,
+                 int newdirfd, const char *newpath, int flags);
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
 
@@ -58,7 +61,7 @@ sysreturn fadvise64(int fd, s64 off, u64 len, int advice);
 
 sysreturn fs_rename(sstring oldpath, sstring newpath);
 
-int file_open(filesystem fs, tuple n, int flags, fsfile fsf);
+int file_open(filesystem fs, tuple n, tuple parent, int flags, fsfile fsf);
 void file_release(file f);
 int file_type_from_tuple(tuple n);
 
@@ -70,4 +73,4 @@ sysreturn fsfile_add_seals(fsfile f, u64 seals);
 sysreturn fsfile_get_seals(fsfile f, u64 *seals);
 
 notify_entry fs_watch(heap h, tuple n, u64 eventmask, event_handler eh, notify_set *s);
-void fs_notify_event(tuple n, u64 event);
+void fs_notify_event(tuple n, tuple parent, u64 event);

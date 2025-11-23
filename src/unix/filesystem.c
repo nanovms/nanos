@@ -176,7 +176,7 @@ int filesystem_chdir(process p, sstring path)
     filesystem fs = p->cwd_fs;
     int fss;
     tuple n;
-    fss = filesystem_get_node(&fs, p->cwd, path, false, false, false, false, &n, 0);
+    fss = filesystem_get_node(&fs, p->cwd, path, FS_NODE_FOLLOW, &n, 0, 0);
     if (fss != 0)
         goto out;
     if (!is_dir(n)) {
@@ -218,6 +218,35 @@ closure_function(2, 1, void, fs_op_complete,
     fdesc_put(&bound(f)->f);
     syscall_return(t, ret);     /* returns on kernel context */
     closure_finish();
+}
+
+sysreturn link(const char *oldpath, const char *newpath)
+{
+    sstring oldpath_ss, newpath_ss;
+    if (!fault_in_user_string(oldpath, &oldpath_ss) || !fault_in_user_string(newpath, &newpath_ss))
+        return -EFAULT;
+    filesystem cwd_fs;
+    inode cwd;
+    process_get_cwd(current->p, &cwd_fs, &cwd);
+    sysreturn rv = filesystem_link(cwd_fs, cwd, oldpath_ss, cwd_fs, cwd, newpath_ss, 0);
+    filesystem_release(cwd_fs);
+    return rv;
+}
+
+sysreturn linkat(int olddirfd, const char *oldpath,
+                 int newdirfd, const char *newpath, int flags)
+{
+    if (flags & ~AT_SYMLINK_FOLLOW)
+        return -EINVAL;
+    sstring oldpath_ss, newpath_ss;
+    filesystem oldfs, newfs;
+    inode oldwd = resolve_dir(oldfs, olddirfd, oldpath, oldpath_ss);
+    inode newwd = resolve_dir(newfs, newdirfd, newpath, newpath_ss);
+    sysreturn rv = filesystem_link(oldfs, oldwd, oldpath_ss, newfs, newwd, newpath_ss,
+                                   !!(flags & AT_SYMLINK_FOLLOW));
+    filesystem_release(oldfs);
+    filesystem_release(newfs);
+    return rv;
 }
 
 static sysreturn symlink_internal(filesystem fs, inode cwd, sstring path,
@@ -263,7 +292,7 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
         return -EFAULT;
     process_get_cwd(current->p, &fs, &cwd);
     filesystem cwd_fs = fs;
-    sysreturn rv = filesystem_get_node(&fs, cwd, filename_ss, false, false, false, false, &t, 0);
+    sysreturn rv = filesystem_get_node(&fs, cwd, filename_ss, FS_NODE_FOLLOW, &t, 0, 0);
     if (rv == 0) {
         filesystem_set_atime(fs, t, actime);
         filesystem_set_mtime(fs, t, modtime);
@@ -345,8 +374,8 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
         sstring filename_ss;
         inode cwd = resolve_dir(fs, dirfd, filename, filename_ss);
         cwd_fs = fs;
-        rv = filesystem_get_node(&fs, cwd, filename_ss, !!(flags & AT_SYMLINK_NOFOLLOW),
-                                            false, false, false, &t, 0);
+        rv = filesystem_get_node(&fs, cwd, filename_ss,
+                                 (flags & AT_SYMLINK_NOFOLLOW) ? 0 : FS_NODE_FOLLOW, &t, 0, 0);
         if (rv)
             filesystem_release(cwd_fs);
     } else {
@@ -443,8 +472,9 @@ static sysreturn statx_node(filesystem fs, inode cwd, sstring pathname, int flag
 {
     tuple n;
     fsfile f;
-    sysreturn rv = filesystem_get_node(&fs, cwd, pathname, !!(flags & AT_SYMLINK_NOFOLLOW), false,
-                                       false, false, &n, &f);
+    sysreturn rv = filesystem_get_node(&fs, cwd, pathname,
+                                       (flags & AT_SYMLINK_NOFOLLOW) ? 0 : FS_NODE_FOLLOW,
+                                       &n, 0, &f);
     if (rv == 0) {
         rv = statx_internal(fs, file_type_from_tuple(n), n, f, statxbuf);
         filesystem_put_node(fs, n);
@@ -536,7 +566,7 @@ sysreturn statfs(const char *path, struct statfs *buf)
         rv = -EFAULT;
         goto out;
     }
-    rv = filesystem_get_node(&fs, cwd, path_ss, true, false, false, false, &t, 0);
+    rv = filesystem_get_node(&fs, cwd, path_ss, 0, &t, 0, 0);
     if (rv == 0)
         rv = statfs_internal(fs, t, buf);
   out:
@@ -673,7 +703,7 @@ fsfile fsfile_open(sstring file_path)
     filesystem fs = get_root_fs();
     int s = filesystem_get_node(&fs, fs->get_inode(fs, filesystem_getroot(fs)),
                                       file_path,
-                                      false, false, false, false, &file, &fsf);
+                                      FS_NODE_FOLLOW, &file, 0, &fsf);
     if (s == 0) {
         filesystem_put_node(fs, file);
         return fsf;
@@ -694,8 +724,9 @@ fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
         if ((s != 0) && (s != -EEXIST))
             return 0;
     }
-    s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_path, true, true, false, truncate,
-                            &file, &fsf);
+    s = filesystem_get_node(&fs, fs->get_inode(fs, root), file_path,
+                            FS_NODE_CREATE | (truncate ? FS_NODE_TRUNC : 0),
+                            &file, 0, &fsf);
     if (s == 0) {
         filesystem_put_node(fs, file);
         return fsf;
@@ -706,7 +737,15 @@ fsfile fsfile_open_or_create(sstring file_path, boolean truncate)
 /* Can be used for files in the root filesystem only. */
 int fsfile_truncate(fsfile f, u64 len)
 {
-    return (filesystem_truncate(get_root_fs(), f, len));
+    filesystem fs = get_root_fs();
+    int ret = filesystem_truncate(fs, f, len);
+    if (!ret) {
+        filesystem_lock(fs);
+        if (f->md)
+            fs_notify_event(f->md, 0, IN_MODIFY);
+        filesystem_unlock(fs);
+    }
+    return ret;
 }
 
 closure_function(2, 1, boolean, fsfile_seal_vmap_handler,
@@ -796,13 +835,19 @@ static void fs_notify_internal(tuple md, u64 event, symbol name, u32 cookie)
     }
 }
 
-void fs_notify_event(tuple n, u64 event)
+void fs_notify_event(tuple n, tuple parent, u64 event)
 {
     if (is_dir(n))
         event |= IN_ISDIR;
     fs_notify_internal(n, event, 0, 0);
-    tuple parent = get_tuple(n, sym_this(".."));
-    if (parent != n)
+    symbol parent_sym = sym(..);
+    if (!parent)
+        parent = get_tuple(n, parent_sym);
+    else if (event == IN_OPEN)
+        /* Store the parent from which this file has been opened, so that it can be used for
+         * subsequent events generated via the open file descriptor. */
+        set(n, parent_sym, parent);
+    if (parent && (parent != n))
         fs_notify_internal(parent, event, tuple_get_symbol(children(parent), n), 0);
 }
 
@@ -821,6 +866,7 @@ void fs_notify_move(tuple t, tuple old_parent, symbol old_name, tuple new_parent
     u32 cookie = random_u64();
     fs_notify_internal(old_parent, IN_MOVED_FROM | flags, old_name, cookie);
     fs_notify_internal(new_parent, IN_MOVED_TO | flags, new_name, cookie);
+    set(t, sym(..), new_parent);
 }
 
 void fs_notify_delete(tuple t, tuple parent, symbol name)
@@ -828,11 +874,6 @@ void fs_notify_delete(tuple t, tuple parent, symbol name)
     u64 flags = is_dir(t) ? IN_ISDIR : 0;
     fs_notify_internal(t, IN_DELETE_SELF | flags, 0, 0);
     fs_notify_internal(parent, IN_DELETE | flags, name, 0);
-}
-
-void fs_notify_modify(tuple t)
-{
-    fs_notify_event(t, IN_MODIFY);
 }
 
 void fs_notify_release(tuple t, boolean unmounted)
