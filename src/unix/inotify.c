@@ -333,7 +333,7 @@ sysreturn inotify_add_watch(int fd, const char *pathname, u32 mask)
     filesystem cwd_fs = fs;
     tuple n;
     rv = filesystem_get_node(&fs, cwd, pathname_ss, (mask & IN_DONT_FOLLOW) ? 0 : FS_NODE_FOLLOW,
-                             &n, 0);
+                             &n, 0, 0);
     if (rv != 0)
         goto out;
     if ((mask & IN_ONLYDIR) && !is_dir(n)) {

@@ -525,6 +525,7 @@ int filesystem_mkdir(filesystem fs, inode cwd, sstring path)
 }
 
 int filesystem_get_node(filesystem *fs, inode cwd, sstring path, u8 flags, tuple *n,
+                        tuple *parent_n,
                               fsfile *f)
 {
     tuple cwd_t = filesystem_get_meta(*fs, cwd);
@@ -565,6 +566,8 @@ int filesystem_get_node(filesystem *fs, inode cwd, sstring path, u8 flags, tuple
   out:
     if (fss == 0) {
         *n = t;
+        if (parent_n)
+          *parent_n = parent;
     } else {
         filesystem_unlock(*fs);
         filesystem_release(*fs);
