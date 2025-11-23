@@ -39,6 +39,9 @@ void filesystem_update_relatime(filesystem fs, tuple md);
 
 sysreturn openat(int dirfd, const char *name, int flags, int mode);
 
+sysreturn link(const char *oldpath, const char *newpath);
+sysreturn linkat(int olddirfd, const char *oldpath,
+                 int newdirfd, const char *newpath, int flags);
 sysreturn symlink(const char *target, const char *linkpath);
 sysreturn symlinkat(const char *target, int dirfd, const char *linkpath);
 

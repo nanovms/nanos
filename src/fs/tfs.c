@@ -192,6 +192,8 @@ static boolean enumerate_dir_entries(tfs fs, tuple t)
 {
     tuple extents = get_tuple(t, sym(extents));
     if (extents) {
+        if (table_find(fs->files, t))
+            return true;
         tfsfile f = allocate_fsfile(fs, t);
         if (f == INVALID_ADDRESS)
             return false;
@@ -1004,7 +1006,11 @@ static void destruct_dir_entry(tuple n)
 
 static boolean tfs_file_unlink(tfs fs, tuple t)
 {
-    fs_unlink(fs->files, t);
+    u64 link_count = fs_unlink(fs->files, t);
+    if (link_count > 0) {
+        filesystem_write_eav(fs, t, sym(nlink), value_from_u64(link_count), false);
+        return false;
+    }
 
     /* If a tuple is not present in the filesystem log dictionary, it can (and should) be destroyed
      * now (it won't be destroyed when the filesystem log is rebuilt). */
@@ -1161,6 +1167,16 @@ static int tfs_create(filesystem fs, tuple parent, string name, tuple md, fsfile
     if ((fss == 0) && !fsf)
         table_set(tfs->files, md, INVALID_ADDRESS);
     return fss;
+}
+
+static int tfs_link(filesystem fs, tuple parent, string name, tuple md)
+{
+    tfs tfs = (struct tfs *)fs;
+    int ret = filesystem_write_eav(tfs, children(parent), intern(name), md, false);
+    if (ret)
+        return ret;
+    symbol nlink = sym(nlink);
+    return filesystem_write_eav(tfs, md, nlink, get(md, nlink), false);
 }
 
 static int tfs_unlink(filesystem fs, tuple parent, string name, tuple md,
@@ -1392,6 +1408,7 @@ void create_filesystem(heap h,
 #ifndef TFS_READ_ONLY
     fs->fs.file_write = tfs_write;
     fs->fs.create = tfs_create;
+    fs->fs.link = tfs_link;
     fs->fs.unlink = tfs_unlink;
     fs->fs.rename = tfs_rename;
     fs->fs.truncate = tfs_truncate;
