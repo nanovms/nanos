@@ -158,7 +158,7 @@ int fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_
                           boolean exchange);
 
 int filesystem_mkdir(filesystem fs, inode cwd, sstring path);
-int filesystem_get_node(filesystem *fs, inode cwd, sstring path, u8 flags, tuple *n,
+int filesystem_get_node(filesystem *fs, inode cwd, sstring path, u8 flags, tuple *n, tuple *parent,
                               fsfile *f);
 void filesystem_put_node(filesystem fs, tuple n);
 tuple filesystem_get_meta(filesystem fs, inode n);

@@ -406,7 +406,7 @@ static int open_internal(const char *name, int flags, int mode)
     if (flags & O_TRUNC)
         fs_flags |= FS_NODE_TRUNC;
     fsfile fsf;
-    ret = filesystem_get_node(&rootfs, cwd_inode, name_ss, fs_flags, &n, &fsf);
+    ret = filesystem_get_node(&rootfs, cwd_inode, name_ss, fs_flags, &n, 0, &fsf);
     if ((ret == 0) && (flags & O_NOFOLLOW) && is_symlink(n) && !(flags & O_PATH)) {
         filesystem_put_node(rootfs, n);
         ret = -ELOOP;

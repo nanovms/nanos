@@ -357,7 +357,7 @@ void register_special_files(process p)
     heap h = heap_locked(get_kernel_heaps());
 
     int fss = filesystem_get_node(&fs, p->cwd, self_exe_path, FS_NODE_FOLLOW,
-        &self_exe, 0);
+                                  &self_exe, 0, 0);
     if (fss == 0) {
         filesystem_put_node(fs, self_exe);
     } else {
