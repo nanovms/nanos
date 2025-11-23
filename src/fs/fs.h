@@ -281,7 +281,6 @@ int file_get_path(filesystem fs, inode ino, char *buf, u64 len);
 void fs_notify_create(tuple t, tuple parent, symbol name);
 void fs_notify_move(tuple t, tuple old_parent, symbol old_name, tuple new_parent, symbol new_name);
 void fs_notify_delete(tuple t, tuple parent, symbol name);
-void fs_notify_modify(tuple t);
 void fs_notify_release(tuple t, boolean unmounted);
 
 #else
