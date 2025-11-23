@@ -25,6 +25,7 @@ PROGRAMS= \
 	ktest \
 	inotify \
 	io_uring \
+	links \
 	mkdir \
 	mmap \
 	netlink \
@@ -40,7 +41,6 @@ PROGRAMS= \
 	sigoverflow \
 	signal \
 	socketpair \
-	symlink \
 	syslog \
 	thread_test \
 	time \
@@ -230,10 +230,10 @@ SRCS-socketpair= \
 LDFLAGS-socketpair=	-static
 LIBS-socketpair=	-lpthread
 
-SRCS-symlink= \
-	$(CURDIR)/symlink.c \
+SRCS-links= \
+	$(CURDIR)/links.c \
 	$(SRCDIR)/unix_process/ssp.c
-LDFLAGS-symlink=	-static
+LDFLAGS-links=	-static
 
 SRCS-syslog= \
 	$(CURDIR)/syslog.c \
