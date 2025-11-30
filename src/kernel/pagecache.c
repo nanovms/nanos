@@ -1355,18 +1355,20 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
                                           status_handler completion)
 {
     pagecache pc = pn->pv->pc;
+    int page_order = pc->page_order;
     merge m = allocate_merge(pc->h, completion);
     status_handler sh = apply_merge(m);
     struct pagecache_page k;
-    if (q.end > pn->length)
-        q.end = pn->length;
-    u64 read_limit = pad(pn->length, U64_FROM_BIT(pn->pv->block_order));
-    k.state_offset = q.start >> pc->page_order;
-    u64 end = (q.end + MASK(pc->page_order)) >> pc->page_order;
+    k.state_offset = q.start >> page_order;
+    u64 end = (q.end + MASK(page_order)) >> page_order;
     end = MIN(end, k.state_offset + PAGECACHE_MAX_SG_ENTRIES);
     boolean mem_cleaned = false;
   begin:
     pagecache_lock_node(pn);
+    u64 node_end = (pn->length + MASK(page_order)) >> page_order;
+    if (end > node_end)
+        end = node_end;
+    u64 read_limit = pad(pn->length, U64_FROM_BIT(pn->pv->block_order));
     pagecache_page pp = (pagecache_page)rbtree_lookup(&pn->pages, &k.rbnode);
     sg_list read_sg = 0;
     range read_r;
@@ -1415,9 +1417,9 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
                     read_sg = 0;
                     break;
                 }
-                read_r = range_lshift(irangel(page_offset(pp), 0), pc->page_order);
+                read_r = range_lshift(irangel(page_offset(pp), 0), page_order);
             }
-            u64 read_max = read_limit - (pi << pc->page_order);
+            u64 read_max = read_limit - (pi << page_order);
             u64 read_size = cache_pagesize(pc);
             if (read_size > read_max) {
                 zero(pp->kvirt + read_max, read_size - read_max);
@@ -1455,7 +1457,7 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
             k.state_offset = pi;
             goto begin;
         }
-        if (k.state_offset == q.start >> pc->page_order) {  /* no pages could be fetched */
+        if (k.state_offset == q.start >> page_order) {  /* no pages could be fetched */
             apply(sh, timm_sstring(ss("result"), err_msg));
             return;
         }
@@ -1465,10 +1467,20 @@ static void pagecache_node_fetch_internal(pagecache_node pn, range q, pp_handler
     apply(sh, STATUS_OK);
 }
 
-closure_func_basic(pp_handler, boolean, pagecache_read_pp_handler,
+closure_function(2, 1, boolean, pagecache_read_pp_handler,
+                 u64, read_end, range *, r,
                  pagecache_page pp)
 {
-    pp->refcount++;
+    u64 read_end = bound(read_end);
+    range *r = bound(r);
+    if (r->end < read_end) {
+        pagecache_node pn = pp->node;
+        u64 page_end = MIN(byte_range_from_page(global_pagecache, pp).end, pn->length);
+        if (page_end > r->end) {
+            r->end = MIN(page_end, read_end);
+            pp->refcount++;
+        }
+    }
     return true;
 }
 
@@ -1476,11 +1488,11 @@ closure_function(4, 1, void, pagecache_read_sg_finish,
                  pagecache_node, pn, range, q, sg_list, sg, status_handler, completion,
                  status s)
 {
+    range q = bound(q);
     status_handler completion = bound(completion);
-    if (is_ok(s)) {
+    if (is_ok(s) && !range_empty(q)) {
         pagecache pc = global_pagecache;
         pagecache_node pn = bound(pn);
-        range q = bound(q);
         sg_list sg = bound(sg);
         context user_ctx = context_from_closure(completion);
         context ctx = get_current_context(current_cpu());
@@ -1531,15 +1543,13 @@ closure_function(1, 3, void, pagecache_read_sg,
     pagecache_node pn = bound(pn);
     pagecache pc = pn->pv->pc;
     pagecache_debug("%s: node %p, q %R, sg %p, completion %F\n", func_ss, pn, q, sg, completion);
-    q = range_intersection(q, irangel(0, pn->length));
-    if (range_span(q) == 0) {
-        apply(completion, STATUS_OK);
-        return;
-    }
     status_handler read_sg_finish = closure(pc->h, pagecache_read_sg_finish, pn, q, sg, completion);
     if (read_sg_finish != INVALID_ADDRESS) {
+        u64 read_end = q.end;
+        range *r = &closure_member(pagecache_read_sg_finish, read_sg_finish, q);
+        r->end = r->start;
         pagecache_node_fetch_internal(pn, q,
-                                      stack_closure_func(pp_handler, pagecache_read_pp_handler),
+                                      stack_closure(pagecache_read_pp_handler, read_end, r),
                                       read_sg_finish);
     } else {
         status s = timm("result", "out of memory");
@@ -1777,18 +1787,21 @@ closure_function(2, 1, boolean, pagecache_fetch_pp_handler,
                  pagecache_page pp)
 {
     range r = byte_range_from_page(global_pagecache, pp);
+    pagecache_node pn = pp->node;
+    r = range_intersection(r, irange(0, pn->length));
     range i = range_intersection(bound(q), r);
     u64 length = range_span(i);
-    sg_buf sgb = sg_list_tail_add(bound(sg), length);
-    if (sgb == INVALID_ADDRESS)
-        return false;
-    sgb->buf = pp->kvirt + (i.start - r.start);
-    sgb->size = length;
-    sgb->offset = 0;
-    sgb->refcount = &pp->read_refcount;
-    if (fetch_and_add(&pp->read_refcount.c, 1) == 0)
-        pp->refcount++;
-    pp->refcount++;
+    if (length) {
+        sg_buf sgb = sg_list_tail_add(bound(sg), length);
+        if (sgb == INVALID_ADDRESS)
+            return false;
+        sgb->buf = pp->kvirt + (i.start - r.start);
+        sgb->size = length;
+        sgb->offset = 0;
+        sgb->refcount = &pp->read_refcount;
+        if (fetch_and_add(&pp->read_refcount.c, 1) == 0)
+            pp->refcount++;
+    }
     return true;
 }
 

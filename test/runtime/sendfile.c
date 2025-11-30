@@ -96,6 +96,11 @@ int main(int argc, char *argv[])
             sf_dbg("outfile[%d] = 0x%02x\n", j * BUF_LEN + i, cmp_buf[i]);
     }
 
+    lseek(fd_in, 0, SEEK_END);
+    ret = sendfile(fd_out, fd_in, NULL, BUF_LEN);
+    if (ret != 0)
+        sf_err_goto(err_fop, "sendfile returned %d when reading at end of file\n", ret);
+
     lseek(fd_in, 0, SEEK_SET);
     sf_dbg("Replaced with:\n");
     for (j = 0; j < SENDFILE_COUNT; j++) {
