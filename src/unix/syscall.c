@@ -327,7 +327,8 @@ closure_function(8, 1, void, sendfile_bh,
         bound(readlen) = sg->count;
 
         bound(cur_buf) = sg_list_head_remove(sg); /* initial dequeue */
-        assert(bound(cur_buf) != INVALID_ADDRESS);
+        if (bound(cur_buf) == INVALID_ADDRESS)  /* nothing was read from input file */
+            goto out_complete;
         bound(cur_buf)->offset = 0; /* offset for our use */
         thread_log(t, "   read %ld bytes\n", rv);
     } else {
