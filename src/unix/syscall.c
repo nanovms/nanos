@@ -304,14 +304,17 @@ sysreturn pwritev(int fd, struct iovec *iov, int iovcnt, s64 offset)
     return iov_internal(fd, true, iov, iovcnt, offset);
 }
 
-closure_function(8, 1, void, sendfile_bh,
-                 fdesc, in, fdesc, out, long *, offset, sg_list, sg, sg_buf, cur_buf, bytes, readlen, bytes, written, boolean, bh,
+closure_function(9, 1, void, copy_file_range_bh,
+                 fdesc, in, fdesc, out, long *, in_off, long *, out_off,
+                 sg_list, sg, sg_buf, cur_buf, bytes, readlen, bytes, written, boolean, bh,
                  sysreturn rv)
 {
     thread t = current;
     thread_log(t, "%s: readlen %ld, written %ld, bh %d, rv %ld",
                func_ss, bound(readlen), bound(written), bound(bh), rv);
 
+    long *out_off = bound(out_off);
+    u64 write_offset = infinity;
     sg_list sg = bound(sg);
 
     /* !bh means read complete (rv is actually a status variable, the number of bytes read can be
@@ -321,8 +324,14 @@ closure_function(8, 1, void, sendfile_bh,
         if (!is_ok(s)) {
             rv = sysreturn_from_fs_status_value(s);
             timm_dealloc(s);
-            goto out_complete;
+        } else if (out_off) {
+            if (!get_user_value(out_off, &write_offset))
+                rv = -EFAULT;
+            else if ((s64)write_offset < 0)
+                rv = -EOVERFLOW;
         }
+        if (rv < 0)
+            goto out_complete;
         bound(bh) = true;
         bound(readlen) = sg->count;
 
@@ -332,6 +341,16 @@ closure_function(8, 1, void, sendfile_bh,
         bound(cur_buf)->offset = 0; /* offset for our use */
         thread_log(t, "   read %ld bytes\n", rv);
     } else {
+        if ((rv > 0) && out_off) {
+            context ctx = get_current_context(current_cpu());
+            if (!context_set_err(ctx)) {
+                write_offset = *out_off + rv;
+                *out_off = write_offset;
+                context_clear_err(ctx);
+            } else {
+                rv = -EFAULT;
+            }
+        }
         if (rv <= 0) {
             if (bound(written) != 0)
                 rv = bound(written);
@@ -359,13 +378,13 @@ closure_function(8, 1, void, sendfile_bh,
     u32 n = sg_buf_len(bound(cur_buf));
     thread_log(t, "   writing %d bytes from %p", n, buf);
     context ctx = get_current_context(current_cpu());
-    apply(bound(out)->write, buf, n, infinity, ctx, true, (io_completion)closure_self());
+    apply(bound(out)->write, buf, n, write_offset, ctx, true, (io_completion)closure_self());
     return;
 out_complete:
     sg_list_release(sg);
     deallocate_sg_list(sg);
     if (rv > 0) {
-        long *offset = bound(offset);
+        long *offset = bound(in_off);
         if (offset) {
             context ctx = get_current_context(current_cpu());
             if (!context_set_err(ctx)) {
@@ -393,15 +412,22 @@ out_complete:
 #define SENDFILE_READ_MAX (64 * KB)
 
 /* requires infile to be a regular file - so sendfile from special files isn't supported */
-static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
+static sysreturn copy_file_range(int in_fd, long *in_off, int out_fd, long *out_off, bytes count,
+                                 unsigned int flags)
 {
     u64 read_offset;
-    if (offset) {
-        if (!get_user_value(offset, &read_offset))
+    if (in_off) {
+        if (!get_user_value(in_off, &read_offset))
             return -EFAULT;
         if ((s64)read_offset < 0)
             return -EINVAL;
     }
+    /* Allow copying from a file to itself, but only if at least one of the two offsets is non-NULL.
+     */
+    if ((in_fd == out_fd) && !in_off && !out_off)
+        return -EINVAL;
+    if (flags)
+        return -EINVAL;
     fdesc infile = resolve_fd(current->p, in_fd);
     fdesc outfile = fdesc_get(current->p, out_fd);
     if (!outfile) {
@@ -425,10 +451,11 @@ static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
     }
 
     file f = (file)infile;
-    if (!offset)
+    if (!in_off)
         read_offset = f->offset;
     u64 n = MIN(count, SENDFILE_READ_MAX);
-    io_completion read_complete = contextual_closure(sendfile_bh, infile, outfile, offset, sg, 0, 0,
+    io_completion read_complete = contextual_closure(copy_file_range_bh, infile, outfile,
+                                                     in_off, out_off, sg, 0, 0,
                                                      0, false);
     if (read_complete == INVALID_ADDRESS) {
         deallocate_sg_list(sg);
@@ -442,6 +469,11 @@ static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
     fdesc_put(infile);
     fdesc_put(outfile);
     return rv;
+}
+
+static sysreturn sendfile(int out_fd, int in_fd, long *offset, bytes count)
+{
+    return copy_file_range(in_fd, offset, out_fd, NULL, count, 0);
 }
 
 static void file_io_complete(file f, range r, boolean is_file_offset, sg_list sg,
@@ -2395,6 +2427,7 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, getdents64, getdents64);
     register_syscall(map, mkdirat, mkdirat);
     register_syscall(map, getrandom, getrandom);
+    register_syscall(map, copy_file_range, copy_file_range);
     register_syscall(map, pipe2, pipe2);
     register_syscall(map, socketpair, socketpair);
     register_syscall(map, eventfd2, eventfd2);
