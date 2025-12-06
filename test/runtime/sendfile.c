@@ -28,7 +28,7 @@
 } while (0)
 
 
-int main(int argc, char *argv[])
+static void test_sendfile(void)
 {
     int ret;
     int i, j;
@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
     close(fd_in);
 
     printf("!!!Success!!!\n");
-    exit (0);
+    return;
 
 err_fop:
     close(fd_out);
@@ -159,4 +159,9 @@ err_fdin:
     exit(1);
 }
 
-
+int main(int argc, char *argv[])
+{
+    test_sendfile();
+    printf("Test passed\n");
+    return 0;
+}
