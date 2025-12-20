@@ -442,22 +442,52 @@ static int ena_rx_cleanup(struct ena_ring *rx_ring)
     return (RX_BUDGET - budget);
 }
 
+static void ena_tx_csum(struct ena_com_tx_ctx *ena_tx_ctx, struct pbuf *mbuf,
+                        bool disable_meta_caching)
+{
+    struct ena_com_tx_meta *ena_meta;
+
+    ena_meta = &ena_tx_ctx->ena_meta;
+    if (disable_meta_caching) {
+        zero(ena_meta, sizeof(*ena_meta));
+        ena_tx_ctx->meta_valid = 1;
+    } else {
+        ena_tx_ctx->meta_valid = 0;
+    }
+}
+
 static int ena_tx_map_mbuf(struct ena_ring *tx_ring, struct ena_tx_buffer *tx_info,
-                           struct pbuf *mbuf)
+                           struct pbuf *mbuf, void **push_hdr, uint16_t *header_len)
 {
     struct ena_com_buf *ena_buf;
+    uint16_t offset;
     int nsegs = 0;
 
     tx_info->mbuf = mbuf;
+    if (tx_ring->tx_mem_queue_type == ENA_ADMIN_PLACEMENT_POLICY_DEV) {
+        *header_len = min_t(uint16_t, mbuf->tot_len, tx_ring->tx_max_header_size);
+        *push_hdr = pbuf_get_contiguous(mbuf, tx_ring->push_buf_intermediate_buf,
+                                        tx_ring->tx_max_header_size, *header_len, 0);
+        offset = *header_len;
+        while ((offset > 0) && (offset >= mbuf->len)) {
+            offset -= mbuf->len;
+            mbuf = mbuf->next;
+        }
+    } else {
+        *push_hdr = NULL;
+        *header_len = 0;
+        offset = 0;
+    }
 
     for (struct pbuf *q = mbuf; q != NULL; q = q->next) {
         if (q->len) {
             ena_buf = &tx_info->bufs[nsegs];
-            ena_buf->paddr = physical_from_virtual(q->payload);
-            ena_buf->len = q->len;
+            ena_buf->paddr = physical_from_virtual(q->payload + offset);
+            ena_buf->len = q->len - offset;
             tx_info->num_of_bufs++;
             if (++nsegs >= ENA_PKT_MAX_BUFS)
                 break;
+            offset = 0;
         }
     }
 
@@ -471,9 +501,11 @@ static int ena_xmit_mbuf(struct ena_ring *tx_ring, struct pbuf **mbuf)
     struct ena_com_tx_ctx ena_tx_ctx;
     struct ena_com_dev *ena_dev;
     struct ena_com_io_sq *io_sq;
+    void *push_hdr;
     uint16_t next_to_use;
     uint16_t req_id;
     uint16_t ena_qid;
+    uint16_t header_len;
     int rc;
     int nb_hw_desc;
 
@@ -489,17 +521,18 @@ static int ena_xmit_mbuf(struct ena_ring *tx_ring, struct pbuf **mbuf)
     tx_info = &tx_ring->tx_buffer_info[req_id];
     tx_info->num_of_bufs = 0;
 
-    rc = ena_tx_map_mbuf(tx_ring, tx_info, *mbuf);
+    rc = ena_tx_map_mbuf(tx_ring, tx_info, *mbuf, &push_hdr, &header_len);
     if (unlikely(rc != 0)) {
         ena_trace(NULL, ENA_WARNING, "Failed to map TX mbuf\n");
         return (rc);
     }
     zero(&ena_tx_ctx, sizeof(struct ena_com_tx_ctx));
     ena_tx_ctx.ena_bufs = tx_info->bufs;
-    ena_tx_ctx.push_header = NULL;
+    ena_tx_ctx.push_header = push_hdr;
     ena_tx_ctx.num_bufs = tx_info->num_of_bufs;
     ena_tx_ctx.req_id = req_id;
-    ena_tx_ctx.header_len = 0;
+    ena_tx_ctx.header_len = header_len;
+    ena_tx_csum(&ena_tx_ctx, *mbuf, io_sq->disable_meta_caching);
 
     if (tx_ring->acum_pkts == DB_THRESHOLD ||
             ena_com_is_doorbell_needed(tx_ring->ena_com_io_sq, &ena_tx_ctx)) {

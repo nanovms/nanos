@@ -1498,9 +1498,29 @@ static int ena_set_queues_placement_policy(struct ena_adapter *adapter,
     struct ena_llq_configurations *llq_default_configurations)
 {
     struct ena_com_dev *ena_dev = adapter->ena_dev;
+    int rc = ena_com_config_dev_mode(ena_dev, llq, llq_default_configurations);
 
-    /* LLQ not supported */
-    ena_dev->tx_mem_queue_type = ENA_ADMIN_PLACEMENT_POLICY_HOST;
+    if (unlikely(rc)) {
+        ena_trace(NULL, ENA_ALERT,
+                  "Failed to configure device mode, fallback to host mode policy\n");
+        ena_dev->tx_mem_queue_type = ENA_ADMIN_PLACEMENT_POLICY_HOST;
+    }
+    return 0;
+}
+
+static int ena_map_llq_mem_bar(pci_dev pdev, struct ena_com_dev *ena_dev)
+{
+    struct ena_adapter *adapter = ena_dev->dmadev;
+
+    /* Try to allocate resources for LLQ bar */
+    pci_bar_init(pdev, &adapter->memory, ENA_MEM_BAR, 0, -1);
+
+    /*
+     * Save virtual address of the device's memory region
+     * for the ena_com layer.
+     */
+    ena_dev->mem_bar = pointer_from_u64(adapter->memory.vaddr);
+
     return 0;
 }
 
@@ -2064,6 +2084,11 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
     ena_dev->dmadev = adapter;
 
     pci_bar_init(adapter->pdev, &adapter->registers, ENA_REG_BAR, 0, -1);
+    rc = ena_map_llq_mem_bar(d, ena_dev);
+    if (unlikely(rc != 0)) {
+        device_printf(d, "failed to map ENA mem bar\n");
+        goto err_dev_free;
+    }
     pci_enable_io_and_memory(adapter->pdev);
 
     ena_dev->bus = allocate(general, sizeof(struct ena_bus));
@@ -2072,8 +2097,6 @@ static boolean ena_attach(heap general, heap page_allocator, pci_dev d)
 
     /* Store register resources */
     ((struct ena_bus *)(ena_dev->bus))->reg_bar = &adapter->registers;
-
-    ena_dev->tx_mem_queue_type = ENA_ADMIN_PLACEMENT_POLICY_HOST;
 
     /* Initially clear all the flags */
     ENA_FLAG_ZERO(adapter);
