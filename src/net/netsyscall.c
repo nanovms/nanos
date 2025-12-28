@@ -473,7 +473,8 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
             rv = 0;
             goto out_unlock;
         }
-        if ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT)) {
+        if ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT) ||
+            (bqflags & BLOCKQ_ACTION_TIMEDOUT)) {
             rv = -EAGAIN;
             goto out_unlock;
         }
@@ -644,7 +645,8 @@ closure_func_basic(file_io, sysreturn, socket_read,
 
     blockq_action ba = closure_from_context(ctx, sock_read_bh, s, dest, length, 0, 0,
                                             0, completion);
-    return blockq_check(s->sock.rxbq, ba, bh);
+    return blockq_check_timeout(s->sock.rxbq, ba, bh,
+                                CLOCK_ID_MONOTONIC, s->sock.rx_timeout, false);
 }
 
 closure_function(6, 1, sysreturn, socket_write_tcp_bh,
@@ -699,8 +701,8 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
           full:
             tcp_unlock(tcp_lw);
             tcp_unref(tcp_lw);
-            if ((bqflags & BLOCKQ_ACTION_BLOCKED) == 0 &&
-                ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT))) {
+            if ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & MSG_DONTWAIT) ||
+                (bqflags & BLOCKQ_ACTION_TIMEDOUT)) {
                 net_debug(" send buf full and non-blocking, return EAGAIN\n");
                 rv = -EAGAIN;
                 goto out;
@@ -867,7 +869,8 @@ static sysreturn socket_write_internal(struct sock *sock, void *source, struct i
         }
         blockq_action ba = closure_from_context(ctx, socket_write_tcp_bh, s, source, iov, length,
                                                 flags, completion);
-        return blockq_check(sock->txbq, ba, bh);
+        return blockq_check_timeout(sock->txbq, ba, bh,
+                                    CLOCK_ID_MONOTONIC, sock->tx_timeout, false);
     } else {
         rv = socket_write_udp(s, source, iov, length, dest_addr, addrlen);
     }
@@ -1601,7 +1604,7 @@ closure_function(2, 1, sysreturn, connect_tcp_bh,
     }
 
     if (s->info.tcp.state == TCP_SOCK_IN_CONNECTION) {
-        if (s->sock.f.flags & SOCK_NONBLOCK) {
+        if ((s->sock.f.flags & SOCK_NONBLOCK) || (flags & BLOCKQ_ACTION_TIMEDOUT)) {
             rv = -EINPROGRESS;
             goto unlock_out;
         }
@@ -1673,8 +1676,9 @@ static inline sysreturn connect_tcp(netsock s, const ip_addr_t* address,
         return lwip_to_errno(err);
     netsock_check_loop();
 
-    return blockq_check(s->sock.txbq,
-                        contextual_closure(connect_tcp_bh, s, current), false);
+    return blockq_check_timeout(s->sock.txbq,
+                        contextual_closure(connect_tcp_bh, s, current), false,
+                        CLOCK_ID_MONOTONIC, s->sock.tx_timeout, false);
   out:
     return rv;
 }
@@ -1909,7 +1913,7 @@ static sysreturn netsock_recvfrom(struct sock *sock, void *buf, u64 len,
         rv = -ENOMEM;
         goto out;
     }
-    return blockq_check(sock->rxbq, ba, in_bh);
+    return blockq_check_timeout(sock->rxbq, ba, in_bh, CLOCK_ID_MONOTONIC, sock->rx_timeout, false);
   out:
     return io_complete(completion, rv);
 }
@@ -1958,7 +1962,7 @@ static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
         goto out;
     }
     blockq_action ba = contextual_closure(recvmsg_bh, s, msg, flags, completion);
-    return blockq_check(sock->rxbq, ba, in_bh);
+    return blockq_check_timeout(sock->rxbq, ba, in_bh, CLOCK_ID_MONOTONIC, sock->rx_timeout, false);
   out:
     return io_complete(completion, rv);
 }
@@ -2165,7 +2169,7 @@ closure_function(5, 1, sysreturn, accept_bh,
     context ctx = context_from_closure(closure_self());
     child = dequeue(s->incoming);
     if (child == INVALID_ADDRESS) {
-        if (s->sock.f.flags & SOCK_NONBLOCK) {
+        if ((s->sock.f.flags & SOCK_NONBLOCK) || (bqflags & BLOCKQ_ACTION_TIMEDOUT)) {
             rv = -EAGAIN;
             goto out;
         }
@@ -2254,7 +2258,7 @@ static sysreturn netsock_accept4(struct sock *sock, struct sockaddr *addr,
         rv = -ENOMEM;
         goto out;
     }
-    return blockq_check(sock->rxbq, ba, in_bh);
+    return blockq_check_timeout(sock->rxbq, ba, in_bh, CLOCK_ID_MONOTONIC, sock->rx_timeout, false);
   out:
     return io_complete(completion, rv);
 }
@@ -2370,6 +2374,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
     netsock s = (netsock)sock;
     union {
         int val;
+        struct timeval timeo;
     } opt_val;
     sysreturn rv;
     switch (level) {
@@ -2436,6 +2441,18 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
             break;
         case SO_REUSEPORT:
             goto unimplemented;
+        case SO_RCVTIMEO:
+            rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(opt_val.timeo));
+            if (rv)
+                goto out;
+            sock->rx_timeout = time_from_timeval(&opt_val.timeo);
+            break;
+        case SO_SNDTIMEO:
+            rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(opt_val.timeo));
+            if (rv)
+                goto out;
+            sock->tx_timeout = time_from_timeval(&opt_val.timeo);
+            break;
         default:
             goto unimplemented;
         }
@@ -2589,6 +2606,7 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
     union {
         int val;
         struct linger linger;
+        struct timeval timeo;
         char str[16];
         struct tcp_info tcp_info;
     } ret_optval;
@@ -2640,6 +2658,14 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
         }
         case SO_REUSEPORT:
             ret_optval.val = 0;
+            break;
+        case SO_RCVTIMEO:
+            timeval_from_time(&ret_optval.timeo, sock->rx_timeout);
+            ret_optlen = sizeof(ret_optval.timeo);
+            break;
+        case SO_SNDTIMEO:
+            timeval_from_time(&ret_optval.timeo, sock->tx_timeout);
+            ret_optlen = sizeof(ret_optval.timeo);
             break;
         case SO_PROTOCOL:
             ret_optval.val = s->sock.type == SOCK_STREAM ? IP_PROTO_TCP : IP_PROTO_UDP;
