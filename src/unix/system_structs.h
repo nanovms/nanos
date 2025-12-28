@@ -855,6 +855,8 @@ struct io_uring_params {
 #define SO_PRIORITY     12
 #define SO_LINGER       13
 #define SO_REUSEPORT    15
+#define SO_RCVTIMEO     20
+#define SO_SNDTIMEO     21
 #define SO_TIMESTAMP    29
 #define SO_ACCEPTCONN   30
 #define SO_PROTOCOL     38

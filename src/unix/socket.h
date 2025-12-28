@@ -82,6 +82,8 @@ struct sock {
     blockq rxbq;
     blockq txbq;
     u64 rx_len;
+    timestamp rx_timeout;
+    timestamp tx_timeout;
     sysreturn (*bind)(struct sock *sock, struct sockaddr *addr,
             socklen_t addrlen);
     sysreturn (*listen)(struct sock *sock, int backlog);
