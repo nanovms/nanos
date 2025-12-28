@@ -19,6 +19,7 @@
 
 #define NETSOCK_TEST_BASIC_PORT 1233
 #define NETSOCK_TEST_FAULT_PORT 1237
+#define NETSOCK_TEST_TIMEO_PORT 1238
 
 #define NETSOCK_TEST_FIO_COUNT  8
 
@@ -842,6 +843,110 @@ static void netsock_test_fault(void)
     close(fd);
 }
 
+static void *netsock_test_timeout_thread(void *arg)
+{
+    const uint32_t far_away_addr = 0x01010101;
+    int tx_fd;
+    struct sockaddr_in addr;
+    socklen_t len;
+    struct timeval timeout;
+    char buf[KB];
+    int ret;
+
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1;
+    tx_fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(tx_fd > 0);
+    test_assert(setsockopt(tx_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) == 0);
+    memset(&timeout, 0, sizeof(timeout));
+    len = sizeof(timeout);
+    test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, &len) == 0);
+    test_assert((len == sizeof(timeout)) && (timeout.tv_sec == 0) && (timeout.tv_usec > 0));
+
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(NETSOCK_TEST_TIMEO_PORT);
+    addr.sin_addr.s_addr = htonl(far_away_addr);
+    test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1);
+    test_assert(errno == EINPROGRESS);
+    close(tx_fd);
+
+    tx_fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(tx_fd > 0);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(setsockopt(tx_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) == 0);
+
+    /* Write until the receiver buffer fills up. */
+    while (1) {
+        ret = write(tx_fd, buf, sizeof(buf));
+        if (ret < 0) {
+            test_assert(errno == EAGAIN);
+            break;
+        }
+    }
+
+    close(tx_fd);
+    return NULL;
+}
+
+static void netsock_test_timeout(void)
+{
+    int listen_fd, rx_fd;
+    struct sockaddr_in addr;
+    socklen_t len;
+    struct timeval timeout;
+    char buf[KB];
+    struct iovec iov;
+    struct msghdr msg;
+    int ret;
+    pthread_t thread;
+
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(NETSOCK_TEST_TIMEO_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1;
+
+    rx_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(rx_fd > 0);
+    test_assert(bind(rx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+
+    test_assert(setsockopt(rx_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0);
+    memset(&timeout, 0, sizeof(timeout));
+    len = sizeof(timeout);
+    test_assert(getsockopt(rx_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, &len) == 0);
+    test_assert((len == sizeof(timeout)) && (timeout.tv_sec == 0) && (timeout.tv_usec > 0));
+
+    test_assert((read(rx_fd, buf, sizeof(buf)) == -1) && (errno == EAGAIN));
+    len = sizeof(addr);
+    test_assert(recvfrom(rx_fd, buf, sizeof(buf), 0, (struct sockaddr *)&addr, &len) == -1);
+    test_assert(errno == EAGAIN);
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    test_assert((recvmsg(rx_fd, &msg, 0) == -1) && (errno == EAGAIN));
+    close(rx_fd);
+
+    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(listen_fd > 0);
+    test_assert(bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    test_assert(listen(listen_fd, 1) == 0);
+    test_assert(setsockopt(listen_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == 0);
+    test_assert((accept(listen_fd, NULL, NULL) == -1) && (errno == EAGAIN));
+    ret = pthread_create(&thread, NULL, netsock_test_timeout_thread, NULL);
+    test_assert(ret == 0);
+    while (1) {
+        rx_fd = accept(listen_fd, NULL, NULL);
+        if (rx_fd > 0)
+            break;
+        test_assert(errno == EAGAIN);
+    }
+    test_assert(pthread_join(thread, NULL) == 0);
+    close(listen_fd);
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -856,6 +961,7 @@ int main(int argc, char **argv)
     netsock_test_msg(SOCK_STREAM);
     netsock_test_msg(SOCK_DGRAM);
     netsock_test_fault();
+    netsock_test_timeout();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
