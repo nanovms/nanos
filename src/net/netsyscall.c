@@ -2368,21 +2368,23 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                                     int optname, void *optval, socklen_t optlen)
 {
     netsock s = (netsock)sock;
-    int int_optval;
+    union {
+        int val;
+    } opt_val;
     sysreturn rv;
     switch (level) {
     case IPPROTO_IP:
         switch (optname) {
         case IP_MTU_DISCOVER:
-            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(int));
             if (rv)
                 goto out;
             if (s->sock.type == SOCK_STREAM) {
                 struct tcp_pcb *tcp_lw = netsock_tcp_get(s);
-                tcp_lw->pmtudisc = int_optval;
+                tcp_lw->pmtudisc = opt_val.val;
                 netsock_tcp_put(tcp_lw);
             } else {
-                s->info.udp.lw->pmtudisc = int_optval;
+                s->info.udp.lw->pmtudisc = opt_val.val;
             }
             break;
         default:
@@ -2392,10 +2394,10 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
     case IPPROTO_IPV6:
         switch (optname) {
         case IPV6_V6ONLY:
-            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(int));
             if (rv)
                 goto out;
-            s->ipv6only = int_optval;
+            s->ipv6only = opt_val.val;
             break;
         default:
             goto unimplemented;
@@ -2406,7 +2408,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
         case SO_REUSEADDR:
         case SO_KEEPALIVE:
         case SO_BROADCAST:
-            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(int));
             if (rv)
                 goto out;
             u8 so_option = (optname == SO_REUSEADDR ? SOF_REUSEADDR :
@@ -2414,7 +2416,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
             if (s->sock.type == SOCK_STREAM) {
                 struct tcp_pcb *tcp_lw = netsock_tcp_get(s);
                 if (tcp_lw) {
-                    if (int_optval)
+                    if (opt_val.val)
                         ip_set_option(tcp_lw, so_option);
                     else
                         ip_reset_option(tcp_lw, so_option);
@@ -2425,7 +2427,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                 }
             } else if (s->sock.type == SOCK_DGRAM) {
                 netsock_lock(s);
-                if (int_optval)
+                if (opt_val.val)
                     ip_set_option(s->info.udp.lw, so_option);
                 else
                     ip_reset_option(s->info.udp.lw, so_option);
@@ -2445,7 +2447,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                 rv = -EINVAL;
                 goto out;
             }
-            rv = sockopt_copy_from_user(optval, optlen, &int_optval, sizeof(int));
+            rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(int));
             if (rv)
                 goto out;
             netsock_lock(s);
@@ -2454,14 +2456,14 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
                 tcp_ref(tcp_lw);
                 netsock_unlock(s);
                 tcp_lock(tcp_lw);
-                if (int_optval)
+                if (opt_val.val)
                     tcp_nagle_disable(tcp_lw);
                 else
                     tcp_nagle_enable(tcp_lw);
                 tcp_unlock(tcp_lw);
                 tcp_unref(tcp_lw);
             } else {
-                if (int_optval)
+                if (opt_val.val)
                     s->info.tcp.flags |= TF_NODELAY;
                 else
                     s->info.tcp.flags &= ~TF_NODELAY;
