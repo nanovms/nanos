@@ -390,7 +390,7 @@ static void direct_connect_err(void *arg, err_t err)
 {
     direct d = arg;
     direct_debug("d %p, err %d\n", d, err);
-    apply(d->new, 0);
+    async_apply_1(d->new, 0);
     d->p = 0;
     direct_dealloc(d);
 }
