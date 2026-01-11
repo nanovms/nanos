@@ -1,6 +1,8 @@
 #include <kernel.h>
 #include <lwip.h>
 #include <lwip/priv/tcp_priv.h>
+#include <dhcp_option121.h>
+#include <ip4_route_table.h>
 
 /* Network interface flags */
 #define IFF_UP          (1 << 0)
@@ -413,6 +415,8 @@ void init_net(kernel_heaps kh)
 {
     lwip_heap = kh->malloc;
     list_init(&net_complete_list);
+    ip4_route_table_init();
+    dhcp_option121_init();
     lwip_init();
     BSS_RO_AFTER_INIT NETIF_DECLARE_EXT_CALLBACK(netif_callback);
     netif_add_ext_callback(&netif_callback, lwip_ext_callback);

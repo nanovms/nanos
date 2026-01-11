@@ -198,3 +198,39 @@ static inline int net_ip_input_hook(struct pbuf *pbuf, struct netif *input_netif
         return 1;
     return 0;
 }
+
+/*
+ * DHCP Option 121 (Classless Static Routes) support.
+ *
+ * The nanos lwIP modification passes ip_data as a parameter rather than
+ * using a global. However, dhcp_parse_reply() calls the option hook using
+ * ip_current_netif() which expects a global. We work around this by:
+ * 1. Defining a global that stores the current netif during DHCP recv
+ * 2. Providing ip_current_netif() macro to access it
+ * 3. Implementing the hook to use this netif
+ *
+ * The global is set by the UDP recv callback wrapper before calling dhcp_recv.
+ */
+extern struct netif *nanos_dhcp_current_netif;
+
+static inline struct netif *ip_current_netif(void)
+{
+    return nanos_dhcp_current_netif;
+}
+
+struct dhcp;
+struct dhcp_msg;
+extern void nanos_dhcp_parse_option_hook(struct netif *netif, struct dhcp *dhcp,
+                                          u8_t state, struct dhcp_msg *msg,
+                                          u8_t msg_type, u8_t option, u8_t len,
+                                          struct pbuf *p, u16_t offset);
+#define LWIP_HOOK_DHCP_PARSE_OPTION(netif, dhcp, state, msg, msg_type, option, len, pbuf, offset) \
+    nanos_dhcp_parse_option_hook(netif, dhcp, state, msg, msg_type, option, len, pbuf, offset)
+
+/*
+ * Static route lookup hook for DHCP Option 121 routes.
+ * Called by lwIP's ip4_route() to check static routes before the default route.
+ */
+struct ip4_addr;
+extern struct netif *ip4_static_route(const struct ip4_addr *src, const struct ip4_addr *dest);
+#define LWIP_HOOK_IP4_ROUTE_SRC(src, dest) ip4_static_route(src, dest)
