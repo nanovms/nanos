@@ -1399,7 +1399,6 @@ void create_filesystem(heap h,
         ignore_io_status = closure_func(h, io_status_handler, ignore_io);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     fs->req_handler = req_handler;
-    fs->fs.root = 0;
     fs->fs.lookup = fs_lookup;
     fs->fs.get_fsfile = tfs_get_fsfile;
     fs->fs.file_read = tfs_read;
