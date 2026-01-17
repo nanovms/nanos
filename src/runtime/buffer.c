@@ -9,10 +9,15 @@ buffer allocate_buffer(heap h, bytes s)
     buffer b = allocate(h, sizeof(struct buffer));
     if (b == INVALID_ADDRESS)
         return b;
-    void *contents = allocate(h, s);
-    if (contents == INVALID_ADDRESS) {
-        deallocate(h, b, sizeof(struct buffer));
-        return INVALID_ADDRESS;
+    void *contents;
+    if (s) {
+        contents = allocate(h, s);
+        if (contents == INVALID_ADDRESS) {
+            deallocate(h, b, sizeof(struct buffer));
+            return INVALID_ADDRESS;
+        }
+    } else {
+        contents = 0;
     }
     init_buffer(b, s, false, h, contents);
     return b;

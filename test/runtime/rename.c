@@ -90,7 +90,7 @@ static void test_renameat2(int olddirfd, int newdirfd)
             (s.st_mode & S_IFREG));
 }
 
-int main(int argc, char **argv)
+void test_renaming(int argc, char **argv)
 {
     int fd1, fd2;
     char name_too_long[NAME_MAX + 2];
@@ -143,7 +143,4 @@ int main(int argc, char **argv)
     name_too_long[sizeof(name_too_long) - 1] = '\0';
     test_assert((rename("/my_file", name_too_long) == -1) && (errno == ENAMETOOLONG));
     test_assert((rename(name_too_long, "foo") == -1) && (errno == ENAMETOOLONG));
-
-    printf("Test passed\n");
-    return EXIT_SUCCESS;
 }

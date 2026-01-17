@@ -427,8 +427,6 @@ value decode_value(heap h, table dictionary, buffer source, u64 *total,
         else
             return value_from_u64(n);
     } else if (type == type_string) {
-        if (len == 0)
-            return 0;
         string s;
         if (imm == immediate) {
             s = allocate_string(len);

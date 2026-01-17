@@ -100,13 +100,11 @@ test test-noaccel: image
 
 RUNTIME_TESTS=	\
 	aio \
-	creat \
 	dup \
 	epoll \
 	eventfd \
-	fadvise \
-	fallocate \
 	fcntl \
+	filesystem \
 	fst \
 	fs_full \
 	futex \
@@ -116,17 +114,14 @@ RUNTIME_TESTS=	\
 	hw \
 	hwg \
 	hws \
-	inotify \
 	io_uring \
 	ktest \
-	links \
 	mkdir \
 	mmap \
 	netlink \
 	netsock \
 	pipe \
 	readv \
-	rename \
 	sandbox \
 	sendfile \
 	shmem \
@@ -139,7 +134,6 @@ RUNTIME_TESTS=	\
 	tlbshootdown \
 	tun \
 	unixsocket \
-	unlink \
 	write \
 	writev \
 
