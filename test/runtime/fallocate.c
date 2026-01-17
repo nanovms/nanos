@@ -26,7 +26,7 @@ static void test_tmpfile(void)
     test_assert(close(fd) == 0);
 }
 
-int main(int argc, char **argv)
+void test_fallocate(int argc, char **argv)
 {
     int fd;
     uint8_t buf[8192];
@@ -102,7 +102,4 @@ int main(int argc, char **argv)
     test_assert(close(fd) == 0);
 
     test_tmpfile();
-
-    printf("fallocate test OK\n");
-    return EXIT_SUCCESS;
 }

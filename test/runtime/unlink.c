@@ -91,7 +91,7 @@ static void test_tmpfile()
     }
 }
 
-int main(int argc, char **argv)
+void test_unlinking(int argc, char **argv)
 {
     int fd;
     char name_too_long[NAME_MAX + 2];
@@ -155,7 +155,7 @@ int main(int argc, char **argv)
     if ((rmdir("/nonexisting") == 0) || (errno != ENOENT)) {
         test_error("non-existing directory rmdir test");
     }
-    if ((rmdir("/unlink") == 0) || (errno != ENOTDIR)) {
+    if ((rmdir(argv[0]) == 0) || (errno != ENOTDIR)) {
         test_error("file rmdir test");
     }
     test_unlinkat(AT_FDCWD);
@@ -174,7 +174,4 @@ int main(int argc, char **argv)
     }
 
     test_tmpfile();
-
-    printf("test passed\n");
-    return EXIT_SUCCESS;
 }

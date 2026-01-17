@@ -16,7 +16,7 @@ void test_fadvise(int fd, int64_t off, uint64_t len, int adv, int exp, char *nam
     }
 }
 
-int main(int argc, char **argv)
+void test_fadv(int argc, char **argv)
 {
     int fd = open("test_fadvise", O_CREAT|O_RDWR, 0644);
     if (fd < 0) {
@@ -31,6 +31,4 @@ int main(int argc, char **argv)
     test_fadvise(fd, 0, 128, 9999, EINVAL, "use bad advice");
     close(fd);
     test_fadvise(fd, 0, 128, 9999, EBADF, "use bad fd");
-    printf("fadvise test passed\n");
-    exit(EXIT_SUCCESS);
 }

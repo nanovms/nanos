@@ -1,7 +1,0 @@
-(
-    children:(
-        inotify:(contents:(host:output/test/runtime/bin/inotify))
-    )
-    program:/inotify
-    environment:()
-)

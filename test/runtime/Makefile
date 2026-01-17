@@ -6,12 +6,10 @@ PROGRAMS= \
 	aio \
 	aslr \
 	dup \
-	creat \
 	epoll \
 	eventfd \
-	fallocate \
-	fadvise \
 	fcntl \
+	filesystem\
 	fst \
 	fs_full \
 	ftrace \
@@ -23,9 +21,7 @@ PROGRAMS= \
 	hwg \
 	hws \
 	ktest \
-	inotify \
 	io_uring \
-	links \
 	mkdir \
 	mmap \
 	netlink \
@@ -34,7 +30,6 @@ PROGRAMS= \
 	paging \
 	pipe \
 	readv \
-	rename \
 	sandbox \
 	sendfile \
 	shmem \
@@ -48,7 +43,6 @@ PROGRAMS= \
 	tun \
 	udploop \
 	unixsocket \
-	unlink \
 	web \
 	webg \
 	webs \
@@ -69,11 +63,6 @@ SRCS-dup= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-dup=		-static
 
-SRCS-creat= \
-	$(CURDIR)/creat.c \
-	$(SRCDIR)/unix_process/ssp.c
-LDFLAGS-creat=		-static
-
 SRCS-epoll= \
 	$(CURDIR)/epoll.c \
 	$(SRCDIR)/unix_process/ssp.c
@@ -87,22 +76,23 @@ SRCS-eventfd= \
 LDFLAGS-eventfd=	-static
 LIBS-eventfd=		-lpthread
 
-SRCS-fallocate= \
-	$(CURDIR)/fallocate.c \
-	$(SRCDIR)/unix_process/ssp.c
-
-LDFLAGS-fallocate=	-static
-
-SRCS-fadvise= \
-	$(CURDIR)/fadvise.c \
-	$(SRCDIR)/unix_process/ssp.c
-
-LDFLAGS-fadvise=	-static
-
 SRCS-fcntl= \
 	$(CURDIR)/fcntl.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-fcntl=		-static
+
+SRCS-filesystem= \
+	$(CURDIR)/creat.c \
+	$(CURDIR)/fadvise.c \
+	$(CURDIR)/fallocate.c \
+	$(CURDIR)/filesystem.c \
+	$(CURDIR)/inotify.c \
+	$(CURDIR)/links.c \
+	$(CURDIR)/rename.c \
+	$(CURDIR)/unlink.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-filesystem=		-static
+LIBS-filesystem=		-lpthread
 
 SRCS-fs_full= \
 	$(CURDIR)/fs_full.c \
@@ -138,12 +128,6 @@ SRCS-hw=		$(CURDIR)/hw.c
 
 SRCS-hws=		$(SRCS-hw)
 LDFLAGS-hws=		-static
-
-SRCS-inotify= \
-	$(CURDIR)/inotify.c \
-	$(SRCDIR)/unix_process/ssp.c
-LDFLAGS-inotify=	-static
-LIBS-inotify=		-lpthread
 
 SRCS-io_uring= \
 	$(CURDIR)/io_uring.c \
@@ -192,11 +176,6 @@ SRCS-pipe= \
 LDFLAGS-pipe=		-static
 LIBS-pipe=		-lm -lpthread
 
-SRCS-rename= \
-	$(CURDIR)/rename.c \
-	$(SRCDIR)/unix_process/ssp.c
-LDFLAGS-rename=		-static
-
 SRCS-sendfile=		$(CURDIR)/sendfile.c
 LDFLAGS-sendfile=	-static
 
@@ -229,11 +208,6 @@ SRCS-socketpair= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-socketpair=	-static
 LIBS-socketpair=	-lpthread
-
-SRCS-links= \
-	$(CURDIR)/links.c \
-	$(SRCDIR)/unix_process/ssp.c
-LDFLAGS-links=	-static
 
 SRCS-syslog= \
 	$(CURDIR)/syslog.c \
@@ -279,11 +253,6 @@ SRCS-unixsocket= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-unixsocket=	-static
 LIBS-unixsocket=	-lpthread
-
-SRCS-unlink= \
-	$(CURDIR)/unlink.c \
-	$(SRCDIR)/unix_process/ssp.c
-LDFLAGS-unlink=		-static
 
 SRCS-web= \
 	$(CURDIR)/web.c \

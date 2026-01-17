@@ -251,10 +251,8 @@ static void test_hard_links(void)
     test_assert((linkat(0xbadf, "dummy", AT_FDCWD, "link", 0) == -1) && (errno == EBADF));
 }
 
-int main(int argc, char **argv)
+void test_links(int argc, char **argv)
 {
     test_sym_links();
     test_hard_links();
-    printf("Test passed\n");
-    return EXIT_SUCCESS;
 }
