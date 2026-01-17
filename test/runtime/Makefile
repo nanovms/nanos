@@ -90,6 +90,7 @@ SRCS-filesystem= \
 	$(CURDIR)/links.c \
 	$(CURDIR)/rename.c \
 	$(CURDIR)/unlink.c \
+	$(CURDIR)/xattrs.c \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-filesystem=		-static
 LIBS-filesystem=		-lpthread

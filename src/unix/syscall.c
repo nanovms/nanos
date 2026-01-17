@@ -2433,6 +2433,12 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, eventfd2, eventfd2);
     register_syscall(map, chdir, chdir);
     register_syscall(map, fchdir, fchdir);
+    register_syscall(map, setxattr, setxattr);
+    register_syscall(map, lsetxattr, lsetxattr);
+    register_syscall(map, fsetxattr, fsetxattr);
+    register_syscall(map, getxattr, getxattr);
+    register_syscall(map, lgetxattr, lgetxattr);
+    register_syscall(map, fgetxattr, fgetxattr);
     register_syscall(map, sched_getaffinity, sched_getaffinity);
     register_syscall(map, sched_setaffinity, sched_setaffinity);
     register_syscall(map, sched_get_priority_min, syscall_ignore);

@@ -15,5 +15,6 @@ int main(int argc, char **argv)
     TEST_FUNC(links);
     TEST_FUNC(renaming);
     TEST_FUNC(unlinking);
+    TEST_FUNC(xattrs);
     return EXIT_SUCCESS;
 }

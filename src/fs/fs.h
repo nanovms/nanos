@@ -77,6 +77,7 @@ struct filesystem {
     int (*rename)(filesystem fs, tuple old_parent, string old_name, tuple old_md,
                         tuple new_parent, string new_name, tuple new_md, boolean exchange,
                         boolean *destruct_md);
+    int (*write_attr)(filesystem fs, tuple md, sstring name, buffer value);
     int (*truncate)(filesystem fs, fsfile f, u64 len);
     int (*get_fsfile)(filesystem fs, tuple md, fsfile *f);
     fs_io file_read;

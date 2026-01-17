@@ -770,6 +770,9 @@ struct statfs {
     long f_spare[4];
 };
 
+#define XATTR_CREATE    (1u << 0)
+#define XATTR_REPLACE   (1u << 1)
+
 typedef u32 uid_t;
 typedef u32 gid_t;
 

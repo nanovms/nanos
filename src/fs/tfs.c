@@ -1207,6 +1207,12 @@ static int tfs_rename(filesystem fs, tuple old_parent, string old_name, tuple ol
     return s;
 }
 
+static int tfs_write_attr(filesystem fs, tuple md, sstring name, buffer value)
+{
+	tfs tfs = (struct tfs *)fs;
+	return filesystem_write_eav(tfs, md, sym_sstring(name), value, false);
+}
+
 closure_function(1, 1, boolean, tfs_storage_freeblocks,
                  u64 *, free_blocks,
                  range r)
@@ -1410,6 +1416,7 @@ void create_filesystem(heap h,
     fs->fs.link = tfs_link;
     fs->fs.unlink = tfs_unlink;
     fs->fs.rename = tfs_rename;
+    fs->fs.write_attr = tfs_write_attr;
     fs->fs.truncate = tfs_truncate;
     fs->fs.get_freeblocks = tfs_freeblocks;
     fs->fs.get_sync_handler = tfs_get_sync_handler;
