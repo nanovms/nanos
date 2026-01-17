@@ -300,7 +300,7 @@ void print_uuid(buffer b, u8 *uuid);
 static inline void deallocate_buffer(buffer b)
 {
     heap h = b->h;
-    if (!b->wrapped)
+    if (!b->wrapped && b->length)
         deallocate(h, b->contents, b->length);
     deallocate(h, b, sizeof(struct buffer));
 }
