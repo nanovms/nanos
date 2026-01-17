@@ -169,6 +169,7 @@ static void test_sym_links(void)
     test_assert((open("link3", O_RDONLY) == -1) && (errno == ENOENT));
     test_assert((open("/dir/link", O_RDONLY) == -1) && (errno == ENOENT));
     test_assert(unlink("/dir/link") == 0);
+    unlink("link");
 
     test_assert(symlink("link_to_self", "link_to_self") == 0);
     test_assert((open("link_to_self", O_RDONLY) == -1) && (errno == ELOOP));
@@ -180,16 +181,21 @@ static void test_sym_links(void)
     test_assert(symlink("/dir/link_loop3", "link_loop2") == 0);
     test_assert(symlink("../link_loop2", "/dir/link_loop3") == 0);
     test_assert((open("link_loop2", O_RDONLY) == -1) && (errno == ELOOP));
+    unlink("dir/link_loop3");
 
     test_assert(symlink("dir", "dir_link") == 0);
     test_assert((rename("dir", "/dir_link/dir") < 0) && (errno == EINVAL));
 
     test_assert(symlink("nonexistent", "broken_link") == 0);
     test_assert((rename("dir", "/broken_link/dir") < 0) && (errno == ENOENT));
+    unlink("broken_link");
 
     test_assert(chdir("/dir_link") == 0);
     cwd = getcwd(buf, sizeof(buf));
     test_assert(cwd && !strcmp(cwd, "/dir"));
+
+    test_assert(chdir("..") == 0);
+    rmdir("dir");
 }
 
 static void test_hard_links(void)
