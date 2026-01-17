@@ -1,5 +1,6 @@
 #include <sys/time.h>
 #include <sys/times.h>
+#include <sys/timex.h>
 #include <sys/syscall.h>
 #include <string.h>
 #include <time.h>
@@ -1067,6 +1068,53 @@ static void test_settime(void)
                    (ret == 0) ? ret : -errno);
 }
 
+static void test_adjtimex(void)
+{
+    struct timex tx;
+    struct timespec ts_before, ts_after;
+    long long delta;
+
+    if (clock_gettime(CLOCK_REALTIME, &ts_before) < 0)
+        test_perror("clock_gettime");
+    memset(&tx, 0, sizeof(tx));
+    if (syscall(SYS_adjtimex, &tx) != TIME_ERROR)
+        test_error("adjtimex failed to return TIME_ERROR");
+    if (tx.status != STA_UNSYNC)
+        test_error("adjtimex failed to set status to unsynchronized");
+    struct timespec tx_ts;
+    tx_ts.tv_sec = tx.time.tv_sec;
+    tx_ts.tv_nsec = tx.time.tv_usec * 1000;
+    delta = delta_nsec(&ts_before, &tx_ts);
+    if (delta < 0)
+        test_error("adjtimex returned negative time delta");
+    if (clock_gettime(CLOCK_REALTIME, &ts_before) < 0)
+        test_perror("clock_gettime");
+    tx.modes = ADJ_OFFSET_SINGLESHOT | ADJ_NANO;
+    tx.time.tv_sec = 0;
+    tx.time.tv_usec = 1000000; /* 1 millisecond */
+    if (syscall(SYS_adjtimex, &tx) != TIME_ERROR)
+        test_error("adjtimex failed to return TIME_ERROR");
+    if (clock_gettime(CLOCK_REALTIME, &ts_after) < 0)
+        test_perror("clock_gettime");
+    delta = delta_nsec(&ts_before, &ts_after);
+    if (delta < 1000000)
+        test_error("adjtimex failed to adjust time: delta %lld", delta);
+
+    /* Verify frequency adjustment. */
+    memset(&tx, 0, sizeof(tx));
+    tx.modes = ADJ_FREQUENCY;
+    tx.freq = 65536; /* 1 ppm */
+    if (syscall(SYS_adjtimex, &tx) != TIME_ERROR)
+        test_error("adjtimex failed to return TIME_ERROR");
+
+    /* Verify read functionality. */
+    memset(&tx, 0, sizeof(tx));
+    if (syscall(SYS_adjtimex, &tx) != TIME_ERROR)
+        test_error("adjtimex failed to return TIME_ERROR");
+    if (tx.freq != 65536)
+        test_error("adjtimex failed to read frequency: %ld", tx.freq);
+}
+
 int main(int argc, char *argv[])
 {
     int opt_settime = 0;
@@ -1094,6 +1142,7 @@ int main(int argc, char *argv[])
     test_fault();
     if (opt_settime)
         test_settime();
+    test_adjtimex();
     printf("time test passed\n");
     return EXIT_SUCCESS;
 }

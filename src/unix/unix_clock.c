@@ -237,6 +237,59 @@ sysreturn clock_getres(clockid_t clk_id, struct timespec *res)
     return 0;
 }
 
+#include <kernel/vdso.h>
+static sysreturn adjtimex(struct timex *tx)
+{
+    context ctx = get_current_context(current_cpu());
+    if (!validate_user_memory(tx, sizeof(struct timex), true) || context_set_err(ctx))
+        return -EFAULT;
+    clock_update_last_raw(now(CLOCK_ID_MONOTONIC_RAW));
+    if (tx->modes) {
+        if (tx->modes & ADJ_OFFSET_SINGLESHOT) {
+            s64 offset = tx->time.tv_sec * BILLION;
+            if (tx->modes & ADJ_NANO)
+                offset += tx->time.tv_usec;
+            else
+                offset += tx->time.tv_usec * 1000;
+            clock_step_rtc(offset);
+        } else {
+            if (tx->modes & ADJ_FREQUENCY) {
+                clock_set_freq(tx->freq);
+            }
+            if (tx->modes & ADJ_OFFSET) {
+                s64 offset = tx->offset;
+                if (tx->modes & ADJ_NANO)
+                    offset >>= CLOCK_FP_BITS;
+                else
+                    offset = (offset * 1000) >> CLOCK_FP_BITS;
+                clock_set_slew(0, 0, offset);
+            }
+        }
+    }
+
+    tx->offset = 0;
+    tx->freq = __vdso_dat->base_freq;
+    tx->maxerror = 0;
+    tx->esterror = 0;
+    tx->status = STA_UNSYNC;
+    tx->constant = 0;
+    tx->precision = 1;
+    tx->tolerance = 0;
+    timeval_from_time(&tx->time, now(CLOCK_ID_REALTIME));
+    tx->tick = 0;
+    tx->ppsfreq = 0;
+    tx->jitter = 0;
+    tx->shift = 0;
+    tx->stabil = 0;
+    tx->jitcnt = 0;
+    tx->calcnt = 0;
+    tx->errcnt = 0;
+    tx->stbcnt = 0;
+    tx->tai = 0;
+    context_clear_err(ctx);
+    return TIME_ERROR;
+}
+
 void register_clock_syscalls(struct syscall *map)
 {
 #ifdef __x86_64__
@@ -250,4 +303,5 @@ void register_clock_syscalls(struct syscall *map)
     register_syscall(map, settimeofday, settimeofday);
     register_syscall(map, nanosleep, nanosleep);
     register_syscall(map, times, times);
+    register_syscall(map, adjtimex, adjtimex);
 }
