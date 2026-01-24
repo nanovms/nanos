@@ -52,6 +52,8 @@ SRCS-kernel.elf= \
 	$(SRCDIR)/kernel/vdso-now.c \
 	$(SRCDIR)/kernel/vmem_heap.c \
 	$(SRCDIR)/net/direct.c \
+	$(SRCDIR)/net/dhcp_option121.c \
+	$(SRCDIR)/net/ip4_route_table.c \
 	$(SRCDIR)/net/net.c \
 	$(SRCDIR)/net/netsyscall.c \
 	$(RUNTIME) \
