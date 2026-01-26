@@ -46,6 +46,7 @@ closure_func_basic(timer_handler, void, clock_raw_update_func,
 
 void clock_init(void)
 {
+    __vdso_dat->status = CLK_STA_UNSYNC;
     register_timer(kernel_timers, &clock.raw_update_timer, CLOCK_ID_MONOTONIC_RAW,
                    seconds(CLOCK_RAW_UPDATE_SECONDS), false, seconds(CLOCK_RAW_UPDATE_SECONDS),
                    init_closure_func(&clock.raw_update_func, timer_handler, clock_raw_update_func));

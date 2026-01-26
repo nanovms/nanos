@@ -1,5 +1,7 @@
+#define _GNU_SOURCE
 #include <sys/time.h>
 #include <sys/times.h>
+#include <sys/timex.h>
 #include <sys/syscall.h>
 #include <string.h>
 #include <time.h>
@@ -7,11 +9,13 @@
 #include <errno.h>
 #include <assert.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
 #include <signal.h>
 #include <sched.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <sys/stat.h>
 
 #include "../test_utils.h"
@@ -994,6 +998,8 @@ static void test_fault(void)
         test_error("nanosleep() with faulting address test");
     if ((syscall(SYS_clock_nanosleep, CLOCK_MONOTONIC, 0, fault_addr, NULL) != -1) || (errno != EFAULT))
         test_error("clock_nanosleep() with faulting address test");
+
+    test_assert((ntp_adjtime(fault_addr) == -1) && (errno == EFAULT));
 }
 
 static void test_settime(void)
@@ -1067,6 +1073,132 @@ static void test_settime(void)
                    (ret == 0) ? ret : -errno);
 }
 
+static void test_adjtimex_offset(bool positive, bool nano)
+{
+    long offset = positive ? LONG_MAX : -LONG_MAX;
+    long clamped_max = positive ? 500000000 : -500000000;
+    struct timex tx;
+
+    tx.modes = MOD_OFFSET | (nano ? MOD_NANO : MOD_MICRO);
+    tx.offset = offset;
+    test_assert(ntp_adjtime(&tx) >= 0);
+    if (nano) {
+        test_assert(tx.status & STA_NANO);
+    } else {
+        test_assert(!(tx.status & STA_NANO));
+        clamped_max /= 1000;
+    }
+    test_assert(tx.offset == clamped_max);
+
+    for (int i = 0; i < 1000; i++) {
+        tx.modes = nano ? MOD_NANO : MOD_MICRO;
+        test_assert(ntp_adjtime(&tx) >= 0);
+        if (positive)
+            test_assert((tx.offset >= 0) && (tx.offset <= clamped_max));
+        else
+            test_assert((tx.offset <= 0) && (tx.offset >= clamped_max));
+        if (tx.offset != clamped_max)
+            return;
+        usleep(1000);
+    }
+    test_error("offset did not decrease (%ld)", tx.offset);
+}
+
+static void test_adjtimex_freq(bool positive)
+{
+    long freq = positive ? INT_MAX : -INT_MAX;
+    long clamped_max = positive ? 500 * 0x10000 : -500 * 0x10000;
+    struct timex tx;
+
+    tx.modes = MOD_FREQUENCY;
+    tx.freq = freq;
+    test_assert(ntp_adjtime(&tx) >= 0);
+    /* allow for some precision loss due to conversion from/to internal format */
+    test_assert((tx.freq >= clamped_max - 10) && (tx.freq <= clamped_max + 10));
+    test_assert(tx.tolerance == abs(clamped_max));
+}
+
+static void test_adjtimex_status(void)
+{
+    struct timex tx;
+
+    tx.modes = MOD_STATUS;
+    tx.status = STA_UNSYNC;
+    test_assert((ntp_adjtime(&tx) == TIME_ERROR) && (tx.status & STA_UNSYNC));
+    tx.status = 0;
+    test_assert((ntp_adjtime(&tx) == TIME_OK) && !(tx.status & STA_UNSYNC));
+}
+
+static void test_adjtimex_setoffset(bool positive, bool nano)
+{
+    const int offset_frac = 500000; /* microseconds */
+    const int offset_nsec = SECOND_NSEC + offset_frac * 1000;
+    struct timex tx;
+    struct timespec ts_before, ts_after;
+    long long delta;
+
+    if (clock_gettime(CLOCK_REALTIME, &ts_before) < 0)
+        test_perror("clock_gettime");
+    tx.modes = ADJ_SETOFFSET | (nano ? ADJ_NANO : ADJ_MICRO);
+    tx.time.tv_sec = positive ? 1 : -2;
+    tx.time.tv_usec = nano ? offset_frac * 1000 : offset_frac;
+    test_assert(adjtimex(&tx) >= 0);
+    ts_after.tv_sec = tx.time.tv_sec;
+    ts_after.tv_nsec = nano ? tx.time.tv_usec : (tx.time.tv_usec * 1000);
+    delta = delta_nsec(&ts_before, &ts_after);
+    if (positive)
+        test_assert(delta >= offset_nsec);
+    else
+        test_assert((delta >= -offset_nsec) && (delta < -offset_nsec + 100000000));
+    if (clock_gettime(CLOCK_REALTIME, &ts_after) < 0)
+        test_perror("clock_gettime");
+    delta = delta_nsec(&ts_before, &ts_after);
+    if (positive)
+        test_assert(delta >= offset_nsec);
+    else
+        test_assert((delta >= -offset_nsec) && (delta < -offset_nsec + 100000000));
+}
+
+static void test_adjtimex(int opt_settime)
+{
+    struct timex tx;
+    struct timespec ts_before, ts_after;
+
+    if (clock_gettime(CLOCK_REALTIME, &ts_before) < 0)
+        test_perror("clock_gettime");
+    tx.modes = 0;
+    test_assert(ntp_adjtime(&tx) >= 0);
+    ts_after.tv_sec = tx.time.tv_sec;
+    ts_after.tv_nsec = (tx.status & STA_NANO) ? tx.time.tv_usec : (tx.time.tv_usec * 1000);
+    test_assert(delta_nsec(&ts_before, &ts_after) >= 0);
+
+    if (opt_settime) {
+        test_adjtimex_offset(true, true);
+        test_adjtimex_offset(true, false);
+        test_adjtimex_offset(false, true);
+        test_adjtimex_offset(false, false);
+        test_adjtimex_freq(true);
+        test_adjtimex_freq(false);
+
+        tx.modes = ADJ_OFFSET_SINGLESHOT;
+        tx.offset = 200000; /* microseconds */
+        test_assert(ntp_adjtime(&tx) >= 0);
+        tx.modes = ADJ_OFFSET_SS_READ;
+        test_assert(adjtimex(&tx) >= 0);
+        test_assert((tx.offset > 100000) && (tx.offset <= 200000));
+
+        test_adjtimex_status();
+
+        test_adjtimex_setoffset(true, true);
+        test_adjtimex_setoffset(true, false);
+        test_adjtimex_setoffset(false, true);
+        test_adjtimex_setoffset(false, false);
+    }
+
+    test_assert((clock_adjtime(CLOCK_MONOTONIC, &tx) == -1) && (errno == EOPNOTSUPP));
+    test_assert((clock_adjtime(INT_MAX, &tx) == -1) && (errno == EINVAL));
+}
+
 int main(int argc, char *argv[])
 {
     int opt_settime = 0;
@@ -1094,6 +1226,7 @@ int main(int argc, char *argv[])
     test_fault();
     if (opt_settime)
         test_settime();
+    test_adjtimex(opt_settime);
     printf("time test passed\n");
     return EXIT_SUCCESS;
 }

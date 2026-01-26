@@ -9,6 +9,7 @@
  */
 struct vdso_dat_struct {
     vdso_clock_id clock_src;
+    u64 status;
     timestamp rtc_offset;
     u64 pvclock_offset;
     volatile word vdso_gen;

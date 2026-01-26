@@ -952,3 +952,47 @@ struct io_uring_params {
 /* memfd flags */
 #define MFD_CLOEXEC         0x0001
 #define MFD_ALLOW_SEALING   0x0002
+
+/* timex modes */
+#define ADJ_OFFSET              0x0001
+#define ADJ_FREQUENCY           0x0002
+#define ADJ_MAXERROR            0x0004
+#define ADJ_ESTERROR            0x0008
+#define ADJ_STATUS              0x0010
+#define ADJ_TIMECONST           0x0020
+#define ADJ_TAI                 0x0080
+#define ADJ_SETOFFSET           0x0100
+#define ADJ_MICRO               0x1000
+#define ADJ_NANO                0x2000
+#define ADJ_TICK                0x4000
+#define ADJ_OFFSET_SINGLESHOT   0x8001
+#define ADJ_OFFSET_SS_READ      0xa001
+
+#define TIMEX_PPM_SHIFT 16
+
+/* adjtimex return values */
+#define TIME_OK     0
+#define TIME_ERROR  5
+
+struct timex {
+    int modes;
+    long offset;
+    long freq;
+    long maxerror;
+    long esterror;
+    int status;
+    long constant;
+    long precision;
+    long tolerance;
+    struct timeval time;
+    long tick;
+    long ppsfreq;
+    long jitter;
+    int shift;
+    long stabil;
+    long jitcnt;
+    long calcnt;
+    long errcnt;
+    long stbcnt;
+    int tai;
+};
