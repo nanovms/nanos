@@ -25,7 +25,6 @@
 #define NTP_MAX_SLEW_LIMIT 500000ll /* ppm */
 #define NTP_MAX_FREQ_LIMIT 100000ll /* ppm */
 
-#define PPM_SCALE(x) (((s64)(x)<<CLOCK_FP_BITS) / 1000000ll)
 #define fpmax (~(1ull<<63))
 
 #define DEFAULT_MAX_FREQ_PPM 25000
