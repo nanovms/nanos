@@ -820,6 +820,8 @@ void kernel_runtime_init(kernel_heaps kh)
     init_debug("discover done");
     apply(complete, STATUS_OK);
 
+    clock_init();
+
     init_debug("starting runloop");
     runloop();
 }
