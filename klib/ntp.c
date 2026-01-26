@@ -87,10 +87,8 @@ static struct {
     struct udp_pcb *pcb;
     struct timer query_timer;
     struct timer slew_timer;
-    struct timer raw_update_timer;
     timer_handler query_func;
     closure_struct(timer_handler, slew_complete_func);
-    closure_struct(timer_handler, raw_update_func);
     boolean query_ongoing;
     u64 reset_threshold;
 
@@ -742,17 +740,6 @@ closure_func_basic(timer_handler, void, ntp_query_func,
         ntp_query_complete(false);
 }
 
-/* Periodically update last raw to avoid numeric errors from big intervals */
-closure_func_basic(timer_handler, void, ntp_raw_update_func,
-                   u64 expiry, u64 overruns)
-{
-    if (overruns == timer_disabled)
-        return;
-    clock_update_last_raw(kern_now(CLOCK_ID_MONOTONIC_RAW));
-    register_timer(kernel_timers, &ntp.raw_update_timer, CLOCK_ID_MONOTONIC, seconds(CLOCK_RAW_UPDATE_SECONDS + 1), false, 0,
-        (timer_handler)&ntp.raw_update_func);
-}
-
 static void ntp_server_add(heap h, buffer addr, u16 port)
 {
     ntp_debug("adding server %b (port %d)\n", addr, port);
@@ -944,7 +931,6 @@ int init(status_handler complete)
     }
     assert(ntp.query_func != INVALID_ADDRESS);
     init_closure_func(&ntp.slew_complete_func, timer_handler, ntp_slew_complete_func);
-    init_closure_func(&ntp.raw_update_func, timer_handler, ntp_raw_update_func);
     spin_lock_init(&ntp.lock);
     ntp_reset_state();
     runtime_memset((void *)ntp.samples, 0, sizeof(ntp.samples));
@@ -952,7 +938,5 @@ int init(status_handler complete)
     init_timer(&ntp.slew_timer);
     register_timer(kernel_timers, &ntp.query_timer, CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
                    ntp.query_func);
-    register_timer(kernel_timers, &ntp.raw_update_timer, CLOCK_ID_MONOTONIC, seconds(CLOCK_RAW_UPDATE_SECONDS), false, 0,
-        (timer_handler)&ntp.raw_update_func);
     return KLIB_INIT_OK;
 }

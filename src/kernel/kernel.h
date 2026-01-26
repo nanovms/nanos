@@ -676,6 +676,7 @@ void kernel_delay(timestamp delta);
 timestamp kern_now(clock_id id);    /* klibs must use this instead of now() */
 
 void init_clock(void);
+void clock_init(void);
 
 void process_bhqueue();
 
