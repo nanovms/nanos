@@ -29,4 +29,5 @@ RUNTIME=$(SRCDIR)/runtime/bitmap.c \
 	$(SRCDIR)/runtime/timer.c \
 	$(SRCDIR)/runtime/tuple.c \
 	$(SRCDIR)/runtime/tuple_parser.c \
+	$(SRCDIR)/runtime/util.c \
 	$(SRCDIR)/runtime/vector.c
