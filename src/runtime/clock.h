@@ -59,7 +59,6 @@ static inline s64 clock_phase_adjust(timestamp raw, s64 interval)
 void clock_set_freq(s64 freq);
 void clock_set_slew(s64 slewfreq, timestamp start, u64 duration);
 void clock_step_rtc(s64 step);
-void clock_update_last_raw(timestamp t);
 #endif
 
 static inline timestamp now(clock_id id)
