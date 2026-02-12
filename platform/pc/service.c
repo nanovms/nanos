@@ -78,6 +78,7 @@ range kern_get_elf(void)
 
 BSS_RO_AFTER_INIT static boolean have_rdseed;
 BSS_RO_AFTER_INIT static boolean have_rdrand;
+BSS_RO_AFTER_INIT boolean pvh_boot;
 
 static boolean hw_seed(u64 * seed, boolean rdseed)
 {
@@ -205,8 +206,9 @@ void start_secondary_cores(kernel_heaps kh)
 
 void count_cpus_present(void)
 {
-    /* Read ACPI tables for MADT access */
-    init_acpi_tables(get_kernel_heaps());
+    /* Read ACPI tables for MADT access (not available on PVH) */
+    if (!pvh_boot)
+        init_acpi_tables(get_kernel_heaps());
 
 #ifdef SMP_ENABLE
     if (acpi_walk_madt(stack_closure_func(madt_handler, count_processors_handler))) {
@@ -265,21 +267,24 @@ static void find_initial_pages(void)
 
 void init_physical_heap(void)
 {
+    /* Remove low memory area from physical regions so it can be used for things
+       like starting secondary CPUs. This must be a separate pass because the
+       search below may break early, skipping remaining regions. */
+    for_regions(e) {
+        if (e->type == REGION_PHYSICAL && e->base < MB) {
+            u64 end = e->base + e->length;
+            if (end > MB) {
+                e->base = MB;
+                e->length = end - MB;
+            } else {
+                e->length = 0;
+            }
+        }
+    }
+
     /* Carve the bootstrap heap out of a physical memory region. */
     for_regions(e) {
         if (e->type == REGION_PHYSICAL) {
-            /* Remove low memory area from physical memory regions, so that it can be used for
-             * things like starting secondary CPUs. */
-            if (e->base < MB) {
-                u64 end = e->base + e->length;
-                if (end > MB) {
-                    e->base = MB;
-                    e->length = end - MB;
-                } else {
-                    e->length = 0;
-                }
-            }
-
             u64 base = pad(e->base, PAGESIZE);
             u64 end = e->base + e->length;
             u64 length = (end & ~MASK(PAGELOG)) - base;
@@ -437,12 +442,15 @@ void pvh_start(hvm_start_info start_info)
 {
     if (start_info->magic != HVM_START_MAGIC_VALUE)
         return;
+    pvh_boot = true;
     regions->type = 0;
     hvm_memmap_entry mem_table = pointer_from_u64(start_info->memmap_paddr);
     for (int i = 0; i < start_info->memmap_entries; i++) {
         if (mem_table[i].type == HVM_MEMMAP_TYPE_RAM)
             create_region(mem_table[i].addr, mem_table[i].size, REGION_PHYSICAL);
     }
+    if (start_info->rsdp_paddr)
+        create_region(start_info->rsdp_paddr, sizeof(u64), REGION_RSDP);
     init_service(0, 0, start_info);
 }
 
@@ -528,7 +536,8 @@ void detect_devices(kernel_heaps kh, storage_attach sa)
     }
 
     /* misc / platform */
-    init_acpi(kh);
+    if (!pvh_boot)
+        init_acpi(kh);
 
     init_virtio_balloon(kh);
     init_virtio_rng(kh);
