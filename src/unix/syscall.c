@@ -856,7 +856,7 @@ int file_open(filesystem fs, tuple n, tuple parent, int flags, fsfile fsf)
         break;
     case O_WRONLY:
     case O_RDWR:
-        if (filesystem_is_readonly(fs)) {
+        if (filesystem_is_readonly(fs) && !get(n, sym(special))) {
             return -EROFS;
         }
         if (!(file_meta_perms(p, n) & ACCESS_PERM_WRITE)) {
