@@ -149,7 +149,7 @@ msg_uefi_ld=    LD	$@
 cmd_uefi_ld=    $(LD) $(LDLAGS-uefi) $(OBJS-uefi) -o $@
 
 msg_uefi_objcopy=    OBJCOPY	$(OBJDIR)/bootx64.efi
-cmd_uefi_objcopy=    $(OBJCOPY) -j .text -j .sdata -j .data -j .dynamic -j .dynsym  -j .rel -j .rela -j .rel.* -j .rela.* -j .rel* -j .rela* -j .reloc --target efi-app-x86_64 --subsystem=10 $< $@
+cmd_uefi_objcopy=    $(OBJCOPY) -j .text -j .sdata -j .data -j .dynamic -j .dynsym  -j .rel -j .rela -j .rel.* -j .rela.* -j .rel* -j .rela* -j .reloc -O efi-app-x86_64 --subsystem=10 $< $@
 
 $(OBJDIR-uefi)/x86_64/uefi-crt0.o:	$(SRCDIR)/x86_64/uefi-crt0.s
 	$(call cmd,uefi_as)

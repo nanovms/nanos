@@ -146,9 +146,34 @@ static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
 BSS_RO_AFTER_INIT static thunk net_loop_poll;
 static boolean net_loop_poll_queued;
 
+static boolean netsock_netif_poll(struct netif *n, void *priv)
+{
+    if (n->loop_first) {
+        /* there are loopback packets queued in the interface */
+        netif_ref(n);
+        *(struct netif **)priv = n;
+        return true;
+    }
+    return false;
+}
+
 closure_function(0, 0, void, netsock_poll) {
     net_loop_poll_queued = false;
-    netif_poll_loopback();
+
+    /* netif_poll() cannot be called from a netif_iterate() handler, because it may need to lock the
+     * global netif mutex (e.g. when processing a loopback packet) which is already locked by
+     * netif_iterate(). */
+    struct netif *n = 0;
+    while (true) {
+        netif_iterate(netsock_netif_poll, &n);
+        if (n) {
+            netif_poll(n);
+            netif_unref(n);
+            n = 0;
+        } else {
+            break;
+        }
+    }
 }
 
 static void netsock_check_loop(void)
