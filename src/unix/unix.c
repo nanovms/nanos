@@ -91,6 +91,32 @@ void release_fdesc(fdesc f)
     deallocate_notify_set(f->ns);
 }
 
+sysreturn user_timeval_get(const struct timeval *tv, timestamp *t)
+{
+    if (!validate_user_memory(tv, sizeof(*tv), false))
+        return -EFAULT;
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        return -EFAULT;
+    }
+    *t = time_from_timeval(tv);
+    context_clear_err(ctx);
+    return 0;
+}
+
+sysreturn user_timespec_get(const struct timespec *ts, timestamp *t)
+{
+    if (!validate_user_memory(ts, sizeof(*ts), false))
+        return -EFAULT;
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        return -EFAULT;
+    }
+    *t = time_from_timespec(ts);
+    context_clear_err(ctx);
+    return 0;
+}
+
 boolean copy_from_user(const void *uaddr, void *kaddr, u64 len)
 {
     if (!validate_user_memory(uaddr, len, false))

@@ -70,11 +70,11 @@ sysreturn gettimeofday(struct timeval *tv, void *tz)
 sysreturn settimeofday(const struct timeval *tv, const void *tz)
 {
     if (tv) {
-        context ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(tv, sizeof(struct timeval), false) || context_set_err(ctx))
-            return -EFAULT;
-        clock_reset_rtc(time_from_timeval(tv));
-        context_clear_err(ctx);
+        timestamp t;
+        sysreturn ret = user_timeval_get(tv, &t);
+        if (ret)
+            return ret;
+        clock_reset_rtc(t);
     }
     return 0;
 }
@@ -113,11 +113,10 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
     if (rem && !validate_user_memory(rem, sizeof(struct timespec), true))
         return -EFAULT;
 
-    context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(req, sizeof(struct timespec), false) || context_set_err(ctx))
-        return -EFAULT;
-    timestamp interval = time_from_timespec(req);
-    context_clear_err(ctx);
+    timestamp interval;
+    sysreturn ret = user_timespec_get(req, &interval);
+    if (ret)
+        return ret;
     timestamp tnow = now(CLOCK_ID_MONOTONIC);
     return blockq_check_timeout(current->thread_bq,
                                 contextual_closure(nanosleep_bh, current, tnow,
@@ -141,11 +140,10 @@ sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec 
         return -EINVAL;
 
     clock_id id = (clock_id)_clock_id;
-    context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(req, sizeof(struct timespec), false) || context_set_err(ctx))
-        return -EFAULT;
-    timestamp treq = time_from_timespec(req);
-    context_clear_err(ctx);
+    timestamp treq;
+    sysreturn ret = user_timespec_get(req, &treq);
+    if (ret)
+        return ret;
     timestamp tnow = now(id);
 
     return blockq_check_timeout(current->thread_bq,
@@ -207,14 +205,14 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
 
 sysreturn clock_settime(clockid_t clk_id, const struct timespec *tp)
 {
-    context ctx;
+    timestamp t;
+    sysreturn ret;
     switch (clk_id) {
     case CLOCK_REALTIME:
-        ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(tp, sizeof(struct timespec), false) || context_set_err(ctx))
-            return -EFAULT;
-        clock_reset_rtc(time_from_timespec(tp));
-        context_clear_err(ctx);
+        ret = user_timespec_get(tp, &t);
+        if (ret)
+            return ret;
+        clock_reset_rtc(t);
         break;
     default:
         return -EINVAL;
