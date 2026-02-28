@@ -920,7 +920,15 @@ sysreturn pselect(int nfds,
                   struct timespec *timeout,
                   const sigset_t * sigmask)
 {
-    return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timespec(timeout) : infinity, sigmask);
+    timestamp tmo;
+    if (timeout) {
+        sysreturn ret = user_timespec_get(timeout, &tmo);
+        if (ret)
+            return ret;
+    } else {
+        tmo = infinity;
+    }
+    return select_internal(nfds, readfds, writefds, exceptfds, tmo, sigmask);
 }
 
 #ifdef __x86_64__
@@ -928,7 +936,15 @@ sysreturn select(int nfds,
                  u64 *readfds, u64 *writefds, u64 *exceptfds,
                  struct timeval *timeout)
 {
-    return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timeval(timeout) : infinity, 0);
+    timestamp tmo;
+    if (timeout) {
+        sysreturn ret = user_timeval_get(timeout, &tmo);
+        if (ret)
+            return ret;
+    } else {
+        tmo = infinity;
+    }
+    return select_internal(nfds, readfds, writefds, exceptfds, tmo, 0);
 }
 #endif
 
@@ -1076,7 +1092,15 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
 
 sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, const sigset_t *sigmask)
 {
-    return poll_internal(fds, nfds, tmo_p ? time_from_timespec(tmo_p) : infinity, sigmask);
+    timestamp tmo;
+    if (tmo_p) {
+        sysreturn ret = user_timespec_get(tmo_p, &tmo);
+        if (ret)
+            return ret;
+    } else {
+        tmo = infinity;
+    }
+    return poll_internal(fds, nfds, tmo, sigmask);
 }
 
 #ifdef __x86_64__

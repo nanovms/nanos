@@ -7,6 +7,7 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/eventfd.h>
+#include <sys/syscall.h>
 #include <errno.h>
 #include <poll.h>
 
@@ -386,9 +387,14 @@ static void test_select(void)
     test_assert(select(0, NULL, NULL, NULL, &tv) == 0);
     FD_ZERO(&fds);
     test_assert(select(0, &fds, NULL, NULL, &tv) == 0);
+#ifdef __x86_64__
+    test_assert((syscall(SYS_select, 0, NULL, NULL, NULL, FAULT_ADDR) == -1) && (errno == EFAULT));
+#endif
 
     ts.tv_sec = ts.tv_nsec = 0;
     test_assert(pselect(0, NULL, NULL, NULL, &ts, NULL) == 0);
+    test_assert(syscall(SYS_pselect6, 0, NULL, NULL, NULL, FAULT_ADDR, NULL) == -1);
+    test_assert(errno == EFAULT);
 }
 
 static void test_poll(void)
@@ -398,6 +404,7 @@ static void test_poll(void)
     ts.tv_sec = ts.tv_nsec = 0;
     test_assert(poll(NULL, 0, 0) == 0);
     test_assert(ppoll(NULL, 0, &ts, NULL) == 0);
+    test_assert((syscall(SYS_ppoll, NULL, 0, FAULT_ADDR, NULL) == -1) && (errno == EFAULT));
 }
 
 int main(int argc, char **argv)
