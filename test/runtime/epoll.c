@@ -374,6 +374,22 @@ static void test_poll_nested(void)
     close(sock_fd);
 }
 
+static void test_select(void)
+{
+    fd_set fds;
+    struct timeval tv;
+    struct timespec ts;
+
+    test_assert((select(-1, NULL, NULL, NULL, NULL) == -1) && (errno == EINVAL));
+    tv.tv_sec = tv.tv_usec = 0;
+    test_assert(select(0, NULL, NULL, NULL, &tv) == 0);
+    FD_ZERO(&fds);
+    test_assert(select(0, &fds, NULL, NULL, &tv) == 0);
+
+    ts.tv_sec = ts.tv_nsec = 0;
+    test_assert(pselect(0, NULL, NULL, NULL, &ts, NULL) == 0);
+}
+
 int main(int argc, char **argv)
 {
     test_ctl();
@@ -382,6 +398,7 @@ int main(int argc, char **argv)
     test_eventfd_et();
     test_epollexclusive();
     test_poll_nested();
+    test_select();
 
     printf("test passed\n");
     return EXIT_SUCCESS;

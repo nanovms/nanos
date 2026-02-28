@@ -797,6 +797,8 @@ static sysreturn select_internal(int nfds,
                                  timestamp timeout,
                                  const sigset_t * sigmask)
 {
+    if (nfds < 0)
+        return -EINVAL;
     u64 set_bytes = pad(nfds, 64) / 8;
     if ((readfds && !fault_in_user_memory(readfds, set_bytes, true)) ||
         (writefds && !fault_in_user_memory(writefds, set_bytes, true)) ||
@@ -809,7 +811,8 @@ static sysreturn select_internal(int nfds,
 
     epoll_debug("nfds %d, readfds %p, writefds %p, exceptfds %p\n"
                 "   timeout %d\n", nfds, readfds, writefds, exceptfds, timeout);
-    bitmap_extend(e->fds, nfds - 1);
+    if (nfds)
+        bitmap_extend(e->fds, nfds - 1);
     u64 dummy = 0;
     u64 * rp = readfds ? readfds : &dummy;
     u64 * wp = writefds ? writefds : &dummy;
@@ -897,12 +900,14 @@ static sysreturn select_internal(int nfds,
     if (wt == INVALID_ADDRESS)
         return -ENOMEM;
     wt->nfds = nfds;
-    if (readfds)
-        wt->rset = bitmap_wrap(e->h, readfds, nfds);
-    if (writefds)
-        wt->wset = bitmap_wrap(e->h, writefds, nfds);
-    if (exceptfds)
-        wt->eset = bitmap_wrap(e->h, exceptfds, nfds);
+    if (nfds) {
+        if (readfds)
+            wt->rset = bitmap_wrap(e->h, readfds, nfds);
+        if (writefds)
+            wt->wset = bitmap_wrap(e->h, writefds, nfds);
+        if (exceptfds)
+            wt->eset = bitmap_wrap(e->h, exceptfds, nfds);
+    }
     epoll_check_epollfds(e, wt);
     return blockq_check_timeout(wt->t->thread_bq,
                                 contextual_closure(select_bh, wt, current, timeout), false,
