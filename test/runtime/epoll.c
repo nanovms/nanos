@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <fcntl.h>
 #include <pthread.h>
 #include <unistd.h>
@@ -390,6 +391,15 @@ static void test_select(void)
     test_assert(pselect(0, NULL, NULL, NULL, &ts, NULL) == 0);
 }
 
+static void test_poll(void)
+{
+    struct timespec ts;
+
+    ts.tv_sec = ts.tv_nsec = 0;
+    test_assert(poll(NULL, 0, 0) == 0);
+    test_assert(ppoll(NULL, 0, &ts, NULL) == 0);
+}
+
 int main(int argc, char **argv)
 {
     test_ctl();
@@ -399,6 +409,7 @@ int main(int argc, char **argv)
     test_epollexclusive();
     test_poll_nested();
     test_select();
+    test_poll();
 
     printf("test passed\n");
     return EXIT_SUCCESS;
