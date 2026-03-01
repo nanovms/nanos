@@ -202,8 +202,13 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     else
         f[FRAME_CS] &= ~1;
     t->signal_mask = normalize_signal_mask(mcontext->oldmask);
-    if (mcontext->fpstate)
+    if (validate_user_memory(mcontext->fpstate, extended_frame_size, false)) {
+        context ctx = get_current_context(current_cpu());
+        if (context_set_err(ctx))
+            return;
         runtime_memcpy(frame_extended(t->context.frame), mcontext->fpstate, extended_frame_size);
+        context_clear_err(ctx);
+    }
 }
 
 void reg_copy_out(struct core_regs *r, thread t)
