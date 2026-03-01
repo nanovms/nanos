@@ -865,6 +865,11 @@ void mremap_test(void)
     if (errno != EINVAL)
         test_error("EINVAL expected, got %d", errno);
 
+    /* fixed mremap to invalid address (upper half of 64-bit address space) */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE,
+                 (1ULL << 63));
+    test_assert((tmp == MAP_FAILED) && (errno == EINVAL));
+
     /* test move to fixed address */
     tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE,
                  MREMAP_FIXED | MREMAP_MAYMOVE, new_addr);

@@ -781,7 +781,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
             goto unlock_out;
         }
         new = irangel(u64_from_pointer(new_address), new_size);
-        if ((new.start & PAGEMASK) || ranges_intersect(old, new)) {
+        if ((new.start & PAGEMASK) || ranges_intersect(old, new) || !validate_mmap_range(p, new)) {
             rv = -EINVAL;
             goto unlock_out;
         }
