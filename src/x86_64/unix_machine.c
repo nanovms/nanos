@@ -187,7 +187,11 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     f[FRAME_RAX] = mcontext->rax;
     f[FRAME_RCX] = mcontext->rcx;
     f[FRAME_RSP] = mcontext->rsp;
-    f[FRAME_RIP] = mcontext->rip;
+    /* Do not copy non-canonical RIP values, otherwise the sysret instruction triggers a general
+     * protection fault in kernel mode on Intel CPUs. */
+    u64 rip_ext = mcontext->rip >> (VIRTUAL_ADDRESS_BITS - 1);
+    if ((rip_ext == 0) || (rip_ext == MASK(64 - VIRTUAL_ADDRESS_BITS + 1)))
+        f[FRAME_RIP] = mcontext->rip;
     f[FRAME_EFLAGS] = (f[FRAME_EFLAGS] & ~SAFE_EFLAGS) | (mcontext->eflags & SAFE_EFLAGS);
     /* Don't trust segment selector values (CS and SS) that may have been modified by the process,
      * because invalid values can cause a general protection fault (in kernel mode) when trying to
