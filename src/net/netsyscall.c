@@ -309,8 +309,15 @@ static inline void ip6addr_to_sockaddr(ip_addr_t *ip_addr,
         sizeof(addr->sin6_addr.s6_addr));
 }
 
+static inline boolean ip6addr_is_any(struct sockaddr_in6 *addr)
+{
+    u32 *addr_p = (u32 *)&addr->sin6_addr;
+    return !addr_p[0] && !addr_p[1] && !addr_p[2] && !addr_p[3];
+}
+
 static sysreturn sockaddr_to_addrport(netsock s, struct sockaddr *addr,
                                       socklen_t addrlen,
+                                      boolean tx,
                                       ip_addr_t *ip_addr, u16 *port)
 {
     *ip_addr = (ip_addr_t){};
@@ -318,13 +325,21 @@ static sysreturn sockaddr_to_addrport(netsock s, struct sockaddr *addr,
         if (addrlen < sizeof(struct sockaddr_in))
             return -EINVAL;
         struct sockaddr_in *sin = (struct sockaddr_in *)addr;
-        ip_addr_set_ip4_u32(ip_addr, sin->address);
+        if (tx && (sin->address == PP_NTOHL(IPADDR_ANY)))
+            ip4_addr_set_loopback(ip_2_ip4(ip_addr));
+        else
+            ip_addr_set_ip4_u32(ip_addr, sin->address);
         *port = ntohs(sin->port);
     } else {
         if (addrlen < sizeof(struct sockaddr_in6))
             return -EINVAL;
         struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)addr;
-        sockaddr_to_ip6addr(sin6, ip_addr);
+        if (tx && ip6addr_is_any(sin6)) {
+            IP_SET_TYPE_VAL(*ip_addr, IPADDR_TYPE_V6);
+            ip6_addr_set_loopback(ip_2_ip6(ip_addr));
+        } else {
+            sockaddr_to_ip6addr(sin6, ip_addr);
+        }
         *port = ntohs(sin6->port);
     }
     /* If this is an an IPv4 mapped address then this socket
@@ -829,6 +844,7 @@ static sysreturn socket_write_udp(netsock s, void *source, struct iovec *iov, u6
         if (context_set_err(ctx))
             return -EFAULT;
         sysreturn ret = sockaddr_to_addrport(s, dest_addr, addrlen,
+                                             true,
             &ipaddr, &port);
         context_clear_err(ctx);
         if (ret)
@@ -1516,7 +1532,7 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
     sysreturn ret;
     context ctx = get_current_context(current_cpu());
     if (!context_set_err(ctx)) {
-        ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr, &port);
+        ret = sockaddr_to_addrport(s, addr, addrlen, false, &ipaddr, &port);
         context_clear_err(ctx);
     } else {
         ret = -EFAULT;
@@ -1717,7 +1733,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
     sysreturn ret;
     context ctx = get_current_context(current_cpu());
     if (!context_set_err(ctx)) {
-        ret = sockaddr_to_addrport(s, addr, addrlen, &ipaddr, &port);
+        ret = sockaddr_to_addrport(s, addr, addrlen, true, &ipaddr, &port);
         context_clear_err(ctx);
     } else {
         ret = -EFAULT;

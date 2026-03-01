@@ -25,6 +25,12 @@
 
 #define NETSOCK_TEST_PEEK_COUNT 8
 
+struct netsock_thread_params {
+    int sock_type;
+    boolean ipv6;
+    struct sockaddr *addr;
+};
+
 static inline void timespec_sub(struct timespec *a, struct timespec *b, struct timespec *r)
 {
     r->tv_sec = a->tv_sec - b->tv_sec;
@@ -32,6 +38,28 @@ static inline void timespec_sub(struct timespec *a, struct timespec *b, struct t
     if (a->tv_nsec < b->tv_nsec) {
         r->tv_sec--;
         r->tv_nsec += 1000000000ull;
+    }
+}
+
+/* Finds an available port to bind to, starting from 1024. */
+static void netsock_bind(int fd, boolean ipv6, struct sockaddr *addr)
+{
+    int port = 1024;
+
+    while (1) {
+        int ret;
+
+        if (ipv6) {
+            ((struct sockaddr_in6 *)addr)->sin6_port = htons(port);
+            ret = bind(fd, addr, sizeof(struct sockaddr_in6));
+        } else {
+            ((struct sockaddr_in *)addr)->sin_port = htons(port);
+            ret = bind(fd, addr, sizeof(struct sockaddr_in));
+        }
+        if (ret == 0)
+            break;
+        test_assert((ret == -1) && (errno == EADDRINUSE));
+        port++;
     }
 }
 
@@ -947,6 +975,90 @@ static void netsock_test_timeout(void)
     close(listen_fd);
 }
 
+static void *netsock_test_txrx_thread(void *arg)
+{
+    struct netsock_thread_params *params = arg;
+    int fd;
+    socklen_t addrlen = params->ipv6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    uint8_t buf[KB];
+
+    fd = socket(params->ipv6 ? AF_INET6 : AF_INET, params->sock_type, 0);
+    test_assert(fd > 0);
+    if (params->sock_type == SOCK_STREAM) {
+        test_assert(connect(fd, params->addr, addrlen) == 0);
+        test_assert(send(fd, buf, sizeof(buf), 0) > 0);
+        test_assert(recv(fd, buf, sizeof(buf), 0) > 0);
+    } else {
+        test_assert(sendto(fd, buf, sizeof(buf), 0, params->addr, addrlen) > 0);
+        test_assert(recvfrom(fd, buf, sizeof(buf), 0, params->addr, &addrlen) > 0);
+    }
+    close(fd);
+    return NULL;
+}
+
+/* Tests connection to the "any" address (0.0.0.0 for IPv4, [::] for IPv6), which should be remapped
+ * to the loopback address. */
+static void netsock_test_addr_any(int sock_type, boolean ipv6)
+{
+    int fd;
+    struct sockaddr_in addr4;
+    struct sockaddr_in6 addr6;
+    struct sockaddr *addr;
+    struct netsock_thread_params params;
+    pthread_t thread;
+    uint8_t buf[KB];
+    int ret;
+
+    fd = socket(ipv6 ? AF_INET6 : AF_INET, sock_type, 0);
+    test_assert(fd > 0);
+    if (ipv6) {
+        memset(&addr6, 0, sizeof(addr6));
+        addr6.sin6_family = AF_INET6;
+        addr6.sin6_addr = in6addr_any;
+        addr = (struct sockaddr *)&addr6;
+    } else {
+        addr4.sin_family = AF_INET;
+        addr4.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr = (struct sockaddr *)&addr4;
+    }
+    netsock_bind(fd, ipv6, addr);
+    params.sock_type = sock_type;
+    params.ipv6 = ipv6;
+    params.addr = addr;
+    if (sock_type == SOCK_STREAM) {
+        int conn_fd;
+
+        test_assert(listen(fd, 1) == 0);
+        ret = pthread_create(&thread, NULL, netsock_test_txrx_thread, &params);
+        test_assert(ret == 0);
+        conn_fd = accept(fd, NULL, NULL);
+        test_assert(conn_fd > 0);
+        test_assert(recv(conn_fd, buf, sizeof(buf), 0) > 0);
+        test_assert(send(conn_fd, buf, sizeof(buf), 0) > 0);
+        close(conn_fd);
+    } else {
+        struct sockaddr_in peer_addr4;
+        struct sockaddr_in6 peer_addr6;
+        socklen_t addrlen;
+
+        ret = pthread_create(&thread, NULL, netsock_test_txrx_thread, &params);
+        test_assert(ret == 0);
+        if (ipv6) {
+            addr = (struct sockaddr *)&peer_addr6;
+            addrlen = sizeof(peer_addr6);
+        } else {
+            addr = (struct sockaddr *)&peer_addr4;
+            addrlen = sizeof(peer_addr4);
+        }
+        ret = recvfrom(fd, buf, sizeof(buf), 0, addr, &addrlen);
+        test_assert(ret > 0);
+        ret = sendto(fd, buf, sizeof(buf), 0, addr, addrlen);
+        test_assert(ret > 0);
+    }
+    test_assert(pthread_join(thread, NULL) == 0);
+    close(fd);
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -962,6 +1074,10 @@ int main(int argc, char **argv)
     netsock_test_msg(SOCK_DGRAM);
     netsock_test_fault();
     netsock_test_timeout();
+    netsock_test_addr_any(SOCK_STREAM, false);
+    netsock_test_addr_any(SOCK_STREAM, true);
+    netsock_test_addr_any(SOCK_DGRAM, false);
+    netsock_test_addr_any(SOCK_DGRAM, true);
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
