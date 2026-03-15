@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nanovms/ops/lepton"
+	"github.com/nanovms/ops/qemu"
 	"github.com/nanovms/ops/types"
 )
 
@@ -41,11 +42,21 @@ func prepareTestImage(finalImage string) {
 	}
 }
 
+func runAndWait(image string, t *testing.T) qemu.Hypervisor {
+	rconfig := types.RunConfig{
+		ImageName: image,
+		Ports: []string{"8080"},
+		Verbose: true,
+		Memory: "2G",
+		Accel: true,
+	}
+	return runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
+}
+
 func TestArgsAndEnv(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
-	rconfig := types.RuntimeConfig(finalImage, []string{"8080"}, true)
-	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
+	hypervisor := runAndWait(finalImage, t)
 	defer hypervisor.Stop()
 
 	resp, err := http.Get("http://127.0.0.1:8080/args")
@@ -79,8 +90,7 @@ func TestArgsAndEnv(t *testing.T) {
 func TestFileSystem(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
-	rconfig := types.RuntimeConfig(finalImage, []string{"8080"}, true)
-	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
+	hypervisor := runAndWait(finalImage, t)
 	defer hypervisor.Stop()
 
 	resp, err := http.Get("http://127.0.0.1:8080")
@@ -98,8 +108,7 @@ func TestFileSystem(t *testing.T) {
 }
 
 func validateResponse(t *testing.T, finalImage string, expected string) {
-	rconfig := types.RuntimeConfig(finalImage, []string{"8080"}, true)
-	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
+	hypervisor := runAndWait(finalImage, t)
 	defer hypervisor.Stop()
 
 	resp, err := http.Get("http://127.0.0.1:8080/file")
@@ -126,8 +135,7 @@ func TestInstancePersistence(t *testing.T) {
 func TestHTTP(t *testing.T) {
 	const finalImage = "image"
 	prepareTestImage(finalImage)
-	rconfig := types.RuntimeConfig(finalImage, []string{"8080"}, true)
-	hypervisor := runAndWaitForString(&rconfig, START_WAIT_TIMEOUT, "Server started", t)
+	hypervisor := runAndWait(finalImage, t)
 	defer hypervisor.Stop()
 
 	resp, err := http.Get("http://127.0.0.1:8080/req")
