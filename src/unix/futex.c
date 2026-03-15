@@ -252,14 +252,13 @@ sysreturn futex(int *uaddr, int futex_op, int val,
             ret = -EFAULT;
             goto wake_op_done;
         }
-        oldval = *(int *) uaddr2;
         
         switch (op) {
-        case FUTEX_OP_SET:   *uaddr2 = oparg; break;
-        case FUTEX_OP_ADD:   *uaddr2 += oparg; break;
-        case FUTEX_OP_OR:    *uaddr2 |= oparg; break;
-        case FUTEX_OP_ANDN:  *uaddr2 &= ~oparg; break;
-        case FUTEX_OP_XOR:   *uaddr2 ^= oparg; break;
+        case FUTEX_OP_SET:   oldval = __atomic_exchange_n(uaddr2, oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_ADD:   oldval = __atomic_fetch_add(uaddr2, oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_OR:    oldval = __atomic_fetch_or(uaddr2, oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_ANDN:  oldval = __atomic_fetch_and(uaddr2, ~oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_XOR:   oldval = __atomic_fetch_xor(uaddr2, oparg, __ATOMIC_RELAXED); break;
         default:             ret = -ENOSYS; break;
         }
         context_clear_err(ctx);
