@@ -725,6 +725,8 @@ void deallocate_fd(process p, int fd);
 
 void init_vdso(process p);
 
+sysreturn user_timeval_get(const struct timeval *tv, timestamp *t);
+sysreturn user_timespec_get(const struct timespec *ts, timestamp *t);
 boolean copy_from_user(const void *uaddr, void *kaddr, u64 len);
 boolean copy_to_user(void *uaddr, const void *kaddr, u64 len);
 

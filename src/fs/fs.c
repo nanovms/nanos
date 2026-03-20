@@ -995,6 +995,7 @@ int fsfile_init(filesystem fs, fsfile f, tuple md,
 
 status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean ro)
 {
+    zero(fs, sizeof(*fs));
     fs->h = h;
     fs->size = size;
     assert((blocksize & (blocksize - 1)) == 0);
@@ -1004,12 +1005,8 @@ status filesystem_init(filesystem fs, heap h, u64 size, u64 blocksize, boolean r
     if (fs->pv == INVALID_ADDRESS)
         return timm("result", "failed to allocate pagacache volume");
 #endif
-    fs->link = 0;
-    fs->get_seals = 0;
-    fs->set_seals = 0;
 #ifndef FS_READ_ONLY
     init_refcount(&fs->refcount, 1, init_closure_func(&fs->sync, thunk, fs_sync));
-    fs->sync_complete = 0;
     filesystem_lock_init(fs);
 #endif
     fs->ro = ro;

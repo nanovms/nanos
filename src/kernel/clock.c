@@ -13,6 +13,11 @@ extern void notify_unix_timers_of_rtc_change(void);
 
 BSS_RO_AFTER_INIT clock_now ptp_clock_now;
 
+static struct {
+    struct timer raw_update_timer;
+    closure_struct(timer_handler, raw_update_func);
+} clock;
+
 void kernel_delay(timestamp delta)
 {
     timestamp end = now(CLOCK_ID_MONOTONIC) + delta;
@@ -25,16 +30,26 @@ timestamp kern_now(clock_id id)
     return now(id);
 }
 
-void clock_update_last_raw(timestamp t)
+closure_func_basic(timer_handler, void, clock_raw_update_func,
+                   u64 expiry, u64 overruns)
 {
     /* Periodically update last_raw to avoid numerical errors from big intervals */
-    if (__vdso_dat->base_freq && (t - __vdso_dat->last_raw > (CLOCK_RAW_UPDATE_SECONDS<<CLOCK_FP_BITS))) {
+    if (__vdso_dat->base_freq) {
+        timestamp t = kern_now(CLOCK_ID_MONOTONIC_RAW);
         vdso_update_gen();
         __vdso_dat->rtc_offset += ((s64)(t - __vdso_dat->last_raw) *
             __vdso_dat->base_freq) >> CLOCK_FP_BITS;
         __vdso_dat->last_raw = t;
         vdso_update_gen();
     }
+}
+
+void clock_init(void)
+{
+    __vdso_dat->status = CLK_STA_UNSYNC;
+    register_timer(kernel_timers, &clock.raw_update_timer, CLOCK_ID_MONOTONIC_RAW,
+                   seconds(CLOCK_RAW_UPDATE_SECONDS), false, seconds(CLOCK_RAW_UPDATE_SECONDS),
+                   init_closure_func(&clock.raw_update_func, timer_handler, clock_raw_update_func));
 }
 
 void clock_set_freq(s64 freq)

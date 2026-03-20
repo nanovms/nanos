@@ -1,0 +1,7 @@
+(
+    children:(
+        filesystem:(contents:(host:output/test/runtime/bin/filesystem))
+    )
+    program:/filesystem
+    environment:()
+)

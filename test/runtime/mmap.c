@@ -211,7 +211,6 @@ static void mmap_newfile_test(void)
 }
 
 /*
- * Try to mmap a non-executable file with exec access
  * Checks that mmap fails and sets errno to EACCES
  */
 static void check_exec_perm_test(void)
@@ -220,6 +219,7 @@ static void check_exec_perm_test(void)
     const size_t maplen = 1;
     void *addr;
 
+    /* Try to mmap a non-executable file with exec access. */
     fd = open("new_file_noexec", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         test_perror("new file open");
@@ -233,6 +233,13 @@ static void check_exec_perm_test(void)
     if (close(fd) < 0) {
         test_perror("new file close");
     }
+
+    /* Try to mmap an executable file with write access. */
+    fd = open("/proc/self/exe", O_RDONLY);
+    test_assert(fd >= 0);
+    addr = mmap(NULL, maplen, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    test_assert((addr == MAP_FAILED) && (errno == EACCES));
+    close(fd);
 }
 
 /*
@@ -864,6 +871,11 @@ void mremap_test(void)
         test_error("old_size == 0 on private mapping should have failed");
     if (errno != EINVAL)
         test_error("EINVAL expected, got %d", errno);
+
+    /* fixed mremap to invalid address (upper half of 64-bit address space) */
+    tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE, MREMAP_FIXED | MREMAP_MAYMOVE,
+                 (1ULL << 63));
+    test_assert((tmp == MAP_FAILED) && (errno == EINVAL));
 
     /* test move to fixed address */
     tmp = mremap(map_addr, __mremap_INIT_SIZE, __mremap_INIT_SIZE,

@@ -781,7 +781,7 @@ sysreturn mremap(void *old_address, u64 old_size, u64 new_size, int flags, void 
             goto unlock_out;
         }
         new = irangel(u64_from_pointer(new_address), new_size);
-        if ((new.start & PAGEMASK) || ranges_intersect(old, new)) {
+        if ((new.start & PAGEMASK) || ranges_intersect(old, new) || !validate_mmap_range(p, new)) {
             rv = -EINVAL;
             goto unlock_out;
         }
@@ -1322,7 +1322,8 @@ static sysreturn mmap(void *addr, u64 length, int prot, int flags, int fd, u64 o
             assert(fsf);
             allowed_flags = file_perms(p, f);
             if (!(vmflags & VMAP_FLAG_SHARED)) {
-                allowed_flags |= VMAP_FLAG_WRITABLE;
+                if (!(allowed_flags & VMAP_FLAG_EXEC) || !proc_is_exec_protected(p))
+                    allowed_flags |= VMAP_FLAG_WRITABLE;
             } else {
                 filesystem fs = fsf->fs;
                 if (fs->get_seals) {

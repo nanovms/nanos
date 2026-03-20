@@ -366,7 +366,7 @@ static void inotify_test_noevents(void)
     close(fd);
 }
 
-int main(int argc, char* argv[])
+void test_inotify(int argc, char* argv[])
 {
     int fd;
     const int event_num = 23;
@@ -440,10 +440,8 @@ int main(int argc, char* argv[])
     inotify_test_overflow();
     inotify_test_noevents();
 
-    printf("inotify test OK\n");
     unlink(INOTIFY_TEST_LINK);
     unlink(INOTIFY_TEST_FILE);
     rmdir(INOTIFY_TEST_DIR1);
     rmdir(INOTIFY_TEST_DIR2);
-    return 0;
 }

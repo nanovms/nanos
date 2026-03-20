@@ -356,6 +356,8 @@ static boolean futex_fault_test(void)
         printf("FUTEX_WAIT_BITSET fault test error (%d %d)\n", ret, errno);
         return false;
     }
+    ret = syscall(SYS_futex, &wait_test_futex, FUTEX_WAIT, FUTEX_INITIALIZER, fault_addr, NULL, 0);
+    test_assert((ret == -1) && (errno == EFAULT));
     return true;
 }
 

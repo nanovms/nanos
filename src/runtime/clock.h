@@ -2,6 +2,8 @@
 #define CLOCK_FP_BITS   32
 #define CLOCK_RAW_UPDATE_SECONDS 30ull
 
+#define PPM_SCALE(x)    (((s64)(x)<<CLOCK_FP_BITS) / 1000000)
+
 /* these need to map to linux values */
 typedef enum {
     CLOCK_ID_REALTIME = 0,
@@ -36,6 +38,24 @@ extern clock_now ptp_clock_now;
 #include <vdso.h>
 #define __vdso_dat (&(VVAR_REF(vdso_dat)))
 
+/* clock status */
+#define CLK_STA_PLL         0x0001
+#define CLK_STA_PPSFREQ     0x0002
+#define CLK_STA_PPSTIME     0x0004
+#define CLK_STA_FLL         0x0008
+#define CLK_STA_INS         0x0010
+#define CLK_STA_DEL         0x0020
+#define CLK_STA_UNSYNC      0x0040
+#define CLK_STA_FREQHOLD    0x0080
+#define CLK_STA_PPSSIGNAL   0x0100
+#define CLK_STA_PPSJITTER   0x0200
+#define CLK_STA_PPSWANDER   0x0400
+#define CLK_STA_PPSERROR    0x0800
+#define CLK_STA_CLOCKERR    0x1000
+#define CLK_STA_NANO        0x2000
+#define CLK_STA_MODE        0x4000
+#define CLK_STA_CLK         0x8000
+
 static inline s64 clock_freq_adjust(s64 interval)
 {
     return (interval * __vdso_dat->base_freq) >> CLOCK_FP_BITS;
@@ -59,7 +79,6 @@ static inline s64 clock_phase_adjust(timestamp raw, s64 interval)
 void clock_set_freq(s64 freq);
 void clock_set_slew(s64 slewfreq, timestamp start, u64 duration);
 void clock_step_rtc(s64 step);
-void clock_update_last_raw(timestamp t);
 #endif
 
 static inline timestamp now(clock_id id)

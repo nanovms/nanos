@@ -137,17 +137,17 @@ closure_function(1, 1, void, futex_requeue_handler,
     closure_member(futex_bh, action, f) = bound(dest);
 }
 
-static timestamp get_timeout_timestamp(int futex_op, u64 val2)
+static sysreturn get_timeout_timestamp(int futex_op, u64 val2, timestamp *ts)
 {
     switch (futex_op) {
     case FUTEX_WAIT:
     case FUTEX_WAIT_BITSET:
-        return (val2) 
-            ? time_from_timespec((struct timespec *)pointer_from_u64(val2)) 
-            : 0;
-    default:
-        return 0;
+        if (val2)
+            return user_timespec_get((struct timespec *)pointer_from_u64(val2), ts);
+        break;
     }
+    *ts = 0;
+    return 0;
 }
 
 sysreturn futex(int *uaddr, int futex_op, int val,
@@ -165,7 +165,9 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         return set_syscall_error(current, ENOMEM);
     
     op = futex_op & 127; // chuck the private bit
-    ts = get_timeout_timestamp(op, val2);
+    sysreturn ret = get_timeout_timestamp(op, val2, &ts);
+    if (ret)
+        return ret;
     clock_id clkid = (futex_op & FUTEX_CLOCK_REALTIME) ? CLOCK_ID_REALTIME :
             CLOCK_ID_MONOTONIC;
 

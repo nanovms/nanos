@@ -2220,7 +2220,7 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
     context ctx = get_current_context(current_cpu());
     u64 first_cpu = -1ull;
     u64 i;
-    if (context_set_err(ctx))
+    if (!validate_user_memory(mask, cpusetsize, false) || context_set_err(ctx))
         return -EFAULT;
     for (i = 0; (first_cpu == -1ull) && (i + sizeof(u64) <= cpusetsize); i += sizeof(u64))
         first_cpu = i * 8 + lsb(mask[i / sizeof(u64)]);
@@ -2236,10 +2236,12 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
     bitmap affinity = t->task.affinity;
     sysreturn rv;
     thread_lock(t);
-    if (!copy_from_user(mask, bitmap_base(affinity), cpusetsize)) {
+    if (context_set_err(ctx)) {
         rv = -EFAULT;
         goto out;
     }
+    runtime_memcpy(bitmap_base(affinity), mask, cpusetsize);
+    context_clear_err(ctx);
     u64 cpus = cpusetsize * 8;
     if (cpus < total_processors)
         bitmap_range_check_and_set(affinity, cpus, total_processors - cpus, false, false);
@@ -2433,6 +2435,12 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, eventfd2, eventfd2);
     register_syscall(map, chdir, chdir);
     register_syscall(map, fchdir, fchdir);
+    register_syscall(map, setxattr, setxattr);
+    register_syscall(map, lsetxattr, lsetxattr);
+    register_syscall(map, fsetxattr, fsetxattr);
+    register_syscall(map, getxattr, getxattr);
+    register_syscall(map, lgetxattr, lgetxattr);
+    register_syscall(map, fgetxattr, fgetxattr);
     register_syscall(map, sched_getaffinity, sched_getaffinity);
     register_syscall(map, sched_setaffinity, sched_setaffinity);
     register_syscall(map, sched_get_priority_min, syscall_ignore);

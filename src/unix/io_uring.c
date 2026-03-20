@@ -790,7 +790,7 @@ define_closure_function(2, 2, void, iour_timeout,
         iour_release(iour);
 }
 
-static void iour_timeout_add(io_uring iour, struct timespec *ts, u32 flags,
+static void iour_timeout_add(io_uring iour, timestamp tmo, u32 flags,
                              u64 off, u64 user_data)
 {
     iour_debug("flags 0x%x, off %ld", flags, off);
@@ -822,7 +822,7 @@ static void iour_timeout_add(io_uring iour, struct timespec *ts, u32 flags,
 
     list_push_back(&iour->timers, &iour_tim->l);
     register_timer(kernel_timers, &iour_tim->t, CLOCK_ID_MONOTONIC,
-        time_from_timespec(ts), flags & IORING_TIMEOUT_ABS, 0,
+        tmo, flags & IORING_TIMEOUT_ABS, 0,
         init_closure(&iour_tim->handler, iour_timeout, iour, iour_tim));
     iour_unlock(iour);
 done:
@@ -1009,15 +1009,14 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         iour_poll_remove(iour, sqe->addr, sqe->user_data);
         break;
     case IORING_OP_TIMEOUT: {
-        struct timespec *ts = (struct timespec *)sqe->addr;
         if (sqe->ioprio || (sqe->len != 1) || sqe->buf_index) {
             res = -EINVAL;
             goto complete;
         }
-        if (!validate_user_memory(ts, sizeof(*ts), false)) {
-            res = -EFAULT;
+        timestamp ts;
+        res = user_timespec_get((struct timespec *)sqe->addr, &ts);
+        if (res)
             goto complete;
-        }
         iour_timeout_add(iour, ts, sqe->timeout_flags, sqe->off,
                          sqe->user_data);
         break;

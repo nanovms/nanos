@@ -2,6 +2,9 @@
 #include <filesystem.h>
 #include <storage.h>
 
+#define FS_KNOWN_XATTR_FLAGS  \
+    (XATTR_CREATE | XATTR_REPLACE)
+
 #define FS_KNOWN_SEALS  \
     (F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)
 
@@ -598,6 +601,210 @@ sysreturn fstatfs(int fd, struct statfs *buf)
     fdesc_put(desc);
     if (t)
         filesystem_put_meta(f->fs, t);
+    return rv;
+}
+
+static sysreturn xattr_check(filesystem fs, const char *name, sstring *name_ss)
+{
+    if (!fs->write_attr)
+        return -EOPNOTSUPP;
+    if (!fault_in_user_string(name, name_ss))
+        return -EFAULT;
+
+    /* attribute name uses format "namespace.attribute" */
+    if (name_ss->len == 0)
+        return -ERANGE;
+    char *separator = runtime_strchr(*name_ss, '.');
+    if (!separator || (separator == name_ss->ptr))  /* empty namespace */
+        return -EOPNOTSUPP;
+    if (separator == &name_ss->ptr[name_ss->len - 1])   /* empty attribute name */
+        return -EINVAL;
+    return 0;
+}
+
+static sysreturn setxattr_internal(filesystem fs, tuple n, const char *name,
+                                   const void *val, u64 size, int flags)
+{
+    sstring attr_name;
+    sysreturn rv = xattr_check(fs, name, &attr_name);
+    if (rv)
+        return rv;
+    if (flags & ~FS_KNOWN_XATTR_FLAGS)
+        return -EINVAL;
+
+    /* Using allocate_string() to avoid untyped buffers which don't play nice with tuple encoding in
+     * TFS. */
+    buffer attr_val = allocate_string(size);
+    if (attr_val == INVALID_ADDRESS)
+        return -ENOMEM;
+
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto out;
+    }
+    buffer_write(attr_val, val, size);
+    context_clear_err(ctx);
+    symbol attr_s = sym_sstring(attr_name);
+    if ((flags & XATTR_CREATE) && get(n, attr_s)) {
+        rv = -EEXIST;
+        goto out;
+    }
+    if ((flags & XATTR_REPLACE) && !get(n, attr_s)) {
+        rv = -ENODATA;
+        goto out;
+    }
+    rv = fs->write_attr(fs, n, attr_name, attr_val);
+    if (!rv) {
+        value prev = get(n, attr_s);
+        if (prev)
+            deallocate_value(prev);
+        set(n, attr_s, attr_val);
+    }
+  out:
+    if (rv)
+        deallocate_buffer(attr_val);
+    return rv;
+}
+
+static sysreturn setxattr_path(const char *path, const char *name, const void *val, u64 size,
+                               int flags, boolean follow)
+{
+    filesystem fs = get_root_fs();
+    inode cwd;
+    tuple n;
+    sysreturn rv;
+    sstring path_ss;
+    if (!fault_in_user_string(path, &path_ss))
+        return -EFAULT;
+    process_get_cwd(current->p, &fs, &cwd);
+    filesystem cwd_fs = fs;
+    rv = filesystem_get_node(&fs, cwd, path_ss, follow ? FS_NODE_FOLLOW : 0, &n, 0, 0);
+    if (rv)
+        goto out;
+    rv = setxattr_internal(fs, n, name, val, size, flags);
+    filesystem_put_node(fs, n);
+  out:
+    filesystem_release(cwd_fs);
+    return rv;
+}
+
+sysreturn setxattr(const char *path, const char *name, const void *value, u64 size, int flags)
+{
+    return setxattr_path(path, name, value, size, flags, true);
+}
+
+sysreturn lsetxattr(const char *path, const char *name, const void *value, u64 size, int flags)
+{
+    return setxattr_path(path, name, value, size, flags, false);
+}
+
+sysreturn fsetxattr(int fd, const char *name, const void *value, u64 size, int flags)
+{
+    fdesc desc = resolve_fd(current->p, fd);
+    file f;
+    sysreturn rv;
+    switch (desc->type) {
+    case FDESC_TYPE_REGULAR:
+    case FDESC_TYPE_DIRECTORY:
+    case FDESC_TYPE_SYMLINK:
+        f = (file)desc;
+        break;
+    default:
+        rv = -EBADF;
+        goto out;
+    }
+    tuple t = filesystem_get_meta(f->fs, f->n);
+    if (t) {
+        rv = setxattr_internal(f->fs, t, name, value, size, flags);
+        filesystem_put_meta(f->fs, t);
+    } else {
+        rv = -ENOENT;
+    }
+  out:
+    fdesc_put(desc);
+    return rv;
+}
+
+static sysreturn getxattr_internal(filesystem fs, tuple n, const char *name, void *val, u64 size)
+{
+    sstring attr_name;
+    sysreturn rv = xattr_check(fs, name, &attr_name);
+    if (rv)
+        return rv;
+    symbol attr_s = sym_sstring(attr_name);
+    buffer b = get(n, attr_s);
+    if (!b)
+        return -ENODATA;
+    u64 attr_size = buffer_length(b);
+    if (size > 0) {
+        if (size < attr_size)
+            return -ERANGE;
+        context ctx = get_current_context(current_cpu());
+        if (context_set_err(ctx))
+            return -EFAULT;
+        runtime_memcpy(val, buffer_ref(b, 0), attr_size);
+        context_clear_err(ctx);
+    }
+    return attr_size;
+}
+
+static sysreturn getxattr_path(const char *path, const char *name, void *val, u64 size,
+                               boolean follow)
+{
+    filesystem fs = get_root_fs();
+    inode cwd;
+    tuple n;
+    sysreturn rv;
+    sstring path_ss;
+    if (!fault_in_user_string(path, &path_ss))
+        return -EFAULT;
+    process_get_cwd(current->p, &fs, &cwd);
+    filesystem cwd_fs = fs;
+    rv = filesystem_get_node(&fs, cwd, path_ss, follow ? FS_NODE_FOLLOW : 0, &n, 0, 0);
+    if (rv)
+        goto out;
+    rv = getxattr_internal(fs, n, name, val, size);
+    filesystem_put_node(fs, n);
+  out:
+    filesystem_release(cwd_fs);
+    return rv;
+}
+
+sysreturn getxattr(const char *path, const char *name, void *value, u64 size)
+{
+    return getxattr_path(path, name, value, size, true);
+}
+
+sysreturn lgetxattr(const char *path, const char *name, void *value, u64 size)
+{
+    return getxattr_path(path, name, value, size, false);
+}
+
+sysreturn fgetxattr(int fd, const char *name, void *value, u64 size)
+{
+    fdesc desc = resolve_fd(current->p, fd);
+    file f;
+    sysreturn rv;
+    switch (desc->type) {
+    case FDESC_TYPE_REGULAR:
+    case FDESC_TYPE_DIRECTORY:
+    case FDESC_TYPE_SYMLINK:
+        f = (file)desc;
+        break;
+    default:
+        rv = -EBADF;
+        goto out;
+    }
+    tuple t = filesystem_get_meta(f->fs, f->n);
+    if (t) {
+        rv = getxattr_internal(f->fs, t, name, value, size);
+        filesystem_put_meta(f->fs, t);
+    } else {
+        rv = -ENOENT;
+    }
+  out:
+    fdesc_put(desc);
     return rv;
 }
 

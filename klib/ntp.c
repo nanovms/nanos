@@ -1,5 +1,6 @@
 #include <kernel.h>
 #include <lwip.h>
+#include <util.h>
 
 //#define NTP_DEBUG
 #ifdef NTP_DEBUG
@@ -24,7 +25,6 @@
 #define NTP_MAX_SLEW_LIMIT 500000ll /* ppm */
 #define NTP_MAX_FREQ_LIMIT 100000ll /* ppm */
 
-#define PPM_SCALE(x) (((s64)(x)<<CLOCK_FP_BITS) / 1000000ll)
 #define fpmax (~(1ull<<63))
 
 #define DEFAULT_MAX_FREQ_PPM 25000
@@ -86,10 +86,8 @@ static struct {
     struct udp_pcb *pcb;
     struct timer query_timer;
     struct timer slew_timer;
-    struct timer raw_update_timer;
     timer_handler query_func;
     closure_struct(timer_handler, slew_complete_func);
-    closure_struct(timer_handler, raw_update_func);
     boolean query_ongoing;
     u64 reset_threshold;
 
@@ -118,26 +116,6 @@ static struct {
 
 #define ntp_lock()      spin_lock(&ntp.lock)
 #define ntp_unlock()    spin_unlock(&ntp.lock)
-
-/* Calculates a division between a 128-bit value and a 64-bit value and returns a 64-bit quotient.
- * If the quotient does not fit in 64 bits, -1ull is returned.
- * Only one 64-bit division is executed, thus the result may not be as accurate as it could be.
- */
-static u64 div128_64(u128 dividend, u64 divisor)
-{
-    if (dividend == 0)
-        return 0;
-    if (divisor == 0)
-        return -1ull;
-    u64 dividend_msb = (dividend >> 64) ? (64 + msb(dividend >> 64)) : msb(dividend);
-    if (dividend_msb <= 63)
-        return ((u64)dividend) / divisor;
-    u64 shift = dividend_msb - 63;
-    u64 div = ((u64)(dividend >> shift)) / divisor;
-    if (msb(div) >= 64 - shift)
-        return -1ull;
-    return (div << shift);
-}
 
 static void ntp_schedule_query(void)
 {
@@ -761,17 +739,6 @@ closure_func_basic(timer_handler, void, ntp_query_func,
         ntp_query_complete(false);
 }
 
-/* Periodically update last raw to avoid numeric errors from big intervals */
-closure_func_basic(timer_handler, void, ntp_raw_update_func,
-                   u64 expiry, u64 overruns)
-{
-    if (overruns == timer_disabled)
-        return;
-    clock_update_last_raw(kern_now(CLOCK_ID_MONOTONIC_RAW));
-    register_timer(kernel_timers, &ntp.raw_update_timer, CLOCK_ID_MONOTONIC, seconds(CLOCK_RAW_UPDATE_SECONDS + 1), false, 0,
-        (timer_handler)&ntp.raw_update_func);
-}
-
 static void ntp_server_add(heap h, buffer addr, u16 port)
 {
     ntp_debug("adding server %b (port %d)\n", addr, port);
@@ -963,7 +930,6 @@ int init(status_handler complete)
     }
     assert(ntp.query_func != INVALID_ADDRESS);
     init_closure_func(&ntp.slew_complete_func, timer_handler, ntp_slew_complete_func);
-    init_closure_func(&ntp.raw_update_func, timer_handler, ntp_raw_update_func);
     spin_lock_init(&ntp.lock);
     ntp_reset_state();
     runtime_memset((void *)ntp.samples, 0, sizeof(ntp.samples));
@@ -971,7 +937,5 @@ int init(status_handler complete)
     init_timer(&ntp.slew_timer);
     register_timer(kernel_timers, &ntp.query_timer, CLOCK_ID_MONOTONIC_RAW, seconds(5), false, 0,
                    ntp.query_func);
-    register_timer(kernel_timers, &ntp.raw_update_timer, CLOCK_ID_MONOTONIC, seconds(CLOCK_RAW_UPDATE_SECONDS), false, 0,
-        (timer_handler)&ntp.raw_update_func);
     return KLIB_INIT_OK;
 }

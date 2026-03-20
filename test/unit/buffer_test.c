@@ -22,7 +22,13 @@ boolean basic_tests(heap h)
     buffer wb = (buffer)0;
     u32 test_int;
     sstring test_str =  ss("This is a test string");
-    buffer b = allocate_buffer(h, 10);
+    buffer b;
+
+    /* buffer without contents */
+    b = allocate_buffer(h, 0);
+    deallocate_buffer(b);
+
+    b = allocate_buffer(h, 10);
     /*
      * Validate buffer initialized correct, and some 
      * length is correct after write/read

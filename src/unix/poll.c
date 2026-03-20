@@ -797,6 +797,8 @@ static sysreturn select_internal(int nfds,
                                  timestamp timeout,
                                  const sigset_t * sigmask)
 {
+    if (nfds < 0)
+        return -EINVAL;
     u64 set_bytes = pad(nfds, 64) / 8;
     if ((readfds && !fault_in_user_memory(readfds, set_bytes, true)) ||
         (writefds && !fault_in_user_memory(writefds, set_bytes, true)) ||
@@ -809,7 +811,8 @@ static sysreturn select_internal(int nfds,
 
     epoll_debug("nfds %d, readfds %p, writefds %p, exceptfds %p\n"
                 "   timeout %d\n", nfds, readfds, writefds, exceptfds, timeout);
-    bitmap_extend(e->fds, nfds - 1);
+    if (nfds)
+        bitmap_extend(e->fds, nfds - 1);
     u64 dummy = 0;
     u64 * rp = readfds ? readfds : &dummy;
     u64 * wp = writefds ? writefds : &dummy;
@@ -897,12 +900,14 @@ static sysreturn select_internal(int nfds,
     if (wt == INVALID_ADDRESS)
         return -ENOMEM;
     wt->nfds = nfds;
-    if (readfds)
-        wt->rset = bitmap_wrap(e->h, readfds, nfds);
-    if (writefds)
-        wt->wset = bitmap_wrap(e->h, writefds, nfds);
-    if (exceptfds)
-        wt->eset = bitmap_wrap(e->h, exceptfds, nfds);
+    if (nfds) {
+        if (readfds)
+            wt->rset = bitmap_wrap(e->h, readfds, nfds);
+        if (writefds)
+            wt->wset = bitmap_wrap(e->h, writefds, nfds);
+        if (exceptfds)
+            wt->eset = bitmap_wrap(e->h, exceptfds, nfds);
+    }
     epoll_check_epollfds(e, wt);
     return blockq_check_timeout(wt->t->thread_bq,
                                 contextual_closure(select_bh, wt, current, timeout), false,
@@ -915,7 +920,15 @@ sysreturn pselect(int nfds,
                   struct timespec *timeout,
                   const sigset_t * sigmask)
 {
-    return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timespec(timeout) : infinity, sigmask);
+    timestamp tmo;
+    if (timeout) {
+        sysreturn ret = user_timespec_get(timeout, &tmo);
+        if (ret)
+            return ret;
+    } else {
+        tmo = infinity;
+    }
+    return select_internal(nfds, readfds, writefds, exceptfds, tmo, sigmask);
 }
 
 #ifdef __x86_64__
@@ -923,7 +936,15 @@ sysreturn select(int nfds,
                  u64 *readfds, u64 *writefds, u64 *exceptfds,
                  struct timeval *timeout)
 {
-    return select_internal(nfds, readfds, writefds, exceptfds, timeout ? time_from_timeval(timeout) : infinity, 0);
+    timestamp tmo;
+    if (timeout) {
+        sysreturn ret = user_timeval_get(timeout, &tmo);
+        if (ret)
+            return ret;
+    } else {
+        tmo = infinity;
+    }
+    return select_internal(nfds, readfds, writefds, exceptfds, tmo, 0);
 }
 #endif
 
@@ -994,7 +1015,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
                                timestamp timeout,
                                const sigset_t * sigmask)
 {
-    if (!validate_user_memory(fds, sizeof(struct pollfd) * nfds, true))
+    if (nfds && !validate_user_memory(fds, sizeof(struct pollfd) * nfds, true))
         return -EFAULT;
     epoll e = thread_get_epoll(EPOLL_TYPE_POLL);
     if (e == INVALID_ADDRESS)
@@ -1069,14 +1090,17 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
                                 CLOCK_ID_MONOTONIC, timeout != infinity ? timeout : 0, false);
 }
 
-/* archs like aarch64 don't have pause; glibc calls ppoll() with all null arguments to simulate... */
-extern sysreturn pause(void);
-
 sysreturn ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p, const sigset_t *sigmask)
 {
-    if (nfds == 0 && !tmo_p)
-        return pause();
-    return poll_internal(fds, nfds, tmo_p ? time_from_timespec(tmo_p) : infinity, sigmask);
+    timestamp tmo;
+    if (tmo_p) {
+        sysreturn ret = user_timespec_get(tmo_p, &tmo);
+        if (ret)
+            return ret;
+    } else {
+        tmo = infinity;
+    }
+    return poll_internal(fds, nfds, tmo, sigmask);
 }
 
 #ifdef __x86_64__

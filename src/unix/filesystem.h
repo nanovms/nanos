@@ -55,6 +55,13 @@ sysreturn statx(int dirfd, const char *pathname, int flags, unsigned int mask,
 sysreturn statfs(const char *path, struct statfs *buf);
 sysreturn fstatfs(int fd, struct statfs *buf);
 
+sysreturn setxattr(const char *path, const char *name, const void *value, u64 size, int flags);
+sysreturn lsetxattr(const char *path, const char *name, const void *value, u64 size, int flags);
+sysreturn fsetxattr(int fd, const char *name, const void *value, u64 size, int flags);
+sysreturn getxattr(const char *path, const char *name, void *value, u64 size);
+sysreturn lgetxattr(const char *path, const char *name, void *value, u64 size);
+sysreturn fgetxattr(int fd, const char *name, void *value, u64 size);
+
 sysreturn fallocate(int fd, int mode, long offset, long len);
 
 sysreturn fadvise64(int fd, s64 off, u64 len, int advice);

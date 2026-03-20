@@ -770,6 +770,9 @@ struct statfs {
     long f_spare[4];
 };
 
+#define XATTR_CREATE    (1u << 0)
+#define XATTR_REPLACE   (1u << 1)
+
 typedef u32 uid_t;
 typedef u32 gid_t;
 
@@ -855,6 +858,8 @@ struct io_uring_params {
 #define SO_PRIORITY     12
 #define SO_LINGER       13
 #define SO_REUSEPORT    15
+#define SO_RCVTIMEO     20
+#define SO_SNDTIMEO     21
 #define SO_TIMESTAMP    29
 #define SO_ACCEPTCONN   30
 #define SO_PROTOCOL     38
@@ -947,3 +952,47 @@ struct io_uring_params {
 /* memfd flags */
 #define MFD_CLOEXEC         0x0001
 #define MFD_ALLOW_SEALING   0x0002
+
+/* timex modes */
+#define ADJ_OFFSET              0x0001
+#define ADJ_FREQUENCY           0x0002
+#define ADJ_MAXERROR            0x0004
+#define ADJ_ESTERROR            0x0008
+#define ADJ_STATUS              0x0010
+#define ADJ_TIMECONST           0x0020
+#define ADJ_TAI                 0x0080
+#define ADJ_SETOFFSET           0x0100
+#define ADJ_MICRO               0x1000
+#define ADJ_NANO                0x2000
+#define ADJ_TICK                0x4000
+#define ADJ_OFFSET_SINGLESHOT   0x8001
+#define ADJ_OFFSET_SS_READ      0xa001
+
+#define TIMEX_PPM_SHIFT 16
+
+/* adjtimex return values */
+#define TIME_OK     0
+#define TIME_ERROR  5
+
+struct timex {
+    int modes;
+    long offset;
+    long freq;
+    long maxerror;
+    long esterror;
+    int status;
+    long constant;
+    long precision;
+    long tolerance;
+    struct timeval time;
+    long tick;
+    long ppsfreq;
+    long jitter;
+    int shift;
+    long stabil;
+    long jitcnt;
+    long calcnt;
+    long errcnt;
+    long stbcnt;
+    int tai;
+};

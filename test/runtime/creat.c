@@ -62,7 +62,7 @@ void check(const char *path, int expect)
     exit(EXIT_FAILURE);
 }
 
-int main(int argc, char **argv)
+void test_creat(int argc, char **argv)
 {
     int fd;
     char name_too_long[NAME_MAX + 2];
@@ -72,7 +72,7 @@ int main(int argc, char **argv)
         test_error("creat() with faulting path (%d, %d)", fd, errno);
     }
 
-    check("/creat", 0);
+    check(argv[0], 0);
     _creat("/test", 0, 0);
     check("/test", 0);
     _creat("/blurb/test/deep", 0, ENOENT);
@@ -81,7 +81,4 @@ int main(int argc, char **argv)
     memset(name_too_long, '-', sizeof(name_too_long) - 1);
     name_too_long[sizeof(name_too_long) - 1] = '\0';
     _creat(name_too_long, 0, ENAMETOOLONG);
-
-    printf("test passed\n");
-    return EXIT_SUCCESS;
 }
