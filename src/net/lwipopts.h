@@ -200,11 +200,3 @@ static inline int net_ip_input_hook(struct pbuf *pbuf, struct netif *input_netif
 }
 
 #define LWIP_DHCP_CLASSLESS_STATIC_ROUTES  1
-
-/*
- * Static route lookup hook for DHCP Option 121 (Classless Static Routes).
- * Called by lwIP's ip4_route() to check static routes before the default route.
- */
-struct ip4_addr;
-extern struct netif *ip4_static_route(const struct ip4_addr *src, const struct ip4_addr *dest);
-#define LWIP_HOOK_IP4_ROUTE_SRC(src, dest) ip4_static_route(src, dest)
