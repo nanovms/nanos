@@ -1449,6 +1449,15 @@ sysreturn madvise(void *addr, s64 length, int advice)
     case MADV_NOHUGEPAGE:
         clear_mask = VMAP_FLAG_THP;
         break;
+    case MADV_DONTNEED:
+        zero(addr, pad(length, PAGESIZE));
+        return 0;
+    case MADV_FREE:
+    case MADV_NORMAL:
+    case MADV_RANDOM:
+    case MADV_SEQUENTIAL:
+    case MADV_WILLNEED:
+        return 0;   /* advisory only, safe to ignore */
     default:
         return 0;   /* ignore non-supported advice values */
     }
