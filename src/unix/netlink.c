@@ -702,10 +702,7 @@ static sysreturn nl_check_dest(struct sockaddr *addr, socklen_t addrlen)
 
         if (addrlen < sizeof(*nl_addr))
             return -EINVAL;
-        u32 pid;
-        if (!get_user_value(&nl_addr->nl_pid, &pid))
-            return -EFAULT;
-        if (pid != NL_PID_KERNEL)
+        if (nl_addr->nl_pid != NL_PID_KERNEL)
             return -EPERM;
     }
     return 0;
@@ -989,7 +986,13 @@ static sysreturn nl_sendto(struct sock *sock, void *buf, u64 len, int flags,
                            boolean in_bh, io_completion completion)
 {
     nl_debug("sendto: len %ld, flags 0x%x", len, flags);
-    sysreturn rv = nl_check_dest(dest_addr, addrlen);
+    sysreturn rv;
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+    } else {
+        rv = nl_check_dest(dest_addr, addrlen);
+        context_clear_err(ctx);
+    }
     if (rv) {
         return io_complete(completion, rv);
     }
@@ -1013,9 +1016,16 @@ static sysreturn nl_recvfrom(struct sock *sock, void *buf, u64 len, int flags,
 static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int flags, boolean in_bh,
                             io_completion completion)
 {
-    nl_debug("sendmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
+    context ctx = get_current_context(current_cpu());
+    sysreturn rv;
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+    } else {
+        nl_debug("sendmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
+        rv = nl_check_dest(msg->msg_name, msg->msg_namelen);
+        context_clear_err(ctx);
+    }
     nlsock s = (nlsock)sock;
-    sysreturn rv = nl_check_dest(msg->msg_name, msg->msg_namelen);
     if (rv)
         goto out;
     u64 written = 0;
