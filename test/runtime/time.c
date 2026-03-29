@@ -596,10 +596,10 @@ void test_posix_timers(void)
         test_error("timer_gettime with null curr_value should have failed with "
                    "EFAULT (rv %d, errno %d)", rv, errno);
 
-    rv = syscall(SYS_timer_settime, dummy_id, 0, 0, 0);
-    if (rv >= 0 || errno != EINVAL)
-        test_error("timer_settime with null new_value should have failed with "
-                   "EINVAL (rv %d, errno %d)", rv, errno);
+    rv = syscall(SYS_timer_settime, dummy_id, 0, FAULT_ADDR, 0);
+    if (rv >= 0 || errno != EFAULT)
+        test_error("timer_settime with invalid new_value pointer should have failed with "
+                   "EFAULT (rv %d, errno %d)", rv, errno);
 
     if (syscall(SYS_timer_delete, dummy_id) < 0)
         test_perror("timer_delete");

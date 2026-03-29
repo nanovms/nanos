@@ -433,7 +433,7 @@ sysreturn timer_settime(u32 timerid, int flags,
                         struct itimerspec *old_value) {
     /* Linux doesn't validate flags? */
     if (!validate_user_memory(new_value, sizeof(struct itimerspec), false))
-        return -EINVAL;         /* usually EFAULT, but linux gives EINVAL */
+        return -EFAULT;
 
     context ctx = get_current_context(current_cpu());
     if (context_set_err(ctx))
