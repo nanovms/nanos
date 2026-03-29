@@ -198,6 +198,14 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
             read_done = true;
         goto out;
     }
+    void *iov_base;
+    u64 iov_len;
+    boolean iov_validated;
+    if (!dest) {
+        iov_base = iov->iov_base;
+        iov_len = iov->iov_len;
+        iov_validated = false;
+    }
     u64 buf_offset = 0;
     do {
         buffer b = shb->b;
@@ -212,16 +220,24 @@ closure_function(7, 1, sysreturn, unixsock_read_bh,
             do {
                 u64 partial_xfer;
                 do {
-                    partial_xfer = MIN(buffer_length(b), iov->iov_len - buf_offset);
+                    partial_xfer = MIN(buffer_length(b), iov_len - buf_offset);
                     if (partial_xfer == 0) {
                         iov++;
                         length--;
+                        if (length) {
+                            iov_base = iov->iov_base;
+                            iov_len = iov->iov_len;
+                            iov_validated = false;
+                        }
                         buf_offset = 0;
                     }
                 } while ((partial_xfer == 0) && length);
                 if (!length)
                     break;
-                buffer_read(b, iov->iov_base + buf_offset, partial_xfer);
+                if (!iov_validated && !memory_is_user(iov_base, iov_len))
+                    page_fault();
+                iov_validated = true;
+                buffer_read(b, iov_base + buf_offset, partial_xfer);
                 buf_offset += partial_xfer;
                 xfer += partial_xfer;
             } while (buffer_length(b));
@@ -294,8 +310,28 @@ static sysreturn unixsock_write_to(void *src, struct iovec *iov, u64 length,
     context ctx = get_current_context(current_cpu());
     u64 buf_offset = 0;
     sysreturn rv = 0;
+    unixsock_msg shb = INVALID_ADDRESS;
+    if (context_set_err(ctx)) {
+        if (shb != INVALID_ADDRESS)
+            unixsock_msg_dealloc(shb);
+        return (rv == 0) ? -EFAULT : rv;
+    }
+    void *iov_base;
+    u64 iov_len;
+    boolean iov_validated;
+    if (!src) {
+        iov_base = iov->iov_base;
+        iov_len = iov->iov_len;
+        iov_validated = false;
+    }
     do {
         u64 xfer = src ? length : iov_total_len(iov, length);
+        sysreturn check_rv = unixsock_write_check(from, xfer);
+        if (check_rv <= 0) {
+            if (rv == 0)
+                rv = check_rv;
+            break;
+        }
         xfer = MIN(UNIXSOCK_BUF_MAX_SIZE, xfer);
         if (from->sock.type == SOCK_STREAM)
             xfer = MIN(xfer, so_rcvbuf - dest->sock.rx_len);
@@ -308,12 +344,6 @@ static sysreturn unixsock_write_to(void *src, struct iovec *iov, u64 length,
         }
         if (from && from->sock.type == SOCK_DGRAM)
             runtime_memcpy(&shb->from_addr, &from->local_addr, sizeof(struct sockaddr_un));
-        if (context_set_err(ctx)) {
-            unixsock_msg_dealloc(shb);
-            if (rv == 0)
-                rv = -EFAULT;
-            break;
-        }
         if (src) {
             assert(buffer_write(shb->b, src + buf_offset, xfer));
             buf_offset += xfer;
@@ -323,28 +353,43 @@ static sysreturn unixsock_write_to(void *src, struct iovec *iov, u64 length,
             do {
                 u64 partial_xfer;
                 do {
-                    partial_xfer = MIN(xfer_limit, iov->iov_len - buf_offset);
+                    partial_xfer = MIN(xfer_limit, iov_len - buf_offset);
                     if (partial_xfer == 0) {
-                        iov++;
                         length--;
+                        if (length == 0)
+                            break;
+                        iov++;
+                        iov_base = iov->iov_base;
+                        iov_len = iov->iov_len;
+                        iov_validated = false;
                         buf_offset = 0;
                     }
                 } while (partial_xfer == 0);
-                buffer_write(shb->b, iov->iov_base + buf_offset, partial_xfer);
+                if (partial_xfer == 0)
+                    break;
+                if (!iov_validated && !memory_is_user(iov_base, iov_len))
+                    page_fault();
+                iov_validated = true;
+                buffer_write(shb->b, iov_base + buf_offset, partial_xfer);
                 buf_offset += partial_xfer;
                 xfer_limit -= partial_xfer;
             } while (xfer_limit);
-            if (buf_offset == iov->iov_len) {
-                iov++;
+            if (buf_offset == iov_len) {
                 length--;
-                buf_offset = 0;
+                if (length > 0) {
+                    iov++;
+                    iov_base = iov->iov_base;
+                    iov_len = iov->iov_len;
+                    iov_validated = false;
+                    buf_offset = 0;
+                }
             }
         }
-        context_clear_err(ctx);
         assert(enqueue(dest->data, shb));
         dest->sock.rx_len += xfer;
         rv += xfer;
     } while ((length > 0) && (dest->sock.rx_len < so_rcvbuf) && !queue_full(dest->data));
+    context_clear_err(ctx);
     return rv;
 }
 
@@ -425,12 +470,6 @@ out:
 static sysreturn unixsock_write_with_addr(unixsock s, void *src, u64 length, u64 offset, context ctx,
                                           boolean bh, io_completion completion, unixsock addr)
 {
-    sysreturn rv = unixsock_write_check(s, length);
-    if (rv <= 0) {
-        refcount_release(&addr->refcount);
-        return io_complete(completion, rv);
-    }
-
     blockq_action ba = closure_from_context(ctx, unixsock_write_bh, s, src, 0, length,
                                             completion, addr);
     return blockq_check(addr->sock.txbq, ba, bh);
@@ -465,9 +504,6 @@ closure_func_basic(file_iov, sysreturn, unixsock_writev,
                    struct iovec *iov, int count, u64 offset, context ctx, boolean bh, io_completion completion)
 {
     unixsock s = struct_from_field(closure_self(), unixsock, writev);
-    sysreturn rv = unixsock_write_check(s, iov_total_len(iov, count));
-    if (rv <= 0)
-        return io_complete(completion, rv);
     unixsock_lock(s);
     unixsock dest = s->peer;
     if (dest)
@@ -892,15 +928,32 @@ sysreturn unixsock_sendmsg(struct sock *sock, const struct msghdr *msg,
                            int flags, boolean in_bh, io_completion completion)
 {
     context ctx = get_current_context(current_cpu());
-    return apply(sock->f.writev, msg->msg_iov, msg->msg_iovlen, 0, ctx, in_bh, completion);
+    if (context_set_err(ctx)) {
+        return io_complete(completion, -EFAULT);
+    }
+    struct iovec *iov = msg->msg_iov;
+    u64 len = msg->msg_iovlen;
+    if (!memory_is_user(iov, len * sizeof(*iov)))
+        page_fault();
+    context_clear_err(ctx);
+    return apply(sock->f.writev, iov, len, 0, ctx, in_bh, completion);
 }
 
 sysreturn unixsock_recvmsg(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
                            io_completion completion)
 {
-    blockq_action ba = contextual_closure(unixsock_read_bh, (unixsock)sock,
-                                          0, msg->msg_iov, msg->msg_iovlen,
-                                          completion, msg->msg_name, &msg->msg_namelen);
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        return io_complete(completion, -EFAULT);
+    }
+    struct iovec *iov = msg->msg_iov;
+    u64 len = msg->msg_iovlen;
+    struct sockaddr_un *addr = msg->msg_name;
+    if (!memory_is_user(iov, len * sizeof(*iov)) || (addr && !memory_is_user(addr, sizeof(*addr))))
+        page_fault();
+    context_clear_err(ctx);
+    blockq_action ba = closure_from_context(ctx, unixsock_read_bh, (unixsock)sock, 0, iov, len,
+                                            completion, addr, &msg->msg_namelen);
     if (ba == INVALID_ADDRESS) {
         return io_complete(completion, -ENOMEM);
     }

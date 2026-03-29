@@ -460,6 +460,11 @@ static inline void context_clear_err(context ctx)
     ((kernel_context)ctx)->err_frame[ERR_FRAME_FULL] = 0;
 }
 
+static inline void page_fault(void)
+{
+    *((u64 *)0xfffffffffffffff8ull) = 0;
+}
+
 static inline void use_fault_handler(fault_handler h)
 {
     context ctx = get_current_context(current_cpu());

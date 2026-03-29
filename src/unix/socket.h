@@ -160,24 +160,6 @@ sysreturn socket_send(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
 sysreturn socket_recv(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
                       io_completion completion);
 
-static inline boolean validate_msghdr(const struct msghdr *mh, boolean write)
-{
-    if (!validate_user_memory(mh, sizeof(struct msghdr), false))
-        return false;
-    context ctx = get_current_context(current_cpu());
-    if (!context_set_err(ctx)) {
-        boolean ok;
-        ok = (!mh->msg_name || validate_user_memory(mh->msg_name, mh->msg_namelen, false)) &&
-             (!mh->msg_control || validate_user_memory(mh->msg_control, mh->msg_controllen, write));
-        context_clear_err(ctx);
-        if (!ok)
-            return false;
-    } else {
-        return false;
-    }
-    return validate_iovec(mh->msg_iov, mh->msg_iovlen, write);
-}
-
 static inline sysreturn sockopt_copy_from_user(void *uval, socklen_t ulen, void *val, socklen_t len)
 {
     if (ulen != len)
@@ -192,11 +174,11 @@ static inline sysreturn sockopt_copy_to_user(void *uval, socklen_t *ulen, void *
     if (!uval || !ulen)
         return 0;
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(ulen, sizeof(socklen_t), true) || context_set_err(ctx))
+    if (!memory_is_user(ulen, sizeof(socklen_t)) || context_set_err(ctx))
         return -EFAULT;
     len = MIN(*ulen, len);
     sysreturn rv;
-    if (validate_user_memory(uval, len, true)) {
+    if (memory_is_user(uval, len)) {
         runtime_memcpy(uval, val, len);
         *ulen = len;
         rv = 0;

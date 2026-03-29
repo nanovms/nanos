@@ -108,7 +108,7 @@ static boolean itimerspec_from_timer(unix_timer ut, struct itimerspec *i)
     if (timer_is_active(&ut->t))
         timer_get_remaining(ut->tq, &ut->t, &remain, &interval);
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(i, sizeof(struct itimerspec), true) || context_set_err(ctx))
+    if (!memory_is_user(i, sizeof(struct itimerspec)) || context_set_err(ctx))
         return false;
     timespec_from_time(&i->it_value, remain);
     timespec_from_time(&i->it_interval, interval);
@@ -176,7 +176,7 @@ sysreturn timerfd_settime(int fd, int flags,
         return -EINVAL;
 
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false) || context_set_err(ctx))
+    if (!memory_is_user(new_value, sizeof(struct itimerspec)) || context_set_err(ctx))
         return -EFAULT;
     timestamp tinit = time_from_timespec(&new_value->it_value);
     timestamp interval = time_from_timespec(&new_value->it_interval);
@@ -432,7 +432,7 @@ sysreturn timer_settime(u32 timerid, int flags,
                         const struct itimerspec *new_value,
                         struct itimerspec *old_value) {
     /* Linux doesn't validate flags? */
-    if (!validate_user_memory(new_value, sizeof(struct itimerspec), false))
+    if (!memory_is_user(new_value, sizeof(struct itimerspec)))
         return -EFAULT;
 
     context ctx = get_current_context(current_cpu());
@@ -640,7 +640,7 @@ sysreturn getitimer(int which, struct itimerval *curr_value)
         return -EINVAL;
     }
 
-    if (!validate_user_memory(curr_value, sizeof(struct itimerval), true))
+    if (!memory_is_user(curr_value, sizeof(struct itimerval)))
         return -EFAULT;
 
     unix_timer ut = vector_get(current->p->itimers, which);

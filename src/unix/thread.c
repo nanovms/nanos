@@ -20,7 +20,7 @@ sysreturn arch_prctl(int code, unsigned long addr)
 {
     /* just validate the word at base */
     if ((code == ARCH_SET_FS || code == ARCH_SET_GS) &&
-        !validate_user_memory((void *)addr, sizeof(u64), false))
+        !memory_is_user((void *)addr, sizeof(u64)))
         return set_syscall_error(current, EFAULT);
 
     switch (code) {
@@ -59,13 +59,13 @@ static sysreturn clone_internal(struct clone_args_internal *args)
           return -ENOSYS;
      }
 
-     if (!validate_user_memory(stack, stack_size, true))
+     if (!memory_is_user(stack, stack_size))
           return -EFAULT;
 
      if (((flags & CLONE_PARENT_SETTID) &&
-          !validate_user_memory(args->parent_tid, sizeof(u64), true)) ||
+          !memory_is_user(args->parent_tid, sizeof(u64))) ||
          ((flags & CLONE_CHILD_CLEARTID) &&
-          !validate_user_memory(args->child_tid, sizeof(u64), true)))
+          !memory_is_user(args->child_tid, sizeof(u64))))
           return -EFAULT;
 
      thread t = create_thread(current->p, INVALID_PHYSICAL);
@@ -121,7 +121,7 @@ sysreturn clone3(struct clone_args *args, bytes size)
      if (size < sizeof(*args))
           return -EINVAL;
 
-     if (!validate_user_memory(args, size, false))
+     if (!memory_is_user(args, size))
           return -EFAULT;
 
      context ctx = get_current_context(current_cpu());

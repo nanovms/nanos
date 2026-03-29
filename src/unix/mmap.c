@@ -1028,7 +1028,7 @@ static sysreturn vmap_update_protections_locked(heap h, rangemap pvmap, range q,
     assert(range_span(q) > 0);
 
     vmap_debug("%s: q %R newflags 0x%x\n", func_ss, q, newflags);
-    if (!validate_user_memory(pointer_from_u64(q.start), range_span(q), false) ||
+    if (!memory_is_user(pointer_from_u64(q.start), range_span(q)) ||
         (rangemap_range_find_gaps(pvmap, q,
                                   stack_closure_func(range_handler, vmap_update_protections_gap))
          == RM_ABORT))
@@ -1555,7 +1555,7 @@ boolean fault_in_user_memory(const void *buf, bytes length, boolean writable)
         if (!validate_user_memory_permissions(current->p, buf, length, VMAP_FLAG_WRITABLE, 0))
             return false;
     } else {
-        if (!validate_user_memory(buf, length, false))
+        if (!memory_is_user(buf, length))
             return false;
     }
 

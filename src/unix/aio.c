@@ -199,7 +199,7 @@ static unsigned int aio_avail_events(struct aio *aio)
 
 static sysreturn iocb_enqueue(struct aio *aio, struct iocb *iocb, context ctx)
 {
-    if (!validate_user_memory(iocb, sizeof(struct iocb), false) || context_set_err(ctx))
+    if (!memory_is_user(iocb, sizeof(struct iocb)) || context_set_err(ctx))
         return -EFAULT;
 
     if (iocb->aio_reserved1 || iocb->aio_reserved2 || !iocb->aio_buf ||
@@ -294,8 +294,8 @@ sysreturn io_submit(aio_context_t ctx_id, long nr, struct iocb **iocbpp)
 {
     struct aio *aio;
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
-        !validate_user_memory(iocbpp, sizeof(struct iocb *) * nr, false) ||
+    if (!memory_is_user(ctx_id, sizeof(struct aio_ring)) ||
+        !memory_is_user(iocbpp, sizeof(struct iocb *) * nr) ||
         context_set_err(ctx))
         return -EFAULT;
     aio = aio_from_ring_id(current->p, ctx_id->id);
@@ -389,9 +389,9 @@ sysreturn io_getevents(aio_context_t ctx_id, long min_nr, long nr,
         struct io_event *events, struct timespec *timeout)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(ctx_id, sizeof(struct aio_ring), false) ||
-        !validate_user_memory(events, sizeof(struct io_event) * nr, true) ||
-        (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false)) ||
+    if (!memory_is_user(ctx_id, sizeof(struct aio_ring)) ||
+        !memory_is_user(events, sizeof(struct io_event) * nr) ||
+        (timeout && !memory_is_user(timeout, sizeof(struct timespec))) ||
         context_set_err(ctx))
         return -EFAULT;
     struct aio *aio = aio_from_ring_id(current->p, ctx_id->id);

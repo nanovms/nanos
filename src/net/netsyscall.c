@@ -469,17 +469,25 @@ struct udp_entry {
     u16 rport;
 };
 
-static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
+static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, boolean user_hdr, int flags,
                                        io_completion completion, u64 bqflags, context ctx)
 {
     sysreturn rv = 0;
-    if (context_set_err(ctx)) {
+    if (user_hdr && context_set_err(ctx)) {
         rv = -EFAULT;
         goto out;
     }
     iovec iov = msg->msg_iov;
     u64 length = msg->msg_iovlen;
-    context_clear_err(ctx);
+    sockaddr src_addr = msg->msg_name;
+    if (user_hdr) {
+        context_clear_err(ctx);
+        if ((src_addr && !memory_is_user(src_addr, sizeof(struct sockaddr_in6))) ||
+            (length && !memory_is_user(iov, length * sizeof(*iov)))) {
+            rv = -EFAULT;
+            goto out;
+        }
+    }
 
     netsock_lock(s);
     err_t err = get_lwip_error(s);
@@ -529,7 +537,6 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
     }
     msg->msg_controllen = 0;
     msg->msg_flags = 0;
-    sockaddr src_addr = msg->msg_name;
     if (src_addr) {
         socklen_t *addrlen = &msg->msg_namelen;
         if (s->sock.type == SOCK_STREAM) {
@@ -541,6 +548,9 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
         }
     }
 
+    void *iov_base = iov->iov_base;
+    u64 iov_len = iov->iov_len;
+    boolean iov_validated = false;
     u64 iov_offset = 0;
     u32 pbuf_idx = 0;
     if ((s->sock.type == SOCK_STREAM) && !(flags & MSG_PEEK)) {
@@ -556,8 +566,11 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
 
         while ((length > 0) && cur_buf) {
             if (cur_buf->len > 0) {
-                u64 xfer = MIN(iov->iov_len - iov_offset, cur_buf->len);
-                runtime_memcpy(iov->iov_base + iov_offset, cur_buf->payload, xfer);
+                if (!iov_validated && !memory_is_user(iov_base, iov_len))
+                    page_fault();
+                iov_validated = true;
+                u64 xfer = MIN(iov_len - iov_offset, cur_buf->len);
+                runtime_memcpy(iov_base + iov_offset, cur_buf->payload, xfer);
                 if (!(flags & MSG_PEEK)) {
                     pbuf_consume(cur_buf, xfer);
                     if (s->sock.type == SOCK_STREAM)
@@ -565,10 +578,15 @@ static sysreturn sock_read_bh_internal(netsock s, struct msghdr *msg, int flags,
                 }
                 xfer_total += xfer;
                 iov_offset += xfer;
-                if (iov_offset == iov->iov_len) {
+                if (iov_offset == iov_len) {
                     length--;
-                    iov++;
-                    iov_offset = 0;
+                    if (length) {
+                        iov++;
+                        iov_base = iov->iov_base;
+                        iov_len = iov->iov_len;
+                        iov_validated = false;
+                        iov_offset = 0;
+                    }
                 }
             }
             if ((cur_buf->len == 0) || (flags & MSG_PEEK))
@@ -647,7 +665,8 @@ closure_function(7, 1, sysreturn, sock_read_bh,
         }
     }
     if (!rv)
-        rv = sock_read_bh_internal(bound(s), &msg, bound(flags), bound(completion), flags, ctx);
+        rv = sock_read_bh_internal(bound(s), &msg, false, bound(flags), bound(completion), flags,
+                                   ctx);
     else
         apply(bound(completion), rv);
     if (rv != BLOCKQ_BLOCK_REQUIRED) {
@@ -666,7 +685,8 @@ closure_function(4, 1, sysreturn, recvmsg_bh,
                  netsock, s, struct msghdr *, msg, int, flags, io_completion, completion,
                  u64 flags)
 {
-    sysreturn rv = sock_read_bh_internal(bound(s), bound(msg), bound(flags), bound(completion),
+    sysreturn rv = sock_read_bh_internal(bound(s), bound(msg), true, bound(flags),
+                                         bound(completion),
                                          flags, context_from_closure(closure_self()));
     if (rv != BLOCKQ_BLOCK_REQUIRED)
         closure_finish();
@@ -775,6 +795,8 @@ closure_function(6, 1, sysreturn, socket_write_tcp_bh,
             if (!remain)
                 break;
             buf = iov->iov_base;
+            if (!memory_is_user(buf + buf_offset, n))
+                page_fault();
             if (remain)
                 apiflags |= TCP_WRITE_FLAG_MORE;
         } else {
@@ -840,12 +862,15 @@ static sysreturn socket_write_udp(netsock s, void *source, struct iovec *iov, u6
     ip_addr_t ipaddr;
     u16 port = 0;
     context ctx = get_current_context(current_cpu());
-    if (dest_addr) {
+    u64 xfer_len;
+    if (!source || dest_addr) {
         if (context_set_err(ctx))
             return -EFAULT;
-        sysreturn ret = sockaddr_to_addrport(s, dest_addr, addrlen,
-                                             true,
-            &ipaddr, &port);
+        if (!source)
+            xfer_len = iov_total_len(iov, length);
+        sysreturn ret = 0;
+        if (dest_addr)
+            ret = sockaddr_to_addrport(s, dest_addr, addrlen, true, &ipaddr, &port);
         context_clear_err(ctx);
         if (ret)
             return ret;
@@ -859,7 +884,8 @@ static sysreturn socket_write_udp(netsock s, void *source, struct iovec *iov, u6
         return -EDESTADDRREQ;
     }
 
-    u64 xfer_len = source ? length : iov_total_len(iov, length);
+    if (source)
+        xfer_len = length;
     struct pbuf *pbuf = pbuf_alloc(PBUF_TRANSPORT, xfer_len, PBUF_RAM);
     if (!pbuf) {
         netsock_unlock(s);
@@ -874,7 +900,7 @@ static sysreturn socket_write_udp(netsock s, void *source, struct iovec *iov, u6
     if (source)
         runtime_memcpy(pbuf->payload, source, length);
     else
-        iov_to_buf(pbuf->payload, iov, length);
+        iov_to_buf(pbuf->payload, xfer_len, iov, length);
     context_clear_err(ctx);
     if (dest_addr)
         err = udp_sendto(s->info.udp.lw, pbuf, &ipaddr, port);
@@ -977,10 +1003,10 @@ static boolean siocgifconf_populate(struct netif *n, void *priv)
 
 typedef sysreturn (*socket_ifreq_handler)(struct ifreq *ifreq, struct netif *netif);
 
-static sysreturn socket_ifreq(struct ifreq *ifreq, boolean set, socket_ifreq_handler handler)
+static sysreturn socket_ifreq(struct ifreq *ifreq, socket_ifreq_handler handler)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(ifreq, sizeof(struct ifreq), !set) || context_set_err(ctx))
+    if (!memory_is_user(ifreq, sizeof(struct ifreq)) || context_set_err(ctx))
         return -EFAULT;
     struct netif *netif = netif_find(sstring_from_cstring(ifreq->ifr_name, IFNAMSIZ));
     context_clear_err(ctx);
@@ -1085,7 +1111,7 @@ sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
     case SIOCGIFNAME: {
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         context ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true) || context_set_err(ctx))
+        if (!memory_is_user(ifreq, sizeof(struct ifreq)) || context_set_err(ctx))
             return -EFAULT;
         struct netif *netif = netif_get_by_index(ifreq->ifr.ifr_ivalue);
         context_clear_err(ctx);
@@ -1105,7 +1131,7 @@ sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
     case SIOCGIFCONF: {
         struct ifconf *ifconf = varg(ap, struct ifconf *);
         context ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(ifconf, sizeof(struct ifconf), true) || context_set_err(ctx))
+        if (!memory_is_user(ifconf, sizeof(struct ifconf)) || context_set_err(ctx))
             return -EFAULT;
         ifconf->ifc_len = 0;
         boolean get_len = (ifconf->ifc.ifc_req == NULL);
@@ -1123,25 +1149,25 @@ sysreturn socket_ioctl(struct sock *s, unsigned long request, vlist ap)
         }
     }
     case SIOCGIFFLAGS:
-        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_flags);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_get_flags);
     case SIOCSIFFLAGS:
-        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_flags);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_set_flags);
     case SIOCGIFADDR:
-        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_addr);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_get_addr);
     case SIOCSIFADDR:
-        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_addr);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_set_addr);
     case SIOCGIFNETMASK:
-        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_netmask);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_get_netmask);
     case SIOCSIFNETMASK:
-        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_netmask);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_set_netmask);
     case SIOCGIFMTU:
-        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_mtu);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_get_mtu);
     case SIOCSIFMTU:
-        return socket_ifreq(varg(ap, struct ifreq *), true, socket_set_mtu);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_set_mtu);
     case SIOCGIFHWADDR:
-        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_hwaddr);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_get_hwaddr);
     case SIOCGIFINDEX:
-        return socket_ifreq(varg(ap, struct ifreq *), false, socket_get_index);
+        return socket_ifreq(varg(ap, struct ifreq *), socket_get_index);
     default:
         return ioctl_generic(&s->f, request, ap);
     }
@@ -1570,7 +1596,7 @@ static sysreturn netsock_bind(struct sock *sock, struct sockaddr *addr,
 
 sysreturn bind(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 {
-    if (!validate_user_memory(addr, addrlen, false))
+    if (!memory_is_user(addr, addrlen))
         return -EFAULT;
     struct sock *s = resolve_socket(current->p, sockfd);
     net_debug("sock %d, type %d\n", sockfd, s->type);
@@ -1764,7 +1790,7 @@ static sysreturn netsock_connect(struct sock *sock, struct sockaddr *addr,
 
 sysreturn connect(int sockfd, struct sockaddr *addr, socklen_t addrlen)
 {
-    if (!validate_user_memory(addr, addrlen, false))
+    if (!memory_is_user(addr, addrlen))
         return -EFAULT;
     struct sock *sock = resolve_socket(current->p, sockfd);
     if (!sock->connect) {
@@ -1815,8 +1841,7 @@ static sysreturn netsock_sendto(struct sock *sock, void *buf, u64 len,
 sysreturn sendto(int sockfd, void *buf, u64 len, int flags,
 		 struct sockaddr *dest_addr, socklen_t addrlen)
 {
-    if (!validate_user_memory(buf, len, false) ||
-            (dest_addr && !validate_user_memory(dest_addr, addrlen, false)))
+    if (!memory_is_user(buf, len) || (dest_addr && !memory_is_user(dest_addr, addrlen)))
         return -EFAULT;
     struct sock *sock = resolve_socket(current->p, sockfd);
     net_debug("sendto %d, buf %p, len %ld, flags %x, dest_addr %p, addrlen %d\n",
@@ -1836,7 +1861,7 @@ sysreturn socket_send(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
 {
     if (f->type != FDESC_TYPE_SOCKET)
         return io_complete(completion, -ENOTSOCK);
-    if (!validate_user_memory(buf, len, false))
+    if (!memory_is_user(buf, len))
         return io_complete(completion, -EFAULT);
     struct sock *sock = struct_from_field(f, struct sock *, f);
     return sock->sendto(sock, buf, len, 0, 0, 0, ctx, in_bh, completion);
@@ -1848,16 +1873,24 @@ static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg, int f
     sysreturn rv = sendto_prepare(s, flags);
     if (rv < 0)
         goto out;
-    return socket_write_internal(s, 0, msg->msg_iov, msg->msg_iovlen, flags,
-                                 msg->msg_name, msg->msg_namelen,
-                                 get_current_context(current_cpu()), in_bh, completion);
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        rv = -EFAULT;
+        goto out;
+    }
+    struct iovec *iov = msg->msg_iov;
+    u64 iov_len = msg->msg_iovlen;
+    struct sockaddr *addr = msg->msg_name;
+    socklen_t addr_len = msg->msg_namelen;
+    context_clear_err(ctx);
+    return socket_write_internal(s, 0, iov, iov_len, flags, addr, addr_len, ctx, in_bh, completion);
   out:
     return io_complete(completion, rv);
 }
 
 sysreturn sendmsg(int sockfd, const struct msghdr *msg, int flags)
 {
-    if (!validate_msghdr(msg, false))
+    if (!memory_is_user(msg, sizeof(struct msghdr)))
         return -EFAULT;
     struct sock *s = resolve_socket(current->p, sockfd);
     net_debug("sock %d, type %d, msg %p, flags 0x%x\n", s->fd, s->type, msg, flags);
@@ -1910,12 +1943,8 @@ sysreturn sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
 {
     if (vlen == 0)
         return 0;
-    if (!validate_user_memory(msgvec, vlen * sizeof(struct mmsghdr), true))
+    if (!memory_is_user(msgvec, vlen * sizeof(struct mmsghdr)))
         return -EFAULT;
-    for (int i = 0; i < vlen; i++) {
-        if (!validate_msghdr(&msgvec[i].msg_hdr, false))
-            return -EFAULT;
-    }
     thread t = current;
     struct sock *s = resolve_socket(t->p, sockfd);
 
@@ -1964,8 +1993,8 @@ sysreturn recvfrom(int sockfd, void * buf, u64 len, int flags,
 {
     /* Use a dummy value for the address length, instead of reading it from addrlen (the value
      * pointed to by addrlen might change before this syscall completes). */
-    if (src_addr && (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-                     !validate_user_memory(src_addr, PAGESIZE, true)))
+    if (src_addr && (!memory_is_user(addrlen, sizeof(socklen_t)) ||
+                     !memory_is_user(src_addr, PAGESIZE)))
         return -EFAULT;
 
     struct sock *sock = resolve_socket(current->p, sockfd);
@@ -1986,7 +2015,7 @@ sysreturn socket_recv(fdesc f, void *buf, u64 len, context ctx, boolean in_bh,
 {
     if (f->type != FDESC_TYPE_SOCKET)
         return io_complete(completion, -ENOTSOCK);
-    if (!validate_user_memory(buf, len, true))
+    if (!memory_is_user(buf, len))
         return io_complete(completion, -EFAULT);
     struct sock *sock = struct_from_field(f, struct sock *, f);
     return sock->recvfrom(sock, buf, len, 0, 0, 0, ctx, in_bh, completion);
@@ -2010,7 +2039,7 @@ static sysreturn netsock_recvmsg(struct sock *sock, struct msghdr *msg,
 
 sysreturn recvmsg(int sockfd, struct msghdr *msg, int flags)
 {
-    if (!validate_msghdr(msg, true))
+    if (!memory_is_user(msg, sizeof(*msg)))
         return -EFAULT;
     struct sock *s = resolve_socket(current->p, sockfd);
     net_debug("sock %d, type %d, thread %ld\n", s->fd, s->type, current->tid);
@@ -2064,12 +2093,8 @@ define_closure_function(0, 0, void, recvmmsg_next)
 sysreturn recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int flags,
                    struct timespec *timeout)
 {
-    if (!validate_user_memory(msgvec, vlen * sizeof(struct mmsghdr), true))
+    if (!memory_is_user(msgvec, vlen * sizeof(struct mmsghdr)))
         return -EFAULT;
-    for (int i = 0; i < vlen; i++) {
-        if (!validate_msghdr(&msgvec[i].msg_hdr, true))
-            return -EFAULT;
-    }
     if (vlen == 0)
         return 0;
     if (timeout)
@@ -2322,8 +2347,7 @@ sysreturn socket_accept4(fdesc f, struct sockaddr *addr, socklen_t *addrlen, int
 
     /* Use a dummy value for the address length, instead of reading it from addrlen (the value
      * pointed to by addrlen might change before this syscall completes). */
-    if (addr && (!validate_user_memory(addrlen, sizeof(socklen_t), true) ||
-                 !validate_user_memory(addr, PAGESIZE, true)))
+    if (addr && (!memory_is_user(addrlen, sizeof(socklen_t)) || !memory_is_user(addr, PAGESIZE)))
         return io_complete(completion, -EFAULT);
 
     struct sock *sock = struct_from_field(f, struct sock *, f);

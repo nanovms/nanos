@@ -93,7 +93,7 @@ void release_fdesc(fdesc f)
 
 sysreturn user_timeval_get(const struct timeval *tv, timestamp *t)
 {
-    if (!validate_user_memory(tv, sizeof(*tv), false))
+    if (!memory_is_user(tv, sizeof(*tv)))
         return -EFAULT;
     context ctx = get_current_context(current_cpu());
     if (context_set_err(ctx)) {
@@ -106,7 +106,7 @@ sysreturn user_timeval_get(const struct timeval *tv, timestamp *t)
 
 sysreturn user_timespec_get(const struct timespec *ts, timestamp *t)
 {
-    if (!validate_user_memory(ts, sizeof(*ts), false))
+    if (!memory_is_user(ts, sizeof(*ts)))
         return -EFAULT;
     context ctx = get_current_context(current_cpu());
     if (context_set_err(ctx)) {
@@ -119,7 +119,7 @@ sysreturn user_timespec_get(const struct timespec *ts, timestamp *t)
 
 boolean copy_from_user(const void *uaddr, void *kaddr, u64 len)
 {
-    if (!validate_user_memory(uaddr, len, false))
+    if (!memory_is_user(uaddr, len))
         return false;
     context ctx = get_current_context(current_cpu());
     if (!context_set_err(ctx)) {
@@ -132,7 +132,7 @@ boolean copy_from_user(const void *uaddr, void *kaddr, u64 len)
 
 boolean copy_to_user(void *uaddr, const void *kaddr, u64 len)
 {
-    if (!validate_user_memory(uaddr, len, true))
+    if (!memory_is_user(uaddr, len))
         return false;
     context ctx = get_current_context(current_cpu());
     if (!context_set_err(ctx)) {

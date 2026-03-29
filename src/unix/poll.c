@@ -553,7 +553,7 @@ sysreturn epoll_wait(int epfd,
                      int maxevents,
                      int timeout)
 {
-    if (!validate_user_memory(events, sizeof(struct epoll_event) * maxevents, true))
+    if (!memory_is_user(events, sizeof(struct epoll_event) * maxevents))
         return -EFAULT;
 
     epoll e = resolve_fd(current->p, epfd);
@@ -1015,7 +1015,7 @@ static sysreturn poll_internal(struct pollfd *fds, nfds_t nfds,
                                timestamp timeout,
                                const sigset_t * sigmask)
 {
-    if (nfds && !validate_user_memory(fds, sizeof(struct pollfd) * nfds, true))
+    if (nfds && !memory_is_user(fds, sizeof(struct pollfd) * nfds))
         return -EFAULT;
     epoll e = thread_get_epoll(EPOLL_TYPE_POLL);
     if (e == INVALID_ADDRESS)

@@ -42,7 +42,7 @@ static void *uds_stream_server(void *arg)
     ssize_t nbytes, total;
 
     /* on linux, generates SIGPIPE */
-    test_assert(accept(fd, (struct sockaddr *) &addr, NULL) == -1);
+    test_assert(accept(fd, (struct sockaddr *)&addr, FAULT_ADDR1) == -1);
     test_assert(errno == EFAULT);
     client_fd = accept(fd, (struct sockaddr *) &addr, &addr_len);
     test_assert(client_fd >= 0);

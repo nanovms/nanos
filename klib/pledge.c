@@ -289,7 +289,7 @@ static boolean pledge_sendmsg(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4, 
         return true;
     const struct msghdr *msg = (const struct msghdr *)arg1;
     if (!(pldg.abilities & (PLEDGE_INET | PLEDGE_UNIX | PLEDGE_DNS)) &&
-        validate_user_memory(msg, sizeof(*msg), false) && msg->msg_name) {
+        memory_is_user(msg, sizeof(*msg)) && msg->msg_name) {
         *rv = pledge_fail(sc->t);
         return true;
     }
@@ -644,7 +644,7 @@ static boolean pledge_sendmmsg(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4,
     struct mmsghdr *msgvec = (struct mmsghdr *)arg1;
     unsigned int vlen = arg2;
     if (!(pldg.abilities & (PLEDGE_INET | PLEDGE_UNIX)) &&
-        validate_user_memory(msgvec, vlen * sizeof(struct mmsghdr), false))
+        memory_is_user(msgvec, vlen * sizeof(struct mmsghdr)))
         for (unsigned int i = 0; i < vlen; i++)
             if (msgvec[i].msg_hdr.msg_name) {
                 *rv = pledge_fail(sc->t);

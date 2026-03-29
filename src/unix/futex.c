@@ -157,7 +157,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     timestamp ts;
     int op;
 
-    if (!validate_user_memory(uaddr, sizeof(int), false))
+    if (!memory_is_user(uaddr, sizeof(int)))
         return set_syscall_error(current, EFAULT);
 
     f = soft_create_futex(current->p, u64_from_pointer(uaddr));
@@ -200,7 +200,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
     case FUTEX_CMP_REQUEUE: {
         int woken, requeued;
 
-        if (!validate_user_memory(uaddr2, sizeof(int), false))
+        if (!memory_is_user(uaddr2, sizeof(int)))
             return set_syscall_error(current, EFAULT);
 
         sysreturn rv;
@@ -241,7 +241,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         unsigned int op = (val3 >> 28) & MASK(4);
         int oldval, wake1, wake2, c;
 
-        if (!validate_user_memory(uaddr2, sizeof(int), true))
+        if (!memory_is_user(uaddr2, sizeof(int)))
             return set_syscall_error(current, EFAULT);
 
         struct futex *f2 = soft_create_futex(current->p, u64_from_pointer(uaddr2));
@@ -357,14 +357,14 @@ void wake_robust_list(process p, void *head)
         l = l->next;
         if (uaddr == pending)   /* don't process it twice */
             continue;
-        if (!validate_user_memory(l, sizeof(*l), false))
+        if (!memory_is_user(l, sizeof(*l)))
             break;
-        if (!validate_user_memory(uaddr, sizeof(*uaddr), true))
+        if (!memory_is_user(uaddr, sizeof(*uaddr)))
             break;
         *uaddr |= FUTEX_OWNER_DIED;
         futex_wake_many_by_uaddr(p, uaddr, 1);
     }
-    if (pending && validate_user_memory(pending, sizeof(*pending), true)) {
+    if (pending && memory_is_user(pending, sizeof(*pending))) {
         *pending |= FUTEX_OWNER_DIED;
         futex_wake_one_by_uaddr(p, pending);
     }
@@ -374,8 +374,8 @@ void wake_robust_list(process p, void *head)
 sysreturn get_robust_list(int pid, void *head, u64 *len)
 {
     struct robust_list_head **hp = head;
-    if (!validate_user_memory(hp, sizeof(*hp), true) ||
-        !validate_user_memory(len, sizeof(*len), true))
+    if (!memory_is_user(hp, sizeof(*hp)) ||
+        !memory_is_user(len, sizeof(*len)))
         return -EFAULT;
 
     thread t = 0;

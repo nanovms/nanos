@@ -202,7 +202,7 @@ void restore_ucontext(struct ucontext * uctx, thread t)
     else
         f[FRAME_CS] &= ~1;
     t->signal_mask = normalize_signal_mask(mcontext->oldmask);
-    if (validate_user_memory(mcontext->fpstate, extended_frame_size, false)) {
+    if (memory_is_user(mcontext->fpstate, extended_frame_size)) {
         context ctx = get_current_context(current_cpu());
         if (context_set_err(ctx))
             return;

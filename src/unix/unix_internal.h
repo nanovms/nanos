@@ -741,23 +741,11 @@ boolean fault_in_user_memory(const void *buf, bytes length, boolean writable);
 
 void mmap_process_init(process p, tuple root);
 
-/* This "validation" is just a simple limit check right now, but this
-   could optionally expand to do more rigorous validation (e.g. vmap
-   lookup or page table walk). We may also want to place attributes on
-   user pointer arguments for use with a static analysis tool like
-   Sparse. */
-
-static inline boolean validate_user_memory(const void *p, bytes length, boolean write)
+static inline boolean memory_is_user(const void *p, bytes length)
 {
     u64 v = u64_from_pointer(p);
 
-    if (v < MIN(PAGESIZE, current->p->mmap_min_addr))
-        return false;
-
-    if (length >= USER_LIMIT)
-        return false;
-
-    return v < USER_LIMIT - length;
+    return (v < USER_LIMIT) && (length <= USER_LIMIT) && (v + length <= USER_LIMIT);
 }
 
 static inline u64 grow_and_validate_stack(thread t, u64 sp, u64 size)
@@ -1045,13 +1033,10 @@ void fpreg_copy_out(void *b, thread t);
 
 void syscall_debug(context f);
 
-boolean validate_iovec(struct iovec *iov, u64 len, boolean write);
-
 static inline boolean validate_user_string(const char *name)
 {
     u64 a = u64_from_pointer(name);
-    while (validate_user_memory(pointer_from_u64(a & ~PAGEMASK),
-                                PAGESIZE, false)) {
+    while (memory_is_user(pointer_from_u64(a & ~PAGEMASK), PAGESIZE)) {
         u64 lim = (a & ~PAGEMASK) + PAGESIZE;
         while (a < lim) {
             if (*(u8*)pointer_from_u64(a++) == '\0')
@@ -1079,35 +1064,19 @@ static inline boolean fault_in_user_string(const char *name, sstring *res)
     return false;
 }
 
-static inline boolean iov_to_sg(sg_list sg, struct iovec *iov, int iovlen)
+static inline void iov_to_buf(void *buf, u64 buflen, struct iovec *iov, int iovlen)
 {
     for (int i = 0; i < iovlen; i++) {
-        u64 len = iov[i].iov_len;
-        u64 offset = 0;
-        while (len > 0) {
-            u64 buf_len = MIN(len, U32_MAX & ~PAGEMASK);
-            sg_buf sgb = sg_list_tail_add(sg, buf_len);
-            if (sgb == INVALID_ADDRESS)
-                return false;
-            sgb->buf = iov[i].iov_base + offset;
-            sgb->size = buf_len;
-            sgb->offset = 0;
-            sgb->refcount = 0;
-            len -= buf_len;
-            offset += buf_len;
-        }
-    }
-    return true;
-}
-
-static inline void iov_to_buf(void *buf, struct iovec *iov, int iovlen)
-{
-    for (int i = 0; i < iovlen; i++) {
+        void *base = iov[i].iov_base;
         u64 len = iov[i].iov_len;
         if (len == 0)
             continue;
-        runtime_memcpy(buf, iov[i].iov_base, len);
+        if (!memory_is_user(base, len))
+            page_fault();
+        len = MIN(len, buflen);
+        runtime_memcpy(buf, base, len);
         buf += len;
+        buflen -= len;
     }
 }
 

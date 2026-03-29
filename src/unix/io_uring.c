@@ -960,7 +960,7 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         struct iovec *iov = pointer_from_u64(sqe->addr);
         u32 len = sqe->len;
         boolean write = (opcode == IORING_OP_WRITEV);
-        if (!validate_iovec(iov, len, !write)) {
+        if (!memory_is_user(iov, len * sizeof(*iov))) {
             res = -EFAULT;
             goto complete;
         }
@@ -1120,7 +1120,7 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
             switch (opcode) {
             case IORING_OP_READ:
             case IORING_OP_WRITE:
-                if (!validate_user_memory(buf, len, !write)) {
+                if (!memory_is_user(buf, len)) {
                     res = -EFAULT;
                     goto complete;
                 }
@@ -1281,9 +1281,22 @@ static sysreturn iour_register_buffers(io_uring iour, struct iovec *bufs,
         if (iour->bufs == INVALID_ADDRESS) {
             ret = -ENOMEM;
         } else {
-            runtime_memcpy(iour->bufs, bufs, sizeof(struct iovec) * count);
-            iour->buf_count = count;
-            ret = 0;
+            if (copy_from_user(bufs, iour->bufs, sizeof(struct iovec) * count)) {
+                ret = 0;
+                for (unsigned int i = 0; i < count; i++) {
+                    struct iovec *iov = &iour->bufs[i];
+                    if (!memory_is_user(iov->iov_base, iov->iov_len)) {
+                        ret = -EFAULT;
+                        break;
+                    }
+                }
+                if (!ret)
+                    iour->buf_count = count;
+            } else {
+                ret = -EFAULT;
+            }
+            if (ret)
+                deallocate(iour->h, iour->bufs, sizeof(struct iovec) * count);
         }
     }
     iour_unlock(iour);
@@ -1442,10 +1455,7 @@ sysreturn io_uring_register(int fd, unsigned int opcode, void *arg,
     sysreturn rv;
     switch (opcode) {
     case IORING_REGISTER_BUFFERS:
-        if (!validate_iovec((struct iovec *)arg, nr_args, true))
-            rv = -EFAULT;
-        else
-            rv = iour_register_buffers(iour, (struct iovec *)arg, nr_args);
+        rv = iour_register_buffers(iour, (struct iovec *)arg, nr_args);
         break;
     case IORING_UNREGISTER_BUFFERS:
         if (arg || nr_args)
@@ -1495,8 +1505,7 @@ sysreturn io_uring_register(int fd, unsigned int opcode, void *arg,
         break;
     case IORING_REGISTER_PROBE: {
         struct io_uring_probe *probe = (struct io_uring_probe *)arg;
-        if (!validate_user_memory(probe,
-                sizeof(*probe) + sizeof(probe->ops[0]) * nr_args, true))
+        if (!memory_is_user(probe, sizeof(*probe) + sizeof(probe->ops[0]) * nr_args))
             rv = -EFAULT;
         else
             rv = iour_register_probe(probe, nr_args);

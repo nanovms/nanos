@@ -539,7 +539,7 @@ sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
     thread t = current;
     context ctx = get_current_context(current_cpu());
     if (oss) {
-        if (!validate_user_memory(oss, sizeof(stack_t), true) || context_set_err(ctx))
+        if (!memory_is_user(oss, sizeof(stack_t)) || context_set_err(ctx))
             return -EFAULT;
         if (t->signal_stack) {
             oss->ss_sp = t->signal_stack;
@@ -556,13 +556,13 @@ sysreturn sigaltstack(const stack_t *ss, stack_t *oss)
         if (thread_is_on_altsigstack(t)) {
             return -EPERM;
         }
-        if (!validate_user_memory(ss, sizeof(stack_t), false) || context_set_err(ctx))
+        if (!memory_is_user(ss, sizeof(stack_t)) || context_set_err(ctx))
             return -EFAULT;
         sysreturn rv;
         if (ss->ss_flags & SS_DISABLE) {
             t->signal_stack = 0;
             rv = 0;
-        } else if (!validate_user_memory(ss->ss_sp, ss->ss_size, true)) {
+        } else if (!memory_is_user(ss->ss_sp, ss->ss_size)) {
             rv = -EFAULT;
         } else {
             if (ss->ss_flags) { /* unknown flags */
@@ -640,7 +640,7 @@ static inline sysreturn sigqueueinfo_sanitize_args(int tgid, int sig, siginfo_t 
         return -EINVAL;
 
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(uinfo, sizeof(siginfo_t), true) || context_set_err(ctx))
+    if (!memory_is_user(uinfo, sizeof(siginfo_t)) || context_set_err(ctx))
         return -EFAULT;
     touch_memory(uinfo, sizeof(siginfo_t));
     uinfo->si_signo = sig;
@@ -742,8 +742,8 @@ sysreturn rt_sigtimedwait(const u64 * set, siginfo_t * info, const struct timesp
 {
     if (sigsetsize != (NSIG / 8))
         return -EINVAL;
-    if (!validate_user_memory(set, sigsetsize, false) ||
-        (timeout && !validate_user_memory(timeout, sizeof(struct timespec), false)))
+    if (!memory_is_user(set, sigsetsize) ||
+        (timeout && !memory_is_user(timeout, sizeof(struct timespec))))
         return -EFAULT;
     context ctx = get_current_context(current_cpu());
     if (context_set_err(ctx))

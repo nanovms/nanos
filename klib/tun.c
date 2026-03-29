@@ -341,7 +341,7 @@ closure_func_basic(fdesc_ioctl, sysreturn, tun_ioctl,
             return -EBADFD;
         struct ifreq *ifreq = varg(ap, struct ifreq *);
         context ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(ifreq, sizeof(struct ifreq), true) || context_set_err(ctx))
+        if (!memory_is_user(ifreq, sizeof(struct ifreq)) || context_set_err(ctx))
             return -EFAULT;
         netif_name_cpy(ifreq->ifr_name, &tun->ndev.n);
         ifreq->ifr.ifr_flags = tun->flags;

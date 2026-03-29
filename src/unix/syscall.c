@@ -13,22 +13,6 @@ sysreturn close(int fd);
 BSS_RO_AFTER_INIT io_completion syscall_io_complete;
 BSS_RO_AFTER_INIT io_completion io_completion_ignore;
 
-boolean validate_iovec(struct iovec *iov, u64 len, boolean write)
-{
-    if (!validate_user_memory(iov, sizeof(struct iovec) * len, false))
-        return false;
-    context ctx = get_current_context(current_cpu());
-    if (context_set_err(ctx))
-        return false;
-    for (u64 i = 0; i < len; i++) {
-        if ((iov[i].iov_len != 0) &&
-                !validate_user_memory(iov[i].iov_base, iov[i].iov_len, write))
-            return false;
-    }
-    context_clear_err(ctx);
-    return true;
-}
-
 struct iov_progress {
     heap h;
     fdesc f;
@@ -39,7 +23,8 @@ struct iov_progress {
     boolean blocking;
     u64 file_offset;
     int curr;
-    u64 curr_offset;
+    void *curr_base;
+    u64 curr_len;
     u64 total_len;
     context ctx;
     io_completion completion;
@@ -49,17 +34,14 @@ struct iov_progress {
 
 static void iov_op_each(struct iov_progress *p)
 {
-    struct iovec *iov = p->iov;
     file_io op = p->write ? p->f->write : p->f->read;
     boolean blocking = p->blocking;
     p->blocking = false;
 
     /* Issue the next request. */
-    thread_log(current, "   op: curr %d, offset %ld, @ %p, len %ld, blocking %d",
-               p->curr, p->curr_offset, iov[p->curr].iov_base + p->curr_offset,
-               iov[p->curr].iov_len - p->curr_offset, blocking);
-    apply(op, iov[p->curr].iov_base + p->curr_offset,
-          iov[p->curr].iov_len - p->curr_offset, p->file_offset, p->ctx, !blocking,
+    thread_log(current, "   op: curr %d, @ %p, len %ld, blocking %d",
+               p->curr, p->curr_base, p->curr_len, blocking);
+    apply(op, p->curr_base, p->curr_len, p->file_offset, p->ctx, !blocking,
           (io_completion)&p->each_complete);
 }
 
@@ -88,14 +70,25 @@ closure_func_basic(io_completion, void, iov_op_each_complete,
        (non-zero-len) buffer if needed. */
     struct iovec *iov = p->iov;
     p->total_len += rv;
-    p->curr_offset += rv;
-    if (p->curr_offset == iov[p->curr].iov_len) {
-        p->curr_offset = 0;
+    p->curr_base += rv;
+    p->curr_len -= rv;
+    if (p->curr_len == 0) {
+        context ctx = p->ctx;
+        if (context_set_err(ctx)) {
+            rv = p->total_len;
+            if (rv == 0)
+                rv = -EFAULT;
+            goto out_complete;
+        }
         do {
             p->curr++;
-        } while (p->curr < iovcnt && iov[p->curr].iov_len == 0);
-    } else {
-        assert(p->curr_offset < iov[p->curr].iov_len);
+        } while (p->curr < iovcnt && (p->curr_len = iov[p->curr].iov_len) == 0);
+        if (p->curr < iovcnt) {
+            p->curr_base = iov[p->curr].iov_base;
+            if (!memory_is_user(p->curr_base, p->curr_len))
+                page_fault();
+        }
+        context_clear_err(ctx);
     }
 
     /* If we're done, return the total length... */
@@ -162,7 +155,7 @@ void iov_op(fdesc f, boolean write, struct iovec *iov, int iovcnt, u64 offset,
     p->blocking = blocking;
     p->file_offset = offset;
     p->curr = 0;
-    p->curr_offset = 0;
+    p->curr_len = 0;
     p->total_len = 0;
     p->ctx = ctx;
     p->completion = completion;
@@ -178,7 +171,7 @@ out:
 
 static sysreturn iov_internal(int fd, boolean write, struct iovec *iov, int iovcnt, u64 offset)
 {
-    if (!validate_iovec(iov, iovcnt, !write))
+    if (!memory_is_user(iov, iovcnt * sizeof(*iov)))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     context ctx = get_current_context(current_cpu());
@@ -188,7 +181,7 @@ static sysreturn iov_internal(int fd, boolean write, struct iovec *iov, int iovc
 
 sysreturn read(int fd, u8 *dest, bytes length)
 {
-    if (!validate_user_memory(dest, length, true))
+    if (!memory_is_user(dest, length))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     sysreturn rv;
@@ -212,7 +205,7 @@ sysreturn read(int fd, u8 *dest, bytes length)
 
 sysreturn pread(int fd, u8 *dest, bytes length, s64 offset)
 {
-    if (!validate_user_memory(dest, length, true))
+    if (!memory_is_user(dest, length))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     sysreturn rv;
@@ -248,7 +241,7 @@ sysreturn preadv(int fd, struct iovec *iov, int iovcnt, s64 offset)
 
 sysreturn write(int fd, u8 *body, bytes length)
 {
-    if (!validate_user_memory(body, length, false))
+    if (!memory_is_user(body, length))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     sysreturn rv;
@@ -272,7 +265,7 @@ sysreturn write(int fd, u8 *body, bytes length)
 
 sysreturn pwrite(int fd, u8 *body, bytes length, s64 offset)
 {
-    if (!validate_user_memory(body, length, false))
+    if (!memory_is_user(body, length))
         return -EFAULT;
     fdesc f = resolve_fd(current->p, fd);
     sysreturn rv;
@@ -500,13 +493,14 @@ static void file_io_complete(file f, range r, boolean is_file_offset, sg_list sg
     apply(completion, rv);
 }
 
-static sysreturn file_read_check(file f, u64 offset, struct iovec *iov, int count, sg_list *sgp)
+static sysreturn file_read_check(file f, u64 offset, struct iovec *iov, int count, boolean user_iov,
+                                 sg_list *sgp)
 {
     if (fdesc_type(&f->f) == FDESC_TYPE_DIRECTORY)
         return -EISDIR;
     else if (!f->fsf)
         return -EBADF;
-    return file_io_init_sg(f, offset, iov, count, sgp);
+    return file_io_init_sg(f, offset, iov, count, user_iov, sgp);
 }
 
 static void begin_file_read(file f, u64 length)
@@ -560,7 +554,7 @@ closure_func_basic(file_io, sysreturn, file_read,
         .iov_len = length,
     };
     sg_list sg;
-    sysreturn rv = file_read_check(f, offset, &iov, 1, &sg);
+    sysreturn rv = file_read_check(f, offset, &iov, 1, false, &sg);
     if (rv < 0)
         return io_complete(completion, rv);
     range r = irangel(offset, length);
@@ -588,7 +582,7 @@ closure_func_basic(file_iov, sysreturn, file_readv,
                f->fsf ? fsfile_get_length(f->fsf) : 0);
 
     sg_list sg;
-    sysreturn rv = file_read_check(f, offset, iov, count, &sg);
+    sysreturn rv = file_read_check(f, offset, iov, count, true, &sg);
     if (rv < 0)
         return io_complete(completion, rv);
     range r = irangel(offset, sg->count);
@@ -604,14 +598,18 @@ closure_func_basic(file_iov, sysreturn, file_readv,
     return bh ? SYSRETURN_CONTINUE_BLOCKING : thread_maybe_sleep_uninterruptible(t);
 }
 
-static sysreturn file_write_check(file f, u64 offset, struct iovec *iov, int count, sg_list *sgp)
+static sysreturn file_write_check(file f, u64 offset, struct iovec *iov, int count,
+                                  boolean user_iov, sg_list *sgp)
 {
     fsfile fsf = f->fsf;
     if (!fsf)
         return -EBADF;
+    sysreturn rv = file_io_init_sg(f, offset, iov, count, user_iov, sgp);
+    if (rv < 0)
+        return rv;
     filesystem fs = f->fs;
     if (fs->get_seals) {
-        u64 len = iov_total_len(iov, count);
+        u64 len = (*sgp)->count;
         u64 seals;
         if ((len > 0) && (fs->get_seals(fs, fsf, &seals) == 0)) {
             if ((seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)) ||
@@ -619,7 +617,7 @@ static sysreturn file_write_check(file f, u64 offset, struct iovec *iov, int cou
                 return -EPERM;
         }
     }
-    return file_io_init_sg(f, offset, iov, count, sgp);
+    return 0;
 }
 
 static void begin_file_write(file f, u64 len)
@@ -672,7 +670,7 @@ closure_func_basic(file_io, sysreturn, file_write,
         .iov_len = length,
     };
     sg_list sg;
-    sysreturn rv = file_write_check(f, offset, &iov, 1, &sg);
+    sysreturn rv = file_write_check(f, offset, &iov, 1, false, &sg);
     if (rv < 0)
         return io_complete(completion, rv);
 
@@ -703,7 +701,7 @@ closure_func_basic(file_iov, sysreturn, file_writev,
                func_ss, f, iov, count, offset, is_file_offset ? ss("file") : ss("specified"),
                f->fsf ? fsfile_get_length(f->fsf) : 0);
     sg_list sg;
-    rv = file_write_check(f, offset, iov, count, &sg);
+    rv = file_write_check(f, offset, iov, count, true, &sg);
     if (rv < 0)
         goto out;
     u64 len = sg->count;
@@ -1121,7 +1119,7 @@ sysreturn getrandom(void *buf, u64 buflen, unsigned int flags)
         return set_syscall_error(current, EINVAL);
 
     u64 n = MIN(GETRANDOM_MAX_BUFLEN, buflen);
-    if (!validate_user_memory(buf, buflen, true) || !fill_random(buf, n))
+    if (!memory_is_user(buf, buflen) || !fill_random(buf, n))
         return -EFAULT;
 
     if (n < buflen) {
@@ -1729,7 +1727,7 @@ sysreturn uname(struct utsname *v)
 sysreturn setrlimit(int resource, const struct rlimit *rlim)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(rlim, sizeof(struct rlimit), false) || context_set_err(ctx))
+    if (!memory_is_user(rlim, sizeof(struct rlimit)) || context_set_err(ctx))
         return -EFAULT;
     switch (resource) {
     case RLIMIT_STACK:
@@ -1743,7 +1741,7 @@ sysreturn setrlimit(int resource, const struct rlimit *rlim)
 sysreturn getrlimit(int resource, struct rlimit *rlim)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(rlim, sizeof(struct rlimit), true) || context_set_err(ctx))
+    if (!memory_is_user(rlim, sizeof(struct rlimit)) || context_set_err(ctx))
         return -EFAULT;
 
     sysreturn rv = 0;
@@ -1792,7 +1790,7 @@ sysreturn prlimit64(int pid, int resource, const struct rlimit *new_limit, struc
 static sysreturn getrusage(int who, struct rusage *usage)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(usage, sizeof(*usage), true) || context_set_err(ctx))
+    if (!memory_is_user(usage, sizeof(*usage)) || context_set_err(ctx))
         return -EFAULT;
     zero(usage, sizeof(*usage));
     sysreturn rv = 0;
@@ -1847,7 +1845,7 @@ static sysreturn brk(void *addr)
         unmap_and_free_phys(new_end, old_end - new_end);
     } else if (new_end > old_end) {
         u64 alloc = new_end - old_end;
-        if (!validate_user_memory(pointer_from_u64(old_end), alloc, true) ||
+        if (!memory_is_user(pointer_from_u64(old_end), alloc) ||
             !adjust_process_heap(p, irange(p->heap_base, new_end)))
             goto out;
     }
@@ -2220,7 +2218,7 @@ sysreturn sched_setaffinity(int pid, u64 cpusetsize, u64 *mask)
     context ctx = get_current_context(current_cpu());
     u64 first_cpu = -1ull;
     u64 i;
-    if (!validate_user_memory(mask, cpusetsize, false) || context_set_err(ctx))
+    if (!memory_is_user(mask, cpusetsize) || context_set_err(ctx))
         return -EFAULT;
     for (i = 0; (first_cpu == -1ull) && (i + sizeof(u64) <= cpusetsize); i += sizeof(u64))
         first_cpu = i * 8 + lsb(mask[i / sizeof(u64)]);
@@ -2283,7 +2281,7 @@ sysreturn capget(cap_user_header_t hdrp, cap_user_data_t datap)
 {
     if (datap) {
         context ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(datap, sizeof(struct user_cap_data), true) ||
+        if (!memory_is_user(datap, sizeof(struct user_cap_data)) ||
             context_set_err(ctx))
             return -EFAULT;
         zero(datap, sizeof(*datap));
@@ -2312,7 +2310,7 @@ sysreturn prctl(int option, u64 arg2, u64 arg3, u64 arg4, u64 arg5)
 sysreturn sysinfo(struct sysinfo *info)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(info, sizeof(struct sysinfo), true) || context_set_err(ctx))
+    if (!memory_is_user(info, sizeof(struct sysinfo)) || context_set_err(ctx))
         return set_syscall_error(current, EFAULT);
 
     kernel_heaps kh = get_kernel_heaps();
@@ -2336,8 +2334,8 @@ sysreturn getcpu(unsigned int *cpu, unsigned int *node, void *tcache)
 {
     cpuinfo ci = current_cpu();
     context ctx = get_current_context(ci);
-    if ((cpu != 0 && !validate_user_memory(cpu, sizeof *cpu, true)) ||
-        (node != 0 && !validate_user_memory(node, sizeof *node, true)) ||
+    if ((cpu != 0 && !memory_is_user(cpu, sizeof(*cpu))) ||
+        (node != 0 && !memory_is_user(node, sizeof(*node))) ||
         context_set_err(ctx))
         return -EFAULT;
     if (cpu)

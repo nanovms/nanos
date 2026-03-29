@@ -113,6 +113,8 @@ static void test_fault(void)
     socklen_t len;
     struct nlmsghdr nlh;
     uint8_t buf[512];
+    struct msghdr msg;
+    struct iovec iov;
     void *fault_addr = FAULT_ADDR;
 
     fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
@@ -139,6 +141,21 @@ static void test_fault(void)
     test_assert(write(fd, &nlh, sizeof(nlh)) == sizeof(nlh));
     test_assert(recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&nladdr, fault_addr) == -1);
     test_assert(errno == EFAULT);
+
+    test_assert(write(fd, &nlh, sizeof(nlh)) == sizeof(nlh));
+    test_assert((recvmsg(fd, fault_addr, 0) == -1) && (errno == EFAULT));
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_iov = fault_addr;
+    msg.msg_iovlen = 1;
+    test_assert(write(fd, &nlh, sizeof(nlh)) == sizeof(nlh));
+    test_assert((recvmsg(fd, &msg, 0) == -1) && (errno == EFAULT));
+
+    iov.iov_base = fault_addr;
+    iov.iov_len = sizeof(nlh);
+    msg.msg_iov = &iov;
+    test_assert(write(fd, &nlh, sizeof(nlh)) == sizeof(nlh));
+    test_assert((recvmsg(fd, &msg, 0) == -1) && (errno == EFAULT));
 
     test_assert(close(fd) == 0);
 }

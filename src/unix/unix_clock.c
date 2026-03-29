@@ -60,7 +60,7 @@ boolean clockid_get(process p, clockid_t id, boolean timer, clock_id *res, threa
 sysreturn gettimeofday(struct timeval *tv, void *tz)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(tv, sizeof(struct timeval), true) || context_set_err(ctx))
+    if (!memory_is_user(tv, sizeof(struct timeval)) || context_set_err(ctx))
         return -EFAULT;
     timeval_from_time(tv, now(CLOCK_ID_REALTIME));
     context_clear_err(ctx);
@@ -110,7 +110,7 @@ closure_function(5, 1, sysreturn, nanosleep_bh,
 
 sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 {
-    if (rem && !validate_user_memory(rem, sizeof(struct timespec), true))
+    if (rem && !memory_is_user(rem, sizeof(struct timespec)))
         return -EFAULT;
 
     timestamp interval;
@@ -127,7 +127,7 @@ sysreturn nanosleep(const struct timespec *req, struct timespec *rem)
 sysreturn clock_nanosleep(clockid_t _clock_id, int flags, const struct timespec *req,
                           struct timespec *rem)
 {
-    if (rem && !validate_user_memory(rem, sizeof(struct timespec), true))
+    if (rem && !memory_is_user(rem, sizeof(struct timespec)))
         return -EFAULT;
 
     /* Report any attempted use of CLOCK_PROCESS_CPUTIME_ID */
@@ -164,7 +164,7 @@ sysreturn sys_time(time_t *tloc)
 sysreturn times(struct tms *buf)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(buf, sizeof(struct tms), true) || context_set_err(ctx))
+    if (!memory_is_user(buf, sizeof(struct tms)) || context_set_err(ctx))
         return -EFAULT;
     buf->tms_utime = CLOCKS_PER_SEC * proc_utime(current->p) / TIMESTAMP_SECOND;
     buf->tms_stime = CLOCKS_PER_SEC * proc_stime(current->p) / TIMESTAMP_SECOND;
@@ -196,7 +196,7 @@ sysreturn clock_gettime(clockid_t clk_id, struct timespec *tp)
         break;
     }
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(tp, sizeof(struct timespec), true) || context_set_err(ctx))
+    if (!memory_is_user(tp, sizeof(struct timespec)) || context_set_err(ctx))
         return -EFAULT;
     timespec_from_time(tp, t);
     context_clear_err(ctx);
@@ -226,7 +226,7 @@ sysreturn clock_getres(clockid_t clk_id, struct timespec *res)
     if (clockid_get(current->p, clk_id, false, &cid, 0)) {
         if (res) {
             context ctx = get_current_context(current_cpu());
-            if (!validate_user_memory(res, sizeof(*res), true) || context_set_err(ctx))
+            if (!memory_is_user(res, sizeof(*res)) || context_set_err(ctx))
                 return -EFAULT;
             res->tv_sec = 0;
             res->tv_nsec = 1;
@@ -287,7 +287,7 @@ static void adjtime_set_freq(s64 freq)
 static sysreturn adjtimex(struct timex *buf)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(buf, sizeof(struct timex), true) || context_set_err(ctx))
+    if (!memory_is_user(buf, sizeof(struct timex)) || context_set_err(ctx))
         return -EFAULT;
     int modes = buf->modes;
     boolean nano = !(modes & ADJ_MICRO);

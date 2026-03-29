@@ -708,7 +708,7 @@ static sysreturn nl_check_dest(struct sockaddr *addr, socklen_t addrlen)
     return 0;
 }
 
-static sysreturn nl_write_internal(nlsock s, void * src, u64 len)
+static sysreturn nl_write_internal(nlsock s, void *src, u64 len, context ctx)
 {
     nl_debug("write_internal: len %ld", len);
     struct nlmsghdr *hdr;
@@ -716,7 +716,6 @@ static sysreturn nl_write_internal(nlsock s, void * src, u64 len)
     buffer kbuf = allocate_buffer(s->sock.h, sizeof(struct nlmsghdr));
     if (kbuf == INVALID_ADDRESS)
         return -ENOMEM;
-    context ctx = get_current_context(current_cpu());
     if (context_set_err(ctx)) {
         if (offset == 0)
             offset = -EFAULT;
@@ -801,6 +800,7 @@ closure_function(8, 1, sysreturn, nl_read_bh,
         }
         *from_len = sizeof(struct sockaddr_nl);
     }
+    boolean iov_validated = false;
     u64 dest_len;
     do {
         nl_debug("read_bh: msg len %d, type %d, flags 0x%x, seq %d, pid %d", hdr->nlmsg_len,
@@ -820,9 +820,13 @@ closure_function(8, 1, sysreturn, nl_read_bh,
                     iov_buf = iov->iov_base;
                     iov++;
                     length--;
+                    iov_validated = false;
                 }
                 if (iov_len == 0)
                     break;
+                if (!iov_validated && !memory_is_user(iov_buf, iov_len))
+                    page_fault();
+                iov_validated = true;
                 u64 xfer = MIN(hdr->nlmsg_len - msg_offset, iov_len);
                 runtime_memcpy(iov_buf, hdr + msg_offset, xfer);
                 iov_buf += xfer;
@@ -873,7 +877,7 @@ closure_func_basic(file_io, sysreturn, nl_write,
     nl_debug("write len %ld", length);
     nlsock s = struct_from_closure(nlsock, write);
     nl_lock(s);
-    sysreturn rv = nl_write_internal(s, src, length);
+    sysreturn rv = nl_write_internal(s, src, length, ctx);
     nl_unlock(s);
     return io_complete(completion, rv);
 }
@@ -1017,12 +1021,14 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
                             io_completion completion)
 {
     context ctx = get_current_context(current_cpu());
+    u64 iov_len;
     sysreturn rv;
     if (context_set_err(ctx)) {
         rv = -EFAULT;
     } else {
         nl_debug("sendmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
         rv = nl_check_dest(msg->msg_name, msg->msg_namelen);
+        iov_len = msg->msg_iovlen;
         context_clear_err(ctx);
     }
     nlsock s = (nlsock)sock;
@@ -1030,8 +1036,18 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
         goto out;
     u64 written = 0;
     nl_lock(s);
-    for (u64 i = 0; i < msg->msg_iovlen; i++) {
-        rv = nl_write_internal(s, msg->msg_iov[i].iov_base, msg->msg_iov[i].iov_len);
+    for (u64 i = 0; i < iov_len; i++) {
+        if (context_set_err(ctx)) {
+            rv = -EFAULT;
+        } else {
+            struct iovec *iov = &msg->msg_iov[i];
+            void *src = iov->iov_base;
+            u64 len = iov->iov_len;
+            if (!memory_is_user(src, len))
+                page_fault();
+            context_clear_err(ctx);
+            rv = nl_write_internal(s, src, len, ctx);
+        }
         if (rv > 0)
             written += rv;
         else
@@ -1046,10 +1062,18 @@ static sysreturn nl_sendmsg(struct sock *sock, const struct msghdr *msg, int fla
 static sysreturn nl_recvmsg(struct sock *sock, struct msghdr *msg, int flags, boolean in_bh,
                             io_completion completion)
 {
+    context ctx = get_current_context(current_cpu());
+    if (context_set_err(ctx)) {
+        return io_complete(completion, -EFAULT);
+    }
     nl_debug("recvmsg: iovlen %ld, flags 0x%x", msg->msg_iovlen, flags);
     nlsock s = (nlsock)sock;
-    blockq_action ba = contextual_closure(nl_read_bh, s, 0, 0, msg, flags,
-                                          msg->msg_name, &msg->msg_namelen, completion);
+    struct sockaddr *addr = msg->msg_name;
+    if (!memory_is_user(addr, sizeof(struct sockaddr_nl)))
+        page_fault();
+    context_clear_err(ctx);
+    blockq_action ba = closure_from_context(ctx, nl_read_bh, s, 0, 0, msg, flags,
+                                            addr, &msg->msg_namelen, completion);
     if (ba == INVALID_ADDRESS)
         return io_complete(completion, -ENOMEM);
     return blockq_check(s->sock.rxbq, ba, in_bh);

@@ -92,10 +92,32 @@ void file_readahead(file f, u64 offset, u64 len)
     }
 }
 
-static sysreturn file_io_init_internal(file f, u64 offset, struct iovec *iov, int count, sg_list sg)
+static sysreturn file_io_init_internal(file f, u64 offset, boolean direct_io,
+                                       struct iovec *iov, int count, boolean user_iov, sg_list sg)
 {
-    if (!(f->f.flags & O_DIRECT)) {
-        return iov_to_sg(sg, iov, count) ? 0 : -ENOMEM;
+    if (!direct_io) {
+        for (int i = 0; i < count; i++) {
+            void *base = iov[i].iov_base;
+            u64 len = iov[i].iov_len;
+            u64 offset = 0;
+            boolean validated = false;
+            while (len > 0) {
+                if (user_iov && !validated && !memory_is_user(base, len))
+                    return -EFAULT;
+                validated = true;
+                u64 buf_len = MIN(len, U32_MAX & ~PAGEMASK);
+                sg_buf sgb = sg_list_tail_add(sg, buf_len);
+                if (sgb == INVALID_ADDRESS)
+                    return -ENOMEM;
+                sgb->buf = base + offset;
+                sgb->size = buf_len;
+                sgb->offset = 0;
+                sgb->refcount = 0;
+                len -= buf_len;
+                offset += buf_len;
+            }
+        }
+        return 0;
     }
     u64 block_mask = fs_blocksize(f->fs) - 1;
     if (offset & block_mask)
@@ -105,6 +127,8 @@ static sysreturn file_io_init_internal(file f, u64 offset, struct iovec *iov, in
         if (len == 0)
             continue;
         void *ptr = iov[i].iov_base;
+        if (user_iov && !memory_is_user(ptr, len))
+            return -EFAULT;
         if ((u64_from_pointer(ptr) & block_mask) || (len & block_mask))
             return -EINVAL;
         touch_memory(ptr, len);
@@ -151,23 +175,28 @@ static sysreturn file_io_init_internal(file f, u64 offset, struct iovec *iov, in
     return 0;
 }
 
-sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, sg_list *sgp)
+sysreturn file_io_init_sg(file f, u64 offset, struct iovec *iov, int count, boolean user_iov,
+                          sg_list *sgp)
 {
     sg_list sg = sg_new(count);
     if (sg == INVALID_ADDRESS)
         return -ENOMEM;
+    boolean direct_io = !!(f->f.flags & O_DIRECT);
     sysreturn rv;
-    context ctx = get_current_context(current_cpu());
-    if (context_set_err(ctx)) {
-        rv = -EFAULT;
-        goto out;
+    context ctx;
+    if (user_iov || direct_io) {
+        ctx = get_current_context(current_cpu());
+        if (context_set_err(ctx)) {
+            rv = -EFAULT;
+            goto out;
+        }
     }
-    rv = file_io_init_internal(f, offset, iov, count, sg);
+    rv = file_io_init_internal(f, offset, direct_io, iov, count, user_iov, sg);
     if (!rv)
         *sgp = sg;
-  out:
-    if (rv != -EFAULT)
+    if (user_iov || direct_io)
         context_clear_err(ctx);
+  out:
     if (rv < 0)
         deallocate_sg_list(sg);
     return rv;
@@ -310,7 +339,7 @@ sysreturn utime(const char *filename, const struct utimbuf *times)
     context ctx;
     if (times) {
         ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(times, sizeof(struct utimbuf), false) || context_set_err(ctx))
+        if (!memory_is_user(times, sizeof(struct utimbuf)) || context_set_err(ctx))
             return -EFAULT;
     }
     timestamp atime = times ? seconds(times->actime) : now(CLOCK_ID_REALTIME);
@@ -325,7 +354,7 @@ sysreturn utimes(const char *filename, const struct timeval times[2])
     context ctx;
     if (times) {
         ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(times, 2 * sizeof(struct timeval), false) || context_set_err(ctx))
+        if (!memory_is_user(times, 2 * sizeof(struct timeval)) || context_set_err(ctx))
             return -EFAULT;
     }
     /* Sub-second precision is not supported. */
@@ -357,7 +386,7 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
     timestamp atime, mtime;
     if (times) {
         context ctx = get_current_context(current_cpu());
-        if (!validate_user_memory(times, 2 * sizeof(struct timespec), false) ||
+        if (!memory_is_user(times, 2 * sizeof(struct timespec)) ||
             context_set_err(ctx))
             return -EFAULT;
         if (!utimens_is_valid(&times[0]) || !utimens_is_valid(&times[1]))
@@ -415,7 +444,7 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
 static sysreturn statx_internal(filesystem fs, int type, tuple n, fsfile f, struct statx *statxbuf)
 {
     context ctx = get_current_context(current_cpu());
-    if (!validate_user_memory(statxbuf, sizeof(struct rlimit), true) || context_set_err(ctx))
+    if (!memory_is_user(statxbuf, sizeof(struct rlimit)) || context_set_err(ctx))
         return -EFAULT;
     zero(statxbuf, sizeof(*statxbuf));
     statxbuf->stx_mode = stat_mode(current->p, type, n);

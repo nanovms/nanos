@@ -356,7 +356,7 @@ static boolean unveil_bind(u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4, u64
     socklen_t addrlen = arg2;
     if ((f->type == FDESC_TYPE_SOCKET) && (((struct sock *)f)->domain == AF_UNIX) &&
         (addrlen > offsetof(struct sockaddr_un *, sun_path)) &&
-        validate_user_memory(addr, addrlen, false))
+        memory_is_user(addr, addrlen))
         result = unveil_check_path(addr->sun_path, false, UNVEIL_CREATE, rv);
     fdesc_put(f);
     return result;
