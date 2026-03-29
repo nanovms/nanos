@@ -916,7 +916,8 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         res = -EINVAL;
         goto complete;
     }
-    switch(sqe->opcode) {
+    u8 opcode = sqe->opcode;
+    switch (opcode) {
     case IORING_OP_READV:
     case IORING_OP_WRITEV:
     case IORING_OP_READ_FIXED:
@@ -946,7 +947,7 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
     default:
         break;
     }
-    switch (sqe->opcode) {
+    switch (opcode) {
     case IORING_OP_NOP:
         res = 0;
         goto complete;
@@ -958,7 +959,7 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         }
         struct iovec *iov = pointer_from_u64(sqe->addr);
         u32 len = sqe->len;
-        boolean write = (sqe->opcode == IORING_OP_WRITEV);
+        boolean write = (opcode == IORING_OP_WRITEV);
         if (!validate_iovec(iov, len, !write)) {
             res = -EFAULT;
             goto complete;
@@ -980,7 +981,7 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
             struct iovec *iov = &iour->bufs[buf_index];
             void *buf = pointer_from_u64(sqe->addr);
             u32 len = sqe->len;
-            boolean write = sqe->opcode == IORING_OP_WRITE_FIXED;
+            boolean write = opcode == IORING_OP_WRITE_FIXED;
             if ((buf < iov->iov_base) || (u64_from_pointer(buf) + len >
                     u64_from_pointer(iov->iov_base) + iov->iov_len)) {
                 res = -EFAULT;
@@ -1115,7 +1116,6 @@ static boolean iour_submit(io_uring iour, struct io_uring_sqe *sqe)
         } else {
             void *buf = pointer_from_u64(sqe->addr);
             u32 len = sqe->len;
-            u8 opcode = sqe->opcode;
             boolean write = ((opcode == IORING_OP_WRITE) || (opcode == IORING_OP_SEND));
             switch (opcode) {
             case IORING_OP_READ:
