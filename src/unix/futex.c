@@ -247,22 +247,23 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         struct futex *f2 = soft_create_futex(current->p, u64_from_pointer(uaddr2));
         if (f2 == INVALID_ADDRESS)
             return -ENOMEM;
-        boolean fault = false;
         spin_lock_2(&f->lock, &f2->lock);
         if (context_set_err(ctx)) {
-            fault = true;
+            ret = -EFAULT;
             goto wake_op_done;
         }
-        oldval = *(int *) uaddr2;
         
         switch (op) {
-        case FUTEX_OP_SET:   *uaddr2 = oparg; break;
-        case FUTEX_OP_ADD:   *uaddr2 += oparg; break;
-        case FUTEX_OP_OR:    *uaddr2 |= oparg; break;
-        case FUTEX_OP_ANDN:  *uaddr2 &= ~oparg; break;
-        case FUTEX_OP_XOR:   *uaddr2 ^= oparg; break;
+        case FUTEX_OP_SET:   oldval = __atomic_exchange_n(uaddr2, oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_ADD:   oldval = __atomic_fetch_add(uaddr2, oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_OR:    oldval = __atomic_fetch_or(uaddr2, oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_ANDN:  oldval = __atomic_fetch_and(uaddr2, ~oparg, __ATOMIC_RELAXED); break;
+        case FUTEX_OP_XOR:   oldval = __atomic_fetch_xor(uaddr2, oparg, __ATOMIC_RELAXED); break;
+        default:             ret = -ENOSYS; break;
         }
         context_clear_err(ctx);
+        if (ret)
+            goto wake_op_done;
 
         wake1 = futex_wake_many(f, val);
         
@@ -284,7 +285,7 @@ sysreturn futex(int *uaddr, int futex_op, int val,
       wake_op_done:
         futex_unlock(f2);
         futex_unlock(f);
-        return fault ? -EFAULT : wake1 + wake2;
+        return ret ? ret : wake1 + wake2;
     }
 
     case FUTEX_WAIT_BITSET: {
