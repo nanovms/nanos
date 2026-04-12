@@ -410,7 +410,7 @@ static void platform_dtb_parse(kernel_heaps kh, vector cpu_ids)
                     break;
                 }
             }
-        } else if (!runtime_strcmp(name, ss("cpus"))) {
+        } else if (cpu_ids && !runtime_strcmp(name, ss("cpus"))) {
             u32 cpus_acells, cpus_scells;
             fdt_get_cells(&fdt, &cpus_acells, &cpus_scells);
             fdt_foreach_node(&fdt, node) {
@@ -460,12 +460,13 @@ closure_function(2, 2, void, plat_spcr_handler,
 void init_platform_devices(kernel_heaps kh)
 {
     vector cpu_ids = cpus_init_ids(heap_general(kh));
-    platform_dtb_parse(kh, cpu_ids);
+    /* Prefer retrieving CPU ID info from ACPI if present, because DT CPU nodes might have incorrect
+     * info (as seen on AWS c6g.8xlarge instances). */
+    platform_dtb_parse(kh, init_acpi_tables(kh) ? 0 : cpu_ids);
     /* the device tree blob is never accessed from now on: reclaim the memory where it is located */
     pageheap_add_range(DEVICETREE_BLOB_BASE + kernel_phys_offset,
                       INIT_PAGEMEM - DEVICETREE_BLOB_BASE);
     struct console_driver *console_driver = 0;
-    init_acpi_tables(kh);
     acpi_parse_spcr(stack_closure(plat_spcr_handler, kh, &console_driver));
     if (!console_driver) {
         console_driver = allocate_zero(heap_general(kh), sizeof(*console_driver));
