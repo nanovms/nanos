@@ -158,7 +158,7 @@ closure_type(mcfg_handler, boolean, u64 addr, u16 segment, u8 bus_start, u8 bus_
 closure_type(spcr_handler, void, u8 type, u64 addr);
 
 void init_acpi(kernel_heaps kh);
-void init_acpi_tables(kernel_heaps kh);
+boolean init_acpi_tables(kernel_heaps kh);
 void acpi_save_rsdp(u64 rsdp);
 void acpi_register_irq_handler(int irq, thunk t, sstring name);
 boolean acpi_walk_madt(madt_handler mh);

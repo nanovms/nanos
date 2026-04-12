@@ -209,18 +209,19 @@ static ACPI_STATUS acpi_device_handler(ACPI_HANDLE object, u32 nesting_level, vo
     return rv;
 }
 
-void init_acpi_tables(kernel_heaps kh)
+boolean init_acpi_tables(kernel_heaps kh)
 {
     assert(ACPI_SUCCESS(AcpiInitializeSubsystem()));
     ACPI_STATUS rv = AcpiInitializeTables(NULL, 0, true);
     if (ACPI_FAILURE(rv)) {
         acpi_debug("AcpiInitializeTables returned %d", rv);
-        return;
+        return false;
     }
     rv = AcpiLoadTables();
     if (ACPI_FAILURE(rv))
         acpi_debug("AcpiLoadTables returned %d", rv);
     AcpiGetDevices(NULL, acpi_device_handler, NULL, NULL);
+    return !ACPI_FAILURE(rv);
 }
 
 static UINT32 acpi_sleep(void *context)
