@@ -274,7 +274,7 @@ int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entr
 int filesystem_resolve_sstring_follow(filesystem *fs, tuple cwd, sstring f, tuple *entry,
         tuple *parent);
 
-int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
+int filesystem_follow_links(filesystem *fs, tuple link, tuple parent, int hop_count,
                             tuple *target);
 
 int file_get_path(filesystem fs, inode ino, char *buf, u64 len);

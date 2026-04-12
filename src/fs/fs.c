@@ -1164,11 +1164,9 @@ static tuple lookup_follow(filesystem *fs, tuple t, string a, tuple *p)
  * is updated to point to the new filesystem.
  * The refcount of the filesystem returned via the 'fs' pointer is incremented. */
 // fused buffer wrap, split, and resolve
-int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entry,
-                    tuple *parent)
+static int filesystem_resolve_internal(filesystem *fs, tuple cwd, sstring f,
+                                       tuple *entry, tuple *parent, int chain_depth)
 {
-    assert(fs_path_helper.get_root_fs);
-
     tuple t;
     if (!sstring_is_empty(f) && (f.ptr[0] == '/')) {
         filesystem root_fs = fs_path_helper.get_root_fs();
@@ -1206,7 +1204,7 @@ int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entr
                     err = -ENOENT;
                     goto done;
                 }
-                err = filesystem_follow_links(fs, t, p, &t);
+                err = filesystem_follow_links(fs, t, p, chain_depth, &t);
                 if (err) {
                     t = false;
                     goto done;
@@ -1244,6 +1242,13 @@ done:
     return (t ? 0 : err);
 }
 
+int filesystem_resolve_sstring(filesystem *fs, tuple cwd, sstring f, tuple *entry,
+                    tuple *parent)
+{
+    assert(fs_path_helper.get_root_fs);
+    return filesystem_resolve_internal(fs, cwd, f, entry, parent, 0);
+}
+
 /* Same as filesystem_resolve_sstring(), but if the path resolves to a symbolic link, the link is
  * followed. */
 int filesystem_resolve_sstring_follow(filesystem *fs, tuple cwd, sstring f, tuple *entry,
@@ -1252,7 +1257,7 @@ int filesystem_resolve_sstring_follow(filesystem *fs, tuple cwd, sstring f, tupl
     tuple t, p;
     int ret = filesystem_resolve_sstring(fs, cwd, f, &t, &p);
     if (!ret) {
-        ret = filesystem_follow_links(fs, t, p, &t);
+        ret = filesystem_follow_links(fs, t, p, 0, &t);
     }
     if ((ret == 0) && entry) {
         *entry = t;
@@ -1263,9 +1268,9 @@ int filesystem_resolve_sstring_follow(filesystem *fs, tuple cwd, sstring f, tupl
     return ret;
 }
 
-#define SYMLINK_HOPS_MAX    8
+#define SYMLINK_HOPS_MAX    40
 
-int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
+int filesystem_follow_links(filesystem *fs, tuple link, tuple parent, int hop_count,
                             tuple *target)
 {
     if (!is_symlink(link)) {
@@ -1273,24 +1278,20 @@ int filesystem_follow_links(filesystem *fs, tuple link, tuple parent,
     }
 
     tuple target_t;
-    int hop_count = 0;
     while (true) {
         buffer target_b = linktarget(link);
         if (!target_b) {
             *target = link;
             return 0;
         }
+        if (hop_count++ == SYMLINK_HOPS_MAX)
+            return -ELOOP;
         filesystem prev = *fs;
-        int ret = filesystem_resolve_sstring(fs, parent, buffer_to_sstring(target_b), &target_t,
-                &parent);
+        int ret = filesystem_resolve_internal(fs, parent, buffer_to_sstring(target_b),
+                                              &target_t, &parent, hop_count);
         filesystem_release(prev);
         if (ret) {
             return ret;
-        }
-        if (is_symlink(target_t)) {
-            if (hop_count++ == SYMLINK_HOPS_MAX) {
-                return -ELOOP;
-            }
         }
         link = target_t;
     }
