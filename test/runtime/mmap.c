@@ -1603,6 +1603,42 @@ static void thp_test(void)
            elapsed.tv_sec, elapsed.tv_nsec, (1000000000ull / MB) * map_len / ns);
 }
 
+static void madv_dontneed_test(void)
+{
+    size_t map_len = 4 * KB;
+
+    /* anonymous mapping */
+    u8 *addr = mmap(NULL, map_len, PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    test_assert(addr != MAP_FAILED);
+    addr[0] = 1;                                                /* fault in page */
+    test_assert(madvise(addr, map_len, MADV_DONTNEED) == 0);    /* discard page */
+    test_assert(addr[0] == 0);                                  /* fault back in page */
+    munmap(addr, map_len);
+
+    /* file-backed mapping */
+    int fd = open("madv_test", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    test_assert(fd >= 0);
+    test_assert(ftruncate(fd, map_len) == 0);
+
+    addr = mmap(NULL, map_len, PROT_WRITE, MAP_SHARED, fd, 0);
+    test_assert(addr != MAP_FAILED);
+    addr[0] = 1;                                                /* fault in page */
+    test_assert(fsync(fd) == 0);                                /* save page to file */
+    test_assert(madvise(addr, map_len, MADV_DONTNEED) == 0);    /* discard page */
+    test_assert(addr[0] == 1);                                  /* fault back in page */
+    munmap(addr, map_len);
+
+    addr = mmap(NULL, map_len, PROT_WRITE, MAP_PRIVATE, fd, 0);
+    test_assert(addr != MAP_FAILED);
+    addr[0] = 0;                                                /* fault in page */
+    test_assert(madvise(addr, map_len, MADV_DONTNEED) == 0);    /* discard page */
+    test_assert(addr[0] == 1);                                  /* fault back in page */
+    munmap(addr, map_len);
+
+    close(fd);
+    test_assert(unlink("madv_test") == 0);
+}
+
 static void madvise_test(void)
 {
     size_t map_len = 2 * PAGESIZE;
@@ -1616,6 +1652,7 @@ static void madvise_test(void)
     munmap(addr + map_len / 2, map_len / 2);
 
     thp_test();
+    madv_dontneed_test();
 }
 
 int main(int argc, char * argv[])

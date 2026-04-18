@@ -361,6 +361,9 @@ static status demand_page_internal(process p, context ctx, u64 vaddr, vmap vm, p
             anonymous = false;
             break;
         default:
+            if (!vm->fault)
+                return timm("result", "no fault handler for vaddr 0x%lx, flags 0x%x",
+                            vaddr, vm->flags);
             return vm->fault(p, ctx, vaddr, vm, pf);
         }
     } else if (vm->flags & VMAP_FLAG_PROG) {
@@ -1443,6 +1446,8 @@ sysreturn madvise(void *addr, s64 length, int advice)
         return -EINVAL;
     u32 clear_mask = 0, set_mask = 0;
     switch (advice) {
+    case MADV_DONTNEED:
+        break;
     case MADV_HUGEPAGE:
         set_mask = VMAP_FLAG_THP;
         break;
@@ -1463,7 +1468,15 @@ sysreturn madvise(void *addr, s64 length, int advice)
     if (res == RM_MATCH) {
         while (range_span(q)) {
             vmap vm = (vmap)rangemap_lookup(vmaps, q.start);
-            vmap_update_flags_intersection(vmaps, q, clear_mask, set_mask, vm);
+            if (advice == MADV_DONTNEED) {
+                range ri = range_intersection(q, vm->node.r);
+                struct vmap k;
+                alter_vmap_key(&k, vm, vm->flags, ri.start - vm->node.r.start);
+                k.node.r = ri;
+                vmap_unmap_page_range(p, &k, false);
+            } else {
+                vmap_update_flags_intersection(vmaps, q, clear_mask, set_mask, vm);
+            }
             q.start = MIN(q.end, vm->node.r.end);
         }
         rv = 0;

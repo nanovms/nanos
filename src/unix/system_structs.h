@@ -192,6 +192,7 @@ struct flock {
 #define MS_SYNC       4
 
 /* madvise */
+#define MADV_DONTNEED       4
 #define MADV_HUGEPAGE       14
 #define MADV_NOHUGEPAGE     15
 
