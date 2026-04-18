@@ -2032,17 +2032,20 @@ static void pagecache_node_unmap_pages_sync(pagecache_node pn, range v, u64 node
                 node_offset, shared_mappings ? ss("") : ss("no "));
 }
 
-void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset)
+void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset,
+                                boolean del_mappings)
 {
     pagecache_debug("%s: pn %p, v %R, node_offset 0x%lx\n", func_ss, pn, v, node_offset);
-    boolean shared_mappings = false;
-    pagecache_lock_mappings();
-    rangemap_range_lookup(&pn->mappings, v,
-                          stack_closure(pagecache_node_unmap_intersection, pn, v,
-                                        &shared_mappings));
-    pagecache_unlock_mappings();
-    if (shared_mappings)
-        return pagecache_node_unmap_pages_sync(pn, v, node_offset, true);
+    if (del_mappings) {
+        boolean shared_mappings = false;
+        pagecache_lock_mappings();
+        rangemap_range_lookup(&pn->mappings, v,
+                              stack_closure(pagecache_node_unmap_intersection, pn, v,
+                                            &shared_mappings));
+        pagecache_unlock_mappings();
+        if (shared_mappings)
+            return pagecache_node_unmap_pages_sync(pn, v, node_offset, true);
+    }
     heap h = global_pagecache->h;
     buffer unmap_entries = allocate_buffer(h, 512);
     if (unmap_entries == INVALID_ADDRESS)

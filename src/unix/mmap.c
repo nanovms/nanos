@@ -1129,7 +1129,7 @@ closure_function(3, 1, boolean, vmap_remove_intersection,
     return true;
 }
 
-static void vmap_unmap_page_range(process p, vmap k)
+static void vmap_unmap_page_range(process p, vmap k, boolean del_mappings)
 {
     range r = k->node.r;
     int type = k->flags & VMAP_MMAP_TYPE_MASK;
@@ -1139,7 +1139,7 @@ static void vmap_unmap_page_range(process p, vmap k)
         unmap_and_free_phys(r.start, len);
         break;
     case VMAP_MMAP_TYPE_FILEBACKED:
-        pagecache_node_unmap_pages(k->cache_node, r, k->node_offset);
+        pagecache_node_unmap_pages(k->cache_node, r, k->node_offset, del_mappings);
         break;
     case VMAP_MMAP_TYPE_CUSTOM:
         unmap(r.start, len);
@@ -1151,7 +1151,7 @@ closure_function(1, 1, boolean, vmap_unmap,
                  process, p,
                  vmap v)
 {
-    vmap_unmap_page_range(bound(p), v);
+    vmap_unmap_page_range(bound(p), v, true);
     return true;
 }
 
@@ -1183,7 +1183,7 @@ void truncate_file_maps(process p, fsfile f, u64 new_length)
         u64 node_offset = vm->node_offset + (v.start - n->r.start);
         pf_debug("%s: vmap %p, %R, delta 0x%lx, remove v %R, node_offset 0x%lx\n",
                  func_ss, vm, n->r, delta, v, node_offset);
-        pagecache_node_unmap_pages(pn, v, node_offset);
+        pagecache_node_unmap_pages(pn, v, node_offset, false);
     }
     vmap_unlock(p);
 }

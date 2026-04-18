@@ -53,7 +53,8 @@ void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
 void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private);
 void pagecache_release_page(pagecache_node pn, u64 node_offset);
 
-void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset);
+void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset,
+                                boolean del_mappings);
 
 pagecache_volume pagecache_allocate_volume(u64 length, int block_order);
 void pagecache_dealloc_volume(pagecache_volume pv);
