@@ -1945,9 +1945,10 @@ closure_function(6, 3, boolean, pagecache_unmap_page_nodelocked,
     return true;
 }
 
-closure_function(4, 0, void, pagecache_node_unmap_pages_complete,
-                 buffer, unmap_entries, boolean, shared_mappings, boolean, on_stack, bytes *, remaining)
+closure_function(5, 0, void, pagecache_node_unmap_pages_complete,
+                 pagecache_node, pn, buffer, unmap_entries, boolean, shared_mappings, boolean, on_stack, bytes *, remaining)
 {
+    pagecache_node pn = bound(pn);
     buffer unmap_entries = bound(unmap_entries);
     boolean check_dirty = bound(shared_mappings);
     pagecache_page_entry e;
@@ -1963,7 +1964,6 @@ closure_function(4, 0, void, pagecache_node_unmap_pages_complete,
         pagecache pc = global_pagecache;
         pagecache_page pp = e->pp;
         if (check_dirty && pte_is_dirty(old_pte)) {
-            pagecache_node pn = pp->node;
             pagecache_lock_node(pn);
             boolean success = pagecache_set_dirty(pn, range_lshift(irangel(page_offset(pp), 1),
                                                                    pc->page_order));
@@ -2001,6 +2001,7 @@ closure_function(4, 0, void, pagecache_node_unmap_pages_complete,
         buffer_clear(unmap_entries);
     } else {
         deallocate_buffer(unmap_entries);
+        pagecache_node_unref(pn);
         closure_finish();
     }
 }
@@ -2010,7 +2011,7 @@ static void pagecache_node_unmap_pages_sync(pagecache_node pn, range v, u64 node
 {
     buffer unmap_entries = little_stack_buffer(context_stack_space() / 2);
     bytes remaining;
-    thunk completion = stack_closure(pagecache_node_unmap_pages_complete, unmap_entries,
+    thunk completion = stack_closure(pagecache_node_unmap_pages_complete, pn, unmap_entries,
                                      shared_mappings, true, &remaining);
     boolean done, progress;
     do {
@@ -2050,7 +2051,8 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
     buffer unmap_entries = allocate_buffer(h, 512);
     if (unmap_entries == INVALID_ADDRESS)
         return pagecache_node_unmap_pages_sync(pn, v, node_offset, false);
-    thunk completion = closure(h, pagecache_node_unmap_pages_complete, unmap_entries, false, false,
+    thunk completion = closure(h, pagecache_node_unmap_pages_complete, pn, unmap_entries,
+                               false, false,
                                0);
     if (completion == INVALID_ADDRESS) {
         deallocate_buffer(unmap_entries);
@@ -2062,6 +2064,7 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
                                     stack_closure(pagecache_unmap_page_nodelocked, pn, v.start,
                                                   node_offset, fe, true, unmap_entries));
     pagecache_unlock_node(pn);
+    pagecache_node_ref(pn); /* reference to be released on completion */
     page_invalidate_sync(fe, completion, !success);
     if (!success)
         pagecache_node_unmap_pages_sync(pn, v, node_offset, false);
