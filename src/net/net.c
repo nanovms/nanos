@@ -168,9 +168,13 @@ int lwip_memcmp(const void *x, const void *y, unsigned long len)
 
 int lwip_strncmp(const char *x, const char *y, unsigned long len)
 {
-    for (int i = 0; i < len; i++) {
-        if ((*x) != (*y)) return -1;
-        if ((!*x) || (!*y)) return -1;
+    for (unsigned long i = 0; i < len; i++) {
+        if (*x != *y)
+            return (*x < *y) ? -1 : 1;
+        if (!*x)
+            return 0;
+        x++;
+        y++;
     }
     return 0;
 }
