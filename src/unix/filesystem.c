@@ -326,8 +326,9 @@ static sysreturn utime_internal(const char *filename, timestamp actime,
     filesystem cwd_fs = fs;
     sysreturn rv = filesystem_get_node(&fs, cwd, filename_ss, FS_NODE_FOLLOW, &t, 0, 0);
     if (rv == 0) {
-        filesystem_set_atime(fs, t, actime);
-        filesystem_set_mtime(fs, t, modtime);
+        rv = filesystem_set_atime(fs, t, actime);
+        if (rv == 0)
+            rv = filesystem_set_mtime(fs, t, modtime);
         filesystem_put_node(fs, t);
     }
     filesystem_release(cwd_fs);
@@ -428,9 +429,9 @@ sysreturn utimensat(int dirfd, const char *filename, const struct timespec times
     }
     if (rv == 0) {
         if (atime != infinity)
-            filesystem_set_atime(fs, t, atime);
-        if (mtime != infinity)
-            filesystem_set_mtime(fs, t, mtime);
+            rv = filesystem_set_atime(fs, t, atime);
+        if ((rv == 0) && (mtime != infinity))
+            rv = filesystem_set_mtime(fs, t, mtime);
         if (filename) {
             filesystem_put_node(fs, t);
             filesystem_release(cwd_fs);

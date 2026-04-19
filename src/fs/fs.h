@@ -30,8 +30,8 @@ void filesystem_release(filesystem fs);
 
 timestamp filesystem_get_atime(filesystem fs, tuple t);
 timestamp filesystem_get_mtime(filesystem fs, tuple t);
-void filesystem_set_atime(filesystem fs, tuple t, timestamp tim);
-void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim);
+int filesystem_set_atime(filesystem fs, tuple t, timestamp tim);
+int filesystem_set_mtime(filesystem fs, tuple t, timestamp tim);
 
 #define filesystem_update_atime(fs, t) \
     filesystem_set_atime(fs, t, now(CLOCK_ID_REALTIME))

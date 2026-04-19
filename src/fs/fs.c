@@ -106,32 +106,36 @@ timestamp filesystem_get_mtime(filesystem fs, tuple t)
     return filesystem_get_time(fs, t, sym(mtime));
 }
 
-static inline void filesystem_set_time(filesystem fs, tuple t, symbol s,
+static inline int filesystem_set_time(filesystem fs, tuple t, symbol s,
         timestamp tim)
 {
+    if (fs->ro)
+        return -EROFS;
     timestamp cur_time = 0;
     value time_val = get(t, s);
     if (time_val) {
         u64_from_value(time_val, &cur_time);
     }
     if (tim != cur_time) {
+        value new_time_val = value_from_u64(tim);
+        if (new_time_val == INVALID_ADDRESS)
+            return -ENOMEM;
+        set(t, s, new_time_val);
         if (time_val) {
             deallocate_value(time_val);
         }
-        time_val = value_from_u64(tim);
-        assert(time_val);
-        set(t, s, time_val);
     }
+    return 0;
 }
 
-void filesystem_set_atime(filesystem fs, tuple t, timestamp tim)
+int filesystem_set_atime(filesystem fs, tuple t, timestamp tim)
 {
-    filesystem_set_time(fs, t, sym(atime), tim);
+    return filesystem_set_time(fs, t, sym(atime), tim);
 }
 
-void filesystem_set_mtime(filesystem fs, tuple t, timestamp tim)
+int filesystem_set_mtime(filesystem fs, tuple t, timestamp tim)
 {
-    filesystem_set_time(fs, t, sym(mtime), tim);
+    return filesystem_set_time(fs, t, sym(mtime), tim);
 }
 
 u64 filesystem_get_rdev(filesystem fs, tuple t)
