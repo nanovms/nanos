@@ -1237,6 +1237,8 @@ closure_func_basic(fdesc_close, sysreturn, socket_close,
         }
         break;
     case SOCK_DGRAM:
+        /* Prevent the lwIP callback from being called after udp_remove(). */
+        udp_recv(s->info.udp.lw, 0, 0);
         udp_remove(s->info.udp.lw);
         break;
     }
