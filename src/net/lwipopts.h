@@ -184,7 +184,8 @@ int lwip_strncmp(const char *x, const char *y, unsigned long len);
 static inline void *calloc(size_t n, size_t s)
 {
     void *x =  lwip_allocate(n*s);
-    lwip_memset(x, 0, n*s);
+    if (x)
+        lwip_memset(x, 0, n*s);
     return x;
 }
 
