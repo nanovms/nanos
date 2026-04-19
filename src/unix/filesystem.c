@@ -655,6 +655,8 @@ static sysreturn xattr_check(filesystem fs, const char *name, sstring *name_ss)
 static sysreturn setxattr_internal(filesystem fs, tuple n, const char *name,
                                    const void *val, u64 size, int flags)
 {
+    if (fs->ro)
+        return -EROFS;
     sstring attr_name;
     sysreturn rv = xattr_check(fs, name, &attr_name);
     if (rv)
