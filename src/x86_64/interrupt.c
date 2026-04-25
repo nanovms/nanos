@@ -5,6 +5,8 @@
 #include <symtab.h>
 #include <drivers/acpi.h>
 
+extern boolean pvh_boot;
+
 //#define INT_DEBUG
 #ifdef INT_DEBUG
 #define int_debug(x, ...) do {tprintf(sym(int), 0, ss(x), ##__VA_ARGS__);} while(0)
@@ -212,7 +214,7 @@ void common_handler()
     if (handlers[i]) {
         ci->state = cpu_interrupt;
         apply(handlers[i]);
-        if (i >= INTERRUPT_VECTOR_START)
+        if (i >= INTERRUPT_VECTOR_START && !pvh_boot)
             lapic_eoi();
 
         /* enqueue interrupted user thread */
@@ -383,8 +385,9 @@ void init_interrupts(kernel_heaps kh)
     assert(v != INVALID_PHYSICAL);
     spurious_int_vector = v;
 
-    /* APIC initialization */
-    init_apic(kh);
+    /* APIC initialization, skip for PVH (Xen uses event channels) */
+    if (!pvh_boot)
+        init_apic(kh);
 }
 
 void triple_fault(void)
