@@ -116,7 +116,7 @@ void azure_instance_md_get(az_instance_md_handler complete)
         goto error;
     }
     buffer_init_from_string(&req_data->query,
-                            "/metadata/instance?api-version=2021-01-01&format=json");
+                            "/metadata/instance?api-version=2025-04-07&format=json");
     set(req, sym_this("url"), &req_data->query);
     buffer_init_from_string(&req_data->md_header, "true");
     set(req, sym_this("Metadata"), &req_data->md_header);
