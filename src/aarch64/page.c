@@ -119,6 +119,7 @@ void enable_mmu(u64 vtarget)
                  SCTLR_EL1_nTWI |
                  SCTLR_EL1_UCI |
                  SCTLR_EL1_UCT |
+                 SCTLR_EL1_DZE |
                  SCTLR_EL1_I |
                  SCTLR_EL1_C |
                  SCTLR_EL1_M);
