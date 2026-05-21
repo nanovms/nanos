@@ -199,3 +199,5 @@ static inline int net_ip_input_hook(struct pbuf *pbuf, struct netif *input_netif
         return 1;
     return 0;
 }
+
+#define LWIP_DHCP_CLASSLESS_STATIC_ROUTES  1
