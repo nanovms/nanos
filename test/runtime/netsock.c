@@ -156,6 +156,9 @@ static void netsock_test_basic(int sock_type)
 
         test_assert(getsockopt(tx_fd, SOL_SOCKET, SO_ACCEPTCONN, &val, &len) == 0 && val == 0);
         test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_MAXSEG, &val, &len) == 0 && val > 0);
+        test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_KEEPIDLE, &val, &len) == 0 && val > 0);
+        test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_KEEPINTVL, &val, &len) == 0 && val > 0);
+        test_assert(getsockopt(tx_fd, IPPROTO_TCP, TCP_KEEPCNT, &val, &len) == 0 && val > 0);
     } else {
         netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 1);
         netsock_toggle_and_check_sockopt(fd, SOL_SOCKET, SO_BROADCAST, 0);

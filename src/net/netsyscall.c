@@ -2784,6 +2784,15 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             runtime_memcpy(ret_optval.str, TCP_CONG_CTRL_ALGO, sizeof(TCP_CONG_CTRL_ALGO));
             ret_optlen = sizeof(ret_optval.str);
             break;
+        case TCP_KEEPIDLE:
+            ret_optval.val = TCP_KEEPIDLE_DEFAULT / THOUSAND;
+            break;
+        case TCP_KEEPINTVL:
+            ret_optval.val = TCP_KEEPINTVL_DEFAULT / THOUSAND;
+            break;
+        case TCP_KEEPCNT:
+            ret_optval.val = TCP_KEEPCNT_DEFAULT;
+            break;
         case TCP_CORK:
         case TCP_DEFER_ACCEPT:
         case TCP_QUICKACK:
