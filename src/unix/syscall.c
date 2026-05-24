@@ -842,6 +842,7 @@ int file_open(filesystem fs, tuple n, tuple parent, int flags, fsfile fsf)
 {
     thread t = current;
     process p = t->p;
+    int type = file_type_from_tuple(n);
 
     if (flags & O_TMPFILE)
         flags |= O_DIRECTORY;
@@ -860,18 +861,16 @@ int file_open(filesystem fs, tuple n, tuple parent, int flags, fsfile fsf)
         if (!(file_meta_perms(p, n) & ACCESS_PERM_WRITE)) {
             return -EACCES;
         }
-        if (is_dir(n) && !(flags & O_TMPFILE)) {
+        if ((type == FDESC_TYPE_DIRECTORY) && !(flags & O_TMPFILE)) {
             return -EISDIR;
         }
         break;
     default:
         return -EINVAL;
     }
-    if ((flags & (O_CREAT|O_DIRECTORY)) == O_DIRECTORY && !is_dir(n)) {
+    if ((flags & (O_CREAT|O_DIRECTORY)) == O_DIRECTORY && (type != FDESC_TYPE_DIRECTORY)) {
         return -ENOTDIR;
     }
-
-    int type;
 
     if (flags & O_TMPFILE) {
         int fss = filesystem_creat_unnamed(fs, &fsf);
@@ -879,7 +878,6 @@ int file_open(filesystem fs, tuple n, tuple parent, int flags, fsfile fsf)
             return fss;
         type = FDESC_TYPE_REGULAR;
     } else {
-        type = file_type_from_tuple(n);
         if (type == FDESC_TYPE_REGULAR) {
             assert(fsf);
             if (flags & O_TRUNC)
