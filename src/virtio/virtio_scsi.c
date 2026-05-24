@@ -204,7 +204,7 @@ static void virtio_scsi_enqueue_event(virtio_scsi s, virtio_scsi_event e, vqfini
         c = closure(s->v->virtio_dev.general, virtio_scsi_event_complete,
             s, e);
     virtqueue vq = s->eventq;
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 1);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vq, m, physical_from_virtual(e), sizeof(*e), true);
     vqmsg_commit(vq, m, c);
@@ -256,7 +256,7 @@ static void virtio_scsi_enqueue_request(virtio_scsi s, virtio_scsi_request r,
     vqfinish f = closure(s->v->virtio_dev.general, virtio_scsi_request_complete,
         c, s, r, r_phys);
     virtqueue vq = s->requestq;
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 3);
     assert(m != INVALID_ADDRESS);
 
     vqmsg_push(vq, m, r_phys + offsetof(virtio_scsi_request, req), sizeof(r->req), false);
@@ -320,8 +320,12 @@ static void virtio_scsi_io_commit(virtio_scsi s, virtqueue vq, vqmsg msg, boolea
                                   virtio_scsi_request r, u64 r_phys, status_handler completion)
 {
     heap h = s->v->virtio_dev.general;
-    if (write)
-        vqmsg_push(vq, msg, r_phys + offsetof(virtio_scsi_request, resp), sizeof(r->resp), true);
+    if (write &&
+        !vqmsg_push(vq, msg, r_phys + offsetof(virtio_scsi_request, resp), sizeof(r->resp), true)) {
+        deallocate_vqmsg(vq, msg);
+        apply(completion, timm_oom);
+        return;
+    }
     vsr_complete c = closure(h, virtio_scsi_io_done, completion);
     assert(c != INVALID_ADDRESS);
     vqfinish f = closure(h, virtio_scsi_request_complete, c, s, r, r_phys);
@@ -349,7 +353,7 @@ static void virtio_scsi_io_sg(virtio_scsi_disk d, boolean write, sg_list sg, ran
                                           write ? SCSI_CMD_WRITE_16 : SCSI_CMD_READ_16, &r_phys);
             cdb = (struct scsi_cdb_readwrite_16 *)r->req.cdb;
             cdb->addr = htobe64(blocks.start);
-            msg = allocate_vqmsg(vq);
+            msg = allocate_vqmsg(vq, 3);
             assert(msg != INVALID_ADDRESS);
             vqmsg_push(vq, msg, r_phys + offsetof(virtio_scsi_request, req), sizeof(r->req), false);
             if (!write)
@@ -364,7 +368,13 @@ static void virtio_scsi_io_sg(virtio_scsi_disk d, boolean write, sg_list sg, ran
         length = MIN(range_span(blocks) * d->block_size, length);
         if (d->max_xfer_len)
             length = MIN((d->max_xfer_len - req_blocks) * d->block_size, length);
-        vqmsg_push(vq, msg, physical_from_virtual(sgb->buf + sgb->offset), length, !write);
+        if (!vqmsg_push(vq, msg, physical_from_virtual(sgb->buf + sgb->offset), length, !write)) {
+            deallocate_vqmsg(vq, msg);
+            if (m)
+                sh = apply_merge(m);
+            apply(sh, timm_oom);
+            return;
+        }
         sg_consume(sg, length);
         desc_blocks = length / d->block_size;
         req_blocks += desc_blocks;

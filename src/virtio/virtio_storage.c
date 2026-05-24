@@ -156,7 +156,7 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
         return;
     }
     virtqueue vq = st->command;
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 3);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vq, m, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
     vqmsg_push(vq, m, physical_from_virtual(buf), nsectors * st->block_size, !write);
@@ -173,7 +173,12 @@ static inline void storage_rw_internal(storage st, boolean write, void * buf,
 static void virtio_storage_io_commit(storage st, virtqueue vq, vqmsg msg, virtio_blk_req req,
                                      u64 req_phys, status_handler completion)
 {
-    vqmsg_push(vq, msg, req_phys + VIRTIO_BLK_REQ_HEADER_SIZE, VIRTIO_BLK_REQ_STATUS_SIZE, true);
+    if (!vqmsg_push(vq, msg, req_phys + VIRTIO_BLK_REQ_HEADER_SIZE, VIRTIO_BLK_REQ_STATUS_SIZE,
+                    true)) {
+        deallocate_vqmsg(vq, msg);
+        apply(completion, timm_oom);
+        return;
+    }
     vqfinish c = closure(st->v->general, complete, st, completion, req, req_phys);
     assert(c != INVALID_ADDRESS);
     vqmsg_commit(vq, msg, c);
@@ -198,7 +203,7 @@ static void virtio_storage_io_sg(storage st, boolean write, sg_list sg, range bl
                 apply(sh, timm_oom);
                 return;
             }
-            msg = allocate_vqmsg(vq);
+            msg = allocate_vqmsg(vq, 3);
             assert(msg != INVALID_ADDRESS);
             vqmsg_push(vq, msg, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
             desc_count = 0;
@@ -207,7 +212,13 @@ static void virtio_storage_io_sg(storage st, boolean write, sg_list sg, range bl
         u64 length = sg_buf_len(sgb);
         assert((length & (st->block_size - 1)) == 0);
         length = MIN(range_span(blocks) * st->block_size, length);
-        vqmsg_push(vq, msg, physical_from_virtual(sgb->buf + sgb->offset), length, !write);
+        if (!vqmsg_push(vq, msg, physical_from_virtual(sgb->buf + sgb->offset), length, !write)) {
+            deallocate_vqmsg(vq, msg);
+            if (m)
+                sh = apply_merge(m);
+            apply(sh, timm_oom);
+            return;
+        }
         sg_consume(sg, length);
         blocks.start += length / st->block_size;
         if (++desc_count == st->seg_max) {
@@ -236,7 +247,7 @@ static void storage_flush(storage st, status_handler s)
         return;
     }
     virtqueue vq = st->command;
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 2);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vq, m, req_phys, VIRTIO_BLK_REQ_HEADER_SIZE, false);
     vqmsg_push(vq, m, req_phys + VIRTIO_BLK_REQ_HEADER_SIZE, VIRTIO_BLK_REQ_STATUS_SIZE, true);

@@ -109,11 +109,10 @@ typedef struct virtqueue {
     vqmsg msgs[0];
 } *virtqueue;
 
-/* Most uses here are a chain of 3 or less descriptors. */
-#define VQMSG_DEFAULT_SIZE     3
-vqmsg allocate_vqmsg(virtqueue vq)
+vqmsg allocate_vqmsg(virtqueue vq, int num_desc)
 {
     vqmsg m;
+    bytes buf_len = sizeof(struct vring_desc) * num_desc;
     u64 irqflags = spin_lock_irq(&vq->lock);
     list l = list_get_next(&vq->free_msgs);
     if (!l) {
@@ -122,16 +121,21 @@ vqmsg allocate_vqmsg(virtqueue vq)
         m = allocate(h, sizeof(struct vqmsg));
         if (m == INVALID_ADDRESS)
             return INVALID_ADDRESS;
-        m->descv = allocate_buffer(h, sizeof(struct vring_desc) * VQMSG_DEFAULT_SIZE);
+        m->descv = allocate_buffer(h, buf_len);
         if (m->descv == INVALID_ADDRESS) {
             deallocate(h, m, sizeof(struct vqmsg));
             return INVALID_ADDRESS;
         }
     } else {
         m = struct_from_list(l, vqmsg, l);
+        buffer_clear(m->descv);
+        if ((buffer_space(m->descv) < buf_len) &&
+            (buffer_set_capacity(m->descv, buf_len) != buf_len)) {
+            spin_unlock_irq(&vq->lock, irqflags);
+            return INVALID_ADDRESS;
+        }
         list_delete(l);
         spin_unlock_irq(&vq->lock, irqflags);
-        buffer_clear(m->descv);
     }
     list_init(&m->l);
     m->count = 0;
@@ -139,9 +143,10 @@ vqmsg allocate_vqmsg(virtqueue vq)
     return m;
 }
 
-void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
+boolean vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
 {
-    assert(buffer_extend(m->descv, sizeof(struct vring_desc)));
+    if (!buffer_extend(m->descv, sizeof(struct vring_desc)))
+        return false;
     struct vring_desc * d = buffer_ref(m->descv, m->count * sizeof(struct vring_desc));
     d->busaddr = phys_addr;
     d->len = len;
@@ -151,6 +156,7 @@ void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write)
     m->count++;
     virtqueue_debug_verbose("%s: vq %s, vqmsg %p, phys_addr 0x%lx, len 0x%x, %s, m->count now %d\n",
                             func_ss, vq->name, m, phys_addr, len, write ? "write" : "read", m->count);
+    return true;
 }
 
 static void virtqueue_fill(virtqueue vq);
@@ -170,6 +176,13 @@ void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno, 
     list_push_back(&vq->msg_queue, &m->l);
     if (kick)
         virtqueue_fill(vq);
+    spin_unlock_irq(&vq->lock, irqflags);
+}
+
+void deallocate_vqmsg(virtqueue vq, vqmsg m)
+{
+    u64 irqflags = spin_lock_irq(&vq->lock);
+    list_insert_after(&vq->free_msgs, &m->l);
     spin_unlock_irq(&vq->lock, irqflags);
 }
 

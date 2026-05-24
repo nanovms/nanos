@@ -115,14 +115,16 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     vnet vn = netif->state;
 
     virtqueue txq = vn->txq_map[current_cpu()->id];
-    vqmsg m = allocate_vqmsg(txq);
+    vqmsg m = allocate_vqmsg(txq, 2);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(txq, m, vn->empty_phys, vn->net_header_len, false);
 
-    pbuf_ref(p);
-
     for (struct pbuf * q = p; q != NULL; q = q->next)
-        vqmsg_push(txq, m, physical_from_virtual(q->payload), q->len, false);
+        if (!vqmsg_push(txq, m, physical_from_virtual(q->payload), q->len, false)) {
+            deallocate_vqmsg(txq, m);
+            return ERR_MEM;
+        }
+    pbuf_ref(p);
 
     vqmsg_commit(txq, m, closure((heap)vn->txhandlers, tx_complete, p));
     
@@ -144,20 +146,20 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
 static vqmsg vnet_rxq_push(vnet vn, xpbuf x, int *desc_count)
 {
     virtqueue rxq = x->rx->q;
-    vqmsg m = allocate_vqmsg(rxq);
+    boolean modern = vtdev_is_modern(vn->dev) || (vn->dev->features & VIRTIO_F_ANY_LAYOUT);
+    *desc_count = modern ? 1 : 2;
+    vqmsg m = allocate_vqmsg(rxq, *desc_count);
     if (m == INVALID_ADDRESS)
         return m;
     int rxbuflen = vn->rxbuflen;
     pbuf_alloced_custom(PBUF_RAW, rxbuflen, PBUF_REF, &x->p, x + 1, rxbuflen);
     u64 phys = physical_from_virtual(x + 1);
-    if (vtdev_is_modern(vn->dev) || (vn->dev->features & VIRTIO_F_ANY_LAYOUT)) {
+    if (modern) {
         vqmsg_push(rxq, m, phys, rxbuflen, true);
-        *desc_count = 1;
     } else {
         int header_len = vn->net_header_len;
         vqmsg_push(rxq, m, phys, header_len, true);
         vqmsg_push(rxq, m, phys + header_len, rxbuflen - header_len, true);
-        *desc_count = 2;
     }
     return m;
 }
@@ -348,7 +350,7 @@ static boolean vnet_ctrl_cmd(vnet vn, u8 class, u8 cmd, void *data, u32 data_len
     if (command == INVALID_ADDRESS)
         return false;
     virtqueue vq = vn->ctl;
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 3);
     if (m == INVALID_ADDRESS) {
         deallocate(h, command, sizeof(*command));
         return false;

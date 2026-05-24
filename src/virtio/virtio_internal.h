@@ -130,9 +130,9 @@ void virtqueue_set_polling(virtqueue vq, boolean enable);
 
 typedef struct vqmsg *vqmsg;
 
-vqmsg allocate_vqmsg(virtqueue vq);
+vqmsg allocate_vqmsg(virtqueue vq, int num_desc);
 void deallocate_vqmsg(virtqueue vq, vqmsg m);
-void vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write);
+boolean vqmsg_push(virtqueue vq, vqmsg m, u64 phys_addr, u32 len, boolean write);
 void vqmsg_commit_seqno(virtqueue vq, vqmsg m, vqfinish completion, u32 *seqno, boolean kick);
 #define vqmsg_commit(vq, m, completion) vqmsg_commit_seqno(vq, m, completion, 0, true)
 void virtqueue_kick(virtqueue vq);

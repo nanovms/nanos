@@ -173,7 +173,7 @@ static u64 virtio_balloon_inflate(u64 n_balloon_pages)
             break;
         }
 
-        vqmsg m = allocate_vqmsg(vq);
+        vqmsg m = allocate_vqmsg(vq, 1);
         assert(m != INVALID_ADDRESS);
         vqmsg_push(vq, m, bp->phys, sizeof(bp->addrs), false);
         vqfinish c = closure(virtio_balloon.general, inflate_complete, bp);
@@ -262,7 +262,7 @@ static u64 virtio_balloon_deflate(u64 n_balloon_pages, boolean sync)
             if (work == INVALID_ADDRESS)
                 break;
         }
-        vqmsg m = allocate_vqmsg(vq);
+        vqmsg m = allocate_vqmsg(vq, 1);
         if (m == INVALID_ADDRESS) {
             if (!sync)
                 deallocate(h, work, sizeof(*work));
@@ -394,7 +394,7 @@ closure_func_basic(vqfinish, void, virtio_balloon_enqueue_stats,
     write_stat(VIRTIO_BALLOON_S_HTLB_PGALLOC, 0);
     write_stat(VIRTIO_BALLOON_S_HTLB_PGFAIL, 0);
 
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 1);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vq, m, virtio_balloon.stats_phys,
                sizeof(struct virtio_balloon_stat) * virtio_balloon.next_tag, false);
@@ -410,7 +410,7 @@ static void virtio_balloon_init_statsq(void)
 
     vqfinish c = closure_func(virtio_balloon.general, vqfinish, virtio_balloon_enqueue_stats);
     assert(c != INVALID_ADDRESS);
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 1);
     assert(m != INVALID_ADDRESS);
     vqmsg_push(vq, m, virtio_balloon.stats_phys,
                8 /* arbitrary; zero-len queue not allowed */, false);

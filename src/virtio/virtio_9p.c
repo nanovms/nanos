@@ -56,7 +56,7 @@ static u32 v9p_request(virtio_9p v9p, u64 req_phys, u32 req_len, u64 resp_phys, 
     vqfinish finish = closure(v9p->general, v9p_req_complete, ctx, &ret_len);
     if (finish == INVALID_ADDRESS)
         return 0;
-    vqmsg m = allocate_vqmsg(v9p->vq);
+    vqmsg m = allocate_vqmsg(v9p->vq, 2);
     if (m == INVALID_ADDRESS) {
         deallocate_closure(finish);
         return 0;
@@ -431,7 +431,7 @@ int v9p_readdir(void *priv, u32 fid, u64 offset, void *buf, u32 count, u32 *ret_
         s = -ENOMEM;
         goto out;
     }
-    vqmsg m = allocate_vqmsg(v9p->vq);
+    vqmsg m = allocate_vqmsg(v9p->vq, 3);
     if (m == INVALID_ADDRESS) {
         deallocate_closure(finish);
         s = -ENOMEM;
@@ -715,7 +715,7 @@ void v9p_read(void *priv, u32 fid, u64 offset, u32 count, void *dest, status_han
         s = timm("result", "failed to allocate vqfinish");
         goto dealloc_req;
     }
-    vqmsg m = allocate_vqmsg(v9p->vq);
+    vqmsg m = allocate_vqmsg(v9p->vq, 3);
     if (m == INVALID_ADDRESS) {
         s = timm("result", "failed to allocate vqmsg");
         deallocate_closure(finish);
@@ -779,7 +779,7 @@ void v9p_write(void *priv, u32 fid, u64 offset, u32 count, void *src, status_han
         s = timm("result", "failed to allocate vqfinish");
         goto dealloc_req;
     }
-    vqmsg m = allocate_vqmsg(v9p->vq);
+    vqmsg m = allocate_vqmsg(v9p->vq, 3);
     if (m == INVALID_ADDRESS) {
         s = timm("result", "failed to allocate vqmsg");
         deallocate_closure(finish);

@@ -214,7 +214,7 @@ static boolean virtio_sock_tx_hdr(virtio_sock vs, virtio_sock_connection conn, u
     hdr->fwd_cnt = conn->fwd_cnt;
     virtio_sock_debug("tx op %d, fwd_cnt %d", op, hdr->fwd_cnt);
     virtqueue vq = vs->txq;
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 1);
     if (m == INVALID_ADDRESS) {
         dealloc_unmap(vs->backed, txbuf, phys, sizeof(*txbuf) + sizeof(*hdr));
         return false;
@@ -357,7 +357,7 @@ static boolean virtio_sock_rxq_submit(virtio_sock vs)
         virtio_sock_rxbuf rxbuf = alloc_map(vs->backed, VIRTIO_SOCK_RXBUF_SIZE, &phys);
         if (rxbuf == INVALID_ADDRESS)
             break;
-        vqmsg m = allocate_vqmsg(vq);
+        vqmsg m = allocate_vqmsg(vq, 2);
         if (m == INVALID_ADDRESS) {
             dealloc_unmap(vs->backed, rxbuf, phys, VIRTIO_SOCK_RXBUF_SIZE);
             break;
@@ -461,7 +461,7 @@ boolean virtio_sock_tx(vsock_connection conn, void *data)
     hdr->fwd_cnt = c->fwd_cnt;
     virtio_sock_debug("tx data, fwd_cnt %d", hdr->fwd_cnt);
     virtqueue vq = vs->txq;
-    vqmsg m = allocate_vqmsg(vq);
+    vqmsg m = allocate_vqmsg(vq, 2);
     if (m == INVALID_ADDRESS)
         return false;
     c->tx_cnt += hdr->len;
