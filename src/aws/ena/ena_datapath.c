@@ -30,6 +30,7 @@
 
 #include <kernel.h>
 #include <lwip.h>
+#include <net/net.h>
 #include <pci.h>
 
 #include "ena.h"
@@ -420,6 +421,7 @@ static int ena_rx_cleanup(struct ena_ring *rx_ring)
 
         rx_ring->rx_stats.bytes += mbuf->tot_len;
         adapter->hw_stats.rx_bytes += mbuf->tot_len;
+        mbuf->napi_id = net_get_napi_id(ifp->num, qid);
 
         ena_trace(NULL, ENA_DBG | ENA_RXPTH, "calling if_input() with mbuf %p\n", mbuf);
         (*ifp->input)(mbuf, ifp);

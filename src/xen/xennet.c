@@ -16,6 +16,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/etharp.h"
 #include "lwip/snmp.h"
+#include "net/net.h"
 #include "netif/ethernet.h"
 
 #undef memset                   /* ugh, lwIP */
@@ -634,6 +635,7 @@ closure_function(1, 0, void, xennet_rx_service_bh,
             xennet_rx_buf rxb = struct_from_list(i, xennet_rx_buf, l);
             list_delete(i);
             struct netif *n = &xd->ndev.n;
+            rxb->p.pbuf.napi_id = net_get_napi_id(n->num, 0);
             err_enum_t err = n->input((struct pbuf *)&rxb->p, n);
             if (err != ERR_OK) {
                 msg_err("xennet: rx drop by stack, err %d", err);

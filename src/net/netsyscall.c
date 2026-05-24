@@ -85,6 +85,7 @@ typedef struct netsock {
     struct sock sock;             /* must be first */
     process p;
     queue incoming;
+    int napi_id;
     err_t lwip_error;             /* lwIP error code; ERR_OK if normal */
     u8 ipv6only:1;
     union {
@@ -430,6 +431,14 @@ static void netsock_tcp_close(netsock s, struct tcp_pcb *tcp_lw)
         s->info.tcp.state = TCP_SOCK_UNDEFINED;
     }
     netsock_unlock(s);
+}
+
+static void netsock_set_napi_id(netsock s, struct pbuf *p)
+{
+    int id = p->napi_id;
+
+    if ((id & NET_NAPI_ID_MAGIC_MASK) == NET_NAPI_ID_MAGIC)
+        s->napi_id = id;
 }
 
 static inline s64 lwip_to_errno(s8 err)
@@ -1368,6 +1377,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
 	e->rport = port;
 	assert(enqueue(s->incoming, e));
 	s->sock.rx_len += p->tot_len;
+	netsock_set_napi_id(s, p);
 	wakeup_sock(s, WAKEUP_SOCK_RX);
     } else {
 	msg_err("%s error: null pbuf", func_ss);
@@ -1395,6 +1405,7 @@ static int allocate_sock(process p, int af, int type, u32 flags, boolean alloc_f
     s->sock.f.events = init_closure_func(&s->events, fdesc_events, socket_events);
     s->sock.f.ioctl = init_closure_func(&s->ioctl, fdesc_ioctl, netsock_ioctl);
     s->p = p;
+    s->napi_id = 0;
 
     s->incoming = allocate_queue(h, SOCK_QUEUE_LEN);
     if (s->incoming == INVALID_ADDRESS) {
@@ -1545,6 +1556,7 @@ static err_t tcp_input_lower(void *z, struct tcp_pcb *pcb, struct pbuf *p, err_t
             return ERR_BUF;     /* XXX verify */
         }
         s->sock.rx_len += p->tot_len;
+        netsock_set_napi_id(s, p);
     }
     wakeup_sock(s, WAKEUP_SOCK_RX);
 
@@ -2739,6 +2751,9 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             break;
         case SO_DOMAIN:
             ret_optval.val = s->sock.domain;
+            break;
+        case SO_INCOMING_NAPI_ID:
+            ret_optval.val = s->napi_id;
             break;
         default:
             goto unimplemented;

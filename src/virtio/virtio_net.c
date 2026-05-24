@@ -43,6 +43,7 @@
 #include "lwip/dhcp.h"
 #include "lwip/inet_chksum.h"
 #include "lwip/timeouts.h"
+#include "net/net.h"
 #include "netif/ethernet.h"
 #include "virtio_internal.h"
 #include "virtio_mmio.h"
@@ -64,6 +65,7 @@
 typedef struct vnet_rx {
     virtqueue q;
     u32 seqno;
+    u16 idx;
     struct virtio_net_hdr_mrg_rxbuf *hdr;
 } *vnet_rx;
 
@@ -279,8 +281,10 @@ closure_func_basic(vqfinish, void, vnet_input,
             err = true;
         }
     }
-    if (!err)
+    if (!err) {
+        x->p.pbuf.napi_id = net_get_napi_id(vn->ndev.n.num, rx->idx);
         err = (vn->ndev.n.input(&x->p.pbuf, &vn->ndev.n) != ERR_OK);
+    }
   out:
     if (err)
         receive_buffer_release(&x->p.pbuf);
@@ -466,6 +470,7 @@ closure_func_basic(netif_dev_setup, boolean, virtio_net_setup,
         rx[i].q = vq;
         rx[i].seqno = 0;
         rx[i].hdr = 0;
+        rx[i].idx = i;
         rxq_entries += virtqueue_entries(vq);
         vq_index++;
         s = virtio_alloc_vq_aff(dev, ss("virtio net tx"), vq_index, cpu_affinity, &vq);

@@ -8,6 +8,7 @@
 #include <lwip/stats.h>
 #include <lwip/snmp.h>
 #include <lwip/etharp.h>
+#include <net/net.h>
 #include <netif/ethernet.h>
 #include "hv_net_vsc.h"
 #include "hv_rndis.h"
@@ -402,6 +403,7 @@ netvsc_recv(struct hv_device *device_ctx, netvsc_packet *packet)
             vaddr + packet->page_buffers[i].gpa_ofs);
     }
 
+    x->p.pbuf.napi_id = net_get_napi_id(n->num, 0);
     err_enum_t err = n->input((struct pbuf *)x, n);
     if (err != ERR_OK) {
         msg_err("netvsc: rx drop by stack, err %d", err);

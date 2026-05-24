@@ -56,6 +56,9 @@
 /* Must be a type on which atomic operations are supported by the CPU. */
 #define LWIP_PBUF_REF_T u32_t
 
+#define LWIP_PBUF_CUSTOM_DATA   \
+    int napi_id;    \
+
 #define LWIP_CHKSUM_ALGORITHM   3
 
 #define LWIP_WND_SCALE 1

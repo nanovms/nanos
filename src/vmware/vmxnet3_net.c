@@ -9,6 +9,7 @@
 #include "lwip/ethip6.h"
 #include "lwip/etharp.h"
 #include "lwip/dhcp.h"
+#include <net/net.h>
 #include <pci.h>
 #include "netif/ethernet.h"
 #include "vmware.h"
@@ -251,6 +252,7 @@ closure_function(1, 0, void, vmxnet3_rx_service_bh,
             xpbuf rxb = struct_from_list(i, xpbuf, l);
             list_delete(i);
             struct netif *n = &vn->ndev.n;
+            rxb->p.pbuf.napi_id = net_get_napi_id(n->num, 0);
             err_enum_t err = n->input((struct pbuf *)rxb, n);
             if (err != ERR_OK) {
                 msg_err("vmxnet3: rx drop by stack, err %d", err);

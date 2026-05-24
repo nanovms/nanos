@@ -865,6 +865,7 @@ struct io_uring_params {
 #define SO_ACCEPTCONN   30
 #define SO_PROTOCOL     38
 #define SO_DOMAIN       39
+#define SO_INCOMING_NAPI_ID 56
 
 #define IP_TOS              1
 #define IP_TTL              2

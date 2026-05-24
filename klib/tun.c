@@ -222,6 +222,7 @@ closure_func_basic(file_io, sysreturn, tun_write,
     } while (q);
     context_clear_err(ctx);
     struct netif *n = &tun->ndev.n;
+    p->napi_id = net_get_napi_id(n->num, 0);
     n->input(p, n);
     if (!(tun->flags & IFF_NO_PI))
         len += sizeof(struct tun_pi);

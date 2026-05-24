@@ -70,6 +70,8 @@ static void *netsock_test_basic_thread(void *arg)
     struct sockaddr_in addr;
     uint8_t rx_buf[8 * KB];
     int rx;
+    int val;
+    socklen_t len = sizeof(val);
 
     fd = socket(AF_INET, sock_type, 0);
     test_assert(fd > 0);
@@ -81,6 +83,9 @@ static void *netsock_test_basic_thread(void *arg)
         rx = read(fd, rx_buf, sizeof(rx_buf));
         test_assert(rx >= 0);
     } while (rx > 0);
+    /* packets received from the loopback interface have a NAPI ID set to 0 */
+    test_assert(getsockopt(fd, SOL_SOCKET, SO_INCOMING_NAPI_ID, &val, &len) == 0);
+    test_assert((len == sizeof(val)) && (val == 0));
     test_assert(close(fd) == 0);
     if (sock_type == SOCK_STREAM) {
         /* Create a new connection to the server, to test resource deallocation for the new

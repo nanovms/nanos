@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <lwip.h>
 #include <lwip/prot/tcp.h>
+#include <net/net.h>
 #include <netif/ethernet.h>
 #include <pci.h>
 
@@ -569,6 +570,7 @@ closure_func_basic(thunk, void, gve_rx_service)
                 continue;
             }
         }
+        p->napi_id = net_get_napi_id(net_if->num, 0);
         err_t err = net_if->input(p, net_if);
         if (err != ERR_OK)
             pbuf_free(p);
