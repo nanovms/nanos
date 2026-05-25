@@ -124,6 +124,33 @@ void runtime_memcpy(void *a, const void *b, bytes len)
     }
 }
 
+#if defined(__aarch64__)
+void zero(void *x, bytes length)
+{
+    u8 *a = x;
+    bytes len = length;
+    u64 dczid;
+    asm volatile("mrs %0, DCZID_EL0" : "=r"(dczid));
+    if (!(dczid & (1u << 4))) {         /* DZP clear: DC ZVA not prohibited */
+        bytes block_size = 4ull << (dczid & 0xf); /* 64 B on Graviton2/Cortex-A72 */
+        bytes misalign = (u64)a & (block_size - 1);
+        bytes head = MIN(block_size - misalign, len);
+        memset_8(a, 0, head);
+        a += head;
+        len -= head;
+        bytes nblocks = len / block_size;
+        u8 *p = a;
+        while (nblocks--) {
+            asm volatile("dc zva, %0" :: "r"(p) : "memory");
+            p += block_size;
+        }
+        memset_8(p, 0, len & (block_size - 1));
+        return;
+    }
+    runtime_memset(a, 0, len);
+}
+#endif
+
 void runtime_memset(u8 *a, u8 b, bytes len)
 {
     if (len < sizeof(long)) {

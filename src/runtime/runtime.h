@@ -122,10 +122,14 @@ static inline void console_sstring(sstring s)
 
 #define check_flags_and_clear(x, f) ({boolean match = ((x) & (f)) != 0; (x) &= ~(f); match;})
 
+#if defined(__aarch64__)
+void zero(void *x, bytes length);
+#else
 static inline void zero(void *x, bytes length)
 {
     runtime_memset(x, 0, length);
 }
+#endif
 
 static inline void touch_memory(const void *x, bytes length)
 {
