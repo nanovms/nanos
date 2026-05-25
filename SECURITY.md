@@ -61,5 +61,9 @@ restricted operating modes.
 
 * No Shell
 
+
+## AI
+Do not submit AI made security reports. If you don't understand what you are submitting then it won't be looked at.
+
 To report security issues email security @ . We don't do PGP.
 (https://gist.github.com/rjhansen/67ab921ffb4084c865b3618d6955275f)
