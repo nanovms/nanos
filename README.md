@@ -315,3 +315,7 @@ NanoVMs offers [paid support plans](https://nanovms.com/services/subscription).
 If you need email or drift support you will need to sign up for a support plan.
 
 If you'd like more in-depth help reach out to the nanovms folks via drift or email engineering.
+
+# AI
+
+Please avoid submitting large AI made prs. If it's too large to review than it won't be reviwed. If you don't understand the code in the pr then it's not appropriate to submit.
