@@ -136,6 +136,7 @@ func testPackages(t *testing.T) {
 		{name: "go", dir: "go", request: "http://0.0.0.0:8080", elf: "main", prebuild: goPrebuild},
 		{name: "rust", dir: "rust", request: "http://0.0.0.0:8080", elf: "main", prebuild: rustPrebuild, nocross: true},
 	}
+	numCPU := runtime.GOMAXPROCS(0)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.skip {
@@ -163,9 +164,9 @@ func testPackages(t *testing.T) {
 				tt.prebuild(t)
 			}
 			if tt.elf != "" {
-				execcmd = fmt.Sprintf("ops run %s -c config.json --smp %d", tt.elf, runtime.NumCPU())
+				execcmd = fmt.Sprintf("ops run %s -c config.json --smp %d", tt.elf, numCPU)
 			} else {
-				execcmd = fmt.Sprintf("ops pkg load %s -c config.json --smp %d", tt.pkg, runtime.NumCPU())
+				execcmd = fmt.Sprintf("ops pkg load %s -c config.json --smp %d", tt.pkg, numCPU)
 			}
 			timeout := 120 * time.Second
 			if tt.request != "" {
