@@ -24,8 +24,9 @@ jobs:
 
       - name: Close PR
         if: steps.check_msg.outputs.match == 'true'
-        uses: peter-evans/close-pull-request@v3
+        uses: peter-evans/close-pull@v3
         with:
+          token: ${{ secrets.AUTO_CLOSE }}
           pull-request-number: ${{ github.event.pull_request.number }}
           comment: 'Closing this Pull Request automatically because it contains AI co-author attribution.'
           delete-branch: true
