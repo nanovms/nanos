@@ -48,6 +48,8 @@ SECTIONS
     {
         ro_after_init_start = .;
         *(.ro_after_init)
+        *(.got.plt)
+        *(.got)
         . = ALIGN(4096);
         ro_after_init_end = .;
         *(.data)
