@@ -23,10 +23,8 @@ jobs:
           fi
 
       - name: Close PR
-        if: steps.check_msg.outputs.match == 'true'
-        uses: peter-evans/close-pull@v3
-        with:
-          token: ${{ secrets.AUTO_CLOSE }}
-          pull-request-number: ${{ github.event.pull_request.number }}
-          comment: 'Closing this Pull Request automatically because it contains AI co-author attribution.'
-          delete-branch: true
+        if: (steps.check_msg.outputs.match == 'true' || contains(github.event.pull_request.body, '🤖'))
+        run: |
+          gh pr close ${{ github.event.pull_request.number }} --comment "bot"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
