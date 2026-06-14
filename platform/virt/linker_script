@@ -4,6 +4,14 @@ ENTRY(_start)
 
 INCLUDE klib-syms.lds
 
+PHDRS
+{
+        text PT_LOAD FLAGS(5);          /* R E */
+        rodata PT_LOAD FLAGS(4);        /* R   */
+        data PT_LOAD FLAGS(6);          /* RW  */
+        dynamic PT_DYNAMIC FLAGS(4);    /* R   */
+}
+
 SECTIONS
 {
         /* 0x40000000 - 0x401fffff: dtb
@@ -14,22 +22,14 @@ SECTIONS
         START = .;
 
         text_start = .;
-	.text :
-	{
-       	    *(.text)
-            *(.text.*)
-            . = ALIGN(4096);
-	}
+	.text : { *(.text) *(.text.*) . = ALIGN(4096); } :text
 	text_end = .;
 
-        .rodata :
-        {
-            *(.rodata)
-            *(.rodata.*)
-            *(.dynamic)
-            _DYNSYM = .;
-            *(.dynsym)
-        }
+        .rodata : { *(.rodata) *(.rodata.*) } :rodata
+
+        .dynamic : { *(.dynamic) } :rodata :dynamic
+
+        .dynsym : { _DYNSYM = .; *(.dynsym) } :rodata
 
         . = ALIGN(4096);
         READONLY_END = .;
@@ -42,7 +42,7 @@ SECTIONS
             ro_after_init_end = .;
             *(.data)
             *(.data.*)
-        }
+        } :data
 
         .bss ALIGN(4096):
         {
@@ -54,7 +54,7 @@ SECTIONS
             *(.bss)
             *(.bss.*)
             *(COMMON)
-        }
+        } :data
         . = ALIGN(4096);
         PROVIDE(bss_end = .);
 
