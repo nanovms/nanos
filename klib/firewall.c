@@ -596,6 +596,20 @@ static void firewall_destroy_rule(heap h, firewall_rule rule)
     deallocate(h, rule, sizeof(*rule));
 }
 
+static boolean firewall_rules_init(heap h, value rules)
+{
+    if (!is_composite(rules)) {
+        msg_err("firewall: invalid rules");
+        return false;
+    }
+    value rule_spec;
+    for (int i = 0; (rule_spec = get(rules, integer_key(i))); i++) {
+        if (!firewall_create_rule(h, rule_spec))
+            return false;
+    }
+    return true;
+}
+
 int init(status_handler complete)
 {
     tuple config = get(get_root_tuple(), sym(firewall));
@@ -605,20 +619,11 @@ int init(status_handler complete)
         msg_err("firewall: invalid configuration");
         return KLIB_INIT_FAILED;
     }
-    value rules = get(config, sym(rules));
-    if (!rules)
-        return KLIB_INIT_OK;
-    if (!is_composite(rules)) {
-        msg_err("firewall: invalid rules");
-        return KLIB_INIT_FAILED;
-    }
     list_init(&firewall.rules);
-    value rule_spec;
     heap h = heap_locked(get_kernel_heaps());
-    for (int i = 0; (rule_spec = get(rules, integer_key(i))); i++) {
-        if (!firewall_create_rule(h, rule_spec))
-            goto err_dealloc_rules;
-    }
+    value rules = get(config, sym_this("rules"));
+    if (rules && !firewall_rules_init(h, rules))
+        goto err_dealloc_rules;
     if (!list_empty(&firewall.rules))
         net_ip_input_filter = firewall_filter;
     return KLIB_INIT_OK;
