@@ -10,16 +10,23 @@
 #define STATE_HEADER 2
 #define STATE_VALUE 3
 #define STATE_BODY 4
+#define STATE_CHUNK_SIZE        5
+#define STATE_CHUNK_EXTENSION   6
+#define STATE_CHUNK_DATA        7
+#define STATE_CHUNK_CRLF        8
+#define STATE_CHUNK_FINAL_CRLF  9
 
 typedef struct http_parser {
     heap h;
     vector start_line;
     int state;
+    boolean chunked;
     buffer word;
     symbol s;
     tuple header;
     value_handler each;
     u64 content_length;
+    buffer body;
 } *http_parser;
 
 struct http_responder {
@@ -171,16 +178,20 @@ status send_http_response(http_responder out, tuple t, buffer c)
 static void reset_parser(http_parser p)
 {
     p->state = STATE_INIT;
+    p->chunked = false;
     p->header = allocate_tuple();
     p->word = allocate_buffer(p->h, 10);
     p->start_line = allocate_tagged_vector(3);
     p->content_length = 0;
+    p->body = 0;
 }
 
 static void cleanup_parser(http_parser p)
 {
     if (p->word != INVALID_ADDRESS)
         deallocate_buffer(p->word);
+    if (p->body)
+        deallocate_buffer(p->body);
     destruct_value(p->header, true);
 }
 
@@ -240,7 +251,16 @@ closure_function(1, 1, status, http_recv,
                 buffer_clear(p->word);
                 break;
             case '\n':
-                p->state = STATE_BODY;
+                if (p->chunked) {
+                    p->state = STATE_CHUNK_SIZE;
+                    p->body = allocate_buffer(p->h, KB);
+                    if (p->body == INVALID_ADDRESS)
+                        return timm_oom;
+                } else {
+                    p->state = STATE_BODY;
+                    p->body = p->word;
+                    p->word = INVALID_ADDRESS;
+                }
                 break;
             case '\r':
             case ':':
@@ -258,6 +278,9 @@ closure_function(1, 1, status, http_recv,
 
                     /* unconsume the bytes consumed by parse_int() */
                     p->word->start = 0;
+                } else if (p->s == sym(Transfer-Encoding)) {
+                    if (!buffer_compare_with_sstring_ci(p->word, ss("chunked")))
+                        p->chunked = true;
                 }
                 set(p->header, p->s, p->word);
                 p->word = allocate_buffer(p->h, 0);                
@@ -269,21 +292,61 @@ closure_function(1, 1, status, http_recv,
             break;
             
         case STATE_BODY:
-            push_u8(p->word, x);            
+            push_u8(p->body, x);
             --p->content_length;
+            break;
+
+        case STATE_CHUNK_SIZE:
+            switch (x) {
+            case ';':
+            case '\r':
+                if (!parse_int(p->word, 16, &p->content_length))
+                    msg_err("%s: failed to parse chunk size", func_ss);
+                buffer_clear(p->word);
+                if (x == '\r')
+                    p->state = STATE_CHUNK_EXTENSION;
+                break;
+            case '\n':
+                p->state = (p->content_length > 0) ? STATE_CHUNK_DATA : STATE_CHUNK_FINAL_CRLF;
+                break;
+            default:
+                push_u8(p->word, x);
+            }
+            break;
+
+        case STATE_CHUNK_EXTENSION:
+            if (x == '\n')
+                p->state = (p->content_length > 0) ? STATE_CHUNK_DATA : STATE_CHUNK_FINAL_CRLF;
+            break;
+
+        case STATE_CHUNK_DATA:
+            push_u8(p->body, x);
+            if (--p->content_length == 0)
+                p->state = STATE_CHUNK_CRLF;
+            break;
+
+        case STATE_CHUNK_CRLF:
+            if (x == '\n')
+                p->state = STATE_CHUNK_SIZE;
+            break;
+
+        case STATE_CHUNK_FINAL_CRLF:
+            if (x == '\n')
+                goto content_finish;
+            break;
         }
 
         if ((p->state == STATE_BODY) && (p->content_length == 0))
             goto content_finish;
     }
-    if ((p->state != STATE_BODY) || (p->content_length != 0))
+    if ((p->state != STATE_BODY && p->state != STATE_CHUNK_FINAL_CRLF) || (p->content_length != 0))
         /* Incomplete HTTP message; parsing can continue when the next packet arrives. */
         return STATUS_OK;
 
   content_finish:
     set(p->header, sym(start_line), p->start_line);
-    set(p->header, sym(content), p->word);
-    p->word = INVALID_ADDRESS;
+    set(p->header, sym(content), p->body);
+    p->body = 0;
     apply(p->each, p->header);
     if (b) {
         cleanup_parser(p);
