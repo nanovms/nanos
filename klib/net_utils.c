@@ -53,7 +53,7 @@ static void net_http_dns_cb(sstring hostname, const ip_addr_t *addr, void *callb
         if (!success)
             timm_dealloc(s);
     } else {
-        success = true;
+        success = false;
     }
     if (!success)
         net_http_dealloc(req_data);
