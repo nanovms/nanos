@@ -49,6 +49,7 @@ SRCS-ntp= \
 	$(KLIB_DIR)/ntp.c \
 
 SRCS-radar= \
+	$(KLIB_DIR)/net_utils.c \
 	$(KLIB_DIR)/radar.c \
 
 SRCS-sandbox= \

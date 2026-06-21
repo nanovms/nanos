@@ -11,7 +11,7 @@
 #define IFF_MULTICAST   (1 << 12)
 
 BSS_RO_AFTER_INIT static heap lwip_heap;
-BSS_RO_AFTER_INIT int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *input_netif);
+int (*net_ip_input_filter)(struct pbuf *pbuf, struct netif *input_netif);
 
 typedef struct net_complete {
     struct list l;

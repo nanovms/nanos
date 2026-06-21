@@ -1,6 +1,7 @@
 #include <kernel.h>
 #include <lwip.h>
 #include <lwip/prot/tcp.h>
+#include <radar.h>
 
 typedef struct firewall_rule {
     struct list l;
@@ -36,6 +37,15 @@ typedef struct firewall_constraint_buf {
     u64 len;    /* expressed in number of bits */
     u8 buf[0];
 } *firewall_constraint_buf;
+
+typedef struct fw_radar {
+    heap h;
+    struct buffer url;
+    closure_struct(value_handler, resp_handler);
+    struct timer retry_timer;
+    closure_struct(timer_handler, retry_func);
+    timestamp retry_backoff;
+}*fw_radar;
 
 static struct firewall {
     struct list rules;
@@ -610,6 +620,165 @@ static boolean firewall_rules_init(heap h, value rules)
     return true;
 }
 
+static boolean firewall_block_ip(heap h, sstring ip)
+{
+    ip_addr_t addr;
+    boolean ipv6;
+    if (ip4addr_aton(ip, &addr.u_addr.ip4)) {
+        ipv6 = false;
+    } else if (ip6addr_aton(ip, &addr.u_addr.ip6)) {
+        ipv6 = true;
+    } else {
+        msg_err("firewall: invalid IP address '%s'", ip);
+        return false;
+    }
+    firewall_rule rule = allocate(h, sizeof(*rule));
+    if (rule == INVALID_ADDRESS) {
+        msg_err("firewall: cannot allocate rule");
+        return false;
+    }
+    rule->l3_match = allocate_vector(h, 1);
+    if (rule->l3_match == INVALID_ADDRESS) {
+        msg_err("firewall: cannot allocate rule");
+        deallocate(h, rule, sizeof(*rule));
+        return false;
+    }
+    u64 byte_count = (ipv6 ? sizeof(ip6_addr_t) : sizeof(ip4_addr_t));
+    firewall_constraint_buf c = allocate(h, sizeof(*c) + byte_count);
+    if (c == INVALID_ADDRESS) {
+        msg_err("firewall: cannot allocate rule");
+        deallocate_vector(rule->l3_match);
+        deallocate(h, rule, sizeof(*rule));
+        return false;
+    }
+    rule->ip_version = ipv6 ? 6 : 4;
+    rule->l4_proto = 0;
+    rule->l4_match = 0;
+    c->c.type = FW_L3_SRC;
+    c->c.equals = true;
+    c->len = byte_count * 8;
+    runtime_memcpy(&c->buf, &addr, byte_count);
+    vector_push(rule->l3_match, c);
+    rule->drop = true;
+    list_push_back(&firewall.rules, &rule->l);
+    return true;
+}
+
+static void fw_radar_retry(fw_radar fwr)
+{
+    register_timer(kernel_timers, &fwr->retry_timer, CLOCK_ID_MONOTONIC, fwr->retry_backoff, false,
+                   0, (timer_handler)&fwr->retry_func);
+    if (fwr->retry_backoff < seconds(600))
+        fwr->retry_backoff <<= 1;
+}
+
+closure_func_basic(value_handler, void, fw_radar_handler,
+                   value v)
+{
+    fw_radar fwr = struct_from_closure(fw_radar, resp_handler);
+    if (!v) {
+        if (fwr->retry_backoff > seconds(2))
+            msg_err("firewall: cannot get rules from radar");
+        fw_radar_retry(fwr);
+        return;
+    }
+    value status_line = get(v, sym_this("start_line"));
+    buffer body = get(v, sym_this("content"));
+    if (!status_line || !body) {
+        msg_err("firewall: invalid response from radar");
+        goto done;
+    }
+    buffer status_code = get(status_line, integer_key(1));
+    if (!status_code || buffer_strcmp(status_code, "200")) {
+        msg_err("firewall: unexpected response from radar: %v", status_line);
+        goto done;
+    }
+    heap h = fwr->h;
+    while (buffer_length(body) > 0) {
+        /* skip leading whitespace/newlines */
+        char c = peek_char(body);
+        if (c == ' ' || c == '\r' || c == '\n' || c == '\t') {
+            buffer_consume(body, 1);
+            continue;
+        }
+
+        char *ptr = buffer_ref(body, 0);
+        bytes len = 0;
+        while (len < buffer_length(body)) {
+            char next = ptr[len];
+            if (next == '\n' || next == '\r' || next == ' ' || next == '\t')
+                break;
+            len++;
+        }
+        if (len > 0) {
+            if (!firewall_block_ip(h, isstring(ptr, len)))
+                break;
+            buffer_consume(body, len);
+        }
+    }
+    if (!list_empty(&firewall.rules))
+        net_ip_input_filter = firewall_filter;
+  done:
+    deallocate(fwr->h, fwr, sizeof(*fwr));
+}
+
+closure_func_basic(timer_handler, void, fw_radar_get,
+                   timestamp expiry, u64 overruns)
+{
+    if (overruns == timer_disabled)
+        return;
+    fw_radar fwr = struct_from_closure(fw_radar, retry_func);
+    status s = radar_get(&fwr->url,
+                         init_closure_func(&fwr->resp_handler, value_handler, fw_radar_handler));
+    if (!is_ok(s)) {
+        if (fwr->retry_backoff > seconds(2))
+            msg_err("firewall: cannot get rules from radar: %v", s);
+        timm_dealloc(s);
+        fw_radar_retry(fwr);
+    }
+}
+
+static boolean firewall_radar_init(heap h)
+{
+    fw_radar fwr = allocate(h, sizeof(*fwr));
+    if (fwr == INVALID_ADDRESS) {
+        msg_err("firewall: cannot allocate radar struct");
+        return false;
+    }
+    fwr->h = h;
+    buffer_init_from_string(&fwr->url, "/api/v1/threats");
+    init_timer(&fwr->retry_timer);
+    fwr->retry_backoff = seconds(1);
+    apply(init_closure_func(&fwr->retry_func, timer_handler, fw_radar_get), 0, 0);
+    return true;
+}
+
+static boolean firewall_rule_src_init(heap h, value src)
+{
+    if (is_string(src)) {
+        if (!buffer_strcmp(src, "radar"))
+            return firewall_radar_init(h);
+    }
+    msg_err("firewall: invalid dynamic rule source %v", src);
+    return false;
+}
+
+static boolean firewall_dyn_rules_init(heap h, value dyn_rules)
+{
+    if (!is_composite(dyn_rules)) {
+        msg_err("firewall: invalid dynamic rules");
+        return false;
+    }
+    if (get(dyn_rules, integer_key(1))) {
+        msg_err("firewall: only a single source of dynamic rules is supported");
+        return false;
+    }
+    value rule_src = get(dyn_rules, integer_key(0));
+    if (!rule_src)
+        return true;
+    return firewall_rule_src_init(h, rule_src);
+}
+
 int init(status_handler complete)
 {
     tuple config = get(get_root_tuple(), sym(firewall));
@@ -623,6 +792,9 @@ int init(status_handler complete)
     heap h = heap_locked(get_kernel_heaps());
     value rules = get(config, sym_this("rules"));
     if (rules && !firewall_rules_init(h, rules))
+        goto err_dealloc_rules;
+    value dyn_rules = get(config, sym_this("dynamic_rules"));
+    if (dyn_rules && !firewall_dyn_rules_init(h, dyn_rules))
         goto err_dealloc_rules;
     if (!list_empty(&firewall.rules))
         net_ip_input_filter = firewall_filter;

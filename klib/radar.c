@@ -1,9 +1,9 @@
 #include <kernel.h>
-#include <http.h>
 #include <lwip.h>
 #include <pagecache.h>
 #include <storage.h>
 #include <fs.h>
+#include <net_utils.h>
 #include <tls.h>
 
 #define RADAR_HOSTNAME  "radar.relayered.net"
@@ -431,6 +431,24 @@ closure_func_basic(status_handler, void, klog_dump_loaded,
     } else
         timm_dealloc(s);
     closure_finish();
+}
+
+status radar_get(string url, value_handler handler)
+{
+    struct net_http_req_params p;
+    p.host = ss(RADAR_HOSTNAME);
+    p.port = RADAR_PORT;
+    p.tls = true;
+    p.method = HTTP_REQUEST_METHOD_GET;
+    p.req = allocate_tuple();
+    if (p.req == INVALID_ADDRESS)
+        return timm_oom;
+    set(p.req, sym(url), url);
+    if (telemetry.auth_header)
+        set(p.req, sym(RADAR-KEY), telemetry.auth_header);
+    p.body = 0;
+    p.resp_handler = handler;
+    return net_http_req(&p);
 }
 
 int init(status_handler complete)
