@@ -62,9 +62,6 @@ typedef struct xen_platform_info {
     tuple       device_tree;
     struct list xenbus_list;
     struct list driver_list;
-
-    /* XXX could make generalized status */
-    boolean initialized;
 } *xen_platform_info;
 
 typedef struct xen_driver {
@@ -73,15 +70,14 @@ typedef struct xen_driver {
     xen_device_probe probe;
 } *xen_driver;
 
-struct xen_platform_info xen_info;
+static BSS_RO_AFTER_INIT xen_platform_info xen_info;
 
-#define xenstore_lock()     u64 _irqflags = spin_lock_irq(&xen_info.xenstore_lock)
-#define xenstore_unlock()   spin_unlock_irq(&xen_info.xenstore_lock, _irqflags)
-
+#define xenstore_lock()     u64 _irqflags = spin_lock_irq(&xen_info->xenstore_lock)
+#define xenstore_unlock()   spin_unlock_irq(&xen_info->xenstore_lock, _irqflags)
 
 boolean xen_detected(void)
 {
-    return xen_info.initialized;
+    return !!xen_info;
 }
 
 extern u64 hypercall_page;
@@ -89,8 +85,8 @@ extern u64 hypercall_page;
 closure_function(0, 0, void, xen_interrupt)
 {
     int vcpu = current_cpu()->id;
-    volatile struct shared_info *si = xen_info.shared_info;
-    volatile struct vcpu_info *vci = &xen_info.shared_info->vcpu_info[vcpu];
+    volatile struct shared_info *si = xen_info->shared_info;
+    volatile struct vcpu_info *vci = &si->vcpu_info[vcpu];
 
     xenint_debug("xen_interrupt enter");
     assert(vci->evtchn_upcall_pending);
@@ -110,7 +106,7 @@ closure_function(0, 0, void, xen_interrupt)
             bitmap_word_foreach_set(l2_pending, bit2, i2, l2_offset) {
                 (void)i2;
                 xenint_debug("  int %d pending", i2);
-                thunk handler = vector_get(&xen_info.evtchn_handlers, i2);
+                thunk handler = vector_get(&xen_info->evtchn_handlers, i2);
                 if (handler) {
                     xenint_debug("  evtchn %d: applying handler %p", i2, handler);
                     apply(handler);
@@ -128,7 +124,7 @@ closure_function(0, 0, void, xen_interrupt)
 
 void xen_register_evtchn_handler(evtchn_port_t evtchn, thunk handler)
 {
-    assert(vector_set(&xen_info.evtchn_handlers, evtchn, handler));
+    assert(vector_set(&xen_info->evtchn_handlers, evtchn, handler));
 }
 
 int xen_unmask_evtchn(evtchn_port_t evtchn)
@@ -142,7 +138,7 @@ int xen_unmask_evtchn(evtchn_port_t evtchn)
 
 int xen_close_evtchn(evtchn_port_t evtchn)
 {
-    vector_set(&xen_info.evtchn_handlers, evtchn, 0);
+    vector_set(&xen_info->evtchn_handlers, evtchn, 0);
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_close;
     eop.u.close.port = evtchn;
@@ -153,7 +149,7 @@ int xen_close_evtchn(evtchn_port_t evtchn)
 
 static boolean xen_grant_init(kernel_heaps kh, u32 features)
 {
-    struct gtab *gt = &xen_info.gtab;
+    struct gtab *gt = &xen_info->gtab;
     struct gnttab_query_size qs;
     qs.dom = DOMID_SELF;
     int rv = HYPERVISOR_grant_table_op(GNTTABOP_query_size, &qs, 1);
@@ -222,7 +218,7 @@ static boolean xen_grant_init(kernel_heaps kh, u32 features)
 /* optimization: create a gntref free list / fifo of sorts */
 grant_ref_t xen_grant_page_access(u16 domid, u64 phys, boolean readonly)
 {
-    struct gtab *gt = &xen_info.gtab;
+    struct gtab *gt = &xen_info->gtab;
     u64 ref = allocate_u64(gt->entry_heap, 1);
     if (ref == INVALID_PHYSICAL)
         return 0;
@@ -236,9 +232,9 @@ grant_ref_t xen_grant_page_access(u16 domid, u64 phys, boolean readonly)
 void xen_revoke_page_access(grant_ref_t ref)
 {
     assert(ref > 8 && ref != -1);
-    xen_info.gtab.table[ref].flags = 0;
+    xen_info->gtab.table[ref].flags = 0;
     memory_barrier();
-    deallocate_u64(xen_info.gtab.entry_heap, ref, 1);
+    deallocate_u64(xen_info->gtab.entry_heap, ref, 1);
 }
 
 /* Reportedly, Xen timers can fire up to 100us early. */
@@ -314,10 +310,10 @@ closure_func_basic(thunk, void, xenstore_evtchn_handler)
         xenstore_watch_event(msg);
     } else {
         /* unexpected message type: discard message data */
-        volatile struct xenstore_domain_interface *xsdi = xen_info.xenstore_interface;
+        volatile struct xenstore_domain_interface *xsdi = xen_info->xenstore_interface;
         xsdi->rsp_cons += msg->len;
         write_barrier();
-        xen_notify_evtchn(xen_info.xenstore_evtchn);
+        xen_notify_evtchn(xen_info->xenstore_evtchn);
     }
   out:
     xenstore_unlock();
@@ -360,7 +356,7 @@ static int xen_setup_vcpu(int vcpu, u64 shared_info_phys)
     evtchn_port_t timer_evtchn = eop.u.bind_virq.port;
     xen_debug("cpu %d timer event channel %d", vcpu, timer_evtchn);
     xen_register_evtchn_handler(timer_evtchn,
-                                closure_func(xen_info.h, thunk, xen_runloop_timer_handler));
+                                closure_func(xen_info->h, thunk, xen_runloop_timer_handler));
     assert(xen_unmask_evtchn(timer_evtchn) == 0);
     return 0;
 }
@@ -394,14 +390,13 @@ out:
 closure_func_basic(xenstore_watch_handler, void, xen_shutdown_watcher,
                    sstring path)
 {
-    async_apply_bh((thunk)&xen_info.shutdown_handler);
+    async_apply_bh((thunk)&xen_info->shutdown_handler);
 }
 
 boolean xen_detect(kernel_heaps kh)
 {
     u32 v[4];
-    xen_info.initialized = false;
-    xen_info.h = heap_locked(kh);
+    heap h = heap_locked(kh);
     xen_debug("checking for xen cpuid leaves");
     cpuid(XEN_CPUID_FIRST_LEAF, 0, v);
     if (!(v[1] == XEN_CPUID_SIGNATURE_EBX &&
@@ -457,6 +452,9 @@ boolean xen_detect(kernel_heaps kh)
         return false;
     }
 
+    xen_info = mem_alloc(h, sizeof(*xen_info), MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
+    xen_info->h = h;
+
     /* get store page, map it, and retrieve event channel */
     xen_debug("retrieving xenstore page");
     struct xen_hvm_param xen_hvm_param;
@@ -465,16 +463,16 @@ boolean xen_detect(kernel_heaps kh)
     rv = HYPERVISOR_hvm_op(HVMOP_get_param, &xen_hvm_param);
     if (rv < 0) {
         msg_err("xen: failed to get xenstore page address (rv %d)", rv);
-        return false;
+        goto out_dealloc_xen_info;
     }
-    xen_info.xenstore_paddr = xen_hvm_param.value << PAGELOG;
+    xen_info->xenstore_paddr = xen_hvm_param.value << PAGELOG;
 
-    xen_debug("xenstore page at phys 0x%lx; allocating virtual page and mapping", xen_info.xenstore_paddr);
-    xen_info.xenstore_interface = mem_alloc((heap)heap_virtual_page(kh), PAGESIZE,
+    xen_debug("xenstore page at phys 0x%lx; allocating virtual page", xen_info->xenstore_paddr);
+    xen_info->xenstore_interface = mem_alloc((heap)heap_virtual_page(kh), PAGESIZE,
                                             MEM_NOWAIT | MEM_NOFAIL);
-    map(u64_from_pointer(xen_info.xenstore_interface), xen_info.xenstore_paddr, PAGESIZE,
+    map(u64_from_pointer(xen_info->xenstore_interface), xen_info->xenstore_paddr, PAGESIZE,
         pageflags_writable(pageflags_memory()));
-    xen_debug("xenstore page mapped at %p", xen_info.xenstore_interface);
+    xen_debug("xenstore page mapped at %p", xen_info->xenstore_interface);
 
     xen_debug("retrieving store event channel");
     xen_hvm_param.domid = DOMID_SELF;
@@ -482,17 +480,17 @@ boolean xen_detect(kernel_heaps kh)
     rv = HYPERVISOR_hvm_op(HVMOP_get_param, &xen_hvm_param);
     if (rv < 0) {
         msg_err("xen: failed to get xenstore event channel (rv %d)", rv);
-        return false;
+        goto out_dealloc_xenstore;
     }
 
-    xen_info.xenstore_evtchn = xen_hvm_param.value;
-    xen_debug("event channel %ld, allocating and mapping shared info page", xen_info.xenstore_evtchn);
+    xen_info->xenstore_evtchn = xen_hvm_param.value;
+    xen_debug("event channel %ld, allocating and mapping shared info page", xen_info->xenstore_evtchn);
 
     heap shared_info_heap = (heap)heap_linear_backed(kh);
     void *shared_info = mem_alloc(shared_info_heap, PAGESIZE, MEM_ZERO | MEM_NOWAIT | MEM_NOFAIL);
     u64 shared_info_phys = physical_from_virtual(shared_info);
     assert(shared_info_phys != INVALID_PHYSICAL);
-    xen_info.shared_info = shared_info;
+    xen_info->shared_info = shared_info;
     xen_add_to_physmap_t xatp;
     xatp.domid = DOMID_SELF;
     xatp.space = XENMAPSPACE_shared_info;
@@ -514,7 +512,7 @@ boolean xen_detect(kernel_heaps kh)
     /* set up interrupt handling path */
     int irq = allocate_interrupt();
     xen_debug("interrupt vector %d; registering", irq);
-    register_interrupt(irq, closure(xen_info.h, xen_interrupt), ss("xen"));
+    register_interrupt(irq, closure(h, xen_interrupt), ss("xen"));
 
     xen_hvm_param.domid = DOMID_SELF;
     xen_hvm_param.index = HVM_PARAM_CALLBACK_IRQ;
@@ -531,42 +529,46 @@ boolean xen_detect(kernel_heaps kh)
     if (xen_setup_vcpu(0, shared_info_phys) < 0)
         goto out_deinit_evtchn_handlers;
 
-    register_platform_clock_timer(closure_func(xen_info.h, clock_timer, xen_runloop_timer),
-                                  closure(xen_info.h, xen_per_cpu_init, shared_info_phys));
+    register_platform_clock_timer(closure_func(h, clock_timer, xen_runloop_timer),
+                                  closure(h, xen_per_cpu_init, shared_info_phys));
 
     /* register pvclock (feature verified above) */
-    init_pvclock(xen_info.h, (struct pvclock_vcpu_time_info *)&xen_info.shared_info->vcpu_info[0].time,
-                 (struct pvclock_wall_clock *)&xen_info.shared_info->wc_version);
+    init_pvclock(h, (struct pvclock_vcpu_time_info *)&xen_info->shared_info->vcpu_info[0].time,
+                 (struct pvclock_wall_clock *)&xen_info->shared_info->wc_version);
 
     xen_debug("unmasking xenstore event channel");
-    spin_lock_init(&xen_info.xenstore_lock);
-    xen_register_evtchn_handler(xen_info.xenstore_evtchn,
-                                closure_func(xen_info.h, thunk, xenstore_evtchn_handler));
-    assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
+    spin_lock_init(&xen_info->xenstore_lock);
+    xen_register_evtchn_handler(xen_info->xenstore_evtchn,
+                                closure_func(h, thunk, xenstore_evtchn_handler));
+    assert(xen_unmask_evtchn(xen_info->xenstore_evtchn) == 0);
 
     if (!xen_grant_init(kh, features)) {
         msg_err("xen: failed to set up grant tables");
         goto out_deinit_evtchn_handlers;
     }
 
-    init_closure(&xen_info.shutdown_handler, xen_shutdown_handler, allocate_buffer(xen_info.h, 16));
+    init_closure(&xen_info->shutdown_handler, xen_shutdown_handler, allocate_buffer(h, 16));
     if (!is_ok(xenstore_watch(alloca_wrap_cstring("control/shutdown"),
-                              init_closure_func(&xen_info.shutdown_watcher, xenstore_watch_handler,
+                              init_closure_func(&xen_info->shutdown_watcher, xenstore_watch_handler,
                                                 xen_shutdown_watcher),
                               true)))
         msg_err("xen: failed to register shutdown handler");
 
     xen_debug("xen initialization complete");
-    list_init(&xen_info.driver_list);
-    xen_info.initialized = true;
+    list_init(&xen_info->driver_list);
     return true;
   out_deinit_evtchn_handlers:
     vector_deinit(&xen_info->evtchn_handlers);
   out_unregister_irq:
     unregister_interrupt(irq);
   out_dealloc_shared_page:
-    deallocate(shared_info_heap, xen_info.shared_info, PAGESIZE);
-    xen_info.shared_info = 0;
+    deallocate(shared_info_heap, xen_info->shared_info, PAGESIZE);
+  out_dealloc_xenstore:
+    unmap(u64_from_pointer(xen_info->xenstore_interface), PAGESIZE);
+    deallocate((heap)heap_virtual_page(kh), xen_info->xenstore_interface, PAGESIZE);
+  out_dealloc_xen_info:
+    deallocate(h, xen_info, sizeof(*xen_info));
+    xen_info = 0;
     return false;
 }
 
@@ -597,7 +599,7 @@ int xen_notify_evtchn(evtchn_port_t evtchn)
 /* returns bytes written; doesn't block */
 static s64 xenstore_write_internal(const void * data, s64 length)
 {
-    volatile struct xenstore_domain_interface *xsdi = xen_info.xenstore_interface;
+    volatile struct xenstore_domain_interface *xsdi = xen_info->xenstore_interface;
     if (length == 0)
         return 0;
     assert(length > 0);
@@ -620,7 +622,7 @@ static s64 xenstore_write_internal(const void * data, s64 length)
         write_barrier();
         xsdi->req_prod += nwrite;
         write_barrier();
-        int rv = xen_notify_evtchn(xen_info.xenstore_evtchn);
+        int rv = xen_notify_evtchn(xen_info->xenstore_evtchn);
         if (rv < 0) {
             result = rv;
             break;
@@ -633,7 +635,7 @@ static s64 xenstore_write_internal(const void * data, s64 length)
 
 static s64 xenstore_read_internal(buffer b, s64 length)
 {
-    volatile struct xenstore_domain_interface *xsdi = xen_info.xenstore_interface;
+    volatile struct xenstore_domain_interface *xsdi = xen_info->xenstore_interface;
     if (length == 0)
         return 0;
     assert(length > 0);
@@ -656,7 +658,7 @@ static s64 xenstore_read_internal(buffer b, s64 length)
         write_barrier();
         xsdi->rsp_cons += nread;
         write_barrier();
-        int rv = xen_notify_evtchn(xen_info.xenstore_evtchn);
+        int rv = xen_notify_evtchn(xen_info->xenstore_evtchn);
         if (rv < 0) {
             result = rv;
             break;
@@ -703,7 +705,7 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
 {
     status s = STATUS_OK;
     struct xsd_sockmsg msg;
-    buffer rbuf = allocate_buffer(xen_info.h, PAGESIZE); // XXX
+    buffer rbuf = allocate_buffer(xen_info->h, PAGESIZE);
     assert(rbuf != INVALID_ADDRESS);
     u32 len = request ? buffer_length(request) : 1;
     void * data = request ? buffer_ref(request, 0) : "";
@@ -758,7 +760,7 @@ status xenstore_sync_request(u32 tx_id, enum xsd_sockmsg_type type, buffer reque
 
 status xenstore_transaction_start(u32 *tx_id)
 {
-    buffer response = allocate_buffer(xen_info.h, 16);
+    buffer response = allocate_buffer(xen_info->h, 16);
     status s = xenstore_sync_request(0, XS_TRANSACTION_START, 0, response);
     if (!is_ok(s))
         goto out;
@@ -776,7 +778,7 @@ status xenstore_transaction_start(u32 *tx_id)
 status xenstore_transaction_end(u32 tx_id, boolean abort)
 {
     buffer request = alloca_wrap_buffer(abort ? "F" : "T", 2);
-    buffer response = allocate_buffer(xen_info.h, 8); /* for error capture */
+    buffer response = allocate_buffer(xen_info->h, 8);  /* for error capture */
     status s = xenstore_sync_request(tx_id, XS_TRANSACTION_END, request, response);
     deallocate_buffer(response);
     return s;
@@ -784,7 +786,7 @@ status xenstore_transaction_end(u32 tx_id, boolean abort)
 
 status xenstore_sync_printf(u32 tx_id, buffer path, sstring node, sstring format, ...)
 {
-    buffer request = allocate_buffer(xen_info.h, PAGESIZE);
+    buffer request = allocate_buffer(xen_info->h, PAGESIZE);
     assert(push_buffer(request, path));
     push_u8(request, '/');
     assert(buffer_write_sstring(request, node));
@@ -794,7 +796,7 @@ status xenstore_sync_printf(u32 tx_id, buffer path, sstring node, sstring format
     vbprintf(request, format, &a);
     xenstore_debug("%s: request: \"%b\"", func_ss, request);
 
-    buffer response = allocate_buffer(xen_info.h, 8); /* for error capture */
+    buffer response = allocate_buffer(xen_info->h, 8);  /* for error capture */
     status s = xenstore_sync_request(tx_id, XS_WRITE, request, response);
     deallocate_buffer(request);
     deallocate_buffer(response);
@@ -803,7 +805,7 @@ status xenstore_sync_printf(u32 tx_id, buffer path, sstring node, sstring format
 
 status xenstore_read_u64(u32 tx_id, buffer path, sstring node, u64 *result)
 {
-    buffer response = allocate_buffer(xen_info.h, 16);
+    buffer response = allocate_buffer(xen_info->h, 16);
     status s = xenstore_read_string(tx_id, path, node, response);
     if (!is_ok(s))
         goto out;
@@ -820,7 +822,7 @@ out:
 
 status xenstore_read_string(u32 tx_id, buffer path, sstring node, buffer response)
 {
-    buffer request = allocate_buffer(xen_info.h, 64);
+    buffer request = allocate_buffer(xen_info->h, 64);
     assert(push_buffer(request, path));
     push_u8(request, '/');
     assert(buffer_write_sstring(request, node));
@@ -837,7 +839,7 @@ status xenstore_read_string(u32 tx_id, buffer path, sstring node, buffer respons
 status xenstore_watch(buffer path, xenstore_watch_handler handler, boolean watch)
 {
     buffer request = little_stack_buffer(buffer_length(path) + 18);
-    buffer response = allocate_buffer(xen_info.h, 8);
+    buffer response = allocate_buffer(xen_info->h, 8);
     if (response == INVALID_ADDRESS)
         return timm("result", "failed to allocate memory");
     push_buffer(request, path);
@@ -1011,7 +1013,7 @@ closure_function(4, 2, boolean, xen_probe_id_each,
         return false;
     }
     xen_debug("driver match, id %d, value %v", id, v);
-    buffer frontend = allocate_buffer(xen_info.h, buffer_length(bound(name)) + 10);
+    buffer frontend = allocate_buffer(xen_info->h, buffer_length(bound(name)) + 10);
     bprintf(frontend, "device/%b/%d", bound(name), id);
     boolean bound = apply(bound(xd)->probe, (int)id, frontend, v);
     if (bound)
@@ -1028,7 +1030,7 @@ closure_function(1, 2, boolean, xen_probe_devices_each,
     assert(is_symbol(k));
     if (!is_tuple(v))
         return true;
-    list_foreach(&xen_info.driver_list, l) {
+    list_foreach(&xen_info->driver_list, l) {
         xen_driver xd = struct_from_list(l, xen_driver, l);
         /* XXX must be a cleaner way to compare symbols? */
         string name = symbol_string(k);
@@ -1043,13 +1045,13 @@ closure_function(1, 2, boolean, xen_probe_devices_each,
 
 static status xen_scan(void)
 {
-    status s = traverse_directory(xen_info.h, "device", &xen_info.device_tree);
+    status s = traverse_directory(xen_info->h, "device", &xen_info->device_tree);
     if (!is_ok(s))
         return s;
-    if (!xen_info.device_tree)
+    if (!xen_info->device_tree)
         return timm("result", "failed to parse directory");
-    xen_debug("scan result: %v", xen_info.device_tree);
-    iterate(xen_info.device_tree, stack_closure(xen_probe_devices_each, &s));
+    xen_debug("scan result: %v", xen_info->device_tree);
+    iterate(xen_info->device_tree, stack_closure(xen_probe_devices_each, &s));
     return s;
 }
 
@@ -1066,7 +1068,7 @@ closure_func_basic(xenstore_watch_handler, void, xen_watch_handler,
     }
     if (depth == 0)
         return;
-    async_apply_bh((thunk)&xen_info.scan_service);
+    async_apply_bh((thunk)&xen_info->scan_service);
 }
 
 closure_func_basic(thunk, void, xen_scan_service)
@@ -1074,13 +1076,13 @@ closure_func_basic(thunk, void, xen_scan_service)
     xenstore_debug("%s", func_ss);
 
     /* Avoid concurrent scans. */
-    if (atomic_test_and_set_bit(&xen_info.scanning, 0)) {
-        async_apply((thunk)&xen_info.scan_service);
+    if (atomic_test_and_set_bit(&xen_info->scanning, 0)) {
+        async_apply((thunk)&xen_info->scan_service);
         return;
     }
 
     status s = xen_scan();
-    atomic_clear_bit(&xen_info.scanning, 0);
+    atomic_clear_bit(&xen_info->scanning, 0);
     if (!is_ok(s)) {
         msg_warn("xen: cannot scan devices: %v", s);
         timm_dealloc(s);
@@ -1090,12 +1092,12 @@ closure_func_basic(thunk, void, xen_scan_service)
 status xen_probe_devices(void)
 {
     xen_debug("probing xen device tree from xenstored");
-    assert(xen_info.device_tree == 0);
+    assert(xen_info->device_tree == 0);
     status s = xen_scan();
     if (is_ok(s)) {
-        init_closure_func(&xen_info.scan_service, thunk, xen_scan_service);
+        init_closure_func(&xen_info->scan_service, thunk, xen_scan_service);
         s = xenstore_watch(alloca_wrap_cstring("device"),
-                           init_closure_func(&xen_info.watch_handler, xenstore_watch_handler,
+                           init_closure_func(&xen_info->watch_handler, xenstore_watch_handler,
                                              xen_watch_handler),
                            true);
         if (!is_ok(s)) {
@@ -1109,8 +1111,8 @@ status xen_probe_devices(void)
 
 void register_xen_driver(sstring name, xen_device_probe probe)
 {
-    xen_driver xd = mem_alloc(xen_info.h, sizeof(struct xen_driver), MEM_NOWAIT | MEM_NOFAIL);
+    xen_driver xd = mem_alloc(xen_info->h, sizeof(struct xen_driver), MEM_NOWAIT | MEM_NOFAIL);
     xd->name = name;
     xd->probe = probe;
-    list_insert_before(&xen_info.driver_list, &xd->l);
+    list_insert_before(&xen_info->driver_list, &xd->l);
 }
