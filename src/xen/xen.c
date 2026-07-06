@@ -32,13 +32,6 @@ status xenstore_watch(buffer path, xenstore_watch_handler handler, boolean watch
 typedef struct xen_platform_info {
     heap    h;                  /* general heap for internal use */
 
-    /* version and features */
-    u16     xen_major;
-    u16     xen_minor;
-    u32     last_leaf;
-    u32     msr_base;
-    u32     features;
-
     /* event channel interface / PV interrupts */
     volatile struct shared_info *shared_info;
 
@@ -85,10 +78,6 @@ struct xen_platform_info xen_info;
 #define xenstore_lock()     u64 _irqflags = spin_lock_irq(&xen_info.xenstore_lock)
 #define xenstore_unlock()   spin_unlock_irq(&xen_info.xenstore_lock, _irqflags)
 
-boolean xen_feature_supported(int feature)
-{
-    return (xen_info.features & U64_FROM_BIT(feature)) != 0;
-}
 
 boolean xen_detected(void)
 {
@@ -162,7 +151,7 @@ int xen_close_evtchn(evtchn_port_t evtchn)
 
 #define GTAB_RESERVED_ENTRIES 8
 
-static boolean xen_grant_init(kernel_heaps kh)
+static boolean xen_grant_init(kernel_heaps kh, u32 features)
 {
     struct gtab *gt = &xen_info.gtab;
     struct gnttab_query_size qs;
@@ -198,7 +187,7 @@ static boolean xen_grant_init(kernel_heaps kh)
 
     /* We have this feature on the platforms we care about now, but we
        can add support for the other case if need be. */
-    if (!xen_feature_supported(XENFEAT_auto_translated_physmap)) {
+    if (!(features & U32_FROM_BIT(XENFEAT_auto_translated_physmap))) {
         msg_err("%s error: auto translated physmap feature required", func_ss);
         goto fail_dealloc_heap;
     }
@@ -422,20 +411,16 @@ boolean xen_detect(kernel_heaps kh)
         return false;
     }
 
-    xen_info.last_leaf = v[0];
-
     cpuid(XEN_CPUID_LEAF(1), 0, v);
-    xen_info.xen_major = v[0] >> 16;
-    xen_info.xen_minor = v[0] & MASK(16);
-    xen_debug("xen version %d.%d detected", xen_info.xen_major, xen_info.xen_minor);
+    xen_debug("xen version %d.%d detected", v[0] >> 16, v[0] & MASK(16));
 
     cpuid(XEN_CPUID_LEAF(2), 0, v);
     if (v[0] != 1) {
         msg_err("xen reporting %d hypercall pages; not supported", v[0]);
         return false;
     }
-    xen_info.msr_base = v[1];
-    xen_debug("msr base 0x%x, features 1 0x%x, features 2 0x%x", xen_info.msr_base, v[2], v[3]);
+    u32 msr_base = v[1];
+    xen_debug("msr base 0x%x, features 1 0x%x, features 2 0x%x", msr_base, v[2], v[3]);
 
 #if 0
     cpuid(XEN_CPUID_LEAF(3), 0, v);
@@ -453,7 +438,7 @@ boolean xen_detect(kernel_heaps kh)
     /* install hypercall page */
     u64 hp_phys = physical_from_virtual(&hypercall_page);
     xen_debug("hypercall_page: v 0x%lx, p 0x%lx", u64_from_pointer(&hypercall_page), hp_phys);
-    write_msr(xen_info.msr_base, hp_phys);
+    write_msr(msr_base, hp_phys);
 
     /* get xen features */
     build_assert(XENFEAT_NR_SUBMAPS == 1);
@@ -464,10 +449,10 @@ boolean xen_detect(kernel_heaps kh)
         msg_err("xen: failed to get features map (rv %d)", rv);
         return false;
     }
-    xen_info.features = xfi.submap;
-    xen_debug("reported features map 0x%x", xen_info.features);
+    u32 features = xfi.submap;
+    xen_debug("reported features map 0x%x", features);
 
-    if (!xen_feature_supported(XENFEAT_hvm_safe_pvclock)) {
+    if (!(features & U32_FROM_BIT(XENFEAT_hvm_safe_pvclock))) {
         msg_err("xen failed to init; XENFEAT_hvm_safe_pvclock required");
         return false;
     }
@@ -520,9 +505,9 @@ boolean xen_detect(kernel_heaps kh)
     }
     xen_debug("shared info page: %p, phys 0x%lx", shared_info, shared_info_phys);
 
-    if (!xen_feature_supported(XENFEAT_hvm_callback_vector)) {
+    if (!(features & U32_FROM_BIT(XENFEAT_hvm_callback_vector))) {
         msg_err("xen setup failed: HVM callback vector must be supported (features mask 0x%x)",
-                xen_info.features);
+                features);
         goto out_dealloc_shared_page;
     }
 
@@ -559,7 +544,7 @@ boolean xen_detect(kernel_heaps kh)
                                 closure_func(xen_info.h, thunk, xenstore_evtchn_handler));
     assert(xen_unmask_evtchn(xen_info.xenstore_evtchn) == 0);
 
-    if (!xen_grant_init(kh)) {
+    if (!xen_grant_init(kh, features)) {
         msg_err("xen: failed to set up grant tables");
         goto out_deinit_evtchn_handlers;
     }
