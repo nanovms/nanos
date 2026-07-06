@@ -38,8 +38,9 @@ typedef struct xen_dev {
 status xen_allocate_evtchn(domid_t other_id, evtchn_port_t *evtchn);
 void xen_register_evtchn_handler(evtchn_port_t evtchn, thunk handler);
 int xen_notify_evtchn(evtchn_port_t evtchn);
-int xen_unmask_evtchn(evtchn_port_t evtchn);
-int xen_close_evtchn(evtchn_port_t evtchn);
+int xen_bind_evtchn(evtchn_port_t evtchn, int vcpu);
+int xen_unmask_evtchn(evtchn_port_t evtchn, int vcpu);
+int xen_close_evtchn(evtchn_port_t evtchn, int vcpu);
 
 grant_ref_t xen_grant_page_access(u16 domid, u64 phys, boolean readonly);
 void xen_revoke_page_access(grant_ref_t ref);

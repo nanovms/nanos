@@ -724,7 +724,15 @@ static status xennet_enable(xennet_dev xd)
     /* we're kind of always up ... start rx now */
     xd->rx_ring.sring->rsp_event = xd->rx_ring.rsp_cons + 1;
     write_barrier();
-    int rv = xen_unmask_evtchn(xd->evtchn);
+    u32 evtchn_cpu = irq_get_target_cpu(irange(0, 0));
+    int rv = xen_bind_evtchn(xd->evtchn, evtchn_cpu);
+    if (rv < 0) {
+        msg_warn("%s: failed to bind event channel %d to vCPU %d: rv %d", func_ss, xd->evtchn,
+                 evtchn_cpu, rv);
+        irq_put_target_cpu(evtchn_cpu);
+        evtchn_cpu = 0;
+    }
+    rv = xen_unmask_evtchn(xd->evtchn, evtchn_cpu);
     if (rv < 0) {
         s = timm("result", "failed to unmask event channel %d: rv %d", xd->evtchn, rv);
         goto out_dealloc_rx_buffers;

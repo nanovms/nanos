@@ -41,6 +41,7 @@ typedef struct xen_platform_info {
     evtchn_port_t xenstore_evtchn;
     struct spinlock xenstore_lock;
 
+    u64 vcpu_evtchn_enable[XEN_LEGACY_MAX_VCPUS][sizeof(u64) * 8];
     struct vector evtchn_handlers;
 
     closure_struct(xenstore_watch_handler, watch_handler);
@@ -87,6 +88,7 @@ closure_function(0, 0, void, xen_interrupt)
     int vcpu = current_cpu()->id;
     volatile struct shared_info *si = xen_info->shared_info;
     volatile struct vcpu_info *vci = &si->vcpu_info[vcpu];
+    u64 *evtchn_enable = xen_info->vcpu_evtchn_enable[vcpu];
 
     xenint_debug("xen_interrupt enter");
     assert(vci->evtchn_upcall_pending);
@@ -97,24 +99,16 @@ closure_function(0, 0, void, xen_interrupt)
         /* this may not process in the right order, or it might not matter - care later */
         bitmap_word_foreach_set(l1_pending, bit1, i1, 0) {
             (void)i1;
-            /* TODO: any per-cpu event mask would be also applied here... */
-            u64 l2_pending = si->evtchn_pending[bit1] & ~si->evtchn_mask[bit1];
+            u64 l2_pending = si->evtchn_pending[bit1] & evtchn_enable[bit1];
             xenint_debug("pending 0x%lx, mask 0x%lx, masked 0x%lx",
-                         si->evtchn_pending[bit1], si->evtchn_mask[bit1], l2_pending);
+                         si->evtchn_pending[bit1], ~evtchn_enable[bit1], l2_pending);
             __sync_and_and_fetch(&si->evtchn_pending[bit1], ~l2_pending);
             u64 l2_offset = bit1 << 6;
             bitmap_word_foreach_set(l2_pending, bit2, i2, l2_offset) {
                 (void)i2;
                 xenint_debug("  int %d pending", i2);
                 thunk handler = vector_get(&xen_info->evtchn_handlers, i2);
-                if (handler) {
-                    xenint_debug("  evtchn %d: applying handler %p", i2, handler);
-                    apply(handler);
-                } else {
-                    /* XXX we have an issue with seemingly spurious interrupts at evtchn >= 2048... */
-                    xenint_debug("  evtchn %d: spurious interrupt", i2);
-                    si->evtchn_mask[bit1] |= U64_FROM_BIT(bit2);
-                }
+                apply(handler);
             }
         }
         vci->evtchn_upcall_mask = 0;
@@ -127,17 +121,30 @@ void xen_register_evtchn_handler(evtchn_port_t evtchn, thunk handler)
     assert(vector_set(&xen_info->evtchn_handlers, evtchn, handler));
 }
 
-int xen_unmask_evtchn(evtchn_port_t evtchn)
+int xen_bind_evtchn(evtchn_port_t evtchn, int vcpu)
+{
+    evtchn_op_t eop;
+    eop.cmd = EVTCHNOP_bind_vcpu;
+    eop.u.bind_vcpu.port = evtchn;
+    eop.u.bind_vcpu.vcpu = vcpu;
+    return HYPERVISOR_event_channel_op(&eop);
+}
+
+int xen_unmask_evtchn(evtchn_port_t evtchn, int vcpu)
 {
     assert(evtchn > 0 && evtchn < EVTCHN_2L_NR_CHANNELS);
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_unmask;
     eop.u.unmask.port = evtchn;
-    return HYPERVISOR_event_channel_op(&eop);
+    int rv = HYPERVISOR_event_channel_op(&eop);
+    if (rv == 0)
+        atomic_set_bit(&xen_info->vcpu_evtchn_enable[vcpu][evtchn >> 6], evtchn & MASK(6));
+    return rv;
 }
 
-int xen_close_evtchn(evtchn_port_t evtchn)
+int xen_close_evtchn(evtchn_port_t evtchn, int vcpu)
 {
+    atomic_clear_bit(&xen_info->vcpu_evtchn_enable[vcpu][evtchn >> 6], evtchn & MASK(6));
     vector_set(&xen_info->evtchn_handlers, evtchn, 0);
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_close;
@@ -357,7 +364,7 @@ static int xen_setup_vcpu(int vcpu, u64 shared_info_phys)
     xen_debug("cpu %d timer event channel %d", vcpu, timer_evtchn);
     xen_register_evtchn_handler(timer_evtchn,
                                 closure_func(xen_info->h, thunk, xen_runloop_timer_handler));
-    assert(xen_unmask_evtchn(timer_evtchn) == 0);
+    assert(xen_unmask_evtchn(timer_evtchn, vcpu) == 0);
     return 0;
 }
 
@@ -540,7 +547,7 @@ boolean xen_detect(kernel_heaps kh)
     spin_lock_init(&xen_info->xenstore_lock);
     xen_register_evtchn_handler(xen_info->xenstore_evtchn,
                                 closure_func(h, thunk, xenstore_evtchn_handler));
-    assert(xen_unmask_evtchn(xen_info->xenstore_evtchn) == 0);
+    assert(xen_unmask_evtchn(xen_info->xenstore_evtchn, 0) == 0);
 
     if (!xen_grant_init(kh, features)) {
         msg_err("xen: failed to set up grant tables");

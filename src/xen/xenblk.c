@@ -39,6 +39,7 @@ struct xenblk_dev {
     blkif_front_ring_t ring;
     grant_ref_t ring_gntref;
     evtchn_port_t evtchn;
+    s32 evtchn_cpu;
     closure_struct(xenblk_io, read);
     closure_struct(xenblk_io, write);
     closure_struct(storage_simple_req_handler, req_handler);
@@ -275,7 +276,12 @@ static void xenblk_remove(xenblk_dev xbd)
     }
     xen_driver_unbind(xbd->meta);
     xenbus_set_state(0, xbd->dev.frontend, XenbusStateClosed);
-    xen_close_evtchn(xbd->evtchn);
+    s32 evtchn_cpu = xbd->evtchn_cpu;
+    if (evtchn_cpu >= 0)
+        irq_put_target_cpu(evtchn_cpu);
+    else
+        evtchn_cpu = 0;
+    xen_close_evtchn(xbd->evtchn, evtchn_cpu);
     xen_revoke_page_access(xbd->ring_gntref);
     deallocate(xbd->contiguous, xbd->ring.sring, PAGESIZE);
     deallocate_vector(xbd->rreqs);
@@ -336,7 +342,18 @@ closure_func_basic(thunk, void, xenblk_watch_service)
             timm_dealloc(s);
             goto remove;
         }
-        int rv = xen_unmask_evtchn(xbd->evtchn);
+        u32 evtchn_cpu = irq_get_target_cpu(irange(0, 0));
+        int rv = xen_bind_evtchn(xbd->evtchn, evtchn_cpu);
+        if (rv < 0) {
+            msg_warn("%s: failed to bind event channel %d to vCPU %d: rv %d", func_ss, xbd->evtchn,
+                     evtchn_cpu, rv);
+            irq_put_target_cpu(evtchn_cpu);
+            xbd->evtchn_cpu = -1;
+            evtchn_cpu = 0;
+        } else {
+            xbd->evtchn_cpu = evtchn_cpu;
+        }
+        rv = xen_unmask_evtchn(xbd->evtchn, evtchn_cpu);
         if (rv < 0) {
             msg_err("%s: failed to unmask event channel %d: rv %d", func_ss, xbd->evtchn, rv);
             goto remove;
@@ -472,7 +489,7 @@ static status xenblk_enable(xenblk_dev xbd)
     }
     return STATUS_OK;
   out_evtchn:
-    xen_close_evtchn(xbd->evtchn);
+    xen_close_evtchn(xbd->evtchn, 0);
   out_revoke:
     xen_revoke_page_access(xbd->ring_gntref);
   out_dealloc:
