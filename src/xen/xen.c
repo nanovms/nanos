@@ -47,7 +47,8 @@ typedef struct xen_platform_info {
     u64           xenstore_paddr;
     evtchn_port_t xenstore_evtchn;
     struct spinlock xenstore_lock;
-    vector        evtchn_handlers;
+
+    struct vector evtchn_handlers;
 
     closure_struct(xenstore_watch_handler, watch_handler);
     closure_struct(thunk, scan_service);
@@ -120,7 +121,7 @@ closure_function(0, 0, void, xen_interrupt)
             bitmap_word_foreach_set(l2_pending, bit2, i2, l2_offset) {
                 (void)i2;
                 xenint_debug("  int %d pending", i2);
-                thunk handler = vector_get(xen_info.evtchn_handlers, i2);
+                thunk handler = vector_get(&xen_info.evtchn_handlers, i2);
                 if (handler) {
                     xenint_debug("  evtchn %d: applying handler %p", i2, handler);
                     apply(handler);
@@ -138,7 +139,7 @@ closure_function(0, 0, void, xen_interrupt)
 
 void xen_register_evtchn_handler(evtchn_port_t evtchn, thunk handler)
 {
-    assert(vector_set(xen_info.evtchn_handlers, evtchn, handler));
+    assert(vector_set(&xen_info.evtchn_handlers, evtchn, handler));
 }
 
 int xen_unmask_evtchn(evtchn_port_t evtchn)
@@ -152,7 +153,7 @@ int xen_unmask_evtchn(evtchn_port_t evtchn)
 
 int xen_close_evtchn(evtchn_port_t evtchn)
 {
-    vector_set(xen_info.evtchn_handlers, evtchn, 0);
+    vector_set(&xen_info.evtchn_handlers, evtchn, 0);
     evtchn_op_t eop;
     eop.cmd = EVTCHNOP_close;
     eop.u.close.port = evtchn;
@@ -539,11 +540,11 @@ boolean xen_detect(kernel_heaps kh)
         goto out_unregister_irq;
     }
 
-    xen_info.evtchn_handlers = allocate_vector(xen_info.h, 1);
-    assert(xen_info.evtchn_handlers != INVALID_ADDRESS);
+    if (!vector_init(&xen_info->evtchn_handlers, h, 1))
+        goto out_unregister_irq;
 
     if (xen_setup_vcpu(0, shared_info_phys) < 0)
-        goto out_unregister_irq;
+        goto out_deinit_evtchn_handlers;
 
     register_platform_clock_timer(closure_func(xen_info.h, clock_timer, xen_runloop_timer),
                                   closure(xen_info.h, xen_per_cpu_init, shared_info_phys));
@@ -560,7 +561,7 @@ boolean xen_detect(kernel_heaps kh)
 
     if (!xen_grant_init(kh)) {
         msg_err("xen: failed to set up grant tables");
-        goto out_unregister_irq;
+        goto out_deinit_evtchn_handlers;
     }
 
     init_closure(&xen_info.shutdown_handler, xen_shutdown_handler, allocate_buffer(xen_info.h, 16));
@@ -574,6 +575,8 @@ boolean xen_detect(kernel_heaps kh)
     list_init(&xen_info.driver_list);
     xen_info.initialized = true;
     return true;
+  out_deinit_evtchn_handlers:
+    vector_deinit(&xen_info->evtchn_handlers);
   out_unregister_irq:
     unregister_interrupt(irq);
   out_dealloc_shared_page:

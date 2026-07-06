@@ -1,4 +1,4 @@
-typedef buffer vector;
+#define vector buffer
 
 static inline void *vector_get(vector v, int offset)
 {
@@ -57,6 +57,9 @@ static inline int vector_delete_range(vector v, int start, int end)
     v->end -= end_offset - start_offset;
     return (end_offset - start_offset) / sizeof(void *);
 }
+
+boolean vector_init(vector v, heap h, int len);
+void vector_deinit(vector v);
 
 static inline vector allocate_vector(heap h, int length)
 {
