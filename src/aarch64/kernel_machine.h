@@ -130,14 +130,61 @@
 #define ESR_ISS_SERROR_INT_DFSC_UNCAT 0
 #define ESR_ISS_SERROR_INT_DFSC_ASYNC 0x11
 
+/* ID_AA64ISAR0_EL1 feature fields (each 4 bits; 0 = absent, >=1 = present). */
+#define ID_AA64ISAR0_EL1_AES_BITS           4
+#define ID_AA64ISAR0_EL1_AES_SHIFT          4
+#define ID_AA64ISAR0_EL1_AES_PMULL          2   /* >= this also has PMULL/PMULL2 */
+#define ID_AA64ISAR0_EL1_SHA1_BITS          4
+#define ID_AA64ISAR0_EL1_SHA1_SHIFT         8
+#define ID_AA64ISAR0_EL1_SHA2_BITS          4
+#define ID_AA64ISAR0_EL1_SHA2_SHIFT         12
+#define ID_AA64ISAR0_EL1_SHA2_SHA512        2   /* >= this also has SHA512H/H2/SU0/SU1 */
+#define ID_AA64ISAR0_EL1_CRC32_BITS         4
+#define ID_AA64ISAR0_EL1_CRC32_SHIFT        16
 #define ID_AA64ISAR0_EL1_ATOMIC_BITS        4
 #define ID_AA64ISAR0_EL1_ATOMIC_SHIFT       20
 #define ID_AA64ISAR0_EL1_ATOMIC_IMPLEMENTED 2
+#define ID_AA64ISAR0_EL1_RDM_BITS           4
+#define ID_AA64ISAR0_EL1_RDM_SHIFT          28
+#define ID_AA64ISAR0_EL1_SHA3_BITS          4
+#define ID_AA64ISAR0_EL1_SHA3_SHIFT         32
+#define ID_AA64ISAR0_EL1_SM3_BITS           4
+#define ID_AA64ISAR0_EL1_SM3_SHIFT          36
+#define ID_AA64ISAR0_EL1_SM4_BITS           4
+#define ID_AA64ISAR0_EL1_SM4_SHIFT          40
+#define ID_AA64ISAR0_EL1_DP_BITS            4
+#define ID_AA64ISAR0_EL1_DP_SHIFT           44
+#define ID_AA64ISAR0_EL1_FHM_BITS           4
+#define ID_AA64ISAR0_EL1_FHM_SHIFT          48
+#define ID_AA64ISAR0_EL1_TS_BITS            4
+#define ID_AA64ISAR0_EL1_TS_SHIFT           52
+#define ID_AA64ISAR0_EL1_RNDR_BITS          4
+#define ID_AA64ISAR0_EL1_RNDR_SHIFT         60
+#define ID_AA64ISAR0_EL1_RNDR_IMPLEMENTED   1 /* RNDR, RNDRRS MSRs */
 
-#define ID_AA64ISAR0_EL1_RNDR_BITS        4
-#define ID_AA64ISAR0_EL1_RNDR_SHIFT       60
-#define ID_AA64ISAR0_EL1_RNDR_IMPLEMENTED 1 /* RNDR, RNDRRS MSRs */
+/* ID_AA64ISAR1_EL1 feature fields (each 4 bits; 0 = absent, >=1 = present). */
+#define ID_AA64ISAR1_EL1_DPB_BITS       4
+#define ID_AA64ISAR1_EL1_DPB_SHIFT      0
+#define ID_AA64ISAR1_EL1_JSCVT_BITS     4
+#define ID_AA64ISAR1_EL1_JSCVT_SHIFT    12
+#define ID_AA64ISAR1_EL1_FCMA_BITS      4
+#define ID_AA64ISAR1_EL1_FCMA_SHIFT     16
+#define ID_AA64ISAR1_EL1_LRCPC_BITS     4
+#define ID_AA64ISAR1_EL1_LRCPC_SHIFT    20
+#define ID_AA64ISAR1_EL1_LRCPC_ILRCPC   2   /* >= this also has LDAPR immediate offset */
+#define ID_AA64ISAR1_EL1_SB_BITS        4
+#define ID_AA64ISAR1_EL1_SB_SHIFT       36
 
+/* ID_AA64PFR0_EL1 FP / AdvSIMD fields (signed): 0 = implemented, 1 = also
+   half-precision, 0xf = not implemented. */
+#define ID_AA64PFR0_EL1_FP_BITS         4
+#define ID_AA64PFR0_EL1_FP_SHIFT        16
+#define ID_AA64PFR0_EL1_FP_NI           0xf
+#define ID_AA64PFR0_EL1_FP_FP16         1
+#define ID_AA64PFR0_EL1_ADVSIMD_BITS    4
+#define ID_AA64PFR0_EL1_ADVSIMD_SHIFT   20
+#define ID_AA64PFR0_EL1_ADVSIMD_NI      0xf
+#define ID_AA64PFR0_EL1_ADVSIMD_FP16    1
 #define ID_AA64PFR0_EL1_GIC_BITS                4
 #define ID_AA64PFR0_EL1_GIC_SHIFT               24
 #define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_NONE    0
