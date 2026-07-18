@@ -191,6 +191,16 @@
 #define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_3_0_4_0 1
 #define ID_AA64PFR0_EL1_GIC_GICC_SYSREG_4_1     3
 
+/* MIDR_EL1 identity fields, as exposed by the kernel in /proc/cpuinfo. */
+#define MIDR_EL1_REVISION_BITS      4
+#define MIDR_EL1_REVISION_SHIFT     0
+#define MIDR_EL1_PARTNUM_BITS       12
+#define MIDR_EL1_PARTNUM_SHIFT      4
+#define MIDR_EL1_VARIANT_BITS       4
+#define MIDR_EL1_VARIANT_SHIFT      20
+#define MIDR_EL1_IMPLEMENTER_BITS   8
+#define MIDR_EL1_IMPLEMENTER_SHIFT  24
+
 #define MPIDR_AFF3(mpidr)   (((mpidr) >> 32) & 0xff)
 #define MPIDR_AFF2(mpidr)   (((mpidr) >> 16) & 0xff)
 #define MPIDR_AFF1(mpidr)   (((mpidr) >> 8) & 0xff)
