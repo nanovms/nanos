@@ -207,10 +207,48 @@ static u32 cpu_online_events(file f)
     return (EPOLLIN | EPOLLOUT);
 }
 
+#ifdef __aarch64__
+static sysreturn cpuinfo_read(file f, void *dest, u64 length, u64 offset)
+{
+    /* The processors are homogeneous, so the identity read from MIDR_EL1 on the
+       current CPU applies to every online CPU. The architecture field is
+       reported as 8 like Linux does (the MIDR field holds the 0xf "refer to ID
+       registers" sentinel rather than an architecture version). */
+    u64 midr = read_psr(MIDR_EL1);
+    u64 implementer = field_from_u64(midr, MIDR_EL1_IMPLEMENTER);
+    u64 variant = field_from_u64(midr, MIDR_EL1_VARIANT);
+    u64 partnum = field_from_u64(midr, MIDR_EL1_PARTNUM);
+    u64 revision = field_from_u64(midr, MIDR_EL1_REVISION);
+    heap h = heap_locked(get_kernel_heaps());
+    buffer b = allocate_buffer(h, 128 * total_processors);
+    if (b == INVALID_ADDRESS) {
+        return -ENOMEM;
+    }
+    for (u64 cpu = 0; cpu < total_processors; cpu++)
+        bprintf(b, "processor\t: %ld\n"
+                   "CPU implementer\t: 0x%02lx\n"
+                   "CPU architecture: 8\n"
+                   "CPU variant\t: 0x%lx\n"
+                   "CPU part\t: 0x%03lx\n"
+                   "CPU revision\t: %ld\n\n",
+                cpu, implementer, variant, partnum, revision);
+    context ctx = get_current_context(current_cpu());
+    if (!context_set_err(ctx))
+        length = buffer_read_at(b, offset, dest, length);
+    else
+        length = -EFAULT;
+    deallocate_buffer(b);
+    return length;
+}
+#endif
+
 static const special_file special_files[] = {
     { ss_static_init("/dev/urandom"), .read = urandom_read, .write = 0, .events = urandom_events },
     { ss_static_init("/dev/null"), .read = null_read, .write = null_write, .events = null_events },
     { ss_static_init("/proc/meminfo"), .read = meminfo_read},
+#ifdef __aarch64__
+    { ss_static_init("/proc/cpuinfo"), .read = cpuinfo_read},
+#endif
     { ss_static_init("/proc/mounts"), .open = mounts_open, .close = mounts_close,
       .read = mounts_read, .events = mounts_events,
       .alloc_size = sizeof(struct mounts_notify_data)},
