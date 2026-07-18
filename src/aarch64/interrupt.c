@@ -217,6 +217,10 @@ void synchronous_handler(void)
     int ec = field_from_u64(esr, ESR_EC);
     if (ec == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
         field_from_u64(esr, ESR_ISS_IMM16) == 0) {
+        /* The fault path releases the reserve above via the fault_handler
+           return; the SVC path dispatches into syscall handling (which takes
+           its own thread reference), so balance the reserve here. */
+        context_release_refcount(ctx);
         context ctx = ci->m.syscall_context;
         f[FRAME_VECTOR] = f[FRAME_X8];
         set_current_context(ci, ctx);
