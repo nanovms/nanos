@@ -21,7 +21,7 @@ jobs:
           fi
 
       - name: Close PR
-        if: (steps.check_msg.outputs.match == 'true' || contains(github.event.pull_request.body, '🤖')) || contains(github.event.pull_request.body, '**') || contains(github.event.pull_request.body, '__') || contains(github.event.pull_request_body, '#')
+        if: (steps.check_msg.outputs.match == 'true' || contains(github.event.pull_request.body, '🤖')) || contains(github.event.pull_request.body, '**') || contains(github.event.pull_request.body, '__') || contains(github.event.pull_request.body, '#')
         run: |
           gh pr close ${{ github.event.pull_request.number }} --comment "bot"
         env:
