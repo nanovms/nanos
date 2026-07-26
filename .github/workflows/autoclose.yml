@@ -17,13 +17,11 @@ jobs:
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B)
           if echo "$COMMIT_MSG" | grep -q "Co-authored-by: Claude"; then
-            echo "match=true" >> $GITHUB_OUTPUT
-          else
-            echo "match=false" >> $GITHUB_OUTPUT
+            echo "match=true" > $GITHUB_OUTPUT
           fi
 
       - name: Close PR
-        if: (steps.check_msg.outputs.match == 'true' || contains(github.event.pull_request.body, '🤖'))
+        if: (steps.check_msg.outputs.match == 'true' || contains(github.event.pull_request.body, '🤖')) || contains(github.event.pull_request.body, '**') || contains(github.event.pull_request.body, '__') || contains(github.event.pull_request_body, '#')
         run: |
           gh pr close ${{ github.event.pull_request.number }} --comment "bot"
         env:
