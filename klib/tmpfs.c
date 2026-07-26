@@ -179,6 +179,18 @@ static int tmpfs_truncate(filesystem fs, fsfile f, u64 len)
     return 0;
 }
 
+static void tmpfs_alloc(filesystem fs, fsfile f, long offset, long len, boolean keep_size,
+                        fs_status_handler completion)
+{
+    /* Pages are allocated on demand and unwritten ones are read as zeroes, so
+       there is no storage to reserve: only the file length may need to grow. */
+    int fss = 0;
+    u64 end = offset + len;
+    if (!keep_size && (fsfile_get_length(f) < end))
+        fss = filesystem_truncate(fs, f, end);
+    apply(completion, fss);
+}
+
 static int tmpfs_set_seals(filesystem fs, fsfile f, u64 seals)
 {
     tmpfs_file fsf = (tmpfs_file)f;
@@ -236,6 +248,7 @@ filesystem tmpfs_new(void)
     fs->fs.unlink = tmpfs_unlink;
     fs->fs.rename = tmpfs_rename;
     fs->fs.truncate = tmpfs_truncate;
+    fs->fs.alloc = tmpfs_alloc;
     fs->fs.get_freeblocks = tmpfs_freeblocks;
     fs->fs.get_sync_handler = tmpfs_get_sync_handler;
     return &fs->fs;

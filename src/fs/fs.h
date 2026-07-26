@@ -79,6 +79,8 @@ struct filesystem {
                         boolean *destruct_md);
     int (*write_attr)(filesystem fs, tuple md, sstring name, buffer value);
     int (*truncate)(filesystem fs, fsfile f, u64 len);
+    void (*alloc)(filesystem fs, fsfile f, long offset, long len, boolean keep_size,
+                  fs_status_handler completion);
     int (*get_fsfile)(filesystem fs, tuple md, fsfile *f);
     fs_io file_read;
     fs_io file_write;

@@ -908,16 +908,9 @@ static int add_extents_to_file(tfsfile f, rangemap rm)
 }
 
 /* no longer async, but keep completion to match dealloc... */
-void filesystem_alloc(fsfile f, long offset, long len,
+static void tfs_alloc(filesystem fs, fsfile f, long offset, long len,
                       boolean keep_size, fs_status_handler completion)
 {
-    assert(f);
-    filesystem fs = f->fs;
-    if (!fs_is_tfs(fs)) {
-        apply(completion, -EINVAL);
-        return;
-    }
-
     range blocks = range_rshift_pad(irangel(offset, len), fs->blocksize_order);
     tfs_debug("%s: blocks %R%s\n", func_ss, blocks,
               keep_size ? ss(" (keep size)") : sstring_empty());
@@ -1424,6 +1417,7 @@ void create_filesystem(heap h,
     fs->storage = allocate_rangemap(h);
     assert(fs->storage != INVALID_ADDRESS);
 #ifdef KERNEL
+    fs->fs.alloc = tfs_alloc;
     spin_lock_init(&fs->storage_lock);
     fs->page_order = pagecache_get_page_order();
     fs->zero_page = pagecache_get_zero_page();
