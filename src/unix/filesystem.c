@@ -857,19 +857,40 @@ sysreturn fallocate(int fd, int mode, long offset, long len)
     } else if (!fdesc_is_writable(desc)) {
         rv = -EBADF;
         goto out;
+    } else if ((offset < 0) || (len <= 0)) {
+        rv = -EINVAL;
+        goto out;
     }
 
     heap h = heap_locked(get_kernel_heaps());
     file f = (file) desc;
+    fsfile fsf = f->fsf;
+    filesystem fs = f->fs;
+    if (fs->get_seals) {
+        u64 seals;
+        if (fs->get_seals(fs, fsf, &seals) == 0) {
+            /* Allocating does not change what the file reads as, so a write
+               seal forbids punching holes only, while a grow seal forbids
+               allocating past the end of the file. */
+            boolean forbidden;
+            if (mode & FALLOC_FL_PUNCH_HOLE)
+                forbidden = !!(seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE));
+            else
+                forbidden = (seals & F_SEAL_GROW) && (offset + len > fsfile_get_length(fsf));
+            if (forbidden) {
+                rv = -EPERM;
+                goto out;
+            }
+        }
+    }
     switch (mode) {
     case 0:
     case FALLOC_FL_KEEP_SIZE:
-        filesystem_alloc(f->fsf, offset, len,
-                         mode == FALLOC_FL_KEEP_SIZE,
+        filesystem_alloc(fsf, offset, len, mode == FALLOC_FL_KEEP_SIZE,
                          closure(h, fs_op_complete, current, f));
         break;
     case FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE:
-        filesystem_dealloc(f->fsf, offset, len,
+        filesystem_dealloc(fsf, offset, len,
                            closure(h, fs_op_complete, current, f));
         break;
     default:

@@ -382,6 +382,16 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
                                           fs, sg, length, tail_buf, io_complete));
 }
 
+void filesystem_alloc(fsfile f, long offset, long len, boolean keep_size,
+                      fs_status_handler completion)
+{
+    filesystem fs = f->fs;
+    if (fs->alloc)
+        fs->alloc(fs, f, offset, len, keep_size, completion);
+    else
+        apply(completion, -EOPNOTSUPP);
+}
+
 int filesystem_truncate(filesystem fs, fsfile f, u64 len)
 {
     filesystem_lock(fs);
