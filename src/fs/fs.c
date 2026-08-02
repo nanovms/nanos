@@ -494,6 +494,22 @@ static int fs_create_dir_entry(filesystem fs, tuple parent, string name, tuple m
     return s;
 }
 
+void fs_cleanup_dir_entry(tuple md)
+{
+    symbol parent_sym = sym(..);
+    tuple parent = get_tuple(md, parent_sym);
+    if (parent) {
+        tuple c = children(parent);
+        if (c) {
+            symbol name = tuple_get_symbol(c, md);
+            if (name)
+                set(c, name, 0);
+        }
+        set(md, parent_sym, 0);
+    }
+    destruct_value(md, true);
+}
+
 closure_function(1, 2, boolean, file_unlink_each,
                  tuple, t,
                  value k, value v)

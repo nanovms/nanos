@@ -47,22 +47,6 @@ static symbol p9_sym(struct p9_string *name)
     return intern(alloca_wrap_buffer(name->str, name->length));
 }
 
-static void p9_md_cleanup(tuple md)
-{
-    symbol parent_sym = sym_this("..");
-    tuple parent = get_tuple(md, parent_sym);
-    if (parent) {
-        tuple c = children(parent);
-        if (c) {
-            symbol name = tuple_get_symbol(c, md);
-            if (name)
-                set(c, name, 0);
-        }
-        set(md, parent_sym, 0);
-    }
-    destruct_value(md, true);
-}
-
 static u32 p9_fid_new(p9fs fs)
 {
     u32 fid;
@@ -108,7 +92,7 @@ static void p9_dentry_delete(p9fs fs, p9_dentry dentry)
     if (dentry->fid != P9_NOFID)
         p9_fid_release(fs, dentry->fid);
     if (dentry->md)
-        p9_md_cleanup(dentry->md);
+        fs_cleanup_dir_entry(dentry->md);
     deallocate(fs->fs.h, dentry, sizeof(*dentry));
 }
 
@@ -238,7 +222,7 @@ closure_func_basic(thunk, void, p9_fsf_free)
     if (md && !fs_file_is_busy(fs, md)) {
         /* dentry will be deallocated when the pagecache sync is done: delete its metadata tuple now
          * so that it cannot be looked up (e.g. via its parent tuple). */
-        p9_md_cleanup(md);
+        fs_cleanup_dir_entry(md);
         dentry->md = 0;
 
         f->md = 0;  /* so that it won't be accessed by the file write completion */
@@ -621,7 +605,7 @@ static tuple p9_lookup(filesystem fs, tuple parent, string name)
     return md;
   error:
     if (!dentry) {
-        p9_md_cleanup(md);
+        fs_cleanup_dir_entry(md);
         p9_fid_release(p9fs, fid);
         md = 0;
     }

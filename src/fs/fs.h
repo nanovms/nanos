@@ -156,6 +156,7 @@ static inline u64 sector_from_offset(filesystem fs, bytes b)
 #endif
 
 tuple fs_new_entry(filesystem fs);
+void fs_cleanup_dir_entry(tuple md);
 
 boolean file_tuple_is_ancestor(tuple t1, tuple t2, tuple p2);
 int fs_check_rename(tuple old_parent, tuple old_md, tuple new_parent, tuple new_md,
