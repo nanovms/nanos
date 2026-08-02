@@ -211,8 +211,6 @@ void synchronous_handler(void)
 
     if (f[FRAME_FULL])
         halt("\nframe %p already full\n", f);
-    f[FRAME_FULL] = true;
-    context_reserve_refcount(ctx);
 
     int ec = field_from_u64(esr, ESR_EC);
     if (ec == ESR_EC_SVC_AARCH64 && (esr & ESR_IL) &&
@@ -234,6 +232,8 @@ void synchronous_handler(void)
         }
     }
 
+    f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
     fault_handler fh = ctx->fault_handler;
     if (fh) {
         context retctx = apply(fh, ctx);
