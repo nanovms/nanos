@@ -313,9 +313,6 @@ void trap_exception(void)
         goto exit_fault;
     }
 
-    f[FRAME_FULL] = true;
-    context_reserve_refcount(ctx);
-
     if (f[FRAME_CAUSE] == TRAP_E_ECALL_UMODE) {
         f[FRAME_PC] += 4;   /* must advance pc, hw does not do it */
         context ctx = ci->m.syscall_context;
@@ -324,6 +321,8 @@ void trap_exception(void)
         console("\nsyscall returned to trap handler\n");
         goto exit_fault;
     }
+    f[FRAME_FULL] = true;
+    context_reserve_refcount(ctx);
     fault_handler fh = ctx->fault_handler;
     if (fh) {
 #ifdef INT_DEBUG
