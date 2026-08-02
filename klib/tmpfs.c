@@ -166,12 +166,11 @@ static int tmpfs_rename(filesystem fs, tuple old_parent, string old_name, tuple 
                               tuple new_parent, string new_name, tuple new_md, boolean exchange,
                               boolean *destruct_md)
 {
-    int s = fs_check_rename(old_parent, old_md, new_parent, new_md, exchange);
-    if ((s == 0) && !exchange && new_md) {
+    if (!exchange && new_md) {
         fs_unlink(((tmpfs)fs)->files, new_md);
         *destruct_md = true;
     }
-    return s;
+    return 0;
 }
 
 static int tmpfs_truncate(filesystem fs, fsfile f, u64 len)

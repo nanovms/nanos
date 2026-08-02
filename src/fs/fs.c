@@ -858,6 +858,9 @@ int filesystem_rename(filesystem oldfs, inode oldwd, sstring oldpath,
     string newname = alloca_wrap_sstring(filename_from_path(newpath));
     symbol new_s = intern(newname);
     boolean destruct_md;
+    s = fs_check_rename(oldparent, old, newparent, new, false);
+    if (s != 0)
+        goto out;
     s = oldfs->rename(oldfs, oldparent, oldname, old, newparent, newname, new, false, &destruct_md);
     if (s == 0) {
         set(children(oldparent), old_s, 0);
@@ -931,6 +934,9 @@ int filesystem_exchange(filesystem fs1, inode wd1, sstring path1,
         goto out;
     string name1 = alloca_wrap_sstring(filename_from_path(path1));
     string name2 = alloca_wrap_sstring(filename_from_path(path2));
+    s = fs_check_rename(parent1, n1, parent2, n2, true);
+    if (s != 0)
+        goto out;
     s = fs1->rename(fs1, parent1, name1, n1, parent2, name2, n2, true, 0);
     if (s == 0) {
         set(children(parent1), intern(name1), n2);

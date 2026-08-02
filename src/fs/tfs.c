@@ -1187,9 +1187,7 @@ static int tfs_rename(filesystem fs, tuple old_parent, string old_name, tuple ol
                             tuple new_parent, string new_name, tuple new_md, boolean exchange,
                             boolean *destruct_md)
 {
-    int s = fs_check_rename(old_parent, old_md, new_parent, new_md, exchange);
-    if (s != 0)
-        return s;
+    int s;
     tfs tfs = (struct tfs *)fs;
     s = filesystem_write_eav(tfs, children(new_parent), intern(new_name), old_md, true);
     if (s == 0)
