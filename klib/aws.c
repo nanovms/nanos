@@ -338,12 +338,18 @@ static buffer aws_create_can_req(heap h, sstring method, tuple req, buffer body)
     /* Replace the last ';' character from the signed header list with a newline. */
     *(char *)buffer_ref(can_req, buffer_length(can_req) - 1) = '\n';
 
-    u8 sha[32];
-    if (mbedtls_sha256_ret(body ? buffer_ref(body, 0) : 0, body ? buffer_length(body) : 0,
-                           sha, 0) < 0)
-        goto error;
-    for (int i = 0; i < sizeof(sha); i++)
-        print_byte(can_req, sha[i]);
+    buffer content_hash = get(req, sym(x-amz-content-sha256));
+    if (content_hash) {
+        if (!push_buffer(can_req, content_hash))
+            goto error;
+    } else {
+        u8 sha[32];
+        if (mbedtls_sha256_ret(body ? buffer_ref(body, 0) : 0, body ? buffer_length(body) : 0,
+                               sha, 0) < 0)
+            goto error;
+        for (int i = 0; i < sizeof(sha); i++)
+            print_byte(can_req, sha[i]);
+    }
     return can_req;
   error:
     deallocate_buffer(can_req);
