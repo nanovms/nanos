@@ -87,7 +87,9 @@ closure_function(5, 1, input_buffer_handler, newconn,
     send_request(c, s, out, t);
     send_request(c, s, out, t);
     send_request(c, s, out, t);
-    buffer_handler bh = allocate_http_parser(c, closure(c, value_in, c, out, count, bound(sth), bound(newconn), s, t));
+    buffer_handler bh = allocate_http_parser(c, false,
+                                             closure(c, value_in, c, out, count, bound(sth),
+                                                     bound(newconn), s, t));
     return closure(c, ibh_parser_wrap, bh);
 }
 

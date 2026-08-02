@@ -250,7 +250,7 @@ define_closure_function(4, 2, boolean, cloud_download_file_recv,
                 fsfile_release(f);
                 goto error;
             }
-            bound(parser) = allocate_http_parser(cloud_heap, vh);
+            bound(parser) = allocate_http_parser(cloud_heap, false, vh);
             if (bound(parser) == INVALID_ADDRESS) {
                 s = timm("result", "%s: failed to allocate HTTP parser", func_ss);
                 deallocate_closure(vh);
@@ -598,7 +598,7 @@ define_closure_function(2, 2, boolean, cloud_download_env_recv,
     cloud_download_env cfg = struct_from_field(closure_self(), cloud_download_env, recv);
     if (data && (bound(parser) == INVALID_ADDRESS)) {
         value_handler vh = init_closure(&cfg->setenv, cloud_download_setenv, &bound(s));
-        bound(parser) = allocate_http_parser(cloud_heap, vh);
+        bound(parser) = allocate_http_parser(cloud_heap, false, vh);
         if (bound(parser) == INVALID_ADDRESS) {
             bound(s) = timm("result", "%s: failed to allocate HTTP parser", func_ss);
             goto close_conn;

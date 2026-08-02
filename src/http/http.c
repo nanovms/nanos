@@ -20,6 +20,7 @@ typedef struct http_parser {
     heap h;
     vector start_line;
     int state;
+    boolean headers_only;
     boolean chunked;
     buffer word;
     symbol s;
@@ -251,6 +252,8 @@ closure_function(1, 1, status, http_recv,
                 buffer_clear(p->word);
                 break;
             case '\n':
+                if (p->headers_only)
+                    goto content_finish;
                 if (p->chunked) {
                     p->state = STATE_CHUNK_SIZE;
                     p->body = allocate_buffer(p->h, KB);
@@ -358,12 +361,13 @@ closure_function(1, 1, status, http_recv,
     return STATUS_OK;
 }
 
-buffer_handler allocate_http_parser(heap h, value_handler each)
+buffer_handler allocate_http_parser(heap h, boolean headers_only, value_handler each)
 {
     http_parser p = allocate(h, sizeof(struct http_parser));
     if (p == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     p->h = h;
+    p->headers_only = headers_only;
     p->each = each;
     reset_parser(p);
     return closure(h, http_recv, p);
@@ -548,7 +552,8 @@ closure_function(1, 1, input_buffer_handler, each_http_connection,
     hr.keepalive = true;
     hr.out = out;
     hr.http_version = HTTP_VER(1, 1);
-    buffer_handler parser = allocate_http_parser(hl->h, closure(hl->h, each_http_request, hl, hr));
+    buffer_handler parser = allocate_http_parser(hl->h, false,
+                                                 closure(hl->h, each_http_request, hl, hr));
     if (parser == INVALID_ADDRESS)
         return INVALID_ADDRESS;
     input_buffer_handler ibh = closure(hl->h, http_ibh, parser);

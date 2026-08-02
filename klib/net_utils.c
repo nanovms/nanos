@@ -140,7 +140,8 @@ status net_http_req(net_http_req_params params)
     net_http_req_data req_data = allocate(h, sizeof(*req_data));
     if (req_data == INVALID_ADDRESS)
         return timm_oom;
-    req_data->parser = allocate_http_parser(h, init_closure_func(&req_data->vh, value_handler,
+    req_data->parser = allocate_http_parser(h, params->method == HTTP_REQUEST_METHOD_HEAD,
+                                            init_closure_func(&req_data->vh, value_handler,
                                                                  net_http_vh));
     if (req_data->parser == INVALID_ADDRESS) {
         deallocate(h, req_data, sizeof(*req_data));

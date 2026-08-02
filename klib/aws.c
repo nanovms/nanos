@@ -45,7 +45,7 @@ closure_function(5, 1, boolean, aws_metadata_in,
                 msg_err("%s: failed to allocate value handler", func_ss);
                 goto error;
             }
-            bound(parser) = allocate_http_parser(h, vh);
+            bound(parser) = allocate_http_parser(h, false, vh);
             if (bound(parser) == INVALID_ADDRESS) {
                 msg_err("%s: failed to allocate HTTP parser", func_ss);
                 deallocate_closure(vh);

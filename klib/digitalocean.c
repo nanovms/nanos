@@ -64,7 +64,7 @@ closure_function(4, 1, boolean, do_instance_md_in,
     if (data) {
         if (bound(parser) == INVALID_ADDRESS) {
             value_handler vh = bound(vh);
-            bound(parser) = allocate_http_parser(digitalocean.h, vh);
+            bound(parser) = allocate_http_parser(digitalocean.h, false, vh);
             if (bound(parser) == INVALID_ADDRESS) {
                 s = timm_oom;
                 deallocate_closure(vh);
@@ -492,7 +492,7 @@ int init(status_handler complete)
         init_closure_func(&digitalocean.metrics.ibh, input_buffer_handler, do_metrics_in_handler);
         value_handler vh = init_closure_func(&digitalocean.metrics.vh, value_handler,
                                              do_metrics_value_handler);
-        digitalocean.metrics.resp_parser = allocate_http_parser(digitalocean.h, vh);
+        digitalocean.metrics.resp_parser = allocate_http_parser(digitalocean.h, false, vh);
         assert(digitalocean.metrics.resp_parser != INVALID_ADDRESS);
         config_empty = false;
     }

@@ -13,7 +13,7 @@ typedef enum {
 
 typedef struct http_responder *http_responder;
 
-buffer_handler allocate_http_parser(heap h, value_handler each);
+buffer_handler allocate_http_parser(heap h, boolean headers_only, value_handler each);
 // just format the buffer?
 status http_request(heap h, buffer_handler bh, http_method method,
                     tuple headers, buffer body);

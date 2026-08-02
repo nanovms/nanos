@@ -513,7 +513,7 @@ int azure_diag_init(tuple cfg)
         init_closure_func(&diag->metrics.ibh, input_buffer_handler, azure_metrics_in_handler);
         value_handler vh = init_closure_func(&diag->metrics.vh, value_handler,
                                              azure_metrics_value_handler);
-        diag->metrics.resp_parser = allocate_http_parser(h, vh);
+        diag->metrics.resp_parser = allocate_http_parser(h, false, vh);
         assert(diag->metrics.resp_parser != INVALID_ADDRESS);
         diag->metrics.pending = false;
         config_empty = false;

@@ -139,7 +139,7 @@ closure_function(2, 1, boolean, telemetry_recv,
     if (data) {
         value_handler vh = bound(vh);
         if (vh) {
-            buffer_handler parser = allocate_http_parser(telemetry.h, vh);
+            buffer_handler parser = allocate_http_parser(telemetry.h, false, vh);
             if (parser != INVALID_ADDRESS) {
                 status s = apply(parser, data);
                 if (!is_ok(s)) {

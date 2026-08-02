@@ -213,7 +213,7 @@ closure_function(4, 1, boolean, gcp_instance_md_in,
     if (data) {
         if (bound(parser) == INVALID_ADDRESS) {
             value_handler vh = bound(vh);
-            bound(parser) = allocate_http_parser(gcp.h, vh);
+            bound(parser) = allocate_http_parser(gcp.h, false, vh);
             if (bound(parser) == INVALID_ADDRESS) {
                 s = timm("result", "failed to allocate HTTP parser");
                 deallocate_closure(vh);
@@ -871,7 +871,7 @@ int init(status_handler complete)
         assert(gcp.log_entries != INVALID_ADDRESS);
         init_closure_func(&gcp.log_conn_handler, connection_handler, gcp_log_conn_handler);
         init_closure_func(&gcp.log_in_handler, input_buffer_handler, gcp_log_in_handler);
-        gcp.log_resp_parser = allocate_http_parser(gcp.h,
+        gcp.log_resp_parser = allocate_http_parser(gcp.h, false,
                                                    init_closure_func(&gcp.log_vh, value_handler,
                                                                      gcp_log_vh));
         assert(gcp.log_resp_parser != INVALID_ADDRESS);
@@ -905,7 +905,7 @@ int init(status_handler complete)
         init_closure_func(&gcp.metrics_timer_handler, timer_handler, gcp_metrics_timer_handler);
         init_closure_func(&gcp.metrics_conn_handler, connection_handler, gcp_metrics_conn_handler);
         init_closure_func(&gcp.metrics_in_handler, input_buffer_handler, gcp_metrics_in_handler);
-        gcp.metrics_resp_parser = allocate_http_parser(gcp.h,
+        gcp.metrics_resp_parser = allocate_http_parser(gcp.h, false,
                                                        init_closure_func(&gcp.metrics_value_handler,
                                                            value_handler,
                                                            gcp_metrics_value_handler));

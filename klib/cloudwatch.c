@@ -292,7 +292,7 @@ static void cw_logstream_create(const ip_addr_t *server)
         msg_err("%s: failed to allocate value handler", func_ss);
         return;
     }
-    buffer_handler parser = allocate_http_parser(cw.h, vh);
+    buffer_handler parser = allocate_http_parser(cw.h, false, vh);
     if (parser == INVALID_ADDRESS) {
         msg_err("%s: failed to allocate HTTP parser", func_ss);
         deallocate_closure(vh);
@@ -392,7 +392,7 @@ static void cw_loggroup_create(const ip_addr_t *server)
         msg_err("%s: failed to allocate value handler", func_ss);
         return;
     }
-    buffer_handler parser = allocate_http_parser(cw.h, vh);
+    buffer_handler parser = allocate_http_parser(cw.h, false, vh);
     if (parser == INVALID_ADDRESS) {
         msg_err("%s: failed to allocate HTTP parser", func_ss);
         deallocate_closure(vh);
@@ -864,7 +864,8 @@ int init(status_handler complete)
         assert(cw.log_entries != INVALID_ADDRESS);
         init_closure_func(&cw.log_conn_handler, connection_handler, cw_log_conn_handler);
         init_closure_func(&cw.log_in_handler, input_buffer_handler, cw_log_in_handler);
-        cw.log_resp_parser = allocate_http_parser(cw.h, init_closure_func(&cw.log_vh, value_handler,
+        cw.log_resp_parser = allocate_http_parser(cw.h, false,
+                                                  init_closure_func(&cw.log_vh, value_handler,
                                                                           cw_log_vh));
         assert(cw.log_resp_parser != INVALID_ADDRESS);
         init_closure_func(&cw.log_timer_handler, timer_handler, cw_log_timer_handler);
