@@ -1,7 +1,7 @@
 #include <kernel.h>
 #include <aws.h>
-#include <http.h>
 #include <lwip.h>
+#include <net_utils.h>
 
 #define _RUNTIME_H_ /* guard against double inclusion of runtime.h */
 #include <mbedtls/md.h>
@@ -288,6 +288,25 @@ static boolean aws_headers_sort(heap h, tuple req, binding_handler handler)
     return result;
 }
 
+static boolean aws_query_encode(buffer dest, char *src, bytes len)
+{
+    bytes start = 0;
+    for (bytes i = 0; i <= len; i++) {
+        if (i == len || src[i] == '&' || src[i] == '=') {
+            if (i > start) {
+                if (!net_uri_encode(dest, src + start, i - start))
+                    return false;
+            }
+            if (i < len) {
+                if (!buffer_write_byte(dest, src[i]))
+                    return false;
+            }
+            start = i + 1;
+        }
+    }
+    return true;
+}
+
 /* creates a canonical request */
 static buffer aws_create_can_req(heap h, sstring method, tuple req, buffer body)
 {
@@ -307,7 +326,7 @@ static buffer aws_create_can_req(heap h, sstring method, tuple req, buffer body)
         goto error;
     push_u8(can_req, '\n');
     if ((uri_end < buffer_length(url)) &&
-        !buffer_write(can_req, buffer_ref(url, uri_end + 1), buffer_length(url) - uri_end - 1))
+        !aws_query_encode(can_req, buffer_ref(url, uri_end + 1), buffer_length(url) - uri_end - 1))
         goto error;
     push_u8(can_req, '\n');
     if (!aws_headers_sort(h, req, stack_closure(aws_header_add, can_req, false)))

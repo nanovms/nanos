@@ -134,6 +134,25 @@ void net_resolve(sstring host, void (*cb)(sstring host, const ip_addr_t *addr, v
     }
 }
 
+boolean net_uri_encode(buffer dest, char *src, bytes len)
+{
+    const char *hex = "0123456789ABCDEF";
+    for (bytes i = 0; i < len; i++) {
+        char c = src[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '_' || c == '-' || c == '.' || c == '~') {
+            if (!buffer_write_byte(dest, c))
+                return false;
+        } else {
+            if (!buffer_write_byte(dest, '%') ||
+                !buffer_write_byte(dest, hex[(c >> 4) & 0xf]) ||
+                !buffer_write_byte(dest, hex[c & 0xf]))
+                return false;
+        }
+    }
+    return true;
+}
+
 status net_http_req(net_http_req_params params)
 {
     heap h = heap_locked(get_kernel_heaps());

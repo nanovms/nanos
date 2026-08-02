@@ -34,6 +34,7 @@ SRCS-cloud_init= \
 SRCS-cloudwatch= \
 	$(KLIB_DIR)/aws.c \
 	$(KLIB_DIR)/cloudwatch.c \
+	$(KLIB_DIR)/net_utils.c \
 
 SRCS-digitalocean= \
 	$(KLIB_DIR)/crc32.c \
