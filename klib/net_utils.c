@@ -68,7 +68,8 @@ closure_func_basic(connection_handler, input_buffer_handler, net_http_ch,
         req_data->out = out;
         net_http_req_params params = &req_data->params;
         tuple req = params->req;
-        set(req, sym(Host), alloca_wrap_sstring(params->host));
+        /* Use lowercase host header in order to be compatible with AWS SigV4 protocol. */
+        set(req, sym(host), alloca_wrap_sstring(params->host));
         set(req, sym(Connection), alloca_wrap_cstring("close"));
         status s = http_request(req_data->h, out, params->method, req, params->body);
         if (is_ok(s)) {

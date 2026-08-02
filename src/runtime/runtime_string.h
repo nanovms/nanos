@@ -24,3 +24,17 @@ static inline string wrap_string_sstring(sstring s)
 }
 
 #define wrap_string_cstring(x)  wrap_string_sstring(ss(x))
+
+static inline boolean sstring_allocate(heap h, bytes len, sstring *s)
+{
+    s->ptr = allocate(h, len);
+    if (s->ptr == INVALID_ADDRESS)
+        return false;
+    s->len = len;
+    return true;
+}
+
+static inline void sstring_deallocate(heap h, sstring s)
+{
+    deallocate(h, s.ptr, s.len);
+}

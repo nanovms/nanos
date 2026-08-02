@@ -257,6 +257,11 @@ static inline __attribute__((always_inline)) void set_current_context(cpuinfo ci
     ci->m.current_context = c;
 }
 
+static inline context current_context(void)
+{
+    return get_current_context(current_cpu());
+}
+
 static inline boolean in_interrupt(void)
 {
     return current_cpu()->state == cpu_interrupt;

@@ -81,6 +81,15 @@ status http_request(heap h, buffer_handler bh, http_method method, tuple headers
     return s;
 }
 
+boolean http_resp_is_ok(value v)
+{
+    if (!v)
+        return false;
+    value start_line = get(v, sym(start_line));
+    string status_code = get_string(start_line, integer_key(1));
+    return (status_code && (buffer_length(status_code) == 3) && (peek_char(status_code) == '2'));
+}
+
 static status send_http_headers(http_responder out, tuple t)
 {
     status s;

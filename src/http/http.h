@@ -17,6 +17,7 @@ buffer_handler allocate_http_parser(heap h, boolean headers_only, value_handler 
 // just format the buffer?
 status http_request(heap h, buffer_handler bh, http_method method,
                     tuple headers, buffer body);
+boolean http_resp_is_ok(value v);
 status send_http_response(http_responder out,
                           tuple t,
                           buffer c);

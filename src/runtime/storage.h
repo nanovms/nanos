@@ -98,6 +98,7 @@ closure_type(fs_init_handler, void, boolean readonly, fs_init_complete complete)
 void init_volumes(heap h);
 void storage_set_root_fs(struct filesystem *root_fs);
 void storage_set_mountpoints(tuple mounts);
+boolean storage_add_mountpoint(symbol volume, string path);
 boolean volume_add(u8 *uuid, char *label, void *priv, fs_init_handler init_handler, int attach_id);
 void storage_when_ready(status_handler complete);
 void storage_sync(status_handler sh);

@@ -413,6 +413,11 @@ void aws_req_set_date(tuple req, buffer b)
     set(req, sym(x-amz-date), b);
 }
 
+buffer aws_req_get_date(tuple req)
+{
+    return get_string(req, sym(x-amz-date));
+}
+
 buffer aws_req_sign(heap h, sstring region, sstring service, sstring method,
                     tuple req, buffer body, sstring access_key, sstring secret)
 {

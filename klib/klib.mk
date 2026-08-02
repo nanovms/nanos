@@ -11,6 +11,7 @@ KLIBS= \
 	gcp \
 	ntp \
 	radar \
+	s3fs \
 	sandbox \
 	shmem \
 	special_files \
@@ -52,6 +53,12 @@ SRCS-ntp= \
 SRCS-radar= \
 	$(KLIB_DIR)/net_utils.c \
 	$(KLIB_DIR)/radar.c \
+
+SRCS-s3fs= \
+	$(KLIB_DIR)/aws.c \
+	$(KLIB_DIR)/net_utils.c \
+	$(KLIB_DIR)/s3fs.c \
+	$(KLIB_DIR)/xml.c \
 
 SRCS-sandbox= \
 	$(KLIB_DIR)/pledge.c \

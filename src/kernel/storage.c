@@ -256,6 +256,23 @@ void storage_set_mountpoints(tuple mounts)
     storage_check_if_ready();
 }
 
+boolean storage_add_mountpoint(symbol volume, string path)
+{
+    storage_lock();
+    tuple mounts = storage.mounts;
+    if (!mounts) {
+        mounts = allocate_tuple();
+        if (mounts == INVALID_ADDRESS) {
+            storage_unlock();
+            return false;
+        }
+        storage.mounts = mounts;
+    }
+    set(mounts, volume, path);
+    storage_unlock();
+    return true;
+}
+
 closure_function(1, 2, boolean, volume_add_mount_each,
                  volume, v,
                  value k, value path)
