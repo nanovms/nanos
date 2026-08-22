@@ -241,7 +241,8 @@ static status demand_anonymous_page(process p, context ctx, u64 vaddr, vmap vm, 
     return STATUS_OK;
 }
 
-/* Maps the memory the page cache handed out, which may cover more than one page. Every page of
+/* Maps the memory the page cache handed out, which may cover more than one page: a whole window
+   of a node's pages laid over one contiguous block is described by a single entry. Every page of
    it must be unmapped, since another processor may have faulted one of them in and mapped it a
    page at a time, and overwriting that would lose the reference it holds. */
 static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, range kvirt)
@@ -274,6 +275,30 @@ static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, rang
     return STATUS_OK;
 }
 
+/* The size the page cache is asked for: a whole aligned window when the mapping is a shared one
+   of a file, transparent huge pages are allowed, and the window falls inside both the mapping
+   and the file with the file offset congruent to the virtual address. Otherwise a single page,
+   which is what the cache falls back to anyway when the window cannot be laid out. */
+static u64 filebacked_page_size(vmap vm, u64 page_addr, u64 node_offset, u64 padlen,
+                                boolean shared)
+{
+    if (!shared || (vm->flags & VMAP_FLAG_TAIL_BSS))
+        return PAGESIZE;
+    u64 size = PAGESIZE;
+    u64 max_size = mmap_info.thp_max_size;
+    while (size < max_size) {
+        u64 next = size << 1;
+        u64 addr = page_addr & ~(next - 1);
+        u64 offset = node_offset & ~(next - 1);
+        if (((page_addr - addr) != (node_offset - offset)) ||
+            (addr < vm->node.r.start) || (addr + next > vm->node.r.end) ||
+            (offset + next > padlen))
+            break;
+        size = next;
+    }
+    return size;
+}
+
 closure_func_basic(pagecache_page_handler, void, pending_fault_page_handler,
                    range kvirt)
 {
@@ -289,7 +314,7 @@ closure_func_basic(thunk, void, pending_fault_filebacked)
     pagecache_page_handler h = init_closure_func(&pf->filebacked.demand_file_page,
                                                  pagecache_page_handler,
                                                  pending_fault_page_handler);
-    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, PAGESIZE,
+    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, pf->filebacked.size,
                        pf->filebacked.private_page, h);
 }
 
@@ -329,6 +354,8 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
             new_pf->filebacked.node_offset = node_offset;
             init_closure_func(&new_pf->async_handler, thunk, pending_fault_filebacked);
             new_pf->filebacked.private_page = private_page;
+            new_pf->filebacked.size = filebacked_page_size(vm, page_addr, node_offset, padlen,
+                                                           shared && !private_page);
         }
         *pf = new_pf;
         return STATUS_OK;
@@ -339,7 +366,7 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
     if (range_span(kvirt) == 0)
         s = timm_oom;
     else
-        /* What came back may cover more than one page, in which case it is mapped at the base of
+        /* What came back may cover a whole window, in which case it is mapped at the base of
            the window the faulting page falls in. */
         s = mmap_filebacked_page(vm, page_addr & ~(range_span(kvirt) - 1), flags, kvirt);
     return s;
