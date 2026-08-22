@@ -49,9 +49,11 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
 void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */, sg_list sg,
                                 status_handler complete);
 
-/* Gets the memory backing a node offset and hands out the kernel virtual range it occupies.
-   An empty range means the memory could not be had. */
-void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
+/* Gets the memory backing a node offset, and hands out the kernel virtual range it occupies.
+   The size is what the caller would rather have: the cache may lay one contiguous block under a
+   whole aligned window of its pages and answer with all of it, so that a mapping of the window
+   can be described by a single entry. An empty range means the memory could not be had. */
+void pagecache_get_page(pagecache_node pn, u64 node_offset, u64 size, boolean private,
                         pagecache_page_handler handler);
 range pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private);
 void pagecache_release_page(pagecache_node pn, u64 node_offset);
@@ -60,6 +62,11 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
                                 boolean del_mappings);
 
 pagecache_volume pagecache_allocate_volume(u64 length, int block_order);
+
+/* Lets the nodes of a volume lay their pages over one contiguous block, so that a mapping of a
+   node can be described by a single block PTE. Only for a volume whose pages are cheap to fill:
+   a whole window of them is filled at the first fault. */
+void pagecache_set_volume_huge(pagecache_volume pv);
 void pagecache_dealloc_volume(pagecache_volume pv);
 
 void init_pagecache(heap general, heap contiguous, u64 pagesize);

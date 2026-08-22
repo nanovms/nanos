@@ -289,8 +289,8 @@ closure_func_basic(thunk, void, pending_fault_filebacked)
     pagecache_page_handler h = init_closure_func(&pf->filebacked.demand_file_page,
                                                  pagecache_page_handler,
                                                  pending_fault_page_handler);
-    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, pf->filebacked.private_page,
-                       h);
+    pagecache_get_page(pf->filebacked.pn, pf->filebacked.node_offset, PAGESIZE,
+                       pf->filebacked.private_page, h);
 }
 
 static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm, pending_fault *pf)
