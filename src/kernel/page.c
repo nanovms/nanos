@@ -280,6 +280,34 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 #endif
 }
 
+/* called with lock held */
+closure_function(1, 3, boolean, split_large_entry,
+                 flush_entry, fe,
+                 int level, u64 vaddr, pteptr entry)
+{
+    pte old_entry = pte_from_pteptr(entry);
+    if ((level == PT_PTE_LEVEL) || !pte_is_present(old_entry) ||
+        !pte_is_mapping(level, old_entry))
+        return true;
+    if (pte_split(entry, irange(0, 0)) == INVALID_PHYSICAL)
+        return false;
+    page_invalidate(bound(fe), vaddr);
+    return true;
+}
+
+/* Replaces any block mapping intersecting the range with a table of PTE-level mappings of the
+   same memory. What is mapped does not change; only the level at which it is described does.
+   The page cache walks its mappings expecting one entry per cache page, so a range it is about
+   to unmap has to be described that way before it is walked. */
+boolean split_large_mappings(u64 vaddr, u64 length)
+{
+    page_debug("vaddr 0x%lx, length 0x%lx\n", vaddr, length);
+    flush_entry fe = get_page_flush_entry();
+    boolean success = traverse_ptes(vaddr, length, stack_closure(split_large_entry, fe));
+    page_invalidate_sync(fe, 0, false);
+    return success;
+}
+
 static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe);
 
 /* called with lock held */

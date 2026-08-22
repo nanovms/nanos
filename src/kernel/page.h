@@ -37,6 +37,7 @@ void map(u64 v, physical p, u64 length, pageflags flags);
 void map_nolock(u64 v, physical p, u64 length, pageflags flags);
 
 void update_map_flags(u64 vaddr, u64 length, pageflags flags);
+boolean split_large_mappings(u64 vaddr, u64 length);
 
 #define remap(v, p, length, flags)  map(v, p, length, flags)
 
