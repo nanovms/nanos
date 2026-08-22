@@ -275,6 +275,11 @@ filesystem tmpfs_new(void)
     }
     fs->fs.get_seals = tmpfs_get_seals;
     fs->fs.set_seals = tmpfs_set_seals;
+
+    /* A page of this filesystem is filled by zeroing it, never by reading a device, so a whole
+       window of them can be laid over one contiguous block at the first fault and a mapping of a
+       file can be described with block PTEs. */
+    pagecache_set_volume_huge(fs->fs.pv);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     if (fs->files == INVALID_ADDRESS)
         goto err_filetable;
