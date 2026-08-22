@@ -297,7 +297,7 @@ typedef struct pending_fault {
         PENDING_FAULT_FILEBACKED,
         PENDING_FAULT_CUSTOM,
     } type;
-    void *page_kvirt;
+    range page_kvirt;    /* kernel virtual range of the memory the fault is waiting for */
     union {
         struct {
         } anonymous;

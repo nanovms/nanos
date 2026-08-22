@@ -1880,13 +1880,14 @@ closure_function(3, 1, void, get_page_finish,
                  status s)
 {
     pagecache_page_handler handler = bound(handler);
+    range kvirt = irange(0, 0);
     if (is_ok(s)) {
         pagecache_page pp = bound(pp);
-        void *kvirt = !bound(private) ? pp->kvirt : pagecache_get_private_page(pp);
-        apply(handler, kvirt);
-    } else {
-        apply(handler, INVALID_ADDRESS);
+        void *p = !bound(private) ? pp->kvirt : pagecache_get_private_page(pp);
+        if (p != INVALID_ADDRESS)
+            kvirt = irangel(u64_from_pointer(p), cache_pagesize(pp->node->pv->pc));
     }
+    apply(handler, kvirt);
     closure_finish();
 }
 
@@ -1910,7 +1911,7 @@ void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
                     func_ss, pn, node_offset, handler, pp);
     if (pp == INVALID_ADDRESS) {
         pagecache_unlock_node(pn);
-        apply(handler, INVALID_ADDRESS);
+        apply(handler, irange(0, 0));
         return;
     }
     merge m = allocate_merge(pc->h, closure(pc->h, get_page_finish, pp, private, handler));
@@ -1921,20 +1922,20 @@ void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
 }
 
 /* no-alloc / no-fill path */
-void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private)
+range pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private)
 {
+    pagecache pc = pn->pv->pc;
     pagecache_lock_node(pn);
-    pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pn->pv->pc->page_order);
+    pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> pc->page_order);
     pagecache_debug("%s: pn %p, node_offset 0x%lx, pp %p\n", func_ss, pn, node_offset, pp);
-    void *kvirt;
-    if (pp == INVALID_ADDRESS) {
-        kvirt = INVALID_ADDRESS;
+    range kvirt = irange(0, 0);
+    if (pp == INVALID_ADDRESS)
         goto out;
+    if (touch_or_fill_page_nodelocked(pn, pp, 0)) {
+        void *p = !private ? pp->kvirt : pagecache_get_private_page(pp);
+        if (p != INVALID_ADDRESS)
+            kvirt = irangel(u64_from_pointer(p), cache_pagesize(pc));
     }
-    if (touch_or_fill_page_nodelocked(pn, pp, 0))
-        kvirt = !private ? pp->kvirt : pagecache_get_private_page(pp);
-    else
-        kvirt = INVALID_ADDRESS;
   out:
     pagecache_unlock_node(pn);
     return kvirt;
