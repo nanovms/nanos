@@ -828,7 +828,7 @@ boolean unix_timers_init(unix_heaps uh);
 
 #define sysreturn_from_pointer(__x) ((s64)u64_from_pointer(__x));
 
-#define vmap_lock(p) u64 _savedflags = spin_lock_irq(&(p)->vmap_lock)
+#define vmap_lock(p) u64 _savedflags = spin_lock_irq_flush(&(p)->vmap_lock)
 #define vmap_unlock(p) spin_unlock_irq(&(p)->vmap_lock, _savedflags)
 
 extern sysreturn syscall_ignore();

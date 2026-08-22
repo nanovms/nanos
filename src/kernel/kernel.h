@@ -179,6 +179,29 @@ static inline void spin_unlock_irq(spinlock l, u64 flags)
     irq_restore(flags);
 }
 
+/* For a lock whose holder can end up parked in a TLB flush rendezvous. Waiting for one of those
+ * with interrupts off is a deadlock: the flush IPI never arrives, so this processor never joins,
+ * so the rendezvous never ends, so its holder never lets go. The wait does the flush work itself. */
+static inline u64 spin_lock_irq_flush(spinlock l)
+{
+    u64 flags = irq_disable_save();
+    volatile u64 *p = (volatile u64 *)&l->w;
+#ifdef LOCK_STATS
+    u64 spins = 0;
+#endif
+    while (*p || !compare_and_swap_64(&l->w, 0, 1)) {
+#ifdef LOCK_STATS
+        spins++;
+#endif
+        page_invalidate_flush();
+        kern_pause();
+    }
+#ifdef LOCK_STATS
+    LOCKSTATS_RECORD_LOCK(l->s, true, spins, 0);
+#endif
+    return flags;
+}
+
 static inline u64 spin_wlock_irq(rw_spinlock l)
 {
     u64 flags = irq_disable_save();
