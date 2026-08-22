@@ -75,9 +75,14 @@ static boolean flush_gen_rlocked(word gen, cpuinfo ci, boolean full_flush)
 static void _flush_handler(void)
 {
     cpuinfo ci = current_cpu();
+    word gen_diff = inval_gen - ci->inval_gen;
+
+    if (!gen_diff)
+        return;
+
     /* Each generation has at least one page, so if the gen difference is
      * greater than FLUSH_THRESHOLD, just do a full tlb flush */
-    boolean full_flush = inval_gen - ci->inval_gen > FLUSH_THRESHOLD;
+    boolean full_flush = gen_diff > FLUSH_THRESHOLD;
 
     spin_rlock(&flush_lock);
     while (ci->inval_gen != inval_gen)
