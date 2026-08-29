@@ -25,7 +25,7 @@ jobs:
             fi
       - run: echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-      - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
+      - run: sudo apt-get update && sudo apt-get install google-cloud-cli
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
       - run: gcloud --quiet config set compute/zone ${GOOGLE_COMPUTE_ZONE}
@@ -75,7 +75,7 @@ jobs:
 
       - run: echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-      - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
+      - run: sudo apt-get update && sudo apt-get install google-cloud-cli
 
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
@@ -116,7 +116,7 @@ jobs:
 
       - run: echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-      - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
+      - run: sudo apt-get update && sudo apt-get install google-cloud-cli
 
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
@@ -152,7 +152,7 @@ jobs:
 
       - run: echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
       - run: curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
-      - run: sudo apt-get update && sudo apt-get install google-cloud-sdk
+      - run: sudo apt-get update && sudo apt-get install google-cloud-cli
 
       - run: echo $GCLOUD_SERVICE_KEY | gcloud auth activate-service-account --key-file=-
       - run: gcloud config set project ${GOOGLE_PROJECT_ID}
