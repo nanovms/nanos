@@ -1,5 +1,4 @@
-#include <runtime.h>
-#include <page.h>
+#include <kernel.h>
 #include <elf64.h>
 #include <storage.h>
 #include <tfs.h>
@@ -190,6 +189,66 @@ closure_function(2, 1, void, uefi_blkdev_read,
           EFI_ERROR(status) ? timm("result", "read_blocks status %d", status) : STATUS_OK);
 }
 
+/* Returns the lowest address aligned to PHYSMEM_BASE_MASK in conventional memory from which
+ * INIT_IDENTITY_SIZE bytes (if defined) are free, and reserves these bytes for the kernel; if no such
+ * address is found, falls back to the address of this loader rounded down to PHYSMEM_BASE_MASK. */
+static u64 uefi_physmem_base(void)
+{
+    u64 base = INVALID_PHYSICAL;
+    u64 map_size = 0, map_key, desc_size;
+    u32 desc_version;
+    void *map = 0;
+
+    efi_status status = UBS->get_memory_map(&map_size, 0, &map_key, &desc_size, &desc_version);
+  retry:
+    if (status == EFI_BUFFER_TOO_SMALL) {
+        map_size += UEFI_MEMDESC_SPARE_COUNT * desc_size;
+        status = UBS->allocate_pool(efi_loader_data, map_size, &map);
+        if (!EFI_ERROR(status) && map) {
+            status = UBS->get_memory_map(&map_size, map, &map_key, &desc_size, &desc_version);
+            if (status == EFI_BUFFER_TOO_SMALL) {
+                UBS->free_pool(map);
+                map = 0;
+                goto retry;
+            }
+        }
+    }
+    if (!EFI_ERROR(status) && map) {
+        u64 min_base = 0;
+        do {
+            u64 start = INVALID_PHYSICAL;
+            for (u64 i = 0; i < map_size / desc_size; i++) {
+                efi_memory_desc d = map + i * desc_size;
+                if (d->type != efi_conventional_memory)
+                    continue;
+                u64 s = (d->physical_start + PHYSMEM_BASE_MASK) & ~PHYSMEM_BASE_MASK;
+                if ((s < d->physical_start) ||
+                    ((s - d->physical_start) / PAGESIZE >= d->number_of_pages))
+                    continue;
+                if ((s >= min_base) && (s < start))
+                    start = s;
+            }
+            if (start == INVALID_PHYSICAL)
+                break;
+#ifdef INIT_IDENTITY_SIZE
+            void *p = pointer_from_u64(start);
+            if (EFI_ERROR(UBS->allocate_pages(allocate_address, efi_loader_data,
+                                              INIT_IDENTITY_SIZE / PAGESIZE, &p))) {
+                min_base = start + PHYSMEM_BASE_MASK + 1;
+                continue;
+            }
+#endif
+            base = start;
+        } while ((base == INVALID_PHYSICAL) && (min_base > 0));
+    }
+    if (map)
+        UBS->free_pool(map);
+    if (base == INVALID_PHYSICAL)
+        base = u64_from_pointer(uefi_physmem_base) & ~PHYSMEM_BASE_MASK;
+    uefi_debug("kernel physical memory base 0x%lx", base);
+    return base;
+}
+
 closure_function(3, 2, void, uefi_bootfs_complete,
                  heap, general, heap, aligned, uefi_arch_options, options,
                  filesystem fs, status s)
@@ -207,8 +266,8 @@ closure_function(3, 2, void, uefi_bootfs_complete,
         if (!fsf)
             halt("UEFI: invalid kernel file\n");
         u64 kernel_entry;
-        load_elf_to_physical(general, stack_closure(uefi_kernel_load, fsf), &kernel_entry,
-                             stack_closure(uefi_kernel_loaded, &kernel_entry));
+        load_elf_to_physical(general, stack_closure(uefi_kernel_load, fsf), uefi_physmem_base(),
+                             &kernel_entry, stack_closure(uefi_kernel_loaded, &kernel_entry));
     } else {
         buffer_handler bh = closure(general, uefi_kernel_complete, aligned);
         assert(bh != INVALID_ADDRESS);
