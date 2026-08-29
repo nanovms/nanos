@@ -1,4 +1,7 @@
 #include <runtime.h>
+#if defined(__aarch64__) && defined(KERNEL)
+#include <kernel_machine.h>
+#endif
 
 /* Copy by advancing memory addresses in forward direction. */
 static inline void memcpyf_8(void *dst, const void *src, bytes len)
@@ -125,13 +128,24 @@ void runtime_memcpy(void *a, const void *b, bytes len)
 }
 
 #if defined(__aarch64__)
+
 void zero(void *x, bytes length)
 {
     u8 *a = x;
     bytes len = length;
     u64 dczid;
     asm volatile("mrs %0, DCZID_EL0" : "=r"(dczid));
-    if (!(dczid & (1u << 4))) {         /* DZP clear: DC ZVA not prohibited */
+
+    /* DC ZVA requires Normal memory, and every access is Device memory while the MMU is off. The
+       kernel can run in that state during early boot. */
+#ifdef KERNEL
+    u64 sctlr;
+    asm volatile("mrs %0, SCTLR_EL1" : "=r"(sctlr));
+    boolean mmu_on = (sctlr & SCTLR_EL1_M) != 0;
+#else
+    boolean mmu_on = true;
+#endif
+    if (mmu_on && !(dczid & (1u << 4))) {  /* DZP clear: DC ZVA not prohibited */
         bytes block_size = 4ull << (dczid & 0xf); /* 64 B on Graviton2/Cortex-A72 */
         bytes misalign = (u64)a & (block_size - 1);
         bytes head = MIN(block_size - misalign, len);
