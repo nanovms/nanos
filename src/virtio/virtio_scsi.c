@@ -134,6 +134,7 @@ struct virtio_scsi_disk {
     u32 max_xfer_len;
     u64 capacity;
     u64 block_size;
+    boolean no_flush;
 };
 
 static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target);
@@ -300,6 +301,37 @@ closure_function(1, 2, void, virtio_scsi_io_done,
     closure_finish();
 }
 
+/* Additional sense code for an operation code the device does not implement. */
+#define SCSI_ASC_INVALID_OPCODE 0x20
+
+/* A device that answers SYNCHRONIZE CACHE with ILLEGAL REQUEST and that additional sense code does
+   not implement the command, which means it has no volatile write cache: the data is already where
+   a flush would have put it. Report success and stop asking, rather than failing every flush and
+   filling the console with sense data. The block volumes of Oracle Cloud Infrastructure answer
+   that way. */
+closure_function(2, 2, void, virtio_scsi_flush_done,
+                 virtio_scsi_disk, d,
+                 status_handler, sh,
+                 virtio_scsi s, virtio_scsi_request r)
+{
+    struct virtio_scsi_resp_cmd *resp = &r->resp;
+    status st = 0;
+    if (resp->response != VIRTIO_SCSI_S_OK) {
+        st = timm("result", "response %d", resp->response);
+    } else if (resp->status != SCSI_STATUS_OK) {
+        struct scsi_sense_data *ssd = (struct scsi_sense_data *)resp->sense;
+        if (((ssd->flags & SSD_KEY) == SSD_KEY_ILLEGAL_REQUEST) &&
+            (ssd->asc == SCSI_ASC_INVALID_OPCODE)) {
+            bound(d)->no_flush = true;
+        } else {
+            scsi_dump_sense(resp->sense, sizeof(resp->sense));
+            st = timm("result", "status %d", resp->status);
+        }
+    }
+    async_apply_status_handler(bound(sh), st);
+    closure_finish();
+}
+
 static void virtio_scsi_io(virtio_scsi_disk d, u8 cmd, void *buf, range blocks,
                            status_handler sh)
 {
@@ -403,6 +435,11 @@ static void virtio_scsi_flush(virtio_scsi_disk d, status_handler sh)
 {
     virtio_scsi s = d->scsi;
     u64 r_phys;
+
+    if (d->no_flush) {
+        async_apply_status_handler(sh, STATUS_OK);
+        return;
+    }
     virtio_scsi_request r = virtio_scsi_alloc_request(s, d->target, d->lun,
                                                       SCSI_CMD_SYNCHRONIZE_CACHE_10,
                                                       &r_phys);
@@ -415,7 +452,7 @@ static void virtio_scsi_flush(virtio_scsi_disk d, status_handler sh)
     cdb->control = 0;           /* no ACA */
     virtio_scsi_debug("%s: enqueue request %p\n", func_ss, r);
     virtio_scsi_enqueue_request(s, r, r_phys, 0, 0,
-                                closure(s->v->virtio_dev.general, virtio_scsi_io_done, sh));
+                                closure(s->v->virtio_dev.general, virtio_scsi_flush_done, d, sh));
 }
 
 closure_func_basic(storage_req_handler, void, virtio_scsi_req_handler,
