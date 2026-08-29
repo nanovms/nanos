@@ -75,7 +75,8 @@ section_table:
     .short 0                 // NumberOfLineNumbers
     .long 0xc0000040         // Characteristics
 
-    .align 8
+    /* Must agree with the SectionAlignment and FileAlignment values in the above PE header */
+    .align 12
 _start:
     stp x29, x30, [sp, #-32]!
     stp x0, x1, [sp, #16]
