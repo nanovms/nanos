@@ -19,6 +19,12 @@
     exit(EXIT_FAILURE);                                                                 \
 } while (0)
 
+#define TEST_FUNC(name) {                               \
+    extern void test_##name(int argc, char *argv[]);    \
+    test_##name(argc, argv);                            \
+    printf(#name " test:\tOK\n");                     \
+}
+
 #define test_perror(msg, ...) do {                                                      \
     fprintf(stderr, "Error at %s:%d: " msg ": " , __FILE__, __LINE__, ##__VA_ARGS__);   \
     perror(NULL);                                                                       \

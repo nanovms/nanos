@@ -1683,6 +1683,7 @@ int main(int argc, char * argv[])
     filebacked_sigbus_test();
     madvise_test();
     check_fault_in_user_memory();
+    TEST_FUNC(vmap_flush);
 
     printf("\n**** all tests passed ****\n");
 
