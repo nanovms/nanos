@@ -440,8 +440,9 @@ closure_function(6, 1, void, elf_load_program,
     closure_finish();
 }
 
-closure_function(5, 1, void, elf_load_phdr,
-                 heap, h, Elf64_Ehdr *, e, elf_loader, loader, u64 *, entry, status_handler, sh,
+closure_function(6, 1, void, elf_load_phdr,
+                 heap, h, Elf64_Ehdr *, e, elf_loader, loader, u64, physmem_base, u64 *, entry,
+                 status_handler, sh,
                  status s)
 {
     heap h = bound(h);
@@ -451,8 +452,7 @@ closure_function(5, 1, void, elf_load_phdr,
     if (is_ok(s)) {
         /* Calculate an offset so that the ELF is loaded at addresses corresponding to actual memory
          * (the addresses in the ELF file may not correspond to valid memory locations). */
-        u64 physmem_base = u64_from_pointer(closure_self()) & ~PHYSMEM_BASE_MASK;
-        u64 physmem_offset = physmem_base - (e->e_entry & ~PHYSMEM_BASE_MASK);
+        u64 physmem_offset = bound(physmem_base) - (e->e_entry & ~PHYSMEM_BASE_MASK);
 
         elf_debug("  %d program headers, entry %p, physmem offset 0x%lx\n", e->e_phnum, e->e_entry,
                   physmem_offset);
@@ -470,10 +470,11 @@ closure_function(5, 1, void, elf_load_phdr,
 }
 
 
-void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh)
+void load_elf_to_physical(heap h, elf_loader loader, u64 physmem_base, u64 *entry,
+                          status_handler sh)
 {
     Elf64_Ehdr *e = mem_alloc(h, sizeof(Elf64_Ehdr), MEM_NOFAIL);
-    status_handler load_phdr = closure(h, elf_load_phdr, h, e, loader, entry, sh);
+    status_handler load_phdr = closure(h, elf_load_phdr, h, e, loader, physmem_base, entry, sh);
     assert(load_phdr != INVALID_ADDRESS);
     apply(loader, 0, sizeof(Elf64_Ehdr), e, load_phdr);
 }
