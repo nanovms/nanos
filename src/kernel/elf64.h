@@ -270,6 +270,9 @@ void elf_dyn_relocate(u64 base, u64 offset, Elf64_Dyn *dyn, Elf64_Sym *syms);
 boolean elf_plt_get(buffer elf, u64 *addr, u64 *offset, u64 *size);
 void walk_elf(buffer elf, range_handler rh);
 void *load_elf(buffer elf, u64 load_offset, elf_map_handler mapper);
+extern u64 elf_physmem_base;
+extern u64 elf_physmem_size;
+
 void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh);
 
 /* Architecture-specific */
