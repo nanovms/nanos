@@ -1,4 +1,12 @@
 (
+    boot:(
+        children:(
+            klib:(children:(
+                tmpfs:(contents:(host:ARCH_DIR/bin/tmpfs))
+                shmem:(contents:(host:ARCH_DIR/bin/shmem))
+            ))
+        )
+    )
     children:(
         mmap:(contents:(host:output/test/runtime/bin/mmap))
 	infile:(contents:(host:test/runtime/read_contents/hello))
@@ -8,6 +16,7 @@
 	unmapme:(contents:(host:test/runtime/read_contents/unmapme))
         testpath:(contents:(host:test/runtime/read_contents/testpath))
     )
+    klibs:bootfs
     # filesystem path to elf for kernel to run
     program:/mmap
 #    trace:t
