@@ -1358,6 +1358,12 @@ closure_func_basic(pp_handler, boolean, pagecache_unpin_handler,
     return true;
 }
 
+void pagecache_nodelocked_unpin(pagecache_node pn, range pages)
+{
+    pagecache_nodelocked_traverse(pn, pages,
+                                  stack_closure_func(pp_handler, pagecache_unpin_handler));
+}
+
 void pagecache_node_unpin(pagecache_node pn, range pages)
 {
     pagecache_node_traverse(pn, pages, stack_closure_func(pp_handler, pagecache_unpin_handler));
