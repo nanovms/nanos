@@ -38,6 +38,11 @@ typedef struct pagecache_drain_work {
     int freed_pages;
 } *pagecache_drain_work;
 
+struct pagecache_unmap_range {
+    range v;                    /* virtual */
+    u64 node_offset;
+};
+
 #define pagecache_lock_mappings()   pagecache_lock(global_pagecache)
 #define pagecache_unlock_mappings() pagecache_unlock(global_pagecache)
 
@@ -569,6 +574,8 @@ static void pagecache_node_traverse(pagecache_node pn, range pages, pp_handler h
     pagecache_unlock_node(pn);
 }
 
+static void pagecache_node_punch(pagecache_node pn, range q /* bytes */, status_handler complete);
+
 closure_function(6, 1, void, pagecache_write_sg_finish,
                  pagecache_node, pn, range, q, u64, pi, sg_list, sg, status_handler, completion, context, saved_ctx,
                  status s)
@@ -681,6 +688,24 @@ closure_function(1, 3, void, pagecache_write_sg,
     if (range_span(q) == 0) {
         apply(completion, STATUS_OK);
         return;
+    }
+
+    if (!sg) {
+        /* A null sg punches a hole out of the node: the whole pages of the range are given back,
+           while a partial page at either edge is zeroed by the code below. */
+        range body = irange(pad(q.start, U64_FROM_BIT(pc->page_order)),
+                            q.end & ~MASK(pc->page_order));
+        if (body.end > body.start) {
+            merge m = allocate_merge(pc->h, completion);
+            status_handler sh = apply_merge(m);
+            if (q.start < body.start)
+                apply(pn->cache_write, 0, irange(q.start, body.start), apply_merge(m));
+            if (q.end > body.end)
+                apply(pn->cache_write, 0, irange(body.end, q.end), apply_merge(m));
+            pagecache_node_punch(pn, body, apply_merge(m));
+            apply(sh, STATUS_OK);
+            return;
+        }
     }
 
     u64 start_offset = q.start & MASK(pc->page_order);
@@ -1227,15 +1252,14 @@ void pagecache_sync_node(pagecache_node pn, status_handler complete)
     pagecache_node_scan(pn, irange(0, infinity), complete);
 }
 
-closure_function(1, 1, boolean, purge_range_handler,
-                 pagecache_node, pn,
-                 rmnode n)
+/* Drops the dirty state of the pages of a range, and the references it holds. Called with the
+   node and state locks held. */
+static void pagecache_purge_dirty_locked(pagecache_node pn, range r /* bytes */)
 {
-    pagecache_node pn = bound(pn);
     pagecache pc = pn->pv->pc;
     int page_order = pc->page_order;
     u64 page_size = U64_FROM_BIT(page_order);
-    u64 node_offset = n->r.start;
+    u64 node_offset = r.start & ~MASK(page_order);
     pagecache_page pp = page_lookup_nodelocked(pn, node_offset >> page_order);
     do {
         if (page_state(pp) == PAGECACHE_PAGESTATE_DIRTY) {
@@ -1245,7 +1269,15 @@ closure_function(1, 1, boolean, purge_range_handler,
         }
         node_offset += page_size;
         pp = (pagecache_page)rbnode_get_next((rbnode)pp);
-    } while (node_offset < n->r.end);
+    } while (node_offset < r.end);
+}
+
+closure_function(1, 1, boolean, purge_range_handler,
+                 pagecache_node, pn,
+                 rmnode n)
+{
+    pagecache_node pn = bound(pn);
+    pagecache_purge_dirty_locked(pn, n->r);
     rangemap_remove_range(&pn->dirty, n);
     return true;
 }
@@ -1311,6 +1343,12 @@ closure_func_basic(pp_handler, boolean, pagecache_unpin_handler,
 {
     pagecache_page_release_locked(global_pagecache, pp, false);
     return true;
+}
+
+void pagecache_nodelocked_unpin(pagecache_node pn, range pages)
+{
+    pagecache_nodelocked_traverse(pn, pages,
+                                  stack_closure_func(pp_handler, pagecache_unpin_handler));
 }
 
 void pagecache_node_unpin(pagecache_node pn, range pages)
@@ -2068,6 +2106,138 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
     page_invalidate_sync(fe, completion, !success);
     if (!success)
         pagecache_node_unmap_pages_sync(pn, v, node_offset, false);
+}
+
+/* Collects the mappings intersecting a node range, resuming from the virtual address in cursor.
+   The mappings lock is dropped before unmapping, as every other user of it does, because the
+   unmapping waits for a TLB flush that the processors holding it may have to join. */
+static int pagecache_node_collect_maps(pagecache_node pn, range q /* node offsets */, u64 *cursor,
+                                       struct pagecache_unmap_range *maps, int max)
+{
+    int count = 0;
+    pagecache_lock_mappings();
+    rmnode n = rangemap_lookup_at_or_next(&pn->mappings, *cursor);
+    while ((n != INVALID_ADDRESS) && (count < max)) {
+        pagecache_map pcm = (pagecache_map)n;
+        range nr = irangel(pcm->node_offset, range_span(n->r));
+        range ri = range_intersection(q, nr);
+        *cursor = n->r.end;
+        if (range_span(ri) != 0) {
+            maps[count].v = irangel(n->r.start + (ri.start - pcm->node_offset), range_span(ri));
+            maps[count].node_offset = ri.start;
+            count++;
+        }
+        n = rangemap_next_node(&pn->mappings, n);
+    }
+    if (n == INVALID_ADDRESS)
+        *cursor = infinity;
+    pagecache_unlock_mappings();
+    return count;
+}
+
+/* Drops the pages within a node range, after unmapping them from any mapping of the node. A page
+   that is still referenced when the range is punched (because a fault is racing with us, or
+   because a private copy is mapped elsewhere) cannot be freed: it is zeroed instead, so that the
+   range always reads back as a hole. The range must be page-aligned; the caller is expected to
+   have released any reference of its own (e.g. a pin) beforehand. */
+static void pagecache_node_free_pages(pagecache_node pn, range q /* bytes */)
+{
+    pagecache pc = pn->pv->pc;
+    int page_order = pc->page_order;
+    u64 page_size = U64_FROM_BIT(page_order);
+    assert((q.start & MASK(page_order)) == 0);
+    assert((q.end & MASK(page_order)) == 0);
+    pagecache_debug("%s: pn %p, q %R\n", func_ss, pn, q);
+
+    struct pagecache_unmap_range maps[16];
+    u64 cursor = 0;
+    while (cursor != infinity) {
+        int count = pagecache_node_collect_maps(pn, q, &cursor, maps, _countof(maps));
+        for (int i = 0; i < count; i++)
+            /* Synchronous, because the asynchronous variant drops the reference each mapping
+               holds on a page from a completion that runs after this returns: the loop below
+               would then find every page still referenced, and zero it instead of giving it
+               back. */
+            pagecache_node_unmap_pages_sync(pn, maps[i].v, maps[i].node_offset, false);
+    }
+
+    range pages = range_rshift(q, page_order);
+    pagecache_lock_node(pn);
+    /* The first page at or after the start of the hole: an exact lookup would miss a range whose
+       leading pages were never faulted in, which is the common case for a punch. */
+    struct pagecache_page k;
+    k.state_offset = pages.start;
+    pagecache_page pp = (pagecache_page)rbtree_lookup_max_lte(&pn->pages, &k.rbnode);
+    if ((pp != INVALID_ADDRESS) && (page_offset(pp) < pages.start))
+        pp = (pagecache_page)rbnode_get_next(&pp->rbnode);
+    while ((pp != INVALID_ADDRESS) && (page_offset(pp) < pages.end)) {
+        pagecache_page next = (pagecache_page)rbnode_get_next(&pp->rbnode);
+        pagecache_lock_state(pc);
+        /* An evicted page whose last reference has already been dropped holds no memory to give
+           back, and taking a reference on it would have us release it a second time. */
+        if (page_state(pp) != PAGECACHE_PAGESTATE_FREE) {
+            pp->refcount++;     /* ours, so that the page cannot go away below */
+            if (!pp->evicted) {
+                pp->evicted = true;
+                pagecache_page_release_locked(pc, pp, false);   /* cache reference */
+            }
+            /* Read after that release, as the reference count decides it: a page someone else
+               still holds is zeroed in place rather than given back. The page keeps its place in
+               the node, in the state an eviction leaves behind, because a write-back completion
+               may still be walking it by pointer and a refault takes it back with its refault
+               data intact. */
+            void *kvirt = ((pp->refcount > 1) && (pp->kvirt != INVALID_ADDRESS)) ? pp->kvirt : 0;
+            if (kvirt) {
+                pagecache_unlock_state(pc);
+                zero(kvirt, page_size);
+                pagecache_lock_state(pc);
+            }
+            pagecache_page_release_locked(pc, pp, false);
+        }
+        pagecache_unlock_state(pc);
+        pp = next;
+    }
+    pagecache_unlock_node(pn);
+}
+
+/* Punches a hole out of a node: the filesystem is told with a null sg, which is how it is asked
+   to release the storage behind the range, and the memory held by the pages of the range is
+   given back. Only whole pages can be punched; a partial page at either edge of the requested
+   range keeps its storage and is only zeroed, by the ordinary write path. */
+static void pagecache_node_punch(pagecache_node pn, range q /* bytes */, status_handler complete)
+{
+    pagecache pc = pn->pv->pc;
+    pagecache_debug("%s: pn %p, q %R\n", func_ss, pn, q);
+    pagecache_lock_node(pn);
+    pagecache_lock_state(pc);
+    rmnode n = rangemap_lookup_at_or_next(&pn->dirty, q.start);
+    while ((n != INVALID_ADDRESS) && (n->r.start < q.end)) {
+        rmnode next = rangemap_next_node(&pn->dirty, n);
+        range r = n->r;
+        pagecache_purge_dirty_locked(pn, range_intersection(r, q));
+        boolean head = r.start < q.start;
+        boolean tail = r.end > q.end;
+        if (head && tail) {
+            /* The hole falls inside this range, so no other range intersects it. */
+            assert(rangemap_reinsert(&pn->dirty, n, irange(r.start, q.start)));
+            if (!rangemap_insert_range(&pn->dirty, irange(q.end, r.end)))
+                assert(rangemap_reinsert(&pn->dirty, n, r));    /* out of memory: keep it whole */
+            break;
+        } else if (head) {
+            assert(rangemap_reinsert(&pn->dirty, n, irange(r.start, q.start)));
+        } else if (tail) {
+            assert(rangemap_reinsert(&pn->dirty, n, irange(q.end, r.end)));
+        } else {
+            rangemap_remove_range(&pn->dirty, n);
+        }
+        n = next;
+    }
+    pagecache_unlock_state(pc);
+
+    /* Applied with the node locked, as the write-back applies it. */
+    apply(pn->fs_write, 0, q, complete);
+    pagecache_unlock_node(pn);
+    pagecache_node_free_pages(pn, q);
 }
 
 closure_func_basic(rbnode_handler, boolean, pagecache_page_print_key,
