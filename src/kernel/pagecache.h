@@ -18,6 +18,7 @@ void pagecache_node_ref(pagecache_node pn);
 void pagecache_node_unref(pagecache_node pn);
 
 void pagecache_nodelocked_pin(pagecache_node pn, range pages);
+void pagecache_nodelocked_unpin(pagecache_node pn, range pages);
 void pagecache_node_unpin(pagecache_node pn, range pages);
 
 void pagecache_sync_volume(pagecache_volume pv, status_handler complete);
