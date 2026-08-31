@@ -2578,7 +2578,7 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
 unimplemented:
     msg_warn("setsockopt unimplemented: fd %d, level %d, optname %d",
              sock->fd, level, optname);
-    rv = 0;
+    rv = -ENOPROTOOPT;
 out:
     socket_release(sock);
     return rv;
