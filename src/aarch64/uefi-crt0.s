@@ -75,7 +75,14 @@ section_table:
     .short 0                 // NumberOfLineNumbers
     .long 0xc0000040         // Characteristics
 
-    .align 8
+    /* The PE header declares SectionAlignment and FileAlignment of 0x1000 above, and every field
+       that locates .text - SizeOfHeaders, AddressOfEntryPoint, BaseOfCode, and the section's
+       VirtualAddress and PointerToRawData - is _start - IMAGE_BASE. Aligning _start to a page is
+       therefore what makes those fields agree with the declared alignment, as the PE/COFF format
+       requires of both a section's virtual address and SizeOfHeaders. Firmware that enforces it
+       when it applies memory attributes to a loaded image - OCI's edk2 does, as of the 2026-05-22
+       build - rejects the image and asserts in DxeCore before the loader ever runs. */
+    .align 12
 _start:
     stp x29, x30, [sp, #-32]!
     stp x0, x1, [sp, #16]
