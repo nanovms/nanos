@@ -1896,14 +1896,26 @@ static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg, int f
     u64 iov_len = msg->msg_iovlen;
     struct sockaddr *addr = msg->msg_name;
     socklen_t addr_len = msg->msg_namelen;
+    void *control = msg->msg_control;
     socklen_t control_len = msg->msg_controllen;
     context_clear_err(ctx);
     if (control_len != 0) {
-        /* No cmsg types are supported on send (e.g. UDP_SEGMENT for GSO).
-           Reject explicitly rather than silently sending the iovec as a
-           single unsegmented datagram, which would corrupt anything relying
-           on the cmsg having been honored. */
-        rv = -EINVAL;
+        struct cmsghdr cmsg;
+
+        /* No cmsg types are supported on send. In particular, a UDP_SEGMENT
+           cmsg (used by e.g. curl and quic-go to request UDP GSO) must be
+           rejected with EIO, the same errno Linux itself returns when GSO
+           can't be performed - callers such as curl's vquic layer already
+           handle that specific errno by retrying without GSO, so this stays
+           correct instead of just failing the transfer outright. Anything
+           else is rejected with EINVAL rather than silently ignored, which
+           would otherwise send the iovec as a single unsegmented datagram. */
+        if ((control_len < sizeof(cmsg)) || !copy_from_user(control, &cmsg, sizeof(cmsg))) {
+            rv = -EINVAL;
+            goto out;
+        }
+        rv = ((cmsg.cmsg_level == SOL_UDP) && (cmsg.cmsg_type == UDP_SEGMENT)) ?
+            -EIO : -EINVAL;
         goto out;
     }
     return socket_write_internal(s, 0, iov, iov_len, flags, addr, addr_len, ctx, in_bh, completion);
