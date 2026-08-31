@@ -1896,7 +1896,16 @@ static sysreturn netsock_sendmsg(struct sock *s, const struct msghdr *msg, int f
     u64 iov_len = msg->msg_iovlen;
     struct sockaddr *addr = msg->msg_name;
     socklen_t addr_len = msg->msg_namelen;
+    socklen_t control_len = msg->msg_controllen;
     context_clear_err(ctx);
+    if (control_len != 0) {
+        /* No cmsg types are supported on send (e.g. UDP_SEGMENT for GSO).
+           Reject explicitly rather than silently sending the iovec as a
+           single unsegmented datagram, which would corrupt anything relying
+           on the cmsg having been honored. */
+        rv = -EINVAL;
+        goto out;
+    }
     return socket_write_internal(s, 0, iov, iov_len, flags, addr, addr_len, ctx, in_bh, completion);
   out:
     return io_complete(completion, rv);
