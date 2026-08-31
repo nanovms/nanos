@@ -8,6 +8,7 @@
 typedef struct tmpfs_file {
     struct fsfile f;
     struct rangemap dirty;
+    u64 dirty_pages;    /* number of page indices in the dirty range map */
     u64 seals;
     closure_struct(pagecache_node_reserve, reserve);
     closure_struct(thunk, free);
@@ -31,10 +32,13 @@ static void tmpfsfile_read(fsfile f,
 }
 
 closure_function(2, 1, boolean, tmpfsfile_write_handler,
-                 rangemap, dirty, pagecache_node, pn,
+                 tmpfs_file, fsf, pagecache_node, pn,
                  range r)
 {
-    if (rangemap_insert_range(bound(dirty), r)) {
+    tmpfs_file fsf = bound(fsf);
+    if (rangemap_insert_range(&fsf->dirty, r)) {
+        fsf->dirty_pages += range_span(r);
+
         /* Pin the pages so that they cannot be evicted from the page cache. */
         pagecache_nodelocked_pin(bound(pn), r);
 
@@ -43,17 +47,61 @@ closure_function(2, 1, boolean, tmpfsfile_write_handler,
     return true;
 }
 
+/* Removes a range of pages from the dirty range map and drops the pin taken when they were first
+   written, so that the memory they hold can be given back. Called with the page cache node
+   locked, hence the node-locked unpin. */
+static void tmpfsfile_punch(tmpfs_file fsf, range pages)
+{
+    rangemap dirty = &fsf->dirty;
+    pagecache_node pn = fsf->f.cache_node;
+    rmnode n = rangemap_lookup_at_or_next(dirty, pages.start);
+    while ((n != INVALID_ADDRESS) && (n->r.start < pages.end)) {
+        rmnode next = rangemap_next_node(dirty, n);
+        range r = n->r;
+        range i = range_intersection(r, pages);
+        boolean head = r.start < pages.start;
+        boolean tail = r.end > pages.end;
+        if (head && tail) {
+            /* The hole falls inside this range, so no other range intersects it. */
+            assert(rangemap_reinsert(dirty, n, irange(r.start, pages.start)));
+            if (!rangemap_insert_range(dirty, irange(pages.end, r.end))) {
+                assert(rangemap_reinsert(dirty, n, r));  /* out of memory: keep the range whole */
+                return;
+            }
+        } else if (head) {
+            assert(rangemap_reinsert(dirty, n, irange(r.start, pages.start)));
+        } else if (tail) {
+            assert(rangemap_reinsert(dirty, n, irange(pages.end, r.end)));
+        } else {
+            rangemap_remove_range(dirty, n);
+        }
+        pagecache_nodelocked_unpin(pn, i);
+        fsf->dirty_pages -= range_span(i);
+        if (head && tail)
+            return;
+        n = next;
+    }
+}
+
 static void tmpfsfile_write(fsfile f,
                    sg_list sg, range q, status_handler complete)
 {
     tmpfs_file fsf = (tmpfs_file)f;
     tmpfs fs = (tmpfs)fsf->f.fs;
-    range pages = range_rshift_pad(q, fs->page_order);
     int res;
+    if (!sg) {
+        /* The range is being punched out: give its pages back. */
+        filesystem_lock(&fs->fs);
+        tmpfsfile_punch(fsf, range_rshift(q, fs->page_order));
+        filesystem_unlock(&fs->fs);
+        async_apply_status_handler(complete, STATUS_OK);
+        return;
+    }
+    range pages = range_rshift_pad(q, fs->page_order);
     filesystem_lock(&fs->fs);
     do {
         res = rangemap_range_find_gaps(&fsf->dirty, pages,
-                                       stack_closure(tmpfsfile_write_handler, &fsf->dirty,
+                                       stack_closure(tmpfsfile_write_handler, fsf,
                                                      fsf->f.cache_node));
     } while (res == RM_ABORT);
     filesystem_unlock(&fs->fs);
@@ -113,10 +161,7 @@ closure_func_basic(thunk, void, tmpfsfile_free)
 
 static s64 tmpfsfile_get_blocks(fsfile f)
 {
-    s64 pages = 0;
-    rangemap_foreach(&((tmpfs_file)f)->dirty, n) {
-        pages += range_span(n->r);
-    }
+    u64 pages = ((tmpfs_file)f)->dirty_pages;
     return (pages << ((tmpfs)f->fs)->page_order) >> SECTOR_OFFSET;
 }
 
@@ -139,6 +184,7 @@ static int tmpfs_create(filesystem fs, tuple parent, string name, tuple md, fsfi
             return fss;
         }
         init_rangemap(&fsf->dirty, h);
+        fsf->dirty_pages = 0;
         fsf->seals = 0;
         fsf->f.get_blocks = tmpfsfile_get_blocks;
         if (f)
@@ -229,6 +275,11 @@ filesystem tmpfs_new(void)
     }
     fs->fs.get_seals = tmpfs_get_seals;
     fs->fs.set_seals = tmpfs_set_seals;
+
+    /* A page of this filesystem is filled by zeroing it, never by reading a device, so a whole
+       window of them can be laid over one contiguous block at the first fault and a mapping of a
+       file can be described with block PTEs. */
+    pagecache_set_volume_huge(fs->fs.pv);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     if (fs->files == INVALID_ADDRESS)
         goto err_filetable;

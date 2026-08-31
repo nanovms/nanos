@@ -51,6 +51,11 @@ typedef struct pagecache_volume {
     struct list dirty_nodes;    /* head of pagecache_nodes */
     u64 length;                 /* end of volume */
     int block_order;
+
+    /* Set for a volume whose pages may be laid over one contiguous block, so that a mapping of
+       a node can be described by a single block PTE. Only a filesystem whose pages are cheap to
+       fill may ask for this: a whole window of them is filled at the first fault. */
+    boolean huge;
 } *pagecache_volume;
 
 typedef struct pagecache_node {

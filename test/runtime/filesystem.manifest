@@ -1,7 +1,16 @@
 (
+    boot:(
+        children:(
+            klib:(children:(
+                tmpfs:(contents:(host:ARCH_DIR/bin/tmpfs))
+                shmem:(contents:(host:ARCH_DIR/bin/shmem))
+            ))
+        )
+    )
     children:(
         filesystem:(contents:(host:output/test/runtime/bin/filesystem))
     )
+    klibs:bootfs
     program:/filesystem
     environment:()
 )
