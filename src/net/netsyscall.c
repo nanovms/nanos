@@ -2536,6 +2536,19 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
             goto unimplemented;
         }
         break;
+    case SOL_UDP:
+        switch (optname) {
+        case UDP_SEGMENT:
+        case UDP_GRO:
+            /* UDP GSO/GRO are not implemented. Reject explicitly rather than
+               relying on the generic unimplemented path, so a sender can't
+               mistake success here for segmentation offload actually being
+               applied to its sendmsg() calls. */
+            goto unimplemented;
+        default:
+            goto unimplemented;
+        }
+        break;
     case SOL_TCP:
         switch (optname) {
         case TCP_NODELAY:
