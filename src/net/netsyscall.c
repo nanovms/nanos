@@ -2772,6 +2772,15 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             goto unimplemented;
         }
         break;
+    case SOL_UDP:
+        switch (optname) {
+        case UDP_SEGMENT:
+        case UDP_GRO:
+            goto unimplemented;
+        default:
+            goto unimplemented;
+        }
+        break;
     case SOL_TCP:
         if (s->sock.type != SOCK_STREAM) {
             rv = -EOPNOTSUPP;
