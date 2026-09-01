@@ -44,6 +44,12 @@ struct mmsghdr {
     unsigned int msg_len;
 };
 
+struct cmsghdr {
+    u64 cmsg_len;
+    int cmsg_level;
+    int cmsg_type;
+};
+
 #define IFNAMSIZ    16
 
 struct ifmap {
