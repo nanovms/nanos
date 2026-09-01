@@ -4,7 +4,7 @@
 
 //#define DIRECT_DEBUG
 #ifdef DIRECT_DEBUG
-#define direct_debug(x, ...) do {log_printf(ss("DNET"), ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
+#define direct_debug(x, ...) do {log_printf(LOG_INFO, ss("DNET %s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define direct_debug(x, ...)
 #endif

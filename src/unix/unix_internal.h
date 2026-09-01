@@ -584,7 +584,7 @@ static inline thread _current(sstring caller) {
     thread t = get_current_thread();
     if (t == 0 && runtime_strcmp(ss("run_thread_frame"), caller) != 0 &&
         runtime_strcmp(ss("thread_wakeup"), caller) != 0) {
-        log_printf(ss("CURRENT"), ss("invalid address returned to caller '%s'\n"), caller);
+        log_printf(LOG_INFO, ss("CURRENT invalid address returned to caller '%s'"), caller);
         print_frame_trace_from_here();
     }
     return t;
