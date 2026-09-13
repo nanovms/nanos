@@ -50,12 +50,14 @@ u16 stat_mode(process p, int type, tuple meta)
         return 0;
     }
     u32 perms = file_meta_perms(p, meta);
+
+    /* Some programs may refuse to run if files have 'group' or 'other' permission bits set. */
     if (perms & ACCESS_PERM_READ)
-        mode |= 0444;
+        mode |= 0400;
     if (perms & ACCESS_PERM_WRITE)
-        mode |= 0222;
+        mode |= 0200;
     if (perms & ACCESS_PERM_EXEC)
-        mode |= 0111;
+        mode |= 0100;
     return mode;
 }
 
