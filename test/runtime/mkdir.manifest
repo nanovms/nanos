@@ -12,4 +12,6 @@
     arguments:[mkdir /tmp/mkdir_test]
     environment:(USER:bobby PWD:/)
     cwd:/tmp/mkdir_test
+    uid:1000
+    gid:1000
 )

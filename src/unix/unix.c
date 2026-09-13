@@ -581,6 +581,13 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     p->root_fs = p->cwd_fs = fs;
     p->cwd = fs->get_inode(fs, filesystem_getroot(fs));
     p->process_root = root;
+
+    /* A program may decline to run as root, and some of the ones people run do: postgres and
+       elasticsearch both stop rather than start. The manifest can say who the process is, and
+       without it everything is root as it was. */
+    u64 id;
+    p->uid = get_u64(root, sym(uid), &id) ? id : 0;
+    p->gid = get_u64(root, sym(gid), &id) ? id : 0;
     p->fdallocator = create_id_heap(locked, locked, 0, infinity, 1, false);
     p->files = allocate_vector(locked, 64);
     zero(p->files, sizeof(p->files));
