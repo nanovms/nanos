@@ -140,6 +140,7 @@ LDFLAGS-ktest=		-static
 
 SRCS-mmap= \
 	$(CURDIR)/mmap.c \
+	$(CURDIR)/thp.c \
 	$(CURDIR)/vmap_flush.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(RUNTIME)
