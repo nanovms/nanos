@@ -275,6 +275,9 @@ filesystem tmpfs_new(void)
     }
     fs->fs.get_seals = tmpfs_get_seals;
     fs->fs.set_seals = tmpfs_set_seals;
+
+    /* pages are filled by zeroing, so a whole window costs little to fill */
+    pagecache_set_volume_huge(fs->fs.pv);
     fs->files = allocate_table(h, identity_key, pointer_equal);
     if (fs->files == INVALID_ADDRESS)
         goto err_filetable;
