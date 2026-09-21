@@ -1225,6 +1225,12 @@ closure_func_basic(fdesc_ioctl, sysreturn, netsock_ioctl,
 /* Must fit in a u8_t, because it may be used as backlog value for tcp_listen_with_backlog(). */
 #define SOCK_QUEUE_LEN 255
 
+/* Upper bound for the queue of pending connections of a listening socket. The queue a socket is
+   created with holds incoming data, and SOCK_QUEUE_LEN is a sensible size for that; a socket that
+   listens uses the same queue for connections instead, and there the bound above is the backlog of
+   lwIP rather than anything this queue needs to respect. */
+#define SOCK_LISTEN_QUEUE_MAX 4096
+
 closure_func_basic(fdesc_close, sysreturn, socket_close,
                    context ctx, io_completion completion)
 {
@@ -2174,27 +2180,46 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
     return err;
 }
 
+/* Give a listening socket room for the backlog it asked for. Its queue holds pending connections
+   rather than incoming data, so it is not bound by SOCK_QUEUE_LEN, and a connection that finds the
+   queue full is aborted rather than left for the peer to retry. Called with the socket locked,
+   before the socket starts listening or while it holds no pending connection. */
+static void netsock_grow_incoming(netsock s, int backlog)
+{
+    if (backlog <= SOCK_QUEUE_LEN)
+        return;
+    queue q = allocate_queue(heap_locked(get_kernel_heaps()), MIN(backlog, SOCK_LISTEN_QUEUE_MAX));
+    if (q == INVALID_ADDRESS)   /* keep the queue the socket has: shallower, still correct */
+        return;
+    assert(queue_empty(s->incoming));
+    deallocate_queue(s->incoming);
+    s->incoming = q;
+}
+
 static sysreturn netsock_listen(struct sock *sock, int backlog)
 {
     netsock s = (netsock) sock;
     sysreturn rv;
     netsock_lock(s);
-    backlog = MIN(backlog, SOCK_QUEUE_LEN);
+    int lwip_backlog = MIN(backlog, SOCK_QUEUE_LEN);
     if (s->sock.type != SOCK_STREAM) {
         rv = -EOPNOTSUPP;
         goto unlock_out;
     }
     if (s->info.tcp.state != TCP_SOCK_CREATED) {
         if (s->info.tcp.state == TCP_SOCK_LISTENING) {
-            tcp_backlog_set(s->info.tcp.lw, backlog);
+            if (queue_length(s->incoming) == 0)
+                netsock_grow_incoming(s, backlog);
+            tcp_backlog_set(s->info.tcp.lw, lwip_backlog);
             rv = 0;
         } else {
             rv = -EINVAL;
         }
         goto unlock_out;
     }
+    netsock_grow_incoming(s, backlog);
     err_t err;
-    struct tcp_pcb * lw = tcp_listen_with_backlog_and_err(s->info.tcp.lw, backlog, &err);
+    struct tcp_pcb * lw = tcp_listen_with_backlog_and_err(s->info.tcp.lw, lwip_backlog, &err);
     if (!lw) {
         rv = lwip_to_errno(err);
         goto unlock_out;
