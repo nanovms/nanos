@@ -451,7 +451,16 @@ closure_function(5, 1, void, elf_load_phdr,
     if (is_ok(s)) {
         /* Calculate an offset so that the ELF is loaded at addresses corresponding to actual memory
          * (the addresses in the ELF file may not correspond to valid memory locations). */
-        u64 physmem_base = u64_from_pointer(closure_self()) & ~PHYSMEM_BASE_MASK;
+        u64 base = u64_from_pointer(closure_self());
+#ifdef INIT_IDENTITY_SIZE
+        /* Prefer the reported start of memory, but only if the kernel can be based there: it must
+           begin where a base is allowed to fall, and hold the span that is mapped there before any
+           memory manager exists. */
+        if (elf_physmem_base && !(elf_physmem_base & PHYSMEM_BASE_MASK) &&
+            (elf_physmem_size >= INIT_IDENTITY_SIZE))
+            base = elf_physmem_base;
+#endif
+        u64 physmem_base = base & ~PHYSMEM_BASE_MASK;
         u64 physmem_offset = physmem_base - (e->e_entry & ~PHYSMEM_BASE_MASK);
 
         elf_debug("  %d program headers, entry %p, physmem offset 0x%lx\n", e->e_phnum, e->e_entry,
@@ -469,6 +478,13 @@ closure_function(5, 1, void, elf_load_phdr,
     closure_finish();
 }
 
+
+/* Physical address the kernel is based at, or zero to derive it from where the loader itself was
+   placed. Where the boot environment can tell which memory is usable, it sets this: the address the
+   firmware happened to load the boot code at says nothing about where memory begins, and a kernel
+   based on it is moved for no reason whenever the two lie in different regions. */
+u64 elf_physmem_base;
+u64 elf_physmem_size;
 
 void load_elf_to_physical(heap h, elf_loader loader, u64 *entry, status_handler sh)
 {
