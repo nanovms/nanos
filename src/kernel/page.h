@@ -56,6 +56,7 @@ static inline pageflags pageflags_kernel_data(void)
 /* table traversal */
 closure_type(entry_handler, boolean /* success */, int level, u64 vaddr, pteptr entry);
 boolean traverse_ptes(u64 vaddr, u64 length, entry_handler eh);
+boolean split_mapping(pteptr entry);
 void dump_page_tables(u64 vaddr, u64 length);
 
 /* internal use */

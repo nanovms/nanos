@@ -280,6 +280,13 @@ void update_map_flags(u64 vaddr, u64 length, pageflags flags)
 #endif
 }
 
+/* Replaces a block mapping with a table of PTE-level mappings of the same memory; called with
+   lock held, e.g. from an entry handler, in which case traverse_ptes() walks the new table */
+boolean split_mapping(pteptr entry)
+{
+    return pte_split(entry, irange(0, 0)) != INVALID_PHYSICAL;
+}
+
 static boolean map_level(u64 *table_ptr, int level, range v, u64 *p, u64 flags, flush_entry fe);
 
 /* called with lock held */
