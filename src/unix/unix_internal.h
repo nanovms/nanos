@@ -304,6 +304,7 @@ typedef struct pending_fault {
         struct {
             pagecache_node pn;
             u64 node_offset;
+            u64 size;   /* preferred size of the memory to get from the page cache */
             closure_struct(pagecache_page_handler, demand_file_page);
             boolean private_page;
         } filebacked;
