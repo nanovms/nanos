@@ -3,7 +3,7 @@ typedef struct pagecache_volume *pagecache_volume;
 typedef struct pagecache_node *pagecache_node;
 
 closure_type(pagecache_node_reserve, status, range r);
-closure_type(pagecache_page_handler, void, void *kvirt);
+closure_type(pagecache_page_handler, void, range kvirt);
 
 void pagecache_set_node_length(pagecache_node pn, u64 length);
 
@@ -49,9 +49,10 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
 void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */, sg_list sg,
                                 status_handler complete);
 
+/* The handler gets the kernel virtual range of the memory, or an empty range on failure. */
 void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
                         pagecache_page_handler handler);
-void *pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private);
+range pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private);
 void pagecache_release_page(pagecache_node pn, u64 node_offset);
 
 void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node_offset,

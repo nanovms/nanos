@@ -216,7 +216,9 @@ static void demand_page_major_fault(context ctx)
 closure_func_basic(thunk, void, pending_fault_anonymous)
 {
     pending_fault pf = struct_from_closure(pending_fault, async_handler);
-    pf->page_kvirt = mem_alloc(mmap_info.virtual_backed, PAGESIZE, 0);
+    void *kvirt = mem_alloc(mmap_info.virtual_backed, PAGESIZE, 0);
+    pf->page_kvirt = (kvirt != INVALID_ADDRESS) ? irangel(u64_from_pointer(kvirt), PAGESIZE) :
+                                                  irange(0, 0);
     thunk complete = (thunk)&pf->complete;
     apply(complete);
 }
@@ -224,7 +226,8 @@ closure_func_basic(thunk, void, pending_fault_anonymous)
 static status demand_anonymous_page(process p, context ctx, u64 vaddr, vmap vm, pending_fault *pf)
 {
     pageflags flags = pageflags_from_vmflags(vm->flags);
-    void *kvirt = *pf ? (*pf)->page_kvirt : INVALID_ADDRESS;
+    void *kvirt = (*pf && (range_span((*pf)->page_kvirt) != 0)) ?
+                  pointer_from_u64((*pf)->page_kvirt.start) : INVALID_ADDRESS;
     if (new_zeroed_pages(vaddr, vm, flags, kvirt))
         return STATUS_OK;
     else if (*pf)
@@ -238,35 +241,40 @@ static status demand_anonymous_page(process p, context ctx, u64 vaddr, vmap vm, 
     return STATUS_OK;
 }
 
-static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, void *kvirt)
+/* kvirt may cover more than one page: nothing is mapped if any of them is mapped already */
+static status mmap_filebacked_page(vmap vm, u64 page_addr, pageflags flags, range kvirt)
 {
+    u64 len = range_span(kvirt);
+    page_addr &= ~(len - 1);
     u64 vmap_offset = page_addr - vm->node.r.start;
-    boolean pagecache_map;
+    boolean pagecache_map = true;
+    void *kv = pointer_from_u64(kvirt.start);
     pagetable_lock();
-    u64 p = __physical_from_virtual_locked(pointer_from_u64(page_addr));
-    if (p == INVALID_PHYSICAL) {
-        pagecache_map = true;
-        p = physical_from_virtual(kvirt);
+    for (u64 off = 0; off < len; off += PAGESIZE)
+        if (__physical_from_virtual_locked(pointer_from_u64(page_addr + off)) != INVALID_PHYSICAL) {
+            /* The mapping must have been done in parallel by another CPU. */
+            pagecache_map = false;
+            break;
+        }
+    if (pagecache_map) {
         if (vm->flags & VMAP_FLAG_TAIL_BSS) {
             u64 bss_offset = vm->bss_offset;
-            if (point_in_range(irangel(vmap_offset, PAGESIZE), bss_offset)) {
+            if (point_in_range(irangel(vmap_offset, len), bss_offset)) {
                 u64 bss_start = bss_offset - vmap_offset;
-                zero(kvirt + bss_start, PAGESIZE - bss_start);
+                zero(kv + bss_start, len - bss_start);
             }
         }
-        map_nolock(page_addr, p, PAGESIZE, flags);
-    } else {
-        /* The mapping must have been done in parallel by another CPU. */
-        pagecache_map = false;
+        map_nolock(page_addr, physical_from_virtual(kv), len, flags);
     }
     pagetable_unlock();
     if (!pagecache_map)
-        pagecache_release_page(vm->cache_node, vm->node_offset + vmap_offset);
+        for (u64 off = 0; off < len; off += PAGESIZE)
+            pagecache_release_page(vm->cache_node, vm->node_offset + vmap_offset + off);
     return STATUS_OK;
 }
 
 closure_func_basic(pagecache_page_handler, void, pending_fault_page_handler,
-                   void *kvirt)
+                   range kvirt)
 {
     pending_fault pf = struct_from_closure(pending_fault, filebacked.demand_file_page);
     pf->page_kvirt = kvirt;
@@ -306,11 +314,11 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
         return timm("result", "out of range page");
     }
 
-    void *kvirt;
+    range kvirt;
     status s;
     if (!*pf) {
         kvirt = pagecache_get_page_if_filled(pn, node_offset, private_page);
-        if (kvirt != INVALID_ADDRESS)
+        if (range_span(kvirt) != 0)
             return mmap_filebacked_page(vm, page_addr, flags, kvirt);
         pending_fault new_pf = new_pending_fault_locked(p, ctx, vaddr);
         if (new_pf != INVALID_ADDRESS) {
@@ -327,7 +335,7 @@ static status demand_filebacked_page(process p, context ctx, u64 vaddr, vmap vm,
     if (((*pf)->filebacked.pn != pn) || ((*pf)->filebacked.node_offset != node_offset))
         return STATUS_OK;
     kvirt = (*pf)->page_kvirt;
-    if (kvirt == INVALID_ADDRESS)
+    if (range_span(kvirt) == 0)
         s = timm_oom;
     else
         s = mmap_filebacked_page(vm, page_addr, flags, kvirt);
