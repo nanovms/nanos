@@ -49,8 +49,10 @@ boolean pagecache_node_do_page_cow(pagecache_node pn, u64 node_offset, u64 vaddr
 void pagecache_node_fetch_pages(pagecache_node pn, range r /* bytes */, sg_list sg,
                                 status_handler complete);
 
-/* The handler gets the kernel virtual range of the memory, or an empty range on failure. */
-void pagecache_get_page(pagecache_node pn, u64 node_offset, boolean private,
+/* The handler gets the kernel virtual range of the memory: up to size bytes when the cache can lay
+   a contiguous block under an aligned window of the node's pages, one page otherwise, and an empty
+   range on failure. */
+void pagecache_get_page(pagecache_node pn, u64 node_offset, u64 size, boolean private,
                         pagecache_page_handler handler);
 range pagecache_get_page_if_filled(pagecache_node pn, u64 node_offset, boolean private);
 void pagecache_release_page(pagecache_node pn, u64 node_offset);
@@ -59,6 +61,8 @@ void pagecache_node_unmap_pages(pagecache_node pn, range v /* bytes */, u64 node
                                 boolean del_mappings);
 
 pagecache_volume pagecache_allocate_volume(u64 length, int block_order);
+
+void pagecache_set_volume_huge(pagecache_volume pv);
 void pagecache_dealloc_volume(pagecache_volume pv);
 
 void init_pagecache(heap general, heap contiguous, u64 pagesize);

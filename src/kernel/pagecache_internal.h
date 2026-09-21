@@ -51,6 +51,7 @@ typedef struct pagecache_volume {
     struct list dirty_nodes;    /* head of pagecache_nodes */
     u64 length;                 /* end of volume */
     int block_order;
+    boolean huge;               /* pages may be laid over contiguous blocks */
 } *pagecache_volume;
 
 typedef struct pagecache_node {
