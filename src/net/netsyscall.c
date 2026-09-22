@@ -1231,6 +1231,11 @@ closure_func_basic(fdesc_ioctl, sysreturn, netsock_ioctl,
    lwIP rather than anything this queue needs to respect. */
 #define SOCK_LISTEN_QUEUE_MAX 4096
 
+/* Minimum depth for the queue of a listening socket, from the "listen_backlog" manifest option.
+   An application that asks for less than this gets this instead, so a deeper queue can be given
+   to a server that does not ask for one. */
+static u64 listen_backlog_min;
+
 closure_func_basic(fdesc_close, sysreturn, socket_close,
                    context ctx, io_completion completion)
 {
@@ -2209,7 +2214,7 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
     if (s->info.tcp.state != TCP_SOCK_CREATED) {
         if (s->info.tcp.state == TCP_SOCK_LISTENING) {
             if (queue_length(s->incoming) == 0)
-                netsock_grow_incoming(s, backlog);
+                netsock_grow_incoming(s, MAX(backlog, listen_backlog_min));
             tcp_backlog_set(s->info.tcp.lw, lwip_backlog);
             rv = 0;
         } else {
@@ -2217,7 +2222,7 @@ static sysreturn netsock_listen(struct sock *sock, int backlog)
         }
         goto unlock_out;
     }
-    netsock_grow_incoming(s, backlog);
+    netsock_grow_incoming(s, MAX(backlog, listen_backlog_min));
     err_t err;
     struct tcp_pcb * lw = tcp_listen_with_backlog_and_err(s->info.tcp.lw, lwip_backlog, &err);
     if (!lw) {
@@ -2930,6 +2935,9 @@ boolean netsyscall_init(unix_heaps uh, tuple cfg)
         so_rcvbuf = MIN(MAX(rcvbuf, 256), MASK(sizeof(so_rcvbuf) * 8 - 1));
     else
         so_rcvbuf = DEFAULT_SO_RCVBUF;
+    u64 backlog;
+    if (get_u64(cfg, sym(listen_backlog), &backlog))
+        listen_backlog_min = MIN(backlog, SOCK_LISTEN_QUEUE_MAX);
     kernel_heaps kh = get_kernel_heaps();
     heap h = heap_locked(kh);
     caching_heap socket_cache = allocate_objcache(h, (heap)heap_page_backed(kh),
