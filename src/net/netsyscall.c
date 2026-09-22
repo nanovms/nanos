@@ -2247,7 +2247,17 @@ closure_function(5, 1, sysreturn, accept_bh,
     }
 
     context ctx = context_from_closure(closure_self());
-    child = dequeue(s->incoming);
+
+    /* A connection whose peer is gone before it could be accepted keeps its place in the queue of
+     * the listening socket, while lwIP has already released the slot it held in the listen backlog
+     * (tcp_abandon(), tcp_pcb_purge()): nothing bounds how many of them pile up ahead of the live
+     * ones. Drop them here rather than spending an accept, and a file descriptor, on each, which is
+     * slowest exactly under the pressure that produced them. */
+    while ((child = dequeue(s->incoming)) != INVALID_ADDRESS) {
+        if (child->info.tcp.state != TCP_SOCK_UNDEFINED)
+            break;
+        apply(child->sock.f.close, 0, io_completion_ignore);
+    }
     if (child == INVALID_ADDRESS) {
         if ((s->sock.f.flags & SOCK_NONBLOCK) || (bqflags & BLOCKQ_ACTION_TIMEDOUT)) {
             rv = -EAGAIN;
