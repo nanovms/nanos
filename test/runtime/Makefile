@@ -3,6 +3,7 @@ include ../../vars.mk
 # these are built for the target platform (Linux x86_64)
 DEBUG_STRIP=y
 PROGRAMS= \
+	accept_probe \
 	aio \
 	aslr \
 	dup \
@@ -48,6 +49,11 @@ PROGRAMS= \
 	webs \
 	write \
 	writev
+
+SRCS-accept_probe= \
+	$(CURDIR)/accept_probe.c \
+	$(SRCDIR)/unix_process/ssp.c
+LDFLAGS-accept_probe=	-static
 
 SRCS-aio= \
 	$(CURDIR)/aio.c \

@@ -6,7 +6,9 @@ import socket
 from threading import Thread
 import ast
 import re
+import struct
 import tempfile
+import time
 
 ip4_addr = "127.0.0.1"
 repo_directory = "."
@@ -215,6 +217,73 @@ def test_aslr():
     print('PASSED: aslr and noaslr')
 
 
+###############################################################################
+ACCEPT_PROBE_PORT = 9090
+ACCEPT_PROBE_DEAD = 10
+
+
+def accept_reset_peer(ctx):
+    """Open connections to the guest and reset them while it is not accepting them yet, then open
+    one more and leave it alone. close() with SO_LINGER at zero sends a RST, which the guest
+    cannot produce for itself: that is why this half has to run out here."""
+    deadline = time.time() + 60
+    opened = 0
+    while opened < ACCEPT_PROBE_DEAD and time.time() < deadline:
+        try:
+            s = socket.create_connection(('127.0.0.1', ACCEPT_PROBE_PORT), timeout=5)
+        except OSError:
+            time.sleep(0.2)     # the guest is still booting
+            continue
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+        s.close()
+        opened += 1
+    ctx['dead'] = opened
+    if opened == ACCEPT_PROBE_DEAD:
+        try:
+            ctx['live'] = socket.create_connection(('127.0.0.1', ACCEPT_PROBE_PORT), timeout=5)
+        except OSError:
+            pass
+
+
+def accept_reset_pre(ctx):
+    ctx['thread'] = Thread(target=accept_reset_peer, args=(ctx, ))
+    ctx['thread'].start()
+
+
+def accept_reset_post(ctx):
+    ctx['thread'].join(timeout=TEST_TIMEOUT)
+    if 'live' in ctx:
+        ctx['live'].close()
+    if ctx.get('dead') != ACCEPT_PROBE_DEAD:
+        return (-1, 'could not open %d connections to the guest' % (ACCEPT_PROBE_DEAD))
+    m = re.search('PROBE ACCEPTED (\d+)', ctx['output'])
+    if m == None:
+        return (-1, 'the program did not report what it accepted')
+    n = int(m.group(1))
+    if n != 1:
+        return (-1, 'accept() returned %d connections, expected the 1 that is still alive: '
+                '%d that had been reset were handed out as well' % (n, n - 1))
+
+
+def test_accept_reset():
+    ctx = dict()
+    accept_reset_pre(ctx)
+    try:
+        rc, out = run_test('accept_probe', '')
+    except TimeoutError:
+        print('FAILED: accept_probe timed out')
+        raise RuntimeError
+    if rc != 0:
+        print('%s\nFAILED: accept_probe failed to run' % (out))
+        raise RuntimeError
+    ctx['output'] = out
+    t = accept_reset_post(ctx)
+    if t != None:
+        print('FAILED: accept_probe: %s' % (t[1]))
+        raise RuntimeError
+    print('PASSED: connections reset before accept are not handed out')
+
+
 def get_ip4():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
@@ -235,6 +304,7 @@ def main():
     try:
         test_basic_options()
         test_aslr()
+        test_accept_reset()
     except:
         return -1
     return 0
