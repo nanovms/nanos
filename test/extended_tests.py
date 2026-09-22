@@ -3,9 +3,10 @@ import os
 import sys
 import subprocess
 import socket
-from threading import Thread
+from threading import Event, Thread
 import ast
 import re
+import struct
 import tempfile
 
 ip4_addr = "127.0.0.1"
@@ -215,6 +216,86 @@ def test_aslr():
     print('PASSED: aslr and noaslr')
 
 
+###############################################################################
+ACCEPT_PROBE_PORT = 9090
+ACCEPT_PROBE_DEAD = 10
+
+
+def accept_reset_peer(ctx):
+    """Open connections to the guest and reset them while it is not accepting them yet, then open
+    one more and leave it alone. close() with SO_LINGER at zero sends a RST, which the guest
+    cannot produce for itself: that is why this half has to run out here."""
+    opened = 0
+    for i in range(ACCEPT_PROBE_DEAD):
+        try:
+            s = socket.create_connection(('127.0.0.1', ACCEPT_PROBE_PORT), timeout=5)
+        except OSError:
+            break
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+        s.close()
+        opened += 1
+    ctx['dead'] = opened
+    if opened == ACCEPT_PROBE_DEAD:
+        try:
+            ctx['live'] = socket.create_connection(('127.0.0.1', ACCEPT_PROBE_PORT), timeout=5)
+        except OSError:
+            pass
+
+
+def accept_reset_check(ctx):
+    if ctx.get('dead') != ACCEPT_PROBE_DEAD or 'live' not in ctx:
+        return (-1, 'could not open %d connections to the guest' % (ACCEPT_PROBE_DEAD + 1))
+    m = re.search(r'PROBE ACCEPTED (\d+)', ctx['output'])
+    if m == None:
+        return (-1, 'the program did not report what it accepted')
+    n = int(m.group(1))
+    if n != 1:
+        return (-1, 'accept() returned %d connections, expected the 1 that is still alive: '
+                '%d that had been reset were handed out as well' % (n, n - 1))
+
+
+def test_accept_reset():
+    ctx = dict()
+    child = subprocess.Popen(['make', '-C' + repo_directory, 'TARGET=accept_probe', 'run-noaccel'],
+                             stdout=subprocess.PIPE, encoding='utf-8')
+    lines = []
+    ready = Event()
+
+    def collect():
+        for line in child.stdout:
+            lines.append(line)
+            if 'PROBE READY' in line:
+                ready.set()
+
+    reader = Thread(target=collect)
+    reader.start()
+    try:
+        # Qemu takes a connection on the host before the guest has seen it, so the peer must not
+        # start before the guest listens.
+        if not ready.wait(timeout=TEST_TIMEOUT):
+            print('FAILED: accept_probe never started listening')
+            raise RuntimeError
+        accept_reset_peer(ctx)
+        rc = child.wait(timeout=TEST_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        print('FAILED: accept_probe timed out')
+        raise RuntimeError
+    finally:
+        child.kill()
+        reader.join()
+        if 'live' in ctx:
+            ctx['live'].close()
+    ctx['output'] = ''.join(lines)
+    if rc != 0:
+        print('%s\nFAILED: accept_probe failed to run' % (ctx['output']))
+        raise RuntimeError
+    t = accept_reset_check(ctx)
+    if t != None:
+        print('FAILED: accept_probe: %s' % (t[1]))
+        raise RuntimeError
+    print('PASSED: connections reset before accept are not handed out')
+
+
 def get_ip4():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(0)
@@ -235,6 +316,7 @@ def main():
     try:
         test_basic_options()
         test_aslr()
+        test_accept_reset()
     except:
         return -1
     return 0
