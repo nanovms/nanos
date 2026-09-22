@@ -297,13 +297,14 @@ typedef struct pending_fault {
         PENDING_FAULT_FILEBACKED,
         PENDING_FAULT_CUSTOM,
     } type;
-    void *page_kvirt;
+    range page_kvirt;    /* kernel virtual range of the memory the fault is waiting for */
     union {
         struct {
         } anonymous;
         struct {
             pagecache_node pn;
             u64 node_offset;
+            u64 size;   /* preferred size of the memory to get from the page cache */
             closure_struct(pagecache_page_handler, demand_file_page);
             boolean private_page;
         } filebacked;
