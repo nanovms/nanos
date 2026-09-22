@@ -4,7 +4,7 @@
 
 //#define INT_DEBUG
 #ifdef INT_DEBUG
-#define int_debug(x, ...) do {log_printf(ss("  INT"), ss(x), ##__VA_ARGS__);} while(0)
+#define int_debug(x, ...) do {log_printf(LOG_INFO, ss("INT " x), ##__VA_ARGS__);} while(0)
 #else
 #define int_debug(x, ...)
 #endif
