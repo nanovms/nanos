@@ -100,6 +100,24 @@ void _mkdirat(int fd, const char *path, int m, int expect)
     }
 }
 
+/* The manifest says who the process is, the same way it says where it starts. */
+static void check_identity(void)
+{
+    test_assert(getuid() == 1000);
+    test_assert(geteuid() == 1000);
+    test_assert(getgid() == 1000);
+    test_assert(getegid() == 1000);
+
+    /* and what it finds in the file system belongs to it, there being nobody else */
+    struct stat st;
+    test_assert(stat("/", &st) == 0);
+    test_assert(st.st_uid == 1000);
+    test_assert(st.st_gid == 1000);
+
+    /* and nobody else has any business with it */
+    test_assert((st.st_mode & (S_IRWXG | S_IRWXO)) == 0);
+}
+
 void _chdir(const char *path)
 {
     errno = 0;
@@ -269,6 +287,8 @@ fail:
 
 int main(int argc, char **argv)
 {
+    check_identity();
+
     char c;
     char *cwd = getcwd(&c, 1);
     if (cwd || (errno != ERANGE)) {

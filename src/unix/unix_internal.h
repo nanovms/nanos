@@ -517,6 +517,7 @@ struct syscall;
 typedef struct process {
     unix_heaps        uh;       /* non-thread-specific */
     int               pid;
+    u32               uid, gid;
     void             *brk;
     u64               heap_base;
     u64               vdso_base;
@@ -832,6 +833,7 @@ boolean unix_timers_init(unix_heaps uh);
 #define vmap_unlock(p) spin_unlock_irq(&(p)->vmap_lock, _savedflags)
 
 extern sysreturn syscall_ignore();
+sysreturn getgid();
 status do_demand_page(process p, context ctx, u64 vaddr, vmap vm, boolean *done);
 void demand_page_done(context ctx, u64 vaddr, status s);
 vmap vmap_from_vaddr(process p, u64 vaddr);
