@@ -1,0 +1,8 @@
+(
+    children:(
+        accept_probe:(contents:(host:output/test/runtime/bin/accept_probe))
+    )
+    program:/accept_probe
+    fault:t
+    environment:()
+)
