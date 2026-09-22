@@ -2247,7 +2247,14 @@ closure_function(5, 1, sysreturn, accept_bh,
     }
 
     context ctx = context_from_closure(closure_self());
-    child = dequeue(s->incoming);
+
+    while ((child = dequeue(s->incoming)) != INVALID_ADDRESS) {
+        if (child->info.tcp.state == TCP_SOCK_UNDEFINED)
+            /* The peer is gone before this connection could be accepted; drop it here. */
+            apply(child->sock.f.close, 0, io_completion_ignore);
+        else
+            break;
+    }
     if (child == INVALID_ADDRESS) {
         if ((s->sock.f.flags & SOCK_NONBLOCK) || (bqflags & BLOCKQ_ACTION_TIMEDOUT)) {
             rv = -EAGAIN;
