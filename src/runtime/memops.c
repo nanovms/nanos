@@ -125,13 +125,22 @@ void runtime_memcpy(void *a, const void *b, bytes len)
 }
 
 #if defined(__aarch64__)
+
+#define SCTLR_EL1_M 0x1     /* MMU enable */
+
 void zero(void *x, bytes length)
 {
     u8 *a = x;
     bytes len = length;
-    u64 dczid;
+    u64 dczid, sctlr;
     asm volatile("mrs %0, DCZID_EL0" : "=r"(dczid));
-    if (!(dczid & (1u << 4))) {         /* DZP clear: DC ZVA not prohibited */
+
+    /* DC ZVA requires Normal memory, and every access is Device memory while the MMU is off, so the
+       instruction faults there however DZP reads. The kernel runs in that state from the moment the
+       UEFI loader clears SCTLR_EL1 until enable_mmu() turns translation back on. */
+    asm volatile("mrs %0, SCTLR_EL1" : "=r"(sctlr));
+    if ((sctlr & SCTLR_EL1_M) &&
+        !(dczid & (1u << 4))) {         /* MMU on, and DZP clear: DC ZVA not prohibited */
         bytes block_size = 4ull << (dczid & 0xf); /* 64 B on Graviton2/Cortex-A72 */
         bytes misalign = (u64)a & (block_size - 1);
         bytes head = MIN(block_size - misalign, len);
