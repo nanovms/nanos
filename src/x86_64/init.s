@@ -107,6 +107,8 @@ extern pvh_start
 
 bits 32
 pvh_start32:
+        ; ESP is undefined at PVH entry, we need a temporary stack before calls
+        mov esp, 0xa000
         PREPARE_LONG_MODE eax
         ; set up minimal mapping to be able to run in 64-bit mode, carving page
         ; tables from the top of the first 1MB of memory (which will not be
