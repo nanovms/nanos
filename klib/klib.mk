@@ -3,6 +3,7 @@ KLIB_DIR= $(ROOTDIR)/klib
 MBEDTLS_DIR=	$(VENDORDIR)/mbedtls
 
 KLIBS= \
+	acme \
 	azure \
 	cloud_init \
 	cloudwatch \
@@ -21,6 +22,10 @@ KLIBS= \
 	tls \
 	tun \
 	userdata \
+
+SRCS-acme= \
+	$(KLIB_DIR)/acme.c \
+	$(KLIB_DIR)/net_utils.c \
 
 SRCS-azure= \
 	$(KLIB_DIR)/azure.c \
@@ -171,7 +176,9 @@ SRCS-mbedtls-x509= \
 	$(MBEDTLS_DIR)/library/certs.c \
 	$(MBEDTLS_DIR)/library/pkcs11.c \
 	$(MBEDTLS_DIR)/library/x509.c \
+	$(MBEDTLS_DIR)/library/x509_create.c \
 	$(MBEDTLS_DIR)/library/x509_crt.c \
+	$(MBEDTLS_DIR)/library/x509write_csr.c \
 
 SRCS-mbedtls-tls= \
 	$(MBEDTLS_DIR)/library/ssl_cache.c \

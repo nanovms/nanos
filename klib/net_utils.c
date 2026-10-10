@@ -155,6 +155,43 @@ boolean net_uri_encode(buffer dest, char *src, bytes len)
     return true;
 }
 
+boolean net_url_to_reqparams(sstring url, net_http_req_params params)
+{
+    int host_offset;
+    if ((url.len >= 8) && (runtime_memcmp(url.ptr, "https://", 8) == 0)) {
+        params->tls = true;
+        params->port = 443;
+        host_offset = 8;
+    } else  if ((url.len >= 7) && (runtime_memcmp(url.ptr, "http://", 7) == 0)) {
+        params->tls = false;
+        params->port = 80;
+        host_offset = 7;
+    } else if (runtime_strstr(url, ss("://"))) {
+        /* unsupported protocol */
+        return false;
+    } else {    /* no protocol: default to HTTP */
+        params->tls = false;
+        params->port = 80;
+        host_offset = 0;
+    }
+    char *server_start = url.ptr + host_offset;
+    bytes server_len = url.ptr + url.len - server_start;
+    char *slash = runtime_strchr(isstring(server_start, server_len), '/');
+    sstring host;
+    host.ptr = server_start;
+    sstring query;
+    if (slash) {
+        host.len = slash - server_start;
+        query = isstring(slash, url.ptr + url.len - slash);
+    } else {
+        host.len = server_len;
+        query = ss("/");
+    }
+    params->host = host;
+    params->query = query;
+    return true;
+}
+
 status net_http_req(net_http_req_params params)
 {
     heap h = heap_locked(get_kernel_heaps());
@@ -191,4 +228,46 @@ status net_http_req(net_http_req_params params)
         net_http_dealloc(req_data);
     }
     return s;
+}
+
+status net_http_get(sstring url, tuple req, value_handler resp_handler)
+{
+    struct net_http_req_params params;
+    if (!net_url_to_reqparams(url, &params))
+        return timm("result", "unsupported URL");
+    params.req = req;
+    params.body = 0;
+    params.resp_handler = resp_handler;
+    params.method = HTTP_REQUEST_METHOD_GET;
+    return net_http_req(&params);
+}
+
+status net_http_post(sstring url, tuple req, buffer body, value_handler resp_handler)
+{
+    struct net_http_req_params params;
+    if (!net_url_to_reqparams(url, &params))
+        return timm("result", "unsupported URL");
+    params.req = req;
+    params.body = body;
+    params.resp_handler = resp_handler;
+    params.method = HTTP_REQUEST_METHOD_POST;
+    return net_http_req(&params);
+}
+
+boolean base64url_encode(buffer dest, void *src, bytes len)
+{
+    static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    u8 *p = src;
+    for (bytes i = 0; i < len; i += 3) {
+        u32 val = (p[i] << 16);
+        if (i + 1 < len) val |= (p[i + 1] << 8);
+        if (i + 2 < len) val |= p[i + 2];
+        if (!push_character(dest, table[(val >> 18) & 0x3f])) return false;
+        if (!push_character(dest, table[(val >> 12) & 0x3f])) return false;
+        if (i + 1 < len)
+            if (!push_character(dest, table[(val >> 6) & 0x3f])) return false;
+        if (i + 2 < len)
+            if (!push_character(dest, table[val & 0x3f])) return false;
+    }
+    return true;
 }
