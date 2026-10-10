@@ -40,7 +40,6 @@ typedef struct firewall_constraint_buf {
 
 typedef struct fw_radar {
     heap h;
-    struct buffer url;
     closure_struct(value_handler, resp_handler);
     struct timer retry_timer;
     closure_struct(timer_handler, retry_func);
@@ -728,7 +727,7 @@ closure_func_basic(timer_handler, void, fw_radar_get,
     if (overruns == timer_disabled)
         return;
     fw_radar fwr = struct_from_closure(fw_radar, retry_func);
-    status s = radar_get(&fwr->url,
+    status s = radar_get(ss("/api/v1/threats"),
                          init_closure_func(&fwr->resp_handler, value_handler, fw_radar_handler));
     if (!is_ok(s)) {
         if (fwr->retry_backoff > seconds(2))
@@ -746,7 +745,6 @@ static boolean firewall_radar_init(heap h)
         return false;
     }
     fwr->h = h;
-    buffer_init_from_string(&fwr->url, "/api/v1/threats");
     init_timer(&fwr->retry_timer);
     fwr->retry_backoff = seconds(1);
     apply(init_closure_func(&fwr->retry_func, timer_handler, fw_radar_get), 0, 0);

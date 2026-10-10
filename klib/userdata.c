@@ -405,6 +405,7 @@ static void fetch_userdata(enum cloud_provider provider)
     params.port = 80;
     params.tls = false;
     params.method = HTTP_REQUEST_METHOD_GET;
+    params.query = cfg->userdata_path;
 
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
@@ -412,17 +413,6 @@ static void fetch_userdata(enum cloud_provider provider)
         userdata_complete(timm_oom);
         return;
     }
-
-    /* Set URL */
-    buffer url = allocate_buffer(ue->h, 128);
-    if (url == INVALID_ADDRESS) {
-        deallocate_value(req);
-        msg_err("userdata: failed to allocate URL buffer");
-        userdata_complete(timm_oom);
-        return;
-    }
-    buffer_write_sstring(url, cfg->userdata_path);
-    set(req, sym(url), url);
 
     /* Set provider-specific header if needed */
     if (!sstring_is_null(cfg->userdata_header_name)) {
@@ -472,6 +462,7 @@ static void try_provider(enum cloud_provider provider)
     params.port = 80;
     params.tls = false;
     params.method = cfg->detect_method;
+    params.query = cfg->detect_path;
 
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS) {
@@ -479,17 +470,6 @@ static void try_provider(enum cloud_provider provider)
         try_next_provider();
         return;
     }
-
-    /* Set URL */
-    buffer url = allocate_buffer(ue->h, 128);
-    if (url == INVALID_ADDRESS) {
-        deallocate_value(req);
-        msg_err("userdata: failed to allocate URL buffer");
-        try_next_provider();
-        return;
-    }
-    buffer_write_sstring(url, cfg->detect_path);
-    set(req, sym(url), url);
 
     /* Set provider-specific header if needed */
     if (!sstring_is_null(cfg->detect_header_name)) {

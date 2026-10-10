@@ -15,7 +15,6 @@
 typedef struct az_instance_md_req {
     az_instance_md_handler complete;
     tuple req;
-    struct buffer query;
     struct buffer md_header;
     closure_struct(value_handler, vh);
 } *az_instance_md_req;
@@ -104,6 +103,7 @@ void azure_instance_md_get(az_instance_md_handler complete)
     req_params.port = 80;
     req_params.tls = false;
     req_params.method = HTTP_REQUEST_METHOD_GET;
+    req_params.query = ss("/metadata/instance?api-version=2025-04-07&format=json");
     az_instance_md_req req_data = allocate(azure.h, sizeof(*req_data));
     if (req_data == INVALID_ADDRESS) {
         msg_err("%s: out of memory", func_ss);
@@ -115,9 +115,6 @@ void azure_instance_md_get(az_instance_md_handler complete)
         deallocate(azure.h, req_data, sizeof(*req_data));
         goto error;
     }
-    buffer_init_from_string(&req_data->query,
-                            "/metadata/instance?api-version=2025-04-07&format=json");
-    set(req, sym_this("url"), &req_data->query);
     buffer_init_from_string(&req_data->md_header, "true");
     set(req, sym_this("Metadata"), &req_data->md_header);
     req_data->req = req_params.req = req;

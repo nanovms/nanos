@@ -6,6 +6,7 @@
 
 typedef struct net_http_req_params {
     sstring host;
+    sstring query;
     tuple req;
     buffer body;
     value_handler resp_handler;
