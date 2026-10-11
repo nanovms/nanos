@@ -74,6 +74,7 @@ typedef struct json_array_p {
     closure_struct(parser, parse);
     closure_struct(parse_finish_internal, c);
     closure_struct(parse_error_internal, e);
+    vector array;
     enum {
         JSON_ARRAY_STATE_ELEM_BEGIN,
         JSON_ARRAY_STATE_ELEM_END,
@@ -545,6 +546,8 @@ static parser json_obj_parser(heap h, parse_finish_internal c, parse_error_inter
 closure_func_basic(parser, void *, json_array_parse,
                    character in)
 {
+    if (char_is_whitespace(in))
+        return (parser)closure_self();
     json_array_p p = struct_from_field(closure_self(), json_array_p, parse);
     string err_string;
     parser next;
@@ -553,8 +556,7 @@ closure_func_basic(parser, void *, json_array_parse,
         goto error;
     }
     if (in == ']') {
-        /* Array contents are discarded. */
-        next = apply(p->p.c, 0);
+        next = apply(p->p.c, p->array);
         deallocate(p->p.h, p, sizeof(*p));
         return next;
     }
@@ -567,7 +569,7 @@ closure_func_basic(parser, void *, json_array_parse,
         goto error;
     case JSON_ARRAY_STATE_ELEM_END:
         if (in == ',') {
-            p->state = JSON_OBJ_STATE_ATTR_BEGIN;
+            p->state = JSON_ARRAY_STATE_ELEM_BEGIN;
             break;
         }
         err_string = little_stack_buffer(32);
@@ -576,6 +578,8 @@ closure_func_basic(parser, void *, json_array_parse,
     }
     return (parser)closure_self();
   error:
+    if (p->array != INVALID_ADDRESS)
+        destruct_value(p->array, true);
     next = apply(p->p.e, err_string);
     deallocate(p->p.h, p, sizeof(*p));
     return next;
@@ -585,8 +589,12 @@ closure_func_basic(parse_finish_internal, parser, json_array_elem_complete,
                    void *result)
 {
     json_array_p p = struct_from_field(closure_self(), json_array_p, c);
-    if (result)
-        deallocate_value(result);
+    if (result) {
+        if (p->array != INVALID_ADDRESS)
+            vector_push(p->array, result);
+        else
+            deallocate_value(result);
+    }
     p->state = JSON_ARRAY_STATE_ELEM_END;
     return (parser)&p->parse;
 }
@@ -595,6 +603,8 @@ closure_func_basic(parse_error_internal, parser, json_array_elem_error,
                    string err)
 {
     json_array_p p = struct_from_field(closure_self(), json_array_p, e);
+    if (p->array != INVALID_ADDRESS)
+        destruct_value(p->array, true);
     parser next = apply(p->p.e, err);
     deallocate(p->p.h, p, sizeof(*p));
     return next;
@@ -605,6 +615,7 @@ static parser json_array_parser(heap h, parse_finish_internal c, parse_error_int
     json_array_p p = allocate(h, sizeof(*p));
     if (p == INVALID_ADDRESS)
         return INVALID_ADDRESS;
+    p->array = allocate_tagged_vector(1);
     p->p.h = h;
     p->p.c = c;
     p->p.e = e;

@@ -64,12 +64,12 @@ typedef struct s3fs_write_ctx {
 } *s3fs_write_ctx;
 
 /* Helper to dispatch an HTTP request to the S3 REST API */
-static void s3fs_request(s3fs_volume vol, buffer query, http_method method, tuple req, buffer body,
+static void s3fs_request(s3fs_volume vol, sstring query, http_method method, tuple req, buffer body,
                          value_handler resp_handler)
 {
     sstring m = http_request_methods[method];
     s3fs_debug("S3 request: %s %b", m, query);
-    set(req, sym(url), query);
+    set(req, sym(url), alloca_wrap_sstring(query)); /* needed to insert the AWS signature */
     buffer datetime = allocate_buffer(s3fs.h, 16);
     if (datetime == INVALID_ADDRESS) {
         msg_err("s3fs request: cannot allocate memory");
@@ -90,6 +90,7 @@ static void s3fs_request(s3fs_volume vol, buffer query, http_method method, tupl
     set(req, sym(Authorization), auth);
     struct net_http_req_params params;
     params.host = isstring(vol->hostname.contents, vol->hostname.length);
+    params.query = query;
     params.req = req;
     params.body = body;
     params.resp_handler = resp_handler;
@@ -254,12 +255,10 @@ static s3fs_file s3fs_file_new(s3fs_volume fs, s3fs_object obj)
     return fsf;
 }
 
-closure_function(3, 1, void, s3fs_io_handler,
-                 tuple, req, buffer, query, value_handler, handler,
+closure_function(2, 1, void, s3fs_io_handler,
+                 tuple, req, value_handler, handler,
                  value resp)
 {
-    buffer query = bound(query);
-    unwrap_buffer(query->h, query);
     s3fs_req_cleanup(bound(req));
     value_handler handler = bound(handler);
     apply(handler, resp);
@@ -274,28 +273,24 @@ static void s3fs_io_req(fsfile f, boolean write, range q, buffer body, value_han
     if (req == INVALID_ADDRESS)
         goto err;
     heap h = s3fs.h;
-    buffer query = wrap_buffer(h, s3f->obj->key.ptr, s3f->obj->key.len);
-    if (query == INVALID_ADDRESS)
-        goto err_dealloc_req;
     buffer r = 0;
     if (!range_empty(q)) {
         buffer r = allocate_buffer(h, 32);
         if (r == INVALID_ADDRESS)
-            goto err_dealloc_query;
+            goto err_dealloc_req;
         bprintf(r, "bytes=%ld-%ld", q.start, q.end - 1);
         set(req, sym(range), r);
     }
-    value_handler resp_handler = closure(h, s3fs_io_handler, req, query, handler);
+    value_handler resp_handler = closure(h, s3fs_io_handler, req, handler);
     if (resp_handler == INVALID_ADDRESS)
         goto err_dealloc_range;
-    s3fs_request(vol, query, write ? HTTP_REQUEST_METHOD_PUT : HTTP_REQUEST_METHOD_GET, req, body,
+    s3fs_request(vol, s3f->obj->key, write ? HTTP_REQUEST_METHOD_PUT : HTTP_REQUEST_METHOD_GET, req,
+                 body,
                  resp_handler);
     return;
   err_dealloc_range:
     if (r)
         deallocate_buffer(r);
-  err_dealloc_query:
-    unwrap_buffer(h, query);
   err_dealloc_req:
     deallocate_value(req);
   err:
@@ -476,12 +471,11 @@ static int s3fs_head_object(s3fs_volume s3fs, s3fs_object obj, u64 *plen, timest
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS)
         return -ENOMEM;
-    buffer query = alloca_wrap_sstring(obj->key);
     boolean success = false;
     context ctx = current_context();
     value_handler resp_handler = stack_closure(s3fs_head_resp, plen, pmtime, &success, ctx);
     context_pre_suspend(ctx);
-    s3fs_request(s3fs, query, HTTP_REQUEST_METHOD_HEAD, req, 0, resp_handler);
+    s3fs_request(s3fs, obj->key, HTTP_REQUEST_METHOD_HEAD, req, 0, resp_handler);
     context_suspend();
     s3fs_req_cleanup(req);
     return success ? 0 : -EIO;
@@ -635,7 +629,7 @@ static int s3fs_readdir(s3fs_volume fs, s3fs_object dir)
     context ctx = current_context();
     value_handler resp_handler = stack_closure(s3fs_readdir_resp, fs, dir, &success, ctx);
     context_pre_suspend(ctx);
-    s3fs_request(fs, query, HTTP_REQUEST_METHOD_GET, req, 0, resp_handler);
+    s3fs_request(fs, buffer_to_sstring(query), HTTP_REQUEST_METHOD_GET, req, 0, resp_handler);
     context_suspend();
     s3fs_req_cleanup(req);
     if (success) {
@@ -659,12 +653,11 @@ static int s3fs_mkobj(s3fs_volume s3fs, s3fs_object obj)
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS)
         return -ENOMEM;
-    buffer query = alloca_wrap_sstring(obj->key);
     boolean success = false;
     context ctx = current_context();
     value_handler resp_handler = stack_closure(s3fs_mkobj_resp, &success, ctx);
     context_pre_suspend(ctx);
-    s3fs_request(s3fs, query, HTTP_REQUEST_METHOD_PUT, req, 0, resp_handler);
+    s3fs_request(s3fs, obj->key, HTTP_REQUEST_METHOD_PUT, req, 0, resp_handler);
     context_suspend();
     s3fs_req_cleanup(req);
     return success ? 0 : -EIO;
@@ -684,12 +677,11 @@ static int s3fs_delete_key(s3fs_volume s3fs, sstring key)
     tuple req = allocate_tuple();
     if (req == INVALID_ADDRESS)
         return -ENOMEM;
-    buffer query = alloca_wrap_sstring(key);
     boolean success = false;
     context ctx = current_context();
     value_handler resp_handler = stack_closure(s3fs_delete_resp, &success, ctx);
     context_pre_suspend(ctx);
-    s3fs_request(s3fs, query, HTTP_REQUEST_METHOD_DELETE, req, 0, resp_handler);
+    s3fs_request(s3fs, key, HTTP_REQUEST_METHOD_DELETE, req, 0, resp_handler);
     context_suspend();
     s3fs_req_cleanup(req);
     return success ? 0 : -EIO;
@@ -790,12 +782,11 @@ static int s3fs_copy_object(s3fs_volume s3fs, sstring src_key, sstring dest_key)
     buffer copy_source = little_stack_buffer(1 + s3fs->bucket.len + src_key.len);
     bprintf(copy_source, "/%s%s", s3fs->bucket, src_key);
     set(req, sym(x-amz-copy-source), copy_source);
-    buffer query = alloca_wrap_sstring(dest_key);
     boolean success = false;
     context ctx = current_context();
     value_handler resp_handler = stack_closure(s3fs_copy_resp, &success, ctx);
     context_pre_suspend(ctx);
-    s3fs_request(s3fs, query, HTTP_REQUEST_METHOD_PUT, req, 0, resp_handler);
+    s3fs_request(s3fs, dest_key, HTTP_REQUEST_METHOD_PUT, req, 0, resp_handler);
     context_suspend();
     s3fs_req_cleanup(req);
     return success ? 0 : -EIO;

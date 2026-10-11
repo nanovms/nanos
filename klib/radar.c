@@ -433,17 +433,17 @@ closure_func_basic(status_handler, void, klog_dump_loaded,
     closure_finish();
 }
 
-status radar_get(string url, value_handler handler)
+status radar_get(sstring query, value_handler handler)
 {
     struct net_http_req_params p;
     p.host = ss(RADAR_HOSTNAME);
+    p.query = query;
     p.port = RADAR_PORT;
     p.tls = true;
     p.method = HTTP_REQUEST_METHOD_GET;
     p.req = allocate_tuple();
     if (p.req == INVALID_ADDRESS)
         return timm_oom;
-    set(p.req, sym(url), url);
     if (telemetry.auth_header)
         set(p.req, sym(RADAR-KEY), telemetry.auth_header);
     p.body = 0;
