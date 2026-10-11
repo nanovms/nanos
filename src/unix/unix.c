@@ -355,7 +355,10 @@ closure_func_basic(fault_handler, context, unix_fault_handler,
             goto bug;
         }
 
-        if (is_protection_fault(f)) {
+        /* If the address is mapped with PROT_NONE and there is no page backing it (or the relevant
+         * PTE has been marked as non-present), do not page it in, and treat the fault as a
+         * protection fault. */
+        if (is_protection_fault(f) || !(vm->flags & VMAP_FLAG_PROT_MASK)) {
             if (handle_protection_fault(ctx, vaddr, vm)) {
                 vmap_unlock(p);
                 if (!is_thread_context(ctx))

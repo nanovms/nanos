@@ -133,6 +133,8 @@ struct rt_sigframe {
 
 static inline pageflags pageflags_from_vmflags(u64 vmflags)
 {
+    if (!(vmflags & VMAP_FLAG_PROT_MASK))
+        return pageflags_noaccess();
     pageflags flags = pageflags_user(pageflags_memory());
     if (vmflags & VMAP_FLAG_EXEC)
         flags = pageflags_exec(flags);

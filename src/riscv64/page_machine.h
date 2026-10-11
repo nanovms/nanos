@@ -100,6 +100,11 @@ static inline pageflags pageflags_default_user(void)
     return pageflags_user(pageflags_memory());
 }
 
+static inline pageflags pageflags_noaccess(void)
+{
+    return (pageflags){.w = PAGE_VALID};
+}
+
 static inline boolean pageflags_is_writable(pageflags flags)
 {
     return (flags.w & PAGE_WRITABLE) != 0;
