@@ -37,7 +37,7 @@ static inline u64 get_pagetable_base(u64 vaddr)
 #define Sv39 (8ull<<60)
 #define Sv48 (9ull<<60)
 
-#define IS_LEAF(e) (((e) & (PAGE_EXEC|PAGE_READABLE)) != 0)
+#define IS_LEAF(level, e) ((level) == PT_PTE_LEVEL || ((e) & (PAGE_EXEC|PAGE_READABLE)) != 0)
 
 static inline pageflags pageflags_memory(void)
 {
@@ -100,6 +100,11 @@ static inline pageflags pageflags_default_user(void)
     return pageflags_user(pageflags_memory());
 }
 
+static inline pageflags pageflags_noaccess(void)
+{
+    return (pageflags){.w = PAGE_VALID};
+}
+
 static inline boolean pageflags_is_writable(pageflags flags)
 {
     return (flags.w & PAGE_WRITABLE) != 0;
@@ -160,7 +165,7 @@ static inline int pte_order(int level, pte entry)
 {
     assert(level < PAGE_NLEVELS);
     if (level == 0 || !pte_is_present(entry) ||
-        !IS_LEAF(entry))
+        !IS_LEAF(level, entry))
         return 0;
     return pt_level_shift(level);
 }
@@ -174,7 +179,7 @@ static inline u64 pte_map_size(int level, pte entry)
 static inline boolean pte_is_mapping(int level, pte entry)
 {
     // XXX is leaf?
-    return pte_is_present(entry) && IS_LEAF(entry);
+    return pte_is_present(entry) && IS_LEAF(level, entry);
 }
 
 static inline u64 flags_from_pte(u64 pte)
@@ -254,7 +259,7 @@ static inline u64 *pte_lookup_ptr(u64 table, u64 vaddr, int offset)
         return INVALID_PHYSICAL;
 
 #define _pfv_check_leaf(level, vaddr, e)                                    \
-    if (IS_LEAF(*l ## level)) {                                          \
+    if (IS_LEAF(level, *l ## level)) {                                          \
         if (e) *e = *l ## level;                                                \
         return page_from_pte(*l ## level) | (vaddr & MASK(PT_SHIFT_L ## level)); \
     }

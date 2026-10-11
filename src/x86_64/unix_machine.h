@@ -226,6 +226,8 @@ void init_vsyscall(void);
 
 static inline pageflags pageflags_from_vmflags(u64 vmflags)
 {
+    if (!(vmflags & VMAP_FLAG_PROT_MASK))
+        return pageflags_noaccess();
     pageflags flags = pageflags_default_user();
     if (vmflags & VMAP_FLAG_EXEC)
         flags = pageflags_exec(flags);
