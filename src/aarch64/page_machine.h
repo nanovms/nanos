@@ -278,6 +278,11 @@ static inline pageflags pageflags_default_user(void)
     return pageflags_user(pageflags_memory());
 }
 
+static inline pageflags pageflags_noaccess(void)
+{
+    return (pageflags){.w = 0};
+}
+
 static inline boolean pageflags_is_present(pageflags flags)
 {
     return (flags.w & PAGE_L0_3_DESC_VALID) != 0;

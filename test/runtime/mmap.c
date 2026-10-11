@@ -178,6 +178,15 @@ static void do_munmap(void * addr, unsigned long len)
         __munmap(addr, len);
 }
 
+static sigjmp_buf sjb;
+static int siginfo_code;
+
+static void handle_sigsegv(int sig, siginfo_t *si, void *ucontext)
+{
+    siginfo_code = si->si_code;
+    siglongjmp(sjb, 1);
+}
+
 static void mmap_illegal_flags_check(void)
 {
     void *p = mmap(NULL, 4096, PROT_NONE, MAP_ANONYMOUS, -1, 0);
@@ -991,6 +1000,8 @@ void mprotect_test(void)
     u8 *addr;
     int ret;
     int map_size, map_boundary;
+    const u8 marker = 0xaa;
+    struct sigaction sa;
 
     printf("** starting mprotect tests\n");
     ret = mprotect(0, PAGESIZE, PROT_READ);
@@ -1016,6 +1027,7 @@ void mprotect_test(void)
     ret = mprotect(addr + PAGESIZE, PAGESIZE, PROT_READ | PROT_WRITE);
     if (ret < 0)
         test_perror("mprotect 2");
+    addr[0] = marker;
 
     /* To test that mprotect() touches the supplied address range only, remove
      * write access to some pages and then write to neighboring pages. */
@@ -1032,6 +1044,24 @@ void mprotect_test(void)
     if (ret < 0)
         test_perror("mprotect 5");
     addr[4 * PAGESIZE - 1] = 0;
+
+    /* Access to PROT_NONE pages triggers SIGSEGV. */
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = handle_sigsegv;
+    test_assert(!sigaction(SIGSEGV, &sa, NULL));
+    if (sigsetjmp(sjb, 1) == 0) {
+        (void)*(volatile u8 *)addr;
+        test_error("access to PROT_NONE page did not trigger SIGSEGV");
+    } else {
+        test_assert(siginfo_code == SEGV_ACCERR);
+    }
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_DFL;
+    test_assert(!sigaction(SIGSEGV, &sa, NULL));
+
+    /* Restore read access and verify that the page still holds its previous data. */
+    test_assert(!mprotect(addr, PAGESIZE, PROT_READ) && (addr[0] == marker));
 
     if (!exec_enabled) {
         if (mprotect(addr, PAGESIZE, PROT_EXEC) == 0) {
@@ -1416,7 +1446,6 @@ void multithread_filebacked_test(heap h, int n_threads)
 }
 
 static volatile int expect_sigbus = 0;
-static sigjmp_buf sjb;
 
 static void handle_sigbus(int sig, siginfo_t *si, void *ucontext)
 {
@@ -1448,6 +1477,13 @@ static void check_fault_in_user_memory(void)
     int rv = stat("infile", p);
     if (rv != -1 || errno != EFAULT)
         test_error("stat should have failed with EFAULT (rv %d, errno %d)", rv, errno);
+
+    /* Read access to PROT_NONE page should also trigger EFAULT. */
+    test_assert((setrlimit(RLIMIT_STACK, p) == -1) && (errno == EFAULT));
+
+    /* Enable read access and verify that a page can be faulted in. */
+    test_assert(!mprotect(p, MAP_SIZE, PROT_READ) && (*(u8 *)p == 0));
+
     munmap(p, MAP_SIZE);
 
     /* Check that we can handle a file-backed fault on a mapped pathname. If
