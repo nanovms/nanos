@@ -1497,6 +1497,12 @@ static void fill_stat(int type, filesystem fs, fsfile f, tuple n, struct stat *s
 {
     zero(s, sizeof(struct stat));
     s->st_mode = stat_mode(current->p, type, n);
+
+    /* There is one user in here and everything belongs to it. Left as it was - root owning all -
+       when the manifest says nothing, and a program that asks whether it owns what it was given
+       gets an answer it can work with: postgres will not open a data directory it does not own. */
+    s->st_uid = current->p->uid;
+    s->st_gid = current->p->gid;
     switch (type) {
     case FDESC_TYPE_REGULAR:
         if (f) {
@@ -2150,6 +2156,16 @@ sysreturn getpid()
     return current->p->pid;
 }
 
+sysreturn getuid()
+{
+    return current->p->uid;
+}
+
+sysreturn getgid()
+{
+    return current->p->gid;
+}
+
 sysreturn sched_yield()
 {
     thread_yield();             /* noreturn */
@@ -2442,8 +2458,8 @@ void register_file_syscalls(struct syscall *map)
     register_syscall(map, sched_get_priority_min, syscall_ignore);
     register_syscall(map, sched_get_priority_max, syscall_ignore);
     register_syscall(map, sched_setscheduler, syscall_ignore);
-    register_syscall(map, getuid, syscall_ignore);
-    register_syscall(map, geteuid, syscall_ignore);
+    register_syscall(map, getuid, getuid);
+    register_syscall(map, geteuid, getuid);
     register_syscall(map, setgroups, syscall_ignore);
     register_syscall(map, setuid, syscall_ignore);
     register_syscall(map, setgid, syscall_ignore);

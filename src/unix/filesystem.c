@@ -50,12 +50,18 @@ u16 stat_mode(process p, int type, tuple meta)
         return 0;
     }
     u32 perms = file_meta_perms(p, meta);
+
+    /* Spread across all three sets when nobody has been named, as it has always been. Once the
+       manifest names a user, everything in here is that user's own, and a program may insist on
+       being the only one who can reach what it was given: postgres opens no data directory that
+       its group or anyone else could read. */
+    boolean owned = p->uid != 0;
     if (perms & ACCESS_PERM_READ)
-        mode |= 0444;
+        mode |= owned ? 0400 : 0444;
     if (perms & ACCESS_PERM_WRITE)
-        mode |= 0222;
+        mode |= owned ? 0200 : 0222;
     if (perms & ACCESS_PERM_EXEC)
-        mode |= 0111;
+        mode |= owned ? 0100 : 0111;
     return mode;
 }
 
