@@ -14,7 +14,7 @@
 
 //#define NETSYSCALL_DEBUG
 #ifdef NETSYSCALL_DEBUG
-#define net_debug(x, ...) do {log_printf(ss(" NET"), ss("%s: " x), func_ss, ##__VA_ARGS__);} while(0)
+#define net_debug(x, ...) do {log_printf(LOG_INFO, ss("NET %s: " x), func_ss, ##__VA_ARGS__);} while(0)
 #else
 #define net_debug(x, ...)
 #endif
