@@ -27,9 +27,10 @@ static inline string wrap_string_sstring(sstring s)
 
 static inline boolean sstring_allocate(heap h, bytes len, sstring *s)
 {
-    s->ptr = allocate(h, len);
-    if (s->ptr == INVALID_ADDRESS)
+    char *ptr = allocate(h, len);
+    if (ptr == INVALID_ADDRESS)
         return false;
+    s->ptr = ptr;
     s->len = len;
     return true;
 }

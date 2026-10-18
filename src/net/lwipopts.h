@@ -174,13 +174,11 @@ int lwip_atoi(sstring p);
 void lwip_memcpy(void *a, const void *b, unsigned long len);
 void lwip_memset(void *x, unsigned char v, unsigned long len);
 int lwip_memcmp(const void *x, const void *y, unsigned long len);
-int lwip_strncmp(const char *x, const char *y, unsigned long len);
 
 #define memcpy(__a, __b, __c) lwip_memcpy(__a, __b, __c)
 #define memcmp(__a, __b, __c) lwip_memcmp(__a, __b, __c)
 #define memset(__a, __b, __c) lwip_memset((void *)(__a), __b, __c)
 #define memmove(__a, __b, __c) lwip_memcpy(__a, __b, __c)
-#define strncmp(__a, __b, __c) lwip_strncmp(__a, __b, __c)
 #define strcmp(__a, __b) runtime_strcmp(__a, __b)
 #define atoi(__a) lwip_atoi(__a)
 

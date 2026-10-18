@@ -354,12 +354,15 @@ void filesystem_write_linear(fsfile f, void *src, range q, io_status_handler io_
                                 "fsstatus", "%d", -ENOMEM), 0);
         return;
     }
+    sg_buf sgb;
     u64 tail_len = length & (block_size - 1);
-    sg_buf sgb = sg_list_tail_add(sg, length - tail_len);
-    sgb->buf = src;
-    sgb->size = length - tail_len;
-    sgb->offset = 0;
-    sgb->refcount = 0;
+    if (tail_len < length) {
+        sgb = sg_list_tail_add(sg, length - tail_len);
+        sgb->buf = src;
+        sgb->size = length - tail_len;
+        sgb->offset = 0;
+        sgb->refcount = 0;
+    }
     void *tail_buf;
     if (tail_len) {
         tail_buf = allocate(fs->h, block_size);

@@ -166,19 +166,6 @@ int lwip_memcmp(const void *x, const void *y, unsigned long len)
     return runtime_memcmp(x, y, len);
 }
 
-int lwip_strncmp(const char *x, const char *y, unsigned long len)
-{
-    for (unsigned long i = 0; i < len; i++) {
-        if (*x != *y)
-            return (*x < *y) ? -1 : 1;
-        if (!*x)
-            return 0;
-        x++;
-        y++;
-    }
-    return 0;
-}
-
 u16 ifflags_from_netif(struct netif *netif)
 {
     u16 flags = 0;

@@ -609,6 +609,12 @@ process create_process(unix_heaps uh, tuple root, filesystem fs)
     return p;
 }
 
+process unix_process(void)
+{
+    /* The process at 0 is the kernel dummy process, the process at 1 is the real user process. */
+    return processes[1];
+}
+
 void process_get_cwd(process p, filesystem *cwd_fs, inode *cwd)
 {
     process_lock(p);

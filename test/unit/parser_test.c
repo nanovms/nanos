@@ -714,8 +714,10 @@ JSON_PARSE_TEST(json_booleanvalue_test1, "{\"a\":false}")
 JSON_PARSE_TEST(json_booleanvalue_test2, "{\"a\":[true,false]}")
 {
     test_no_errors();
-    /* the parser discards array-valued attributes */
-    test_assert((root != NULL) && (tuple_count(root) == 0));
+    test_assert((root != NULL) && (tuple_count(root) == 1));
+    value a = get(root, sym_this("a"));
+    test_assert(a != NULL);
+    test_assert(is_vector(a));
 
     destruct_value(root, true);
     return true;
@@ -734,8 +736,11 @@ JSON_PARSE_TEST(json_nullvalue_test, "{\"a\":null}")
 JSON_PARSE_TEST(json_empty_array_test, "{\"a\":[]}")
 {
     test_no_errors();
-    /* the parser discards boolean-valued attributes */
-    test_assert((root != NULL) && (tuple_count(root) == 0));
+    test_assert((root != NULL) && (tuple_count(root) == 1));
+    value a = get(root, sym_this("a"));
+    test_assert(a != NULL);
+    test_assert(is_vector(a));
+    test_assert(vector_length(a) == 0);
 
     destruct_value(root, true);
     return true;
@@ -744,8 +749,34 @@ JSON_PARSE_TEST(json_empty_array_test, "{\"a\":[]}")
 JSON_PARSE_TEST(json_array_test, "{\"a\":[\"b\",{\"c\":{}},0]}")
 {
     test_no_errors();
-    /* the parser discards array-valued attributes */
-    test_assert((root != NULL) && (tuple_count(root) == 0));
+    test_assert((root != NULL) && (tuple_count(root) == 1));
+    value a = get(root, sym_this("a"));
+    test_assert(a != NULL);
+    test_assert(is_vector(a));
+
+    destruct_value(root, true);
+    return true;
+}
+
+JSON_PARSE_TEST(json_array_whitespace_test,
+                "{\n \"a\": [\n \"l\"\n  ],\n \"p\": {\n \"c\": \"h\"\n }\n}")
+{
+    test_no_errors();
+    test_assert(root != NULL);
+
+    value a = get(root, sym_this("a"));
+    test_assert(a != NULL);
+    test_assert(is_vector(a));
+    test_assert(vector_length(a) == 1);
+    string id = vector_get(a, 0);
+    test_assert(id != NULL);
+    test_strings_equal(id, "l");
+
+    tuple p = get_tuple(root, sym_this("p"));
+    test_assert(p != NULL);
+    string c = get_string(p, sym_this("c"));
+    test_assert(c != NULL);
+    test_strings_equal(c, "h");
 
     destruct_value(root, true);
     return true;
@@ -847,6 +878,7 @@ test_func TESTS[] = {
     json_nullvalue_test,
     json_empty_array_test,
     json_array_test,
+    json_array_whitespace_test,
     json_nested_test,
 
     NULL

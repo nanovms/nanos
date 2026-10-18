@@ -13,7 +13,6 @@
 typedef struct azure {
     heap h;
     struct buffer ms_version;
-    struct buffer goalstate_query;
     closure_struct(value_handler, goalstate_vh);
     struct net_http_req_params goalstate_req_params;
     char container_id[64];
@@ -49,7 +48,6 @@ typedef struct azure {
 
 typedef struct azure_ready_data {
     azure az;
-    struct buffer query;
     struct buffer content_type;
     tuple req;
     closure_struct(value_handler, vh);
@@ -166,6 +164,7 @@ static void az_report_status(azure az)
     tuple req = az->status_upload.create_req;
     net_http_req_params req_params = &az->status_upload.params;
     req_params->host = buffer_to_sstring(&az->status_upload.host);
+    req_params->query = buffer_to_sstring(&az->status_upload.create_query);
     req_params->req = req;
     req_params->body = 0;
     req_params->resp_handler = (value_handler)&az->status_upload.vh;
@@ -316,8 +315,8 @@ static void az_get_ext_config(azure az)
     bprintf(query, "/machine/%s/%s?comp=config&type=extensionsConfig&incarnation=%b",
             isstring(az->container_id, az->container_id_len),
             isstring(az->instance_id, az->instance_id_len), &az->goalstate_incarnation);
+    req_params.query = buffer_to_sstring(query);
     req_data->query = query;
-    set(req, sym_this("url"), query);
     set(req, sym_this("x-ms-version"), &az->ms_version);
     req_data->req = req_params.req = req;
     req_params.body = 0;
@@ -351,6 +350,7 @@ closure_func_basic(value_handler, void, az_status_upload_vh,
     if (status_code && !buffer_strcmp(status_code, "201")) {
         tuple req = az->status_upload.data_req;
         net_http_req_params req_params = &az->status_upload.params;
+        req_params->query = buffer_to_sstring(&az->status_upload.data_query);
         req_params->req = req;
         req_params->body = az->status_upload.blob;
         req_params->resp_handler = 0;
@@ -459,8 +459,7 @@ static void azure_report_ready(azure az)
     req_params.port = 80;
     req_params.tls = false;
     req_params.method = HTTP_REQUEST_METHOD_POST;
-    buffer_init_from_string(&req_data->query, "/machine?comp=health");
-    set(req, sym_this("url"), &req_data->query);
+    req_params.query = ss("/machine?comp=health");
     set(req, sym_this("x-ms-version"), &az->ms_version);
     buffer_init_from_string(&req_data->content_type, "text/xml;charset=utf-8");
     set(req, sym_this("Content-Type"), &req_data->content_type);
@@ -513,7 +512,6 @@ static void az_status_upload_init(azure az)
     /* Put Blob request */
     tuple req = allocate_tuple();
     assert(req != INVALID_ADDRESS);
-    set(req, sym_this("url"), &az->status_upload.create_query);
     set(req, sym_this("x-ms-version"), &az->ms_version);
     buffer_init_from_string(&az->status_upload.blob_type, "PageBlob");
     set(req, sym_this("x-ms-blob-type"), &az->status_upload.blob_type);
@@ -523,7 +521,6 @@ static void az_status_upload_init(azure az)
     /* Put Page request */
     req = allocate_tuple();
     assert(req != INVALID_ADDRESS);
-    set(req, sym_this("url"), &az->status_upload.data_query);
     set(req, sym_this("x-ms-version"), &az->ms_version);
     buffer_init_from_string(&az->status_upload.content_type, "application/json");
     set(req, sym_this("Content-Type"), &az->status_upload.content_type);
@@ -547,16 +544,15 @@ boolean azure_cloud_init(heap h)
         return false;
     az->h = h;
     buffer_init_from_string(&az->ms_version, AZURE_MS_VERSION);
-    buffer_init_from_string(&az->goalstate_query, "/machine?comp=goalstate");
     init_buffer(&az->goalstate_incarnation, 0, false, h, 0);
     net_http_req_params params = &az->goalstate_req_params;
     params->host = AZURE_WIRESERVER_ADDR;
     params->port = 80;
     params->tls = false;
     params->method = HTTP_REQUEST_METHOD_GET;
+    params->query = ss("/machine?comp=goalstate");
     tuple req = allocate_tuple();
     assert(req != INVALID_ADDRESS);
-    set(req, sym_this("url"), &az->goalstate_query);
     set(req, sym_this("x-ms-version"), &az->ms_version);
     params->req = req;
     params->body = 0;
