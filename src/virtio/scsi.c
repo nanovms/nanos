@@ -8,6 +8,8 @@ int scsi_data_len(u8 cmd)
         return sizeof(struct scsi_res_inquiry);
     case SCSI_CMD_SERVICE_ACTION:
         return sizeof(struct scsi_res_read_capacity_16);
+    case SCSI_CMD_MODE_SENSE_10:
+        return SCSI_MODE_SENSE_LEN;
     case SCSI_CMD_REPORT_LUNS:
         return sizeof(struct scsi_res_report_luns);
     default:

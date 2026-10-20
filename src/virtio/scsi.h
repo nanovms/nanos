@@ -74,6 +74,7 @@ struct scsi_sense_data_extra {
 #define SCSI_CMD_TEST_UNIT_READY        0x00
 #define SCSI_CMD_INQUIRY                0x12
 #define SCSI_CMD_SYNCHRONIZE_CACHE_10   0x35
+#define SCSI_CMD_MODE_SENSE_10          0x5a
 #define SCSI_CMD_READ_16                0x88
 #define SCSI_CMD_WRITE_16               0x8a
 #define SCSI_CMD_SERVICE_ACTION         0x9e
@@ -378,6 +379,45 @@ struct scsi_cdb_synchronize_cache_10
     u16 length;
     u8 control;
 } __attribute__((packed));
+
+struct scsi_cdb_mode_sense_10
+{
+    u8 opcode;
+    u8 byte2;
+#define SMS_DBD                 0x08    /* disable block descriptors */
+    u8 page_code;
+#define SMS_PAGE_CACHING        0x08
+    u8 subpage_code;
+    u8 reserved[3];
+    u16 length;
+    u8 control;
+} __attribute__((packed));
+
+struct scsi_res_mode_sense_10
+{
+    u16 data_length;
+    u8 medium_type;
+    u8 device_specific;
+    u8 reserved[2];
+    u16 block_desc_length;
+    u8 data[];                  /* block descriptors, then the mode pages */
+} __attribute__((packed));
+
+/* Mode page header; the top bits of the first byte are PS and SPF */
+#define SMP_PAGE_CODE_MASK      0x3f
+#define SMP_SPF                 0x40
+
+/* Caching mode page */
+struct scsi_mode_page_caching
+{
+    u8 page_code;
+    u8 page_length;
+#define SMC_WCE                 0x04    /* write cache enable */
+    u8 flags;
+} __attribute__((packed));
+
+/* header (8), a long block descriptor in case DBD is ignored (16), caching page (20) */
+#define SCSI_MODE_SENSE_LEN     64
 
 int scsi_data_len(u8 cmd);
 

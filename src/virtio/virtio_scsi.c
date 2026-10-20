@@ -134,6 +134,7 @@ struct virtio_scsi_disk {
     u32 max_xfer_len;
     u64 capacity;
     u64 block_size;
+    boolean no_flush;
 };
 
 static void virtio_scsi_report_luns(virtio_scsi s, storage_attach a, u16 target);
@@ -403,6 +404,11 @@ static void virtio_scsi_flush(virtio_scsi_disk d, status_handler sh)
 {
     virtio_scsi s = d->scsi;
     u64 r_phys;
+
+    if (d->no_flush) {
+        async_apply_status_handler(sh, STATUS_OK);
+        return;
+    }
     virtio_scsi_request r = virtio_scsi_alloc_request(s, d->target, d->lun,
                                                       SCSI_CMD_SYNCHRONIZE_CACHE_10,
                                                       &r_phys);
@@ -456,6 +462,51 @@ closure_function(3, 0, void, virtio_scsi_init_done,
     closure_finish();
 }
 
+/* Look for the caching mode page in the MODE SENSE response. Returns whether the device has its
+   write cache enabled; when the page cannot be read, assume it is, so that flushes are still sent. */
+static boolean virtio_scsi_write_cache_enabled(virtio_scsi_request r)
+{
+    struct virtio_scsi_resp_cmd *resp = &r->resp;
+    if (resp->response != VIRTIO_SCSI_S_OK || resp->status != SCSI_STATUS_OK)
+        return true;
+    struct scsi_res_mode_sense_10 *res = (struct scsi_res_mode_sense_10 *)r->data;
+    u32 avail = r->alloc_len - MIN(resp->residual, r->alloc_len);
+    if (avail < sizeof(*res))
+        return true;
+    avail = MIN(be16toh(res->data_length) + sizeof(res->data_length), avail);
+    u32 offset = sizeof(*res) + be16toh(res->block_desc_length);
+    while (offset + sizeof(struct scsi_mode_page_caching) <= avail) {
+        struct scsi_mode_page_caching *page = (struct scsi_mode_page_caching *)(r->data + offset);
+        if (page->page_code & SMP_SPF) {
+            /* subpage format: page code, subpage code, 2-byte length */
+            if (offset + 4 > avail)
+                break;
+            offset += 4 + (((u32)r->data[offset + 2] << 8) | r->data[offset + 3]);
+            continue;
+        }
+        if ((page->page_code & SMP_PAGE_CODE_MASK) == SMS_PAGE_CACHING)
+            return (page->flags & SMC_WCE) != 0;
+        offset += 2 + page->page_length;
+    }
+    return true;
+}
+
+closure_function(3, 2, void, virtio_scsi_mode_sense_done,
+                 virtio_scsi_disk, d, int, attach_id, storage_attach, a,
+                 virtio_scsi s, virtio_scsi_request r)
+{
+    virtio_scsi_disk d = bound(d);
+    d->no_flush = !virtio_scsi_write_cache_enabled(r);
+    if (d->no_flush)
+        rprintf("virtio_scsi: target %d lun %d has no write cache, flushes disabled\n",
+                d->target, d->lun);
+    virtio_scsi_debug("%s: target %d, lun %d, no flush %d\n", func_ss, d->target, d->lun,
+                      d->no_flush);
+    async_apply(closure(s->v->virtio_dev.general, virtio_scsi_init_done,
+                        d, bound(attach_id), bound(a)));
+    closure_finish();
+}
+
 closure_function(5, 2, void, virtio_scsi_read_capacity_done,
                  storage_attach, a, u16, target, u16, lun, int, attach_id, u32, max_xfer_len,
                  virtio_scsi s, virtio_scsi_request r)
@@ -497,8 +548,16 @@ closure_function(5, 2, void, virtio_scsi_read_capacity_done,
     virtio_scsi_debug("%s: target %d, lun %d, block size 0x%lx, capacity 0x%lx\n",
                       func_ss, target, lun, d->block_size, d->capacity);
 
-    async_apply(closure(s->v->virtio_dev.general, virtio_scsi_init_done,
-                        d, bound(attach_id), bound(a)));
+    /* Find out whether the device has a volatile write cache, i.e. whether flushes are needed */
+    u64 r_phys;
+    r = virtio_scsi_alloc_request(s, target, lun, SCSI_CMD_MODE_SENSE_10, &r_phys);
+    struct scsi_cdb_mode_sense_10 *cdb = (struct scsi_cdb_mode_sense_10 *)r->req.cdb;
+    cdb->byte2 = SMS_DBD;
+    cdb->page_code = SMS_PAGE_CACHING;
+    cdb->length = htobe16(r->alloc_len);
+    virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
+                                closure(s->v->virtio_dev.general, virtio_scsi_mode_sense_done,
+                                        d, bound(attach_id), bound(a)));
   out:
     closure_finish();
 }
