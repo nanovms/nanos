@@ -344,7 +344,7 @@ void coredump(thread t, struct siginfo *si, status_handler complete)
         phdr->p_offset = doff;
         phdr->p_align = PAGESIZE;
         /* set filesz to 0 to skip copying segment into dump */
-        if (m->flags & VMAP_MMAP_TYPE_FILEBACKED || m->flags == 0) {
+        if (m->flags & VMAP_MMAP_TYPE_FILEBACKED || (m->flags & VMAP_FLAG_PROT_MASK) == 0) {
             phdr->p_filesz = 0;
         } else {
             phdr->p_filesz = phdr->p_memsz;
