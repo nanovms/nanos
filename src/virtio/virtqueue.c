@@ -201,16 +201,12 @@ static void vq_poll(virtqueue vq)
     
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
+        /* The element must not be read before the used->idx that announced it. */
+        read_barrier();
         virtqueue_debug_verbose("%s: vq %s: last_used_idx %d, id %d, len %d\n",
                                 func_ss, vq->name, vq->last_used_idx, uep->id, uep->len);
         u16 head = uep->id;
-        vqmsg m = head < vq->entries ? vq->msgs[head] : 0;
-        if (!m) {
-            /* The device has advanced used->idx, but the element at last_used_idx does not name a
-             * message in flight: its id is still the one left there on the previous lap of the
-             * ring. Leave the element for the next poll instead of dereferencing a null message. */
-            break;
-        }
+        vqmsg m = vq->msgs[head];
 
         /* return descriptor(s) to free list */
         int dcount = 1;
