@@ -46,7 +46,7 @@ sandbox | c |
 sendfile | c | 
 shmem | c | 
 signal | c | 
-sigoverflow | c | 
+sigloop | c | recursive signal dispatch/handling
 socketpair | c | 
 symlink | c | 
 syslog | c | 

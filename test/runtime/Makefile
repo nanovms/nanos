@@ -33,7 +33,7 @@ PROGRAMS= \
 	sandbox \
 	sendfile \
 	shmem \
-	sigoverflow \
+	sigloop \
 	signal \
 	socketpair \
 	syslog \
@@ -192,12 +192,12 @@ SRCS-shmem= \
 	$(SRCDIR)/unix_process/ssp.c
 LDFLAGS-shmem=	-static
 
-SRCS-sigoverflow= \
-	$(CURDIR)/sigoverflow.c \
+SRCS-sigloop= \
+	$(CURDIR)/sigloop.c \
 	$(SRCDIR)/unix_process/unix_process_runtime.c \
 	$(RUNTIME)
-LDFLAGS-sigoverflow=	-static
-LIBS-sigoverflow=	-lpthread
+LDFLAGS-sigloop=	-static
+LIBS-sigloop=	-lpthread
 
 SRCS-signal= \
 	$(CURDIR)/signal.c \

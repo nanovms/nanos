@@ -1,15 +1,15 @@
 (
     children:(
               #user program
-	      sigoverflow:(contents:(host:output/test/runtime/bin/sigoverflow))
+	      sigloop:(contents:(host:output/test/runtime/bin/sigloop))
 	      )
     # filesystem path to elf for kernel to run
-    program:/sigoverflow
+    program:/sigloop
 #    trace:t
 #    debugsyscalls:t
 #    fault:t
     arguments:[test]
     environment:(USER:bobby PWD:/)
-    # expect to segfault
-    expected_exit_code:11
+    # expected either SIGABRT or SIGSEGV
+    expected_exit_code:[6 11]
 )

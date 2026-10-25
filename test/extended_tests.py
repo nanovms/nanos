@@ -126,7 +126,7 @@ def test_basic_options():
         'name': 'hws',
         'option': 'syscall_summary:t'
     }, {
-        'name': 'sigoverflow',
+        'name': 'sigloop',
         'option': 'coredumplimit:32M',
         'post': coredump_post
     }, {

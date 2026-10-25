@@ -25,11 +25,15 @@ void *thread(void *a)
     return 0;
 }
 
+/*
+ * The SIGABRT handler calls abort(): either this creates a recursive signal dispatch/handling loop
+ * (which eventually overflows the signal stack and causes a segfault), or abort() detects the
+ * recursion and raises SIGABRT with default signal disposition.
+ */
 int main(int argc, char **argv)
 {
     pthread_t pt;
 
-    printf("expecting signal stack overflow to segfault...\n");
     pid_t pid = getpid();
     pthread_create(&pt, NULL, thread, 0);
     assert(signal(SIGUSR1, handler) != SIG_ERR);
@@ -38,4 +42,3 @@ int main(int argc, char **argv)
     pthread_join(pt, 0);
     return 0;
 }
-

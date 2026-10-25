@@ -125,8 +125,8 @@ RUNTIME_TESTS=	\
 	sandbox \
 	sendfile \
 	shmem \
+	sigloop \
 	signal \
-	sigoverflow \
 	socketpair \
 	syslog \
 	thread_test \
