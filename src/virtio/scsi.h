@@ -403,7 +403,7 @@ struct scsi_res_mode_sense_10
     u8 data[];                  /* block descriptors, then the mode pages */
 } __attribute__((packed));
 
-/* Mode page header; the top bits of the first byte are PS and SPF */
+/* Mode page header */
 #define SMP_PAGE_CODE_MASK      0x3f
 #define SMP_SPF                 0x40
 

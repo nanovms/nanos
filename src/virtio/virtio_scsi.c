@@ -498,7 +498,7 @@ closure_function(3, 2, void, virtio_scsi_mode_sense_done,
     virtio_scsi_disk d = bound(d);
     d->no_flush = !virtio_scsi_write_cache_enabled(r);
     if (d->no_flush)
-        rprintf("virtio_scsi: target %d lun %d has no write cache, flushes disabled\n",
+        msg_info("target %d lun %d has no write cache, flushes disabled",
                 d->target, d->lun);
     virtio_scsi_debug("%s: target %d, lun %d, no flush %d\n", func_ss, d->target, d->lun,
                       d->no_flush);
@@ -555,6 +555,7 @@ closure_function(5, 2, void, virtio_scsi_read_capacity_done,
     cdb->byte2 = SMS_DBD;
     cdb->page_code = SMS_PAGE_CACHING;
     cdb->length = htobe16(r->alloc_len);
+    cdb->control = 0;
     virtio_scsi_enqueue_request(s, r, r_phys, r->data, r->alloc_len,
                                 closure(s->v->virtio_dev.general, virtio_scsi_mode_sense_done,
                                         d, bound(attach_id), bound(a)));
