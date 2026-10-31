@@ -9,7 +9,7 @@
  * inserted in the memory map between a get_memory_map() call and a exit_boot_services() call. */
 #define UEFI_MEMDESC_SPARE_COUNT    8
 
-//#define UEFI_DEBUG
+#define UEFI_DEBUG
 #ifdef UEFI_DEBUG
 # define uefi_debug(x, ...) rprintf("UEFI: " x "\n", ##__VA_ARGS__)
 #else
@@ -190,6 +190,38 @@ closure_function(2, 1, void, uefi_blkdev_read,
           EFI_ERROR(status) ? timm("result", "read_blocks status %d", status) : STATUS_OK);
 }
 
+/* Report the lowest conventional memory region in the firmware's map, which is where memory
+   actually begins. The address the firmware chose for this boot image says nothing about that, and
+   a kernel based on it is moved for no reason whenever the two lie in different regions. */
+static void uefi_report_phys_memory(void)
+{
+    u64 map_size = 0, map_key, desc_size;
+    u32 desc_version;
+    void *map = 0;
+
+    efi_status status = UBS->get_memory_map(&map_size, 0, &map_key, &desc_size, &desc_version);
+    if (status != EFI_BUFFER_TOO_SMALL)
+        return;
+    map_size += UEFI_MEMDESC_SPARE_COUNT * desc_size;
+    status = UBS->allocate_pool(efi_loader_data, map_size, &map);
+    if (EFI_ERROR(status) || !map)
+        return;
+    status = UBS->get_memory_map(&map_size, map, &map_key, &desc_size, &desc_version);
+    if (!EFI_ERROR(status)) {
+        u64 num_desc = map_size / desc_size;
+        for (u64 i = 0; i < num_desc; i++) {
+            efi_memory_desc d = map + i * desc_size;
+            if (d->type != efi_conventional_memory)
+                continue;
+            if ((elf_physmem_base == 0) || (d->physical_start < elf_physmem_base)) {
+                elf_physmem_base = d->physical_start;
+                elf_physmem_size = d->number_of_pages * PAGESIZE;
+            }
+        }
+    }
+    UBS->free_pool(map);
+}
+
 closure_function(3, 2, void, uefi_bootfs_complete,
                  heap, general, heap, aligned, uefi_arch_options, options,
                  filesystem fs, status s)
@@ -207,6 +239,9 @@ closure_function(3, 2, void, uefi_bootfs_complete,
         if (!fsf)
             halt("UEFI: invalid kernel file\n");
         u64 kernel_entry;
+        uefi_report_phys_memory();
+        uefi_debug("conventional memory begins at %p, size 0x%lx, boot image at %p",
+                   elf_physmem_base, elf_physmem_size, uefi_report_phys_memory);
         load_elf_to_physical(general, stack_closure(uefi_kernel_load, fsf), &kernel_entry,
                              stack_closure(uefi_kernel_loaded, &kernel_entry));
     } else {
