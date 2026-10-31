@@ -201,6 +201,8 @@ static void vq_poll(virtqueue vq)
     
     while (vq->last_used_idx != vq->used->idx) {
         volatile struct vring_used_elem *uep = vq->used->ring + (vq->last_used_idx & (vq->entries - 1));
+        /* The element must not be read before the used->idx that announced it. */
+        read_barrier();
         virtqueue_debug_verbose("%s: vq %s: last_used_idx %d, id %d, len %d\n",
                                 func_ss, vq->name, vq->last_used_idx, uep->id, uep->len);
         u16 head = uep->id;
