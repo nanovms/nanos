@@ -17,6 +17,14 @@
 
 #include "../test_utils.h"
 
+/* Not defined by every libc's <linux/udp.h>. */
+#ifndef UDP_SEGMENT
+#define UDP_SEGMENT 103
+#endif
+#ifndef UDP_GRO
+#define UDP_GRO     104
+#endif
+
 #define NETSOCK_TEST_BASIC_PORT 1233
 #define NETSOCK_TEST_FAULT_PORT 1237
 #define NETSOCK_TEST_TIMEO_PORT 1238
@@ -172,6 +180,27 @@ static void netsock_test_basic(int sock_type)
         test_assert(write(tx_fd, &ret, sizeof(ret)) < 0 && errno == EDESTADDRREQ);
         test_assert(connect(tx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
     }
+    /* setsockopt()/getsockopt() must not silently succeed for options they don't implement. */
+    {
+        int val = 0;
+        socklen_t len = sizeof(val);
+
+        test_assert((setsockopt(tx_fd, SOL_SOCKET, SO_REUSEPORT, &val, len) == -1) &&
+                     (errno == ENOPROTOOPT));
+
+        /* UDP_SEGMENT/UDP_GRO (UDP GSO/GRO) are not implemented and must be rejected
+         * explicitly rather than silently accepted (setsockopt) or misreported
+         * (getsockopt). */
+        test_assert((setsockopt(tx_fd, IPPROTO_UDP, UDP_SEGMENT, &val, len) == -1) &&
+                     (errno == ENOPROTOOPT));
+        test_assert((setsockopt(tx_fd, IPPROTO_UDP, UDP_GRO, &val, len) == -1) &&
+                     (errno == ENOPROTOOPT));
+        test_assert((getsockopt(tx_fd, IPPROTO_UDP, UDP_SEGMENT, &val, &len) == -1) &&
+                     (errno == ENOPROTOOPT));
+        test_assert((getsockopt(tx_fd, IPPROTO_UDP, UDP_GRO, &val, &len) == -1) &&
+                     (errno == ENOPROTOOPT));
+    }
+
     addr_len = sizeof(addr);
     test_assert((getpeername(tx_fd, FAULT_ADDR, &addr_len) == -1) && (errno == EFAULT));
     test_assert((getpeername(tx_fd, &addr, FAULT_ADDR) == -1) && (errno == EFAULT));
@@ -670,6 +699,34 @@ static void netsock_test_msg(int sock_type)
         test_assert(msg2.msg_flags == MSG_TRUNC);
         test_assert(recvmsg(rx_fd, &msg2, MSG_TRUNC) == total_len);
         test_assert(msg2.msg_flags == MSG_TRUNC);
+    }
+
+    /* sendmsg() must reject ancillary data it doesn't implement, rather than
+     * silently sending the iovec unsegmented. A UDP_SEGMENT cmsg (used for
+     * GSO) must fail with EIO specifically - the same errno Linux itself
+     * returns when GSO can't be done, which is what real callers (e.g.
+     * curl) already handle by retrying without it. Anything else fails
+     * with EINVAL. */
+    {
+        union {
+            struct cmsghdr hdr;
+            uint8_t buf[CMSG_SPACE(sizeof(int))];
+        } cmsg;
+
+        memset(&cmsg, 0, sizeof(cmsg));
+        cmsg.hdr.cmsg_len = CMSG_LEN(sizeof(int));
+        cmsg.hdr.cmsg_level = IPPROTO_UDP;
+        cmsg.hdr.cmsg_type = UDP_SEGMENT;
+        msg1.msg_control = &cmsg;
+        msg1.msg_controllen = sizeof(cmsg);
+        test_assert((sendmsg(tx_fd, &msg1, 0) == -1) && (errno == EIO));
+
+        cmsg.hdr.cmsg_level = SOL_SOCKET;
+        cmsg.hdr.cmsg_type = SCM_RIGHTS;
+        test_assert((sendmsg(tx_fd, &msg1, 0) == -1) && (errno == EINVAL));
+
+        msg1.msg_control = NULL;
+        msg1.msg_controllen = 0;
     }
 
     memset(&mmsg1, 0, sizeof(mmsg1));
