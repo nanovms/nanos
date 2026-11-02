@@ -2701,7 +2701,7 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             ret_optval.val = -lwip_to_errno(get_and_clear_lwip_error(s));
             break;
         case SO_SNDBUF:
-            ret_optval.val = (s->sock.type == SOCK_STREAM) ? TCP_SND_BUF : 0;
+            ret_optval.val = TCP_SND_BUF; /* lwIP does not limit what UDP sends */
             break;
         case SO_RCVBUF:
             ret_optval.val = so_rcvbuf;
