@@ -97,6 +97,8 @@ typedef struct netsock {
 	struct {
 	    struct udp_pcb *lw;
 	    enum udp_socket_state state;
+	    int sndbuf;               /* SO_SNDBUF, not enforced */
+	    int rcvbuf;               /* limit on the bytes queued for reading, SO_RCVBUF */
 	} udp;
     } info;
     closure_struct(file_io, read);
@@ -115,6 +117,9 @@ typedef struct netsock {
 #define netsock_unlock(s)   spin_unlock(&(s)->sock.f.lock)
 
 #define DEFAULT_SO_RCVBUF   0x34000 /* same as Linux */
+#define MAX_SO_BUF          0x34000 /* same as Linux, net.core.rmem_max and wmem_max */
+#define MIN_SO_RCVBUF       2304    /* same as Linux */
+#define MIN_SO_SNDBUF       4608    /* same as Linux */
 
 #define TCP_CONG_CTRL_ALGO  "reno"  /* TCP congestion control algorithm name */
 
@@ -1364,7 +1369,7 @@ static void udp_input_lower(void *z, struct udp_pcb *pcb, struct pbuf *p,
     assert(pcb == s->info.udp.lw);
     if (p) {
 	netsock_lock(s);
-	if ((s->sock.rx_len + p->tot_len > so_rcvbuf) || queue_full(s->incoming)) {
+	if ((s->sock.rx_len + p->tot_len > s->info.udp.rcvbuf) || queue_full(s->incoming)) {
 	    netsock_unlock(s);
 	    pbuf_free(p);
 	    return;
@@ -1467,6 +1472,8 @@ static int allocate_udp_sock(process p, int af, struct udp_pcb *pcb, u32 flags)
     if (fd >= 0) {
         s->info.udp.lw = pcb;
         s->info.udp.state = UDP_SOCK_CREATED;
+        s->info.udp.sndbuf = TCP_SND_BUF;
+        s->info.udp.rcvbuf = so_rcvbuf;
         udp_recv(pcb, udp_input_lower, s);
     }
     return fd;
@@ -2520,6 +2527,23 @@ static sysreturn netsock_setsockopt(struct sock *sock, int level,
             break;
         case SO_REUSEPORT:
             goto unimplemented;
+        case SO_SNDBUF:
+        case SO_RCVBUF:
+            rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(int));
+            if (rv)
+                goto out;
+            if (s->sock.type == SOCK_DGRAM) {
+                u32 v = opt_val.val;    /* as in Linux, a negative value is a large one */
+                u32 max = (optname == SO_RCVBUF) ? MAX(MAX_SO_BUF, so_rcvbuf) : MAX_SO_BUF;
+                u64 val = (u64)MIN(v, max) * 2;
+                netsock_lock(s);
+                if (optname == SO_SNDBUF)
+                    s->info.udp.sndbuf = MAX(val, MIN_SO_SNDBUF);
+                else
+                    s->info.udp.rcvbuf = MIN(MAX(val, MIN_SO_RCVBUF), MASK(31));
+                netsock_unlock(s);
+            }
+            break;
         case SO_RCVTIMEO:
             rv = sockopt_copy_from_user(optval, optlen, &opt_val, sizeof(opt_val.timeo));
             if (rv)
@@ -2701,10 +2725,18 @@ static sysreturn netsock_getsockopt(struct sock *sock, int level,
             ret_optval.val = -lwip_to_errno(get_and_clear_lwip_error(s));
             break;
         case SO_SNDBUF:
-            ret_optval.val = TCP_SND_BUF; /* lwIP does not limit what UDP sends */
+            if (s->sock.type == SOCK_DGRAM) {
+                ret_optval.val = s->info.udp.sndbuf;
+            } else {
+                ret_optval.val = TCP_SND_BUF;
+            }
             break;
         case SO_RCVBUF:
-            ret_optval.val = so_rcvbuf;
+            if (s->sock.type == SOCK_DGRAM) {
+                ret_optval.val = s->info.udp.rcvbuf;
+            } else {
+                ret_optval.val = so_rcvbuf;
+            }
             break;
         case SO_PRIORITY:
             ret_optval.val = 0; /* default value in Linux */
