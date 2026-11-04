@@ -1067,6 +1067,19 @@ static void netsock_test_addr_any(int sock_type, boolean ipv6)
     close(fd);
 }
 
+static void netsock_test_unknown_sockopt(void)
+{
+    int fd, val;
+    socklen_t len = sizeof(val);
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+    /* an option number that Linux does not have either */
+    test_assert((getsockopt(fd, SOL_SOCKET, 0x7fff, &val, &len) == -1) &&
+                (errno == ENOPROTOOPT));
+    test_assert(close(fd) == 0);
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -1086,6 +1099,7 @@ int main(int argc, char **argv)
     netsock_test_addr_any(SOCK_STREAM, true);
     netsock_test_addr_any(SOCK_DGRAM, false);
     netsock_test_addr_any(SOCK_DGRAM, true);
+    netsock_test_unknown_sockopt();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
