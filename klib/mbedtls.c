@@ -8,6 +8,7 @@
 
 typedef struct tls_conn {
     mbedtls_ssl_context ssl;
+    char hostname[MBEDTLS_SSL_MAX_HOST_NAME_LEN + 1];
     closure_struct(connection_handler, ch);
     closure_struct(input_buffer_handler, in);
     buffer_handler out;
@@ -228,8 +229,12 @@ int tls_set_cacert(void *cert, u64 len)
     return ret;
 }
 
-int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
+static int tls_connect_internal(ip_addr_t *addr, u16 port, connection_handler ch, sstring servername)
 {
+    if (servername.len > MBEDTLS_SSL_MAX_HOST_NAME_LEN) {
+        msg_err("%s: cannot set up SNI: hostname too long", func_ss);
+        return -1;
+    }
     tls_conn conn = allocate(tls.h, sizeof(*conn));
     if (conn == INVALID_ADDRESS)
         return -1;
@@ -238,6 +243,11 @@ int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
     if (ret) {
         msg_err("%s: cannot set up SSL context", func_ss);
         goto err_ssl_setup;
+    }
+    if (servername.ptr) {
+        runtime_memcpy(conn->hostname, servername.ptr, servername.len);
+        conn->hostname[servername.len] = '\0';
+        conn->ssl.hostname = isstring(conn->hostname, servername.len);
     }
     conn->app_ch = ch;
     conn->app_in = 0;
@@ -256,6 +266,16 @@ int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
   err_ssl_setup:
     deallocate(tls.h, conn, sizeof(*conn));
     return ret;
+}
+
+int tls_connect(ip_addr_t *addr, u16 port, connection_handler ch)
+{
+    return tls_connect_internal(addr, port, ch, (sstring){0});
+}
+
+int tls_connect_sni(ip_addr_t *addr, u16 port, connection_handler ch, sstring servername)
+{
+    return tls_connect_internal(addr, port, ch, servername);
 }
 
 int init(status_handler complete)
