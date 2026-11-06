@@ -10,7 +10,7 @@
 
 //#define TIMER_DEBUG
 #ifdef TIMER_DEBUG
-#define timer_debug(x, ...) do {log_printf(ss("TIMER"), ss(x), ##__VA_ARGS__);} while(0)
+#define timer_debug(x, ...) do {log_printf(LOG_INFO, ss("TIMER " x), ##__VA_ARGS__);} while(0)
 #else
 #define timer_debug(x, ...)
 #endif
