@@ -20,6 +20,7 @@
 #define NETSOCK_TEST_BASIC_PORT 1233
 #define NETSOCK_TEST_FAULT_PORT 1237
 #define NETSOCK_TEST_TIMEO_PORT 1238
+#define NETSOCK_TEST_RCVBUF_PORT 1239
 
 #define NETSOCK_TEST_FIO_COUNT  8
 
@@ -557,6 +558,19 @@ static void netsock_test_rcvbuf(void)
     test_assert((close(tx_fd) == 0) && (close(rx_fd) == 0));
 }
 
+static void netsock_test_sndbuf(void)
+{
+    int fd, sndbuf;
+    socklen_t optlen;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+    optlen = sizeof(sndbuf);
+    test_assert(getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == 0);
+    test_assert((optlen == sizeof(sndbuf)) && (sndbuf >= 1500));
+    test_assert(close(fd) == 0);
+}
+
 static void netsock_test_netconf(void)
 {
     /* SIOC?IF* ioctls aren't netsock-specific - in fact, netdevice(7)
@@ -1067,6 +1081,87 @@ static void netsock_test_addr_any(int sock_type, boolean ipv6)
     close(fd);
 }
 
+static void netsock_test_rcvbuf_set(void)
+{
+    int tx_fd, rx_fd, sync_fd;
+    struct sockaddr_in addr, sync_addr;
+    int rcvbuf;
+    socklen_t optlen;
+    uint8_t pkt[KB];
+    const int xfer_size = 80 * KB;
+    const int pkt_count = xfer_size / sizeof(pkt);
+    int rx_count, tcp_fd;
+    int sndbuf = 128 * KB;
+
+    tx_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(tx_fd > 0);
+    rx_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(rx_fd > 0);
+    sync_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(sync_fd > 0);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(NETSOCK_TEST_RCVBUF_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    test_assert(bind(rx_fd, (struct sockaddr *)&addr, sizeof(addr)) == 0);
+    sync_addr = addr;
+    sync_addr.sin_port = htons(NETSOCK_TEST_RCVBUF_PORT + 1);
+    test_assert(bind(sync_fd, (struct sockaddr *)&sync_addr, sizeof(sync_addr)) == 0);
+
+    /* like Linux, a value that is set reads back doubled, within a minimum and a maximum */
+    static const int sizes[][3] = {
+        {128 * KB, 256 * KB, 256 * KB}, {1, 2304, 4608}, {64 * KB * KB, 416 * KB, 416 * KB},
+        {-1, 416 * KB, 416 * KB},
+    };
+    optlen = sizeof(rcvbuf);
+    test_assert(getsockopt(rx_fd, SOL_SOCKET, SO_SNDBUF, &rcvbuf, &optlen) == 0);
+    test_assert(rcvbuf == 208 * KB);
+    for (int i = 0; i < _countof(sizes); i++) {
+        rcvbuf = sizes[i][0];
+        test_assert(setsockopt(rx_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0);
+        test_assert(setsockopt(rx_fd, SOL_SOCKET, SO_SNDBUF, &rcvbuf, sizeof(rcvbuf)) == 0);
+        optlen = sizeof(rcvbuf);
+        test_assert(getsockopt(rx_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &optlen) == 0);
+        test_assert((optlen == sizeof(rcvbuf)) && (rcvbuf == sizes[i][1]));
+        optlen = sizeof(rcvbuf);
+        test_assert(getsockopt(rx_fd, SOL_SOCKET, SO_SNDBUF, &rcvbuf, &optlen) == 0);
+        test_assert((optlen == sizeof(rcvbuf)) && (rcvbuf == sizes[i][2]));
+    }
+
+    /* and the queue of the socket does not take more than that */
+    rcvbuf = 2 * KB;
+    test_assert(setsockopt(rx_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0);
+    optlen = sizeof(rcvbuf);
+    test_assert(getsockopt(rx_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &optlen) == 0);
+    test_assert(rcvbuf == 4 * KB);
+    for (int i = 0; i < pkt_count; i++)
+        test_assert(sendto(tx_fd, pkt, sizeof(pkt), 0, (struct sockaddr *)&addr,
+                           sizeof(addr)) == sizeof(pkt));
+    /* the loopback delivers in order, except for a datagram that another CPU is still handing
+     * over: once this one arrives, what was sent before it has all but certainly been delivered */
+    test_assert(sendto(tx_fd, pkt, 1, 0, (struct sockaddr *)&sync_addr,
+                       sizeof(sync_addr)) == 1);
+    test_assert(recv(sync_fd, pkt, sizeof(pkt), 0) == 1);
+    rx_count = 0;
+    while (recv(rx_fd, pkt, sizeof(pkt), MSG_DONTWAIT) == sizeof(pkt))
+        rx_count += sizeof(pkt);
+    test_assert((rx_count >= rcvbuf) && (rx_count <= rcvbuf + 2 * KB));
+
+    /* the option is accepted on a TCP socket too */
+    tcp_fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(tcp_fd > 0);
+    rcvbuf = 128 * KB;
+    test_assert(setsockopt(tcp_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0);
+    test_assert(setsockopt(tcp_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)) == 0);
+    optlen = sizeof(rcvbuf);
+    test_assert(getsockopt(tcp_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &optlen) == 0);
+    test_assert(rcvbuf == 208 * KB);
+    optlen = sizeof(sndbuf);
+    test_assert(getsockopt(tcp_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == 0);
+    test_assert(sndbuf == 208 * KB);
+    test_assert(close(tcp_fd) == 0);
+    test_assert((close(tx_fd) == 0) && (close(rx_fd) == 0) && (close(sync_fd) == 0));
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -1077,6 +1172,7 @@ int main(int argc, char **argv)
     netsock_test_nonblocking_connect();
     netsock_test_peek();
     netsock_test_rcvbuf();
+    netsock_test_sndbuf();
     netsock_test_netconf();
     netsock_test_msg(SOCK_STREAM);
     netsock_test_msg(SOCK_DGRAM);
@@ -1086,6 +1182,7 @@ int main(int argc, char **argv)
     netsock_test_addr_any(SOCK_STREAM, true);
     netsock_test_addr_any(SOCK_DGRAM, false);
     netsock_test_addr_any(SOCK_DGRAM, true);
+    netsock_test_rcvbuf_set();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
