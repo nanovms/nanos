@@ -2128,6 +2128,28 @@ sysreturn recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int fl
     return thread_maybe_sleep_uninterruptible(t);
 }
 
+/* A connection refused because the accept queue is full used to be reported with one console line
+ * each. The console is synchronous: console_write() takes a global spinlock and the serial driver
+ * waits on the transmitter for every character, so a burst of refusals turned into thousands of
+ * serial writes on the network input path, exactly when the system was already overloaded. Report
+ * at most once every few seconds instead, with the number of connections refused since. */
+#define ACCEPT_OVERRUN_REPORT_INTERVAL seconds(5)
+static u64 accept_overruns_pending;
+static timestamp accept_overrun_next;
+
+static void accept_overrun_report(void)
+{
+    __atomic_fetch_add(&accept_overruns_pending, 1, __ATOMIC_RELAXED);
+    timestamp t = now(CLOCK_ID_MONOTONIC_RAW);
+    timestamp next = __atomic_load_n(&accept_overrun_next, __ATOMIC_RELAXED);
+    if (t < next ||
+        !__atomic_compare_exchange_n(&accept_overrun_next, &next, t + ACCEPT_OVERRUN_REPORT_INTERVAL,
+                                     false, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+        return;
+    msg_err("accept_tcp_from_lwip queue overrun: %ld connections refused",
+            __atomic_exchange_n(&accept_overruns_pending, 0, __ATOMIC_RELAXED));
+}
+
 static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
 {
     if (!z) {
@@ -2159,7 +2181,7 @@ static err_t accept_tcp_from_lwip(void * z, struct tcp_pcb * lw, err_t err)
     tcp_err(lw, lwip_tcp_conn_err);
     tcp_sent(lw, lwip_tcp_sent);
     if (!enqueue(s->incoming, sn)) {
-        msg_err("%s queue overrun", func_ss);
+        accept_overrun_report();
         err = ERR_BUF;      /* lwIP will do tcp_abort */
         goto unlock_out;
     }
