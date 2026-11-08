@@ -557,6 +557,19 @@ static void netsock_test_rcvbuf(void)
     test_assert((close(tx_fd) == 0) && (close(rx_fd) == 0));
 }
 
+static void netsock_test_sndbuf(void)
+{
+    int fd, sndbuf;
+    socklen_t optlen;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+    optlen = sizeof(sndbuf);
+    test_assert(getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == 0);
+    test_assert((optlen == sizeof(sndbuf)) && (sndbuf >= 1500));
+    test_assert(close(fd) == 0);
+}
+
 static void netsock_test_netconf(void)
 {
     /* SIOC?IF* ioctls aren't netsock-specific - in fact, netdevice(7)
@@ -1077,6 +1090,7 @@ int main(int argc, char **argv)
     netsock_test_nonblocking_connect();
     netsock_test_peek();
     netsock_test_rcvbuf();
+    netsock_test_sndbuf();
     netsock_test_netconf();
     netsock_test_msg(SOCK_STREAM);
     netsock_test_msg(SOCK_DGRAM);
