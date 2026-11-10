@@ -244,7 +244,7 @@ static int tls_connect_internal(ip_addr_t *addr, u16 port, connection_handler ch
         msg_err("%s: cannot set up SSL context", func_ss);
         goto err_ssl_setup;
     }
-    if (servername.ptr) {
+    if (servername.ptr && servername.len > 0) {
         runtime_memcpy(conn->hostname, servername.ptr, servername.len);
         conn->hostname[servername.len] = '\0';
         conn->ssl.hostname = isstring(conn->hostname, servername.len);
