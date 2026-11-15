@@ -1067,6 +1067,54 @@ static void netsock_test_addr_any(int sock_type, boolean ipv6)
     close(fd);
 }
 
+static void netsock_test_rcvbuf_set(void)
+{
+    int fd;
+    int rcvbuf;
+    socklen_t optlen;
+    int tcp_fd;
+    int sndbuf = 128 * KB;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    test_assert(fd > 0);
+
+    /* like Linux, a value that is set reads back doubled, within a minimum and a maximum */
+    static const int sizes[][3] = {
+        {128 * KB, 256 * KB, 256 * KB}, {1, 2304, 4608}, {64 * KB * KB, 416 * KB, 416 * KB},
+        {-1, 416 * KB, 416 * KB},
+    };
+    optlen = sizeof(rcvbuf);
+    test_assert(getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &rcvbuf, &optlen) == 0);
+    test_assert(rcvbuf == 208 * KB);
+    for (int i = 0; i < _countof(sizes); i++) {
+        rcvbuf = sizes[i][0];
+        test_assert(setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0);
+        test_assert(setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &rcvbuf, sizeof(rcvbuf)) == 0);
+        optlen = sizeof(rcvbuf);
+        test_assert(getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &optlen) == 0);
+        test_assert((optlen == sizeof(rcvbuf)) && (rcvbuf == sizes[i][1]));
+        optlen = sizeof(rcvbuf);
+        test_assert(getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &rcvbuf, &optlen) == 0);
+        test_assert((optlen == sizeof(rcvbuf)) && (rcvbuf == sizes[i][2]));
+    }
+
+    test_assert(close(fd) == 0);
+
+    /* the option is accepted on a TCP socket too */
+    tcp_fd = socket(AF_INET, SOCK_STREAM, 0);
+    test_assert(tcp_fd > 0);
+    rcvbuf = 128 * KB;
+    test_assert(setsockopt(tcp_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) == 0);
+    test_assert(setsockopt(tcp_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)) == 0);
+    optlen = sizeof(rcvbuf);
+    test_assert(getsockopt(tcp_fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, &optlen) == 0);
+    test_assert(optlen == sizeof(rcvbuf));
+    optlen = sizeof(sndbuf);
+    test_assert(getsockopt(tcp_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, &optlen) == 0);
+    test_assert(optlen == sizeof(sndbuf));
+    test_assert(close(tcp_fd) == 0);
+}
+
 int main(int argc, char **argv)
 {
     netsock_test_basic(SOCK_STREAM);
@@ -1086,6 +1134,7 @@ int main(int argc, char **argv)
     netsock_test_addr_any(SOCK_STREAM, true);
     netsock_test_addr_any(SOCK_DGRAM, false);
     netsock_test_addr_any(SOCK_DGRAM, true);
+    netsock_test_rcvbuf_set();
     printf("Network socket tests OK\n");
     return EXIT_SUCCESS;
 }
