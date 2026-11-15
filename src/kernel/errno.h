@@ -36,7 +36,6 @@
 #define ENOSYS          38      /* Invalid system call number */
 #define ENOTEMPTY       39      /* Directory not empty */
 #define ELOOP           40      /* Too many symbolic links */
-#define ENOPROTOOPT     42      /* Protocol not available */
 #define ENODATA         61      /* No data available */
 #define ETIME           62      /* Timer expired */
 #define EOVERFLOW       75      /* Value too large for defined data type */
@@ -45,6 +44,7 @@
 #define EDESTADDRREQ    89      /* Destination address required */
 #define EMSGSIZE        90      /* Message too long */
 #define EPROTOTYPE      91      /* Wrong protocol type for socket */
+#define ENOPROTOOPT     92      /* Protocol not available */
 #define EPROTONOSUPPORT 93      /* Protocol not supported */
 #define ESOCKTNOSUPPORT 94      /* Socket type not supported */
 #define EOPNOTSUPP      95      /* Operation not supported */
