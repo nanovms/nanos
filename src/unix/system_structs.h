@@ -845,6 +845,7 @@ struct io_uring_params {
 #define IPPROTO_IP      0
 #define SOL_SOCKET      1
 #define SOL_TCP         6
+#define SOL_UDP         17
 #define IPPROTO_IPV6    41
 
 /* set/getsockopt optnames */
@@ -877,6 +878,9 @@ struct io_uring_params {
 #define IP_MULTICAST_LOOP   34
 #define IP_ADD_MEMBERSHIP   35
 #define IP_DROP_MEMBERSHIP  36
+
+#define UDP_SEGMENT     103
+#define UDP_GRO         104
 
 #define IPV6_UNICAST_HOPS   16
 #define IPV6_MULTICAST_IF   17
