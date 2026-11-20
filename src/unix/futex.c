@@ -197,39 +197,47 @@ sysreturn futex(int *uaddr, int futex_op, int val,
         return nr_woken;
     }
 
-    case FUTEX_CMP_REQUEUE: {
+    case FUTEX_CMP_REQUEUE:
+    case FUTEX_REQUEUE: {
+        /* FUTEX_REQUEUE does not compare the value at uaddr */
         int woken, requeued;
+        struct futex * new = 0;
+        int nr_requeue = (int)val2;
 
         if (!memory_is_user(uaddr2, sizeof(int)))
             return set_syscall_error(current, EFAULT);
+        if ((val < 0) || (nr_requeue < 0))
+            return set_syscall_error(current, EINVAL);
+
+        if (nr_requeue > 0) {
+            new = soft_create_futex(current->p, u64_from_pointer(uaddr2));
+            if (new == INVALID_ADDRESS)
+                return -ENOMEM;
+        }
 
         sysreturn rv;
         futex_lock(f);
-        if (context_set_err(ctx)) {
-            rv = -EFAULT;
-            goto cmp_requeue_done;
-        }
-        if (*uaddr != val3) {
-            rv = -EAGAIN;
-            goto cmp_requeue_done;
+        if (op == FUTEX_CMP_REQUEUE) {
+            if (context_set_err(ctx)) {
+                rv = -EFAULT;
+                goto requeue_done;
+            }
+            if (*uaddr != val3) {
+                rv = -EAGAIN;
+                goto requeue_done;
+            }
         }
 
         woken = futex_wake_many(f, val);
 
         requeued = 0;
-        if (val2 > 0) {
-            struct futex * new = soft_create_futex(current->p, u64_from_pointer(uaddr2));
-            if (new == INVALID_ADDRESS) {
-                rv = -ENOMEM;
-                goto cmp_requeue_done;
-            }
-            requeued = blockq_transfer_waiters(new->bq, f->bq, val2,
+        if (new)
+            requeued = blockq_transfer_waiters(new->bq, f->bq, nr_requeue,
                                                stack_closure(futex_requeue_handler, new));
-        }
         rv = woken + requeued;
-      cmp_requeue_done:
+      requeue_done:
         futex_unlock(f);
-        if (rv != -EFAULT)
+        if ((op == FUTEX_CMP_REQUEUE) && (rv != -EFAULT))
             context_clear_err(ctx);
         return rv;
     }
