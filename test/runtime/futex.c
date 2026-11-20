@@ -23,12 +23,24 @@ int wait_test_futex = FUTEX_INITIALIZER;
 int wait_bitset_test_futex = FUTEX_INITIALIZER;
 int cmp_requeue_test_futex_1 = FUTEX_INITIALIZER;
 int cmp_requeue_test_futex_2 = FUTEX_INITIALIZER;
+/* requeue_testN_*: the words used by FUTEX_REQUEUE test N */
+int requeue_test1_futex_1 = FUTEX_INITIALIZER;
+int requeue_test1_futex_2 = FUTEX_INITIALIZER;
+int requeue_test2_futex_1 = FUTEX_INITIALIZER;
+int requeue_test2_futex_2 = FUTEX_INITIALIZER;
+int requeue_test3_futex = FUTEX_INITIALIZER;
+int requeue_test4_futex = FUTEX_INITIALIZER;
+int requeue_stress_futex_1 = 0;
+int requeue_stress_futex_2 = 0;
+volatile int requeue_stress_started;
 int wake_op_test_futex_1 = FUTEX_INITIALIZER;
 int wake_op_test_futex_2 = FUTEX_INITIALIZER;
 
 /* Helper Thread Function Declarations */
 static void *futex_wake_test_thread(void *arg);
 static void *futex_cmp_requeue_test_thread(void *arg);
+static void *futex_requeue_test_thread(void *arg);
+static void *futex_requeue_stress_thread(void *arg);
 static void *futex_wake_op_test_thread(void *arg);
 
 /* FUTEX_WAKE test: Creates num_to_wake threads which wait
@@ -250,6 +262,202 @@ static void *futex_cmp_requeue_test_thread(void *arg)
     return NULL;
 }
 
+/* Thread function called from the FUTEX_REQUEUE tests: blocks on the futex
+passed as argument, whose value is FUTEX_INITIALIZER */
+static void *futex_requeue_test_thread(void *arg)
+{
+    syscall(SYS_futex, (int*)(arg), FUTEX_WAIT, FUTEX_INITIALIZER, 0, NULL, 0);
+    return NULL;
+}
+
+static boolean futex_requeue_join(pthread_t *threads, int num_threads)
+{
+    for (int i = 0; i < num_threads; i++) {
+        if (pthread_join(threads[i], NULL) != 0) {
+            printf("Unable to join thread. requeue test: failed.\n");
+            return false;
+        }
+    }
+    return true;
+}
+
+static boolean futex_requeue_create(pthread_t *threads, int num_threads, int *uaddr)
+{
+    for (int index = 0; index < num_threads; index++) {
+        if (pthread_create(&(threads[index]), NULL, futex_requeue_test_thread, (void*)(uaddr))) {
+            printf("Unable to create thread. requeue test: failed.\n");
+            return false;
+        }
+    }
+    sleep(1); /* for the threads to block */
+    return true;
+}
+
+/* FUTEX_REQUEUE test 1: val threads waiting on uaddr are woken up and the
+rest are moved to uaddr2's queue, without any comparison of the value at uaddr.
+Waking uaddr2 then releases the requeued threads. */
+static boolean futex_requeue_test_1()
+{
+    int *uaddr = (int*)(&requeue_test1_futex_1);
+    int *uaddr2 = (int*)(&requeue_test1_futex_2);
+    int val = 3;
+    u64 val2 = INT_MAX;
+    int num_threads = 10;
+    pthread_t threads[num_threads];
+
+    if (!futex_requeue_create(threads, num_threads, uaddr))
+        return false;
+
+    int changed = syscall(SYS_futex, uaddr, FUTEX_REQUEUE, val, val2, uaddr2, 0);
+    if (changed != num_threads) {
+        printf("Incorrect number of woken up or requeued threads (%d). requeue test 1: failed.\n", changed);
+        return false;
+    }
+
+    int remaining = syscall(SYS_futex, uaddr2, FUTEX_WAKE, INT_MAX, 0, NULL, 0);
+    if (remaining != num_threads - val) {
+        printf("Incorrect number of requeued threads (%d). requeue test 1: failed.\n", remaining);
+        return false;
+    }
+    if (!futex_requeue_join(threads, num_threads))
+        return false;
+    printf("requeue test 1: passed\n");
+    return true;
+}
+
+/* FUTEX_REQUEUE test 2: only val2 of the threads that are left are moved,
+the others stay on uaddr */
+static boolean futex_requeue_test_2()
+{
+    int *uaddr = (int*)(&requeue_test2_futex_1);
+    int *uaddr2 = (int*)(&requeue_test2_futex_2);
+    int num_threads = 6;
+    pthread_t threads[num_threads];
+
+    if (!futex_requeue_create(threads, num_threads, uaddr))
+        return false;
+
+    int changed = syscall(SYS_futex, uaddr, FUTEX_REQUEUE, 1, 2, uaddr2, 0);
+    if (changed != 3) {
+        printf("Incorrect number of woken up or requeued threads (%d). requeue test 2: failed.\n", changed);
+        return false;
+    }
+    int moved = syscall(SYS_futex, uaddr2, FUTEX_WAKE, INT_MAX, 0, NULL, 0);
+    if (moved != 2) {
+        printf("Incorrect number of requeued threads (%d). requeue test 2: failed.\n", moved);
+        return false;
+    }
+    int stayed = syscall(SYS_futex, uaddr, FUTEX_WAKE, INT_MAX, 0, NULL, 0);
+    if (stayed != 3) {
+        printf("Incorrect number of threads left on uaddr (%d). requeue test 2: failed.\n", stayed);
+        return false;
+    }
+    if (!futex_requeue_join(threads, num_threads))
+        return false;
+    printf("requeue test 2: passed\n");
+    return true;
+}
+
+/* FUTEX_REQUEUE test 3: uaddr and uaddr2 are the same address. The call must
+return, with and without waiters. The woken thread is counted, and so is the
+waiter that stays on the queue. */
+static boolean futex_requeue_test_3()
+{
+    int *uaddr = (int*)(&requeue_test3_futex);
+    int num_threads = 2;
+    pthread_t threads[num_threads];
+
+    int changed = syscall(SYS_futex, uaddr, FUTEX_REQUEUE, 1, 1, uaddr, 0);
+    if (changed != 0) {
+        printf("Incorrect result without waiters (%d). requeue test 3: failed.\n", changed);
+        return false;
+    }
+    if (!futex_requeue_create(threads, num_threads, uaddr))
+        return false;
+    changed = syscall(SYS_futex, uaddr, FUTEX_REQUEUE, 1, 1, uaddr, 0);
+    if (changed != 2) {
+        printf("Incorrect number of woken up or requeued threads (%d). requeue test 3: failed.\n", changed);
+        return false;
+    }
+    int remaining = syscall(SYS_futex, uaddr, FUTEX_WAKE, INT_MAX, 0, NULL, 0);
+    if (remaining != 1) {
+        printf("Incorrect number of threads left on uaddr (%d). requeue test 3: failed.\n", remaining);
+        return false;
+    }
+    if (!futex_requeue_join(threads, num_threads))
+        return false;
+    printf("requeue test 3: passed\n");
+    return true;
+}
+
+/* FUTEX_REQUEUE test 4: negative counts are rejected */
+static boolean futex_requeue_test_4()
+{
+    int *uaddr = (int*)(&empty_futex);
+    int *uaddr2 = (int*)(&requeue_test4_futex);
+
+    int ret = syscall(SYS_futex, uaddr, FUTEX_REQUEUE, -1, 0, uaddr2, 0);
+    if ((ret != -1) || (errno != EINVAL)) {
+        printf("Negative val not rejected (%d %d). requeue test 4: failed.\n", ret, errno);
+        return false;
+    }
+    ret = syscall(SYS_futex, uaddr, FUTEX_REQUEUE, 0, (u64)0xffffffff, uaddr2, 0);
+    if ((ret != -1) || (errno != EINVAL)) {
+        printf("Negative val2 not rejected (%d %d). requeue test 4: failed.\n", ret, errno);
+        return false;
+    }
+    printf("requeue test 4: passed\n");
+    return true;
+}
+
+/* Thread function called from futex_requeue_test_5: waits on the futex while
+its value is still 0 */
+static void *futex_requeue_stress_thread(void *arg)
+{
+    requeue_stress_started = 1;
+    syscall(SYS_futex, (int*)(arg), FUTEX_WAIT, 0, 0, NULL, 0);
+    return NULL;
+}
+
+/* FUTEX_REQUEUE test 5: a thread that starts waiting while the value is
+changed and the waiters are requeued without waking anybody (the way musl
+does) must not be left asleep, wherever it is in FUTEX_WAIT. The race window
+is narrow, so this test does not fail reliably on a kernel that loses the
+waiter. The race needs more than one vcpu (the runtime test runs with several
+vcpus only in some configurations): on one vcpu this only exercises the EAGAIN
+and requeued paths. It is a smoke test, not a proof. */
+static boolean futex_requeue_test_5()
+{
+    int *uaddr = (int*)(&requeue_stress_futex_1);
+    int *uaddr2 = (int*)(&requeue_stress_futex_2);
+
+    for (int i = 0; i < 100; i++) {
+        pthread_t thread;
+        *uaddr = 0;
+        requeue_stress_started = 0;
+        if (pthread_create(&thread, NULL, futex_requeue_stress_thread, (void*)uaddr)) {
+            printf("Unable to create thread. requeue test 5: failed.\n");
+            return false;
+        }
+        while (!requeue_stress_started)
+            ;
+        __atomic_store_n(uaddr, 1, __ATOMIC_SEQ_CST);
+        if (syscall(SYS_futex, uaddr, FUTEX_REQUEUE, 0, 1, uaddr2, 0) < 0) {
+            printf("Requeue failed. requeue test 5: failed.\n");
+            return false;
+        }
+        /* the waiter either is on uaddr2 now, or has been woken up, or has
+        not blocked because the value changed */
+        syscall(SYS_futex, uaddr2, FUTEX_WAKE, 1, 0, NULL, 0);
+        if (pthread_join(thread, NULL) != 0) {
+            printf("Unable to join thread. requeue test 5: failed.\n");
+            return false;
+        }
+    }
+    printf("requeue test 5: passed\n");
+    return true;
+}
+
 /* FUTEX_WAKE_OP test: Creates group of threads to wait on uaddr
 and another group to wait on uaddr2. Performs FUTEX_WAKE_OP with
 uaddr and uaddr2 and checks that correct number of threads are woken up.
@@ -413,6 +621,19 @@ boolean basic_test()
     if (!futex_cmp_requeue_test_1())
         num_failed++;
     if (!futex_cmp_requeue_test_2())
+        num_failed++;
+
+    /* Requeue Tests */
+    printf("---FUTEX_REQUEUE TESTS--- \n");
+    if (!futex_requeue_test_1())
+        num_failed++;
+    if (!futex_requeue_test_2())
+        num_failed++;
+    if (!futex_requeue_test_3())
+        num_failed++;
+    if (!futex_requeue_test_4())
+        num_failed++;
+    if (!futex_requeue_test_5())
         num_failed++;
 
     /* Wake_Op Tests: pass in true to wake up threads 
