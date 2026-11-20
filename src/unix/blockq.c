@@ -269,6 +269,19 @@ void blockq_flush(blockq bq)
 int blockq_transfer_waiters(blockq dest, blockq src, int n, blockq_action_handler handler)
 {
     int transferred = 0;
+    if (dest == src) {
+        /* The waiters stay where they are, and are counted as transferred
+           (as Linux counts them); taking the same lock twice would never
+           return. */
+        blockq_lock(src);
+        list_foreach(&src->waiters_head, l) {
+            if (transferred >= n)
+                break;
+            transferred++;
+        }
+        blockq_unlock(src);
+        return transferred;
+    }
     spin_lock_2(&src->lock, &dest->lock);
     list_foreach(&src->waiters_head, l) {
         if (transferred >= n)
